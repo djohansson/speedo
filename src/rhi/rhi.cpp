@@ -4,9 +4,8 @@
 namespace rhi
 {
 
-static FlatSet<WindowHandle> s_windows{};
-static std::optional<WindowHandle> s_currentWindow{};
-
+static FlatSet<WindowHandle> gWindows{};
+static std::optional<WindowHandle> gCurrentWindow{};
 }
 
 void ResizeFramebuffer(WindowHandle window, int w, int h)
@@ -21,41 +20,41 @@ WindowHandle GetCurrentWindow(void)
 {
 	using namespace rhi;
 
-	return s_currentWindow.value_or(nullptr);
+	return gCurrentWindow.value_or(nullptr);
 }
 
 WindowHandle* GetWindows(size_t* count)
 {
 	using namespace rhi;
 
-	if (s_windows.empty())
+	if (gWindows.empty())
 	{
 		*count = 0;
 		return nullptr;
 	}
 
-	*count = s_windows.size();
-	return s_windows.data();
+	*count = gWindows.size();
+	return gWindows.data();
 }
 
 void SetWindows(WindowHandle* windows, size_t count)
 {
 	using namespace rhi;
 
-	s_windows.clear();
+	gWindows.clear();
 
 	for (size_t i = 0; i < count; ++i)
-		s_windows.emplace(windows[i]);
+		gWindows.emplace(windows[i]);
 }
 
 void SetCurrentWindow(WindowHandle window)
 {
 	using namespace rhi;
 
-	assert(s_windows.find(window) != s_windows.end());
+	ASSERT(gWindows.find(window) != gWindows.end());
 
-	if (!s_currentWindow.has_value() || s_currentWindow != window)
-		s_currentWindow = window;
+	if (!gCurrentWindow.has_value() || gCurrentWindow != window)
+		gCurrentWindow = window;
 }
 
 WindowState* GetWindowState(WindowHandle window)

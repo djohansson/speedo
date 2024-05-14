@@ -16,8 +16,8 @@ public:
     SlangShaderNode& operator=(const SlangShaderNode&) = default;
     SlangShaderNode& operator=(SlangShaderNode&&) noexcept = default;
 
-    void swap(SlangShaderNode& rhs) noexcept;
-    friend void swap(SlangShaderNode& lhs, SlangShaderNode& rhs) noexcept { lhs.swap(rhs); }
+    void Swap(SlangShaderNode& rhs) noexcept;
+    friend void Swap(SlangShaderNode& lhs, SlangShaderNode& rhs) noexcept { lhs.Swap(rhs); }
 
     std::filesystem::path& path();
 

@@ -7,9 +7,9 @@ const DescriptorSetLayout<G>& PipelineLayout<G>::getDescriptorSetLayout(uint32_t
 		setLayouts.end(),
 		set,
 		[](const auto& setLayout, uint32_t set) { return setLayout.first < set; });
-	assert(setLayoutIt != setLayouts.end());
+	ASSERT(setLayoutIt != setLayouts.end());
 	const auto& [_set, setLayout] = *setLayoutIt;
-	assert(_set == set);
+	ASSERT(_set == set);
 
 	return setLayout;
 }

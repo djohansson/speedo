@@ -16,13 +16,13 @@ namespace device
 {
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-static PFN_vkSetDebugUtilsObjectNameEXT vkSetDebugUtilsObjectNameEXT{};
+static PFN_vkSetDebugUtilsObjectNameEXT gvkSetDebugUtilsObjectNameEXT{};
 #endif
 
 }
 
 template <>
-void Device<Vk>::waitIdle() const
+void Device<Vk>::WaitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");
 
@@ -31,21 +31,21 @@ void Device<Vk>::waitIdle() const
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 template <>
-void Device<Vk>::addOwnedObjectHandle(
+void Device<Vk>::AddOwnedObjectHandle(
 	const uuids::uuid& ownerId,
 	ObjectType<Vk> objectType,
 	uint64_t objectHandle,
 	std::string&& objectName)
 {
-	ZoneScopedN("Device::addOwnedObjectHandle");
+	ZoneScopedN("Device::AddOwnedObjectHandle");
 
-	if (!objectHandle)
+	if (objectHandle == 0u)
 		return;
 
-	uint64_t ownerIdHash = 0ull;
+	uint64_t ownerIdHash = 0ULL;
 
 	{
-		ZoneScopedN("Device::addOwnedObjectHandle::hash");
+		ZoneScopedN("Device::AddOwnedObjectHandle::hash");
 
 		ownerIdHash = XXH3_64bits(&ownerId, sizeof(ownerId));
 	}
@@ -63,9 +63,9 @@ void Device<Vk>::addOwnedObjectHandle(
 		objectInfo.pObjectName = objectInfo.name.c_str();
 
 		{
-			ZoneScopedN("Device::addOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
+			ZoneScopedN("Device::AddOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
 
-			VK_CHECK(device::vkSetDebugUtilsObjectNameEXT(myDevice, &objectInfo));
+			VK_CHECK(device::gvkSetDebugUtilsObjectNameEXT(myDevice, &objectInfo));
 		}
 
 		myObjectTypeToCountMap[objectType]++;
@@ -73,23 +73,23 @@ void Device<Vk>::addOwnedObjectHandle(
 }
 
 template <>
-void Device<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle)
+void Device<Vk>::EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle)
 {
-	ZoneScopedN("Device::eraseOwnedObjectHandle");
+	ZoneScopedN("Device::EraseOwnedObjectHandle");
 
-	if (!objectHandle)
+	if (objectHandle == 0u)
 		return;
 
-	uint64_t ownerIdHash = 0ull;
+	uint64_t ownerIdHash = 0ULL;
 
 	{
-		ZoneScopedN("Device::eraseOwnedObjectHandle::hash");
+		ZoneScopedN("Device::EraseOwnedObjectHandle::hash");
 
 		ownerIdHash = XXH3_64bits(&ownerId, sizeof(ownerId));
 	}
 
 	{
-		ZoneScopedN("Device::addOwnedObjectHandle::erase");
+		ZoneScopedN("Device::AddOwnedObjectHandle::erase");
 
 		auto lock = std::lock_guard(myObjectMutex);
 
@@ -108,34 +108,34 @@ void Device<Vk>::eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t obj
 }
 
 template <>
-void Device<Vk>::clearOwnedObjectHandles(const uuids::uuid& ownerId)
+void Device<Vk>::ClearOwnedObjectHandles(const uuids::uuid& ownerId)
 {
-	ZoneScopedN("Device::clearOwnedObjectHandles");
+	ZoneScopedN("Device::ClearOwnedObjectHandles");
 
-	uint64_t ownerIdHash = 0ull;
+	uint64_t ownerIdHash = 0ULL;
 
 	{
-		ZoneScopedN("Device::clearOwnedObjectHandles::hash");
+		ZoneScopedN("Device::ClearOwnedObjectHandles::hash");
 
 		ownerIdHash = XXH3_64bits(&ownerId, sizeof(ownerId));
 	}
 
 	{
-		ZoneScopedN("Device::clearOwnedObjectHandles::clear");
+		ZoneScopedN("Device::ClearOwnedObjectHandles::clear");
 
 		auto lock = std::lock_guard(myObjectMutex);
 
 		auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerIdHash];
 
-		for (auto it = objectInfos.begin(); it != objectInfos.end(); it++)
-			myObjectTypeToCountMap[it->objectType]--;
+		for (auto& objectInfo : objectInfos)
+			myObjectTypeToCountMap[objectInfo.objectType]--;
 
 		objectInfos.clear();
 	}
 }
 
 template <>
-uint32_t Device<Vk>::getTypeCount(ObjectType<Vk> type)
+uint32_t Device<Vk>::GetTypeCount(ObjectType<Vk> type)
 {
 	auto lock = std::shared_lock(myObjectMutex);
 
@@ -164,14 +164,14 @@ Device<Vk>::Device(
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 	queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
 	std::list<std::vector<float>> queuePriorityList;
-	for (uint32_t queueFamilyIt = 0ul;
+	for (uint32_t queueFamilyIt = 0UL;
 		 queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
 		 queueFamilyIt++)
 	{
 		auto& queuePriorities = queuePriorityList.emplace_back();
 		const auto& queueFamilyProperty = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
 		queuePriorities.resize(queueFamilyProperty.queueCount);
-		std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0f);
+		std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0F);
 
 		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << "Queue Family " << queueFamilyIt << 
@@ -200,7 +200,7 @@ Device<Vk>::Device(
 
 	std::vector<const char*> deviceExtensions;
 	deviceExtensions.reserve(deviceExtensionCount);
-	for (uint32_t i = 0ul; i < deviceExtensionCount; i++)
+	for (uint32_t i = 0UL; i < deviceExtensionCount; i++)
 	{
 		deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
 
@@ -223,7 +223,7 @@ Device<Vk>::Device(
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
-	assert(std::includes(
+	ASSERT(std::includes(
 		deviceExtensions.begin(),
 		deviceExtensions.end(),
 		requiredDeviceExtensions.begin(),
@@ -249,22 +249,22 @@ Device<Vk>::Device(
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		device::vkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+		device::gvkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
 			vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
-		assert(device::vkSetDebugUtilsObjectNameEXT != nullptr);
+		ASSERT(device::gvkSetDebugUtilsObjectNameEXT != nullptr);
 	}
 #endif
 
-	// addOwnedObjectHandle(
+	// AddOwnedObjectHandle(
 	//     getUid(),
 	//     VK_OBJECT_TYPE_INSTANCE,
 	//     reinterpret_cast<uint64_t>(myInstance->getInstance()),
 	//     "Instance");
 
-	// addOwnedObjectHandle(
+	// AddOwnedObjectHandle(
 	//     getUid(),
 	//     VK_OBJECT_TYPE_SURFACE_KHR,
-	//     reinterpret_cast<uint64_t>(myInstance->getSurface()),
+	//     reinterpret_cast<uint64_t>(myInstance->GetSurface()),
 	//     "Instance_Surface");
 
 	// char stringBuffer[256];
@@ -281,14 +281,14 @@ Device<Vk>::Device(
 	//         physicalDeviceStr.data(),
 	//         physicalDeviceIt);
 
-	//     addOwnedObjectHandle(
+	//     AddOwnedObjectHandle(
 	//         getUid(),
 	//         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
 	//         reinterpret_cast<uint64_t>(physicalDevice),
 	//         stringBuffer);
 	// }
 
-	// addOwnedObjectHandle(
+	// AddOwnedObjectHandle(
 	//     getUid(),
 	//     VK_OBJECT_TYPE_DEVICE,
 	//     reinterpret_cast<uint64_t>(myDevice),
@@ -296,7 +296,7 @@ Device<Vk>::Device(
 
 	myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
 
-	for (uint32_t queueFamilyIt = 0ul;
+	for (uint32_t queueFamilyIt = 0UL;
 		 queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
 		 queueFamilyIt++)
 	{
@@ -310,14 +310,14 @@ Device<Vk>::Device(
 	myAllocator = [this]
 	{
 		auto vkGetBufferMemoryRequirements2KHR =
-			(PFN_vkGetBufferMemoryRequirements2KHR)vkGetInstanceProcAddr(
-				*getInstance(), "vkGetBufferMemoryRequirements2KHR");
-		assert(vkGetBufferMemoryRequirements2KHR != nullptr);
+			reinterpret_cast<PFN_vkGetBufferMemoryRequirements2KHR>(
+				vkGetInstanceProcAddr(*getInstance(), "vkGetBufferMemoryRequirements2KHR"));
+		ASSERT(vkGetBufferMemoryRequirements2KHR != nullptr);
 
 		auto vkGetImageMemoryRequirements2KHR =
-			(PFN_vkGetImageMemoryRequirements2KHR)vkGetInstanceProcAddr(
-				*getInstance(), "vkGetImageMemoryRequirements2KHR");
-		assert(vkGetImageMemoryRequirements2KHR != nullptr);
+			reinterpret_cast<PFN_vkGetImageMemoryRequirements2KHR>(
+				vkGetInstanceProcAddr(*getInstance(), "vkGetImageMemoryRequirements2KHR"));
+		ASSERT(vkGetImageMemoryRequirements2KHR != nullptr);
 
 		VmaVulkanFunctions functions{};
 		functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
@@ -364,8 +364,8 @@ Device<Vk>::~Device()
 	if constexpr(GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		char* allocatorStatsJSON = nullptr;
-		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, true);
-		std::cout << allocatorStatsJSON << std::endl;
+		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1u);
+		std::cout << allocatorStatsJSON << '\n';
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
 
@@ -400,8 +400,11 @@ DeviceObject<Vk>::DeviceObject(
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
-			device->addOwnedObjectHandle(
-				getUid(), objectType, objectHandles[objectIt], std::format("{0}{1}", getName(), objectIt));
+			device->AddOwnedObjectHandle(
+				getUid(),
+				objectType,
+				objectHandles[objectIt],
+				std::format("{0}{1}", getName(), objectIt));
 	}
 #endif
 }
@@ -412,7 +415,7 @@ DeviceObject<Vk>::~DeviceObject()
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (myDevice)
-			myDevice->clearOwnedObjectHandles(getUid());
+			myDevice->ClearOwnedObjectHandles(getUid());
 	}
 #endif
 }
@@ -427,7 +430,7 @@ DeviceObject<Vk>& DeviceObject<Vk>::operator=(DeviceObject&& other) noexcept
 }
 
 template <>
-void DeviceObject<Vk>::swap(DeviceObject& rhs) noexcept
+void DeviceObject<Vk>::Swap(DeviceObject& rhs) noexcept
 {
 	std::swap(myDevice, rhs.myDevice);
 	std::swap(myDesc, rhs.myDesc);

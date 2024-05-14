@@ -19,7 +19,7 @@
 		do                                                                                         \
 		{                                                                                          \
 			VkResult __result = (expr);                                                            \
-			ASSERT(                                                                               \
+			ASSERTF(                                                                               \
 				__result == VK_SUCCESS,                                                            \
 				"'%s' failed with %s",                                                             \
 				#expr,                                                                             \
@@ -95,7 +95,7 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
 	VmaAllocator allocator, const void* srcData, size_t srcDataSize, const char* debugName);
 
-void transitionImageLayout(
+void TransitionImageLayout(
 	VkCommandBuffer commandBuffer,
 	VkImage image,
 	VkFormat format,
@@ -182,6 +182,6 @@ VkRenderPass createRenderPass(
 	VkImageLayout depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
+VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
 
 VkResult checkFlipOrPresentResult(VkResult result);

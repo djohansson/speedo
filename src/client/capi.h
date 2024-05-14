@@ -18,7 +18,7 @@ extern "C"
 {
 #endif
 
-CLIENT_API void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths);
+CLIENT_API void CreateClient(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
 CLIENT_API void DestroyClient(void);
 CLIENT_API bool TickClient();
 

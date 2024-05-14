@@ -4,7 +4,7 @@
 
 template <>
 template <typename T>
-void Pipeline<Vk>::setDescriptorData(
+void Pipeline<Vk>::SetDescriptorData(
 	uint64_t shaderVariableNameHash, const DescriptorSetLayout<Vk>& layout, T&& data)
 {
 	const auto& [binding, descriptorType, descriptorCount] =
@@ -17,14 +17,14 @@ void Pipeline<Vk>::setDescriptorData(
 	auto [bindingIt, emplaceResult] =
 		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-	assert(bindingIt != bindingsMap.end());
+	ASSERT(bindingIt != bindingsMap.end());
 
 	auto& [offset, count, type, ranges] = bindingIt->second;
 
 	if (emplaceResult)
 	{
-		assert(count == 0);
-		assert(ranges.empty());
+		ASSERT(count == 0);
+		ASSERT(ranges.empty());
 
 		count = 1;
 		ranges.insert({0u, 1u});
@@ -44,30 +44,30 @@ void Pipeline<Vk>::setDescriptorData(
 	}
 	else
 	{
-		assert(count == 1);
+		ASSERT(count == 1);
 
 		std::get<T>(bindingsData[offset]) = std::forward<T>(data);
 	}
 
 	setState = DescriptorSetStatus::Dirty;
 
-	internalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
 
 template <>
 template <typename T>
-void Pipeline<Vk>::setDescriptorData(
+void Pipeline<Vk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set)
 {
-	setDescriptorData(
+	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		internalGetLayout().getDescriptorSetLayout(set),
+		InternalGetLayout().getDescriptorSetLayout(set),
 		std::forward<T>(data));
 }
 
 template <>
 template <typename T>
-void Pipeline<Vk>::setDescriptorData(
+void Pipeline<Vk>::SetDescriptorData(
 	uint64_t shaderVariableNameHash,
 	const DescriptorSetLayout<Vk>& layout,
 	const std::vector<T>& data)
@@ -77,21 +77,21 @@ void Pipeline<Vk>::setDescriptorData(
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(layout);
 
-	assert(data.size() <= descriptorCount);
+	ASSERT(data.size() <= descriptorCount);
 
 	auto lock = std::lock_guard(mutex);
 
 	auto [bindingIt, emplaceResult] =
 		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-	assert(bindingIt != bindingsMap.end());
+	ASSERT(bindingIt != bindingsMap.end());
 
 	auto& [offset, count, type, ranges] = bindingIt->second;
 
 	if (emplaceResult)
 	{
-		assert(count == 0);
-		assert(ranges.empty());
+		ASSERT(count == 0);
+		ASSERT(ranges.empty());
 
 		count = data.size();
 		ranges.insert({0u, count});
@@ -111,7 +111,7 @@ void Pipeline<Vk>::setDescriptorData(
 	}
 	else
 	{
-		assert(count > 0);
+		ASSERT(count > 0);
 
 		if (count == data.size())
 		{
@@ -144,23 +144,23 @@ void Pipeline<Vk>::setDescriptorData(
 
 	setState = DescriptorSetStatus::Dirty;
 
-	internalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
 
 template <>
 template <typename T>
-void Pipeline<Vk>::setDescriptorData(
+void Pipeline<Vk>::SetDescriptorData(
 	std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set)
 {
-	setDescriptorData(
+	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		internalGetLayout().getDescriptorSetLayout(set),
+		InternalGetLayout().getDescriptorSetLayout(set),
 		data);
 }
 
 template <>
 template <typename T>
-void Pipeline<Vk>::setDescriptorData(
+void Pipeline<Vk>::SetDescriptorData(
 	uint64_t shaderVariableNameHash,
 	const DescriptorSetLayout<Vk>& layout,
 	T&& data,
@@ -176,14 +176,14 @@ void Pipeline<Vk>::setDescriptorData(
 	auto [bindingIt, emplaceResult] =
 		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-	assert(bindingIt != bindingsMap.end());
+	ASSERT(bindingIt != bindingsMap.end());
 
 	auto& [offset, count, type, ranges] = bindingIt->second;
 
 	if (emplaceResult)
 	{
-		assert(count == 0);
-		assert(ranges.empty());
+		ASSERT(count == 0);
+		ASSERT(ranges.empty());
 
 		count = 1;
 		ranges.insert({index, index + 1});
@@ -203,7 +203,7 @@ void Pipeline<Vk>::setDescriptorData(
 	}
 	else
 	{
-		assert(count > 0);
+		ASSERT(count > 0);
 
 		auto rangeIt = ranges.begin();
 		uint32_t indexOffset = 0;
@@ -241,17 +241,17 @@ void Pipeline<Vk>::setDescriptorData(
 
 	setState = DescriptorSetStatus::Dirty;
 
-	internalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
+	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
 
 template <>
 template <typename T>
-void Pipeline<Vk>::setDescriptorData(
+void Pipeline<Vk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index)
 {
-	setDescriptorData(
+	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		internalGetLayout().getDescriptorSetLayout(set),
+		InternalGetLayout().getDescriptorSetLayout(set),
 		std::forward<T>(data),
 		index);
 }

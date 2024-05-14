@@ -157,7 +157,7 @@ std::expected<void, std::error_code> saveJSONObject(const T& object, const std::
 }
 
 template <typename T>
-std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& filePath)
+std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath)
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -184,7 +184,7 @@ std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& 
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> loadBinary(const std::filesystem::path& filePath, LoadFn loadOp)
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, LoadFn loadOp)
 {
 	ZoneScoped;
 
@@ -195,7 +195,7 @@ std::expected<Record, std::error_code> loadBinary(const std::filesystem::path& f
 		auto file = mio::mmap_source(fileInfo->path);
 		auto in = zpp::bits::in(file);
 
-		//assert(in.position() == file.size());
+		//ASSERT(in.position() == file.size());
 
 		if (auto error = loadOp(in))
 			return std::unexpected(error);
@@ -205,7 +205,7 @@ std::expected<Record, std::error_code> loadBinary(const std::filesystem::path& f
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> saveBinary(const std::filesystem::path& filePath, SaveFn saveOp)
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, SaveFn saveOp)
 {
 	ZoneScoped;
 
@@ -247,7 +247,7 @@ Object<T, Mode, SaveOnClose>::~Object()
 {
 	if constexpr (SaveOnClose)
 		if (!myInfo.path.empty())
-			save();
+			Save();
 }
 
 template <typename T, AccessMode Mode, bool SaveOnClose>
@@ -259,14 +259,14 @@ Object<T, Mode, SaveOnClose>::operator=(Object&& other) noexcept
 }
 
 template <typename T, AccessMode Mode, bool SaveOnClose>
-void Object<T, Mode, SaveOnClose>::swap(Object& rhs) noexcept
+void Object<T, Mode, SaveOnClose>::Swap(Object& rhs) noexcept
 {
 	std::swap<T>(*this, rhs);
 	std::swap(myInfo, rhs.myInfo);
 }
 
 template <typename T, AccessMode Mode, bool SaveOnClose>
-void Object<T, Mode, SaveOnClose>::reload()
+void Object<T, Mode, SaveOnClose>::Reload()
 {
 	static_cast<T&>(*this) = loadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
@@ -274,14 +274,14 @@ void Object<T, Mode, SaveOnClose>::reload()
 template <typename T, AccessMode Mode, bool SaveOnClose>
 template <AccessMode M>
 typename std::enable_if<M == AccessMode::ReadWrite, void>::type
-Object<T, Mode, SaveOnClose>::save() const
+Object<T, Mode, SaveOnClose>::Save() const
 {
 	if (!saveJSONObject(static_cast<const T&>(*this), myInfo.path))
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
 }
 
 template <const char* LoaderType, const char* LoaderVersion>
-void loadAsset(
+void LoadAsset(
 	const std::filesystem::path& assetFilePath,
 	LoadFn loadSourceFileFn,
 	LoadFn loadBinaryCacheFn,
@@ -300,7 +300,7 @@ void loadAsset(
 
 	auto importSourceFile = [&]()
 	{
-		ZoneScopedN("loadAsset::importSourceFile");
+		ZoneScopedN("LoadAsset::importSourceFile");
 
 		auto cacheDir = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]);
 		auto cacheDirStatus = std::filesystem::status(cacheDir);
@@ -313,11 +313,11 @@ void loadAsset(
 
 		auto manifestFile = mio_extra::resizeable_mmap_sink(manifestPath.string());
 
-		auto asset = loadBinary<true>(assetFilePath, loadSourceFileFn);
+		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn);
 		if (!asset)
 			throw std::system_error(asset.error());
 
-		auto cache = saveBinary<true>(cacheDir / idStr, saveBinaryCacheFn);
+		auto cache = SaveBinary<true>(cacheDir / idStr, saveBinaryCacheFn);
 		if (!cache)
 			throw std::system_error(cache.error());
 
@@ -333,7 +333,7 @@ void loadAsset(
 
 	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
 	{
-		ZoneScopedN("loadAsset::loadJSONAssetManifest");
+		ZoneScopedN("LoadAsset::loadJSONAssetManifest");
 
 		auto manifestFile = mio::mmap_source(manifestPath.string());
 
@@ -348,9 +348,9 @@ void loadAsset(
 
 	if (manifest)
 	{
-		ZoneScopedN("loadAsset::load");
+		ZoneScopedN("LoadAsset::load");
 
-		auto cacheFileInfo = loadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
+		auto cacheFileInfo = LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
 		
 		if (!cacheFileInfo)
 			throw std::system_error(cacheFileInfo.error());

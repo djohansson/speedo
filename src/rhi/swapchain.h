@@ -33,15 +33,15 @@ public:
 	Swapchain& operator=(Swapchain&& other) noexcept;
 	operator auto() const noexcept { return mySwapchain; }
 
-	void swap(Swapchain& rhs) noexcept;
-	friend void swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Swapchain& rhs) noexcept;
+	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
-	virtual const RenderTargetCreateDesc<G>& getRenderTargetDesc() const final;
+	virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
 
-	virtual ImageLayout<G> getColorImageLayout(uint32_t index) const final;
-	virtual ImageLayout<G> getDepthStencilImageLayout() const final;
+	virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const final;
+	virtual ImageLayout<G> GetDepthStencilImageLayout() const final;
 
-	virtual void blit(
+	virtual void Blit(
 		CommandBufferHandle<G> cmd,
 		const IRenderTarget<Vk>& srcRenderTarget,
 		const ImageSubresourceLayers<G>& srcSubresource,
@@ -50,36 +50,36 @@ public:
 		uint32_t dstIndex,
 		Filter<G> filter = {}) final;
 
-	virtual void clearSingleAttachment(
+	virtual void ClearSingleAttachment(
 		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const final;
-	virtual void clearAllAttachments(
+	virtual void ClearAllAttachments(
 		CommandBufferHandle<G> cmd,
 		const ClearColorValue<G>& color = {},
 		const ClearDepthStencilValue<G>& depthStencil = {}) const final;
 
 	virtual void
-	clearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
-	virtual void clearDepthStencil(
+	ClearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
+	virtual void ClearDepthStencil(
 		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
 
 	virtual void
-	transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
-	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
+	TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
+	virtual void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
 
-	virtual RenderPassBeginInfo<G> begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
-	virtual void end(CommandBufferHandle<G> cmd) final;
+	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	virtual void End(CommandBufferHandle<G> cmd) final;
 
-	auto getSurface() const noexcept { return mySurface; }
+	auto GetSurface() const noexcept { return mySurface; }
 	
-	std::tuple<bool, uint32_t, uint32_t> flip();
-	QueuePresentInfo<G> preparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
+	std::tuple<bool, uint32_t, uint32_t> Flip();
+	QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
-	auto& getFrames() noexcept { return myFrames; }
-	const auto& getFrames() const noexcept { return myFrames; }
-	auto getCurrentFrameIndex() const noexcept { return myFrameIndex; }
+	auto& GetFrames() noexcept { return myFrames; }
+	const auto& GetFrames() const noexcept { return myFrames; }
+	auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
 protected:
-	void internalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);
+	void InternalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);
 
 private:
 	RenderTargetCreateDesc<G> myDesc{};

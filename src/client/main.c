@@ -1,9 +1,9 @@
 #include "capi.h"
 
+#include <core/assert.h>
 #include <core/capi.h>
 #include <rhi/capi.h>
 
-#include <assert.h>
 #include <signal.h> 
 #include <stdbool.h>
 #include <stdio.h>
@@ -43,9 +43,9 @@ static struct cag_option gCmdArgs[] =
 		.description = "Shows the command help"
 	}
 };
-static MouseEvent gMouse;
-static KeyboardEvent gKeyboard;
-static PathConfig gPaths;
+static struct MouseEvent gMouse;
+static struct KeyboardEvent gKeyboard;
+static struct PathConfig gPaths;
 static volatile bool gIsInterrupted = false;
 
 static void OnExit(void) 
@@ -67,14 +67,14 @@ static void OnSignal(int signal)
 
 static void OnError(int error, const char* description)
 {
-	assert(description != NULL);
+	ASSERT(description != NULL);
 
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
 static void OnMouseEnter(GLFWwindow* window, int entered)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	if (entered)
 		SetCurrentWindow(window);
@@ -87,7 +87,7 @@ static void OnMouseEnter(GLFWwindow* window, int entered)
 
 static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	gMouse.button = button;
 	gMouse.action = action;
@@ -99,7 +99,7 @@ static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
 
 static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	gMouse.xpos = xpos;
 	gMouse.ypos = ypos;
@@ -110,7 +110,7 @@ static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	gMouse.xoffset = xoffset;
 	gMouse.yoffset = yoffset;
@@ -122,11 +122,11 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 
 static void OnWindowFullscreenChanged(GLFWwindow* window)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
-	WindowState* windowState = GetWindowState(window);
+	struct WindowState* windowState = GetWindowState(window);
 
-	assert(windowState != NULL);
+	ASSERT(windowState != NULL);
 
 	GLFWmonitor* windowMonitor = glfwGetWindowMonitor(window);
 
@@ -152,7 +152,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 		{
 			const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
 
-			assert(mode != NULL);
+			ASSERT(mode != NULL);
 
 			windowState->x = 0;
 			windowState->y = 0;
@@ -176,7 +176,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 
 static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	static bool gFullscreenChangeTriggered = false;
 	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
@@ -203,7 +203,7 @@ static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mod
 
 static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 {
-	assert(monitor != NULL);
+	ASSERT(monitor != NULL);
 
 	/*
 	if (event == GLFW_CONNECTED)
@@ -219,27 +219,27 @@ static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 
 static void OnDrop(GLFWwindow* window, int count, const char** paths)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 }
 
 static void OnFramebufferResize(GLFWwindow* window, int width, int height)
 {
-	assert(window != NULL);
-	assert(width > 0);
-	assert(height > 0);
+	ASSERT(window != NULL);
+	ASSERT(width > 0);
+	ASSERT(height > 0);
 
 	ResizeFramebuffer(window, width, height);
 }
 
 static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
 {
-	assert(window != NULL);
-	assert(xscale > 0);
-	assert(yscale > 0);
+	ASSERT(window != NULL);
+	ASSERT(xscale > 0);
+	ASSERT(yscale > 0);
 
-	WindowState* windowState = GetWindowState(window);
+	struct WindowState* windowState = GetWindowState(window);
 
-	assert(windowState != NULL);
+	ASSERT(windowState != NULL);
 
 	windowState->xscale = xscale;
 	windowState->yscale = yscale;
@@ -248,17 +248,17 @@ static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float 
 
 static void OnWindowFocusChanged(GLFWwindow* window, int focused)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 }
 
 static void OnWindowRefreshChanged(GLFWwindow* window)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 }
 
 static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	/*
 	if (iconified)
@@ -274,7 +274,7 @@ static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 
 static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	/*
 	if (maximized)
@@ -290,12 +290,12 @@ static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 
 static void OnWindowSizeChanged(GLFWwindow* window, int width, int height)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 }
 
-static WindowHandle OnCreateWindow(WindowState* state)
+static WindowHandle OnCreateWindow(struct WindowState* state)
 {
-	assert(state);
+	ASSERT(state);
 
 	// todo: fullscreen on create
 
@@ -309,7 +309,7 @@ static WindowHandle OnCreateWindow(WindowState* state)
 		NULL,
 		NULL);
 
-	assert(window);
+	ASSERT(window);
 
 	float xscale;
 	float yscale;
@@ -323,7 +323,7 @@ static WindowHandle OnCreateWindow(WindowState* state)
 
 static void SetWindowCallbacks(GLFWwindow* window)
 {
-	assert(window != NULL);
+	ASSERT(window != NULL);
 
 	glfwSetCursorEnterCallback(window, OnMouseEnter);
 	glfwSetMouseButtonCallback(window, OnMouseButton);
@@ -343,8 +343,8 @@ static void SetWindowCallbacks(GLFWwindow* window)
 
 int main(int argc, char* argv[], char* envp[])
 {
-	assert(argv != NULL);
-	assert(envp != NULL);
+	ASSERT(argv != NULL);
+	ASSERT(envp != NULL);
 
 	signal(SIGINT, &OnSignal);
 	signal(SIGTERM, &OnSignal);
@@ -389,7 +389,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-	assert(monitors != NULL); (void)monitors;
+	ASSERT(monitors != NULL); (void)monitors;
 	if (monitorCount <= 0)
 	{
 		fprintf(stderr, "GLFW: No monitor connected?\n");
@@ -400,10 +400,10 @@ int main(int argc, char* argv[], char* envp[])
 	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
 	{
 		GLFWmonitor* monitor = monitors[monitorIt];
-		assert(monitor != NULL);
+		ASSERT(monitor != NULL);
 
 		const char* name = glfwGetMonitorName(monitor);
-		assert(name != NULL);
+		ASSERT(name != NULL);
 
 		int monitorx;
 		int monitory;
@@ -414,7 +414,7 @@ int main(int argc, char* argv[], char* envp[])
 		glfwGetMonitorPhysicalSize(monitor, &physicalWidth, &physicalHeight);
 		
 		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-		assert(mode != NULL);
+		ASSERT(mode != NULL);
 		
 		float xscale, yscale;
 		glfwGetMonitorContentScale(monitor, &xscale, &yscale);
@@ -444,7 +444,7 @@ int main(int argc, char* argv[], char* envp[])
 	glfwSetMonitorCallback(OnMonitorChanged);
 
 	WindowHandle window = GetCurrentWindow();
-	assert(window != NullWindowHandle);
+	ASSERT(window != NullWindowHandle);
 
 	SetWindowCallbacks(window);
 

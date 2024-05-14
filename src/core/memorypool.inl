@@ -1,5 +1,3 @@
-#include <algorithm>
-#include <cassert>
 #include <shared_mutex>
 
 template <typename T, uint32_t Capacity>
@@ -20,8 +18,8 @@ MemoryPoolHandle MemoryPool<T, Capacity>::allocate() noexcept
 {
 	std::unique_lock lock(myMutex);
 
-	assert(myAvailable > 0);
-	assert(myAvailable <= Capacity);
+	ASSERT(myAvailable > 0);
+	ASSERT(myAvailable <= Capacity);
 
 	if (myAvailable == 0 || myAvailable > Capacity)
 		return MemoryPoolHandle{};
@@ -34,7 +32,7 @@ MemoryPoolHandle MemoryPool<T, Capacity>::allocate() noexcept
 
 	myEntries[Capacity - 1] = {State::Taken};
 
-	assert(std::is_heap(myEntries.begin(), myEntries.end()));
+	ASSERT(std::is_heap(myEntries.begin(), myEntries.end()));
 
 	return handle;
 }
@@ -44,8 +42,8 @@ void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
 {
 	std::unique_lock lock(myMutex);
 
-	assert(!!handle);
-	assert(myAvailable < Capacity);
+	ASSERT(!!handle);
+	ASSERT(myAvailable < Capacity);
 
 	if (!handle || myAvailable >= Capacity)
 		return;
@@ -56,13 +54,13 @@ void MemoryPool<T, Capacity>::free(MemoryPoolHandle handle) noexcept
 
 	std::push_heap(myEntries.begin(), myEntries.end());
 
-	assert(std::is_heap(myEntries.begin(), myEntries.end() - 1));
+	ASSERT(std::is_heap(myEntries.begin(), myEntries.end() - 1));
 }
 
 template <typename T, uint32_t Capacity>
 constexpr T* MemoryPool<T, Capacity>::getPointer(MemoryPoolHandle handle) noexcept
 {
-	assert(!!handle);
+	ASSERT(!!handle);
 
 	if (!handle)
 		return nullptr;

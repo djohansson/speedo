@@ -1,16 +1,16 @@
 template <GraphicsApi G>
 CommandBufferAccessScope<G>
-CommandPool<G>::commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
+CommandPool<G>::Commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
 {
 	if (myRecordingCommands[beginInfo.level] &&
-		myRecordingCommands[beginInfo.level].value().getDesc() == beginInfo)
-		return internalCommands(beginInfo);
+		myRecordingCommands[beginInfo.level].value().GetDesc() == beginInfo)
+		return InternalCommands(beginInfo);
 	else
-		return internalBeginScope(beginInfo);
+		return InternalBeginScope(beginInfo);
 }
 
 template <GraphicsApi G>
-void CommandPool<G>::internalEndCommands(uint8_t level)
+void CommandPool<G>::InternalEndCommands(uint8_t level)
 {
 	if (myRecordingCommands[level])
 		myRecordingCommands[level] = std::nullopt;
@@ -22,7 +22,7 @@ CommandBufferAccessScope<G>::CommandBufferAccessScope(
 	: myDesc(beginInfo)
 	, myRefCount(std::make_shared<uint32_t>(1))
 	, myArray(array)
-	, myIndex(myDesc.scopedBeginEnd ? myArray->begin(beginInfo) : 0)
+	, myIndex(myDesc.scopedBeginEnd ? myArray->Begin(beginInfo) : 0)
 {}
 
 template <GraphicsApi G>
@@ -47,19 +47,19 @@ template <GraphicsApi G>
 CommandBufferAccessScope<G>::~CommandBufferAccessScope()
 {
 	if (myDesc.scopedBeginEnd && myRefCount && (--(*myRefCount) == 0) &&
-		myArray->recording(myIndex))
-		myArray->end(myIndex);
+		myArray->Recording(myIndex))
+		myArray->End(myIndex);
 }
 
 template <GraphicsApi G>
 CommandBufferAccessScope<G>& CommandBufferAccessScope<G>::operator=(CommandBufferAccessScope other)
 {
-	swap(other);
+	Swap(other);
 	return *this;
 }
 
 template <GraphicsApi G>
-void CommandBufferAccessScope<G>::swap(CommandBufferAccessScope& rhs) noexcept
+void CommandBufferAccessScope<G>::Swap(CommandBufferAccessScope& rhs) noexcept
 {
 	std::swap(myDesc, rhs.myDesc);
 	std::swap(myRefCount, rhs.myRefCount);

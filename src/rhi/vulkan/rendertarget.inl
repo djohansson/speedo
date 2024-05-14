@@ -4,9 +4,9 @@ class RenderTargetImpl<CreateDescType, Vk> : public RenderTarget<Vk>
 public:
 	virtual ~RenderTargetImpl();
 
-	virtual const RenderTargetCreateDesc<Vk>& getRenderTargetDesc() const final { return myDesc; };
+	virtual const RenderTargetCreateDesc<Vk>& GetRenderTargetDesc() const final { return myDesc; };
 
-	const auto& getDesc() const { return myDesc; }
+	const auto& GetDesc() const { return myDesc; }
 
 protected:
 	RenderTargetImpl(
@@ -15,7 +15,7 @@ protected:
 
 	RenderTargetImpl<CreateDescType, Vk>& operator=(RenderTargetImpl&& other) noexcept;
 
-	void swap(RenderTargetImpl& rhs) noexcept;
+	void Swap(RenderTargetImpl& rhs) noexcept;
 
 private:
 	CreateDescType myDesc{};

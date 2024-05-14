@@ -1,12 +1,14 @@
 #include "view.h"
 
+#include <core/assert.h>
+
 void View::updateViewMatrix()
 {
-	auto Rx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
-	auto Ry = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
-	auto T = glm::translate(glm::mat4(1.0), -myDesc.cameraPosition);
+	auto rx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
+	auto ry = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
+	auto t = glm::translate(glm::mat4(1.0), -myDesc.cameraPosition);
 
-	myViewMatrix = glm::inverse(T * Ry * Rx);
+	myViewMatrix = glm::inverse(t * ry * rx);
 }
 
 void View::updateProjectionMatrix()
@@ -14,34 +16,34 @@ void View::updateProjectionMatrix()
 	switch (myDesc.type)
 	{
 	case ViewType::Perspective: {
-		static const glm::mat4 clip{
-			1.0f,
-			0.0f,
-			0.0f,
-			0.0f,
-			0.0f,
-			-1.0f,
-			0.0f,
-			0.0f,
-			0.0f,
-			0.0f,
-			0.5f,
-			0.0f,
-			0.0f,
-			0.0f,
-			0.5f,
-			1.0f};
-		constexpr auto fov = 75.0f;
+		static const glm::mat4 kClip{
+			1.0F,
+			0.0F,
+			0.0F,
+			0.0F,
+			0.0F,
+			-1.0F,
+			0.0F,
+			0.0F,
+			0.0F,
+			0.0F,
+			0.5F,
+			0.0F,
+			0.0F,
+			0.0F,
+			0.5F,
+			1.0F};
+		constexpr auto kFov = 75.0F;
 		auto aspect =
 			static_cast<float>(myDesc.viewport.width) / static_cast<float>(myDesc.viewport.height);
-		constexpr auto nearplane = 0.01f;
-		constexpr auto farplane = 100.0f;
+		constexpr auto kNearplane = 0.01F;
+		constexpr auto kFarplane = 100.0F;
 		myProjectionMatrix =
-			clip * glm::perspective(glm::radians(fov), aspect, nearplane, farplane);
+			kClip * glm::perspective(glm::radians(kFov), aspect, kNearplane, kFarplane);
 	}
 	break;
 	default:
-		assert(false);
+		ASSERT(false);
 		break;
 	}
 }

@@ -70,7 +70,7 @@ UpgradableSharedMutex::internalTryLockShared() noexcept
 	// fetch_add is considerably (100%) faster than compare_exchange,
 	// so here we are optimizing for the common (lock success) case.
 	value_t value = internalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
-	if (value & (Writer | Upgraded))
+	if ((value & (Writer | Upgraded)) != 0u)
 	{
 		value = internalAtomicRef().fetch_add(-Reader, std::memory_order_release);
 		return std::make_tuple(false, value);

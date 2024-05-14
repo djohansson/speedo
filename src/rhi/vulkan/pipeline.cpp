@@ -12,10 +12,10 @@
 template <>
 struct PipelineCacheHeader<Vk>
 {
-	uint32_t headerLength = 0ul;
-	uint32_t cacheHeaderVersion = 0ul;
-	uint32_t vendorID = 0ul;
-	uint32_t deviceID = 0ul;
+	uint32_t headerLength = 0UL;
+	uint32_t cacheHeaderVersion = 0UL;
+	uint32_t vendorID = 0UL;
+	uint32_t deviceID = 0UL;
 	uint8_t pipelineCacheUUID[VK_UUID_SIZE]{};
 };
 #pragma pack(pop)
@@ -25,7 +25,7 @@ namespace pipeline
 
 using namespace file;
 
-bool isCacheValid(
+bool IsCacheValid(
 	const PipelineCacheHeader<Vk>& header,
 	const PhysicalDeviceProperties<Vk>& physicalDeviceProperties)
 {
@@ -40,7 +40,8 @@ bool isCacheValid(
 			sizeof(header.pipelineCacheUUID)) == 0);
 }
 
-PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFilePath, const std::shared_ptr<Device<Vk>>& device)
+PipelineCacheHandle<Vk> LoadPipelineCache(
+	const std::filesystem::path& cacheFilePath, const std::shared_ptr<Device<Vk>>& device)
 {
 	std::vector<char> cacheData;
 
@@ -49,9 +50,10 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 		if (auto result = in(cacheData); failure(result))
 			return std::make_error_code(result);
 
-		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+		const auto* header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
-		if (cacheData.empty() || !isCacheValid(*header, device->getPhysicalDeviceInfo().deviceProperties))
+		if (cacheData.empty() ||
+			!IsCacheValid(*header, device->getPhysicalDeviceInfo().deviceProperties))
 		{
 			std::cerr << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
@@ -61,11 +63,11 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 	};
 
 	if (auto fileInfo = getRecord<false>(cacheFilePath); fileInfo)
-		fileInfo = loadBinary<false>(cacheFilePath, loadCacheOp);
+		fileInfo = LoadBinary<false>(cacheFilePath, loadCacheOp);
 
 	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
 	createInfo.initialDataSize = cacheData.size();
-	createInfo.pInitialData = cacheData.size() ? cacheData.data() : nullptr;
+	createInfo.pInitialData = (!cacheData.empty() != 0u) ? cacheData.data() : nullptr;
 
 	PipelineCacheHandle<Vk> cache;
 	VK_CHECK(vkCreatePipelineCache(
@@ -78,12 +80,12 @@ PipelineCacheHandle<Vk> loadPipelineCache(const std::filesystem::path& cacheFile
 }
 
 std::vector<char>
-getPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCache)
+GetPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCache)
 {
 	std::vector<char> cacheData;
 	size_t cacheDataSize = 0;
 	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
-	if (cacheDataSize)
+	if (cacheDataSize != 0u)
 	{
 		cacheData.resize(cacheDataSize);
 		VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
@@ -92,16 +94,17 @@ getPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCa
 	return cacheData;
 };
 
-std::expected<Record, std::error_code> savePipelineCache(
+std::expected<Record, std::error_code> SavePipelineCache(
 	const std::filesystem::path& cacheFilePath,
 	DeviceHandle<Vk> device,
 	PhysicalDeviceProperties<Vk> physicalDeviceProperties,
 	PipelineCacheHandle<Vk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
-	auto saveCacheOp = [&device, &pipelineCache, &physicalDeviceProperties](auto& out) -> std::error_code
+	auto saveCacheOp =
+		[&device, &pipelineCache, &physicalDeviceProperties](auto& out) -> std::error_code
 	{
-		auto cacheData = getPipelineCacheData(device, pipelineCache);
+		auto cacheData = GetPipelineCacheData(device, pipelineCache);
 
 		if (cacheData.empty())
 		{
@@ -109,10 +112,10 @@ std::expected<Record, std::error_code> savePipelineCache(
 		
 			return std::make_error_code(std::errc::invalid_argument);
 		}
-		
-		auto header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
 
-		if (!isCacheValid(*header, physicalDeviceProperties))
+		const auto* header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+
+		if (!IsCacheValid(*header, physicalDeviceProperties))
 		{
 			std::println("Invalid pipeline cache, will not save.");
 
@@ -125,10 +128,10 @@ std::expected<Record, std::error_code> savePipelineCache(
 		return {}; // success
 	};
 
-	return saveBinary<true>(cacheFilePath, saveCacheOp);
+	return SaveBinary<true>(cacheFilePath, saveCacheOp);
 }
 
-static PFN_vkCmdPushDescriptorSetWithTemplateKHR vkCmdPushDescriptorSetWithTemplateKHR{};
+static PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
 } // namespace pipeline
 
@@ -211,7 +214,7 @@ PipelineLayout<Vk>::PipelineLayout(
 			  std::vector<ShaderModule<Vk>> shaderModules;
 			  shaderModules.reserve(shaderSet.shaders.size());
 			  for (const auto& shader : shaderSet.shaders)
-				  shaderModules.emplace_back(ShaderModule<Vk>(device, shader));
+				  shaderModules.emplace_back(device, shader);
 			  return shaderModules;
 		  }(),
 		  [&shaderSet, &device]
@@ -226,7 +229,7 @@ PipelineLayout<Vk>::PipelineLayout(
 template <>
 PipelineLayout<Vk>::~PipelineLayout()
 {
-	if (myLayout)
+	if (myLayout != nullptr)
 		vkDestroyPipelineLayout(
 			*getDevice(),
 			myLayout,
@@ -234,38 +237,38 @@ PipelineLayout<Vk>::~PipelineLayout()
 }
 
 template <>
-void PipelineLayout<Vk>::swap(PipelineLayout& rhs) noexcept
+void PipelineLayout<Vk>::Swap(PipelineLayout& rhs) noexcept
 {
-	DeviceObject::swap(rhs);
+	DeviceObject::Swap(rhs);
 	std::swap(myShaderModules, rhs.myShaderModules);
 	std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
 	std::swap(myLayout, rhs.myLayout);
 }
 
 template <>
-const PipelineLayout<Vk>& Pipeline<Vk>::internalGetLayout()
+const PipelineLayout<Vk>& Pipeline<Vk>::InternalGetLayout()
 {
 	return myGraphicsState.layouts[myLayout];
 }
 
 template <>
-uint64_t Pipeline<Vk>::internalCalculateHashKey() const
+uint64_t Pipeline<Vk>::InternalCalculateHashKey() const
 {
-	ZoneScopedN("Pipeline::internalCalculateHashKey");
+	ZoneScopedN("Pipeline::InternalCalculateHashKey");
 
-	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> threadXXHState{
+	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> gthreadXxhState{
 		XXH3_createState(), XXH3_freeState};
 
-	auto result = XXH3_64bits_reset(threadXXHState.get());
+	auto result = XXH3_64bits_reset(gthreadXxhState.get());
 	(void)result;
-	assert(result != XXH_ERROR);
+	ASSERT(result != XXH_ERROR);
 
-	result = XXH3_64bits_update(threadXXHState.get(), &myBindPoint, sizeof(myBindPoint));
-	assert(result != XXH_ERROR);
+	result = XXH3_64bits_update(gthreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));
+	ASSERT(result != XXH_ERROR);
 
-	auto layoutHandle = getLayout();
-	result = XXH3_64bits_update(threadXXHState.get(), &layoutHandle, sizeof(layoutHandle));
-	assert(result != XXH_ERROR);
+	auto* layoutHandle = getLayout();
+	result = XXH3_64bits_update(gthreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
+	ASSERT(result != XXH_ERROR);
 
 	// todo: hash more state...
 
@@ -274,15 +277,15 @@ uint64_t Pipeline<Vk>::internalCalculateHashKey() const
 	//     static_cast<RenderTarget<Vk>::ValueType>(*getRenderTarget());
 	// result = XXH3_64bits_update(threadXXHState.get(), &renderPassHandle, sizeof(renderPassHandle));
 	// result = XXH3_64bits_update(threadXXHState.get(), &frameBufferHandle, sizeof(frameBufferHandle));
-	// assert(result != XXH_ERROR);
+	// ASSERT(result != XXH_ERROR);
 
-	return XXH3_64bits_digest(threadXXHState.get());
+	return XXH3_64bits_digest(gthreadXxhState.get());
 }
 
 template <>
-void Pipeline<Vk>::internalPrepareDescriptorSets()
+void Pipeline<Vk>::InternalPrepareDescriptorSets()
 {
-	const auto& layout = internalGetLayout();
+	const auto& layout = InternalGetLayout();
 
 	for (const auto& [set, setLayout] : layout.getDescriptorSetLayouts())
 	{
@@ -296,15 +299,16 @@ void Pipeline<Vk>::internalPrepareDescriptorSets()
 				DescriptorUpdateTemplate<Vk>{
 					getDevice(),
 					DescriptorUpdateTemplateCreateDesc<Vk>{
-						setLayout.getDesc().flags &
-								VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR
+						((setLayout.GetDesc().flags &
+						  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
 							? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
 							: VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
 						static_cast<VkDescriptorSetLayout>(setLayout),
 						myBindPoint,
 						static_cast<VkPipelineLayout>(layout),
 						set}},
-				setLayout.getDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR
+				((setLayout.GetDesc().flags &
+				  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
 					? std::nullopt
 					: std::make_optional(DescriptorSetArrayList<Vk>{})));
 
@@ -329,7 +333,7 @@ void Pipeline<Vk>::internalPrepareDescriptorSets()
 }
 
 template <>
-void Pipeline<Vk>::internalResetGraphicsState()
+void Pipeline<Vk>::InternalResetGraphicsState()
 {
 	myGraphicsState.shaderStages.clear();
 	myGraphicsState.shaderStageFlags = {};
@@ -351,7 +355,7 @@ void Pipeline<Vk>::internalResetGraphicsState()
 		VK_FALSE};
 
 	myGraphicsState.viewports.clear();
-	myGraphicsState.viewports.emplace_back(Viewport<Vk>{0.0f, 0.0f, 0, 0, 0.0f, 1.0f});
+	myGraphicsState.viewports.emplace_back(Viewport<Vk>{0.0F, 0.0F, 0, 0, 0.0F, 1.0F});
 
 	myGraphicsState.scissorRects.clear();
 	myGraphicsState.scissorRects.emplace_back(Rect2D<Vk>{{0, 0}, {0, 0}});
@@ -375,10 +379,10 @@ void Pipeline<Vk>::internalResetGraphicsState()
 		VK_CULL_MODE_BACK_BIT,
 		VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		VK_FALSE,
-		0.0f,
-		0.0f,
-		0.0f,
-		1.0f};
+		0.0F,
+		0.0F,
+		0.0F,
+		1.0F};
 
 	myGraphicsState.multisample = {
 		VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -386,7 +390,7 @@ void Pipeline<Vk>::internalResetGraphicsState()
 		0,
 		VK_SAMPLE_COUNT_1_BIT,
 		VK_FALSE,
-		1.0f,
+		1.0F,
 		nullptr,
 		VK_FALSE,
 		VK_FALSE};
@@ -402,8 +406,8 @@ void Pipeline<Vk>::internalResetGraphicsState()
 		VK_FALSE,
 		{},
 		{},
-		0.0f,
-		1.0f};
+		0.0F,
+		1.0F};
 
 	myGraphicsState.colorBlendAttachments.clear();
 	myGraphicsState.colorBlendAttachments.emplace_back(PipelineColorBlendAttachmentState<Vk>{
@@ -425,7 +429,7 @@ void Pipeline<Vk>::internalResetGraphicsState()
 		VK_LOGIC_OP_COPY,
 		static_cast<uint32_t>(myGraphicsState.colorBlendAttachments.size()),
 		myGraphicsState.colorBlendAttachments.data(),
-		{0.0f, 0.0f, 0.0f, 0.0f}};
+		{0.0F, 0.0F, 0.0F, 0.0F}};
 
 	myGraphicsState.dynamicStateDescs.clear();
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
@@ -440,24 +444,24 @@ void Pipeline<Vk>::internalResetGraphicsState()
 }
 
 template <>
-void Pipeline<Vk>::internalResetComputeState()
+void Pipeline<Vk>::InternalResetComputeState()
 {
 	//myComputeState....
 }
 
 template <>
-void Pipeline<Vk>::internalResetState()
+void Pipeline<Vk>::InternalResetState()
 {
-	internalResetGraphicsState();
-	internalResetComputeState();
+	InternalResetGraphicsState();
+	InternalResetComputeState();
 }
 
 template <>
-PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey)
+PipelineHandle<Vk> Pipeline<Vk>::InternalCreateGraphicsPipeline(uint64_t hashKey)
 {
-	ZoneScopedN("Pipeline::internalCreateGraphicsPipeline");
+	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
-	const auto& layout = internalGetLayout();
+	const auto& layout = InternalGetLayout();
 	auto& renderTarget = getRenderTarget();
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -473,7 +477,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
 	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<Vk>>(renderTarget));
-	pipelineInfo.subpass = 0; // TODO: loop through all subpasses?
+	pipelineInfo.subpass = 0; // TODO(djohansson): loop through all subpasses?
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
 
@@ -488,7 +492,7 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		getDevice()->addOwnedObjectHandle(
+		getDevice()->AddOwnedObjectHandle(
 			getUid(),
 			VK_OBJECT_TYPE_PIPELINE,
 			reinterpret_cast<uint64_t>(pipelineHandle),
@@ -500,23 +504,25 @@ PipelineHandle<Vk> Pipeline<Vk>::internalCreateGraphicsPipeline(uint64_t hashKey
 }
 
 template <>
-PipelineHandle<Vk> Pipeline<Vk>::internalGetPipeline()
+PipelineHandle<Vk> Pipeline<Vk>::InternalGetPipeline()
 {
-	ZoneScopedN("Pipeline::internalGetPipeline");
+	ZoneScopedN("Pipeline::InternalGetPipeline");
 
-	auto [keyValIt, insertResult] = myPipelineMap.insert({internalCalculateHashKey(), nullptr});
+	auto [keyValIt, insertResult] =
+		myPipelineMap.insert({InternalCalculateHashKey(), nullptr});
 	auto& [key, pipelineHandleAtomic] = *keyValIt;
 
 	if (insertResult)
 	{
-		ZoneScopedN("Pipeline::internalGetPipeline::store");
+		ZoneScopedN("Pipeline::InternalGetPipeline::store");
 
-		pipelineHandleAtomic.store(internalCreateGraphicsPipeline(key), std::memory_order_release);
+		pipelineHandleAtomic.store(
+			InternalCreateGraphicsPipeline(key), std::memory_order_release);
 		pipelineHandleAtomic.notify_all();
 	}
 	else
 	{
-		ZoneScopedN("Pipeline::internalGetPipeline::wait");
+		ZoneScopedN("Pipeline::InternalGetPipeline::wait");
 
 		pipelineHandleAtomic.wait(nullptr, std::memory_order_acquire);
 	}
@@ -525,31 +531,31 @@ PipelineHandle<Vk> Pipeline<Vk>::internalGetPipeline()
 }
 
 template <>
-void Pipeline<Vk>::bindPipeline(
+void Pipeline<Vk>::BindPipeline(
 	CommandBufferHandle<Vk> cmd, PipelineBindPoint<Vk> bindPoint, PipelineHandle<Vk> handle) const
 {
-	ZoneScopedN("Pipeline::bindPipeline");
+	ZoneScopedN("Pipeline::BindPipeline");
 
 	vkCmdBindPipeline(cmd, bindPoint, handle);
 }
 
 template <>
-void Pipeline<Vk>::bindPipelineAuto(CommandBufferHandle<Vk> cmd)
+void Pipeline<Vk>::BindPipelineAuto(CommandBufferHandle<Vk> cmd)
 {
-	bindPipeline(cmd, myBindPoint, internalGetPipeline());
+	BindPipeline(cmd, myBindPoint, InternalGetPipeline());
 }
 
 template <>
-void Pipeline<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
+void Pipeline<Vk>::SetModel(const std::shared_ptr<Model<Vk>>& model)
 {
 	myGraphicsState.vertexInput.vertexBindingDescriptionCount =
 		static_cast<uint32_t>(model->getBindings().size());
 	myGraphicsState.vertexInput.pVertexBindingDescriptions = model->getBindings().data();
 	myGraphicsState.vertexInput.vertexAttributeDescriptionCount =
-		static_cast<uint32_t>(model->getDesc().attributes.size());
-	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model->getDesc().attributes.data();
+		static_cast<uint32_t>(model->GetDesc().attributes.size());
+	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model->GetDesc().attributes.data();
 
-	setDescriptorData(
+	SetDescriptorData(
 		"g_vertexBuffer",
 		DescriptorBufferInfo<Vk>{model->getVertexBuffer(), 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_GlobalBuffers);
@@ -558,25 +564,25 @@ void Pipeline<Vk>::setModel(const std::shared_ptr<Model<Vk>>& model)
 }
 
 template <>
-PipelineLayoutHandle<Vk> Pipeline<Vk>::createLayout(const ShaderSet<Vk>& shaderSet)
+PipelineLayoutHandle<Vk> Pipeline<Vk>::CreateLayout(const ShaderSet<Vk>& shaderSet)
 {
 	auto layout = PipelineLayout<Vk>(getDevice(), shaderSet);
-	auto handle = static_cast<PipelineLayoutHandle<Vk>>(layout);
-	
+	auto* handle = static_cast<PipelineLayoutHandle<Vk>>(layout);
+
 	myGraphicsState.layouts.emplace(handle, std::move(layout));
 	
 	return handle;
 }
 
 template <>
-void Pipeline<Vk>::bindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindPoint<Vk> bindPoint)
+void Pipeline<Vk>::BindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindPoint<Vk> bindPoint)
 {
 	myLayout = layout;
 	myBindPoint = bindPoint;
 
-	const auto& shaderModules = internalGetLayout().getShaderModules();
+	const auto& shaderModules = InternalGetLayout().GetShaderModules();
 
-	assert(!shaderModules.empty());
+	ASSERT(!shaderModules.empty());
 
 	switch (myBindPoint)
 	{
@@ -586,9 +592,9 @@ void Pipeline<Vk>::bindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindP
 
 		for (const auto& shader : shaderModules)
 		{
-			auto& [entryPointName, shaderStage] = shader.getEntryPoint();
+			const auto& [entryPointName, shaderStage] = shader.GetEntryPoint();
 
-			if (shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS)
+			if ((shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS) != 0)
 			{
 				myGraphicsState.shaderStages.emplace_back(PipelineShaderStageCreateInfo<Vk>{
 					VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
@@ -607,17 +613,17 @@ void Pipeline<Vk>::bindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindP
 	case VK_PIPELINE_BIND_POINT_COMPUTE:
 		break;
 	default:
-		ASSERT(false, "Not implemented");
+		ASSERTF(false, "Not implemented");
 		break;
 	};
 
-	internalPrepareDescriptorSets();
+	InternalPrepareDescriptorSets();
 }
 
 template <>
-void Pipeline<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>>& renderTarget)
+void Pipeline<Vk>::SetRenderTarget(const std::shared_ptr<RenderTarget<Vk>>& renderTarget)
 {
-	auto extent = renderTarget ? renderTarget->getRenderTargetDesc().extent : Extent2d<Vk>{0, 0};
+	auto extent = renderTarget ? renderTarget->GetRenderTargetDesc().extent : Extent2d<Vk>{0, 0};
 
 	myGraphicsState.viewports[0].width = static_cast<float>(extent.width);
 	myGraphicsState.viewports[0].height = static_cast<float>(extent.height);
@@ -628,19 +634,19 @@ void Pipeline<Vk>::setRenderTarget(const std::shared_ptr<RenderTarget<Vk>>& rend
 }
 
 template <>
-void Pipeline<Vk>::internalUpdateDescriptorSet(
+void Pipeline<Vk>::InternalUpdateDescriptorSet(
 	const DescriptorSetLayout<Vk>& setLayout,
 	const BindingsData<Vk>& bindingsData,
 	const DescriptorUpdateTemplate<Vk>& setTemplate,
 	DescriptorSetArrayList<Vk>& setArrayList)
 {
-	ZoneScopedN("Pipeline::internalUpdateDescriptorSet");
+	ZoneScopedN("Pipeline::InternalUpdateDescriptorSet");
 
 	bool setArrayListIsEmpty = setArrayList.empty();
 	bool frontArrayIsFull = setArrayListIsEmpty
 								? false
 								: std::get<1>(setArrayList.front()) ==
-									  (std::get<0>(setArrayList.front()).capacity() - 1);
+									  (std::get<0>(setArrayList.front()).Capacity() - 1);
 
 	if (setArrayListIsEmpty || frontArrayIsFull)
 	{
@@ -653,12 +659,12 @@ void Pipeline<Vk>::internalUpdateDescriptorSet(
 
 	auto& [setArray, setIndex, setRefCount] = setArrayList.front();
 	++setIndex;
-	assert(setIndex < setArray.capacity());
-	auto setHandle = setArray[setIndex];
+	ASSERT(setIndex < setArray.Capacity());
+	auto* setHandle = setArray[setIndex];
 
 	{
 		ZoneScopedN(
-			"Pipeline::internalUpdateDescriptorSet::vkUpdateDescriptorSetWithTemplate");
+			"Pipeline::InternalUpdateDescriptorSet::vkUpdateDescriptorSetWithTemplate");
 
 		vkUpdateDescriptorSetWithTemplate(
 			*getDevice(), setHandle, setTemplate, bindingsData.data());
@@ -671,7 +677,7 @@ void Pipeline<Vk>::internalUpdateDescriptorSet(
 		while (setArrayIt != setArrayList.end())
 		{
 			auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-			if (!setRefCount)
+			if (setRefCount == 0u)
 				setArrayIt = setArrayList.erase(setArrayIt);
 			else
 				setArrayIt++;
@@ -680,32 +686,32 @@ void Pipeline<Vk>::internalUpdateDescriptorSet(
 }
 
 template <>
-void Pipeline<Vk>::internalPushDescriptorSet(
+void Pipeline<Vk>::InternalPushDescriptorSet(
 	CommandBufferHandle<Vk> cmd,
 	const BindingsData<Vk>& bindingsData,
 	const DescriptorUpdateTemplate<Vk>& setTemplate) const
 {
-	ZoneScopedN("Pipeline::internalPushDescriptorSet");
+	ZoneScopedN("Pipeline::InternalPushDescriptorSet");
 
 	{
 		ZoneScopedN(
-			"Pipeline::internalPushDescriptorSet::vkCmdPushDescriptorSetWithTemplateKHR");
+			"Pipeline::InternalPushDescriptorSet::vkCmdPushDescriptorSetWithTemplateKHR");
 
-		if (!pipeline::vkCmdPushDescriptorSetWithTemplateKHR)
-			pipeline::vkCmdPushDescriptorSetWithTemplateKHR =
-				reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(vkGetDeviceProcAddr(
-					*getDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
+		if (pipeline::gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
+			pipeline::gVkCmdPushDescriptorSetWithTemplateKHR =
+				reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
+					vkGetDeviceProcAddr(*getDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
 
-		pipeline::vkCmdPushDescriptorSetWithTemplateKHR(
-			cmd, setTemplate, getLayout(), setTemplate.getDesc().set, bindingsData.data());
+		pipeline::gVkCmdPushDescriptorSetWithTemplateKHR(
+			cmd, setTemplate, getLayout(), setTemplate.GetDesc().set, bindingsData.data());
 	}
 }
 
 template <>
-void Pipeline<Vk>::internalUpdateDescriptorSetTemplate(
+void Pipeline<Vk>::InternalUpdateDescriptorSetTemplate(
 	const BindingsMap<Vk>& bindingsMap, DescriptorUpdateTemplate<Vk>& setTemplate)
 {
-	ZoneScopedN("Pipeline::internalUpdateDescriptorSetTemplate");
+	ZoneScopedN("Pipeline::InternalUpdateDescriptorSetTemplate");
 
 	std::vector<DescriptorUpdateTemplateEntry<Vk>> entries;
 	entries.reserve(bindingsMap.size());
@@ -714,7 +720,7 @@ void Pipeline<Vk>::internalUpdateDescriptorSetTemplate(
 	{
 		const auto& [offset, count, type, ranges] = binding;
 
-		uint32_t rangeOffset = 0ul;
+		uint32_t rangeOffset = 0UL;
 
 		for (const auto& [low, high] : ranges)
 		{
@@ -732,11 +738,11 @@ void Pipeline<Vk>::internalUpdateDescriptorSetTemplate(
 		}
 	}
 
-	setTemplate.setEntries(std::move(entries));
+	setTemplate.SetEntries(std::move(entries));
 }
 
 template <>
-void Pipeline<Vk>::bindDescriptorSet(
+void Pipeline<Vk>::BindDescriptorSet(
 	CommandBufferHandle<Vk> cmd,
 	DescriptorSetHandle<Vk> handle,
 	PipelineBindPoint<Vk> bindPoint,
@@ -744,7 +750,7 @@ void Pipeline<Vk>::bindDescriptorSet(
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset) const
 {
-	ZoneScopedN("Pipeline::bindDescriptorSet");
+	ZoneScopedN("Pipeline::BindDescriptorSet");
 
 	vkCmdBindDescriptorSets(
 		cmd,
@@ -758,12 +764,12 @@ void Pipeline<Vk>::bindDescriptorSet(
 }
 
 template <>
-void Pipeline<Vk>::bindDescriptorSetAuto(
+void Pipeline<Vk>::BindDescriptorSetAuto(
 	CommandBufferHandle<Vk> cmd, uint32_t set, std::optional<uint32_t> bufferOffset)
 {
-	ZoneScopedN("Pipeline::bindDescriptorSetAuto");
+	ZoneScopedN("Pipeline::BindDescriptorSetAuto");
 
-	const auto& layout = internalGetLayout();
+	const auto& layout = InternalGetLayout();
 	const auto& setLayout = layout.getDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
@@ -774,7 +780,7 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 	{
 		mutex.unlock_upgrade_and_lock();
 
-		internalUpdateDescriptorSet(
+		InternalUpdateDescriptorSet(
 			setLayout, bindingsData, setTemplate, setOptionalArrayList.value());
 
 		setState = DescriptorSetStatus::Ready;
@@ -789,11 +795,11 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 	if (setOptionalArrayList)
 	{
 		auto& setArrayList = setOptionalArrayList.value();
-		assert(!setArrayList.empty());
+		ASSERT(!setArrayList.empty());
 		auto& [setArray, setIndex, setRefCount] = setArrayList.front();
-		auto handle = setArray[setIndex];
+		auto* handle = setArray[setIndex];
 
-		bindDescriptorSet(
+		BindDescriptorSet(
 			cmd,
 			handle,
 			myBindPoint,
@@ -803,12 +809,12 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 
 		setRefCount++;
 
-		// getDevice()->addTimelineCallback([refCountPtr = &setRefCount](uint64_t)
+		// getDevice()->AddTimelineCallback([refCountPtr = &setRefCount](uint64_t)
 		// 										{ (*refCountPtr)--; });
 	}
 	else
 	{
-		internalPushDescriptorSet(cmd, bindingsData, setTemplate);
+		InternalPushDescriptorSet(cmd, bindingsData, setTemplate);
 	}
 
 	mutex.unlock_shared();
@@ -816,63 +822,64 @@ void Pipeline<Vk>::bindDescriptorSetAuto(
 
 template <>
 Pipeline<Vk>::Pipeline(
-	const std::shared_ptr<Device<Vk>>& device,
-	PipelineConfiguration<Vk>&& defaultConfig)
+	const std::shared_ptr<Device<Vk>>& device, PipelineConfiguration<Vk>&& defaultConfig)
 	: DeviceObject(device, {})
-	, myConfig{
-		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.json",
-		std::forward<PipelineConfiguration<Vk>>(defaultConfig)}
+	, myConfig{std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<Vk>>(defaultConfig)}
 	, myDescriptorPool(
-		[](const std::shared_ptr<Device<Vk>>& device)
-		{
-			const uint32_t descBaseCount = 1024;
-			VkDescriptorPoolSize poolSizes[]{
-				{VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * ShaderTypes_GlobalSamplerCount},
-				{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, descBaseCount * ShaderTypes_GlobalSamplerCount},
-				{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, descBaseCount * ShaderTypes_GlobalTextureCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, descBaseCount * ShaderTypes_GlobalRWTextureCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, descBaseCount},
-				{VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount}};
+		  [](const std::shared_ptr<Device<Vk>>& device)
+		  {
+			  const uint32_t descBaseCount = 1024;
+			  VkDescriptorPoolSize poolSizes[]{
+				  {VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * ShaderTypes_GlobalSamplerCount},
+				  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				   descBaseCount * ShaderTypes_GlobalSamplerCount},
+				  {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				   descBaseCount * ShaderTypes_GlobalTextureCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				   descBaseCount * ShaderTypes_GlobalRWTextureCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, descBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, descBaseCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descBaseCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, descBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, descBaseCount},
+				  {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount}};
 
-			VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
-			inlineUniformBlockInfo.maxInlineUniformBlockBindings = descBaseCount;
+			  VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
+				  VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
+			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = descBaseCount;
 
-			VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-			poolInfo.pNext = &inlineUniformBlockInfo;
-			poolInfo.poolSizeCount = std::size(poolSizes);
-			poolInfo.pPoolSizes = poolSizes;
-			poolInfo.maxSets = descBaseCount * std::size(poolSizes);
-			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
-			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
+			  VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+			  poolInfo.pNext = &inlineUniformBlockInfo;
+			  poolInfo.poolSizeCount = std::size(poolSizes);
+			  poolInfo.pPoolSizes = poolSizes;
+			  poolInfo.maxSets = descBaseCount * std::size(poolSizes);
+			  poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			  // VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
+			  // VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 
-			VkDescriptorPool outDescriptorPool;
-			VK_CHECK(vkCreateDescriptorPool(
-				*device,
-				&poolInfo,
-				&device->getInstance()->getHostAllocationCallbacks(),
-				&outDescriptorPool));
+			  VkDescriptorPool outDescriptorPool;
+			  VK_CHECK(vkCreateDescriptorPool(
+				  *device,
+				  &poolInfo,
+				  &device->getInstance()->getHostAllocationCallbacks(),
+				  &outDescriptorPool));
 
-			return outDescriptorPool;
-		}(device))
-	, myCache(pipeline::loadPipelineCache(myConfig.cachePath, device))
+			  return outDescriptorPool;
+		  }(device))
+	, myCache(pipeline::LoadPipelineCache(myConfig.cachePath, device))
 {
 	// todo: refactor, since this will be called to excessivly
-	internalResetState();
+	InternalResetState();
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-	device->addOwnedObjectHandle(
+	device->AddOwnedObjectHandle(
 		getUid(),
 		VK_OBJECT_TYPE_PIPELINE_CACHE,
 		reinterpret_cast<uint64_t>(myCache),
 		std::format("{0}_PipelineCache", getName()));
 
-	device->addOwnedObjectHandle(
+	device->AddOwnedObjectHandle(
 		getUid(),
 		VK_OBJECT_TYPE_DESCRIPTOR_POOL,
 		reinterpret_cast<uint64_t>(myDescriptorPool),
@@ -883,11 +890,12 @@ Pipeline<Vk>::Pipeline(
 template <>
 Pipeline<Vk>::~Pipeline()
 {
-	if (auto fileInfo = pipeline::savePipelineCache(
-		myConfig.cachePath,
-		*getDevice(),
-		getDevice()->getPhysicalDeviceInfo().deviceProperties,
-		myCache); fileInfo)
+	if (auto fileInfo = pipeline::SavePipelineCache(
+			myConfig.cachePath,
+			*getDevice(),
+			getDevice()->getPhysicalDeviceInfo().deviceProperties,
+			myCache);
+		fileInfo)
 	{
 		std::cout << "Saved pipeline cache to " << fileInfo.value().path << '\n';
 	}
@@ -910,6 +918,6 @@ Pipeline<Vk>::~Pipeline()
 	myGraphicsState.resources = {};
 	myDescriptorMap.clear();
 
-	if (myDescriptorPool)
+	if (myDescriptorPool != nullptr)
 		vkDestroyDescriptorPool(*getDevice(), myDescriptorPool, &getDevice()->getInstance()->getHostAllocationCallbacks());
 }

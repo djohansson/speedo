@@ -1,11 +1,10 @@
 #pragma once
 
+#include "assert.h"
 #include "upgradablesharedmutex.h"
 #include "utils.h"
 
 #include <algorithm>
-#include <cassert>
-
 #include <array>
 #include <cstdint>
 

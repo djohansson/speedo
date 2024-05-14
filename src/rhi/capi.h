@@ -24,7 +24,7 @@ enum GraphicsApi
 };
 
 typedef void* WindowHandle;
-typedef struct _WindowState
+struct WindowState
 {
 	float xscale; // content x scale factor
 	float yscale; // content y scale factor
@@ -35,8 +35,8 @@ typedef struct _WindowState
 	uint32_t fullscreenRefresh : 16;
 	uint32_t fullscreenMonitor : 15;
 	uint32_t fullscreenEnabled : 1;
-} WindowState;
-typedef WindowHandle (*CreateWindowFunc)(WindowState* window);
+};
+typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);
 static const WindowHandle NullWindowHandle = NULL;
 
 RHI_API void ResizeFramebuffer(WindowHandle window, int w, int h);
@@ -46,7 +46,7 @@ RHI_API WindowHandle GetCurrentWindow(void);
 RHI_API void SetCurrentWindow(WindowHandle window);
 
 // todo: make all state opaque
-RHI_API WindowState* GetWindowState(WindowHandle window);
+RHI_API struct WindowState* GetWindowState(WindowHandle window);
 //
 
 

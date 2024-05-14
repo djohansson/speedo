@@ -62,7 +62,7 @@ uint32_t getFormatSize(VkFormat format, uint32_t& outDivisor)
 	case VK_FORMAT_R32G32B32A32_SFLOAT:
 		return 16;
 	default:
-		assert(false); // please implement me.
+		ASSERT(false); // please implement me.
 		return 0;
 	};
 }
@@ -104,8 +104,9 @@ findMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFla
 	VkPhysicalDeviceMemoryProperties memProperties;
 	vkGetPhysicalDeviceMemoryProperties(device, &memProperties);
 
-	for (uint32_t i = 0ul; i < memProperties.memoryTypeCount; i++)
-		if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties))
+	for (uint32_t i = 0UL; i < memProperties.memoryTypeCount; i++)
+		if (((typeFilter & (1 << i)) != 0u) &&
+			((memProperties.memoryTypes[i].propertyFlags & properties) != 0u))
 			return i;
 
 	return 0;
@@ -124,8 +125,7 @@ VkFormat findSupportedFormat(
 
 		if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures & features) == features)
 			return format;
-		else if (
-			tiling == VK_IMAGE_TILING_OPTIMAL &&
+		if (tiling == VK_IMAGE_TILING_OPTIMAL &&
 			(props.optimalTilingFeatures & features) == features)
 			return format;
 	}
@@ -220,8 +220,8 @@ void copyBuffer(
 	VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
 {
 	VkBufferCopy copyRegion{};
-	copyRegion.srcOffset = 0ull;
-	copyRegion.dstOffset = 0ull;
+	copyRegion.srcOffset = 0ULL;
+	copyRegion.dstOffset = 0ULL;
 	copyRegion.size = size;
 	vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyRegion);
 }
@@ -240,10 +240,11 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 
 	VmaAllocationCreateInfo allocInfo{};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
-	allocInfo.usage = (flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? VMA_MEMORY_USAGE_GPU_ONLY
-																	: VMA_MEMORY_USAGE_UNKNOWN;
+	allocInfo.usage = ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u)
+						  ? VMA_MEMORY_USAGE_GPU_ONLY
+						  : VMA_MEMORY_USAGE_UNKNOWN;
 	allocInfo.requiredFlags = flags;
-	allocInfo.memoryTypeBits = 0ul; // memRequirements.memoryTypeBits;
+	allocInfo.memoryTypeBits = 0UL; // memRequirements.memoryTypeBits;
 	allocInfo.pUserData = (void*)debugName;
 
 	VkBuffer outBuffer;
@@ -263,12 +264,12 @@ std::tuple<VkBuffer, VmaAllocation> createBuffer(
 	VkMemoryPropertyFlags memoryFlags,
 	const char* debugName)
 {
-	assert(bufferSize > 0);
+	ASSERT(bufferSize > 0);
 
 	VkBuffer outBuffer;
 	VmaAllocation outBufferMemory;
 
-	if (stagingBuffer)
+	if (stagingBuffer != nullptr)
 	{
 		std::tie(outBuffer, outBufferMemory) = createBuffer(
 			allocator,
@@ -308,7 +309,7 @@ std::tuple<VkBuffer, VmaAllocation> createStagingBuffer(
 	return bufferData;
 }
 
-void transitionImageLayout(
+void TransitionImageLayout(
 	VkCommandBuffer commandBuffer,
 	VkImage image,
 	VkFormat format,
@@ -335,9 +336,9 @@ void transitionImageLayout(
 		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	}
 
-	barrier.subresourceRange.baseMipLevel = 0ul;
+	barrier.subresourceRange.baseMipLevel = 0UL;
 	barrier.subresourceRange.levelCount = mipLevels;
-	barrier.subresourceRange.baseArrayLayer = 0ul;
+	barrier.subresourceRange.baseArrayLayer = 0UL;
 	barrier.subresourceRange.layerCount = 1;
 
 	VkPipelineStageFlags sourceStage{};
@@ -345,7 +346,7 @@ void transitionImageLayout(
 
 	if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
 	{
-		barrier.srcAccessMask = 0ul;
+		barrier.srcAccessMask = 0UL;
 		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
 		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -370,7 +371,7 @@ void transitionImageLayout(
 		oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
 		newLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
 	{
-		barrier.srcAccessMask = 0ul;
+		barrier.srcAccessMask = 0UL;
 		barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
 								VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
@@ -413,7 +414,7 @@ void transitionImageLayout(
 	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_GENERAL)
 	{
-		barrier.srcAccessMask = 0ul;
+		barrier.srcAccessMask = 0UL;
 		barrier.dstAccessMask =
 			VK_ACCESS_INDIRECT_COMMAND_READ_BIT | VK_ACCESS_INDEX_READ_BIT |
 			VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_UNIFORM_READ_BIT |
@@ -430,7 +431,7 @@ void transitionImageLayout(
 		oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
 		newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	{
-		barrier.srcAccessMask = 0ul;
+		barrier.srcAccessMask = 0UL;
 		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
 		sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -500,7 +501,7 @@ void transitionImageLayout(
 		oldLayout == VK_IMAGE_LAYOUT_UNDEFINED &&
 		newLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
 	{
-		barrier.srcAccessMask = 0ul;
+		barrier.srcAccessMask = 0UL;
 		barrier.dstAccessMask =
 			VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
@@ -583,9 +584,9 @@ void transitionImageLayout(
 	}
 	else
 	{
-		assert(false); // not implemented yet
-		barrier.srcAccessMask = 0ul;
-		barrier.dstAccessMask = 0ul;
+		ASSERT(false); // not implemented yet
+		barrier.srcAccessMask = 0UL;
+		barrier.dstAccessMask = 0UL;
 	}
 
 	vkCmdPipelineBarrier(
@@ -603,18 +604,18 @@ void copyBufferToImage(
 	uint32_t mipOffsetsStride)
 {
 	std::vector<VkBufferImageCopy> regions(mipLevels);
-	for (uint32_t mipIt = 0ul; mipIt < mipLevels; mipIt++)
+	for (uint32_t mipIt = 0UL; mipIt < mipLevels; mipIt++)
 	{
 		uint32_t mipWidth = width >> mipIt;
 		uint32_t mipHeight = height >> mipIt;
 
 		auto& region = regions[mipIt];
 		region.bufferOffset = *(mipOffsets + mipIt * mipOffsetsStride);
-		region.bufferRowLength = 0ul;
-		region.bufferImageHeight = 0ul;
+		region.bufferRowLength = 0UL;
+		region.bufferImageHeight = 0UL;
 		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		region.imageSubresource.mipLevel = mipIt;
-		region.imageSubresource.baseArrayLayer = 0ul;
+		region.imageSubresource.baseArrayLayer = 0UL;
 		region.imageSubresource.layerCount = 1;
 		region.imageOffset = {0, 0, 0};
 		region.imageExtent = {mipWidth, mipHeight, 1};
@@ -658,11 +659,11 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 	VmaAllocationCreateInfo allocInfo{};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
-	allocInfo.usage = (memoryFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+	allocInfo.usage = ((memoryFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u)
 						  ? VMA_MEMORY_USAGE_GPU_ONLY
 						  : VMA_MEMORY_USAGE_UNKNOWN;
 	allocInfo.requiredFlags = memoryFlags;
-	allocInfo.memoryTypeBits = 0ul; // memRequirements.memoryTypeBits;
+	allocInfo.memoryTypeBits = 0UL; // memRequirements.memoryTypeBits;
 	allocInfo.pUserData = (void*)debugName;
 
 	VkImage outImage;
@@ -690,7 +691,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 	const char* debugName,
 	VkImageLayout initialLayout)
 {
-	assert(stagingBuffer);
+	ASSERT(stagingBuffer);
 
 	auto result = createImage2D(
 		allocator,
@@ -706,7 +707,7 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 
 	const auto& [outImage, outImageMemory] = result;
 
-	transitionImageLayout(
+	TransitionImageLayout(
 		commandBuffer,
 		outImage,
 		format,
@@ -742,9 +743,9 @@ VkImageView createImageView2D(
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	viewInfo.format = format;
 	viewInfo.subresourceRange.aspectMask = aspectFlags;
-	viewInfo.subresourceRange.baseMipLevel = 0ul;
+	viewInfo.subresourceRange.baseMipLevel = 0UL;
 	viewInfo.subresourceRange.levelCount = mipLevels;
-	viewInfo.subresourceRange.baseArrayLayer = 0ul;
+	viewInfo.subresourceRange.baseArrayLayer = 0UL;
 	viewInfo.subresourceRange.layerCount = 1;
 	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
 	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -830,7 +831,7 @@ VkRenderPass createRenderPass(
 	colorAttachment.finalLayout = colorFinalLayout;
 
 	VkAttachmentReference colorAttachmentRef{};
-	colorAttachmentRef.attachment = 0ul;
+	colorAttachmentRef.attachment = 0UL;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
 	VkSubpassDescription subpass{};
@@ -860,7 +861,7 @@ VkRenderPass createRenderPass(
 
 	VkSubpassDependency dependency{};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-	dependency.dstSubpass = 0ul;
+	dependency.dstSubpass = 0UL;
 	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	dependency.srcAccessMask = {};
@@ -875,7 +876,7 @@ VkRenderPass createRenderPass(
 }
 
 // todo: use callback
-VkSurfaceKHR createSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)
+VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)
 {
 	VkSurfaceKHR surface;
 	VK_CHECK(glfwCreateWindowSurface(

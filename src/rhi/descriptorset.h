@@ -48,10 +48,10 @@ public:
 	bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
 	bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
 
-	void swap(DescriptorSetLayout& rhs) noexcept;
-	friend void swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(DescriptorSetLayout& rhs) noexcept;
+	friend void Swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 	const auto& getImmutableSamplers() const noexcept { return std::get<1>(myLayout); }
 	const auto& getShaderVariableBindings() const noexcept { return std::get<2>(myLayout); }
 	const auto& getShaderVariableBinding(uint64_t shaderVariableNameHash) const
@@ -99,12 +99,12 @@ public:
 	DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
 	const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
 
-	void swap(DescriptorSetArray& rhs) noexcept;
-	friend void swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(DescriptorSetArray& rhs) noexcept;
+	friend void Swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 
-	static constexpr auto capacity() { return kDescriptorSetCount; }
+	static constexpr auto Capacity() { return kDescriptorSetCount; }
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles
@@ -150,19 +150,19 @@ public:
 		return myHandle == other.myHandle;
 	}
 
-	void swap(DescriptorUpdateTemplate& rhs) noexcept;
-	friend void swap(DescriptorUpdateTemplate& lhs, DescriptorUpdateTemplate& rhs) noexcept
+	void Swap(DescriptorUpdateTemplate& rhs) noexcept;
+	friend void Swap(DescriptorUpdateTemplate& lhs, DescriptorUpdateTemplate& rhs) noexcept
 	{
-		lhs.swap(rhs);
+		lhs.Swap(rhs);
 	}
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 	const auto& getEntries() const noexcept { return myEntries; }
 
-	void setEntries(std::vector<DescriptorUpdateTemplateEntry<G>>&& entries);
+	void SetEntries(std::vector<DescriptorUpdateTemplateEntry<G>>&& entries);
 
 private:
-	void internalDestroyTemplate();
+	void InternalDestroyTemplate();
 	DescriptorUpdateTemplate( // takes ownership of provided handle
 		const std::shared_ptr<Device<G>>& device,
 		DescriptorUpdateTemplateCreateDesc<G>&& desc,

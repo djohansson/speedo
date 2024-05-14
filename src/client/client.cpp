@@ -1,12 +1,12 @@
 #include "capi.h"
 #include "client.h"
 
+#include <core/assert.h>
 #include <core/file.h>
 #include <core/upgradablesharedmutex.h>
 #include <server/rpc.h>
 
 #include <array>
-#include <cassert>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -196,7 +196,7 @@ bool TickClient()
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	assert(gClientApplication);
+	ASSERT(gClientApplication);
 
 	gClientApplication->Tick();
 
@@ -208,7 +208,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	using namespace client;
 	using namespace file;
 
-	assert(paths != nullptr);
+	ASSERT(paths != nullptr);
 
 	auto root = getCanonicalPath(nullptr, "./");
 
@@ -223,7 +223,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	assert(gClientApplication);
+	ASSERT(gClientApplication);
 
 	gUpdateTask = gClientApplication->Executor().createTask(UpdateInput);
 	gClientApplication->Executor().submit(gUpdateTask.first);
@@ -235,8 +235,8 @@ void DestroyClient()
 
 	std::unique_lock lock{gClientApplicationMutex};
 
-	assert(gClientApplication);
-	assert(gClientApplication.use_count() == 1);
+	ASSERT(gClientApplication);
+	ASSERT(gClientApplication.use_count() == 1);
 	
 	gClientApplication.reset();
 }

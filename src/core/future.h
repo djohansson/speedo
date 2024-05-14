@@ -21,7 +21,7 @@ public:
 	value_t get();
 	bool is_ready() const noexcept;
 	bool valid() const noexcept;
-	void wait() const;
+	void Wait() const;
 
 private:
 	friend class Task;

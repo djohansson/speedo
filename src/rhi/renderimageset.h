@@ -23,17 +23,17 @@ public:
 
 	RenderImageSet& operator=(RenderImageSet<G>&& other) noexcept;
 
-	void swap(RenderImageSet& rhs) noexcept;
-	friend void swap(RenderImageSet& lhs, RenderImageSet& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(RenderImageSet& rhs) noexcept;
+	friend void Swap(RenderImageSet& lhs, RenderImageSet& rhs) noexcept { lhs.Swap(rhs); }
 
-	virtual ImageLayout<G> getColorImageLayout(uint32_t index) const;
-	virtual ImageLayout<G> getDepthStencilImageLayout() const;
+	virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const;
+	virtual ImageLayout<G> GetDepthStencilImageLayout() const;
 
-	virtual void end(CommandBufferHandle<G> cmd);
+	virtual void End(CommandBufferHandle<G> cmd);
 
 	virtual void
-	transitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
-	virtual void transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
+	TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
+	virtual void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
 private:
 	std::vector<std::shared_ptr<Image<G>>> myColorImages;

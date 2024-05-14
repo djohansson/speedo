@@ -27,7 +27,7 @@ getPushConstantRanges(const DescriptorSetLayoutFlatMap<G>& layouts)
 		ranges.reserve(layouts.size());
 
 		for (const auto& [set, layout] : layouts)
-			if (auto pcr = layout.getDesc().pushConstantRange; pcr)
+			if (auto pcr = layout.GetDesc().pushConstantRange; pcr)
 				ranges.push_back(*pcr);
 	}
 

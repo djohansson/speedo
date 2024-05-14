@@ -33,7 +33,7 @@ Future<T>& Future<T>::operator=(const Future& other) noexcept
 template <typename T>
 typename Future<T>::value_t Future<T>::get()
 {
-	wait();
+	Wait();
 
 	// important copy! otherwise value will be garbage on exit due to myState.reset().
 	auto retval = myState->value;
@@ -46,7 +46,7 @@ typename Future<T>::value_t Future<T>::get()
 template <typename T>
 bool Future<T>::is_ready() const noexcept
 {
-	ASSERT(valid(), "Future is not valid!");
+	ASSERTF(valid(), "Future is not valid!");
 
 	return myState->latch.load(std::memory_order_relaxed) == 0;
 }
@@ -58,9 +58,9 @@ bool Future<T>::valid() const noexcept
 }
 
 template <typename T>
-void Future<T>::wait() const
+void Future<T>::Wait() const
 {
-	ASSERT(valid(), "Future is not valid!");
+	ASSERTF(valid(), "Future is not valid!");
 
 	while (auto current = myState->latch.load(std::memory_order_relaxed))
 		myState->latch.wait(current, std::memory_order_acquire);

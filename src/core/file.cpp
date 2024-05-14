@@ -29,25 +29,25 @@ std::string getTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
-	std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::filesystem::last_write_time(filePath).time_since_epoch());
-	std::chrono::seconds s = std::chrono::duration_cast<std::chrono::seconds>(ms);
+	auto s = std::chrono::duration_cast<std::chrono::seconds>(ms);
 	std::time_t timestamp = s.count();
 
-	return std::string(std::asctime(std::localtime(&timestamp)));
+	return {std::asctime(std::localtime(&timestamp))};
 }
 
 std::filesystem::path
 getCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing)
 {
-	assert(defaultPathStr != nullptr);
-	
-	auto path = std::filesystem::path(pathStr ? pathStr : defaultPathStr);
+	ASSERT(defaultPathStr != nullptr);
+
+	auto path = std::filesystem::path((pathStr != nullptr) ? pathStr : defaultPathStr);
 
 	if (createIfMissing && !std::filesystem::exists(path))
 		std::filesystem::create_directory(path);
 
-	assert(std::filesystem::is_directory(path));
+	ASSERT(std::filesystem::is_directory(path));
 
 	return std::filesystem::canonical(path);
 }

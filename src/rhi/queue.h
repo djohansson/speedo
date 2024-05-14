@@ -112,34 +112,34 @@ public:
 	Queue& operator=(Queue&& other) noexcept;
 	operator auto() const noexcept { return myQueue; }
 
-	void swap(Queue& rhs) noexcept;
-	friend void swap(Queue& lhs, Queue& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Queue& rhs) noexcept;
+	friend void Swap(Queue& lhs, Queue& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
-
-	template <typename T, typename... Ts>
-	void enqueueSubmit(T&& first, Ts&&... rest);
-	QueueHostSyncInfo<G> submit();
+	const auto& GetDesc() const noexcept { return myDesc; }
 
 	template <typename T, typename... Ts>
-	void enqueuePresent(T&& first, Ts&&... rest);
-	QueuePresentInfo<G> present();
+	void EnqueueSubmit(T&& first, Ts&&... rest);
+	QueueHostSyncInfo<G> Submit();
 
-	void execute(uint8_t level, uint64_t timelineValue);
+	template <typename T, typename... Ts>
+	void EnqueuePresent(T&& first, Ts&&... rest);
+	QueuePresentInfo<G> Present();
 
-	void wait(QueueHostSyncInfo<G>&& syncInfo) const;
-	void waitIdle() const;
+	void Execute(uint8_t level, uint64_t timelineValue);
+
+	void Wait(QueueHostSyncInfo<G>&& syncInfo) const;
+	void WaitIdle() const;
 	
-	void addTimelineCallback(TimelineCallback&& callback);
-	bool processTimelineCallbacks(uint64_t timelineValue);
+	void AddTimelineCallback(TimelineCallback&& callback);
+	bool ProcessTimelineCallbacks(uint64_t timelineValue);
 
-	auto& getPool() noexcept { return myPool; }
-	const auto& getPool() const noexcept { return myPool; }
+	auto& GetPool() noexcept { return myPool; }
+	const auto& GetPool() const noexcept { return myPool; }
 
 #if (PROFILING_LEVEL > 0)
 	template <SourceLocationData Location>
-	inline std::shared_ptr<void> gpuScope(CommandBufferHandle<G> cmd);
-	void gpuScopeCollect(CommandBufferHandle<G> cmd);
+	inline std::shared_ptr<void> GpuScope(CommandBufferHandle<G> cmd);
+	void GpuScopeCollect(CommandBufferHandle<G> cmd);
 #endif
 
 private:
@@ -148,11 +148,11 @@ private:
 		CommandPoolCreateDesc<G>&& commandPoolDesc,
 		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
 
-	QueueSubmitInfo<G> internalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
+	QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 
 #if (PROFILING_LEVEL > 0)
 	std::shared_ptr<void>
-	internalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
+	InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 #endif
 
 	QueueCreateDesc<G> myDesc{};
@@ -174,13 +174,13 @@ using QueueGroup = std::tuple<std::vector<std::pair<Queue<G>, QueueHostSyncInfo<
 #if (PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag)											\
 		auto tag##__scope =														\
-			queue.gpuScope<														\
+			queue.GpuScope<														\
 				SourceLocationData{												\
 					.name = std_extra::make_string_literal<#tag>().data(),						\
 					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(),	\
 					.file = std_extra::make_string_literal<__FILE__>().data(),					\
 					.line = __LINE__}>(cmd);
-#	define GPU_SCOPE_COLLECT(cmd, queue) { queue.gpuScopeCollect(cmd); }
+#	define GPU_SCOPE_COLLECT(cmd, queue) { queue.GpuScopeCollect(cmd); }
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}
 #	define GPU_SCOPE_COLLECT(cmd, queue) {}

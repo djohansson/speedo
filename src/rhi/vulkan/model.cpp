@@ -26,7 +26,7 @@ auto serialize(const AABB<float>&) -> zpp::bits::members<2>;
 namespace model
 {
 
-std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
+std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
 {
 	using AttributeMap = std::map<uint32_t, std::tuple<VkFormat, uint32_t>>;
@@ -35,7 +35,7 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 
 	for (const auto& attribute : attributes)
 	{
-		assert(attribute.binding == 0); // todo: please implement me
+		ASSERT(attribute.binding == 0); // todo: please implement me
 
 		attributeMap[attribute.location] = std::make_tuple(attribute.format, attribute.offset);
 	}
@@ -65,9 +65,9 @@ std::vector<VkVertexInputBindingDescription> calculateInputBindingDescriptions(
 		stride = lastOffset + lastSize;
 	}
 
-	// assert(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
+	// ASSERT(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
 
-	return {VertexInputBindingDescription<Vk>{0u, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
+	return {VertexInputBindingDescription<Vk>{0U, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
 std::tuple<
@@ -76,7 +76,10 @@ std::tuple<
 	AllocationHandle<Vk>,
 	BufferHandle<Vk>,
 	AllocationHandle<Vk>>
-load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& device, std::atomic_uint8_t& progress)
+Load(
+	const std::filesystem::path& modelFile,
+	const std::shared_ptr<Device<Vk>>& device,
+	std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("model::load");
 
@@ -181,7 +184,8 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 		attrib_t attrib;
 		std::vector<shape_t> shapes;
 		std::vector<material_t> materials;
-		std::string warn, err;
+		std::string warn;
+		std::string err;
 		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()))
 			throw std::runtime_error(err);
 
@@ -264,7 +268,7 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 				{
 					float uvs[2] = {
 						attrib.texcoords[2 * index.texcoord_index + 0],
-						1.0f - attrib.texcoords[2 * index.texcoord_index + 1]};
+						1.0F - attrib.texcoords[2 * index.texcoord_index + 1]};
 					std::copy_n(
 						uvs,
 						2,
@@ -338,9 +342,9 @@ load(const std::filesystem::path& modelFile, const std::shared_ptr<Device<Vk>>& 
 
 	static constexpr char loaderType[] = "tinyobjloader";
 	static constexpr char loaderVersion[] = "2.0.15";
-	file::loadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
+	file::LoadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
-	if (!vbHandle || !ibHandle)
+	if ((vbHandle == nullptr) || (ibHandle == nullptr))
 		throw std::runtime_error("Failed to load model.");
 
 	return descAndInitialData;
@@ -366,9 +370,9 @@ Model<Vk>::Model(
 		  timelineValue,
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
-					std::get<0>(descAndInitialData).indexCount * sizeof(uint32_t),
-					VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+				  std::get<0>(descAndInitialData).indexCount * sizeof(uint32_t),
+				  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
 			  std::get<1>(descAndInitialData),
 			  std::get<2>(descAndInitialData)))
 	, myVertexBuffer(
@@ -377,12 +381,12 @@ Model<Vk>::Model(
 		  timelineValue,
 		  std::make_tuple(
 			  BufferCreateDesc<Vk>{
-					std::get<0>(descAndInitialData).vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
-					VK_BUFFER_USAGE_VERTEX_BUFFER_BIT|VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-					VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+				  std::get<0>(descAndInitialData).vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
+				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
 			  std::get<3>(descAndInitialData),
 			  std::get<4>(descAndInitialData)))
-	, myBindings(model::calculateInputBindingDescriptions(myDesc.attributes))
+	, myBindings(model::CalculateInputBindingDescriptions(myDesc.attributes))
 {}
 
 template <>
@@ -392,11 +396,11 @@ Model<Vk>::Model(
 	uint64_t timelineValue,
 	const std::filesystem::path& modelFile,
 	std::atomic_uint8_t& progress)
-	: Model(device, queue, timelineValue, model::load(modelFile, device, progress))
+	: Model(device, queue, timelineValue, model::Load(modelFile, device, progress))
 {}
 
 template <>
-void Model<Vk>::swap(Model& rhs) noexcept
+void Model<Vk>::Swap(Model& rhs) noexcept
 {
 	std::swap(myDesc, rhs.myDesc);
 	std::swap(myIndexBuffer, rhs.myIndexBuffer);

@@ -5,11 +5,10 @@
 #include <tracy/TracyC.h>
 #include <tracy/TracyVulkan.hpp>
 
-
 template <>
-bool Queue<Vk>::processTimelineCallbacks(uint64_t timelineValue)
+bool Queue<Vk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 {
-	ZoneScopedN("Queue::processTimelineCallbacks");
+	ZoneScopedN("Queue::ProcessTimelineCallbacks");
 
 	while (!myTimelineCallbacks.empty())
 	{
@@ -43,21 +42,34 @@ Queue<Vk>::Queue(
 {
 	using namespace tracy;
 
-	static_assert((uint32_t)QueueFamilyFlagBits_Graphics == (uint32_t)VK_QUEUE_GRAPHICS_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Compute == (uint32_t)VK_QUEUE_COMPUTE_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_Transfer == (uint32_t)VK_QUEUE_TRANSFER_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_SparseBinding == (uint32_t)VK_QUEUE_SPARSE_BINDING_BIT);
-	static_assert((uint32_t)QueueFamilyFlagBits_VideoDecode == (uint32_t)VK_QUEUE_VIDEO_DECODE_BIT_KHR);
-	static_assert((uint32_t)QueueFamilyFlagBits_VideoEncode == (uint32_t)VK_QUEUE_VIDEO_ENCODE_BIT_KHR);
+	static_assert(
+		static_cast<uint32_t>(QueueFamilyFlagBits_Graphics) ==
+		static_cast<uint32_t>(VK_QUEUE_GRAPHICS_BIT));
+	static_assert(
+		static_cast<uint32_t>(QueueFamilyFlagBits_Compute) ==
+		static_cast<uint32_t>(VK_QUEUE_COMPUTE_BIT));
+	static_assert(
+		static_cast<uint32_t>(QueueFamilyFlagBits_Transfer) ==
+		static_cast<uint32_t>(VK_QUEUE_TRANSFER_BIT));
+	static_assert(
+		static_cast<uint32_t>(QueueFamilyFlagBits_SparseBinding) ==
+		static_cast<uint32_t>(VK_QUEUE_SPARSE_BINDING_BIT));
+	static_assert(
+		static_cast<uint32_t>(QueueFamilyFlagBits_VideoDecode) ==
+		static_cast<uint32_t>(VK_QUEUE_VIDEO_DECODE_BIT_KHR));
+	static_assert(
+		static_cast<uint32_t>(QueueFamilyFlagBits_VideoEncode) ==
+		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (PROFILING_LEVEL > 0)
-	if (device->getPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+	if ((device->getPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags &
+		 VK_QUEUE_GRAPHICS_BIT) != 0u)
 	{
 		myProfilingContext = CreateVkContext(
 			device->getPhysicalDevice(),
 			*device,
 			myQueue,
-			myPool.commands(CommandBufferAccessScopeDesc<Vk>(false)),
+			myPool.Commands(CommandBufferAccessScopeDesc<Vk>(false)),
 			nullptr,
 			nullptr);
 	}
@@ -107,17 +119,17 @@ Queue<Vk>::~Queue()
 		DestroyVkContext(std::any_cast<TracyVkCtx>(myProfilingContext));
 #endif
 	
-	for (auto& submittedCommandList : myPool.internalGetSubmittedCommands())
+	for (auto& submittedCommandList : myPool.InternalGetSubmittedCommands())
 	{
 		if (!submittedCommandList.empty())
 		{
 			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
 
-			processTimelineCallbacks(cmdTimelineValue);
+			ProcessTimelineCallbacks(cmdTimelineValue);
 		}
 	}
 
-	assert(myTimelineCallbacks.empty());
+	ASSERT(myTimelineCallbacks.empty());
 }
 
 template <>
@@ -137,9 +149,9 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 }
 
 template <>
-void Queue<Vk>::swap(Queue& other) noexcept
+void Queue<Vk>::Swap(Queue& other) noexcept
 {
-	DeviceObject::swap(other);
+	DeviceObject::Swap(other);
 	std::swap(myDesc, other.myDesc);
 	std::swap(myQueue, other.myQueue);
 	std::swap(myPool, other.myPool);
@@ -153,7 +165,7 @@ void Queue<Vk>::swap(Queue& other) noexcept
 
 #if (PROFILING_LEVEL > 0)
 template <>
-void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
+void Queue<Vk>::GpuScopeCollect(CommandBufferHandle<Vk> cmd)
 {
 	if (myProfilingContext.has_value())
 		TracyVkCollect(std::any_cast<TracyVkCtx>(myProfilingContext), cmd);
@@ -161,7 +173,7 @@ void Queue<Vk>::gpuScopeCollect(CommandBufferHandle<Vk> cmd)
 
 template <>
 std::shared_ptr<void>
-Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
+Queue<Vk>::InternalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
 {
 	static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
 	static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
@@ -184,7 +196,7 @@ Queue<Vk>::internalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 #endif
 
 template <>
-QueueHostSyncInfo<Vk> Queue<Vk>::submit()
+QueueHostSyncInfo<Vk> Queue<Vk>::Submit()
 {
 	ZoneScopedN("Queue::submit");
 
@@ -195,10 +207,11 @@ QueueHostSyncInfo<Vk> Queue<Vk>::submit()
 		(sizeof(SubmitInfo<Vk>) + sizeof(TimelineSemaphoreSubmitInfo<Vk>)) *
 		myPendingSubmits.size());
 
-	auto timelineBegin = reinterpret_cast<TimelineSemaphoreSubmitInfo<Vk>*>(myScratchMemory.data());
-	auto timelinePtr = timelineBegin;
+	auto* timelineBegin =
+		reinterpret_cast<TimelineSemaphoreSubmitInfo<Vk>*>(myScratchMemory.data());
+	auto* timelinePtr = timelineBegin;
 
-	uint64_t maxTimelineValue = 0ull;
+	uint64_t maxTimelineValue = 0ULL;
 
 	for (const auto& pendingSubmit : myPendingSubmits)
 	{
@@ -214,8 +227,8 @@ QueueHostSyncInfo<Vk> Queue<Vk>::submit()
 		maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.timelineValue);
 	}
 
-	auto submitBegin = reinterpret_cast<SubmitInfo<Vk>*>(timelinePtr);
-	auto submitPtr = submitBegin;
+	auto* submitBegin = reinterpret_cast<SubmitInfo<Vk>*>(timelinePtr);
+	auto* submitPtr = submitBegin;
 	timelinePtr = timelineBegin;
 
 	for (const auto& pendingSubmit : myPendingSubmits)
@@ -246,7 +259,7 @@ QueueHostSyncInfo<Vk> Queue<Vk>::submit()
 }
 
 template <>
-void Queue<Vk>::waitIdle() const
+void Queue<Vk>::WaitIdle() const
 {
 	ZoneScopedN("Queue::waitIdle");
 
@@ -254,11 +267,11 @@ void Queue<Vk>::waitIdle() const
 }
 
 template <>
-QueuePresentInfo<Vk> Queue<Vk>::present()
+QueuePresentInfo<Vk> Queue<Vk>::Present()
 {
 	ZoneScopedN("Queue::present");
 
-	Fence<Vk>::wait(getDevice(), myPendingPresent.fences);
+	Fence<Vk>::Wait(getDevice(), myPendingPresent.fences);
 
 	PresentInfo<Vk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
@@ -274,33 +287,33 @@ QueuePresentInfo<Vk> Queue<Vk>::present()
 }
 
 template <>
-void Queue<Vk>::addTimelineCallback(TimelineCallback&& callback)
+void Queue<Vk>::AddTimelineCallback(TimelineCallback&& callback)
 {
-	ZoneScopedN("Queue::addTimelineCallback");
+	ZoneScopedN("Queue::AddTimelineCallback");
 
 	myTimelineCallbacks.emplace_back(std::forward<TimelineCallback>(callback));
 }
 
 template <>
-QueueSubmitInfo<Vk> Queue<Vk>::internalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& syncInfo)
+QueueSubmitInfo<Vk> Queue<Vk>::InternalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& syncInfo)
 {
 	ZoneScopedN("Queue::prepareSubmit");
 
-	myPool.internalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	myPool.InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
-	auto& pendingCommands = myPool.internalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
+	auto& pendingCommands = myPool.InternalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
 	if (pendingCommands.empty())
 		return {};
 
 	QueueSubmitInfo<Vk> submitInfo{std::forward<QueueDeviceSyncInfo<Vk>>(syncInfo), {}, 0};
-	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::capacity());
+	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::Capacity());
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
 	{
-		assert(!cmdArray.recordingFlags());
-		auto cmdCount = cmdArray.head();
-		std::copy_n(cmdArray.data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
+		ASSERT(!cmdArray.RecordingFlags());
+		auto cmdCount = cmdArray.Head();
+		std::copy_n(cmdArray.Data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
 	}
 
 	const auto [minSignalValue, maxSignalValue] = std::minmax_element(
@@ -308,22 +321,22 @@ QueueSubmitInfo<Vk> Queue<Vk>::internalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& s
 
 	submitInfo.timelineValue = *maxSignalValue;
 
-	myPool.internalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
+	myPool.InternalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
 	
 	return submitInfo;
 }
 
 template <>
-void Queue<Vk>::execute(uint8_t level, uint64_t timelineValue)
+void Queue<Vk>::Execute(uint8_t level, uint64_t timelineValue)
 {
-	ZoneScopedN("Queue::execute");
+	ZoneScopedN("Queue::Execute");
 
-	myPool.internalEndCommands(level);
+	myPool.InternalEndCommands(level);
 
-	auto& pendingCommands = myPool.internalGetPendingCommands()[level];
+	auto& pendingCommands = myPool.InternalGetPendingCommands()[level];
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
-		vkCmdExecuteCommands(myPool.commands(), cmdArray.head(), cmdArray.data());
+		vkCmdExecuteCommands(myPool.Commands(), cmdArray.Head(), cmdArray.Data());
 
-	myPool.internalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
+	myPool.InternalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
 }

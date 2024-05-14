@@ -16,14 +16,14 @@ public:
 
 	void lock()
 	{
-		assert(!myIsLocked);
+		ASSERT(!myIsLocked);
 
 		myIsLocked = true;
 	}
 
 	void unlock()
 	{
-		assert(myIsLocked);
+		ASSERT(myIsLocked);
 
 		myIsLocked = false;
 	}
@@ -36,14 +36,14 @@ public:
 
 	void reserve(size_t size)
 	{
-		assert(myIsLocked);
+		ASSERT(myIsLocked);
 
 		myData.reserve(size * stride());
 	}
 
 	void setStride(size_t stride)
 	{
-		assert(!myIsLocked);
+		ASSERT(!myIsLocked);
 
 		myStride = stride;
 	}

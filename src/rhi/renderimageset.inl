@@ -8,9 +8,9 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 {
 	RenderTargetCreateDesc<G> outDesc{};
 
-	ASSERT(colorImages.size(), "colorImages cannot be empty");
+	ASSERTF(colorImages.size(), "colorImages cannot be empty");
 
-	auto firstColorImageExtent = colorImages.front()->getDesc().mipLevels[0].extent;
+	auto firstColorImageExtent = colorImages.front()->GetDesc().mipLevels[0].extent;
 
 	outDesc.extent = {firstColorImageExtent.width, firstColorImageExtent.height};
 	outDesc.colorImageFormats.reserve(colorImages.size());
@@ -19,22 +19,22 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 
 	for (const auto& image : colorImages)
 	{
-		ASSERT(
-			outDesc.extent.width == image->getDesc().mipLevels[0].extent.width,
+		ASSERTF(
+			outDesc.extent.width == image->GetDesc().mipLevels[0].extent.width,
 			"all colorImages needs to have same width");
-		ASSERT(
-			outDesc.extent.height == image->getDesc().mipLevels[0].extent.height,
+		ASSERTF(
+			outDesc.extent.height == image->GetDesc().mipLevels[0].extent.height,
 			"all colorImages needs to have same height");
 
-		outDesc.colorImageFormats.emplace_back(image->getDesc().format);
-		outDesc.colorImageLayouts.emplace_back(image->getImageLayout());
+		outDesc.colorImageFormats.emplace_back(image->GetDesc().format);
+		outDesc.colorImageLayouts.emplace_back(image->GetImageLayout());
 		outDesc.colorImages.emplace_back(*image);
 	}
 
 	if (depthStencilImage)
 	{
-		outDesc.depthStencilImageFormat = depthStencilImage->getDesc().format;
-		outDesc.depthStencilImageLayout = depthStencilImage->getImageLayout();
+		outDesc.depthStencilImageFormat = depthStencilImage->GetDesc().format;
+		outDesc.depthStencilImageLayout = depthStencilImage->GetImageLayout();
 		outDesc.depthStencilImage = *depthStencilImage;
 	}
 
@@ -78,47 +78,47 @@ RenderImageSet<G>& RenderImageSet<G>::operator=(RenderImageSet&& other) noexcept
 }
 
 template <GraphicsApi G>
-void RenderImageSet<G>::swap(RenderImageSet& rhs) noexcept
+void RenderImageSet<G>::Swap(RenderImageSet& rhs) noexcept
 {
-	BaseType::swap(rhs);
+	BaseType::Swap(rhs);
 	std::swap(myColorImages, rhs.myColorImages);
 	std::swap(myDepthStencilImage, rhs.myDepthStencilImage);
 }
 
 template <GraphicsApi G>
-ImageLayout<G> RenderImageSet<G>::getColorImageLayout(uint32_t index) const
+ImageLayout<G> RenderImageSet<G>::GetColorImageLayout(uint32_t index) const
 {
-	return myColorImages[index]->getImageLayout();
+	return myColorImages[index]->GetImageLayout();
 }
 
 template <GraphicsApi G>
-ImageLayout<G> RenderImageSet<G>::getDepthStencilImageLayout() const
+ImageLayout<G> RenderImageSet<G>::GetDepthStencilImageLayout() const
 {
-	return myDepthStencilImage->getImageLayout();
+	return myDepthStencilImage->GetImageLayout();
 }
 
 template <GraphicsApi G>
-void RenderImageSet<G>::end(CommandBufferHandle<G> cmd)
+void RenderImageSet<G>::End(CommandBufferHandle<G> cmd)
 {
-	RenderTarget<G>::end(cmd);
+	RenderTarget<G>::End(cmd);
 
 	uint32_t imageIt = 0ul;
 	for (; imageIt < myColorImages.size(); imageIt++)
-		myColorImages[imageIt]->setImageLayout(this->getAttachmentDesc(imageIt).finalLayout);
+		myColorImages[imageIt]->SetImageLayout(this->GetAttachmentDesc(imageIt).finalLayout);
 
 	if (myDepthStencilImage)
-		myDepthStencilImage->setImageLayout(this->getAttachmentDesc(imageIt).finalLayout);
+		myDepthStencilImage->SetImageLayout(this->GetAttachmentDesc(imageIt).finalLayout);
 }
 
 template <GraphicsApi G>
-void RenderImageSet<G>::transitionColor(
+void RenderImageSet<G>::TransitionColor(
 	CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index)
 {
-	myColorImages[index]->transition(cmd, layout);
+	myColorImages[index]->Transition(cmd, layout);
 }
 
 template <GraphicsApi G>
-void RenderImageSet<G>::transitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout)
+void RenderImageSet<G>::TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout)
 {
-	myDepthStencilImage->transition(cmd, layout);
+	myDepthStencilImage->Transition(cmd, layout);
 }

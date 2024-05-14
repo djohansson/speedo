@@ -31,7 +31,7 @@ namespace image
 {
 
 std::tuple<VkImage, VmaAllocation>
-createImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
+CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
 {
 	return createImage2D(
 		allocator,
@@ -46,7 +46,7 @@ createImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
 		desc.initialLayout);
 }
 
-std::tuple<VkImage, VmaAllocation> createImage2D(
+std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<Vk>& desc)
 {
 	return createImage2D(
@@ -66,8 +66,10 @@ std::tuple<VkImage, VmaAllocation> createImage2D(
 		desc.initialLayout);
 }
 
-std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>
-load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& device, std::atomic_uint8_t& progress)
+std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
+	const std::filesystem::path& imageFile,
+	const std::shared_ptr<Device<Vk>>& device,
+	std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("image::load");
 
@@ -147,7 +149,9 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-		int width, height, channelCount;
+		int width;
+		int height;
+		int channelCount;
 		stbi_uc* stbiImageData = stbi_load(imageFile.string().c_str(), &width, &height, &channelCount, STBI_rgb_alpha);
 
 		uint32_t mipCount =
@@ -245,8 +249,8 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 		};
 
 		auto threadCount = std::thread::hardware_concurrency();
-		auto src = stbiImageData;
-		auto dst = static_cast<unsigned char*>(stagingBuffer);
+		auto* src = stbiImageData;
+		auto* dst = static_cast<unsigned char*>(stagingBuffer);
 
 		auto dp = 192 / (2 * desc.mipLevels.size());
 
@@ -336,9 +340,9 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 
 	static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
 	static constexpr char loaderVersion[] = "2.26|0.96|1.10";
-	file::loadAsset<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
+	file::LoadAsset<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
 
-	if (!bufferHandle)
+	if (bufferHandle == nullptr)
 		throw std::runtime_error("Failed to load image.");
 
 	return descAndInitialData;
@@ -347,20 +351,20 @@ load(const std::filesystem::path& imageFile, const std::shared_ptr<Device<Vk>>& 
 } // namespace image
 
 template <>
-void Image<Vk>::transition(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void Image<Vk>::Transition(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
-	ZoneScopedN("Image::transition");
+	ZoneScopedN("Image::Transition");
 
-	if (getImageLayout() != layout)
+	if (GetImageLayout() != layout)
 	{
-		transitionImageLayout(
-			cmd, *this, myDesc.format, getImageLayout(), layout, myDesc.mipLevels.size());
-		setImageLayout(layout);
+		TransitionImageLayout(
+			cmd, *this, myDesc.format, GetImageLayout(), layout, myDesc.mipLevels.size());
+		SetImageLayout(layout);
 	}
 }
 
 template <>
-void Image<Vk>::clear(
+void Image<Vk>::Clear(
 	CommandBufferHandle<Vk> cmd,
 	const ClearValue<Vk>& value,
 	ClearType type,
@@ -368,9 +372,9 @@ void Image<Vk>::clear(
 {
 	ZoneScopedN("Image::clear");
 
-	static const VkImageSubresourceRange defaultColorRange{
+	static const VkImageSubresourceRange kDefaultColorRange{
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-	static const VkImageSubresourceRange defaultDepthStencilRange{
+	static const VkImageSubresourceRange kDefaultDepthStencilRange{
 		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
 		0,
 		VK_REMAINING_MIP_LEVELS,
@@ -383,22 +387,22 @@ void Image<Vk>::clear(
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			getImageLayout(),
+			GetImageLayout(),
 			&value.color,
 			1,
-			range ? &range.value() : &defaultColorRange);
+			range ? &range.value() : &kDefaultColorRange);
 		break;
 	case ClearType::DepthStencil:
 		vkCmdClearDepthStencilImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			getImageLayout(),
+			GetImageLayout(),
 			&value.depthStencil,
 			1,
-			range ? &range.value() : &defaultDepthStencilRange);
+			range ? &range.value() : &kDefaultDepthStencilRange);
 		break;
 	default:
-		assert(false);
+		ASSERT(false);
 		break;
 	}
 }
@@ -429,7 +433,7 @@ Image<Vk>::Image(const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&
 		  device,
 		  std::forward<ImageCreateDesc<Vk>>(desc),
 		  std::tuple_cat(
-			  image::createImage2D(device->getAllocator(), desc),
+			  image::CreateImage2D(device->getAllocator(), desc),
 			  std::make_tuple(desc.initialLayout)))
 {}
 
@@ -443,14 +447,14 @@ Image<Vk>::Image(
 		  device,
 		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  std::tuple_cat(
-			  image::createImage2D(
-				  queue.getPool().commands(),
+			  image::CreateImage2D(
+				  queue.GetPool().Commands(),
 				  device->getAllocator(),
 				  std::get<1>(descAndInitialData),
 				  std::get<0>(descAndInitialData)),
 			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
 {
-	queue.addTimelineCallback(
+	queue.AddTimelineCallback(
 	{
 		timelineValue,
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
@@ -488,14 +492,14 @@ Image<Vk>::Image(
 	uint64_t timelineValue,
 	const std::filesystem::path& imageFile,
 	std::atomic_uint8_t& progress)
-	: Image(device, queue, timelineValue, image::load(imageFile, device, progress))
+	: Image(device, queue, timelineValue, image::Load(imageFile, device, progress))
 {}
 
 template <>
 Image<Vk>::~Image()
 {
 	if (ImageHandle<Vk> image = *this)
-		vmaDestroyImage(getDevice()->getAllocator(), image, getImageMemory());
+		vmaDestroyImage(getDevice()->getAllocator(), image, GetImageMemory());
 }
 
 template <>
@@ -521,9 +525,9 @@ ImageView<Vk>::ImageView(
 			  &device->getInstance()->getHostAllocationCallbacks(),
 			  0, // "reserved for future use"
 			  image,
-			  image.getDesc().format,
+			  image.GetDesc().format,
 			  aspectFlags,
-			  image.getDesc().mipLevels.size()))
+			  image.GetDesc().mipLevels.size()))
 {}
 
 template <>
@@ -542,8 +546,8 @@ ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 }
 
 template <>
-void ImageView<Vk>::swap(ImageView& rhs) noexcept
+void ImageView<Vk>::Swap(ImageView& rhs) noexcept
 {
-	DeviceObject::swap(rhs);
+	DeviceObject::Swap(rhs);
 	std::swap(myView, rhs.myView);
 }

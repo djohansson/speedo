@@ -16,7 +16,7 @@ DescriptorType<Vk> getDescriptorType(
 	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access);
 
 template <GraphicsApi G>
-uint32_t createLayoutBindings(
+uint32_t CreateLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>>& layouts,
@@ -64,7 +64,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 				std::filesystem::create_directory(path);
 
 			std::cout << "Set intermediate path: " << path << '\n';
-			assert(std::filesystem::is_directory(path));
+			ASSERT(std::filesystem::is_directory(path));
 			spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + "/").c_str());
 		}
 
@@ -75,7 +75,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 			auto path = std::filesystem::canonical(includePath);
 
 			std::cout << "Add include search path: " << path << '\n';
-			assert(std::filesystem::is_directory(path));
+			ASSERT(std::filesystem::is_directory(path));
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
 
@@ -192,19 +192,19 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount();
 			 parameterIndex++)
-			shader::createLayoutBindings<G>(
+			shader::CreateLayoutBindings<G>(
 				shaderReflection->getParameterByIndex(parameterIndex),
 				genericParameterIndices,
 				shaderSet.layouts);
 
-		// for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
+		// for (uint32_t epIndex = 0; epIndex < shaderReflection->GetEntryPointCount(); epIndex++)
 		// {
-		// 	slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
+		// 	slang::EntryPointReflection* epReflection = shaderReflection->GetEntryPointByIndex(epIndex);
 		// SlangUInt threadGroupSize[3];
 		// epReflection->getComputeThreadGruopSize(3, &threadGroupSize[0]);
 
 		// 	for (unsigned parameterIndex = 0; parameterIndex < epReflection->getParameterCount(); parameterIndex++)
-		// 		shader::createLayoutBindings<G>(epReflection->getParameterByIndex(pp), shaderSet->layouts);
+		// 		shader::CreateLayoutBindings<G>(epReflection->getParameterByIndex(pp), shaderSet->layouts);
 		// }
 
 		spDestroyCompileRequest(slangRequest);
@@ -214,7 +214,7 @@ ShaderSet<G> ShaderLoader::load(const std::filesystem::path& slangFile)
 
 	static constexpr char loaderTypeStr[] = "slang";
 	static constexpr char loaderVersionStr[] = "0.9.2";
-	file::loadAsset<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
+	file::LoadAsset<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");

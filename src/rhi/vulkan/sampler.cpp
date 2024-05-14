@@ -47,7 +47,7 @@ SamplerVector<Vk>::SamplerVector(SamplerVector&& other) noexcept
 template <>
 SamplerVector<Vk>::~SamplerVector()
 {
-	for (auto sampler : mySamplers)
+	for (auto* sampler : mySamplers)
 		vkDestroySampler(
 			*getDevice(),
 			sampler,
@@ -63,8 +63,8 @@ SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
 }
 
 template <>
-void SamplerVector<Vk>::swap(SamplerVector& rhs) noexcept
+void SamplerVector<Vk>::Swap(SamplerVector& rhs) noexcept
 {
-	DeviceObject::swap(rhs);
+	DeviceObject::Swap(rhs);
 	std::swap(mySamplers, rhs.mySamplers);
 }

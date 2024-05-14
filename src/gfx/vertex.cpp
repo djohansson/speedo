@@ -1,4 +1,4 @@
-// TODO: remove vertex.h/inl/cpp
+// TODO(djohansson): remove vertex.h/inl/cpp
 #include "vertex.h"
 
 void* VertexAllocator::allocate(size_t count)
@@ -10,13 +10,13 @@ void* VertexAllocator::allocate(size_t count)
 
 void VertexAllocator::free(void* ptr, size_t count)
 {
-	assert(ptr != nullptr);
+	ASSERT(ptr != nullptr);
 
 	auto* first = myData.data();
 	auto* last = first + myData.size();
 
 	auto bytes = count * stride();
-	assert(bytes > 0);
+	ASSERT(bytes > 0);
 
 	auto* next = static_cast<char*>(ptr) + bytes;
 
@@ -58,7 +58,7 @@ ScopedVertexAllocation::~ScopedVertexAllocation()
 
 VertexAllocator& Vertex::allocator()
 {
-	assert(st_allocationScope != nullptr);
+	ASSERT(st_allocationScope != nullptr);
 	return st_allocationScope->allocator();
 }
 

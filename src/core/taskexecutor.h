@@ -54,7 +54,7 @@ public:
 	void submit(TaskHandle handle) { internalSubmit(handle); }
 
 private:
-	Task* handleToTaskPtr(TaskHandle handle) noexcept;
+	static Task* handleToTaskPtr(TaskHandle handle) noexcept;
 
 	template <typename... TaskParams>
 	void internalCall(TaskHandle handle, TaskParams&&... params);

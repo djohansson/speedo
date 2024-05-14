@@ -46,14 +46,14 @@ public:
 
 	operator auto() const noexcept { return myInstance; }
 
-	const auto& getConfig() const noexcept { return myConfig; }
+	const auto& GetConfig() const noexcept { return myConfig; }
 	const auto& getHostAllocationCallbacks() const noexcept { return myHostAllocationCallbacks; }
 	const auto& getPhysicalDevices() const noexcept { return myPhysicalDevices; }
 	const auto& getPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
 
-	const SwapchainInfo<G>& updateSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
-	const SwapchainInfo<G>& getSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface) const;
-	void updateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface);
+	const SwapchainInfo<G>& UpdateSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
+	const SwapchainInfo<G>& GetSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface) const;
+	void UpdateSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface);
 
 private:
 	InstanceConfiguration<G> myConfig{};

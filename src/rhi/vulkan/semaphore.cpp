@@ -22,7 +22,7 @@ Semaphore<Vk>::Semaphore(
 	{
 		VkSemaphoreTypeCreateInfo typeCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 		typeCreateInfo.semaphoreType = desc.type;
-		typeCreateInfo.initialValue = 0ull;
+		typeCreateInfo.initialValue = 0ULL;
 
 		SemaphoreHandle<Vk> semaphore;
 		VkSemaphoreCreateInfo createInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
@@ -47,7 +47,7 @@ Semaphore<Vk>::Semaphore(Semaphore<Vk>&& other) noexcept
 template <>
 Semaphore<Vk>::~Semaphore()
 {
-	if (mySemaphore)
+	if (mySemaphore != nullptr)
 		vkDestroySemaphore(
 			*getDevice(),
 			mySemaphore,
@@ -63,14 +63,14 @@ Semaphore<Vk>& Semaphore<Vk>::operator=(Semaphore<Vk>&& other) noexcept
 }
 
 template <>
-void Semaphore<Vk>::swap(Semaphore& rhs) noexcept
+void Semaphore<Vk>::Swap(Semaphore& rhs) noexcept
 {
-	DeviceObject<Vk>::swap(rhs);
+	DeviceObject<Vk>::Swap(rhs);
 	std::swap(mySemaphore, rhs.mySemaphore);
 }
 
 template <>
-uint64_t Semaphore<Vk>::getValue() const
+uint64_t Semaphore<Vk>::GetValue() const
 {
 	ZoneScopedN("Semaphore::getValue");
 
@@ -81,7 +81,7 @@ uint64_t Semaphore<Vk>::getValue() const
 }
 
 template <>
-void Semaphore<Vk>::wait(uint64_t timelineValue, uint64_t timeout) const
+void Semaphore<Vk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 {
 	ZoneScopedN("Semaphore::wait");
 
@@ -95,7 +95,11 @@ void Semaphore<Vk>::wait(uint64_t timelineValue, uint64_t timeout) const
 }
 
 template <>
-void Semaphore<Vk>::wait(const std::shared_ptr<Device<Vk>>& device, std::span<SemaphoreHandle<Vk>> semaphores, std::span<uint64_t> timelineValues, uint64_t timeout)
+void Semaphore<Vk>::Wait(
+	const std::shared_ptr<Device<Vk>>& device,
+	std::span<SemaphoreHandle<Vk>> semaphores,
+	std::span<uint64_t> timelineValues,
+	uint64_t timeout)
 {
 	ZoneScopedN("Semaphore::wait");
 

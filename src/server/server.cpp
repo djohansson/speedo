@@ -6,7 +6,7 @@
 #include <core/file.h>
 
 #include <array>
-#include <cassert>
+#include "assert.h"
 #include <iostream>
 #include <memory>
 #include <system_error>
@@ -163,7 +163,7 @@ void CreateServer(const PathConfig* paths)
 	using namespace server;
 	using namespace file;
 
-	assert(paths != nullptr);
+	ASSERT(paths != nullptr);
 
 	auto root = getCanonicalPath(nullptr, "./");
 
@@ -177,7 +177,7 @@ void CreateServer(const PathConfig* paths)
 			{"UserProfilePath", getCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
 		}});
 
-	assert(gServerApplication);
+	ASSERT(gServerApplication);
 }
 
 void DestroyServer()
@@ -186,8 +186,8 @@ void DestroyServer()
 
 	std::unique_lock lock{gServerApplicationMutex};
 
-	assert(gServerApplication);
-	assert(gServerApplication.use_count() == 1);
+	ASSERT(gServerApplication);
+	ASSERT(gServerApplication.use_count() == 1);
 	
 	gServerApplication.reset();
 }
@@ -198,7 +198,7 @@ bool TickServer()
 
 	std::shared_lock lock{gServerApplicationMutex};
 
-	assert(gServerApplication);
+	ASSERT(gServerApplication);
 
 	gServerApplication->Tick();
 

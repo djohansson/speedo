@@ -7,13 +7,13 @@ Task::Task(Task&& other) noexcept
 
 Task::~Task()
 {
-	if (myDeleteFcnPtr)
+	if (myDeleteFcnPtr != nullptr)
 		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 }
 
 Task& Task::operator=(Task&& other) noexcept
 {
-	if (myDeleteFcnPtr)
+	if (myDeleteFcnPtr != nullptr)
 		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 
 	myState = std::exchange(other.myState, {});
@@ -21,14 +21,14 @@ Task& Task::operator=(Task&& other) noexcept
 	myCopyFcnPtr = std::exchange(other.myCopyFcnPtr, nullptr);
 	myDeleteFcnPtr = std::exchange(other.myDeleteFcnPtr, nullptr);
 
-	if (myCopyFcnPtr)
+	if (myCopyFcnPtr != nullptr)
 		myCopyFcnPtr(
 			myCallableMemory.data(),
 			other.myCallableMemory.data(),
 			myArgsMemory.data(),
 			other.myArgsMemory.data());
 
-	if (myDeleteFcnPtr)
+	if (myDeleteFcnPtr != nullptr)
 		myDeleteFcnPtr(other.myCallableMemory.data(), other.myArgsMemory.data());
 
 	return *this;
@@ -36,7 +36,8 @@ Task& Task::operator=(Task&& other) noexcept
 
 Task::operator bool() const noexcept
 {
-	return myInvokeFcnPtr && myCopyFcnPtr && myDeleteFcnPtr && myState;
+	return (myInvokeFcnPtr != nullptr) && (myCopyFcnPtr != nullptr) &&
+		   (myDeleteFcnPtr != nullptr) && myState;
 }
 
 bool Task::operator!() const noexcept

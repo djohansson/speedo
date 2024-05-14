@@ -25,13 +25,13 @@ public:
 	Semaphore& operator=(Semaphore&& other) noexcept;
 	operator auto() const noexcept { return mySemaphore; }
 
-	void swap(Semaphore& rhs) noexcept;
-	friend void swap(Semaphore& lhs, Semaphore& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Semaphore& rhs) noexcept;
+	friend void Swap(Semaphore& lhs, Semaphore& rhs) noexcept { lhs.Swap(rhs); }
 
-	uint64_t getValue() const;
+	uint64_t GetValue() const;
 
-	void wait(uint64_t timelineValue, uint64_t timeout = ~0ull) const;
-	static void wait(const std::shared_ptr<Device<G>>& device, std::span<SemaphoreHandle<G>> semaphores, std::span<uint64_t> timelineValues, uint64_t timeout = ~0ull);
+	void Wait(uint64_t timelineValue, uint64_t timeout = ~0ull) const;
+	static void Wait(const std::shared_ptr<Device<G>>& device, std::span<SemaphoreHandle<G>> semaphores, std::span<uint64_t> timelineValues, uint64_t timeout = ~0ull);
 
 private:
 	Semaphore(const std::shared_ptr<Device<G>>& device, SemaphoreHandle<G>&& Semaphore);

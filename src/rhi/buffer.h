@@ -45,10 +45,10 @@ public:
 	Buffer& operator=(Buffer&& other) noexcept;
 	operator auto() const noexcept { return std::get<0>(myBuffer); }
 
-	void swap(Buffer& rhs) noexcept;
-	friend void swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Buffer& rhs) noexcept;
+	friend void Swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 	const auto& getBufferMemory() const noexcept { return std::get<1>(myBuffer); }
 
 	BufferCreateDesc<G> myDesc{};
@@ -72,8 +72,8 @@ public:
 	BufferView& operator=(BufferView&& other) noexcept;
 	operator auto() const noexcept { return myView; }
 
-	void swap(BufferView& rhs) noexcept;
-	friend void swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(BufferView& rhs) noexcept;
+	friend void Swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.Swap(rhs); }
 
 private:
 	BufferView( // uses provided image view

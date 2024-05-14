@@ -1,11 +1,10 @@
 #pragma once
 
 #include "assert.h"
-#include "profiling.h"
 #include "math.h"
+#include "profiling.h"
 
 #include <algorithm>
-#include <cassert>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
@@ -248,7 +247,7 @@ public:
 
 	auto insert(value_type&& range)
 	{
-		assert(range.first < range.second);
+		ASSERT(range.first < range.second);
 
 		if constexpr (std::is_same_v<container_type, FlatMap<T, T>>)
 		{

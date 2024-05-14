@@ -64,10 +64,10 @@ public:
 	ShaderModule& operator=(ShaderModule&& other) noexcept;
 	operator auto() const noexcept { return myShaderModule; }
 
-	void swap(ShaderModule& rhs) noexcept;
-	friend void swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(ShaderModule& rhs) noexcept;
+	friend void Swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getEntryPoint() const noexcept { return myEntryPoint; }
+	const auto& GetEntryPoint() const noexcept { return myEntryPoint; }
 
 private:
 	ShaderModule( // takes ownership of provided handle

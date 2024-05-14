@@ -50,7 +50,7 @@ public:
 	operator auto() const noexcept { return myDevice; }
 
 	auto getInstance() const noexcept { return myInstance; } // todo: make global?
-	const auto& getConfig() const noexcept { return myConfig; }
+	const auto& GetConfig() const noexcept { return myConfig; }
 	auto getPhysicalDevice() const noexcept
 	{
 		return myInstance->getPhysicalDevices()[myPhysicalDeviceIndex];
@@ -66,17 +66,17 @@ public:
 
 	auto& timelineValue() { return myTimelineValue; }
 
-	void waitIdle() const;
+	void WaitIdle() const;
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-	void addOwnedObjectHandle(
+	void AddOwnedObjectHandle(
 		const uuids::uuid& ownerId,
 		ObjectType<G> objectType,
 		uint64_t objectHandle,
 		std::string&& objectName);
-	void eraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
-	void clearOwnedObjectHandles(const uuids::uuid& ownerId);
-	uint32_t getTypeCount(ObjectType<G> type);
+	void EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
+	void ClearOwnedObjectHandles(const uuids::uuid& ownerId);
+	uint32_t GetTypeCount(ObjectType<G> type);
 #endif
 
 private:
@@ -113,6 +113,9 @@ class DeviceObject : public Noncopyable
 public:
 	virtual ~DeviceObject();
 
+	DeviceObject& operator=(DeviceObject&& other) noexcept;
+	void Swap(DeviceObject& rhs) noexcept;
+
 	std::string_view getName() const noexcept { return myDesc.name; }
 	const uuids::uuid& getUid() const noexcept { return myUid; }
 	bool isValid() const noexcept { return !myUid.is_nil(); }
@@ -129,10 +132,6 @@ protected:
 		uint32_t objectCount,
 		ObjectType<G> objectType,
 		const uint64_t* objectHandles);
-
-	DeviceObject& operator=(DeviceObject&& other) noexcept;
-
-	void swap(DeviceObject& rhs) noexcept;
 
 	const auto& getDevice() const noexcept { return myDevice; }
 

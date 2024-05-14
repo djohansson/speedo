@@ -24,11 +24,11 @@ public:
 	Fence& operator=(Fence&& other) noexcept;
 	operator auto() const noexcept { return myFence; }
 
-	void swap(Fence& rhs) noexcept;
-	friend void swap(Fence& lhs, Fence& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Fence& rhs) noexcept;
+	friend void Swap(Fence& lhs, Fence& rhs) noexcept { lhs.Swap(rhs); }
 
-	void wait(bool waitAll = true, uint64_t timeout = ~0ull) const;
-	static void wait(const std::shared_ptr<Device<G>>& device, std::span<FenceHandle<G>> fences, bool waitAll = true, uint64_t timeout = ~0ull);
+	void Wait(bool waitAll = true, uint64_t timeout = ~0ull) const;
+	static void Wait(const std::shared_ptr<Device<G>>& device, std::span<FenceHandle<G>> fences, bool waitAll = true, uint64_t timeout = ~0ull);
 
 private:
 	Fence(const std::shared_ptr<Device<G>>& device, FenceHandle<G>&& fence);

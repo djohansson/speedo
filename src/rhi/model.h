@@ -34,10 +34,10 @@ public:
 
 	Model& operator=(Model&& other) noexcept = default;
 
-	void swap(Model& rhs) noexcept;
-	friend void swap(Model& lhs, Model& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Model& rhs) noexcept;
+	friend void Swap(Model& lhs, Model& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 	const auto& getBindings() const noexcept { return myBindings; }
 	const auto& getIndexBuffer() { return myIndexBuffer; }
 	const auto& getVertexBuffer() { return myVertexBuffer; }

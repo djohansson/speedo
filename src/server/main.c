@@ -1,6 +1,7 @@
 #include "capi.h"
 
-#include <assert.h>
+#include <core/assert.h>
+
 #include <signal.h> 
 #include <stdbool.h>
 #include <stdio.h>
@@ -34,7 +35,7 @@ static struct cag_option gCmdArgs[] =
 		.description = "Shows the command help"
 	}
 };
-static PathConfig gPaths = { NULL, NULL };
+static struct PathConfig gPaths = { NULL, NULL };
 static volatile bool gIsInterrupted = false;
 
 void onExit(void) 
@@ -50,9 +51,9 @@ void onSignal(int signal)
 
 const char* getCmdOption(char** begin, char** end, const char* option)
 {
-	assert(begin != NULL);
-	assert(end != NULL);
-	assert(option != NULL);
+	ASSERT(begin != NULL);
+	ASSERT(end != NULL);
+	ASSERT(option != NULL);
 
 	while (begin != end)
 	{
@@ -65,8 +66,8 @@ const char* getCmdOption(char** begin, char** end, const char* option)
 
 int main(int argc, char* argv[], char* envp[])
 {
-	assert(argv != NULL);
-	assert(envp != NULL);
+	ASSERT(argv != NULL);
+	ASSERT(envp != NULL);
 
 	signal(SIGINT, onSignal);
 	signal(SIGTERM, onSignal);

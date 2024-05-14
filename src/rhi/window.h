@@ -50,22 +50,22 @@ public:
 
 	Window& operator=(Window&& other) noexcept;
 
-	void swap(Window& rhs) noexcept;
-	friend void swap(Window& lhs, Window& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Window& rhs) noexcept;
+	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getConfig() const noexcept { return myConfig; }
-	const auto& getViews() const noexcept { return myViews; }
-	const auto& getActiveView() const noexcept { return myActiveView; }
-	const auto& getViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
-	auto& getState() noexcept { return myState; }
-	const auto& getState() const noexcept { return myState; }
+	const auto& GetConfig() const noexcept { return myConfig; }
+	const auto& GetViews() const noexcept { return myViews; }
+	const auto& GetActiveView() const noexcept { return myActiveView; }
+	const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
+	auto& GetState() noexcept { return myState; }
+	const auto& GetState() const noexcept { return myState; }
 
-	void onInputStateChanged(const InputState& input);
-	void onResizeFramebuffer(int w, int h);
-	void onResizeSplitScreenGrid(uint32_t width, uint32_t height);
+	void OnInputStateChanged(const InputState& input);
+	void OnResizeFramebuffer(int w, int h);
+	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
 	// todo: generalize, move out of window. use sorted draw call lists.
-	uint32_t draw(
+	uint32_t Draw(
 		Pipeline<G>& pipeline,
 		Queue<G>& queue,
 		RenderPassBeginInfo<G>&& renderPassInfo);
@@ -73,11 +73,11 @@ public:
 
 private:
 	
-	void internalUpdateViewBuffer() const;
-	void internalInitializeViews();
-	void internalUpdateViews(const InputState& input);
+	void InternalUpdateViewBuffer() const;
+	void InternalInitializeViews();
+	void InternalUpdateViews(const InputState& input);
 
-	uint32_t internalDrawViews(
+	uint32_t InternalDrawViews(
 		Pipeline<G>& pipeline,
 		Queue<G>& queue,
 		RenderPassBeginInfo<G>&& renderPassInfo);

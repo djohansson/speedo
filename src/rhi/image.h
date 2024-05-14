@@ -55,24 +55,24 @@ public:
 	Image& operator=(Image&& other) noexcept;
 	operator auto() const noexcept { return std::get<0>(myImage); }
 
-	void swap(Image& rhs) noexcept;
-	friend void swap(Image& lhs, Image& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Image& rhs) noexcept;
+	friend void Swap(Image& lhs, Image& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
-	const auto& getImageMemory() const noexcept { return std::get<1>(myImage); }
-	const auto& getImageLayout() const noexcept { return std::get<2>(myImage); }
+	const auto& GetDesc() const noexcept { return myDesc; }
+	const auto& GetImageMemory() const noexcept { return std::get<1>(myImage); }
+	const auto& GetImageLayout() const noexcept { return std::get<2>(myImage); }
 
 	enum class ClearType : uint8_t
 	{
 		Color,
 		DepthStencil
 	};
-	void clear(
+	void Clear(
 		CommandBufferHandle<G> cmd,
 		const ClearValue<G>& value = {},
 		ClearType type = ClearType::Color,
 		const std::optional<ImageSubresourceRange<G>>& range = std::nullopt);
-	void transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
 private:
 	Image( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
@@ -91,7 +91,7 @@ private:
 	// this method is not meant to be used except in very special cases
 	// such as for instance to update the image layout after a render pass
 	// (which implicitly changes the image layout).
-	void setImageLayout(ImageLayout<G> layout) noexcept { std::get<2>(myImage) = layout; }
+	void SetImageLayout(ImageLayout<G> layout) noexcept { std::get<2>(myImage) = layout; }
 
 	ImageCreateDesc<G> myDesc{};
 	ValueType myImage{};
@@ -112,8 +112,8 @@ public:
 	ImageView& operator=(ImageView&& other) noexcept;
 	operator auto() const noexcept { return myView; }
 
-	void swap(ImageView& rhs) noexcept;
-	friend void swap(ImageView& lhs, ImageView& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(ImageView& rhs) noexcept;
+	friend void Swap(ImageView& lhs, ImageView& rhs) noexcept { lhs.Swap(rhs); }
 
 private:
 	ImageView( // uses provided image view

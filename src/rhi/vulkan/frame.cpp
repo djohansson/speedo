@@ -21,8 +21,7 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::RenderTargetImpl(RenderTargetImpl&& o
 {}
 
 template <>
-RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl()
-{}
+RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::~RenderTargetImpl() = default;
 
 template <>
 RenderTargetImpl<FrameCreateDesc<Vk>, Vk>&
@@ -34,9 +33,9 @@ RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::operator=(RenderTargetImpl&& other) n
 }
 
 template <>
-void RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::swap(RenderTargetImpl& rhs) noexcept
+void RenderTargetImpl<FrameCreateDesc<Vk>, Vk>::Swap(RenderTargetImpl& rhs) noexcept
 {
-	RenderTarget::swap(rhs);
+	RenderTarget::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
 }
 
@@ -56,8 +55,7 @@ Frame<Vk>::Frame(Frame<Vk>&& other) noexcept
 {}
 
 template <>
-Frame<Vk>::~Frame()
-{}
+Frame<Vk>::~Frame() = default;
 
 template <>
 Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
@@ -69,50 +67,50 @@ Frame<Vk>& Frame<Vk>::operator=(Frame<Vk>&& other) noexcept
 }
 
 template <>
-void Frame<Vk>::swap(Frame& rhs) noexcept
+void Frame<Vk>::Swap(Frame& rhs) noexcept
 {
-	BaseType::swap(rhs);
+	BaseType::Swap(rhs);
 	std::swap(myFence, rhs.myFence);
 	std::swap(myImageLayout, rhs.myImageLayout);
 }
 
 template <>
-ImageLayout<Vk> Frame<Vk>::getColorImageLayout(uint32_t index) const
+ImageLayout<Vk> Frame<Vk>::GetColorImageLayout(uint32_t index) const
 {
-	//assert(index == 0); // multiple layouts not supported
+	//ASSERT(index == 0); // multiple layouts not supported
 
 	return myImageLayout;
 }
 
 template <>
-ImageLayout<Vk> Frame<Vk>::getDepthStencilImageLayout() const
+ImageLayout<Vk> Frame<Vk>::GetDepthStencilImageLayout() const
 {
-	assert(false);
+	ASSERT(false);
 
 	return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 template <>
-void Frame<Vk>::end(CommandBufferHandle<Vk> cmd)
+void Frame<Vk>::End(CommandBufferHandle<Vk> cmd)
 {
-	RenderTarget::end(cmd);
+	RenderTarget::End(cmd);
 
-	myImageLayout = this->getAttachmentDesc(0).finalLayout;
+	myImageLayout = this->GetAttachmentDesc(0).finalLayout;
 }
 
 template <>
-void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
+void Frame<Vk>::TransitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
 {
-	ZoneScopedN("Frame::transitionColor");
+	ZoneScopedN("Frame::TransitionColor");
 
-	assert(index == 0);
+	ASSERT(index == 0);
 
-	if (getColorImageLayout(index) != layout)
+	if (GetColorImageLayout(index) != layout)
 	{
-		transitionImageLayout(
+		TransitionImageLayout(
 			cmd,
-			getDesc().colorImages[index],
-			getDesc().colorImageFormats[index],
+			GetDesc().colorImages[index],
+			GetDesc().colorImageFormats[index],
 			myImageLayout,
 			layout,
 			1);
@@ -122,13 +120,13 @@ void Frame<Vk>::transitionColor(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> lay
 }
 
 template <>
-void Frame<Vk>::transitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void Frame<Vk>::TransitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 {
-	assert(false);
+	ASSERT(false);
 }
 
 template <>
-QueuePresentInfo<Vk> Frame<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
+QueuePresentInfo<Vk> Frame<Vk>::PreparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
 {
 	auto hostSyncInfoCopy = hostSyncInfo;
 	hostSyncInfoCopy.fences.push_back(myFence);
@@ -137,6 +135,6 @@ QueuePresentInfo<Vk> Frame<Vk>::preparePresent(const QueueHostSyncInfo<Vk>& host
 		{std::move(hostSyncInfoCopy)},
 		{},
 		{},
-		{getDesc().index},
+		{GetDesc().index},
 		{}};
 }

@@ -31,10 +31,10 @@ public:
 	bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
 	bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
 
-	void swap(PipelineLayout& rhs) noexcept;
-	friend void swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(PipelineLayout& rhs) noexcept;
+	friend void Swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getShaderModules() const noexcept { return myShaderModules; }
+	const auto& GetShaderModules() const noexcept { return myShaderModules; }
 	const auto& getDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
 	const DescriptorSetLayout<G>& getDescriptorSetLayout(uint32_t set) const noexcept;
 
@@ -103,20 +103,20 @@ public:
 		PipelineConfiguration<G>&& defaultConfig = {});
 	~Pipeline();
 
-	const auto& getConfig() const noexcept { return myConfig; }
+	const auto& GetConfig() const noexcept { return myConfig; }
 	auto getCache() const noexcept { return myCache; }
 	auto getDescriptorPool() const noexcept { return myDescriptorPool; }
 	auto getBindPoint() const noexcept { return myBindPoint; }
 	auto getLayout() const noexcept { return myLayout; }
 
-	PipelineLayoutHandle<G> createLayout(const ShaderSet<G>& shaderSet);
+	PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
 
 	// "manual" api
 
-	void bindPipeline(
+	void BindPipeline(
 		CommandBufferHandle<G> cmd, PipelineBindPoint<G> bindPoint, PipelineHandle<G> handle) const;
 
-	void bindDescriptorSet(
+	void BindDescriptorSet(
 		CommandBufferHandle<G> cmd,
 		DescriptorSetHandle<G> handle,
 		PipelineBindPoint<G> bindPoint,
@@ -126,41 +126,41 @@ public:
 
 	// "auto" api
 
-	void bindPipelineAuto(CommandBufferHandle<G> cmd);
+	void BindPipelineAuto(CommandBufferHandle<G> cmd);
 
-	void bindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
+	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
 
-	void bindDescriptorSetAuto(
+	void BindDescriptorSetAuto(
 		CommandBufferHandle<G> cmd,
 		uint32_t set,
 		std::optional<uint32_t> bufferOffset = std::nullopt);
 
 	template <typename T>
-	void setDescriptorData(
+	void SetDescriptorData(
 		uint64_t shaderVariableNameHash, const DescriptorSetLayout<G>& layout, T&& data);
 
 	template <typename T>
-	void setDescriptorData(std::string_view shaderVariableName, T&& data, uint32_t set);
+	void SetDescriptorData(std::string_view shaderVariableName, T&& data, uint32_t set);
 
 	template <typename T>
-	void setDescriptorData(
+	void SetDescriptorData(
 		uint64_t shaderVariableNameHash,
 		const DescriptorSetLayout<G>& layout,
 		const std::vector<T>& data);
 
 	template <typename T>
-	void setDescriptorData(
+	void SetDescriptorData(
 		std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set);
 
 	template <typename T>
-	void setDescriptorData(
+	void SetDescriptorData(
 		uint64_t shaderVariableNameHash,
 		const DescriptorSetLayout<G>& layout,
 		T&& data,
 		uint32_t index);
 
 	template <typename T>
-	void setDescriptorData(
+	void SetDescriptorData(
 		std::string_view shaderVariableName,
 		T&& data,
 		uint32_t set,
@@ -169,12 +169,12 @@ public:
 	// temp
 	auto& getRenderTarget() const noexcept
 	{
-		assert(myRenderTarget);
+		ASSERT(myRenderTarget);
 		return *myRenderTarget;
 	}
 
-	void setRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
-	void setModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
+	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
+	void SetModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
 
 	auto& resources() noexcept { return myGraphicsState.resources; }
 	//
@@ -185,29 +185,29 @@ private:
 	// todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
 	//       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
 	//       might need more fine grained control here...
-	void internalResetState();
-	void internalPrepareDescriptorSets();
-	void internalResetGraphicsState();
-	void internalResetComputeState();
+	void InternalResetState();
+	void InternalPrepareDescriptorSets();
+	void InternalResetGraphicsState();
+	void InternalResetComputeState();
 	//
 
-	void internalUpdateDescriptorSet(
-		const DescriptorSetLayout<G>& bindLayoutAuto,
+	void InternalUpdateDescriptorSet(
+		const DescriptorSetLayout<G>& BindLayoutAuto,
 		const BindingsData<G>& bindingsData,
 		const DescriptorUpdateTemplate<G>& setTemplate,
 		DescriptorSetArrayList<G>& setArrayList);
-	void internalPushDescriptorSet(
+	void InternalPushDescriptorSet(
 		CommandBufferHandle<G> cmd,
 		const BindingsData<G>& bindingsData,
 		const DescriptorUpdateTemplate<G>& setTemplate) const;
 
-	static void internalUpdateDescriptorSetTemplate(
+	static void InternalUpdateDescriptorSetTemplate(
 		const BindingsMap<G>& bindingsMap, DescriptorUpdateTemplate<G>& setTemplate);
 
-	uint64_t internalCalculateHashKey() const;
-	PipelineHandle<G> internalCreateGraphicsPipeline(uint64_t hashKey);
-	PipelineHandle<G> internalGetPipeline();
-	const PipelineLayout<G>& internalGetLayout();
+	uint64_t InternalCalculateHashKey() const;
+	PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey);
+	PipelineHandle<G> InternalGetPipeline();
+	const PipelineLayout<G>& InternalGetLayout();
 
 	file::Object<PipelineConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
 

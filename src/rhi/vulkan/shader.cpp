@@ -41,7 +41,7 @@ ShaderStageFlagBits<Vk> getStageFlags<Vk>(SlangStage stage)
 	case SLANG_STAGE_NONE:
 		return VK_SHADER_STAGE_ALL; // todo: fix when slang handles this case.
 	default:
-		assert(false); // please implement me!
+		ASSERT(false); // please implement me!
 	}
 
 	return ShaderStageFlagBits<Vk>{};
@@ -79,7 +79,7 @@ DescriptorType<Vk> getDescriptorType<Vk>(
 			type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 			break;
 		default:
-			assert(false); // please implement me!
+			ASSERT(false); // please implement me!
 			break;
 		}
 		break;
@@ -101,14 +101,14 @@ DescriptorType<Vk> getDescriptorType<Vk>(
 	case slang::TypeReflection::Kind::OutputStream:
 	case slang::TypeReflection::Kind::Specialized:
 	default:
-		assert(false); // please implement me!
+		ASSERT(false); // please implement me!
 		break;
 	}
 
 	return type;
 }
 
-void addBinding(
+void AddBinding(
 	unsigned bindingIndex,
 	unsigned bindingSpace,
 	slang::TypeLayoutReflection* typeLayout,
@@ -118,7 +118,7 @@ void addBinding(
 	std::string_view name,
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
 {
-	assert(typeLayout);
+	ASSERT(typeLayout);
 
 	auto& layout = layouts[bindingSpace];
 
@@ -154,27 +154,27 @@ void addBinding(
 		// VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
 		// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT |
 		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
-	layout.variableNames.push_back(name.data());
+	layout.variableNames.emplace_back(name.data());
 	layout.variableNameHashes.push_back(XXH3_64bits(name.data(), name.size()));
 
 	// todo: immutable samplers
 	//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
 
 	// todo: push descriptors
-	constexpr bool usePushDescriptor = false;
-	if (usePushDescriptor)
+	constexpr bool kUsePushDescriptor = false;
+	if (kUsePushDescriptor)
 	{
-		//assert(!isUniformDynamic);
-		assert(!isInlineUniformBlock);
+		//ASSERT(!isUniformDynamic);
+		ASSERT(!isInlineUniformBlock);
 		layout.flags |= VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR;
 	}
 
 	if (usePushConstant)
 	{
-		assert(!layout.pushConstantRange);
-		assert(sizeBytes > 0);
-		//assert(!isUniformDynamic);
-		assert(!isInlineUniformBlock);
+		ASSERT(!layout.pushConstantRange);
+		ASSERT(sizeBytes > 0);
+		//ASSERT(!isUniformDynamic);
+		ASSERT(!isInlineUniformBlock);
 		layout.pushConstantRange =
 			PushConstantRange<Vk>{slot.stageFlags, 0, static_cast<uint32_t>(sizeBytes)};
 	}
@@ -185,46 +185,49 @@ void addBinding(
 }
 
 template <>
-uint32_t createLayoutBindings<Vk>(
+uint32_t CreateLayoutBindings<Vk>(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
 	const unsigned* parentSpace,
 	const char* parentName)
 {
-	assert(parameter);
+	ASSERT(parameter);
 	auto space = parameter->getBindingSpace();
 	auto index = parameter->getBindingIndex();
 	auto name = std::string(parameter->getName());
 	auto stage = parameter->getStage();
 	auto categoryCount = parameter->getCategoryCount();
 	auto* typeLayout = parameter->getTypeLayout();
-	assert(typeLayout);
+	ASSERT(typeLayout);
 	auto arrayElementCount = typeLayout->getElementCount();
 	auto fieldCount = typeLayout->getFieldCount();
 	auto* elementTypeLayout = typeLayout->getElementTypeLayout();
-	//assert(elementTypeLayout);
-	auto elementFieldCount = elementTypeLayout ? elementTypeLayout->getFieldCount() : 0;
+	//ASSERT(elementTypeLayout);
+	auto elementFieldCount =
+		(elementTypeLayout != nullptr) ? elementTypeLayout->getFieldCount() : 0;
 
 	auto category = parameter->getCategory();
-	auto typeName = typeLayout->getName();
-	assert(typeName);
+	const auto* typeName = typeLayout->getName();
+	ASSERT(typeName);
 	auto kind = typeLayout->getKind();
-	auto type = typeLayout->getType();
-	assert(type);
+	auto* type = typeLayout->getType();
+	ASSERT(type);
 	auto userAttributeCount = type->getUserAttributeCount();
-	auto elementKind = elementTypeLayout ? elementTypeLayout->getKind() : slang::TypeReflection::Kind::None;
-	auto genericParamIndex = elementTypeLayout ? elementTypeLayout->getGenericParamIndex() : 0;
+	auto elementKind = (elementTypeLayout != nullptr) ? elementTypeLayout->getKind()
+													  : slang::TypeReflection::Kind::None;
+	auto genericParamIndex =
+		(elementTypeLayout != nullptr) ? elementTypeLayout->getGenericParamIndex() : 0;
 
 	std::string fullName;
-	if (parentName)
+	if (parentName != nullptr)
 	{
 		fullName.append(parentName);
 		fullName.append(".");
 	}
 	fullName.append(name);
 
-	auto bindingSpace = (parentSpace ? *parentSpace : space);
+	auto bindingSpace = ((parentSpace != nullptr) ? *parentSpace : space);
 
 	uint32_t uniformsTotalSize = 0;
 
@@ -232,19 +235,23 @@ uint32_t createLayoutBindings<Vk>(
 	{
 		auto subCategory = static_cast<SlangParameterCategory>(parameter->getCategoryByIndex(categoryIndex));
 		auto spaceForCategory = parameter->getBindingSpace(subCategory);
-		auto elementSize = elementTypeLayout ? elementTypeLayout->getSize(subCategory) : 0;
-		auto elementAlignment = elementTypeLayout ? elementTypeLayout->getAlignment(subCategory) : 0;
+		auto elementSize =
+			(elementTypeLayout != nullptr) ? elementTypeLayout->getSize(subCategory) : 0;
+		auto elementAlignment =
+			(elementTypeLayout != nullptr) ? elementTypeLayout->getAlignment(subCategory) : 0;
 		auto size = typeLayout->getSize(subCategory);
 		auto alignment = typeLayout->getAlignment(subCategory);
 
 		auto offsetForCategory = parameter->getOffset(subCategory);
-		auto elementStride = elementTypeLayout ? elementTypeLayout->getElementStride(subCategory) : 0;
+		auto elementStride =
+			(elementTypeLayout != nullptr) ? elementTypeLayout->getElementStride(subCategory) : 0;
 
 		std::cout << "DEBUG: name: " << name << ", fullName: " << fullName << ", space: " << space
 				  << ", parent space: "
-				  << (parentSpace ? std::to_string(*parentSpace) : "(nullptr)")
-				  << ", index: " << index << ", stage: " << stage << ", kind: " << (int)kind
-				  << ", typeName: " << (typeName ? typeName : "(nullptr)")
+				  << ((parentSpace != nullptr) ? std::to_string(*parentSpace) : "(nullptr)")
+				  << ", index: " << index << ", stage: " << stage
+				  << ", kind: " << static_cast<int>(kind)
+				  << ", typeName: " << ((typeName != nullptr) ? typeName : "(nullptr)")
 				  << ", userAttributeCount: " << userAttributeCount;
 
 		std::cout << ", arrayElementCount: " << arrayElementCount << ", fieldCount: " << fieldCount;
@@ -254,7 +261,7 @@ uint32_t createLayoutBindings<Vk>(
 				  << ", offsetForCategory: " << offsetForCategory
 				  << ", elementStride: " << elementStride << ", elementSize: " << elementSize
 				  << ", elementAlignment: " << elementAlignment
-				  << ", elementKind: " << (int)elementKind
+				  << ", elementKind: " << static_cast<int>(elementKind)
 				  << ", elementFieldCount: " << elementFieldCount << ", size: " << size
 				  << ", alignment: " << alignment << ", genericParamIndex: " << genericParamIndex;
 
@@ -272,14 +279,19 @@ uint32_t createLayoutBindings<Vk>(
 
 	for (auto elementFieldIndex = 0; elementFieldIndex < elementFieldCount; elementFieldIndex++)
 	{
-		auto elementField = elementTypeLayout ? elementTypeLayout->getFieldByIndex(elementFieldIndex) : nullptr;
-		//assert(elementField);
-		auto elementFieldType = elementField ? elementField->getTypeLayout() : nullptr;
-		//assert(elementFieldType);
-		auto count = elementFieldType && elementFieldType->isArray() ? elementFieldType->getFieldCount() : 1;
+		auto* elementField = (elementTypeLayout != nullptr)
+								 ? elementTypeLayout->getFieldByIndex(elementFieldIndex)
+								 : nullptr;
+		//ASSERT(elementField);
+		auto* elementFieldType =
+			(elementField != nullptr) ? elementField->getTypeLayout() : nullptr;
+		//ASSERT(elementFieldType);
+		auto count = (elementFieldType != nullptr) && elementFieldType->isArray()
+						 ? elementFieldType->getFieldCount()
+						 : 1;
 		uniformsTotalSize +=
 			count *
-			createLayoutBindings<Vk>(
+			CreateLayoutBindings<Vk>(
 				elementField, genericParameterIndices, layouts, &bindingSpace, fullName.c_str());
 	}
 
@@ -290,7 +302,7 @@ uint32_t createLayoutBindings<Vk>(
 		if (subCategory == slang::ParameterCategory::DescriptorTableSlot ||
 			subCategory == slang::ParameterCategory::PushConstantBuffer)
 		{
-			addBinding(
+			AddBinding(
 				index,
 				bindingSpace,
 				typeLayout,
@@ -314,7 +326,7 @@ ShaderModule<Vk>::ShaderModule(
 	const EntryPoint<Vk>& entryPoint)
 	: DeviceObject(
 		  device,
-		  {std::get<0>(entryPoint).c_str()},
+		  {std::get<0>(entryPoint)},
 		  1,
 		  VK_OBJECT_TYPE_SHADER_MODULE,
 		  reinterpret_cast<uint64_t*>(&shaderModule))
@@ -345,7 +357,7 @@ ShaderModule<Vk>::ShaderModule(ShaderModule&& other) noexcept
 template <>
 ShaderModule<Vk>::~ShaderModule()
 {
-	if (myShaderModule)
+	if (myShaderModule != nullptr)
 		vkDestroyShaderModule(
 			*getDevice(),
 			myShaderModule,
@@ -362,9 +374,9 @@ ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 }
 
 template <>
-void ShaderModule<Vk>::swap(ShaderModule& rhs) noexcept
+void ShaderModule<Vk>::Swap(ShaderModule& rhs) noexcept
 {
-	DeviceObject::swap(rhs);
+	DeviceObject::Swap(rhs);
 	std::swap(myShaderModule, rhs.myShaderModule);
 	std::swap(myEntryPoint, rhs.myEntryPoint);
 }

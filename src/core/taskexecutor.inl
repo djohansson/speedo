@@ -44,7 +44,7 @@ void TaskExecutor::internalCall(TaskHandle handle, TaskParams&&... params)
 
 	Task& task = *handleToTaskPtr(handle);
 
-	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	scheduleAdjacent(task);
@@ -58,7 +58,7 @@ void TaskExecutor::internalCall(ProducerToken& readyProducerToken, TaskHandle ha
 
 	Task& task = *handleToTaskPtr(handle);
 
-	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	scheduleAdjacent(readyProducerToken, task);

@@ -20,18 +20,18 @@
 #include <string_view>
 
 template <>
-void Window<Vk>::internalUpdateViewBuffer() const
+void Window<Vk>::InternalUpdateViewBuffer() const
 {
-	ZoneScopedN("Window::internalUpdateViewBuffer");
+	ZoneScopedN("Window::InternalUpdateViewBuffer");
 
-	auto bufferMemory = myViewBuffers[getCurrentFrameIndex()].getBufferMemory();
+	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].getBufferMemory();
 	void* data;
 	VK_CHECK(vmaMapMemory(getDevice()->getAllocator(), bufferMemory, &data));
 
-	ViewData* viewDataPtr = static_cast<ViewData*>(data);
+	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
-	assert(viewCount <= ShaderTypes_ViewCount);
-	for (uint32_t viewIt = 0ul; viewIt < viewCount; viewIt++)
+	ASSERT(viewCount <= ShaderTypes_ViewCount);
+	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
 		auto mvp = myViews[viewIt].getProjectionMatrix() * glm::mat4(myViews[viewIt].getViewMatrix());
 		std::copy_n(&mvp[0][0], 16, &viewDataPtr->viewProjection[0][0]);
@@ -48,16 +48,14 @@ void Window<Vk>::internalUpdateViewBuffer() const
 }
 
 template <>
-uint32_t Window<Vk>::internalDrawViews(
-	Pipeline<Vk>& pipeline,
-	Queue<Vk>& queue,
-	RenderPassBeginInfo<Vk>&& renderPassInfo)
+uint32_t Window<Vk>::InternalDrawViews(
+	Pipeline<Vk>& pipeline, Queue<Vk>& queue, RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
 	uint32_t drawThreadCount = 0;
 
-	std::atomic_uint32_t drawAtomic = 0ul;
+	std::atomic_uint32_t drawAtomic = 0UL;
 
 	// draw views using secondary command buffers
 	// todo: generalize this to other types of draws
@@ -65,7 +63,8 @@ uint32_t Window<Vk>::internalDrawViews(
 	{
 		ZoneScopedN("Window::drawViews");
 
-		drawThreadCount = std::min<uint32_t>(drawCount, std::max(1u, queue.getPool().getDesc().levelCount - 1));
+		drawThreadCount =
+			std::min<uint32_t>(drawCount, std::max(1U, queue.GetPool().GetDesc().levelCount - 1));
 
 		std::array<uint32_t, 128> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
@@ -78,7 +77,7 @@ uint32_t Window<Vk>::internalDrawViews(
 			[&pipeline,
 			 &queue,
 			 &renderPassInfo,
-			 frameIndex = getCurrentFrameIndex(),
+			 frameIndex = GetCurrentFrameIndex(),
 			 &drawAtomic,
 			 &drawCount,
 			 &desc = myConfig](uint32_t threadIt)
@@ -104,22 +103,22 @@ uint32_t Window<Vk>::internalDrawViews(
 				beginInfo.pInheritanceInfo = &inheritInfo;
 				beginInfo.level = threadIt + 1;
 
-				auto cmd = queue.getPool().commands(beginInfo);
+				auto cmd = queue.GetPool().Commands(beginInfo);
 
 				auto bindState = [&pipeline](VkCommandBuffer cmd)
 				{
 					ZoneScopedN("bindState");
 
 					// bind descriptor sets
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalBuffers);
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
-					pipeline.bindDescriptorSetAuto(cmd, DescriptorSetCategory_ModelInstances);
+					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalBuffers);
+					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
+					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
+					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
+					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
+					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_ModelInstances);
 
 					// bind pipeline and buffers
-					pipeline.bindPipelineAuto(cmd);
+					pipeline.BindPipelineAuto(cmd);
 
 					BufferHandle<Vk> vbs[] = {pipeline.resources().model->getVertexBuffer()};
 					DeviceSize<Vk> offsets[] = {0};
@@ -134,8 +133,8 @@ uint32_t Window<Vk>::internalDrawViews(
 				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
 				uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 
-				assert(dx > 0);
-				assert(dy > 0);
+				ASSERT(dx > 0);
+				ASSERT(dy > 0);
 
 				while (drawIt < drawCount)
 				{
@@ -159,11 +158,11 @@ uint32_t Window<Vk>::internalDrawViews(
 							viewport.y = static_cast<float>(y);
 							viewport.width = static_cast<float>(width);
 							viewport.height = static_cast<float>(height);
-							viewport.minDepth = 0.0f;
-							viewport.maxDepth = 1.0f;
+							viewport.minDepth = 0.0F;
+							viewport.maxDepth = 1.0F;
 
-							assert(width > 0);
-							assert(height > 0);
+							ASSERT(width > 0);
+							ASSERT(height > 0);
 
 							VkRect2D scissor{};
 							scissor.offset = {x, y};
@@ -176,7 +175,7 @@ uint32_t Window<Vk>::internalDrawViews(
 						setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
 						uint16_t viewIndex = viewIt;
-						uint16_t materialIndex = 0ui16;
+						uint16_t materialIndex = 0UI16;
 
 						pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << ShaderTypes_MaterialIndexBits) | materialIndex;
 
@@ -201,7 +200,7 @@ uint32_t Window<Vk>::internalDrawViews(
 
 								vkCmdDrawIndexed(
 									cmd,
-									pipeline.resources().model->getDesc().indexCount,
+									pipeline.resources().model->GetDesc().indexCount,
 									1,
 									0,
 									0,
@@ -217,7 +216,7 @@ uint32_t Window<Vk>::internalDrawViews(
 					drawIt = drawAtomic++;
 				}
 
-				cmd.end();
+				cmd.End();
 			});
 	}
 
@@ -225,7 +224,7 @@ uint32_t Window<Vk>::internalDrawViews(
 }
 
 template <>
-void Window<Vk>::internalInitializeViews()
+void Window<Vk>::InternalInitializeViews()
 {
 	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
@@ -245,43 +244,43 @@ void Window<Vk>::internalInitializeViews()
 }
 
 template <>
-void Window<Vk>::onResizeFramebuffer(int w, int h)
+void Window<Vk>::OnResizeFramebuffer(int w, int h)
 {
-	assert(w > 0);
-	assert(h > 0);
+	ASSERT(w > 0);
+	ASSERT(h > 0);
 	(void)w; (void)h;
 
 	auto& device = *getDevice();
 	auto& instance = *device.getInstance();
-	auto surface = getSurface();
-	auto physicalDevice = device.getPhysicalDevice();
+	auto* surface = GetSurface();
+	auto* physicalDevice = device.getPhysicalDevice();
 
-	instance.updateSurfaceCapabilities(physicalDevice, surface);
+	instance.UpdateSurfaceCapabilities(physicalDevice, surface);
 
-	myConfig.swapchainConfig.extent = instance.getSwapchainInfo(physicalDevice, surface).capabilities.currentExtent;
+	myConfig.swapchainConfig.extent = instance.GetSwapchainInfo(physicalDevice, surface).capabilities.currentExtent;
 
-	assert(myConfig.contentScale.x == myState.xscale);
-	assert(myConfig.contentScale.y == myState.yscale);
+	ASSERT(myConfig.contentScale.x == myState.xscale);
+	ASSERT(myConfig.contentScale.y == myState.yscale);
 
 	myState.width = myConfig.swapchainConfig.extent.width / myState.xscale;
 	myState.height = myConfig.swapchainConfig.extent.height / myState.yscale;
 
-	internalCreateSwapchain(myConfig.swapchainConfig, *this);
-	internalInitializeViews();
+	InternalCreateSwapchain(myConfig.swapchainConfig, *this);
+	InternalInitializeViews();
 }
 
 template <>
-void Window<Vk>::onResizeSplitScreenGrid(uint32_t width, uint32_t height)
+void Window<Vk>::OnResizeSplitScreenGrid(uint32_t width, uint32_t height)
 {
 	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
-	
-	internalInitializeViews();
+
+	InternalInitializeViews();
 }
 
 template <>
-void Window<Vk>::internalUpdateViews(const InputState& input)
+void Window<Vk>::InternalUpdateViews(const InputState& input)
 {
-	ZoneScopedN("Window::internalUpdateViews");
+	ZoneScopedN("Window::InternalUpdateViews");
 
 	myTimestamps[1] = myTimestamps[0];
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
@@ -308,8 +307,8 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 	{
 		//std::cout << "window.myActiveView read/consume" << '\n';
 
-		float dx = 0.f;
-		float dz = 0.f;
+		float dx = 0.F;
+		float dz = 0.F;
 
 		// todo: make a bitset iterator, and use a range based for loop here, use <bit> for __cpp_lib_bitops
 		for (unsigned key = 0; key < input.keyboard.keysDown.size(); key++)
@@ -346,9 +345,9 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 			auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
 			auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
-			constexpr auto moveSpeed = 0.000000002f;
+			constexpr auto kMoveSpeed = 0.000000002F;
 
-			view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * moveSpeed;
+			view.desc().cameraPosition += dt * (dz * forward + dx * strafe) * kMoveSpeed;
 
 			// std::cout << *myActiveView << ":pos:[" << view.desc().cameraPosition.x << ", " <<
 			//     view.desc().cameraPosition.y << ", " << view.desc().cameraPosition.z << "]" << '\n';
@@ -358,7 +357,7 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 
 		if (input.mouse.leftDown)
 		{
-			constexpr auto rotSpeed = 0.00000001f;
+			constexpr auto kRotSpeed = 0.00000001F;
 
 			const float windowWidth = view.desc().viewport.width / myConfig.contentScale.x;
 			const float windowHeight = view.desc().viewport.height / myConfig.contentScale.y;
@@ -374,7 +373,7 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 			//std::cout << "dM[0]:" << dM[0] << ", dM[1]:" << dM[1] << '\n';
 
 			view.desc().cameraRotation +=
-				dt * glm::vec3(dM[1] / windowHeight, dM[0] / windowWidth, 0.0f) * rotSpeed;
+				dt * glm::vec3(dM[1] / windowHeight, dM[0] / windowWidth, 0.0F) * kRotSpeed;
 
 			// std::cout << *myActiveView << ":rot:[" << view.desc().cameraRotation.x << ", " <<
 			//     view.desc().cameraRotation.y << ", " << view.desc().cameraRotation.z << "]" << '\n';
@@ -390,24 +389,20 @@ void Window<Vk>::internalUpdateViews(const InputState& input)
 }
 
 template <>
-void Window<Vk>::onInputStateChanged(const InputState& input)
+void Window<Vk>::OnInputStateChanged(const InputState& input)
 {
-	internalUpdateViews(input);
-	internalUpdateViewBuffer();
+	InternalUpdateViews(input);
+	InternalUpdateViewBuffer();
 }
 
 template <>
-uint32_t Window<Vk>::draw(
-	Pipeline<Vk>& pipeline,
-	Queue<Vk>& queue,
-	RenderPassBeginInfo<Vk>&& renderPassInfo)
+uint32_t
+Window<Vk>::Draw(Pipeline<Vk>& pipeline, Queue<Vk>& queue, RenderPassBeginInfo<Vk>&& renderPassInfo)
 {
 	ZoneScopedN("Window::draw");
 
-	return internalDrawViews(
-		pipeline,
-		queue,
-		std::forward<RenderPassBeginInfo<Vk>>(renderPassInfo));
+	return InternalDrawViews(
+		pipeline, queue, std::forward<RenderPassBeginInfo<Vk>>(renderPassInfo));
 }
 
 template <>
@@ -436,7 +431,7 @@ Window<Vk>::Window(
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 	}
 
-	internalInitializeViews();
+	InternalInitializeViews();
 
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 }
@@ -472,9 +467,9 @@ Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 }
 
 template <>
-void Window<Vk>::swap(Window& other) noexcept
+void Window<Vk>::Swap(Window& other) noexcept
 {
-	Swapchain::swap(other);
+	Swapchain::Swap(other);
 	std::swap(myConfig, other.myConfig);
 	std::swap(myState, other.myState);
 	std::swap(myViewBuffers, other.myViewBuffers);

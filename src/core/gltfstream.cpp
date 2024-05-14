@@ -117,7 +117,7 @@
 
 // 		if (image.uri.empty())
 // 		{
-// 			assert(!image.bufferViewId.empty());
+// 			ASSERT(!image.bufferViewId.empty());
 
 // 			auto& bufferView = document.bufferViews.Get(image.bufferViewId);
 // 			auto& buffer = document.buffers.Get(bufferView.bufferId);
@@ -227,7 +227,7 @@
 // GlTFStreamReader::GlTFStreamReader(std::filesystem::path&& pathBase)
 // 	: myPathBase(std::forward<std::filesystem::path>(pathBase))
 // {
-// 	assert(myPathBase.has_root_path());
+// 	ASSERT(myPathBase.has_root_path());
 // }
 
 // std::shared_ptr<std::istream> GlTFStreamReader::GetInputStream(const std::string& filename) const

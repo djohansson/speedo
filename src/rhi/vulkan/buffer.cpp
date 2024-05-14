@@ -50,7 +50,7 @@ Buffer<Vk>::Buffer(
 		  device,
 		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
 		  createBuffer(
-			  queue.getPool().commands(),
+			  queue.GetPool().Commands(),
 			  device->getAllocator(),
 			  std::get<1>(descAndInitialData),
 			  std::get<0>(descAndInitialData).size,
@@ -58,7 +58,7 @@ Buffer<Vk>::Buffer(
 			  std::get<0>(descAndInitialData).memoryFlags,
 			  "todo_insert_proper_name"))
 {
-	queue.addTimelineCallback(
+	queue.AddTimelineCallback(
 	{
 		timelineValue,
 		[allocator = device->getAllocator(), descAndInitialData](uint64_t)
@@ -108,9 +108,9 @@ Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 }
 
 template <>
-void Buffer<Vk>::swap(Buffer& rhs) noexcept
+void Buffer<Vk>::Swap(Buffer& rhs) noexcept
 {
-	DeviceObject::swap(rhs);
+	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
 	std::swap(myBuffer, rhs.myBuffer);
 }
@@ -174,8 +174,8 @@ BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 }
 
 template <>
-void BufferView<Vk>::swap(BufferView& rhs) noexcept
+void BufferView<Vk>::Swap(BufferView& rhs) noexcept
 {
-	DeviceObject::swap(rhs);
+	DeviceObject::Swap(rhs);
 	std::swap(myView, rhs.myView);
 }

@@ -9,7 +9,7 @@ extern "C"
 {
 #endif
 
-void CreateServer(const PathConfig* paths);
+void CreateServer(const struct PathConfig* paths);
 void DestroyServer(void);
 bool TickServer();
 

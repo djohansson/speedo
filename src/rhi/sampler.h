@@ -19,8 +19,8 @@ public:
 	SamplerVector& operator=(SamplerVector&& other) noexcept;
 	auto operator[](uint32_t index) const noexcept { return mySamplers[index]; };
 
-	void swap(SamplerVector& rhs) noexcept;
-	friend void swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(SamplerVector& rhs) noexcept;
+	friend void Swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.Swap(rhs); }
 
 	auto size() const noexcept { return mySamplers.size(); }
 	auto data() const noexcept { return mySamplers.data(); }

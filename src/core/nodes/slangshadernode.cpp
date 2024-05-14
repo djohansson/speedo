@@ -6,9 +6,9 @@ SlangShaderNode::SlangShaderNode(int id, std::string&& name, std::filesystem::pa
 {
 }
 
-void SlangShaderNode::swap(SlangShaderNode& rhs) noexcept
+void SlangShaderNode::Swap(SlangShaderNode& rhs) noexcept
 {
-    InputOutputNode::swap(rhs);
+    InputOutputNode::Swap(rhs);
     std::swap(myPath, rhs.myPath);
 }
 

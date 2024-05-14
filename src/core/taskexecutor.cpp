@@ -1,6 +1,6 @@
 #include "taskexecutor.h"
+#include "assert.h"
 
-#include <cassert>
 #include <shared_mutex>
 
 MemoryPool<Task, TaskExecutor::kTaskPoolSize> TaskExecutor::gTaskPool{};
@@ -10,7 +10,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 {
 	ZoneScopedN("TaskExecutor()");
 
-	ASSERT(threadCount > 0, "Thread count must be nonzero");
+	ASSERTF(threadCount > 0, "Thread count must be nonzero");
 
 	myThreads.reserve(threadCount);
 
@@ -22,8 +22,8 @@ TaskExecutor::~TaskExecutor()
 {
 	ZoneScopedN("~TaskExecutor()");
 
-	assert(myReadyQueue.size_approx() == 0);
-	assert(myDeletionQueue.size_approx() == 0);
+	ASSERT(myReadyQueue.size_approx() == 0);
+	ASSERT(myDeletionQueue.size_approx() == 0);
 
 	myStopSource.store(true, std::memory_order_release);
 	mySignal.release(static_cast<ptrdiff_t>(myThreads.size()));
@@ -36,13 +36,13 @@ void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle,
 {
 	ZoneScopedN("TaskExecutor::addDependency");
 
-	assert(aTaskHandle != bTaskHandle);
+	ASSERT(aTaskHandle != bTaskHandle);
 
 	Task& aTask = *handleToTaskPtr(aTaskHandle);
 	Task& bTask = *handleToTaskPtr(bTaskHandle);
 
-	ASSERT(aTask.state(), "Task state is not valid!");
-	ASSERT(bTask.state(), "Task state is not valid!");
+	ASSERTF(aTask.state(), "Task state is not valid!");
+	ASSERTF(bTask.state(), "Task state is not valid!");
 
 	TaskState& aState = *aTask.state();
 	TaskState& bState = *bTask.state();
@@ -58,12 +58,12 @@ void TaskExecutor::addDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle,
 
 Task* TaskExecutor::handleToTaskPtr(TaskHandle handle) noexcept
 {
-	assert(handle);
-	assert(handle.value < kTaskPoolSize);
+	ASSERT(handle);
+	ASSERT(handle.value < kTaskPoolSize);
 	
 	Task* ptr = gTaskPool.getPointer(handle);
 
-	assert(ptr != nullptr);
+	ASSERT(ptr != nullptr);
 	
 	return ptr;
 }
@@ -74,7 +74,7 @@ void TaskExecutor::internalSubmit(TaskHandle handle)
 
 	Task& task = *handleToTaskPtr(handle);
 
-	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(handle);
 
@@ -88,7 +88,7 @@ void TaskExecutor::internalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 
 	Task& task = *handleToTaskPtr(handle);
 
-	assert(task.state()->latch.load(std::memory_order_relaxed) == 1);
+	ASSERT(task.state()->latch.load(std::memory_order_relaxed) == 1);
 
 	myReadyQueue.enqueue(readyProducerToken, handle);
 
@@ -122,8 +122,8 @@ void TaskExecutor::scheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 
 		Task& adjacent = *handleToTaskPtr(adjacentHandle);
 
-		ASSERT(adjacent.state(), "Task has no return state!");
-		ASSERT(adjacent.state()->latch, "Latch needs to have been constructed!");
+		ASSERTF(adjacent.state(), "Task has no return state!");
+		ASSERTF(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
@@ -146,8 +146,8 @@ void TaskExecutor::scheduleAdjacent(Task& task)
 
 		Task& adjacent = *handleToTaskPtr(adjacentHandle);
 
-		ASSERT(adjacent.state(), "Task has no return state!");
-		ASSERT(adjacent.state()->latch, "Latch needs to have been constructed!");
+		ASSERTF(adjacent.state(), "Task has no return state!");
+		ASSERTF(adjacent.state()->latch, "Latch needs to have been constructed!");
 
 		if (adjacent.state()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{

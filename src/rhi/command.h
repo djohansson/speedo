@@ -38,29 +38,29 @@ public:
 	CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
 	CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
 
-	void swap(CommandBufferArray& rhs) noexcept;
-	friend void swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(CommandBufferArray& rhs) noexcept;
+	friend void Swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 
-	static constexpr auto capacity() { return kCommandBufferCount; }
+	static constexpr auto Capacity() { return kCommandBufferCount; }
 
-	uint8_t begin(const CommandBufferBeginInfo<G>& beginInfo);
-	void end(uint8_t index);
+	uint8_t Begin(const CommandBufferBeginInfo<G>& beginInfo);
+	void End(uint8_t index);
 
-	void reset();
+	void Reset();
 
-	uint8_t head() const { return myBits.head; }
-	const CommandBufferHandle<G>* data() const
+	uint8_t Head() const { return myBits.head; }
+	const CommandBufferHandle<G>* Data() const
 	{
-		assert(!recordingFlags());
+		ASSERT(!RecordingFlags());
 		return myArray.data();
 	}
 
-	bool recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
-	uint8_t recordingFlags() const noexcept { return myBits.recordingFlags; }
+	bool Recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
+	uint8_t RecordingFlags() const noexcept { return myBits.recordingFlags; }
 
-	bool full() const { return (head() + 1) >= capacity(); }
+	bool Full() const { return (Head() + 1) >= Capacity(); }
 
 private:
 	CommandBufferArray(
@@ -106,16 +106,16 @@ public:
 	CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
 	operator auto() const { return (*myArray)[myIndex]; }
 
-	void swap(CommandBufferAccessScope<G>& rhs) noexcept;
-	friend void swap(CommandBufferAccessScope<G>& lhs, CommandBufferAccessScope<G>& rhs) noexcept
+	void Swap(CommandBufferAccessScope<G>& rhs) noexcept;
+	friend void Swap(CommandBufferAccessScope<G>& lhs, CommandBufferAccessScope<G>& rhs) noexcept
 	{
-		lhs.swap(rhs);
+		lhs.Swap(rhs);
 	}
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 
-	void begin() { myIndex = myArray->begin(myDesc); }
-	void end() const { myArray->end(myIndex); }
+	void Begin() { myIndex = myArray->Begin(myDesc); }
+	void End() const { myArray->End(myIndex); }
 
 private:
 	CommandBufferAccessScopeDesc<G> myDesc{};
@@ -149,14 +149,14 @@ public:
 	CommandPool& operator=(CommandPool&& other) noexcept;
 	operator auto() const noexcept { return myPool; }
 
-	const auto& getDesc() const noexcept { return myDesc; }
+	const auto& GetDesc() const noexcept { return myDesc; }
 
-	void swap(CommandPool& rhs) noexcept;
-	friend void swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(CommandPool& rhs) noexcept;
+	friend void Swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.Swap(rhs); }
 
-	void reset();
+	void Reset();
 
-	CommandBufferAccessScope<G> commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
+	CommandBufferAccessScope<G> Commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
 
 private:
 	friend class Queue<G>;
@@ -165,17 +165,17 @@ private:
 		const std::shared_ptr<Device<G>>& device,
 		std::tuple<CommandPoolCreateDesc<G>, CommandPoolHandle<G>>&& descAndData);
 
-	CommandBufferAccessScope<G> internalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
-	CommandBufferAccessScope<G> internalCommands(const CommandBufferAccessScopeDesc<G>& beginInfo) const;
-	void internalEndCommands(uint8_t level);
-	void internalEnqueueOnePending(uint8_t level);
-	void internalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
+	CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
+	CommandBufferAccessScope<G> InternalCommands(const CommandBufferAccessScopeDesc<G>& beginInfo) const;
+	void InternalEndCommands(uint8_t level);
+	void InternalEnqueueOnePending(uint8_t level);
+	void InternalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
 
-	auto& internalGetPendingCommands() noexcept { return myPendingCommands; }
-	const auto& internalGetPendingCommands() const noexcept { return myPendingCommands; }
+	auto& InternalGetPendingCommands() noexcept { return myPendingCommands; }
+	const auto& InternalGetPendingCommands() const noexcept { return myPendingCommands; }
 
-	auto& internalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
-	const auto& internalGetSubmittedCommands() const noexcept { return mySubmittedCommands; }
+	auto& InternalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
+	const auto& InternalGetSubmittedCommands() const noexcept { return mySubmittedCommands; }
 
 	CommandPoolCreateDesc<G> myDesc{};
 	CommandPoolHandle<G> myPool{};

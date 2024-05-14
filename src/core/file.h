@@ -44,13 +44,13 @@ public:
 
 	Object& operator=(Object&& other) noexcept;
 
-	void swap(Object& rhs) noexcept;
-	friend void swap(Object& lhs, Object& rhs) noexcept { lhs.swap(rhs); }
+	void Swap(Object& rhs) noexcept;
+	friend void Swap(Object& lhs, Object& rhs) noexcept { lhs.Swap(rhs); }
 
-	void reload();
+	void Reload();
 
 	template <AccessMode M = Mode>
-	typename std::enable_if<M == AccessMode::ReadWrite, void>::type save() const;
+	typename std::enable_if<M == AccessMode::ReadWrite, void>::type Save() const;
 
 private:
 	Record myInfo;
@@ -73,13 +73,13 @@ template <bool Sha256ChecksumEnable>
 std::expected<Record, std::error_code> getRecord(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> loadBinary(const std::filesystem::path& filePath, LoadFn loadOp);
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, LoadFn loadOp);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> saveBinary(const std::filesystem::path& filePath, SaveFn saveOp);
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, SaveFn saveOp);
 
 template <typename T>
-std::expected<T, std::error_code> loadBinaryObject(const std::filesystem::path& filePath);
+std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
 
 template <typename T>
 std::expected<T, std::error_code> loadJSONObject(std::string_view buffer);
@@ -91,7 +91,7 @@ template <typename T>
 std::expected<void, std::error_code> saveJSONObject(const T& object, const std::string& filePath);
 
 template <const char* LoaderType, const char* LoaderVersion>
-void loadAsset(const std::filesystem::path& filePath, LoadFn loadFileFn, LoadFn loadBinaryCacheFn, SaveFn saveBinaryCacheFn);
+void LoadAsset(const std::filesystem::path& filePath, LoadFn loadFileFn, LoadFn loadBinaryCacheFn, SaveFn SaveBinaryCacheFn);
 
 } // namespace file
 

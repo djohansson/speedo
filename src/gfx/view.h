@@ -2,7 +2,7 @@
 
 #include <gfx/glm_extra.h>
 
-#include <cassert>
+#include "assert.h"
 #include <cstdint>
 
 enum class ViewType : uint8_t

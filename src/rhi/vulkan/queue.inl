@@ -1,33 +1,33 @@
 template <>
 template <typename T, typename... Ts>
-void Queue<Vk>::enqueueSubmit(T&& first, Ts&&... rest)
+void Queue<Vk>::EnqueueSubmit(T&& first, Ts&&... rest)
 {
-	ZoneScopedN("Queue::enqueueSubmit");
+	ZoneScopedN("Queue::EnqueueSubmit");
 
-	myPendingSubmits.emplace_back(internalPrepareSubmit(std::forward<T>(first)));
+	myPendingSubmits.emplace_back(InternalPrepareSubmit(std::forward<T>(first)));
 
 	if constexpr (sizeof...(rest) > 0)
-		enqueueSubmit(std::forward<Ts>(rest)...);
+		EnqueueSubmit(std::forward<Ts>(rest)...);
 }
 
 template <>
 template <typename T, typename... Ts>
-void Queue<Vk>::enqueuePresent(T&& first, Ts&&... rest)
+void Queue<Vk>::EnqueuePresent(T&& first, Ts&&... rest)
 {
-	ZoneScopedN("Queue::enqueuePresent");
+	ZoneScopedN("Queue::EnqueuePresent");
 
 	myPendingPresent |= std::forward<T>(first);
 
 	if constexpr (sizeof...(rest) > 0)
-		enqueuePresent(std::forward<Ts>(rest)...);
+		EnqueuePresent(std::forward<Ts>(rest)...);
 }
 
 
 #if (PROFILING_LEVEL > 0)
 template <>
 template <SourceLocationData Location>
-std::shared_ptr<void> Queue<Vk>::gpuScope(CommandBufferHandle<Vk> cmd)
+std::shared_ptr<void> Queue<Vk>::GpuScope(CommandBufferHandle<Vk> cmd)
 {
-	return internalGpuScope(cmd, Location);
+	return InternalGpuScope(cmd, Location);
 }
 #endif

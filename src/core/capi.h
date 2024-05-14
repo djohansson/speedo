@@ -17,13 +17,13 @@ extern "C"
 
 #include <stdint.h>
 
-typedef struct _PathConfig
+struct PathConfig
 {
 	const char* userProfilePath;
 	const char* resourcePath;
-} PathConfig;
+};
 
-typedef struct _MouseEvent
+struct MouseEvent
 {
 	enum
 	{
@@ -40,18 +40,18 @@ typedef struct _MouseEvent
 	uint8_t button;
 	uint8_t action;
 	uint8_t insideWindow : 1;
-} MouseEvent;
+};
 
-typedef struct _KeyboardEvent
+struct KeyboardEvent
 {
 	uint32_t scancode;
 	uint32_t mods;
 	uint16_t key;
 	uint8_t action;
-} KeyboardEvent;
+};
 
-CORE_API void UpdateMouse(const MouseEvent* state);
-CORE_API void UpdateKeyboard(const KeyboardEvent* state);
+CORE_API void UpdateMouse(const struct MouseEvent* state);
+CORE_API void UpdateKeyboard(const struct KeyboardEvent* state);
 CORE_API const char* GetApplicationName(void);
 
 #ifdef __cplusplus

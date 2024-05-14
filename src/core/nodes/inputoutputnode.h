@@ -15,8 +15,8 @@ public:
     InputOutputNode& operator=(const InputOutputNode&) = default;
     InputOutputNode& operator=(InputOutputNode&&) noexcept = default;
 
-    void swap(InputOutputNode& rhs) noexcept;
-    friend void swap(InputOutputNode& lhs, InputOutputNode& rhs) noexcept { lhs.swap(rhs); }
+    void Swap(InputOutputNode& rhs) noexcept;
+    friend void Swap(InputOutputNode& lhs, InputOutputNode& rhs) noexcept { lhs.Swap(rhs); }
 
     int& id() final;
     std::optional<int>& selected() final;

@@ -6,7 +6,7 @@ InputOutputNode::InputOutputNode(int id, std::string&& name)
 {
 }
 
-void InputOutputNode::swap(InputOutputNode& rhs) noexcept
+void InputOutputNode::Swap(InputOutputNode& rhs) noexcept
 {
     std::swap(myId, rhs.myId);
     std::swap(myName, rhs.myName);
