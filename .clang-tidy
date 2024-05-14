@@ -17,7 +17,8 @@ Checks: >
   portability-*,
   readability-*,
   -readability-braces-around-statements,
-  -readability-duplicate-include
+  -readability-duplicate-include,
+  -readability-function-cognitive-complexity
 
 WarningsAsErrors: "*"
 
