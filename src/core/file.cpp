@@ -29,12 +29,13 @@ std::string GetTimeStamp(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
-	auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::filesystem::last_write_time(filePath).time_since_epoch());
-	auto s = std::chrono::duration_cast<std::chrono::seconds>(ms);
-	std::time_t timestamp = s.count();
+	auto sec = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::filesystem::last_write_time(filePath).time_since_epoch()));
+	std::time_t timestamp = sec.count();
 
-	return {std::asctime(std::localtime(&timestamp))};
+	char buffer[80];
+
+	return std::string(buffer, std::strftime(buffer, sizeof(buffer), "%c", std::localtime(&timestamp)));
 }
 
 std::filesystem::path
