@@ -41,11 +41,11 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	return taskPair;
 }
 
-static std::string Say(const std::string& s)
+static std::string Say(const std::string& str)
 {
 	using namespace std::literals;
 
-	if (s == "hello"s)
+	if (str == "hello"s)
 		return "world"s;
 	
 	return "nothing"s;
@@ -62,13 +62,14 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	try
 	{
-		std::array<std::byte, 64> requestData;
-		std::array<std::byte, 64> responseData;
+		static constexpr unsigned kBufferSize = 64;
+		std::array<std::byte, kBufferSize> requestData;
+		std::array<std::byte, kBufferSize> responseData;
 
-		zpp::bits::in in{requestData};
-		zpp::bits::out out{responseData};
+		zpp::bits::in inStream{requestData};
+		zpp::bits::out outStream{responseData};
 
-		server::RpcSay::server server{in, out};
+		server::RpcSay::server server{inStream, outStream};
 
 		if (auto socketCount = poller.wait(2ms))
 		{
@@ -90,7 +91,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 			// 	return;
 			// }
 
-			if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(out.data().data(), out.position()), zmq::send_flags::none); !sendResult)
+			if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
 			{
 				std::cerr << "socket.send() failed" << '\n';
 				return;
@@ -113,7 +114,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 } // namespace server
 
-Server::~Server()
+Server::~Server() noexcept(false)
 {
 	ZoneScopedN("Server::~Server");
 
@@ -148,7 +149,7 @@ Server::Server(std::string_view name, Environment&& env)
 
 	mySocket.set(zmq::sockopt::linger, 0);
 	mySocket.bind(kCxServerAddress.data());
-	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags ef) {
+	myPoller.add(mySocket, zmq::event_flags::pollin|zmq::event_flags::pollout, [/*&toString*/](zmq::event_flags /*evf*/) {
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 

@@ -10,7 +10,7 @@
 class Server : public Application
 {	
 public:
-	~Server() override;
+	~Server() noexcept(false) override;
 	
 	void Tick() override;
 
