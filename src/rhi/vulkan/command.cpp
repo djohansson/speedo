@@ -246,7 +246,7 @@ void CommandPool<Vk>::Reset()
 {
 	ZoneScopedN("CommandPool::reset");
 
-	if ((myDesc.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) != 0u)
+	if ((myDesc.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) != 0U)
 	{
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
@@ -303,17 +303,8 @@ CommandPool<Vk>::InternalBeginScope(const CommandBufferAccessScopeDesc<Vk>& begi
 		std::get<0>(myPendingCommands[beginInfo.level].back()).Full())
 		InternalEnqueueOnePending(beginInfo.level);
 
-	myRecordingCommands[beginInfo.level].emplace(CommandBufferAccessScope(
+	return myRecordingCommands[beginInfo.level].emplace(CommandBufferAccessScope(
 		&std::get<0>(myPendingCommands[beginInfo.level].back()), beginInfo));
-
-	return myRecordingCommands[beginInfo.level].value();
-}
-
-template <>
-CommandBufferAccessScope<Vk>
-CommandPool<Vk>::InternalCommands(const CommandBufferAccessScopeDesc<Vk>& beginInfo) const
-{
-	return myRecordingCommands[beginInfo.level].value();
 }
 
 template <>

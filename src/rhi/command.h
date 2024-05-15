@@ -166,7 +166,6 @@ private:
 		std::tuple<CommandPoolCreateDesc<G>, CommandPoolHandle<G>>&& descAndData);
 
 	CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
-	CommandBufferAccessScope<G> InternalCommands(const CommandBufferAccessScopeDesc<G>& beginInfo) const;
 	void InternalEndCommands(uint8_t level);
 	void InternalEnqueueOnePending(uint8_t level);
 	void InternalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
