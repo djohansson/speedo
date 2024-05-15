@@ -1,4 +1,4 @@
-//NOLINTBEGIN(readability-identifier-naming.*)
+// NOLINTBEGIN(readability-identifier-naming.*)
 constexpr auto serialize(auto& archive, DescriptorSetLayoutBinding<Vk>& desc)
 {
 	return archive(
@@ -58,4 +58,4 @@ constexpr auto serialize(auto& archive, const SamplerCreateInfo<Vk>& desc)
 		desc.borderColor,
 		desc.unnormalizedCoordinates);
 }
-//NOLINTEND(readability-identifier-naming.*)
+// NOLINTEND(readability-identifier-naming.*)

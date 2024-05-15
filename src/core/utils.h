@@ -1,6 +1,6 @@
 #pragma once
 
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
+#include "assert.h"// NOLINT(modernize-deprecated-headers)
 
 #include <algorithm>
 #include <functional>

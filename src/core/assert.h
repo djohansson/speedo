@@ -14,7 +14,7 @@
 #endif
 
 #define CLEAN_ERRNO() (errno == 0 ? "NULL" : strerror(errno))
-#define LOG_ERROR(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), ##__VA_ARGS__) //NOLINT(modernize-use-std-print)
+#define LOG_ERROR(M, ...) fprintf(stderr, "[ERROR] (%s:%d: errno: %s) " M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), ##__VA_ARGS__) // NOLINT(modernize-use-std-print)
 
 #ifdef NDEBUG
 #	define ASSERT(A)

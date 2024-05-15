@@ -1,5 +1,5 @@
 #include "task.h"
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
+#include "assert.h"// NOLINT(modernize-deprecated-headers)
 
 static constexpr uint32_t kTaskPoolSize = (1 << 10); // todo: make this configurable
 static MemoryPool<Task, kTaskPoolSize> gTaskPool;
