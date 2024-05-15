@@ -339,7 +339,7 @@ void LoadAsset(
 
 		manifest = LoadJSONAssetManifest<LoaderType, LoaderVersion, false>(
 			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
-			[](std::string_view buffer){ return LoadJSONObject<AssetManifest>(buffer); });
+			[](std::string_view buffer) { return LoadJSONObject<AssetManifest>(buffer); });
 	}
 	else
 	{
