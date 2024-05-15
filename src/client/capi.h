@@ -10,6 +10,8 @@
 #	define CLIENT_API
 #endif
 
+#include <stdbool.h>
+
 #include <core/capi.h>
 #include <rhi/capi.h>
 
