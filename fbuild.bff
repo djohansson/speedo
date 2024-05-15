@@ -34,7 +34,7 @@
 		.Name = 'core'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
@@ -64,7 +64,7 @@
 			+ ' -DVK_USE_PLATFORM_XLIB_KHR=1'
 #endif //__LINUX__
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DSHADERTYPES_H_CPU_TARGET'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -Wno-deprecated-builtins'
@@ -86,7 +86,7 @@
 		.Name = 'gfx'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
@@ -102,7 +102,7 @@
 		.Name = 'server'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZMQ_BUILD_DRAFT_API'
 			+ ' -Wno-deprecated-builtins'
@@ -121,7 +121,7 @@
 		.Name = 'server'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.c'
 	]
@@ -141,14 +141,13 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
+			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lzmq'
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
-			+ ' -lmimalloc'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
-			+ ' -lmimalloc-debug'
 			+ .CommonExecutableLinkerOptions
 	]
 
@@ -165,7 +164,7 @@
 		.Name = 'client'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZMQ_BUILD_DRAFT_API'
 			+ ' -Wno-deprecated-builtins'
@@ -184,7 +183,7 @@
 		.Name = 'client'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 			+ ' -DGLFW_INCLUDE_NONE'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.c'
@@ -207,6 +206,7 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
+			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lslang'
@@ -224,12 +224,10 @@
 			+ ' -lvulkan'
 	#endif //__WINDOWS__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
-			+ ' -lmimalloc'
 			+ ' -lnfd'
 			+ ' -limgui'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
-			+ ' -lmimalloc-debug'
 			+ ' -lnfd_d'
 			+ ' -limguid'
 			+ .CommonExecutableLinkerOptions
@@ -258,7 +256,7 @@
 		.Name = 'core-tests'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/src'
-			+ ' -I$BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$'
 		.CompilerInputPattern = '*.cpp'
 	]
@@ -277,13 +275,12 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
+			+ ' -lmimalloc'
 			+ ' -lTracyClient'
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib/'
-			+ ' -lmimalloc'
 			+ ' -lCatch2'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib/'
-			+ ' -lmimalloc-debug'
 			+ ' -lCatch2d'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
