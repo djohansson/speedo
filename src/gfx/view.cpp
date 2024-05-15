@@ -4,11 +4,11 @@
 
 void View::UpdateViewMatrix()
 {
-	auto rx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
-	auto ry = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
-	auto t = glm::translate(glm::mat4(1.0), -myDesc.cameraPosition);
+	auto rotx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
+	auto roty = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
+	auto trans = glm::translate(glm::mat4(1.0), -myDesc.cameraPosition);
 
-	myViewMatrix = glm::inverse(t * ry * rx);
+	myViewMatrix = glm::inverse(trans * roty * rotx);
 }
 
 void View::UpdateProjectionMatrix()
