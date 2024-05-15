@@ -21,7 +21,7 @@
 #include <zpp_bits.h>
 
 auto serialize(const ModelCreateDesc<Vk>&) -> zpp::bits::members<4>;
-auto serialize(const AABB<float>&) -> zpp::bits::members<2>;
+auto serialize(const AABB3f&) -> zpp::bits::members<2>;
 
 namespace model
 {
@@ -286,9 +286,9 @@ Load(
 				{
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.Size() - 1);
 
-					if (!attrib.vertices.empty())
-						desc.aabb.Merge(
-							vertex.DataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
+					// if (!attrib.vertices.empty())
+					// 	desc.aabb.Merge(
+					// 		vertex.DataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
 				}
 				else
 				{

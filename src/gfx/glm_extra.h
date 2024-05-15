@@ -13,6 +13,8 @@
 
 #include <glaze/glaze.hpp>
 
+#include <zpp_bits.h>
+
 // NOLINTBEGIN(readability-identifier-naming.*)
 
 template <>
@@ -21,6 +23,9 @@ struct glz::meta<glm::vec2>
 	using T = glm::vec2;
 	static constexpr auto value = object(&T::x, &T::y);
 };
+
+auto serialize(const glm::vec2&) -> zpp::bits::members<2>;
+auto serialize(const glm::vec3&) -> zpp::bits::members<3>;
 
 namespace glm
 {
