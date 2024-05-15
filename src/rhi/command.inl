@@ -2,14 +2,10 @@ template <GraphicsApi G>
 CommandBufferAccessScope<G>
 CommandPool<G>::Commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
 {
-	if (!myRecordingCommands[beginInfo.level].has_value())
+	if (!myRecordingCommands[beginInfo.level].has_value() || myRecordingCommands[beginInfo.level].value().GetDesc() != beginInfo)
 		return InternalBeginScope(beginInfo);
-	else if (myRecordingCommands[beginInfo.level].value().GetDesc() == beginInfo)
-		return myRecordingCommands[beginInfo.level].value();
-
-	ASSERT(false);
 	
-	return {};
+	return myRecordingCommands[beginInfo.level].value();
 }
 
 template <GraphicsApi G>
