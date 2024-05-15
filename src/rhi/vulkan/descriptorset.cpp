@@ -35,8 +35,6 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 		  std::forward<DescriptorSetLayoutCreateDesc<Vk>>(desc),
 		  [&device, &desc]
 		  {
-			  ZoneScopedN("DescriptorSetLayout::CreateDescriptorSetLayout");
-
 			  auto samplers = SamplerVector<Vk>(device, desc.immutableSamplers);
 
 			  ShaderVariableBindingsMap bindingsMap;
@@ -141,8 +139,6 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 		  std::forward<DescriptorSetArrayCreateDesc<Vk>>(desc),
 		  [&device, &layout, &desc]
 		  {
-			  ZoneScopedN("DescriptorSetArray::vkAllocateDescriptorSets");
-
 			  std::array<VkDescriptorSetLayout, kDescriptorSetCount> layouts;
 			  layouts.fill(layout);
 
@@ -201,8 +197,6 @@ void DescriptorUpdateTemplate<Vk>::SetEntries(
 	myEntries = std::forward<std::vector<DescriptorUpdateTemplateEntry<Vk>>>(entries);
 	myHandle = [this]
 	{
-		ZoneScopedN("DescriptorSetLayout::vkCreateDescriptorUpdateTemplate");
-
 		VkDescriptorUpdateTemplate descriptorTemplate;
 		VkDescriptorUpdateTemplateCreateInfo createInfo{
 			VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO,

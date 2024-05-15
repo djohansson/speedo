@@ -26,7 +26,9 @@
 
 #include <zpp_bits.h>
 
+//NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
 auto serialize(const ImageCreateDesc<Vk>&) -> zpp::bits::members<6>;
+//NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
 
 namespace image
 {
@@ -80,9 +82,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 
 	auto loadBin = [&descAndInitialData, &device, &progress](auto& in) -> std::error_code
 	{
-		ZoneScopedN("image::loadBin");
-
-		progress = 32;
+		progress = 32;//NOLINT(readability-magic-numbers)
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -100,7 +100,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		progress = 64;
+		progress = 64;//NOLINT(readability-magic-numbers)
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
@@ -112,15 +112,13 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 
-		progress = 255;
+		progress = 255;//NOLINT(readability-magic-numbers)
 
 		return {};
 	};
 
 	auto saveBin = [&descAndInitialData, &device, &progress](auto& out) -> std::error_code
 	{
-		ZoneScopedN("image::saveBin");
-
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		
 		if (auto result = out(desc); failure(result))
@@ -137,16 +135,14 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		if (failure(result))
 			return std::make_error_code(result);
 
-		progress = 255;
+		progress = 255;//NOLINT(readability-magic-numbers)
 
 		return {};
 	};
 
 	auto loadImage = [&descAndInitialData, &device, &imageFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		ZoneScopedN("image::loadImage");
-
-		progress = 32;
+		progress = 32;//NOLINT(readability-magic-numbers)
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -158,7 +154,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		uint32_t mipCount =
 			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 		bool hasAlpha = channelCount == 4;
-		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
+		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;//NOLINT(readability-magic-numbers)
 
 		desc.mipLevels.resize(mipCount);
 		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
@@ -198,8 +194,6 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 								 bool hasAlpha,
 								 uint32_t threadCount)
 		{
-			ZoneScopedN("image::loadImage::compressBlocks");
-
 			auto blockRowCount = extent.height >> 2;
 			auto blockColCount = extent.width >> 2;
 			auto blockCount = blockRowCount * blockColCount;
@@ -225,8 +219,6 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 				threadCount,
 				[&](uint32_t /*threadId*/)
 				{
-					ZoneScopedN("image::loadImage::compressBlocks::thread");
-
 					auto blockIt = blockAtomic++;
 					while (blockIt < blockCount)
 					{
@@ -339,9 +331,9 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 		return {};
 	};
 
-	static constexpr char loaderType[] = "stb_image|stb_image_resize|stb_dxt";
-	static constexpr char loaderVersion[] = "2.26|0.96|1.10";
-	file::LoadAsset<loaderType, loaderVersion>(imageFile, loadImage, loadBin, saveBin);
+	static constexpr char kLoaderType[] = "stb_image|stb_image_resize|stb_dxt";
+	static constexpr char kLoaderVersion[] = "2.26|0.96|1.10";
+	file::LoadAsset<kLoaderType, kLoaderVersion>(imageFile, loadImage, loadBin, saveBin);
 
 	if (bufferHandle == nullptr)
 		throw std::runtime_error("Failed to load image.");

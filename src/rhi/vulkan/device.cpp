@@ -16,7 +16,7 @@ namespace device
 {
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-static PFN_vkSetDebugUtilsObjectNameEXT gvkSetDebugUtilsObjectNameEXT{};
+static PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
 #endif
 
 }
@@ -39,7 +39,7 @@ void Device<Vk>::AddOwnedObjectHandle(
 {
 	ZoneScopedN("Device::AddOwnedObjectHandle");
 
-	if (objectHandle == 0u)
+	if (objectHandle == 0U)
 		return;
 
 	uint64_t ownerIdHash = 0ULL;
@@ -65,7 +65,7 @@ void Device<Vk>::AddOwnedObjectHandle(
 		{
 			ZoneScopedN("Device::AddOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
 
-			VK_CHECK(device::gvkSetDebugUtilsObjectNameEXT(myDevice, &objectInfo));
+			VK_CHECK(device::gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
 		}
 
 		myObjectTypeToCountMap[objectType]++;
@@ -77,7 +77,7 @@ void Device<Vk>::EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t obj
 {
 	ZoneScopedN("Device::EraseOwnedObjectHandle");
 
-	if (objectHandle == 0u)
+	if (objectHandle == 0U)
 		return;
 
 	uint64_t ownerIdHash = 0ULL;
@@ -249,9 +249,9 @@ Device<Vk>::Device(
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		device::gvkSetDebugUtilsObjectNameEXT = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+		device::gVkSetDebugUtilsObjectNameExt = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
 			vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
-		ASSERT(device::gvkSetDebugUtilsObjectNameEXT != nullptr);
+		ASSERT(device::gVkSetDebugUtilsObjectNameExt != nullptr);
 	}
 #endif
 
@@ -364,7 +364,7 @@ Device<Vk>::~Device()
 	if constexpr(GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		char* allocatorStatsJSON = nullptr;
-		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1u);
+		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1U);
 		std::cout << allocatorStatsJSON << '\n';
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
