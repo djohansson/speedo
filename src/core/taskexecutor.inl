@@ -1,15 +1,15 @@
 template <typename R>
 std::optional<typename Future<R>::value_t> TaskExecutor::Join(Future<R>&& future)
 {
-	ZoneScopedN("TaskExecutor::join");
+	ZoneScopedN("TaskExecutor::Join");
 
-	return ProcessReadyQueue(std::forward<Future<R>>(future));
+	return InternalProcessReadyQueue(std::forward<Future<R>>(future));
 }
 
 template <typename R>
-std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Future<R>&& future)
+std::optional<typename Future<R>::value_t> TaskExecutor::InternalProcessReadyQueue(Future<R>&& future)
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
+	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
 	if (!future.Valid())
 		return std::nullopt;
@@ -18,7 +18,7 @@ std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Futur
 	while (!future.IsReady() && myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(handle);
-		PurgeDeletionQueue();
+		InternalPurgeDeletionQueue();
 	}
 
 	return std::make_optional(future.Get());
@@ -27,34 +27,28 @@ std::optional<typename Future<R>::value_t> TaskExecutor::ProcessReadyQueue(Futur
 template <typename... Params>
 void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
 {
-	ZoneScopedN("TaskExecutor::internalCall");
+	ZoneScopedN("TaskExecutor::InternalCall");
 
 	Task& task = *Task::InternalHandleToPtr(handle);
 
 	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
-	ScheduleAdjacent(task);
+	InternalScheduleAdjacent(task);
 	myDeletionQueue.enqueue(handle);
 }
 
 template <typename... Params>
 void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, Params&&... params)
 {
-	ZoneScopedN("TaskExecutor::internalCall");
+	ZoneScopedN("TaskExecutor::InternalCall");
 
 	Task& task = *Task::InternalHandleToPtr(handle);
 
 	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
-	ScheduleAdjacent(readyProducerToken, task);
+	InternalScheduleAdjacent(readyProducerToken, task);
 	myDeletionQueue.enqueue(handle);
-}
-
-template <typename... Params>
-void TaskExecutor::Call(TaskHandle handle, Params&&... params)
-{
-	InternalCall(handle, params...);
 }
 

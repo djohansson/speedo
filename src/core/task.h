@@ -13,12 +13,14 @@
 template <typename T>
 using TaskCreateInfo = std::pair<TaskHandle, Future<T>>;
 
-// TODO: Consider using dynamic memory allocation for callable and arguments if larger tasks are required. Currently, the maximum size is 56 bytes for the callable and 32 bytes for the arguments.
-class Task : public Noncopyable
+// TODO(djohansson): Consider using dynamic memory allocation for callable and arguments if larger tasks are required. Currently, the maximum size is 56 bytes for the callable and 32 bytes for the arguments.
+class Task : public Noncopyable, public Nonmovable
 {
 	friend class TaskExecutor;
 
 public:
+	~Task();
+	
 	template <
 		typename... Params,
 		typename... Args,
@@ -31,7 +33,6 @@ public:
 	static TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
 
 	operator bool() const noexcept;
-	Task& operator=(Task&& other) noexcept;
 	template <typename... Params>
 	void operator()(Params&&... params);
 
@@ -41,9 +42,7 @@ public:
 	static void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 private:
-	constexpr Task() noexcept = default;
-	Task(Task&& other) noexcept;
-	~Task();
+	constexpr Task() noexcept = delete;
 	template <
 		typename... Params,
 		typename... Args,

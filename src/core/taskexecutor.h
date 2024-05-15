@@ -29,7 +29,7 @@ public:
 
 	// call task in current thread. dependency chain(s) will be executed in thread pool
 	template <typename... Params>
-	void Call(TaskHandle handle, Params&&... params);
+	void Call(TaskHandle handle, Params&&... params) { InternalCall(handle, params...); }
 
 	// task + dependency chain(s) will be executed in thread pool
 	void Submit(TaskHandle handle) { InternalSubmit(handle); }
@@ -44,17 +44,17 @@ private:
 	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
 	static void InternalTryDelete(TaskHandle handle);
 
-	void ScheduleAdjacent(Task& task);
-	void ScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
+	void InternalScheduleAdjacent(Task& task);
+	void InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 
-	void ProcessReadyQueue();
-	void ProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
+	void InternalProcessReadyQueue();
+	void InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
 	template <typename R>
-	std::optional<typename Future<R>::value_t> ProcessReadyQueue(Future<R>&& future);
+	std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
 
-	void PurgeDeletionQueue();
+	void InternalPurgeDeletionQueue();
 
-	void ThreadMain(uint32_t threadId);
+	void InternalThreadMain(uint32_t threadId);
 
 	std::vector<std::tuple<std::thread, std::exception_ptr>> myThreads;
 	std::counting_semaphore<> mySignal;

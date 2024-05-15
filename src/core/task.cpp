@@ -4,40 +4,12 @@
 static constexpr uint32_t kTaskPoolSize = (1 << 10); // todo: make this configurable
 static MemoryPool<Task, kTaskPoolSize> gTaskPool;
 
-Task::Task(Task&& other) noexcept
-{
-	*this = std::forward<Task>(other);
-}
-
 Task::~Task()
 {
 	if (myDeleteFcnPtr != nullptr)
 		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 
 	gTaskPool.Free(InternalPtrToHandle(this));
-}
-
-Task& Task::operator=(Task&& other) noexcept
-{
-	if (myDeleteFcnPtr != nullptr)
-		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
-
-	myState = std::exchange(other.myState, {});
-	myInvokeFcnPtr = std::exchange(other.myInvokeFcnPtr, nullptr);
-	myCopyFcnPtr = std::exchange(other.myCopyFcnPtr, nullptr);
-	myDeleteFcnPtr = std::exchange(other.myDeleteFcnPtr, nullptr);
-
-	if (myCopyFcnPtr != nullptr)
-		myCopyFcnPtr(
-			myCallableMemory.data(),
-			other.myCallableMemory.data(),
-			myArgsMemory.data(),
-			other.myArgsMemory.data());
-
-	if (myDeleteFcnPtr != nullptr)
-		myDeleteFcnPtr(other.myCallableMemory.data(), other.myArgsMemory.data());
-
-	return *this;
 }
 
 Task::operator bool() const noexcept
@@ -48,6 +20,8 @@ Task::operator bool() const noexcept
 
 void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
+	ASSERT(!!aTaskHandle);
+	ASSERT(!!bTaskHandle);
 	ASSERT(aTaskHandle != bTaskHandle);
 
 	Task& aTask = *InternalHandleToPtr(aTaskHandle);
@@ -70,7 +44,7 @@ void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool is
 
 Task* Task::InternalHandleToPtr(TaskHandle handle) noexcept
 {
-	ASSERT(handle != InvalidTaskHandle);
+	ASSERT(!!handle);
 	ASSERT(handle.value < kTaskPoolSize);
 	
 	Task* ptr = gTaskPool.GetPointer(handle);
@@ -86,7 +60,7 @@ TaskHandle Task::InternalPtrToHandle(Task* ptr) noexcept
 
 	auto handle = gTaskPool.GetHandle(ptr);
 
-	ASSERT(handle != InvalidTaskHandle);
+	ASSERT(!!handle);
 	ASSERT(handle.value < kTaskPoolSize);
 
 	return handle;
@@ -96,7 +70,7 @@ TaskHandle Task::InternalAllocate() noexcept
 {
 	TaskHandle handle = gTaskPool.Allocate();
 
-	ASSERT(handle != InvalidTaskHandle);
+	ASSERT(!!handle);
 
 	return handle;
 }

@@ -13,7 +13,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::thread(&TaskExecutor::ThreadMain, this, threadIt), nullptr);
+		myThreads.emplace_back(std::thread(&TaskExecutor::InternalThreadMain, this, threadIt), nullptr);
 }
 
 TaskExecutor::~TaskExecutor()
@@ -32,7 +32,7 @@ TaskExecutor::~TaskExecutor()
 
 void TaskExecutor::InternalSubmit(TaskHandle handle)
 {
-	ZoneScopedN("TaskExecutor::internalSubmit");
+	ZoneScopedN("TaskExecutor::InternalSubmit");
 
 	Task& task = *Task::InternalHandleToPtr(handle);
 
@@ -46,7 +46,7 @@ void TaskExecutor::InternalSubmit(TaskHandle handle)
 
 void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
 {
-	ZoneScopedN("TaskExecutor::internalSubmit");
+	ZoneScopedN("TaskExecutor::InternalSubmit");
 
 	Task& task = *Task::InternalHandleToPtr(handle);
 
@@ -60,19 +60,19 @@ void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 
 void TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
-	ZoneScopedN("TaskExecutor::internalTryDelete");
+	ZoneScopedN("TaskExecutor::InternalTryDelete");
 
 	Task& task = *Task::InternalHandleToPtr(handle);
 
 	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0)
 	{
-		task.~Task();
+		std::destroy_at(&task);
 	}
 }
 
-void TaskExecutor::ScheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
+void TaskExecutor::InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
 {
-	ZoneScopedN("TaskExecutor::scheduleAdjacent");
+	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
 
 	std::shared_lock lock(task.InternalState()->mutex);
 
@@ -94,9 +94,9 @@ void TaskExecutor::ScheduleAdjacent(ProducerToken& readyProducerToken, Task& tas
 	}
 }
 
-void TaskExecutor::ScheduleAdjacent(Task& task)
+void TaskExecutor::InternalScheduleAdjacent(Task& task)
 {
-	ZoneScopedN("TaskExecutor::scheduleAdjacent");
+	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
 
 	std::shared_lock lock(task.InternalState()->mutex);
 
@@ -118,40 +118,40 @@ void TaskExecutor::ScheduleAdjacent(Task& task)
 	}
 }
 
-void TaskExecutor::ProcessReadyQueue()
+void TaskExecutor::InternalProcessReadyQueue()
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
+	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(handle);
-		PurgeDeletionQueue();
+		InternalPurgeDeletionQueue();
 	}
 }
 
-void TaskExecutor::ProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
+void TaskExecutor::InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
 {
-	ZoneScopedN("TaskExecutor::processReadyQueue");
+	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(readyProducerToken, handle);
-		PurgeDeletionQueue();
+		InternalPurgeDeletionQueue();
 	}
 }
 
-void TaskExecutor::PurgeDeletionQueue()
+void TaskExecutor::InternalPurgeDeletionQueue()
 {
-	ZoneScopedN("TaskExecutor::purgeDeletionQueue");
+	ZoneScopedN("TaskExecutor::InternalPurgeDeletionQueue");
 
 	TaskHandle handle;
 	while (myDeletionQueue.try_dequeue(handle))
 		InternalTryDelete(handle);
 }
 
-void TaskExecutor::ThreadMain(uint32_t threadId)
+void TaskExecutor::InternalThreadMain(uint32_t threadId)
 {
 	try
 	{
@@ -160,7 +160,7 @@ void TaskExecutor::ThreadMain(uint32_t threadId)
 
 		while (!myStopSource.load(std::memory_order_acquire))
 		{
-			ProcessReadyQueue(readyProducerToken, readyConsumerToken);
+			InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
 			mySignal.acquire();
 		}
 	}

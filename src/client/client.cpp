@@ -35,7 +35,7 @@ static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
 	std::shared_lock lock{gClientApplicationMutex};
 
 	if (gClientApplication->IsExitRequested())
-		return {InvalidTaskHandle, Future<void>{}};
+		return {};
 
 	auto taskPair = Task::CreateTask(std::forward<F>(callable));
 	
