@@ -139,9 +139,9 @@
 	.ConfigName = 'release'
 	.CompilerOptions + ' -O3'
 	.CompilerOptions + ' -DNDEBUG'
+#if !__OSX__
 		+ ' -flto=thin'
-	.LinkerOptions + ''
-		+ ' -flto=thin'
+#endif
 ]
 
 .Clang_Native_ProfileConfig =
