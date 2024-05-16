@@ -509,7 +509,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
 	auto [keyValIt, insertResult] =
-		myPipelineMap.insert({InternalCalculateHashKey(), nullptr});
+		myPipelineMap.insert({InternalCalculateHashKey(), CopyableAtomic<PipelineHandle<kVk>>{}});
 	auto& [key, pipelineHandleAtomic] = *keyValIt;
 
 	if (insertResult)

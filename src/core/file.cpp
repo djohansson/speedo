@@ -9,15 +9,15 @@ namespace file
 namespace detail
 {
 
-const char* to_string(AssetManifestErrorCode code)
+const char* ToString(AssetManifestErrorCode code)
 {
 	switch (code)
 	{
-	case AssetManifestErrorCode::Missing: return "Missing";
-	case AssetManifestErrorCode::InvalidVersion: return "InvalidVersion";
-	case AssetManifestErrorCode::InvalidLocation: return "InvalidLocation";
-	case AssetManifestErrorCode::InvalidSourceFile: return "InvalidSourceFile";
-	case AssetManifestErrorCode::InvalidCacheFile: return "InvalidCacheFile";
+	case AssetManifestErrorCode::kMissing: return "Missing";
+	case AssetManifestErrorCode::kInvalidVersion: return "InvalidVersion";
+	case AssetManifestErrorCode::kInvalidLocation: return "InvalidLocation";
+	case AssetManifestErrorCode::kInvalidSourceFile: return "InvalidSourceFile";
+	case AssetManifestErrorCode::kInvalidCacheFile: return "InvalidCacheFile";
 	}
 
 	return "Unknown";

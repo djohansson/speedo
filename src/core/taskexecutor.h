@@ -18,8 +18,7 @@
 class TaskExecutor
 {
 public:
-	
-	TaskExecutor(uint32_t threadCount);
+	explicit TaskExecutor(uint32_t threadCount);
 	~TaskExecutor();
 
 	// wait for task to finish while helping out processing the thread pools ready queue

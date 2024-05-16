@@ -6,7 +6,7 @@
 #include <tuple>
 #include <type_traits>
 
-//NOLINTBEGIN(readability-identifier-naming.*)
+//NOLINTBEGIN(readability-identifier-naming)
 namespace std_extra
 {
 
@@ -37,7 +37,7 @@ template<typename F, typename Tuple>
 concept applicable = is_applicable<F, Tuple>::value;
 
 template <class F, class T, std ::size_t... I>
-constexpr auto apply_impl(F&& f, T&& t, std::index_sequence<I...>) noexcept(
+constexpr auto apply_impl(F&& f, T&& t, std::index_sequence<I...> /*unused*/) noexcept(
 	std::is_nothrow_invocable<F&&, decltype(std::get<I>(std ::declval<T>()))...>{})
 	-> std::invoke_result_t<F&&, decltype(std::get<I>(std ::declval<T>()))...>
 {
@@ -66,4 +66,4 @@ constexpr apply_result_t<F, Tuple> apply(F&& f, Tuple&& t) noexcept
 
 } // namespace std_extra
 
-//NOLINTEND(readability-identifier-naming.*)
+//NOLINTEND(readability-identifier-naming)

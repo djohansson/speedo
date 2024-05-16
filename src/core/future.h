@@ -18,9 +18,9 @@ public:
 	Future& operator=(Future&& other) noexcept;
 	Future& operator=(const Future& other) noexcept;
 
-	value_t Get();
-	bool IsReady() const noexcept;
-	bool Valid() const noexcept;
+	[[nodiscard]] value_t Get();
+	[[nodiscard]] bool IsReady() const noexcept;
+	[[nodiscard]] bool Valid() const noexcept;
 	void Wait() const;
 
 private:
@@ -32,7 +32,7 @@ private:
 		value_t value;
 	};
 
-	Future(std::shared_ptr<FutureState>&& state) noexcept;
+	explicit Future(std::shared_ptr<FutureState>&& state) noexcept;
 
 	std::shared_ptr<FutureState> myState;
 };

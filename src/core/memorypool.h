@@ -10,10 +10,10 @@
 
 struct MemoryPoolHandle
 {
-	static constexpr uint32_t InvalidIndex = ~0u;
-	uint32_t value = InvalidIndex;
+	static constexpr uint32_t kInvalidIndex = ~0U;
+	uint32_t value = kInvalidIndex;
 
-	constexpr operator bool() const noexcept { return value != InvalidIndex; }
+	constexpr explicit operator bool() const noexcept { return value != kInvalidIndex; }
 	constexpr auto operator<=>(const MemoryPoolHandle&) const noexcept = default;
 };
 
@@ -37,8 +37,8 @@ public:
 private:
 	enum class State : uint32_t
 	{
-		Taken = 0,
-		Free = 1
+		kTaken = 0,
+		kFree = 1
 	};
 
 	struct Entry

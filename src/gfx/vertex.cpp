@@ -64,7 +64,7 @@ VertexAllocator& Vertex::Allocator()
 
 thread_local ScopedVertexAllocation* Vertex::gAllocationScope = nullptr;
 
-//NOLINTBEGIN(readability-identifier-naming.*)
+//NOLINTBEGIN(readability-identifier-naming)
 
 namespace std
 {
@@ -77,4 +77,4 @@ struct hash<Vertex>
 
 } // namespace std
 
-//NOLINTEND(readability-identifier-naming.*)
+//NOLINTEND(readability-identifier-naming)

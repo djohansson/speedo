@@ -11,7 +11,7 @@ public:
 	using atomic_t::store;
 
 	constexpr CopyableAtomic() noexcept = default;
-	constexpr CopyableAtomic(value_t val) noexcept;
+	constexpr explicit CopyableAtomic(value_t val) noexcept;
 	CopyableAtomic(const CopyableAtomic& other) noexcept;
 
 	CopyableAtomic& operator=(const CopyableAtomic& other) noexcept;

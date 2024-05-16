@@ -16,8 +16,8 @@ namespace file
 
 enum class AccessMode : uint8_t
 {
-	ReadOnly,
-	ReadWrite
+	kReadOnly,
+	kReadWrite
 };
 
 struct Record
@@ -38,7 +38,7 @@ class Object : public Noncopyable, public T
 
 public:
 	constexpr Object() noexcept = default;
-	Object(const std::filesystem::path& filePath, T&& defaultObject = T{});
+	explicit Object(const std::filesystem::path& filePath, T&& defaultObject = T{});
 	Object(Object&& other) noexcept;
 	~Object();
 
@@ -50,7 +50,7 @@ public:
 	void Reload();
 
 	template <AccessMode M = Mode>
-	typename std::enable_if<M == AccessMode::ReadWrite, void>::type Save() const;
+	std::enable_if_t<M == AccessMode::kReadWrite, void> Save() const;
 
 private:
 	Record myInfo;

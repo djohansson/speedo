@@ -100,7 +100,7 @@ struct SharedPtrEqualTo<void> : std::equal_to<void>
 		return lhs == *rhs;
 	}
 
-	using is_transparent = int; //NOLINT(readability-identifier-naming.*)
+	using is_transparent = int;
 };
 
 template <typename T>
@@ -114,7 +114,7 @@ class TupleHash
 	template <typename T>
 	struct Component
 	{
-		Component(const T& value) : value(value) {}
+		explicit Component(const T& value) : value(value) {}
 
 		uintmax_t operator,(uintmax_t n) const
 		{
@@ -166,7 +166,7 @@ public:
 	using container_type::end;
 
 	template <typename... Args>
-	std::pair<iterator, bool> emplace(const Key& key, Args&&... args) //NOLINT(readability-identifier-naming.*)
+	std::pair<iterator, bool> emplace(const Key& key, Args&&... args)//NOLINT(readability-identifier-naming)
 	{
 		auto elementIt = std::lower_bound(
 			begin(),
@@ -196,7 +196,7 @@ public:
 	using container_type::end;
 
 	template <typename... Args>
-	std::pair<iterator, bool> emplace(Args&&... args) //NOLINT(readability-identifier-naming.*)
+	std::pair<iterator, bool> emplace(Args&&... args)//NOLINT(readability-identifier-naming)
 	{
 		auto key = Key(std::forward<Args>(args)...);
 		auto elementIt = std::lower_bound(
@@ -209,7 +209,7 @@ public:
 		return result;
 	}
 
-	iterator find(const Key& key) //NOLINT(readability-identifier-naming.*)
+	iterator find(const Key& key)//NOLINT(readability-identifier-naming)
 	{
 		auto elementIt = std::lower_bound(
 			begin(), end(), key, [](const value_type& a, const Key& b) { return a < b; });
@@ -231,7 +231,7 @@ public:
 	using container_type::empty;
 	using container_type::end;
 
-	auto insert(value_type&& range) //NOLINT(readability-identifier-naming.*)
+	auto insert(value_type&& range)//NOLINT(readability-identifier-naming)
 	{
 		ASSERT(range.first < range.second);
 
@@ -263,8 +263,7 @@ public:
 
 			if (insertRangeIt->second >= high)
 				return std::make_pair(insertRangeIt, false);
-			else
-				insertRangeIt->second = high;
+			insertRangeIt->second = high;
 		}
 
 		while (afterIt != end() && high >= afterIt->first)

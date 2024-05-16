@@ -210,7 +210,7 @@ private:
 	PipelineHandle<G> InternalGetPipeline();
 	const PipelineLayout<G>& InternalGetLayout();
 
-	file::Object<PipelineConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
+	file::Object<PipelineConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 
 	DescriptorMapType myDescriptorMap;
 	

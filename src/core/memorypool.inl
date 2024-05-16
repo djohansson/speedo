@@ -8,7 +8,7 @@ constexpr MemoryPool<T, Capacity>::MemoryPool() noexcept
 	static_assert(Capacity < (1 << 31));
 
 	for (auto& entry : myEntries)
-		entry = {State::Free, static_cast<uint32_t>(&entry - myEntries.data())};
+		entry = {State::kFree, static_cast<uint32_t>(&entry - myEntries.data())};
 
 	std::make_heap(myEntries.begin(), myEntries.end());
 }
@@ -30,7 +30,7 @@ MemoryPoolHandle MemoryPool<T, Capacity>::Allocate() noexcept
 
 	--myAvailable;
 
-	myEntries[Capacity - 1] = {State::Taken};
+	myEntries[Capacity - 1] = {State::kTaken};
 
 	ASSERT(std::is_heap(myEntries.begin(), myEntries.end()));
 
@@ -48,7 +48,7 @@ void MemoryPool<T, Capacity>::Free(MemoryPoolHandle handle) noexcept
 	if (!handle || myAvailable >= Capacity)
 		return;
 
-	myEntries[Capacity - 1] = {State::Free, handle.value};
+	myEntries[Capacity - 1] = {State::kFree, handle.value};
 
 	myAvailable++;
 

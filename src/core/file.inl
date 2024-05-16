@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include <glaze/glaze.hpp>
+#include <utility>
 
 #include <picosha2.h>
 
@@ -18,14 +19,14 @@ namespace detail
 
 enum class AssetManifestErrorCode : uint8_t
 {
-	Missing,
-	InvalidVersion,
-	InvalidLocation,
-	InvalidSourceFile,
-	InvalidCacheFile,
+	kMissing,
+	kInvalidVersion,
+	kInvalidLocation,
+	kInvalidSourceFile,
+	kInvalidCacheFile,
 };
 
-const char* to_string(AssetManifestErrorCode code);
+const char* ToString(AssetManifestErrorCode code);
 
 using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
 
@@ -52,7 +53,7 @@ LoadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 
 	if (std::string_view(LoaderType).compare(manifestInfo->loaderType) != 0 ||
 		std::string_view(LoaderVersion).compare(manifestInfo->loaderVersion) != 0)
-		return std::unexpected(AssetManifestErrorCode::InvalidVersion);
+		return std::unexpected(AssetManifestErrorCode::kInvalidVersion);
 
 	auto assetFileInfo = GetRecord<Sha256ChecksumEnable>(manifestInfo->assetFileInfo.path);
 
@@ -60,7 +61,7 @@ LoadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 		(assetFileInfo->size != manifestInfo->assetFileInfo.size) ||
 		(assetFileInfo->timeStamp.compare(manifestInfo->assetFileInfo.timeStamp)) != 0 ||
 		(Sha256ChecksumEnable ? (assetFileInfo->sha2 != manifestInfo->assetFileInfo.sha2) : false))
-		return std::unexpected(AssetManifestErrorCode::InvalidSourceFile);
+		return std::unexpected(AssetManifestErrorCode::kInvalidSourceFile);
 
 	auto cacheFileInfo = GetRecord<Sha256ChecksumEnable>(manifestInfo->cacheFileInfo.path);
 
@@ -68,7 +69,7 @@ LoadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManif
 		(cacheFileInfo->size != manifestInfo->cacheFileInfo.size) ||
 		(cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp)) != 0 ||
 		(Sha256ChecksumEnable ? (cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2) : false))
-		return std::unexpected(AssetManifestErrorCode::InvalidCacheFile);
+		return std::unexpected(AssetManifestErrorCode::kInvalidCacheFile);
 
 	return manifestInfo.value();
 }
@@ -273,8 +274,7 @@ void Object<T, Mode, SaveOnClose>::Reload()
 
 template <typename T, AccessMode Mode, bool SaveOnClose>
 template <AccessMode M>
-typename std::enable_if<M == AccessMode::ReadWrite, void>::type
-Object<T, Mode, SaveOnClose>::Save() const
+std::enable_if_t<M == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnClose>::Save() const
 {
 	if (!SaveJSONObject(static_cast<const T&>(*this), myInfo.path))
 		throw std::runtime_error("Failed to save file: " + myInfo.path);
@@ -313,11 +313,11 @@ void LoadAsset(
 
 		auto manifestFile = mio_extra::ResizeableMemoryMapSink(manifestPath.string());
 
-		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn);
+		auto asset = LoadBinary<true>(assetFilePath, std::move(loadSourceFileFn));
 		if (!asset)
 			throw std::system_error(asset.error());
 
-		auto cache = SaveBinary<true>(cacheDir / idStr, saveBinaryCacheFn);
+		auto cache = SaveBinary<true>(cacheDir / idStr, std::move(saveBinaryCacheFn));
 		if (!cache)
 			throw std::system_error(cache.error());
 
@@ -328,7 +328,7 @@ void LoadAsset(
 		manifestFile.truncate(manifestFile.HighWaterMark(), error);
 
 		if (error)
-			throw std::system_error(std::move(error));
+			throw std::system_error(error);
 	};
 
 	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
@@ -343,22 +343,25 @@ void LoadAsset(
 	}
 	else
 	{
-		manifest = std::unexpected(AssetManifestErrorCode::Missing);
+		manifest = std::unexpected(AssetManifestErrorCode::kMissing);
 	}
 
 	if (manifest)
 	{
 		ZoneScopedN("LoadAsset::load");
 
-		auto cacheFileInfo = LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
-		
+		auto cacheFileInfo =
+			LoadBinary<false>(manifest->cacheFileInfo.path, std::move(loadBinaryCacheFn));
+
 		if (!cacheFileInfo)
 			throw std::system_error(cacheFileInfo.error());
 	}
 	else
 	{
 		if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
-			std::cerr << "Asset manifest is invalid: " << to_string(std::get<AssetManifestErrorCode>(manifest.error())) << ", Path: " << manifestPath << '\n';
+			std::cerr << "Asset manifest is invalid: "
+					  << ToString(std::get<AssetManifestErrorCode>(manifest.error()))
+					  << ", Path: " << manifestPath << '\n';
 		else if (std::holds_alternative<std::error_code>(manifest.error()))
 			std::cerr << "Asset manifest is invalid: " << std::get<std::error_code>(manifest.error()).message() << ", Path: " << manifestPath << '\n';
 		else

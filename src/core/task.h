@@ -21,7 +21,7 @@ class Task : public Noncopyable, public Nonmovable
 public:
 	~Task();
 
-	operator bool() const noexcept;
+	explicit operator bool() const noexcept;
 	template <typename... Params>
 	void operator()(Params&&... params);
 	
@@ -54,8 +54,8 @@ private:
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 	constexpr Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
 
-	auto& InternalState() noexcept { return myState; }
-	const auto& InternalState() const noexcept { return myState; }
+	[[nodiscard]] auto& InternalState() noexcept { return myState; }
+	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
 	static Task* InternalHandleToPtr(TaskHandle handle) noexcept;
 	static TaskHandle InternalPtrToHandle(Task* ptr) noexcept;

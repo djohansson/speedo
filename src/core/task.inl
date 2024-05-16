@@ -72,7 +72,7 @@ inline TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
 {
 	if (auto handle = Task::InternalAllocate())
 	{
-		auto taskPtr = Task::InternalHandleToPtr(handle);
+		auto* taskPtr = Task::InternalHandleToPtr(handle);
 		//std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
 		new (taskPtr) Task(std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
 		return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->InternalState())));

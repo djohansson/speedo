@@ -81,7 +81,7 @@ public:
 
 private:
 	std::shared_ptr<Instance<G>> myInstance;
-	file::Object<DeviceConfiguration<G>, file::AccessMode::ReadWrite, true> myConfig;
+	file::Object<DeviceConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 	DeviceHandle<G> myDevice{};
 	uint32_t myPhysicalDeviceIndex = 0ul;
 	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;

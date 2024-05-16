@@ -9,7 +9,7 @@ using TaskHandle = MemoryPoolHandle;
 
 struct TaskState
 {
-	std::atomic_uint32_t latch{1u};
+	std::atomic_uint32_t latch{1U};
 
 	UpgradableSharedMutex mutex; // Protects the variables below
 	std::vector<TaskHandle> adjacencies;
