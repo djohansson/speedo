@@ -6,6 +6,7 @@ namespace rhi
 
 static FlatSet<WindowHandle> gWindows{};
 static std::optional<WindowHandle> gCurrentWindow{};
+
 }
 
 void ResizeFramebuffer(WindowHandle window, int w, int h)
