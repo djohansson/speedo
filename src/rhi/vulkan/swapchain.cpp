@@ -5,94 +5,94 @@
 #include <format>
 
 template <>
-RenderPassBeginInfo<Vk> Swapchain<Vk>::Begin(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
+RenderPassBeginInfo<kVk> Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
 	return myFrames[myFrameIndex].Begin(cmd, contents);
 }
 
 template <>
-void Swapchain<Vk>::End(CommandBufferHandle<Vk> cmd)
+void Swapchain<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
 	return myFrames[myFrameIndex].End(cmd);
 }
 
 template <>
-const RenderTargetCreateDesc<Vk>& Swapchain<Vk>::GetRenderTargetDesc() const
+const RenderTargetCreateDesc<kVk>& Swapchain<kVk>::GetRenderTargetDesc() const
 {
 	return myDesc;
 }
 
 template <>
-ImageLayout<Vk> Swapchain<Vk>::GetColorImageLayout(uint32_t index) const
+ImageLayout<kVk> Swapchain<kVk>::GetColorImageLayout(uint32_t index) const
 {
 	return myFrames[myFrameIndex].GetColorImageLayout(index);
 }
 
 template <>
-ImageLayout<Vk> Swapchain<Vk>::GetDepthStencilImageLayout() const
+ImageLayout<kVk> Swapchain<kVk>::GetDepthStencilImageLayout() const
 {
 	return myFrames[myFrameIndex].GetDepthStencilImageLayout();
 }
 
 template <>
-void Swapchain<Vk>::Blit(
-	CommandBufferHandle<Vk> cmd,
-	const IRenderTarget<Vk>& srcRenderTarget,
-	const ImageSubresourceLayers<Vk>& srcSubresource,
+void Swapchain<kVk>::Blit(
+	CommandBufferHandle<kVk> cmd,
+	const IRenderTarget<kVk>& srcRenderTarget,
+	const ImageSubresourceLayers<kVk>& srcSubresource,
 	uint32_t srcIndex,
-	const ImageSubresourceLayers<Vk>& dstSubresource,
+	const ImageSubresourceLayers<kVk>& dstSubresource,
 	uint32_t dstIndex,
-	Filter<Vk> filter)
+	Filter<kVk> filter)
 {
 	myFrames[myFrameIndex].Blit(
 		cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex, filter);
 }
 
 template <>
-void Swapchain<Vk>::ClearSingleAttachment(
-	CommandBufferHandle<Vk> cmd, const ClearAttachment<Vk>& clearAttachment) const
+void Swapchain<kVk>::ClearSingleAttachment(
+	CommandBufferHandle<kVk> cmd, const ClearAttachment<kVk>& clearAttachment) const
 {
 	myFrames[myFrameIndex].ClearSingleAttachment(cmd, clearAttachment);
 }
 
 template <>
-void Swapchain<Vk>::ClearAllAttachments(
-	CommandBufferHandle<Vk> cmd,
-	const ClearColorValue<Vk>& color,
-	const ClearDepthStencilValue<Vk>& depthStencil) const
+void Swapchain<kVk>::ClearAllAttachments(
+	CommandBufferHandle<kVk> cmd,
+	const ClearColorValue<kVk>& color,
+	const ClearDepthStencilValue<kVk>& depthStencil) const
 {
 	myFrames[myFrameIndex].ClearAllAttachments(cmd, color, depthStencil);
 }
 
 template <>
-void Swapchain<Vk>::ClearColor(
-	CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
+void Swapchain<kVk>::ClearColor(
+	CommandBufferHandle<kVk> cmd, const ClearColorValue<kVk>& color, uint32_t index)
 {
 	myFrames[myFrameIndex].ClearColor(cmd, color, index);
 }
 
 template <>
-void Swapchain<Vk>::ClearDepthStencil(
-	CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
+void Swapchain<kVk>::ClearDepthStencil(
+	CommandBufferHandle<kVk> cmd, const ClearDepthStencilValue<kVk>& depthStencil)
 {
 	myFrames[myFrameIndex].ClearDepthStencil(cmd, depthStencil);
 }
 
 template <>
-void Swapchain<Vk>::TransitionColor(
-	CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout, uint32_t index)
+void Swapchain<kVk>::TransitionColor(
+	CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, uint32_t index)
 {
 	myFrames[myFrameIndex].TransitionColor(cmd, layout, index);
 }
 
 template <>
-void Swapchain<Vk>::TransitionDepthStencil(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void Swapchain<kVk>::TransitionDepthStencil(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
 {
 	myFrames[myFrameIndex].TransitionDepthStencil(cmd, layout);
 }
 
 template <>
-std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::Flip()
+std::tuple<bool, uint32_t, uint32_t> Swapchain<kVk>::Flip()
 {
 	ZoneScoped;
 
@@ -100,7 +100,7 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::Flip()
 
 	auto lastFrameIndex = myFrameIndex;
 	
-	Fence<Vk> fence(GetDevice(), FenceCreateDesc<Vk>{});
+	Fence<kVk> fence(GetDevice(), FenceCreateDesc<kVk>{});
 
 	auto flipResult = CheckFlipOrPresentResult(vkAcquireNextImageKHR(
 		device,
@@ -123,7 +123,7 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<Vk>::Flip()
 }
 
 template <>
-QueuePresentInfo<Vk> Swapchain<Vk>::PreparePresent(const QueueHostSyncInfo<Vk>& hostSyncInfo)
+QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent(const QueueHostSyncInfo<kVk>& hostSyncInfo)
 {
 	ZoneScopedN("Swapchain::PreparePresent");
 
@@ -134,8 +134,8 @@ QueuePresentInfo<Vk> Swapchain<Vk>::PreparePresent(const QueueHostSyncInfo<Vk>& 
 }
 
 template <>
-void Swapchain<Vk>::InternalCreateSwapchain(
-	const SwapchainConfiguration<Vk>& config, SwapchainHandle<Vk> previous)
+void Swapchain<kVk>::InternalCreateSwapchain(
+	const SwapchainConfiguration<kVk>& config, SwapchainHandle<kVk> previous)
 {
 	ZoneScopedN("Swapchain::InternalCreateSwapchain");
 
@@ -192,7 +192,7 @@ void Swapchain<Vk>::InternalCreateSwapchain(
 
 	ASSERT(imageCount == frameCount);
 
-	std::vector<ImageHandle<Vk>> colorImages(imageCount);
+	std::vector<ImageHandle<kVk>> colorImages(imageCount);
 	VK_CHECK(vkGetSwapchainImagesKHR(
 		device, mySwapchain, &imageCount, colorImages.data()));
 
@@ -202,7 +202,7 @@ void Swapchain<Vk>::InternalCreateSwapchain(
 	for (uint32_t frameIt = 0UL; frameIt < frameCount; frameIt++)
 		myFrames.emplace_back(
 			GetDevice(),
-			FrameCreateDesc<Vk>{
+			FrameCreateDesc<kVk>{
 				{config.extent,
 				 {config.surfaceFormat.format},
 				 {VK_IMAGE_LAYOUT_UNDEFINED},
@@ -213,7 +213,7 @@ void Swapchain<Vk>::InternalCreateSwapchain(
 }
 
 template <>
-Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
+Swapchain<kVk>::Swapchain(Swapchain&& other) noexcept
 	: DeviceObject(std::forward<Swapchain>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, mySurface(std::exchange(other.mySurface, {}))
@@ -223,14 +223,14 @@ Swapchain<Vk>::Swapchain(Swapchain&& other) noexcept
 {}
 
 template <>
-Swapchain<Vk>::Swapchain(
-	const std::shared_ptr<Device<Vk>>& device,
-	const SwapchainConfiguration<Vk>& config,
-	SurfaceHandle<Vk>&& surface,
-	SwapchainHandle<Vk> previous)
+Swapchain<kVk>::Swapchain(
+	const std::shared_ptr<Device<kVk>>& device,
+	const SwapchainConfiguration<kVk>& config,
+	SurfaceHandle<kVk>&& surface,
+	SwapchainHandle<kVk> previous)
 	: DeviceObject(device, {})
 	, myDesc{config.extent} // more?
-	, mySurface(std::forward<SurfaceHandle<Vk>>(surface))
+	, mySurface(std::forward<SurfaceHandle<kVk>>(surface))
 {
 	ZoneScopedN("Swapchain()");
 
@@ -238,7 +238,7 @@ Swapchain<Vk>::Swapchain(
 }
 
 template <>
-Swapchain<Vk>::~Swapchain()
+Swapchain<kVk>::~Swapchain()
 {
 	ZoneScopedN("~Swapchain()");
 
@@ -259,7 +259,7 @@ Swapchain<Vk>::~Swapchain()
 }
 
 template <>
-Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
+Swapchain<kVk>& Swapchain<kVk>::operator=(Swapchain&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<Swapchain>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -271,7 +271,7 @@ Swapchain<Vk>& Swapchain<Vk>::operator=(Swapchain&& other) noexcept
 }
 
 template <>
-void Swapchain<Vk>::Swap(Swapchain& rhs) noexcept
+void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);

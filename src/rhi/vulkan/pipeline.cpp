@@ -10,7 +10,7 @@
 
 #pragma pack(push, 1)
 template <>
-struct PipelineCacheHeader<Vk>
+struct PipelineCacheHeader<kVk>
 {
 	uint32_t headerLength = 0UL;
 	uint32_t cacheHeaderVersion = 0UL;
@@ -26,8 +26,8 @@ namespace pipeline
 using namespace file;
 
 bool IsCacheValid(
-	const PipelineCacheHeader<Vk>& header,
-	const PhysicalDeviceProperties<Vk>& physicalDeviceProperties)
+	const PipelineCacheHeader<kVk>& header,
+	const PhysicalDeviceProperties<kVk>& physicalDeviceProperties)
 {
 	return (
 		header.headerLength > 0 &&
@@ -40,8 +40,8 @@ bool IsCacheValid(
 			sizeof(header.pipelineCacheUUID)) == 0);
 }
 
-PipelineCacheHandle<Vk> LoadPipelineCache(
-	const std::filesystem::path& cacheFilePath, const std::shared_ptr<Device<Vk>>& device)
+PipelineCacheHandle<kVk> LoadPipelineCache(
+	const std::filesystem::path& cacheFilePath, const std::shared_ptr<Device<kVk>>& device)
 {
 	std::vector<char> cacheData;
 
@@ -50,7 +50,7 @@ PipelineCacheHandle<Vk> LoadPipelineCache(
 		if (auto result = in(cacheData); failure(result))
 			return std::make_error_code(result);
 
-		const auto* header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+		const auto* header = reinterpret_cast<const PipelineCacheHeader<kVk>*>(cacheData.data());
 
 		if (cacheData.empty() ||
 			!IsCacheValid(*header, device->GetPhysicalDeviceInfo().deviceProperties))
@@ -69,7 +69,7 @@ PipelineCacheHandle<Vk> LoadPipelineCache(
 	createInfo.initialDataSize = cacheData.size();
 	createInfo.pInitialData = (!cacheData.empty() != 0u) ? cacheData.data() : nullptr;
 
-	PipelineCacheHandle<Vk> cache;
+	PipelineCacheHandle<kVk> cache;
 	VK_CHECK(vkCreatePipelineCache(
 		*device,
 		&createInfo,
@@ -80,7 +80,7 @@ PipelineCacheHandle<Vk> LoadPipelineCache(
 }
 
 std::vector<char>
-GetPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCache)
+GetPipelineCacheData(DeviceHandle<kVk> device, PipelineCacheHandle<kVk> pipelineCache)
 {
 	std::vector<char> cacheData;
 	size_t cacheDataSize = 0;
@@ -96,9 +96,9 @@ GetPipelineCacheData(DeviceHandle<Vk> device, PipelineCacheHandle<Vk> pipelineCa
 
 std::expected<Record, std::error_code> SavePipelineCache(
 	const std::filesystem::path& cacheFilePath,
-	DeviceHandle<Vk> device,
-	PhysicalDeviceProperties<Vk> physicalDeviceProperties,
-	PipelineCacheHandle<Vk> pipelineCache)
+	DeviceHandle<kVk> device,
+	PhysicalDeviceProperties<kVk> physicalDeviceProperties,
+	PipelineCacheHandle<kVk> pipelineCache)
 {
 	// todo: move to gfx-vulkan.cpp
 	auto saveCacheOp =
@@ -113,7 +113,7 @@ std::expected<Record, std::error_code> SavePipelineCache(
 			return std::make_error_code(std::errc::invalid_argument);
 		}
 
-		const auto* header = reinterpret_cast<const PipelineCacheHeader<Vk>*>(cacheData.data());
+		const auto* header = reinterpret_cast<const PipelineCacheHeader<kVk>*>(cacheData.data());
 
 		if (!IsCacheValid(*header, physicalDeviceProperties))
 		{
@@ -136,9 +136,9 @@ static PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemp
 } // namespace pipeline
 
 template <>
-PipelineLayout<Vk>& PipelineLayout<Vk>::operator=(PipelineLayout<Vk>&& other) noexcept
+PipelineLayout<kVk>& PipelineLayout<kVk>::operator=(PipelineLayout<kVk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<PipelineLayout<Vk>>(other));
+	DeviceObject::operator=(std::forward<PipelineLayout<kVk>>(other));
 	myShaderModules = std::exchange(other.myShaderModules, {});
 	myDescriptorSetLayouts = std::exchange(other.myDescriptorSetLayouts, {});
 	myLayout = std::exchange(other.myLayout, {});
@@ -146,19 +146,19 @@ PipelineLayout<Vk>& PipelineLayout<Vk>::operator=(PipelineLayout<Vk>&& other) no
 }
 
 template <>
-PipelineLayout<Vk>::PipelineLayout(PipelineLayout<Vk>&& other) noexcept
-	: DeviceObject(std::forward<PipelineLayout<Vk>>(other))
+PipelineLayout<kVk>::PipelineLayout(PipelineLayout<kVk>&& other) noexcept
+	: DeviceObject(std::forward<PipelineLayout<kVk>>(other))
 	, myShaderModules(std::exchange(other.myShaderModules, {}))
 	, myDescriptorSetLayouts(std::exchange(other.myDescriptorSetLayouts, {}))
 	, myLayout(std::exchange(other.myLayout, {}))
 {}
 
 template <>
-PipelineLayout<Vk>::PipelineLayout(
-	const std::shared_ptr<Device<Vk>>& device,
-	std::vector<ShaderModule<Vk>>&& shaderModules,
-	DescriptorSetLayoutFlatMap<Vk>&& descriptorSetLayouts,
-	PipelineLayoutHandle<Vk>&& layout)
+PipelineLayout<kVk>::PipelineLayout(
+	const std::shared_ptr<Device<kVk>>& device,
+	std::vector<ShaderModule<kVk>>&& shaderModules,
+	DescriptorSetLayoutFlatMap<kVk>&& descriptorSetLayouts,
+	PipelineLayoutHandle<kVk>&& layout)
 	: DeviceObject(
 		  device,
 		  {"_PipelineLayout"},
@@ -167,24 +167,24 @@ PipelineLayout<Vk>::PipelineLayout(
 		  reinterpret_cast<uint64_t*>(&layout))
 	, myShaderModules(std::exchange(shaderModules, {}))
 	, myDescriptorSetLayouts(std::exchange(descriptorSetLayouts, {}))
-	, myLayout(std::forward<PipelineLayoutHandle<Vk>>(layout))
+	, myLayout(std::forward<PipelineLayoutHandle<kVk>>(layout))
 {}
 
 template <>
-PipelineLayout<Vk>::PipelineLayout(
-	const std::shared_ptr<Device<Vk>>& device,
-	std::vector<ShaderModule<Vk>>&& shaderModules,
-	DescriptorSetLayoutFlatMap<Vk>&& descriptorSetLayouts)
+PipelineLayout<kVk>::PipelineLayout(
+	const std::shared_ptr<Device<kVk>>& device,
+	std::vector<ShaderModule<kVk>>&& shaderModules,
+	DescriptorSetLayoutFlatMap<kVk>&& descriptorSetLayouts)
 	: PipelineLayout(
 		  device,
-		  std::forward<std::vector<ShaderModule<Vk>>>(shaderModules),
-		  std::forward<DescriptorSetLayoutFlatMap<Vk>>(descriptorSetLayouts),
+		  std::forward<std::vector<ShaderModule<kVk>>>(shaderModules),
+		  std::forward<DescriptorSetLayoutFlatMap<kVk>>(descriptorSetLayouts),
 		  [&descriptorSetLayouts, &device]
 		  {
 			  // todo: rewrite flatmap so that keys and vals are stored as separate arrays so that we dont have to make this conversion
-			  auto handles = descriptorset::GetDescriptorSetLayoutHandles<Vk>(descriptorSetLayouts);
+			  auto handles = descriptorset::GetDescriptorSetLayoutHandles<kVk>(descriptorSetLayouts);
 			  auto pushConstantRanges =
-				  descriptorset::getPushConstantRanges<Vk>(descriptorSetLayouts);
+				  descriptorset::getPushConstantRanges<kVk>(descriptorSetLayouts);
 
 			  VkPipelineLayoutCreateInfo pipelineLayoutInfo{
 				  VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -205,13 +205,13 @@ PipelineLayout<Vk>::PipelineLayout(
 {}
 
 template <>
-PipelineLayout<Vk>::PipelineLayout(
-	const std::shared_ptr<Device<Vk>>& device, const ShaderSet<Vk>& shaderSet)
+PipelineLayout<kVk>::PipelineLayout(
+	const std::shared_ptr<Device<kVk>>& device, const ShaderSet<kVk>& shaderSet)
 	: PipelineLayout(
 		  device,
 		  [&shaderSet, &device]
 		  {
-			  std::vector<ShaderModule<Vk>> shaderModules;
+			  std::vector<ShaderModule<kVk>> shaderModules;
 			  shaderModules.reserve(shaderSet.shaders.size());
 			  for (const auto& shader : shaderSet.shaders)
 				  shaderModules.emplace_back(device, shader);
@@ -219,15 +219,15 @@ PipelineLayout<Vk>::PipelineLayout(
 		  }(),
 		  [&shaderSet, &device]
 		  {
-			  DescriptorSetLayoutFlatMap<Vk> map;
+			  DescriptorSetLayoutFlatMap<kVk> map;
 			  for (auto [set, layout] : shaderSet.layouts)
-				  map.emplace(set, DescriptorSetLayout<Vk>(device, std::move(layout)));
+				  map.emplace(set, DescriptorSetLayout<kVk>(device, std::move(layout)));
 			  return map;
 		  }())
 {}
 
 template <>
-PipelineLayout<Vk>::~PipelineLayout()
+PipelineLayout<kVk>::~PipelineLayout()
 {
 	if (myLayout != nullptr)
 		vkDestroyPipelineLayout(
@@ -237,7 +237,7 @@ PipelineLayout<Vk>::~PipelineLayout()
 }
 
 template <>
-void PipelineLayout<Vk>::Swap(PipelineLayout& rhs) noexcept
+void PipelineLayout<kVk>::Swap(PipelineLayout& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myShaderModules, rhs.myShaderModules);
@@ -246,13 +246,13 @@ void PipelineLayout<Vk>::Swap(PipelineLayout& rhs) noexcept
 }
 
 template <>
-const PipelineLayout<Vk>& Pipeline<Vk>::InternalGetLayout()
+const PipelineLayout<kVk>& Pipeline<kVk>::InternalGetLayout()
 {
 	return myGraphicsState.layouts[myLayout];
 }
 
 template <>
-uint64_t Pipeline<Vk>::InternalCalculateHashKey() const
+uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 {
 	ZoneScopedN("Pipeline::InternalCalculateHashKey");
 
@@ -274,7 +274,7 @@ uint64_t Pipeline<Vk>::InternalCalculateHashKey() const
 
 	// todo: rendertargets need to use hash key derived from its state and not its handles/pointers, since they are recreated often
 	// auto [renderPassHandle, frameBufferHandle] =
-	//     static_cast<RenderTarget<Vk>::ValueType>(*GetRenderTarget());
+	//     static_cast<RenderTarget<kVk>::ValueType>(*GetRenderTarget());
 	// result = XXH3_64bits_update(threadXXHState.get(), &renderPassHandle, sizeof(renderPassHandle));
 	// result = XXH3_64bits_update(threadXXHState.get(), &frameBufferHandle, sizeof(frameBufferHandle));
 	// ASSERT(result != XXH_ERROR);
@@ -283,22 +283,22 @@ uint64_t Pipeline<Vk>::InternalCalculateHashKey() const
 }
 
 template <>
-void Pipeline<Vk>::InternalPrepareDescriptorSets()
+void Pipeline<kVk>::InternalPrepareDescriptorSets()
 {
 	const auto& layout = InternalGetLayout();
 
 	for (const auto& [set, setLayout] : layout.GetDescriptorSetLayouts())
 	{
 		auto insertResultPair = myDescriptorMap.emplace(
-			static_cast<DescriptorSetLayoutHandle<Vk>>(setLayout),
+			static_cast<DescriptorSetLayoutHandle<kVk>>(setLayout),
 			std::make_tuple(
 				UpgradableSharedMutex{},
 				DescriptorSetStatus::Ready,
-				BindingsMap<Vk>{},
-				BindingsData<Vk>{},
-				DescriptorUpdateTemplate<Vk>{
+				BindingsMap<kVk>{},
+				BindingsData<kVk>{},
+				DescriptorUpdateTemplate<kVk>{
 					GetDevice(),
-					DescriptorUpdateTemplateCreateDesc<Vk>{
+					DescriptorUpdateTemplateCreateDesc<kVk>{
 						((setLayout.GetDesc().flags &
 						  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
 							? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
@@ -310,7 +310,7 @@ void Pipeline<Vk>::InternalPrepareDescriptorSets()
 				((setLayout.GetDesc().flags &
 				  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
 					? std::nullopt
-					: std::make_optional(DescriptorSetArrayList<Vk>{})));
+					: std::make_optional(DescriptorSetArrayList<kVk>{})));
 
 		auto& [insertIt, insertResult] = insertResultPair;
 		auto& [bindingIndex, bindingTuple] = *insertIt;
@@ -322,10 +322,10 @@ void Pipeline<Vk>::InternalPrepareDescriptorSets()
 			auto& setArrayList = setOptionalArrayList.value();
 
 			setArrayList.emplace_front(std::make_tuple(
-				DescriptorSetArray<Vk>(
+				DescriptorSetArray<kVk>(
 					GetDevice(),
 					setLayout,
-					DescriptorSetArrayCreateDesc<Vk>{myDescriptorPool}),
+					DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
 				0,
 				0));
 		}
@@ -333,7 +333,7 @@ void Pipeline<Vk>::InternalPrepareDescriptorSets()
 }
 
 template <>
-void Pipeline<Vk>::InternalResetGraphicsState()
+void Pipeline<kVk>::InternalResetGraphicsState()
 {
 	myGraphicsState.shaderStages.clear();
 	myGraphicsState.shaderStageFlags = {};
@@ -355,10 +355,10 @@ void Pipeline<Vk>::InternalResetGraphicsState()
 		VK_FALSE};
 
 	myGraphicsState.viewports.clear();
-	myGraphicsState.viewports.emplace_back(Viewport<Vk>{0.0F, 0.0F, 0, 0, 0.0F, 1.0F});
+	myGraphicsState.viewports.emplace_back(Viewport<kVk>{0.0F, 0.0F, 0, 0, 0.0F, 1.0F});
 
 	myGraphicsState.scissorRects.clear();
-	myGraphicsState.scissorRects.emplace_back(Rect2D<Vk>{{0, 0}, {0, 0}});
+	myGraphicsState.scissorRects.emplace_back(Rect2D<kVk>{{0, 0}, {0, 0}});
 
 	myGraphicsState.viewport = {
 		VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -410,7 +410,7 @@ void Pipeline<Vk>::InternalResetGraphicsState()
 		1.0F};
 
 	myGraphicsState.colorBlendAttachments.clear();
-	myGraphicsState.colorBlendAttachments.emplace_back(PipelineColorBlendAttachmentState<Vk>{
+	myGraphicsState.colorBlendAttachments.emplace_back(PipelineColorBlendAttachmentState<kVk>{
 		VK_FALSE,
 		VK_BLEND_FACTOR_ONE,
 		VK_BLEND_FACTOR_ZERO,
@@ -444,20 +444,20 @@ void Pipeline<Vk>::InternalResetGraphicsState()
 }
 
 template <>
-void Pipeline<Vk>::InternalResetComputeState()
+void Pipeline<kVk>::InternalResetComputeState()
 {
 	//myComputeState....
 }
 
 template <>
-void Pipeline<Vk>::InternalResetState()
+void Pipeline<kVk>::InternalResetState()
 {
 	InternalResetGraphicsState();
 	InternalResetComputeState();
 }
 
 template <>
-PipelineHandle<Vk> Pipeline<Vk>::InternalCreateGraphicsPipeline(uint64_t hashKey)
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashKey)
 {
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
@@ -476,7 +476,7 @@ PipelineHandle<Vk> Pipeline<Vk>::InternalCreateGraphicsPipeline(uint64_t hashKey
 	pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
-	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<Vk>>(renderTarget));
+	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<kVk>>(renderTarget));
 	pipelineInfo.subpass = 0; // TODO(djohansson): loop through all subpasses?
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -504,7 +504,7 @@ PipelineHandle<Vk> Pipeline<Vk>::InternalCreateGraphicsPipeline(uint64_t hashKey
 }
 
 template <>
-PipelineHandle<Vk> Pipeline<Vk>::InternalGetPipeline()
+PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 {
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
@@ -531,8 +531,8 @@ PipelineHandle<Vk> Pipeline<Vk>::InternalGetPipeline()
 }
 
 template <>
-void Pipeline<Vk>::BindPipeline(
-	CommandBufferHandle<Vk> cmd, PipelineBindPoint<Vk> bindPoint, PipelineHandle<Vk> handle) const
+void Pipeline<kVk>::BindPipeline(
+	CommandBufferHandle<kVk> cmd, PipelineBindPoint<kVk> bindPoint, PipelineHandle<kVk> handle) const
 {
 	ZoneScopedN("Pipeline::BindPipeline");
 
@@ -540,13 +540,13 @@ void Pipeline<Vk>::BindPipeline(
 }
 
 template <>
-void Pipeline<Vk>::BindPipelineAuto(CommandBufferHandle<Vk> cmd)
+void Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd)
 {
 	BindPipeline(cmd, myBindPoint, InternalGetPipeline());
 }
 
 template <>
-void Pipeline<Vk>::SetModel(const std::shared_ptr<Model<Vk>>& model)
+void Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
 {
 	myGraphicsState.vertexInput.vertexBindingDescriptionCount =
 		static_cast<uint32_t>(model->GetBindings().size());
@@ -557,17 +557,17 @@ void Pipeline<Vk>::SetModel(const std::shared_ptr<Model<Vk>>& model)
 
 	SetDescriptorData(
 		"g_vertexBuffer",
-		DescriptorBufferInfo<Vk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_GlobalBuffers);
 
 	myGraphicsState.resources.model = model;
 }
 
 template <>
-PipelineLayoutHandle<Vk> Pipeline<Vk>::CreateLayout(const ShaderSet<Vk>& shaderSet)
+PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shaderSet)
 {
-	auto layout = PipelineLayout<Vk>(GetDevice(), shaderSet);
-	auto* handle = static_cast<PipelineLayoutHandle<Vk>>(layout);
+	auto layout = PipelineLayout<kVk>(GetDevice(), shaderSet);
+	auto* handle = static_cast<PipelineLayoutHandle<kVk>>(layout);
 
 	myGraphicsState.layouts.emplace(handle, std::move(layout));
 	
@@ -575,7 +575,7 @@ PipelineLayoutHandle<Vk> Pipeline<Vk>::CreateLayout(const ShaderSet<Vk>& shaderS
 }
 
 template <>
-void Pipeline<Vk>::BindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindPoint<Vk> bindPoint)
+void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layout, PipelineBindPoint<kVk> bindPoint)
 {
 	myLayout = layout;
 	myBindPoint = bindPoint;
@@ -596,7 +596,7 @@ void Pipeline<Vk>::BindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindP
 
 			if ((shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS) != 0)
 			{
-				myGraphicsState.shaderStages.emplace_back(PipelineShaderStageCreateInfo<Vk>{
+				myGraphicsState.shaderStages.emplace_back(PipelineShaderStageCreateInfo<kVk>{
 					VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 					nullptr,
 					0,
@@ -621,9 +621,9 @@ void Pipeline<Vk>::BindLayoutAuto(PipelineLayoutHandle<Vk> layout, PipelineBindP
 }
 
 template <>
-void Pipeline<Vk>::SetRenderTarget(const std::shared_ptr<RenderTarget<Vk>>& renderTarget)
+void Pipeline<kVk>::SetRenderTarget(const std::shared_ptr<RenderTarget<kVk>>& renderTarget)
 {
-	auto extent = renderTarget ? renderTarget->GetRenderTargetDesc().extent : Extent2d<Vk>{0, 0};
+	auto extent = renderTarget ? renderTarget->GetRenderTargetDesc().extent : Extent2d<kVk>{0, 0};
 
 	myGraphicsState.viewports[0].width = static_cast<float>(extent.width);
 	myGraphicsState.viewports[0].height = static_cast<float>(extent.height);
@@ -634,11 +634,11 @@ void Pipeline<Vk>::SetRenderTarget(const std::shared_ptr<RenderTarget<Vk>>& rend
 }
 
 template <>
-void Pipeline<Vk>::InternalUpdateDescriptorSet(
-	const DescriptorSetLayout<Vk>& setLayout,
-	const BindingsData<Vk>& bindingsData,
-	const DescriptorUpdateTemplate<Vk>& setTemplate,
-	DescriptorSetArrayList<Vk>& setArrayList)
+void Pipeline<kVk>::InternalUpdateDescriptorSet(
+	const DescriptorSetLayout<kVk>& setLayout,
+	const BindingsData<kVk>& bindingsData,
+	const DescriptorUpdateTemplate<kVk>& setTemplate,
+	DescriptorSetArrayList<kVk>& setArrayList)
 {
 	ZoneScopedN("Pipeline::InternalUpdateDescriptorSet");
 
@@ -651,8 +651,8 @@ void Pipeline<Vk>::InternalUpdateDescriptorSet(
 	if (setArrayListIsEmpty || frontArrayIsFull)
 	{
 		setArrayList.emplace_front(std::make_tuple(
-			DescriptorSetArray<Vk>(
-				GetDevice(), setLayout, DescriptorSetArrayCreateDesc<Vk>{myDescriptorPool}),
+			DescriptorSetArray<kVk>(
+				GetDevice(), setLayout, DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
 			~0,
 			0));
 	}
@@ -686,10 +686,10 @@ void Pipeline<Vk>::InternalUpdateDescriptorSet(
 }
 
 template <>
-void Pipeline<Vk>::InternalPushDescriptorSet(
-	CommandBufferHandle<Vk> cmd,
-	const BindingsData<Vk>& bindingsData,
-	const DescriptorUpdateTemplate<Vk>& setTemplate) const
+void Pipeline<kVk>::InternalPushDescriptorSet(
+	CommandBufferHandle<kVk> cmd,
+	const BindingsData<kVk>& bindingsData,
+	const DescriptorUpdateTemplate<kVk>& setTemplate) const
 {
 	ZoneScopedN("Pipeline::InternalPushDescriptorSet");
 
@@ -708,12 +708,12 @@ void Pipeline<Vk>::InternalPushDescriptorSet(
 }
 
 template <>
-void Pipeline<Vk>::InternalUpdateDescriptorSetTemplate(
-	const BindingsMap<Vk>& bindingsMap, DescriptorUpdateTemplate<Vk>& setTemplate)
+void Pipeline<kVk>::InternalUpdateDescriptorSetTemplate(
+	const BindingsMap<kVk>& bindingsMap, DescriptorUpdateTemplate<kVk>& setTemplate)
 {
 	ZoneScopedN("Pipeline::InternalUpdateDescriptorSetTemplate");
 
-	std::vector<DescriptorUpdateTemplateEntry<Vk>> entries;
+	std::vector<DescriptorUpdateTemplateEntry<kVk>> entries;
 	entries.reserve(bindingsMap.size());
 
 	for (const auto& [index, binding] : bindingsMap)
@@ -726,13 +726,13 @@ void Pipeline<Vk>::InternalUpdateDescriptorSetTemplate(
 		{
 			auto rangeCount = high - low;
 
-			entries.emplace_back(DescriptorUpdateTemplateEntry<Vk>{
+			entries.emplace_back(DescriptorUpdateTemplateEntry<kVk>{
 				index,
 				low,
 				rangeCount,
 				type,
-				(offset + rangeOffset) * sizeof(BindingVariant<Vk>),
-				sizeof(BindingVariant<Vk>)});
+				(offset + rangeOffset) * sizeof(BindingVariant<kVk>),
+				sizeof(BindingVariant<kVk>)});
 
 			rangeOffset += rangeCount;
 		}
@@ -742,11 +742,11 @@ void Pipeline<Vk>::InternalUpdateDescriptorSetTemplate(
 }
 
 template <>
-void Pipeline<Vk>::BindDescriptorSet(
-	CommandBufferHandle<Vk> cmd,
-	DescriptorSetHandle<Vk> handle,
-	PipelineBindPoint<Vk> bindPoint,
-	PipelineLayoutHandle<Vk> layoutHandle,
+void Pipeline<kVk>::BindDescriptorSet(
+	CommandBufferHandle<kVk> cmd,
+	DescriptorSetHandle<kVk> handle,
+	PipelineBindPoint<kVk> bindPoint,
+	PipelineLayoutHandle<kVk> layoutHandle,
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset) const
 {
@@ -764,8 +764,8 @@ void Pipeline<Vk>::BindDescriptorSet(
 }
 
 template <>
-void Pipeline<Vk>::BindDescriptorSetAuto(
-	CommandBufferHandle<Vk> cmd, uint32_t set, std::optional<uint32_t> bufferOffset)
+void Pipeline<kVk>::BindDescriptorSetAuto(
+	CommandBufferHandle<kVk> cmd, uint32_t set, std::optional<uint32_t> bufferOffset)
 {
 	ZoneScopedN("Pipeline::BindDescriptorSetAuto");
 
@@ -803,7 +803,7 @@ void Pipeline<Vk>::BindDescriptorSetAuto(
 			cmd,
 			handle,
 			myBindPoint,
-			static_cast<PipelineLayoutHandle<Vk>>(layout),
+			static_cast<PipelineLayoutHandle<kVk>>(layout),
 			set,
 			bufferOffset);
 
@@ -821,12 +821,12 @@ void Pipeline<Vk>::BindDescriptorSetAuto(
 }
 
 template <>
-Pipeline<Vk>::Pipeline(
-	const std::shared_ptr<Device<Vk>>& device, PipelineConfiguration<Vk>&& defaultConfig)
+Pipeline<kVk>::Pipeline(
+	const std::shared_ptr<Device<kVk>>& device, PipelineConfiguration<kVk>&& defaultConfig)
 	: DeviceObject(device, {})
-	, myConfig{std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<Vk>>(defaultConfig)}
+	, myConfig{std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
 	, myDescriptorPool(
-		  [](const std::shared_ptr<Device<Vk>>& device)
+		  [](const std::shared_ptr<Device<kVk>>& device)
 		  {
 			  const uint32_t descBaseCount = 1024;
 			  VkDescriptorPoolSize poolSizes[]{
@@ -888,7 +888,7 @@ Pipeline<Vk>::Pipeline(
 }
 
 template <>
-Pipeline<Vk>::~Pipeline()
+Pipeline<kVk>::~Pipeline()
 {
 	if (auto fileInfo = pipeline::SavePipelineCache(
 			myConfig.cachePath,

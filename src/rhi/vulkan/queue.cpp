@@ -6,7 +6,7 @@
 #include <tracy/TracyVulkan.hpp>
 
 template <>
-bool Queue<Vk>::ProcessTimelineCallbacks(uint64_t timelineValue)
+bool Queue<kVk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::ProcessTimelineCallbacks");
 
@@ -26,19 +26,19 @@ bool Queue<Vk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 }
 
 template <>
-Queue<Vk>::Queue(
-	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
-	std::tuple<QueueCreateDesc<Vk>, QueueHandle<Vk>>&& descAndHandle)
+Queue<kVk>::Queue(
+	const std::shared_ptr<Device<kVk>>& device,
+	CommandPoolCreateDesc<kVk>&& commandPoolDesc,
+	std::tuple<QueueCreateDesc<kVk>, QueueHandle<kVk>>&& descAndHandle)
 	: DeviceObject(
 		  device,
 		  {"_Queue"},
 		  1,
 		  VK_OBJECT_TYPE_QUEUE,
 		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
-	, myDesc(std::forward<QueueCreateDesc<Vk>>(std::get<0>(descAndHandle)))
+	, myDesc(std::forward<QueueCreateDesc<kVk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
-	, myPool(device, std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc))
+	, myPool(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc))
 {
 	using namespace tracy;
 
@@ -69,7 +69,7 @@ Queue<Vk>::Queue(
 			device->GetPhysicalDevice(),
 			*device,
 			myQueue,
-			myPool.Commands(CommandBufferAccessScopeDesc<Vk>(false)),
+			myPool.Commands(CommandBufferAccessScopeDesc<kVk>(false)),
 			nullptr,
 			nullptr);
 	}
@@ -77,26 +77,26 @@ Queue<Vk>::Queue(
 }
 
 template <>
-Queue<Vk>::Queue(
-	const std::shared_ptr<Device<Vk>>& device,
-	CommandPoolCreateDesc<Vk>&& commandPoolDesc,
-	QueueCreateDesc<Vk>&& queueDesc)
+Queue<kVk>::Queue(
+	const std::shared_ptr<Device<kVk>>& device,
+	CommandPoolCreateDesc<kVk>&& commandPoolDesc,
+	QueueCreateDesc<kVk>&& queueDesc)
 	: Queue(
 		device,
-		std::forward<CommandPoolCreateDesc<Vk>>(commandPoolDesc),
+		std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc),
 		std::make_tuple(
-			std::forward<QueueCreateDesc<Vk>>(queueDesc),
+			std::forward<QueueCreateDesc<kVk>>(queueDesc),
 			[&device, &queueDesc]
 			{
-				QueueHandle<Vk> queue;
+				QueueHandle<kVk> queue;
 				vkGetDeviceQueue(*device, queueDesc.queueFamilyIndex, queueDesc.queueIndex, &queue);
 				return queue;
 			}()))
 {}
 
 template <>
-Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
-	: DeviceObject(std::forward<Queue<Vk>>(other))
+Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
+	: DeviceObject(std::forward<Queue<kVk>>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myQueue(std::exchange(other.myQueue, {}))
 	, myPool(std::exchange(other.myPool, {}))
@@ -108,7 +108,7 @@ Queue<Vk>::Queue(Queue<Vk>&& other) noexcept
 {}
 
 template <>
-Queue<Vk>::~Queue()
+Queue<kVk>::~Queue()
 {
 	using namespace tracy;
 
@@ -133,9 +133,9 @@ Queue<Vk>::~Queue()
 }
 
 template <>
-Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
+Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<Queue<Vk>>(other));
+	DeviceObject::operator=(std::forward<Queue<kVk>>(other));
 	myDesc = std::exchange(other.myDesc, {});
 	myQueue = std::exchange(other.myQueue, {});
 	myPool = std::exchange(other.myPool, {});
@@ -149,7 +149,7 @@ Queue<Vk>& Queue<Vk>::operator=(Queue<Vk>&& other) noexcept
 }
 
 template <>
-void Queue<Vk>::Swap(Queue& other) noexcept
+void Queue<kVk>::Swap(Queue& other) noexcept
 {
 	DeviceObject::Swap(other);
 	std::swap(myDesc, other.myDesc);
@@ -165,7 +165,7 @@ void Queue<Vk>::Swap(Queue& other) noexcept
 
 #if (PROFILING_LEVEL > 0)
 template <>
-void Queue<Vk>::GpuScopeCollect(CommandBufferHandle<Vk> cmd)
+void Queue<kVk>::GpuScopeCollect(CommandBufferHandle<kVk> cmd)
 {
 	if (myProfilingContext.has_value())
 		TracyVkCollect(std::any_cast<TracyVkCtx>(myProfilingContext), cmd);
@@ -173,7 +173,7 @@ void Queue<Vk>::GpuScopeCollect(CommandBufferHandle<Vk> cmd)
 
 template <>
 std::shared_ptr<void>
-Queue<Vk>::InternalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationData& srcLoc)
+Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationData& srcLoc)
 {
 	static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
 	static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
@@ -196,7 +196,7 @@ Queue<Vk>::InternalGpuScope(CommandBufferHandle<Vk> cmd, const SourceLocationDat
 #endif
 
 template <>
-QueueHostSyncInfo<Vk> Queue<Vk>::Submit()
+QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 {
 	ZoneScopedN("Queue::submit");
 
@@ -204,11 +204,11 @@ QueueHostSyncInfo<Vk> Queue<Vk>::Submit()
 		return {};
 
 	myScratchMemory.resize(
-		(sizeof(SubmitInfo<Vk>) + sizeof(TimelineSemaphoreSubmitInfo<Vk>)) *
+		(sizeof(SubmitInfo<kVk>) + sizeof(TimelineSemaphoreSubmitInfo<kVk>)) *
 		myPendingSubmits.size());
 
 	auto* timelineBegin =
-		reinterpret_cast<TimelineSemaphoreSubmitInfo<Vk>*>(myScratchMemory.data());
+		reinterpret_cast<TimelineSemaphoreSubmitInfo<kVk>*>(myScratchMemory.data());
 	auto* timelinePtr = timelineBegin;
 
 	uint64_t maxTimelineValue = 0ULL;
@@ -227,7 +227,7 @@ QueueHostSyncInfo<Vk> Queue<Vk>::Submit()
 		maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.timelineValue);
 	}
 
-	auto* submitBegin = reinterpret_cast<SubmitInfo<Vk>*>(timelinePtr);
+	auto* submitBegin = reinterpret_cast<SubmitInfo<kVk>*>(timelinePtr);
 	auto* submitPtr = submitBegin;
 	timelinePtr = timelineBegin;
 
@@ -246,7 +246,7 @@ QueueHostSyncInfo<Vk> Queue<Vk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueHostSyncInfo<Vk> syncInfo{{}, maxTimelineValue};
+	QueueHostSyncInfo<kVk> syncInfo{{}, maxTimelineValue};
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
@@ -259,7 +259,7 @@ QueueHostSyncInfo<Vk> Queue<Vk>::Submit()
 }
 
 template <>
-void Queue<Vk>::WaitIdle() const
+void Queue<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Queue::waitIdle");
 
@@ -267,13 +267,13 @@ void Queue<Vk>::WaitIdle() const
 }
 
 template <>
-QueuePresentInfo<Vk> Queue<Vk>::Present()
+QueuePresentInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::present");
 
-	Fence<Vk>::Wait(GetDevice(), myPendingPresent.fences);
+	Fence<kVk>::Wait(GetDevice(), myPendingPresent.fences);
 
-	PresentInfo<Vk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
@@ -287,7 +287,7 @@ QueuePresentInfo<Vk> Queue<Vk>::Present()
 }
 
 template <>
-void Queue<Vk>::AddTimelineCallback(TimelineCallback&& callback)
+void Queue<kVk>::AddTimelineCallback(TimelineCallback&& callback)
 {
 	ZoneScopedN("Queue::AddTimelineCallback");
 
@@ -295,7 +295,7 @@ void Queue<Vk>::AddTimelineCallback(TimelineCallback&& callback)
 }
 
 template <>
-QueueSubmitInfo<Vk> Queue<Vk>::InternalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& syncInfo)
+QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo)
 {
 	ZoneScopedN("Queue::prepareSubmit");
 
@@ -306,8 +306,8 @@ QueueSubmitInfo<Vk> Queue<Vk>::InternalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& s
 	if (pendingCommands.empty())
 		return {};
 
-	QueueSubmitInfo<Vk> submitInfo{std::forward<QueueDeviceSyncInfo<Vk>>(syncInfo), {}, 0};
-	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<Vk>::Capacity());
+	QueueSubmitInfo<kVk> submitInfo{std::forward<QueueDeviceSyncInfo<kVk>>(syncInfo), {}, 0};
+	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<kVk>::Capacity());
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
 	{
@@ -327,7 +327,7 @@ QueueSubmitInfo<Vk> Queue<Vk>::InternalPrepareSubmit(QueueDeviceSyncInfo<Vk>&& s
 }
 
 template <>
-void Queue<Vk>::Execute(uint8_t level, uint64_t timelineValue)
+void Queue<kVk>::Execute(uint8_t level, uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::Execute");
 

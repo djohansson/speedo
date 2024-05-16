@@ -20,7 +20,7 @@
 #include <string_view>
 
 template <>
-void Window<Vk>::InternalUpdateViewBuffer() const
+void Window<kVk>::InternalUpdateViewBuffer() const
 {
 	ZoneScopedN("Window::InternalUpdateViewBuffer");
 
@@ -48,8 +48,8 @@ void Window<Vk>::InternalUpdateViewBuffer() const
 }
 
 template <>
-uint32_t Window<Vk>::InternalDrawViews(
-	Pipeline<Vk>& pipeline, Queue<Vk>& queue, RenderPassBeginInfo<Vk>&& renderPassInfo)
+uint32_t Window<kVk>::InternalDrawViews(
+	Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderPassBeginInfo<kVk>&& renderPassInfo)
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
@@ -92,12 +92,12 @@ uint32_t Window<Vk>::InternalDrawViews(
 
 				ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
-				CommandBufferInheritanceInfo<Vk> inheritInfo{
+				CommandBufferInheritanceInfo<kVk> inheritInfo{
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 				inheritInfo.renderPass = renderPassInfo.renderPass;
 				inheritInfo.framebuffer = renderPassInfo.framebuffer;
 
-				CommandBufferAccessScopeDesc<Vk> beginInfo{};
+				CommandBufferAccessScopeDesc<kVk> beginInfo{};
 				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
 								  VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 				beginInfo.pInheritanceInfo = &inheritInfo;
@@ -120,8 +120,8 @@ uint32_t Window<Vk>::InternalDrawViews(
 					// bind pipeline and buffers
 					pipeline.BindPipelineAuto(cmd);
 
-					BufferHandle<Vk> vbs[] = {pipeline.GetResources().model->GetVertexBuffer()};
-					DeviceSize<Vk> offsets[] = {0};
+					BufferHandle<kVk> vbs[] = {pipeline.GetResources().model->GetVertexBuffer()};
+					DeviceSize<kVk> offsets[] = {0};
 					vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
 					vkCmdBindIndexBuffer(cmd, pipeline.GetResources().model->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 				};
@@ -224,7 +224,7 @@ uint32_t Window<Vk>::InternalDrawViews(
 }
 
 template <>
-void Window<Vk>::InternalInitializeViews()
+void Window<kVk>::InternalInitializeViews()
 {
 	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
@@ -244,7 +244,7 @@ void Window<Vk>::InternalInitializeViews()
 }
 
 template <>
-void Window<Vk>::OnResizeFramebuffer(int w, int h)
+void Window<kVk>::OnResizeFramebuffer(int w, int h)
 {
 	ASSERT(w > 0);
 	ASSERT(h > 0);
@@ -270,15 +270,15 @@ void Window<Vk>::OnResizeFramebuffer(int w, int h)
 }
 
 template <>
-void Window<Vk>::OnResizeSplitScreenGrid(uint32_t width, uint32_t height)
+void Window<kVk>::OnResizeSplitScreenGrid(uint32_t width, uint32_t height)
 {
-	myConfig.splitScreenGrid = Extent2d<Vk>{width, height};
+	myConfig.splitScreenGrid = Extent2d<kVk>{width, height};
 
 	InternalInitializeViews();
 }
 
 template <>
-void Window<Vk>::InternalUpdateViews(const InputState& input)
+void Window<kVk>::InternalUpdateViews(const InputState& input)
 {
 	ZoneScopedN("Window::InternalUpdateViews");
 
@@ -389,7 +389,7 @@ void Window<Vk>::InternalUpdateViews(const InputState& input)
 }
 
 template <>
-void Window<Vk>::OnInputStateChanged(const InputState& input)
+void Window<kVk>::OnInputStateChanged(const InputState& input)
 {
 	InternalUpdateViews(input);
 	InternalUpdateViewBuffer();
@@ -397,35 +397,35 @@ void Window<Vk>::OnInputStateChanged(const InputState& input)
 
 template <>
 uint32_t
-Window<Vk>::Draw(Pipeline<Vk>& pipeline, Queue<Vk>& queue, RenderPassBeginInfo<Vk>&& renderPassInfo)
+Window<kVk>::Draw(Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderPassBeginInfo<kVk>&& renderPassInfo)
 {
 	ZoneScopedN("Window::draw");
 
 	return InternalDrawViews(
-		pipeline, queue, std::forward<RenderPassBeginInfo<Vk>>(renderPassInfo));
+		pipeline, queue, std::forward<RenderPassBeginInfo<kVk>>(renderPassInfo));
 }
 
 template <>
-Window<Vk>::Window(
-	const std::shared_ptr<Device<Vk>>& device,
-	SurfaceHandle<Vk>&& surface,
+Window<kVk>::Window(
+	const std::shared_ptr<Device<kVk>>& device,
+	SurfaceHandle<kVk>&& surface,
 	ConfigFile&& config,
 	WindowState&& state)
 	: Swapchain(
 		device,
 		config.swapchainConfig,
-		std::forward<SurfaceHandle<Vk>>(surface), VK_NULL_HANDLE)
+		std::forward<SurfaceHandle<kVk>>(surface), VK_NULL_HANDLE)
 	, myConfig(std::forward<ConfigFile>(config))
 	, myState(std::forward<WindowState>(state))
-	, myViewBuffers(std::make_unique<Buffer<Vk>[]>(ShaderTypes_FrameCount))
+	, myViewBuffers(std::make_unique<Buffer<kVk>[]>(ShaderTypes_FrameCount))
 {
 	ZoneScopedN("Window()");
 
 	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
 	{
-		myViewBuffers[i] = Buffer<Vk>(
+		myViewBuffers[i] = Buffer<kVk>(
 			GetDevice(),
-			BufferCreateDesc<Vk>{
+			BufferCreateDesc<kVk>{
 				ShaderTypes_ViewCount * sizeof(ViewData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
@@ -437,7 +437,7 @@ Window<Vk>::Window(
 }
 
 template <>
-Window<Vk>::Window(Window&& other) noexcept
+Window<kVk>::Window(Window&& other) noexcept
 	: Swapchain(std::forward<Window>(other))
 	, myConfig(std::exchange(other.myConfig, {}))
 	, myState(std::exchange(other.myState, {}))
@@ -448,13 +448,13 @@ Window<Vk>::Window(Window&& other) noexcept
 {}
 
 template <>
-Window<Vk>::~Window()
+Window<kVk>::~Window()
 {
 	ZoneScopedN("~Window()");
 }
 
 template <>
-Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
+Window<kVk>& Window<kVk>::operator=(Window&& other) noexcept
 {
 	Swapchain::operator=(std::forward<Window>(other));
 	myConfig = std::exchange(other.myConfig, {});
@@ -467,7 +467,7 @@ Window<Vk>& Window<Vk>::operator=(Window&& other) noexcept
 }
 
 template <>
-void Window<Vk>::Swap(Window& other) noexcept
+void Window<kVk>::Swap(Window& other) noexcept
 {
 	Swapchain::Swap(other);
 	std::swap(myConfig, other.myConfig);

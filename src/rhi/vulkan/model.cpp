@@ -21,7 +21,7 @@
 #include <zpp_bits.h>
 
 // NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
-auto serialize(const ModelCreateDesc<Vk>&) -> zpp::bits::members<4>;
+auto serialize(const ModelCreateDesc<kVk>&) -> zpp::bits::members<4>;
 auto serialize(const AABB3f&) -> zpp::bits::members<2>;
 // NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
 
@@ -29,7 +29,7 @@ namespace model
 {
 
 std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
-	const std::vector<VertexInputAttributeDescription<Vk>>& attributes)
+	const std::vector<VertexInputAttributeDescription<kVk>>& attributes)
 {
 	using AttributeMap = std::map<uint32_t, std::tuple<VkFormat, uint32_t>>;
 
@@ -69,28 +69,28 @@ std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 
 	// ASSERT(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
 
-	return {VertexInputBindingDescription<Vk>{0U, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
+	return {VertexInputBindingDescription<kVk>{0U, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
 std::tuple<
-	ModelCreateDesc<Vk>,
-	BufferHandle<Vk>,
-	AllocationHandle<Vk>,
-	BufferHandle<Vk>,
-	AllocationHandle<Vk>>
+	ModelCreateDesc<kVk>,
+	BufferHandle<kVk>,
+	AllocationHandle<kVk>,
+	BufferHandle<kVk>,
+	AllocationHandle<kVk>>
 Load(
 	const std::filesystem::path& modelFile,
-	const std::shared_ptr<Device<Vk>>& device,
+	const std::shared_ptr<Device<kVk>>& device,
 	std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("model::load");
 
 	std::tuple<
-		ModelCreateDesc<Vk>,
-		BufferHandle<Vk>,
-		AllocationHandle<Vk>,
-		BufferHandle<Vk>,
-		AllocationHandle<Vk>> descAndInitialData;
+		ModelCreateDesc<kVk>,
+		BufferHandle<kVk>,
+		AllocationHandle<kVk>,
+		BufferHandle<kVk>,
+		AllocationHandle<kVk>> descAndInitialData;
 
 	auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 
@@ -200,7 +200,7 @@ Load(
 		if (!attrib.vertices.empty())
 		{
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
+				VertexInputAttributeDescription<kVk>{
 					static_cast<uint32_t>(desc.attributes.size()),
 					0,
 					VK_FORMAT_R32G32B32_SFLOAT,
@@ -210,7 +210,7 @@ Load(
 		if (!attrib.normals.empty())
 		{
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
+				VertexInputAttributeDescription<kVk>{
 					static_cast<uint32_t>(desc.attributes.size()),
 					0, 
 					VK_FORMAT_R32G32B32_SFLOAT,
@@ -220,7 +220,7 @@ Load(
 		if (!attrib.texcoords.empty())
 		{
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
+				VertexInputAttributeDescription<kVk>{
 					static_cast<uint32_t>(desc.attributes.size()),
 					0,
 					VK_FORMAT_R32G32B32A32_SFLOAT,
@@ -230,7 +230,7 @@ Load(
 		if (!attrib.colors.empty())
 		{
 			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<Vk>{
+				VertexInputAttributeDescription<kVk>{
 					static_cast<uint32_t>(desc.attributes.size()),
 					0,
 					VK_FORMAT_R32G32B32A32_SFLOAT,
@@ -355,23 +355,23 @@ Load(
 } // namespace model
 
 template <>
-Model<Vk>::Model(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Model<kVk>::Model(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
 	std::tuple<
-		ModelCreateDesc<Vk>,
-		BufferHandle<Vk>,
-		AllocationHandle<Vk>,
-		BufferHandle<Vk>,
-		AllocationHandle<Vk>>&& descAndInitialData)
-	: myDesc(std::forward<ModelCreateDesc<Vk>>(std::get<0>(descAndInitialData)))
+		ModelCreateDesc<kVk>,
+		BufferHandle<kVk>,
+		AllocationHandle<kVk>,
+		BufferHandle<kVk>,
+		AllocationHandle<kVk>>&& descAndInitialData)
+	: myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<0>(descAndInitialData)))
 	, myIndexBuffer(
 		  device,
 		  queue,
 		  timelineValue,
 		  std::make_tuple(
-			  BufferCreateDesc<Vk>{
+			  BufferCreateDesc<kVk>{
 				  std::get<0>(descAndInitialData).indexCount * sizeof(uint32_t),
 				  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
@@ -382,7 +382,7 @@ Model<Vk>::Model(
 		  queue,
 		  timelineValue,
 		  std::make_tuple(
-			  BufferCreateDesc<Vk>{
+			  BufferCreateDesc<kVk>{
 				  std::get<0>(descAndInitialData).vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
 				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
@@ -392,9 +392,9 @@ Model<Vk>::Model(
 {}
 
 template <>
-Model<Vk>::Model(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Model<kVk>::Model(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
 	const std::filesystem::path& modelFile,
 	std::atomic_uint8_t& progress)
@@ -402,7 +402,7 @@ Model<Vk>::Model(
 {}
 
 template <>
-void Model<Vk>::Swap(Model& rhs) noexcept
+void Model<kVk>::Swap(Model& rhs) noexcept
 {
 	std::swap(myDesc, rhs.myDesc);
 	std::swap(myIndexBuffer, rhs.myIndexBuffer);

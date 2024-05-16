@@ -15,19 +15,19 @@ namespace instance
 
 static VkDebugUtilsMessengerEXT gdebugUtilsMessenger{};
 
-SurfaceCapabilities<Vk>
-GetSurfaceCapabilities(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
+SurfaceCapabilities<kVk>
+GetSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
 {
-	SurfaceCapabilities<Vk> capabilities;
+	SurfaceCapabilities<kVk> capabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &capabilities);
 
 	return capabilities;
 }
 
 void GetPhysicalDeviceInfo2(
-	PhysicalDeviceInfo<Vk>& deviceInfo,
-	InstanceHandle<Vk> instance,
-	PhysicalDeviceHandle<Vk> device)
+	PhysicalDeviceInfo<kVk>& deviceInfo,
+	InstanceHandle<kVk> instance,
+	PhysicalDeviceHandle<kVk> device)
 {
 	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
@@ -64,10 +64,10 @@ void GetPhysicalDeviceInfo2(
 	}
 }
 
-SwapchainInfo<Vk>
-GetPhysicalDeviceSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
+SwapchainInfo<kVk>
+GetPhysicalDeviceSwapchainInfo(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
 {
-	SwapchainInfo<Vk> swapchainInfo{};
+	SwapchainInfo<kVk> swapchainInfo{};
 	swapchainInfo.capabilities = GetSurfaceCapabilities(device, surface);
 
 	uint32_t formatCount;
@@ -147,16 +147,16 @@ VkDebugUtilsMessengerCreateInfoEXT gDebugUtilsMessengerCallbackCreateInfo{
 } // namespace instance
 
 template <>
-void Instance<Vk>::UpdateSurfaceCapabilities(
-	PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
+void Instance<kVk>::UpdateSurfaceCapabilities(
+	PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
 {
 	myPhysicalDeviceSwapchainInfos.at(std::make_tuple(device, surface)).capabilities =
 		instance::GetSurfaceCapabilities(device, surface);
 }
 
 template <>
-const SwapchainInfo<Vk>&
-Instance<Vk>::UpdateSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface)
+const SwapchainInfo<kVk>&
+Instance<kVk>::UpdateSwapchainInfo(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
 {
 	ZoneScopedN("Instance::UpdateSwapchainInfo");
 
@@ -168,8 +168,8 @@ Instance<Vk>::UpdateSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle
 }
 
 template <>
-const SwapchainInfo<Vk>&
-Instance<Vk>::GetSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk> surface) const
+const SwapchainInfo<kVk>&
+Instance<kVk>::GetSwapchainInfo(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface) const
 {
 	ZoneScopedN("Instance::GetSwapchainInfo");
 
@@ -177,8 +177,8 @@ Instance<Vk>::GetSwapchainInfo(PhysicalDeviceHandle<Vk> device, SurfaceHandle<Vk
 }
 
 template <>
-Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
-: myConfig(std::forward<InstanceConfiguration<Vk>>(defaultConfig))
+Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
+: myConfig(std::forward<InstanceConfiguration<kVk>>(defaultConfig))
 , myHostAllocationCallbacks{
 	nullptr,
 	[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
@@ -382,7 +382,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 	for (auto physicalDevice : myPhysicalDevices)
 	{
 		auto infoInsertNode = myPhysicalDeviceInfos.emplace(
-			physicalDevice, std::make_unique<PhysicalDeviceInfo<Vk>>());
+			physicalDevice, std::make_unique<PhysicalDeviceInfo<kVk>>());
 		GetPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice);
 	}
 
@@ -403,7 +403,7 @@ Instance<Vk>::Instance(InstanceConfiguration<Vk>&& defaultConfig)
 }
 
 template <>
-Instance<Vk>::~Instance()
+Instance<kVk>::~Instance()
 {
 	using namespace instance;
 

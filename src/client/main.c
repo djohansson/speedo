@@ -445,7 +445,7 @@ int main(int argc, char* argv[], char* envp[])
 	glfwSetMonitorCallback(OnMonitorChanged);
 
 	WindowHandle window = GetCurrentWindow();
-	ASSERT(window != NullWindowHandle);
+	ASSERT(window != kInvalidWindowHandle);
 
 	SetWindowCallbacks(window);
 

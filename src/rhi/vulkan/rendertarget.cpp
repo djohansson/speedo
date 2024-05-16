@@ -8,7 +8,7 @@
 #include <memory>
 
 template <>
-void RenderTarget<Vk>::InternalInitializeAttachments(const RenderTargetCreateDesc<Vk>& desc)
+void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalInitializeAttachments");
 
@@ -93,8 +93,8 @@ void RenderTarget<Vk>::InternalInitializeAttachments(const RenderTargetCreateDes
 }
 
 template <>
-void RenderTarget<Vk>::InternalInitializeDefaultRenderPass(
-	const RenderTargetCreateDesc<Vk>& desc)
+void RenderTarget<kVk>::InternalInitializeDefaultRenderPass(
+	const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalInitializeDefaultRenderPass");
 
@@ -145,7 +145,7 @@ void RenderTarget<Vk>::InternalInitializeDefaultRenderPass(
 
 template <>
 uint64_t
-RenderTarget<Vk>::InternalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const
+RenderTarget<kVk>::InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const
 {
 	ZoneScopedN("RenderTarget::InternalCalculateHashKey");
 
@@ -193,8 +193,8 @@ RenderTarget<Vk>::InternalCalculateHashKey(const RenderTargetCreateDesc<Vk>& des
 }
 
 template <>
-RenderTargetHandle<Vk> RenderTarget<Vk>::InternalCreateRenderPassAndFrameBuffer(
-	uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc)
+RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffer(
+	uint64_t hashKey, const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalCreateRenderPassAndFrameBuffer");
 
@@ -233,14 +233,14 @@ RenderTargetHandle<Vk> RenderTarget<Vk>::InternalCreateRenderPassAndFrameBuffer(
 }
 
 template <>
-const RenderTargetHandle<Vk>&
-RenderTarget<Vk>::InternalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
+const RenderTargetHandle<kVk>&
+RenderTarget<kVk>::InternalUpdateMap(const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalUpdateMap");
 
 	auto [keyValIt, insertResult] = myCache.emplace(
 		InternalCalculateHashKey(desc),
-		std::make_tuple(RenderPassHandle<Vk>{}, FramebufferHandle<Vk>{}));
+		std::make_tuple(RenderPassHandle<kVk>{}, FramebufferHandle<kVk>{}));
 	auto& [key, renderPassAndFramebuffer] = *keyValIt;
 
 	if (insertResult)
@@ -250,13 +250,13 @@ RenderTarget<Vk>::InternalUpdateMap(const RenderTargetCreateDesc<Vk>& desc)
 }
 
 template <>
-void RenderTarget<Vk>::InternalUpdateRenderPasses(const RenderTargetCreateDesc<Vk>& desc)
+void RenderTarget<kVk>::InternalUpdateRenderPasses(const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalUpdateRenderPasses");
 }
 
 template <>
-void RenderTarget<Vk>::InternalUpdateAttachments(const RenderTargetCreateDesc<Vk>& desc)
+void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalUpdateAttachments");
 
@@ -281,14 +281,14 @@ void RenderTarget<Vk>::InternalUpdateAttachments(const RenderTargetCreateDesc<Vk
 }
 
 template <>
-void RenderTarget<Vk>::Blit(
-	CommandBufferHandle<Vk> cmd,
-	const IRenderTarget<Vk>& srcRenderTarget,
-	const ImageSubresourceLayers<Vk>& srcSubresource,
+void RenderTarget<kVk>::Blit(
+	CommandBufferHandle<kVk> cmd,
+	const IRenderTarget<kVk>& srcRenderTarget,
+	const ImageSubresourceLayers<kVk>& srcSubresource,
 	uint32_t srcIndex,
-	const ImageSubresourceLayers<Vk>& dstSubresource,
+	const ImageSubresourceLayers<kVk>& dstSubresource,
 	uint32_t dstIndex,
-	Filter<Vk> filter)
+	Filter<kVk> filter)
 {
 	ZoneScopedN("RenderTarget::blit");
 
@@ -319,8 +319,8 @@ void RenderTarget<Vk>::Blit(
 }
 
 template <>
-void RenderTarget<Vk>::ClearSingleAttachment(
-	CommandBufferHandle<Vk> cmd, const ClearAttachment<Vk>& clearAttachment) const
+void RenderTarget<kVk>::ClearSingleAttachment(
+	CommandBufferHandle<kVk> cmd, const ClearAttachment<kVk>& clearAttachment) const
 {
 	ZoneScopedN("RenderTarget::ClearSingleAttachment");
 
@@ -330,10 +330,10 @@ void RenderTarget<Vk>::ClearSingleAttachment(
 }
 
 template <>
-void RenderTarget<Vk>::ClearAllAttachments(
-	CommandBufferHandle<Vk> cmd,
-	const ClearColorValue<Vk>& color,
-	const ClearDepthStencilValue<Vk>& depthStencil) const
+void RenderTarget<kVk>::ClearAllAttachments(
+	CommandBufferHandle<kVk> cmd,
+	const ClearColorValue<kVk>& color,
+	const ClearDepthStencilValue<kVk>& depthStencil) const
 {
 	ZoneScopedN("RenderTarget::ClearAllAttachments");
 
@@ -356,8 +356,8 @@ void RenderTarget<Vk>::ClearAllAttachments(
 }
 
 template <>
-void RenderTarget<Vk>::ClearColor(
-	CommandBufferHandle<Vk> cmd, const ClearColorValue<Vk>& color, uint32_t index)
+void RenderTarget<kVk>::ClearColor(
+	CommandBufferHandle<kVk> cmd, const ClearColorValue<kVk>& color, uint32_t index)
 {
 	ZoneScopedN("RenderTarget::ClearColor");
 
@@ -376,8 +376,8 @@ void RenderTarget<Vk>::ClearColor(
 }
 
 template <>
-void RenderTarget<Vk>::ClearDepthStencil(
-	CommandBufferHandle<Vk> cmd, const ClearDepthStencilValue<Vk>& depthStencil)
+void RenderTarget<kVk>::ClearDepthStencil(
+	CommandBufferHandle<kVk> cmd, const ClearDepthStencilValue<kVk>& depthStencil)
 {
 	ZoneScopedN("RenderTarget::ClearDepthStencil");
 
@@ -400,7 +400,7 @@ void RenderTarget<Vk>::ClearDepthStencil(
 }
 
 template <>
-void RenderTarget<Vk>::NextSubpass(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
+void RenderTarget<kVk>::NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
 	ZoneScopedN("RenderTarget::NextSubpass");
 
@@ -408,7 +408,7 @@ void RenderTarget<Vk>::NextSubpass(CommandBufferHandle<Vk> cmd, SubpassContents<
 }
 
 template <>
-const RenderTargetHandle<Vk>& RenderTarget<Vk>::InternalGetValues()
+const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 {
 	InternalUpdateAttachments(GetRenderTargetDesc());
 	InternalUpdateRenderPasses(GetRenderTargetDesc());
@@ -417,13 +417,13 @@ const RenderTargetHandle<Vk>& RenderTarget<Vk>::InternalGetValues()
 }
 
 template <>
-RenderPassBeginInfo<Vk> RenderTarget<Vk>::Begin(CommandBufferHandle<Vk> cmd, SubpassContents<Vk> contents)
+RenderPassBeginInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
 	ZoneScopedN("RenderTarget::begin");
 
 	const auto& [renderPass, frameBuffer] = InternalGetValues();
 
-	auto info = RenderPassBeginInfo<Vk>{
+	auto info = RenderPassBeginInfo<kVk>{
 		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		nullptr,
 		renderPass,
@@ -440,7 +440,7 @@ RenderPassBeginInfo<Vk> RenderTarget<Vk>::Begin(CommandBufferHandle<Vk> cmd, Sub
 }
 
 template <>
-void RenderTarget<Vk>::End(CommandBufferHandle<Vk> cmd)
+void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
 	ZoneScopedN("RenderTarget::end");
 
@@ -448,8 +448,8 @@ void RenderTarget<Vk>::End(CommandBufferHandle<Vk> cmd)
 }
 
 template <>
-RenderTarget<Vk>::RenderTarget(
-	const std::shared_ptr<Device<Vk>>& device, const RenderTargetCreateDesc<Vk>& desc)
+RenderTarget<kVk>::RenderTarget(
+	const std::shared_ptr<Device<kVk>>& device, const RenderTargetCreateDesc<kVk>& desc)
 	: DeviceObject(device, {})
 {
 	ZoneScopedN("RenderTarget()");
@@ -464,7 +464,7 @@ RenderTarget<Vk>::RenderTarget(
 }
 
 template <>
-RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
+RenderTarget<kVk>::RenderTarget(RenderTarget&& other) noexcept
 	: DeviceObject(std::forward<RenderTarget>(other))
 	, myAttachments(std::exchange(other.myAttachments, {}))
 	, myAttachmentDescs(std::exchange(other.myAttachmentDescs, {}))
@@ -475,7 +475,7 @@ RenderTarget<Vk>::RenderTarget(RenderTarget&& other) noexcept
 {}
 
 template <>
-RenderTarget<Vk>::~RenderTarget()
+RenderTarget<kVk>::~RenderTarget()
 {
 	ZoneScopedN("~RenderTarget()");
 
@@ -499,7 +499,7 @@ RenderTarget<Vk>::~RenderTarget()
 }
 
 template <>
-RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
+RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<RenderTarget>(other));
 	myAttachments = std::exchange(other.myAttachments, {});
@@ -512,7 +512,7 @@ RenderTarget<Vk>& RenderTarget<Vk>::operator=(RenderTarget&& other) noexcept
 }
 
 template <>
-void RenderTarget<Vk>::Swap(RenderTarget& rhs) noexcept
+void RenderTarget<kVk>::Swap(RenderTarget& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myAttachments, rhs.myAttachments);
@@ -524,25 +524,25 @@ void RenderTarget<Vk>::Swap(RenderTarget& rhs) noexcept
 }
 
 template <>
-RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
-	const std::shared_ptr<Device<Vk>>& device, RenderTargetCreateDesc<Vk>&& desc)
+RenderTargetImpl<RenderTargetCreateDesc<kVk>, kVk>::RenderTargetImpl(
+	const std::shared_ptr<Device<kVk>>& device, RenderTargetCreateDesc<kVk>&& desc)
 	: RenderTarget(device, desc)
-	, myDesc(std::forward<RenderTargetCreateDesc<Vk>>(desc))
+	, myDesc(std::forward<RenderTargetCreateDesc<kVk>>(desc))
 {}
 
 template <>
-RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::RenderTargetImpl(
+RenderTargetImpl<RenderTargetCreateDesc<kVk>, kVk>::RenderTargetImpl(
 	RenderTargetImpl&& other) noexcept
 	: RenderTarget(std::forward<RenderTargetImpl>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 {}
 
 template <>
-RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::~RenderTargetImpl() = default;
+RenderTargetImpl<RenderTargetCreateDesc<kVk>, kVk>::~RenderTargetImpl() = default;
 
 template <>
-RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>&
-RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(RenderTargetImpl&& other) noexcept
+RenderTargetImpl<RenderTargetCreateDesc<kVk>, kVk>&
+RenderTargetImpl<RenderTargetCreateDesc<kVk>, kVk>::operator=(RenderTargetImpl&& other) noexcept
 {
 	RenderTarget::operator=(std::forward<RenderTargetImpl>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -550,7 +550,7 @@ RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::operator=(RenderTargetImpl&& o
 }
 
 template <>
-void RenderTargetImpl<RenderTargetCreateDesc<Vk>, Vk>::Swap(RenderTargetImpl& rhs) noexcept
+void RenderTargetImpl<RenderTargetCreateDesc<kVk>, kVk>::Swap(RenderTargetImpl& rhs) noexcept
 {
 	RenderTarget::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);

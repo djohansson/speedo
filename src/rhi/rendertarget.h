@@ -123,10 +123,10 @@ protected:
 	void Swap(RenderTarget& rhs) noexcept;
 
 private:
-	uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<Vk>& desc) const;
+	uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;
 
 	RenderTargetHandle<G> InternalCreateRenderPassAndFrameBuffer(
-		uint64_t hashKey, const RenderTargetCreateDesc<Vk>& desc);
+		uint64_t hashKey, const RenderTargetCreateDesc<kVk>& desc);
 
 	void InternalInitializeAttachments(const RenderTargetCreateDesc<G>& desc);
 	void InternalInitializeDefaultRenderPass(const RenderTargetCreateDesc<G>& desc);

@@ -55,7 +55,7 @@ private:
 			AllocationHandle<G>>&& descAndInitialData);
 
 	ModelCreateDesc<G> myDesc{};
-	Buffer<Vk> myIndexBuffer;
-	Buffer<Vk> myVertexBuffer;
+	Buffer<kVk> myIndexBuffer;
+	Buffer<kVk> myVertexBuffer;
 	std::vector<VertexInputBindingDescription<G>> myBindings;
 };

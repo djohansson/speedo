@@ -35,7 +35,7 @@ OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* fil
 }
 
 static void LoadModel(
-	Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
+	Rhi<kVk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -43,14 +43,14 @@ static void LoadModel(
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	rhi.pipeline->SetModel(
-		std::make_shared<Model<Vk>>(
+		std::make_shared<Model<kVk>>(
 			rhi.device,
 			transferQueue,
 			++transferSemaphoreValue,
 			openFilePath,
 			progress));
 
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<Vk>{
+	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
 		{VK_PIPELINE_STAGE_TRANSFER_BIT},
 		{transferSubmit.maxTimelineValue},
@@ -61,7 +61,7 @@ static void LoadModel(
 }
 
 static void LoadImage(
-	Rhi<Vk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
+	Rhi<kVk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -69,17 +69,17 @@ static void LoadImage(
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	rhi.pipeline->GetResources().image =
-		std::make_shared<Image<Vk>>(
+		std::make_shared<Image<kVk>>(
 			rhi.device,
 			transferQueue,
 			++transferSemaphoreValue,
 			openFilePath,
 			progress);
 
-	rhi.pipeline->GetResources().imageView = std::make_shared<ImageView<Vk>>(
+	rhi.pipeline->GetResources().imageView = std::make_shared<ImageView<kVk>>(
 		rhi.device, *rhi.pipeline->GetResources().image, VK_IMAGE_ASPECT_COLOR_BIT);
 
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<Vk>{
+	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
 		{VK_PIPELINE_STAGE_TRANSFER_BIT},
 		{transferSubmit.maxTimelineValue},
@@ -91,8 +91,8 @@ static void LoadImage(
 	///////////
 
 	auto [imageTransitionTask, imageTransitionFuture] = Task::CreateTask<uint32_t>([&rhi](
-		Image<Vk>& image,
-		SemaphoreHandle<Vk> waitSemaphore,
+		Image<kVk>& image,
+		SemaphoreHandle<kVk> waitSemaphore,
 		uint64_t waitSemaphoreValue,
 		uint32_t frameIndex)
 	{
@@ -107,7 +107,7 @@ static void LoadImage(
 			image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		}
 
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<Vk>{
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			{waitSemaphore},
 			{VK_PIPELINE_STAGE_TRANSFER_BIT},
 			{waitSemaphoreValue},
@@ -116,20 +116,20 @@ static void LoadImage(
 
 		rhi.pipeline->SetDescriptorData(
 			"g_textures",
-			DescriptorImageInfo<Vk>{
+			DescriptorImageInfo<kVk>{
 				{},
 				*rhi.pipeline->GetResources().imageView,
 				rhi.pipeline->GetResources().image->GetImageLayout()},
 			DescriptorSetCategory_GlobalTextures,
 			1);
-	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<Vk>>(transferSemaphore), transferSubmit.maxTimelineValue);
+	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
 
 	rhi.drawCalls.enqueue(imageTransitionTask);
 
 	///////////
 }
 
-void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
+void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 {
 	ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
 
@@ -586,7 +586,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<Vk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).GetConfig().splitScreenGrid;
+				Extent2d<kVk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).GetConfig().splitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -651,7 +651,7 @@ void IMGUIPrepareDrawFunction(Rhi<Vk>& rhi, TaskExecutor& executor)
 	Render();
 }
 
-void IMGUIDrawFunction(CommandBufferHandle<Vk> cmd)
+void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd)
 {
 	ZoneScopedN("RhiApplication::IMGUIDraw");
 
@@ -661,9 +661,9 @@ void IMGUIDrawFunction(CommandBufferHandle<Vk> cmd)
 }
 
 static void IMGUIInit(
-	Window<Vk>& window,
-	Rhi<Vk>& rhi,
-	CommandBufferHandle<Vk> cmd)
+	Window<kVk>& window,
+	Rhi<kVk>& rhi,
+	CommandBufferHandle<kVk> cmd)
 {
 	ZoneScopedN("RhiApplication::IMGUIInit");
 
@@ -757,7 +757,7 @@ static void IMGUIInit(
 	// 							 VkDeviceMemory buffer_memory,
 	// 							 const VkAllocationCallbacks* allocator)
 	// {
-	// 	auto& device = *static_cast<Device<Vk>*>(user_data);
+	// 	auto& device = *static_cast<Device<kVk>*>(user_data);
 	// 	device.AddTimelineCallback(
 	// 		[&device, buffer, buffer_memory, allocator](uint64_t)
 	// 		{
@@ -770,7 +770,7 @@ static void IMGUIInit(
 	// initInfo.UserData = device.Get();
 	ImGui_ImplVulkan_Init(
 		&initInfo,
-		static_cast<RenderTargetHandle<Vk>>(window.GetFrames().at(window.GetCurrentFrameIndex())).first);
+		static_cast<RenderTargetHandle<kVk>>(window.GetFrames().at(window.GetCurrentFrameIndex())).first);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
 
 	// Upload Fonts
@@ -795,7 +795,7 @@ static void ShutdownImgui()
 	ImGui::DestroyContext();
 }
 
-static uint32_t DetectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHandle<Vk> surface)
+static uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
 {
 	const auto& physicalDevices = instance.GetPhysicalDevices();
 
@@ -863,21 +863,21 @@ static uint32_t DetectSuitableGraphicsDevice(Instance<Vk>& instance, SurfaceHand
 	return std::get<0>(graphicsDeviceCandidates.front());
 }
 
-static SwapchainConfiguration<Vk>
-DetectSuitableSwapchain(Device<Vk>& device, SurfaceHandle<Vk> surface)
+static SwapchainConfiguration<kVk>
+DetectSuitableSwapchain(Device<kVk>& device, SurfaceHandle<kVk> surface)
 {
 	const auto& swapchainInfo =
 		device.GetInstance()->GetSwapchainInfo(device.GetPhysicalDevice(), surface);
 
-	SwapchainConfiguration<Vk> config{swapchainInfo.capabilities.currentExtent};
+	SwapchainConfiguration<kVk> config{swapchainInfo.capabilities.currentExtent};
 
-	constexpr Format<Vk> kRequestSurfaceImageFormat[]{
+	constexpr Format<kVk> kRequestSurfaceImageFormat[]{
 		VK_FORMAT_B8G8R8A8_UNORM,
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_B8G8R8_UNORM,
 		VK_FORMAT_R8G8B8_UNORM};
-	constexpr ColorSpace<Vk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	constexpr PresentMode<Vk> kRequestPresentMode[]{
+	constexpr ColorSpace<kVk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	constexpr PresentMode<kVk> kRequestPresentMode[]{
 		VK_PRESENT_MODE_MAILBOX_KHR,
 		VK_PRESENT_MODE_FIFO_RELAXED_KHR,
 		VK_PRESENT_MODE_FIFO_KHR,
@@ -887,7 +887,7 @@ DetectSuitableSwapchain(Device<Vk>& device, SurfaceHandle<Vk> surface)
 	// If none of the requested image formats could be found, use the first available
 	for (auto requestIt : kRequestSurfaceImageFormat)
 	{
-		SurfaceFormat<Vk> requestedFormat{requestIt, kRequestSurfaceColorSpace};
+		SurfaceFormat<kVk> requestedFormat{requestIt, kRequestSurfaceColorSpace};
 
 		auto formatIt = std::find_if(
 			swapchainInfo.formats.begin(),
@@ -933,7 +933,7 @@ DetectSuitableSwapchain(Device<Vk>& device, SurfaceHandle<Vk> surface)
 	return config;
 };
 
-static void CreateQueues(Rhi<Vk>& rhi)
+static void CreateQueues(Rhi<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
@@ -967,8 +967,8 @@ static void CreateQueues(Rhi<Vk>& rhi)
 				auto [it, wasInserted] = queues.emplace(
 					type,
 					std::make_tuple(
-						std::vector<std::pair<Queue<Vk>, QueueHostSyncInfo<Vk>>>{},
-						Semaphore<Vk>(rhi.device, SemaphoreCreateDesc<Vk>{VK_SEMAPHORE_TYPE_TIMELINE})));
+						std::vector<std::pair<Queue<kVk>, QueueHostSyncInfo<kVk>>>{},
+						Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE})));
 				
 				auto& [queueInfos, semaphore] = it->second;
 
@@ -999,11 +999,11 @@ static void CreateQueues(Rhi<Vk>& rhi)
 				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 				{
 					queueInfos.emplace_back(std::make_pair(
-						Queue<Vk>(
+						Queue<kVk>(
 							rhi.device,
-							CommandPoolCreateDesc<Vk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
-							QueueCreateDesc<Vk>{queueIt, queueFamilyIt}),
-						QueueHostSyncInfo<Vk>{}));
+							CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
+							QueueCreateDesc<kVk>{queueIt, queueFamilyIt}),
+						QueueHostSyncInfo<kVk>{}));
 				}
 
 				break;
@@ -1012,13 +1012,13 @@ static void CreateQueues(Rhi<Vk>& rhi)
 	}
 }
 
-static void CreateWindowDependentObjects(Rhi<Vk>& rhi)
+static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createWindowDependentObjects");
 
-	auto colorImage = std::make_shared<Image<Vk>>(
+	auto colorImage = std::make_shared<Image<kVk>>(
 		rhi.device,
-		ImageCreateDesc<Vk>{
+		ImageCreateDesc<kVk>{
 			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
 			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
@@ -1026,9 +1026,9 @@ static void CreateWindowDependentObjects(Rhi<Vk>& rhi)
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-	auto depthStencilImage = std::make_shared<Image<Vk>>(
+	auto depthStencilImage = std::make_shared<Image<kVk>>(
 		rhi.device,
-		ImageCreateDesc<Vk>{
+		ImageCreateDesc<kVk>{
 			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
 			FindSupportedFormat(
 				rhi.device->GetPhysicalDevice(),
@@ -1042,14 +1042,14 @@ static void CreateWindowDependentObjects(Rhi<Vk>& rhi)
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
 	rhi.renderImageSet =
-		std::make_shared<RenderImageSet<Vk>>(rhi.device, std::vector{colorImage}, depthStencilImage);
+		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage}, depthStencilImage);
 
 	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
 }
 
 auto CreateWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
 {
-	return Window<Vk>(
+	return Window<kVk>(
 		device,
 		std::forward<decltype(surface)>(surface),
 		std::forward<decltype(windowConfig)>(windowConfig),
@@ -1058,25 +1058,25 @@ auto CreateWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&
 
 auto CreatePipeline(const auto& device)
 {
-	return std::make_unique<Pipeline<Vk>>(
+	return std::make_unique<Pipeline<kVk>>(
 		device,
-		PipelineConfiguration<Vk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
+		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
 }
 
 auto CreateDevice(const auto& instance, auto physicalDeviceIndex)
 {
-	return std::make_shared<Device<Vk>>(
+	return std::make_shared<Device<kVk>>(
 		instance,
-		DeviceConfiguration<Vk>{physicalDeviceIndex});
+		DeviceConfiguration<kVk>{physicalDeviceIndex});
 }
 
 auto CreateInstance(const auto& name)
 {
-	return std::make_shared<Instance<Vk>>(
-		InstanceConfiguration<Vk>{
+	return std::make_shared<Instance<kVk>>(
+		InstanceConfiguration<kVk>{
 			name,
 			"speedo",
-			ApplicationInfo<Vk>{
+			ApplicationInfo<kVk>{
 				VK_STRUCTURE_TYPE_APPLICATION_INFO,
 				nullptr,
 				nullptr,
@@ -1092,20 +1092,20 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 	WindowState windowState{};
 
-	Window<Vk>::ConfigFile windowConfig = Window<Vk>::ConfigFile{
+	Window<kVk>::ConfigFile windowConfig = Window<kVk>::ConfigFile{
 		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
 
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
-	std::shared_ptr<Rhi<Vk>> rhi;
+	std::shared_ptr<Rhi<kVk>> rhi;
 	{
 		auto* windowHandle = createWindowFunc(&windowState);
 		auto instance = CreateInstance(name);
 		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
 		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
 		auto pipeline = CreatePipeline(device);
-		rhi = std::make_shared<Rhi<Vk>>(
+		rhi = std::make_shared<Rhi<kVk>>(
 			std::move(instance),
 			std::move(device),
 			std::move(pipeline));
@@ -1125,20 +1125,20 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	CreateWindowDependentObjects(*rhi);
 
 	// todo: create some resource global storage
-	rhi->pipeline->GetResources().black = std::make_shared<Image<Vk>>(
+	rhi->pipeline->GetResources().black = std::make_shared<Image<kVk>>(
 		rhi->device,
-		ImageCreateDesc<Vk>{
-			{ImageMipLevelDesc<Vk>{Extent2d<Vk>{4, 4}, 16 * 4, 0}},
+		ImageCreateDesc<kVk>{
+			{ImageMipLevelDesc<kVk>{Extent2d<kVk>{4, 4}, 16 * 4, 0}},
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_IMAGE_TILING_LINEAR,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
-	rhi->pipeline->GetResources().blackImageView = std::make_shared<ImageView<Vk>>(
+	rhi->pipeline->GetResources().blackImageView = std::make_shared<ImageView<kVk>>(
 		rhi->device, *rhi->pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
 
-	std::vector<SamplerCreateInfo<Vk>> samplerCreateInfos;
-	samplerCreateInfos.emplace_back(SamplerCreateInfo<Vk>{
+	std::vector<SamplerCreateInfo<kVk>> samplerCreateInfos;
+	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 		nullptr,
 		0U,
@@ -1158,7 +1158,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 		VK_FALSE});
 	rhi->pipeline->GetResources().samplers =
-		std::make_shared<SamplerVector<Vk>>(rhi->device, std::move(samplerCreateInfos));
+		std::make_shared<SamplerVector<kVk>>(rhi->device, std::move(samplerCreateInfos));
 	//
 
 	// initialize stuff on graphics queue
@@ -1185,11 +1185,11 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		materialData[0].color[3] = 1.0;
 		materialData[0].textureAndSamplerId =
 			(kTextureId << ShaderTypes_GlobalTextureIndexBits) | kSamplerId;
-		rhi->materials = std::make_unique<Buffer<Vk>>(
+		rhi->materials = std::make_unique<Buffer<kVk>>(
 			rhi->device,
 			graphicsQueue,
 			1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed),
-			BufferCreateDesc<Vk>{
+			BufferCreateDesc<kVk>{
 				ShaderTypes_MaterialCount * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
@@ -1201,11 +1201,11 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
 		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
 		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
-		rhi->modelInstances = std::make_unique<Buffer<Vk>>(
+		rhi->modelInstances = std::make_unique<Buffer<kVk>>(
 			rhi->device,
 			graphicsQueue,
 			1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed),
-			BufferCreateDesc<Vk>{
+			BufferCreateDesc<kVk>{
 				ShaderTypes_ModelInstanceCount * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
@@ -1213,7 +1213,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 		cmd.End();
 
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<Vk>{
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			{},
 			{},
 			{},
@@ -1227,7 +1227,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
-	auto shaderReflection = shaderLoader.Load<Vk>(shaderIncludePath / "shaders.slang");
+	auto shaderReflection = shaderLoader.Load<kVk>(shaderIncludePath / "shaders.slang");
 
 	auto* layoutHandle = rhi->pipeline->CreateLayout(shaderReflection);
 
@@ -1237,24 +1237,24 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	{
 		rhi->pipeline->SetDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
 
 	rhi->pipeline->SetDescriptorData(
 		"g_materialData",
-		DescriptorBufferInfo<Vk>{*rhi->materials, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{*rhi->materials, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_Material);
 
 	rhi->pipeline->SetDescriptorData(
 		"g_modelInstances",
-		DescriptorBufferInfo<Vk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
 		DescriptorSetCategory_ModelInstances);
 
 	rhi->pipeline->SetDescriptorData(
 		"g_samplers",
-		DescriptorImageInfo<Vk>{(*rhi->pipeline->GetResources().samplers)[0]},
+		DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[0]},
 		DescriptorSetCategory_GlobalSamplers,
 		kSamplerId);
 
@@ -1262,7 +1262,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	{
 		rhi->pipeline->SetDescriptorData(
 			"g_viewData",
-			DescriptorBufferInfo<Vk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DescriptorSetCategory_View,
 			i);
 	}
@@ -1302,15 +1302,15 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 } // namespace rhiapplication
 
 template <>
-Rhi<Vk>& RhiApplication::InternalRhi<Vk>()
+Rhi<kVk>& RhiApplication::InternalRhi<kVk>()
 {
-	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
+	return *std::static_pointer_cast<Rhi<kVk>>(myRhi);
 }
 
 template <>
-const Rhi<Vk>& RhiApplication::InternalRhi<Vk>() const
+const Rhi<kVk>& RhiApplication::InternalRhi<kVk>() const
 {
-	return *std::static_pointer_cast<Rhi<Vk>>(myRhi);
+	return *std::static_pointer_cast<Rhi<kVk>>(myRhi);
 }
 
 void RhiApplication::InternalUpdateInput()
@@ -1319,7 +1319,7 @@ void RhiApplication::InternalUpdateInput()
 
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
 
-	auto& rhi = InternalRhi<Vk>();
+	auto& rhi = InternalRhi<kVk>();
 	auto& imguiIO = ImGui::GetIO();
 	auto& input = myInput;
 
@@ -1394,7 +1394,7 @@ void RhiApplication::InternalDraw()
 
 	std::unique_lock lock(gDrawMutex);
 
-	auto& rhi = InternalRhi<Vk>();
+	auto& rhi = InternalRhi<kVk>();
 
 	FrameMark;
 	ZoneScopedN("rhi::draw");
@@ -1499,7 +1499,7 @@ void RhiApplication::InternalDraw()
 
 		cmd.End();
 
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<Vk>{
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			{graphicsSemaphore},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 			{lastGraphicsSubmit.maxTimelineValue},
@@ -1526,7 +1526,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 
 	ZoneScopedN("~RhiApplication()");
 
-	auto& rhi = InternalRhi<Vk>();
+	auto& rhi = InternalRhi<kVk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
@@ -1562,7 +1562,7 @@ void RhiApplication::Tick()
 
 	ZoneScopedN("RhiApplication::tick");
 
-	auto& rhi = InternalRhi<Vk>();
+	auto& rhi = InternalRhi<kVk>();
 	
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
@@ -1581,7 +1581,7 @@ void RhiApplication::OnResizeFramebuffer(WindowHandle window, int w, int h)
 
 	ZoneScopedN("RhiApplication::OnResizeFramebuffer");
 
-	auto& rhi = InternalRhi<Vk>();
+	auto& rhi = InternalRhi<kVk>();
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
@@ -1601,7 +1601,7 @@ WindowState* RhiApplication::GetWindowState(WindowHandle window)
 {
 	using namespace rhiapplication;
 
-	auto& rhi = InternalRhi<Vk>();
+	auto& rhi = InternalRhi<kVk>();
 
 	return &rhi.windows.at(window).GetState();
 }

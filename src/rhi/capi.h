@@ -20,26 +20,27 @@ extern "C"
 
 enum GraphicsApi
 {
-	Vk = 0,
+	kVk = 0,
 };
 
 typedef void* WindowHandle;
 struct WindowState
 {
-	float xscale; // content x scale factor
-	float yscale; // content y scale factor
-	uint32_t x; // screen x position. multiply by xscale to get framebuffer x position
-	uint32_t y; // screen y position multiply by yscale to get framebuffer y position
-	uint32_t width; // screen width. multiply by xscale to get framebuffer width
+	float xscale;	 // content x scale factor
+	float yscale;	 // content y scale factor
+	uint32_t x;		 // screen x position. multiply by xscale to get framebuffer x position
+	uint32_t y;		 // screen y position multiply by yscale to get framebuffer y position
+	uint32_t width;	 // screen width. multiply by xscale to get framebuffer width
 	uint32_t height; // screen height. multiply by yscale to get framebuffer height
 	uint32_t fullscreenRefresh : 16;
 	uint32_t fullscreenMonitor : 15;
 	uint32_t fullscreenEnabled : 1;
 };
-typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);
-static const WindowHandle NullWindowHandle = NULL;
 
-RHI_API void ResizeFramebuffer(WindowHandle window, int w, int h);
+typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);
+static const WindowHandle kInvalidWindowHandle = NULL;
+
+RHI_API void ResizeFramebuffer(WindowHandle window, int width, int height);
 RHI_API WindowHandle* GetWindows(size_t* count);
 RHI_API void SetWindows(WindowHandle* windows, size_t count);
 RHI_API WindowHandle GetCurrentWindow(void);

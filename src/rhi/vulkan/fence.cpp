@@ -2,25 +2,25 @@
 #include "utils.h"
 
 template <>
-Fence<Vk>::Fence(
-	const std::shared_ptr<Device<Vk>>& device,
-	FenceHandle<Vk>&& fence)
+Fence<kVk>::Fence(
+	const std::shared_ptr<Device<kVk>>& device,
+	FenceHandle<kVk>&& fence)
 	: DeviceObject(
 		  device,
 		  {"_Fence"},
 		  1,
 		  VK_OBJECT_TYPE_FENCE,
 		  reinterpret_cast<uint64_t*>(&fence))
-	, myFence(std::forward<FenceHandle<Vk>>(fence))
+	, myFence(std::forward<FenceHandle<kVk>>(fence))
 {}
 
 template <>
-Fence<Vk>::Fence(
-	const std::shared_ptr<Device<Vk>>& device,
-	FenceCreateDesc<Vk>&& desc)
+Fence<kVk>::Fence(
+	const std::shared_ptr<Device<kVk>>& device,
+	FenceCreateDesc<kVk>&& desc)
 	: Fence(device, [&device, &desc]
 	{
-		FenceHandle<Vk> fence;
+		FenceHandle<kVk> fence;
 		VkFenceCreateInfo createInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 		createInfo.flags = desc.flags;
 		VK_CHECK(vkCreateFence(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &fence));
@@ -29,35 +29,35 @@ Fence<Vk>::Fence(
 {}
 
 template <>
-Fence<Vk>::Fence(Fence<Vk>&& other) noexcept
-	: DeviceObject(std::forward<Fence<Vk>>(other))
+Fence<kVk>::Fence(Fence<kVk>&& other) noexcept
+	: DeviceObject(std::forward<Fence<kVk>>(other))
 	, myFence(std::exchange(other.myFence, {}))
 {}
 
 template <>
-Fence<Vk>::~Fence()
+Fence<kVk>::~Fence()
 {
 	if (myFence != nullptr)
 		vkDestroyFence(*GetDevice(), myFence, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
-Fence<Vk>& Fence<Vk>::operator=(Fence<Vk>&& other) noexcept
+Fence<kVk>& Fence<kVk>::operator=(Fence<kVk>&& other) noexcept
 {
-	DeviceObject<Vk>::operator=(std::forward<Fence<Vk>>(other));
+	DeviceObject<kVk>::operator=(std::forward<Fence<kVk>>(other));
 	myFence = std::exchange(other.myFence, {});
 	return *this;
 }
 
 template <>
-void Fence<Vk>::Swap(Fence& rhs) noexcept
+void Fence<kVk>::Swap(Fence& rhs) noexcept
 {
-	DeviceObject<Vk>::Swap(rhs);
+	DeviceObject<kVk>::Swap(rhs);
 	std::swap(myFence, rhs.myFence);
 }
 
 template <>
-void Fence<Vk>::Wait(bool waitAll, uint64_t timeout) const
+void Fence<kVk>::Wait(bool waitAll, uint64_t timeout) const
 {
 	ZoneScopedN("Fence::wait");
 
@@ -65,9 +65,9 @@ void Fence<Vk>::Wait(bool waitAll, uint64_t timeout) const
 }
 
 template <>
-void Fence<Vk>::Wait(
-	const std::shared_ptr<Device<Vk>>& device,
-	std::span<FenceHandle<Vk>> fences,
+void Fence<kVk>::Wait(
+	const std::shared_ptr<Device<kVk>>& device,
+	std::span<FenceHandle<kVk>> fences,
 	bool waitAll,
 	uint64_t timeout)
 {

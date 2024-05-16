@@ -22,7 +22,7 @@ static PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
 }
 
 template <>
-void Device<Vk>::WaitIdle() const
+void Device<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");
 
@@ -31,9 +31,9 @@ void Device<Vk>::WaitIdle() const
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 template <>
-void Device<Vk>::AddOwnedObjectHandle(
+void Device<kVk>::AddOwnedObjectHandle(
 	const uuids::uuid& ownerId,
-	ObjectType<Vk> objectType,
+	ObjectType<kVk> objectType,
 	uint64_t objectHandle,
 	std::string&& objectName)
 {
@@ -73,7 +73,7 @@ void Device<Vk>::AddOwnedObjectHandle(
 }
 
 template <>
-void Device<Vk>::EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle)
+void Device<kVk>::EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle)
 {
 	ZoneScopedN("Device::EraseOwnedObjectHandle");
 
@@ -108,7 +108,7 @@ void Device<Vk>::EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t obj
 }
 
 template <>
-void Device<Vk>::ClearOwnedObjectHandles(const uuids::uuid& ownerId)
+void Device<kVk>::ClearOwnedObjectHandles(const uuids::uuid& ownerId)
 {
 	ZoneScopedN("Device::ClearOwnedObjectHandles");
 
@@ -135,7 +135,7 @@ void Device<Vk>::ClearOwnedObjectHandles(const uuids::uuid& ownerId)
 }
 
 template <>
-uint32_t Device<Vk>::GetTypeCount(ObjectType<Vk> type)
+uint32_t Device<kVk>::GetTypeCount(ObjectType<kVk> type)
 {
 	auto lock = std::shared_lock(myObjectMutex);
 
@@ -144,13 +144,13 @@ uint32_t Device<Vk>::GetTypeCount(ObjectType<Vk> type)
 #endif // GRAPHICS_VALIDATION_LEVEL > 0
 
 template <>
-Device<Vk>::Device(
-	const std::shared_ptr<Instance<Vk>>& instance,
-	DeviceConfiguration<Vk>&& defaultConfig)
+Device<kVk>::Device(
+	const std::shared_ptr<Instance<kVk>>& instance,
+	DeviceConfiguration<kVk>&& defaultConfig)
 	: myInstance(instance)
 	, myConfig{
 		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "device.json",
-		std::forward<DeviceConfiguration<Vk>>(defaultConfig)}
+		std::forward<DeviceConfiguration<kVk>>(defaultConfig)}
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
 	ZoneScopedN("Device()");
@@ -355,7 +355,7 @@ Device<Vk>::Device(
 }
 
 template <>
-Device<Vk>::~Device()
+Device<kVk>::~Device()
 {
 	ZoneScopedN("~Device()");
 
@@ -374,26 +374,26 @@ Device<Vk>::~Device()
 }
 
 template <>
-DeviceObject<Vk>::DeviceObject(DeviceObject&& other) noexcept
+DeviceObject<kVk>::DeviceObject(DeviceObject&& other) noexcept
 	: myDevice(std::exchange(other.myDevice, {}))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myUid(std::exchange(other.myUid, {}))
 {}
 
 template <>
-DeviceObject<Vk>::DeviceObject(
-	const std::shared_ptr<Device<Vk>>& device, DeviceObjectCreateDesc&& desc)
+DeviceObject<kVk>::DeviceObject(
+	const std::shared_ptr<Device<kVk>>& device, DeviceObjectCreateDesc&& desc)
 	: myDevice(device)
 	, myDesc(std::forward<DeviceObjectCreateDesc>(desc))
 	, myUid(uuids::uuid_system_generator{}())
 {}
 
 template <>
-DeviceObject<Vk>::DeviceObject(
-	const std::shared_ptr<Device<Vk>>& device,
+DeviceObject<kVk>::DeviceObject(
+	const std::shared_ptr<Device<kVk>>& device,
 	DeviceObjectCreateDesc&& desc,
 	uint32_t objectCount,
-	ObjectType<Vk> objectType,
+	ObjectType<kVk> objectType,
 	const uint64_t* objectHandles)
 	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc))
 {
@@ -410,7 +410,7 @@ DeviceObject<Vk>::DeviceObject(
 }
 
 template <>
-DeviceObject<Vk>::~DeviceObject()
+DeviceObject<kVk>::~DeviceObject()
 {
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
@@ -421,7 +421,7 @@ DeviceObject<Vk>::~DeviceObject()
 }
 
 template <>
-DeviceObject<Vk>& DeviceObject<Vk>::operator=(DeviceObject&& other) noexcept
+DeviceObject<kVk>& DeviceObject<kVk>::operator=(DeviceObject&& other) noexcept
 {
 	myDevice = std::exchange(other.myDevice, {});
 	myDesc = std::exchange(other.myDesc, {});
@@ -430,7 +430,7 @@ DeviceObject<Vk>& DeviceObject<Vk>::operator=(DeviceObject&& other) noexcept
 }
 
 template <>
-void DeviceObject<Vk>::Swap(DeviceObject& rhs) noexcept
+void DeviceObject<kVk>::Swap(DeviceObject& rhs) noexcept
 {
 	std::swap(myDevice, rhs.myDevice);
 	std::swap(myDesc, rhs.myDesc);

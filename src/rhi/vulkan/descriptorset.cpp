@@ -5,16 +5,16 @@
 #include <utility>
 
 template <>
-DescriptorSetLayout<Vk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
+DescriptorSetLayout<kVk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
 	: DeviceObject(std::forward<DescriptorSetLayout>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myLayout(std::exchange(other.myLayout, {}))
 {}
 
 template <>
-DescriptorSetLayout<Vk>::DescriptorSetLayout(
-	const std::shared_ptr<Device<Vk>>& device,
-	DescriptorSetLayoutCreateDesc<Vk>&& desc,
+DescriptorSetLayout<kVk>::DescriptorSetLayout(
+	const std::shared_ptr<Device<kVk>>& device,
+	DescriptorSetLayoutCreateDesc<kVk>&& desc,
 	ValueType&& layout)
 	: DeviceObject(
 		  device,
@@ -22,20 +22,20 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 		  1,
 		  VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
 		  reinterpret_cast<uint64_t*>(&std::get<0>(layout)))
-	, myDesc(std::forward<DescriptorSetLayoutCreateDesc<Vk>>(desc))
+	, myDesc(std::forward<DescriptorSetLayoutCreateDesc<kVk>>(desc))
 	, myLayout(std::forward<ValueType>(layout))
 {}
 
 template <>
-DescriptorSetLayout<Vk>::DescriptorSetLayout(
-	const std::shared_ptr<Device<Vk>>& device,
-	DescriptorSetLayoutCreateDesc<Vk>&& desc)
+DescriptorSetLayout<kVk>::DescriptorSetLayout(
+	const std::shared_ptr<Device<kVk>>& device,
+	DescriptorSetLayoutCreateDesc<kVk>&& desc)
 	: DescriptorSetLayout(
 		  device,
-		  std::forward<DescriptorSetLayoutCreateDesc<Vk>>(desc),
+		  std::forward<DescriptorSetLayoutCreateDesc<kVk>>(desc),
 		  [&device, &desc]
 		  {
-			  auto samplers = SamplerVector<Vk>(device, desc.immutableSamplers);
+			  auto samplers = SamplerVector<kVk>(device, desc.immutableSamplers);
 
 			  ShaderVariableBindingsMap bindingsMap;
 			  auto& bindings = desc.bindings;
@@ -77,7 +77,7 @@ DescriptorSetLayout<Vk>::DescriptorSetLayout(
 {}
 
 template <>
-DescriptorSetLayout<Vk>::~DescriptorSetLayout()
+DescriptorSetLayout<kVk>::~DescriptorSetLayout()
 {
 	if (auto* layout = std::get<0>(myLayout); layout)
 	{
@@ -91,7 +91,7 @@ DescriptorSetLayout<Vk>::~DescriptorSetLayout()
 }
 
 template <>
-DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&& other) noexcept
+DescriptorSetLayout<kVk>& DescriptorSetLayout<kVk>::operator=(DescriptorSetLayout&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<DescriptorSetLayout>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -100,7 +100,7 @@ DescriptorSetLayout<Vk>& DescriptorSetLayout<Vk>::operator=(DescriptorSetLayout&
 }
 
 template <>
-void DescriptorSetLayout<Vk>::Swap(DescriptorSetLayout& rhs) noexcept
+void DescriptorSetLayout<kVk>::Swap(DescriptorSetLayout& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
@@ -108,9 +108,9 @@ void DescriptorSetLayout<Vk>::Swap(DescriptorSetLayout& rhs) noexcept
 }
 
 template <>
-DescriptorSetArray<Vk>::DescriptorSetArray(
-	const std::shared_ptr<Device<Vk>>& device,
-	DescriptorSetArrayCreateDesc<Vk>&& desc,
+DescriptorSetArray<kVk>::DescriptorSetArray(
+	const std::shared_ptr<Device<kVk>>& device,
+	DescriptorSetArrayCreateDesc<kVk>&& desc,
 	ArrayType&& descriptorSetHandles)
 	: DeviceObject(
 		  device,
@@ -118,25 +118,25 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 		  descriptorSetHandles.size(),
 		  VK_OBJECT_TYPE_DESCRIPTOR_SET,
 		  reinterpret_cast<uint64_t*>(descriptorSetHandles.data()))
-	, myDesc(std::forward<DescriptorSetArrayCreateDesc<Vk>>(desc))
+	, myDesc(std::forward<DescriptorSetArrayCreateDesc<kVk>>(desc))
 	, myDescriptorSets(std::forward<ArrayType>(descriptorSetHandles))
 {}
 
 template <>
-DescriptorSetArray<Vk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
+DescriptorSetArray<kVk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
 	: DeviceObject(std::forward<DescriptorSetArray>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
 {}
 
 template <>
-DescriptorSetArray<Vk>::DescriptorSetArray(
-	const std::shared_ptr<Device<Vk>>& device,
-	const DescriptorSetLayout<Vk>& layout,
-	DescriptorSetArrayCreateDesc<Vk>&& desc)
+DescriptorSetArray<kVk>::DescriptorSetArray(
+	const std::shared_ptr<Device<kVk>>& device,
+	const DescriptorSetLayout<kVk>& layout,
+	DescriptorSetArrayCreateDesc<kVk>&& desc)
 	: DescriptorSetArray(
 		  device,
-		  std::forward<DescriptorSetArrayCreateDesc<Vk>>(desc),
+		  std::forward<DescriptorSetArrayCreateDesc<kVk>>(desc),
 		  [&device, &layout, &desc]
 		  {
 			  std::array<VkDescriptorSetLayout, kDescriptorSetCount> layouts;
@@ -155,14 +155,14 @@ DescriptorSetArray<Vk>::DescriptorSetArray(
 {}
 
 template <>
-DescriptorSetArray<Vk>::~DescriptorSetArray()
+DescriptorSetArray<kVk>::~DescriptorSetArray()
 {
 	if (IsValid())
 		vkFreeDescriptorSets(*GetDevice(), myDesc.pool, myDescriptorSets.size(), myDescriptorSets.data());
 }
 
 template <>
-DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& other) noexcept
+DescriptorSetArray<kVk>& DescriptorSetArray<kVk>::operator=(DescriptorSetArray&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<DescriptorSetArray>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -171,7 +171,7 @@ DescriptorSetArray<Vk>& DescriptorSetArray<Vk>::operator=(DescriptorSetArray&& o
 }
 
 template <>
-void DescriptorSetArray<Vk>::Swap(DescriptorSetArray& rhs) noexcept
+void DescriptorSetArray<kVk>::Swap(DescriptorSetArray& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
@@ -179,7 +179,7 @@ void DescriptorSetArray<Vk>::Swap(DescriptorSetArray& rhs) noexcept
 }
 
 template <>
-void DescriptorUpdateTemplate<Vk>::InternalDestroyTemplate()
+void DescriptorUpdateTemplate<kVk>::InternalDestroyTemplate()
 {
 	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
 
@@ -190,11 +190,11 @@ void DescriptorUpdateTemplate<Vk>::InternalDestroyTemplate()
 }
 
 template <>
-void DescriptorUpdateTemplate<Vk>::SetEntries(
-	std::vector<DescriptorUpdateTemplateEntry<Vk>>&& entries)
+void DescriptorUpdateTemplate<kVk>::SetEntries(
+	std::vector<DescriptorUpdateTemplateEntry<kVk>>&& entries)
 {
 	InternalDestroyTemplate();
-	myEntries = std::forward<std::vector<DescriptorUpdateTemplateEntry<Vk>>>(entries);
+	myEntries = std::forward<std::vector<DescriptorUpdateTemplateEntry<kVk>>>(entries);
 	myHandle = [this]
 	{
 		VkDescriptorUpdateTemplate descriptorTemplate;
@@ -220,45 +220,45 @@ void DescriptorUpdateTemplate<Vk>::SetEntries(
 }
 
 template <>
-DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept
+DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept
 	: DeviceObject(std::forward<DescriptorUpdateTemplate>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myHandle(std::exchange(other.myHandle, {}))
 {}
 
 template <>
-DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
-	const std::shared_ptr<Device<Vk>>& device,
-	DescriptorUpdateTemplateCreateDesc<Vk>&& desc,
-	DescriptorUpdateTemplateHandle<Vk>&& handle)
+DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(
+	const std::shared_ptr<Device<kVk>>& device,
+	DescriptorUpdateTemplateCreateDesc<kVk>&& desc,
+	DescriptorUpdateTemplateHandle<kVk>&& handle)
 	: DeviceObject(
 		  device,
 		  {"_DescriptorUpdateTemplate"},
 		  1,
 		  VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
 		  reinterpret_cast<uint64_t*>(&handle))
-	, myDesc(std::forward<DescriptorUpdateTemplateCreateDesc<Vk>>(desc))
-	, myHandle(std::forward<DescriptorUpdateTemplateHandle<Vk>>(handle))
+	, myDesc(std::forward<DescriptorUpdateTemplateCreateDesc<kVk>>(desc))
+	, myHandle(std::forward<DescriptorUpdateTemplateHandle<kVk>>(handle))
 {}
 
 template <>
-DescriptorUpdateTemplate<Vk>::DescriptorUpdateTemplate(
-	const std::shared_ptr<Device<Vk>>& device,
-	DescriptorUpdateTemplateCreateDesc<Vk>&& desc)
+DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(
+	const std::shared_ptr<Device<kVk>>& device,
+	DescriptorUpdateTemplateCreateDesc<kVk>&& desc)
 	: DescriptorUpdateTemplate(
-		  device, std::forward<DescriptorUpdateTemplateCreateDesc<Vk>>(desc), VK_NULL_HANDLE)
+		  device, std::forward<DescriptorUpdateTemplateCreateDesc<kVk>>(desc), VK_NULL_HANDLE)
 {}
 
 template <>
-DescriptorUpdateTemplate<Vk>::~DescriptorUpdateTemplate()
+DescriptorUpdateTemplate<kVk>::~DescriptorUpdateTemplate()
 {
 	if (myHandle != nullptr)
 		InternalDestroyTemplate();
 }
 
 template <>
-DescriptorUpdateTemplate<Vk>&
-DescriptorUpdateTemplate<Vk>::operator=(DescriptorUpdateTemplate&& other) noexcept
+DescriptorUpdateTemplate<kVk>&
+DescriptorUpdateTemplate<kVk>::operator=(DescriptorUpdateTemplate&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<DescriptorUpdateTemplate>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -267,7 +267,7 @@ DescriptorUpdateTemplate<Vk>::operator=(DescriptorUpdateTemplate&& other) noexce
 }
 
 template <>
-void DescriptorUpdateTemplate<Vk>::Swap(DescriptorUpdateTemplate& rhs) noexcept
+void DescriptorUpdateTemplate<kVk>::Swap(DescriptorUpdateTemplate& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);

@@ -8,11 +8,11 @@ namespace commandbufferarray
 {
 
 static auto
-CreateArray(const std::shared_ptr<Device<Vk>>& device, const CommandBufferArrayCreateDesc<Vk>& desc)
+CreateArray(const std::shared_ptr<Device<kVk>>& device, const CommandBufferArrayCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("commandbufferarray::createArray");
 
-	std::array<CommandBufferHandle<Vk>, CommandBufferArray<Vk>::Capacity()> outArray;
+	std::array<CommandBufferHandle<kVk>, CommandBufferArray<kVk>::Capacity()> outArray;
 
 	{
 		ZoneScopedN("commandbufferarray::createArray::vkAllocateCommandBuffers");
@@ -20,7 +20,7 @@ CreateArray(const std::shared_ptr<Device<Vk>>& device, const CommandBufferArrayC
 		VkCommandBufferAllocateInfo cmdInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 		cmdInfo.commandPool = desc.pool;
 		cmdInfo.level = desc.level == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
-		cmdInfo.commandBufferCount = CommandBufferArray<Vk>::Capacity();
+		cmdInfo.commandBufferCount = CommandBufferArray<kVk>::Capacity();
 		VK_CHECK(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
 	}
 
@@ -30,34 +30,34 @@ CreateArray(const std::shared_ptr<Device<Vk>>& device, const CommandBufferArrayC
 } // namespace commandbufferarray
 
 template <>
-CommandBufferArray<Vk>::CommandBufferArray(
-	const std::shared_ptr<Device<Vk>>& device,
+CommandBufferArray<kVk>::CommandBufferArray(
+	const std::shared_ptr<Device<kVk>>& device,
 	std::tuple<
-		CommandBufferArrayCreateDesc<Vk>,
-		std::array<CommandBufferHandle<Vk>, kCommandBufferCount>>&& descAndData)
+		CommandBufferArrayCreateDesc<kVk>,
+		std::array<CommandBufferHandle<kVk>, kCommandBufferCount>>&& descAndData)
 	: DeviceObject(
 		  device,
 		  {"_CommandBufferArray"},
 		  kCommandBufferCount,
 		  VK_OBJECT_TYPE_COMMAND_BUFFER,
 		  reinterpret_cast<uint64_t*>(std::get<1>(descAndData).data()))
-	, myDesc(std::forward<CommandBufferArrayCreateDesc<Vk>>(std::get<0>(descAndData)))
-	, myArray(std::forward<std::array<CommandBufferHandle<Vk>, kCommandBufferCount>>(
+	, myDesc(std::forward<CommandBufferArrayCreateDesc<kVk>>(std::get<0>(descAndData)))
+	, myArray(std::forward<std::array<CommandBufferHandle<kVk>, kCommandBufferCount>>(
 		  std::get<1>(descAndData)))
 {}
 
 template <>
-CommandBufferArray<Vk>::CommandBufferArray(
-	const std::shared_ptr<Device<Vk>>& device, CommandBufferArrayCreateDesc<Vk>&& desc)
+CommandBufferArray<kVk>::CommandBufferArray(
+	const std::shared_ptr<Device<kVk>>& device, CommandBufferArrayCreateDesc<kVk>&& desc)
 	: CommandBufferArray(
 		  device,
 		  std::make_tuple(
-			  std::forward<CommandBufferArrayCreateDesc<Vk>>(desc),
+			  std::forward<CommandBufferArrayCreateDesc<kVk>>(desc),
 			  commandbufferarray::CreateArray(device, desc)))
 {}
 
 template <>
-CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray&& other) noexcept
+CommandBufferArray<kVk>::CommandBufferArray(CommandBufferArray&& other) noexcept
 	: DeviceObject(std::forward<CommandBufferArray>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myArray(std::exchange(other.myArray, {}))
@@ -65,7 +65,7 @@ CommandBufferArray<Vk>::CommandBufferArray(CommandBufferArray&& other) noexcept
 {}
 
 template <>
-CommandBufferArray<Vk>::~CommandBufferArray()
+CommandBufferArray<kVk>::~CommandBufferArray()
 {
 	ZoneScopedN("~CommandBufferArray()");
 
@@ -79,7 +79,7 @@ CommandBufferArray<Vk>::~CommandBufferArray()
 }
 
 template <>
-CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray&& other) noexcept
+CommandBufferArray<kVk>& CommandBufferArray<kVk>::operator=(CommandBufferArray&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<CommandBufferArray>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -89,7 +89,7 @@ CommandBufferArray<Vk>& CommandBufferArray<Vk>::operator=(CommandBufferArray&& o
 }
 
 template <>
-void CommandBufferArray<Vk>::Swap(CommandBufferArray& rhs) noexcept
+void CommandBufferArray<kVk>::Swap(CommandBufferArray& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
@@ -98,7 +98,7 @@ void CommandBufferArray<Vk>::Swap(CommandBufferArray& rhs) noexcept
 }
 
 template <>
-void CommandBufferArray<Vk>::Reset()
+void CommandBufferArray<kVk>::Reset()
 {
 	ZoneScopedN("CommandBufferArray::reset");
 
@@ -120,7 +120,7 @@ void CommandBufferArray<Vk>::Reset()
 }
 
 template <>
-uint8_t CommandBufferArray<Vk>::Begin(const CommandBufferBeginInfo<Vk>& beginInfo)
+uint8_t CommandBufferArray<kVk>::Begin(const CommandBufferBeginInfo<kVk>& beginInfo)
 {
 	ZoneScopedN("CommandBufferArray::begin");
 
@@ -135,7 +135,7 @@ uint8_t CommandBufferArray<Vk>::Begin(const CommandBufferBeginInfo<Vk>& beginInf
 }
 
 template <>
-void CommandBufferArray<Vk>::End(uint8_t index)
+void CommandBufferArray<kVk>::End(uint8_t index)
 {
 	ZoneScopedN("CommandBufferArray::end");
 
@@ -147,17 +147,17 @@ void CommandBufferArray<Vk>::End(uint8_t index)
 }
 
 template <>
-CommandPool<Vk>::CommandPool(
-	const std::shared_ptr<Device<Vk>>& device,
-	std::tuple<CommandPoolCreateDesc<Vk>, CommandPoolHandle<Vk>>&& descAndData)
+CommandPool<kVk>::CommandPool(
+	const std::shared_ptr<Device<kVk>>& device,
+	std::tuple<CommandPoolCreateDesc<kVk>, CommandPoolHandle<kVk>>&& descAndData)
 	: DeviceObject(
 		  device,
 		  {},
 		  1,
 		  VK_OBJECT_TYPE_COMMAND_POOL,
 		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
-	, myDesc(std::forward<CommandPoolCreateDesc<Vk>>(std::get<0>(descAndData)))
-	, myPool(std::forward<CommandPoolHandle<Vk>>(std::get<1>(descAndData)))
+	, myDesc(std::forward<CommandPoolCreateDesc<kVk>>(std::get<0>(descAndData)))
+	, myPool(std::forward<CommandPoolHandle<kVk>>(std::get<1>(descAndData)))
 	, myPendingCommands(myDesc.levelCount)
 	, mySubmittedCommands(myDesc.levelCount)
 	, myFreeCommands(myDesc.levelCount)
@@ -167,12 +167,12 @@ CommandPool<Vk>::CommandPool(
 }
 
 template <>
-CommandPool<Vk>::CommandPool(
-	const std::shared_ptr<Device<Vk>>& device, CommandPoolCreateDesc<Vk>&& desc)
+CommandPool<kVk>::CommandPool(
+	const std::shared_ptr<Device<kVk>>& device, CommandPoolCreateDesc<kVk>&& desc)
 	: CommandPool(
 		  device,
 		  std::make_tuple(
-			  std::forward<CommandPoolCreateDesc<Vk>>(desc),
+			  std::forward<CommandPoolCreateDesc<kVk>>(desc),
 			  [&device, &desc]
 			  {
 					VkCommandPoolCreateInfo cmdPoolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
@@ -191,7 +191,7 @@ CommandPool<Vk>::CommandPool(
 {}
 
 template <>
-CommandPool<Vk>::CommandPool(CommandPool&& other) noexcept
+CommandPool<kVk>::CommandPool(CommandPool&& other) noexcept
 	: DeviceObject(std::forward<CommandPool>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myPool(std::exchange(other.myPool, {}))
@@ -202,7 +202,7 @@ CommandPool<Vk>::CommandPool(CommandPool&& other) noexcept
 {}
 
 template <>
-CommandPool<Vk>::~CommandPool()
+CommandPool<kVk>::~CommandPool()
 {
 	myPendingCommands.clear();
 	mySubmittedCommands.clear();
@@ -217,7 +217,7 @@ CommandPool<Vk>::~CommandPool()
 }
 
 template <>
-CommandPool<Vk>& CommandPool<Vk>::operator=(CommandPool&& other) noexcept
+CommandPool<kVk>& CommandPool<kVk>::operator=(CommandPool&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<CommandPool>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -230,7 +230,7 @@ CommandPool<Vk>& CommandPool<Vk>::operator=(CommandPool&& other) noexcept
 }
 
 template <>
-void CommandPool<Vk>::Swap(CommandPool& other) noexcept
+void CommandPool<kVk>::Swap(CommandPool& other) noexcept
 {
 	DeviceObject::Swap(other);
 	std::swap(myDesc, other.myDesc);
@@ -242,7 +242,7 @@ void CommandPool<Vk>::Swap(CommandPool& other) noexcept
 }
 
 template <>
-void CommandPool<Vk>::Reset()
+void CommandPool<kVk>::Reset()
 {
 	ZoneScopedN("CommandPool::reset");
 
@@ -268,7 +268,7 @@ void CommandPool<Vk>::Reset()
 }
 
 template <>
-void CommandPool<Vk>::InternalEnqueueOnePending(uint8_t level)
+void CommandPool<kVk>::InternalEnqueueOnePending(uint8_t level)
 {
 	ZoneScopedN("CommandPool::InternalEnqueueOnePending");
 
@@ -289,15 +289,15 @@ void CommandPool<Vk>::InternalEnqueueOnePending(uint8_t level)
 		// 	"CommandBufferArray");
 
 		myPendingCommands[level].emplace_back(std::make_tuple(
-			CommandBufferArray<Vk>(
-				GetDevice(), CommandBufferArrayCreateDesc<Vk>{*this, level}),
+			CommandBufferArray<kVk>(
+				GetDevice(), CommandBufferArrayCreateDesc<kVk>{*this, level}),
 			0));
 	}
 }
 
 template <>
-CommandBufferAccessScope<Vk>
-CommandPool<Vk>::InternalBeginScope(const CommandBufferAccessScopeDesc<Vk>& beginInfo)
+CommandBufferAccessScope<kVk>
+CommandPool<kVk>::InternalBeginScope(const CommandBufferAccessScopeDesc<kVk>& beginInfo)
 {
 	if (myPendingCommands[beginInfo.level].empty() ||
 		std::get<0>(myPendingCommands[beginInfo.level].back()).Full())
@@ -308,8 +308,8 @@ CommandPool<Vk>::InternalBeginScope(const CommandBufferAccessScopeDesc<Vk>& begi
 }
 
 template <>
-void CommandPool<Vk>::InternalEnqueueSubmitted(
-	CommandBufferListType<Vk>&& cbList, uint8_t level, uint64_t timelineValue)
+void CommandPool<kVk>::InternalEnqueueSubmitted(
+	CommandBufferListType<kVk>&& cbList, uint8_t level, uint64_t timelineValue)
 {
 	ZoneScopedN("CommandPool::InternalEnqueueSubmitted");
 
@@ -317,22 +317,22 @@ void CommandPool<Vk>::InternalEnqueueSubmitted(
 		cmdTimelineValue = timelineValue;
 
 	mySubmittedCommands[level].splice(
-		mySubmittedCommands[level].end(), std::forward<CommandBufferListType<Vk>>(cbList));
+		mySubmittedCommands[level].end(), std::forward<CommandBufferListType<kVk>>(cbList));
 }
 
 template <>
-CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(bool scopedBeginEnd)
+CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(bool scopedBeginEnd)
 	: CommandBufferBeginInfo<
-		  Vk>{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, &inheritance}
+		  kVk>{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, &inheritance}
 	, inheritance{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO}
 	, level(0)
 	, scopedBeginEnd(scopedBeginEnd)
 {}
 
 template <>
-CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(
+CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(
 	const CommandBufferAccessScopeDesc& other)
-	: CommandBufferBeginInfo<Vk>(other)
+	: CommandBufferBeginInfo<kVk>(other)
 	, inheritance(other.inheritance)
 	, level(other.level)
 	, scopedBeginEnd(other.scopedBeginEnd)
@@ -341,10 +341,10 @@ CommandBufferAccessScopeDesc<Vk>::CommandBufferAccessScopeDesc(
 }
 
 template <>
-CommandBufferAccessScopeDesc<Vk>&
-CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc& other)
+CommandBufferAccessScopeDesc<kVk>&
+CommandBufferAccessScopeDesc<kVk>::operator=(const CommandBufferAccessScopeDesc& other)
 {
-	*static_cast<CommandBufferBeginInfo<Vk>*>(this) = other;
+	*static_cast<CommandBufferBeginInfo<kVk>*>(this) = other;
 	inheritance = other.inheritance;
 	level = other.level;
 	scopedBeginEnd = other.scopedBeginEnd;
@@ -353,7 +353,7 @@ CommandBufferAccessScopeDesc<Vk>::operator=(const CommandBufferAccessScopeDesc& 
 }
 
 template <>
-bool CommandBufferAccessScopeDesc<Vk>::operator==(const CommandBufferAccessScopeDesc& other) const
+bool CommandBufferAccessScopeDesc<kVk>::operator==(const CommandBufferAccessScopeDesc& other) const
 {
 	bool result = true;
 

@@ -1,5 +1,5 @@
 // NOLINTBEGIN(readability-identifier-naming.*)
-constexpr auto serialize(auto& archive, DescriptorSetLayoutBinding<Vk>& desc)
+constexpr auto serialize(auto& archive, DescriptorSetLayoutBinding<kVk>& desc)
 {
 	return archive(
 		desc.binding,
@@ -8,7 +8,7 @@ constexpr auto serialize(auto& archive, DescriptorSetLayoutBinding<Vk>& desc)
 		desc.stageFlags);
 }
 
-constexpr auto serialize(auto& archive, const DescriptorSetLayoutBinding<Vk>& desc)
+constexpr auto serialize(auto& archive, const DescriptorSetLayoutBinding<kVk>& desc)
 {
 	return archive(
 		desc.binding,
@@ -17,7 +17,7 @@ constexpr auto serialize(auto& archive, const DescriptorSetLayoutBinding<Vk>& de
 		desc.stageFlags);
 }
 
-constexpr auto serialize(auto& archive, SamplerCreateInfo<Vk>& desc)
+constexpr auto serialize(auto& archive, SamplerCreateInfo<kVk>& desc)
 {
 	return archive(
 		desc.flags,
@@ -38,7 +38,7 @@ constexpr auto serialize(auto& archive, SamplerCreateInfo<Vk>& desc)
 		desc.unnormalizedCoordinates);
 }
 
-constexpr auto serialize(auto& archive, const SamplerCreateInfo<Vk>& desc)
+constexpr auto serialize(auto& archive, const SamplerCreateInfo<kVk>& desc)
 {
 	return archive(
 		desc.flags,

@@ -1,6 +1,6 @@
 template <>
 template <typename T, typename... Ts>
-void Queue<Vk>::EnqueueSubmit(T&& first, Ts&&... rest)
+void Queue<kVk>::EnqueueSubmit(T&& first, Ts&&... rest)
 {
 	ZoneScopedN("Queue::EnqueueSubmit");
 
@@ -12,7 +12,7 @@ void Queue<Vk>::EnqueueSubmit(T&& first, Ts&&... rest)
 
 template <>
 template <typename T, typename... Ts>
-void Queue<Vk>::EnqueuePresent(T&& first, Ts&&... rest)
+void Queue<kVk>::EnqueuePresent(T&& first, Ts&&... rest)
 {
 	ZoneScopedN("Queue::EnqueuePresent");
 
@@ -26,7 +26,7 @@ void Queue<Vk>::EnqueuePresent(T&& first, Ts&&... rest)
 #if (PROFILING_LEVEL > 0)
 template <>
 template <SourceLocationData Location>
-std::shared_ptr<void> Queue<Vk>::GpuScope(CommandBufferHandle<Vk> cmd)
+std::shared_ptr<void> Queue<kVk>::GpuScope(CommandBufferHandle<kVk> cmd)
 {
 	return InternalGpuScope(cmd, Location);
 }

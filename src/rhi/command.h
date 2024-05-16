@@ -87,7 +87,7 @@ struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 	CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other);
 	bool operator==(const CommandBufferAccessScopeDesc<G>& other) const;
 
-	CommandBufferInheritanceInfo<Vk> inheritance{};
+	CommandBufferInheritanceInfo<kVk> inheritance{};
 	uint8_t level = 0; // 0: primary, >= 1: secondary
 	bool scopedBeginEnd = true;
 };

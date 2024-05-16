@@ -3,32 +3,32 @@
 #include "utils.h"
 
 template <>
-SamplerVector<Vk>::SamplerVector(
-	const std::shared_ptr<Device<Vk>>& device,
-	std::vector<SamplerHandle<Vk>>&& samplers)
+SamplerVector<kVk>::SamplerVector(
+	const std::shared_ptr<Device<kVk>>& device,
+	std::vector<SamplerHandle<kVk>>&& samplers)
 	: DeviceObject(
 		  device,
 		  {"_Sampler"},
 		  samplers.size(),
 		  VK_OBJECT_TYPE_SAMPLER,
 		  reinterpret_cast<uint64_t*>(samplers.data()))
-	, mySamplers(std::forward<std::vector<SamplerHandle<Vk>>>(samplers))
+	, mySamplers(std::forward<std::vector<SamplerHandle<kVk>>>(samplers))
 {}
 
 template <>
-SamplerVector<Vk>::SamplerVector(
-	const std::shared_ptr<Device<Vk>>& device,
-	const std::vector<SamplerCreateInfo<Vk>>& createInfos)
-	: SamplerVector<Vk>(
+SamplerVector<kVk>::SamplerVector(
+	const std::shared_ptr<Device<kVk>>& device,
+	const std::vector<SamplerCreateInfo<kVk>>& createInfos)
+	: SamplerVector<kVk>(
 		device,
 		[&device, &createInfos]
 		{
-			std::vector<SamplerHandle<Vk>> outSamplers;
+			std::vector<SamplerHandle<kVk>> outSamplers;
 			outSamplers.reserve(createInfos.size());
 
 			for (const auto& createInfo : createInfos)
 			{
-				SamplerHandle<Vk> outSampler;
+				SamplerHandle<kVk> outSampler;
 				VK_CHECK(vkCreateSampler(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outSampler));
 
 				outSamplers.emplace_back(std::move(outSampler));
@@ -39,13 +39,13 @@ SamplerVector<Vk>::SamplerVector(
 {}
 
 template <>
-SamplerVector<Vk>::SamplerVector(SamplerVector&& other) noexcept
+SamplerVector<kVk>::SamplerVector(SamplerVector&& other) noexcept
 	: DeviceObject(std::forward<SamplerVector>(other))
 	, mySamplers(std::exchange(other.mySamplers, {}))
 {}
 
 template <>
-SamplerVector<Vk>::~SamplerVector()
+SamplerVector<kVk>::~SamplerVector()
 {
 	for (auto* sampler : mySamplers)
 		vkDestroySampler(
@@ -55,7 +55,7 @@ SamplerVector<Vk>::~SamplerVector()
 }
 
 template <>
-SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
+SamplerVector<kVk>& SamplerVector<kVk>::operator=(SamplerVector&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<SamplerVector>(other));
 	mySamplers = std::exchange(other.mySamplers, {});
@@ -63,7 +63,7 @@ SamplerVector<Vk>& SamplerVector<Vk>::operator=(SamplerVector&& other) noexcept
 }
 
 template <>
-void SamplerVector<Vk>::Swap(SamplerVector& rhs) noexcept
+void SamplerVector<kVk>::Swap(SamplerVector& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(mySamplers, rhs.mySamplers);

@@ -9,12 +9,12 @@ static std::optional<WindowHandle> gCurrentWindow{};
 
 }
 
-void ResizeFramebuffer(WindowHandle window, int w, int h)
+void ResizeFramebuffer(WindowHandle window, int width, int height)
 {
 	using namespace rhi;
 
 	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
-		app->OnResizeFramebuffer(window, w, h);
+		app->OnResizeFramebuffer(window, width, height);
 }
 
 WindowHandle GetCurrentWindow(void)

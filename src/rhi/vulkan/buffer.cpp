@@ -5,16 +5,16 @@
 #include <format>
 
 template <>
-Buffer<Vk>::Buffer(Buffer&& other) noexcept
+Buffer<kVk>::Buffer(Buffer&& other) noexcept
 	: DeviceObject(std::forward<Buffer>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myBuffer(std::exchange(other.myBuffer, {}))
 {}
 
 template <>
-Buffer<Vk>::Buffer(
-	const std::shared_ptr<Device<Vk>>& device,
-	BufferCreateDesc<Vk>&& desc,
+Buffer<kVk>::Buffer(
+	const std::shared_ptr<Device<kVk>>& device,
+	BufferCreateDesc<kVk>&& desc,
 	ValueType&& buffer)
 	: DeviceObject(
 		  device,
@@ -22,16 +22,16 @@ Buffer<Vk>::Buffer(
 		  1,
 		  VK_OBJECT_TYPE_BUFFER,
 		  reinterpret_cast<uint64_t*>(&std::get<0>(buffer)))
-	, myDesc(std::forward<BufferCreateDesc<Vk>>(desc))
+	, myDesc(std::forward<BufferCreateDesc<kVk>>(desc))
 	, myBuffer(std::forward<ValueType>(buffer))
 {}
 
 template <>
-Buffer<Vk>::Buffer(
-	const std::shared_ptr<Device<Vk>>& device, BufferCreateDesc<Vk>&& desc)
+Buffer<kVk>::Buffer(
+	const std::shared_ptr<Device<kVk>>& device, BufferCreateDesc<kVk>&& desc)
 	: Buffer(
 		  device,
-		  std::forward<BufferCreateDesc<Vk>>(desc),
+		  std::forward<BufferCreateDesc<kVk>>(desc),
 		  CreateBuffer(
 			  device->GetAllocator(),
 			  desc.size,
@@ -41,14 +41,14 @@ Buffer<Vk>::Buffer(
 {}
 
 template <>
-Buffer<Vk>::Buffer(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Buffer<kVk>::Buffer(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
-	std::tuple<BufferCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
+	std::tuple<BufferCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>>&& descAndInitialData)
 	: Buffer(
 		  device,
-		  std::forward<BufferCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
+		  std::forward<BufferCreateDesc<kVk>>(std::get<0>(descAndInitialData)),
 		  CreateBuffer(
 			  queue.GetPool().Commands(),
 			  device->GetAllocator(),
@@ -72,18 +72,18 @@ Buffer<Vk>::Buffer(
 }
 
 template <>
-Buffer<Vk>::Buffer(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Buffer<kVk>::Buffer(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
-	BufferCreateDesc<Vk>&& desc,
+	BufferCreateDesc<kVk>&& desc,
 	const void* initialData)
 	: Buffer(
 		  device,
 		  queue,
 		  timelineValue,
 		  std::tuple_cat(
-			  std::make_tuple(std::forward<BufferCreateDesc<Vk>>(desc)),
+			  std::make_tuple(std::forward<BufferCreateDesc<kVk>>(desc)),
 			  CreateStagingBuffer(
 				  device->GetAllocator(),
 				  initialData,
@@ -92,14 +92,14 @@ Buffer<Vk>::Buffer(
 {}
 
 template <>
-Buffer<Vk>::~Buffer()
+Buffer<kVk>::~Buffer()
 {
-	if (BufferHandle<Vk> buffer = *this)
+	if (BufferHandle<kVk> buffer = *this)
 		vmaDestroyBuffer(GetDevice()->GetAllocator(), buffer, GetBufferMemory());
 }
 
 template <>
-Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
+Buffer<kVk>& Buffer<kVk>::operator=(Buffer&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<Buffer>(other));
 	myDesc = std::exchange(other.myDesc, {});
@@ -108,7 +108,7 @@ Buffer<Vk>& Buffer<Vk>::operator=(Buffer&& other) noexcept
 }
 
 template <>
-void Buffer<Vk>::Swap(Buffer& rhs) noexcept
+void Buffer<kVk>::Swap(Buffer& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myDesc, rhs.myDesc);
@@ -116,31 +116,31 @@ void Buffer<Vk>::Swap(Buffer& rhs) noexcept
 }
 
 template <>
-BufferView<Vk>::BufferView(BufferView&& other) noexcept
+BufferView<kVk>::BufferView(BufferView&& other) noexcept
 	: DeviceObject(std::forward<BufferView>(other))
 	, myView(std::exchange(other.myView, {}))
 {}
 
 template <>
-BufferView<Vk>::BufferView(
-	const std::shared_ptr<Device<Vk>>& device, BufferViewHandle<Vk>&& view)
+BufferView<kVk>::BufferView(
+	const std::shared_ptr<Device<kVk>>& device, BufferViewHandle<kVk>&& view)
 	: DeviceObject(
 		  device,
 		  {"_View"},
 		  1,
 		  VK_OBJECT_TYPE_BUFFER_VIEW,
 		  reinterpret_cast<uint64_t*>(&view))
-	, myView(std::forward<BufferViewHandle<Vk>>(view))
+	, myView(std::forward<BufferViewHandle<kVk>>(view))
 {}
 
 template <>
-BufferView<Vk>::BufferView(
-	const std::shared_ptr<Device<Vk>>& device,
-	const Buffer<Vk>& buffer,
-	Format<Vk> format,
-	DeviceSize<Vk> offset,
-	DeviceSize<Vk> range)
-	: BufferView<Vk>(
+BufferView<kVk>::BufferView(
+	const std::shared_ptr<Device<kVk>>& device,
+	const Buffer<kVk>& buffer,
+	Format<kVk> format,
+	DeviceSize<kVk> offset,
+	DeviceSize<kVk> range)
+	: BufferView<kVk>(
 		  device,
 		  [&device, &buffer, format, offset, range]
 		  {
@@ -159,14 +159,14 @@ BufferView<Vk>::BufferView(
 {}
 
 template <>
-BufferView<Vk>::~BufferView()
+BufferView<kVk>::~BufferView()
 {
-	if (BufferViewHandle<Vk> view = *this)
+	if (BufferViewHandle<kVk> view = *this)
 		vkDestroyBufferView(*GetDevice(), view, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
-BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
+BufferView<kVk>& BufferView<kVk>::operator=(BufferView&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<BufferView>(other));
 	myView = std::exchange(other.myView, {});
@@ -174,7 +174,7 @@ BufferView<Vk>& BufferView<Vk>::operator=(BufferView&& other) noexcept
 }
 
 template <>
-void BufferView<Vk>::Swap(BufferView& rhs) noexcept
+void BufferView<kVk>::Swap(BufferView& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myView, rhs.myView);

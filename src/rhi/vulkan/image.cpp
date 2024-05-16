@@ -27,14 +27,14 @@
 #include <zpp_bits.h>
 
 // NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
-auto serialize(const ImageCreateDesc<Vk>&) -> zpp::bits::members<6>;
+auto serialize(const ImageCreateDesc<kVk>&) -> zpp::bits::members<6>;
 // NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
 
 namespace image
 {
 
 std::tuple<VkImage, VmaAllocation>
-CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
+CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<kVk>& desc)
 {
 	return CreateImage2D(
 		allocator,
@@ -50,7 +50,7 @@ CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<Vk>& desc)
 }
 
 std::tuple<VkImage, VmaAllocation> CreateImage2D(
-	VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<Vk>& desc)
+	VkCommandBuffer cmd, VmaAllocator allocator, VkBuffer buffer, const ImageCreateDesc<kVk>& desc)
 {
 	return CreateImage2D(
 		cmd,
@@ -69,14 +69,14 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		desc.initialLayout);
 }
 
-std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
+std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 	const std::filesystem::path& imageFile,
-	const std::shared_ptr<Device<Vk>>& device,
+	const std::shared_ptr<Device<kVk>>& device,
 	std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("image::load");
 
-	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> descAndInitialData;
+	std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> descAndInitialData;
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -189,7 +189,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 
 		auto compressBlocks = [](const stbi_uc* src,
 								 unsigned char* dst,
-								 const Extent2d<Vk>& extent,
+								 const Extent2d<kVk>& extent,
 								 uint32_t compressedBlockSize,
 								 bool hasAlpha,
 								 uint32_t threadCount)
@@ -344,7 +344,7 @@ std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>> Load(
 } // namespace image
 
 template <>
-void Image<Vk>::Transition(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
+void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
 {
 	ZoneScopedN("Image::Transition");
 
@@ -357,11 +357,11 @@ void Image<Vk>::Transition(CommandBufferHandle<Vk> cmd, ImageLayout<Vk> layout)
 }
 
 template <>
-void Image<Vk>::Clear(
-	CommandBufferHandle<Vk> cmd,
-	const ClearValue<Vk>& value,
+void Image<kVk>::Clear(
+	CommandBufferHandle<kVk> cmd,
+	const ClearValue<kVk>& value,
 	ClearType type,
-	const std::optional<ImageSubresourceRange<Vk>>& range)
+	const std::optional<ImageSubresourceRange<kVk>>& range)
 {
 	ZoneScopedN("Image::clear");
 
@@ -401,44 +401,44 @@ void Image<Vk>::Clear(
 }
 
 template <>
-Image<Vk>::Image(Image&& other) noexcept
+Image<kVk>::Image(Image&& other) noexcept
 	: DeviceObject(std::forward<Image>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myImage(std::exchange(other.myImage, {}))
 {}
 
 template <>
-Image<Vk>::Image(
-	const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&& desc, ValueType&& data)
+Image<kVk>::Image(
+	const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kVk>&& desc, ValueType&& data)
 	: DeviceObject(
 		  device,
 		  {"_Image"},
 		  1,
 		  VK_OBJECT_TYPE_IMAGE,
 		  reinterpret_cast<uint64_t*>(&std::get<0>(data)))
-	, myDesc(std::forward<ImageCreateDesc<Vk>>(desc))
+	, myDesc(std::forward<ImageCreateDesc<kVk>>(desc))
 	, myImage(std::forward<ValueType>(data))
 {}
 
 template <>
-Image<Vk>::Image(const std::shared_ptr<Device<Vk>>& device, ImageCreateDesc<Vk>&& desc)
+Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kVk>&& desc)
 	: Image(
 		  device,
-		  std::forward<ImageCreateDesc<Vk>>(desc),
+		  std::forward<ImageCreateDesc<kVk>>(desc),
 		  std::tuple_cat(
 			  image::CreateImage2D(device->GetAllocator(), desc),
 			  std::make_tuple(desc.initialLayout)))
 {}
 
 template <>
-Image<Vk>::Image(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Image<kVk>::Image(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
-	std::tuple<ImageCreateDesc<Vk>, BufferHandle<Vk>, AllocationHandle<Vk>>&& descAndInitialData)
+	std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>>&& descAndInitialData)
 	: Image(
 		  device,
-		  std::forward<ImageCreateDesc<Vk>>(std::get<0>(descAndInitialData)),
+		  std::forward<ImageCreateDesc<kVk>>(std::get<0>(descAndInitialData)),
 		  std::tuple_cat(
 			  image::CreateImage2D(
 				  queue.GetPool().Commands(),
@@ -461,11 +461,11 @@ Image<Vk>::Image(
 }
 
 template <>
-Image<Vk>::Image(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Image<kVk>::Image(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
-	ImageCreateDesc<Vk>&& desc,
+	ImageCreateDesc<kVk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
@@ -473,15 +473,15 @@ Image<Vk>::Image(
 		  queue,
 		  timelineValue,
 		  std::tuple_cat(
-			  std::make_tuple(std::forward<ImageCreateDesc<Vk>>(desc)),
+			  std::make_tuple(std::forward<ImageCreateDesc<kVk>>(desc)),
 			  CreateStagingBuffer(
 				  device->GetAllocator(), initialData, initialDataSize, "todo_insert_proper_name")))
 {}
 
 template <>
-Image<Vk>::Image(
-	const std::shared_ptr<Device<Vk>>& device,
-	Queue<Vk>& queue,
+Image<kVk>::Image(
+	const std::shared_ptr<Device<kVk>>& device,
+	Queue<kVk>& queue,
 	uint64_t timelineValue,
 	const std::filesystem::path& imageFile,
 	std::atomic_uint8_t& progress)
@@ -489,29 +489,29 @@ Image<Vk>::Image(
 {}
 
 template <>
-Image<Vk>::~Image()
+Image<kVk>::~Image()
 {
-	if (ImageHandle<Vk> image = *this)
+	if (ImageHandle<kVk> image = *this)
 		vmaDestroyImage(GetDevice()->GetAllocator(), image, GetImageMemory());
 }
 
 template <>
-ImageView<Vk>::ImageView(ImageView&& other) noexcept
+ImageView<kVk>::ImageView(ImageView&& other) noexcept
 	: DeviceObject(std::forward<ImageView>(other))
 	, myView(std::exchange(other.myView, {}))
 {}
 
 template <>
-ImageView<Vk>::ImageView(const std::shared_ptr<Device<Vk>>& device, ImageViewHandle<Vk>&& view)
+ImageView<kVk>::ImageView(const std::shared_ptr<Device<kVk>>& device, ImageViewHandle<kVk>&& view)
 	: DeviceObject(
 		  device, {"_View"}, 1, VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t*>(&view))
-	, myView(std::forward<ImageViewHandle<Vk>>(view))
+	, myView(std::forward<ImageViewHandle<kVk>>(view))
 {}
 
 template <>
-ImageView<Vk>::ImageView(
-	const std::shared_ptr<Device<Vk>>& device, const Image<Vk>& image, Flags<Vk> aspectFlags)
-	: ImageView<Vk>(
+ImageView<kVk>::ImageView(
+	const std::shared_ptr<Device<kVk>>& device, const Image<kVk>& image, Flags<kVk> aspectFlags)
+	: ImageView<kVk>(
 		  device,
 		  CreateImageView2D(
 			  *device,
@@ -524,14 +524,14 @@ ImageView<Vk>::ImageView(
 {}
 
 template <>
-ImageView<Vk>::~ImageView()
+ImageView<kVk>::~ImageView()
 {
-	if (ImageViewHandle<Vk> view = *this)
+	if (ImageViewHandle<kVk> view = *this)
 		vkDestroyImageView(*GetDevice(), view, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
-ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
+ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<ImageView>(other));
 	myView = std::exchange(other.myView, {});
@@ -539,7 +539,7 @@ ImageView<Vk>& ImageView<Vk>::operator=(ImageView&& other) noexcept
 }
 
 template <>
-void ImageView<Vk>::Swap(ImageView& rhs) noexcept
+void ImageView<kVk>::Swap(ImageView& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myView, rhs.myView);

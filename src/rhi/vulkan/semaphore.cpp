@@ -2,29 +2,29 @@
 #include "utils.h"
 
 template <>
-Semaphore<Vk>::Semaphore(
-	const std::shared_ptr<Device<Vk>>& device,
-	SemaphoreHandle<Vk>&& semaphore)
+Semaphore<kVk>::Semaphore(
+	const std::shared_ptr<Device<kVk>>& device,
+	SemaphoreHandle<kVk>&& semaphore)
 	: DeviceObject(
 		  device,
 		  {"_Semaphore"},
 		  1,
 		  VK_OBJECT_TYPE_SEMAPHORE,
 		  reinterpret_cast<uint64_t*>(&semaphore))
-	, mySemaphore(std::forward<SemaphoreHandle<Vk>>(semaphore))
+	, mySemaphore(std::forward<SemaphoreHandle<kVk>>(semaphore))
 {}
 
 template <>
-Semaphore<Vk>::Semaphore(
-	const std::shared_ptr<Device<Vk>>& device,
-	SemaphoreCreateDesc<Vk>&& desc)
+Semaphore<kVk>::Semaphore(
+	const std::shared_ptr<Device<kVk>>& device,
+	SemaphoreCreateDesc<kVk>&& desc)
 	: Semaphore(device, [&device, &desc]
 	{
 		VkSemaphoreTypeCreateInfo typeCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 		typeCreateInfo.semaphoreType = desc.type;
 		typeCreateInfo.initialValue = 0ULL;
 
-		SemaphoreHandle<Vk> semaphore;
+		SemaphoreHandle<kVk> semaphore;
 		VkSemaphoreCreateInfo createInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 		createInfo.pNext = &typeCreateInfo;
 		createInfo.flags = desc.flags;
@@ -39,13 +39,13 @@ Semaphore<Vk>::Semaphore(
 {}
 
 template <>
-Semaphore<Vk>::Semaphore(Semaphore<Vk>&& other) noexcept
-	: DeviceObject(std::forward<Semaphore<Vk>>(other))
+Semaphore<kVk>::Semaphore(Semaphore<kVk>&& other) noexcept
+	: DeviceObject(std::forward<Semaphore<kVk>>(other))
 	, mySemaphore(std::exchange(other.mySemaphore, {}))
 {}
 
 template <>
-Semaphore<Vk>::~Semaphore()
+Semaphore<kVk>::~Semaphore()
 {
 	if (mySemaphore != nullptr)
 		vkDestroySemaphore(
@@ -55,22 +55,22 @@ Semaphore<Vk>::~Semaphore()
 }
 
 template <>
-Semaphore<Vk>& Semaphore<Vk>::operator=(Semaphore<Vk>&& other) noexcept
+Semaphore<kVk>& Semaphore<kVk>::operator=(Semaphore<kVk>&& other) noexcept
 {
-	DeviceObject<Vk>::operator=(std::forward<Semaphore<Vk>>(other));
+	DeviceObject<kVk>::operator=(std::forward<Semaphore<kVk>>(other));
 	mySemaphore = std::exchange(other.mySemaphore, {});
 	return *this;
 }
 
 template <>
-void Semaphore<Vk>::Swap(Semaphore& rhs) noexcept
+void Semaphore<kVk>::Swap(Semaphore& rhs) noexcept
 {
-	DeviceObject<Vk>::Swap(rhs);
+	DeviceObject<kVk>::Swap(rhs);
 	std::swap(mySemaphore, rhs.mySemaphore);
 }
 
 template <>
-uint64_t Semaphore<Vk>::GetValue() const
+uint64_t Semaphore<kVk>::GetValue() const
 {
 	ZoneScopedN("Semaphore::getValue");
 
@@ -81,7 +81,7 @@ uint64_t Semaphore<Vk>::GetValue() const
 }
 
 template <>
-void Semaphore<Vk>::Wait(uint64_t timelineValue, uint64_t timeout) const
+void Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 {
 	ZoneScopedN("Semaphore::wait");
 
@@ -95,9 +95,9 @@ void Semaphore<Vk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 }
 
 template <>
-void Semaphore<Vk>::Wait(
-	const std::shared_ptr<Device<Vk>>& device,
-	std::span<SemaphoreHandle<Vk>> semaphores,
+void Semaphore<kVk>::Wait(
+	const std::shared_ptr<Device<kVk>>& device,
+	std::span<SemaphoreHandle<kVk>> semaphores,
 	std::span<uint64_t> timelineValues,
 	uint64_t timeout)
 {

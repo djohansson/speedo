@@ -14,7 +14,7 @@ template <GraphicsApi G>
 ShaderStageFlagBits<G> getStageFlags(SlangStage stage);
 
 template <GraphicsApi G>
-DescriptorType<Vk> getDescriptorType(
+DescriptorType<kVk> getDescriptorType(
 	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access);
 
 template <GraphicsApi G>

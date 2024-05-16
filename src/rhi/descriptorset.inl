@@ -5,13 +5,13 @@ template <GraphicsApi G>
 std::vector<DescriptorSetLayoutHandle<G>>
 GetDescriptorSetLayoutHandles(const DescriptorSetLayoutFlatMap<G>& layouts)
 {
-	std::vector<DescriptorSetLayoutHandle<Vk>> handles;
+	std::vector<DescriptorSetLayoutHandle<kVk>> handles;
 	if (!layouts.empty())
 	{
 		handles.reserve(layouts.size());
 
 		for (const auto& [set, layout] : layouts)
-			handles.push_back(static_cast<DescriptorSetLayoutHandle<Vk>>(layout));
+			handles.push_back(static_cast<DescriptorSetLayoutHandle<kVk>>(layout));
 	}
 
 	return handles;
@@ -21,7 +21,7 @@ template <GraphicsApi G>
 std::vector<PushConstantRange<G>>
 getPushConstantRanges(const DescriptorSetLayoutFlatMap<G>& layouts)
 {
-	std::vector<PushConstantRange<Vk>> ranges;
+	std::vector<PushConstantRange<kVk>> ranges;
 	if (!layouts.empty())
 	{
 		ranges.reserve(layouts.size());

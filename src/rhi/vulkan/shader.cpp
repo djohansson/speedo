@@ -10,7 +10,7 @@ namespace shader
 {
 
 template <>
-ShaderStageFlagBits<Vk> getStageFlags<Vk>(SlangStage stage)
+ShaderStageFlagBits<kVk> getStageFlags<kVk>(SlangStage stage)
 {
 	switch (stage)
 	{
@@ -44,14 +44,14 @@ ShaderStageFlagBits<Vk> getStageFlags<Vk>(SlangStage stage)
 		ASSERT(false); // please implement me!
 	}
 
-	return ShaderStageFlagBits<Vk>{};
+	return ShaderStageFlagBits<kVk>{};
 }
 
 template <>
-DescriptorType<Vk> getDescriptorType<Vk>(
+DescriptorType<kVk> getDescriptorType<kVk>(
 	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access)
 {
-	auto type = DescriptorType<Vk>{};
+	auto type = DescriptorType<kVk>{};
 
 	switch (kind)
 	{
@@ -116,7 +116,7 @@ void AddBinding(
 	size_t sizeBytes,
 	SlangStage stage,
 	std::string_view name,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts)
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts)
 {
 	ASSERT(typeLayout);
 
@@ -136,16 +136,16 @@ void AddBinding(
 		access = elementTypeLayout->getType()->getResourceAccess();
 	}
 
-	auto descriptorType = shader::getDescriptorType<Vk>(kind, shape, access);
+	auto descriptorType = shader::getDescriptorType<kVk>(kind, shape, access);
 
 	//auto isUniformDynamic = descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	auto isInlineUniformBlock = descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
 
-	DescriptorSetLayoutBinding<Vk> slot;
+	DescriptorSetLayoutBinding<kVk> slot;
 	slot.binding = bindingIndex;
 	slot.descriptorType = descriptorType;
 	slot.descriptorCount = isInlineUniformBlock ? sizeBytes : descriptorCount;
-	slot.stageFlags = shader::getStageFlags<Vk>(stage);
+	slot.stageFlags = shader::getStageFlags<kVk>(stage);
 	slot.pImmutableSamplers = nullptr;
 
 	layout.bindings.push_back(slot);
@@ -158,7 +158,7 @@ void AddBinding(
 	layout.variableNameHashes.push_back(XXH3_64bits(name.data(), name.size()));
 
 	// todo: immutable samplers
-	//layout.immutableSamplers.push_back(SamplerCreateInfo<Vk>{});
+	//layout.immutableSamplers.push_back(SamplerCreateInfo<kVk>{});
 
 	// todo: push descriptors
 	constexpr bool kUsePushDescriptor = false;
@@ -176,7 +176,7 @@ void AddBinding(
 		//ASSERT(!isUniformDynamic);
 		ASSERT(!isInlineUniformBlock);
 		layout.pushConstantRange =
-			PushConstantRange<Vk>{slot.stageFlags, 0, static_cast<uint32_t>(sizeBytes)};
+			PushConstantRange<kVk>{slot.stageFlags, 0, static_cast<uint32_t>(sizeBytes)};
 	}
 
 	std::cout << "ADD BINDING \"" << name << "\": Set: " << bindingSpace
@@ -185,10 +185,10 @@ void AddBinding(
 }
 
 template <>
-uint32_t CreateLayoutBindings<Vk>(
+uint32_t CreateLayoutBindings<kVk>(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<Vk>>& layouts,
+	std::map<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts,
 	const unsigned* parentSpace,
 	const char* parentName)
 {
@@ -291,7 +291,7 @@ uint32_t CreateLayoutBindings<Vk>(
 						 : 1;
 		uniformsTotalSize +=
 			count *
-			CreateLayoutBindings<Vk>(
+			CreateLayoutBindings<kVk>(
 				elementField, genericParameterIndices, layouts, &bindingSpace, fullName.c_str());
 	}
 
@@ -320,23 +320,23 @@ uint32_t CreateLayoutBindings<Vk>(
 } // namespace shader
 
 template <>
-ShaderModule<Vk>::ShaderModule(
-	const std::shared_ptr<Device<Vk>>& device,
-	ShaderModuleHandle<Vk>&& shaderModule,
-	const EntryPoint<Vk>& entryPoint)
+ShaderModule<kVk>::ShaderModule(
+	const std::shared_ptr<Device<kVk>>& device,
+	ShaderModuleHandle<kVk>&& shaderModule,
+	const EntryPoint<kVk>& entryPoint)
 	: DeviceObject(
 		  device,
 		  {std::get<0>(entryPoint)},
 		  1,
 		  VK_OBJECT_TYPE_SHADER_MODULE,
 		  reinterpret_cast<uint64_t*>(&shaderModule))
-	, myShaderModule(std::forward<ShaderModuleHandle<Vk>>(shaderModule))
+	, myShaderModule(std::forward<ShaderModuleHandle<kVk>>(shaderModule))
 	, myEntryPoint(entryPoint)
 {}
 
 template <>
-ShaderModule<Vk>::ShaderModule(const std::shared_ptr<Device<Vk>>& device, const Shader<Vk>& shader)
-	: ShaderModule<Vk>(
+ShaderModule<kVk>::ShaderModule(const std::shared_ptr<Device<kVk>>& device, const Shader<kVk>& shader)
+	: ShaderModule<kVk>(
 		  device,
 		  [&device]
 		  (const auto& codePtr, size_t codeSize)
@@ -353,14 +353,14 @@ ShaderModule<Vk>::ShaderModule(const std::shared_ptr<Device<Vk>>& device, const 
 {}
 
 template <>
-ShaderModule<Vk>::ShaderModule(ShaderModule&& other) noexcept
+ShaderModule<kVk>::ShaderModule(ShaderModule&& other) noexcept
 	: DeviceObject(std::forward<ShaderModule>(other))
 	, myShaderModule(std::exchange(other.myShaderModule, {}))
 	, myEntryPoint(std::exchange(other.myEntryPoint, {}))
 {}
 
 template <>
-ShaderModule<Vk>::~ShaderModule()
+ShaderModule<kVk>::~ShaderModule()
 {
 	if (myShaderModule != nullptr)
 		vkDestroyShaderModule(
@@ -370,7 +370,7 @@ ShaderModule<Vk>::~ShaderModule()
 }
 
 template <>
-ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
+ShaderModule<kVk>& ShaderModule<kVk>::operator=(ShaderModule&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<ShaderModule>(other));
 	myShaderModule = std::exchange(other.myShaderModule, {});
@@ -379,7 +379,7 @@ ShaderModule<Vk>& ShaderModule<Vk>::operator=(ShaderModule&& other) noexcept
 }
 
 template <>
-void ShaderModule<Vk>::Swap(ShaderModule& rhs) noexcept
+void ShaderModule<kVk>::Swap(ShaderModule& rhs) noexcept
 {
 	DeviceObject::Swap(rhs);
 	std::swap(myShaderModule, rhs.myShaderModule);
