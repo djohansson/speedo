@@ -1,3 +1,5 @@
+#include "profiling.h"
+
 template <typename R>
 std::optional<typename Future<R>::value_t> TaskExecutor::Join(Future<R>&& future)
 {

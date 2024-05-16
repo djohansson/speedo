@@ -2,7 +2,6 @@
 
 #include "memorypool.h"
 #include "upgradablesharedmutex.h"
-#include "utils.h"
 
 #include <vector>
 

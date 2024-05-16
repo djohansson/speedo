@@ -1,6 +1,3 @@
-#include "future.h"
-#include "profiling.h"
-
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept
@@ -61,10 +58,8 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 }
 
 template <typename... Params>
-void Task::operator()(Params&&... params)
+inline void Task::operator()(Params&&... params)
 {
-	ZoneScopedN("Task::operator()");
-
 	ASSERTF(myInvokeFcnPtr, "Task is not initialized!");
 
 	auto taskParams = std::make_tuple(std::forward<Params>(params)...);
@@ -73,10 +68,8 @@ void Task::operator()(Params&&... params)
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
+inline TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
 {
-	ZoneScopedN("Task::CreateTask");
-
 	if (auto handle = Task::InternalAllocate())
 	{
 		auto taskPtr = Task::InternalHandleToPtr(handle);

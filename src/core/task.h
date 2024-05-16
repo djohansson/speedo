@@ -20,6 +20,10 @@ class Task : public Noncopyable, public Nonmovable
 
 public:
 	~Task();
+
+	operator bool() const noexcept;
+	template <typename... Params>
+	void operator()(Params&&... params);
 	
 	template <
 		typename... Params,
@@ -31,10 +35,6 @@ public:
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 	static TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
-
-	operator bool() const noexcept;
-	template <typename... Params>
-	void operator()(Params&&... params);
 
 	// b will start after a has finished
 	// isContinuation == true : b will most likely start on the same thread as a, but may start on any thread in the thread pool
