@@ -18,29 +18,6 @@ static TaskCreateInfo<void> gRpcTask{};
 static UpgradableSharedMutex gServerApplicationMutex;
 static std::shared_ptr<Server> gServerApplication;
 
-template <
-	typename... Params,
-	typename... Args,
-	typename F,
-	typename C = std::decay_t<F>,
-	typename ArgsTuple = std::tuple<Args...>,
-	typename ParamsTuple = std::tuple<Params...>,
-	typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
-{
-	std::shared_lock lock{gServerApplicationMutex};
-
-	if (gServerApplication->IsExitRequested())
-		return {};
-
-	auto taskPair = Task::CreateTask(std::forward<F>(callable));
-	
-	Task::AddDependency(dependency, taskPair.first, true);
-
-	return taskPair;
-}
-
 static std::string Say(const std::string& str)
 {
 	using namespace std::literals;
@@ -59,6 +36,9 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	using namespace zpp::bits::literals;
 
 	std::shared_lock lock{gServerApplicationMutex};
+
+	if (gServerApplication->IsExitRequested())
+		return;
 
 	try
 	{
@@ -109,7 +89,9 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	gRpcTask = Continuation([&socket, &poller]{ Rpc(socket, poller); }, gRpcTask.first);
+	auto rpcTask = Task::CreateTask(Rpc, socket, poller);
+	Task::AddDependency(gRpcTask.first, rpcTask.first, true);
+	gRpcTask = rpcTask;
 }
 
 } // namespace server

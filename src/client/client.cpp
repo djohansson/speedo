@@ -21,34 +21,14 @@ static TaskCreateInfo<void> gUpdateTask, gDrawTask, gRpcTask;
 static UpgradableSharedMutex gClientApplicationMutex;
 static std::shared_ptr<Client> gClientApplication;
 
-template <
-	typename... Params,
-	typename... Args,
-	typename F,
-	typename C = std::decay_t<F>,
-	typename ArgsTuple = std::tuple<Args...>,
-	typename ParamsTuple = std::tuple<Params...>,
-	typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-static TaskCreateInfo<R> Continuation(F&& callable, TaskHandle dependency)
-{
-	std::shared_lock lock{gClientApplicationMutex};
-
-	if (gClientApplication->IsExitRequested())
-		return {};
-
-	auto taskPair = Task::CreateTask(std::forward<F>(callable));
-	
-	Task::AddDependency(dependency, taskPair.first, true);
-
-	return taskPair;
-}
-
 static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::rpc");
 
 	std::shared_lock lock{gClientApplicationMutex};
+
+	if (gClientApplication->IsExitRequested())
+		return;
 
 	using namespace std::literals;
 	using namespace zpp::bits::literals;
@@ -111,28 +91,42 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	gRpcTask = Continuation([&socket, &poller] { Rpc(socket, poller); }, gRpcTask.first);
+	auto rpcTask = Task::CreateTask(Rpc, socket, poller);
+	Task::AddDependency(gRpcTask.first, rpcTask.first, true);
+	gRpcTask = rpcTask;
 }
 
 static void Draw();
 static void UpdateInput()
 {
-	ZoneScopedN("client::updateInput");
+	ZoneScopedN("client::UpdateInput");
 
 	std::shared_lock lock{gClientApplicationMutex};
 
+	if (gClientApplication->IsExitRequested())
+		return;
+
 	gClientApplication->UpdateInput();
-	gDrawTask = Continuation(Draw, gUpdateTask.first);
+
+	auto drawTask = Task::CreateTask(Draw);
+	Task::AddDependency(gUpdateTask.first, drawTask.first, true);
+	gDrawTask = drawTask;
 }
 
 static void Draw()
 {
-	ZoneScopedN("client::draw");
+	ZoneScopedN("client::Draw");
 
 	std::shared_lock lock{gClientApplicationMutex};
 
+	if (gClientApplication->IsExitRequested())
+		return;
+
 	gClientApplication->Draw();
-	gUpdateTask = Continuation(UpdateInput, gDrawTask.first);
+
+	auto updateTask = Task::CreateTask(UpdateInput);
+	Task::AddDependency(gDrawTask.first, updateTask.first, true);
+	gUpdateTask = updateTask;
 }
 
 // updateInput -> draw -> updateInput -> draw -> ... until app termination
