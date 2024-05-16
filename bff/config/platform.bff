@@ -95,9 +95,7 @@ Settings
 #endif
 .PlatformIncludePaths = ' -isysroot $MacOSSDKPath$'
 	+ ' -isystem $MacOSSDKPath$/usr/include'
-	+ ' -isystem $MacOSSDKPath$/usr/include/c++/v1/'
-	+ ' -I /usr/local/include'
-.PlatformLibPaths = ' -L /usr/local/lib'
+.PlatformLibPaths = ''
 #endif //__OSX__
 #if __LINUX__
 .LibPrefix = 'lib'

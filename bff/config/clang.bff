@@ -32,6 +32,7 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -Wall'
+		+ ' -isystem $LLVMPath$/include/c++/v1' // libc++ location
 		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths
 		+ ' -fms-extensions'
@@ -68,7 +69,6 @@
 	.CompilerOptionsCpp = ' -std=c++23 -nostdinc++'
 #if !__WINDOWS__
 		+ ' -stdlib=libc++'
-		+ ' -I $LLVMPath$/include/c++/v1' // libc++ location
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
 		+ .PlatformLibPaths
