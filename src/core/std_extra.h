@@ -13,9 +13,9 @@ namespace std_extra
 template <size_t N>
 struct string_literal
 {
-	consteval string_literal(const char (&str)[N]) { std::copy_n(str, N, value); }
+	consteval string_literal(const char (&str)[N]) { std::copy_n(str, N, value); }//NOLINT(google-explicit-constructor,modernize-avoid-c-arrays)
 
-	char value[N];
+	char value[N];//NOLINT(modernize-avoid-c-arrays)
 };
 
 template <string_literal S>
@@ -37,11 +37,11 @@ template<typename F, typename Tuple>
 concept applicable = is_applicable<F, Tuple>::value;
 
 template <class F, class T, std ::size_t... I>
-constexpr auto apply_impl(F&& f, T&& t, std::index_sequence<I...> /*unused*/) noexcept(
+constexpr auto apply_impl(F&& fcn, T&& obj, std::index_sequence<I...> /*unused*/) noexcept(
 	std::is_nothrow_invocable<F&&, decltype(std::get<I>(std ::declval<T>()))...>{})
 	-> std::invoke_result_t<F&&, decltype(std::get<I>(std ::declval<T>()))...>
 {
-	return invoke(std::forward<F>(f), std::get<I>(std::forward<T>(t))...);
+	return invoke(std::forward<F>(fcn), std::get<I>(std::forward<T>(obj))...);
 }
 template <typename F, typename Tuple>
 using apply_result_t = decltype(apply_impl(
@@ -59,9 +59,9 @@ class apply_result<F, Tuple, std::void_t<apply_result_t<F, Tuple>>>
 };
 
 template <class F, class Tuple>
-constexpr apply_result_t<F, Tuple> apply(F&& f, Tuple&& t) noexcept
+constexpr apply_result_t<F, Tuple> apply(F&& fcn, Tuple&& tpl) noexcept
 {
-	return apply_impl(std::forward<F>(f), std::forward<Tuple>(t), std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
+	return apply_impl(std::forward<F>(fcn), std::forward<Tuple>(tpl), std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
 }
 
 } // namespace std_extra

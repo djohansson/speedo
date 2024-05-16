@@ -29,7 +29,7 @@ public:
 
 	void Tick() override;
 
-	void OnResizeFramebuffer(WindowHandle window, int w, int h);
+	void OnResizeFramebuffer(WindowHandle window, int width, int height);
 
 	void UpdateInput() { InternalUpdateInput(); };
 	void Draw() { InternalDraw(); };

@@ -44,16 +44,17 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 	, myState(std::static_pointer_cast<TaskState>(
 		  std::make_shared<typename Future<R>::FutureState>()))
 {
-	static_assert(sizeof(Task) == 128);
+	static constexpr auto kExpectedTaskSize = 128;
+	static_assert(sizeof(Task) == kExpectedTaskSize);
 
 	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
-		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),
+		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),//NOLINT(bugprone-casting-through-void)
 		std::forward<C>(callable));
 
 	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	std::construct_at(
-	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),
+	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),//NOLINT(bugprone-casting-through-void)
 	 	std::forward<Args>(args)...);
 }
 

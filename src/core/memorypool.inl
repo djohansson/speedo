@@ -5,7 +5,7 @@ constexpr MemoryPool<T, Capacity>::MemoryPool() noexcept
 : myAvailable(Capacity)
 {
 	static_assert(Capacity > 0);
-	static_assert(Capacity < (1 << 31));
+	static_assert(Capacity < (1 << Entry::kIndexBits));
 
 	for (auto& entry : myEntries)
 		entry = {State::kFree, static_cast<uint32_t>(&entry - myEntries.data())};

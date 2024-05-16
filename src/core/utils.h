@@ -17,7 +17,6 @@ public:
 	constexpr Noncopyable() = default;
 	~Noncopyable() = default;
 
-private:
 	Noncopyable(const Noncopyable&) = delete;
 	Noncopyable& operator=(const Noncopyable&) = delete;
 };
@@ -28,7 +27,6 @@ public:
 	constexpr Nonmovable() = default;
 	~Nonmovable() = default;
 
-private:
 	Nonmovable(Nonmovable&&) = delete;
 	Nonmovable& operator=(Nonmovable&&) = delete;
 };
@@ -131,7 +129,7 @@ public:
 	size_t operator()(const Tuple& tuple) const
 	{
 		return std::hash<uintmax_t>()(
-			std::apply([](const auto&... xs) { return (Component(xs), ..., 0); }, tuple));
+			std::apply([](const auto&... xss) { return (Component(xss), ..., 0); }, tuple));
 	}
 };
 
@@ -172,7 +170,7 @@ public:
 			begin(),
 			end(),
 			key,
-			[](const value_type& a, const key_type& b) { return a.first < b; });
+			[](const value_type& lhs, const key_type& rhs) { return lhs.first < rhs; });
 
 		std::pair<iterator, bool> result(elementIt, false);
 		if (elementIt == end() || key != elementIt->first)
@@ -200,7 +198,7 @@ public:
 	{
 		auto key = Key(std::forward<Args>(args)...);
 		auto elementIt = std::lower_bound(
-			begin(), end(), key, [](const value_type& a, const value_type& b) { return a < b; });
+			begin(), end(), key, [](const value_type& lhs, const value_type& rhs) { return lhs < rhs; });
 
 		std::pair<iterator, bool> result(elementIt, false);
 		if (elementIt == end() || key != *elementIt)
@@ -212,7 +210,7 @@ public:
 	iterator find(const Key& key)//NOLINT(readability-identifier-naming)
 	{
 		auto elementIt = std::lower_bound(
-			begin(), end(), key, [](const value_type& a, const Key& b) { return a < b; });
+			begin(), end(), key, [](const value_type& lhs, const Key& rhs) { return lhs < rhs; });
 
 		return elementIt;
 	}
@@ -245,7 +243,7 @@ public:
 		auto [low, high] = range;
 
 		auto afterIt = std::upper_bound(
-			begin(), end(), low, [](const T& a, const value_type& b) { return a < b.first; });
+			begin(), end(), low, [](const T& lhs, const value_type& rhs) { return lhs < rhs.first; });
 		auto isBegin = afterIt == begin();
 		auto prevIt = isBegin ? afterIt : std::prev(afterIt);
 

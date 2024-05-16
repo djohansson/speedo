@@ -1573,7 +1573,7 @@ void RhiApplication::Tick()
 	}
 }
 
-void RhiApplication::OnResizeFramebuffer(WindowHandle window, int w, int h)
+void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
 {
 	using namespace rhiapplication;
 
@@ -1592,7 +1592,7 @@ void RhiApplication::OnResizeFramebuffer(WindowHandle window, int w, int h)
 		graphicsQueue.ProcessTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
-	rhi.windows.at(window).OnResizeFramebuffer(w, h);
+	rhi.windows.at(window).OnResizeFramebuffer(width, height);
 
 	CreateWindowDependentObjects(rhi);
 }

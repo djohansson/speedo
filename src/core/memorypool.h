@@ -35,7 +35,7 @@ public:
 	constexpr MemoryPoolHandle GetHandle(const T* ptr) noexcept;
 
 private:
-	enum class State : uint32_t
+	enum class State : uint8_t
 	{
 		kTaken = 0,
 		kFree = 1
@@ -43,8 +43,10 @@ private:
 
 	struct Entry
 	{
-		State state : 1;
-		uint32_t index : 31;
+		static constexpr auto kStateBits = 1;
+		static constexpr auto kIndexBits = 31;
+		State state : kStateBits;
+		uint32_t index : kIndexBits;
 
 		bool operator<(const Entry& other) const noexcept { return state < other.state; }
 	};

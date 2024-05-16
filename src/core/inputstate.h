@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <bitset>
 #include <cstdint>
 
@@ -7,15 +8,17 @@ struct InputState
 {
 	struct Keyboard
 	{
-		std::bitset<512> keysDown;
+		static constexpr size_t kKeyCount = 512;
+		std::bitset<kKeyCount> keysDown;
 	} keyboard{};
 	struct Mouse
 	{
-		float position[2];
+		static constexpr size_t kHistorySize = 2;
+		std::array<float, kHistorySize> position;
+		std::array<float, kHistorySize> leftLastEventPosition;
+		std::array<float, kHistorySize> rightLastEventPosition;
 		uint8_t insideWindow : 1;
 		uint8_t leftDown : 1;
-		float leftLastEventPosition[2];
 		uint8_t rightDown : 1;
-		float rightLastEventPosition[2];
 	} mouse{};
 };

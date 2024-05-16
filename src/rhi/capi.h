@@ -18,12 +18,12 @@ extern "C"
 {
 #endif
 
-enum GraphicsApi
+enum GraphicsApi : uint8_t
 {
 	kVk = 0,
 };
 
-typedef void* WindowHandle;
+typedef void* WindowHandle;//NOLINT(modernize-use-using)
 struct WindowState
 {
 	float xscale;	 // content x scale factor
@@ -37,8 +37,8 @@ struct WindowState
 	uint32_t fullscreenEnabled : 1;
 };
 
-typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);
-static const WindowHandle kInvalidWindowHandle = NULL;
+typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(modernize-use-using)
+static const WindowHandle kInvalidWindowHandle = NULL;//NOLINT(modernize-use-nullptr)
 
 RHI_API void ResizeFramebuffer(WindowHandle window, int width, int height);
 RHI_API WindowHandle* GetWindows(size_t* count);

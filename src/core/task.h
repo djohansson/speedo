@@ -19,6 +19,7 @@ class Task : public Noncopyable, public Nonmovable
 	friend class TaskExecutor;
 
 public:
+	constexpr Task() noexcept = delete;
 	~Task();
 
 	explicit operator bool() const noexcept;
@@ -42,7 +43,6 @@ public:
 	static void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 private:
-	constexpr Task() noexcept = delete;
 	template <
 		typename... Params,
 		typename... Args,

@@ -9,7 +9,7 @@
 
 class UpgradableSharedMutex
 {
-	using value_t = uint32_t;
+	using value_t = uint8_t;
 	enum : value_t
 	{
 		Reader = 4,

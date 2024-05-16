@@ -25,7 +25,7 @@ struct PathConfig
 
 struct MouseEvent
 {
-	enum
+	enum : uint8_t
 	{
 		kPosition = 1 << 0,
 		kButton = 1 << 1,

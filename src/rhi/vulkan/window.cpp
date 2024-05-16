@@ -244,11 +244,11 @@ void Window<kVk>::InternalInitializeViews()
 }
 
 template <>
-void Window<kVk>::OnResizeFramebuffer(int w, int h)
+void Window<kVk>::OnResizeFramebuffer(int width, int height)
 {
-	ASSERT(w > 0);
-	ASSERT(h > 0);
-	(void)w; (void)h;
+	ASSERT(width > 0);
+	ASSERT(height > 0);
+	(void)width; (void)height;
 
 	auto& device = *GetDevice();
 	auto& instance = *device.GetInstance();

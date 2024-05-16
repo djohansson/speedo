@@ -42,7 +42,7 @@ using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::
 
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<AssetManifest, AssetManifestError>
-LoadJSONAssetManifest(std::string_view buffer, LoadAssetManifestInfoFn loadManifestInfoFn)
+LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn)
 {
 	ZoneScoped;
 
@@ -100,7 +100,8 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 	{
 		ZoneScopedN("GetRecord::sha2");
 
-		std::array<uint8_t, 32> sha2;
+		static constexpr size_t kSha2Size = 32;
+		std::array<uint8_t, kSha2Size> sha2;
 		mio::mmap_source file(filePath.string());
 		picosha2::hash256(file.cbegin(), file.cend(), sha2.begin(), sha2.end());
 		picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), fileInfo.sha2);
@@ -170,22 +171,22 @@ std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& 
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
 	auto file = mio::mmap_source(filePath.string());
-	auto in = zpp::bits::in(file);
+	auto inStream = zpp::bits::in(file);
 
 	T object;
-	auto result = in(object);
+	auto result = inStream(object);
 
 	if (result.failure())
 		return std::unexpected(result.error().code);
 
-	if (in.position() != file.size())
+	if (inStream.position() != file.size())
 		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
 
 	return object;
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, LoadFn loadOp)
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp)
 {
 	ZoneScoped;
 
@@ -194,11 +195,11 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 	if (fileInfo)
 	{
 		auto file = mio::mmap_source(fileInfo->path);
-		auto in = zpp::bits::in(file);
+		auto inStream = zpp::bits::in(file);
 
 		//ASSERT(in.position() == file.size());
 
-		if (auto error = loadOp(in))
+		if (auto error = loadOp(inStream))
 			return std::unexpected(error);
 	}
 
@@ -206,7 +207,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, SaveFn saveOp)
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp)
 {
 	ZoneScoped;
 
@@ -283,9 +284,9 @@ std::enable_if_t<M == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnClose>
 template <const char* LoaderType, const char* LoaderVersion>
 void LoadAsset(
 	const std::filesystem::path& assetFilePath,
-	LoadFn loadSourceFileFn,
-	LoadFn loadBinaryCacheFn,
-	SaveFn saveBinaryCacheFn)
+	const LoadFn& loadSourceFileFn,
+	const LoadFn& loadBinaryCacheFn,
+	const SaveFn& saveBinaryCacheFn)
 {
 	using namespace detail;
 	
@@ -308,16 +309,16 @@ void LoadAsset(
 			!std::filesystem::is_directory(cacheDirStatus))
 			std::filesystem::create_directory(cacheDir);
 
-		auto id = uuids::uuid_system_generator{}();
-		auto idStr = uuids::to_string(id);
+		auto uuid = uuids::uuid_system_generator{}();
+		auto uuidStr = uuids::to_string(uuid);
 
 		auto manifestFile = mio_extra::ResizeableMemoryMapSink(manifestPath.string());
 
-		auto asset = LoadBinary<true>(assetFilePath, std::move(loadSourceFileFn));
+		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn);
 		if (!asset)
 			throw std::system_error(asset.error());
 
-		auto cache = SaveBinary<true>(cacheDir / idStr, std::move(saveBinaryCacheFn));
+		auto cache = SaveBinary<true>(cacheDir / uuidStr, saveBinaryCacheFn);
 		if (!cache)
 			throw std::system_error(cache.error());
 
@@ -350,8 +351,7 @@ void LoadAsset(
 	{
 		ZoneScopedN("LoadAsset::load");
 
-		auto cacheFileInfo =
-			LoadBinary<false>(manifest->cacheFileInfo.path, std::move(loadBinaryCacheFn));
+		auto cacheFileInfo = LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
 
 		if (!cacheFileInfo)
 			throw std::system_error(cacheFileInfo.error());

@@ -15,6 +15,12 @@ Future<T>::Future(const Future& other) noexcept
 #include "utils.h"
 
 template <typename T>
+bool Future<T>::operator==(const Future& other) const noexcept
+{
+	return myState == other.myState;
+}
+
+template <typename T>
 Future<T>& Future<T>::operator=(Future&& other) noexcept
 {
 	myState = std::exchange(other.myState, {});
@@ -25,6 +31,9 @@ Future<T>& Future<T>::operator=(Future&& other) noexcept
 template <typename T>
 Future<T>& Future<T>::operator=(const Future& other) noexcept
 {
+	if (this == &other)
+		return *this;
+
 	myState = other.myState;
 
 	return *this;
