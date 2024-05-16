@@ -6,7 +6,7 @@
 #include <tuple>
 #include <type_traits>
 
-// NOLINTBEGIN(readability-identifier-naming.*)
+//NOLINTBEGIN(readability-identifier-naming.*)
 namespace std_extra
 {
 
@@ -66,4 +66,4 @@ constexpr apply_result_t<F, Tuple> apply(F&& f, Tuple&& t) noexcept
 
 } // namespace std_extra
 
-// NOLINTEND(readability-identifier-naming.*)
+//NOLINTEND(readability-identifier-naming.*)

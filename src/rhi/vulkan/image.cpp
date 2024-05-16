@@ -26,9 +26,9 @@
 
 #include <zpp_bits.h>
 
-// NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
 auto serialize(const ImageCreateDesc<kVk>&) -> zpp::bits::members<6>;
-// NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
 
 namespace image
 {
@@ -82,7 +82,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 
 	auto loadBin = [&descAndInitialData, &device, &progress](auto& in) -> std::error_code
 	{
-		progress = 32;// NOLINT(readability-magic-numbers)
+		progress = 32;//NOLINT(readability-magic-numbers)
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -100,7 +100,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		progress = 64;// NOLINT(readability-magic-numbers)
+		progress = 64;//NOLINT(readability-magic-numbers)
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
@@ -112,7 +112,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 
-		progress = 255;// NOLINT(readability-magic-numbers)
+		progress = 255;//NOLINT(readability-magic-numbers)
 
 		return {};
 	};
@@ -135,14 +135,14 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		if (failure(result))
 			return std::make_error_code(result);
 
-		progress = 255;// NOLINT(readability-magic-numbers)
+		progress = 255;//NOLINT(readability-magic-numbers)
 
 		return {};
 	};
 
 	auto loadImage = [&descAndInitialData, &device, &imageFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		progress = 32;// NOLINT(readability-magic-numbers)
+		progress = 32;//NOLINT(readability-magic-numbers)
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -154,7 +154,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		uint32_t mipCount =
 			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 		bool hasAlpha = channelCount == 4;
-		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;// NOLINT(readability-magic-numbers)
+		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;//NOLINT(readability-magic-numbers)
 
 		desc.mipLevels.resize(mipCount);
 		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;

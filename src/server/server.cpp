@@ -6,7 +6,7 @@
 #include <core/file.h>
 
 #include <array>
-#include "assert.h"// NOLINT(modernize-deprecated-headers)
+#include "assert.h"//NOLINT(modernize-deprecated-headers)
 #include <iostream>
 #include <memory>
 #include <system_error>

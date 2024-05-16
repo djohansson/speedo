@@ -12,7 +12,7 @@ struct ResizeableMemoryMapSink : public mio::mmap_sink
 		: mio::mmap_sink(path, offset, length)
 	{}
 
-	void resize(size_t size) // NOLINT(readability-identifier-naming.*)
+	void resize(size_t size) //NOLINT(readability-identifier-naming.*)
 	{
 		myHighWaterMark = std::max(myHighWaterMark, size);
 
