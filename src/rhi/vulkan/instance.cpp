@@ -13,7 +13,7 @@
 namespace instance
 {
 
-static VkDebugUtilsMessengerEXT gdebugUtilsMessenger{};
+static VkDebugUtilsMessengerEXT gDebugUtilsMessenger{};
 
 SurfaceCapabilities<kVk>
 GetSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
@@ -34,10 +34,10 @@ void GetPhysicalDeviceInfo2(
 
 	deviceInfo.inlineUniformBlockFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
 	deviceInfo.inlineUniformBlockFeatures.pNext = nullptr;
-	deviceInfo.inlineUniformBlockFeatures.inlineUniformBlock = 1u;
+	deviceInfo.inlineUniformBlockFeatures.inlineUniformBlock = 1U;
 	deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.inlineUniformBlockFeatures;
-	deviceInfo.deviceFeaturesEx.timelineSemaphore = 1u;
+	deviceInfo.deviceFeaturesEx.timelineSemaphore = 1U;
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeaturesEx;
@@ -202,17 +202,17 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 
 	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		static const char* gvkLoaderDebugStr = "VK_LOADER_DEBUG";
-		if (char* vkLoaderDebug = getenv(gvkLoaderDebugStr))
-			std::cout << gvkLoaderDebugStr << "=" << vkLoaderDebug << '\n';
+		static const char* gVkLoaderDebugStr = "VK_LOADER_DEBUG";
+		if (char* vkLoaderDebug = getenv(gVkLoaderDebugStr))
+			std::cout << gVkLoaderDebugStr << "=" << vkLoaderDebug << '\n';
 
-		static const char* gvkLayerPathStr = "VK_LAYER_PATH";
-		if (char* vkLayerPath = getenv(gvkLayerPathStr))
-			std::cout << gvkLayerPathStr << "=" << vkLayerPath << '\n';
+		static const char* gVkLayerPathStr = "VK_LAYER_PATH";
+		if (char* vkLayerPath = getenv(gVkLayerPathStr))
+			std::cout << gVkLayerPathStr << "=" << vkLayerPath << '\n';
 
-		static const char* gvkDriverFilesStr = "VK_DRIVER_FILES";
-		if (char* vkDriverFiles = getenv(gvkDriverFilesStr))
-			std::cout << gvkDriverFilesStr << "=" << vkDriverFiles << '\n';
+		static const char* gVkDriverFilesStr = "VK_DRIVER_FILES";
+		if (char* vkDriverFiles = getenv(gVkDriverFilesStr))
+			std::cout << gVkDriverFilesStr << "=" << vkDriverFiles << '\n';
 	}
 
 	uint32_t instanceLayerCount;
@@ -223,8 +223,8 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	
 	if (instanceLayerCount > 0)
 	{
-		auto instanceLayers = std::make_unique<VkLayerProperties[]>(instanceLayerCount);
-		VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.get()));
+		std::vector<VkLayerProperties> instanceLayers(instanceLayerCount);
+		VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data()));
 		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
 		{
 			for (uint32_t i = 0; i < instanceLayerCount; ++i)
@@ -294,12 +294,12 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		const VkBool32 settingValidateCore = VK_TRUE;
 		const VkBool32 settingValidateSync = VK_FALSE;
 		const VkBool32 settingThreadSafety = VK_TRUE;
-		const char* settingDebugAction[] = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
-		const char* settingReportFlags[] = {"info", "warn", "perf", "error", "debug"};
+		static constexpr std::array<const char*, 1> kSettingDebugAction = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
+		static constexpr std::array<const char*, 5> kSettingReportFlags = {"info", "warn", "perf", "error", "debug"};
 		const VkBool32 settingEnableMessageLimit = VK_TRUE;
 		const int32_t settingDuplicateMessageLimit = 3;
 
-		const VkLayerSettingEXT settings[] = {
+		const std::array<VkLayerSettingEXT, 7> settings = {{
 			{kValidationLayerName.data(),
 			 "validate_core",
 			 VK_LAYER_SETTING_TYPE_BOOL32_EXT,
@@ -318,13 +318,13 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 			{kValidationLayerName.data(),
 			 "debug_action",
 			 VK_LAYER_SETTING_TYPE_STRING_EXT,
-			 1,
-			 settingDebugAction},
+			 kSettingDebugAction.size(),
+			 kSettingDebugAction.data()},//NOLINT(bugprone-multi-level-implicit-pointer-conversion)
 			{kValidationLayerName.data(),
 			 "report_flags",
 			 VK_LAYER_SETTING_TYPE_STRING_EXT,
-			 static_cast<uint32_t>(std::size(settingReportFlags)),
-			 settingReportFlags},
+			 kSettingReportFlags.size(),
+			 kSettingReportFlags.data()},//NOLINT(bugprone-multi-level-implicit-pointer-conversion)
 			{kValidationLayerName.data(),
 			 "enable_message_limit",
 			 VK_LAYER_SETTING_TYPE_BOOL32_EXT,
@@ -334,13 +334,13 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 			 "duplicate_message_limit",
 			 VK_LAYER_SETTING_TYPE_INT32_EXT,
 			 1,
-			 &settingDuplicateMessageLimit}};
+			 &settingDuplicateMessageLimit}}};
 
 		const VkLayerSettingsCreateInfoEXT layerSettingsCreateInfo = {
 			VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
 			&gDebugUtilsMessengerCallbackCreateInfo,
-			static_cast<uint32_t>(std::size(settings)),
-			settings};
+			settings.size(),
+			settings.data()};
 
 		info.pNext = &layerSettingsCreateInfo;
 	}
@@ -362,10 +362,10 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 
 	info.pApplicationInfo = &myConfig.appInfo;
 	info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
-	info.ppEnabledLayerNames = (info.enabledLayerCount != 0u) ? requiredLayers.data() : nullptr;
+	info.ppEnabledLayerNames = (info.enabledLayerCount != 0U) ? requiredLayers.data() : nullptr;
 	info.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
 	info.ppEnabledExtensionNames =
-		(info.enabledExtensionCount != 0u) ? requiredExtensions.data() : nullptr;
+		(info.enabledExtensionCount != 0U) ? requiredExtensions.data() : nullptr;
 #if defined(__OSX__)
 	info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
@@ -379,7 +379,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	myPhysicalDevices.resize(physicalDeviceCount);
 	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
 
-	for (auto physicalDevice : myPhysicalDevices)
+	for (auto* physicalDevice : myPhysicalDevices)
 	{
 		auto infoInsertNode = myPhysicalDeviceInfos.emplace(
 			physicalDevice, std::make_unique<PhysicalDeviceInfo<kVk>>());
@@ -398,7 +398,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 			myInstance,
 			&gDebugUtilsMessengerCallbackCreateInfo,
 			&myHostAllocationCallbacks,
-			&gdebugUtilsMessenger));
+			&gDebugUtilsMessenger));
 	}
 }
 
@@ -418,7 +418,7 @@ Instance<kVk>::~Instance()
 		ASSERT(vkDestroyDebugUtilsMessengerEXT != nullptr);
 
 		vkDestroyDebugUtilsMessengerEXT(
-			myInstance, gdebugUtilsMessenger, &GetHostAllocationCallbacks());
+			myInstance, gDebugUtilsMessenger, &GetHostAllocationCallbacks());
 	}
 
 	vkDestroyInstance(myInstance, &myHostAllocationCallbacks);
