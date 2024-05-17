@@ -26,7 +26,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 
 	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].GetBufferMemory();
 	void* data;
-	VK_CHECK(vmaMapMemory(GetDevice()->GetAllocator(), bufferMemory, &data));
+	VK_CHECK(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
 
 	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
@@ -39,12 +39,12 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 	}
 
 	// vmaFlushAllocation(
-	// 	GetDevice()->GetAllocator(),
+	// 	InternalGetDevice()->GetAllocator(),
 	// 	bufferMemory,
 	// 	0,
 	// 	viewCount * sizeof(ViewData));
 
-	vmaUnmapMemory(GetDevice()->GetAllocator(), bufferMemory);
+	vmaUnmapMemory(InternalGetDevice()->GetAllocator(), bufferMemory);
 }
 
 template <>
@@ -250,7 +250,7 @@ void Window<kVk>::OnResizeFramebuffer(int width, int height)
 	ASSERT(height > 0);
 	(void)width; (void)height;
 
-	auto& device = *GetDevice();
+	auto& device = *InternalGetDevice();
 	auto& instance = *device.GetInstance();
 	auto* surface = GetSurface();
 	auto* physicalDevice = device.GetPhysicalDevice();
@@ -424,7 +424,7 @@ Window<kVk>::Window(
 	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
 	{
 		myViewBuffers[i] = Buffer<kVk>(
-			GetDevice(),
+			InternalGetDevice(),
 			BufferCreateDesc<kVk>{
 				ShaderTypes_ViewCount * sizeof(ViewData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,

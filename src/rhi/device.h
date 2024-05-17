@@ -20,34 +20,27 @@
 template <GraphicsApi G>
 struct DeviceConfiguration
 {
-	consteval std::string_view GetName() const { return "device"; }
+	[[nodiscard]] consteval std::string_view GetName() const { return "device"; }
 
-	uint32_t physicalDeviceIndex = 0ul; // todo: replace with deviceID
-	// std::optional<bool> useShaderFloat16;
-	// std::optional<bool> useDescriptorIndexing;
-	// std::optional<bool> useScalarBlockLayout;
-	// std::optional<bool> useHostQueryReset;
-	// std::optional<bool> useTimelineSemaphores;
-	// std::optional<bool> useBufferDeviceAddress;
+	uint32_t physicalDeviceIndex = 0UL; // todo: replace with deviceID
 };
 
 template <GraphicsApi G>
 struct QueueFamilyDesc
 {
-	uint32_t queueCount = 0ul;
-	uint32_t flags = 0ul;
+	uint32_t queueCount = 0UL;
+	uint32_t flags = 0UL;
 };
 
 template <GraphicsApi G>
 class Device final : public Noncopyable, public Nonmovable
 {
 public:
-	Device(
-		const std::shared_ptr<Instance<G>>& instance,
-		DeviceConfiguration<G>&& defaultConfig = {});
+	explicit Device(
+		const std::shared_ptr<Instance<G>>& instance, DeviceConfiguration<G>&& defaultConfig = {});
 	~Device();
 
-	operator auto() const noexcept { return myDevice; }
+	operator auto() const noexcept { return myDevice; }//NOLINT(google-explicit-constructor)
 
 	auto GetInstance() const noexcept { return myInstance; } // todo: make global?
 	const auto& GetConfig() const noexcept { return myConfig; }
@@ -83,9 +76,9 @@ private:
 	std::shared_ptr<Instance<G>> myInstance;
 	file::Object<DeviceConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 	DeviceHandle<G> myDevice{};
-	uint32_t myPhysicalDeviceIndex = 0ul;
+	uint32_t myPhysicalDeviceIndex = 0UL;
 	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
-	AllocatorHandle<G> myAllocator{};
+	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)
 	std::atomic_uint64_t myTimelineValue;
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
@@ -116,9 +109,9 @@ public:
 	DeviceObject& operator=(DeviceObject&& other) noexcept;
 	void Swap(DeviceObject& rhs) noexcept;
 
-	std::string_view GetName() const noexcept { return myDesc.name; }
-	const uuids::uuid& GetUid() const noexcept { return myUid; }
-	bool IsValid() const noexcept { return !myUid.is_nil(); }
+	[[nodiscard]] std::string_view GetName() const noexcept { return myDesc.name; }
+	[[nodiscard]] const uuids::uuid& GetUid() const noexcept { return myUid; }
+	[[nodiscard]] bool IsValid() const noexcept { return !myUid.is_nil(); }
 
 protected:
 	constexpr DeviceObject() noexcept = default;
@@ -133,10 +126,10 @@ protected:
 		ObjectType<G> objectType,
 		const uint64_t* objectHandles);
 
-	const auto& GetDevice() const noexcept { return myDevice; }
+	[[nodiscard]] const auto& InternalGetDevice() const noexcept { return myDevice; }
 
 private:
 	std::shared_ptr<Device<G>> myDevice;
 	DeviceObjectCreateDesc myDesc{};
-	uuids::uuid myUid{};
+	uuids::uuid myUid;
 };

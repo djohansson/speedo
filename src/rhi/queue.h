@@ -25,7 +25,7 @@ template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
 	std::vector<FenceHandle<G>> fences;
-	uint64_t maxTimelineValue = 0ull; // todo: need to store all semaphores + values?
+	uint64_t maxTimelineValue = 0ULL; // todo: need to store all semaphores + values?
 
 	QueueHostSyncInfo<G>& operator|=(QueueHostSyncInfo<G>&& other);
 	friend QueueHostSyncInfo<G> operator|(QueueHostSyncInfo<G>&& lhs, QueueHostSyncInfo<G>&& rhs);
@@ -35,7 +35,7 @@ template <GraphicsApi G>
 struct QueueSubmitInfo : QueueDeviceSyncInfo<G>
 {
 	std::vector<CommandBufferHandle<G>> commandBuffers;
-	uint64_t timelineValue = 0ull;
+	uint64_t timelineValue = 0ULL;
 };
 
 template <GraphicsApi G>
@@ -52,38 +52,37 @@ struct QueuePresentInfo : QueueHostSyncInfo<G>
 
 enum QueueType : uint8_t
 {
-	QueueType_Graphics = 0,
-	QueueType_Compute = 1,
-	QueueType_Transfer = 2,
-	QueueType_SparseBinding = 3,
-	QueueType_VideoDecode = 5,
-	QueueType_VideoEncode = 6
+	kQueueTypeGraphics = 0,
+	kQueueTypeCompute = 1,
+	kQueueTypeTransfer = 2,
+	kQueueTypeSparseBinding = 3,
+	kQueueTypeVideoDecode = 5,
+	kQueueTypeVideoEncode = 6
 };
 
-constexpr std::array<QueueType, 6> AllQueueTypes{
-	QueueType_Graphics,
-	QueueType_Compute,
-	QueueType_Transfer,
-	QueueType_SparseBinding,
-	QueueType_VideoDecode,
-	QueueType_VideoEncode
-};
+constexpr std::array<QueueType, 6> kAllQueueTypes{
+	kQueueTypeGraphics,
+	kQueueTypeCompute,
+	kQueueTypeTransfer,
+	kQueueTypeSparseBinding,
+	kQueueTypeVideoDecode,
+	kQueueTypeVideoEncode};
 
-enum QueueFamilyFlagBits : uint32_t
+enum QueueFamilyFlagBits : uint8_t
 {
-	QueueFamilyFlagBits_Graphics = 1 << QueueType_Graphics,
-	QueueFamilyFlagBits_Compute = 1 << QueueType_Compute,
-	QueueFamilyFlagBits_Transfer = 1 << QueueType_Transfer,
-	QueueFamilyFlagBits_SparseBinding = 1 << QueueType_SparseBinding,
-	QueueFamilyFlagBits_VideoDecode = 1 << QueueType_VideoDecode,
-	QueueFamilyFlagBits_VideoEncode = 1 << QueueType_VideoEncode
+	kQueueFamilyFlagBitsGraphics = 1 << kQueueTypeGraphics,
+	kQueueFamilyFlagBitsCompute = 1 << kQueueTypeCompute,
+	kQueueFamilyFlagBitsTransfer = 1 << kQueueTypeTransfer,
+	kQueueFamilyFlagBitsSparseBinding = 1 << kQueueTypeSparseBinding,
+	kQueueFamilyFlagBitsVideoDecode = 1 << kQueueTypeVideoDecode,
+	kQueueFamilyFlagBitsVideoEncode = 1 << kQueueTypeVideoEncode
 };
 
 template <GraphicsApi G>
 struct QueueCreateDesc
 {
-	uint32_t queueIndex = 0ul;
-	uint32_t queueFamilyIndex = 0ul;
+	uint32_t queueIndex = 0UL;
+	uint32_t queueFamilyIndex = 0UL;
 };
 
 struct SourceLocationData
@@ -91,8 +90,8 @@ struct SourceLocationData
 	const char* name{};
 	const char* function{};
 	const char* file{};
-	uint32_t line = 0ul;
-	uint32_t color = 0ul;
+	uint32_t line = 0UL;
+	uint32_t color = 0UL;
 };
 
 template <GraphicsApi G>
@@ -107,15 +106,15 @@ public:
 		CommandPoolCreateDesc<G>&& commandPoolDesc,
 		QueueCreateDesc<G>&& queueDesc);
 	Queue(Queue<G>&& other) noexcept;
-	~Queue();
+	~Queue() override;
 
 	Queue& operator=(Queue&& other) noexcept;
-	operator auto() const noexcept { return myQueue; }
+	operator auto() const noexcept { return myQueue; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Queue& rhs) noexcept;
 	friend void Swap(Queue& lhs, Queue& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	template <typename T, typename... Ts>
 	void EnqueueSubmit(T&& first, Ts&&... rest);
@@ -133,8 +132,8 @@ public:
 	void AddTimelineCallback(TimelineCallback&& callback);
 	bool ProcessTimelineCallbacks(uint64_t timelineValue);
 
-	auto& GetPool() noexcept { return myPool; }
-	const auto& GetPool() const noexcept { return myPool; }
+	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
+	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
 
 #if (PROFILING_LEVEL > 0)
 	template <SourceLocationData Location>
@@ -172,15 +171,18 @@ template <GraphicsApi G>
 using QueueGroup = std::tuple<std::vector<std::pair<Queue<G>, QueueHostSyncInfo<G>>>, Semaphore<G>>;
 
 #if (PROFILING_LEVEL > 0)
-#	define GPU_SCOPE(cmd, queue, tag)											\
-		auto tag##__scope =														\
-			queue.GpuScope<														\
-				SourceLocationData{												\
-					.name = std_extra::make_string_literal<#tag>().data(),						\
-					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(),	\
-					.file = std_extra::make_string_literal<__FILE__>().data(),					\
+#	define GPU_SCOPE(cmd, queue, tag)                                                             \
+		auto tag##__scope =                                                                        \
+			(queue)                                                                                \
+				.GpuScope<SourceLocationData{                                                      \
+					.name = std_extra::make_string_literal<#tag>().data(),                         \
+					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(),      \
+					.file = std_extra::make_string_literal<__FILE__>().data(),                     \
 					.line = __LINE__}>(cmd);
-#	define GPU_SCOPE_COLLECT(cmd, queue) { queue.GpuScopeCollect(cmd); }
+#	define GPU_SCOPE_COLLECT(cmd, queue)                                                          \
+		{                                                                                          \
+			(queue).GpuScopeCollect(cmd);                                                          \
+		}
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}
 #	define GPU_SCOPE_COLLECT(cmd, queue) {}

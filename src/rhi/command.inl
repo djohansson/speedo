@@ -2,8 +2,10 @@ template <GraphicsApi G>
 CommandBufferAccessScope<G>
 CommandPool<G>::Commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
 {
+	//NOLINTBEGIN(bugprone-unchecked-optional-access)
 	if (!myRecordingCommands[beginInfo.level].has_value() || myRecordingCommands[beginInfo.level].value().GetDesc() != beginInfo)
 		return InternalBeginScope(beginInfo);
+	//NOLINTEND(bugprone-unchecked-optional-access)
 	
 	return myRecordingCommands[beginInfo.level].value();
 }

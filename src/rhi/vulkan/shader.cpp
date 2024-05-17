@@ -364,9 +364,9 @@ ShaderModule<kVk>::~ShaderModule()
 {
 	if (myShaderModule != nullptr)
 		vkDestroyShaderModule(
-			*GetDevice(),
+			*InternalGetDevice(),
 			myShaderModule,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

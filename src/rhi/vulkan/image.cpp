@@ -26,9 +26,9 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
 auto serialize(const ImageCreateDesc<kVk>&) -> zpp::bits::members<6>;
-//NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
 
 namespace image
 {
@@ -69,6 +69,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		desc.initialLayout);
 }
 
+//NOLINTBEGIN(readability-magic-numbers)
 std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 	const std::filesystem::path& imageFile,
 	const std::shared_ptr<Device<kVk>>& device,
@@ -80,13 +81,13 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device, &progress](auto& in) -> std::error_code
+	auto loadBin = [&descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
 	{
-		progress = 32;//NOLINT(readability-magic-numbers)
+		progress = 32;
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-		if (auto result = in(desc); failure(result))
+		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
 		size_t size = 0;
@@ -100,11 +101,11 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
-		progress = 64;//NOLINT(readability-magic-numbers)
+		progress = 64;
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
-		auto result = in(std::span(static_cast<char*>(data), size));
+		auto result = inStream(std::span(static_cast<char*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
@@ -112,16 +113,16 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 
-		progress = 255;//NOLINT(readability-magic-numbers)
+		progress = 255;
 
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device, &progress](auto& out) -> std::error_code
+	auto saveBin = [&descAndInitialData, &device, &progress](auto& outStream) -> std::error_code
 	{
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 		
-		if (auto result = out(desc); failure(result))
+		if (auto result = outStream(desc); failure(result))
 			return std::make_error_code(result);
 
 		size_t size = 0;
@@ -130,19 +131,19 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
-		auto result = out(std::span(static_cast<const char*>(data), size));
+		auto result = outStream(std::span(static_cast<const char*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), memoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
 
-		progress = 255;//NOLINT(readability-magic-numbers)
+		progress = 255;
 
 		return {};
 	};
 
 	auto loadImage = [&descAndInitialData, &device, &imageFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		progress = 32;//NOLINT(readability-magic-numbers)
+		progress = 32;
 
 		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
@@ -154,7 +155,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		uint32_t mipCount =
 			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 		bool hasAlpha = channelCount == 4;
-		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;//NOLINT(readability-magic-numbers)
+		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
 		desc.mipLevels.resize(mipCount);
 		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
@@ -199,9 +200,9 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 			auto blockCount = blockRowCount * blockColCount;
 
 			auto extractBlock =
-				[](const stbi_uc* src, uint32_t width, uint32_t stride, stbi_uc* dst)
+				[](const stbi_uc* src, size_t width, size_t stride, stbi_uc* dst)
 			{
-				for (uint32_t rowIt = 0; rowIt < 4; rowIt++)
+				for (size_t rowIt = 0; rowIt < 4; rowIt++)
 				{
 					std::copy(src, src + stride * 4, &dst[rowIt * 16]);
 					src += width * stride;
@@ -229,10 +230,10 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 						auto srcOffset = (rowIt * extent.width + colIt) * 4;
 						auto dstOffset = blockIt * compressedBlockSize;
 
-						stbi_uc block[64]{0};
-						extractBlock(src + srcOffset, extent.width, 4, block);
+						std::array<stbi_uc, 64> block;
+						extractBlock(src + srcOffset, extent.width, 4, block.data());
 
-						stb_compress_dxt_block(dst + dstOffset, block, hasAlpha, STB_DXT_HIGHQUAL);
+						stb_compress_dxt_block(dst + dstOffset, block.data(), hasAlpha, STB_DXT_HIGHQUAL);
 
 						blockIt = blockAtomic++;
 					}
@@ -245,32 +246,32 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		auto* src = stbiImageData;
 		auto* dst = static_cast<unsigned char*>(stagingBuffer);
 
-		auto dp = 192 / (2 * desc.mipLevels.size());
+		auto dprogress = 192 / (2 * desc.mipLevels.size());
 
 		dst += compressBlocks(
 			src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
 
-		progress += 2*dp;
+		progress += 2*dprogress;
 
 		std::array<std::vector<stbi_uc>, 2> mipBuffers;
-		for (uint32_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
+		for (size_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
 		{
 			ZoneScopedN("image::loadImage::mip");
 
-			uint32_t previousMipIt = (mipIt - 1);
-			uint32_t currentBuffer = mipIt & 1;
+			auto previousMipIt = (mipIt - 1);
+			auto currentBuffer = mipIt & 1;
 
 			const auto& previousExtent = desc.mipLevels[previousMipIt].extent;
 			const auto& currentExtent = desc.mipLevels[mipIt].extent;
 
 			mipBuffers[currentBuffer].resize(
-				std::max<uint32_t>(currentExtent.width, 4) *
-				std::max<uint32_t>(currentExtent.height, 4) * 4);
+				std::max<size_t>(currentExtent.width, 4) *
+				std::max<size_t>(currentExtent.height, 4) * 4);
 
 			auto threadRowCount = previousExtent.height / threadCount;
 			if (threadRowCount > 4)
 			{
-				std::vector<uint32_t> threadIds(threadCount);
+				std::vector<size_t> threadIds(threadCount);
 				std::iota(threadIds.begin(), threadIds.end(), 0);
 				std::for_each_n(
 #if defined(__WINDOWS__)
@@ -278,22 +279,22 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 #endif
 					threadIds.begin(),
 					threadCount,
-					[&](uint32_t threadId)
+					[&](size_t threadId)
 					{
 						ZoneScopedN("image::loadImage::mip::resize::thread");
 
-						uint32_t threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
+						auto threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
 
 						stbir_resize_uint8(
 							src + threadId * threadRowCount * previousExtent.width * 4,
-							previousExtent.width,
-							threadRowCount + threadRowCountRest,
-							previousExtent.width * 4,
+							static_cast<int>(previousExtent.width),
+							static_cast<int>(threadRowCount + threadRowCountRest),
+							static_cast<int>(previousExtent.width * 4),
 							mipBuffers[currentBuffer].data() +
 								threadId * (threadRowCount >> 1) * currentExtent.width * 4,
-							currentExtent.width,
-							((threadRowCount + threadRowCountRest) >> 1),
-							currentExtent.width * 4,
+							static_cast<int>(currentExtent.width),
+							static_cast<int>(((threadRowCount + threadRowCountRest) >> 1)),
+							static_cast<int>(currentExtent.width * 4),
 							4);
 					});
 			}
@@ -303,23 +304,23 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 
 				stbir_resize_uint8(
 					src,
-					previousExtent.width,
-					previousExtent.height,
-					previousExtent.width * 4,
+					static_cast<int>(previousExtent.width),
+					static_cast<int>(previousExtent.height),
+					static_cast<int>(previousExtent.width * 4),
 					mipBuffers[currentBuffer].data(),
-					currentExtent.width,
-					currentExtent.height,
-					currentExtent.width * 4,
+					static_cast<int>(currentExtent.width),
+					static_cast<int>(currentExtent.height),
+					static_cast<int>(currentExtent.width * 4),
 					4);
 			}
 
-			progress += dp;
+			progress += dprogress;
 
 			src = mipBuffers[currentBuffer].data();
 			dst +=
 				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
 
-			progress += dp;
+			progress += dprogress;
 		}
 
 		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
@@ -331,15 +332,16 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		return {};
 	};
 
-	static constexpr char kLoaderType[] = "stb_image|stb_image_resize|stb_dxt";
-	static constexpr char kLoaderVersion[] = "2.26|0.96|1.10";
-	file::LoadAsset<kLoaderType, kLoaderVersion>(imageFile, loadImage, loadBin, saveBin);
+	file::LoadAsset<
+		std_extra::make_string_literal<"stb_image|stb_image_resize|stb_dxt">().data(),
+		std_extra::make_string_literal<"2.26|0.96|1.10">().data()>(imageFile, loadImage, loadBin, saveBin);
 
 	if (bufferHandle == nullptr)
 		throw std::runtime_error("Failed to load image.");
 
 	return descAndInitialData;
 }
+//NOLINTEND(readability-magic-numbers)
 
 } // namespace image
 
@@ -352,7 +354,7 @@ void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 	{
 		TransitionImageLayout(
 			cmd, *this, myDesc.format, GetImageLayout(), layout, myDesc.mipLevels.size());
-		SetImageLayout(layout);
+		InternalSetImageLayout(layout);
 	}
 }
 
@@ -376,7 +378,7 @@ void Image<kVk>::Clear(
 
 	switch (type)
 	{
-	case ClearType::Color:
+	case ClearType::kColor:
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
@@ -385,7 +387,7 @@ void Image<kVk>::Clear(
 			1,
 			range ? &range.value() : &kDefaultColorRange);
 		break;
-	case ClearType::DepthStencil:
+	case ClearType::kDepthStencil:
 		vkCmdClearDepthStencilImage(
 			cmd,
 			static_cast<VkImage>(*this),
@@ -492,7 +494,7 @@ template <>
 Image<kVk>::~Image()
 {
 	if (ImageHandle<kVk> image = *this)
-		vmaDestroyImage(GetDevice()->GetAllocator(), image, GetImageMemory());
+		vmaDestroyImage(InternalGetDevice()->GetAllocator(), image, GetImageMemory());
 }
 
 template <>
@@ -526,8 +528,8 @@ ImageView<kVk>::ImageView(
 template <>
 ImageView<kVk>::~ImageView()
 {
-	if (ImageViewHandle<kVk> view = *this)
-		vkDestroyImageView(*GetDevice(), view, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+	if (auto* view = static_cast<ImageViewHandle<kVk>>(*this))
+		vkDestroyImageView(*InternalGetDevice(), view, &InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

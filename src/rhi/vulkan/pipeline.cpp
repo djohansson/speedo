@@ -231,9 +231,9 @@ PipelineLayout<kVk>::~PipelineLayout()
 {
 	if (myLayout != nullptr)
 		vkDestroyPipelineLayout(
-			*GetDevice(),
+			*InternalGetDevice(),
 			myLayout,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -297,7 +297,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 				BindingsMap<kVk>{},
 				BindingsData<kVk>{},
 				DescriptorUpdateTemplate<kVk>{
-					GetDevice(),
+					InternalGetDevice(),
 					DescriptorUpdateTemplateCreateDesc<kVk>{
 						((setLayout.GetDesc().flags &
 						  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
@@ -323,7 +323,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 
 			setArrayList.emplace_front(std::make_tuple(
 				DescriptorSetArray<kVk>(
-					GetDevice(),
+					InternalGetDevice(),
 					setLayout,
 					DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
 				0,
@@ -483,16 +483,16 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 
 	VkPipeline pipelineHandle;
 	VK_CHECK(vkCreateGraphicsPipelines(
-		*GetDevice(),
+		*InternalGetDevice(),
 		myCache,
 		1,
 		&pipelineInfo,
-		&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 		&pipelineHandle));
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		GetDevice()->AddOwnedObjectHandle(
+		InternalGetDevice()->AddOwnedObjectHandle(
 			GetUid(),
 			VK_OBJECT_TYPE_PIPELINE,
 			reinterpret_cast<uint64_t>(pipelineHandle),
@@ -566,7 +566,7 @@ void Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
 template <>
 PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shaderSet)
 {
-	auto layout = PipelineLayout<kVk>(GetDevice(), shaderSet);
+	auto layout = PipelineLayout<kVk>(InternalGetDevice(), shaderSet);
 	auto* handle = static_cast<PipelineLayoutHandle<kVk>>(layout);
 
 	myGraphicsState.layouts.emplace(handle, std::move(layout));
@@ -652,7 +652,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 	{
 		setArrayList.emplace_front(std::make_tuple(
 			DescriptorSetArray<kVk>(
-				GetDevice(), setLayout, DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
+				InternalGetDevice(), setLayout, DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
 			~0,
 			0));
 	}
@@ -667,7 +667,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 			"Pipeline::InternalUpdateDescriptorSet::vkUpdateDescriptorSetWithTemplate");
 
 		vkUpdateDescriptorSetWithTemplate(
-			*GetDevice(), setHandle, setTemplate, bindingsData.data());
+			*InternalGetDevice(), setHandle, setTemplate, bindingsData.data());
 	}
 
 	// clean up
@@ -700,7 +700,7 @@ void Pipeline<kVk>::InternalPushDescriptorSet(
 		if (pipeline::gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
 			pipeline::gVkCmdPushDescriptorSetWithTemplateKHR =
 				reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
-					vkGetDeviceProcAddr(*GetDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
+					vkGetDeviceProcAddr(*InternalGetDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
 
 		pipeline::gVkCmdPushDescriptorSetWithTemplateKHR(
 			cmd, setTemplate, GetLayout(), setTemplate.GetDesc().set, bindingsData.data());
@@ -809,7 +809,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 
 		setRefCount++;
 
-		// GetDevice()->AddTimelineCallback([refCountPtr = &setRefCount](uint64_t)
+		// InternalGetDevice()->AddTimelineCallback([refCountPtr = &setRefCount](uint64_t)
 		// 										{ (*refCountPtr)--; });
 	}
 	else
@@ -892,8 +892,8 @@ Pipeline<kVk>::~Pipeline()
 {
 	if (auto fileInfo = pipeline::SavePipelineCache(
 			myConfig.cachePath,
-			*GetDevice(),
-			GetDevice()->GetPhysicalDeviceInfo().deviceProperties,
+			*InternalGetDevice(),
+			InternalGetDevice()->GetPhysicalDeviceInfo().deviceProperties,
 			myCache);
 		fileInfo)
 	{
@@ -906,18 +906,18 @@ Pipeline<kVk>::~Pipeline()
 
 	for (const auto& pipelineIt : myPipelineMap)
 		vkDestroyPipeline(
-			*GetDevice(),
+			*InternalGetDevice(),
 			pipelineIt.second,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 
 	vkDestroyPipelineCache(
-		*GetDevice(),
+		*InternalGetDevice(),
 		myCache,
-		&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 
 	myGraphicsState.resources = {};
 	myDescriptorMap.clear();
 
 	if (myDescriptorPool != nullptr)
-		vkDestroyDescriptorPool(*GetDevice(), myDescriptorPool, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		vkDestroyDescriptorPool(*InternalGetDevice(), myDescriptorPool, &InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }

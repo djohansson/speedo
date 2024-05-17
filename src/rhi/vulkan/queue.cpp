@@ -43,22 +43,22 @@ Queue<kVk>::Queue(
 	using namespace tracy;
 
 	static_assert(
-		static_cast<uint32_t>(QueueFamilyFlagBits_Graphics) ==
+		static_cast<uint32_t>(kQueueFamilyFlagBitsGraphics) ==
 		static_cast<uint32_t>(VK_QUEUE_GRAPHICS_BIT));
 	static_assert(
-		static_cast<uint32_t>(QueueFamilyFlagBits_Compute) ==
+		static_cast<uint32_t>(kQueueFamilyFlagBitsCompute) ==
 		static_cast<uint32_t>(VK_QUEUE_COMPUTE_BIT));
 	static_assert(
-		static_cast<uint32_t>(QueueFamilyFlagBits_Transfer) ==
+		static_cast<uint32_t>(kQueueFamilyFlagBitsTransfer) ==
 		static_cast<uint32_t>(VK_QUEUE_TRANSFER_BIT));
 	static_assert(
-		static_cast<uint32_t>(QueueFamilyFlagBits_SparseBinding) ==
+		static_cast<uint32_t>(kQueueFamilyFlagBitsSparseBinding) ==
 		static_cast<uint32_t>(VK_QUEUE_SPARSE_BINDING_BIT));
 	static_assert(
-		static_cast<uint32_t>(QueueFamilyFlagBits_VideoDecode) ==
+		static_cast<uint32_t>(kQueueFamilyFlagBitsVideoDecode) ==
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_DECODE_BIT_KHR));
 	static_assert(
-		static_cast<uint32_t>(QueueFamilyFlagBits_VideoEncode) ==
+		static_cast<uint32_t>(kQueueFamilyFlagBitsVideoEncode) ==
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (PROFILING_LEVEL > 0)
@@ -271,7 +271,7 @@ QueuePresentInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::present");
 
-	Fence<kVk>::Wait(GetDevice(), myPendingPresent.fences);
+	Fence<kVk>::Wait(InternalGetDevice(), myPendingPresent.fences);
 
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();

@@ -96,11 +96,11 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<kVk>::Flip()
 {
 	ZoneScoped;
 
-	auto& device = *GetDevice();
+	auto& device = *InternalGetDevice();
 
 	auto lastFrameIndex = myFrameIndex;
 	
-	Fence<kVk> fence(GetDevice(), FenceCreateDesc<kVk>{});
+	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{});
 
 	auto flipResult = CheckFlipOrPresentResult(vkAcquireNextImageKHR(
 		device,
@@ -139,7 +139,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 {
 	ZoneScopedN("Swapchain::InternalCreateSwapchain");
 
-	auto& device = *GetDevice();
+	auto& device = *InternalGetDevice();
 
 	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
@@ -201,7 +201,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 
 	for (uint32_t frameIt = 0UL; frameIt < frameCount; frameIt++)
 		myFrames.emplace_back(
-			GetDevice(),
+			InternalGetDevice(),
 			FrameCreateDesc<kVk>{
 				{config.extent,
 				 {config.surfaceFormat.format},
@@ -242,7 +242,7 @@ Swapchain<kVk>::~Swapchain()
 {
 	ZoneScopedN("~Swapchain()");
 
-	if (auto device = GetDevice())
+	if (auto device = InternalGetDevice())
 	{
 		if (mySwapchain != nullptr)
 			vkDestroySwapchainKHR(

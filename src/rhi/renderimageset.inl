@@ -104,10 +104,10 @@ void RenderImageSet<G>::End(CommandBufferHandle<G> cmd)
 
 	uint32_t imageIt = 0ul;
 	for (; imageIt < myColorImages.size(); imageIt++)
-		myColorImages[imageIt]->SetImageLayout(this->GetAttachmentDesc(imageIt).finalLayout);
+		myColorImages[imageIt]->InternalSetImageLayout(this->GetAttachmentDesc(imageIt).finalLayout);
 
 	if (myDepthStencilImage)
-		myDepthStencilImage->SetImageLayout(this->GetAttachmentDesc(imageIt).finalLayout);
+		myDepthStencilImage->InternalSetImageLayout(this->GetAttachmentDesc(imageIt).finalLayout);
 }
 
 template <GraphicsApi G>

@@ -38,7 +38,7 @@ template <>
 Fence<kVk>::~Fence()
 {
 	if (myFence != nullptr)
-		vkDestroyFence(*GetDevice(), myFence, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		vkDestroyFence(*InternalGetDevice(), myFence, &InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -61,7 +61,7 @@ void Fence<kVk>::Wait(bool waitAll, uint64_t timeout) const
 {
 	ZoneScopedN("Fence::wait");
 
-	VK_CHECK(vkWaitForFences(*GetDevice(), 1, &myFence, waitAll, timeout));
+	VK_CHECK(vkWaitForFences(*InternalGetDevice(), 1, &myFence, waitAll, timeout));
 }
 
 template <>

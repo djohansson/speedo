@@ -74,7 +74,7 @@ CommandBufferArray<kVk>::~CommandBufferArray()
 		ZoneScopedN("~CommandBufferArray()::vkFreeCommandBuffers");
 
 		vkFreeCommandBuffers(
-			*GetDevice(), myDesc.pool, kCommandBufferCount, myArray.data());
+			*InternalGetDevice(), myDesc.pool, kCommandBufferCount, myArray.data());
 	}
 }
 
@@ -211,9 +211,9 @@ CommandPool<kVk>::~CommandPool()
 
 	if (myPool != nullptr)
 		vkDestroyCommandPool(
-			*GetDevice(),
+			*InternalGetDevice(),
 			myPool,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -251,7 +251,7 @@ void CommandPool<kVk>::Reset()
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
 		VK_CHECK(vkResetCommandPool(
-			*GetDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
+			*InternalGetDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
 	}
 
 	for (uint32_t levelIt = 0UL; levelIt < mySubmittedCommands.size(); levelIt++)
@@ -290,7 +290,7 @@ void CommandPool<kVk>::InternalEnqueueOnePending(uint8_t level)
 
 		myPendingCommands[level].emplace_back(std::make_tuple(
 			CommandBufferArray<kVk>(
-				GetDevice(), CommandBufferArrayCreateDesc<kVk>{*this, level}),
+				InternalGetDevice(), CommandBufferArrayCreateDesc<kVk>{*this, level}),
 			0));
 	}
 }
@@ -321,7 +321,7 @@ void CommandPool<kVk>::InternalEnqueueSubmitted(
 }
 
 template <>
-CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(bool scopedBeginEnd)
+CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(bool scopedBeginEnd) noexcept
 	: CommandBufferBeginInfo<
 		  kVk>{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, nullptr, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, &inheritance}
 	, inheritance{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO}
@@ -331,7 +331,7 @@ CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(bool scopedBegin
 
 template <>
 CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(
-	const CommandBufferAccessScopeDesc& other)
+	const CommandBufferAccessScopeDesc& other) noexcept
 	: CommandBufferBeginInfo<kVk>(other)
 	, inheritance(other.inheritance)
 	, level(other.level)
@@ -342,7 +342,7 @@ CommandBufferAccessScopeDesc<kVk>::CommandBufferAccessScopeDesc(
 
 template <>
 CommandBufferAccessScopeDesc<kVk>&
-CommandBufferAccessScopeDesc<kVk>::operator=(const CommandBufferAccessScopeDesc& other)
+CommandBufferAccessScopeDesc<kVk>::operator=(const CommandBufferAccessScopeDesc& other) noexcept
 {
 	*static_cast<CommandBufferBeginInfo<kVk>*>(this) = other;
 	inheritance = other.inheritance;
@@ -353,14 +353,14 @@ CommandBufferAccessScopeDesc<kVk>::operator=(const CommandBufferAccessScopeDesc&
 }
 
 template <>
-bool CommandBufferAccessScopeDesc<kVk>::operator==(const CommandBufferAccessScopeDesc& other) const
+bool CommandBufferAccessScopeDesc<kVk>::operator==(const CommandBufferAccessScopeDesc& other) const noexcept
 {
 	bool result = true;
 
 	if (this != &other)
 	{
 		result = other.flags == flags && other.level == level && scopedBeginEnd == other.scopedBeginEnd;
-		if (result && level > VK_COMMAND_BUFFER_LEVEL_PRIMARY)
+		if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		{
 			ASSERT(pInheritanceInfo);
 			result &=

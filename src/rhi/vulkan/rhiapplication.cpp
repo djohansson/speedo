@@ -37,7 +37,7 @@ OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* fil
 static void LoadModel(
 	Rhi<kVk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
@@ -63,7 +63,7 @@ static void LoadModel(
 static void LoadImage(
 	Rhi<kVk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
 {
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
@@ -96,7 +96,7 @@ static void LoadImage(
 		uint64_t waitSemaphoreValue,
 		uint32_t frameIndex)
 	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(frameIndex);
 
 		{
@@ -736,7 +736,7 @@ static void IMGUIInit(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 	// Setup Vulkan binding
@@ -957,7 +957,7 @@ static void CreateQueues(Rhi<kVk>& rhi)
 	{
 		const auto& queueFamily = queueFamilies[queueFamilyIt];
 
-		for (auto type : AllQueueTypes)
+		for (auto type : kAllQueueTypes)
 		{
 			if ((queueFamily.flags & (1 << static_cast<uint8_t>(type))) != 0U)
 			{
@@ -972,21 +972,21 @@ static void CreateQueues(Rhi<kVk>& rhi)
 				
 				auto& [queueInfos, semaphore] = it->second;
 
-				if (type == QueueType_Graphics)
+				if (type == kQueueTypeGraphics)
 				{
 					if (queueInfos.size() >= graphicsQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, graphicsQueueCount);
 				}
-				else if (type == QueueType_Compute)
+				else if (type == kQueueTypeCompute)
 				{
 					if (queueInfos.size() >= computeQueueCount)
 						continue;
 
 					queueCount = std::min(queueCount, computeQueueCount);
 				}
-				else if (type == QueueType_Transfer)
+				else if (type == kQueueTypeTransfer)
 				{
 					if (queueInfos.size() >= transferQueueCount)
 						continue;
@@ -1167,7 +1167,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	static_assert(kTextureId < ShaderTypes_GlobalTextureCount);
 	static_assert(kSamplerId < ShaderTypes_GlobalSamplerCount);
 	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[QueueType_Graphics];
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[kQueueTypeGraphics];
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
@@ -1413,7 +1413,7 @@ void RhiApplication::InternalDraw()
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
 
@@ -1530,7 +1530,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
 		ZoneScopedN("~RhiApplication()::waitGraphics");
@@ -1539,7 +1539,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 		graphicsQueue.ProcessTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[QueueType_Transfer];
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	for (auto& [transferQueue, transferSubmit] : transferQueueInfos)	
 	{
 		ZoneScopedN("~RhiApplication()::waitTransfer");
@@ -1583,7 +1583,7 @@ void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 
 	auto& rhi = InternalRhi<kVk>();
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[QueueType_Graphics];
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
 		ZoneScopedN("RhiApplication::OnResizeFramebuffer::waitGraphics");

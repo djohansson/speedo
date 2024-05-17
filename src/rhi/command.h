@@ -33,7 +33,7 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		CommandBufferArrayCreateDesc<G>&& desc);
 	CommandBufferArray(CommandBufferArray&& other) noexcept;
-	~CommandBufferArray();
+	~CommandBufferArray() override;
 
 	CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
 	CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
@@ -41,7 +41,7 @@ public:
 	void Swap(CommandBufferArray& rhs) noexcept;
 	friend void Swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	static constexpr auto Capacity() { return kCommandBufferCount; }
 
@@ -50,17 +50,20 @@ public:
 
 	void Reset();
 
-	uint8_t Head() const { return myBits.head; }
-	const CommandBufferHandle<G>* Data() const
+	[[nodiscard]] uint8_t Head() const { return myBits.head; }
+	[[nodiscard]] const CommandBufferHandle<G>* Data() const
 	{
 		ASSERT(!RecordingFlags());
 		return myArray.data();
 	}
 
-	bool Recording(uint8_t index) const { return myBits.recordingFlags & (1 << index); }
-	uint8_t RecordingFlags() const noexcept { return myBits.recordingFlags; }
+	[[nodiscard]] bool Recording(uint8_t index) const
+	{
+		return myBits.recordingFlags & (1 << index);
+	}
+	[[nodiscard]] uint8_t RecordingFlags() const noexcept { return myBits.recordingFlags; }
 
-	bool Full() const { return (Head() + 1) >= Capacity(); }
+	[[nodiscard]] bool Full() const { return (Head() + 1) >= Capacity(); }
 
 private:
 	CommandBufferArray(
@@ -81,11 +84,11 @@ private:
 template <GraphicsApi G>
 struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 {
-	CommandBufferAccessScopeDesc(bool scopedBeginEnd = true);
-	CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<G>& other);
+	CommandBufferAccessScopeDesc(bool scopedBeginEnd = true) noexcept;//NOLINT(google-explicit-constructor)
+	CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<G>& other) noexcept;
 
-	CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other);
-	bool operator==(const CommandBufferAccessScopeDesc<G>& other) const;
+	CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other) noexcept;
+	bool operator==(const CommandBufferAccessScopeDesc<G>& other) const noexcept;
 
 	CommandBufferInheritanceInfo<kVk> inheritance{};
 	uint8_t level = 0; // 0: primary, >= 1: secondary
@@ -104,7 +107,7 @@ public:
 	~CommandBufferAccessScope();
 
 	CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
-	operator auto() const { return (*myArray)[myIndex]; }
+	operator auto() const { return (*myArray)[myIndex]; }//NOLINT(google-explicit-constructor)
 
 	void Swap(CommandBufferAccessScope<G>& rhs) noexcept;
 	friend void Swap(CommandBufferAccessScope<G>& lhs, CommandBufferAccessScope<G>& rhs) noexcept
@@ -112,7 +115,7 @@ public:
 		lhs.Swap(rhs);
 	}
 
-	const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	void Begin() { myIndex = myArray->Begin(myDesc); }
 	void End() const { myArray->End(myIndex); }
@@ -131,7 +134,7 @@ template <GraphicsApi G>
 struct CommandPoolCreateDesc
 {
 	CommandPoolCreateFlags<G> flags{};
-	uint32_t queueFamilyIndex = 0ul;
+	uint32_t queueFamilyIndex = 0UL;
 	uint32_t levelCount = 1;
 };
 
@@ -144,12 +147,12 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		CommandPoolCreateDesc<G>&& desc);
 	CommandPool(CommandPool&& other) noexcept;
-	~CommandPool();
+	~CommandPool() override;
 
 	CommandPool& operator=(CommandPool&& other) noexcept;
-	operator auto() const noexcept { return myPool; }
+	operator auto() const noexcept { return myPool; }//NOLINT(google-explicit-constructor)
 
-	const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	void Swap(CommandPool& rhs) noexcept;
 	friend void Swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.Swap(rhs); }
@@ -171,10 +174,16 @@ private:
 	void InternalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
 
 	auto& InternalGetPendingCommands() noexcept { return myPendingCommands; }
-	const auto& InternalGetPendingCommands() const noexcept { return myPendingCommands; }
+	[[nodiscard]] const auto& InternalGetPendingCommands() const noexcept
+	{
+		return myPendingCommands;
+	}
 
 	auto& InternalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
-	const auto& InternalGetSubmittedCommands() const noexcept { return mySubmittedCommands; }
+	[[nodiscard]] const auto& InternalGetSubmittedCommands() const noexcept
+	{
+		return mySubmittedCommands;
+	}
 
 	CommandPoolCreateDesc<G> myDesc{};
 	CommandPoolHandle<G> myPool{};

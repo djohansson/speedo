@@ -84,9 +84,9 @@ DescriptorSetLayout<kVk>::~DescriptorSetLayout()
 		ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorSetLayout");
 
 		vkDestroyDescriptorSetLayout(
-			*GetDevice(),
+			*InternalGetDevice(),
 			layout,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 	}
 }
 
@@ -158,7 +158,7 @@ template <>
 DescriptorSetArray<kVk>::~DescriptorSetArray()
 {
 	if (IsValid())
-		vkFreeDescriptorSets(*GetDevice(), myDesc.pool, myDescriptorSets.size(), myDescriptorSets.data());
+		vkFreeDescriptorSets(*InternalGetDevice(), myDesc.pool, myDescriptorSets.size(), myDescriptorSets.data());
 }
 
 template <>
@@ -184,9 +184,9 @@ void DescriptorUpdateTemplate<kVk>::InternalDestroyTemplate()
 	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
 
 	vkDestroyDescriptorUpdateTemplate(
-		*GetDevice(),
+		*InternalGetDevice(),
 		myHandle,
-		&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -210,9 +210,9 @@ void DescriptorUpdateTemplate<kVk>::SetEntries(
 			GetDesc().pipelineLayout,
 			GetDesc().set};
 		vkCreateDescriptorUpdateTemplate(
-			*GetDevice(),
+			*InternalGetDevice(),
 			&createInfo,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 			&descriptorTemplate);
 
 		return descriptorTemplate;

@@ -49,9 +49,9 @@ Semaphore<kVk>::~Semaphore()
 {
 	if (mySemaphore != nullptr)
 		vkDestroySemaphore(
-			*GetDevice(),
+			*InternalGetDevice(),
 			mySemaphore,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
@@ -75,7 +75,7 @@ uint64_t Semaphore<kVk>::GetValue() const
 	ZoneScopedN("Semaphore::getValue");
 
 	uint64_t value;
-	VK_CHECK(vkGetSemaphoreCounterValue(*GetDevice(), mySemaphore, &value));
+	VK_CHECK(vkGetSemaphoreCounterValue(*InternalGetDevice(), mySemaphore, &value));
 
 	return value;
 }
@@ -91,7 +91,7 @@ void Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	waitInfo.pSemaphores = &mySemaphore;
 	waitInfo.pValues = &timelineValue;
 
-	VK_CHECK(vkWaitSemaphores(*GetDevice(), &waitInfo, timeout));
+	VK_CHECK(vkWaitSemaphores(*InternalGetDevice(), &waitInfo, timeout));
 }
 
 template <>

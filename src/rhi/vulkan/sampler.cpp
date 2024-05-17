@@ -49,9 +49,9 @@ SamplerVector<kVk>::~SamplerVector()
 {
 	for (auto* sampler : mySamplers)
 		vkDestroySampler(
-			*GetDevice(),
+			*InternalGetDevice(),
 			sampler,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

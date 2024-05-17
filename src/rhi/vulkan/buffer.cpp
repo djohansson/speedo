@@ -95,7 +95,7 @@ template <>
 Buffer<kVk>::~Buffer()
 {
 	if (BufferHandle<kVk> buffer = *this)
-		vmaDestroyBuffer(GetDevice()->GetAllocator(), buffer, GetBufferMemory());
+		vmaDestroyBuffer(InternalGetDevice()->GetAllocator(), buffer, GetBufferMemory());
 }
 
 template <>
@@ -162,7 +162,7 @@ template <>
 BufferView<kVk>::~BufferView()
 {
 	if (BufferViewHandle<kVk> view = *this)
-		vkDestroyBufferView(*GetDevice(), view, &GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		vkDestroyBufferView(*InternalGetDevice(), view, &InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>

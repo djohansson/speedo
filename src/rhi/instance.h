@@ -41,14 +41,17 @@ template <GraphicsApi G>
 class Instance final : public Noncopyable, public Nonmovable
 {
 public:
-	Instance(InstanceConfiguration<G>&& defaultConfig = {});
+	explicit Instance(InstanceConfiguration<G>&& defaultConfig = {});
 	~Instance();
 
-	operator auto() const noexcept { return myInstance; }
+	operator auto() const noexcept { return myInstance; }//NOLINT(google-explicit-constructor)
 
-	const auto& GetConfig() const noexcept { return myConfig; }
-	const auto& GetHostAllocationCallbacks() const noexcept { return myHostAllocationCallbacks; }
-	const auto& GetPhysicalDevices() const noexcept { return myPhysicalDevices; }
+	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
+	[[nodiscard]] const auto& GetHostAllocationCallbacks() const noexcept
+	{
+		return myHostAllocationCallbacks;
+	}
+	[[nodiscard]] const auto& GetPhysicalDevices() const noexcept { return myPhysicalDevices; }
 	const auto& GetPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
 
 	const SwapchainInfo<G>& UpdateSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);

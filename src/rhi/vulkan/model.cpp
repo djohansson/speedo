@@ -20,10 +20,10 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
 auto serialize(const ModelCreateDesc<kVk>&) -> zpp::bits::members<4>;
 auto serialize(const AABB3f&) -> zpp::bits::members<2>;
-//NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
 
 namespace model
 {

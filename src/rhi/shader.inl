@@ -2,10 +2,10 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
 template <GraphicsApi G>
 auto serialize(const DescriptorSetLayoutCreateDesc<G>&) -> zpp::bits::members<7>;
-//NOLINTEND(readability-identifier-naming.*, readability-magic-numbers)
+//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
 
 namespace shader
 {

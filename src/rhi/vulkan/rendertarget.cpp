@@ -18,8 +18,8 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 	for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
 	{
 		myAttachments.emplace_back(CreateImageView2D(
-			*GetDevice(),
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+			*InternalGetDevice(),
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 			0,
 			desc.colorImages[attachmentIt],
 			desc.colorImageFormats[attachmentIt],
@@ -27,7 +27,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			1));
 
 	#if (GRAPHICS_VALIDATION_LEVEL > 0)
-		GetDevice()->AddOwnedObjectHandle(
+		InternalGetDevice()->AddOwnedObjectHandle(
 			GetUid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
 			reinterpret_cast<uint64_t>(myAttachments.back()),
@@ -56,8 +56,8 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			depthAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 
 		myAttachments.emplace_back(CreateImageView2D(
-			*GetDevice(),
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+			*InternalGetDevice(),
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 			0,
 			desc.depthStencilImage,
 			desc.depthStencilImageFormat,
@@ -65,7 +65,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			1));
 
 	#if (GRAPHICS_VALIDATION_LEVEL > 0)
-		GetDevice()->AddOwnedObjectHandle(
+		InternalGetDevice()->AddOwnedObjectHandle(
 			GetUid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
 			reinterpret_cast<uint64_t>(myAttachments.back()),
@@ -199,15 +199,15 @@ RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffe
 	ZoneScopedN("RenderTarget::InternalCreateRenderPassAndFrameBuffer");
 
 	auto* renderPass = CreateRenderPass(
-		*GetDevice(),
-		&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+		*InternalGetDevice(),
+		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 		myAttachmentDescs,
 		mySubPassDescs,
 		mySubPassDependencies);
 
 	auto* frameBuffer = CreateFramebuffer(
-		*GetDevice(),
-		&GetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+		*InternalGetDevice(),
+		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 		renderPass,
 		myAttachments.size(),
 		myAttachments.data(),
@@ -216,13 +216,13 @@ RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffe
 		desc.layerCount);
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-	GetDevice()->AddOwnedObjectHandle(
+	InternalGetDevice()->AddOwnedObjectHandle(
 		GetUid(),
 		VK_OBJECT_TYPE_RENDER_PASS,
 		reinterpret_cast<uint64_t>(renderPass),
 		std::format("{0}_RenderPass_{1}", GetName(), hashKey));
 
-	GetDevice()->AddOwnedObjectHandle(
+	InternalGetDevice()->AddOwnedObjectHandle(
 		GetUid(),
 		VK_OBJECT_TYPE_FRAMEBUFFER,
 		reinterpret_cast<uint64_t>(frameBuffer),
@@ -482,20 +482,20 @@ RenderTarget<kVk>::~RenderTarget()
 	for (const auto& entry : myCache)
 	{
 		vkDestroyRenderPass(
-			*GetDevice(),
+			*InternalGetDevice(),
 			std::get<0>(entry.second),
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 		vkDestroyFramebuffer(
-			*GetDevice(),
+			*InternalGetDevice(),
 			std::get<1>(entry.second),
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 	}
 
 	for (const auto& colorView : myAttachments)
 		vkDestroyImageView(
-			*GetDevice(),
+			*InternalGetDevice(),
 			colorView,
-			&GetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 }
 
 template <>
