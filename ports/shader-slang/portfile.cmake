@@ -10,6 +10,9 @@ vcpkg_from_github(
 		clang-windows.patch
 		clang-windows-2.patch
 		remove-external.patch
+		0001-find-nvapi.patch
+		0002-dxil-support-option.patch
+		0003-imgui_impl_win32-include.patch
 )
 
 vcpkg_cmake_configure(
@@ -17,7 +20,7 @@ vcpkg_cmake_configure(
 	OPTIONS
 		-DSLANG_VERSION=${VERSION}
 		-DSLANG_SLANG_LLVM_FLAVOR=DISABLE
-		#-DSLANG_ENABLE_DXIL_SUPPORT=OFF
+		-DSLANG_ENABLE_DXIL=OFF
 )
 
 vcpkg_cmake_install()

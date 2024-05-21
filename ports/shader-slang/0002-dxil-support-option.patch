@@ -1,0 +1,85 @@
+From fbfbba11ddb58aea115021ee1b6a5fb06276f6c7 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 21 May 2024 21:10:34 +0200
+Subject: [PATCH 2/3] dxil support option
+
+---
+ CMakeLists.txt                              |  4 ++++
+ source/compiler-core/slang-dxc-compiler.cpp | 17 ++++-------------
+ 2 files changed, 8 insertions(+), 13 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d5259ae..404eb49 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -97,6 +97,8 @@ option(SLANG_ENABLE_SLANG_GLSLANG "Enable glslang dependency and slang-glslang w
+ option(SLANG_ENABLE_TESTS "Enable test targets, requires SLANG_ENABLE_GFX, SLANG_ENABLE_SLANGD and SLANG_ENABLE_SLANGRT" ON)
+ option(SLANG_ENABLE_EXAMPLES "Enable example targets, requires SLANG_ENABLE_GFX" ON)
+ 
++option(SLANG_ENABLE_DXIL "Enable DXIL support on Windows" ON)
++
+ enum_option(
+     SLANG_LIB_TYPE
+     # Default
+@@ -232,6 +234,8 @@ slang_add_target(
+     USE_EXTRA_WARNINGS
+     LINK_WITH_PRIVATE core
+     INCLUDE_FROM_PRIVATE unordered_dense::unordered_dense
++    EXTRA_COMPILE_DEFINITIONS_PRIVATE
++        $<$<BOOL:${SLANG_ENABLE_DXIL}>:SLANG_ENABLE_DXIL_SUPPORT>
+     INCLUDE_DIRECTORIES_PUBLIC source
+ )
+ if(NOT MSVC)
+diff --git a/source/compiler-core/slang-dxc-compiler.cpp b/source/compiler-core/slang-dxc-compiler.cpp
+index 73962df..07a3e16 100644
+--- a/source/compiler-core/slang-dxc-compiler.cpp
++++ b/source/compiler-core/slang-dxc-compiler.cpp
+@@ -24,18 +24,9 @@
+ #include "slang-artifact-diagnostic-util.h"
+ #include "slang-artifact-desc-util.h"
+ 
+-// Enable DXIL by default unless told not to
+-#ifndef SLANG_ENABLE_DXIL_SUPPORT
+-#if SLANG_APPLE_FAMILY
+-#   define SLANG_ENABLE_DXIL_SUPPORT 0
+-#else
+-#   define SLANG_ENABLE_DXIL_SUPPORT 1
+-#endif
+-#endif
+-
+ // Enable calling through to  `dxc` to
+ // generate code on Windows.
+-#if SLANG_ENABLE_DXIL_SUPPORT
++#if defined(SLANG_ENABLE_DXIL_SUPPORT) && SLANG_ENABLE_DXIL_SUPPORT
+ 
+ #   ifdef _WIN32
+ #       include <windows.h>
+@@ -62,7 +53,7 @@
+ namespace Slang
+ {
+ 
+-#if SLANG_ENABLE_DXIL_SUPPORT
++#if defined(SLANG_ENABLE_DXIL_SUPPORT) && SLANG_ENABLE_DXIL_SUPPORT
+ 
+ static UnownedStringSlice _getSlice(IDxcBlob* blob) { return StringUtil::getSlice((ISlangBlob*)blob); }
+ 
+@@ -782,7 +773,7 @@ SlangResult DXCDownstreamCompiler::getVersionString(slang::IBlob** outVersionStr
+     return SLANG_OK;
+ }
+ 
+-#else // SLANG_ENABLE_DXIL_SUPPORT
++#else // defined(SLANG_ENABLE_DXIL_SUPPORT) && SLANG_ENABLE_DXIL_SUPPORT
+ 
+ /* static */SlangResult DXCDownstreamCompilerUtil::locateCompilers(const String& path, ISlangSharedLibraryLoader* loader, DownstreamCompilerSet* set)
+ {
+@@ -792,6 +783,6 @@ SlangResult DXCDownstreamCompiler::getVersionString(slang::IBlob** outVersionStr
+     return SLANG_E_NOT_AVAILABLE;
+ }
+ 
+-#endif // SLANG_ENABLE_DXIL_SUPPORT
++#endif // defined(SLANG_ENABLE_DXIL_SUPPORT) && SLANG_ENABLE_DXIL_SUPPORT
+ 
+ }
+-- 
+2.45.0.windows.1
+
