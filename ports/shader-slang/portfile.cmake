@@ -3,17 +3,13 @@ vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
 vcpkg_from_github(
 	OUT_SOURCE_PATH SOURCE_PATH
 	REPO djohansson/slang
-	REF 55f1e5fcbbfa9fd64a0f4eef52e594fdbbab296d #v${VERSION}
-	SHA512 0f035c105d35f3a8d67d8003881463b181d95176489264726d43f790792abe492b8a1c90f6f9cfcd4287a9870f02804c22a68683712c210e0bd0013a78230790
+	REF 62b7219e715bd4c0f984bcd98c9767fb6422c78f #v${VERSION}
+	SHA512 18f7c11f5675267e9429b683b9f26cca1fd9079668e7582561176e15e9575949c4731b221af41d4300f9a096ae127a8de53c478c2b53924b152adec01b5f93ea
 	HEAD_REF master
 	PATCHES
 		clang-windows.patch
 		clang-windows-2.patch
-		vcpkg.patch
-		spirv-tools-windows-link.patch
-		slang-lookup-generator-vcpkg.patch
-		windows-link.patch
-		slang-getEntryPointX-return-fix.patch
+		remove-external.patch
 )
 
 vcpkg_cmake_configure(
@@ -21,6 +17,7 @@ vcpkg_cmake_configure(
 	OPTIONS
 		-DSLANG_VERSION=${VERSION}
 		-DSLANG_SLANG_LLVM_FLAVOR=DISABLE
+		#-DSLANG_ENABLE_DXIL_SUPPORT=OFF
 )
 
 vcpkg_cmake_install()
