@@ -54,7 +54,6 @@ extern "C"
 struct ViewData
 {
 	alignas(16) FLOAT4X4(viewProjection);
-	alignas(16) FLOAT3(eyePosition);
 };
 
 struct MaterialData
