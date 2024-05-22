@@ -17,6 +17,14 @@ namespace server
 static TaskCreateInfo<void> gRpcTask{};
 static UpgradableSharedMutex gServerApplicationMutex;
 static std::shared_ptr<Server> gServerApplication;
+enum TaskState : uint8_t
+{
+	kTaskStateNone = 0,
+	kTaskStateRunning = 1,
+	kTaskStateShuttingDown = 2,
+	kTaskStateDone = 3
+};
+static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
 
 static std::string Say(const std::string& str)
 {
@@ -35,10 +43,14 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	using namespace std::literals::chrono_literals;
 	using namespace zpp::bits::literals;
 
-	std::shared_lock lock{gServerApplicationMutex};
-
-	if (!gServerApplication || gServerApplication->IsExitRequested())
+	if (gRpcTaskState == kTaskStateShuttingDown)
+	{
+		gRpcTaskState = kTaskStateDone;
+		gRpcTaskState.notify_one();
 		return;
+	}
+
+	std::shared_lock lock{gServerApplicationMutex};
 
 	try
 	{
@@ -138,6 +150,7 @@ Server::Server(std::string_view name, Environment&& env)
 	std::cout << "Server listening on " << kCxServerAddress << '\n';
 
 	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
+	gRpcTaskState = kTaskStateRunning;
 	Executor().Submit(gRpcTask.first);
 }
 
@@ -166,6 +179,9 @@ void CreateServer(const PathConfig* paths)
 void DestroyServer()
 {
 	using namespace server;
+
+	gRpcTaskState = kTaskStateShuttingDown;
+	gRpcTaskState.wait(kTaskStateShuttingDown);
 
 	std::unique_lock lock{gServerApplicationMutex};
 

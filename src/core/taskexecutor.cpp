@@ -13,7 +13,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::thread(&TaskExecutor::InternalThreadMain, this, threadIt), nullptr);
+		myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt));
 }
 
 TaskExecutor::~TaskExecutor()
@@ -23,11 +23,12 @@ TaskExecutor::~TaskExecutor()
 	ASSERT(myReadyQueue.size_approx() == 0);
 	ASSERT(myDeletionQueue.size_approx() == 0);
 
-	myStopSource.store(true, std::memory_order_release);
+	for (auto& thread : myThreads)
+		thread.request_stop();
+
 	mySignal.release(static_cast<ptrdiff_t>(myThreads.size()));
 
-	for (auto& [thread, exception] : myThreads)
-		thread.detach();
+	InternalProcessReadyQueue();
 }
 
 void TaskExecutor::InternalSubmit(TaskHandle handle)
@@ -65,9 +66,7 @@ void TaskExecutor::InternalTryDelete(TaskHandle handle)
 	Task& task = *Task::InternalHandleToPtr(handle);
 
 	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0)
-	{
 		std::destroy_at(&task);
-	}
 }
 
 void TaskExecutor::InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
@@ -151,21 +150,25 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 		InternalTryDelete(handle);
 }
 
-void TaskExecutor::InternalThreadMain(uint32_t threadId)
+void TaskExecutor::InternalThreadMain(std::stop_token stopToken, uint32_t threadId)
 {
 	try
 	{
 		ProducerToken readyProducerToken(myReadyQueue);
 		ConsumerToken readyConsumerToken(myReadyQueue);
 
-		while (!myStopSource.load(std::memory_order_acquire))
+		while (!stopToken.stop_requested())
 		{
 			InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
 			mySignal.acquire();
 		}
 	}
+	// catch (SomeHandleableException& exc) // TODO(djohansson): Add code here for exceptions that we want to handle
+	// {
+	// }
 	catch (...)
 	{
-		std::get<1>(myThreads[threadId]) = std::current_exception();
+		// just rethrow the exception and trigger std::terminate_handler on the main thread
+		std::rethrow_exception(std::current_exception());
 	}
 }

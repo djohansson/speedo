@@ -53,11 +53,10 @@ private:
 
 	void InternalPurgeDeletionQueue();
 
-	void InternalThreadMain(uint32_t threadId);
+	void InternalThreadMain(std::stop_token stopToken, uint32_t threadId);
 
-	std::vector<std::tuple<std::thread, std::exception_ptr>> myThreads;
+	std::vector<std::jthread> myThreads;
 	std::counting_semaphore<> mySignal;
-	std::atomic_bool myStopSource;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
 };

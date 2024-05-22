@@ -20,18 +20,31 @@ namespace client
 static TaskCreateInfo<void> gUpdateTask, gDrawTask, gRpcTask;
 static UpgradableSharedMutex gClientApplicationMutex;
 static std::shared_ptr<Client> gClientApplication;
+enum TaskState : uint8_t
+{
+	kTaskStateNone = 0,
+	kTaskStateRunning = 1,
+	kTaskStateShuttingDown = 2,
+	kTaskStateDone = 3
+};
+static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
+static std::atomic<TaskState> gUpdateTaskState = kTaskStateNone;
 
 static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
-	ZoneScopedN("client::rpc");
-
-	std::shared_lock lock{gClientApplicationMutex};
-
-	if (!gClientApplication || gClientApplication->IsExitRequested())
-		return;
+	ZoneScopedN("client::Rpc");
 
 	using namespace std::literals;
 	using namespace zpp::bits::literals;
+
+	if (gRpcTaskState == kTaskStateShuttingDown)
+	{
+		gRpcTaskState = kTaskStateDone;
+		gRpcTaskState.notify_one();
+		return;
+	}
+
+	std::shared_lock lock{gClientApplicationMutex};
 
 	try
 	{
@@ -76,8 +89,13 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				}
 			}
 
-			if (gClientApplication->IsExitRequested()) // IMPORTANT: check for IsExitRequested() here. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
+			// IMPORTANT: check for if we are shutting down. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
+			if (gRpcTaskState == kTaskStateShuttingDown)
+			{
+				gRpcTaskState = kTaskStateDone;
+				gRpcTaskState.notify_one();
 				return;
+			}
 		}
 	}
 	catch (zmq::error_t& error)
@@ -97,14 +115,18 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 }
 
 static void Draw();
-static void UpdateInput()
+static void Update()
 {
 	ZoneScopedN("client::UpdateInput");
 
-	std::shared_lock lock{gClientApplicationMutex};
-
-	if (!gClientApplication || gClientApplication->IsExitRequested())
+	if (gUpdateTaskState == kTaskStateShuttingDown)
+	{
+		gUpdateTaskState = kTaskStateDone;
+		gUpdateTaskState.notify_one();
 		return;
+	}
+
+	std::shared_lock lock{gClientApplicationMutex};
 
 	gClientApplication->UpdateInput();
 
@@ -119,12 +141,9 @@ static void Draw()
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	if (!gClientApplication || gClientApplication->IsExitRequested())
-		return;
-
 	gClientApplication->Draw();
 
-	auto updateTask = Task::CreateTask(UpdateInput);
+	auto updateTask = Task::CreateTask(Update);
 	Task::AddDependency(gDrawTask.first, updateTask.first, true);
 	gUpdateTask = updateTask;
 }
@@ -181,7 +200,12 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	});
 
 	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
+	gRpcTaskState = kTaskStateRunning;
 	Executor().Submit(gRpcTask.first);
+
+	gUpdateTask = Task::CreateTask(Update);
+	gUpdateTaskState = kTaskStateRunning;
+	Executor().Submit(gUpdateTask.first);
 }
 
 bool TickClient()
@@ -218,14 +242,17 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		createWindowFunc);
 
 	ASSERT(gClientApplication);
-
-	gUpdateTask = Task::CreateTask(UpdateInput);
-	gClientApplication->Executor().Submit(gUpdateTask.first);
 }
 
 void DestroyClient()
 {
 	using namespace client;
+
+	gRpcTaskState = kTaskStateShuttingDown;
+	gUpdateTaskState = kTaskStateShuttingDown;
+
+	gRpcTaskState.wait(kTaskStateShuttingDown);
+	gUpdateTaskState.wait(kTaskStateShuttingDown);
 
 	std::unique_lock lock{gClientApplicationMutex};
 
