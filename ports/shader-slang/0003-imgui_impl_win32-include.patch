@@ -1,3 +1,12 @@
+From d2d317a9ad019256aedfc33152e518c65b3e20c9 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 21 May 2024 21:12:36 +0200
+Subject: [PATCH 3/3] imgui_impl_win32 include
+
+---
+ tools/platform/gui.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
 diff --git a/tools/platform/gui.cpp b/tools/platform/gui.cpp
 index 6ba0bc6..60a446b 100644
 --- a/tools/platform/gui.cpp
@@ -11,3 +20,6 @@ index 6ba0bc6..60a446b 100644
  IMGUI_IMPL_API LRESULT  ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
  #endif
  
+-- 
+2.45.0.windows.1
+

@@ -93,6 +93,8 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		else
 			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
 
+		spSetMatrixLayoutMode(slangRequest, SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
+
 		// spSetTargetFlags(
 		// 	slangRequest,
 		// 	targetIndex,
