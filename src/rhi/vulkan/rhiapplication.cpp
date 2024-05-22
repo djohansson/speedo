@@ -693,16 +693,16 @@ static void IMGUIInit(
 			window.GetSurface()).capabilities;
 
 #if defined(__OSX__)
-	constexpr float kDpiScaleX = 1.0F;
-	constexpr float kDpiScaleY = 1.0F;
+	float dpiScaleX = 1.0F;
+	float dpiScaleY = 1.0F;
 #else
 	float dpiScaleX = window.GetConfig().contentScale.x;
 	float dpiScaleY = window.GetConfig().contentScale.y;
 #endif
 
-	io.DisplayFramebufferScale = ImVec2(kDpiScaleX, kDpiScaleY);
+	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
-	GetStyle().ScaleAllSizes(std::max(kDpiScaleX, kDpiScaleY));
+	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
 
 	ImFontConfig config;
 	config.OversampleH = 2;
@@ -729,7 +729,7 @@ static void IMGUIInit(
 	{
 		fontPath.replace_filename(font);
 		defaultFont = io.Fonts->AddFontFromFileTTF(
-			fontPath.generic_string().c_str(), 16.0F * std::max(kDpiScaleX, kDpiScaleY), &config);
+			fontPath.generic_string().c_str(), 16.0F * std::max(dpiScaleX, dpiScaleY), &config);
 	}
 
 	// Setup style
@@ -1047,7 +1047,7 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
 }
 
-auto CreateWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
+auto CreateRhiWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
 {
 	return Window<kVk>(
 		device,
@@ -1115,7 +1115,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
 			windowHandle,
-			CreateWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
+			CreateRhiWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
 
 		SetWindows(&windowHandle, 1);
 		SetCurrentWindow(windowHandle);
