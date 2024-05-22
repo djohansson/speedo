@@ -44,17 +44,17 @@ public:
 	~DescriptorSetLayout();
 
 	DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
-	operator auto() const { return std::get<0>(myLayout); }
-	bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
-	bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
+	[[nodiscard]] operator auto() const { return std::get<0>(myLayout); }
+	[[nodiscard]] bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
+	[[nodiscard]] bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
 
 	void Swap(DescriptorSetLayout& rhs) noexcept;
 	friend void Swap(DescriptorSetLayout& lhs, DescriptorSetLayout& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& GetImmutableSamplers() const noexcept { return std::get<1>(myLayout); }
-	const auto& GetShaderVariableBindings() const noexcept { return std::get<2>(myLayout); }
-	const auto& GetShaderVariableBinding(uint64_t shaderVariableNameHash) const
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetImmutableSamplers() const noexcept { return std::get<1>(myLayout); }
+	[[nodiscard]] const auto& GetShaderVariableBindings() const noexcept { return std::get<2>(myLayout); }
+	[[nodiscard]] const auto& GetShaderVariableBinding(uint64_t shaderVariableNameHash) const
 	{
 		return std::get<2>(myLayout).at(shaderVariableNameHash);
 	}
@@ -97,14 +97,14 @@ public:
 	~DescriptorSetArray();
 
 	DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
-	const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
+	[[nodiscard]] const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
 
 	void Swap(DescriptorSetArray& rhs) noexcept;
 	friend void Swap(DescriptorSetArray& lhs, DescriptorSetArray& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
-	static constexpr auto Capacity() { return kDescriptorSetCount; }
+	[[nodiscard]] static constexpr auto Capacity() { return kDescriptorSetCount; }
 
 private:
 	DescriptorSetArray( // takes ownership of provided descriptor set handles
@@ -144,8 +144,8 @@ public:
 	~DescriptorUpdateTemplate();
 
 	DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
-	operator auto() const noexcept { return myHandle; }
-	bool operator==(const DescriptorUpdateTemplate& other) const noexcept
+	[[nodiscard]] operator auto() const noexcept { return myHandle; }
+	[[nodiscard]] bool operator==(const DescriptorUpdateTemplate& other) const noexcept
 	{
 		return myHandle == other.myHandle;
 	}
@@ -156,8 +156,8 @@ public:
 		lhs.Swap(rhs);
 	}
 
-	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& GetEntries() const noexcept { return myEntries; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetEntries() const noexcept { return myEntries; }
 
 	void SetEntries(std::vector<DescriptorUpdateTemplateEntry<G>>&& entries);
 

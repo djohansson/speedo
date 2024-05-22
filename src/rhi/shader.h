@@ -31,19 +31,25 @@ struct ShaderSet
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>> layouts;
 };
 
-class ShaderLoader final : public Noncopyable, public Nonmovable
+class ShaderLoader final
 {
 public:
 	using DownstreamCompiler =
 		std::tuple<SlangSourceLanguage, SlangPassThrough, std::filesystem::path>;
 
+	constexpr ShaderLoader() noexcept = delete;
 	ShaderLoader(
 		std::vector<std::filesystem::path>&& includePaths,
 		std::vector<DownstreamCompiler>&& downstreamCompilers,
 		std::optional<std::filesystem::path>&& intermediatePath = std::nullopt);
+	ShaderLoader(const ShaderLoader&) = delete;
+	ShaderLoader(ShaderLoader&&) noexcept = delete;
+	
+	ShaderLoader& operator=(const ShaderLoader&) = delete;
+	ShaderLoader& operator=(ShaderLoader&&) noexcept = delete;
 
 	template <GraphicsApi G>
-	ShaderSet<G> Load(const std::filesystem::path& slangFile);
+	[[nodiscard]] ShaderSet<G> Load(const std::filesystem::path& slangFile);
 
 private:
 	std::vector<std::filesystem::path> myIncludePaths;

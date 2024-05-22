@@ -27,16 +27,16 @@ public:
 	~PipelineLayout();
 
 	PipelineLayout& operator=(PipelineLayout&& other) noexcept;
-	operator auto() const noexcept { return myLayout; }
-	bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
-	bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
+	[[nodiscard]] operator auto() const noexcept { return myLayout; }
+	[[nodiscard]] bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
+	[[nodiscard]] bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
 
 	void Swap(PipelineLayout& rhs) noexcept;
 	friend void Swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetShaderModules() const noexcept { return myShaderModules; }
-	const auto& GetDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
-	const DescriptorSetLayout<G>& GetDescriptorSetLayout(uint32_t set) const noexcept;
+	[[nodiscard]] const auto& GetShaderModules() const noexcept { return myShaderModules; }
+	[[nodiscard]] const auto& GetDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
+	[[nodiscard]] const DescriptorSetLayout<G>& GetDescriptorSetLayout(uint32_t set) const noexcept;
 
 private:
 	friend Pipeline<G>;

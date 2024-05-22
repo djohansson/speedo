@@ -109,7 +109,7 @@ public:
 	~Queue() override;
 
 	Queue& operator=(Queue&& other) noexcept;
-	operator auto() const noexcept { return myQueue; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] operator auto() const noexcept { return myQueue; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Queue& rhs) noexcept;
 	friend void Swap(Queue& lhs, Queue& rhs) noexcept { lhs.Swap(rhs); }
@@ -118,7 +118,7 @@ public:
 
 	template <typename T, typename... Ts>
 	void EnqueueSubmit(T&& first, Ts&&... rest);
-	QueueHostSyncInfo<G> Submit();
+	[[nodiscard]] QueueHostSyncInfo<G> Submit();
 
 	template <typename T, typename... Ts>
 	void EnqueuePresent(T&& first, Ts&&... rest);
@@ -147,11 +147,10 @@ private:
 		CommandPoolCreateDesc<G>&& commandPoolDesc,
 		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
 
-	QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
+	[[nodiscard]] QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 
 #if (PROFILING_LEVEL > 0)
-	std::shared_ptr<void>
-	InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
+	[[nodiscard]] std::shared_ptr<void> InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 #endif
 
 	QueueCreateDesc<G> myDesc{};

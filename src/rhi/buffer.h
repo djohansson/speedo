@@ -43,14 +43,15 @@ public:
 	~Buffer();
 
 	Buffer& operator=(Buffer&& other) noexcept;
-	operator auto() const noexcept { return std::get<0>(myBuffer); }
+	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myBuffer); }
 
 	void Swap(Buffer& rhs) noexcept;
 	friend void Swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& GetBufferMemory() const noexcept { return std::get<1>(myBuffer); }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetBufferMemory() const noexcept { return std::get<1>(myBuffer); }
 
+private:
 	BufferCreateDesc<G> myDesc{};
 	ValueType myBuffer{};
 };
@@ -70,7 +71,7 @@ public:
 	~BufferView();
 
 	BufferView& operator=(BufferView&& other) noexcept;
-	operator auto() const noexcept { return myView; }
+	[[nodiscard]] operator auto() const noexcept { return myView; }
 
 	void Swap(BufferView& rhs) noexcept;
 	friend void Swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.Swap(rhs); }

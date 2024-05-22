@@ -21,10 +21,15 @@ struct Environment
 
 class Application;
 extern std::weak_ptr<Application> gApplication;
-class Application : public Noncopyable, Nonmovable
+class Application
 {
 public:
+	Application(const Application&) = delete;
+	Application(Application&&) noexcept = delete;
 	virtual ~Application() noexcept(false) = default;
+
+	Application& operator=(const Application&) = delete;
+	Application& operator=(Application&&) noexcept = delete;
 
 	virtual void Tick() { InternalUpdateInput(); };
 
@@ -46,19 +51,19 @@ public:
 		return app;
 	}
 
-	auto& Name() noexcept { return myName; }
-	const auto& Name() const noexcept { return myName; }
+	[[nodiscard]] auto& Name() noexcept { return myName; }
+	[[nodiscard]] const auto& Name() const noexcept { return myName; }
 
-	auto& Env() noexcept { return myEnvironment; }
-	const auto& Env() const noexcept { return myEnvironment; }
+	[[nodiscard]] auto& Env() noexcept { return myEnvironment; }
+	[[nodiscard]] const auto& Env() const noexcept { return myEnvironment; }
 
-	auto& Executor() noexcept { return *myExecutor; }
-	const auto& Executor() const noexcept { return *myExecutor; }
+	[[nodiscard]] auto& Executor() noexcept { return *myExecutor; }
+	[[nodiscard]] const auto& Executor() const noexcept { return *myExecutor; }
 
-	static auto& Instance() noexcept { return gApplication; }
+	[[nodiscard]] static auto& Instance() noexcept { return gApplication; }
 
 	void RequestExit() noexcept { myExitRequested = true; }
-	bool IsExitRequested() const noexcept { return myExitRequested; }
+	[[nodiscard]] bool IsExitRequested() const noexcept { return myExitRequested; }
 
 	void OnMouse(const MouseEvent& mouse);
 	void OnKeyboard(const KeyboardEvent& keyboard);

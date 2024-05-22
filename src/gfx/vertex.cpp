@@ -47,16 +47,16 @@ ScopedVertexAllocation::ScopedVertexAllocation(VertexAllocator& allocator)
 	, myPrevScope(Vertex::GetScope())
 {
 	myAllocatorRef.Lock();
-	Vertex::SetScope(this);
+	Vertex::InternalSetScope(this);
 }
 
 ScopedVertexAllocation::~ScopedVertexAllocation()
 {
-	Vertex::SetScope(myPrevScope);
+	Vertex::InternalSetScope(myPrevScope);
 	myAllocatorRef.Unlock();
 }
 
-VertexAllocator& Vertex::Allocator()
+VertexAllocator& Vertex::InternalAllocator()
 {
 	ASSERT(gAllocationScope != nullptr);
 	return gAllocationScope->Allocator();

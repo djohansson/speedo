@@ -49,7 +49,7 @@ private:
 	void InternalProcessReadyQueue();
 	void InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
 	template <typename R>
-	std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
+	[[nodiscard]] std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
 
 	void InternalPurgeDeletionQueue();
 

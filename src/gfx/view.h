@@ -37,11 +37,11 @@ public:
 		UpdateAll();
 	}
 
-	const auto& GetViewMatrix() const noexcept { return myViewMatrix; }
-	const auto& GetProjectionMatrix() const noexcept { return myProjectionMatrix; }
+	[[nodiscard]] const auto& GetViewMatrix() const noexcept { return myViewMatrix; }
+	[[nodiscard]] const auto& GetProjectionMatrix() const noexcept { return myProjectionMatrix; }
 
-	auto& GetDesc() noexcept { return myDesc; }
-	const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] auto& GetDesc() noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	void UpdateViewMatrix();
 	void UpdateProjectionMatrix();

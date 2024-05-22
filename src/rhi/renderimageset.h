@@ -26,8 +26,8 @@ public:
 	void Swap(RenderImageSet& rhs) noexcept;
 	friend void Swap(RenderImageSet& lhs, RenderImageSet& rhs) noexcept { lhs.Swap(rhs); }
 
-	virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const;
-	virtual ImageLayout<G> GetDepthStencilImageLayout() const;
+	[[nodiscard]] virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const;
+	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilImageLayout() const;
 
 	virtual void End(CommandBufferHandle<G> cmd);
 

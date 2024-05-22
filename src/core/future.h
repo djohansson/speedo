@@ -15,7 +15,7 @@ public:
 	Future(Future&& other) noexcept;
 	Future(const Future& other) noexcept;
 	
-	bool operator==(const Future& other) const noexcept;
+	[[nodiscard]] bool operator==(const Future& other) const noexcept;
 	Future& operator=(Future&& other) noexcept;
 	Future& operator=(const Future& other) noexcept;
 

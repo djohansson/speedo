@@ -34,7 +34,7 @@ public:
 	void UpdateInput() { InternalUpdateInput(); };
 	void Draw() { InternalDraw(); };
 
-	WindowState* GetWindowState(WindowHandle window);
+	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
 
 protected:
 	explicit RhiApplication() = default;
@@ -44,10 +44,10 @@ protected:
 		CreateWindowFunc createWindowFunc);
 
 	template <GraphicsApi G>
-	Rhi<G>& InternalRhi();
+	[[nodiscard]] Rhi<G>& InternalRhi();
 
 	template <GraphicsApi G>
-	const Rhi<G>& InternalRhi() const;
+	[[nodiscard]] const Rhi<G>& InternalRhi() const;
 
 	void InternalUpdateInput() override;
 

@@ -7,7 +7,7 @@
 namespace server
 {
 
-std::string Say(const std::string& str);
+[[nodiscard]] std::string Say(const std::string& str);
 
 using namespace zpp::bits::literals;
 using RpcSay = zpp::bits::rpc<zpp::bits::bind<server::Say, "Say"_sha256_int>>;

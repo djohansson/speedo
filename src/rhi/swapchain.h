@@ -31,12 +31,12 @@ public:
 	~Swapchain();
 
 	Swapchain& operator=(Swapchain&& other) noexcept;
-	operator auto() const noexcept { return mySwapchain; }
+	[[nodiscard]] operator auto() const noexcept { return mySwapchain; }
 
 	void Swap(Swapchain& rhs) noexcept;
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
-	virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
+	[[nodiscard]] virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
 
 	virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const final;
 	virtual ImageLayout<G> GetDepthStencilImageLayout() const final;
@@ -69,14 +69,14 @@ public:
 	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	virtual void End(CommandBufferHandle<G> cmd) final;
 
-	auto GetSurface() const noexcept { return mySurface; }
+	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	
-	std::tuple<bool, uint32_t, uint32_t> Flip();
-	QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
+	[[nodiscard]] std::tuple<bool, uint32_t, uint32_t> Flip();
+	[[nodiscard]] QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
-	auto& GetFrames() noexcept { return myFrames; }
-	const auto& GetFrames() const noexcept { return myFrames; }
-	auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
+	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
+	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }
+	[[nodiscard]] auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
 protected:
 	void InternalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);

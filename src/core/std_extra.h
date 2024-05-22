@@ -19,7 +19,7 @@ struct string_literal
 };
 
 template <string_literal S>
-consteval std::string_view make_string_literal()
+[[nodiscard]] consteval std::string_view make_string_literal()
 {
 	return S.value;
 }
@@ -37,7 +37,7 @@ template<typename F, typename Tuple>
 concept applicable = is_applicable<F, Tuple>::value;
 
 template <class F, class T, std ::size_t... I>
-constexpr auto apply_impl(F&& fcn, T&& obj, std::index_sequence<I...> /*unused*/) noexcept(
+[[nodiscard]] constexpr auto apply_impl(F&& fcn, T&& obj, std::index_sequence<I...> /*unused*/) noexcept(
 	std::is_nothrow_invocable<F&&, decltype(std::get<I>(std ::declval<T>()))...>{})
 	-> std::invoke_result_t<F&&, decltype(std::get<I>(std ::declval<T>()))...>
 {
@@ -59,7 +59,7 @@ class apply_result<F, Tuple, std::void_t<apply_result_t<F, Tuple>>>
 };
 
 template <class F, class Tuple>
-constexpr apply_result_t<F, Tuple> apply(F&& fcn, Tuple&& tpl) noexcept
+[[nodiscard]] constexpr apply_result_t<F, Tuple> apply(F&& fcn, Tuple&& tpl) noexcept
 {
 	return apply_impl(std::forward<F>(fcn), std::forward<Tuple>(tpl), std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
 }

@@ -11,45 +11,14 @@
 
 #include <concurrentqueue/concurrentqueue.h>
 
-class Noncopyable
-{
-public:
-	constexpr Noncopyable() = default;
-	~Noncopyable() = default;
-
-	Noncopyable(const Noncopyable&) = delete;
-	Noncopyable& operator=(const Noncopyable&) = delete;
-};
-
-class Nonmovable
-{
-public:
-	constexpr Nonmovable() = default;
-	~Nonmovable() = default;
-
-	Nonmovable(Nonmovable&&) = delete;
-	Nonmovable& operator=(Nonmovable&&) = delete;
-};
-
-class Nondynamic
-{
-public:
-	constexpr Nondynamic() = default;
-	~Nondynamic() = default;
-
-private:
-	void* operator new(size_t);
-	void* operator new[](size_t);
-};
-
 template <typename T, typename Handle>
 struct HandleHash : ankerl::unordered_dense::hash<Handle>
 {
-	size_t operator()(const T& obj) const
+	[[nodiscard]] size_t operator()(const T& obj) const
 	{
 		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(obj));
 	}
-	size_t operator()(const Handle& handle) const
+	[[nodiscard]] size_t operator()(const Handle& handle) const
 	{
 		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
 	}
@@ -58,11 +27,11 @@ struct HandleHash : ankerl::unordered_dense::hash<Handle>
 template <typename T, typename Handle>
 struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Handle>
 {
-	size_t operator()(const std::shared_ptr<T>& ptr) const
+	[[nodiscard]] size_t operator()(const std::shared_ptr<T>& ptr) const
 	{
 		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(*ptr));
 	}
-	size_t operator()(const Handle& handle) const
+	[[nodiscard]] size_t operator()(const Handle& handle) const
 	{
 		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
 	}
@@ -73,7 +42,7 @@ struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Ha
 template <typename T = void>
 struct SharedPtrEqualTo : std::equal_to<T>
 {
-	constexpr bool operator()(const std::shared_ptr<T>& lhs, const std::shared_ptr<T>& rhs) const
+	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<T>& lhs, const std::shared_ptr<T>& rhs) const
 	{
 		return *lhs == *rhs;
 	}
@@ -83,17 +52,17 @@ template <>
 struct SharedPtrEqualTo<void> : std::equal_to<void>
 {
 	template <typename U, typename V>
-	constexpr bool operator()(const std::shared_ptr<U>& lhs, const std::shared_ptr<V>& rhs) const
+	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<U>& lhs, const std::shared_ptr<V>& rhs) const
 	{
 		return *lhs == *rhs;
 	}
 	template <typename U, typename V>
-	constexpr bool operator()(const std::shared_ptr<U>& lhs, const V& rhs) const
+	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<U>& lhs, const V& rhs) const
 	{
 		return *lhs == rhs;
 	}
 	template <typename U, typename V>
-	constexpr bool operator()(const U& lhs, const std::shared_ptr<V>& rhs) const
+	[[nodiscard]] constexpr bool operator()(const U& lhs, const std::shared_ptr<V>& rhs) const
 	{
 		return lhs == *rhs;
 	}
@@ -104,7 +73,7 @@ struct SharedPtrEqualTo<void> : std::equal_to<void>
 template <typename T>
 struct IdentityHash
 {
-	constexpr size_t operator()(const T& key) const noexcept { return static_cast<size_t>(key); }
+	[[nodiscard]] constexpr size_t operator()(const T& key) const noexcept { return static_cast<size_t>(key); }
 };
 
 class TupleHash
@@ -114,7 +83,7 @@ class TupleHash
 	{
 		explicit Component(const T& value) : value(value) {}
 
-		uintmax_t operator,(uintmax_t n) const
+		[[nodiscard]] uintmax_t operator,(uintmax_t n) const
 		{
 			n ^= std::hash<T>()(value);
 			n ^= n << (sizeof(uintmax_t) * 4 - 1);
@@ -126,7 +95,7 @@ class TupleHash
 
 public:
 	template <typename Tuple>
-	size_t operator()(const Tuple& tuple) const
+	[[nodiscard]] size_t operator()(const Tuple& tuple) const
 	{
 		return std::hash<uintmax_t>()(
 			std::apply([](const auto&... xss) { return (Component(xss), ..., 0); }, tuple));
@@ -207,7 +176,7 @@ public:
 		return result;
 	}
 
-	iterator find(const Key& key)//NOLINT(readability-identifier-naming)
+	[[nodiscard]] iterator find(const Key& key)//NOLINT(readability-identifier-naming)
 	{
 		auto elementIt = std::lower_bound(
 			begin(), end(), key, [](const value_type& lhs, const Key& rhs) { return lhs < rhs; });

@@ -24,10 +24,10 @@ struct RenderTargetCreateDesc
 template <GraphicsApi G>
 struct IRenderTarget
 {
-	virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const = 0;
+	[[nodiscard]] virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const = 0;
 
-	virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const = 0;
-	virtual ImageLayout<G> GetDepthStencilImageLayout() const = 0;
+	[[nodiscard]] virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const = 0;
+	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilImageLayout() const = 0;
 
 	 // TODO: make these two a single scoped call
 	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
@@ -69,7 +69,7 @@ class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>
 public:
 	~RenderTarget();
 
-	operator auto() { return InternalGetValues(); };
+	[[nodiscard]] operator auto() { return InternalGetValues(); };
 
 	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	virtual void End(CommandBufferHandle<G> cmd) override;
@@ -95,8 +95,8 @@ public:
 	virtual void ClearDepthStencil(
 		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
 
-	auto GetAttachment(uint32_t index) const noexcept { return myAttachments[index]; }
-	const auto& GetAttachmentDesc(uint32_t index) const noexcept
+	[[nodiscard]] auto GetAttachment(uint32_t index) const noexcept { return myAttachments[index]; }
+	[[nodiscard]] const auto& GetAttachmentDesc(uint32_t index) const noexcept
 	{
 		return myAttachmentDescs[index];
 	}
@@ -123,9 +123,9 @@ protected:
 	void Swap(RenderTarget& rhs) noexcept;
 
 private:
-	uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;
+	[[nodiscard]] uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;
 
-	RenderTargetHandle<G> InternalCreateRenderPassAndFrameBuffer(
+	[[nodiscard]] RenderTargetHandle<G> InternalCreateRenderPassAndFrameBuffer(
 		uint64_t hashKey, const RenderTargetCreateDesc<kVk>& desc);
 
 	void InternalInitializeAttachments(const RenderTargetCreateDesc<G>& desc);
@@ -135,7 +135,7 @@ private:
 	void InternalUpdateRenderPasses(const RenderTargetCreateDesc<G>& desc);
 
 	const RenderTargetHandle<G>& InternalUpdateMap(const RenderTargetCreateDesc<G>& desc);
-	const RenderTargetHandle<G>& InternalGetValues();
+	[[nodiscard]] const RenderTargetHandle<G>& InternalGetValues();
 
 	std::vector<ImageViewHandle<G>> myAttachments;
 	std::vector<AttachmentDescription<G>> myAttachmentDescs;

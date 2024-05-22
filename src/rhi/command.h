@@ -35,17 +35,17 @@ public:
 	CommandBufferArray(CommandBufferArray&& other) noexcept;
 	~CommandBufferArray() override;
 
-	CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
-	CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
+	[[nodiscard]] CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
+	[[nodiscard]] CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
 
 	void Swap(CommandBufferArray& rhs) noexcept;
 	friend void Swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
-	static constexpr auto Capacity() { return kCommandBufferCount; }
+	[[nodiscard]] static constexpr auto Capacity() { return kCommandBufferCount; }
 
-	uint8_t Begin(const CommandBufferBeginInfo<G>& beginInfo);
+	[[nodiscard]] uint8_t Begin(const CommandBufferBeginInfo<G>& beginInfo);
 	void End(uint8_t index);
 
 	void Reset();
@@ -87,8 +87,8 @@ struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 	CommandBufferAccessScopeDesc(bool scopedBeginEnd = true) noexcept;//NOLINT(google-explicit-constructor)
 	CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<G>& other) noexcept;
 
-	CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other) noexcept;
-	bool operator==(const CommandBufferAccessScopeDesc<G>& other) const noexcept;
+	[[nodiscard]] CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other) noexcept;
+	[[nodiscard]] bool operator==(const CommandBufferAccessScopeDesc<G>& other) const noexcept;
 
 	CommandBufferInheritanceInfo<kVk> inheritance{};
 	uint8_t level = 0; // 0: primary, >= 1: secondary
@@ -96,7 +96,7 @@ struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 };
 
 template <GraphicsApi G>
-class CommandBufferAccessScope final : public Nondynamic
+class CommandBufferAccessScope final
 {
 public:
 	constexpr CommandBufferAccessScope() noexcept = default;
@@ -106,8 +106,8 @@ public:
 	CommandBufferAccessScope(CommandBufferAccessScope&& other) noexcept;
 	~CommandBufferAccessScope();
 
-	CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
-	operator auto() const { return (*myArray)[myIndex]; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
+	[[nodiscard]] operator auto() const { return (*myArray)[myIndex]; }//NOLINT(google-explicit-constructor)
 
 	void Swap(CommandBufferAccessScope<G>& rhs) noexcept;
 	friend void Swap(CommandBufferAccessScope<G>& lhs, CommandBufferAccessScope<G>& rhs) noexcept
@@ -121,6 +121,8 @@ public:
 	void End() const { myArray->End(myIndex); }
 
 private:
+	void* operator new(size_t);
+	void* operator new[](size_t);
 	CommandBufferAccessScopeDesc<G> myDesc{};
 	std::shared_ptr<uint32_t> myRefCount;
 	CommandBufferArray<G>* myArray = nullptr;
@@ -150,7 +152,7 @@ public:
 	~CommandPool() override;
 
 	CommandPool& operator=(CommandPool&& other) noexcept;
-	operator auto() const noexcept { return myPool; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] operator auto() const noexcept { return myPool; }//NOLINT(google-explicit-constructor)
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
@@ -159,7 +161,7 @@ public:
 
 	void Reset();
 
-	CommandBufferAccessScope<G> Commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
+	[[nodiscard]] CommandBufferAccessScope<G> Commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
 
 private:
 	friend class Queue<G>;
@@ -168,18 +170,18 @@ private:
 		const std::shared_ptr<Device<G>>& device,
 		std::tuple<CommandPoolCreateDesc<G>, CommandPoolHandle<G>>&& descAndData);
 
-	CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
+	[[nodiscard]] CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
 	void InternalEndCommands(uint8_t level);
 	void InternalEnqueueOnePending(uint8_t level);
 	void InternalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
 
-	auto& InternalGetPendingCommands() noexcept { return myPendingCommands; }
+	[[nodiscard]] auto& InternalGetPendingCommands() noexcept { return myPendingCommands; }
 	[[nodiscard]] const auto& InternalGetPendingCommands() const noexcept
 	{
 		return myPendingCommands;
 	}
 
-	auto& InternalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
+	[[nodiscard]] auto& InternalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
 	[[nodiscard]] const auto& InternalGetSubmittedCommands() const noexcept
 	{
 		return mySubmittedCommands;

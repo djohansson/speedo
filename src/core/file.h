@@ -29,7 +29,7 @@ struct Record
 };
 
 template <typename T, AccessMode Mode, bool SaveOnClose = false>
-class Object : public Noncopyable, public T
+class Object : public T
 {
 	// todo: implement mechanism to only write changes when contents have changed.
 	// todo: implement mechanism to update contents if an external process has changed the file.
@@ -38,10 +38,12 @@ class Object : public Noncopyable, public T
 
 public:
 	constexpr Object() noexcept = default;
+	Object(const Object&) = delete;
 	explicit Object(const std::filesystem::path& filePath, T&& defaultObject = T{});
 	Object(Object&& other) noexcept;
 	~Object();
 
+	Object& operator=(const Object&) = delete;
 	Object& operator=(Object&& other) noexcept;
 
 	void Swap(Object& rhs) noexcept;

@@ -53,12 +53,12 @@ public:
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetConfig() const noexcept { return myConfig; }
-	const auto& GetViews() const noexcept { return myViews; }
-	const auto& GetActiveView() const noexcept { return myActiveView; }
-	const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
-	auto& GetState() noexcept { return myState; }
-	const auto& GetState() const noexcept { return myState; }
+	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
+	[[nodiscard]] const auto& GetViews() const noexcept { return myViews; }
+	[[nodiscard]] const auto& GetActiveView() const noexcept { return myActiveView; }
+	[[nodiscard]] const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
+	[[nodiscard]] auto& GetState() noexcept { return myState; }
+	[[nodiscard]] const auto& GetState() const noexcept { return myState; }
 
 	void OnInputStateChanged(const InputState& input);
 	void OnResizeFramebuffer(int w, int h);
@@ -77,7 +77,7 @@ private:
 	void InternalInitializeViews();
 	void InternalUpdateViews(const InputState& input);
 
-	uint32_t InternalDrawViews(
+	[[nodiscard]] uint32_t InternalDrawViews(
 		Pipeline<G>& pipeline,
 		Queue<G>& queue,
 		RenderPassBeginInfo<G>&& renderPassInfo);

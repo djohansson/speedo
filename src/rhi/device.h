@@ -33,31 +33,37 @@ struct QueueFamilyDesc
 };
 
 template <GraphicsApi G>
-class Device final : public Noncopyable, public Nonmovable
+class Device final
 {
 public:
 	explicit Device(
-		const std::shared_ptr<Instance<G>>& instance, DeviceConfiguration<G>&& defaultConfig = {});
+		const std::shared_ptr<Instance<G>>& instance,
+		DeviceConfiguration<G>&& defaultConfig = {});
+	Device(const Device&) = delete;
+	Device(Device&& other) noexcept = delete;
 	~Device();
 
-	operator auto() const noexcept { return myDevice; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] Device& operator=(const Device&) = delete;
+	[[nodiscard]] Device& operator=(Device&& other) noexcept = delete;
 
-	auto GetInstance() const noexcept { return myInstance; } // todo: make global?
-	const auto& GetConfig() const noexcept { return myConfig; }
-	auto GetPhysicalDevice() const noexcept
+	[[nodiscard]] operator auto() const noexcept { return myDevice; }//NOLINT(google-explicit-constructor)
+
+	[[nodiscard]] auto GetInstance() const noexcept { return myInstance; } // todo: make global?
+	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
+	[[nodiscard]] auto GetPhysicalDevice() const noexcept
 	{
 		return myInstance->GetPhysicalDevices()[myPhysicalDeviceIndex];
 	}
-	const auto& GetPhysicalDeviceInfo() const noexcept
+	[[nodiscard]] const auto& GetPhysicalDeviceInfo() const noexcept
 	{
 		return myInstance->GetPhysicalDeviceInfo(GetPhysicalDevice());
 	}
 
-	const auto& GetQueueFamilies() const noexcept { return myQueueFamilyDescs; }
+	[[nodiscard]] const auto& GetQueueFamilies() const noexcept { return myQueueFamilyDescs; }
 
-	auto GetAllocator() const noexcept { return myAllocator; }
+	[[nodiscard]] auto GetAllocator() const noexcept { return myAllocator; }
 
-	auto& TimelineValue() { return myTimelineValue; }
+	[[nodiscard]] auto& TimelineValue() { return myTimelineValue; }
 
 	void WaitIdle() const;
 
@@ -69,7 +75,7 @@ public:
 		std::string&& objectName);
 	void EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
 	void ClearOwnedObjectHandles(const uuids::uuid& ownerId);
-	uint32_t GetTypeCount(ObjectType<G> type);
+	[[nodiscard]] uint32_t GetTypeCount(ObjectType<G> type);
 #endif
 
 private:
@@ -101,12 +107,14 @@ struct DeviceObjectCreateDesc
 };
 
 template <GraphicsApi G>
-class DeviceObject : public Noncopyable
+class DeviceObject
 {
 public:
+	DeviceObject(const DeviceObject&) = delete;
 	virtual ~DeviceObject();
 
-	DeviceObject& operator=(DeviceObject&& other) noexcept;
+	[[nodiscard]] DeviceObject& operator=(const DeviceObject&) = delete;
+
 	void Swap(DeviceObject& rhs) noexcept;
 
 	[[nodiscard]] std::string_view GetName() const noexcept { return myDesc.name; }
@@ -125,6 +133,8 @@ protected:
 		uint32_t objectCount,
 		ObjectType<G> objectType,
 		const uint64_t* objectHandles);
+
+	DeviceObject& operator=(DeviceObject&& other) noexcept;
 
 	[[nodiscard]] const auto& InternalGetDevice() const noexcept { return myDevice; }
 

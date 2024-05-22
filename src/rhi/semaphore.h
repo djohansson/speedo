@@ -22,8 +22,8 @@ public:
 	Semaphore(Semaphore<G>&& other) noexcept;
 	~Semaphore();
 
-	Semaphore& operator=(Semaphore&& other) noexcept;
-	operator auto() const noexcept { return mySemaphore; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] Semaphore& operator=(Semaphore&& other) noexcept;
+	[[nodiscard]] operator auto() const noexcept { return mySemaphore; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Semaphore& rhs) noexcept;
 	friend void Swap(Semaphore& lhs, Semaphore& rhs) noexcept { lhs.Swap(rhs); }

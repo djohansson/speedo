@@ -20,7 +20,7 @@ class UpgradableSharedMutex
 #if __cpp_lib_atomic_ref >= 201806
 	static constexpr uint32_t kAligmnent = std::atomic_ref<value_t>::required_alignment;
 	alignas(kAligmnent) value_t myBits = 0;
-	std::atomic_ref<value_t> InternalAtomicRef() noexcept { return std::atomic_ref(myBits); }
+	[[nodiscard]] std::atomic_ref<value_t> InternalAtomicRef() noexcept { return std::atomic_ref(myBits); }
 #else
 #if __cpp_lib_hardware_interference_size >= 201603
 	using std::hardware_constructive_interference_size;
@@ -31,16 +31,16 @@ class UpgradableSharedMutex
 #endif
 	static constexpr uint32_t kAligmnent = hardware_constructive_interference_size;
 	alignas(kAligmnent) CopyableAtomic<value_t> myAtomic;
-	CopyableAtomic<value_t>& InternalAtomicRef() noexcept { return myAtomic; }
+	[[nodiscard]] CopyableAtomic<value_t>& InternalAtomicRef() noexcept { return myAtomic; }
 #endif
 
 	template <typename Func>
 	void InternalAquireLock(Func lockFn) noexcept;
 
 	template <value_t Expected = None>
-	std::tuple<bool, value_t> InternalTryLock() noexcept;
-	std::tuple<bool, value_t> InternalTryLockShared() noexcept;
-	std::tuple<bool, value_t> InternalTryLockUpgrade() noexcept;
+	[[nodiscard]] std::tuple<bool, value_t> InternalTryLock() noexcept;
+	[[nodiscard]] std::tuple<bool, value_t> InternalTryLockShared() noexcept;
+	[[nodiscard]] std::tuple<bool, value_t> InternalTryLockUpgrade() noexcept;
 
 public:
 	// Lockable Concept
@@ -70,7 +70,7 @@ public:
 	void unlock_and_lock_upgrade() noexcept;
 
 	// Attempt to acquire writer permission. Return false if we didn't get it.
-	bool try_lock() noexcept;
+	[[nodiscard]] bool try_lock() noexcept;
 
 	// Try to get reader permission on the lock. This can fail if we
 	// find out someone is a writer or upgrader.
@@ -78,10 +78,10 @@ public:
 	// its intention to write and block any new readers while waiting
 	// for existing readers to finish and release their read locks. This
 	// helps avoid starving writers (promoted from upgraders).
-	bool try_lock_shared() noexcept;
+	[[nodiscard]] bool try_lock_shared() noexcept;
 
 	// try to acquire an upgradable lock.
-	bool try_lock_upgrade() noexcept;
+	[[nodiscard]] bool try_lock_upgrade() noexcept;
 };
 
 #include "upgradablesharedmutex.inl"

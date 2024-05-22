@@ -27,100 +27,99 @@ public:
 	{}
 
 	template <typename U = ScalarType>
-	AABB(const AABB<U, N>& other)
+	AABB(const AABB<U, N>& other) noexcept
 		: myMin(static_cast<VectorType>(other.myMin))
 		, myMax(static_cast<VectorType>(other.myMax))
 	{}
 
 	template <typename U = ScalarType>
-	AABB(const OtherVectorType<U>& aMin, const OtherVectorType<U>& aMax)
+	AABB(const OtherVectorType<U>& aMin, const OtherVectorType<U>& aMax) noexcept
 		: myMin(static_cast<VectorType>(aMin))
 		, myMax(static_cast<VectorType>(aMax))
 	{}
 
-	AABB(const ScalarType aMin[N], const ScalarType aMax[N])
+	AABB(const ScalarType aMin[N], const ScalarType aMax[N]) noexcept
 		: myMin(glm::make_vec3(aMin))
 		, myMax(glm::make_vec3(aMax))
 	{
 		static_assert(N == 3, "Only 3 dimensions is supported.");
 	}
 
-	operator bool() const { return (myMax < myMin) == 0; }
+	[[nodiscard]] operator bool() const noexcept { return (myMax < myMin) == 0; }
 	
-	const auto& GetMin() const { return myMin; }
-	const auto& GetMax() const { return myMax; }
+	[[nodiscard]] const auto& GetMin() const noexcept { return myMin; }
+	[[nodiscard]] const auto& GetMax() const noexcept { return myMax; }
 
 	template <typename U = ScalarType>
-	void SetMin(const OtherVectorType<U>& aPoint)
+	void SetMin(const OtherVectorType<U>& aPoint) noexcept
 	{
 		myMin = aPoint;
 	}
 
 	template <typename U = ScalarType>
-	void SetMax(const OtherVectorType<U>& aPoint)
+	void SetMax(const OtherVectorType<U>& aPoint) noexcept
 	{
 		myMax = aPoint;
 	}
 
 	template <typename U = ScalarType>
-	bool Contains(const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const
+	[[nodiscard]] bool Contains(const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const noexcept
 	{
 		return ((aPoint > (myMax + VectorType(aEpsilon))) == 0) &&
 			   ((aPoint < (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool Contains(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
+	[[nodiscard]] bool Contains(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const noexcept
 	{
 		return ((anOther.myMax > (myMax + VectorType(aEpsilon))) == 0) &&
 			   ((anOther.myMin < (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool ContainsExclusive(
-		const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const
+	[[nodiscard]] bool ContainsExclusive(
+		const OtherVectorType<U>& aPoint, const ScalarType aEpsilon = ScalarType(0)) const noexcept
 	{
 		return ((aPoint >= (myMax + VectorType(aEpsilon))) == 0) &&
 			   ((aPoint <= (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool
-	ContainsExclusive(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
+	[[nodiscard]] bool ContainsExclusive(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const noexcept
 	{
 		return ((anOther.myMax >= (myMax + VectorType(aEpsilon))) == 0) &&
 			   ((anOther.myMin <= (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool Intersects(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
+	[[nodiscard]] bool Intersects(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const noexcept
 	{
 		return ((anOther.myMin >= (myMax + VectorType(aEpsilon))) == 0) &&
 			   ((anOther.myMax <= (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	bool Overlaps(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const
+	[[nodiscard]] bool Overlaps(const AABB<U, N>& anOther, const ScalarType aEpsilon = ScalarType(0)) const noexcept
 	{
 		return ((anOther.myMin > (myMax + VectorType(aEpsilon))) == 0) &&
 			   ((anOther.myMax < (myMin - VectorType(aEpsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	void Merge(const AABB<U, N>& anOther)
+	void Merge(const AABB<U, N>& anOther) noexcept
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(anOther.myMin));
 		myMax = glm::max(myMax, static_cast<VectorType>(anOther.myMax));
 	}
 
 	template <typename U = ScalarType>
-	void Merge(const OtherVectorType<U>& aPoint)
+	void Merge(const OtherVectorType<U>& aPoint) noexcept
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(aPoint));
 		myMax = glm::max(myMax, static_cast<VectorType>(aPoint));
 	}
 
-	void Merge(const ScalarType aPoint[N])
+	void Merge(const ScalarType aPoint[N]) noexcept
 	{
 		static_assert(N == 3, "Only 3 dimensions is supported.");
 
@@ -131,18 +130,18 @@ public:
 	}
 
 	template <typename U = ScalarType>
-	void MergeSphere(const OtherVectorType<U>& aCenter, U aRadius)
+	void MergeSphere(const OtherVectorType<U>& aCenter, U aRadius) noexcept
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(aCenter - OtherVectorType<U>(aRadius)));
 		myMax = glm::max(myMax, static_cast<VectorType>(aCenter + OtherVectorType<U>(aRadius)));
 	}
 
-	VectorType Center() const { return (myMax + myMin) * ScalarType(0.5); }
-	VectorType Size() const { return (myMax - myMin); }
-	ScalarType Radius() const { return glm::length(myMax - myMin) * ScalarType(0.5); }
+	[[nodiscard]] VectorType Center() const noexcept{ return (myMax + myMin) * ScalarType(0.5); }
+	[[nodiscard]] VectorType Size() const noexcept{ return (myMax - myMin); }
+	[[nodiscard]] ScalarType Radius() const noexcept{ return glm::length(myMax - myMin) * ScalarType(0.5); }
 
 	template <typename U = VectorType>
-	auto Corners() const
+	[[nodiscard]] auto Corners() const noexcept
 	{
 		std::array<U, kCornerCount> somePointsOut;
 

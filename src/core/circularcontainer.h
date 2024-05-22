@@ -8,10 +8,10 @@ template <typename T, typename ContainerT = std::vector<T>>
 class CircularContainer : public ContainerT
 {
 public:
-	T& Get() { return ContainerT::at(myHead.load(std::memory_order_relaxed)); }
-	const T& Get() const { return ContainerT::at(myHead.load(std::memory_order_relaxed)); }
+	[[nodiscard]] T& Get() { return ContainerT::at(myHead.load(std::memory_order_relaxed)); }
+	[[nodiscard]] const T& Get() const { return ContainerT::at(myHead.load(std::memory_order_relaxed)); }
 
-	T& FetchAdd(size_t offset = 1u)
+	[[nodiscard]] T& FetchAdd(size_t offset = 1u)
 	{
 		size_t index = myHead.fetch_add(offset, std::memory_order_relaxed);
 		size_t newHeadWithOverflow = index + offset;

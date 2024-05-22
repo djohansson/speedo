@@ -52,8 +52,8 @@ public:
 		size_t initialDataSize);
 	~Image() override;
 
-	Image& operator=(Image&& other) noexcept;
-	operator auto() const noexcept { return std::get<0>(myImage); }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] Image& operator=(Image&& other) noexcept;
+	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myImage); }//NOLINT(google-explicit-constructor)
 
 	void Swap(Image& rhs) noexcept;
 	friend void Swap(Image& lhs, Image& rhs) noexcept { lhs.Swap(rhs); }
@@ -109,8 +109,8 @@ public:
 		Flags<kVk> aspectFlags);
 	~ImageView() override;
 
-	ImageView& operator=(ImageView&& other) noexcept;
-	operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] ImageView& operator=(ImageView&& other) noexcept;
+	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
 	void Swap(ImageView& rhs) noexcept;
 	friend void Swap(ImageView& lhs, ImageView& rhs) noexcept { lhs.Swap(rhs); }

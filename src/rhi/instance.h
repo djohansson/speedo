@@ -38,13 +38,18 @@ struct PhysicalDeviceInfo
 };
 
 template <GraphicsApi G>
-class Instance final : public Noncopyable, public Nonmovable
+class Instance final
 {
 public:
 	explicit Instance(InstanceConfiguration<G>&& defaultConfig = {});
+	Instance(const Instance&) = delete;
+	Instance(Instance&& other) noexcept = delete;
 	~Instance();
 
-	operator auto() const noexcept { return myInstance; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] Instance& operator=(const Instance&) = delete;
+	[[nodiscard]] Instance& operator=(Instance&& other) noexcept = delete;
+
+	[[nodiscard]] operator auto() const noexcept { return myInstance; }//NOLINT(google-explicit-constructor)
 
 	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
 	[[nodiscard]] const auto& GetHostAllocationCallbacks() const noexcept
@@ -52,10 +57,10 @@ public:
 		return myHostAllocationCallbacks;
 	}
 	[[nodiscard]] const auto& GetPhysicalDevices() const noexcept { return myPhysicalDevices; }
-	const auto& GetPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
+	[[nodiscard]] const auto& GetPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
 
 	const SwapchainInfo<G>& UpdateSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface);
-	const SwapchainInfo<G>& GetSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface) const;
+	[[nodiscard]] const SwapchainInfo<G>& GetSwapchainInfo(PhysicalDeviceHandle<G> device, SurfaceHandle<G> surface) const;
 	void UpdateSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface);
 
 private:

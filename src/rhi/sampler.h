@@ -17,13 +17,13 @@ public:
 	~SamplerVector();
 
 	SamplerVector& operator=(SamplerVector&& other) noexcept;
-	auto operator[](uint32_t index) const noexcept { return mySamplers[index]; };
+	[[nodiscard]] auto operator[](uint32_t index) const noexcept { return mySamplers[index]; };
 
 	void Swap(SamplerVector& rhs) noexcept;
 	friend void Swap(SamplerVector& lhs, SamplerVector& rhs) noexcept { lhs.Swap(rhs); }
 
-	auto Size() const noexcept { return mySamplers.size(); }
-	auto Data() const noexcept { return mySamplers.data(); }
+	[[nodiscard]] auto Size() const noexcept { return mySamplers.size(); }
+	[[nodiscard]] auto Data() const noexcept { return mySamplers.data(); }
 
 private:
 	SamplerVector( // takes ownership of provided handle

@@ -37,10 +37,10 @@ public:
 	void Swap(Model& rhs) noexcept;
 	friend void Swap(Model& lhs, Model& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetDesc() const noexcept { return myDesc; }
-	const auto& GetBindings() const noexcept { return myBindings; }
-	const auto& GetIndexBuffer() { return myIndexBuffer; }
-	const auto& GetVertexBuffer() { return myVertexBuffer; }
+	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetBindings() const noexcept { return myBindings; }
+	[[nodiscard]] const auto& GetIndexBuffer() { return myIndexBuffer; }
+	[[nodiscard]] const auto& GetVertexBuffer() { return myVertexBuffer; }
 	
 private:
 	Model( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.

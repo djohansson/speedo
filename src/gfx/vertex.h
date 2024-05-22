@@ -72,60 +72,63 @@ class ScopedVertexAllocation;
 class Vertex
 {
 public:
-	bool operator==(const Vertex& other) const
+	Vertex() = delete;
+	~Vertex() = delete;
+	Vertex(const Vertex& other) = delete;
+	Vertex& operator=(const Vertex& other) = delete;
+
+	[[nodiscard]] bool operator==(const Vertex& other) const
 	{
 		return std::equal(
 			this,
 			reinterpret_cast<const Vertex*>(
-				reinterpret_cast<const std::byte*>(this) + Allocator().Stride()),
+				reinterpret_cast<const std::byte*>(this) + InternalAllocator().Stride()),
 			&other);
 	}
 
-	uint64_t Hash(size_t seed = 42) const
+	[[nodiscard]] uint64_t Hash(size_t seed = 42) const
 	{
-		return XXH64(reinterpret_cast<const std::byte*>(this), Allocator().Stride(), seed);
+		return XXH64(reinterpret_cast<const std::byte*>(this), InternalAllocator().Stride(), seed);
 	}
 
 	template <typename T>
-	T& DataAs(size_t offset = 0)
+	[[nodiscard]] T& DataAs(size_t offset = 0)
 	{
 		return *reinterpret_cast<T*>(reinterpret_cast<std::byte*>(this) + offset);
 	}
 
 	template <typename T>
-	const T& DataAs(size_t offset = 0) const
+	[[nodiscard]] const T& DataAs(size_t offset = 0) const
 	{
 		return *reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
-	static ScopedVertexAllocation* const GetScope() { return gAllocationScope; }
+	[[nodiscard]] static ScopedVertexAllocation* const GetScope() { return gAllocationScope; }
 
 private:
 	friend ScopedVertexAllocation;
 
-	static VertexAllocator& Allocator();
+	[[nodiscard]] static VertexAllocator& InternalAllocator();
 
-	static void SetScope(ScopedVertexAllocation* scope) { gAllocationScope = scope; }
-
-	Vertex() = delete;
-	~Vertex() = delete;
-	Vertex(const Vertex& other) = delete;
-	Vertex& operator=(const Vertex& other) = delete;
+	static void InternalSetScope(ScopedVertexAllocation* scope) { gAllocationScope = scope; }
 
 	static thread_local ScopedVertexAllocation* gAllocationScope;
 };
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
 
-class ScopedVertexAllocation
-	: Noncopyable
-	, Nondynamic
+class ScopedVertexAllocation final
 {
 public:
 	ScopedVertexAllocation(VertexAllocator& allocator);
+	ScopedVertexAllocation(const ScopedVertexAllocation&) = delete;
+	ScopedVertexAllocation(ScopedVertexAllocation&&) = delete;
 	~ScopedVertexAllocation();
 
-	Vertex* CreateVertices(size_t count = 1)
+	ScopedVertexAllocation& operator=(const ScopedVertexAllocation&) = delete;
+	ScopedVertexAllocation& operator=(ScopedVertexAllocation&&) = delete;
+
+	[[nodiscard]] Vertex* CreateVertices(size_t count = 1)
 	{
 		return reinterpret_cast<Vertex*>(myAllocatorRef.Allocate(count));
 	}
@@ -135,7 +138,7 @@ public:
 		return myAllocatorRef.Free(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
-	VertexAllocator& Allocator() { return myAllocatorRef; }
+	[[nodiscard]] VertexAllocator& Allocator() noexcept { return myAllocatorRef; }
 
 private:
 	VertexAllocator& myAllocatorRef;
