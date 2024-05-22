@@ -7,8 +7,9 @@
 namespace mio_extra
 {
 
-struct ResizeableMemoryMapSink : public mio::mmap_sink
+class ResizeableMemoryMapSink : public mio::mmap_sink
 {
+public:
 	constexpr ResizeableMemoryMapSink() noexcept = default;
 	explicit ResizeableMemoryMapSink(
 		const std::string& path,
@@ -16,6 +17,11 @@ struct ResizeableMemoryMapSink : public mio::mmap_sink
 		const size_type length = mio::map_entire_file)
 		: mio::mmap_sink(path, offset, length)
 	{}
+	ResizeableMemoryMapSink(const ResizeableMemoryMapSink&) = delete;
+	ResizeableMemoryMapSink(ResizeableMemoryMapSink&&) noexcept = default;
+
+	ResizeableMemoryMapSink& operator=(const ResizeableMemoryMapSink&) = delete;
+	ResizeableMemoryMapSink& operator=(ResizeableMemoryMapSink&&) noexcept = default;
 
 	void resize(size_t size)
 	{
@@ -29,6 +35,7 @@ struct ResizeableMemoryMapSink : public mio::mmap_sink
 
 	[[nodiscard]] size_t HighWaterMark() const noexcept { return myHighWaterMark; }
 
+private:
 	size_t myHighWaterMark = 0;
 };
 
