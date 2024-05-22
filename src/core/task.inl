@@ -1,7 +1,9 @@
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept
-	: myInvokeFcnPtr(
+	: myCallableMemory(sizeof(C))
+	, myArgsMemory(sizeof(ArgsTuple))
+	, myInvokeFcnPtr(
 		[](const void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
 		{
 			const auto& callable = *static_cast<const C*>(callablePtr);
@@ -44,15 +46,10 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 	, myState(std::static_pointer_cast<TaskState>(
 		  std::make_shared<typename Future<R>::FutureState>()))
 {
-	static constexpr auto kExpectedTaskSize = 128;
-	static_assert(sizeof(Task) == kExpectedTaskSize);
-
-	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
 		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),//NOLINT(bugprone-casting-through-void)
 		std::forward<C>(callable));
 
-	static_assert(sizeof(ArgsTuple) <= kMaxArgsSizeBytes);
 	std::construct_at(
 	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),//NOLINT(bugprone-casting-through-void)
 	 	std::forward<Args>(args)...);

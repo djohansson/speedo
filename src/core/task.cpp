@@ -9,7 +9,7 @@ Task::~Task()
 	if (myDeleteFcnPtr != nullptr)
 		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
 
-	gTaskPool.Free(InternalPtrToHandle(this));
+	InternalFree(InternalPtrToHandle(this));
 }
 
 Task::operator bool() const noexcept
@@ -74,3 +74,11 @@ TaskHandle Task::InternalAllocate() noexcept
 
 	return handle;
 }
+
+void Task::InternalFree(TaskHandle handle) noexcept
+{
+	ASSERT(!!handle);
+
+	gTaskPool.Free(handle);
+}
+
