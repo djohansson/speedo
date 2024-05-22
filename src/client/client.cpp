@@ -27,7 +27,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	if (gClientApplication->IsExitRequested())
+	if (!gClientApplication || gClientApplication->IsExitRequested())
 		return;
 
 	using namespace std::literals;
@@ -103,7 +103,7 @@ static void UpdateInput()
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	if (gClientApplication->IsExitRequested())
+	if (!gClientApplication || gClientApplication->IsExitRequested())
 		return;
 
 	gClientApplication->UpdateInput();
@@ -119,7 +119,7 @@ static void Draw()
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	if (gClientApplication->IsExitRequested())
+	if (!gClientApplication || gClientApplication->IsExitRequested())
 		return;
 
 	gClientApplication->Draw();

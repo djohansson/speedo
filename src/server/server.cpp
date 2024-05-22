@@ -37,7 +37,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	std::shared_lock lock{gServerApplicationMutex};
 
-	if (gServerApplication->IsExitRequested())
+	if (!gServerApplication || gServerApplication->IsExitRequested())
 		return;
 
 	try
