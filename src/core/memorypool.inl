@@ -76,5 +76,5 @@ constexpr MemoryPoolHandle MemoryPool<T, Capacity>::GetHandle(const T* ptr) noex
 	if (!ptr)
 		return MemoryPoolHandle{};
 
-	return MemoryPoolHandle{static_cast<uint32_t>(reinterpret_cast<const std::byte*>(ptr) - myPool.data()) / sizeof(T)};
+	return MemoryPoolHandle{static_cast<uint32_t>((reinterpret_cast<const std::byte*>(ptr) - myPool.data()) / sizeof(T))};
 }
