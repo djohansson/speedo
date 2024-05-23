@@ -19,6 +19,7 @@
     },
     "spirv-tools",
     "spirv-headers",
+    "stb",
     "miniz",
     "lz4",
     "tinyobjloader",
