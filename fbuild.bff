@@ -141,13 +141,14 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lzmq'
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
+			+ ' -lmimalloc'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
+			+ ' -lmimalloc-debug'
 			+ .CommonExecutableLinkerOptions
 	]
 
@@ -206,7 +207,6 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -lmimalloc'
 			+ ' -lcargs'
 			+ ' -lTracyClient'
 			+ ' -lslang'
@@ -224,10 +224,12 @@
 			+ ' -lvulkan'
 	#endif //__WINDOWS__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
+			+ ' -lmimalloc'
 			+ ' -lnfd'
 			+ ' -limgui'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
+			+ ' -lmimalloc-debug'
 			+ ' -lnfd_d'
 			+ ' -limguid'
 			+ .CommonExecutableLinkerOptions
@@ -275,12 +277,13 @@
 		.DependencyDLLs = {
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -lmimalloc'
 			+ ' -lTracyClient'
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib/'
+			+ ' -lmimalloc'
 			+ ' -lCatch2'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib/'
+			+ ' -lmimalloc-debug'
 			+ ' -lCatch2d'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
