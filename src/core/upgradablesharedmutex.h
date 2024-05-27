@@ -8,7 +8,7 @@
 
 //NOLINTBEGIN(readability-identifier-naming)
 
-class UpgradableSharedMutex
+class UpgradableSharedMutex final
 {
 	using value_t = uint8_t;
 	enum : value_t
@@ -24,7 +24,7 @@ class UpgradableSharedMutex
 	[[nodiscard]] std::atomic_ref<value_t> InternalAtomicRef() noexcept { return std::atomic_ref(myBits); }
 #else
 	static constexpr uint32_t kAligmnent = std_extra::hardware_constructive_interference_size;
-	alignas(kAligmnent) CopyableAtomic<value_t> myAtomic;
+	alignas(kAligmnent) CopyableAtomic<value_t> myAtomic{};
 	[[nodiscard]] CopyableAtomic<value_t>& InternalAtomicRef() noexcept { return myAtomic; }
 #endif
 
