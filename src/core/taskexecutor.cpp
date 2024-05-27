@@ -27,6 +27,7 @@ TaskExecutor::~TaskExecutor()
 		thread.request_stop();
 
 	mySignal.release(static_cast<ptrdiff_t>(myThreads.size()));
+	myThreads.clear();
 
 	InternalProcessReadyQueue();
 }
