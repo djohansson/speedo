@@ -65,6 +65,7 @@ private:
 	[[nodiscard]] static Task* InternalHandleToPtr(TaskHandle handle) noexcept;
 	[[nodiscard]] static TaskHandle InternalPtrToHandle(Task* ptr) noexcept;
 	[[nodiscard]] static TaskHandle InternalAllocate() noexcept;
+	static void InternalFree(TaskHandle handle) noexcept;
 
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;

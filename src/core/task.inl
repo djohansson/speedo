@@ -41,8 +41,6 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 			  std::destroy_at(static_cast<C*>(callablePtr));
 			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		  })
-	, myState(std::static_pointer_cast<TaskState>(
-		  std::make_shared<typename Future<R>::FutureState>()))
 {
 	static constexpr auto kExpectedTaskSize = 128;
 	static_assert(sizeof(Task) == kExpectedTaskSize);
@@ -62,6 +60,7 @@ template <typename... Params>
 inline void Task::operator()(Params&&... params)
 {
 	ASSERTF(myInvokeFcnPtr, "Task is not initialized!");
+	ASSERT(!!InternalState());
 
 	auto taskParams = std::make_tuple(std::forward<Params>(params)...);
 	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);
@@ -69,14 +68,19 @@ inline void Task::operator()(Params&&... params)
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-inline TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
+TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
 {
 	if (auto handle = Task::InternalAllocate())
 	{
 		auto* taskPtr = Task::InternalHandleToPtr(handle);
-		//std::construct_at(taskPtr, std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
+		auto state = std::make_shared<typename Future<R>::FutureState>();
+		
+		state->mutex.lock();
 		new (taskPtr) Task(std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
-		return std::make_pair(handle, Future<R>(std::static_pointer_cast<typename Future<R>::FutureState>(taskPtr->InternalState())));
+		taskPtr->myState = std::static_pointer_cast<TaskState>(state);
+		state->mutex.unlock();
+
+		return std::make_pair(handle, Future<R>(std::move(state)));
 	}
 
 	TRAP(); // Fatal error, task pool is full.

@@ -26,7 +26,7 @@ TaskExecutor::~TaskExecutor()
 	for (auto& thread : myThreads)
 		thread.request_stop();
 
-	mySignal.release(static_cast<ptrdiff_t>(myThreads.size()));
+	mySignal.release(decltype(mySignal)::max());
 	myThreads.clear();
 
 	InternalProcessReadyQueue();
@@ -60,14 +60,22 @@ void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 		mySignal.release();
 }
 
-void TaskExecutor::InternalTryDelete(TaskHandle handle)
+bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::InternalTryDelete");
 
 	Task& task = *Task::InternalHandleToPtr(handle);
 
-	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0)
+	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0 && task.InternalState()->mutex.try_lock())
+	{
+		auto state = task.InternalState();
 		std::destroy_at(&task);
+		state->mutex.unlock();
+		Task::InternalFree(handle);
+		return true;
+	}
+
+	return false;
 }
 
 void TaskExecutor::InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
@@ -148,7 +156,10 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 
 	TaskHandle handle;
 	while (myDeletionQueue.try_dequeue(handle))
-		InternalTryDelete(handle);
+	{
+		if (!InternalTryDelete(handle))
+			myDeletionQueue.enqueue(handle);
+	}
 }
 
 void TaskExecutor::InternalThreadMain(std::stop_token stopToken, uint32_t threadId)

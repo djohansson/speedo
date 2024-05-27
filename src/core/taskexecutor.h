@@ -41,7 +41,7 @@ private:
 
 	void InternalSubmit(TaskHandle handle);
 	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
-	static void InternalTryDelete(TaskHandle handle);
+	[[nodiscard]] static bool InternalTryDelete(TaskHandle handle);
 
 	void InternalScheduleAdjacent(Task& task);
 	void InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
