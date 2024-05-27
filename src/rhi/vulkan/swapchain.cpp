@@ -102,13 +102,15 @@ std::tuple<bool, uint32_t, uint32_t> Swapchain<kVk>::Flip()
 	
 	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{});
 
+	auto frameIndex = myFrameIndex.load();
 	auto flipResult = CheckFlipOrPresentResult(vkAcquireNextImageKHR(
 		device,
 		mySwapchain,
 		UINT64_MAX,
 		VK_NULL_HANDLE,
 		fence,
-		&myFrameIndex));
+		&frameIndex));
+	myFrameIndex.store(frameIndex);
 
 	auto& newFrame = myFrames[myFrameIndex];
 
@@ -209,7 +211,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 				 {colorImages[frameIt]}},
 				frameIt});
 
-	myFrameIndex = frameCount - 1;
+	myFrameIndex.store(frameCount - 1);
 }
 
 template <>
@@ -219,7 +221,7 @@ Swapchain<kVk>::Swapchain(Swapchain&& other) noexcept
 	, mySurface(std::exchange(other.mySurface, {}))
 	, mySwapchain(std::exchange(other.mySwapchain, {}))
 	, myFrames(std::exchange(other.myFrames, {}))
-	, myFrameIndex(std::exchange(other.myFrameIndex, 0))
+	, myFrameIndex(std::exchange(other.myFrameIndex, {}))
 {}
 
 template <>
@@ -266,7 +268,7 @@ Swapchain<kVk>& Swapchain<kVk>::operator=(Swapchain&& other) noexcept
 	mySurface = std::exchange(other.mySurface, {});
 	mySwapchain = std::exchange(other.mySwapchain, {});
 	myFrames = std::exchange(other.myFrames, {});
-	myFrameIndex = std::exchange(other.myFrameIndex, 0);
+	myFrameIndex = std::exchange(other.myFrameIndex, {});
 	return *this;
 }
 
