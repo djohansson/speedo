@@ -1,0 +1,4 @@
+race:tracy::moodycamel::*
+race:gTaskPool
+race:*Task*CreateTask*
+race:*TaskExecutor*InternalTryDelete*
