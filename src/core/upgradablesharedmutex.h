@@ -1,6 +1,7 @@
 #pragma once
 
 #include "copyableatomic.h"
+#include "std_extra.h"
 
 #include <new>
 #include <tuple>
@@ -22,14 +23,7 @@ class UpgradableSharedMutex
 	alignas(kAligmnent) value_t myBits = 0;
 	[[nodiscard]] std::atomic_ref<value_t> InternalAtomicRef() noexcept { return std::atomic_ref(myBits); }
 #else
-#if __cpp_lib_hardware_interference_size >= 201603
-	using std::hardware_constructive_interference_size;
-	using std::hardware_destructive_interference_size;
-#else
-	static constexpr std::size_t hardware_constructive_interference_size = 64;
-	static constexpr std::size_t hardware_destructive_interference_size = 64;
-#endif
-	static constexpr uint32_t kAligmnent = hardware_constructive_interference_size;
+	static constexpr uint32_t kAligmnent = std_extra::hardware_constructive_interference_size;
 	alignas(kAligmnent) CopyableAtomic<value_t> myAtomic;
 	[[nodiscard]] CopyableAtomic<value_t>& InternalAtomicRef() noexcept { return myAtomic; }
 #endif
