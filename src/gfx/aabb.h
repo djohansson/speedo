@@ -39,8 +39,8 @@ public:
 	{}
 
 	AABB(const std::array<ScalarType, N>& aMin, const std::array<ScalarType, N>& aMax) noexcept
-		: myMin(glm::vec<N, ScalarType, glm::qualifier::defaultp>(std::apply(aMin)))
-		, myMax(glm::vec<N, ScalarType, glm::qualifier::defaultp>(std::apply(aMax)))
+		: myMin(glm::vec<N, ScalarType, glm::defaultp>(std::apply(aMin)))
+		, myMax(glm::vec<N, ScalarType, glm::defaultp>(std::apply(aMax)))
 	{}
 
 	[[nodiscard]] explicit operator bool() const noexcept { return (myMax < myMin) == 0; }
