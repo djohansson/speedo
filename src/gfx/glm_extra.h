@@ -15,7 +15,7 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers, readability-identifier-length)
 
 template <>
 struct glz::meta<glm::vec2>
@@ -42,4 +42,4 @@ namespace glm
 
 } // namespace glm
 
-//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
+//NOLINTEND(readability-identifier-naming, readability-magic-numbers, readability-identifier-length)

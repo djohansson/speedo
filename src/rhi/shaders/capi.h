@@ -1,5 +1,7 @@
 #pragma once
 
+//NOLINTBEGIN(readability-magic-numbers, modernize-avoid-c-arrays)
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -88,3 +90,5 @@ struct PushConstants
 #ifdef __cplusplus
 }
 #endif
+
+//NOLINTEND(readability-magic-numbers, modernize-avoid-c-arrays)

@@ -71,6 +71,7 @@ class ScopedVertexAllocation;
 // todo: alignment for sse types, etc
 class Vertex
 {
+	static constexpr size_t kDefaultSeed = 42;
 public:
 	Vertex() = delete;
 	~Vertex() = delete;
@@ -86,7 +87,7 @@ public:
 			&other);
 	}
 
-	[[nodiscard]] uint64_t Hash(size_t seed = 42) const
+	[[nodiscard]] uint64_t Hash(size_t seed = kDefaultSeed) const
 	{
 		return XXH64(reinterpret_cast<const std::byte*>(this), InternalAllocator().Stride(), seed);
 	}
@@ -103,7 +104,7 @@ public:
 		return *reinterpret_cast<const T*>(reinterpret_cast<const std::byte*>(this) + offset);
 	}
 
-	[[nodiscard]] static ScopedVertexAllocation* const GetScope() { return gAllocationScope; }
+	[[nodiscard]] static ScopedVertexAllocation* GetScope() { return gAllocationScope; }
 
 private:
 	friend ScopedVertexAllocation;
@@ -112,7 +113,7 @@ private:
 
 	static void InternalSetScope(ScopedVertexAllocation* scope) { gAllocationScope = scope; }
 
-	static thread_local ScopedVertexAllocation* gAllocationScope;
+	static thread_local ScopedVertexAllocation* gAllocationScope;//NOLINT(readability-identifier-naming)
 };
 
 static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);

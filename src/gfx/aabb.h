@@ -32,11 +32,11 @@ public:
 		static_assert(kDimension <= kMaxDimension);
 	}
 
-	constexpr AABB(const Type& other) noexcept = default;
-	constexpr AABB(Type&& other) noexcept = default;
+	constexpr AABB(const AABB& other) noexcept = default;
+	constexpr AABB(AABB&& other) noexcept = default;
 
-	constexpr AABB& operator=(const Type& other) noexcept = default;
-	constexpr AABB& operator=(Type&& other) noexcept = default;
+	constexpr AABB& operator=(const AABB& other) noexcept = default;
+	constexpr AABB& operator=(AABB&& other) noexcept = default;
 
 	template <typename U = ScalarType>
 	constexpr AABB(const OtherVectorType<U>& pmin, const OtherVectorType<U>& pmax) noexcept
@@ -54,7 +54,7 @@ public:
 		static_assert(kDimension <= kMaxDimension);
 	}
 
-	[[nodiscard]] constexpr operator bool() const noexcept { return (myMax < myMin) == 0; }
+	[[nodiscard]] constexpr operator bool() const noexcept { return (myMax < myMin) == 0; }//NOLINT(google-explicit-constructor)
 
 	[[nodiscard]] constexpr const auto& GetMin() const noexcept { return myMin; }
 	[[nodiscard]] constexpr const auto& GetMax() const noexcept { return myMax; }

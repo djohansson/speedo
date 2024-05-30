@@ -43,7 +43,7 @@ public:
 	~Buffer() override;
 
 	Buffer& operator=(Buffer&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myBuffer); }
+	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myBuffer); }//NOLINT(google-explicit-constructor)
 
 	void Swap(Buffer& rhs) noexcept;
 	friend void Swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.Swap(rhs); }
@@ -71,7 +71,7 @@ public:
 	~BufferView();
 
 	BufferView& operator=(BufferView&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return myView; }
+	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
 	void Swap(BufferView& rhs) noexcept;
 	friend void Swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.Swap(rhs); }
