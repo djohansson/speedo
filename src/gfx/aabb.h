@@ -38,12 +38,10 @@ public:
 		, myMax(static_cast<VectorType>(aMax))
 	{}
 
-	AABB(const ScalarType aMin[N], const ScalarType aMax[N]) noexcept
-		: myMin(glm::make_vec3(aMin))
-		, myMax(glm::make_vec3(aMax))
-	{
-		static_assert(N == 3, "Only 3 dimensions is supported.");
-	}
+	AABB(const std::array<ScalarType, N>& aMin, const std::array<ScalarType, N>& aMax) noexcept
+		: myMin(glm::vec<N, ScalarType, glm::qualifier::defaultp>(std::apply(aMin)))
+		, myMax(glm::vec<N, ScalarType, glm::qualifier::defaultp>(std::apply(aMax)))
+	{}
 
 	[[nodiscard]] explicit operator bool() const noexcept { return (myMax < myMin) == 0; }
 
