@@ -43,7 +43,7 @@ std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 	}
 
 	//int32_t lastBinding = -1;
-	int32_t lastLocation = -1;
+	int64_t lastLocation = -1;
 	uint32_t lastOffset = 0;
 	uint32_t lastSize = 0;
 
