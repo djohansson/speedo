@@ -27,7 +27,7 @@ public:
 	{}
 
 	template <typename U = ScalarType>
-	AABB(const AABB<U, N>& other) noexcept
+	explicit AABB(const AABB<U, N>& other) noexcept
 		: myMin(static_cast<VectorType>(other.myMin))
 		, myMax(static_cast<VectorType>(other.myMax))
 	{}
@@ -45,8 +45,8 @@ public:
 		static_assert(N == 3, "Only 3 dimensions is supported.");
 	}
 
-	[[nodiscard]] operator bool() const noexcept { return (myMax < myMin) == 0; }
-	
+	[[nodiscard]] explicit operator bool() const noexcept { return (myMax < myMin) == 0; }
+
 	[[nodiscard]] const auto& GetMin() const noexcept { return myMin; }
 	[[nodiscard]] const auto& GetMax() const noexcept { return myMax; }
 

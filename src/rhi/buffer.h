@@ -40,7 +40,7 @@ public:
 		Queue<G>& queue,
 		uint64_t timelineValue,
 		std::tuple<BufferCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
-	~Buffer();
+	~Buffer() override;
 
 	Buffer& operator=(Buffer&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myBuffer); }

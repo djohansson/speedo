@@ -126,14 +126,15 @@ Load(
 
 		auto [locVbHandle, locVbMemHandle] = CreateBuffer(
 			device->GetAllocator(),
-			desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
+			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
-		auto vbResult = in(std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f)));
+		auto vbResult = in(
+			std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
@@ -164,7 +165,8 @@ Load(
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
-		auto vbResult = out(std::span(static_cast<const char*>(vbData), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f)));
+		auto vbResult = out(std::span(
+			static_cast<const char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), vbMemHandle);
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
@@ -199,48 +201,44 @@ Load(
 
 		if (!attrib.vertices.empty())
 		{
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<kVk>{
-					static_cast<uint32_t>(desc.attributes.size()),
-					0,
-					VK_FORMAT_R32G32B32_SFLOAT,
-					offsetof(Vertex_P3f_N3f_T014f_C4f, position)});
+			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
+				static_cast<uint32_t>(desc.attributes.size()),
+				0,
+				VK_FORMAT_R32G32B32_SFLOAT,
+				offsetof(VertexP3fN3fT014fC4f, position)});
 		}
 
 		if (!attrib.normals.empty())
 		{
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<kVk>{
-					static_cast<uint32_t>(desc.attributes.size()),
-					0, 
-					VK_FORMAT_R32G32B32_SFLOAT,
-					offsetof(Vertex_P3f_N3f_T014f_C4f, normal)});
+			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
+				static_cast<uint32_t>(desc.attributes.size()),
+				0,
+				VK_FORMAT_R32G32B32_SFLOAT,
+				offsetof(VertexP3fN3fT014fC4f, normal)});
 		}
 
 		if (!attrib.texcoords.empty())
 		{
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<kVk>{
-					static_cast<uint32_t>(desc.attributes.size()),
-					0,
-					VK_FORMAT_R32G32B32A32_SFLOAT,
-					offsetof(Vertex_P3f_N3f_T014f_C4f, texCoord01)});
+			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
+				static_cast<uint32_t>(desc.attributes.size()),
+				0,
+				VK_FORMAT_R32G32B32A32_SFLOAT,
+				offsetof(VertexP3fN3fT014fC4f, texCoord01)});
 		}
 
 		if (!attrib.colors.empty())
 		{
-			desc.attributes.emplace_back(
-				VertexInputAttributeDescription<kVk>{
-					static_cast<uint32_t>(desc.attributes.size()),
-					0,
-					VK_FORMAT_R32G32B32A32_SFLOAT,
-					offsetof(Vertex_P3f_N3f_T014f_C4f, color)});
+			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
+				static_cast<uint32_t>(desc.attributes.size()),
+				0,
+				VK_FORMAT_R32G32B32A32_SFLOAT,
+				offsetof(VertexP3fN3fT014fC4f, color)});
 		}
 
 		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
-		vertices.SetStride(sizeof(Vertex_P3f_N3f_T014f_C4f));
+		vertices.SetStride(sizeof(VertexP3fN3fT014fC4f));
 
 		std::vector<uint32_t> indices;
 
@@ -258,13 +256,13 @@ Load(
 					std::copy_n(
 						&attrib.vertices[3 * index.vertex_index],
 						3,
-						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
+						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, position)));
 
 				if (!attrib.normals.empty())
 					std::copy_n(
 						&attrib.normals[3 * index.normal_index],
 						3,
-						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, normal)));
+						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, normal)));
 
 				if (!attrib.texcoords.empty())
 				{
@@ -272,16 +270,14 @@ Load(
 						attrib.texcoords[2 * index.texcoord_index + 0],
 						1.0F - attrib.texcoords[2 * index.texcoord_index + 1]};
 					std::copy_n(
-						uvs,
-						2,
-						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, texCoord01)));
+						uvs, 2, &vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, texCoord01)));
 				}
 
 				if (!attrib.colors.empty())
 					std::copy_n(
 						&attrib.colors[3 * index.vertex_index + 0],
 						3,
-						&vertex.DataAs<float>(offsetof(Vertex_P3f_N3f_T014f_C4f, color)));
+						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, color)));
 
 				uint64_t vertexIndex = vertex.Hash();
 				if (uniqueVertices.count(vertexIndex) == 0)
@@ -324,14 +320,14 @@ Load(
 
 		auto [locVbHandle, locVbMemHandle] = CreateBuffer(
 			device->GetAllocator(),
-			desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
+			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			"todo_insert_proper_name");
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
-		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f));
+		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 
 		vbHandle = locVbHandle;
@@ -342,9 +338,9 @@ Load(
 		return {};
 	};
 
-	static constexpr char loaderType[] = "tinyobjloader";
-	static constexpr char loaderVersion[] = "2.0.15";
-	file::LoadAsset<loaderType, loaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
+	static constexpr char kLoaderType[] = "tinyobjloader";
+	static constexpr char kLoaderVersion[] = "2.0.15";
+	file::LoadAsset<kLoaderType, kLoaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
 
 	if ((vbHandle == nullptr) || (ibHandle == nullptr))
 		throw std::runtime_error("Failed to load model.");
@@ -383,7 +379,7 @@ Model<kVk>::Model(
 		  timelineValue,
 		  std::make_tuple(
 			  BufferCreateDesc<kVk>{
-				  std::get<0>(descAndInitialData).vertexCount * sizeof(Vertex_P3f_N3f_T014f_C4f),
+				  std::get<0>(descAndInitialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
 				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
 			  std::get<3>(descAndInitialData),

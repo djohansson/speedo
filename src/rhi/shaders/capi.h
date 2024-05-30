@@ -26,29 +26,29 @@ extern "C"
 #	define UINT(name) uint32_t name
 #endif
 
-#define DescriptorSetCategory_Global 0
-#define DescriptorSetCategory_GlobalBuffers 1
-#define DescriptorSetCategory_GlobalTextures 2
-#define DescriptorSetCategory_GlobalRWTextures 3
-#define DescriptorSetCategory_GlobalSamplers 4
-#define DescriptorSetCategory_View 5
-#define DescriptorSetCategory_Material 6
-#define DescriptorSetCategory_ModelInstances 7
+#define DESCRIPTOR_SET_CATEGORY_GLOBAL 0
+#define DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS 1
+#define DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES 2
+#define DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES 3
+#define DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS 4
+#define DESCRIPTOR_SET_CATEGORY_VIEW 5
+#define DESCRIPTOR_SET_CATEGORY_MATERIAL 6
+#define DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES 7
 
-#define ShaderTypes_GlobalTextureIndexBits		7u
-#define ShaderTypes_GlobalTextureCount			(1u << ShaderTypes_GlobalTextureIndexBits)
-#define ShaderTypes_GlobalRWTextureIndexBits	3u
-#define ShaderTypes_GlobalRWTextureCount		(1u << ShaderTypes_GlobalRWTextureIndexBits)
-#define ShaderTypes_GlobalSamplerIndexBits		4u
-#define ShaderTypes_GlobalSamplerCount			(1u << ShaderTypes_GlobalSamplerIndexBits)
-#define ShaderTypes_FrameIndexBits				2u
-#define ShaderTypes_FrameCount					(1u << ShaderTypes_FrameIndexBits)
-#define ShaderTypes_ViewIndexBits				4u
-#define ShaderTypes_ViewCount					(1u << ShaderTypes_ViewIndexBits)
-#define ShaderTypes_MaterialIndexBits			10u
-#define ShaderTypes_MaterialCount				(1u << ShaderTypes_MaterialIndexBits)
-#define ShaderTypes_ModelInstanceIndexBits		19u
-#define ShaderTypes_ModelInstanceCount			(1u << ShaderTypes_ModelInstanceIndexBits)
+#define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 7u
+#define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
+#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 3u
+#define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
+#define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 4u
+#define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
+#define SHADER_TYPES_FRAME_INDEX_BITS 2u
+#define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
+#define SHADER_TYPES_VIEW_INDEX_BITS 4u
+#define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
+#define SHADER_TYPES_MATERIAL_INDEX_BITS 10u
+#define SHADER_TYPES_MATERIAL_COUNT (1u << SHADER_TYPES_MATERIAL_INDEX_BITS)
+#define SHADER_TYPES_MODEL_INSTANCE_INDEX_BITS 19u
+#define SHADER_TYPES_MODEL_INSTANCE_COUNT (1u << SHADER_TYPES_MODEL_INSTANCE_INDEX_BITS)
 
 // caution: don't change the alignment unless you know what you are doing.
 struct ViewData
@@ -68,7 +68,7 @@ struct ModelInstance
 	alignas(16) FLOAT4X4(inverseTransposeModelTransform);
 };
 
-struct Vertex_P3f_N3f_T014f_C4f
+struct VertexP3fN3fT014fC4f
 {
 	alignas(16) FLOAT3(position);
 	alignas(16) FLOAT3(normal);

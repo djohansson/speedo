@@ -30,7 +30,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 
 	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
-	ASSERT(viewCount <= ShaderTypes_ViewCount);
+	ASSERT(viewCount <= SHADER_TYPES_VIEW_COUNT);
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
 		auto mvp = myViews[viewIt].GetProjectionMatrix() * glm::mat4(myViews[viewIt].GetViewMatrix());
@@ -110,12 +110,12 @@ uint32_t Window<kVk>::InternalDrawViews(
 					ZoneScopedN("bindState");
 
 					// bind descriptor sets
-					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalBuffers);
-					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalTextures);
-					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_GlobalSamplers);
-					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_View);
-					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_Material);
-					pipeline.BindDescriptorSetAuto(cmd, DescriptorSetCategory_ModelInstances);
+					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 					// bind pipeline and buffers
 					pipeline.BindPipelineAuto(cmd);
@@ -177,7 +177,7 @@ uint32_t Window<kVk>::InternalDrawViews(
 						uint16_t viewIndex = viewIt;
 						uint16_t materialIndex = 0UI16;
 
-						pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << ShaderTypes_MaterialIndexBits) | materialIndex;
+						pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | materialIndex;
 
 						auto drawModel = [&pushConstants, &pipeline](VkCommandBuffer cmd)
 						{
@@ -417,16 +417,16 @@ Window<kVk>::Window(
 		std::forward<SurfaceHandle<kVk>>(surface), VK_NULL_HANDLE)
 	, myConfig(std::forward<ConfigFile>(config))
 	, myState(std::forward<WindowState>(state))
-	, myViewBuffers(std::make_unique<Buffer<kVk>[]>(ShaderTypes_FrameCount))
+	, myViewBuffers(std::make_unique<Buffer<kVk>[]>(SHADER_TYPES_FRAME_COUNT))
 {
 	ZoneScopedN("Window()");
 
-	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		myViewBuffers[i] = Buffer<kVk>(
 			InternalGetDevice(),
 			BufferCreateDesc<kVk>{
-				ShaderTypes_ViewCount * sizeof(ViewData),
+				SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 	}

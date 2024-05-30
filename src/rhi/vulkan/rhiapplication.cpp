@@ -120,7 +120,7 @@ static void LoadImage(
 				{},
 				*rhi.pipeline->GetResources().imageView,
 				rhi.pipeline->GetResources().image->GetImageLayout()},
-			DescriptorSetCategory_GlobalTextures,
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			1);
 	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
 
@@ -1164,8 +1164,8 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	// initialize stuff on graphics queue
 	constexpr uint32_t kTextureId = 1;
 	constexpr uint32_t kSamplerId = 2;
-	static_assert(kTextureId < ShaderTypes_GlobalTextureCount);
-	static_assert(kSamplerId < ShaderTypes_GlobalSamplerCount);
+	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
+	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[kQueueTypeGraphics];
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
@@ -1178,24 +1178,24 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 		IMGUIInit(rhi->windows.at(GetCurrentWindow()), *rhi, cmd);
 
-		auto materialData = std::make_unique<MaterialData[]>(ShaderTypes_MaterialCount);
+		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
 		materialData[0].color[0] = 1.0;
 		materialData[0].color[1] = 0.0;
 		materialData[0].color[2] = 0.0;
 		materialData[0].color[3] = 1.0;
 		materialData[0].textureAndSamplerId =
-			(kTextureId << ShaderTypes_GlobalTextureIndexBits) | kSamplerId;
+			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
 		rhi->materials = std::make_unique<Buffer<kVk>>(
 			rhi->device,
 			graphicsQueue,
 			1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed),
 			BufferCreateDesc<kVk>{
-				ShaderTypes_MaterialCount * sizeof(MaterialData),
+				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			materialData.get());
 
-		auto modelInstances = std::make_unique<ModelInstance[]>(ShaderTypes_ModelInstanceCount);
+		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
 		constexpr auto kIdentityMatrix = glm::mat4x4(1.0);
 		std::copy_n(&kIdentityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
 		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
@@ -1206,7 +1206,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			graphicsQueue,
 			1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed),
 			BufferCreateDesc<kVk>{
-				ShaderTypes_ModelInstanceCount * sizeof(ModelInstance),
+				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
 			modelInstances.get());
@@ -1233,37 +1233,37 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 	rhi->pipeline->BindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		rhi->pipeline->SetDescriptorData(
 			"g_viewData",
 			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DescriptorSetCategory_View,
+			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
 
 	rhi->pipeline->SetDescriptorData(
 		"g_materialData",
 		DescriptorBufferInfo<kVk>{*rhi->materials, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_Material);
+		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
 	rhi->pipeline->SetDescriptorData(
 		"g_modelInstances",
 		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_ModelInstances);
+		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	rhi->pipeline->SetDescriptorData(
 		"g_samplers",
 		DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[0]},
-		DescriptorSetCategory_GlobalSamplers,
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
 		kSamplerId);
 
-	for (uint8_t i = 0; i < ShaderTypes_FrameCount; i++)
+	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		rhi->pipeline->SetDescriptorData(
 			"g_viewData",
 			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DescriptorSetCategory_View,
+			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
 

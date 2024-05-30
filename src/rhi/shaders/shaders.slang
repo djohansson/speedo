@@ -4,29 +4,29 @@ __include types;
 
 #include "capi.h"
 
-[[vk::binding(0, DescriptorSetCategory_Global)]]
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL)]]
 [[vk::push_constant]]
 ConstantBuffer<PushConstants> g_pushConstants;
 
-[[vk::binding(0, DescriptorSetCategory_GlobalBuffers)]]
-StructuredBuffer<Vertex_P3f_N3f_T014f_C4f> g_vertexBuffer;
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<VertexP3fN3fT014fC4f> g_vertexBuffer;
 
-[[vk::binding(0, DescriptorSetCategory_GlobalTextures)]]
-Texture2D g_textures[ShaderTypes_GlobalTextureCount];
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
+Texture2D g_textures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 
-[[vk::binding(0, DescriptorSetCategory_GlobalRWTextures)]]
-RWTexture2D g_rwtextures[ShaderTypes_GlobalRWTextureCount];
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
+RWTexture2D g_rwtextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
 
-[[vk::binding(0, DescriptorSetCategory_GlobalSamplers)]]
-SamplerState g_samplers[ShaderTypes_GlobalSamplerCount];
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
+SamplerState g_samplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
 
-[[vk::binding(0, DescriptorSetCategory_View)]]
-StructuredBuffer<ViewData> g_viewData[ShaderTypes_FrameCount];
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_VIEW)]]
+StructuredBuffer<ViewData> g_viewData[SHADER_TYPES_FRAME_COUNT];
 
-[[vk::binding(0, DescriptorSetCategory_Material)]]
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MATERIAL)]]
 StructuredBuffer<MaterialData> g_materialData;
 
-[[vk::binding(0, DescriptorSetCategory_ModelInstances)]]
+[[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<ModelInstance> g_modelInstances;
 
 struct InputStream : IInputStream
@@ -37,7 +37,7 @@ struct InputStream : IInputStream
 
 struct VertexOutput : IInterpolants
 {
-	Vertex_P3f_N3f_T014f_C4f vertex;
+	VertexP3fN3fT014fC4f vertex;
 	float4 hPos : SV_Position;
 };
 
@@ -79,11 +79,11 @@ VertexOutput vertexMain(InputStream input)
 	uint frameIndex = g_pushConstants.frameIndex;
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
 
-	uint viewId = viewAndMaterialId >> ShaderTypes_MaterialIndexBits;
+	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 
 	ViewData view = g_viewData[frameIndex][viewId];
 
-	Vertex_P3f_N3f_T014f_C4f v = g_vertexBuffer[input.vertexId];
+	VertexP3fN3fT014fC4f v = g_vertexBuffer[input.vertexId];
 	ModelInstance i = g_modelInstances[input.instanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
@@ -100,19 +100,19 @@ VertexOutput vertexMain(InputStream input)
 
 FragmentOutput fragmentMain(VertexOutput input)
 {
-	Vertex_P3f_N3f_T014f_C4f v = input.vertex;
+	VertexP3fN3fT014fC4f v = input.vertex;
 	FragmentOutput output;
 
 	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
 
-	uint materialId = viewAndMaterialId & (ShaderTypes_MaterialCount - 1u);
+	uint materialId = viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u);
 
 	MaterialData material = g_materialData[materialId];
 
 	uint textureAndSamplerId = material.textureAndSamplerId;
 
-	uint textureId = textureAndSamplerId >> ShaderTypes_GlobalTextureIndexBits;
-	uint samplerId = textureAndSamplerId & (ShaderTypes_GlobalSamplerCount - 1u);
+	uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
+	uint samplerId = textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u);
 
 	Texture2D texture = g_textures[textureId];
 	SamplerState sampler = g_samplers[samplerId];

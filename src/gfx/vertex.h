@@ -1,4 +1,4 @@
-// TODO: remove vertex.h/inl/cpp
+// TODO(djohansson): remove vertex.h/inl/cpp
 #pragma once
 
 #include <core/utils.h>
@@ -28,9 +28,9 @@ public:
 		myIsLocked = false;
 	}
 
-	bool IsLocked() const { return myIsLocked; }
-	size_t Size() const { return myData.size() / Stride(); }
-	size_t SizeBytes() const { return myData.size(); }
+	[[nodiscard]] bool IsLocked() const { return myIsLocked; }
+	[[nodiscard]] size_t Size() const { return myData.size() / Stride(); }
+	[[nodiscard]] size_t SizeBytes() const { return myData.size(); }
 
 	void Reserve(size_t size)
 	{
@@ -46,9 +46,9 @@ public:
 		myStride = stride;
 	}
 
-	size_t Stride() const { return myStride; }
-	const void* Data() const { return myData.data(); }
-	bool Empty() const { return myData.size() == 0; }
+	[[nodiscard]] size_t Stride() const { return myStride; }
+	[[nodiscard]] const void* Data() const { return myData.data(); }
+	[[nodiscard]] bool Empty() const { return myData.empty(); }
 
 	// todo: handle alignment properly
 	// todo: rewrite without vector
@@ -120,7 +120,7 @@ static_assert(sizeof(Vertex) == std::alignment_of_v<Vertex>);
 class ScopedVertexAllocation final
 {
 public:
-	ScopedVertexAllocation(VertexAllocator& allocator);
+	explicit ScopedVertexAllocation(VertexAllocator& allocator);
 	ScopedVertexAllocation(const ScopedVertexAllocation&) = delete;
 	ScopedVertexAllocation(ScopedVertexAllocation&&) = delete;
 	~ScopedVertexAllocation();

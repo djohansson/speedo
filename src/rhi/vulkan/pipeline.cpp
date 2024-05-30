@@ -558,7 +558,7 @@ void Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
 	SetDescriptorData(
 		"g_vertexBuffer",
 		DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
-		DescriptorSetCategory_GlobalBuffers);
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 	myGraphicsState.resources.model = model;
 }
@@ -830,13 +830,13 @@ Pipeline<kVk>::Pipeline(
 		  {
 			  const uint32_t descBaseCount = 1024;
 			  VkDescriptorPoolSize poolSizes[]{
-				  {VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * ShaderTypes_GlobalSamplerCount},
+				  {VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				   descBaseCount * ShaderTypes_GlobalSamplerCount},
+				   descBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-				   descBaseCount * ShaderTypes_GlobalTextureCount},
+				   descBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
 				  {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-				   descBaseCount * ShaderTypes_GlobalRWTextureCount},
+				   descBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
 				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, descBaseCount},
 				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, descBaseCount},
 				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descBaseCount},
