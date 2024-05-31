@@ -4,6 +4,7 @@
 
 #include <core/file.h>
 #include <core/math.h>
+#include <core/std_extra.h>
 
 #include <cstdint>
 #if defined(__WINDOWS__)

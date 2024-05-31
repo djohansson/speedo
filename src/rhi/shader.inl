@@ -1,4 +1,5 @@
 #include <core/file.h>
+#include <core/std_extra.h>
 
 #include <zpp_bits.h>
 
@@ -216,9 +217,9 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		return {};
 	};
 
-	static constexpr char loaderTypeStr[] = "slang";
-	static constexpr char loaderVersionStr[] = "0.9.2";
-	file::LoadAsset<loaderTypeStr, loaderVersionStr>(slangFile, loadSlang, loadBin, saveBin);
+	file::LoadAsset<
+		std_extra::make_string_literal<"slang">().data(),
+		std_extra::make_string_literal<"0.9.2">().data()>(slangFile, loadSlang, loadBin, saveBin);
 
 	if (shaderSet.shaders.empty())
 		throw std::runtime_error("Failed to load shaders.");
