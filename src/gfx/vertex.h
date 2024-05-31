@@ -136,7 +136,7 @@ public:
 
 	void FreeVertices(Vertex* ptr, size_t count = 1)
 	{
-		return myAllocatorRef.Free(reinterpret_cast<std::byte*>(ptr), count);
+		myAllocatorRef.Free(reinterpret_cast<std::byte*>(ptr), count);
 	}
 
 	[[nodiscard]] VertexAllocator& Allocator() noexcept { return myAllocatorRef; }

@@ -3,6 +3,7 @@
 #include "utils.h"
 
 #include <core/file.h>
+#include <core/std_extra.h>
 #include <gfx/aabb.h>
 #include <gfx/vertex.h>
 
@@ -72,6 +73,7 @@ std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 	return {VertexInputBindingDescription<kVk>{0U, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
+//NOLINTBEGIN(readability-magic-numbers)
 std::tuple<
 	ModelCreateDesc<kVk>,
 	BufferHandle<kVk>,
@@ -94,7 +96,7 @@ Load(
 
 	auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device, &progress](auto& in) -> std::error_code
+	auto loadBin = [&descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
@@ -102,7 +104,7 @@ Load(
 
 		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 		
-		if (auto result = in(desc); failure(result))
+		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
 		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
@@ -114,7 +116,7 @@ Load(
 
 		void* ibData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
-		auto ibResult = in(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
+		auto ibResult = inStream(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
 		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
@@ -133,7 +135,7 @@ Load(
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
-		auto vbResult = in(
+		auto vbResult = inStream(
 			std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 		if (failure(vbResult))
@@ -254,28 +256,28 @@ Load(
 				
 				if (!attrib.vertices.empty())
 					std::copy_n(
-						&attrib.vertices[3 * index.vertex_index],
+						&attrib.vertices[3UL * index.vertex_index],
 						3,
 						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, position)));
 
 				if (!attrib.normals.empty())
 					std::copy_n(
-						&attrib.normals[3 * index.normal_index],
+						&attrib.normals[3UL * index.normal_index],
 						3,
 						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, normal)));
 
 				if (!attrib.texcoords.empty())
 				{
 					float uvs[2] = {
-						attrib.texcoords[2 * index.texcoord_index + 0],
-						1.0F - attrib.texcoords[2 * index.texcoord_index + 1]};
+						attrib.texcoords[2UL * index.texcoord_index],
+						1.0F - attrib.texcoords[2UL * index.texcoord_index + 1]};
 					std::copy_n(
 						uvs, 2, &vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, texCoord01)));
 				}
 
 				if (!attrib.colors.empty())
 					std::copy_n(
-						&attrib.colors[3 * index.vertex_index + 0],
+						&attrib.colors[3UL * index.vertex_index],
 						3,
 						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, color)));
 
@@ -284,9 +286,9 @@ Load(
 				{
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.Size() - 1);
 
-					// if (!attrib.vertices.empty())
-					// 	desc.aabb.Merge(
-					// 		vertex.DataAs<decltype(Vertex_P3f_N3f_T014f_C4f::position)>(offsetof(Vertex_P3f_N3f_T014f_C4f, position)));
+					if (!attrib.vertices.empty())
+						desc.aabb.Merge(
+							std::to_array(vertex.DataAs<decltype(VertexP3fN3fT014fC4f::position)>(offsetof(VertexP3fN3fT014fC4f, position))));
 				}
 				else
 				{
@@ -338,15 +340,16 @@ Load(
 		return {};
 	};
 
-	static constexpr char kLoaderType[] = "tinyobjloader";
-	static constexpr char kLoaderVersion[] = "2.0.15";
-	file::LoadAsset<kLoaderType, kLoaderVersion>(modelFile, loadOBJ, loadBin, saveBin);
+	file::LoadAsset<
+		std_extra::make_string_literal<"tinyobjloader">().data(),
+		std_extra::make_string_literal<"2.0.15">().data()>(modelFile, loadOBJ, loadBin, saveBin);
 
 	if ((vbHandle == nullptr) || (ibHandle == nullptr))
 		throw std::runtime_error("Failed to load model.");
 
 	return descAndInitialData;
 }
+//NOLINTEND(readability-magic-numbers)
 
 } // namespace model
 

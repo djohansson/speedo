@@ -48,8 +48,8 @@ public:
 
 	template <typename U = ScalarType>
 	constexpr AABB(const std::array<U, kDimension>& pmin, const std::array<U, kDimension>& pmax) noexcept
-		: myMin(static_cast<VectorType>(OtherVectorType<U>(std::apply(pmin))))
-		, myMax(static_cast<VectorType>(OtherVectorType<U>(std::apply(pmax))))
+		: myMin(static_cast<VectorType>(std::make_from_tuple<OtherVectorType<U>>(pmin)))
+		, myMax(static_cast<VectorType>(std::make_from_tuple<OtherVectorType<U>>(pmax)))
 	{
 		static_assert(kDimension <= kMaxDimension);
 	}
@@ -130,7 +130,7 @@ public:
 
 	constexpr void Merge(const std::array<ScalarType, N> point) noexcept
 	{
-		auto pointVec = glm::vec(std::apply(point));
+		auto pointVec = std::make_from_tuple<VectorType>(point);
 		
 		myMin = glm::min(myMin, pointVec);
 		myMax = glm::max(myMax, pointVec);
