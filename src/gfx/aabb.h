@@ -8,7 +8,7 @@
 #include <tuple>
 
 template <typename T, size_t N>
-class AABB
+struct AABB
 {
 	static constexpr size_t kDimension = N;
 	static constexpr size_t kCornerCount = 1 << kDimension;
@@ -21,38 +21,6 @@ class AABB
 
 	template <typename U>
 	using OtherVectorType = glm::vec<kDimension, U, glm::defaultp>;
-
-public:
-	friend zpp::bits::access;
-
-	constexpr explicit AABB() noexcept
-		: myMin(std::numeric_limits<ScalarType>::max())
-		, myMax(std::numeric_limits<ScalarType>::lowest())
-	{
-		static_assert(kDimension <= kMaxDimension);
-	}
-
-	constexpr AABB(const AABB& other) noexcept = default;
-	constexpr AABB(AABB&& other) noexcept = default;
-
-	constexpr AABB& operator=(const AABB& other) noexcept = default;
-	constexpr AABB& operator=(AABB&& other) noexcept = default;
-
-	template <typename U = ScalarType>
-	constexpr AABB(const OtherVectorType<U>& pmin, const OtherVectorType<U>& pmax) noexcept
-		: myMin(static_cast<VectorType>(pmin))
-		, myMax(static_cast<VectorType>(pmax))
-	{
-		static_assert(kDimension <= kMaxDimension);
-	}
-
-	template <typename U = ScalarType>
-	constexpr AABB(const std::array<U, kDimension>& pmin, const std::array<U, kDimension>& pmax) noexcept
-		: myMin(static_cast<VectorType>(std::make_from_tuple<OtherVectorType<U>>(pmin)))
-		, myMax(static_cast<VectorType>(std::make_from_tuple<OtherVectorType<U>>(pmax)))
-	{
-		static_assert(kDimension <= kMaxDimension);
-	}
 
 	[[nodiscard]] constexpr operator bool() const noexcept { return (myMax < myMin) == 0; }//NOLINT(google-explicit-constructor)
 
@@ -158,8 +126,7 @@ public:
 
 		return somePointsOut;
 	}
-
-private:
+	
 	VectorType myMin{};
 	VectorType myMax{};
 };

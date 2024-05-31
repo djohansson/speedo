@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -70,6 +71,31 @@ template <class F, class Tuple>
 [[nodiscard]] constexpr apply_result_t<F, Tuple> apply(F&& fcn, Tuple&& tpl) noexcept
 {
 	return apply_impl(std::forward<F>(fcn), std::forward<Tuple>(tpl), std::make_index_sequence<std::tuple_size_v<std::decay_t<Tuple>>>{});
+}
+
+namespace detail
+{
+struct universal_type
+{
+	template <typename T>
+	operator T();
+};
+
+} // namespace detail
+
+template <typename T, typename... Args>
+consteval auto member_count()
+{
+	static_assert(std::is_aggregate_v<std::remove_cvref_t<T>>);
+
+	if constexpr (requires { T{{Args{}}..., {detail::universal_type{}}}; } == false)
+	{
+		return sizeof...(Args);
+	}
+	else
+	{
+		return member_count<T, Args..., detail::universal_type>();
+	}
 }
 
 } // namespace std_extra

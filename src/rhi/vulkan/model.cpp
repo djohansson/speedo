@@ -8,6 +8,7 @@
 #include <gfx/vertex.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -21,10 +22,10 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
-auto serialize(const ModelCreateDesc<kVk>&) -> zpp::bits::members<4>;
-auto serialize(const AABB3f&) -> zpp::bits::members<2>;
-//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming)
+[[nodiscard]] zpp::bits::members<std_extra::member_count<ModelCreateDesc<kVk>>()> serialize(const ModelCreateDesc<kVk>&);
+[[nodiscard]] zpp::bits::members<std_extra::member_count<AABB3f>()> serialize(const AABB3f&);
+//NOLINTEND(readability-identifier-naming)
 
 namespace model
 {
@@ -268,11 +269,11 @@ Load(
 
 				if (!attrib.texcoords.empty())
 				{
-					float uvs[2] = {
+					std::array<float, 2> uvs = {
 						attrib.texcoords[2UL * index.texcoord_index],
 						1.0F - attrib.texcoords[2UL * index.texcoord_index + 1]};
 					std::copy_n(
-						uvs, 2, &vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, texCoord01)));
+						uvs.data(), uvs.size(), &vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, texCoord01)));
 				}
 
 				if (!attrib.colors.empty())

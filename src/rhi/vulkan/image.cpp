@@ -27,9 +27,9 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
-auto serialize(const ImageCreateDesc<kVk>&) -> zpp::bits::members<6>;
-//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
+//NOLINTBEGIN(readability-identifier-naming)
+[[nodiscard]] zpp::bits::members<std_extra::member_count<ImageCreateDesc<kVk>>()> serialize(const ImageCreateDesc<kVk>&);
+//NOLINTEND(readability-identifier-naming)
 
 namespace image
 {

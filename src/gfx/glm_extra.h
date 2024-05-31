@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/std_extra.h>
+
 //#define GLM_FORCE_MESSAGES
 #define GLM_LANG_STL11_FORCED
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -15,7 +17,7 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers, readability-identifier-length)
+//NOLINTBEGIN(readability-identifier-naming, readability-magic-numbers)
 
 template <>
 struct glz::meta<glm::vec2>
@@ -24,22 +26,22 @@ struct glz::meta<glm::vec2>
 	static constexpr auto value = object(&T::x, &T::y);
 };
 
-[[nodiscard]] auto serialize(const glm::vec2&) -> zpp::bits::members<2>;
-[[nodiscard]] auto serialize(const glm::vec3&) -> zpp::bits::members<3>;
+[[nodiscard]] zpp::bits::members<2/*std_extra::member_count<glm::vec2>()*/> serialize(const glm::vec2&);
+[[nodiscard]] zpp::bits::members<3/*std_extra::member_count<glm::vec3>()*/> serialize(const glm::vec3&);
 
 namespace glm
 {
 
-[[nodiscard]] constexpr auto serialize(auto& archive, vec3& v)
+[[nodiscard]] constexpr auto serialize(auto& archive, vec3& value)
 {
-	return archive(v.x, v.y, v.z);
+	return archive(value.x, value.y, value.z);
 }
 
-[[nodiscard]] constexpr auto serialize(auto& archive, const vec3& v)
+[[nodiscard]] constexpr auto serialize(auto& archive, const vec3& value)
 {
-	return archive(v.x, v.y, v.z);
+	return archive(value.x, value.y, value.z);
 }
 
 } // namespace glm
 
-//NOLINTEND(readability-identifier-naming, readability-magic-numbers, readability-identifier-length)
+//NOLINTEND(readability-identifier-naming, readability-magic-numbers)
