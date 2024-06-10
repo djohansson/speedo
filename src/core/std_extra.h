@@ -19,6 +19,46 @@ static constexpr std::size_t hardware_constructive_interference_size = 64;
 static constexpr std::size_t hardware_destructive_interference_size = 64;
 #endif
 
+template <typename T, std::align_val_t Alignment>
+class aligned_allocator
+{
+public:
+	using value_type = T;
+	static constexpr auto kAlignment{Alignment};
+
+	aligned_allocator() noexcept {};
+
+	template <typename U>
+	aligned_allocator(const aligned_allocator<U, kAlignment>& other) noexcept {};
+
+	template <typename U>
+	inline bool operator==(const aligned_allocator<U, kAlignment>& other) const noexcept
+	{
+		return true;
+	}
+
+	template <typename U>
+	inline bool operator!=(const aligned_allocator<U, kAlignment>& other) const noexcept
+	{
+		return false;
+	}
+
+	template <typename U>
+	struct rebind
+	{
+		using other = aligned_allocator<U, kAlignment>;
+	};
+
+	[[nodiscard]] T* allocate(std::size_t count)
+	{
+		return reinterpret_cast<T*>(::operator new[](count * sizeof(T), kAlignment));
+	}
+	void deallocate(T* allocPtr, [[maybe_unused]] std::size_t count)
+	{
+		::operator delete[](allocPtr, kAlignment);
+	}
+};
+
 template <size_t N>
 struct string_literal
 {
