@@ -29,7 +29,7 @@ struct IRenderTarget
 	[[nodiscard]] virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const = 0;
 	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilImageLayout() const = 0;
 
-	 // TODO: make these two a single scoped call
+	// TODO(djohansson): make these two a single scoped call
 	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
 	virtual void End(CommandBufferHandle<G> cmd) = 0;
 	//
@@ -41,14 +41,14 @@ struct IRenderTarget
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<G> filter = {}) = 0;
+		Filter<G> filter) = 0;
 
 	virtual void ClearSingleAttachment(
 		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const = 0;
 	virtual void ClearAllAttachments(
 		CommandBufferHandle<G> cmd,
-		const ClearColorValue<G>& color = {},
-		const ClearDepthStencilValue<G>& depthStencil = {}) const = 0;
+		const ClearColorValue<G>& color,
+		const ClearDepthStencilValue<G>& depthStencil) const = 0;
 
 	virtual void
 	ClearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) = 0;
@@ -67,32 +67,32 @@ template <GraphicsApi G>
 class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>
 {
 public:
-	~RenderTarget();
+	~RenderTarget() override;
 
-	[[nodiscard]] operator auto() { return InternalGetValues(); };
+	[[nodiscard]] operator auto() { return InternalGetValues(); };//NOLINT(google-explicit-constructor)
 
-	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
-	virtual void End(CommandBufferHandle<G> cmd) override;
+	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	void End(CommandBufferHandle<G> cmd) override;
 
-	virtual void Blit(
+	void Blit(
 		CommandBufferHandle<G> cmd,
 		const IRenderTarget<G>& srcRenderTarget,
 		const ImageSubresourceLayers<G>& srcSubresource,
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<G> filter = {}) final;
+		Filter<G> filter) final;
 
-	virtual void ClearSingleAttachment(
+	void ClearSingleAttachment(
 		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const final;
-	virtual void ClearAllAttachments(
+	void ClearAllAttachments(
 		CommandBufferHandle<G> cmd,
-		const ClearColorValue<G>& color = {},
-		const ClearDepthStencilValue<G>& depthStencil = {}) const final;
+		const ClearColorValue<G>& color,
+		const ClearDepthStencilValue<G>& depthStencil) const final;
 
-	virtual void
+	void
 	ClearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
-	virtual void ClearDepthStencil(
+	void ClearDepthStencil(
 		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
 
 	[[nodiscard]] auto GetAttachment(uint32_t index) const noexcept { return myAttachments[index]; }
@@ -106,10 +106,12 @@ public:
 	void NextSubpass(CommandBufferHandle<G> cmd, SubpassContents<G> contents);
 	void ResetSubpasses();
 
-	void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> op);
-	void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> op);
-	void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> op);
-	void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> op);
+	void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp);
+	void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp);
+	void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp);
+	void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp);
+
+	void Swap(RenderTarget& rhs) noexcept;
 
 protected:
 	constexpr RenderTarget() noexcept = default;
@@ -119,8 +121,6 @@ protected:
 		const RenderTargetCreateDesc<G>& desc);
 
 	RenderTarget& operator=(RenderTarget&& other) noexcept;
-
-	void Swap(RenderTarget& rhs) noexcept;
 
 private:
 	[[nodiscard]] uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;

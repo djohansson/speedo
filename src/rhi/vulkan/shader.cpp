@@ -10,7 +10,7 @@ namespace shader
 {
 
 template <>
-ShaderStageFlagBits<kVk> getStageFlags<kVk>(SlangStage stage)
+ShaderStageFlagBits<kVk> GetStageFlags<kVk>(SlangStage stage)
 {
 	switch (stage)
 	{
@@ -48,7 +48,7 @@ ShaderStageFlagBits<kVk> getStageFlags<kVk>(SlangStage stage)
 }
 
 template <>
-DescriptorType<kVk> getDescriptorType<kVk>(
+DescriptorType<kVk> GetDescriptorType<kVk>(
 	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access)
 {
 	auto type = DescriptorType<kVk>{};
@@ -136,7 +136,7 @@ void AddBinding(
 		access = elementTypeLayout->getType()->getResourceAccess();
 	}
 
-	auto descriptorType = shader::getDescriptorType<kVk>(kind, shape, access);
+	auto descriptorType = shader::GetDescriptorType<kVk>(kind, shape, access);
 
 	//auto isUniformDynamic = descriptorType == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	auto isInlineUniformBlock = descriptorType == VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK_EXT;
@@ -145,7 +145,7 @@ void AddBinding(
 	slot.binding = bindingIndex;
 	slot.descriptorType = descriptorType;
 	slot.descriptorCount = isInlineUniformBlock ? sizeBytes : descriptorCount;
-	slot.stageFlags = shader::getStageFlags<kVk>(stage);
+	slot.stageFlags = shader::GetStageFlags<kVk>(stage);
 	slot.pImmutableSamplers = nullptr;
 
 	layout.bindings.push_back(slot);

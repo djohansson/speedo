@@ -24,10 +24,10 @@ class PipelineLayout final : public DeviceObject<G>
 public:
 	constexpr PipelineLayout() noexcept = default;
 	PipelineLayout(PipelineLayout<G>&& other) noexcept;
-	~PipelineLayout();
+	~PipelineLayout() override;
 
 	PipelineLayout& operator=(PipelineLayout&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return myLayout; }
+	[[nodiscard]] operator auto() const noexcept { return myLayout; }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
 	[[nodiscard]] bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
 
@@ -98,16 +98,15 @@ class Pipeline : public DeviceObject<G>
 		DescriptorSetState<G>>;
 
 public:
-	Pipeline(
-		const std::shared_ptr<Device<G>>& device,
-		PipelineConfiguration<G>&& defaultConfig = {});
-	~Pipeline();
+	explicit Pipeline(
+		const std::shared_ptr<Device<G>>& device, PipelineConfiguration<G>&& defaultConfig = {});
+	~Pipeline() override;
 
-	const auto& GetConfig() const noexcept { return myConfig; }
-	auto GetCache() const noexcept { return myCache; }
-	auto GetDescriptorPool() const noexcept { return myDescriptorPool; }
-	auto GetBindPoint() const noexcept { return myBindPoint; }
-	auto GetLayout() const noexcept { return myLayout; }
+	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
+	[[nodiscard]] auto GetCache() const noexcept { return myCache; }
+	[[nodiscard]] auto GetDescriptorPool() const noexcept { return myDescriptorPool; }
+	[[nodiscard]] auto GetBindPoint() const noexcept { return myBindPoint; }
+	[[nodiscard]] auto GetLayout() const noexcept { return myLayout; }
 
 	PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
 
@@ -167,7 +166,7 @@ public:
 		uint32_t index);	
 
 	// temp
-	auto& GetRenderTarget() const noexcept
+	[[nodiscard]] auto& GetRenderTarget() const noexcept
 	{
 		ASSERT(myRenderTarget);
 		return *myRenderTarget;
@@ -177,7 +176,7 @@ public:
 	void SetModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
 
 	auto& GetResources() noexcept { return myGraphicsState.resources; }
-	const auto& GetResources() const noexcept { return myGraphicsState.resources; }
+	[[nodiscard]] const auto& GetResources() const noexcept { return myGraphicsState.resources; }
 	//
 
 	// "auto" api end	
@@ -205,7 +204,7 @@ private:
 	static void InternalUpdateDescriptorSetTemplate(
 		const BindingsMap<G>& bindingsMap, DescriptorUpdateTemplate<G>& setTemplate);
 
-	uint64_t InternalCalculateHashKey() const;
+	[[nodiscard]] uint64_t InternalCalculateHashKey() const;
 	PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey);
 	PipelineHandle<G> InternalGetPipeline();
 	const PipelineLayout<G>& InternalGetLayout();

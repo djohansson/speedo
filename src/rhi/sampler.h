@@ -14,7 +14,7 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		const std::vector<SamplerCreateInfo<G>>& createInfos);
 	SamplerVector(SamplerVector&& other) noexcept;
-	~SamplerVector();
+	~SamplerVector() override;
 
 	SamplerVector& operator=(SamplerVector&& other) noexcept;
 	[[nodiscard]] auto operator[](uint32_t index) const noexcept { return mySamplers[index]; };
