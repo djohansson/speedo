@@ -26,19 +26,19 @@ public:
 	using value_type = T;
 	static constexpr auto kAlignment{Alignment};
 
-	aligned_allocator() noexcept {};
+	constexpr aligned_allocator() noexcept = default;
 
 	template <typename U>
-	aligned_allocator(const aligned_allocator<U, kAlignment>& other) noexcept {};
+	constexpr explicit aligned_allocator(const aligned_allocator<U, kAlignment>& other) noexcept {};
 
 	template <typename U>
-	inline bool operator==(const aligned_allocator<U, kAlignment>& other) const noexcept
+	constexpr bool operator==(const aligned_allocator<U, kAlignment>& other) const noexcept
 	{
 		return true;
 	}
 
 	template <typename U>
-	inline bool operator!=(const aligned_allocator<U, kAlignment>& other) const noexcept
+	constexpr bool operator!=(const aligned_allocator<U, kAlignment>& other) const noexcept
 	{
 		return false;
 	}
@@ -53,6 +53,7 @@ public:
 	{
 		return reinterpret_cast<T*>(::operator new[](count * sizeof(T), kAlignment));
 	}
+	
 	void deallocate(T* allocPtr, [[maybe_unused]] std::size_t count)
 	{
 		::operator delete[](allocPtr, kAlignment);
@@ -118,7 +119,7 @@ namespace detail
 struct universal_type
 {
 	template <typename T>
-	operator T();
+	operator T();//NOLINT(google-explicit-constructor)
 };
 
 } // namespace detail
@@ -128,14 +129,12 @@ consteval auto member_count()
 {
 	static_assert(std::is_aggregate_v<std::remove_cvref_t<T>>);
 
-	if constexpr (requires { T{{Args{}}..., {detail::universal_type{}}}; } == false)
-	{
-		return sizeof...(Args);
-	}
-	else
+	if constexpr (requires { T{{Args{}}..., {detail::universal_type{}}}; })
 	{
 		return member_count<T, Args..., detail::universal_type>();
 	}
+
+	return sizeof...(Args);
 }
 
 } // namespace std_extra
