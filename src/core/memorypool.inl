@@ -1,3 +1,5 @@
+#include "assert.h"//NOLINT(modernize-deprecated-headers)
+
 #include <shared_mutex>
 
 template <typename T, uint32_t Capacity>

@@ -33,17 +33,17 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<G>{};
 
-	auto loadBin = [&shaderSet](auto& in) -> std::error_code
+	auto loadBin = [&shaderSet](auto& inStream) -> std::error_code
 	{
-		if (auto result = in(shaderSet); failure(result))
+		if (auto result = inStream(shaderSet); failure(result))
 			return std::make_error_code(result);
 
 		return {};
 	};
 
-	auto saveBin = [&shaderSet](auto& out) -> std::error_code
+	auto saveBin = [&shaderSet](auto& outStream) -> std::error_code
 	{
-		if (auto result = out(shaderSet); failure(result))
+		if (auto result = outStream(shaderSet); failure(result))
 			return std::make_error_code(result);
 
 		return {};
