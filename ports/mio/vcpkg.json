@@ -1,6 +1,6 @@
 {
   "name": "mio",
-  "version-date": "2023-06-07",
+  "version-date": "2024-06-20",
   "description": "(Fork) Cross-platform header-only C++11 library for memory mapped file IO.",
   "homepage": "https://github.com/djohansson/mio",
   "license": "MIT",
