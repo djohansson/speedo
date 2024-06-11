@@ -1,6 +1,7 @@
 #include "taskexecutor.h"
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
 
+#include <iostream>
 #include <shared_mutex>
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
@@ -175,12 +176,15 @@ void TaskExecutor::InternalThreadMain(std::stop_token stopToken, uint32_t thread
 			mySignal.acquire();
 		}
 	}
-	// catch (SomeHandleableException& exc) // TODO(djohansson): Add code here for exceptions that we want to handle
-	// {
-	// }
+	// TODO(djohansson): Add code here for exceptions that we want to handle
+	catch (std::exception& exc)
+	{
+		std::cerr << "Unhandled std::exception: " << exc.what() << "\n";
+		std::rethrow_exception(std::current_exception());
+	}
+	//
 	catch (...)
 	{
-		// just rethrow the exception and trigger std::terminate_handler on the main thread
 		std::rethrow_exception(std::current_exception());
 	}
 }
