@@ -109,9 +109,9 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 
 		// temp
 		constexpr const char* epStrings[]{
-			"vertexMain",
-			"fragmentMain",
-			"computeMain",
+			"VertexMain",
+			"FragmentMain",
+			"ComputeMain",
 		};
 		constexpr const SlangStage epStages[]{
 			SLANG_STAGE_VERTEX,

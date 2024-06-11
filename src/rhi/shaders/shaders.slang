@@ -6,28 +6,28 @@ __include types;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL)]]
 [[vk::push_constant]]
-ConstantBuffer<PushConstants> g_pushConstants;
+ConstantBuffer<PushConstants> gPushConstants;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
-StructuredBuffer<VertexP3fN3fT014fC4f> g_vertexBuffer;
+StructuredBuffer<VertexP3fN3fT014fC4f> gVertexBuffer;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
-Texture2D g_textures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
+Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
-RWTexture2D g_rwtextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
+RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
-SamplerState g_samplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
+SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_VIEW)]]
-StructuredBuffer<ViewData> g_viewData[SHADER_TYPES_FRAME_COUNT];
+StructuredBuffer<ViewData> gViewData[SHADER_TYPES_FRAME_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MATERIAL)]]
-StructuredBuffer<MaterialData> g_materialData;
+StructuredBuffer<MaterialData> gMaterialData;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
-StructuredBuffer<ModelInstance> g_modelInstances;
+StructuredBuffer<ModelInstance> gModelInstances;
 
 struct InputStream : IInputStream
 {
@@ -46,7 +46,7 @@ struct FragmentOutput
 	float4 color : SV_Target;
 };
 
-float3 signedOctEncode(float3 n)
+float3 SignedOctEncode(float3 n)
 {
 	float3 OutN;
 
@@ -60,7 +60,7 @@ float3 signedOctEncode(float3 n)
 	return OutN;
 }
 
-float3 signedOctDecode(float3 n)
+float3 SignedOctDecode(float3 n)
 {
 	float3 OutN;
 
@@ -72,19 +72,19 @@ float3 signedOctDecode(float3 n)
 	return normalize(OutN);
 }
 
-VertexOutput vertexMain(InputStream input)
+VertexOutput VertexMain(InputStream input)
 {
 	VertexOutput output;
 
-	uint frameIndex = g_pushConstants.frameIndex;
-	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
+	uint frameIndex = gPushConstants.frameIndex;
+	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
 
 	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 
-	ViewData view = g_viewData[frameIndex][viewId];
+	ViewData view = gViewData[frameIndex][viewId];
 
-	VertexP3fN3fT014fC4f v = g_vertexBuffer[input.vertexId];
-	ModelInstance i = g_modelInstances[input.instanceId];
+	VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
+	ModelInstance i = gModelInstances[input.instanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
 	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
@@ -98,24 +98,24 @@ VertexOutput vertexMain(InputStream input)
 	return output;
 }
 
-FragmentOutput fragmentMain(VertexOutput input)
+FragmentOutput FragmentMain(VertexOutput input)
 {
 	VertexP3fN3fT014fC4f v = input.vertex;
 	FragmentOutput output;
 
-	uint viewAndMaterialId = g_pushConstants.viewAndMaterialId;
+	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
 
 	uint materialId = viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u);
 
-	MaterialData material = g_materialData[materialId];
+	MaterialData material = gMaterialData[materialId];
 
 	uint textureAndSamplerId = material.textureAndSamplerId;
 
 	uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
 	uint samplerId = textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u);
 
-	Texture2D texture = g_textures[textureId];
-	SamplerState sampler = g_samplers[samplerId];
+	Texture2D texture = gTextures[textureId];
+	SamplerState sampler = gSamplers[samplerId];
 
 	const uint checkerScale = 2;
 	const float checkerScaleInv = 1.f / checkerScale;
@@ -139,13 +139,13 @@ FragmentOutput fragmentMain(VertexOutput input)
 }
 
 [numthreads(8, 8, 1)]
-void computeMain(
+void ComputeMain(
 	uint3 groupId : SV_GroupID,
 	uint3 groupThreadId : SV_GroupThreadID,
 	uint3 dispatchThreadId : SV_DispatchThreadID,
 	uint groupIndex : SV_GroupIndex)
 {
-	RWTexture2D<float4> colorSource = g_rwtextures[0];
+	RWTexture2D<float4> colorSource = gRWTextures[0];
 	colorSource[dispatchThreadId.xy] = float4(1.0f, 0.0f, 0.0f, 1.0f);
 
 	// float4 color[3];

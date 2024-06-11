@@ -38,18 +38,18 @@ static struct cag_option gCmdArgs[] =
 static struct PathConfig gPaths = { NULL, NULL };
 static volatile bool gIsInterrupted = false;
 
-void onExit(void) 
+void OnExit(void) 
 {
 	DestroyServer();
 }
 
-void onSignal(int signal)
+void OnSignal(int signal)
 {
 	if (signal == SIGINT || signal == SIGTERM)
 		gIsInterrupted = true;
 }
 
-const char* getCmdOption(char** begin, char** end, const char* option)
+const char* GetCmdOption(char** begin, char** end, const char* option)
 {
 	ASSERT(begin != NULL);
 	ASSERT(end != NULL);
@@ -69,8 +69,8 @@ int main(int argc, char* argv[], char* envp[])
 	ASSERT(argv != NULL);
 	ASSERT(envp != NULL);
 
-	signal(SIGINT, onSignal);
-	signal(SIGTERM, onSignal);
+	signal(SIGINT, OnSignal);
+	signal(SIGTERM, OnSignal);
 
 	cag_option_context cagContext;
 	cag_option_init(&cagContext, gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), argc, argv);
@@ -98,7 +98,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	CreateServer(&gPaths);
 
-	atexit(onExit);
+	atexit(OnExit);
 
 	while (TickServer() && !gIsInterrupted) {};
 

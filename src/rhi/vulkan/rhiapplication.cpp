@@ -115,7 +115,7 @@ static void LoadImage(
 			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
 
 		rhi.pipeline->SetDescriptorData(
-			"g_textures",
+			"gTextures",
 			DescriptorImageInfo<kVk>{
 				{},
 				*rhi.pipeline->GetResources().imageView,
@@ -673,12 +673,9 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	static auto giniFilePath =
-		(std::get<std::filesystem::path>(
-			 Application::Instance().lock()->Env().variables["UserProfilePath"]) /
-		 "imgui.ini")
-			.generic_string();
-	io.IniFilename = giniFilePath.c_str();
+	auto gIniFilePath = (std::get<std::filesystem::path>(
+		Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string();
+	io.IniFilename = gIniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	//io.FontGlobalScale = 1.0f;
@@ -1233,27 +1230,18 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 	rhi->pipeline->BindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"g_viewData",
-			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DESCRIPTOR_SET_CATEGORY_VIEW,
-			i);
-	}
-
 	rhi->pipeline->SetDescriptorData(
-		"g_materialData",
+		"gMaterialData",
 		DescriptorBufferInfo<kVk>{*rhi->materials, 0, VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
 	rhi->pipeline->SetDescriptorData(
-		"g_modelInstances",
+		"gModelInstances",
 		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	rhi->pipeline->SetDescriptorData(
-		"g_samplers",
+		"gSamplers",
 		DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[0]},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
 		kSamplerId);
@@ -1261,7 +1249,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		rhi->pipeline->SetDescriptorData(
-			"g_viewData",
+			"gViewData",
 			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);

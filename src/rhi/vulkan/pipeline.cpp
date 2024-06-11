@@ -556,7 +556,7 @@ void Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
 	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model->GetDesc().attributes.data();
 
 	SetDescriptorData(
-		"g_vertexBuffer",
+		"gVertexBuffer",
 		DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
