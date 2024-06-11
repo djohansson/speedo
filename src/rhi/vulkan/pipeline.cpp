@@ -267,8 +267,7 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 	result = XXH3_64bits_update(gThreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));
 	ASSERT(result != XXH_ERROR);
 
-	auto* layoutHandle = GetLayout();
-	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
+	result = XXH3_64bits_update(gThreadXxhState.get(), &myLayout, sizeof(myLayout));
 	ASSERT(result != XXH_ERROR);
 
 	// todo: hash more state...
