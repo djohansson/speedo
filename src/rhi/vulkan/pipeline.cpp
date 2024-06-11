@@ -45,9 +45,9 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](auto& in) -> std::error_code
+	auto loadCacheOp = [&device, &cacheData](auto& inStream) -> std::error_code
 	{
-		if (auto result = in(cacheData); failure(result))
+		if (auto result = inStream(cacheData); failure(result))
 			return std::make_error_code(result);
 
 		const auto* header = reinterpret_cast<const PipelineCacheHeader<kVk>*>(cacheData.data());
@@ -647,7 +647,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 	bool frontArrayIsFull = setArrayListIsEmpty
 								? false
 								: std::get<1>(setArrayList.front()) ==
-									  (std::get<0>(setArrayList.front()).Capacity() - 1);
+									  (DescriptorSetArray<kVk>::Capacity() - 1);
 
 	if (setArrayListIsEmpty || frontArrayIsFull)
 	{
@@ -829,32 +829,32 @@ Pipeline<kVk>::Pipeline(
 	, myDescriptorPool(
 		  [](const std::shared_ptr<Device<kVk>>& device)
 		  {
-			  const uint32_t descBaseCount = 1024;
-			  VkDescriptorPoolSize poolSizes[]{
-				  {VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+			  static constexpr uint32_t kDescBaseCount = 1024;
+			  static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
+				  {VK_DESCRIPTOR_TYPE_SAMPLER, kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				   descBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+				   kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-				   descBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
+				   kDescBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
 				  {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-				   descBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount}};
+				   kDescBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, kDescBaseCount}});
 
 			  VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
 				  VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
-			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = descBaseCount;
+			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = kDescBaseCount;
 
 			  VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 			  poolInfo.pNext = &inlineUniformBlockInfo;
-			  poolInfo.poolSizeCount = std::size(poolSizes);
-			  poolInfo.pPoolSizes = poolSizes;
-			  poolInfo.maxSets = descBaseCount * std::size(poolSizes);
+			  poolInfo.poolSizeCount = std::size(kPoolSizes);
+			  poolInfo.pPoolSizes = kPoolSizes.data();
+			  poolInfo.maxSets = kDescBaseCount * std::size(kPoolSizes);
 			  poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 			  // VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			  // VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
