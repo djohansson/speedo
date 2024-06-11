@@ -26,7 +26,7 @@ enum class AssetManifestErrorCode : uint8_t
 	kInvalidCacheFile,
 };
 
-const char* ToString(AssetManifestErrorCode code);
+const char* ToString(AssetManifestErrorCode code) noexcept;
 
 using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
 
@@ -42,7 +42,7 @@ using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::
 
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<AssetManifest, AssetManifestError>
-LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn)
+LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn) noexcept
 {
 	ZoneScoped;
 
@@ -77,7 +77,7 @@ LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& lo
 } // namespace detail
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath)
+std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath) noexcept
 {
 	ZoneScoped;
 
@@ -90,9 +90,13 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
+	auto timestamp = GetTimeStamp(filePath);
+	if (!timestamp)
+		return std::unexpected(timestamp.error());
+
 	auto fileInfo = Record{
 		filePath.string(),
-		GetTimeStamp(filePath),
+		timestamp.value(),
 		{},
 		std::filesystem::file_size(filePath)};
 
@@ -111,7 +115,7 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 }
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer)
+std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept
 {
 	auto obj = glz::read_json<T>(buffer);
 
@@ -126,7 +130,7 @@ std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer)
 };
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath)
+std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath) noexcept
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -143,7 +147,7 @@ std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& fi
 }
 
 template <typename T>
-std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath)
+std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath) noexcept
 {
 	auto file = mio_extra::ResizeableMemoryMapSink(filePath);
 
@@ -159,7 +163,7 @@ std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::
 }
 
 template <typename T>
-std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath)
+std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath) noexcept
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -186,7 +190,7 @@ std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& 
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp)
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp) noexcept
 {
 	ZoneScoped;
 
@@ -207,7 +211,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp)
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp) noexcept
 {
 	ZoneScoped;
 
@@ -230,55 +234,54 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 	return GetRecord<Sha256ChecksumEnable>(filePath);
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>::Object(
-	const std::filesystem::path& filePath, T&& defaultObject)
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>::Object(
+	const std::filesystem::path& filePath, T&& defaultObject) noexcept
 	: T(LoadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>::Object(
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>::Object(
 	Object&& other) noexcept
 	: T(std::forward<Object>(other))
 	, myInfo(std::exchange(other.myInfo, {}))
 {}
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>::~Object()
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>::~Object()
 {
-	if constexpr (SaveOnClose)
+	if constexpr (SaveOnDestruct)
 		if (!myInfo.path.empty())
 			Save();
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>&
-Object<T, Mode, SaveOnClose>::operator=(Object&& other) noexcept
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>&
+Object<T, Mode, SaveOnDestruct>::operator=(Object&& other) noexcept
 {
 	myInfo = std::exchange(other.myInfo, {});
 	return *this;
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-void Object<T, Mode, SaveOnClose>::Swap(Object& rhs) noexcept
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+void Object<T, Mode, SaveOnDestruct>::Swap(Object& rhs) noexcept
 {
 	std::swap<T>(*this, rhs);
 	std::swap(myInfo, rhs.myInfo);
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-void Object<T, Mode, SaveOnClose>::Reload()
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+void Object<T, Mode, SaveOnDestruct>::Reload() noexcept
 {
 	static_cast<T&>(*this) = LoadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-template <AccessMode M>
-std::enable_if_t<M == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnClose>::Save() const
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnDestruct>::Save() const noexcept
 {
-	if (!SaveJSONObject(static_cast<const T&>(*this), myInfo.path))
-		throw std::runtime_error("Failed to save file: " + myInfo.path);
+	auto result = SaveJSONObject(static_cast<const T&>(*this), myInfo.path);
+	ASSERT(result);
 }
 
 template <const char* LoaderType, const char* LoaderVersion>

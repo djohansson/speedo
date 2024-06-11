@@ -9,7 +9,7 @@ namespace file
 namespace detail
 {
 
-const char* ToString(AssetManifestErrorCode code)
+const char* ToString(AssetManifestErrorCode code) noexcept
 {
 	switch (code)
 	{
@@ -25,32 +25,57 @@ const char* ToString(AssetManifestErrorCode code)
 
 } // namespace detail
 
-std::string GetTimeStamp(const std::filesystem::path& filePath)
+std::expected<std::string, std::error_code>
+GetTimeStamp(const std::filesystem::path& filePath) noexcept
 {
 	ZoneScoped;
 
+	std::error_code error;
+
 	std::time_t timestamp = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::filesystem::last_write_time(filePath).time_since_epoch())).count();
+		std::filesystem::last_write_time(filePath, error).time_since_epoch())).count();
+
+	if (error)
+		return std::unexpected(error);
 	
 	static constexpr size_t kBufferSize = 80;
 	std::array<char, kBufferSize> buffer;
 
-	return {buffer.data(), std::strftime(buffer.data(), buffer.size(), "%c", std::localtime(&timestamp))};
+	auto time = std::localtime(&timestamp);
+
+	if (!time)
+		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+
+	auto timeStrSize = std::strftime(buffer.data(), buffer.size(), "%c", time);
+
+	if (timeStrSize == 0)
+		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
+
+	return std::string(buffer.data(), timeStrSize);
 }
 
-std::filesystem::path
-GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing)
+std::expected<std::filesystem::path, std::error_code>
+GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing) noexcept
 {
 	ASSERT(defaultPathStr != nullptr);
 
+	std::error_code error;
+
 	auto path = std::filesystem::path((pathStr != nullptr) ? pathStr : defaultPathStr);
 
-	if (createIfMissing && !std::filesystem::exists(path))
+	if (createIfMissing && !std::filesystem::exists(path, error) && !error)
 		std::filesystem::create_directory(path);
+	else if (error)
+		return std::unexpected(error);
 
 	ASSERT(std::filesystem::is_directory(path));
 
-	return std::filesystem::canonical(path);
+	path = std::filesystem::canonical(path, error);
+
+	if (error)
+		return std::unexpected(error);
+
+	return path;
 }
 
 } // namespace file

@@ -230,14 +230,23 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	auto root = GetCanonicalPath(nullptr, "./");
 
+	auto resourcePath = GetCanonicalPath(paths->resourcePath, (root.value() / "resources").string().c_str());
+	auto userPath = GetCanonicalPath(paths->userProfilePath, (root.value() / ".speedo").string().c_str(), true);
+
+	if (!resourcePath || !userPath)
+	{
+		std::cerr << "Failed to get resource or user path" << '\n';
+		return;
+	}
+
 	std::unique_lock lock{gClientApplicationMutex};
 
 	gClientApplication = Application::Create<Client>(
 		"client",
 		Environment{{
-			{"RootPath", root},
-			{"ResourcePath", GetCanonicalPath(paths->resourcePath, (root / "resources").string().c_str())},
-			{"UserProfilePath", GetCanonicalPath(paths->userProfilePath, (root / ".speedo").string().c_str(), true)}
+			{"RootPath", root.value()},
+			{"ResourcePath", resourcePath.value()},
+			{"UserProfilePath", userPath.value()}
 		}},
 		createWindowFunc);
 
