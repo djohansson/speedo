@@ -450,7 +450,7 @@ int main(int argc, char* argv[], char* envp[])
 	SetWindowCallbacks(window);
 
 	do { glfwWaitEvents();
-	} while ((glfwWindowShouldClose(window) == 0) && TickClient() && !gIsInterrupted); //NOLINT(readability-implicit-bool-conversion)
+	} while (!(bool)glfwWindowShouldClose(window) && TickClient() && !gIsInterrupted);
 
 	return EXIT_SUCCESS;
 }
