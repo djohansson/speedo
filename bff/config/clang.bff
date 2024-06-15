@@ -74,8 +74,8 @@
 		+ .PlatformLibPaths
 		+ ' -fuse-ld=lld'
 #if !__WINDOWS__
-		+ ' -fvisibility=hidden'
-		// + ' -fvisibility=inlines-hidden'
+		// + ' -fvisibility=hidden'
+		+ ' -fvisibility=inlines-hidden'
 		// + ' -fvisibility=ms-compat'
 		+ ' -Bsymbolic' // make sure to mark exports with __attribute__((visibility("protected")))
 		// + ' -ffunction-sections'
