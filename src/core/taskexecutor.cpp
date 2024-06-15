@@ -27,8 +27,7 @@ TaskExecutor::~TaskExecutor()
 	for (auto& thread : myThreads)
 		thread.request_stop();
 
-	mySignal.release(decltype(mySignal)::max());
-	myThreads.clear();
+	mySignal.release(myThreads.size());
 
 	InternalProcessReadyQueue();
 }
