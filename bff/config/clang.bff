@@ -51,7 +51,7 @@
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -gcodeview'
-		+ ' -mguard=cf'
+		+ ' -Xclang -cfguard'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
