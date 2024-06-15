@@ -65,15 +65,15 @@ public:
 	constexpr ShaderModule() noexcept = default;
 	ShaderModule(const std::shared_ptr<Device<G>>& device, const Shader<G>& shader);
 	ShaderModule(ShaderModule&& other) noexcept;
-	~ShaderModule();
+	~ShaderModule() override;
 
 	ShaderModule& operator=(ShaderModule&& other) noexcept;
-	operator auto() const noexcept { return myShaderModule; }
+	operator auto() const noexcept { return myShaderModule; }//NOLINT(google-explicit-constructor)
 
 	void Swap(ShaderModule& rhs) noexcept;
 	friend void Swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.Swap(rhs); }
 
-	const auto& GetEntryPoint() const noexcept { return myEntryPoint; }
+	[[nodiscard]] const auto& GetEntryPoint() const noexcept { return myEntryPoint; }
 
 private:
 	ShaderModule( // takes ownership of provided handle

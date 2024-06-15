@@ -36,6 +36,8 @@
 		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths
 		+ ' -fms-extensions'
+		+ ' -fno-rtti'
+		+ ' -fno-exceptions'
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'
@@ -49,7 +51,7 @@
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -gcodeview'
-		+ ' -Xclang -cfguard'
+		+ ' -mguard=cf'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -74,8 +76,8 @@
 		+ .PlatformLibPaths
 		+ ' -fuse-ld=lld'
 #if !__WINDOWS__
-		+ ' -fvisibility=hidden'
-		// + ' -fvisibility=inlines-hidden'
+		// + ' -fvisibility=hidden'
+		+ ' -fvisibility=inlines-hidden'
 		// + ' -fvisibility=ms-compat'
 		+ ' -Bsymbolic' // make sure to mark exports with __attribute__((visibility("protected")))
 		// + ' -ffunction-sections'

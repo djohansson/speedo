@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <system_error>
 #include <variant>
 
 #include <zpp_bits.h>
@@ -28,7 +29,7 @@ struct Record
 	uint64_t size = 0;
 };
 
-template <typename T, AccessMode Mode, bool SaveOnClose = false>
+template <typename T, AccessMode Mode, bool SaveOnDestruct = false>
 class Object : public T
 {
 	// todo: implement mechanism to only write changes when contents have changed.
@@ -37,6 +38,9 @@ class Object : public T
 	// todo: parameter to chose format (binary/json/whatever)
 
 public:
+
+	static constexpr auto kMode = Mode;
+
 	constexpr Object() noexcept = default;
 	Object(const Object&) = delete;
 	explicit Object(const std::filesystem::path& filePath, T&& defaultObject = T{});
@@ -51,8 +55,7 @@ public:
 
 	void Reload();
 
-	template <AccessMode M = Mode>
-	std::enable_if_t<M == AccessMode::kReadWrite, void> Save() const;
+	std::enable_if_t<kMode == AccessMode::kReadWrite, void> Save() const;
 
 private:
 	Record myInfo;
@@ -64,12 +67,12 @@ using OutputSerializer = zpp::bits::out<mio_extra::ResizeableMemoryMapSink, zpp:
 using LoadFn = std::function<std::error_code(InputSerializer&)>;
 using SaveFn = std::function<std::error_code(OutputSerializer&)>;
 
-std::string GetTimeStamp(const std::filesystem::path& filePath);
+std::expected<std::string, std::error_code> GetTimeStamp(const std::filesystem::path& filePath) noexcept;
 
-std::filesystem::path GetCanonicalPath(
+std::expected<std::filesystem::path, std::error_code> GetCanonicalPath(
 	const char* pathStr,
 	const char* defaultPathStr,
-	bool createIfMissing = false);
+	bool createIfMissing = false) noexcept;
 
 template <bool Sha256ChecksumEnable>
 std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath);
@@ -84,16 +87,16 @@ template <typename T>
 std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer);
+std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept;
 
 template <typename T>
 std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath);
 
 template <typename T>
-std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
+[[maybe_unused]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
 
 template <const char* LoaderType, const char* LoaderVersion>
-void LoadAsset(
+std::expected<void, std::error_code> LoadAsset(
 	const std::filesystem::path& filePath,
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,

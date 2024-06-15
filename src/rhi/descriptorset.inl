@@ -19,7 +19,7 @@ GetDescriptorSetLayoutHandles(const DescriptorSetLayoutFlatMap<G>& layouts)
 
 template <GraphicsApi G>
 std::vector<PushConstantRange<G>>
-getPushConstantRanges(const DescriptorSetLayoutFlatMap<G>& layouts)
+GetPushConstantRanges(const DescriptorSetLayoutFlatMap<G>& layouts)
 {
 	std::vector<PushConstantRange<kVk>> ranges;
 	if (!layouts.empty())

@@ -26,7 +26,7 @@ enum class AssetManifestErrorCode : uint8_t
 	kInvalidCacheFile,
 };
 
-const char* ToString(AssetManifestErrorCode code);
+const char* ToString(AssetManifestErrorCode code) noexcept;
 
 using AssetManifestError = std::variant<AssetManifestErrorCode, std::error_code>;
 
@@ -90,9 +90,13 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
+	auto timestamp = GetTimeStamp(filePath);
+	if (!timestamp)
+		return std::unexpected(timestamp.error());
+
 	auto fileInfo = Record{
 		filePath.string(),
-		GetTimeStamp(filePath),
+		timestamp.value(),
 		{},
 		std::filesystem::file_size(filePath)};
 
@@ -102,7 +106,12 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;
-		mio::mmap_source file(filePath.string());
+		mio::mmap_source file;
+		std::error_code error;
+		file.map(filePath.string(), error);
+		if (error)
+			return std::unexpected(error);
+
 		picosha2::hash256(file.cbegin(), file.cend(), sha2.begin(), sha2.end());
 		picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), fileInfo.sha2);
 	}
@@ -111,7 +120,7 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 }
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer)
+std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept
 {
 	auto obj = glz::read_json<T>(buffer);
 
@@ -137,7 +146,11 @@ std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& fi
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
-	auto file = mio::mmap_source(filePath.string());
+	auto file = mio::mmap_source();
+	file.map(filePath.string(), error);
+
+	if (error)
+		return std::unexpected(error);
 
 	return LoadJSONObject<T>(std::string_view(file.cbegin(), file.cend()));
 }
@@ -145,11 +158,16 @@ std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& fi
 template <typename T>
 std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath)
 {
-	auto file = mio_extra::ResizeableMemoryMapSink(filePath);
+	auto file = mio_extra::ResizeableMemoryMapSink();
+	std::error_code error;
+
+	file.map(filePath, error);
+
+	if (error)
+		return std::unexpected(error);
 
 	glz::write<glz::opts{.prettify = true}>(T{object}, file);
-
-	std::error_code error;
+	
 	file.truncate(file.HighWaterMark(), error);
 
 	if (error)
@@ -168,9 +186,14 @@ std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& 
 		return std::unexpected(error);
 
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
+		return std::unexpected(error);
 
-	auto file = mio::mmap_source(filePath.string());
+	auto file = mio::mmap_source();
+	file.map(filePath.string(), error);
+
+	if (error)
+		return std::unexpected(error);
+
 	auto inStream = zpp::bits::in(file);
 
 	T object;
@@ -194,7 +217,12 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 
 	if (fileInfo)
 	{
-		auto file = mio::mmap_source(fileInfo->path);
+		auto file = mio::mmap_source();
+		std::error_code error;
+		file.map(fileInfo->path, error);
+		if (error)
+			return std::unexpected(error);
+
 		auto inStream = zpp::bits::in(file);
 
 		//ASSERT(in.position() == file.size());
@@ -214,13 +242,18 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 	// todo: check if file exist and prompt for overwrite?
 	// intended scope - file needs to be closed before we call GetRecord (due to internal call to std::filesystem::file_size)
 	{
-		auto file = mio_extra::ResizeableMemoryMapSink(filePath.string());
+		std::error_code error;
+		auto file = mio_extra::ResizeableMemoryMapSink();
+		file.map(filePath.string(), error);
+
+		if (error)
+			return std::unexpected(error);
+
 		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 
-		if (auto error = saveOp(out))
+		if (error = saveOp(out); error)
 			return std::unexpected(error);
-		
-		std::error_code error;
+
 		file.truncate(out.position(), error);
 
 		if (error)
@@ -230,59 +263,58 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 	return GetRecord<Sha256ChecksumEnable>(filePath);
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>::Object(
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>::Object(
 	const std::filesystem::path& filePath, T&& defaultObject)
 	: T(LoadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>::Object(
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>::Object(
 	Object&& other) noexcept
 	: T(std::forward<Object>(other))
 	, myInfo(std::exchange(other.myInfo, {}))
 {}
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>::~Object()
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>::~Object()
 {
-	if constexpr (SaveOnClose)
+	if constexpr (SaveOnDestruct)
 		if (!myInfo.path.empty())
 			Save();
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-Object<T, Mode, SaveOnClose>&
-Object<T, Mode, SaveOnClose>::operator=(Object&& other) noexcept
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>&
+Object<T, Mode, SaveOnDestruct>::operator=(Object&& other) noexcept
 {
 	myInfo = std::exchange(other.myInfo, {});
 	return *this;
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-void Object<T, Mode, SaveOnClose>::Swap(Object& rhs) noexcept
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+void Object<T, Mode, SaveOnDestruct>::Swap(Object& rhs) noexcept
 {
 	std::swap<T>(*this, rhs);
 	std::swap(myInfo, rhs.myInfo);
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-void Object<T, Mode, SaveOnClose>::Reload()
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+void Object<T, Mode, SaveOnDestruct>::Reload()
 {
 	static_cast<T&>(*this) = LoadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
-template <typename T, AccessMode Mode, bool SaveOnClose>
-template <AccessMode M>
-std::enable_if_t<M == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnClose>::Save() const
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnDestruct>::Save() const
 {
-	if (!SaveJSONObject(static_cast<const T&>(*this), myInfo.path))
-		throw std::runtime_error("Failed to save file: " + myInfo.path);
+	auto result = SaveJSONObject(static_cast<const T&>(*this), myInfo.path);
+	ASSERT(result);
 }
 
 template <const char* LoaderType, const char* LoaderVersion>
-void LoadAsset(
+std::expected<void, std::error_code> LoadAsset(
 	const std::filesystem::path& assetFilePath,
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,
@@ -299,7 +331,7 @@ void LoadAsset(
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
-	auto importSourceFile = [&]()
+	auto importSourceFile = [&]() -> std::expected<void, std::error_code>
 	{
 		ZoneScopedN("LoadAsset::importSourceFile");
 
@@ -312,31 +344,42 @@ void LoadAsset(
 		auto uuid = uuids::uuid_system_generator{}();
 		auto uuidStr = uuids::to_string(uuid);
 
-		auto manifestFile = mio_extra::ResizeableMemoryMapSink(manifestPath.string());
+		std::error_code error;
+		auto manifestFile = mio_extra::ResizeableMemoryMapSink();
+		manifestFile.map(manifestPath.string(), error);
+
+		if (error)
+			return std::unexpected(error);
 
 		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn);
 		if (!asset)
-			throw std::system_error(asset.error());
+			return std::unexpected(asset.error());
 
 		auto cache = SaveBinary<true>(cacheDir / uuidStr, saveBinaryCacheFn);
 		if (!cache)
-			throw std::system_error(cache.error());
+			return std::unexpected(cache.error());
 
 		glz::write<glz::opts{.prettify = true}>(
 			AssetManifest{LoaderType, LoaderVersion, asset.value(), cache.value()}, manifestFile);
 
-		std::error_code error;
 		manifestFile.truncate(manifestFile.HighWaterMark(), error);
 
 		if (error)
-			throw std::system_error(error);
+			return std::unexpected(error);
+
+		return {};
 	};
 
 	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
 	{
 		ZoneScopedN("LoadAsset::LoadJSONAssetManifest");
 
-		auto manifestFile = mio::mmap_source(manifestPath.string());
+		auto manifestFile = mio::mmap_source();
+		std::error_code error;
+		manifestFile.map(manifestPath.string(), error);
+
+		if (error)
+			return std::unexpected(error);
 
 		manifest = LoadJSONAssetManifest<LoaderType, LoaderVersion, false>(
 			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
@@ -354,7 +397,7 @@ void LoadAsset(
 		auto cacheFileInfo = LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
 
 		if (!cacheFileInfo)
-			throw std::system_error(cacheFileInfo.error());
+			return std::unexpected(cacheFileInfo.error());
 	}
 	else
 	{
@@ -371,8 +414,10 @@ void LoadAsset(
 		
 		std::cerr << "Reimporting source file\n";
 
-		importSourceFile();
-	}	
+		return importSourceFile();
+	}
+
+	return {};
 }
 
 } // namespace file

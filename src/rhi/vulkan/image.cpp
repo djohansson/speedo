@@ -337,8 +337,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		std_extra::make_string_literal<"stb_image|stb_image_resize|stb_dxt">().data(),
 		std_extra::make_string_literal<"2.26|0.96|1.10">().data()>(imageFile, loadImage, loadBin, saveBin);
 
-	if (bufferHandle == nullptr)
-		throw std::runtime_error("Failed to load image.");
+	CHECKF(bufferHandle != nullptr, "Failed to load image.");
 
 	return descAndInitialData;
 }

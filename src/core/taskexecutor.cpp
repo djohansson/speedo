@@ -27,8 +27,7 @@ TaskExecutor::~TaskExecutor()
 	for (auto& thread : myThreads)
 		thread.request_stop();
 
-	mySignal.release(decltype(mySignal)::max());
-	myThreads.clear();
+	mySignal.release(myThreads.size());
 
 	InternalProcessReadyQueue();
 }
@@ -165,26 +164,12 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 
 void TaskExecutor::InternalThreadMain(std::stop_token stopToken, uint32_t threadId)
 {
-	try
-	{
-		ProducerToken readyProducerToken(myReadyQueue);
-		ConsumerToken readyConsumerToken(myReadyQueue);
+	ProducerToken readyProducerToken(myReadyQueue);
+	ConsumerToken readyConsumerToken(myReadyQueue);
 
-		while (!stopToken.stop_requested())
-		{
-			InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
-			mySignal.acquire();
-		}
-	}
-	// TODO(djohansson): Add code here for exceptions that we want to handle
-	catch (std::exception& exc)
+	while (!stopToken.stop_requested())
 	{
-		std::cerr << "Unhandled std::exception: " << exc.what() << "\n";
-		std::rethrow_exception(std::current_exception());
-	}
-	//
-	catch (...)
-	{
-		std::rethrow_exception(std::current_exception());
+		InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
+		mySignal.acquire();
 	}
 }

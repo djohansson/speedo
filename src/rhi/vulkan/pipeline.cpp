@@ -16,7 +16,7 @@ struct PipelineCacheHeader<kVk>
 	uint32_t cacheHeaderVersion = 0UL;
 	uint32_t vendorID = 0UL;
 	uint32_t deviceID = 0UL;
-	uint8_t pipelineCacheUUID[VK_UUID_SIZE]{};
+	std::array<uint8_t, VK_UUID_SIZE> pipelineCacheUUID;
 };
 #pragma pack(pop)
 
@@ -35,9 +35,9 @@ bool IsCacheValid(
 		header.vendorID == physicalDeviceProperties.properties.vendorID &&
 		header.deviceID == physicalDeviceProperties.properties.deviceID &&
 		memcmp(
-			header.pipelineCacheUUID,
+			header.pipelineCacheUUID.data(),
 			physicalDeviceProperties.properties.pipelineCacheUUID,
-			sizeof(header.pipelineCacheUUID)) == 0);
+			std::size(header.pipelineCacheUUID)) == 0);
 }
 
 PipelineCacheHandle<kVk> LoadPipelineCache(
@@ -45,9 +45,9 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](auto& in) -> std::error_code
+	auto loadCacheOp = [&device, &cacheData](auto& inStream) -> std::error_code
 	{
-		if (auto result = in(cacheData); failure(result))
+		if (auto result = inStream(cacheData); failure(result))
 			return std::make_error_code(result);
 
 		const auto* header = reinterpret_cast<const PipelineCacheHeader<kVk>*>(cacheData.data());
@@ -67,7 +67,8 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 
 	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
 	createInfo.initialDataSize = cacheData.size();
-	createInfo.pInitialData = (!cacheData.empty() != 0u) ? cacheData.data() : nullptr;
+	createInfo.pInitialData =
+		(static_cast<unsigned int>(!cacheData.empty()) != 0U) ? cacheData.data() : nullptr;
 
 	PipelineCacheHandle<kVk> cache;
 	VK_CHECK(vkCreatePipelineCache(
@@ -85,7 +86,7 @@ GetPipelineCacheData(DeviceHandle<kVk> device, PipelineCacheHandle<kVk> pipeline
 	std::vector<char> cacheData;
 	size_t cacheDataSize = 0;
 	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
-	if (cacheDataSize != 0u)
+	if (cacheDataSize != 0U)
 	{
 		cacheData.resize(cacheDataSize);
 		VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
@@ -184,7 +185,7 @@ PipelineLayout<kVk>::PipelineLayout(
 			  // todo: rewrite flatmap so that keys and vals are stored as separate arrays so that we dont have to make this conversion
 			  auto handles = descriptorset::GetDescriptorSetLayoutHandles<kVk>(descriptorSetLayouts);
 			  auto pushConstantRanges =
-				  descriptorset::getPushConstantRanges<kVk>(descriptorSetLayouts);
+				  descriptorset::GetPushConstantRanges<kVk>(descriptorSetLayouts);
 
 			  VkPipelineLayoutCreateInfo pipelineLayoutInfo{
 				  VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -256,18 +257,17 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 {
 	ZoneScopedN("Pipeline::InternalCalculateHashKey");
 
-	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> gthreadXxhState{
+	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> gThreadXxhState{
 		XXH3_createState(), XXH3_freeState};
 
-	auto result = XXH3_64bits_reset(gthreadXxhState.get());
+	auto result = XXH3_64bits_reset(gThreadXxhState.get());
 	(void)result;
 	ASSERT(result != XXH_ERROR);
 
-	result = XXH3_64bits_update(gthreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));
+	result = XXH3_64bits_update(gThreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));
 	ASSERT(result != XXH_ERROR);
 
-	auto* layoutHandle = GetLayout();
-	result = XXH3_64bits_update(gthreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
+	result = XXH3_64bits_update(gThreadXxhState.get(), &myLayout, sizeof(myLayout));
 	ASSERT(result != XXH_ERROR);
 
 	// todo: hash more state...
@@ -279,7 +279,7 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 	// result = XXH3_64bits_update(threadXXHState.get(), &frameBufferHandle, sizeof(frameBufferHandle));
 	// ASSERT(result != XXH_ERROR);
 
-	return XXH3_64bits_digest(gthreadXxhState.get());
+	return XXH3_64bits_digest(gThreadXxhState.get());
 }
 
 template <>
@@ -293,14 +293,14 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 			static_cast<DescriptorSetLayoutHandle<kVk>>(setLayout),
 			std::make_tuple(
 				UpgradableSharedMutex{},
-				DescriptorSetStatus::Ready,
+				DescriptorSetStatus::kReady,
 				BindingsMap<kVk>{},
 				BindingsData<kVk>{},
 				DescriptorUpdateTemplate<kVk>{
 					InternalGetDevice(),
 					DescriptorUpdateTemplateCreateDesc<kVk>{
 						((setLayout.GetDesc().flags &
-						  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
+						  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 							? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
 							: VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
 						static_cast<VkDescriptorSetLayout>(setLayout),
@@ -308,7 +308,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 						static_cast<VkPipelineLayout>(layout),
 						set}},
 				((setLayout.GetDesc().flags &
-				  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0u)
+				  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 					? std::nullopt
 					: std::make_optional(DescriptorSetArrayList<kVk>{})));
 
@@ -646,7 +646,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 	bool frontArrayIsFull = setArrayListIsEmpty
 								? false
 								: std::get<1>(setArrayList.front()) ==
-									  (std::get<0>(setArrayList.front()).Capacity() - 1);
+									  (DescriptorSetArray<kVk>::Capacity() - 1);
 
 	if (setArrayListIsEmpty || frontArrayIsFull)
 	{
@@ -677,7 +677,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 		while (setArrayIt != setArrayList.end())
 		{
 			auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-			if (setRefCount == 0u)
+			if (setRefCount == 0U)
 				setArrayIt = setArrayList.erase(setArrayIt);
 			else
 				setArrayIt++;
@@ -776,14 +776,14 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 
 	mutex.lock_upgrade();
 
-	if (setState == DescriptorSetStatus::Dirty && setOptionalArrayList)
+	if (setState == DescriptorSetStatus::kDirty && setOptionalArrayList)
 	{
 		mutex.unlock_upgrade_and_lock();
 
 		InternalUpdateDescriptorSet(
 			setLayout, bindingsData, setTemplate, setOptionalArrayList.value());
 
-		setState = DescriptorSetStatus::Ready;
+		setState = DescriptorSetStatus::kReady;
 
 		mutex.unlock_and_lock_shared();
 	}
@@ -828,32 +828,32 @@ Pipeline<kVk>::Pipeline(
 	, myDescriptorPool(
 		  [](const std::shared_ptr<Device<kVk>>& device)
 		  {
-			  const uint32_t descBaseCount = 1024;
-			  VkDescriptorPoolSize poolSizes[]{
-				  {VK_DESCRIPTOR_TYPE_SAMPLER, descBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+			  static constexpr uint32_t kDescBaseCount = 1024;
+			  static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
+				  {VK_DESCRIPTOR_TYPE_SAMPLER, kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				   descBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+				   kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-				   descBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
+				   kDescBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
 				  {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-				   descBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, descBaseCount},
-				  {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, descBaseCount}};
+				   kDescBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, kDescBaseCount},
+				  {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, kDescBaseCount}});
 
 			  VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
 				  VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
-			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = descBaseCount;
+			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = kDescBaseCount;
 
 			  VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 			  poolInfo.pNext = &inlineUniformBlockInfo;
-			  poolInfo.poolSizeCount = std::size(poolSizes);
-			  poolInfo.pPoolSizes = poolSizes;
-			  poolInfo.maxSets = descBaseCount * std::size(poolSizes);
+			  poolInfo.poolSizeCount = std::size(kPoolSizes);
+			  poolInfo.pPoolSizes = kPoolSizes.data();
+			  poolInfo.maxSets = kDescBaseCount * std::size(kPoolSizes);
 			  poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 			  // VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			  // VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT

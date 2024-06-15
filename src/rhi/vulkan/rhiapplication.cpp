@@ -854,8 +854,7 @@ static uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHan
 			return kDeviceTypePriority[lhsDeviceType] < kDeviceTypePriority[rhsDeviceType];
 		});
 
-	if (graphicsDeviceCandidates.empty())
-		throw std::runtime_error("failed to find a suitable GPU!");
+	CHECKF(!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU!");
 
 	return std::get<0>(graphicsDeviceCandidates.front());
 }

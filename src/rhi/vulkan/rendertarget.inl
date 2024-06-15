@@ -2,11 +2,16 @@ template <typename CreateDescType>
 class RenderTargetImpl<CreateDescType, kVk> : public RenderTarget<kVk>
 {
 public:
-	virtual ~RenderTargetImpl();
+	~RenderTargetImpl() override;
 
-	virtual const RenderTargetCreateDesc<kVk>& GetRenderTargetDesc() const final { return myDesc; };
+	[[nodiscard]] const RenderTargetCreateDesc<kVk>& GetRenderTargetDesc() const final
+	{
+		return myDesc;
+	};
 
 	const auto& GetDesc() const { return myDesc; }
+
+	void Swap(RenderTargetImpl& rhs) noexcept;
 
 protected:
 	RenderTargetImpl(
@@ -14,8 +19,6 @@ protected:
 	RenderTargetImpl(RenderTargetImpl&& other) noexcept;
 
 	RenderTargetImpl<CreateDescType, kVk>& operator=(RenderTargetImpl&& other) noexcept;
-
-	void Swap(RenderTargetImpl& rhs) noexcept;
 
 private:
 	CreateDescType myDesc{};

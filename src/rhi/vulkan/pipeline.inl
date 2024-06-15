@@ -27,7 +27,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		ASSERT(ranges.empty());
 
 		count = 1;
-		ranges.insert({0u, 1u});
+		ranges.insert({0U, 1U});
 
 		if (bindingIt == bindingsMap.begin())
 			offset = 0;
@@ -49,7 +49,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		std::get<T>(bindingsData[offset]) = std::forward<T>(data);
 	}
 
-	setState = DescriptorSetStatus::Dirty;
+	setState = DescriptorSetStatus::kDirty;
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
@@ -94,7 +94,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		ASSERT(ranges.empty());
 
 		count = data.size();
-		ranges.insert({0u, count});
+		ranges.insert({0U, count});
 
 		if (bindingIt == bindingsMap.begin())
 			offset = 0;
@@ -133,7 +133,7 @@ void Pipeline<kVk>::SetDescriptorData(
 
 			count = data.size();
 			ranges.clear();
-			ranges.insert({0u, count});
+			ranges.insert({0U, count});
 
 			// prefix sum offset
 			for (auto it = std::next(bindingIt), prev = bindingIt; it != bindingsMap.end();
@@ -142,7 +142,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		}
 	}
 
-	setState = DescriptorSetStatus::Dirty;
+	setState = DescriptorSetStatus::kDirty;
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
@@ -239,7 +239,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		}
 	}
 
-	setState = DescriptorSetStatus::Dirty;
+	setState = DescriptorSetStatus::kDirty;
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }

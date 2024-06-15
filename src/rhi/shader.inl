@@ -12,10 +12,10 @@ namespace shader
 {
 
 template <GraphicsApi G>
-ShaderStageFlagBits<G> getStageFlags(SlangStage stage);
+ShaderStageFlagBits<G> GetStageFlags(SlangStage stage);
 
 template <GraphicsApi G>
-DescriptorType<kVk> getDescriptorType(
+DescriptorType<kVk> GetDescriptorType(
 	slang::TypeReflection::Kind kind, SlangResourceShape shape, SlangResourceAccess access);
 
 template <GraphicsApi G>
@@ -33,17 +33,17 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 {
 	auto shaderSet = ShaderSet<G>{};
 
-	auto loadBin = [&shaderSet](auto& in) -> std::error_code
+	auto loadBin = [&shaderSet](auto& inStream) -> std::error_code
 	{
-		if (auto result = in(shaderSet); failure(result))
+		if (auto result = inStream(shaderSet); failure(result))
 			return std::make_error_code(result);
 
 		return {};
 	};
 
-	auto saveBin = [&shaderSet](auto& out) -> std::error_code
+	auto saveBin = [&shaderSet](auto& outStream) -> std::error_code
 	{
-		if (auto result = out(shaderSet); failure(result))
+		if (auto result = outStream(shaderSet); failure(result))
 			return std::make_error_code(result);
 
 		return {};
@@ -55,7 +55,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 					  &shaderSet,
 					  &slangFile](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		constexpr bool useGLSL = true;
+		constexpr bool kUseGlsl = true;
 
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
@@ -89,7 +89,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 
 		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
 
-		if (useGLSL)
+		if (kUseGlsl)
 			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "GLSL_460"));
 		else
 			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
@@ -108,43 +108,41 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 			slangRequest, translationUnitIndex, slangFile.generic_string().c_str());
 
 		// temp
-		constexpr const char* epStrings[]{
+		static constexpr const auto kEpStrings = std::to_array<std::string_view>({
 			"VertexMain",
 			"FragmentMain",
-			"ComputeMain",
-		};
-		constexpr const SlangStage epStages[]{
+			"ComputeMain"
+		});
+		static constexpr const auto kEpStages = std::to_array<SlangStage>({
 			SLANG_STAGE_VERTEX,
 			SLANG_STAGE_FRAGMENT,
-			SLANG_STAGE_COMPUTE,
-		};
+			SLANG_STAGE_COMPUTE
+		});
+		static_assert(std::size(kEpStrings) == std::size(kEpStages));
 		// end temp
 
-		static_assert(std::size(epStrings) == std::size(epStages));
-
 		std::vector<EntryPoint<G>> entryPoints;
-		for (unsigned i = 0; i < std::size(epStrings); i++)
+		for (unsigned i = 0; i < std::size(kEpStrings); i++)
 		{
 			int index =
-				spAddEntryPoint(slangRequest, translationUnitIndex, epStrings[i], epStages[i]);
+				spAddEntryPoint(slangRequest, translationUnitIndex, kEpStrings[i].data(), kEpStages[i]);
 
-			if (index != entryPoints.size())
-				throw std::runtime_error("Failed to add entry point.");
+			CHECKF(index == entryPoints.size(), "Failed to add entry point.");
 
 			entryPoints.push_back(std::make_pair(
-				useGLSL ? "main" : epStrings[i], shader::getStageFlags<G>(epStages[i])));
+				kUseGlsl ? "main" : kEpStrings[i].data(), shader::GetStageFlags<G>(kEpStages[i])));
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);
 
-		if (auto diagnostics = spGetDiagnosticOutput(slangRequest))
+		if (const auto* diagnostics = spGetDiagnosticOutput(slangRequest))
 			std::cout << diagnostics;
 
 		if (SLANG_FAILED(compileRes))
 		{
 			spDestroyCompileRequest(slangRequest);
 
-			throw std::runtime_error("Failed to compile slang shader module.");
+			CHECKF(false, "Failed to compile slang file.");
 		}
 
 		int depCount = spGetDependencyFileCount(slangRequest);
@@ -155,17 +153,18 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 			std::cout << "File include/import: " << depPath << '\n';
 		}
 
-		for (const auto& ep : entryPoints)
+		for (const auto& entryPoint : entryPoints)
 		{
 			ISlangBlob* blob = nullptr;
-			if (SLANG_FAILED(spGetEntryPointCodeBlob(slangRequest, &ep - &entryPoints[0], 0, &blob)))
+			if (SLANG_FAILED(
+					spGetEntryPointCodeBlob(slangRequest, &entryPoint - entryPoints.data(), 0, &blob)))
 			{
 				spDestroyCompileRequest(slangRequest);
 
-				throw std::runtime_error("Failed to get slang blob.");
+				CHECKF(false, "Failed to get slang blob.");
 			}
 
-			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), ep));
+			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), entryPoint));
 			std::copy(
 				static_cast<const char*>(blob->getBufferPointer()),
 				static_cast<const char*>(blob->getBufferPointer()) + blob->getBufferSize(),
@@ -180,7 +179,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		for (auto parameterIndex = 0; parameterIndex < shaderReflection->getParameterCount();
 			 parameterIndex++)
 		{
-			auto parameter = shaderReflection->getParameterByIndex(parameterIndex);
+			auto* parameter = shaderReflection->getParameterByIndex(parameterIndex);
 			auto* typeLayout = parameter->getTypeLayout();
 
 			if (parameter->getType()->getKind() == slang::TypeReflection::Kind::ParameterBlock)
@@ -221,8 +220,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		std_extra::make_string_literal<"slang">().data(),
 		std_extra::make_string_literal<"0.9.2">().data()>(slangFile, loadSlang, loadBin, saveBin);
 
-	if (shaderSet.shaders.empty())
-		throw std::runtime_error("Failed to load shaders.");
+	CHECKF(!shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;
 }

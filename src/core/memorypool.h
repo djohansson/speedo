@@ -1,8 +1,6 @@
 #pragma once
 
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
 #include "upgradablesharedmutex.h"
-#include "utils.h"
 
 #include <algorithm>
 #include <array>

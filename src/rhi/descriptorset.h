@@ -41,10 +41,10 @@ public:
 	DescriptorSetLayout(
 		const std::shared_ptr<Device<G>>& device,
 		DescriptorSetLayoutCreateDesc<G>&& desc);
-	~DescriptorSetLayout();
+	~DescriptorSetLayout() override;
 
 	DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
-	[[nodiscard]] operator auto() const { return std::get<0>(myLayout); }
+	[[nodiscard]] operator auto() const { return std::get<0>(myLayout); }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
 	[[nodiscard]] bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
 
@@ -94,7 +94,7 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		const DescriptorSetLayout<G>& layout,
 		DescriptorSetArrayCreateDesc<G>&& desc);
-	~DescriptorSetArray();
+	~DescriptorSetArray() override;
 
 	DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
 	[[nodiscard]] const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
@@ -129,7 +129,7 @@ struct DescriptorUpdateTemplateCreateDesc
 	DescriptorSetLayoutHandle<G> descriptorSetLayout{};
 	PipelineBindPoint<G> pipelineBindPoint{};
 	PipelineLayoutHandle<G> pipelineLayout{};
-	uint32_t set = 0ul;
+	uint32_t set = 0UL;
 };
 
 template <GraphicsApi G>
@@ -141,10 +141,10 @@ public:
 	DescriptorUpdateTemplate(
 		const std::shared_ptr<Device<G>>& device,
 		DescriptorUpdateTemplateCreateDesc<G>&& desc);
-	~DescriptorUpdateTemplate();
+	~DescriptorUpdateTemplate() override;
 
 	DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return myHandle; }
+	[[nodiscard]] operator auto() const noexcept { return myHandle; }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const DescriptorUpdateTemplate& other) const noexcept
 	{
 		return myHandle == other.myHandle;
@@ -196,8 +196,8 @@ using BindingsData = std::vector<BindingVariant<G>>;
 
 enum class DescriptorSetStatus : uint8_t
 {
-	Dirty,
-	Ready
+	kDirty,
+	kReady
 };
 
 template <GraphicsApi G>

@@ -15,6 +15,7 @@
     "mimalloc",
     "mio",
     "picosha2",
+    "sha-intrinsics",
     "stduuid",
     "unordered-dense",
     "xxhash",
