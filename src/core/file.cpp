@@ -64,11 +64,12 @@ GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 	auto path = std::filesystem::path((pathStr != nullptr) ? pathStr : defaultPathStr);
 
 	if (createIfMissing && !std::filesystem::exists(path, error) && !error)
-		std::filesystem::create_directory(path);
-	else if (error)
+		std::filesystem::create_directory(path, error);
+	
+	if (error)
 		return std::unexpected(error);
 
-	ASSERT(std::filesystem::is_directory(path));
+	//ASSERT(std::filesystem::is_directory(path, error));
 
 	path = std::filesystem::canonical(path, error);
 

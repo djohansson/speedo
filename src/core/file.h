@@ -43,7 +43,7 @@ public:
 
 	constexpr Object() noexcept = default;
 	Object(const Object&) = delete;
-	explicit Object(const std::filesystem::path& filePath, T&& defaultObject = T{}) noexcept;
+	explicit Object(const std::filesystem::path& filePath, T&& defaultObject = T{});
 	Object(Object&& other) noexcept;
 	~Object();
 
@@ -53,9 +53,9 @@ public:
 	void Swap(Object& rhs) noexcept;
 	friend void Swap(Object& lhs, Object& rhs) noexcept { lhs.Swap(rhs); }
 
-	void Reload() noexcept;
+	void Reload();
 
-	std::enable_if_t<kMode == AccessMode::kReadWrite, void> Save() const noexcept;
+	std::enable_if_t<kMode == AccessMode::kReadWrite, void> Save() const;
 
 private:
 	Record myInfo;
@@ -75,25 +75,25 @@ std::expected<std::filesystem::path, std::error_code> GetCanonicalPath(
 	bool createIfMissing = false) noexcept;
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath) noexcept;
+std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp) noexcept;
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp) noexcept;
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp);
 
 template <typename T>
-std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath) noexcept;
+std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
 
 template <typename T>
 std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept;
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath) noexcept;
+std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath);
 
 template <typename T>
-[[maybe_unused]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath) noexcept;
+[[maybe_unused]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
 
 template <const char* LoaderType, const char* LoaderVersion>
 void LoadAsset(

@@ -42,7 +42,7 @@ using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::
 
 template <const char* LoaderType, const char* LoaderVersion, bool Sha256ChecksumEnable>
 std::expected<AssetManifest, AssetManifestError>
-LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn) noexcept
+LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn)
 {
 	ZoneScoped;
 
@@ -77,7 +77,7 @@ LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& lo
 } // namespace detail
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath) noexcept
+std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath)
 {
 	ZoneScoped;
 
@@ -130,7 +130,7 @@ std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexce
 };
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath) noexcept
+std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath)
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -147,7 +147,7 @@ std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& fi
 }
 
 template <typename T>
-std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath) noexcept
+std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath)
 {
 	auto file = mio_extra::ResizeableMemoryMapSink(filePath);
 
@@ -163,7 +163,7 @@ std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::
 }
 
 template <typename T>
-std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath) noexcept
+std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath)
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -172,7 +172,7 @@ std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& 
 		return std::unexpected(error);
 
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
+		return std::unexpected(error);
 
 	auto file = mio::mmap_source(filePath.string());
 	auto inStream = zpp::bits::in(file);
@@ -190,7 +190,7 @@ std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& 
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp) noexcept
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp)
 {
 	ZoneScoped;
 
@@ -211,7 +211,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp) noexcept
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp)
 {
 	ZoneScoped;
 
@@ -236,7 +236,7 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
 Object<T, Mode, SaveOnDestruct>::Object(
-	const std::filesystem::path& filePath, T&& defaultObject) noexcept
+	const std::filesystem::path& filePath, T&& defaultObject)
 	: T(LoadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
@@ -272,13 +272,13 @@ void Object<T, Mode, SaveOnDestruct>::Swap(Object& rhs) noexcept
 }
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
-void Object<T, Mode, SaveOnDestruct>::Reload() noexcept
+void Object<T, Mode, SaveOnDestruct>::Reload()
 {
 	static_cast<T&>(*this) = LoadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
-std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnDestruct>::Save() const noexcept
+std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnDestruct>::Save() const
 {
 	auto result = SaveJSONObject(static_cast<const T&>(*this), myInfo.path);
 	ASSERT(result);
