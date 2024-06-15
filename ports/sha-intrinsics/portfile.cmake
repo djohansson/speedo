@@ -2,8 +2,8 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO djohansson/SHA-Intrinsics
-    REF 9dd886303c2a4731345a93e24b7f3d6b6efed007
-    SHA512 257e34df52652750efc275aee094d2166852caf830df640f88d11b07a7986449fafb2e45a8a1764eb123e747fd852f269a2bd1eeb89c818da11067459f0eee6e
+    REF 3d4edf8f1eee4bafa129e383793cf127710821f8
+    SHA512 08e2d48ebcbf52ee259c610fecbe688d1edee8adaa5f790853936cabde71a7c947879e211d0342ee3fd935b999fa26fdd67a5bc7563cb81fea50aa58a2a079f8
     HEAD_REF master
 )
 vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}")
