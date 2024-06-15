@@ -30,7 +30,7 @@ public:
 	ResizeableMemoryMapSink& operator=(const ResizeableMemoryMapSink&) = delete;
 	ResizeableMemoryMapSink& operator=(ResizeableMemoryMapSink&&) noexcept = default;
 
-	std::expected<void, std::error_code> resize(size_t size)
+	[[maybe_unused]] std::expected<void, std::error_code> resize(size_t size)//NOLINT(readability-identifier-naming)
 	{
 		myHighWaterMark = std::max(myHighWaterMark, size);
 
