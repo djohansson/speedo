@@ -13,9 +13,9 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 			auto& state = *static_cast<typename Future<R>::FutureState*>(statePtr);
 
 			if constexpr (std::is_void_v<R>)
-				apply(callable, std::tuple_cat(args, params));
+				std_extra::apply(callable, std::tuple_cat(args, params));
 			else
-				state.value = apply(callable, std::tuple_cat(args, params));
+				state.value = std_extra::apply(callable, std::tuple_cat(args, params));
 
 			auto counter = state.latch.fetch_sub(1, std::memory_order_release) - 1;
 			(void)counter;
