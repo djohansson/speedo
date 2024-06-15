@@ -90,7 +90,7 @@ template <class F, class T, std ::size_t... I>
 	std::is_nothrow_invocable<F&&, decltype(std::get<I>(std ::declval<T>()))...>{})
 	-> std::invoke_result_t<F&&, decltype(std::get<I>(std ::declval<T>()))...>
 {
-	return invoke(std::forward<F>(fcn), std::get<I>(std::forward<T>(obj))...);
+	return std::invoke(std::forward<F>(fcn), std::get<I>(std::forward<T>(obj))...);
 }
 template <typename F, typename Tuple>
 using apply_result_t = decltype(apply_impl(
