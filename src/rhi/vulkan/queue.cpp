@@ -115,8 +115,8 @@ Queue<kVk>::~Queue()
 	ZoneScopedN("Queue::~Queue()");
 
 #if (PROFILING_LEVEL > 0)
-	if (myProfilingContext.has_value())
-		DestroyVkContext(std::any_cast<TracyVkCtx>(myProfilingContext));
+	if (myProfilingContext)
+		DestroyVkContext(static_cast<TracyVkCtx>(myProfilingContext));
 #endif
 	
 	for (auto& submittedCommandList : myPool.InternalGetSubmittedCommands())
@@ -167,8 +167,8 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 template <>
 void Queue<kVk>::GpuScopeCollect(CommandBufferHandle<kVk> cmd)
 {
-	if (myProfilingContext.has_value())
-		TracyVkCollect(std::any_cast<TracyVkCtx>(myProfilingContext), cmd);
+	if (myProfilingContext)
+		TracyVkCollect(static_cast<TracyVkCtx>(myProfilingContext), cmd);
 }
 
 template <>
@@ -182,10 +182,10 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-	if (myProfilingContext.has_value())
+	if (myProfilingContext)
 	{
 		return std::make_shared<tracy::VkCtxScope>(
-			std::any_cast<TracyVkCtx>(myProfilingContext),
+			static_cast<TracyVkCtx>(myProfilingContext),
 			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
 			cmd,
 			true);

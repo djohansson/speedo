@@ -5,7 +5,6 @@
 #include "semaphore.h"
 #include "types.h"
 
-#include <any>
 #include <deque>
 #include <memory>
 //#include <source_location>
@@ -162,7 +161,7 @@ private:
 	std::deque<TimelineCallback> myTimelineCallbacks;
 
 #if (PROFILING_LEVEL > 0)
-	std::any myProfilingContext;
+	void* myProfilingContext = nullptr;
 #endif
 };
 
