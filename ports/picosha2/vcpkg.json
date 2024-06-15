@@ -1,0 +1,7 @@
+{
+  "name": "picosha2",
+  "version-date": "2024-06-16",
+  "port-version": 2,
+  "description": "(Fork) PicoSHA2 - a C++ SHA256 hash generator",
+  "homepage": "https://github.com/djohansson/PicoSHA2"
+}

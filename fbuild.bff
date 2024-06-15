@@ -209,6 +209,7 @@
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lcargs'
 			+ ' -lTracyClient'
+			+ ' -lSHA-Intrinsics'
 			+ ' -lslang'
 			+ ' -lxxhash'
 			+ ' -lzmq'
