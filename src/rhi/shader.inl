@@ -127,8 +127,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 			int index =
 				spAddEntryPoint(slangRequest, translationUnitIndex, kEpStrings[i].data(), kEpStages[i]);
 
-			if (index != entryPoints.size())
-				throw std::runtime_error("Failed to add entry point.");
+			CHECKF(index == entryPoints.size(), "Failed to add entry point.");
 
 			entryPoints.push_back(std::make_pair(
 				kUseGlsl ? "main" : kEpStrings[i].data(), shader::GetStageFlags<G>(kEpStages[i])));
@@ -143,7 +142,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		{
 			spDestroyCompileRequest(slangRequest);
 
-			throw std::runtime_error("Failed to compile slang shader module.");
+			CHECKF(false, "Failed to compile slang file.");
 		}
 
 		int depCount = spGetDependencyFileCount(slangRequest);
@@ -162,7 +161,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 			{
 				spDestroyCompileRequest(slangRequest);
 
-				throw std::runtime_error("Failed to get slang blob.");
+				CHECKF(false, "Failed to get slang blob.");
 			}
 
 			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), entryPoint));
@@ -221,8 +220,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		std_extra::make_string_literal<"slang">().data(),
 		std_extra::make_string_literal<"0.9.2">().data()>(slangFile, loadSlang, loadBin, saveBin);
 
-	if (shaderSet.shaders.empty())
-		throw std::runtime_error("Failed to load shaders.");
+	CHECKF(!shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;
 }

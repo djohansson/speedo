@@ -15,26 +15,7 @@ Application::Application(std::string_view name, Environment&& env)
 	ASSERTF(gApplication.use_count() == 1, "There can only be one application at a time");
 	std::set_terminate([]()
 	{
-		try
-		{
-			std::exception_ptr eptr{std::current_exception()};
-			if (eptr)
-			{
-				std::rethrow_exception(eptr);
-			}
-			else
-			{
-				std::cerr << "Exiting without exception\n";
-			}
-		}
-		catch (const std::exception& exc)
-		{
-			std::cerr << "Exception: " << exc.what() << '\n';
-		}
-		catch (...)
-		{
-			std::cerr << "Unknown exception caught\n";
-		}
+		std::cerr << "Unknown exception caught\n";
 		std::exit(EXIT_FAILURE);
 	});
 }

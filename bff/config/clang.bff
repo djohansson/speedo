@@ -36,6 +36,8 @@
 		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths
 		+ ' -fms-extensions'
+		+ ' -fno-rtti'
+		+ ' -fno-exceptions'
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'

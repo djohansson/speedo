@@ -52,53 +52,40 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	std::shared_lock lock{gServerApplicationMutex};
 
-	try
+	static constexpr unsigned kBufferSize = 64;
+	std::array<std::byte, kBufferSize> requestData;
+	std::array<std::byte, kBufferSize> responseData;
+
+	zpp::bits::in inStream{requestData};
+	zpp::bits::out outStream{responseData};
+
+	server::RpcSay::server server{inStream, outStream};
+
+	if (auto socketCount = poller.wait(2ms))
 	{
-		static constexpr unsigned kBufferSize = 64;
-		std::array<std::byte, kBufferSize> requestData;
-		std::array<std::byte, kBufferSize> responseData;
-
-		zpp::bits::in inStream{requestData};
-		zpp::bits::out outStream{responseData};
-
-		server::RpcSay::server server{inStream, outStream};
-
-		if (auto socketCount = poller.wait(2ms))
-		{
-			//std::cout << "got " << socketCount << " sockets hit" << std::endl;
-		}
-
-		if (auto recvResult = /*inEvent.*/socket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
-		{
-			if (auto result = server.serve(); failure(result))
-			{
-				std::cerr << "server.serve() returned error code: "
-						  << std::make_error_code(result).message() << '\n';
-				return;
-			}
-			
-			// if (!outPoller.wait(outEvent, timeout))
-			// {
-			// 	std::cout << "output timeout, try again" << std::endl;
-			// 	return;
-			// }
-
-			if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
-			{
-				std::cerr << "socket.send() failed" << '\n';
-				return;
-			}
-		}
+		//std::cout << "got " << socketCount << " sockets hit" << std::endl;
 	}
-	catch (zmq::error_t& error)
+
+	if (auto recvResult = /*inEvent.*/socket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
 	{
-		std::cerr << "zmq exception: " << error.what() << '\n';
-		return;
-	}
-	catch (...)
-	{
-		std::cerr << "unknown exception" << '\n';
-		return;
+		if (auto result = server.serve(); failure(result))
+		{
+			std::cerr << "server.serve() returned error code: "
+						<< std::make_error_code(result).message() << '\n';
+			return;
+		}
+		
+		// if (!outPoller.wait(outEvent, timeout))
+		// {
+		// 	std::cout << "output timeout, try again" << std::endl;
+		// 	return;
+		// }
+
+		if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
+		{
+			std::cerr << "socket.send() failed" << '\n';
+			return;
+		}
 	}
 
 	auto rpcTask = Task::CreateTask(Rpc, socket, poller);

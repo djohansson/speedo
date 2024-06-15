@@ -825,7 +825,7 @@ VkResult CheckFlipOrPresentResult(VkResult result)
 		std::println("error: flip/present returned {}", string_VkResult(result));
 		break;
 	default:
-		throw std::runtime_error("Invalid error code.");
+		CHECKF(false, "Invalid error code.");
 	}
 
 	return result;

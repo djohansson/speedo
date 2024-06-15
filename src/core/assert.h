@@ -33,3 +33,15 @@
 			TRAP();                                                                                \
 		}
 #endif
+#define CHECK(A)                                                                                   \
+	if (!(A))                                                                                      \
+	{                                                                                              \
+		LOG_ERROR("Verification failed: %s", #A);                                                  \
+		TRAP();                                                                                    \
+	}
+#define CHECKF(A, M, ...)                                                                          \
+	if (!(A))                                                                                      \
+	{                                                                                              \
+		LOG_ERROR(M, ##__VA_ARGS__);                                                               \
+		TRAP();                                                                                    \
+	}

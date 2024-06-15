@@ -46,67 +46,54 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	try
+	static constexpr unsigned kBufferSize = 64;
+	std::array<std::byte, kBufferSize> responseData;
+	std::array<std::byte, kBufferSize> requestData;
+
+	zpp::bits::in inStream{responseData};
+	zpp::bits::out outStream{requestData};
+
+	server::RpcSay::client client{inStream, outStream};
+
+	if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
+		std::cerr << "client.request() returned error code: "
+					<< std::make_error_code(result).message() << '\n';
+
+	if (auto sendResult = socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
+		std::cerr << "socket.send() failed" << '\n';
+
+	for (bool responseFailure = true; responseFailure;)
 	{
-		static constexpr unsigned kBufferSize = 64;
-		std::array<std::byte, kBufferSize> responseData;
-		std::array<std::byte, kBufferSize> requestData;
-
-		zpp::bits::in inStream{responseData};
-		zpp::bits::out outStream{requestData};
-
-		server::RpcSay::client client{inStream, outStream};
-
-		if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
-			std::cerr << "client.request() returned error code: "
-					  << std::make_error_code(result).message() << '\n';
-
-		if (auto sendResult = socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
-			std::cerr << "socket.send() failed" << '\n';
-
-		for (bool responseFailure = true; responseFailure;)
+		if (auto socketCount = poller.wait(2ms); socketCount)
 		{
-			if (auto socketCount = poller.wait(2ms); socketCount)
+			//std::cout << "got " << socketCount << " sockets hit" << std::endl;
+			if (auto recvResult = socket.recv(zmq::buffer(responseData), zmq::recv_flags::dontwait); recvResult)
 			{
-				//std::cout << "got " << socketCount << " sockets hit" << std::endl;
-				if (auto recvResult = socket.recv(zmq::buffer(responseData), zmq::recv_flags::dontwait); recvResult)
+				auto responseResult = client.response<"Say"_sha256_int>();
+				responseFailure = failure(responseResult);
+				if (responseFailure)
 				{
-					auto responseResult = client.response<"Say"_sha256_int>();
-					responseFailure = failure(responseResult);
-					if (responseFailure)
-					{
-						std::cerr << "client.response() returned error code: "
-								  << std::make_error_code(responseResult.error()).message() << '\n';
-						return;
-					}
-					
-					//std::cout << "Say(\"hello\") returned: " << responseResult.value() << std::endl;
-				}
-				else
-				{
-					std::cerr << "socket.recv() failed" << '\n';
+					std::cerr << "client.response() returned error code: "
+								<< std::make_error_code(responseResult.error()).message() << '\n';
 					return;
 				}
+				
+				//std::cout << "Say(\"hello\") returned: " << responseResult.value() << std::endl;
 			}
-
-			// IMPORTANT: check for if we are shutting down. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
-			if (gRpcTaskState == kTaskStateShuttingDown)
+			else
 			{
-				gRpcTaskState = kTaskStateDone;
-				gRpcTaskState.notify_one();
+				std::cerr << "socket.recv() failed" << '\n';
 				return;
 			}
 		}
-	}
-	catch (zmq::error_t& error)
-	{
-		std::cerr << "zmq exception: " << error.what() << '\n';
-		return;
-	}
-	catch (...)
-	{
-		std::cerr << "unknown exception" << '\n';
-		return;
+
+		// IMPORTANT: check for if we are shutting down. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
+		if (gRpcTaskState == kTaskStateShuttingDown)
+		{
+			gRpcTaskState = kTaskStateDone;
+			gRpcTaskState.notify_one();
+			return;
+		}
 	}
 
 	auto rpcTask = Task::CreateTask(Rpc, socket, poller);

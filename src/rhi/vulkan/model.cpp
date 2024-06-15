@@ -193,8 +193,7 @@ Load(
 		std::vector<material_t> materials;
 		std::string warn;
 		std::string err;
-		if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()))
-			throw std::runtime_error(err);
+		CHECKF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()), "%s", err.c_str())
 
 		progress = 64;
 
@@ -345,8 +344,7 @@ Load(
 		std_extra::make_string_literal<"tinyobjloader">().data(),
 		std_extra::make_string_literal<"2.0.15">().data()>(modelFile, loadOBJ, loadBin, saveBin);
 
-	if ((vbHandle == nullptr) || (ibHandle == nullptr))
-		throw std::runtime_error("Failed to load model.");
+	CHECKF(vbHandle != nullptr && ibHandle != nullptr, "Failed to load model.");
 
 	return descAndInitialData;
 }
