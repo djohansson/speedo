@@ -224,6 +224,12 @@
 		.CommonExecutableLinkerOptions + ' -lglfw'
 			+ ' -lvulkan'
 	#endif //__WINDOWS__
+	#if __OSX__
+		.CommonExecutableLinkerOptions + ' -lc++experimental'
+			+ ' -framework Cocoa'
+			+ ' -framework IOKit'
+			+ ' -framework CoreVideo'
+	#endif //__OSX__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -lnfd'
@@ -235,16 +241,10 @@
 			+ ' -limguid'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
-		.ReleaseExecutableLinkerOptions + ' -framework Cocoa'
-			+ ' -framework IOKit'
-			+ ' -framework CoreVideo'
-			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/bin'
+		.ReleaseExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/bin'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/lib'
 			+ .CommonExecutableLinkerOptions
-		.DebugExecutableLinkerOptions + ' -framework Cocoa'
-			+ ' -framework IOKit'
-			+ ' -framework CoreVideo'
-			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/bin'
+		.DebugExecutableLinkerOptions + ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/bin'
 			+ ' -rpath @executable_path/../../build.vcpkg/$Triplet$/debug/lib'
 			+ .CommonExecutableLinkerOptions
 	#endif
