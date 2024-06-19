@@ -17,6 +17,8 @@
     "boost-system",
     "boost-variant",
     "boost-vmd",
+    "opensubdiv",
+    "openvdb",
     "tbb",
     {
       "name": "vcpkg-cmake",
