@@ -123,6 +123,7 @@
 		"print": "cpp",
 		"version": "cpp",
 		"*.rh": "cpp",
-		"capi.h": "c"
+		"capi.h": "c",
+		"simd": "cpp"
 	}
 }
