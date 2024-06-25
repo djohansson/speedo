@@ -7,20 +7,16 @@ function Get-NativeArchitecture
 	{
 		$ArchInfo = $Env:PROCESSOR_ARCHITECTURE
 	}
-	elseif ($IsMacOS)
-	{
-		$ArchInfo = machine
-	}
 	else
 	{
-		Write-Error "Unsupported Operating System"
+		$ArchInfo = uname -m
 	}
 	
-	if ($ArchInfo -match "amd64")
+	if ($ArchInfo -in "amd64", "AMD64", "x86_64")
 	{
 		$Arch = "x64"
 	}
-	elseif ($ArchInfo -match "arm64")
+	elseif ($ArchInfo -in "arm64", "aarch64")
 	{
 		$Arch = "arm64"
 	}
@@ -44,6 +40,10 @@ function Get-NativeOS
 	{
 		$OS = "osx"
 	}
+	elseif ($IsLinux)
+	{
+		$OS = "linux"
+	}
 	else
 	{
 		Write-Error "Unsupported Operating System" # please implement me
@@ -54,18 +54,7 @@ function Get-NativeOS
 
 function Get-NativeCompiler
 {
-	$Compiler = ""
-
-	if ($IsWindows -or $IsMacOS)
-	{
-		$Compiler = "clang"
-	}
-	else
-	{
-		Write-Error "Unsupported Operating System" # please implement me
-	}
-
-	return $Compiler
+	return "clang"
 }
 
 function Get-NativeTriplet
@@ -74,12 +63,5 @@ function Get-NativeTriplet
 	$OS = Get-NativeOS
 	$Compiler = Get-NativeCompiler
 
-	$Triplet = "$Arch-$OS"
-
-	if ($Compiler -ne "")
-	{
-		$Triplet += "-$Compiler"
-	}
-
-	return $Triplet
+	return "$Arch-$OS-$Compiler"
 }
