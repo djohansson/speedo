@@ -7,6 +7,10 @@ function Get-NativeArchitecture
 	{
 		$ArchInfo = $Env:PROCESSOR_ARCHITECTURE
 	}
+	elseif ($IsMacOS)
+	{
+		$ArchInfo = Invoke-Expression "$(brew --prefix)/opt/coreutils/libexec/gnubin/uname -m"
+	}
 	else
 	{
 		$ArchInfo = uname -m
