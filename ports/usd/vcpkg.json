@@ -1,11 +1,12 @@
 {
   "name": "usd",
-  "version": "24.5",
-  "description": "Universal Scene Description (USD) is an efficient, scalable system for authoring, reading, and streaming time-sampled scene description for interchange between graphics applications.",
+  "version": "24.5-dev",
+  "description": "(Fork) Universal Scene Description (USD) is an efficient, scalable system for authoring, reading, and streaming time-sampled scene description for interchange between graphics applications.",
   "homepage": "https://github.com/PixarAnimationStudios/USD",
   "license": null,
   "supports": "!x86 & !android",
   "dependencies": [
+    "alembic",
     "boost-assign",
     "boost-crc",
     "boost-date-time",
