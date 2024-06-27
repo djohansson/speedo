@@ -1,3 +1,5 @@
+. $PSScriptRoot/platform.ps1
+
 # New-Module -name vcpkg -ScriptBlock
 # {
 # 	function vcpkg()
@@ -18,23 +20,25 @@
 
 function Initialize-Vcpkg
 {
-	param([Parameter(Mandatory = $True, ValueFromPipeline=$True, Position = 0)] [string] $triplet)
+	param([Parameter(Mandatory = $True, ValueFromPipeline=$True, Position = 0)] [string] $Triplet)
 
 	Write-Host "Setting up vcpkg environment..."
 
-	if (Test-Path -Path "~/.vcpkg/vcpkg-init.ps1")
+	$VcpkgRoot = "~/.vcpkg"
+
+	if (Test-Path -Path "$VcpkgRoot/vcpkg-init.ps1")
 	{
-		. ~/.vcpkg/vcpkg-init.ps1
+		. $VcpkgRoot/vcpkg-init.ps1
 	}
-	elseif (-not (Test-Path -Path "~/.vcpkg/vcpkg"))
+	elseif (-not (Test-Path -Path "$VcpkgRoot/vcpkg"))
 	{
 		Write-Host "Installing vcpkg..."
 
 		if ($IsLinux)
 		{
-			git clone https://github.com/microsoft/vcpkg.git ~/.vcpkg
+			git clone https://github.com/microsoft/vcpkg.git $VcpkgRoot
 
-			~/.vcpkg/bootstrap-vcpkg.sh
+			Invoke-Expression("$VcpkgRoot/bootstrap-vcpkg.sh")
 		}
 		else
 		{
@@ -42,7 +46,16 @@ function Initialize-Vcpkg
 		}
 	}
 
-	Write-Host "Installing vcpkg packages for $triplet using manifest..."
+	Write-Host "Installing vcpkg packages for $Triplet using manifest..."
 
-	~/.vcpkg/vcpkg install --x-install-root=$PSScriptRoot/../build.vcpkg --overlay-triplets=$PSScriptRoot/triplets --triplet $triplet --x-feature=client --x-feature=server --no-print-usage
+	if ($IsMacOS)
+	{
+		$Arch = "arch -$(Get-NativeArchitecture)"
+	}
+	else
+	{
+		$Arch = ""
+	}
+	
+	Invoke-Expression("$Arch $VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/../build.vcpkg --overlay-triplets=$PSScriptRoot/triplets --triplet $Triplet --x-feature=client --x-feature=server --no-print-usage")
 }

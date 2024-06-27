@@ -1,4 +1,5 @@
 . $PSScriptRoot/../../homebrew.ps1
+. $PSScriptRoot/../../platform.ps1
 
 Write-Host "Installing MacOS dependencies..."
 
@@ -25,3 +26,4 @@ $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePro
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION -NotePropertyValue $llvmVersion | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION_MAJOR -NotePropertyValue $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName MOLTEN_VK_PATH -NotePropertyValue $(brew --prefix molten-vk) | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName CMAKE_APPLE_SILICON_PROCESSOR -NotePropertyValue $(Get-NativeArchitecture) | Out-Null
