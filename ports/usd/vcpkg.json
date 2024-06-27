@@ -21,6 +21,7 @@
     "boost-vmd",
     "opensubdiv",
     "openvdb",
+    "python3",
     "tbb",
     {
       "name": "vcpkg-cmake",

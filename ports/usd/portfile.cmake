@@ -17,6 +17,24 @@ if(NOT VCPKG_TARGET_IS_WINDOWS)
 file(REMOVE ${SOURCE_PATH}/cmake/modules/FindTBB.cmake)
 endif()
 
+find_file(LOCAL_PYTHON3
+    NAMES "python3${VCPKG_HOST_EXECUTABLE_SUFFIX}" "python${VCPKG_HOST_EXECUTABLE_SUFFIX}"
+    PATHS "${CURRENT_HOST_INSTALLED_DIR}/tools/python3"
+    NO_DEFAULT_PATH
+    REQUIRED
+)
+set(USD_VENV_PATH "${CURRENT_INSTALLED_DIR}")
+vcpkg_execute_required_process(
+    COMMAND ${LOCAL_PYTHON3} -m venv ${USD_VENV_PATH}
+    WORKING_DIRECTORY "${CURRENT_BUILDTREES_DIR}"
+    LOGNAME "usd-venv-setup-${TARGET_TRIPLET}")
+vcpkg_execute_required_process(
+    COMMAND ${USD_VENV_PATH}/bin/pip install Jinja2 PyOpenGL PySide6
+    WORKING_DIRECTORY "${CURRENT_BUILDTREES_DIR}"
+    LOGNAME "pip-install-packages-${TARGET_TRIPLET}")
+
+set(Python3_FIND_VIRTUALENV FIRST)
+
 vcpkg_cmake_configure(
     SOURCE_PATH ${SOURCE_PATH}
     OPTIONS
@@ -31,7 +49,7 @@ vcpkg_cmake_configure(
         -DPXR_BUILD_EXAMPLES:BOOL=OFF
         -DPXR_BUILD_TUTORIALS:BOOL=OFF
         -DPXR_BUILD_USD_TOOLS:BOOL=ON
-        -DPXR_BUILD_USDVIEW:BOOL=OFF
+        -DPXR_BUILD_USDVIEW:BOOL=ON
 )
 
 vcpkg_cmake_install()
