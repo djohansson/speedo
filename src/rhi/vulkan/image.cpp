@@ -7,9 +7,7 @@
 #include <core/std_extra.h>
 
 #include <cstdint>
-#if defined(__WINDOWS__)
-#	include <execution>
-#endif
+#include <execution>
 #include <iostream>
 #include <numeric>
 #include <string>
@@ -214,9 +212,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 			std::vector<uint32_t> threadIds(threadCount);
 			std::iota(threadIds.begin(), threadIds.end(), 0);
 			std::for_each_n(
-#if defined(__WINDOWS__)
 				std::execution::par,
-#endif
 				threadIds.begin(),
 				threadCount,
 				[&](uint32_t /*threadId*/)
@@ -275,9 +271,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 				std::vector<size_t> threadIds(threadCount);
 				std::iota(threadIds.begin(), threadIds.end(), 0);
 				std::for_each_n(
-#if defined(__WINDOWS__)
 					std::execution::par,
-#endif
 					threadIds.begin(),
 					threadCount,
 					[&](size_t threadId)

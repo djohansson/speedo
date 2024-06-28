@@ -9,9 +9,7 @@
 #include <imgui.h>
 
 #include <cmath>
-#if defined(__WINDOWS__)
-#	include <execution>
-#endif
+#include <execution>
 #include <filesystem>
 #include <format>
 #include <future>
@@ -69,9 +67,7 @@ uint32_t Window<kVk>::InternalDrawViews(
 		std::array<uint32_t, 128> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
 		std::for_each_n(
-#if defined(__WINDOWS__)
 			std::execution::par,
-#endif
 			seq.begin(),
 			drawThreadCount,
 			[&pipeline,
