@@ -56,15 +56,13 @@
 #if __OSX__
 		+ ' -D__APPLE__'
 		+ ' -D__OSX__'
-		+ ' -fPIC'
-		+ ' -fPIE'
+		+ ' -fpic'
 		+ ' -fno-plt'
 #endif //__OSX__
 #if __LINUX__
 		+ ' -D__LINUX__'
 		+ ' -D__linux__'
-		+ ' -fPIC'
-		+ ' -fPIE'
+		+ ' -fpic'
 		+ ' -fno-plt'
 #endif //__LINUX__
 	.CompilerOptionsC = ' -std=c23 -nostdinc'
