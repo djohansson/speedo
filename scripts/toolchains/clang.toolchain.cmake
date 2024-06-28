@@ -52,7 +52,9 @@ set(CMAKE_CXX_RTTI OFF)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-#set(CMAKE_C_FLAGS "")
-#set(CMAKE_CXX_FLAGS "")
+set(CLANG_COMMON_FLAGS "-isystem ${LLVM_PATH}/include/c++/v1 -march=native")
+set(CMAKE_C_FLAGS "${CLANG_COMMON_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CLANG_COMMON_FLAGS} -stdlib=libc++")
+set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld -L ${LLVM_PATH}/lib -L ${LLVM_PATH}/lib/c++ -Wl,-rpath,${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib/c++ -lc++ -lc++abi")
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)

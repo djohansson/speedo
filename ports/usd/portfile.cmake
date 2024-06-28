@@ -34,6 +34,7 @@ include("${CMAKE_VARS_FILE}")
 
 set(ENV{CC} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
 set(ENV{CFLAGS} "${VCPKG_DETECTED_CMAKE_C_FLAGS}")
+set(ENV{LDFLAGS} "${VCPKG_DETECTED_CMAKE_EXE_LINKER_FLAGS}")
 
 vcpkg_execute_required_process(
     COMMAND ${USD_VENV_PATH}/bin/pip install Jinja2 PySide6 PyOpenGL
@@ -46,6 +47,7 @@ vcpkg_execute_required_process(
 
 unset(ENV{CC})
 unset(ENV{CFLAGS})
+unset(ENV{LDFLAGS})
 
 set(Python3_FIND_VIRTUALENV FIRST)
 
