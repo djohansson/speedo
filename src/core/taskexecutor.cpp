@@ -30,6 +30,8 @@ TaskExecutor::~TaskExecutor()
 	mySignal.release(myThreads.size());
 
 	InternalProcessReadyQueue();
+
+	mySignal.release(myThreads.size());
 }
 
 void TaskExecutor::InternalSubmit(TaskHandle handle)
