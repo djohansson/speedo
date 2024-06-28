@@ -26,12 +26,26 @@ find_file(LOCAL_PYTHON3
 set(USD_VENV_PATH "${CURRENT_INSTALLED_DIR}")
 vcpkg_execute_required_process(
     COMMAND ${LOCAL_PYTHON3} -m venv ${USD_VENV_PATH}
-    WORKING_DIRECTORY "${CURRENT_BUILDTREES_DIR}"
+    WORKING_DIRECTORY "${USD_VENV_PATH}"
     LOGNAME "usd-venv-setup-${TARGET_TRIPLET}")
+
+vcpkg_cmake_get_vars(CMAKE_VARS_FILE)
+include("${CMAKE_VARS_FILE}")
+
+set(ENV{CC} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
+set(ENV{CFLAGS} "${VCPKG_DETECTED_CMAKE_C_FLAGS}")
+
 vcpkg_execute_required_process(
-    COMMAND ${USD_VENV_PATH}/bin/pip install Jinja2 PyOpenGL PySide6
-    WORKING_DIRECTORY "${CURRENT_BUILDTREES_DIR}"
+    COMMAND ${USD_VENV_PATH}/bin/pip install Jinja2 PySide6 PyOpenGL
+    WORKING_DIRECTORY "${CURRENT_PORT_DIR}"
     LOGNAME "pip-install-packages-${TARGET_TRIPLET}")
+vcpkg_execute_required_process(
+    COMMAND ${USD_VENV_PATH}/bin/pip install ./PyOpenGL-accelerate-3.1.7-patch.tar.gz
+    WORKING_DIRECTORY "${CURRENT_PORT_DIR}"
+    LOGNAME "pip-install-packages-${TARGET_TRIPLET}")
+
+unset(ENV{CC})
+unset(ENV{CFLAGS})
 
 set(Python3_FIND_VIRTUALENV FIRST)
 
