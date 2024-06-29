@@ -13,6 +13,7 @@ vcpkg_from_github(
 		0001-find-nvapi.patch
 		0002-dxil-support-option.patch
 		0003-imgui_impl_win32-include.patch
+		0004-cast-to-int64.patch
 )
 
 vcpkg_cmake_configure(

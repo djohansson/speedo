@@ -1,0 +1,25 @@
+From df5f076869378bf8ed7e3b0233ebf18b9e35c008 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Sun, 30 Jun 2024 00:07:58 +0200
+Subject: [PATCH] cast to int64
+
+---
+ source/core/slang-performance-profiler.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source/core/slang-performance-profiler.cpp b/source/core/slang-performance-profiler.cpp
+index 5b62cbf..ac1211c 100644
+--- a/source/core/slang-performance-profiler.cpp
++++ b/source/core/slang-performance-profiler.cpp
+@@ -39,7 +39,7 @@ namespace Slang
+             for (auto func : data)
+             {
+                 out << func.key << ": \t";
+-                out << func.value.invocationCount << "\t" << func.value.duration.count()/1000000 << "\n";
++                out << func.value.invocationCount << "\t" << static_cast<Int64>(func.value.duration.count())/1000000 << "\n";
+             }
+         }
+     };
+-- 
+2.39.2
+
