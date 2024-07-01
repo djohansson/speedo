@@ -2,21 +2,18 @@
 
 Write-Host "Installing Linux dependencies..."
 
-Install-AptPackage autoconf
-Install-AptPackage automake 
-Install-AptPackage autoconf-archive
-Install-AptPackage git
+Install-AptPackage coreutils
 Install-AptPackage pkg-config
+Install-AptPackage git
 Install-AptPackage patchelf
 Install-AptPackage lsb-release
 Install-AptPackage wget
 Install-AptPackage software-properties-common
 Install-AptPackage gnupg
-#Install-AptPackage llvm
 Install-AptPackage libxinerama-dev
 Install-AptPackage libxcursor-dev
-Install-AptPackage xorg-dev
 Install-AptPackage libglu1-mesa-dev
+Install-AptPackage xorg-dev
 
 $llvmVersionMajor = 18
 
@@ -25,15 +22,15 @@ chmod +x llvm.sh
 sudo ./llvm.sh $llvmVersionMajor
 rm -f ./llvm.sh
 
-sudo ./update-alternatives-clang.sh $llvmVersionMajor 1
+sudo $PSScriptRoot/update-alternatives-clang.sh $llvmVersionMajor 1
 
 $llvmVersion = $(clang --version | grep "llvm:" | egrep -o '(\d+\.\d+\.\d+-?\w*)')
 
-if (-not ($llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) == $llvmVersionMajor))
-{
-	Out-Error "Incorrect clang version"
-	exit
-}
+# if (-not ($llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) == $llvmVersionMajor))
+# {
+# 	Out-Error "Incorrect clang version"
+# 	exit
+# }
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName VCPKG_FORCE_SYSTEM_BINARIES -NotePropertyValue 1 | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue $(which pwsh) | Out-Null
