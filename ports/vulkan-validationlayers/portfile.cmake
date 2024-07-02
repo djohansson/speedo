@@ -14,12 +14,18 @@ vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
 vcpkg_add_to_path("${PYTHON3_DIR}")
 
+if (WIN32)
+    set(USE_MIMALLOC -DUSE_MIMALLOC:BOOL=OFF)
+else()
+    set(USE_MIMALLOC)
+endif()
+
 vcpkg_cmake_configure(
   SOURCE_PATH "${SOURCE_PATH}"
   OPTIONS
     -DBUILD_TESTS:BOOL=OFF
     -DUSE_ROBIN_HOOD_HASHING:BOOL=OFF
-    -DUSE_MIMALLOC:BOOL=OFF
+    ${USE_MIMALLOC}
 )
 vcpkg_cmake_install()
 
