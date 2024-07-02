@@ -47,7 +47,6 @@
             "gui-tools"
           ]
         },
-        "usd",
         "vulkan",
         "vulkan-headers",
         "vulkan-loader",
