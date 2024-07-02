@@ -50,8 +50,18 @@ function(tracy_tool_install_unix tracy_TOOL tracy_TOOL_NAME)
                 OUTPUT_VARIABLE relative_path_makefile_dir)
 
             set(ENV{LEGACY} 1)
-            vcpkg_backup_env_variables(VARS PKG_CONFIG_PATH)
+            vcpkg_backup_env_variables(VARS PKG_CONFIG_PATH CC CXX)
             vcpkg_host_path_list(PREPEND ENV{PKG_CONFIG_PATH} "${CURRENT_INSTALLED_DIR}${path_suffix}/lib/pkgconfig")
+            vcpkg_cmake_get_vars(cmake_vars_file)
+            include("${cmake_vars_file}")
+
+            if(VCPKG_DETECTED_CMAKE_C_COMPILER)
+                set(ENV{CC} "${VCPKG_DETECTED_CMAKE_C_COMPILER}")
+            endif()
+
+            if(VCPKG_DETECTED_CMAKE_CXX_COMPILER)
+                set(ENV{CXX} "${VCPKG_DETECTED_CMAKE_CXX_COMPILER}")
+            endif()
 
             message(STATUS "Building ${tracy_TOOL_NAME} ${TARGET_TRIPLET}${short_buildtype}")
             vcpkg_build_make(
@@ -59,7 +69,7 @@ function(tracy_tool_install_unix tracy_TOOL tracy_TOOL_NAME)
                 SUBPATH ${relative_path_makefile_dir}
                 LOGFILE_ROOT "build-${tracy_TOOL}"
             )
-            vcpkg_restore_env_variables(VARS PKG_CONFIG_PATH)
+            vcpkg_restore_env_variables(VARS PKG_CONFIG_PATH CC CXX)
 
             file(INSTALL "${SOURCE_PATH}/${tracy_TOOL}/build/unix${short_buildtype}/${tracy_TOOL_NAME}-${buildtype}"
                 DESTINATION "${CURRENT_PACKAGES_DIR}${path_suffix}/tools/${PORT}"
