@@ -7,7 +7,7 @@ $(xcode-select --install) 2>&1 | Out-Null
 
 Install-HomebrewPackage coreutils
 Install-HomebrewPackage pkg-config
-Install-HomebrewPackage git
+#Install-HomebrewPackage git
 Install-HomebrewPackage libxinerama
 Install-HomebrewPackage libxxf86vm
 Install-HomebrewPackage libxcursor
