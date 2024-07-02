@@ -14,12 +14,18 @@ vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
 vcpkg_add_to_path("${PYTHON3_DIR}")
 
+if (WIN32)
+    set(ASM_FLAGS -DUSE_MASM:BOOL=OFF)
+else()
+    set(ASM_FLAGS -DUSE_GAS:BOOL=OFF)
+endif()
+
 vcpkg_cmake_configure(
   SOURCE_PATH "${SOURCE_PATH}"
   OPTIONS
     -DBUILD_TESTS:BOOL=OFF
     -DLOADER_CODEGEN:BOOL=ON
-    -DUSE_MASM:BOOL=OFF
+    ${ASM_FLAGS}
 )
 vcpkg_cmake_install()
 vcpkg_fixup_pkgconfig()
