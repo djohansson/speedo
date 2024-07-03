@@ -44,16 +44,17 @@ private:
 	void InternalSubmit(TaskHandles&&... handles);
 	template <typename... TaskHandles>
 	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandles&&... handles);
-	
+
 	[[nodiscard]] static bool InternalTryDelete(TaskHandle handle);
 
 	void InternalScheduleAdjacent(Task& task);
 	void InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 
-	void InternalProcessReadyQueue();
-	void InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
+	uint32_t InternalProcessReadyQueue();
+	uint32_t InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
+
 	template <typename R>
-	[[nodiscard]] std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
+	[[nodiscard]] std::pair<std::optional<typename Future<R>::value_t>, uint32_t> InternalProcessReadyQueue(Future<R>&& future);
 
 	void InternalPurgeDeletionQueue();
 
@@ -63,7 +64,7 @@ private:
 	std::stop_source myStopSource;
 	UpgradableSharedMutex myMutex;
 	std::condition_variable_any myCV;
-	std::atomic_uint32_t mySignal;
+	std::atomic_uint32_t myTaskCount;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
 };

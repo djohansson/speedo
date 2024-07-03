@@ -9,21 +9,23 @@ std::optional<typename Future<R>::value_t> TaskExecutor::Join(Future<R>&& future
 }
 
 template <typename R>
-std::optional<typename Future<R>::value_t> TaskExecutor::InternalProcessReadyQueue(Future<R>&& future)
+std::pair<std::optional<typename Future<R>::value_t>, uint32_t> TaskExecutor::InternalProcessReadyQueue(Future<R>&& future)
 {
 	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
 	if (!future.Valid())
-		return std::nullopt;
+		return {std::nullopt, 0};
 
+	uint32_t count = 0;
 	TaskHandle handle;
 	while (!future.IsReady() && myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(handle);
 		InternalPurgeDeletionQueue();
+		++count;
 	}
 
-	return std::make_optional(future.Get());
+	return {std::make_optional(future.Get()), count};
 }
 
 template <typename... Params>
@@ -61,7 +63,7 @@ void TaskExecutor::InternalSubmit(TaskHandles&&... handles)
 
 	std::array<TaskHandle, sizeof...(handles)> handleArray{{handles...}};
 	myReadyQueue.enqueue_bulk(handleArray.data(), handleArray.size());
-	mySignal += sizeof...(handles);
+	myTaskCount += sizeof...(handles);
 	if constexpr (sizeof...(handles) > 1)
 		myCV.notify_all();
 	else
@@ -75,7 +77,7 @@ void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandles
 
 	std::array<TaskHandle, sizeof...(handles)> handleArray{{handles...}};
 	myReadyQueue.enqueue_bulk(readyProducerToken, handleArray.data(), handleArray.size());
-	mySignal += sizeof...(handles);
+	myTaskCount += sizeof...(handles);
 	if constexpr (sizeof...(handles) > 1)
 		myCV.notify_all();
 	else

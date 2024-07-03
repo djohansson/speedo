@@ -5,7 +5,7 @@
 #include <shared_mutex>
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
-	: mySignal(0)
+	: myTaskCount(0)
 {
 	ZoneScopedN("TaskExecutor()");
 
@@ -96,28 +96,36 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 	}
 }
 
-void TaskExecutor::InternalProcessReadyQueue()
+uint32_t TaskExecutor::InternalProcessReadyQueue()
 {
 	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
+	uint32_t count = 0;
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(handle);
 		InternalPurgeDeletionQueue();
+		++count;
 	}
+
+	return count;
 }
 
-void TaskExecutor::InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
+uint32_t TaskExecutor::InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
 {
 	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
+	uint32_t count = 0;
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(readyProducerToken, handle);
 		InternalPurgeDeletionQueue();
+		++count;
 	}
+
+	return count;
 }
 
 void TaskExecutor::InternalPurgeDeletionQueue()
@@ -141,10 +149,7 @@ void TaskExecutor::InternalThreadMain(uint32_t threadId)
 
 	while (!stopToken.stop_requested())
 	{
-		if (myCV.wait(myMutex, stopToken, [this]{ return mySignal > 0; }))
-		{
-			InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
-			mySignal -= 1;
-		}
+		if (myCV.wait(myMutex, stopToken, [this]{ return myTaskCount > 0; }))
+			myTaskCount -= InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
 	}
 }
