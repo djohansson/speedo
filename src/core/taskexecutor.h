@@ -31,7 +31,8 @@ public:
 	void Call(TaskHandle handle, Params&&... params) { InternalCall(handle, params...); }
 
 	// task + dependency chain(s) will be executed in thread pool
-	void Submit(TaskHandle handle) { InternalSubmit(handle); }
+	template <typename... TaskHandles>
+	void Submit(TaskHandles&&... handles) { InternalSubmit(handles...); }
 
 private:
 	template <typename... Params>
@@ -39,8 +40,11 @@ private:
 	template <typename... Params>
 	void InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, Params&&... params);
 
-	void InternalSubmit(TaskHandle handle);
-	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle);
+	template <typename... TaskHandles>
+	void InternalSubmit(TaskHandles&&... handles);
+	template <typename... TaskHandles>
+	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandles&&... handles);
+	
 	[[nodiscard]] static bool InternalTryDelete(TaskHandle handle);
 
 	void InternalScheduleAdjacent(Task& task);

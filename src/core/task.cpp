@@ -16,7 +16,7 @@ Task::operator bool() const noexcept
 		   (myDeleteFcnPtr != nullptr) && myState;
 }
 
-void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
+void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle)
 {
 	ASSERT(!!aTaskHandle);
 	ASSERT(!!bTaskHandle);
@@ -32,9 +32,6 @@ void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool is
 	TaskState& bState = *bTask.InternalState();
 
 	std::scoped_lock lock(aState.mutex, bState.mutex);
-
-	if (isContinuation)
-		bState.isContinuation = true;
 
 	aState.adjacencies.emplace_back(bTaskHandle);
 	bState.latch.fetch_add(1, std::memory_order_relaxed);

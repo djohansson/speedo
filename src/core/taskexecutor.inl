@@ -54,3 +54,30 @@ void TaskExecutor::InternalCall(ProducerToken& readyProducerToken, TaskHandle ha
 	myDeletionQueue.enqueue(handle);
 }
 
+template <typename... TaskHandles>
+void TaskExecutor::InternalSubmit(TaskHandles&&... handles)
+{
+	ZoneScopedN("TaskExecutor::InternalSubmit");
+
+	std::array<TaskHandle, sizeof...(handles)> handleArray{{handles...}};
+	myReadyQueue.enqueue_bulk(handleArray.data(), handleArray.size());
+	mySignal += sizeof...(handles);
+	if constexpr (sizeof...(handles) > 1)
+		myCV.notify_all();
+	else
+		myCV.notify_one();
+}
+
+template <typename... TaskHandles>
+void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandles&&... handles)
+{
+	ZoneScopedN("TaskExecutor::InternalSubmit");
+
+	std::array<TaskHandle, sizeof...(handles)> handleArray{{handles...}};
+	myReadyQueue.enqueue_bulk(readyProducerToken, handleArray.data(), handleArray.size());
+	mySignal += sizeof...(handles);
+	if constexpr (sizeof...(handles) > 1)
+		myCV.notify_all();
+	else
+		myCV.notify_one();
+}

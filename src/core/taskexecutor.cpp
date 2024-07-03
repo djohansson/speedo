@@ -30,40 +30,6 @@ TaskExecutor::~TaskExecutor()
 		thread.join();
 }
 
-void TaskExecutor::InternalSubmit(TaskHandle handle)
-{
-	ZoneScopedN("TaskExecutor::InternalSubmit");
-
-	Task& task = *Task::InternalHandleToPtr(handle);
-
-	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
-
-	myReadyQueue.enqueue(handle);
-
-	if (!task.InternalState()->isContinuation)
-	{
-		mySignal += 1;
-		myCV.notify_one();
-	}
-}
-
-void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
-{
-	ZoneScopedN("TaskExecutor::InternalSubmit");
-
-	Task& task = *Task::InternalHandleToPtr(handle);
-
-	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
-
-	myReadyQueue.enqueue(readyProducerToken, handle);
-
-	if (!task.InternalState()->isContinuation)
-	{
-		mySignal += 1;
-		myCV.notify_one();
-	}
-}
-
 bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::InternalTryDelete");

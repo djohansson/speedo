@@ -89,7 +89,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	}
 
 	auto rpcTask = Task::CreateTask(Rpc, socket, poller);
-	Task::AddDependency(gRpcTask.first, rpcTask.first, true);
+	Task::AddDependency(gRpcTask.first, rpcTask.first);
 	gRpcTask = rpcTask;
 }
 

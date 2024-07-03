@@ -13,6 +13,5 @@ struct TaskState
 
 	UpgradableSharedMutex mutex; // Protects the variables below
 	std::vector<TaskHandle> adjacencies;
-	bool isContinuation = false;
 	//
 };
