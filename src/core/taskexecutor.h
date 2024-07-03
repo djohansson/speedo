@@ -6,12 +6,12 @@
 #include "utils.h"
 
 #include <atomic>
-#include <exception>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <optional>
-#include <semaphore>
 #include <vector>
+#include <stop_token>
 #include <thread>
 #include <tuple>
 
@@ -53,10 +53,13 @@ private:
 
 	void InternalPurgeDeletionQueue();
 
-	void InternalThreadMain(std::stop_token stopToken, uint32_t threadId);
+	void InternalThreadMain(uint32_t threadId);
 
 	std::vector<std::jthread> myThreads;
-	std::counting_semaphore<> mySignal;
+	std::stop_source myStopSource;
+	UpgradableSharedMutex myMutex;
+	std::condition_variable_any myCV;
+	std::atomic_uint32_t mySignal;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
 };

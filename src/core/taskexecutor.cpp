@@ -5,7 +5,7 @@
 #include <shared_mutex>
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
-	: mySignal(threadCount)
+	: mySignal(0)
 {
 	ZoneScopedN("TaskExecutor()");
 
@@ -24,14 +24,10 @@ TaskExecutor::~TaskExecutor()
 	ASSERT(myReadyQueue.size_approx() == 0);
 	ASSERT(myDeletionQueue.size_approx() == 0);
 
+	myStopSource.request_stop();
+
 	for (auto& thread : myThreads)
-		thread.request_stop();
-
-	mySignal.release(myThreads.size());
-
-	InternalProcessReadyQueue();
-
-	mySignal.release(myThreads.size());
+		thread.join();
 }
 
 void TaskExecutor::InternalSubmit(TaskHandle handle)
@@ -45,7 +41,10 @@ void TaskExecutor::InternalSubmit(TaskHandle handle)
 	myReadyQueue.enqueue(handle);
 
 	if (!task.InternalState()->isContinuation)
-		mySignal.release();
+	{
+		mySignal += 1;
+		myCV.notify_one();
+	}
 }
 
 void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle handle)
@@ -59,7 +58,10 @@ void TaskExecutor::InternalSubmit(ProducerToken& readyProducerToken, TaskHandle 
 	myReadyQueue.enqueue(readyProducerToken, handle);
 
 	if (!task.InternalState()->isContinuation)
-		mySignal.release();
+	{
+		mySignal += 1;
+		myCV.notify_one();
+	}
 }
 
 bool TaskExecutor::InternalTryDelete(TaskHandle handle)
@@ -164,14 +166,19 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 	}
 }
 
-void TaskExecutor::InternalThreadMain(std::stop_token stopToken, uint32_t threadId)
+void TaskExecutor::InternalThreadMain(uint32_t threadId)
 {
 	ProducerToken readyProducerToken(myReadyQueue);
 	ConsumerToken readyConsumerToken(myReadyQueue);
 
+	auto stopToken = myStopSource.get_token();
+
 	while (!stopToken.stop_requested())
 	{
-		InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
-		mySignal.acquire();
+		if (myCV.wait(myMutex, stopToken, [this]{ return mySignal > 0; }))
+		{
+			InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
+			mySignal -= 1;
+		}
 	}
 }

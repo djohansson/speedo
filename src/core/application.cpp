@@ -1,6 +1,5 @@
 #include "application.h"
 
-#include <exception>
 #include <iostream>
 
 #include <mimalloc-new-delete.h>
