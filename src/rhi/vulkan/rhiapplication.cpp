@@ -673,7 +673,7 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	auto gIniFilePath = (std::get<std::filesystem::path>(
+	static auto gIniFilePath = (std::get<std::filesystem::path>(
 		Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string();
 	io.IniFilename = gIniFilePath.c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
