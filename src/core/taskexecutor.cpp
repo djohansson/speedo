@@ -5,7 +5,6 @@
 #include <shared_mutex>
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
-	: myTaskCount(0)
 {
 	ZoneScopedN("TaskExecutor()");
 
@@ -48,30 +47,6 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 	return false;
 }
 
-void TaskExecutor::InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task)
-{
-	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
-
-	std::shared_lock lock(task.InternalState()->mutex);
-
-	for (auto& adjacentHandle : task.InternalState()->adjacencies)
-	{
-		if (!adjacentHandle) // this is ok, means that another thread has claimed it
-			continue;
-
-		Task& adjacent = *Task::InternalHandleToPtr(adjacentHandle);
-
-		ASSERTF(adjacent.InternalState(), "Task has no return state!");
-		ASSERTF(adjacent.InternalState()->latch, "Latch needs to have been constructed!");
-
-		if (adjacent.InternalState()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
-		{
-			InternalSubmit(readyProducerToken, adjacentHandle);
-			adjacentHandle = {};
-		}
-	}
-}
-
 void TaskExecutor::InternalScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
@@ -90,42 +65,22 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 
 		if (adjacent.InternalState()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
-			InternalSubmit(adjacentHandle);
-			adjacentHandle = {};
+			auto handle = std::exchange(adjacentHandle, {});
+			Submit({&handle, 1});
 		}
 	}
 }
 
-uint32_t TaskExecutor::InternalProcessReadyQueue()
+void TaskExecutor::InternalProcessReadyQueue()
 {
 	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
 
-	uint32_t count = 0;
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
 		InternalCall(handle);
 		InternalPurgeDeletionQueue();
-		++count;
 	}
-
-	return count;
-}
-
-uint32_t TaskExecutor::InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken)
-{
-	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
-
-	uint32_t count = 0;
-	TaskHandle handle;
-	while (myReadyQueue.try_dequeue(handle))
-	{
-		InternalCall(readyProducerToken, handle);
-		InternalPurgeDeletionQueue();
-		++count;
-	}
-
-	return count;
 }
 
 void TaskExecutor::InternalPurgeDeletionQueue()
@@ -142,14 +97,19 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 
 void TaskExecutor::InternalThreadMain(uint32_t threadId)
 {
-	ProducerToken readyProducerToken(myReadyQueue);
-	ConsumerToken readyConsumerToken(myReadyQueue);
-
+	std::shared_lock lock(myMutex);
+	
 	auto stopToken = myStopSource.get_token();
-
 	while (!stopToken.stop_requested())
 	{
-		if (myCV.wait(myMutex, stopToken, [this]{ return myTaskCount > 0; }))
-			myTaskCount -= InternalProcessReadyQueue(readyProducerToken, readyConsumerToken);
+		if (myCV.wait(lock, stopToken, [this]{ return myReadyQueue.size_approx() > 0; }))
+			InternalProcessReadyQueue();
 	}
+}
+
+void TaskExecutor::InternalSubmit(std::span<TaskHandle> handles)
+{
+	ZoneScopedN("TaskExecutor::InternalSubmit");
+
+	CHECK(myReadyQueue.enqueue_bulk(handles.data(), handles.size()));
 }

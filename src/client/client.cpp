@@ -190,8 +190,9 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gRpcTaskState = kTaskStateRunning;
 	gUpdateTask = Task::CreateTask(Update);
 	gUpdateTaskState = kTaskStateRunning;
-	
-	Executor().Submit(gRpcTask.first, gUpdateTask.first);
+
+	std::array<TaskHandle, 2> handles{gRpcTask.first, gUpdateTask.first};
+	Executor().Submit(handles);
 }
 
 bool TickClient()

@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <vector>
+#include <span>
 #include <stop_token>
 #include <thread>
 #include <tuple>
@@ -31,30 +32,33 @@ public:
 	void Call(TaskHandle handle, Params&&... params) { InternalCall(handle, params...); }
 
 	// task + dependency chain(s) will be executed in thread pool
-	template <typename... TaskHandles>
-	void Submit(TaskHandles&&... handles) { InternalSubmit(handles...); }
+	void Submit(std::span<TaskHandle> handles, bool wakeThreads = true)
+	{
+		InternalSubmit(handles);
+		
+		if (auto count = handles.size(); wakeThreads && count > 0)
+		{
+			if (count >= myThreads.size())
+				myCV.notify_all();
+			else while (count--)
+				myCV.notify_one();
+		}
+	}
 
 private:
 	template <typename... Params>
 	void InternalCall(TaskHandle handle, Params&&... params);
-	template <typename... Params>
-	void InternalCall(ProducerToken& readyProducerToken, TaskHandle handle, Params&&... params);
 
-	template <typename... TaskHandles>
-	void InternalSubmit(TaskHandles&&... handles);
-	template <typename... TaskHandles>
-	void InternalSubmit(ProducerToken& readyProducerToken, TaskHandles&&... handles);
+	void InternalSubmit(std::span<TaskHandle> handles);
 
 	[[nodiscard]] static bool InternalTryDelete(TaskHandle handle);
 
 	void InternalScheduleAdjacent(Task& task);
-	void InternalScheduleAdjacent(ProducerToken& readyProducerToken, Task& task);
 
-	uint32_t InternalProcessReadyQueue();
-	uint32_t InternalProcessReadyQueue(ProducerToken& readyProducerToken, ConsumerToken& readyConsumerToken);
+	void InternalProcessReadyQueue();
 
 	template <typename R>
-	[[nodiscard]] std::pair<std::optional<typename Future<R>::value_t>, uint32_t> InternalProcessReadyQueue(Future<R>&& future);
+	[[nodiscard]] std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
 
 	void InternalPurgeDeletionQueue();
 
@@ -64,7 +68,6 @@ private:
 	std::stop_source myStopSource;
 	UpgradableSharedMutex myMutex;
 	std::condition_variable_any myCV;
-	std::atomic_uint32_t myTaskCount;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
 };

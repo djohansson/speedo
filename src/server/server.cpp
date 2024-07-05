@@ -138,7 +138,7 @@ Server::Server(std::string_view name, Environment&& env)
 
 	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
-	Executor().Submit(gRpcTask.first);
+	Executor().Submit({&gRpcTask.first, 1});
 }
 
 void CreateServer(const PathConfig* paths)

@@ -66,7 +66,7 @@
 		+ ' -fno-plt'
 #endif //__LINUX__
 	.CompilerOptionsC = ' -std=c23 -nostdinc'
-	.CompilerOptionsCpp = ' -std=c++23 -nostdinc++'
+	.CompilerOptionsCpp = ' -std=c++26 -nostdinc++'
 #if !__WINDOWS__
 		+ ' -stdlib=libc++ -fexperimental-library'
 #endif
