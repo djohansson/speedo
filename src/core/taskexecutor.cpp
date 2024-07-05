@@ -101,18 +101,29 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 void TaskExecutor::InternalThreadMain(uint32_t threadId)
 {
 	std::shared_lock lock(myMutex);
-	
 	auto stopToken = myStopSource.get_token();
+
 	while (!stopToken.stop_requested())
-	{
 		if (myCV.wait(lock, stopToken, [this]{ return myReadyQueue.size_approx() > 0; }))
 			InternalProcessReadyQueue();
-	}
 }
 
 void TaskExecutor::InternalSubmit(std::span<TaskHandle> handles)
 {
-	ZoneScopedN("TaskExecutor::InternalSubmit");
-
 	CHECK(myReadyQueue.enqueue_bulk(handles.data(), handles.size()));
+}
+
+void TaskExecutor::Submit(std::span<TaskHandle> handles, bool wakeThreads)
+{
+	ZoneScopedN("TaskExecutor::Submit");
+
+	InternalSubmit(handles);
+	
+	if (auto count = handles.size(); wakeThreads && count > 0)
+	{
+		if (count >= myThreads.size())
+			myCV.notify_all();
+		else while (count--)
+			myCV.notify_one();
+	}
 }

@@ -27,23 +27,13 @@ public:
 	template <typename R>
 	std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
-	// call task in current thread. dependency chain(s) will be executed in thread pool
+	// blocking call in current thread. dependency chain(s) will be executed asynchrounously in thread pool
 	template <typename... Params>
 	void Call(TaskHandle handle, Params&&... params) { InternalCall(handle, params...); }
 
-	// task + dependency chain(s) will be executed in thread pool
-	void Submit(std::span<TaskHandle> handles, bool wakeThreads = true)
-	{
-		InternalSubmit(handles);
-		
-		if (auto count = handles.size(); wakeThreads && count > 0)
-		{
-			if (count >= myThreads.size())
-				myCV.notify_all();
-			else while (count--)
-				myCV.notify_one();
-		}
-	}
+	// async call. task + dependency chain(s) will be executed in thread pool.
+	// if wakeThreads is false, the task will be enqueued but not executed until it is picked up by a running thread.
+	void Submit(std::span<TaskHandle> handles, bool wakeThreads = true);
 
 private:
 	template <typename... Params>
@@ -56,7 +46,6 @@ private:
 	void InternalScheduleAdjacent(Task& task);
 
 	void InternalProcessReadyQueue();
-
 	template <typename R>
 	[[nodiscard]] std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
 
