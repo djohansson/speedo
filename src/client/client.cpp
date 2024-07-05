@@ -97,7 +97,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	}
 
 	auto rpcTask = Task::CreateTask(Rpc, socket, poller);
-	Task::AddDependency(gRpcTask.first, rpcTask.first);
+	Task::AddDependency(gRpcTask.first, rpcTask.first, true);
 	gRpcTask = rpcTask;
 }
 
@@ -118,7 +118,7 @@ static void Update()
 	gClientApplication->UpdateInput();
 
 	auto drawTask = Task::CreateTask(Draw);
-	Task::AddDependency(gUpdateTask.first, drawTask.first);
+	Task::AddDependency(gUpdateTask.first, drawTask.first, true);
 	gDrawTask = drawTask;
 }
 
@@ -131,7 +131,7 @@ static void Draw()
 	gClientApplication->Draw();
 
 	auto updateTask = Task::CreateTask(Update);
-	Task::AddDependency(gDrawTask.first, updateTask.first);
+	Task::AddDependency(gDrawTask.first, updateTask.first, true);
 	gUpdateTask = updateTask;
 }
 

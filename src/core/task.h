@@ -43,7 +43,7 @@ public:
 	[[nodiscard]] static TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
 
 	// b will start after a has finished
-	static void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle);
+	static void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
 
 private:
 	template <

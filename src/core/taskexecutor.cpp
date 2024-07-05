@@ -61,12 +61,15 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 		Task& adjacent = *Task::InternalHandleToPtr(adjacentHandle);
 
 		ASSERTF(adjacent.InternalState(), "Task has no return state!");
-		ASSERTF(adjacent.InternalState()->latch, "Latch needs to have been constructed!");
 
-		if (adjacent.InternalState()->latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		auto& adjacentState = *adjacent.InternalState();
+
+		ASSERTF(adjacentState.latch, "Latch needs to have been constructed!");
+
+		if (adjacentState.latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 		{
 			auto handle = std::exchange(adjacentHandle, {});
-			Submit({&handle, 1});
+			Submit({&handle, 1}, !adjacentState.continuation);
 		}
 	}
 }

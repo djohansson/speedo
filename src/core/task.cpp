@@ -16,7 +16,7 @@ Task::operator bool() const noexcept
 		   (myDeleteFcnPtr != nullptr) && myState;
 }
 
-void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle)
+void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
 	ASSERT(!!aTaskHandle);
 	ASSERT(!!bTaskHandle);
@@ -35,6 +35,7 @@ void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle)
 
 	aState.adjacencies.emplace_back(bTaskHandle);
 	bState.latch.fetch_add(1, std::memory_order_relaxed);
+	bState.continuation = isContinuation;
 }
 
 Task* Task::InternalHandleToPtr(TaskHandle handle) noexcept
