@@ -90,12 +90,16 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 {
 	ZoneScopedN("TaskExecutor::InternalPurgeDeletionQueue");
 
+	static thread_local std::vector<TaskHandle> nextDeletionQueue;
+	nextDeletionQueue.reserve(std::max(myDeletionQueue.size_approx(), nextDeletionQueue.size()));
+	nextDeletionQueue.clear();
+
 	TaskHandle handle;
 	while (myDeletionQueue.try_dequeue(handle))
-	{
 		if (!InternalTryDelete(handle))
-			myDeletionQueue.enqueue(handle);
-	}
+			nextDeletionQueue.emplace_back(handle);
+
+	myDeletionQueue.enqueue_bulk(nextDeletionQueue.begin(), nextDeletionQueue.size());
 }
 
 void TaskExecutor::InternalThreadMain(uint32_t threadId)
