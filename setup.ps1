@@ -36,4 +36,3 @@ Initialize-SystemEnv
 Get-NativeTriplet | Initialize-Vcpkg
 
 Initialize-VcpkgEnv
-Initialize-PythonEnv

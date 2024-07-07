@@ -121,15 +121,6 @@ function Initialize-SystemEnv
 	Read-EnvFile "$PSScriptRoot/../.env.json"
 }
 
-function Initialize-PythonEnv
-{
-	$Triplet = Get-NativeTriplet
-
-	& $PSScriptRoot/../build.vcpkg/$Triplet/bin/Activate.ps1
-
-	$Env:PYTHONPATH="$env:VIRTUAL_ENV/lib/python"
-}
-
 function Invoke-VcpkgEnv
 {
 	param(
