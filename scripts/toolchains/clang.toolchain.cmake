@@ -70,7 +70,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(CLANG_C_FLAGS "${CLANG_C_FLAGS} -D_GNU_SOURCE") #-isystem /usr/include/${TARGET_ARCHITECTURE}-linux-gnu
 # 	set(CLANG_CXX_FLAGS "${CLANG_CXX_FLAGS} -isystem ${LLVM_PATH}/lib/llvm-${LLVM_VERSION_MAJOR}/include/${TARGET_ARCHITECTURE}-unknown-linux-gnu/c++/v1")
-	set(CLANG_COMMON_FLAGS_RELEASE "-flto")
+#	set(CLANG_COMMON_FLAGS_RELEASE "-flto")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
 endif()
 
