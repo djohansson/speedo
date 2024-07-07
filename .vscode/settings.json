@@ -124,6 +124,8 @@
 		"version": "cpp",
 		"*.rh": "cpp",
 		"capi.h": "c",
-		"simd": "cpp"
+		"simd": "cpp",
+		"unistd.h": "c",
+		"features.h": "c"
 	}
 }
