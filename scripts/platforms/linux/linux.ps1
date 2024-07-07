@@ -13,6 +13,7 @@ Install-AptPackage gnupg
 Install-AptPackage libxinerama-dev
 Install-AptPackage libxcursor-dev
 Install-AptPackage libglu1-mesa-dev
+Install-AptPackage libwayland-dev
 Install-AptPackage xorg-dev
 
 $llvmVersionMajor = 18
