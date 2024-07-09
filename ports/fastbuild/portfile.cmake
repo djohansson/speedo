@@ -1,29 +1,18 @@
 set(VCPKG_POLICY_EMPTY_INCLUDE_FOLDER enabled)
 
-if (VCPKG_TARGET_IS_WINDOWS)
-	set(FASTBUILD_EXE_SUFFIX ".exe")
-	vcpkg_download_distfile(
-		ARCHIVE
-		URLS "https://github.com/djohansson/fastbuild/releases/download/v${VERSION}/FASTBuild-Windows-x64-v${VERSION}-djohansson.zip"
-		FILENAME "FASTBuild-Windows-x64-v${VERSION}-djohansson.zip"
-		SHA512 a3a830f6b015ff89b66b2292e71ebc5bdfbef466a862d2715295c6f8689ecbac3eae14d4782ca30d0928791b30073d22d99a41683e433286649c9f44932631c4
-	)
-elseif (VCPKG_TARGET_IS_OSX)
-	set(FASTBUILD_EXE_SUFFIX "")
-	vcpkg_download_distfile(
-		ARCHIVE
-		URLS "https://github.com/djohansson/fastbuild/releases/download/v${VERSION}/FASTBuild-OSX-x64+ARM-v${VERSION}-djohansson.zip"
-		FILENAME "FASTBuild-OSX-x64+ARM-v${VERSION}-djohansson.zip"
-		SHA512 067aeb8289dd2c1e634c578499e6b6c0c1767a5b1b7776675e2d52677d9d138ebf20d9a0436e5ff3eac1a5548bf4a1b1d8cfb0c2b6256872278f6f897bb38320
-	)
-endif()
-
-vcpkg_extract_source_archive(
-	BINDIST_PATH
-	ARCHIVE "${ARCHIVE}"
-	NO_REMOVE_ONE_LEVEL
+vcpkg_from_github(
+	OUT_SOURCE_PATH SOURCE_PATH
+	REPO djohansson/fastbuild
+	REF 288903effef0636a402ecb6e28f7701eb59a6f1f
+	SHA512 b0f8d01aeceae701b81a0ac4b0b89f7a65dbbecc54cf9c303f43db7fb83812162c06a05a6ca4bfb2415b84de3dc76486cfc5b6580c4f6c5994388bacc632428b
+	HEAD_REF master
 )
 
-file(INSTALL "${BINDIST_PATH}/FBuild${FASTBUILD_EXE_SUFFIX}" DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}")
-file(INSTALL "${BINDIST_PATH}/FBuildWorker${FASTBUILD_EXE_SUFFIX}" DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}")
-file(INSTALL "${BINDIST_PATH}/LICENSE.TXT" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
+vcpkg_cmake_configure(
+	SOURCE_PATH "${SOURCE_PATH}"
+)
+
+vcpkg_cmake_install()
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(INSTALL "${SOURCE_PATH}/Code/LICENSE.txt" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
