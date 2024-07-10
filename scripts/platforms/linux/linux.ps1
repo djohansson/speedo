@@ -16,16 +16,16 @@ Install-AptPackage libglu1-mesa-dev
 Install-AptPackage libwayland-dev
 Install-AptPackage xorg-dev
 
-$llvmVersionMajor = 18
-
 wget https://apt.llvm.org/llvm.sh
 chmod +x llvm.sh
-sudo ./llvm.sh $llvmVersionMajor
+sudo ./llvm.sh all
 rm -f ./llvm.sh
+
+$llvmVersionMajor = 18 # todo: get from llvm.sh
 
 sudo $PSScriptRoot/update-alternatives-clang.sh $llvmVersionMajor 1
 
-$llvmVersion = $(clang --version | grep "llvm:" | egrep -o '(\d+\.\d+\.\d+-?\w*)')
+$llvmVersion = $(clang --version | grep "version" | egrep -o '(\d+\.\d+\.\d+-?\w*)')
 
 # if (-not ($llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) == $llvmVersionMajor))
 # {
