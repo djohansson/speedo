@@ -3,7 +3,7 @@ then
 	echo "pwsh could not be found, installing to ~/powershell"
 	
 	sudo apt-get update
-	sudo apt-get install jq libssl1.1 libunwind8 -y
+	sudo apt-get install curl wget jq libunwind8 -y
 
 	bits=$(getconf LONG_BIT)
 	release=$(curl -sL https://api.github.com/repos/PowerShell/PowerShell/releases/latest)
