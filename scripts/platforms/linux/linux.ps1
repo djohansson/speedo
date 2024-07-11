@@ -2,12 +2,15 @@
 
 Write-Host "Installing Linux dependencies..."
 
+Install-AptPackage autoconf
+Install-AptPackage libtool
 Install-AptPackage coreutils
 Install-AptPackage pkg-config
 Install-AptPackage git
+Install-AptPackage cmake
+Install-AptPackage ninja-build
 Install-AptPackage patchelf
 Install-AptPackage lsb-release
-Install-AptPackage wget
 Install-AptPackage software-properties-common
 Install-AptPackage gnupg
 Install-AptPackage libxinerama-dev
