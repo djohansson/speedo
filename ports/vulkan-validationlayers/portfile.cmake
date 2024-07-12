@@ -14,7 +14,7 @@ vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
 vcpkg_add_to_path("${PYTHON3_DIR}")
 
-if (WIN32)
+if (VCPKG_TARGET_IS_WINDOWS)
     set(USE_MIMALLOC -DUSE_MIMALLOC:BOOL=OFF)
 else()
     set(USE_MIMALLOC)

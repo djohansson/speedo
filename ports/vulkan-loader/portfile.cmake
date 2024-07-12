@@ -14,7 +14,7 @@ vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
 vcpkg_add_to_path("${PYTHON3_DIR}")
 
-if (WIN32)
+if (VCPKG_TARGET_IS_WINDOWS)
     set(ASM_FLAGS -DUSE_MASM:BOOL=OFF)
 else()
     set(ASM_FLAGS -DUSE_GAS:BOOL=OFF)
