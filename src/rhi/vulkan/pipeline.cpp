@@ -1,4 +1,5 @@
 #include "../pipeline.h"
+#include "../shader.h"
 #include "../rhiapplication.h"
 
 #include "../shaders/capi.h"

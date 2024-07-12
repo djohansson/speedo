@@ -14,6 +14,12 @@
 #include <utility>
 #include <vector>
 
+#ifdef None // None is defined in X11/X.h
+#undef None
+#endif
+#ifdef Bool // Bool is defined in X11/X.h
+#undef Bool
+#endif
 #include <slang.h>
 
 using ShaderBinary = std::vector<char>;
