@@ -11,11 +11,12 @@
 #endif
 
 #ifdef __cplusplus
+#include <cstdint>
 extern "C"
 {
-#endif
-
+#else
 #include <stdint.h>
+#endif
 
 struct PathConfig
 {

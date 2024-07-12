@@ -2,11 +2,12 @@
 
 #include <core/capi.h>
 
-#include <stdbool.h>
-
 #ifdef __cplusplus
+#include <cstdbool>
 extern "C"
 {
+#else
+#include <stdbool.h>
 #endif
 
 void CreateServer(const struct PathConfig* paths);

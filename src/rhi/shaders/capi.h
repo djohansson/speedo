@@ -3,13 +3,20 @@
 //NOLINTBEGIN(readability-magic-numbers, modernize-avoid-c-arrays)
 
 #ifdef __cplusplus
+#if defined(SHADERTYPES_H_CPU_TARGET)
+#	include <cstdint>
+#	include <climits>
+#endif
 extern "C"
 {
-#endif
-
+#else
 #if defined(SHADERTYPES_H_CPU_TARGET)
 #	include <stdint.h>
 #	include <limits.h>
+#endif
+#endif
+
+#if defined(SHADERTYPES_H_CPU_TARGET)
 #	define FLOAT4X4(name) float name[4][4]
 #	define FLOAT4(name) float name[4]
 #	define FLOAT3(name) float name[3]

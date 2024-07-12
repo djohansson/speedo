@@ -10,12 +10,14 @@
 #	define RHI_API
 #endif
 
-#include <stddef.h>
-#include <stdint.h>
-
 #ifdef __cplusplus
+#include <cstddef>
+#include <cstdint>
 extern "C"
 {
+#else
+#include <stddef.h>
+#include <stdint.h>
 #endif
 
 enum GraphicsApi : uint8_t

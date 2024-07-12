@@ -10,14 +10,15 @@
 #	define CLIENT_API
 #endif
 
-#include <stdbool.h>
-
 #include <core/capi.h>
 #include <rhi/capi.h>
 
 #ifdef __cplusplus
+#include <cstdbool>
 extern "C"
 {
+#else
+#include <stdbool.h>
 #endif
 
 CLIENT_API void CreateClient(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
