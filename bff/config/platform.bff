@@ -7,6 +7,13 @@
 	Error('TARGET_ARCHITECTURE not set')
 #endif
 
+#if exists(PROCESSOR_ARCHITECTURE)
+	#import PROCESSOR_ARCHITECTURE
+	.ProcessorArchitecture = '$PROCESSOR_ARCHITECTURE$'
+#else
+	Error('PROCESSOR_ARCHITECTURE not set')
+#endif
+
 #if exists(TARGET_OS)
 	#import TARGET_OS
 	.OSName = '$TARGET_OS$'
@@ -107,6 +114,7 @@ Settings
 {
 	.CachePath = "/tmp/.fbuild.cache"
 }
-.PlatformIncludePaths = ''
+.PlatformIncludePaths = ' -isystem /usr/include/$ProcessorArchitecture$-linux-gnu'
+	+ ' -I /usr/include'
 .PlatformLibPaths = ''
 #endif //__LINUX__

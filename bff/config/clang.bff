@@ -1,5 +1,12 @@
 #once
 
+#if exists(PROCESSOR_ARCHITECTURE)
+	#import PROCESSOR_ARCHITECTURE
+	.ProcessorArchitecture = '$PROCESSOR_ARCHITECTURE$'
+#else
+	Error('PROCESSOR_ARCHITECTURE not set')
+#endif
+
 .Clang_BaseConfig =
 [
 #if exists(LLVM_PATH)
@@ -32,9 +39,12 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -Wall'
-		+ ' -isystem $LLVMPath$/include/c++/v1' // libc++ location
-		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths
+		+ ' -isystem $LLVMPath$/include/c++/v1' // libc++ location
+#if __LINUX__ // linux specific clang bug workaround
+		+ ' -isystem $LLVMPath$/lib/llvm-$LLVMVersionMajor$/include/$ProcessorArchitecture$-unknown-linux-gnu/c++/v1'
+#endif
+		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
 		+ ' -fms-extensions'
 		+ ' -fno-rtti'
 		+ ' -fno-exceptions'
@@ -68,7 +78,7 @@
 	.CompilerOptionsC = ' -std=c23 -nostdinc'
 	.CompilerOptionsCpp = ' -std=c++26 -nostdinc++'
 #if !__WINDOWS__
-		+ ' -stdlib=libc++ -fexperimental-library'
+		+ ' -fexperimental-library'
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
 		+ .PlatformLibPaths
