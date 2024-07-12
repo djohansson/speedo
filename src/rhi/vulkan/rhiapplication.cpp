@@ -264,9 +264,9 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	}
 #endif
 
-	static bool gshowDemoWindow = false;
-	if (gshowDemoWindow)
-		ShowDemoWindow(&gshowDemoWindow);
+	static bool gShowDemoWindow = false;
+	if (gShowDemoWindow)
+		ShowDemoWindow(&gShowDemoWindow);
 
 	static bool gshowAbout = false;
 	if (gshowAbout && Begin("About client", &gshowAbout))
@@ -636,7 +636,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 		if (BeginMenu("About"))
 		{
 			if (MenuItem("Show IMGUI Demo..."))
-				gshowDemoWindow = !gshowDemoWindow;
+				gShowDemoWindow = !gShowDemoWindow;
 			Separator();
 			if (MenuItem("About client..."))
 				gshowAbout = !gshowAbout;
