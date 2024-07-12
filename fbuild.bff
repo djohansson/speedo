@@ -60,8 +60,8 @@
 #endif //__OSX__
 #if __LINUX__
 			// + ' -DVK_USE_PLATFORM_WAYLAND_KHR=1'
-			// + ' -DVK_USE_PLATFORM_XCB_KHR=1'
-			+ ' -DVK_USE_PLATFORM_XLIB_KHR=1'
+			+ ' -DVK_USE_PLATFORM_XCB_KHR=1'
+			// + ' -DVK_USE_PLATFORM_XLIB_KHR=1'
 #endif //__LINUX__
 			+ ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
@@ -230,6 +230,9 @@
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
 	#endif //__OSX__
+	#if __LINUX__
+		.CommonExecutableLinkerOptions + ' -lm -luuid'
+	#endif //__OSX__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -lnfd'
@@ -303,10 +306,26 @@
 		}
 		.TestOutputName = 'core-tests'
 		.Environment = {
-			'PATH=$BuildRootPath$/build.vcpkg/$Triplet$/bin'
+			'PATH=$BuildRootPath$/build.vcpkg/$Triplet$/bin',
+#if __OSX__
+			'DYLD_LIBRARY_PATH=$BuildRootPath$/build.vcpkg/$Triplet$/lib',
+			'DYLD_INSERT_LIBRARIES=libmimalloc.$DllSuffix$'
+#endif
+#if __LINUX__
+			'LD_LIBRARY_PATH=$BuildRootPath$/build.vcpkg/$Triplet$/lib',
+			'LD_INSERT_LIBRARIES=libmimalloc.$DllSuffix$'
+#endif
 		}
 		.DebugEnvironment = {
 			'PATH=$BuildRootPath$/build.vcpkg/$Triplet$/debug/bin'
+#if __OSX__
+			'DYLD_LIBRARY_PATH=$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
+			'DYLD_INSERT_LIBRARIES=libmimalloc-debug.$DllSuffix$'
+#endif
+#if __LINUX__
+			'LD_LIBRARY_PATH=$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
+			'LD_INSERT_LIBRARIES=libmimalloc-debug.$DllSuffix$'
+#endif
 		}
 	]
 
