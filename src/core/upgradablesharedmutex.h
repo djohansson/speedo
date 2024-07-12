@@ -16,7 +16,7 @@ class UpgradableSharedMutex final
 		Reader = 4,
 		Upgraded = 2,
 		Writer = 1,
-		None = 0
+		Empty = 0
 	};
 #if __cpp_lib_atomic_ref >= 201806
 	static constexpr uint32_t kAligmnent = std::atomic_ref<value_t>::required_alignment;
@@ -31,7 +31,7 @@ class UpgradableSharedMutex final
 	template <typename Func>
 	void InternalAquireLock(Func lockFn) noexcept;
 
-	template <value_t Expected = None>
+	template <value_t Expected = Empty>
 	[[nodiscard]] std::tuple<bool, value_t> InternalTryLock() noexcept;
 	[[nodiscard]] std::tuple<bool, value_t> InternalTryLockShared() noexcept;
 	[[nodiscard]] std::tuple<bool, value_t> InternalTryLockUpgrade() noexcept;
