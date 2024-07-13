@@ -1,3 +1,5 @@
+#include "assert.h"//NOLINT(modernize-deprecated-headers)
+
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept

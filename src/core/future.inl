@@ -1,3 +1,5 @@
+#include "assert.h"//NOLINT(modernize-deprecated-headers)
+
 template <typename T>
 Future<T>::Future(std::shared_ptr<FutureState>&& state) noexcept
 	: myState(std::forward<std::shared_ptr<FutureState>>(state))
@@ -11,8 +13,6 @@ template <typename T>
 Future<T>::Future(const Future& other) noexcept
 	: myState(other.myState)
 {}
-
-#include "utils.h"
 
 template <typename T>
 bool Future<T>::operator==(const Future& other) const noexcept
