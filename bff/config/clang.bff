@@ -46,8 +46,8 @@
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -Wall'
-		+ .PlatformIncludePaths
 		+ ' -isystem $LLVMPath$/include/c++/v1' // libc++ location
+		+ .PlatformIncludePaths // platform specific include paths, mush come after libc++ system include on osx for some reason
 #if __LINUX__ // linux specific clang bug workaround
 		+ ' -isystem $LLVMPath$/lib/llvm-$LLVMVersionMajor$/include/$ProcessorArchitecture$-unknown-linux-gnu/c++/v1'
 #endif
