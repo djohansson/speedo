@@ -1,5 +1,12 @@
 #once
 
+#if exists(TARGET_ARCHITECTURE)
+	#import TARGET_ARCHITECTURE
+	.ArchitectureName = '$TARGET_ARCHITECTURE$'
+#else
+	Error('TARGET_ARCHITECTURE not set')
+#endif
+
 #if exists(PROCESSOR_ARCHITECTURE)
 	#import PROCESSOR_ARCHITECTURE
 	.ProcessorArchitecture = '$PROCESSOR_ARCHITECTURE$'
@@ -119,6 +126,10 @@
 	Using(.Clang_BaseConfig)
 
 	.CompilerOptions + ' -march=native'
+	If (.ArchitectureName == 'arm64')
+	{
+		.CompilerOptions + '+crc+crypto'
+	}
 ]
 
 .Clang_Native_DebugConfig =
