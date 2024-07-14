@@ -72,7 +72,6 @@ set(LINK_COMMON_FLAGS "-fuse-ld=lld -lc++ -lc++abi")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(CLANG_COMMON_FLAGS "${CLANG_COMMON_FLAGS} -gcodeview -Xclang -cfguard")
-	set(CLANG_COMMON_FLAGS_RELEASE "-flto")
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(CLANG_C_FLAGS "${CLANG_C_FLAGS} -D_GNU_SOURCE")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
