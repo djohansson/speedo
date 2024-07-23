@@ -2,6 +2,51 @@
 	"version": "0.2.1",
 	"configurations": [
 		{
+			"name": "(lldb arm64-linux) debug/client",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/debug/client",
+			"args": ["-u", "${userHome}/.speedo"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"MIMALLOC_SHOW_STATS": "1",
+				"MIMALLOC_VERBOSE": "1",
+				"MIMALLOC_SHOW_ERRORS": "1",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/debug/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-linux-clang/share/vulkan/explicit_layer.d"
+			}
+		},
+		{
+			"name": "(lldb arm64-linux) profile/client",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/profile/client",
+			"args": ["-u", "${userHome}/.speedo"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-linux-clang/share/vulkan/explicit_layer.d"
+			}
+		},
+		{
+			"name": "(lldb arm64-linux) release/client",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build.output/release/client",
+			"args": ["-u", "${userHome}/.speedo"],
+			"cwd": "${workspaceFolder}",
+			"console": "internalConsole",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-linux-clang/share/vulkan/explicit_layer.d"
+			}
+		},
+		{
 			"name": "(lldb arm64-osx) debug/client",
 			"type": "lldb",
 			"request": "launch",
