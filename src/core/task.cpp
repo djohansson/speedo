@@ -2,8 +2,48 @@
 
 #include <mutex>
 
-static constexpr uint32_t kTaskPoolSize = (1 << 10); // todo: make this configurable
-static MemoryPool<Task, kTaskPoolSize> gTaskPool;
+static TaskPool gTaskPool;
+
+Task* InternalHandleToPtr(TaskHandle handle) noexcept
+{
+	ASSERT(!!handle);
+	ASSERT(handle.value < kTaskPoolSize);
+	
+	Task* ptr = gTaskPool.GetPointer(handle);
+
+	ASSERT(ptr != nullptr);
+	
+	return ptr;
+}
+
+TaskHandle InternalPtrToHandle(Task* ptr) noexcept
+{
+	ASSERT(ptr != nullptr);
+
+	auto handle = gTaskPool.GetHandle(ptr);
+
+	ASSERT(!!handle);
+	ASSERT(handle.value < kTaskPoolSize);
+
+	return handle;
+}
+
+TaskHandle InternalAllocate() noexcept
+{
+	TaskHandle handle = gTaskPool.Allocate();
+
+	ASSERT(!!handle);
+
+	return handle;
+}
+
+void InternalFree(TaskHandle handle) noexcept
+{
+	ASSERT(!!handle);
+	ASSERT(handle.value < kTaskPoolSize);
+
+	gTaskPool.Free(handle);
+}
 
 Task::~Task()
 {
@@ -17,7 +57,7 @@ Task::operator bool() const noexcept
 		   (myDeleteFcnPtr != nullptr) && myState;
 }
 
-void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
+void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
 	ASSERT(!!aTaskHandle);
 	ASSERT(!!bTaskHandle);
@@ -39,43 +79,3 @@ void Task::AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool is
 	bState.continuation = isContinuation;
 }
 
-Task* Task::InternalHandleToPtr(TaskHandle handle) noexcept
-{
-	ASSERT(!!handle);
-	ASSERT(handle.value < kTaskPoolSize);
-	
-	Task* ptr = gTaskPool.GetPointer(handle);
-
-	ASSERT(ptr != nullptr);
-	
-	return ptr;
-}
-
-TaskHandle Task::InternalPtrToHandle(Task* ptr) noexcept
-{
-	ASSERT(ptr != nullptr);
-
-	auto handle = gTaskPool.GetHandle(ptr);
-
-	ASSERT(!!handle);
-	ASSERT(handle.value < kTaskPoolSize);
-
-	return handle;
-}
-
-TaskHandle Task::InternalAllocate() noexcept
-{
-	TaskHandle handle = gTaskPool.Allocate();
-
-	ASSERT(!!handle);
-
-	return handle;
-}
-
-void Task::InternalFree(TaskHandle handle) noexcept
-{
-	ASSERT(!!handle);
-	ASSERT(handle.value < kTaskPoolSize);
-
-	gTaskPool.Free(handle);
-}

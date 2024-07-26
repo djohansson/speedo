@@ -1,8 +1,9 @@
 #pragma once
 
 #include "capi.h"
-#include "future.h"
+#include "memorypool.h"
 #include "std_extra.h"
+#include "upgradablesharedmutex.h"
 
 #include <memory>
 #include <optional>
@@ -10,8 +11,7 @@
 #include <type_traits>
 #include <vector>
 
-template <typename T>
-using TaskCreateInfo = std::pair<TaskHandle, Future<T>>;
+struct TaskState;
 
 // TODO(djohansson): Consider using dynamic memory allocation for callable and arguments if larger tasks are required. Currently, the maximum size is 56 bytes for the callable and 32 bytes for the arguments.
 class alignas (std_extra::hardware_destructive_interference_size) Task final
@@ -30,7 +30,8 @@ public:
 	explicit operator bool() const noexcept;
 	template <typename... Params>
 	void operator()(Params&&... params);
-	
+
+//private:
 	template <
 		typename... Params,
 		typename... Args,
@@ -40,30 +41,10 @@ public:
 		typename ParamsTuple = std::tuple<Params...>,
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	[[nodiscard]] static TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
-
-	// b will start after a has finished
-	static void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
-
-private:
-	template <
-		typename... Params,
-		typename... Args,
-		typename F,
-		typename C = std::decay_t<F>,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ParamsTuple = std::tuple<Params...>,
-		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	constexpr Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
+	constexpr Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
 
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
-
-	[[nodiscard]] static Task* InternalHandleToPtr(TaskHandle handle) noexcept;
-	[[nodiscard]] static TaskHandle InternalPtrToHandle(Task* ptr) noexcept;
-	[[nodiscard]] static TaskHandle InternalAllocate() noexcept;
-	static void InternalFree(TaskHandle handle) noexcept;
 
 	static constexpr size_t kMaxCallableSizeBytes = 56;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
@@ -76,4 +57,65 @@ private:
 	std::shared_ptr<TaskState> myState;
 };
 
+static constexpr std::size_t kTaskPoolSize = (1 << 10); // todo: make this configurable
+using TaskPool = MemoryPool<Task, kTaskPoolSize>;
+using TaskHandle = TaskPool::Handle;
+
+struct TaskState
+{
+	std::atomic_uint32_t latch{1U};
+
+	UpgradableSharedMutex mutex; // Protects the variables below
+	std::vector<TaskHandle> adjacencies;
+	bool continuation = false;
+	//
+};
+
+template <typename T>
+class Future
+{
+public:
+	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
+	struct FutureState : TaskState
+	{
+		value_t value;
+	};
+
+	constexpr Future() noexcept = default;
+	Future(Future&& other) noexcept;
+	Future(const Future& other) noexcept;
+	
+	[[nodiscard]] bool operator==(const Future& other) const noexcept;
+	Future& operator=(Future&& other) noexcept;
+	Future& operator=(const Future& other) noexcept;
+
+	[[nodiscard]] value_t Get();
+	[[nodiscard]] bool IsReady() const noexcept;
+	[[nodiscard]] bool Valid() const noexcept;
+	void Wait() const;
+
+//private:
+	explicit Future(std::shared_ptr<FutureState>&& state) noexcept;
+
+	std::shared_ptr<FutureState> myState;
+};
+
+template <typename T>
+using TaskCreateInfo = std::pair<TaskHandle, Future<T>>;
+
+template <
+	typename... Params,
+	typename... Args,
+	typename F,
+	typename C = std::decay_t<F>,
+	typename ArgsTuple = std::tuple<Args...>,
+	typename ParamsTuple = std::tuple<Params...>,
+	typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
+requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+[[nodiscard]] TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
+
+// b will start after a has finished
+void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
+
 #include "task.inl"
+#include "future.inl"

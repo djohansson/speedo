@@ -4,20 +4,15 @@
 
 #include <core/application.h>
 #include <core/capi.h>
-#include <core/file.h>
-#include <core/future.h>
 #include <core/inputstate.h>
-#include <core/utils.h>
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
 #	include <sdkddkver.h>
 #endif
 
-#include <filesystem>
-#include <functional>
 #include <memory>
-#include <tuple>
+#include <string_view>
 
 template <GraphicsApi G>
 struct Rhi;

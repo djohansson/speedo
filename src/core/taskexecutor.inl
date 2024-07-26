@@ -31,7 +31,7 @@ void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
 {
 	ZoneScopedN("TaskExecutor::InternalCall");
 
-	Task& task = *Task::InternalHandleToPtr(handle);
+	Task& task = *InternalHandleToPtr(handle);
 
 	ASSERT(task.InternalState()->latch.load(std::memory_order_relaxed) == 1);
 	

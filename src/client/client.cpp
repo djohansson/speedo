@@ -96,8 +96,8 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		}
 	}
 
-	auto rpcTask = Task::CreateTask(Rpc, socket, poller);
-	Task::AddDependency(gRpcTask.first, rpcTask.first, true);
+	auto rpcTask = CreateTask(Rpc, socket, poller);
+	AddDependency(gRpcTask.first, rpcTask.first, true);
 	gRpcTask = rpcTask;
 }
 
@@ -117,8 +117,8 @@ static void Update()
 
 	gClientApplication->UpdateInput();
 
-	auto drawTask = Task::CreateTask(Draw);
-	Task::AddDependency(gUpdateTask.first, drawTask.first, true);
+	auto drawTask = CreateTask(Draw);
+	AddDependency(gUpdateTask.first, drawTask.first, true);
 	gDrawTask = drawTask;
 }
 
@@ -130,8 +130,8 @@ static void Draw()
 
 	gClientApplication->Draw();
 
-	auto updateTask = Task::CreateTask(Update);
-	Task::AddDependency(gDrawTask.first, updateTask.first, true);
+	auto updateTask = CreateTask(Update);
+	AddDependency(gDrawTask.first, updateTask.first, true);
 	gUpdateTask = updateTask;
 }
 
@@ -186,9 +186,9 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
+	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
-	gUpdateTask = Task::CreateTask(Update);
+	gUpdateTask = CreateTask(Update);
 	gUpdateTaskState = kTaskStateRunning;
 
 	std::array<TaskHandle, 2> handles{gRpcTask.first, gUpdateTask.first};

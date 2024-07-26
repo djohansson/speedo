@@ -90,7 +90,7 @@ static void LoadImage(
 
 	///////////
 
-	auto [imageTransitionTask, imageTransitionFuture] = Task::CreateTask<uint32_t>([&rhi](
+	auto [imageTransitionTask, imageTransitionFuture] = CreateTask<uint32_t>([&rhi](
 		Image<kVk>& image,
 		SemaphoreHandle<kVk> waitSemaphore,
 		uint64_t waitSemaphoreValue,
@@ -503,13 +503,13 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = Task::CreateTask(
+				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"obj");
 
-				auto [loadTask, loadFuture] = Task::CreateTask(
+				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
 						ZoneScopedN("RhiApplication::draw::loadTask");
@@ -530,19 +530,19 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 					std::move(openFileFuture),
 					LoadModel);
 
-				Task::AddDependency(openFileTask, loadTask);
+				AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = Task::CreateTask(
+				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
 					"jpg,png");
 
-				auto [loadTask, loadFuture] = Task::CreateTask(
+				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
 						ZoneScopedN("RhiApplication::draw::loadTask");
@@ -563,7 +563,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 					std::move(openFileFuture),
 					LoadImage);
 
-				Task::AddDependency(openFileTask, loadTask);
+				AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
 			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.Valid())

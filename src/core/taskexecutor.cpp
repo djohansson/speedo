@@ -33,14 +33,14 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::InternalTryDelete");
 
-	Task& task = *Task::InternalHandleToPtr(handle);
+	Task& task = *InternalHandleToPtr(handle);
 
 	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0 && task.InternalState()->mutex.try_lock())
 	{
 		auto state = task.InternalState();
 		std::destroy_at(&task);
 		state->mutex.unlock();
-		Task::InternalFree(handle);
+		InternalFree(handle);
 		return true;
 	}
 
@@ -58,7 +58,7 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 		if (!adjacentHandle) // this is ok, means that another thread has claimed it
 			continue;
 
-		Task& adjacent = *Task::InternalHandleToPtr(adjacentHandle);
+		Task& adjacent = *InternalHandleToPtr(adjacentHandle);
 
 		ASSERTF(adjacent.InternalState(), "Task has no return state!");
 

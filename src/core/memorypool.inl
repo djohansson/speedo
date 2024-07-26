@@ -2,65 +2,63 @@
 
 #include <shared_mutex>
 
-template <typename T, uint32_t Capacity>
-constexpr MemoryPool<T, Capacity>::MemoryPool() noexcept
-: myAvailable(Capacity)
+template <typename T, std::size_t N>
+constexpr MemoryPool<T, N>::MemoryPool() noexcept
 {
-	static_assert(Capacity > 0);
-	static_assert(Capacity < (1 << Entry::kIndexBits));
+	static_assert(Capacity() > 0);
 
 	for (auto& entry : myEntries)
-		entry = {State::kFree, static_cast<uint32_t>(&entry - myEntries.data())};
+		entry.index = myAvailable++;
+
+	ASSERT(myAvailable == Capacity());
 
 	std::make_heap(myEntries.begin(), myEntries.end());
 }
 
-template <typename T, uint32_t Capacity>
-MemoryPoolHandle MemoryPool<T, Capacity>::Allocate() noexcept
+template <typename T, std::size_t N>
+MemoryPool<T, N>::Handle MemoryPool<T, N>::Allocate() noexcept
 {
 	std::unique_lock lock(myMutex);
 
 	ASSERT(myAvailable > 0);
-	ASSERT(myAvailable <= Capacity);
+	ASSERT(myAvailable <= Capacity());
 
-	if (myAvailable == 0 || myAvailable > Capacity)
-		return MemoryPoolHandle{};
+	if (myAvailable == 0 || myAvailable > Capacity())
+		return Handle{};
 
-	MemoryPoolHandle handle{myEntries[0].index};
+	Handle handle{myEntries[0].index};
 
-	std::pop_heap(myEntries.begin(), myEntries.end());
+	std::pop_heap(myEntries.begin(), myEntries.begin() + myAvailable);
 
 	--myAvailable;
 
-	myEntries[Capacity - 1] = {State::kTaken};
-
-	ASSERT(std::is_heap(myEntries.begin(), myEntries.end()));
+	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 
 	return handle;
 }
 
-template <typename T, uint32_t Capacity>
-void MemoryPool<T, Capacity>::Free(MemoryPoolHandle handle) noexcept
+template <typename T, std::size_t N>
+void MemoryPool<T, N>::Free(Handle handle) noexcept
 {
 	std::unique_lock lock(myMutex);
 
 	ASSERT(!!handle);
-	ASSERT(myAvailable < Capacity);
+	ASSERT(myAvailable < Capacity());
 
-	if (!handle || myAvailable >= Capacity)
+	if (!handle || myAvailable >= Capacity())
 		return;
 
-	myEntries[Capacity - 1] = {State::kFree, handle.value};
+	myEntries[myAvailable].index = handle.value;
 
 	myAvailable++;
 
-	std::push_heap(myEntries.begin(), myEntries.end());
+	std::push_heap(myEntries.begin(), myEntries.begin() + myAvailable);
 
-	ASSERT(std::is_heap(myEntries.begin(), myEntries.end() - 1));
+	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 }
 
-template <typename T, uint32_t Capacity>
-constexpr T* MemoryPool<T, Capacity>::GetPointer(MemoryPoolHandle handle) noexcept
+template <typename T, std::size_t N>
+constexpr T* MemoryPool<T, N>::GetPointer(Handle handle) noexcept
 {
 	ASSERT(!!handle);
 
@@ -70,13 +68,13 @@ constexpr T* MemoryPool<T, Capacity>::GetPointer(MemoryPoolHandle handle) noexce
 	return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]);
 }
 
-template <typename T, uint32_t Capacity>
-constexpr MemoryPoolHandle MemoryPool<T, Capacity>::GetHandle(const T* ptr) noexcept
+template <typename T, std::size_t N>
+constexpr MemoryPool<T, N>::Handle MemoryPool<T, N>::GetHandle(const T* ptr) noexcept
 {
 	ASSERT(ptr != nullptr);
 	
 	if (!ptr)
-		return MemoryPoolHandle{};
+		return Handle{};
 
-	return MemoryPoolHandle{static_cast<uint32_t>((reinterpret_cast<const std::byte*>(ptr) - myPool.data()) / sizeof(T))};
+	return Handle{static_cast<std_extra::min_unsigned_t<N>>(ptr - reinterpret_cast<const T*>(myPool.data()))};
 }

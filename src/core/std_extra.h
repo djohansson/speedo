@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <bit>
 #include <concepts>
 #include <string>
 #include <string_view>
@@ -10,6 +11,11 @@
 //NOLINTBEGIN(readability-identifier-naming)
 namespace std_extra
 {
+
+template <std::size_t N>
+using min_unsigned_t = std::tuple_element_t<
+	std::bit_width(N) / 8,
+	std::tuple<std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t>>;
 
 #if __cpp_lib_hardware_interference_size >= 201603
 using std::hardware_constructive_interference_size;

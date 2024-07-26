@@ -88,8 +88,8 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		}
 	}
 
-	auto rpcTask = Task::CreateTask(Rpc, socket, poller);
-	Task::AddDependency(gRpcTask.first, rpcTask.first);
+	auto rpcTask = CreateTask(Rpc, socket, poller);
+	AddDependency(gRpcTask.first, rpcTask.first);
 	gRpcTask = rpcTask;
 }
 
@@ -136,7 +136,7 @@ Server::Server(std::string_view name, Environment&& env)
 
 	std::cout << "Server listening on " << kCxServerAddress << '\n';
 
-	gRpcTask = Task::CreateTask(Rpc, mySocket, myPoller);
+	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
 	Executor().Submit({&gRpcTask.first, 1});
 }

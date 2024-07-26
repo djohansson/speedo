@@ -1,8 +1,13 @@
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
 
+Task* InternalHandleToPtr(TaskHandle handle) noexcept;
+TaskHandle InternalPtrToHandle(Task* ptr) noexcept;
+TaskHandle InternalAllocate() noexcept;
+void InternalFree(TaskHandle handle) noexcept;
+
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept
+constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTuple&& params, Args&&... args) noexcept
 	: myInvokeFcnPtr(
 		[](const void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
 		{
@@ -43,6 +48,7 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 			  std::destroy_at(static_cast<C*>(callablePtr));
 			  std::destroy_at(static_cast<ArgsTuple*>(argsPtr));
 		  })
+	, myState(std::forward<std::shared_ptr<TaskState>>(state))
 {
 	static constexpr auto kExpectedTaskSize = 128;
 	static_assert(sizeof(Task) == kExpectedTaskSize);
@@ -70,22 +76,24 @@ inline void Task::operator()(Params&&... params)
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-TaskCreateInfo<R> Task::CreateTask(F&& callable, Args&&... args) noexcept
+TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 {
-	if (auto handle = Task::InternalAllocate())
+	if (auto handle = InternalAllocate())
 	{
-		auto* taskPtr = Task::InternalHandleToPtr(handle);
+		auto* taskPtr = InternalHandleToPtr(handle);
 		auto state = std::make_shared<typename Future<R>::FutureState>();
-		
 		state->mutex.lock();
-		new (taskPtr) Task(std::forward<F>(callable), ParamsTuple{}, std::forward<Args>(args)...);
-		taskPtr->myState = std::static_pointer_cast<TaskState>(state);
+		new (taskPtr) Task(
+			std::static_pointer_cast<TaskState>(state),
+			std::forward<F>(callable),
+			ParamsTuple{},
+			std::forward<Args>(args)...);
 		state->mutex.unlock();
 
 		return std::make_pair(handle, Future<R>(std::move(state)));
 	}
 
-	TRAP(); // Fatal error, task pool is full.
+	CHECKF(false, "Task::InternalAllocate() failed, pool is full?");
 
 	return {};
 }
