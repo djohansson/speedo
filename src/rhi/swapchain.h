@@ -38,38 +38,40 @@ public:
 	void Swap(Swapchain& rhs) noexcept;
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
+	[[nodiscard]] const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
 
-	virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const final;
-	virtual ImageLayout<G> GetDepthStencilImageLayout() const final;
+	ImageLayout<G> GetColorImageLayout(uint32_t index) const final;
+	ImageLayout<G> GetDepthStencilImageLayout() const final;
 
-	virtual void Blit(
+	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	void End(CommandBufferHandle<G> cmd) final;
+
+	void Blit(
 		CommandBufferHandle<G> cmd,
 		const IRenderTarget<kVk>& srcRenderTarget,
 		const ImageSubresourceLayers<G>& srcSubresource,
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<G> filter = {}) final;
+		Filter<G> filter) final;
 
-	virtual void ClearSingleAttachment(
+	void ClearSingleAttachment(
 		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const final;
-	virtual void ClearAllAttachments(
+	void ClearAllAttachments(
 		CommandBufferHandle<G> cmd,
 		const ClearColorValue<G>& color = {},
 		const ClearDepthStencilValue<G>& depthStencil = {}) const final;
 
-	virtual void
-	ClearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
-	virtual void ClearDepthStencil(
-		CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
+	void ClearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
+	void ClearDepthStencil(CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
 
-	virtual void
-	TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
-	virtual void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
+	void TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
+	void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
 
-	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
-	virtual void End(CommandBufferHandle<G> cmd) final;
+	void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp) final;
+	void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp) final;
+	void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp) final;
+	void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp) final;
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	

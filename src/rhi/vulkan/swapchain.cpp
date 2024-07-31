@@ -5,9 +5,9 @@
 #include <format>
 
 template <>
-RenderPassBeginInfo<kVk> Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
+RenderPassBeginInfo<kVk> Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
 {
-	return myFrames[myFrameIndex].Begin(cmd, contents);
+	return myFrames[myFrameIndex].Begin(cmd, contents, clearValues);
 }
 
 template <>
@@ -89,6 +89,30 @@ template <>
 void Swapchain<kVk>::TransitionDepthStencil(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
 {
 	myFrames[myFrameIndex].TransitionDepthStencil(cmd, layout);
+}
+
+template <>
+void Swapchain<kVk>::SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<kVk> loadOp)
+{
+	myFrames[myFrameIndex].SetColorAttachmentLoadOp(index, loadOp);
+}
+
+template <>
+void Swapchain<kVk>::SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<kVk> storeOp)
+{
+	myFrames[myFrameIndex].SetColorAttachmentStoreOp(index, storeOp);
+}
+
+template <>
+void Swapchain<kVk>::SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<kVk> loadOp)
+{
+	myFrames[myFrameIndex].SetDepthStencilAttachmentLoadOp(loadOp);
+}
+
+template <>
+void Swapchain<kVk>::SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<kVk> storeOp)
+{
+	myFrames[myFrameIndex].SetDepthStencilAttachmentStoreOp(storeOp);
 }
 
 template <>

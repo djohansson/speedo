@@ -1424,6 +1424,10 @@ void RhiApplication::InternalDraw()
 			Executor().Call(drawCall, newFrameIndex);
 		}
 
+		static constexpr VkClearValue clearValues[] = {
+			{.color = {0.2F, 0.2F, 0.2F, 1.0F}},
+			{.depthStencil = {1.0F, 0}}};
+
 		auto cmd = graphicsQueue.GetPool().Commands();
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
@@ -1431,16 +1435,20 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, clear);
 
-			renderImageSet.ClearDepthStencil(cmd, {1.0F, 0});
-			renderImageSet.ClearColor(cmd, {{0.2F, 0.2F, 0.2F, 1.0F}}, 0);
+			renderImageSet.ClearColor(cmd, clearValues[0].color, 0);
+			renderImageSet.ClearDepthStencil(cmd, clearValues[1].depthStencil);
 		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
 
+			renderImageSet.SetColorAttachmentLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
 			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			renderImageSet.TransitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 			
-			auto renderPassInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+			auto renderPassInfo = renderImageSet.Begin(
+				cmd,
+				VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS,
+				clearValues);
 
 			auto drawThreadCount = window.Draw(
 				pipeline,
@@ -1460,19 +1468,25 @@ void RhiApplication::InternalDraw()
 
 			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
 
+			window.SetColorAttachmentLoadOp(0, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
 			window.Blit(
 				cmd,
 				renderImageSet,
 				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
 				0,
 				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0);
+				0,
+				VK_FILTER_NEAREST);
 		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
+			window.SetColorAttachmentLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
 			window.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
+			window.Begin(
+				cmd,
+				VK_SUBPASS_CONTENTS_INLINE,
+				std::span(clearValues).subspan(0, 1));
 
 			IMGUIDrawFunction(cmd);
 

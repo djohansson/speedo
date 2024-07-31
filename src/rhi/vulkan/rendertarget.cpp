@@ -417,9 +417,11 @@ const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 }
 
 template <>
-RenderPassBeginInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
+RenderPassBeginInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
 {
 	ZoneScopedN("RenderTarget::begin");
+
+	CHECK(clearValues.size() <= myAttachments.size());
 
 	const auto& [renderPass, frameBuffer] = InternalGetValues();
 
@@ -428,7 +430,9 @@ RenderPassBeginInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, 
 		nullptr,
 		renderPass,
 		frameBuffer,
-		{{0, 0}, {GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height}}};
+		{{0, 0}, {GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height}},
+		static_cast<uint32_t>(clearValues.size()),
+		clearValues.data()};
 
 	{
 		ZoneScopedN("RenderTarget::begin::vkCmdBeginRenderPass");

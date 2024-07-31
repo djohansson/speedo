@@ -30,7 +30,7 @@ struct IRenderTarget
 	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilImageLayout() const = 0;
 
 	// TODO(djohansson): make these two a single scoped call
-	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
+	virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
 	virtual void End(CommandBufferHandle<G> cmd) = 0;
 	//
 
@@ -58,6 +58,11 @@ struct IRenderTarget
 	virtual void
 	TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) = 0;
 	virtual void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) = 0;
+
+	virtual void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp) = 0;
+	virtual void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp) = 0;
+	virtual void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp) = 0;
+	virtual void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp) = 0;
 };
 
 template <GraphicsApi G>
@@ -71,7 +76,7 @@ public:
 
 	[[nodiscard]] operator auto() { return InternalGetValues(); };//NOLINT(google-explicit-constructor)
 
-	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
 	void End(CommandBufferHandle<G> cmd) override;
 
 	void Blit(
@@ -106,10 +111,10 @@ public:
 	void NextSubpass(CommandBufferHandle<G> cmd, SubpassContents<G> contents);
 	void ResetSubpasses();
 
-	void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp);
-	void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp);
-	void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp);
-	void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp);
+	void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp) final;
+	void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp) final;
+	void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp) final;
+	void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp) final;
 
 	void Swap(RenderTarget& rhs) noexcept;
 
