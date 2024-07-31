@@ -1304,8 +1304,6 @@ void RhiApplication::InternalUpdateInput()
 {
 	using namespace rhiapplication;
 
-	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
-
 	auto& rhi = InternalRhi<kVk>();
 	auto& imguiIO = ImGui::GetIO();
 	auto& input = myInput;
@@ -1572,6 +1570,8 @@ void RhiApplication::Tick()
 
 		Executor().Call(mainCall);
 	}
+
+	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
 }
 
 void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
