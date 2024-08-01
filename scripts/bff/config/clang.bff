@@ -67,7 +67,6 @@
 		+ ' -D_WINSOCKAPI_' // stops windows.h including winsock.h
 		+ ' -D_MT'
 		+ ' -D_DLL'
-		+ ' -gcodeview'
 		+ ' -Xclang -cfguard'
 #endif //__WINDOWS__
 #if __OSX__
@@ -102,8 +101,10 @@
 	.DebugLinkerOptions = ''
 	.ReleaseLinkerOptions = ''
 #else
-	.DebugLinkerOptions = ' -Wl,-nodefaultlib:libcmtd -lmsvcrtd'
-	.ReleaseLinkerOptions = ' -Wl,-nodefaultlib:libcmt -lmsvcrt'
+	.DebugLinkerOptions = ' -lmsvcrtd'
+	.ReleaseLinkerOptions = ' -lmsvcrt'
+	// .DebugLinkerOptions = ''
+	// .ReleaseLinkerOptions = ''
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 		+ ' -L $LLVMPath$/lib/c++'
