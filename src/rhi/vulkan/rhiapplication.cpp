@@ -27,11 +27,11 @@ namespace rhiapplication
 static UpgradableSharedMutex gDrawMutex{};
 
 static std::tuple<nfdresult_t, nfdchar_t*>
-OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdchar_t* filterList)
+OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdu8filteritem_t* filterList, nfdfiltersize_t filterCount)
 {
 	auto resourcePathStr = resourcePath.string();
 	nfdchar_t* openFilePath;
-	return std::make_tuple(NFD_OpenDialog(filterList, resourcePathStr.c_str(), &openFilePath), openFilePath);
+	return std::make_tuple(NFD_OpenDialog(&openFilePath, filterList, filterCount, resourcePathStr.c_str()), openFilePath);
 }
 
 static void LoadModel(
@@ -503,11 +503,12 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
+				std::array<nfdu8filteritem_t, 1> filters{{ "Obj files", "obj" }};
 				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
-					"obj");
+					filters.data(), filters.size());
 
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
@@ -536,11 +537,12 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 			
 			if (MenuItem("Open Image..."))
 			{
+				std::array<nfdu8filteritem_t, 2> filters{{ "Image files", "jpg,png" }};
 				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
-					"jpg,png");
+					filters.data(), filters.size());
 
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
