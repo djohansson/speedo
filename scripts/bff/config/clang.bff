@@ -103,8 +103,6 @@
 #else
 	.DebugLinkerOptions = ' -lmsvcrtd'
 	.ReleaseLinkerOptions = ' -lmsvcrt'
-	// .DebugLinkerOptions = ''
-	// .ReleaseLinkerOptions = ''
 #endif
 	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
 		+ ' -L $LLVMPath$/lib/c++'
