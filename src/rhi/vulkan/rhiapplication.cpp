@@ -765,9 +765,7 @@ static void IMGUIInit(
 	// 		});
 	// };
 	// initInfo.UserData = device.Get();
-	ImGui_ImplVulkan_Init(
-		&initInfo,
-		static_cast<RenderTargetHandle<kVk>>(window.GetFrames().at(window.GetCurrentFrameIndex())).first);
+	ImGui_ImplVulkan_Init(&initInfo);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
 
 	// Upload Fonts
