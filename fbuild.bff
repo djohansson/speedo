@@ -53,6 +53,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 #if __WINDOWS__
 			+ ' -DVK_USE_PLATFORM_WIN32_KHR=1'
+			+ ' -DSTBI_NO_SIMD' // fixme: linker errors otherwise
 #endif //__WINDOWS__
 #if __OSX__
 			//+ ' -DVK_USE_PLATFORM_MACOS_MVK=1'
@@ -208,6 +209,7 @@
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lcargs'
+			+ ' -lnfd'
 			+ ' -lTracyClient'
 			+ ' -lSHA-Intrinsics'
 			+ ' -lslang'
@@ -235,12 +237,10 @@
 	#endif //__OSX__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
-			+ ' -lnfd'
 			+ ' -limgui'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/debug/lib'
 			+ ' -lmimalloc-debug'
-			+ ' -lnfd_d'
 			+ ' -limguid'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
