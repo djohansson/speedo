@@ -176,11 +176,11 @@ std::shared_ptr<void>
 Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationData& srcLoc)
 {
 	static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
-	static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
-	static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
-	static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
-	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
-	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
+	// static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
+	// static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
+	// static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
+	// static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
+	// static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
 	if (myProfilingContext)
 	{

@@ -13,7 +13,7 @@ class MemoryPool final
 public:
 	struct Handle
 	{
-		static constexpr std_extra::min_unsigned_t<N> kInvalidIndex{-1ll};
+		static constexpr std_extra::min_unsigned_t<N> kInvalidIndex{static_cast<std_extra::min_unsigned_t<N>>(~0ull)};
 		std_extra::min_unsigned_t<N> value{kInvalidIndex};
 
 		[[nodiscard]] constexpr explicit operator bool() const noexcept { return value != kInvalidIndex; }

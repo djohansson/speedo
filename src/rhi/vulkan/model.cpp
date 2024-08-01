@@ -207,7 +207,7 @@ Load(
 				static_cast<uint32_t>(desc.attributes.size()),
 				0,
 				VK_FORMAT_R32G32B32_SFLOAT,
-				offsetof(VertexP3fN3fT014fC4f, position)});
+				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, position))});
 		}
 
 		if (!attrib.normals.empty())
@@ -216,7 +216,7 @@ Load(
 				static_cast<uint32_t>(desc.attributes.size()),
 				0,
 				VK_FORMAT_R32G32B32_SFLOAT,
-				offsetof(VertexP3fN3fT014fC4f, normal)});
+				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, normal))});
 		}
 
 		if (!attrib.texcoords.empty())
@@ -225,7 +225,7 @@ Load(
 				static_cast<uint32_t>(desc.attributes.size()),
 				0,
 				VK_FORMAT_R32G32B32A32_SFLOAT,
-				offsetof(VertexP3fN3fT014fC4f, texCoord01)});
+				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, texCoord01))});
 		}
 
 		if (!attrib.colors.empty())
@@ -234,7 +234,7 @@ Load(
 				static_cast<uint32_t>(desc.attributes.size()),
 				0,
 				VK_FORMAT_R32G32B32A32_SFLOAT,
-				offsetof(VertexP3fN3fT014fC4f, color)});
+				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, color))});
 		}
 
 		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
