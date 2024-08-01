@@ -135,16 +135,24 @@ using PhysicalDeviceProperties =
 	std::conditional_t<G == kVk, VkPhysicalDeviceProperties2, std::nullptr_t>;
 
 template <GraphicsApi G>
-using PhysicalDevicePropertiesEx =
+using PhysicalDeviceProperties12Ex =
 	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan12Properties, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceProperties13Ex =
+	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan13Properties, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PhysicalDeviceFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDeviceFeatures2, std::nullptr_t>;
 
 template <GraphicsApi G>
-using PhysicalDeviceFeaturesEx =
+using PhysicalDeviceFeatures12Ex =
 	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan12Features, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceFeatures13Ex =
+	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan13Features, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PhysicalDeviceInlineUniformBlockFeatures =

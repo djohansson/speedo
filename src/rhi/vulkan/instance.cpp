@@ -32,26 +32,31 @@ void GetPhysicalDeviceInfo2(
 	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
 
-	deviceInfo.inlineUniformBlockFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES;
-	deviceInfo.inlineUniformBlockFeatures.pNext = nullptr;
-	deviceInfo.inlineUniformBlockFeatures.inlineUniformBlock = 1U;
-	deviceInfo.deviceFeaturesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeaturesEx.pNext = &deviceInfo.inlineUniformBlockFeatures;
-	deviceInfo.deviceFeaturesEx.timelineSemaphore = 1U;
+	deviceInfo.deviceFeatures13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+	deviceInfo.deviceFeatures13Ex.pNext = &deviceInfo.deviceFeatures12Ex;
+	deviceInfo.deviceFeatures13Ex.dynamicRendering = VK_TRUE;
+	
+	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+	deviceInfo.deviceFeatures12Ex.pNext = nullptr;
+	deviceInfo.deviceFeatures12Ex.timelineSemaphore = VK_TRUE;
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeaturesEx;
+	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures13Ex;
+	
 	vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
 	auto vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
 
-	deviceInfo.devicePropertiesEx.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-	deviceInfo.devicePropertiesEx.pNext = &deviceInfo.inlineUniformBlockProperties;
-	deviceInfo.inlineUniformBlockProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_PROPERTIES;
-	deviceInfo.inlineUniformBlockProperties.maxDescriptorSetInlineUniformBlocks = 1;
+	deviceInfo.deviceProperties13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
+	deviceInfo.deviceProperties13Ex.pNext = &deviceInfo.deviceProperties12Ex;
+
+	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+	deviceInfo.deviceProperties12Ex.pNext = nullptr;
+	
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-	deviceInfo.deviceProperties.pNext = &deviceInfo.devicePropertiesEx;
+	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties13Ex;
+
 	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 
 	uint32_t queueFamilyCount = 0;

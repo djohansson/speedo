@@ -29,11 +29,11 @@ template <GraphicsApi G>
 struct PhysicalDeviceInfo
 {
 	PhysicalDeviceProperties<G> deviceProperties{};
-	PhysicalDevicePropertiesEx<G> devicePropertiesEx{};
-	PhysicalDeviceInlineUniformBlockProperties<G> inlineUniformBlockProperties{};
+	PhysicalDeviceProperties12Ex<G> deviceProperties12Ex{};
+	PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
 	PhysicalDeviceFeatures<G> deviceFeatures{};
-	PhysicalDeviceFeaturesEx<G> deviceFeaturesEx{};
-	PhysicalDeviceInlineUniformBlockFeatures<G> inlineUniformBlockFeatures{};
+	PhysicalDeviceFeatures12Ex<G> deviceFeatures12Ex{};
+	PhysicalDeviceFeatures13Ex<G> deviceFeatures13Ex{};
 	std::vector<QueueFamilyProperties<G>> queueFamilyProperties;
 };
 
