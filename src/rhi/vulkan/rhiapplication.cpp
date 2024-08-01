@@ -751,6 +751,16 @@ static void IMGUIInit(
 	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
+	//initInfo.RenderPass = 
+	initInfo.UseDynamicRendering = true;
+	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+		.pNext = nullptr,
+		.viewMask = 0,
+		.colorAttachmentCount = 1,
+		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format
+	};
+	//initInfo.ColorAttachmentFormat = window.GetConfig().swapchainConfig.format;
 	// initInfo.DeleteBufferFn = [](void* user_data,
 	// 							 VkBuffer buffer,
 	// 							 VkDeviceMemory buffer_memory,
