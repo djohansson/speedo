@@ -503,7 +503,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				std::array<nfdu8filteritem_t, 1> filters{{ "Obj files", "obj" }};
+				static constexpr std::array<nfdu8filteritem_t, 1> filters{{ "Obj files", "obj" }};
 				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
@@ -537,7 +537,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 			
 			if (MenuItem("Open Image..."))
 			{
-				std::array<nfdu8filteritem_t, 2> filters{{ "Image files", "jpg,png" }};
+				static constexpr std::array<nfdu8filteritem_t, 2> filters{{ "Image files", "jpg,png" }};
 				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
