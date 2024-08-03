@@ -503,12 +503,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				static constexpr std::array<nfdu8filteritem_t, 1> filters{{ "Obj files", "obj" }};
 				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
-					filters.data(), filters.size());
+					nullptr, 0);
 
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
@@ -524,7 +523,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 							gprogress = 0;
 							gshowProgress = true;
 							loadOp(rhi, executor, openFilePath, gprogress);
-							std::free(openFilePath);
+							NFD_FreePath(openFilePath);
 							gshowProgress = false;
 						}
 					},
@@ -537,12 +536,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 			
 			if (MenuItem("Open Image..."))
 			{
-				static constexpr std::array<nfdu8filteritem_t, 2> filters{{ "Image files", "jpg,png" }};
 				auto [openFileTask, openFileFuture] = CreateTask(
 					OpenFileDialogue,
 					std::get<std::filesystem::path>(
 						Application::Instance().lock()->Env().variables["ResourcePath"]),
-					filters.data(), filters.size());
+					nullptr, 0);
 
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
@@ -558,7 +556,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 							gprogress = 0;
 							gshowProgress = true;
 							loadOp(rhi, executor, openFilePath, gprogress);
-							std::free(openFilePath);
+							NFD_FreePath(openFilePath);
 							gshowProgress = false;
 						}
 					},
