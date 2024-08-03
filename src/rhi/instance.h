@@ -30,10 +30,10 @@ struct PhysicalDeviceInfo
 {
 	PhysicalDeviceProperties<G> deviceProperties{};
 	PhysicalDeviceProperties12Ex<G> deviceProperties12Ex{};
-	PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
+	// PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
 	PhysicalDeviceFeatures<G> deviceFeatures{};
 	PhysicalDeviceFeatures12Ex<G> deviceFeatures12Ex{};
-	PhysicalDeviceFeatures13Ex<G> deviceFeatures13Ex{};
+	// PhysicalDeviceFeatures13Ex<G> deviceFeatures13Ex{};
 	std::vector<QueueFamilyProperties<G>> queueFamilyProperties;
 };
 

@@ -32,30 +32,47 @@ void GetPhysicalDeviceInfo2(
 	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
 
-	deviceInfo.deviceFeatures13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-	deviceInfo.deviceFeatures13Ex.pNext = &deviceInfo.deviceFeatures12Ex;
-	deviceInfo.deviceFeatures13Ex.dynamicRendering = VK_TRUE;
+	// deviceInfo.deviceFeatures13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+	// deviceInfo.deviceFeatures13Ex.pNext = &deviceInfo.deviceFeatures12Ex;
+	// deviceInfo.deviceFeatures13Ex.inlineUniformBlock = VK_TRUE;
+	// deviceInfo.deviceFeatures13Ex.dynamicRendering = VK_TRUE;
+
+	static VkPhysicalDeviceInlineUniformBlockFeaturesEXT gInlineUniformBlockFeature
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
+		.pNext = nullptr,
+		.inlineUniformBlock = VK_TRUE,
+	};
+
+	static VkPhysicalDeviceDynamicRenderingFeaturesKHR gDynamicRenderingFeature
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
+		.pNext = &gInlineUniformBlockFeature,
+		.dynamicRendering = VK_TRUE,
+	};
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeatures12Ex.pNext = nullptr;
+	deviceInfo.deviceFeatures12Ex.pNext = &gDynamicRenderingFeature;
 	deviceInfo.deviceFeatures12Ex.timelineSemaphore = VK_TRUE;
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures13Ex;
+	// deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures13Ex;
+	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures12Ex;
 	
 	vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
 	auto vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
 		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
 
-	deviceInfo.deviceProperties13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
-	deviceInfo.deviceProperties13Ex.pNext = &deviceInfo.deviceProperties12Ex;
+	// deviceInfo.deviceProperties13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
+	// deviceInfo.deviceProperties13Ex.pNext = &deviceInfo.deviceProperties12Ex;
 
 	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
 	deviceInfo.deviceProperties12Ex.pNext = nullptr;
 	
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties13Ex;
+	// deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties13Ex;
+	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
 
 	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 

@@ -216,6 +216,7 @@ Device<kVk>::Device(
 	std::vector<const char*> requiredDeviceExtensions = {
 		// must be sorted lexicographically for std::includes to work!
 		VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
+		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
 #if defined(__OSX__)
 		VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
 #endif
@@ -229,14 +230,6 @@ Device<kVk>::Device(
 		requiredDeviceExtensions.begin(),
 		requiredDeviceExtensions.end(),
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
-
-	// auto& deviceFeaturesEx = physicalDeviceInfo.deviceFeaturesEx;
-	// deviceFeaturesEx.shaderFloat16 = myConfig.useShaderFloat16.value();
-	// deviceFeaturesEx.descriptorIndexing = myConfig.useDescriptorIndexing.value();
-	// deviceFeaturesEx.scalarBlockLayout = myConfig.useScalarBlockLayout.value();
-	// deviceFeaturesEx.hostQueryReset = myConfig.useHostQueryReset.value();
-	// deviceFeaturesEx.timelineSemaphore = myConfig.useTimelineSemaphores.value();
-	// deviceFeaturesEx.bufferDeviceAddress = myConfig.useBufferDeviceAddress.value();
 
 	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;

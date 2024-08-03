@@ -1089,7 +1089,8 @@ auto CreateInstance(const auto& name)
 				VK_MAKE_VERSION(1, 0, 0),
 				nullptr,
 				VK_MAKE_VERSION(1, 0, 0),
-				VK_API_VERSION_1_3}});
+				VK_API_VERSION_1_2}});
+				//VK_API_VERSION_1_3}});
 }
 
 auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
