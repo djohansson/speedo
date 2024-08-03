@@ -75,7 +75,7 @@ void Frame<kVk>::Swap(Frame& rhs) noexcept
 }
 
 template <>
-ImageLayout<kVk> Frame<kVk>::GetColorImageLayout(uint32_t index) const
+ImageLayout<kVk> Frame<kVk>::GetColorLayout(uint32_t index) const
 {
 	//ASSERT(index == 0); // multiple layouts not supported
 
@@ -83,7 +83,7 @@ ImageLayout<kVk> Frame<kVk>::GetColorImageLayout(uint32_t index) const
 }
 
 template <>
-ImageLayout<kVk> Frame<kVk>::GetDepthStencilImageLayout() const
+ImageLayout<kVk> Frame<kVk>::GetDepthStencilLayout() const
 {
 	ASSERT(false);
 
@@ -105,7 +105,7 @@ void Frame<kVk>::TransitionColor(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> 
 
 	ASSERT(index == 0);
 
-	if (GetColorImageLayout(index) != layout)
+	if (GetColorLayout(index) != layout)
 	{
 		TransitionImageLayout(
 			cmd,

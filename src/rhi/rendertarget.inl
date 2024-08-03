@@ -22,7 +22,39 @@ void RenderTarget<G>::ResetSubpasses()
 }
 
 template <GraphicsApi G>
-void RenderTarget<G>::SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp)
+AttachmentLoadOp<G> RenderTarget<G>::GetColorLoadOp(uint32_t index) const
+{
+	ASSERT(index < this->GetRenderTargetDesc().colorImages.size());
+
+	return myAttachmentDescs[index].loadOp;
+}
+
+template <GraphicsApi G>
+AttachmentStoreOp<G> RenderTarget<G>::GetColorStoreOp(uint32_t index) const
+{
+	ASSERT(index < this->GetRenderTargetDesc().colorImages.size());
+
+	return myAttachmentDescs[index].storeOp;
+}
+
+template <GraphicsApi G>
+AttachmentLoadOp<G> RenderTarget<G>::GetDepthStencilLoadOp() const
+{
+	ASSERT(myAttachmentDescs.size() > 0);
+
+	return myAttachmentDescs[myAttachmentDescs.size() - 1].loadOp;
+}
+
+template <GraphicsApi G>
+AttachmentStoreOp<G> RenderTarget<G>::GetDepthStencilStoreOp() const
+{
+	ASSERT(myAttachmentDescs.size() > 0);
+
+	return myAttachmentDescs[myAttachmentDescs.size() - 1].storeOp;
+}
+
+template <GraphicsApi G>
+void RenderTarget<G>::SetColorLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp)
 {
 	ASSERT(index < this->GetRenderTargetDesc().colorImages.size());
 
@@ -30,7 +62,7 @@ void RenderTarget<G>::SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<
 }
 
 template <GraphicsApi G>
-void RenderTarget<G>::SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp)
+void RenderTarget<G>::SetColorStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp)
 {
 	ASSERT(index < this->GetRenderTargetDesc().colorImages.size());
 
@@ -38,13 +70,13 @@ void RenderTarget<G>::SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreO
 }
 
 template <GraphicsApi G>
-void RenderTarget<G>::SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp)
+void RenderTarget<G>::SetDepthStencilLoadOp(AttachmentLoadOp<G> loadOp)
 {
 	myAttachmentDescs[myAttachmentDescs.size() - 1].loadOp = loadOp;
 }
 
 template <GraphicsApi G>
-void RenderTarget<G>::SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp)
+void RenderTarget<G>::SetDepthStencilStoreOp(AttachmentStoreOp<G> storeOp)
 {
 	myAttachmentDescs[myAttachmentDescs.size() - 1].storeOp = storeOp;
 }

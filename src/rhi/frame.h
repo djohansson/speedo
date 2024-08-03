@@ -29,13 +29,13 @@ public:
 	void Swap(Frame& rhs) noexcept;
 	friend void Swap(Frame& lhs, Frame& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] virtual ImageLayout<G> GetColorImageLayout(uint32_t index) const;
-	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilImageLayout() const;
+	ImageLayout<G> GetColorLayout(uint32_t index) const final;
+	ImageLayout<G> GetDepthStencilLayout() const final;
 
-	virtual void End(CommandBufferHandle<G> cmd);
+	void End(CommandBufferHandle<G> cmd) final;
 
-	virtual void TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
-	virtual void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
+	void TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
+	void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
 
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 

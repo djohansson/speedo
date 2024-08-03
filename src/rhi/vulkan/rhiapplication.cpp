@@ -653,13 +653,13 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	Render();
 }
 
-void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd)
+void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipeline = nullptr)
 {
 	ZoneScopedN("RhiApplication::IMGUIDraw");
 
 	using namespace ImGui;
 
-	ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd);
+	ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd, pipeline);
 }
 
 static void IMGUIInit(
@@ -751,7 +751,8 @@ static void IMGUIInit(
 	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
-	//initInfo.RenderPass = 
+	// initInfo.RenderPass = window.Begin().renderPass; window.End();
+	initInfo.RenderPass = VK_NULL_HANDLE;
 	initInfo.UseDynamicRendering = true;
 	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
@@ -760,23 +761,6 @@ static void IMGUIInit(
 		.colorAttachmentCount = 1,
 		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format
 	};
-	//initInfo.ColorAttachmentFormat = window.GetConfig().swapchainConfig.format;
-	// initInfo.DeleteBufferFn = [](void* user_data,
-	// 							 VkBuffer buffer,
-	// 							 VkDeviceMemory buffer_memory,
-	// 							 const VkAllocationCallbacks* allocator)
-	// {
-	// 	auto& device = *static_cast<Device<kVk>*>(user_data);
-	// 	device.AddTimelineCallback(
-	// 		[&device, buffer, buffer_memory, allocator](uint64_t)
-	// 		{
-	// 			if (buffer != VK_NULL_HANDLE)
-	// 				vkDestroyBuffer(device, buffer, allocator);
-	// 			if (buffer_memory != VK_NULL_HANDLE)
-	// 				vkFreeMemory(device, buffer_memory, allocator);
-	// 		});
-	// };
-	// initInfo.UserData = device.Get();
 	ImGui_ImplVulkan_Init(&initInfo);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
 
@@ -1401,7 +1385,7 @@ void RhiApplication::InternalDraw()
 	auto& pipeline = *rhi.pipeline;
 
 	ImGui_ImplVulkan_NewFrame(); // no-op?
-	IMGUIPrepareDrawFunction(rhi, Executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame or ImGio::Newframe())
+	IMGUIPrepareDrawFunction(rhi, Executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.Flip();
 
@@ -1450,7 +1434,7 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
 
-			renderImageSet.SetColorAttachmentLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
+			renderImageSet.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
 			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			renderImageSet.TransitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 			
@@ -1477,7 +1461,7 @@ void RhiApplication::InternalDraw()
 
 			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
 
-			window.SetColorAttachmentLoadOp(0, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+			window.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
 			window.Blit(
 				cmd,
 				renderImageSet,
@@ -1490,16 +1474,55 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
-			window.SetColorAttachmentLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
+			window.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
 			window.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			window.Begin(
-				cmd,
-				VK_SUBPASS_CONTENTS_INLINE,
-				std::span(clearValues).subspan(0, 1));
 
-			IMGUIDrawFunction(cmd);
+			// auto beginInfo = window.Begin(
+			// 	cmd,
+			// 	VK_SUBPASS_CONTENTS_INLINE,
+			// 	std::span(clearValues).subspan(0, 1));
 
-			window.End(cmd);
+			VkRenderingAttachmentInfoKHR colorAttachment
+			{
+				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+				.pNext = nullptr,
+				.imageView = window.GetColor(0),
+				.imageLayout = window.GetColorLayout(0),
+				.loadOp = window.GetColorLoadOp(0),
+				.storeOp = window.GetColorStoreOp(0),
+			};
+
+			VkRenderingInfoKHR renderingInfo
+			{
+				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+				.pNext = nullptr,
+				.flags = 0,
+				.renderArea = {0, 0, window.GetConfig().swapchainConfig.extent.width, window.GetConfig().swapchainConfig.extent.height},
+				.layerCount = 1,
+				.viewMask = 0,
+				.colorAttachmentCount = 1,
+				.pColorAttachments = &colorAttachment,
+			};
+
+			static auto vkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
+				vkGetInstanceProcAddr(
+					instance,
+					"vkCmdBeginRenderingKHR"));
+			ASSERT(vkCmdBeginRenderingKHR != nullptr);
+			
+			vkCmdBeginRenderingKHR(cmd, &renderingInfo);
+
+			IMGUIDrawFunction(cmd); // uses dynamic rendering
+
+			static auto vkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
+				vkGetInstanceProcAddr(
+					instance,
+					"vkCmdEndRenderingKHR"));
+			ASSERT(vkCmdEndRenderingKHR != nullptr);
+
+			vkCmdEndRenderingKHR(cmd);
+
+			// window.End(cmd);
 		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, Transition);

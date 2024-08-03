@@ -38,10 +38,13 @@ public:
 	void Swap(Swapchain& rhs) noexcept;
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
+	const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
 
-	ImageLayout<G> GetColorImageLayout(uint32_t index) const final;
-	ImageLayout<G> GetDepthStencilImageLayout() const final;
+	ImageViewHandle<G> GetColor(uint32_t index) const final;
+	ImageViewHandle<G> GetDepthStencil() const final;
+
+	ImageLayout<G> GetColorLayout(uint32_t index) const final;
+	ImageLayout<G> GetDepthStencilLayout() const final;
 
 	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
 	void End(CommandBufferHandle<G> cmd) final;
@@ -68,10 +71,15 @@ public:
 	void TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
 	void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
 
-	void SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp) final;
-	void SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp) final;
-	void SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<G> loadOp) final;
-	void SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<G> storeOp) final;
+	AttachmentLoadOp<G> GetColorLoadOp(uint32_t index) const final;
+	AttachmentStoreOp<G> GetColorStoreOp(uint32_t index) const final;
+	AttachmentLoadOp<G> GetDepthStencilLoadOp() const final;
+	AttachmentStoreOp<G> GetDepthStencilStoreOp() const final;
+
+	void SetColorLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp) final;
+	void SetColorStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp) final;
+	void SetDepthStencilLoadOp(AttachmentLoadOp<G> loadOp) final;
+	void SetDepthStencilStoreOp(AttachmentStoreOp<G> storeOp) final;
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	
