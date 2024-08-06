@@ -1436,7 +1436,7 @@ void RhiApplication::InternalDraw()
 			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			renderImageSet.TransitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 			
-			auto renderPassInfo = renderImageSet.Begin(
+			auto renderInfo = renderImageSet.Begin(
 				cmd,
 				VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS,
 				clearValues);
@@ -1445,7 +1445,7 @@ void RhiApplication::InternalDraw()
 				pipeline,
 				graphicsQueue,
 				std::move(
-					renderPassInfo)); // TODO(djohansson): kick off jobs for this earier and join here
+					renderInfo)); // TODO(djohansson): kick off jobs for this earier and join here
 
 			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
 				graphicsQueue.Execute(
@@ -1475,52 +1475,14 @@ void RhiApplication::InternalDraw()
 			window.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
 			window.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 
-			// auto beginInfo = window.Begin(
-			// 	cmd,
-			// 	VK_SUBPASS_CONTENTS_INLINE,
-			// 	std::span(clearValues).subspan(0, 1));
+			window.Begin(
+				cmd,
+			 	VK_SUBPASS_CONTENTS_INLINE,
+			 	std::span(clearValues).subspan(0, 1));
 
-			VkRenderingAttachmentInfoKHR colorAttachment
-			{
-				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
-				.pNext = nullptr,
-				.imageView = window.GetColor(0),
-				.imageLayout = window.GetColorLayout(0),
-				.loadOp = window.GetColorLoadOp(0),
-				.storeOp = window.GetColorStoreOp(0),
-			};
+			IMGUIDrawFunction(cmd);
 
-			VkRenderingInfoKHR renderingInfo
-			{
-				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
-				.pNext = nullptr,
-				.flags = 0,
-				.renderArea = {0, 0, window.GetConfig().swapchainConfig.extent.width, window.GetConfig().swapchainConfig.extent.height},
-				.layerCount = 1,
-				.viewMask = 0,
-				.colorAttachmentCount = 1,
-				.pColorAttachments = &colorAttachment,
-			};
-
-			static auto vkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
-				vkGetInstanceProcAddr(
-					instance,
-					"vkCmdBeginRenderingKHR"));
-			ASSERT(vkCmdBeginRenderingKHR != nullptr);
-			
-			vkCmdBeginRenderingKHR(cmd, &renderingInfo);
-
-			IMGUIDrawFunction(cmd); // uses dynamic rendering
-
-			static auto vkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
-				vkGetInstanceProcAddr(
-					instance,
-					"vkCmdEndRenderingKHR"));
-			ASSERT(vkCmdEndRenderingKHR != nullptr);
-
-			vkCmdEndRenderingKHR(cmd);
-
-			// window.End(cmd);
+			window.End(cmd);
 		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, Transition);

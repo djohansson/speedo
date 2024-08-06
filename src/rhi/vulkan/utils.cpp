@@ -706,16 +706,16 @@ VkRenderPass CreateRenderPass(
 	const std::vector<VkSubpassDescription>& subpasses,
 	const std::vector<VkSubpassDependency>& subpassDependencies)
 {
-	VkRenderPassCreateInfo renderPassInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-	renderPassInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
-	renderPassInfo.pAttachments = attachments.data();
-	renderPassInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
-	renderPassInfo.pSubpasses = subpasses.data();
-	renderPassInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
-	renderPassInfo.pDependencies = subpassDependencies.data();
+	VkRenderPassCreateInfo renderInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+	renderInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
+	renderInfo.pAttachments = attachments.data();
+	renderInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
+	renderInfo.pSubpasses = subpasses.data();
+	renderInfo.dependencyCount = static_cast<uint32_t>(subpassDependencies.size());
+	renderInfo.pDependencies = subpassDependencies.data();
 
 	VkRenderPass outRenderPass;
-	VK_CHECK(vkCreateRenderPass(device, &renderPassInfo, hostAllocator, &outRenderPass));
+	VK_CHECK(vkCreateRenderPass(device, &renderInfo, hostAllocator, &outRenderPass));
 
 	return outRenderPass;
 }

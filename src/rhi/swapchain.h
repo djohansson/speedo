@@ -46,7 +46,7 @@ public:
 	ImageLayout<G> GetColorLayout(uint32_t index) const final;
 	ImageLayout<G> GetDepthStencilLayout() const final;
 
-	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	RenderInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
 	void End(CommandBufferHandle<G> cmd) final;
 
 	void Blit(

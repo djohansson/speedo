@@ -1,4 +1,5 @@
 #include <type_traits>
+#include <variant>
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_beta.h>
@@ -324,7 +325,7 @@ template <GraphicsApi G>
 using CommandBufferLevel = std::conditional_t<G == kVk, VkCommandBufferLevel, std::nullptr_t>;
 
 template <GraphicsApi G>
-using RenderPassBeginInfo = std::conditional_t<G == kVk, VkRenderPassBeginInfo, std::nullptr_t>;
+using RenderInfo = std::conditional_t<G == kVk, std::variant<VkRenderPassBeginInfo, VkRenderingInfoKHR>, std::nullptr_t>;
 
 template <GraphicsApi G>
 using SubmitInfo = std::conditional_t<G == kVk, VkSubmitInfo, std::nullptr_t>;

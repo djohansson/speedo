@@ -417,38 +417,91 @@ const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 }
 
 template <>
-RenderPassBeginInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
+RenderInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
 {
-	ZoneScopedN("RenderTarget::begin");
+	ZoneScopedN("RenderTarget::Begin");
 
-	CHECK(clearValues.size() <= myAttachments.size());
-
-	const auto& [renderPass, frameBuffer] = InternalGetValues();
-
-	auto info = RenderPassBeginInfo<kVk>{
-		VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-		nullptr,
-		renderPass,
-		frameBuffer,
-		{{0, 0}, {GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height}},
-		static_cast<uint32_t>(clearValues.size()),
-		clearValues.data()};
-
+	if (GetRenderTargetDesc().useDynamicRendering)
 	{
-		ZoneScopedN("RenderTarget::begin::vkCmdBeginRenderPass");
+		// todo: implement dynamic rendering fully. this is just placeholder code
+		VkRenderingAttachmentInfoKHR colorAttachment
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+			.pNext = nullptr,
+			.imageView = GetColor(0),
+			.imageLayout = GetColorLayout(0),
+			.loadOp = GetColorLoadOp(0),
+			.storeOp = GetColorStoreOp(0),
+		};
 
-		vkCmdBeginRenderPass(cmd, &info, contents);
+		VkRenderingInfoKHR renderingInfo
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+			.pNext = nullptr,
+			.flags = 0,
+			.renderArea = {0, 0, GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height},
+			.layerCount = 1,
+			.viewMask = 0,
+			.colorAttachmentCount = 1,
+			.pColorAttachments = &colorAttachment,
+		};
+
+		static auto vkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
+			vkGetInstanceProcAddr(
+				*InternalGetDevice()->GetInstance(),
+				"vkCmdBeginRenderingKHR"));
+		ASSERT(vkCmdBeginRenderingKHR != nullptr);
+		
+		vkCmdBeginRenderingKHR(cmd, &renderingInfo);
+
+		return renderingInfo;
+	}
+	else
+	{
+		CHECK(clearValues.size() <= myAttachments.size());
+
+		const auto& [renderPass, frameBuffer] = InternalGetValues();
+
+		auto info = VkRenderPassBeginInfo{
+			VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			nullptr,
+			renderPass,
+			frameBuffer,
+			{{0, 0}, {GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height}},
+			static_cast<uint32_t>(clearValues.size()),
+			clearValues.data()};
+
+		{
+			ZoneScopedN("RenderTarget::Begin::vkCmdBeginRenderPass");
+
+			vkCmdBeginRenderPass(cmd, &info, contents);
+		}
+
+		return info;
 	}
 
-	return info;
+	return {};
 }
 
 template <>
 void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
-	ZoneScopedN("RenderTarget::end");
+	if (GetRenderTargetDesc().useDynamicRendering)
+	{
+		static auto vkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
+				vkGetInstanceProcAddr(
+					*InternalGetDevice()->GetInstance(),
+					"vkCmdEndRenderingKHR"));
+		ASSERT(vkCmdEndRenderingKHR != nullptr);
 
-	vkCmdEndRenderPass(cmd);
+		vkCmdEndRenderingKHR(cmd);
+	}
+	else
+	{
+		ZoneScopedN("RenderTarget::end");
+
+		vkCmdEndRenderPass(cmd);
+	}
 }
 
 template <>
@@ -460,7 +513,7 @@ RenderTarget<kVk>::RenderTarget(
 
 	InternalInitializeAttachments(desc);
 
-	if (desc.useDefaultInitialization)
+	if (!desc.useDynamicRendering)
 	{
 		InternalInitializeDefaultRenderPass(desc);
 		InternalUpdateMap(desc);

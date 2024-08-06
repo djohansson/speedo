@@ -5,7 +5,7 @@
 #include <format>
 
 template <>
-RenderPassBeginInfo<kVk> Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
+RenderInfo<kVk> Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
 {
 	return myFrames[myFrameIndex].Begin(cmd, contents, clearValues);
 }
@@ -13,7 +13,7 @@ RenderPassBeginInfo<kVk> Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, Sub
 template <>
 void Swapchain<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
-	return myFrames[myFrameIndex].End(cmd);
+	myFrames[myFrameIndex].End(cmd);
 }
 
 template <>
@@ -277,7 +277,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 template <>
 Swapchain<kVk>::Swapchain(Swapchain&& other) noexcept
 	: DeviceObject(std::forward<Swapchain>(other))
-	, myDesc(std::exchange(other.myDesc, {}))
+	, myDesc(other.myDesc)
 	, mySurface(std::exchange(other.mySurface, {}))
 	, mySwapchain(std::exchange(other.mySwapchain, {}))
 	, myFrames(std::exchange(other.myFrames, {}))

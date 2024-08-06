@@ -18,7 +18,7 @@ struct RenderTargetCreateDesc
 	ImageLayout<G> depthStencilImageLayout{};
 	ImageHandle<G> depthStencilImage{}; // optional
 	uint32_t layerCount = 1;
-	bool useDefaultInitialization = true; // create default render passes & framebuffer objects
+	bool useDynamicRendering = true;
 };
 
 template <GraphicsApi G>
@@ -33,7 +33,7 @@ struct IRenderTarget
 	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilLayout() const = 0;
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] virtual RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
+	[[maybe_unused]] virtual RenderInfo<kVk> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
 	virtual void End(CommandBufferHandle<G> cmd) = 0;
 	//
 
@@ -84,7 +84,7 @@ public:
 
 	[[nodiscard]] operator auto() { return InternalGetValues(); };//NOLINT(google-explicit-constructor)
 
-	RenderPassBeginInfo<G> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	RenderInfo<kVk> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
 	void End(CommandBufferHandle<G> cmd) override;
 
 	void Blit(

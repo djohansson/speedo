@@ -47,7 +47,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 
 template <>
 uint32_t Window<kVk>::InternalDrawViews(
-	Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderPassBeginInfo<kVk>&& renderPassInfo)
+	Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderInfo<kVk>&& renderInfo)
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
@@ -72,7 +72,7 @@ uint32_t Window<kVk>::InternalDrawViews(
 			drawThreadCount,
 			[&pipeline,
 			 &queue,
-			 &renderPassInfo,
+			 &renderInfo,
 			 frameIndex = GetCurrentFrameIndex(),
 			 &drawAtomic,
 			 &drawCount,
@@ -90,14 +90,29 @@ uint32_t Window<kVk>::InternalDrawViews(
 
 				CommandBufferInheritanceInfo<kVk> inheritInfo{
 					VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
-				inheritInfo.renderPass = renderPassInfo.renderPass;
-				inheritInfo.framebuffer = renderPassInfo.framebuffer;
 
 				CommandBufferAccessScopeDesc<kVk> beginInfo{};
 				beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
 								  VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 				beginInfo.pInheritanceInfo = &inheritInfo;
 				beginInfo.level = threadIt + 1;
+
+				uint32_t dx = 0;
+				uint32_t dy = 0;
+
+				if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderInfo))
+				{
+					inheritInfo.renderPass = renderPassBeginInfo->renderPass;
+					inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
+
+					dx = renderPassBeginInfo->renderArea.extent.width / desc.splitScreenGrid.width;
+					dy = renderPassBeginInfo->renderArea.extent.height / desc.splitScreenGrid.height;
+				}
+				else
+				{
+					// todo: dynamic rendering
+					CHECK(false);
+				}
 
 				auto cmd = queue.GetPool().Commands(beginInfo);
 
@@ -125,9 +140,6 @@ uint32_t Window<kVk>::InternalDrawViews(
 				bindState(cmd);
 
 				PushConstants pushConstants{.frameIndex = frameIndex};
-
-				uint32_t dx = renderPassInfo.renderArea.extent.width / desc.splitScreenGrid.width;
-				uint32_t dy = renderPassInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 
 				ASSERT(dx > 0);
 				ASSERT(dy > 0);
@@ -393,12 +405,12 @@ void Window<kVk>::OnInputStateChanged(const InputState& input)
 
 template <>
 uint32_t
-Window<kVk>::Draw(Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderPassBeginInfo<kVk>&& renderPassInfo)
+Window<kVk>::Draw(Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderInfo<kVk>&& renderInfo)
 {
 	ZoneScopedN("Window::draw");
 
 	return InternalDrawViews(
-		pipeline, queue, std::forward<RenderPassBeginInfo<kVk>>(renderPassInfo));
+		pipeline, queue, std::forward<RenderInfo<kVk>>(renderInfo));
 }
 
 template <>

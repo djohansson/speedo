@@ -7,6 +7,7 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 	const std::shared_ptr<Image<G>>& depthStencilImage)
 {
 	RenderTargetCreateDesc<G> outDesc{};
+	outDesc.useDynamicRendering = false; // todo: make configurable
 
 	ASSERTF(colorImages.size(), "colorImages cannot be empty");
 
