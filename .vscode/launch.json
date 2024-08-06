@@ -79,6 +79,7 @@
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
 		{
@@ -94,6 +95,7 @@
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
 		{
