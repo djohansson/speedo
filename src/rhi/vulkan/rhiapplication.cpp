@@ -1441,11 +1441,11 @@ void RhiApplication::InternalDraw()
 				VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS,
 				clearValues);
 
+			// TODO(djohansson): kick off jobs for this earier and join here
 			auto drawThreadCount = window.Draw(
 				pipeline,
 				graphicsQueue,
-				std::move(
-					renderInfo)); // TODO(djohansson): kick off jobs for this earier and join here
+				renderInfo); 
 
 			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
 				graphicsQueue.Execute(

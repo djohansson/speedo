@@ -5,18 +5,24 @@ class RenderTargetImpl : public RenderTarget<G>
 template <GraphicsApi G>
 void RenderTarget<G>::AddSubpassDescription(SubpassDescription<G>&& description)
 {
+	ASSERT(!myRenderInfo.has_value());
+	
 	mySubPassDescs.emplace_back(std::forward<SubpassDescription<G>>(description));
 }
 
 template <GraphicsApi G>
 void RenderTarget<G>::AddSubpassDependency(SubpassDependency<G>&& dependency)
 {
+	ASSERT(!myRenderInfo.has_value());
+
 	mySubPassDependencies.emplace_back(std::forward<SubpassDependency<G>>(dependency));
 }
 
 template <GraphicsApi G>
 void RenderTarget<G>::ResetSubpasses()
 {
+	ASSERT(!myRenderInfo.has_value());
+
 	mySubPassDescs.clear();
 	mySubPassDependencies.clear();
 }
@@ -57,6 +63,7 @@ template <GraphicsApi G>
 void RenderTarget<G>::SetColorLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp)
 {
 	ASSERT(index < this->GetRenderTargetDesc().colorImages.size());
+	ASSERT(!myRenderInfo.has_value());
 
 	myAttachmentDescs[index].loadOp = loadOp;
 }
@@ -65,6 +72,7 @@ template <GraphicsApi G>
 void RenderTarget<G>::SetColorStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp)
 {
 	ASSERT(index < this->GetRenderTargetDesc().colorImages.size());
+	ASSERT(!myRenderInfo.has_value());
 
 	myAttachmentDescs[index].storeOp = storeOp;
 }
@@ -72,12 +80,16 @@ void RenderTarget<G>::SetColorStoreOp(uint32_t index, AttachmentStoreOp<G> store
 template <GraphicsApi G>
 void RenderTarget<G>::SetDepthStencilLoadOp(AttachmentLoadOp<G> loadOp)
 {
+	ASSERT(!myRenderInfo.has_value());
+
 	myAttachmentDescs[myAttachmentDescs.size() - 1].loadOp = loadOp;
 }
 
 template <GraphicsApi G>
 void RenderTarget<G>::SetDepthStencilStoreOp(AttachmentStoreOp<G> storeOp)
 {
+	ASSERT(!myRenderInfo.has_value());
+	
 	myAttachmentDescs[myAttachmentDescs.size() - 1].storeOp = storeOp;
 }
 

@@ -47,7 +47,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 
 template <>
 uint32_t Window<kVk>::InternalDrawViews(
-	Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderInfo<kVk>&& renderInfo)
+	Pipeline<kVk>& pipeline, Queue<kVk>& queue, const RenderInfo<kVk>& renderInfo)
 {
 	// setup draw parameters
 	uint32_t drawCount = myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height;
@@ -405,12 +405,11 @@ void Window<kVk>::OnInputStateChanged(const InputState& input)
 
 template <>
 uint32_t
-Window<kVk>::Draw(Pipeline<kVk>& pipeline, Queue<kVk>& queue, RenderInfo<kVk>&& renderInfo)
+Window<kVk>::Draw(Pipeline<kVk>& pipeline, Queue<kVk>& queue, const RenderInfo<kVk>& renderInfo)
 {
 	ZoneScopedN("Window::draw");
 
-	return InternalDrawViews(
-		pipeline, queue, std::forward<RenderInfo<kVk>>(renderInfo));
+	return InternalDrawViews(pipeline, queue, renderInfo);
 }
 
 template <>

@@ -417,9 +417,11 @@ const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 }
 
 template <>
-RenderInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
+const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
 {
 	ZoneScopedN("RenderTarget::Begin");
+
+	ASSERT(!myRenderInfo.has_value());
 
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
@@ -434,8 +436,7 @@ RenderInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassCo
 			.storeOp = GetColorStoreOp(0),
 		};
 
-		VkRenderingInfoKHR renderingInfo
-		{
+		myRenderInfo = VkRenderingInfoKHR{
 			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
 			.pNext = nullptr,
 			.flags = 0,
@@ -452,9 +453,7 @@ RenderInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassCo
 				"vkCmdBeginRenderingKHR"));
 		ASSERT(vkCmdBeginRenderingKHR != nullptr);
 		
-		vkCmdBeginRenderingKHR(cmd, &renderingInfo);
-
-		return renderingInfo;
+		vkCmdBeginRenderingKHR(cmd, &std::get<VkRenderingInfoKHR>(myRenderInfo.value()));
 	}
 	else
 	{
@@ -462,7 +461,7 @@ RenderInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassCo
 
 		const auto& [renderPass, frameBuffer] = InternalGetValues();
 
-		auto info = VkRenderPassBeginInfo{
+		myRenderInfo = VkRenderPassBeginInfo{
 			VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			nullptr,
 			renderPass,
@@ -474,18 +473,18 @@ RenderInfo<kVk> RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassCo
 		{
 			ZoneScopedN("RenderTarget::Begin::vkCmdBeginRenderPass");
 
-			vkCmdBeginRenderPass(cmd, &info, contents);
+			vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderInfo.value()), contents);
 		}
-
-		return info;
 	}
 
-	return {};
+	return myRenderInfo.value();
 }
 
 template <>
 void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
+	ASSERT(myRenderInfo.has_value());
+
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
 		static auto vkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
@@ -502,6 +501,8 @@ void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 
 		vkCmdEndRenderPass(cmd);
 	}
+
+	myRenderInfo = {};
 }
 
 template <>
@@ -536,6 +537,8 @@ RenderTarget<kVk>::~RenderTarget()
 {
 	ZoneScopedN("~RenderTarget()");
 
+	ASSERT(!myRenderInfo.has_value());
+
 	for (const auto& entry : myCache)
 	{
 		vkDestroyRenderPass(
@@ -558,6 +561,8 @@ RenderTarget<kVk>::~RenderTarget()
 template <>
 RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 {
+	ASSERT(!myRenderInfo.has_value());
+
 	DeviceObject::operator=(std::forward<RenderTarget>(other));
 	myAttachments = std::exchange(other.myAttachments, {});
 	myAttachmentDescs = std::exchange(other.myAttachmentDescs, {});
@@ -571,6 +576,8 @@ RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 template <>
 void RenderTarget<kVk>::Swap(RenderTarget& rhs) noexcept
 {
+	ASSERT(!myRenderInfo.has_value());
+
 	DeviceObject::Swap(rhs);
 	std::swap(myAttachments, rhs.myAttachments);
 	std::swap(myAttachmentDescs, rhs.myAttachmentDescs);

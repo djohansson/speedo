@@ -33,7 +33,7 @@ struct IRenderTarget
 	[[nodiscard]] virtual ImageLayout<G> GetDepthStencilLayout() const = 0;
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] virtual RenderInfo<kVk> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
+	[[maybe_unused]] virtual const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
 	virtual void End(CommandBufferHandle<G> cmd) = 0;
 	//
 
@@ -84,7 +84,7 @@ public:
 
 	[[nodiscard]] operator auto() { return InternalGetValues(); };//NOLINT(google-explicit-constructor)
 
-	RenderInfo<kVk> Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
 	void End(CommandBufferHandle<G> cmd) override;
 
 	void Blit(
@@ -163,6 +163,8 @@ private:
 	std::vector<AttachmentReference<G>> myAttachmentsReferences;
 	std::vector<SubpassDescription<G>> mySubPassDescs;
 	std::vector<SubpassDependency<G>> mySubPassDependencies;
+
+	std::optional<RenderInfo<G>> myRenderInfo;
 
 	UnorderedMap<uint64_t, RenderTargetHandle<G>> myCache; // todo: consider making global
 };

@@ -68,7 +68,7 @@ public:
 	uint32_t Draw(
 		Pipeline<G>& pipeline,
 		Queue<G>& queue,
-		RenderInfo<G>&& renderInfo);
+		const RenderInfo<G>& renderInfo);
 	//
 
 private:
@@ -80,7 +80,7 @@ private:
 	[[nodiscard]] uint32_t InternalDrawViews(
 		Pipeline<G>& pipeline,
 		Queue<G>& queue,
-		RenderInfo<G>&& renderInfo);
+		const RenderInfo<G>& renderInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 	WindowState myState{};
