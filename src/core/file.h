@@ -96,7 +96,7 @@ template <typename T>
 [[maybe_unused]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
 
 template <const char* LoaderType, const char* LoaderVersion>
-[[maybe_unused]] std::expected<void, std::error_code> LoadAsset(
+[[maybe_unused]] std::expected<Record, std::error_code> LoadAsset(
 	const std::filesystem::path& filePath,
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,

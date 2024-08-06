@@ -63,8 +63,13 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		{
 			auto path = std::filesystem::absolute(intermediatePath.value());
 
+			std::error_code error;
+
 			if (!std::filesystem::exists(path))
-				std::filesystem::create_directory(path);
+			{
+				std::filesystem::create_directories(path, error);
+				CHECKF(!error, "Failed to create intermediate path.");
+			}
 
 			std::cout << "Set intermediate path: " << path << '\n';
 			ASSERT(std::filesystem::is_directory(path));

@@ -314,7 +314,7 @@ std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrit
 }
 
 template <const char* LoaderType, const char* LoaderVersion>
-std::expected<void, std::error_code> LoadAsset(
+std::expected<Record, std::error_code> LoadAsset(
 	const std::filesystem::path& assetFilePath,
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,
@@ -323,28 +323,41 @@ std::expected<void, std::error_code> LoadAsset(
 	using namespace detail;
 	
 	ZoneScoped;
-	
-	std::filesystem::path manifestPath(assetFilePath);
+
+	auto rootPath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]);
+	auto cacheDir = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]);
+	auto cacheDirStatus = std::filesystem::status(cacheDir);
+	if (!std::filesystem::exists(cacheDirStatus) ||
+		!std::filesystem::is_directory(cacheDirStatus))
+		std::filesystem::create_directories(cacheDir);
+
+	std::error_code error;
+	std::filesystem::path manifestPath(cacheDir / std::filesystem::relative(assetFilePath, rootPath, error));
+	if (error)
+		return std::unexpected(error);
+
 	manifestPath += ".json";
-	
-	std::expected<AssetManifest, AssetManifestError> manifest;
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
-	auto importSourceFile = [&]() -> std::expected<void, std::error_code>
+	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn]() -> std::expected<AssetManifest, std::error_code>
 	{
 		ZoneScopedN("LoadAsset::importSourceFile");
-
-		auto cacheDir = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]);
-		auto cacheDirStatus = std::filesystem::status(cacheDir);
-		if (!std::filesystem::exists(cacheDirStatus) ||
-			!std::filesystem::is_directory(cacheDirStatus))
-			std::filesystem::create_directory(cacheDir);
 
 		auto uuid = uuids::uuid_system_generator{}();
 		auto uuidStr = uuids::to_string(uuid);
 
 		std::error_code error;
+
+		auto parentPath = manifestPath.parent_path();
+		auto parentPathStatus = std::filesystem::status(parentPath);
+		if (!std::filesystem::exists(parentPathStatus) ||
+			!std::filesystem::is_directory(parentPathStatus))
+			std::filesystem::create_directories(parentPath, error);
+
+		if (error)
+			return std::unexpected(error);
+
 		auto manifestFile = mio_extra::ResizeableMemoryMapSink();
 		manifestFile.map(manifestPath.string(), error);
 
@@ -359,23 +372,25 @@ std::expected<void, std::error_code> LoadAsset(
 		if (!cache)
 			return std::unexpected(cache.error());
 
-		glz::write<glz::opts{.prettify = true}>(
-			AssetManifest{LoaderType, LoaderVersion, asset.value(), cache.value()}, manifestFile);
+		AssetManifest manifest{LoaderType, LoaderVersion, asset.value(), cache.value()};
+
+		glz::write<glz::opts{.prettify = true}>(manifest, manifestFile);
 
 		manifestFile.truncate(manifestFile.HighWaterMark(), error);
 
 		if (error)
 			return std::unexpected(error);
 
-		return {};
+		return manifest;
 	};
+
+	std::expected<AssetManifest, AssetManifestError> manifest;
 
 	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
 	{
 		ZoneScopedN("LoadAsset::LoadJSONAssetManifest");
 
 		auto manifestFile = mio::mmap_source();
-		std::error_code error;
 		manifestFile.map(manifestPath.string(), error);
 
 		if (error)
@@ -390,16 +405,7 @@ std::expected<void, std::error_code> LoadAsset(
 		manifest = std::unexpected(AssetManifestErrorCode::kMissing);
 	}
 
-	if (manifest)
-	{
-		ZoneScopedN("LoadAsset::load");
-
-		auto cacheFileInfo = LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
-
-		if (!cacheFileInfo)
-			return std::unexpected(cacheFileInfo.error());
-	}
-	else
+	if (!manifest)
 	{
 		if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
 			std::cerr << "Asset manifest is invalid: "
@@ -410,14 +416,19 @@ std::expected<void, std::error_code> LoadAsset(
 		else
 			std::cerr << "Asset manifest is invalid: Unknown error, Path: " << manifestPath << '\n';
 
-		std::filesystem::remove(manifestPath);
+		std::filesystem::remove(manifestPath, error);
+		if (error)
+			return std::unexpected(error);
 		
 		std::cerr << "Reimporting source file\n";
 
-		return importSourceFile();
+		if (auto result = importSourceFile(); result)
+			manifest = result;
+		else
+			return std::unexpected(result.error());
 	}
 
-	return {};
+	return LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
 }
 
 } // namespace file
