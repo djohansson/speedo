@@ -23,15 +23,27 @@ const RenderTargetCreateDesc<kVk>& Swapchain<kVk>::GetRenderTargetDesc() const
 }
 
 template <>
-ImageLayout<kVk> Swapchain<kVk>::GetColorImageLayout(uint32_t index) const
+ImageViewHandle<kVk> Swapchain<kVk>::GetColor(uint32_t index) const
 {
-	return myFrames[myFrameIndex].GetColorImageLayout(index);
+	return myFrames[myFrameIndex].GetColor(index);
 }
 
 template <>
-ImageLayout<kVk> Swapchain<kVk>::GetDepthStencilImageLayout() const
+ImageViewHandle<kVk> Swapchain<kVk>::GetDepthStencil() const
 {
-	return myFrames[myFrameIndex].GetDepthStencilImageLayout();
+	return myFrames[myFrameIndex].GetDepthStencil();
+}
+
+template <>
+ImageLayout<kVk> Swapchain<kVk>::GetColorLayout(uint32_t index) const
+{
+	return myFrames[myFrameIndex].GetColorLayout(index);
+}
+
+template <>
+ImageLayout<kVk> Swapchain<kVk>::GetDepthStencilLayout() const
+{
+	return myFrames[myFrameIndex].GetDepthStencilLayout();
 }
 
 template <>
@@ -91,28 +103,52 @@ void Swapchain<kVk>::TransitionDepthStencil(CommandBufferHandle<kVk> cmd, ImageL
 	myFrames[myFrameIndex].TransitionDepthStencil(cmd, layout);
 }
 
-template <>
-void Swapchain<kVk>::SetColorAttachmentLoadOp(uint32_t index, AttachmentLoadOp<kVk> loadOp)
+template <GraphicsApi G>
+AttachmentLoadOp<G> Swapchain<G>::GetColorLoadOp(uint32_t index) const
 {
-	myFrames[myFrameIndex].SetColorAttachmentLoadOp(index, loadOp);
+	return myFrames[myFrameIndex].GetColorLoadOp(index);
+}
+
+template <GraphicsApi G>
+AttachmentStoreOp<G> Swapchain<G>::GetColorStoreOp(uint32_t index) const
+{
+	return myFrames[myFrameIndex].GetColorStoreOp(index);
+}
+
+template <GraphicsApi G>
+AttachmentLoadOp<G> Swapchain<G>::GetDepthStencilLoadOp() const
+{
+	return myFrames[myFrameIndex].GetDepthStencilLoadOp();
+}
+
+template <GraphicsApi G>
+AttachmentStoreOp<G> Swapchain<G>::GetDepthStencilStoreOp() const
+{
+	return myFrames[myFrameIndex].GetDepthStencilStoreOp();
 }
 
 template <>
-void Swapchain<kVk>::SetColorAttachmentStoreOp(uint32_t index, AttachmentStoreOp<kVk> storeOp)
+void Swapchain<kVk>::SetColorLoadOp(uint32_t index, AttachmentLoadOp<kVk> loadOp)
 {
-	myFrames[myFrameIndex].SetColorAttachmentStoreOp(index, storeOp);
+	myFrames[myFrameIndex].SetColorLoadOp(index, loadOp);
 }
 
 template <>
-void Swapchain<kVk>::SetDepthStencilAttachmentLoadOp(AttachmentLoadOp<kVk> loadOp)
+void Swapchain<kVk>::SetColorStoreOp(uint32_t index, AttachmentStoreOp<kVk> storeOp)
 {
-	myFrames[myFrameIndex].SetDepthStencilAttachmentLoadOp(loadOp);
+	myFrames[myFrameIndex].SetColorStoreOp(index, storeOp);
 }
 
 template <>
-void Swapchain<kVk>::SetDepthStencilAttachmentStoreOp(AttachmentStoreOp<kVk> storeOp)
+void Swapchain<kVk>::SetDepthStencilLoadOp(AttachmentLoadOp<kVk> loadOp)
 {
-	myFrames[myFrameIndex].SetDepthStencilAttachmentStoreOp(storeOp);
+	myFrames[myFrameIndex].SetDepthStencilLoadOp(loadOp);
+}
+
+template <>
+void Swapchain<kVk>::SetDepthStencilStoreOp(AttachmentStoreOp<kVk> storeOp)
+{
+	myFrames[myFrameIndex].SetDepthStencilStoreOp(storeOp);
 }
 
 template <>

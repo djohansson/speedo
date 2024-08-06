@@ -265,7 +265,7 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 	{
 		auto& colorAttachment = myAttachmentDescs[attachmentIt];
 
-		if (auto layout = GetColorImageLayout(attachmentIt);
+		if (auto layout = GetColorLayout(attachmentIt);
 			layout != colorAttachment.initialLayout)
 			colorAttachment.initialLayout = layout;
 	}
@@ -274,7 +274,7 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 	{
 		auto& depthStencilAttachment = myAttachmentDescs[attachmentIt];
 
-		if (auto layout = GetDepthStencilImageLayout();
+		if (auto layout = GetDepthStencilLayout();
 			layout != depthStencilAttachment.initialLayout)
 			depthStencilAttachment.initialLayout = layout;
 	}
@@ -310,7 +310,7 @@ void RenderTarget<kVk>::Blit(
 	vkCmdBlitImage(
 		cmd,
 		srcDesc.colorImages[srcIndex],
-		srcRenderTarget.GetColorImageLayout(srcIndex),
+		srcRenderTarget.GetColorLayout(srcIndex),
 		GetRenderTargetDesc().colorImages[dstIndex],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
@@ -369,7 +369,7 @@ void RenderTarget<kVk>::ClearColor(
 	vkCmdClearColorImage(
 		cmd,
 		GetRenderTargetDesc().colorImages[index],
-		GetColorImageLayout(index),
+		GetColorLayout(index),
 		&color,
 		1,
 		&kColorRange);
@@ -393,7 +393,7 @@ void RenderTarget<kVk>::ClearDepthStencil(
 	vkCmdClearDepthStencilImage(
 		cmd,
 		GetRenderTargetDesc().depthStencilImage,
-		GetDepthStencilImageLayout(),
+		GetDepthStencilLayout(),
 		&depthStencil,
 		1,
 		&kDepthStencilRange);

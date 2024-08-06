@@ -451,10 +451,9 @@ void Pipeline<kVk>::InternalResetComputeState()
 }
 
 template <>
-void Pipeline<kVk>::InternalResetState()
+void Pipeline<kVk>::InternalResetDescriptorPool()
 {
-	InternalResetGraphicsState();
-	InternalResetComputeState();
+	vkResetDescriptorPool(*InternalGetDevice(), myDescriptorPool, 0);
 }
 
 template <>
@@ -541,9 +540,13 @@ void Pipeline<kVk>::BindPipeline(
 }
 
 template <>
-void Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd)
+PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd)
 {
-	BindPipeline(cmd, myBindPoint, InternalGetPipeline());
+	auto handle = InternalGetPipeline();
+
+	BindPipeline(cmd, myBindPoint, handle);
+	
+	return handle;
 }
 
 template <>
@@ -589,6 +592,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layout, PipelineBin
 	{
 	case VK_PIPELINE_BIND_POINT_GRAPHICS: {
 		myGraphicsState.shaderStageFlags = {};
+		myGraphicsState.shaderStages.clear();
 		myGraphicsState.shaderStages.reserve(shaderModules.size());
 
 		for (const auto& shader : shaderModules)
@@ -612,7 +616,6 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layout, PipelineBin
 	}
 	break;
 	case VK_PIPELINE_BIND_POINT_COMPUTE:
-		break;
 	default:
 		ASSERTF(false, "Not implemented");
 		break;
@@ -639,7 +642,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 	const DescriptorSetLayout<kVk>& setLayout,
 	const BindingsData<kVk>& bindingsData,
 	const DescriptorUpdateTemplate<kVk>& setTemplate,
-	DescriptorSetArrayList<kVk>& setArrayList)
+	DescriptorSetArrayList<kVk>& setArrayList) const
 {
 	ZoneScopedN("Pipeline::InternalUpdateDescriptorSet");
 
@@ -689,23 +692,14 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 template <>
 void Pipeline<kVk>::InternalPushDescriptorSet(
 	CommandBufferHandle<kVk> cmd,
+	PipelineLayoutHandle<kVk> layout,
 	const BindingsData<kVk>& bindingsData,
-	const DescriptorUpdateTemplate<kVk>& setTemplate) const
+	const DescriptorUpdateTemplate<kVk>& setTemplate)
 {
 	ZoneScopedN("Pipeline::InternalPushDescriptorSet");
 
-	{
-		ZoneScopedN(
-			"Pipeline::InternalPushDescriptorSet::vkCmdPushDescriptorSetWithTemplateKHR");
-
-		if (pipeline::gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
-			pipeline::gVkCmdPushDescriptorSetWithTemplateKHR =
-				reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
-					vkGetDeviceProcAddr(*InternalGetDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
-
-		pipeline::gVkCmdPushDescriptorSetWithTemplateKHR(
-			cmd, setTemplate, GetLayout(), setTemplate.GetDesc().set, bindingsData.data());
-	}
+	pipeline::gVkCmdPushDescriptorSetWithTemplateKHR(
+		cmd, setTemplate, layout, setTemplate.GetDesc().set, bindingsData.data());
 }
 
 template <>
@@ -815,7 +809,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	}
 	else
 	{
-		InternalPushDescriptorSet(cmd, bindingsData, setTemplate);
+		InternalPushDescriptorSet(cmd, static_cast<PipelineLayoutHandle<kVk>>(GetLayout()), bindingsData, setTemplate);
 	}
 
 	mutex.unlock_shared();
@@ -870,8 +864,13 @@ Pipeline<kVk>::Pipeline(
 		  }(device))
 	, myCache(pipeline::LoadPipelineCache(myConfig.cachePath, device))
 {
-	// todo: refactor, since this will be called to excessivly
-	InternalResetState();
+	if (pipeline::gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
+	pipeline::gVkCmdPushDescriptorSetWithTemplateKHR =
+		reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
+			vkGetDeviceProcAddr(*InternalGetDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
+
+	InternalResetGraphicsState();
+	InternalResetComputeState();
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	device->AddOwnedObjectHandle(

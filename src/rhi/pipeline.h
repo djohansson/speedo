@@ -108,7 +108,7 @@ public:
 	[[nodiscard]] auto GetBindPoint() const noexcept { return myBindPoint; }
 	[[nodiscard]] auto GetLayout() const noexcept { return myLayout; }
 
-	PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
+	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
 
 	// "manual" api
 
@@ -125,7 +125,7 @@ public:
 
 	// "auto" api
 
-	void BindPipelineAuto(CommandBufferHandle<G> cmd);
+	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd);
 
 	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
 
@@ -175,7 +175,7 @@ public:
 	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
 	void SetModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
 
-	auto& GetResources() noexcept { return myGraphicsState.resources; }
+	[[nodiscard]] auto& GetResources() noexcept { return myGraphicsState.resources; }
 	[[nodiscard]] const auto& GetResources() const noexcept { return myGraphicsState.resources; }
 	//
 
@@ -185,29 +185,31 @@ private:
 	// todo: create maps with sensible hash keys for each structure that goes into vkCreateGraphicsPipelines()
 	//       combine them to get a compisite hash for the actual pipeline object (Merkle tree)
 	//       might need more fine grained control here...
-	void InternalResetState();
-	void InternalPrepareDescriptorSets();
+	void InternalResetDescriptorPool();
 	void InternalResetGraphicsState();
 	void InternalResetComputeState();
 	//
+
+	void InternalPrepareDescriptorSets();
 
 	void InternalUpdateDescriptorSet(
 		const DescriptorSetLayout<G>& BindLayoutAuto,
 		const BindingsData<G>& bindingsData,
 		const DescriptorUpdateTemplate<G>& setTemplate,
-		DescriptorSetArrayList<G>& setArrayList);
-	void InternalPushDescriptorSet(
+		DescriptorSetArrayList<G>& setArrayList) const;
+	static void InternalPushDescriptorSet(
 		CommandBufferHandle<G> cmd,
+		PipelineLayoutHandle<kVk> layout,
 		const BindingsData<G>& bindingsData,
-		const DescriptorUpdateTemplate<G>& setTemplate) const;
-
+		const DescriptorUpdateTemplate<G>& setTemplate);
 	static void InternalUpdateDescriptorSetTemplate(
-		const BindingsMap<G>& bindingsMap, DescriptorUpdateTemplate<G>& setTemplate);
+		const BindingsMap<G>& bindingsMap,
+		DescriptorUpdateTemplate<G>& setTemplate);
 
 	[[nodiscard]] uint64_t InternalCalculateHashKey() const;
-	PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey);
-	PipelineHandle<G> InternalGetPipeline();
-	const PipelineLayout<G>& InternalGetLayout();
+	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey);
+	[[nodiscard]] PipelineHandle<G> InternalGetPipeline();
+	[[nodiscard]] const PipelineLayout<G>& InternalGetLayout();
 
 	file::Object<PipelineConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 

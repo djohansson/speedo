@@ -86,13 +86,13 @@ void RenderImageSet<G>::Swap(RenderImageSet& rhs) noexcept
 }
 
 template <GraphicsApi G>
-ImageLayout<G> RenderImageSet<G>::GetColorImageLayout(uint32_t index) const
+ImageLayout<G> RenderImageSet<G>::GetColorLayout(uint32_t index) const
 {
 	return myColorImages[index]->GetImageLayout();
 }
 
 template <GraphicsApi G>
-ImageLayout<G> RenderImageSet<G>::GetDepthStencilImageLayout() const
+ImageLayout<G> RenderImageSet<G>::GetDepthStencilLayout() const
 {
 	return myDepthStencilImage->GetImageLayout();
 }
