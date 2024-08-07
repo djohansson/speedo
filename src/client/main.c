@@ -371,8 +371,6 @@ int main(int argc, char* argv[], char* envp[])
 		}
 	}
 
-	(void)mi_version();
-
 	glfwSetErrorCallback(OnError);
 	
 	if (!glfwInit())
@@ -389,7 +387,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-	ASSERT(monitors != NULL); (void)monitors;
+	ASSERT(monitors != NULL);
 	if (monitorCount <= 0)
 	{
 		fprintf(stderr, "GLFW: No monitor connected?\n");

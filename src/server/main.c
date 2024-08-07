@@ -94,8 +94,6 @@ int main(int argc, char* argv[], char* envp[])
 		}
 	}
 
-	(void)mi_version();
-
 	CreateServer(&gPaths);
 
 	atexit(OnExit);
