@@ -48,7 +48,7 @@
 #define CHECK(A)                                                                                   \
 	if (!(A))                                                                                      \
 	{                                                                                              \
-		LOG_ERROR("Verification failed: %s", #A);                                                  \
+		LOG_ERROR("Check failed: %s", #A);                                                  \
 		TRAP();                                                                                    \
 	}
 #define CHECKF(A, M, ...)                                                                          \
