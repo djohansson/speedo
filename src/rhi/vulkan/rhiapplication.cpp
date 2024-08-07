@@ -268,15 +268,15 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	if (gShowDemoWindow)
 		ShowDemoWindow(&gShowDemoWindow);
 
-	static bool gshowAbout = false;
-	if (gshowAbout && Begin("About client", &gshowAbout))
+	static bool gShowAbout = false;
+	if (gShowAbout && Begin("About client", &gShowAbout))
 	{
 		End();
 	}
 
-	static std::atomic_uint8_t gprogress = 0;
-	static std::atomic_bool gshowProgress = false;
-	if (bool b = gshowProgress.load(std::memory_order_relaxed) &&
+	static std::atomic_uint8_t gProgress = 0;
+	static std::atomic_bool gShowProgress = false;
+	if (bool b = gShowProgress.load(std::memory_order_relaxed) &&
 				 Begin(
 					 "Loading",
 					 &b,
@@ -284,7 +284,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
 	{
 		SetWindowSize(ImVec2(160, 0));
-		ProgressBar((1.F / 255) * gprogress);
+		ProgressBar((1.F / 255) * gProgress);
 		End();
 	}
 
@@ -520,11 +520,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						auto [openFileResult, openFilePath] = openFileFuture.Get();
 						if (openFileResult == NFD_OKAY)
 						{
-							gprogress = 0;
-							gshowProgress = true;
-							loadOp(rhi, executor, openFilePath, gprogress);
+							gProgress = 0;
+							gShowProgress = true;
+							loadOp(rhi, executor, openFilePath, gProgress);
 							NFD_FreePath(openFilePath);
-							gshowProgress = false;
+							gShowProgress = false;
 						}
 					},
 					std::move(openFileFuture),
@@ -553,11 +553,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						auto [openFileResult, openFilePath] = openFileFuture.Get();
 						if (openFileResult == NFD_OKAY)
 						{
-							gprogress = 0;
-							gshowProgress = true;
-							loadOp(rhi, executor, openFilePath, gprogress);
+							gProgress = 0;
+							gShowProgress = true;
+							loadOp(rhi, executor, openFilePath, gProgress);
 							NFD_FreePath(openFilePath);
-							gshowProgress = false;
+							gShowProgress = false;
 						}
 					},
 					std::move(openFileFuture),
@@ -639,7 +639,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 				gShowDemoWindow = !gShowDemoWindow;
 			Separator();
 			if (MenuItem("About client..."))
-				gshowAbout = !gshowAbout;
+				gShowAbout = !gShowAbout;
 			ImGui::EndMenu();
 		}
 
