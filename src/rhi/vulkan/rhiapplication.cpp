@@ -94,10 +94,10 @@ static void LoadImage(
 		Image<kVk>& image,
 		SemaphoreHandle<kVk> waitSemaphore,
 		uint64_t waitSemaphoreValue,
-		uint32_t frameIndex)
+		uint32_t graphicsQueueIndex)
 	{
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(frameIndex);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(graphicsQueueIndex);
 
 		{
 			auto cmd = graphicsQueue.GetPool().Commands();
@@ -1392,8 +1392,9 @@ void RhiApplication::InternalDraw()
 		ZoneScopedN("rhi::draw::submit");
 
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
+		// auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
+		// auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 		auto& renderImageSet = *rhi.renderImageSet;
 
@@ -1495,7 +1496,8 @@ void RhiApplication::InternalDraw()
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			{graphicsSemaphore},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			{lastGraphicsSubmit.maxTimelineValue},
+			//{lastGraphicsSubmit.maxTimelineValue},
+			{graphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore},
 			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed)}
 		});
