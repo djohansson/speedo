@@ -99,7 +99,8 @@ class Pipeline : public DeviceObject<G>
 
 public:
 	explicit Pipeline(
-		const std::shared_ptr<Device<G>>& device, PipelineConfiguration<G>&& defaultConfig = {});
+		const std::shared_ptr<Device<G>>& device,
+		PipelineConfiguration<G>&& defaultConfig = {});
 	~Pipeline() override;
 
 	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
@@ -113,7 +114,9 @@ public:
 	// "manual" api
 
 	void BindPipeline(
-		CommandBufferHandle<G> cmd, PipelineBindPoint<G> bindPoint, PipelineHandle<G> handle) const;
+		CommandBufferHandle<G> cmd,
+		PipelineBindPoint<G> bindPoint,
+		PipelineHandle<G> handle) const;
 
 	void BindDescriptorSet(
 		CommandBufferHandle<G> cmd,
