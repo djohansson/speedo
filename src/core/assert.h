@@ -29,8 +29,8 @@
 #endif
 
 #ifdef NDEBUG
-#	define ASSERT(A)
-#	define ASSERTF(A, M, ...)
+#	define ASSERT(A) ((void)(A))
+#	define ASSERTF(A, M, ...) ((void)(A))
 #else
 #	define ASSERT(A)                                                                               \
 		if (!(A))                                                                                  \

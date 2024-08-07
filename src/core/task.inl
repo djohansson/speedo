@@ -25,7 +25,6 @@ constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTup
 				state.value = std_extra::apply(callable, std::tuple_cat(args, params));
 
 			auto counter = state.latch.fetch_sub(1, std::memory_order_release) - 1;
-			(void)counter;
 			ASSERTF(counter == 0, "Latch counter should be zero!");
 
 			state.latch.notify_all();

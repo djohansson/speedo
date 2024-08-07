@@ -153,7 +153,6 @@ RenderTarget<kVk>::InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& d
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(gthreadXxhState.get());
-	(void)result;
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(

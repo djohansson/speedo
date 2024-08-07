@@ -262,7 +262,6 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(gThreadXxhState.get());
-	(void)result;
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(gThreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));

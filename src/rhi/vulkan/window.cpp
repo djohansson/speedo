@@ -256,7 +256,6 @@ void Window<kVk>::OnResizeFramebuffer(int width, int height)
 {
 	ASSERT(width > 0);
 	ASSERT(height > 0);
-	(void)width; (void)height;
 
 	auto& device = *InternalGetDevice();
 	auto& instance = *device.GetInstance();
