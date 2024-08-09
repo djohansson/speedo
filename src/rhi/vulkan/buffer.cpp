@@ -37,7 +37,7 @@ Buffer<kVk>::Buffer(
 			  desc.size,
 			  desc.usageFlags,
 			  desc.memoryFlags,
-			  "todo_insert_proper_name"))
+			  desc.name.data()))
 {}
 
 template <>
@@ -56,7 +56,7 @@ Buffer<kVk>::Buffer(
 			  std::get<0>(descAndInitialData).size,
 			  std::get<0>(descAndInitialData).usageFlags,
 			  std::get<0>(descAndInitialData).memoryFlags,
-			  "todo_insert_proper_name"))
+			  std::get<0>(descAndInitialData).name.data()))
 {
 	queue.AddTimelineCallback(
 	{
@@ -88,7 +88,7 @@ Buffer<kVk>::Buffer(
 				  device->GetAllocator(),
 				  initialData,
 				  desc.size,
-				  "todo_insert_proper_name")))
+				  desc.name.data())))
 {}
 
 template <>

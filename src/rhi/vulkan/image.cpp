@@ -44,7 +44,7 @@ CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<kVk>& desc)
 		desc.tiling,
 		desc.usageFlags,
 		desc.memoryFlags,
-		"todo_insert_proper_name",
+		desc.name.data(),
 		desc.initialLayout);
 }
 
@@ -64,7 +64,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		desc.tiling,
 		desc.usageFlags,
 		desc.memoryFlags,
-		"todo_insert_proper_name",
+		desc.name.data(),
 		desc.initialLayout);
 }
 
@@ -80,7 +80,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 
 	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
+	auto loadBin = [&imageFile, &descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
 	{
 		progress = 32;
 
@@ -98,7 +98,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			"todo_insert_proper_name");
+			imageFile.string().append("_staging").data());
 
 		progress = 64;
 
@@ -140,7 +140,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		return {};
 	};
 
-	auto loadImage = [&descAndInitialData, &device, &imageFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&imageFile, &descAndInitialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		progress = 32;
 
@@ -182,7 +182,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 			mipOffset,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			"todo_insert_proper_name");
+			imageFile.string().append("_staging").data());
 
 		void* stagingBuffer;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
@@ -471,7 +471,10 @@ Image<kVk>::Image(
 		  std::tuple_cat(
 			  std::make_tuple(std::forward<ImageCreateDesc<kVk>>(desc)),
 			  CreateStagingBuffer(
-				  device->GetAllocator(), initialData, initialDataSize, "todo_insert_proper_name")))
+					device->GetAllocator(),
+					initialData,
+					initialDataSize,
+					desc.name.data())))
 {}
 
 template <>

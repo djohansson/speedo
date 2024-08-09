@@ -4,6 +4,7 @@
 #include "queue.h"
 
 #include <memory>
+#include <string>
 #include <tuple>
 
 template <GraphicsApi G>
@@ -12,6 +13,7 @@ struct BufferCreateDesc
 	DeviceSize<G> size{};
 	Flags<G> usageFlags{};
 	Flags<G> memoryFlags{};
+	std::string name{};
 };
 
 template <GraphicsApi G>

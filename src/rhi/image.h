@@ -5,6 +5,8 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
+#include <string>
 #include <tuple>
 
 template <GraphicsApi G>
@@ -24,6 +26,7 @@ struct ImageCreateDesc
 	Flags<G> usageFlags{};
 	Flags<G> memoryFlags{};
 	ImageLayout<G> initialLayout{};
+	std::string name{};
 };
 
 template <GraphicsApi G>

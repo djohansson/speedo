@@ -97,7 +97,7 @@ Load(
 
 	auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
 
-	auto loadBin = [&descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
+	auto loadBin = [&modelFile, &descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
@@ -113,7 +113,7 @@ Load(
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			"todo_insert_proper_name");
+			modelFile.string().append("_staging_ib").data());
 
 		void* ibData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
@@ -132,7 +132,7 @@ Load(
 			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			"todo_insert_proper_name");
+			modelFile.string().append("_staging_vb").data());
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
@@ -179,7 +179,7 @@ Load(
 		return {};
 	};
 
-	auto loadOBJ = [&descAndInitialData, &device, &modelFile, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&modelFile, &descAndInitialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -308,7 +308,7 @@ Load(
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			"todo_insert_proper_name");
+			modelFile.string().append("_staging_ib").data());
 
 		void* ibData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
@@ -325,7 +325,7 @@ Load(
 			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			"todo_insert_proper_name");
+			modelFile.string().append("_staging_vb").data());
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
