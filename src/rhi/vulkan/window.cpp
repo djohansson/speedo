@@ -32,15 +32,25 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
 		auto mvp = myViews[viewIt].GetProjectionMatrix() * glm::mat4(myViews[viewIt].GetViewMatrix());
+#if GLM_ARCH & GLM_ARCH_AVX_BIT
+		_mm256_stream_ps(&viewDataPtr->viewProjection[0][0], _mm256_set_m128(mvp[0], mvp[1]));
+		_mm256_stream_ps(&viewDataPtr->viewProjection[2][0], _mm256_set_m128(mvp[2], mvp[3]));
+#elif GLM_ARCH & GLM_ARCH_SSE2_BIT
+		_mm_stream_ps(&viewDataPtr->viewProjection[0][0], mvp[0]);
+		_mm_stream_ps(&viewDataPtr->viewProjection[1][0], mvp[1]);
+		_mm_stream_ps(&viewDataPtr->viewProjection[2][0], mvp[2]);
+		_mm_stream_ps(&viewDataPtr->viewProjection[3][0], mvp[3]);
+#else
 		std::copy_n(&mvp[0][0], 16, &viewDataPtr->viewProjection[0][0]);
+#endif
 		viewDataPtr++;
 	}
 
-	// vmaFlushAllocation(
-	// 	InternalGetDevice()->GetAllocator(),
-	// 	bufferMemory,
-	// 	0,
-	// 	viewCount * sizeof(ViewData));
+	vmaFlushAllocation(
+		InternalGetDevice()->GetAllocator(),
+		bufferMemory,
+		0,
+		viewCount * sizeof(ViewData));
 
 	vmaUnmapMemory(InternalGetDevice()->GetAllocator(), bufferMemory);
 }
