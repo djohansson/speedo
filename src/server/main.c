@@ -9,7 +9,7 @@
 #include <string.h>
 
 #include <cargs.h>
-
+#include <ctrace/ctrace.h>
 #include <mimalloc.h>
 
 static struct cag_option gCmdArgs[] =
@@ -43,10 +43,22 @@ void OnExit(void)
 	DestroyServer();
 }
 
-void OnSignal(int signal)
+static void OnSignal(int signal)
 {
-	if (signal == SIGINT || signal == SIGTERM)
+	switch (signal)
+	{	
+	case SIGINT:
+	case SIGTERM:
 		gIsInterrupted = true;
+		return;
+	default:
+		break;
+	}
+
+	fprintf(stderr, "Unhandled signal: %s\n", strsignal(signal));
+
+	ctrace_stacktrace trace = ctrace_generate_trace(0, 64);
+	ctrace_print_stacktrace(&trace, stderr, 1);
 }
 
 const char* GetCmdOption(char** begin, char** end, const char* option)
@@ -66,11 +78,15 @@ const char* GetCmdOption(char** begin, char** end, const char* option)
 
 int main(int argc, char* argv[], char* envp[])
 {
+	signal(SIGINT, &OnSignal);
+	signal(SIGTERM, &OnSignal);
+	signal(SIGILL, &OnSignal);
+	//signal(SIGTRAP, &OnSignal);
+	signal(SIGABRT, &OnSignal);
+	signal(SIGFPE, &OnSignal);
+
 	ASSERT(argv != NULL);
 	ASSERT(envp != NULL);
-
-	signal(SIGINT, OnSignal);
-	signal(SIGTERM, OnSignal);
 
 	cag_option_context cagContext;
 	cag_option_init(&cagContext, gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), argc, argv);

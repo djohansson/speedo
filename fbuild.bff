@@ -143,6 +143,7 @@
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lcargs'
+			+ ' -lcpptrace'
 			+ ' -lTracyClient'
 			+ ' -lzmq'
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
@@ -209,6 +210,7 @@
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lcargs'
+			+ ' -lcpptrace'
 			+ ' -lnfd'
 			+ ' -lTracyClient'
 			+ ' -lSHA-Intrinsics'
@@ -282,6 +284,7 @@
 		}
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lTracyClient'
+			+ ' -lcpptrace'
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib/'
 			+ ' -lmimalloc'
 			+ ' -lCatch2'

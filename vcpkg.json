@@ -10,6 +10,7 @@
         "draft"
       ]
     },
+    "cpptrace",
     "fastbuild",
     "glaze",
     "mimalloc",
@@ -42,7 +43,6 @@
         {
           "name": "tracy",
           "features": [
-            "crash-handler",
             "gui-tools"
           ]
         },
@@ -57,12 +57,7 @@
     "server": {
       "description": "Game Server Executable",
       "dependencies": [
-        {
-          "name": "tracy",
-          "features": [
-            "crash-handler"
-          ]
-        }
+        "tracy"
       ]
     }
   },

@@ -11,13 +11,12 @@
 #include <string.h>
 
 #include <cargs.h>
-
+#include <ctrace/ctrace.h>
 #include <GLFW/glfw3.h>
 #if __WINDOWS__
 #	define GLFW_EXPOSE_NATIVE_WIN32
 #	include <GLFW/glfw3native.h>
 #endif
-
 #include <mimalloc.h>
 
 static struct cag_option gCmdArgs[] =
@@ -61,8 +60,20 @@ static void OnExit(void)
 
 static void OnSignal(int signal)
 {
-	if (signal == SIGINT || signal == SIGTERM)
+	switch (signal)
+	{	
+	case SIGINT:
+	case SIGTERM:
 		gIsInterrupted = true;
+		return;
+	default:
+		break;
+	}
+
+	fprintf(stderr, "Unhandled signal: %s\n", strsignal(signal));
+
+	ctrace_stacktrace trace = ctrace_generate_trace(0, 64);
+	ctrace_print_stacktrace(&trace, stderr, 1);
 }
 
 static void OnError(int error, const char* description)
@@ -118,7 +129,6 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 
 	UpdateMouse(&gMouse);
 }
-
 
 static void OnWindowFullscreenChanged(GLFWwindow* window)
 {
@@ -343,11 +353,15 @@ static void SetWindowCallbacks(GLFWwindow* window)
 
 int main(int argc, char* argv[], char* envp[])
 {
-	ASSERT(argv != NULL);
-	ASSERT(envp != NULL);
-
 	signal(SIGINT, &OnSignal);
 	signal(SIGTERM, &OnSignal);
+	signal(SIGILL, &OnSignal);
+	//signal(SIGTRAP, &OnSignal);
+	signal(SIGABRT, &OnSignal);
+	signal(SIGFPE, &OnSignal);
+
+	ASSERT(argv != NULL);
+	ASSERT(envp != NULL);
 
 	cag_option_context cagContext;
 	cag_option_init(&cagContext, gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), argc, argv);
