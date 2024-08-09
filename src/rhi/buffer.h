@@ -51,7 +51,7 @@ public:
 	friend void Swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
-	[[nodiscard]] const auto& GetBufferMemory() const noexcept { return std::get<1>(myBuffer); }
+	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
 
 private:
 	BufferCreateDesc<G> myDesc{};

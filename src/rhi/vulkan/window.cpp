@@ -22,7 +22,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 {
 	ZoneScopedN("Window::InternalUpdateViewBuffer");
 
-	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].GetBufferMemory();
+	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].GetMemory();
 	void* data;
 	VK_CHECK(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
 

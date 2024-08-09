@@ -141,7 +141,7 @@ static void LoadImage(
 			DescriptorImageInfo<kVk>{
 				{},
 				*rhi.pipeline->GetResources().imageView,
-				rhi.pipeline->GetResources().image->GetImageLayout()},
+				rhi.pipeline->GetResources().image->GetLayout()},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			1);
 	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);

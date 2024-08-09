@@ -344,10 +344,10 @@ void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 {
 	ZoneScopedN("Image::Transition");
 
-	if (GetImageLayout() != layout)
+	if (GetLayout() != layout)
 	{
 		TransitionImageLayout(
-			cmd, *this, myDesc.format, GetImageLayout(), layout, myDesc.mipLevels.size());
+			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size());
 		InternalSetImageLayout(layout);
 	}
 }
@@ -376,7 +376,7 @@ void Image<kVk>::Clear(
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			GetImageLayout(),
+			GetLayout(),
 			&value.color,
 			1,
 			range ? &range.value() : &kDefaultColorRange);
@@ -385,7 +385,7 @@ void Image<kVk>::Clear(
 		vkCmdClearDepthStencilImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			GetImageLayout(),
+			GetLayout(),
 			&value.depthStencil,
 			1,
 			range ? &range.value() : &kDefaultDepthStencilRange);
@@ -491,7 +491,7 @@ template <>
 Image<kVk>::~Image()
 {
 	if (ImageHandle<kVk> image = *this)
-		vmaDestroyImage(InternalGetDevice()->GetAllocator(), image, GetImageMemory());
+		vmaDestroyImage(InternalGetDevice()->GetAllocator(), image, GetMemory());
 }
 
 template <>

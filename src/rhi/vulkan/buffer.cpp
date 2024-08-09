@@ -95,7 +95,7 @@ template <>
 Buffer<kVk>::~Buffer()
 {
 	if (BufferHandle<kVk> buffer = *this)
-		vmaDestroyBuffer(InternalGetDevice()->GetAllocator(), buffer, GetBufferMemory());
+		vmaDestroyBuffer(InternalGetDevice()->GetAllocator(), buffer, GetMemory());
 }
 
 template <>
