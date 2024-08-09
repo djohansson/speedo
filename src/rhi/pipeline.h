@@ -168,16 +168,14 @@ public:
 		uint32_t set,
 		uint32_t index);	
 
-	// temp
+	// todo: rewrite to use generic resource model
 	[[nodiscard]] auto& GetRenderTarget() const noexcept
 	{
 		ASSERT(myRenderTarget);
 		return *myRenderTarget;
 	}
-
 	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
-	void SetModel(const std::shared_ptr<Model<G>>& model); // todo: rewrite to use generic draw call structures / buffers
-
+	[[nodiscard]] std::shared_ptr<Model<G>> SetModel(const std::shared_ptr<Model<G>>& model);
 	[[nodiscard]] auto& GetResources() noexcept { return myGraphicsState.resources; }
 	[[nodiscard]] const auto& GetResources() const noexcept { return myGraphicsState.resources; }
 	//

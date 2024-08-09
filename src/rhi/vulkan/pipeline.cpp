@@ -549,7 +549,7 @@ PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd
 }
 
 template <>
-void Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
+std::shared_ptr<Model<kVk>> Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
 {
 	myGraphicsState.vertexInput.vertexBindingDescriptionCount =
 		static_cast<uint32_t>(model->GetBindings().size());
@@ -563,7 +563,11 @@ void Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
 		DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
+	auto oldModel = myGraphicsState.resources.model;
+	
 	myGraphicsState.resources.model = model;
+
+	return oldModel;
 }
 
 template <>

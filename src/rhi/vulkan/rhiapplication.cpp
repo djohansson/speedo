@@ -42,7 +42,7 @@ static void LoadModel(
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
-	rhi.pipeline->SetModel(
+	auto oldModel = rhi.pipeline->SetModel(
 		std::make_shared<Model<kVk>>(
 			rhi.device,
 			transferQueue,
@@ -58,6 +58,15 @@ static void LoadModel(
 		{++transferSemaphoreValue}});
 
 	transferSubmit = transferQueue.Submit();
+	
+	transferQueue.AddTimelineCallback(
+	{
+		transferSubmit.maxTimelineValue,
+		[oldModel = std::move(oldModel)](auto) mutable
+		{
+			oldModel.reset();
+		}
+	});
 }
 
 static void LoadImage(
@@ -67,6 +76,9 @@ static void LoadImage(
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
+
+	auto oldImage = rhi.pipeline->GetResources().image;
+	auto oldImageView = rhi.pipeline->GetResources().imageView;
 
 	rhi.pipeline->GetResources().image =
 		std::make_shared<Image<kVk>>(
@@ -87,6 +99,16 @@ static void LoadImage(
 		{++transferSemaphoreValue}});
 
 	transferSubmit = transferQueue.Submit();
+
+	transferQueue.AddTimelineCallback(
+	{
+		transferSubmit.maxTimelineValue,
+		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)](auto) mutable
+		{
+			oldImage.reset();
+			oldImageView.reset();
+		}
+	});
 
 	///////////
 
