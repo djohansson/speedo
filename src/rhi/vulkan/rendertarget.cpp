@@ -15,15 +15,33 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 	myAttachments.clear();
 
 	uint32_t attachmentIt = 0UL;
-	for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
+	for (; attachmentIt < desc.images.size(); attachmentIt++)
 	{
+		VkImageAspectFlags aspectFlags{};
+		VkImageLayout finalLayout;
+
+		if (HasColorComponent(desc.imageFormats[attachmentIt]))
+		{
+			aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+			finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		}
+		else 
+		{
+			if (HasDepthComponent(desc.imageFormats[attachmentIt]))
+				aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (HasStencilComponent(desc.imageFormats[attachmentIt]))
+				aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+
+			finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		}
+
 		myAttachments.emplace_back(CreateImageView2D(
 			*InternalGetDevice(),
 			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 			0,
-			desc.colorImages[attachmentIt],
-			desc.colorImageFormats[attachmentIt],
-			VK_IMAGE_ASPECT_COLOR_BIT,
+			desc.images[attachmentIt],
+			desc.imageFormats[attachmentIt],
+			aspectFlags,
 			1));
 
 	#if (GRAPHICS_VALIDATION_LEVEL > 0)
@@ -34,59 +52,19 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			std::format("{0}_ColorImageView_{1}", GetName(), attachmentIt));
 	#endif
 
-		auto& colorAttachment = myAttachmentDescs.emplace_back();
-		colorAttachment.format = desc.colorImageFormats[attachmentIt];
-		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		colorAttachment.initialLayout = desc.colorImageLayouts[attachmentIt];
-		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		auto& attachment = myAttachmentDescs.emplace_back();
+		attachment.format = desc.imageFormats[attachmentIt];
+		attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+		attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		attachment.initialLayout = desc.imageLayouts[attachmentIt];
+		attachment.finalLayout = finalLayout;
 
-		auto& colorAttachmentRef = myAttachmentsReferences.emplace_back();
-		colorAttachmentRef.attachment = 0UL;
-		colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	}
-
-	if (desc.depthStencilImage != nullptr)
-	{
-		VkImageAspectFlags depthAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT;
-		if (HasStencilComponent(desc.depthStencilImageFormat))
-			depthAspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-
-		myAttachments.emplace_back(CreateImageView2D(
-			*InternalGetDevice(),
-			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
-			0,
-			desc.depthStencilImage,
-			desc.depthStencilImageFormat,
-			depthAspectFlags,
-			1));
-
-	#if (GRAPHICS_VALIDATION_LEVEL > 0)
-		InternalGetDevice()->AddOwnedObjectHandle(
-			GetUid(),
-			VK_OBJECT_TYPE_IMAGE_VIEW,
-			reinterpret_cast<uint64_t>(myAttachments.back()),
-			std::format("{0}_DepthImageView", GetName()));
-	#endif
-
-		auto& depthStencilAttachment = myAttachmentDescs.emplace_back();
-		depthStencilAttachment.format = desc.depthStencilImageFormat;
-		depthStencilAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
-		depthStencilAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		depthStencilAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		depthStencilAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		depthStencilAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		depthStencilAttachment.initialLayout = desc.depthStencilImageLayout;
-		depthStencilAttachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-		auto& depthStencilAttachmentRef = myAttachmentsReferences.emplace_back();
-		depthStencilAttachmentRef.attachment = attachmentIt;
-		depthStencilAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-		attachmentIt++;
+		auto& attachmentRef = myAttachmentsReferences.emplace_back();
+		attachmentRef.attachment = attachmentIt;
+		attachmentRef.layout = finalLayout;
 	}
 
 	ASSERT(attachmentIt == myAttachmentsReferences.size());
@@ -98,9 +76,19 @@ void RenderTarget<kVk>::InternalInitializeDefaultRenderPass(
 {
 	ZoneScopedN("RenderTarget::InternalInitializeDefaultRenderPass");
 
+	bool hasDepth = false;
+	bool hasStencil = false;
+	for (const auto& format : desc.imageFormats)
+	{
+		if (HasDepthComponent(format))
+			hasDepth |= true;
+		if (HasStencilComponent(format))
+			hasStencil |= true;
+	}
+
 	uint32_t subPassIt = 0UL;
 
-	if (desc.depthStencilImage != nullptr)
+	if (hasDepth && hasStencil)
 	{
 		VkSubpassDescription colorAndDepth{};
 		colorAndDepth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
@@ -260,22 +248,12 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 	ZoneScopedN("RenderTarget::InternalUpdateAttachments");
 
 	uint32_t attachmentIt = 0UL;
-	for (; attachmentIt < desc.colorImages.size(); attachmentIt++)
+	for (; attachmentIt < desc.images.size(); attachmentIt++)
 	{
-		auto& colorAttachment = myAttachmentDescs[attachmentIt];
+		auto& attachment = myAttachmentDescs[attachmentIt];
 
-		if (auto layout = GetColorLayout(attachmentIt);
-			layout != colorAttachment.initialLayout)
-			colorAttachment.initialLayout = layout;
-	}
-
-	if (desc.depthStencilImage != nullptr)
-	{
-		auto& depthStencilAttachment = myAttachmentDescs[attachmentIt];
-
-		if (auto layout = GetDepthStencilLayout();
-			layout != depthStencilAttachment.initialLayout)
-			depthStencilAttachment.initialLayout = layout;
+		if (auto layout = GetLayout(attachmentIt); layout != attachment.initialLayout)
+			attachment.initialLayout = layout;
 	}
 }
 
@@ -304,13 +282,13 @@ void RenderTarget<kVk>::Blit(
 	imageBlitRegion.dstSubresource = dstSubresource;
 	imageBlitRegion.dstOffsets[1] = blitSize;
 
-	TransitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
 
 	vkCmdBlitImage(
 		cmd,
-		srcDesc.colorImages[srcIndex],
-		srcRenderTarget.GetColorLayout(srcIndex),
-		GetRenderTargetDesc().colorImages[dstIndex],
+		srcDesc.images[srcIndex],
+		srcRenderTarget.GetLayout(srcIndex),
+		GetRenderTargetDesc().images[dstIndex],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
 		&imageBlitRegion,
@@ -318,84 +296,95 @@ void RenderTarget<kVk>::Blit(
 }
 
 template <>
-void RenderTarget<kVk>::ClearSingleAttachment(
-	CommandBufferHandle<kVk> cmd, const ClearAttachment<kVk>& clearAttachment) const
-{
-	ZoneScopedN("RenderTarget::ClearSingleAttachment");
-
-	VkClearRect rect{
-		{{0, 0}, GetRenderTargetDesc().extent}, 0, GetRenderTargetDesc().layerCount};
-	vkCmdClearAttachments(cmd, 1, &clearAttachment, 1, &rect);
-}
-
-template <>
-void RenderTarget<kVk>::ClearAllAttachments(
+void RenderTarget<kVk>::ClearAll(
 	CommandBufferHandle<kVk> cmd,
-	const ClearColorValue<kVk>& color,
-	const ClearDepthStencilValue<kVk>& depthStencil) const
+	std::span<const ClearValue<kVk>> values) const
 {
-	ZoneScopedN("RenderTarget::ClearAllAttachments");
+	ZoneScopedN("RenderTarget::ClearAll");
 
 	uint32_t attachmentIt = 0UL;
 	VkClearRect rect{
 		{{0, 0}, GetRenderTargetDesc().extent}, 0, GetRenderTargetDesc().layerCount};
-	std::vector<VkClearAttachment> clearAttachments(
-		myAttachments.size(), {VK_IMAGE_ASPECT_COLOR_BIT, attachmentIt, {.color = color}});
-
+	
+	std::vector<VkClearAttachment> clearAttachments(GetRenderTargetDesc().images.size());
 	for (auto& attachment : clearAttachments)
-		attachment.colorAttachment = attachmentIt++;
+	{
+		auto format = GetRenderTargetDesc().imageFormats[attachmentIt];
+		if (HasColorComponent(format))
+		{
+			attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		}
+		else 
+		{
+			if (HasDepthComponent(format))
+				attachment.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (HasStencilComponent(format))
+				attachment.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
 
-	if (GetRenderTargetDesc().depthStencilImage != nullptr)
-		clearAttachments.emplace_back(VkClearAttachment{
-			VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-			attachmentIt++,
-			{.depthStencil = depthStencil}});
+		attachment.colorAttachment = attachmentIt;
+		attachment.clearValue = values[attachmentIt++];
+	}
 
 	vkCmdClearAttachments(cmd, clearAttachments.size(), clearAttachments.data(), 1, &rect);
 }
 
 template <>
-void RenderTarget<kVk>::ClearColor(
-	CommandBufferHandle<kVk> cmd, const ClearColorValue<kVk>& color, uint32_t index)
+void RenderTarget<kVk>::Clear(
+	CommandBufferHandle<kVk> cmd, const ClearValue<kVk>& value, uint32_t index)
 {
-	ZoneScopedN("RenderTarget::ClearColor");
+	ZoneScopedN("RenderTarget::Clear");
 
-	TransitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
 
-	static const VkImageSubresourceRange kColorRange{
-		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+	VkImageAspectFlags aspectFlags{};
+	if (HasColorComponent(GetRenderTargetDesc().imageFormats[index]))
+	{
+		aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+	else 
+	{
+		if (HasDepthComponent(GetRenderTargetDesc().imageFormats[index]))
+			aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (HasStencilComponent(GetRenderTargetDesc().imageFormats[index]))
+			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
 
-	vkCmdClearColorImage(
-		cmd,
-		GetRenderTargetDesc().colorImages[index],
-		GetColorLayout(index),
-		&color,
-		1,
-		&kColorRange);
+	static const VkImageSubresourceRange kRange{
+		aspectFlags, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+
+	if (HasColorComponent(GetRenderTargetDesc().imageFormats[index]))
+	{
+		vkCmdClearColorImage(
+			cmd,
+			GetRenderTargetDesc().images[index],
+			GetLayout(index),
+			&value.color,
+			1,
+			&kRange);
+	}
+	else
+	{
+		vkCmdClearDepthStencilImage(
+			cmd,
+			GetRenderTargetDesc().images[index],
+			GetLayout(index),
+			&value.depthStencil,
+			1,
+			&kRange);
+	}
 }
 
 template <>
-void RenderTarget<kVk>::ClearDepthStencil(
-	CommandBufferHandle<kVk> cmd, const ClearDepthStencilValue<kVk>& depthStencil)
+void RenderTarget<kVk>::SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index)
 {
-	ZoneScopedN("RenderTarget::ClearDepthStencil");
+	myAttachmentDescs[index].loadOp = loadOp;
+}
 
-	TransitionDepthStencil(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-	static const VkImageSubresourceRange kDepthStencilRange{
-		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-		0,
-		VK_REMAINING_MIP_LEVELS,
-		0,
-		VK_REMAINING_ARRAY_LAYERS};
-
-	vkCmdClearDepthStencilImage(
-		cmd,
-		GetRenderTargetDesc().depthStencilImage,
-		GetDepthStencilLayout(),
-		&depthStencil,
-		1,
-		&kDepthStencilRange);
+template <>
+void RenderTarget<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index)
+{
+	myAttachmentDescs[index].storeOp = storeOp;
 }
 
 template <>
@@ -424,26 +413,34 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
-		// todo: implement dynamic rendering fully. this is just placeholder code
-		VkRenderingAttachmentInfoKHR colorAttachment
-		{
-			.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
-			.pNext = nullptr,
-			.imageView = GetColor(0),
-			.imageLayout = GetColorLayout(0),
-			.loadOp = GetColorLoadOp(0),
-			.storeOp = GetColorStoreOp(0),
-		};
+		thread_local std::vector<VkRenderingAttachmentInfoKHR> gAttachmentInfos(myAttachments.size());
 
-		myRenderInfo = VkRenderingInfoKHR{
+		if (gAttachmentInfos.size() != myAttachments.size())
+			gAttachmentInfos.resize(myAttachments.size());
+			
+		for (uint32_t i = 0; i < myAttachments.size(); i++)
+		{
+			gAttachmentInfos[i] = VkRenderingAttachmentInfoKHR
+			{
+				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+				.pNext = nullptr,
+				.imageView = myAttachments[i],
+				.imageLayout = GetLayout(i),
+				.loadOp = myAttachmentDescs[i].loadOp,
+				.storeOp = myAttachmentDescs[i].storeOp,
+			};
+		}
+
+		myRenderInfo = VkRenderingInfoKHR
+		{
 			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
 			.pNext = nullptr,
 			.flags = 0,
 			.renderArea = {0, 0, GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height},
 			.layerCount = 1,
 			.viewMask = 0,
-			.colorAttachmentCount = 1,
-			.pColorAttachments = &colorAttachment,
+			.colorAttachmentCount = gAttachmentInfos.size(),
+			.pColorAttachments = gAttachmentInfos.data(),
 		};
 
 		static auto vkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(

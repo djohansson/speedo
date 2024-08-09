@@ -1052,7 +1052,7 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
 
 	rhi.renderImageSet =
-		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage}, depthStencilImage);
+		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage, depthStencilImage});
 
 	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
 }
@@ -1447,22 +1447,14 @@ void RhiApplication::InternalDraw()
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
 		{
-			GPU_SCOPE(cmd, graphicsQueue, clear);
-
-			renderImageSet.ClearColor(cmd, clearValues[0].color, 0);
-			renderImageSet.ClearDepthStencil(cmd, clearValues[1].depthStencil);
-		}
-		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
 
-			renderImageSet.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
-			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			renderImageSet.TransitionDepthStencil(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE, renderImageSet.GetAttachments().size() - 1);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, renderImageSet.GetAttachments().size() - 1);
 			
-			auto renderInfo = renderImageSet.Begin(
-				cmd,
-				VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS,
-				clearValues);
+			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS, clearValues);
 
 			// TODO(djohansson): kick off jobs for this earier and join here
 			auto drawThreadCount = window.Draw(
@@ -1480,9 +1472,8 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, blit);
 
-			renderImageSet.TransitionColor(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-
-			window.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE, 0);
 			window.Blit(
 				cmd,
 				renderImageSet,
@@ -1495,13 +1486,10 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
-			window.SetColorLoadOp(0, VK_ATTACHMENT_LOAD_OP_LOAD);
-			window.TransitionColor(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-
-			window.Begin(
-				cmd,
-			 	VK_SUBPASS_CONTENTS_INLINE,
-			 	std::span(clearValues).subspan(0, 1));
+			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			window.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
+			
+			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
 
 			IMGUIDrawFunction(cmd);
 
@@ -1510,7 +1498,7 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, Transition);
 			
-			window.TransitionColor(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+			window.Transition(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
 		}
 
 		cmd.End();

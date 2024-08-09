@@ -75,19 +75,9 @@ void Frame<kVk>::Swap(Frame& rhs) noexcept
 }
 
 template <>
-ImageLayout<kVk> Frame<kVk>::GetColorLayout(uint32_t index) const
+ImageLayout<kVk> Frame<kVk>::GetLayout(uint32_t) const
 {
-	//ASSERT(index == 0); // multiple layouts not supported
-
 	return myImageLayout;
-}
-
-template <>
-ImageLayout<kVk> Frame<kVk>::GetDepthStencilLayout() const
-{
-	ASSERT(false);
-
-	return VK_IMAGE_LAYOUT_UNDEFINED;
 }
 
 template <>
@@ -95,34 +85,28 @@ void Frame<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
 	RenderTarget::End(cmd);
 
-	myImageLayout = this->GetAttachmentDesc(0).finalLayout;
+	myImageLayout = this->GetAttachmentDescs()[0].finalLayout;
 }
 
 template <>
-void Frame<kVk>::TransitionColor(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, uint32_t index)
+void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, uint32_t index)
 {
 	ZoneScopedN("Frame::TransitionColor");
 
 	ASSERT(index == 0);
 
-	if (GetColorLayout(index) != layout)
+	if (GetLayout(index) != layout)
 	{
 		TransitionImageLayout(
 			cmd,
-			GetDesc().colorImages[index],
-			GetDesc().colorImageFormats[index],
+			GetDesc().images[index],
+			GetDesc().imageFormats[index],
 			myImageLayout,
 			layout,
 			1);
 
 		myImageLayout = layout;
 	}
-}
-
-template <>
-void Frame<kVk>::TransitionDepthStencil(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
-{
-	ASSERT(false);
 }
 
 template <>

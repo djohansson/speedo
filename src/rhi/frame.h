@@ -29,14 +29,12 @@ public:
 	void Swap(Frame& rhs) noexcept;
 	friend void Swap(Frame& lhs, Frame& rhs) noexcept { lhs.Swap(rhs); }
 
-	ImageLayout<G> GetColorLayout(uint32_t index) const final;
-	ImageLayout<G> GetDepthStencilLayout() const final;
+	ImageLayout<G> GetLayout(uint32_t) const final;
 
 	void End(CommandBufferHandle<G> cmd) final;
 
-	void TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
-	void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
-
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
+	
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
 	[[nodiscard]] auto& GetFence() noexcept { return myFence; }

@@ -39,12 +39,9 @@ public:
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
 	const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
-
-	ImageViewHandle<G> GetColor(uint32_t index) const final;
-	ImageViewHandle<G> GetDepthStencil() const final;
-
-	ImageLayout<G> GetColorLayout(uint32_t index) const final;
-	ImageLayout<G> GetDepthStencilLayout() const final;
+	std::span<const ImageViewHandle<G>> GetAttachments() const final;
+	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final;
+	ImageLayout<G> GetLayout(uint32_t index) const final;
 
 	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
 	void End(CommandBufferHandle<G> cmd) final;
@@ -58,28 +55,16 @@ public:
 		uint32_t dstIndex,
 		Filter<G> filter) final;
 
-	void ClearSingleAttachment(
-		CommandBufferHandle<G> cmd, const ClearAttachment<G>& clearAttachment) const final;
-	void ClearAllAttachments(
+	void ClearAll(
 		CommandBufferHandle<G> cmd,
-		const ClearColorValue<G>& color = {},
-		const ClearDepthStencilValue<G>& depthStencil = {}) const final;
+		std::span<const ClearValue<G>> values) const final;
 
-	void ClearColor(CommandBufferHandle<G> cmd, const ClearColorValue<G>& color, uint32_t index) final;
-	void ClearDepthStencil(CommandBufferHandle<G> cmd, const ClearDepthStencilValue<G>& depthStencil) final;
+	void Clear(CommandBufferHandle<G> cmd, const ClearValue<G>& value, uint32_t index) final;
 
-	void TransitionColor(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
-	void TransitionDepthStencil(CommandBufferHandle<G> cmd, ImageLayout<G> layout) final;
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
 
-	AttachmentLoadOp<G> GetColorLoadOp(uint32_t index) const final;
-	AttachmentStoreOp<G> GetColorStoreOp(uint32_t index) const final;
-	AttachmentLoadOp<G> GetDepthStencilLoadOp() const final;
-	AttachmentStoreOp<G> GetDepthStencilStoreOp() const final;
-
-	void SetColorLoadOp(uint32_t index, AttachmentLoadOp<G> loadOp) final;
-	void SetColorStoreOp(uint32_t index, AttachmentStoreOp<G> storeOp) final;
-	void SetDepthStencilLoadOp(AttachmentLoadOp<G> loadOp) final;
-	void SetDepthStencilStoreOp(AttachmentStoreOp<G> storeOp) final;
+	void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index) final;
+	void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index) final;
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	

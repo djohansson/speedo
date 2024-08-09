@@ -32,6 +32,7 @@
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);
 uint32_t GetFormatSize(VkFormat format);
 
+bool HasColorComponent(VkFormat format);
 bool HasStencilComponent(VkFormat format);
 bool HasDepthComponent(VkFormat format);
 
