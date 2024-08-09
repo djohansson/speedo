@@ -149,46 +149,46 @@ RenderTarget<kVk>::InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& d
 {
 	ZoneScopedN("RenderTarget::InternalCalculateHashKey");
 
-	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> gthreadXxhState{
+	thread_local std::unique_ptr<XXH3_state_t, XXH_errorcode (*)(XXH3_state_t*)> gThreadXxhState{
 		XXH3_createState(), XXH3_freeState};
 
-	auto result = XXH3_64bits_reset(gthreadXxhState.get());
+	auto result = XXH3_64bits_reset(gThreadXxhState.get());
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
-		gthreadXxhState.get(),
+		gThreadXxhState.get(),
 		myAttachments.data(),
 		myAttachments.size() * sizeof(myAttachments.front()));
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
-		gthreadXxhState.get(),
+		gThreadXxhState.get(),
 		myAttachmentDescs.data(),
 		myAttachmentDescs.size() * sizeof(myAttachmentDescs.front()));
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
-		gthreadXxhState.get(),
+		gThreadXxhState.get(),
 		myAttachmentsReferences.data(),
 		myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
-		gthreadXxhState.get(),
+		gThreadXxhState.get(),
 		mySubPassDescs.data(),
 		mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
 	ASSERT(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
-		gthreadXxhState.get(),
+		gThreadXxhState.get(),
 		mySubPassDependencies.data(),
 		mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
 	ASSERT(result != XXH_ERROR);
 
-	result = XXH3_64bits_update(gthreadXxhState.get(), &desc.extent, sizeof(desc.extent));
+	result = XXH3_64bits_update(gThreadXxhState.get(), &desc.extent, sizeof(desc.extent));
 	ASSERT(result != XXH_ERROR);
 
-	return XXH3_64bits_digest(gthreadXxhState.get());
+	return XXH3_64bits_digest(gThreadXxhState.get());
 }
 
 template <>
