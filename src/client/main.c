@@ -353,6 +353,8 @@ static void SetWindowCallbacks(GLFWwindow* window)
 
 int main(int argc, char* argv[], char* envp[])
 {
+	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
+
 	signal(SIGINT, &OnSignal);
 	signal(SIGTERM, &OnSignal);
 	signal(SIGILL, &OnSignal);
