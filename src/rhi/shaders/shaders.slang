@@ -130,7 +130,7 @@ FragmentOutput FragmentMain(VertexOutput input)
 					lerp(v.color, material.color, 0.5),
 					float4(float3(checkers), 1.0),
 					0.2),
-				float4(v.normal, 1.0),
+				float4(SignedOctEncode(v.normal), 1.0),
 				0.2),
 			sample,
 			sample.a);
