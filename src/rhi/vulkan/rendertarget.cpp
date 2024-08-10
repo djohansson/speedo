@@ -439,7 +439,7 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 			.renderArea = {0, 0, GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height},
 			.layerCount = 1,
 			.viewMask = 0,
-			.colorAttachmentCount = gAttachmentInfos.size(),
+			.colorAttachmentCount = static_cast<uint32_t>(gAttachmentInfos.size()),
 			.pColorAttachments = gAttachmentInfos.data(),
 		};
 
