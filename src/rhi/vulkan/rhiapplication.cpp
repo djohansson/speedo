@@ -1449,7 +1449,7 @@ void RhiApplication::InternalDraw()
 			GPU_SCOPE(cmd, graphicsQueue, draw);
 
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
-			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE, renderImageSet.GetAttachments().size() - 1);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, renderImageSet.GetAttachments().size() - 1);
 			
