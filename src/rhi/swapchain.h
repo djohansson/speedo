@@ -45,6 +45,9 @@ public:
 	ImageLayout<G> GetLayout(uint32_t index) const final;
 
 	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	void ClearAll(
+		CommandBufferHandle<G> cmd,
+		std::span<const ClearValue<G>> values) const final;
 	void End(CommandBufferHandle<G> cmd) final;
 
 	void Blit(

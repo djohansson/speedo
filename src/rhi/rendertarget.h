@@ -28,6 +28,9 @@ struct IRenderTarget
 
 	// TODO(djohansson): make these two a single scoped call
 	[[maybe_unused]] virtual const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
+	virtual void ClearAll(
+		CommandBufferHandle<G> cmd,
+		std::span<const ClearValue<G>> values) const = 0;
 	virtual void End(CommandBufferHandle<G> cmd) = 0;
 	//
 
@@ -78,6 +81,9 @@ public:
 	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final { return myAttachmentDescs; }
 
 	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	void ClearAll(
+		CommandBufferHandle<G> cmd,
+		std::span<const ClearValue<G>> values) const final;
 	void End(CommandBufferHandle<G> cmd) override;
 
 	void Blit(
