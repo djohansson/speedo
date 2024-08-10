@@ -271,16 +271,11 @@ void RenderTarget<kVk>::Blit(
 
 	const auto& srcDesc = srcRenderTarget.GetRenderTargetDesc();
 
-	VkOffset3D blitSize;
-	blitSize.x = srcDesc.extent.width;
-	blitSize.y = srcDesc.extent.height;
-	blitSize.z = 1;
-
-	VkImageBlit imageBlitRegion{};
-	imageBlitRegion.srcSubresource = srcSubresource;
-	imageBlitRegion.srcOffsets[1] = blitSize;
-	imageBlitRegion.dstSubresource = dstSubresource;
-	imageBlitRegion.dstOffsets[1] = blitSize;
+	VkImageBlit imageBlit{};
+	imageBlit.srcSubresource = srcSubresource;
+	imageBlit.srcOffsets[1] = { static_cast<int32_t>(srcDesc.extent.width), static_cast<int32_t>(srcDesc.extent.height), 1 };
+	imageBlit.dstSubresource = dstSubresource;
+	imageBlit.dstOffsets[1] = { static_cast<int32_t>(srcDesc.extent.width), static_cast<int32_t>(srcDesc.extent.height), 1 };
 
 	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
 
@@ -291,8 +286,40 @@ void RenderTarget<kVk>::Blit(
 		GetRenderTargetDesc().images[dstIndex],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
-		&imageBlitRegion,
+		&imageBlit,
 		filter);
+}
+
+template <>
+void RenderTarget<kVk>::Copy(
+	CommandBufferHandle<kVk> cmd,
+	const IRenderTarget<kVk>& srcRenderTarget,
+	const ImageSubresourceLayers<kVk>& srcSubresource,
+	uint32_t srcIndex,
+	const ImageSubresourceLayers<kVk>& dstSubresource,
+	uint32_t dstIndex)
+{
+	ZoneScopedN("RenderTarget::Copy");
+
+	const auto& srcDesc = srcRenderTarget.GetRenderTargetDesc();
+
+	VkImageCopy imageCopy{};
+	imageCopy.srcSubresource = srcSubresource;
+	imageCopy.srcOffset = { 0, 0, 0 };
+	imageCopy.dstSubresource = dstSubresource;
+	imageCopy.dstOffset = { 0, 0, 0 };
+	imageCopy.extent = { srcDesc.extent.width, srcDesc.extent.height, 1 };
+
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
+
+	vkCmdCopyImage(
+		cmd,
+		srcDesc.images[srcIndex],
+		srcRenderTarget.GetLayout(srcIndex),
+		GetRenderTargetDesc().images[dstIndex],
+		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1,
+		&imageCopy);
 }
 
 template <>

@@ -55,6 +55,18 @@ void Swapchain<kVk>::Blit(
 }
 
 template <>
+void Swapchain<kVk>::Copy(
+	CommandBufferHandle<kVk> cmd,
+	const IRenderTarget<kVk>& srcRenderTarget,
+	const ImageSubresourceLayers<kVk>& srcSubresource,
+	uint32_t srcIndex,
+	const ImageSubresourceLayers<kVk>& dstSubresource,
+	uint32_t dstIndex)
+{
+	myFrames[myFrameIndex].Copy(cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex);
+}
+
+template <>
 void Swapchain<kVk>::ClearAll(
 	CommandBufferHandle<kVk> cmd,
 	std::span<const ClearValue<kVk>> values) const

@@ -40,9 +40,14 @@ struct IRenderTarget
 		uint32_t dstIndex,
 		Filter<G> filter) = 0;
 
-	virtual void ClearAll(
+	virtual void Copy(
 		CommandBufferHandle<G> cmd,
-		std::span<const ClearValue<G>> values) const = 0;
+		const IRenderTarget<G>& srcRenderTarget,
+		const ImageSubresourceLayers<G>& srcSubresource,
+		uint32_t srcIndex,
+		const ImageSubresourceLayers<G>& dstSubresource,
+		uint32_t dstIndex) = 0;
+
 
 	virtual void Clear(
 		CommandBufferHandle<G> cmd,
@@ -84,9 +89,13 @@ public:
 		uint32_t dstIndex,
 		Filter<G> filter) final;
 
-	void ClearAll(
+	void Copy(
 		CommandBufferHandle<G> cmd,
-		std::span<const ClearValue<G>> values) const final;
+		const IRenderTarget<G>& srcRenderTarget,
+		const ImageSubresourceLayers<G>& srcSubresource,
+		uint32_t srcIndex,
+		const ImageSubresourceLayers<G>& dstSubresource,
+		uint32_t dstIndex) final;
 
 	void Clear(
 		CommandBufferHandle<G> cmd,
