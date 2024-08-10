@@ -16,7 +16,7 @@ vcpkg_cmake_configure(
 
 vcpkg_cmake_install()
 
-vcpkg_copy_tools(TOOL_NAMES fbuild AUTO_CLEAN)
+vcpkg_copy_tools(TOOL_NAMES FBuild AUTO_CLEAN)
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug")
 file(INSTALL "${SOURCE_PATH}/Code/LICENSE.TXT" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)

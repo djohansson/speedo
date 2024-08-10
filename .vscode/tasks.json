@@ -4,7 +4,7 @@
 		{
 			"label": "FastBuild (Cache)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv fbuild all -cache} 2>&1'",
+			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -cache} 2>&1'",
 			"group": {
 				"kind": "build",
 				"isDefault": true
@@ -13,19 +13,19 @@
 		{
 			"label": "FastBuild (Clean, Cache)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv fbuild all -clean -cache} 2>&1'",
+			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -clean -cache} 2>&1'",
 			"group": "build"
 		},
 		{
 			"label": "FastBuild (Clean, No Cache)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv fbuild all -clean} 2>&1'",
+			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -clean} 2>&1'",
 			"group": "build"
 		},
 		{
 			"label": "FastBuild (Compilation Database)",
 			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv fbuild all -compdb} 2>&1'",
+			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -compdb} 2>&1'",
 			"group": "build"
 		},
 		{
