@@ -6,7 +6,6 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 	const std::vector<std::shared_ptr<Image<G>>>& images)
 {
 	RenderTargetCreateDesc<G> outDesc{};
-	outDesc.useDynamicRendering = false; // todo: make configurable
 
 	ASSERTF(images.size(), "colorImages cannot be empty");
 

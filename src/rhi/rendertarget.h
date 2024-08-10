@@ -15,7 +15,7 @@ struct RenderTargetCreateDesc
 	std::vector<ImageLayout<G>> imageLayouts;
 	std::vector<ImageHandle<G>> images;
 	uint32_t layerCount = 1;
-	bool useDynamicRendering = true;
+	bool useDynamicRendering = false;
 };
 
 template <GraphicsApi G>

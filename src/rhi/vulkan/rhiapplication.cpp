@@ -771,15 +771,14 @@ static void IMGUIInit(
 	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
-	// initInfo.RenderPass = window.Begin().renderPass; window.End();
-	initInfo.RenderPass = VK_NULL_HANDLE;
-	initInfo.UseDynamicRendering = true;
+	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
+	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetHandle<kVk>>(window.GetFrames()[0]).first;
 	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
 		.pNext = nullptr,
 		.viewMask = 0,
 		.colorAttachmentCount = 1,
-		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format
+		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format,
 	};
 	ImGui_ImplVulkan_Init(&initInfo);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);

@@ -217,7 +217,9 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 				{config.extent,
 				 {config.surfaceFormat.format},
 				 {VK_IMAGE_LAYOUT_UNDEFINED},
-				 {colorImages[frameIt]}},
+				 {colorImages[frameIt]},
+				 1,
+				 config.useDynamicRendering},
 				frameIt});
 
 	myFrameIndex.store(frameCount - 1);

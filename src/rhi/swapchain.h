@@ -17,6 +17,7 @@ struct SwapchainConfiguration
 	SurfaceFormat<G> surfaceFormat{};
 	PresentMode<G> presentMode{};
 	uint8_t imageCount{};
+	bool useDynamicRendering = false;
 };
 
 template <GraphicsApi G>
