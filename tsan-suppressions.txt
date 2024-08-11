@@ -1,5 +1,5 @@
 race:moodycamel::*
 race:tracy::moodycamel::
 race:gTaskPool
-race:*Task*CreateTask*
+race:*CreateTask*
 race:*TaskExecutor*InternalTryDelete*
