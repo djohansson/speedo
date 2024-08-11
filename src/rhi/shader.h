@@ -37,6 +37,19 @@ struct ShaderSet
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>> layouts;
 };
 
+template <GraphicsApi G>
+struct SlangConfiguration
+{
+	std::filesystem::path file; // todo: replace with source code in string
+	SlangSourceLanguage sourceLanguage = SLANG_SOURCE_LANGUAGE_UNKNOWN;
+	SlangCompileTarget target = SLANG_TARGET_UNKNOWN;
+	std::string targetProfile;
+	std::vector<std::pair<std::string, SlangStage>> entryPoints;
+	SlangDebugInfoLevel debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_STANDARD;
+	SlangOptimizationLevel optimizationLevel = SLANG_OPTIMIZATION_LEVEL_DEFAULT;
+	SlangMatrixLayoutMode matrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
+};
+
 class ShaderLoader final
 {
 public:
@@ -55,7 +68,7 @@ public:
 	ShaderLoader& operator=(ShaderLoader&&) noexcept = delete;
 
 	template <GraphicsApi G>
-	[[nodiscard]] ShaderSet<G> Load(const std::filesystem::path& slangFile);
+	[[nodiscard]] ShaderSet<G> Load(const SlangConfiguration<G>& config);
 
 private:
 	std::vector<std::filesystem::path> myIncludePaths;

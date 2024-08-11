@@ -10,7 +10,7 @@ namespace shader
 {
 
 template <>
-ShaderStageFlagBits<kVk> GetStageFlags<kVk>(SlangStage stage)
+ShaderStageFlagBits<kVk> GetStageFlag<kVk>(SlangStage stage)
 {
 	switch (stage)
 	{
@@ -145,7 +145,7 @@ void AddBinding(
 	slot.binding = bindingIndex;
 	slot.descriptorType = descriptorType;
 	slot.descriptorCount = isInlineUniformBlock ? sizeBytes : descriptorCount;
-	slot.stageFlags = shader::GetStageFlags<kVk>(stage);
+	slot.stageFlags = shader::GetStageFlag<kVk>(stage);
 	slot.pImmutableSamplers = nullptr;
 
 	layout.bindings.push_back(slot);

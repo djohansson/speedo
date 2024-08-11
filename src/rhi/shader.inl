@@ -12,7 +12,7 @@ namespace shader
 {
 
 template <GraphicsApi G>
-ShaderStageFlagBits<G> GetStageFlags(SlangStage stage);
+ShaderStageFlagBits<G> GetStageFlag(SlangStage stage);
 
 template <GraphicsApi G>
 DescriptorType<kVk> GetDescriptorType(
@@ -29,7 +29,7 @@ uint32_t CreateLayoutBindings(
 } // namespace shader
 
 template <GraphicsApi G>
-ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
+ShaderSet<G> ShaderLoader::Load(const SlangConfiguration<G>& config)
 {
 	auto shaderSet = ShaderSet<G>{};
 
@@ -53,10 +53,8 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
-					  &slangFile](auto& /*todo: use me: in*/) -> std::error_code
+					  &config](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		constexpr bool kUseGlsl = true;
-
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
 
 		if (intermediatePath)
@@ -87,55 +85,26 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
 
-		spSetDebugInfoLevel(slangRequest, SLANG_DEBUG_INFO_LEVEL_STANDARD);
-		spSetOptimizationLevel(slangRequest, SLANG_OPTIMIZATION_LEVEL_MAXIMAL);
+		spSetDebugInfoLevel(slangRequest, config.debugInfoLevel);
+		spSetOptimizationLevel(slangRequest, config.optimizationLevel);
+		spSetMatrixLayoutMode(slangRequest, config.matrixLayoutMode);
 
 		//spAddPreprocessorDefine(slangRequest, "SHADERTYPES_H_CPU_TARGET", "false");
 
-		int targetIndex = spAddCodeGenTarget(slangRequest, SLANG_SPIRV);
+		int targetIndex = spAddCodeGenTarget(slangRequest, config.target);
 
-		if (kUseGlsl)
-			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "GLSL_460"));
-		else
-			spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, "sm_6_5"));
+		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, config.targetProfile.c_str()));
 
-		spSetMatrixLayoutMode(slangRequest, SLANG_MATRIX_LAYOUT_COLUMN_MAJOR);
-
-		// spSetTargetFlags(
-		// 	slangRequest,
-		// 	targetIndex,
-		// 	SLANG_TARGET_FLAG_VK_USE_SCALAR_LAYOUT); //todo: remove vk dep?
-
-		int translationUnitIndex =
-			spAddTranslationUnit(slangRequest, SLANG_SOURCE_LANGUAGE_SLANG, nullptr);
+		int translationUnitIndex = spAddTranslationUnit(slangRequest, config.sourceLanguage, nullptr);
 
 		spAddTranslationUnitSourceFile(
-			slangRequest, translationUnitIndex, slangFile.generic_string().c_str());
-
-		// temp
-		static constexpr const auto kEpStrings = std::to_array<std::string_view>({
-			"VertexMain",
-			"FragmentMain",
-			"ComputeMain"
-		});
-		static constexpr const auto kEpStages = std::to_array<SlangStage>({
-			SLANG_STAGE_VERTEX,
-			SLANG_STAGE_FRAGMENT,
-			SLANG_STAGE_COMPUTE
-		});
-		static_assert(std::size(kEpStrings) == std::size(kEpStages));
-		// end temp
+			slangRequest, translationUnitIndex, config.file.generic_string().c_str());
 
 		std::vector<EntryPoint<G>> entryPoints;
-		for (unsigned i = 0; i < std::size(kEpStrings); i++)
+		for (const auto& [ep, stage] : config.entryPoints)
 		{
-			int index =
-				spAddEntryPoint(slangRequest, translationUnitIndex, kEpStrings[i].data(), kEpStages[i]);
-
-			CHECKF(index == entryPoints.size(), "Failed to add entry point.");
-
-			entryPoints.push_back(std::make_pair(
-				kUseGlsl ? "main" : kEpStrings[i].data(), shader::GetStageFlags<G>(kEpStages[i])));
+			CHECKF(spAddEntryPoint(slangRequest, translationUnitIndex, ep.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
+			entryPoints.push_back(std::make_pair("main", shader::GetStageFlag<G>(stage)));
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);
@@ -221,9 +190,11 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& slangFile)
 		return {};
 	};
 
+	// todo: make runtime unique hash key from loadertype, loaderversion and slang configuration parameters.
+	// need to rewrite file::LoadAsset and dependant code to support this.
 	file::LoadAsset<
 		std_extra::make_string_literal<"slang">().data(),
-		std_extra::make_string_literal<"0.9.2">().data()>(slangFile, loadSlang, loadBin, saveBin);
+		std_extra::make_string_literal<"0.9.3">().data()>(config.file, loadSlang, loadBin, saveBin);
 
 	CHECKF(!shaderSet.shaders.empty(), "Failed to load shaders.");
 

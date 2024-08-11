@@ -1237,11 +1237,46 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
-	auto shaderReflection = shaderLoader.Load<kVk>(shaderIncludePath / "shaders.slang");
 
-	auto* layoutHandle = rhi->pipeline->CreateLayout(shaderReflection);
+	// auto zPrepassShader = shaderLoader.Load<kVk>(
+	// {
+	// 	shaderIncludePath / "shaders.slang",
+	// 	SLANG_SOURCE_LANGUAGE_SLANG,
+	// 	SLANG_SPIRV,
+	// 	"sm_6_8",
+	// 	{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+	// });
 
-	rhi->pipeline->BindLayoutAuto(layoutHandle, VK_PIPELINE_BIND_POINT_GRAPHICS);
+	// auto* zPrepassShaderLayout = rhi->pipeline->CreateLayout(zPrepassShader);
+
+	// rhi->pipeline->BindLayoutAuto(zPrepassShaderLayout, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+	// rhi->pipeline->SetDescriptorData(
+	// 	"gModelInstances",
+	// 	DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
+	// 	DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+	// for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
+	// {
+	// 	rhi->pipeline->SetDescriptorData(
+	// 		"gViewData",
+	// 		DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+	// 		DESCRIPTOR_SET_CATEGORY_VIEW,
+	// 		i);
+	// }
+	
+	auto mainShader = shaderLoader.Load<kVk>(
+	{
+		shaderIncludePath / "shaders.slang",
+		SLANG_SOURCE_LANGUAGE_SLANG,
+		SLANG_SPIRV,
+		"sm_6_8",
+		{{"VertexMain", SLANG_STAGE_VERTEX}, {"FragmentMain", SLANG_STAGE_FRAGMENT}},
+	});
+
+	auto* mainShaderLayout = rhi->pipeline->CreateLayout(mainShader);
+
+	rhi->pipeline->BindLayoutAuto(mainShaderLayout, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 	rhi->pipeline->SetDescriptorData(
 		"gMaterialData",

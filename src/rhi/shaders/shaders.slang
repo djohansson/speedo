@@ -35,6 +35,11 @@ struct InputStream : IInputStream
 	uint instanceId : SV_InstanceID;
 };
 
+struct VertexZPrepassOutput : IInterpolants
+{
+	float4 hPos : SV_Position;
+};
+
 struct VertexOutput : IInterpolants
 {
 	VertexP3fN3fT014fC4f vertex;
@@ -70,6 +75,27 @@ float3 SignedOctDecode(float3 n)
 	OutN.z = OutN.z * (1.0 - abs(OutN.x) - abs(OutN.y));
  
 	return normalize(OutN);
+}
+
+VertexZPrepassOutput VertexZPrepass(InputStream input)
+{
+	VertexZPrepassOutput output;
+
+	uint frameIndex = gPushConstants.frameIndex;
+	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+	
+	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
+
+	ViewData view = gViewData[frameIndex][viewId];
+
+	VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
+	ModelInstance i = gModelInstances[input.instanceId];
+
+	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
+	
+	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
+	
+	return output;
 }
 
 VertexOutput VertexMain(InputStream input)
