@@ -1438,6 +1438,22 @@ void RhiApplication::InternalDraw()
 	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
+	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
+	{
+		ZoneScopedN("rhi::draw::processGraphics");
+
+		graphicsQueue.ProcessTimelineCallbacks(graphicsSemaphore.GetValue());
+	}
+
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	for (auto& [transferQueue, transferSubmit] : transferQueueInfos)	
+	{
+		ZoneScopedN("rhi::draw::processTransfers");
+
+		transferQueue.ProcessTimelineCallbacks(transferSemaphore.GetValue());
+	}
+
 	ImGui_ImplVulkan_NewFrame(); // no-op?
 	IMGUIPrepareDrawFunction(rhi, Executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 
@@ -1459,7 +1475,6 @@ void RhiApplication::InternalDraw()
 			ZoneScopedN("rhi::draw::waitGraphics");
 
 			graphicsSemaphore.Wait(timelineValue);
-			graphicsQueue.ProcessTimelineCallbacks(timelineValue);
 		}
 		
 		graphicsQueue.GetPool().Reset();
