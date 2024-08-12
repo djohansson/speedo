@@ -1202,7 +1202,8 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				"materials"},
 			materialData.get());
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
@@ -1218,7 +1219,8 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				"modelInstances"},
 			modelInstances.get());
 
 		cmd.End();
