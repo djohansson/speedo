@@ -409,7 +409,6 @@ template <>
 void Window<kVk>::OnInputStateChanged(const InputState& input)
 {
 	InternalUpdateViews(input);
-	InternalUpdateViewBuffer();
 }
 
 template <>
@@ -417,6 +416,8 @@ uint32_t
 Window<kVk>::Draw(Pipeline<kVk>& pipeline, Queue<kVk>& queue, const RenderInfo<kVk>& renderInfo)
 {
 	ZoneScopedN("Window::draw");
+
+	InternalUpdateViewBuffer();
 
 	return InternalDrawViews(pipeline, queue, renderInfo);
 }
