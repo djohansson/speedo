@@ -76,11 +76,11 @@ std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 
 //NOLINTBEGIN(readability-magic-numbers)
 std::tuple<
-	ModelCreateDesc<kVk>,
 	BufferHandle<kVk>,
 	AllocationHandle<kVk>,
 	BufferHandle<kVk>,
-	AllocationHandle<kVk>>
+	AllocationHandle<kVk>,
+	ModelCreateDesc<kVk>>
 Load(
 	const std::filesystem::path& modelFile,
 	const std::shared_ptr<Device<kVk>>& device,
@@ -89,21 +89,21 @@ Load(
 	ZoneScopedN("model::load");
 
 	std::tuple<
-		ModelCreateDesc<kVk>,
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
 		BufferHandle<kVk>,
-		AllocationHandle<kVk>> descAndInitialData;
+		AllocationHandle<kVk>,
+		ModelCreateDesc<kVk>> initialData;
 
-	auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
+	auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
 
-	auto loadBin = [&modelFile, &descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
+	auto loadBin = [&modelFile, &initialData, &device, &progress](auto& inStream) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
 		progress = 32;
 
-		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
+		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
 		
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
@@ -150,11 +150,11 @@ Load(
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device, &progress](auto& out) -> std::error_code
+	auto saveBin = [&initialData, &device, &progress](auto& out) -> std::error_code
 	{
 		ZoneScopedN("model::saveBin");
 
-		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
+		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
 		
 		if (auto result = out(desc); failure(result))
 			return std::make_error_code(result);
@@ -179,13 +179,13 @@ Load(
 		return {};
 	};
 
-	auto loadOBJ = [&modelFile, &descAndInitialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&modelFile, &initialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
 		progress = 32;
 
-		auto& [desc, ibHandle, ibMemHandle, vbHandle, vbMemHandle] = descAndInitialData;
+		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
 
 		using namespace tinyobj;
 		attrib_t attrib;
@@ -346,7 +346,7 @@ Load(
 
 	CHECKF(vbHandle != nullptr && ibHandle != nullptr, "Failed to load model.");
 
-	return descAndInitialData;
+	return initialData;
 }
 //NOLINTEND(readability-magic-numbers)
 
@@ -358,35 +358,35 @@ Model<kVk>::Model(
 	Queue<kVk>& queue,
 	uint64_t timelineValue,
 	std::tuple<
-		ModelCreateDesc<kVk>,
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
 		BufferHandle<kVk>,
-		AllocationHandle<kVk>>&& descAndInitialData)
-	: myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<0>(descAndInitialData)))
-	, myIndexBuffer(
+		AllocationHandle<kVk>,
+		ModelCreateDesc<kVk>>&& initialData)
+	: myIndexBuffer(
 		  device,
 		  queue,
 		  timelineValue,
 		  std::make_tuple(
+			  std::get<0>(initialData),
+			  std::get<1>(initialData),
 			  BufferCreateDesc<kVk>{
-				  std::get<0>(descAndInitialData).indexCount * sizeof(uint32_t),
+				  std::get<4>(initialData).indexCount * sizeof(uint32_t),
 				  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
-			  std::get<1>(descAndInitialData),
-			  std::get<2>(descAndInitialData)))
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}))
 	, myVertexBuffer(
 		  device,
 		  queue,
 		  timelineValue,
 		  std::make_tuple(
+			  std::get<2>(initialData),
+			  std::get<3>(initialData),
 			  BufferCreateDesc<kVk>{
-				  std::get<0>(descAndInitialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
+				  std::get<4>(initialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
 				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
-			  std::get<3>(descAndInitialData),
-			  std::get<4>(descAndInitialData)))
-	, myBindings(model::CalculateInputBindingDescriptions(myDesc.attributes))
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}))
+	, myBindings(model::CalculateInputBindingDescriptions(std::get<4>(initialData).attributes))
+	, myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<4>(initialData)))
 {}
 
 template <>
@@ -402,8 +402,8 @@ Model<kVk>::Model(
 template <>
 void Model<kVk>::Swap(Model& rhs) noexcept
 {
-	std::swap(myDesc, rhs.myDesc);
 	std::swap(myIndexBuffer, rhs.myIndexBuffer);
 	std::swap(myVertexBuffer, rhs.myVertexBuffer);
 	std::swap(myBindings, rhs.myBindings);
+	std::swap(myDesc, rhs.myDesc);
 }

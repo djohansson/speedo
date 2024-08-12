@@ -43,19 +43,19 @@ public:
 	[[nodiscard]] const auto& GetVertexBuffer() { return myVertexBuffer; }
 	
 private:
-	Model( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
+	Model( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,
 		uint64_t timelineValue,
 		std::tuple<
-			ModelCreateDesc<G>,
 			BufferHandle<G>,
 			AllocationHandle<G>,
 			BufferHandle<G>,
-			AllocationHandle<G>>&& descAndInitialData);
+			AllocationHandle<G>,
+			ModelCreateDesc<G>>&& initialData);
 
-	ModelCreateDesc<G> myDesc{};
 	Buffer<kVk> myIndexBuffer;
 	Buffer<kVk> myVertexBuffer;
 	std::vector<VertexInputBindingDescription<G>> myBindings;
+	ModelCreateDesc<G> myDesc{};
 };

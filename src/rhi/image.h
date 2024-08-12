@@ -78,15 +78,15 @@ public:
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
 
 private:
-	Image( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
+	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,
 		uint64_t timelineValue,
-		std::tuple<ImageCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
+		std::tuple<BufferHandle<G>, AllocationHandle<G>, ImageCreateDesc<G>>&& initialData);
 	Image( // takes ownership of provided image handle & allocation
 		const std::shared_ptr<Device<G>>& device,
-		ImageCreateDesc<G>&& desc,
-		ValueType&& data);
+		ValueType&& data,
+		ImageCreateDesc<G>&& desc);
 
 	template <GraphicsApi GApi>
 	friend class RenderImageSet;
@@ -96,8 +96,8 @@ private:
 	// (which implicitly changes the image layout).
 	void InternalSetImageLayout(ImageLayout<G> layout) noexcept { std::get<2>(myImage) = layout; }
 
-	ImageCreateDesc<G> myDesc{};
 	ValueType myImage{};
+	ImageCreateDesc<G> myDesc{};
 };
 
 template <GraphicsApi G>

@@ -35,13 +35,13 @@ public:
 		const void* initialData);
 	Buffer( // takes ownership of provided buffer handle and allocation
 		const std::shared_ptr<Device<G>>& device,
-		BufferCreateDesc<G>&& desc,
-		ValueType&& buffer);
-	Buffer( // copies buffer in descAndInitialData into the target. descAndInitialData buffer gets automatically garbage collected when copy has finished.
+		ValueType&& buffer,
+		BufferCreateDesc<G>&& desc);
+	Buffer( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
 		Queue<G>& queue,
 		uint64_t timelineValue,
-		std::tuple<BufferCreateDesc<G>, BufferHandle<G>, AllocationHandle<G>>&& descAndInitialData);
+		std::tuple<BufferHandle<G>, AllocationHandle<G>, BufferCreateDesc<G>>&& initialData);
 	~Buffer() override;
 
 	Buffer& operator=(Buffer&& other) noexcept;
@@ -54,8 +54,8 @@ public:
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
 
 private:
-	BufferCreateDesc<G> myDesc{};
 	ValueType myBuffer{};
+	BufferCreateDesc<G> myDesc{};
 };
 
 template <GraphicsApi G>

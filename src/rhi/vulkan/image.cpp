@@ -69,22 +69,22 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 }
 
 //NOLINTBEGIN(readability-magic-numbers)
-std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
+std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	const std::filesystem::path& imageFile,
 	const std::shared_ptr<Device<kVk>>& device,
 	std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("image::load");
 
-	std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> descAndInitialData;
+	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> initialData;
 
-	auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+	auto& [bufferHandle, memoryHandle, desc] = initialData;
 
-	auto loadBin = [&imageFile, &descAndInitialData, &device, &progress](auto& inStream) -> std::error_code
+	auto loadBin = [&imageFile, &initialData, &device, &progress](auto& inStream) -> std::error_code
 	{
 		progress = 32;
 
-		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		auto& [bufferHandle, memoryHandle, desc] = initialData;
 
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
@@ -117,9 +117,9 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		return {};
 	};
 
-	auto saveBin = [&descAndInitialData, &device, &progress](auto& outStream) -> std::error_code
+	auto saveBin = [&initialData, &device, &progress](auto& outStream) -> std::error_code
 	{
-		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		auto& [bufferHandle, memoryHandle, desc] = initialData;
 		
 		if (auto result = outStream(desc); failure(result))
 			return std::make_error_code(result);
@@ -140,11 +140,11 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 		return {};
 	};
 
-	auto loadImage = [&imageFile, &descAndInitialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&imageFile, &initialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		progress = 32;
 
-		auto& [desc, bufferHandle, memoryHandle] = descAndInitialData;
+		auto& [bufferHandle, memoryHandle, desc] = initialData;
 
 		int width;
 		int height;
@@ -333,7 +333,7 @@ std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>> Load(
 
 	CHECKF(bufferHandle != nullptr, "Failed to load image.");
 
-	return descAndInitialData;
+	return initialData;
 }
 //NOLINTEND(readability-magic-numbers)
 
@@ -399,31 +399,31 @@ void Image<kVk>::Clear(
 template <>
 Image<kVk>::Image(Image&& other) noexcept
 	: DeviceObject(std::forward<Image>(other))
-	, myDesc(std::exchange(other.myDesc, {}))
 	, myImage(std::exchange(other.myImage, {}))
+	, myDesc(std::exchange(other.myDesc, {}))
 {}
 
 template <>
 Image<kVk>::Image(
-	const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kVk>&& desc, ValueType&& data)
+	const std::shared_ptr<Device<kVk>>& device, ValueType&& data, ImageCreateDesc<kVk>&& desc)
 	: DeviceObject(
 		  device,
 		  {"_Image"},
 		  1,
 		  VK_OBJECT_TYPE_IMAGE,
 		  reinterpret_cast<uint64_t*>(&std::get<0>(data)))
-	, myDesc(std::forward<ImageCreateDesc<kVk>>(desc))
 	, myImage(std::forward<ValueType>(data))
+	, myDesc(std::forward<ImageCreateDesc<kVk>>(desc))
 {}
 
 template <>
 Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kVk>&& desc)
 	: Image(
-		  device,
-		  std::forward<ImageCreateDesc<kVk>>(desc),
-		  std::tuple_cat(
-			  image::CreateImage2D(device->GetAllocator(), desc),
-			  std::make_tuple(desc.initialLayout)))
+		device,
+		std::tuple_cat(
+			image::CreateImage2D(device->GetAllocator(), desc),
+			std::make_tuple(desc.initialLayout)),
+		std::forward<ImageCreateDesc<kVk>>(desc))
 {}
 
 template <>
@@ -431,30 +431,29 @@ Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
 	Queue<kVk>& queue,
 	uint64_t timelineValue,
-	std::tuple<ImageCreateDesc<kVk>, BufferHandle<kVk>, AllocationHandle<kVk>>&& descAndInitialData)
+	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>>&& initialData)
 	: Image(
-		  device,
-		  std::forward<ImageCreateDesc<kVk>>(std::get<0>(descAndInitialData)),
-		  std::tuple_cat(
-			  image::CreateImage2D(
-				  queue.GetPool().Commands(),
-				  device->GetAllocator(),
-				  std::get<1>(descAndInitialData),
-				  std::get<0>(descAndInitialData)),
-			  std::make_tuple(std::get<0>(descAndInitialData).initialLayout)))
-{
-	queue.AddTimelineCallback(
-	{
-		timelineValue,
-		[allocator = device->GetAllocator(), descAndInitialData](uint64_t)
-		{
-			vmaDestroyBuffer(
-				allocator,
-				std::get<1>(descAndInitialData),
-				std::get<2>(descAndInitialData));
-		}
-	});
-}
+		device,
+		std::tuple_cat(
+			[&queue, &device, &initialData, timelineValue]
+			{
+				queue.AddTimelineCallback(
+				{
+					timelineValue,
+					[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)](uint64_t)
+					{
+						vmaDestroyBuffer(allocator, buffer, memory);
+					}
+				});
+				return image::CreateImage2D(
+					queue.GetPool().Commands(),
+					device->GetAllocator(),
+					std::get<0>(initialData),
+					std::get<2>(initialData));
+			}(),
+			std::make_tuple(std::get<2>(initialData).initialLayout)),
+		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
+{}
 
 template <>
 Image<kVk>::Image(
@@ -465,16 +464,16 @@ Image<kVk>::Image(
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
-		  device,
-		  queue,
-		  timelineValue,
-		  std::tuple_cat(
-			  std::make_tuple(std::forward<ImageCreateDesc<kVk>>(desc)),
-			  CreateStagingBuffer(
-					device->GetAllocator(),
-					initialData,
-					initialDataSize,
-					desc.name.data())))
+		device,
+		queue,
+		timelineValue,
+		std::tuple_cat(
+			CreateStagingBuffer(
+				device->GetAllocator(),
+				initialData,
+				initialDataSize,
+				(desc.name + "_staging").data()),
+			std::make_tuple(std::forward<ImageCreateDesc<kVk>>(desc))))
 {}
 
 template <>
