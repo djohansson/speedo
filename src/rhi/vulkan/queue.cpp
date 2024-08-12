@@ -10,16 +10,18 @@ bool Queue<kVk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::ProcessTimelineCallbacks");
 
-	while (!myTimelineCallbacks.empty())
+	TimelineCallback callbackData;
+	while (myTimelineCallbacks.try_dequeue(callbackData))
 	{
-		const auto& [commandBufferTimelineValue, callback] = myTimelineCallbacks.front();
+		const auto& [commandBufferTimelineValue, callback] = callbackData;
 
 		if (commandBufferTimelineValue > timelineValue)
+		{
+			myTimelineCallbacks.enqueue(std::move(callbackData));
 			return false;
+		}
 
 		callback(commandBufferTimelineValue);
-
-		myTimelineCallbacks.pop_front();
 	}
 
 	return true;
@@ -129,7 +131,7 @@ Queue<kVk>::~Queue()
 		}
 	}
 
-	ASSERT(myTimelineCallbacks.empty());
+	ASSERT(myTimelineCallbacks.size_approx() == 0);
 }
 
 template <>
@@ -141,7 +143,9 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 	myPool = std::exchange(other.myPool, {});
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
 	myScratchMemory = std::exchange(other.myScratchMemory, {});
-	myTimelineCallbacks = std::exchange(other.myTimelineCallbacks, {});
+	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
+	decltype(other.myTimelineCallbacks) tmp;
+	std::swap(other.myTimelineCallbacks, tmp);
 #if (PROFILING_LEVEL > 0)
 	myProfilingContext = std::exchange(other.myProfilingContext, {});
 #endif
@@ -291,7 +295,7 @@ void Queue<kVk>::AddTimelineCallback(TimelineCallback&& callback)
 {
 	ZoneScopedN("Queue::AddTimelineCallback");
 
-	myTimelineCallbacks.emplace_back(std::forward<TimelineCallback>(callback));
+	myTimelineCallbacks.enqueue(std::forward<TimelineCallback>(callback));
 }
 
 template <>

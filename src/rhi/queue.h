@@ -158,7 +158,7 @@ private:
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	std::deque<TimelineCallback> myTimelineCallbacks;
+	ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
 
 #if (PROFILING_LEVEL > 0)
 	void* myProfilingContext = nullptr;
