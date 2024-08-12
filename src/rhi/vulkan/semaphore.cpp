@@ -81,7 +81,7 @@ uint64_t Semaphore<kVk>::GetValue() const
 }
 
 template <>
-void Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
+bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 {
 	ZoneScopedN("Semaphore::wait");
 
@@ -91,12 +91,18 @@ void Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	waitInfo.pSemaphores = &mySemaphore;
 	waitInfo.pValues = &timelineValue;
 
-	VK_CHECK(vkWaitSemaphores(*InternalGetDevice(), &waitInfo, timeout));
+	auto result = vkWaitSemaphores(*InternalGetDevice(), &waitInfo, timeout);
+	if (result == VK_TIMEOUT)
+		return false;
+
+	VK_CHECK(result);
+
+	return true;
 }
 
 template <>
-void Semaphore<kVk>::Wait(
-	const std::shared_ptr<Device<kVk>>& device,
+bool Semaphore<kVk>::Wait(
+	DeviceHandle<kVk> device,
 	std::span<SemaphoreHandle<kVk>> semaphores,
 	std::span<uint64_t> timelineValues,
 	uint64_t timeout)
@@ -109,5 +115,11 @@ void Semaphore<kVk>::Wait(
 	waitInfo.pSemaphores = semaphores.data();
 	waitInfo.pValues = timelineValues.data();
 
-	VK_CHECK(vkWaitSemaphores(*device, &waitInfo, timeout));
+	auto result = vkWaitSemaphores(device, &waitInfo, timeout);
+	if (result == VK_TIMEOUT)
+		return false;
+
+	VK_CHECK(result);
+
+	return true;
 }

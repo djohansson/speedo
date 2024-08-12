@@ -30,9 +30,9 @@ public:
 
 	[[nodiscard]] uint64_t GetValue() const;
 
-	void Wait(uint64_t timelineValue, uint64_t timeout = ~0ULL) const;
-	static void Wait(
-		const std::shared_ptr<Device<G>>& device,
+	[[maybe_unused]] bool Wait(uint64_t timelineValue, uint64_t timeout = ~0ULL) const;
+	[[maybe_unused]] static bool Wait(
+		DeviceHandle<G> device,
 		std::span<SemaphoreHandle<G>> semaphores,
 		std::span<uint64_t> timelineValues,
 		uint64_t timeout = ~0ULL);
