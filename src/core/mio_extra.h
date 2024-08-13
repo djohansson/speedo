@@ -32,8 +32,8 @@ public:
 
 	[[maybe_unused]] std::expected<void, std::error_code> resize(size_t size)//NOLINT(readability-identifier-naming)
 	{
-		myHighWaterMark = std::max(myHighWaterMark, size);
-
+		mySize = size;
+		
 		std::error_code error;
 		mio::mmap_sink::remap(0, size, error);
 		
@@ -43,10 +43,10 @@ public:
 		return {};
 	}
 
-	[[nodiscard]] size_t HighWaterMark() const noexcept { return myHighWaterMark; }
+	[[nodiscard]] size_t Size() const noexcept { return mySize; }
 
 private:
-	size_t myHighWaterMark = 0;
+	size_t mySize = 0;
 };
 
 } // namespace mio_extra

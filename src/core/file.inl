@@ -166,9 +166,9 @@ std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::
 	if (error)
 		return std::unexpected(error);
 
-	glz::write<glz::opts{.prettify = true}>(T{object}, file);
+	glz::write<glz::opts{.prettify = true}>(object, file);
 	
-	file.truncate(file.HighWaterMark(), error);
+	file.truncate(file.Size(), error);
 
 	if (error)
 		return std::unexpected(error);
@@ -376,7 +376,7 @@ std::expected<Record, std::error_code> LoadAsset(
 
 		glz::write<glz::opts{.prettify = true}>(manifest, manifestFile);
 
-		manifestFile.truncate(manifestFile.HighWaterMark(), error);
+		manifestFile.truncate(manifestFile.Size(), error);
 
 		if (error)
 			return std::unexpected(error);
