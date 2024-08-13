@@ -13,12 +13,16 @@ ShaderLoader::ShaderLoader(
 {
 	for (const auto& [sourceLanguage, compilerId, compilerPath] : myDownstreamCompilers)
 	{
-		auto path = std::filesystem::canonical(compilerPath);
+		myCompilerSession->setDefaultDownstreamCompiler(sourceLanguage, compilerId);
 
+		if (!compilerPath || compilerPath->empty())
+			continue;
+
+		auto path = std::filesystem::canonical(compilerPath.value());
+		
 		std::cout << "Set downstream compiler path: " << path << '\n';
 		ASSERT(std::filesystem::is_directory(path));
 
 		myCompilerSession->setDownstreamCompilerPath(compilerId, path.generic_string().c_str());
-		myCompilerSession->setDefaultDownstreamCompiler(sourceLanguage, compilerId);
 	}
 }
