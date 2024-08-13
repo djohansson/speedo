@@ -29,7 +29,7 @@ uint32_t CreateLayoutBindings(
 } // namespace shader
 
 template <GraphicsApi G>
-ShaderSet<G> ShaderLoader::Load(const SlangConfiguration<G>& config)
+ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 {
 	auto shaderSet = ShaderSet<G>{};
 
