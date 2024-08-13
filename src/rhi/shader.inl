@@ -104,7 +104,7 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 		for (const auto& [ep, stage] : config.entryPoints)
 		{
 			CHECKF(spAddEntryPoint(slangRequest, translationUnitIndex, ep.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
-			entryPoints.push_back(std::make_pair("main", shader::GetStageFlag<G>(stage)));
+			entryPoints.emplace_back("main", shader::GetStageFlag<G>(stage), std::nullopt);
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);
@@ -175,15 +175,18 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 				genericParameterIndices,
 				shaderSet.layouts);
 
-		// for (uint32_t epIndex = 0; epIndex < shaderReflection->GetEntryPointCount(); epIndex++)
-		// {
-		// 	slang::EntryPointReflection* epReflection = shaderReflection->GetEntryPointByIndex(epIndex);
-		// SlangUInt threadGroupSize[3];
-		// epReflection->getComputeThreadGruopSize(3, &threadGroupSize[0]);
+		for (uint32_t epIndex = 0; epIndex < shaderReflection->getEntryPointCount(); epIndex++)
+		{
+			slang::EntryPointReflection* epReflection = shaderReflection->getEntryPointByIndex(epIndex);
+			if (epReflection->getStage() != SLANG_STAGE_COMPUTE)
+				continue;
 
-		// 	for (unsigned parameterIndex = 0; parameterIndex < epReflection->getParameterCount(); parameterIndex++)
-		// 		shader::CreateLayoutBindings<G>(epReflection->getParameterByIndex(pp), shaderSet->layouts);
-		// }
+			auto& [shaderBinary, entryPoint] = shaderSet.shaders[epIndex];
+			auto& [epName, epStage, epLaunchParamsOptional] = entryPoint;
+			auto& epLaunchParams = epLaunchParamsOptional.emplace();
+			epReflection->getComputeThreadGroupSize(epLaunchParams.threadGroupSize.size(), epLaunchParams.threadGroupSize.data());
+			epReflection->getComputeWaveSize(&epLaunchParams.waveSize);
+		}
 
 		spDestroyCompileRequest(slangRequest);
 

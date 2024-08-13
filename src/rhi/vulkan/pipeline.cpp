@@ -600,7 +600,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layout, PipelineBin
 
 		for (const auto& shader : shaderModules)
 		{
-			const auto& [entryPointName, shaderStage] = shader.GetEntryPoint();
+			const auto& [entryPointName, shaderStage, launchParams] = shader.GetEntryPoint();
 
 			if ((shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS) != 0)
 			{
