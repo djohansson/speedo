@@ -86,6 +86,7 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 		}
 
 		spSetDebugInfoLevel(slangRequest, config.debugInfoLevel);
+		spSetDebugInfoFormat(slangRequest, config.debugInfoFormat);
 		spSetOptimizationLevel(slangRequest, config.optimizationLevel);
 		spSetMatrixLayoutMode(slangRequest, config.matrixLayoutMode);
 
@@ -94,6 +95,7 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 		int targetIndex = spAddCodeGenTarget(slangRequest, config.target);
 
 		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, config.targetProfile.c_str()));
+		//spSetTargetFlags(slangRequest, targetIndex, 0); SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY
 
 		int translationUnitIndex = spAddTranslationUnit(slangRequest, config.sourceLanguage, nullptr);
 
