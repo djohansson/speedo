@@ -695,9 +695,7 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	static auto gIniFilePath = (std::get<std::filesystem::path>(
-		Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string();
-	io.IniFilename = gIniFilePath.c_str();
+	io.IniFilename = (std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string().c_str();
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	//io.FontGlobalScale = 1.0f;
@@ -1102,7 +1100,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 	WindowState windowState{};
 
-	Window<kVk>::ConfigFile windowConfig = Window<kVk>::ConfigFile{
+	Window<kVk>::ConfigFile windowConfig{
 		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
 
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
