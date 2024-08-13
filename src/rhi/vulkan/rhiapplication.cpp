@@ -1272,8 +1272,14 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		shaderIncludePath / "shaders.slang",
 		SLANG_SOURCE_LANGUAGE_SLANG,
 		SLANG_SPIRV,
-		"sm_6_8",
-		{{"VertexMain", SLANG_STAGE_VERTEX}, {"FragmentMain", SLANG_STAGE_FRAGMENT}},
+		"SPIRV_1_6",
+		{
+			{"VertexMain", SLANG_STAGE_VERTEX},
+			{"FragmentMain", SLANG_STAGE_FRAGMENT},
+			{"ComputeMain", SLANG_STAGE_COMPUTE},
+		},
+		SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+		SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
 	});
 
 	auto* mainShaderLayout = rhi->pipeline->CreateLayout(mainShader);
