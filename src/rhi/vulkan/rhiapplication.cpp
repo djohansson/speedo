@@ -1520,31 +1520,31 @@ void RhiApplication::InternalDraw()
 
 			renderImageSet.End(cmd);
 		}
-		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
-
-		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-		// 	window.Copy(
-		// 		cmd,
-		// 		renderImageSet,
-		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		// 		0,
-		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		// 		0);
-		// }
 		{
-			GPU_SCOPE(cmd, graphicsQueue, blit);
+			GPU_SCOPE(cmd, graphicsQueue, copy);
 
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-			window.Blit(
+			window.Copy(
 				cmd,
 				renderImageSet,
 				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
 				0,
 				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0,
-				VK_FILTER_NEAREST);
+				0);
 		}
+		// {
+		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
+
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+		// 	window.Blit(
+		// 		cmd,
+		// 		renderImageSet,
+		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		0,
+		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		0,
+		// 		VK_FILTER_NEAREST);
+		// }
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
