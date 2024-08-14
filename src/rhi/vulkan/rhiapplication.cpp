@@ -1498,6 +1498,8 @@ void RhiApplication::InternalDraw()
 			Executor().Call(drawCall, newFrameIndex);
 		}
 
+		window.UpdateViewBuffer(); // todo: move to drawCall?
+
 		static constexpr VkClearValue clearValues[] = {
 			{.color = {0.2F, 0.2F, 0.2F, 1.0F}},
 			{.depthStencil = {1.0F, 0}}};
@@ -1516,11 +1518,184 @@ void RhiApplication::InternalDraw()
 			
 			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS, clearValues);
 
-			// TODO(djohansson): kick off jobs for this earier and join here
-			auto drawThreadCount = window.Draw(
-				pipeline,
-				graphicsQueue,
-				renderInfo); 
+			// setup draw parameters
+			uint32_t drawCount = window.GetConfig().splitScreenGrid.width * window.GetConfig().splitScreenGrid.height;
+			uint32_t drawThreadCount = 0;
+
+			std::atomic_uint32_t drawAtomic = 0UL;
+
+			// draw views using secondary command buffers
+			// todo: generalize this to other types of draws
+			if (pipeline.GetResources().model)
+			{
+				ZoneScopedN("rhi::draw::drawViews");
+
+				drawThreadCount =
+					std::min<uint32_t>(drawCount, std::max(1U, graphicsQueue.GetPool().GetDesc().levelCount - 1));
+
+				std::array<uint32_t, 128> seq;
+				std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
+				std::for_each_n(
+					std::execution::par,
+					seq.begin(),
+					drawThreadCount,
+					[&pipeline,
+					&queue = graphicsQueue,
+					&renderInfo,
+					frameIndex = newFrameIndex,
+					&drawAtomic,
+					&drawCount,
+					&desc = window.GetConfig()](uint32_t threadIt)
+					{
+						ZoneScoped;
+
+						auto drawIt = drawAtomic++;
+						if (drawIt >= drawCount)
+							return;
+
+						auto zoneNameStr = std::format("Window::drawPartition thread:{}", threadIt);
+
+						ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
+
+						CommandBufferInheritanceInfo<kVk> inheritInfo{
+							VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+
+						CommandBufferAccessScopeDesc<kVk> beginInfo{};
+						beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
+										VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+						beginInfo.pInheritanceInfo = &inheritInfo;
+						beginInfo.level = threadIt + 1;
+
+						uint32_t dx = 0;
+						uint32_t dy = 0;
+
+						if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderInfo))
+						{
+							inheritInfo.renderPass = renderPassBeginInfo->renderPass;
+							inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
+
+							dx = renderPassBeginInfo->renderArea.extent.width / desc.splitScreenGrid.width;
+							dy = renderPassBeginInfo->renderArea.extent.height / desc.splitScreenGrid.height;
+						}
+						else
+						{
+							// todo: dynamic rendering
+							CHECK(false);
+						}
+
+						auto cmd = queue.GetPool().Commands(beginInfo);
+
+						auto bindState = [&pipeline](VkCommandBuffer cmd)
+						{
+							ZoneScopedN("bindState");
+
+							// bind descriptor sets
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+							// bind pipeline and buffers
+							pipeline.BindPipelineAuto(cmd);
+
+							BufferHandle<kVk> vbs[] = {pipeline.GetResources().model->GetVertexBuffer()};
+							DeviceSize<kVk> offsets[] = {0};
+							vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
+							vkCmdBindIndexBuffer(cmd, pipeline.GetResources().model->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
+						};
+
+						bindState(cmd);
+
+						PushConstants pushConstants{.frameIndex = frameIndex};
+
+						ASSERT(dx > 0);
+						ASSERT(dy > 0);
+
+						while (drawIt < drawCount)
+						{
+							auto drawView = [&pushConstants, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
+							{
+								ZoneScopedN("drawView");
+
+								uint32_t i = viewIt % desc.splitScreenGrid.width;
+								uint32_t j = viewIt / desc.splitScreenGrid.width;
+
+								auto setViewportAndScissor = [](VkCommandBuffer cmd,
+																int32_t x,
+																int32_t y,
+																uint32_t width,
+																uint32_t height)
+								{
+									ZoneScopedN("setViewportAndScissor");
+
+									VkViewport viewport{};
+									viewport.x = static_cast<float>(x);
+									viewport.y = static_cast<float>(y);
+									viewport.width = static_cast<float>(width);
+									viewport.height = static_cast<float>(height);
+									viewport.minDepth = 0.0F;
+									viewport.maxDepth = 1.0F;
+
+									ASSERT(width > 0);
+									ASSERT(height > 0);
+
+									VkRect2D scissor{};
+									scissor.offset = {x, y};
+									scissor.extent = {width, height};
+
+									vkCmdSetViewport(cmd, 0, 1, &viewport);
+									vkCmdSetScissor(cmd, 0, 1, &scissor);
+								};
+
+								setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+
+								uint16_t viewIndex = viewIt;
+								uint16_t materialIndex = 0UI16;
+
+								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | materialIndex;
+
+								auto drawModel = [&pushConstants, &pipeline](VkCommandBuffer cmd)
+								{
+									ZoneScopedN("drawModel");
+
+									{
+										ZoneScopedN("drawModel::vkCmdPushConstants");
+
+										vkCmdPushConstants(
+											cmd,
+											pipeline.GetLayout(),
+											VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
+											0,
+											sizeof(pushConstants),
+											&pushConstants);
+									}
+
+									{
+										ZoneScopedN("drawModel::vkCmdDrawIndexed");
+
+										vkCmdDrawIndexed(
+											cmd,
+											pipeline.GetResources().model->GetDesc().indexCount,
+											1,
+											0,
+											0,
+											666);
+									}
+								};
+
+								drawModel(cmd);
+							};
+
+							drawView(drawIt);
+
+							drawIt = drawAtomic++;
+						}
+
+						cmd.End();
+					});
+			}
 
 			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
 				graphicsQueue.Execute(

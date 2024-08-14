@@ -64,15 +64,9 @@ public:
 	void OnResizeFramebuffer(int w, int h);
 	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
-	// todo: generalize, move out of window. use sorted draw call lists.
-	uint32_t Draw(
-		Pipeline<G>& pipeline,
-		Queue<G>& queue,
-		const RenderInfo<G>& renderInfo);
-	//
+	void UpdateViewBuffer() const { InternalUpdateViewBuffer(); }
 
 private:
-	
 	void InternalUpdateViewBuffer() const;
 	void InternalInitializeViews();
 	void InternalUpdateViews(const InputState& input);
