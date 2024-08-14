@@ -724,6 +724,7 @@ static void IMGUIInit(
 	ImFontConfig config;
 	config.OversampleH = 2;
 	config.OversampleV = 2;
+	config.RasterizerDensity = std::max(window.GetConfig().contentScale.x, window.GetConfig().contentScale.y);
 	config.PixelSnapH = false;
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
