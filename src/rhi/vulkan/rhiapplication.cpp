@@ -1207,7 +1207,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			materialData.get());
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
-		constexpr auto kIdentityMatrix = glm::mat4x4(1.0);
+		static const auto kIdentityMatrix = glm::mat4x4(1.0);
 		std::copy_n(&kIdentityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
 		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
 		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
@@ -1477,8 +1477,8 @@ void RhiApplication::InternalDraw()
 
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 		// auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
-		//auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
+		//auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 		auto& renderImageSet = *rhi.renderImageSet;
 
