@@ -51,7 +51,6 @@ struct IRenderTarget
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex) = 0;
 
-
 	virtual void Clear(
 		CommandBufferHandle<G> cmd,
 		const ClearValue<G>& value,
