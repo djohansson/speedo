@@ -38,11 +38,6 @@ static struct cag_option gCmdArgs[] =
 static struct PathConfig gPaths = { NULL, NULL };
 static volatile bool gIsInterrupted = false;
 
-void OnExit(void) 
-{
-	DestroyServer();
-}
-
 static void OnSignal(int signal)
 {
 	switch (signal)
@@ -114,9 +109,9 @@ int main(int argc, char* argv[], char* envp[])
 
 	CreateServer(&gPaths);
 
-	atexit(OnExit);
-
 	while (TickServer() && !gIsInterrupted) {};
+
+	DestroyServer();
 
 	return EXIT_SUCCESS;
 }

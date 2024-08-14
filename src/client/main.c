@@ -47,17 +47,6 @@ static struct KeyboardEvent gKeyboard;
 static struct PathConfig gPaths;
 static volatile bool gIsInterrupted = false;
 
-static void OnExit(void) 
-{
-	size_t windowCount;
-	WindowHandle* windows = GetWindows(&windowCount);
-	for (size_t i = 0; i < windowCount; ++i)
-		glfwDestroyWindow(windows[i]);
-
-	DestroyClient();
-	glfwTerminate();
-}
-
 static void OnSignal(int signal)
 {
 	switch (signal)
@@ -454,8 +443,6 @@ int main(int argc, char* argv[], char* envp[])
 
 	CreateClient(OnCreateWindow, &gPaths);
 
-	atexit(OnExit);
-
 	glfwSetMonitorCallback(OnMonitorChanged);
 
 	WindowHandle window = GetCurrentWindow();
@@ -465,6 +452,15 @@ int main(int argc, char* argv[], char* envp[])
 
 	do { glfwWaitEvents();
 	} while (!(bool)glfwWindowShouldClose(window) && TickClient() && !gIsInterrupted);
+
+	size_t windowCount;
+	WindowHandle* windows = GetWindows(&windowCount);
+	for (size_t i = 0; i < windowCount; ++i)
+		glfwDestroyWindow(windows[i]);
+
+	DestroyClient();
+
+	glfwTerminate();
 
 	return EXIT_SUCCESS;
 }
