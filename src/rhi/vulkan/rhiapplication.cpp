@@ -695,7 +695,7 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	io.IniFilename = (std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "imgui.ini").generic_string().c_str();
+	io.IniFilename = nullptr;
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	//io.FontGlobalScale = 1.0f;
