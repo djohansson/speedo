@@ -1239,51 +1239,55 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 
-	// auto zPrepassShader = shaderLoader.Load<kVk>(
-	// {
-	// 	shaderIncludePath / "shaders.slang",
-	// 	SLANG_SOURCE_LANGUAGE_SLANG,
-	// 	SLANG_SPIRV,
-	// 	"sm_6_8",
-	// 	{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-	// });
+	auto shaderSourceFile = shaderIncludePath / "shaders.slang";
 
-	// auto* zPrepassShaderLayout = rhi->pipeline->CreateLayout(zPrepassShader);
-
-	// rhi->pipeline->BindLayoutAuto(zPrepassShaderLayout, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	// rhi->pipeline->SetDescriptorData(
-	// 	"gModelInstances",
-	// 	DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
-	// 	DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-	// for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-	// {
-	// 	rhi->pipeline->SetDescriptorData(
-	// 		"gViewData",
-	// 		DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-	// 		DESCRIPTOR_SET_CATEGORY_VIEW,
-	// 		i);
-	// }
-	
-	auto mainShader = shaderLoader.Load<kVk>(
-	{
-		shaderIncludePath / "shaders.slang",
-		SLANG_SOURCE_LANGUAGE_SLANG,
-		SLANG_SPIRV,
-		"SPIRV_1_6",
+	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
+		"VertexZPrepass",
+		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
 		{
-			{"VertexMain", SLANG_STAGE_VERTEX},
-			{"FragmentMain", SLANG_STAGE_FRAGMENT},
-			{"ComputeMain", SLANG_STAGE_COMPUTE},
-		},
-		SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-		SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-	});
+			shaderSourceFile,
+			SLANG_SOURCE_LANGUAGE_SLANG,
+			SLANG_SPIRV,
+			"SPIRV_1_6",
+			{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+			SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+			SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+		})));
 
-	auto* mainShaderLayout = rhi->pipeline->CreateLayout(mainShader);
+	rhi->pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-	rhi->pipeline->BindLayoutAuto(mainShaderLayout, VK_PIPELINE_BIND_POINT_GRAPHICS);
+	rhi->pipeline->SetDescriptorData(
+		"gModelInstances",
+		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
+		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
+	{
+		rhi->pipeline->SetDescriptorData(
+			"gViewData",
+			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DESCRIPTOR_SET_CATEGORY_VIEW,
+			i);
+	}
+
+	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
+		"Main",
+		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
+		{
+			shaderSourceFile,
+			SLANG_SOURCE_LANGUAGE_SLANG,
+			SLANG_SPIRV,
+			"SPIRV_1_6",
+			{
+				{"VertexMain", SLANG_STAGE_VERTEX},
+				{"FragmentMain", SLANG_STAGE_FRAGMENT},
+				{"ComputeMain", SLANG_STAGE_COMPUTE},
+			},
+			SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+			SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+		})));
+
+	rhi->pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 	rhi->pipeline->SetDescriptorData(
 		"gMaterialData",

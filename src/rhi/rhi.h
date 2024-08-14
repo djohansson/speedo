@@ -28,6 +28,8 @@ struct Rhi
 	UnorderedMap<QueueType, QueueGroup<G>> queues;
 	UnorderedMap<WindowHandle, Window<G>> windows;
 
+	// temp until we have a proper resource manager
+	UnorderedMap<std::string, PipelineLayoutHandle<G>> pipelineLayouts;
 	//std::unique_ptr<ResourceContext<G>> resources;
 
 	std::shared_ptr<RenderImageSet<G>> renderImageSet;
