@@ -58,21 +58,6 @@ static void OnSignal(int signal)
 	ctrace_print_stacktrace(&trace, stderr, 1);
 }
 
-const char* GetCmdOption(char** begin, char** end, const char* option)
-{
-	ASSERT(begin != NULL);
-	ASSERT(end != NULL);
-	ASSERT(option != NULL);
-
-	while (begin != end)
-	{
-		if (strcmp(*begin++, option) == 0)
-			return *begin;
-	}
-
-	return NULL;
-}
-
 int main(int argc, char* argv[], char* envp[])
 {
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
