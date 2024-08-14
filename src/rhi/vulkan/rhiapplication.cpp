@@ -19,6 +19,7 @@
 
 #include <nfd.h>
 
+#include <execution>
 #include <shared_mutex>
 
 namespace rhiapplication
