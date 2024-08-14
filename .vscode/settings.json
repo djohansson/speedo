@@ -126,6 +126,7 @@
 		"capi.h": "c",
 		"simd": "cpp",
 		"unistd.h": "c",
-		"features.h": "c"
+		"features.h": "c",
+		"string.h": "c"
 	}
 }
