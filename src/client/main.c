@@ -349,7 +349,6 @@ int main(int argc, char* argv[], char* envp[])
 	signal(SIGINT, &OnSignal);
 	signal(SIGTERM, &OnSignal);
 	signal(SIGILL, &OnSignal);
-	signal(SIGTRAP, &OnSignal);
 	signal(SIGABRT, &OnSignal);
 	signal(SIGFPE, &OnSignal);
 	signal(SIGSEGV, &OnSignal);
