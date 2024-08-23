@@ -10,6 +10,10 @@
 {
 	Using(.CompilerBaseConfig)
 
+	.GlmDefines = ' -DGLM_FORCE_MESSAGES'
+			+ ' -DGLM_FORCE_INTRINSICS'
+			+ ' -DGLM_FORCE_DEFAULT_ALIGNED_GENTYPES'
+
 	// .StdModule =
 	// [
 	// 	Using(.LibraryCommon)
@@ -35,6 +39,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
@@ -51,9 +56,13 @@
 		
 		.Name = 'rhi'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
+			+ ' -I$ProjectBasePath$'
+			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ .GlmDefines
+			+ ' -DSHADERTYPES_H_CPU_TARGET'
+			+ ' -DUUID_SYSTEM_GENERATOR'
 #if __WINDOWS__
 			+ ' -DVK_USE_PLATFORM_WIN32_KHR=1'
-			+ ' -DSTBI_NO_SIMD' // fixme: linker errors otherwise
 #endif //__WINDOWS__
 #if __OSX__
 			//+ ' -DVK_USE_PLATFORM_MACOS_MVK=1'
@@ -64,10 +73,6 @@
 			+ ' -DVK_USE_PLATFORM_XCB_KHR=1'
 			// + ' -DVK_USE_PLATFORM_XLIB_KHR=1'
 #endif //__LINUX__
-			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
-			+ ' -DSHADERTYPES_H_CPU_TARGET'
-			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-unknown-attributes'
 			+ ' -Wno-unused-function'
@@ -88,6 +93,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ .GlmDefines
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-missing-braces'
 		.CompilerInputPath = '$ProjectBasePath$/gfx'
@@ -104,6 +110,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZMQ_BUILD_DRAFT_API'
 			+ ' -Wno-deprecated-builtins'
@@ -168,6 +175,7 @@
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZMQ_BUILD_DRAFT_API'
 			+ ' -Wno-deprecated-builtins'
@@ -265,6 +273,7 @@
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/src'
 			+ ' -isystem $BuildRootPath$/build.vcpkg/$Triplet$/include'
+			+ .GlmDefines
 		.CompilerInputPath = '$ProjectBasePath$'
 		.CompilerInputPattern = '*.cpp'
 	]
