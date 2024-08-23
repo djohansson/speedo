@@ -8,7 +8,7 @@
 #include <tuple>
 
 template <typename T, size_t N>
-struct AABB
+struct Bounds
 {
 	static constexpr size_t kDimension = N;
 	static constexpr size_t kCornerCount = 1 << kDimension;
@@ -17,7 +17,7 @@ struct AABB
 
 	using ScalarType = T;
 	using VectorType = glm::vec<kDimension, ScalarType, glm::defaultp>;
-	using Type = AABB<ScalarType, kDimension>;
+	using Type = Bounds<ScalarType, kDimension>;
 
 	template <typename U>
 	using OtherVectorType = glm::vec<kDimension, U, glm::defaultp>;
@@ -47,7 +47,7 @@ struct AABB
 	}
 
 	template <typename U = ScalarType>
-	[[nodiscard]] constexpr bool Contains(const AABB<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
+	[[nodiscard]] constexpr bool Contains(const Bounds<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
 	{
 		return ((other.myMax > (myMax + VectorType(epsilon))) == 0) &&
 			   ((other.myMin < (myMin - VectorType(epsilon))) == 0);
@@ -62,28 +62,28 @@ struct AABB
 	}
 
 	template <typename U = ScalarType>
-	[[nodiscard]] constexpr bool ContainsExclusive(const AABB<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
+	[[nodiscard]] constexpr bool ContainsExclusive(const Bounds<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
 	{
 		return ((other.myMax >= (myMax + VectorType(epsilon))) == 0) &&
 			   ((other.myMin <= (myMin - VectorType(epsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	[[nodiscard]] constexpr bool Intersects(const AABB<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
+	[[nodiscard]] constexpr bool Intersects(const Bounds<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
 	{
 		return ((other.myMin >= (myMax + VectorType(epsilon))) == 0) &&
 			   ((other.myMax <= (myMin - VectorType(epsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	[[nodiscard]] constexpr bool Overlaps(const AABB<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
+	[[nodiscard]] constexpr bool Overlaps(const Bounds<U, N>& other, const ScalarType epsilon = ScalarType(0)) const noexcept
 	{
 		return ((other.myMin > (myMax + VectorType(epsilon))) == 0) &&
 			   ((other.myMax < (myMin - VectorType(epsilon))) == 0);
 	}
 
 	template <typename U = ScalarType>
-	constexpr void Merge(const AABB<U, N>& other) noexcept
+	constexpr void Merge(const Bounds<U, N>& other) noexcept
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(other.myMin));
 		myMax = glm::max(myMax, static_cast<VectorType>(other.myMax));
@@ -131,7 +131,7 @@ struct AABB
 	VectorType myMax{};
 };
 
-using AABB2d = AABB<double, 2>;
-using AABB2f = AABB<float, 2>;
-using AABB3d = AABB<double, 3>;
-using AABB3f = AABB<float, 3>;
+using Bounds2d = Bounds<double, 2>;
+using Bounds2f = Bounds<float, 2>;
+using Bounds3d = Bounds<double, 3>;
+using Bounds3f = Bounds<float, 3>;

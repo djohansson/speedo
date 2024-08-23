@@ -4,7 +4,7 @@
 
 #include <core/file.h>
 #include <core/std_extra.h>
-#include <gfx/aabb.h>
+#include <gfx/bounds.h>
 #include <gfx/vertex.h>
 
 #include <algorithm>
@@ -24,7 +24,7 @@
 
 //NOLINTBEGIN(readability-identifier-naming)
 [[nodiscard]] zpp::bits::members<std_extra::member_count<ModelCreateDesc<kVk>>()> serialize(const ModelCreateDesc<kVk>&);
-[[nodiscard]] zpp::bits::members<std_extra::member_count<AABB3f>()> serialize(const AABB3f&);
+[[nodiscard]] zpp::bits::members<std_extra::member_count<Bounds3f>()> serialize(const Bounds3f&);
 //NOLINTEND(readability-identifier-naming)
 
 namespace model
@@ -287,7 +287,7 @@ Load(
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.Size() - 1);
 
 					if (!attrib.vertices.empty())
-						desc.aabb.Merge(
+						desc.bounds.Merge(
 							std::to_array(vertex.DataAs<decltype(VertexP3fN3fT014fC4f::position)>(offsetof(VertexP3fN3fT014fC4f, position))));
 				}
 				else

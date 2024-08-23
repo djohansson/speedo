@@ -3,7 +3,7 @@
 #include "buffer.h"
 #include "device.h"
 
-#include <gfx/aabb.h>
+#include <gfx/bounds.h>
 #include <gfx/vertex.h>
 
 #include <memory>
@@ -13,7 +13,7 @@
 template <GraphicsApi G>
 struct ModelCreateDesc
 {
-	AABB3f aabb;
+	Bounds3f bounds;
 	uint32_t indexCount = 0;
 	uint32_t vertexCount = 0;
 	std::vector<VertexInputAttributeDescription<G>> attributes;
