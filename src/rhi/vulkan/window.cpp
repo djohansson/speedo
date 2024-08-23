@@ -31,15 +31,15 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 	ASSERT(viewCount <= SHADER_TYPES_VIEW_COUNT);
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
-		auto mvp = myViews[viewIt].GetProjectionMatrix() * glm::mat4(myViews[viewIt].GetViewMatrix());
+		auto mvp = myCameras[viewIt].GetProjectionMatrix() * myCameras[viewIt].GetViewMatrix();
 #if GLM_ARCH & GLM_ARCH_AVX_BIT
-		_mm256_stream_ps(&viewDataPtr->viewProjection[0][0], _mm256_set_m128(mvp[0], mvp[1]));
-		_mm256_stream_ps(&viewDataPtr->viewProjection[2][0], _mm256_set_m128(mvp[2], mvp[3]));
+		_mm256_stream_ps(&viewDataPtr->viewProjection[0][0], _mm256_insertf128_ps(_mm256_castps128_ps256(mvp[0].data), mvp[1].data, 1));
+		_mm256_stream_ps(&viewDataPtr->viewProjection[2][0], _mm256_insertf128_ps(_mm256_castps128_ps256(mvp[2].data), mvp[3].data, 1));
 #elif GLM_ARCH & GLM_ARCH_SSE2_BIT
-		_mm_stream_ps(&viewDataPtr->viewProjection[0][0], mvp[0]);
-		_mm_stream_ps(&viewDataPtr->viewProjection[1][0], mvp[1]);
-		_mm_stream_ps(&viewDataPtr->viewProjection[2][0], mvp[2]);
-		_mm_stream_ps(&viewDataPtr->viewProjection[3][0], mvp[3]);
+		_mm_stream_ps(&viewDataPtr->viewProjection[0][0], mvp[0].data);
+		_mm_stream_ps(&viewDataPtr->viewProjection[1][0], mvp[1].data);
+		_mm_stream_ps(&viewDataPtr->viewProjection[2][0], mvp[2].data);
+		_mm_stream_ps(&viewDataPtr->viewProjection[3][0], mvp[3].data);
 #else
 		std::copy_n(&mvp[0][0], 16, &viewDataPtr->viewProjection[0][0]);
 #endif
@@ -58,7 +58,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 template <>
 void Window<kVk>::InternalInitializeViews()
 {
-	myViews.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
+	myCameras.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
 	unsigned width = myConfig.swapchainConfig.extent.width / myConfig.splitScreenGrid.width;
 	unsigned height = myConfig.swapchainConfig.extent.height / myConfig.splitScreenGrid.height;
@@ -66,12 +66,12 @@ void Window<kVk>::InternalInitializeViews()
 	for (unsigned j = 0; j < myConfig.splitScreenGrid.height; j++)
 		for (unsigned i = 0; i < myConfig.splitScreenGrid.width; i++)
 		{
-			auto& view = myViews[j * myConfig.splitScreenGrid.width + i];
-			view.GetDesc().viewport.x = i * width;
-			view.GetDesc().viewport.y = j * height;
-			view.GetDesc().viewport.width = width;
-			view.GetDesc().viewport.height = height;
-			view.UpdateAll();
+			auto& cam = myCameras[j * myConfig.splitScreenGrid.width + i];
+			cam.GetDesc().viewport.x = i * width;
+			cam.GetDesc().viewport.y = j * height;
+			cam.GetDesc().viewport.width = width;
+			cam.GetDesc().viewport.height = height;
+			cam.UpdateAll();
 		}
 }
 
@@ -123,20 +123,20 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 		// todo: generic view index calculation
 		size_t viewIdx = myConfig.splitScreenGrid.width * input.mouse.position[0] / (myConfig.swapchainConfig.extent.width / myConfig.contentScale.x);
 		size_t viewIdy = myConfig.splitScreenGrid.height * input.mouse.position[1] / (myConfig.swapchainConfig.extent.height / myConfig.contentScale.y);
-		myActiveView = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myViews.size() - 1);
+		myActiveCamera = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myCameras.size() - 1);
 
-		//std::cout << *myActiveView << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
+		//std::cout << *myActiveCamera << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
 	}
 	else if (!input.mouse.leftDown)
 	{
-		myActiveView.reset();
+		myActiveCamera.reset();
 
-		//std::cout << "myActiveView.reset()" << '\n';
+		//std::cout << "myActiveCamera.reset()" << '\n';
 	}
 
-	if (myActiveView)
+	if (myActiveCamera)
 	{
-		//std::cout << "window.myActiveView read/consume" << '\n';
+		//std::cout << "window.myActiveCamera read/consume" << '\n';
 
 		float dx = 0.F;
 		float dz = 0.F;
@@ -166,7 +166,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 			}
 		}
 
-		auto& view = myViews[*myActiveView];
+		auto& view = myCameras[*myActiveCamera];
 
 		bool doUpdateViewMatrix = false;
 
@@ -178,10 +178,10 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 
 			constexpr auto kMoveSpeed = 0.000000002F;
 
-			view.GetDesc().cameraPosition += dt * (dz * forward + dx * strafe) * kMoveSpeed;
+			view.GetDesc().position += dt * (dz * forward + dx * strafe) * kMoveSpeed;
 
-			// std::cout << *myActiveView << ":pos:[" << view.GetDesc().cameraPosition.x << ", " <<
-			//     view.GetDesc().cameraPosition.y << ", " << view.GetDesc().cameraPosition.z << "]" << '\n';
+			// std::cout << *myActiveCamera << ":pos:[" << view.GetDesc().position.x << ", " <<
+			//     view.GetDesc().position.y << ", " << view.GetDesc().position.z << "]" << '\n';
 
 			doUpdateViewMatrix = true;
 		}
@@ -206,7 +206,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 			view.GetDesc().cameraRotation +=
 				dt * glm::vec3(dM[1] / windowHeight, dM[0] / windowWidth, 0.0F) * kRotSpeed;
 
-			// std::cout << *myActiveView << ":rot:[" << view.GetDesc().cameraRotation.x << ", " <<
+			// std::cout << *myActiveCamera << ":rot:[" << view.GetDesc().cameraRotation.x << ", " <<
 			//     view.GetDesc().cameraRotation.y << ", " << view.GetDesc().cameraRotation.z << "]" << '\n';
 
 			doUpdateViewMatrix = true;
@@ -214,7 +214,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 
 		if (doUpdateViewMatrix)
 		{
-			myViews[*myActiveView].UpdateViewMatrix();
+			myCameras[*myActiveCamera].UpdateViewMatrix();
 		}
 	}
 }
@@ -263,8 +263,8 @@ Window<kVk>::Window(Window&& other) noexcept
 	, myState(std::exchange(other.myState, {}))
 	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
 	, myTimestamps(std::exchange(other.myTimestamps, {}))
-	, myViews(std::exchange(other.myViews, {}))
-	, myActiveView(std::exchange(other.myActiveView, {}))
+	, myCameras(std::exchange(other.myCameras, {}))
+	, myActiveCamera(std::exchange(other.myActiveCamera, {}))
 {}
 
 template <>
@@ -281,8 +281,8 @@ Window<kVk>& Window<kVk>::operator=(Window&& other) noexcept
 	myState = std::exchange(other.myState, {});
 	myViewBuffers = std::exchange(other.myViewBuffers, {});
 	myTimestamps = std::exchange(other.myTimestamps, {});
-	myViews = std::exchange(other.myViews, {});
-	myActiveView = std::exchange(other.myActiveView, {});
+	myCameras = std::exchange(other.myCameras, {});
+	myActiveCamera = std::exchange(other.myActiveCamera, {});
 	return *this;
 }
 
@@ -294,6 +294,6 @@ void Window<kVk>::Swap(Window& other) noexcept
 	std::swap(myState, other.myState);
 	std::swap(myViewBuffers, other.myViewBuffers);
 	std::swap(myTimestamps, other.myTimestamps);
-	std::swap(myViews, other.myViews);
-	std::swap(myActiveView, other.myActiveView);
+	std::swap(myCameras, other.myCameras);
+	std::swap(myActiveCamera, other.myActiveCamera);
 }

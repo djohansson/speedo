@@ -1,19 +1,20 @@
-#include "view.h"
+#include "camera.h"
 
 #include <core/assert.h>
 
-void View::UpdateViewMatrix()
+
+void Camera::UpdateViewMatrix()
 {
 	auto rotx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));
 	auto roty = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.y, glm::vec3(0, -1, 0));
-	auto trans = glm::translate(glm::mat4(1.0), -myDesc.cameraPosition);
+	auto trans = glm::translate(glm::mat4(1.0), -myDesc.position);
 
 	myViewMatrix = glm::inverse(trans * roty * rotx);
 }
 
-void View::UpdateProjectionMatrix()
+void Camera::UpdateProjectionMatrix()
 {
-	switch (myDesc.type)
+	switch (myDesc.viewport.type)
 	{
 	case ViewType::Perspective: {
 		static const glm::mat4 kClip{

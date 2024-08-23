@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/std_extra.h>
 #include <gfx/glm_extra.h>
 
 #include <cstdint>
@@ -17,22 +18,32 @@ struct ViewportCreateDesc
 	uint16_t height = 0;
 	float minDepth = 0.0f;
 	float maxDepth = 1.0f;
-};
-
-struct ViewCreateDesc
-{
 	ViewType type = ViewType::Perspective;
-	ViewportCreateDesc viewport{};
-	glm::vec3 cameraPosition = glm::vec3(0.0f, -2.0f, 0.0f);
-	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0);
 };
 
-class View
+struct CameraCreateDesc
+{
+	glm::vec3 position = glm::vec3(0.0f, -2.0f, 0.0f);
+	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0);
+	ViewportCreateDesc viewport{};
+};
+
+enum FrustumPlane
+{
+	Left, // -x
+	Right, // +x
+	Bottom, // -y
+	Top, // +y
+	Back, // -z
+	Front // +z
+};
+
+class Camera
 {
 public:
-	constexpr View() noexcept = default;
-	View(ViewCreateDesc&& data)
-		: myDesc(std::forward<ViewCreateDesc>(data))
+	constexpr Camera() noexcept = default;
+	Camera(CameraCreateDesc&& data)
+		: myDesc(std::forward<CameraCreateDesc>(data))
 	{
 		UpdateAll();
 	}
@@ -42,6 +53,9 @@ public:
 
 	[[nodiscard]] auto& GetDesc() noexcept { return myDesc; }
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+
+	template <FrustumPlane Plane>
+	[[nodiscard]] glm::vec4 GetFrustumPlane() const noexcept;
 
 	void UpdateViewMatrix();
 	void UpdateProjectionMatrix();
@@ -53,7 +67,9 @@ public:
 	}
 
 private:
-	ViewCreateDesc myDesc{};
-	glm::mat4x3 myViewMatrix = glm::mat4x3(1.0f);
+	glm::mat4 myViewMatrix = glm::mat4(1.0f); // could be 4x3 but glm does not optimize that well
 	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
+	CameraCreateDesc myDesc{};
 };
+
+#include "camera.inl"
