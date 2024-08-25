@@ -422,68 +422,58 @@ Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kV
 		device,
 		std::tuple_cat(
 			image::CreateImage2D(device->GetAllocator(), desc),
-			std::make_tuple(desc.initialLayout)),
+			std::make_tuple(desc.initialLayout),
+			std::make_tuple(std::optional<TimelineCallback>())),
 		std::forward<ImageCreateDesc<kVk>>(desc))
 {}
 
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
-	Queue<kVk>& queue,
-	uint64_t timelineValue,
+	CommandBufferHandle<kVk> cmd,
 	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>>&& initialData)
 	: Image(
 		device,
 		std::tuple_cat(
-			[&queue, &device, &initialData, timelineValue]
+			[&cmd, &device, &initialData]
 			{
-				queue.AddTimelineCallback(
-				{
-					timelineValue,
-					[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)](uint64_t)
-					{
-						vmaDestroyBuffer(allocator, buffer, memory);
-					}
-				});
-				return image::CreateImage2D(
-					queue.GetPool().Commands(),
-					device->GetAllocator(),
-					std::get<0>(initialData),
-					std::get<2>(initialData));
+				return image::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
 			}(),
-			std::make_tuple(std::get<2>(initialData).initialLayout)),
+			std::make_tuple(std::get<2>(initialData).initialLayout),
+			std::make_tuple(TimelineCallback(
+				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)](uint64_t)
+				{
+					vmaDestroyBuffer(allocator, buffer, memory);
+				}))),
 		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
 {}
 
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
-	Queue<kVk>& queue,
-	uint64_t timelineValue,
+	CommandBufferHandle<kVk> cmd,
 	ImageCreateDesc<kVk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
 		device,
-		queue,
-		timelineValue,
+		cmd,
 		std::tuple_cat(
 			CreateStagingBuffer(
 				device->GetAllocator(),
 				initialData,
 				initialDataSize,
-				(desc.name + "_staging").data()),
+				desc.name.data()),
 			std::make_tuple(std::forward<ImageCreateDesc<kVk>>(desc))))
 {}
 
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
-	Queue<kVk>& queue,
-	uint64_t timelineValue,
+	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& imageFile,
 	std::atomic_uint8_t& progress)
-	: Image(device, queue, timelineValue, image::Load(imageFile, device, progress))
+	: Image(device, cmd, image::Load(imageFile, device, progress))
 {}
 
 template <>

@@ -43,31 +43,31 @@ static void LoadModel(
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
-	auto oldModel = rhi.pipeline->SetModel(
-		std::make_shared<Model<kVk>>(
-			rhi.device,
-			transferQueue,
-			++transferSemaphoreValue,
-			openFilePath,
-			progress));
+	auto newModel = std::make_shared<Model<kVk>>(
+		rhi.device,
+		transferQueue.GetPool().Commands(),
+		openFilePath,
+		progress);
+	auto oldModel = rhi.pipeline->SetModel(newModel);
+
+	std::vector<TimelineCallback> timelineCallbacks;
+	timelineCallbacks.emplace_back([oldModel = std::move(oldModel)](auto) mutable { oldModel.reset(); });
+	
+	if (const auto& callback = newModel->GetIndexBuffer().GetTimelineCallback(); callback)
+		timelineCallbacks.emplace_back(callback.value());
+
+	if (const auto& callback = newModel->GetVertexBuffer().GetTimelineCallback(); callback)
+		timelineCallbacks.emplace_back(callback.value());
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
 		{VK_PIPELINE_STAGE_TRANSFER_BIT},
 		{transferSubmit.maxTimelineValue},
 		{transferSemaphore},
-		{++transferSemaphoreValue}});
+		{++transferSemaphoreValue},
+		std::move(timelineCallbacks)});
 
 	transferSubmit = transferQueue.Submit();
-	
-	transferQueue.AddTimelineCallback(
-	{
-		transferSubmit.maxTimelineValue,
-		[oldModel = std::move(oldModel)](auto) mutable
-		{
-			oldModel.reset();
-		}
-	});
 }
 
 static void LoadImage(
@@ -80,36 +80,34 @@ static void LoadImage(
 
 	auto oldImage = rhi.pipeline->GetResources().image;
 	auto oldImageView = rhi.pipeline->GetResources().imageView;
+	auto image = std::make_shared<Image<kVk>>(
+		rhi.device,
+		transferQueue.GetPool().Commands(),
+		openFilePath,
+		progress);
+	auto imageView = std::make_shared<ImageView<kVk>>(
+		rhi.device,
+		*image,
+		VK_IMAGE_ASPECT_COLOR_BIT);
 
-	rhi.pipeline->GetResources().image =
-		std::make_shared<Image<kVk>>(
-			rhi.device,
-			transferQueue,
-			++transferSemaphoreValue,
-			openFilePath,
-			progress);
+	rhi.pipeline->GetResources().image = image;
+	rhi.pipeline->GetResources().imageView = imageView;
 
-	rhi.pipeline->GetResources().imageView = std::make_shared<ImageView<kVk>>(
-		rhi.device, *rhi.pipeline->GetResources().image, VK_IMAGE_ASPECT_COLOR_BIT);
+	std::vector<TimelineCallback> timelineCallbacks;
+	timelineCallbacks.emplace_back([oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)](auto) mutable { oldImage.reset(); oldImageView.reset(); });
+
+	if (const auto& callback = image->GetTimelineCallback(); callback)
+		timelineCallbacks.emplace_back(callback.value());
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
 		{VK_PIPELINE_STAGE_TRANSFER_BIT},
 		{transferSubmit.maxTimelineValue},
 		{transferSemaphore},
-		{++transferSemaphoreValue}});
+		{++transferSemaphoreValue},
+		std::move(timelineCallbacks)});
 
 	transferSubmit = transferQueue.Submit();
-
-	transferQueue.AddTimelineCallback(
-	{
-		transferSubmit.maxTimelineValue,
-		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)](auto) mutable
-		{
-			oldImage.reset();
-			oldImageView.reset();
-		}
-	});
 
 	///////////
 
@@ -1134,6 +1132,8 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	CreateQueues(*rhi);
 	CreateWindowDependentObjects(*rhi);
 
+	std::vector<TimelineCallback> timelineCallbacks;
+
 	// todo: create some resource global storage
 	rhi->pipeline->GetResources().black = std::make_shared<Image<kVk>>(
 		rhi->device,
@@ -1197,14 +1197,16 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
 		rhi->materials = std::make_unique<Buffer<kVk>>(
 			rhi->device,
-			graphicsQueue,
-			1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed),
+			cmd,
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 				"materials"},
 			materialData.get());
+
+		if (const auto& callback = rhi->materials->GetTimelineCallback(); callback)
+			timelineCallbacks.emplace_back(callback.value());
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
 		static const auto kIdentityMatrix = glm::mat4x4(1.0);
@@ -1214,14 +1216,16 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
 		rhi->modelInstances = std::make_unique<Buffer<kVk>>(
 			rhi->device,
-			graphicsQueue,
-			1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed),
+			cmd,
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 				"modelInstances"},
 			modelInstances.get());
+
+		if (const auto& callback = rhi->modelInstances->GetTimelineCallback(); callback)
+			timelineCallbacks.emplace_back(callback.value());
 
 		cmd.End();
 
@@ -1230,7 +1234,8 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			{},
 			{},
 			{graphicsSemaphore},
-			{1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
+			{1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed)},
+			std::move(timelineCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
 	}
@@ -1508,18 +1513,13 @@ void RhiApplication::InternalDraw()
 		auto cmd = graphicsQueue.GetPool().Commands();
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
+
+		std::vector<TimelineCallback> timelineCallbacks;
 		
 		{
 			GPU_SCOPE(cmd, graphicsQueue, drawZPrepass);
 
-			// struct DrawBundle
-			// {
-			// 	PipelineLayoutHandle<kVk> pipelineLayout;
-			// 	PipelineBindPoint<kVk> bindPoint;
-				
-			// };
-
-			//pipeline.BindLayoutAuto(rhi.pipelineLayouts["Main"], VK_PIPELINE_BIND_POINT_GRAPHICS);
+			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1);
@@ -1555,6 +1555,7 @@ void RhiApplication::InternalDraw()
 					frameIndex = newFrameIndex,
 					&drawAtomic,
 					&drawCount,
+					&timelineCallbacks,
 					&desc = window.GetConfig()](uint32_t threadIt)
 					{
 						ZoneScoped;
@@ -1595,17 +1596,24 @@ void RhiApplication::InternalDraw()
 
 						auto cmd = queue.GetPool().Commands(beginInfo);
 
-						auto bindState = [&pipeline](VkCommandBuffer cmd)
+						auto bindState = [&pipeline, &timelineCallbacks](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("bindState");
 
 							// bind descriptor sets
-							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
-							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+							std::array<std::optional<TimelineCallback>, 6> callbacks;
+							callbacks[0] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+							callbacks[1] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+							callbacks[2] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+							callbacks[3] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+							callbacks[4] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+							callbacks[5] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+							for (auto& callback : callbacks)
+							{
+								if (callback)
+									timelineCallbacks.emplace_back(callback.value());
+							}
 
 							// bind pipeline and buffers
 							pipeline.BindPipelineAuto(cmd);
@@ -1764,7 +1772,8 @@ void RhiApplication::InternalDraw()
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 			{graphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore},
-			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed)}
+			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed)},
+			std::move(timelineCallbacks)
 		});
 
 		graphicsSubmit = graphicsQueue.Submit();

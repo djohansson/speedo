@@ -4,6 +4,7 @@
 #include "device.h"
 #include "image.h"
 #include "model.h"
+#include "queue.h"
 #include "rendertarget.h"
 #include "shader.h"
 #include "types.h"
@@ -99,7 +100,7 @@ class Pipeline : public DeviceObject<G>
 		PipelineLayoutHandle<G>>>;
 
 	using DescriptorMapType = UnorderedMap<
-		DescriptorSetLayoutHandle<G>, // todo: hash DescriptorSetData into this key? monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
+		DescriptorSetLayoutHandle<G>, // todo: monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
 		DescriptorSetState<G>>;
 
 public:
@@ -133,11 +134,11 @@ public:
 
 	// "auto" api
 
-	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd);
+	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd); // todo: make implicit and call internally whenever relevant state changes
 
 	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
 
-	void BindDescriptorSetAuto(
+	std::optional<TimelineCallback> BindDescriptorSetAuto(
 		CommandBufferHandle<G> cmd,
 		uint32_t set,
 		std::optional<uint32_t> bufferOffset = std::nullopt);
@@ -259,6 +260,7 @@ private:
 	struct ComputeState
 	{
 		PipelineShaderStageCreateInfo<G> shaderStage;
+		ComputeLaunchParameters launchParameters;
 	} myComputeState{};
 
 	struct RayTracingState

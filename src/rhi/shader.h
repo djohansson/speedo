@@ -24,14 +24,14 @@
 
 using ShaderBinary = std::vector<char>;
 
-struct LaunchParameters
+struct ComputeLaunchParameters
 {
 	std::array<uint64_t, 3> threadGroupSize;
 	uint64_t waveSize{};
 };
 
 template <GraphicsApi G>
-using EntryPoint = std::tuple<std::string, ShaderStageFlagBits<G>, std::optional<LaunchParameters>>;
+using EntryPoint = std::tuple<std::string, ShaderStageFlagBits<G>, std::optional<ComputeLaunchParameters>>;
 
 template <GraphicsApi G>
 using Shader = std::tuple<ShaderBinary, EntryPoint<G>>;

@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
-#include <string>
+#include <string_view>
 #include <tuple>
 
 template <GraphicsApi G>
@@ -26,13 +26,17 @@ struct ImageCreateDesc
 	Flags<G> usageFlags{};
 	Flags<G> memoryFlags{};
 	ImageLayout<G> initialLayout{};
-	std::string name{};
+	std::string_view name;
 };
 
 template <GraphicsApi G>
 class Image : public DeviceObject<G>
 {
-	using ValueType = std::tuple<ImageHandle<G>, AllocationHandle<G>, ImageLayout<G>>;
+	using ValueType = std::tuple<
+		ImageHandle<G>,
+		AllocationHandle<G>,
+		ImageLayout<G>,
+		std::optional<TimelineCallback>>;
 
 public:
 	constexpr Image() noexcept = default;
@@ -42,14 +46,12 @@ public:
 		ImageCreateDesc<G>&& desc);
 	Image( // loads a file into a buffer and creates a new image from it.
 		const std::shared_ptr<Device<G>>& device,
-		Queue<G>& queue,
-		uint64_t timelineValue,
+		CommandBufferHandle<G> cmd,
 		const std::filesystem::path& imageFile,
 		std::atomic_uint8_t& progress);
 	Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
-		Queue<G>& queue,
-		uint64_t timelineValue,
+		CommandBufferHandle<G> cmd,
 		ImageCreateDesc<G>&& desc,
 		const void* initialData,
 		size_t initialDataSize);
@@ -64,6 +66,7 @@ public:
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myImage); }
 	[[nodiscard]] const auto& GetLayout() const noexcept { return std::get<2>(myImage); }
+	[[nodiscard]] const auto& GetTimelineCallback() const noexcept { return std::get<3>(myImage); }
 
 	enum class ClearType : uint8_t
 	{
@@ -80,8 +83,7 @@ public:
 private:
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		Queue<G>& queue,
-		uint64_t timelineValue,
+		CommandBufferHandle<G> cmd,
 		std::tuple<BufferHandle<G>, AllocationHandle<G>, ImageCreateDesc<G>>&& initialData);
 	Image( // takes ownership of provided image handle & allocation
 		const std::shared_ptr<Device<G>>& device,

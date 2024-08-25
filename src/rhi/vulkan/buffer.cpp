@@ -31,62 +31,59 @@ Buffer<kVk>::Buffer(
 	const std::shared_ptr<Device<kVk>>& device, BufferCreateDesc<kVk>&& desc)
 	: Buffer(
 		device,
-		CreateBuffer(
-			device->GetAllocator(),
-			desc.size,
-			desc.usageFlags,
-			desc.memoryFlags,
-			desc.name.data()),
+		std::tuple_cat(
+			CreateBuffer(
+				device->GetAllocator(),
+				desc.size,
+				desc.usageFlags,
+				desc.memoryFlags,
+				desc.name.data()),
+			std::make_tuple(std::optional<TimelineCallback>())),
 		std::forward<BufferCreateDesc<kVk>>(desc))
 {}
 
 template <>
 Buffer<kVk>::Buffer(
 	const std::shared_ptr<Device<kVk>>& device,
-	Queue<kVk>& queue,
-	uint64_t timelineValue,
+	CommandBufferHandle<kVk> cmd,
 	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, BufferCreateDesc<kVk>>&& initialData)
 	: Buffer(
 		device,
-		[&queue, &device, &initialData, timelineValue]
-		{
-			queue.AddTimelineCallback(
+		std::tuple_cat(
+			[&cmd, &device, &initialData]
 			{
-				timelineValue,
+				return CreateBuffer(
+					cmd,
+					device->GetAllocator(),
+					std::get<0>(initialData),
+					std::get<2>(initialData).size,
+					std::get<2>(initialData).usageFlags,
+					std::get<2>(initialData).memoryFlags,
+					std::get<2>(initialData).name.data());
+			}(),
+			std::make_tuple(TimelineCallback(
 				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)](uint64_t)
 				{
 					vmaDestroyBuffer(allocator, buffer, memory);
-				}
-			});
-			return CreateBuffer(
-				queue.GetPool().Commands(),
-				device->GetAllocator(),
-				std::get<0>(initialData),
-				std::get<2>(initialData).size,
-				std::get<2>(initialData).usageFlags,
-				std::get<2>(initialData).memoryFlags,
-				std::get<2>(initialData).name.data());
-		}(),
+				}))),
 		std::forward<BufferCreateDesc<kVk>>(std::get<2>(initialData)))
 {}
 
 template <>
 Buffer<kVk>::Buffer(
 	const std::shared_ptr<Device<kVk>>& device,
-	Queue<kVk>& queue,
-	uint64_t timelineValue,
+	CommandBufferHandle<kVk> cmd,
 	BufferCreateDesc<kVk>&& desc,
 	const void* initialData)
 	: Buffer(
 		device,
-		queue,
-		timelineValue,
+		cmd,
 		std::tuple_cat(
 			CreateStagingBuffer(
 				device->GetAllocator(),
 				initialData,
 				desc.size,
-				(desc.name + "_staging").data()),
+				desc.name.data()),
 			std::make_tuple(std::forward<BufferCreateDesc<kVk>>(desc))))
 {}
 

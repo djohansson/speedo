@@ -65,7 +65,10 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	const char* debugName);
 
 std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
-	VmaAllocator allocator, const void* srcData, size_t srcDataSize, const char* debugName);
+	VmaAllocator allocator,
+	const void* srcData,
+	size_t srcDataSize,
+	const char* debugName);
 
 void TransitionImageLayout(
 	VkCommandBuffer commandBuffer,

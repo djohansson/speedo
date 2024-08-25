@@ -10,10 +10,10 @@ bool Queue<kVk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::ProcessTimelineCallbacks");
 
-	TimelineCallback callbackData;
+	TimelineCallbackData callbackData;
 	while (myTimelineCallbacks.try_dequeue(callbackData))
 	{
-		const auto& [commandBufferTimelineValue, callback] = callbackData;
+		const auto& [callbackVector, commandBufferTimelineValue] = callbackData;
 
 		if (commandBufferTimelineValue > timelineValue)
 		{
@@ -21,7 +21,8 @@ bool Queue<kVk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 			return false;
 		}
 
-		callback(commandBufferTimelineValue);
+		for (auto& callback : callbackVector)
+			callback(commandBufferTimelineValue);
 	}
 
 	return true;
@@ -229,6 +230,8 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		timelineInfo.pSignalSemaphoreValues = pendingSubmit.signalSemaphoreValues.data();
 
 		maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.timelineValue);
+
+		myTimelineCallbacks.enqueue(std::make_tuple(std::move(pendingSubmit.callbacks), maxTimelineValue));
 	}
 
 	auto* submitBegin = reinterpret_cast<SubmitInfo<kVk>*>(timelinePtr);
@@ -288,14 +291,6 @@ QueuePresentInfo<kVk> Queue<kVk>::Present()
 	CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
 	return std::move(myPendingPresent);
-}
-
-template <>
-void Queue<kVk>::AddTimelineCallback(TimelineCallback&& callback)
-{
-	ZoneScopedN("Queue::AddTimelineCallback");
-
-	myTimelineCallbacks.enqueue(std::forward<TimelineCallback>(callback));
 }
 
 template <>

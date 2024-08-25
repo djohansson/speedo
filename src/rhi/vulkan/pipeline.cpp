@@ -263,10 +263,12 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 
 	auto layoutIt = InternalGetLayout();
 	CHECK(layoutIt != myLayouts.end());
-	result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
+	auto layoutHandle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
+	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
+	//result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
 	ASSERT(result != XXH_ERROR);
 
-	// todo: hash more state...
+	// todo: hash more releveant state for the current bind point... framebuffer, model, etc.
 
 	// todo: rendertargets need to use hash key derived from its state and not its handles/pointers, since they are recreated often
 	// auto [renderPassHandle, frameBufferHandle] =
@@ -287,45 +289,50 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 
 	for (const auto& [set, setLayout] : layout.GetDescriptorSetLayouts())
 	{
-		auto insertResultPair = myDescriptorMap.emplace(
-			static_cast<DescriptorSetLayoutHandle<kVk>>(setLayout),
-			std::make_tuple(
-				UpgradableSharedMutex{},
-				DescriptorSetStatus::kReady,
-				BindingsMap<kVk>{},
-				BindingsData<kVk>{},
-				DescriptorUpdateTemplate<kVk>{
-					InternalGetDevice(),
-					DescriptorUpdateTemplateCreateDesc<kVk>{
-						((setLayout.GetDesc().flags &
-						  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
-							? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
-							: VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
-						static_cast<VkDescriptorSetLayout>(setLayout),
-						myBindPoint,
-						static_cast<VkPipelineLayout>(layout),
-						set}},
-				((setLayout.GetDesc().flags &
-				  VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
-					? std::nullopt
-					: std::make_optional(DescriptorSetArrayList<kVk>{})));
-
-		auto& [insertIt, insertResult] = insertResultPair;
-		auto& [bindingIndex, bindingTuple] = *insertIt;
-		auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
-			bindingTuple;
-
-		if (setOptionalArrayList)
+		auto setLayoutHandle = static_cast<DescriptorSetLayoutHandle<kVk>>(setLayout);
+		auto setStateIt = myDescriptorMap.find(setLayoutHandle);
+		if (setStateIt == myDescriptorMap.end())
 		{
-			auto& setArrayList = setOptionalArrayList.value();
+			auto insertResultPair = myDescriptorMap.emplace(
+				setLayoutHandle,
+				std::make_tuple(
+					UpgradableSharedMutex{},
+					DescriptorSetStatus::kReady,
+					BindingsMap<kVk>{},
+					BindingsData<kVk>{},
+					DescriptorUpdateTemplate<kVk>{
+						InternalGetDevice(),
+						DescriptorUpdateTemplateCreateDesc<kVk>{
+							((setLayout.GetDesc().flags &
+							VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
+								? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
+								: VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
+							static_cast<VkDescriptorSetLayout>(setLayout),
+							myBindPoint,
+							static_cast<VkPipelineLayout>(layout),
+							set}},
+					((setLayout.GetDesc().flags &
+					VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
+						? std::nullopt
+						: std::make_optional(DescriptorSetArrayList<kVk>{})));
+			auto& [insertIt, insertResult] = insertResultPair;
+			ASSERT(insertResult);
+			ASSERT(insertIt != myDescriptorMap.end());
+			auto& [bindingIndex, bindingTuple] = *insertIt;
+			auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = bindingTuple;
 
-			setArrayList.emplace_front(std::make_tuple(
-				DescriptorSetArray<kVk>(
-					InternalGetDevice(),
-					setLayout,
-					DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
-				0,
-				0));
+			if (setOptionalArrayList)
+			{
+				auto& setArrayList = setOptionalArrayList.value();
+
+				setArrayList.emplace_front(std::make_tuple(
+					DescriptorSetArray<kVk>(
+						InternalGetDevice(),
+						setLayout,
+						DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
+					0,
+					0));
+			}
 		}
 	}
 }
@@ -542,8 +549,18 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 	{
 		ZoneScopedN("Pipeline::InternalGetPipeline::store");
 
-		pipelineHandleAtomic.store(
-			InternalCreateGraphicsPipeline(key), std::memory_order_release);
+		switch (myBindPoint)
+		{
+		case VK_PIPELINE_BIND_POINT_GRAPHICS:
+			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key), std::memory_order_release);
+			break;
+		case VK_PIPELINE_BIND_POINT_COMPUTE:
+			pipelineHandleAtomic.store(InternalCreateComputePipeline(key), std::memory_order_release);
+			break;
+		default:
+			ASSERTF(false, "Not implemented");
+		}
+
 		pipelineHandleAtomic.notify_all();
 	}
 	else
@@ -629,11 +646,10 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 
 	switch (myBindPoint)
 	{
-	case VK_PIPELINE_BIND_POINT_GRAPHICS: {
+	case VK_PIPELINE_BIND_POINT_GRAPHICS:
 		myGraphicsState.shaderStageFlags = {};
 		myGraphicsState.shaderStages.clear();
 		myGraphicsState.shaderStages.reserve(shaderModules.size());
-
 		for (const auto& shader : shaderModules)
 		{
 			const auto& [entryPointName, shaderStage, launchParams] = shader.GetEntryPoint();
@@ -652,9 +668,22 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 				myGraphicsState.shaderStageFlags |= shaderStage;
 			}
 		}
-	}
-	break;
+		break;
 	case VK_PIPELINE_BIND_POINT_COMPUTE:
+		{
+			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.front().GetEntryPoint();
+			CHECK(shaderStage == VK_SHADER_STAGE_COMPUTE_BIT);
+			myComputeState.shaderStage = {
+				VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+				nullptr,
+				0,
+				VK_SHADER_STAGE_COMPUTE_BIT,
+				shaderModules.front(),
+				entryPointName.c_str(),
+				nullptr};
+			myComputeState.launchParameters = launchParams.value_or(ComputeLaunchParameters{});
+		}
+		break;
 	default:
 		ASSERTF(false, "Not implemented");
 		break;
@@ -798,7 +827,7 @@ void Pipeline<kVk>::BindDescriptorSet(
 }
 
 template <>
-void Pipeline<kVk>::BindDescriptorSetAuto(
+std::optional<TimelineCallback> Pipeline<kVk>::BindDescriptorSetAuto(
 	CommandBufferHandle<kVk> cmd,
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset)
@@ -811,6 +840,8 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	const auto& setLayout = layout.GetDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
+
+	std::optional<TimelineCallback> timelineCallback;
 
 	mutex.lock_upgrade();
 
@@ -847,8 +878,9 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 
 		setRefCount++;
 
-		// InternalGetDevice()->AddTimelineCallback([refCountPtr = &setRefCount](uint64_t)
-		// 										{ (*refCountPtr)--; });
+		timelineCallback = TimelineCallback([&setRefCount](uint64_t){
+			 setRefCount--;
+		});
 	}
 	else
 	{
@@ -860,6 +892,8 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	}
 
 	mutex.unlock_shared();
+
+	return timelineCallback;
 }
 
 template <>

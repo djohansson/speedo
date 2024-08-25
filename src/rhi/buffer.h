@@ -4,7 +4,8 @@
 #include "queue.h"
 
 #include <memory>
-#include <string>
+#include <optional>
+#include <string_view>
 #include <tuple>
 
 template <GraphicsApi G>
@@ -13,13 +14,16 @@ struct BufferCreateDesc
 	DeviceSize<G> size{};
 	Flags<G> usageFlags{};
 	Flags<G> memoryFlags{};
-	std::string name{};
+	std::string_view name;
 };
 
 template <GraphicsApi G>
 class Buffer : public DeviceObject<G>
 {
-	using ValueType = std::tuple<BufferHandle<G>, AllocationHandle<G>>;
+	using ValueType = std::tuple<
+		BufferHandle<G>,
+		AllocationHandle<G>,
+		std::optional<TimelineCallback>>;
 
 public:
 	constexpr Buffer() noexcept = default;
@@ -29,8 +33,7 @@ public:
 		BufferCreateDesc<G>&& desc);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
-		Queue<G>& queue,
-		uint64_t timelineValue,
+		CommandBufferHandle<G> cmd,
 		BufferCreateDesc<G>&& desc,
 		const void* initialData);
 	Buffer( // takes ownership of provided buffer handle and allocation
@@ -39,8 +42,7 @@ public:
 		BufferCreateDesc<G>&& desc);
 	Buffer( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		Queue<G>& queue,
-		uint64_t timelineValue,
+		CommandBufferHandle<G> cmd,
 		std::tuple<BufferHandle<G>, AllocationHandle<G>, BufferCreateDesc<G>>&& initialData);
 	~Buffer() override;
 
@@ -52,6 +54,7 @@ public:
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
+	[[nodiscard]] const auto& GetTimelineCallback() const noexcept { return std::get<2>(myBuffer); }
 
 private:
 	ValueType myBuffer{};

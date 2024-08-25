@@ -10,6 +10,7 @@
 //#include <source_location>
 #include <vector>
 
+using TimelineCallback = std::function<void(uint64_t)>;
 template <GraphicsApi G>
 struct QueueDeviceSyncInfo
 {
@@ -18,6 +19,7 @@ struct QueueDeviceSyncInfo
 	std::vector<uint64_t> waitSemaphoreValues;
 	std::vector<SemaphoreHandle<G>> signalSemaphores;
 	std::vector<uint64_t> signalSemaphoreValues;
+	std::vector<TimelineCallback> callbacks;
 };
 
 template <GraphicsApi G>
@@ -96,8 +98,6 @@ struct SourceLocationData
 template <GraphicsApi G>
 class Queue final : public DeviceObject<G>
 {
-	using TimelineCallback = std::tuple<uint64_t, std::function<void(uint64_t)>>;
-
 public:
 	constexpr Queue() noexcept = default;
 	Queue(
@@ -128,7 +128,6 @@ public:
 	void Wait(QueueHostSyncInfo<G>&& syncInfo) const;
 	void WaitIdle() const;
 	
-	void AddTimelineCallback(TimelineCallback&& callback);
 	bool ProcessTimelineCallbacks(uint64_t timelineValue);
 
 	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
@@ -158,7 +157,8 @@ private:
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	ConcurrentQueue<TimelineCallback> myTimelineCallbacks;
+	using TimelineCallbackData = std::tuple<std::vector<TimelineCallback>, uint64_t>;
+	ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
 
 #if (PROFILING_LEVEL > 0)
 	void* myProfilingContext = nullptr;
