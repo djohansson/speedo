@@ -32,10 +32,10 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
 		auto mvp = myCameras[viewIt].GetProjectionMatrix() * myCameras[viewIt].GetViewMatrix();
-#if GLM_ARCH & GLM_ARCH_AVX_BIT
+#if (GLM_ARCH & GLM_ARCH_AVX_BIT) && (GRAPHICS_VALIDATION_LEVEL <= 1)
 		_mm256_stream_ps(&viewDataPtr->viewProjection[0][0], _mm256_insertf128_ps(_mm256_castps128_ps256(mvp[0].data), mvp[1].data, 1));
 		_mm256_stream_ps(&viewDataPtr->viewProjection[2][0], _mm256_insertf128_ps(_mm256_castps128_ps256(mvp[2].data), mvp[3].data, 1));
-#elif GLM_ARCH & GLM_ARCH_SSE2_BIT
+#elif (GLM_ARCH & GLM_ARCH_SSE2_BIT) && (GRAPHICS_VALIDATION_LEVEL <= 1)
 		_mm_stream_ps(&viewDataPtr->viewProjection[0][0], mvp[0].data);
 		_mm_stream_ps(&viewDataPtr->viewProjection[1][0], mvp[1].data);
 		_mm_stream_ps(&viewDataPtr->viewProjection[2][0], mvp[2].data);
