@@ -1487,11 +1487,9 @@ void RhiApplication::InternalDraw()
 		ZoneScopedN("rhi::draw::submit");
 
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		// auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
-		//auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
-
-		auto& renderImageSet = *rhi.renderImageSet;
+		//auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
+		//auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 		if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
 		{
@@ -1518,6 +1516,7 @@ void RhiApplication::InternalDraw()
 			{.depthStencil = {1.0F, 0}}};
 
 		auto cmd = graphicsQueue.GetPool().Commands();
+		auto& renderImageSet = *rhi.renderImageSet;
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
