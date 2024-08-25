@@ -358,7 +358,7 @@ Device<kVk>::~Device()
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1U);
-		std::cout << allocatorStatsJSON << '\n';
+		std::cout << allocatorStatsJSON << std::endl;
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
 
