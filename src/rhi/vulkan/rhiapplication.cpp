@@ -1497,7 +1497,8 @@ void RhiApplication::InternalDraw()
 		{
 			ZoneScopedN("rhi::draw::waitGraphics");
 
-			graphicsSemaphore.Wait(timelineValue);
+			//graphicsSemaphore.Wait(timelineValue);
+			graphicsQueue.WaitIdle();
 		}
 		
 		graphicsQueue.GetPool().Reset();
@@ -1810,7 +1811,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 	{
 		ZoneScopedN("~RhiApplication()::waitGraphics");
 
-		graphicsSemaphore.Wait(graphicsSubmit.maxTimelineValue);
+		graphicsQueue.WaitIdle();
 		graphicsQueue.ProcessTimelineCallbacks(graphicsSubmit.maxTimelineValue);
 	}
 
@@ -1819,7 +1820,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 	{
 		ZoneScopedN("~RhiApplication()::waitTransfer");
 
-		transferSemaphore.Wait(transferSubmit.maxTimelineValue);
+		transferQueue.WaitIdle();
 		transferQueue.ProcessTimelineCallbacks(transferSubmit.maxTimelineValue);
 	}
 
