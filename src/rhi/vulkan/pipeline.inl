@@ -59,9 +59,11 @@ template <typename T>
 void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set)
 {
+	auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		InternalGetLayout().GetDescriptorSetLayout(set),
+		layoutIt->GetDescriptorSetLayout(set),
 		std::forward<T>(data));
 }
 
@@ -152,9 +154,11 @@ template <typename T>
 void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set)
 {
+	auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		InternalGetLayout().GetDescriptorSetLayout(set),
+		layoutIt->GetDescriptorSetLayout(set),
 		data);
 }
 
@@ -249,9 +253,11 @@ template <typename T>
 void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index)
 {
+	auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
-		InternalGetLayout().GetDescriptorSetLayout(set),
+		layoutIt->GetDescriptorSetLayout(set),
 		std::forward<T>(data),
 		index);
 }

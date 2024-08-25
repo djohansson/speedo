@@ -22,6 +22,8 @@ struct HandleHash : ankerl::unordered_dense::hash<Handle>
 	{
 		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
 	}
+
+	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
@@ -36,7 +38,7 @@ struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Ha
 		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
 	}
 
-	using is_transparent = int;
+	using is_transparent = std::true_type;
 };
 
 template <typename T = void>
@@ -106,12 +108,12 @@ template <
 	typename Key,
 	typename Value,
 	typename KeyHash = ankerl::unordered_dense::hash<Key>,
-	typename KeyEqualTo = std::equal_to<Key>>
+	typename KeyEqualTo = std::equal_to<>>
 using UnorderedMap = ankerl::unordered_dense::map<Key, Value, KeyHash, KeyEqualTo>;
 template <
 	typename Key,
 	typename KeyHash = ankerl::unordered_dense::hash<Key>,
-	typename KeyEqualTo = std::equal_to<Key>>
+	typename KeyEqualTo = std::equal_to<>>
 using UnorderedSet = ankerl::unordered_dense::set<Key, KeyHash, KeyEqualTo>;
 
 template <typename T>

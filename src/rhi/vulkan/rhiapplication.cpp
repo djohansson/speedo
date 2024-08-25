@@ -1499,7 +1499,7 @@ void RhiApplication::InternalDraw()
 			Executor().Call(drawCall, newFrameIndex);
 		}
 
-		window.UpdateViewBuffer(); // todo: move to drawCall?
+		window.UpdateViewBuffer(); // todo: move to drawCall
 
 		static constexpr VkClearValue clearValues[] = {
 			{.color = {0.2F, 0.2F, 0.2F, 1.0F}},
@@ -1510,7 +1510,16 @@ void RhiApplication::InternalDraw()
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
 		{
-			GPU_SCOPE(cmd, graphicsQueue, draw);
+			GPU_SCOPE(cmd, graphicsQueue, drawZPrepass);
+
+			// struct DrawBundle
+			// {
+			// 	PipelineLayoutHandle<kVk> pipelineLayout;
+			// 	PipelineBindPoint<kVk> bindPoint;
+				
+			// };
+
+			//pipeline.BindLayoutAuto(rhi.pipelineLayouts["Main"], VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1);

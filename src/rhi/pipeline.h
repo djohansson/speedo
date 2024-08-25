@@ -93,6 +93,11 @@ class Pipeline : public DeviceObject<G>
 		CopyableAtomic<PipelineHandle<G>>,
 		IdentityHash<uint64_t>>;
 
+	using PipelineLayoutSetType = UnorderedSet<
+		PipelineLayout<G>,
+		HandleHash<PipelineLayout<G>,
+		PipelineLayoutHandle<G>>>;
+
 	using DescriptorMapType = UnorderedMap<
 		DescriptorSetLayoutHandle<G>, // todo: hash DescriptorSetData into this key? monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
 		DescriptorSetState<G>>;
@@ -107,7 +112,7 @@ public:
 	[[nodiscard]] auto GetCache() const noexcept { return myCache; }
 	[[nodiscard]] auto GetDescriptorPool() const noexcept { return myDescriptorPool; }
 	[[nodiscard]] auto GetBindPoint() const noexcept { return myBindPoint; }
-	[[nodiscard]] auto GetLayout() const noexcept { return myLayout; }
+	[[nodiscard]] PipelineLayoutHandle<G> GetLayout() const noexcept;
 
 	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
 
@@ -176,8 +181,8 @@ public:
 	}
 	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
 	[[nodiscard]] std::shared_ptr<Model<G>> SetModel(const std::shared_ptr<Model<G>>& model);
-	[[nodiscard]] auto& GetResources() noexcept { return myGraphicsState.resources; }
-	[[nodiscard]] const auto& GetResources() const noexcept { return myGraphicsState.resources; }
+	[[nodiscard]] auto& GetResources() noexcept { return myResources; }
+	[[nodiscard]] const auto& GetResources() const noexcept { return myResources; }
 	//
 
 	// "auto" api end	
@@ -209,8 +214,9 @@ private:
 
 	[[nodiscard]] uint64_t InternalCalculateHashKey() const;
 	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey);
+	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey);
 	[[nodiscard]] PipelineHandle<G> InternalGetPipeline();
-	[[nodiscard]] const PipelineLayout<G>& InternalGetLayout();
+	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
 
 	file::Object<PipelineConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 
@@ -223,11 +229,14 @@ private:
 	PipelineMapType myPipelineMap; 
 	PipelineCacheHandle<G> myCache{};
 
-	// shared state
+	// auto api shared state
 	PipelineBindPoint<G> myBindPoint{};
-	PipelineLayoutHandle<G> myLayout{};
 	std::shared_ptr<RenderTarget<G>> myRenderTarget;
-	// end shared state
+	PipelineResourceView<G> myResources;
+	PipelineLayoutSetType myLayouts;
+	//UnorderedSet<RenderTarget<G>> renderTargets;
+	typename PipelineLayoutSetType::iterator myCurrentLayoutIt{};
+	// end auto api shared state
 
 	struct GraphicsState
 	{
@@ -245,16 +254,11 @@ private:
 		PipelineColorBlendStateCreateInfo<G> colorBlend{};
 		std::vector<DynamicState<G>> dynamicStateDescs;
 		PipelineDynamicStateCreateInfo<G> dynamicState{};
-		// temp?
-		PipelineResourceView<G> resources;
-		UnorderedMap<PipelineLayoutHandle<G>, PipelineLayout<G>> layouts;
-		//UnorderedSet<RenderTarget<G>> renderTargets;
-		//
 	} myGraphicsState{};
 
 	struct ComputeState
 	{
-		// todo:
+		PipelineShaderStageCreateInfo<G> shaderStage;
 	} myComputeState{};
 
 	struct RayTracingState

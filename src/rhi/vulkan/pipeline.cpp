@@ -248,12 +248,6 @@ void PipelineLayout<kVk>::Swap(PipelineLayout& rhs) noexcept
 }
 
 template <>
-const PipelineLayout<kVk>& Pipeline<kVk>::InternalGetLayout()
-{
-	return myGraphicsState.layouts[myLayout];
-}
-
-template <>
 uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 {
 	ZoneScopedN("Pipeline::InternalCalculateHashKey");
@@ -267,7 +261,9 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 	result = XXH3_64bits_update(gThreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));
 	ASSERT(result != XXH_ERROR);
 
-	result = XXH3_64bits_update(gThreadXxhState.get(), &myLayout, sizeof(myLayout));
+	auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
+	result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
 	ASSERT(result != XXH_ERROR);
 
 	// todo: hash more state...
@@ -285,7 +281,9 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 template <>
 void Pipeline<kVk>::InternalPrepareDescriptorSets()
 {
-	const auto& layout = InternalGetLayout();
+	const auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
+	const auto& layout = *layoutIt;
 
 	for (const auto& [set, setLayout] : layout.GetDescriptorSetLayouts())
 	{
@@ -460,10 +458,12 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 {
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
-	const auto& layout = InternalGetLayout();
+	const auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
+	const auto& layout = *layoutIt;
 	auto& renderTarget = GetRenderTarget();
 
-	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, nullptr, 0};
 	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
 	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
 	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
@@ -499,6 +499,33 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	}
 #endif
 
+	return pipelineHandle;
+}
+
+template <>
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKey)
+{
+	ZoneScopedN("Pipeline::InternalCreateComputePipeline");
+
+	const auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
+	const auto& layout = *layoutIt;
+
+	VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, nullptr, 0};
+	pipelineInfo.stage = myComputeState.shaderStage;
+	pipelineInfo.layout = layout;
+	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+	pipelineInfo.basePipelineIndex = -1;
+
+	VkPipeline pipelineHandle;
+	VK_CHECK(vkCreateComputePipelines(
+		*InternalGetDevice(),
+		myCache,
+		1,
+		&pipelineInfo,
+		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+		&pipelineHandle));
+  
 	return pipelineHandle;
 }
 
@@ -563,31 +590,40 @@ std::shared_ptr<Model<kVk>> Pipeline<kVk>::SetModel(const std::shared_ptr<Model<
 		DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
-	auto oldModel = myGraphicsState.resources.model;
+	auto oldModel = myResources.model;
 	
-	myGraphicsState.resources.model = model;
+	myResources.model = model;
 
 	return oldModel;
 }
 
 template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shaderSet)
+PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayout() const noexcept
 {
-	auto layout = PipelineLayout<kVk>(InternalGetDevice(), shaderSet);
-	auto* handle = static_cast<PipelineLayoutHandle<kVk>>(layout);
-
-	myGraphicsState.layouts.emplace(handle, std::move(layout));
+	const auto layoutIt = InternalGetLayout();
 	
-	return handle;
+	if (layoutIt == myLayouts.end())
+		return VK_NULL_HANDLE;
+
+	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 }
 
 template <>
-void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layout, PipelineBindPoint<kVk> bindPoint)
+PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shaderSet)
 {
-	myLayout = layout;
-	myBindPoint = bindPoint;
+	const auto& [layoutIt, wasInserted] = myLayouts.emplace(PipelineLayout<kVk>(InternalGetDevice(), shaderSet));
 
-	const auto& shaderModules = InternalGetLayout().GetShaderModules();
+	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
+}
+
+template <>
+void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, PipelineBindPoint<kVk> bindPoint)
+{
+	myBindPoint = bindPoint;
+	myCurrentLayoutIt = myLayouts.find(layoutHandle);
+	CHECK(myCurrentLayoutIt != myLayouts.end());
+	const auto& layout = *myCurrentLayoutIt;
+	const auto& shaderModules = layout.GetShaderModules();
 
 	ASSERT(!shaderModules.empty());
 
@@ -763,11 +799,15 @@ void Pipeline<kVk>::BindDescriptorSet(
 
 template <>
 void Pipeline<kVk>::BindDescriptorSetAuto(
-	CommandBufferHandle<kVk> cmd, uint32_t set, std::optional<uint32_t> bufferOffset)
+	CommandBufferHandle<kVk> cmd,
+	uint32_t set,
+	std::optional<uint32_t> bufferOffset)
 {
 	ZoneScopedN("Pipeline::BindDescriptorSetAuto");
 
-	const auto& layout = InternalGetLayout();
+	const auto layoutIt = InternalGetLayout();
+	CHECK(layoutIt != myLayouts.end());
+	const auto& layout = *layoutIt;
 	const auto& setLayout = layout.GetDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
@@ -812,7 +852,11 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	}
 	else
 	{
-		InternalPushDescriptorSet(cmd, static_cast<PipelineLayoutHandle<kVk>>(GetLayout()), bindingsData, setTemplate);
+		InternalPushDescriptorSet(
+			cmd,
+			static_cast<PipelineLayoutHandle<kVk>>(layout),
+			bindingsData,
+			setTemplate);
 	}
 
 	mutex.unlock_shared();
@@ -918,7 +962,7 @@ Pipeline<kVk>::~Pipeline()
 		myCache,
 		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 
-	myGraphicsState.resources = {};
+	myResources = {};
 	myDescriptorMap.clear();
 
 	if (myDescriptorPool != nullptr)
