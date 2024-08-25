@@ -1865,8 +1865,7 @@ void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 	{
 		ZoneScopedN("RhiApplication::OnResizeFramebuffer::waitGraphics");
 
-		graphicsSemaphore.Wait(graphicsSubmit.maxTimelineValue);
-		graphicsQueue.ProcessTimelineCallbacks(graphicsSubmit.maxTimelineValue);
+		graphicsQueue.WaitIdle();
 	}
 
 	rhi.windows.at(window).OnResizeFramebuffer(width, height);
