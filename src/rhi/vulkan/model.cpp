@@ -371,7 +371,8 @@ Model<kVk>::Model(
 			  BufferCreateDesc<kVk>{
 				  std::get<4>(initialData).indexCount * sizeof(uint32_t),
 				  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}))
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				  "IndexBuffer"}))
 	, myVertexBuffer(
 		  device,
 		  cmd,
@@ -381,7 +382,8 @@ Model<kVk>::Model(
 			  BufferCreateDesc<kVk>{
 				  std::get<4>(initialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
 				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}))
+				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				  "VertexBuffer"}))
 	, myBindings(model::CalculateInputBindingDescriptions(std::get<4>(initialData).attributes))
 	, myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<4>(initialData)))
 {}

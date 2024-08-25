@@ -1031,7 +1031,9 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			"Main RT Color"});
 
 	auto depthStencilImage = std::make_shared<Image<kVk>>(
 		rhi.device,
@@ -1046,7 +1048,9 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			"Main RT DepthStencil"});
 
 	rhi.renderImageSet =
 		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage, depthStencilImage});
@@ -1142,7 +1146,9 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_IMAGE_TILING_LINEAR,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT});
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			"Black"});
 
 	rhi->pipeline->GetResources().blackImageView = std::make_shared<ImageView<kVk>>(
 		rhi->device, *rhi->pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1202,7 +1208,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"materials"},
+				"Materials"},
 			materialData.get());
 
 		if (const auto& callback = rhi->materials->GetTimelineCallback(); callback)
@@ -1221,7 +1227,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"modelInstances"},
+				"ModelInstances"},
 			modelInstances.get());
 
 		if (const auto& callback = rhi->modelInstances->GetTimelineCallback(); callback)

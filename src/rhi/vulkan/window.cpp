@@ -248,7 +248,8 @@ Window<kVk>::Window(
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				"ViewBuffer"});
 	}
 
 	InternalInitializeViews();
