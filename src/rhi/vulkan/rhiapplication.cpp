@@ -1523,7 +1523,7 @@ void RhiApplication::InternalDraw()
 		std::vector<TimelineCallback> timelineCallbacks;
 		
 		{
-			GPU_SCOPE(cmd, graphicsQueue, drawZPrepass);
+			GPU_SCOPE(cmd, graphicsQueue, draw);
 
 			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
