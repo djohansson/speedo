@@ -137,7 +137,7 @@
 
 	.ConfigName = 'debug'
 	.ProfilingLevel = '1'
-	.GraphicsValidationLevel = '1'
+	.GraphicsValidationLevel = '2'
 	.CompilerOptions + ' -O0'
 		+ ' -D_DEBUG'
 		+ ' -fno-omit-frame-pointer'

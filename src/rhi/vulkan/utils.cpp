@@ -1,13 +1,11 @@
+#include <core/assert.h>
 #define VMA_IMPLEMENTATION
+#define VMA_ASSERT(expr) ASSERT(expr)
 #if (GRAPHICS_VALIDATION_LEVEL > 1)
 #	define VMA_DEBUG_INITIALIZE_ALLOCATIONS 1
 #	define VMA_DEBUG_DETECT_CORRUPTION 1
 #	define VMA_DEBUG_MARGIN 16
-#	define VMA_DEBUG_LOG(format, ...) \
-	{ \
-		printf(format, __VA_ARGS__); \
-		printf("\n"); \
-	}
+//#	define VMA_DEBUG_LOG_FORMAT(format, ...) LOG_ERROR(format, __VA_ARGS__) // uncomment this to get leak reports and other verbose information
 #endif
 #if defined(__WINDOWS__)
 #	include <vma/vk_mem_alloc.h>
