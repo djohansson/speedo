@@ -12,9 +12,13 @@
 #include <type_traits>
 #include <vector>
 
+#if !defined(__cpp_lib_function_ref) || __cpp_lib_function_ref < 202306L
+#include "delegate.hpp"
+#endif
+
 struct TaskState;
 
-// TODO(djohansson): Consider using dynamic memory allocation for callable and arguments if larger tasks are required. Currently, the maximum size is 56 bytes for the callable and 32 bytes for the arguments.
+// TODO(djohansson): Consider using dynamic memory allocation for callable and arguments if larger tasks are required.
 class alignas (std_extra::hardware_destructive_interference_size) Task final
 {
 	friend class TaskExecutor;
@@ -47,18 +51,18 @@ public:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
-	static constexpr size_t kMaxCallableSizeBytes = 56;
+	static constexpr size_t kMaxCallableSizeBytes = 40;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
 
 	alignas(intptr_t) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
 	alignas(intptr_t) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
 
-#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 201907L
-	std::move_only_function<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	std::move_only_function<void(void*, void*)> myDeleteFcn;
+#if defined(__cpp_lib_function_ref) && __cpp_lib_function_ref >= 202306L
+	std::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	std::function_ref<void(void*, void*)> myDeleteFcn;
 #else
-	std::function<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	std::function<void(void*, void*)> myDeleteFcn;
+	delegate<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	delegate<void(void*, void*)> myDeleteFcn;
 #endif
 	std::shared_ptr<TaskState> myState;
 };

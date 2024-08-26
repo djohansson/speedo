@@ -37,10 +37,8 @@ constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTup
 		  })
 	, myState(std::forward<std::shared_ptr<TaskState>>(state))
 {
-#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 201907L
 	static constexpr auto kExpectedTaskSize = 128;
 	static_assert(sizeof(Task) == kExpectedTaskSize);
-#endif
 
 	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
