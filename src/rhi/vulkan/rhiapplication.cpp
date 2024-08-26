@@ -19,7 +19,7 @@
 
 #include <nfd.h>
 
-#include <execution>
+#include <algorithm>
 #include <shared_mutex>
 
 namespace rhiapplication
@@ -1552,7 +1552,6 @@ void RhiApplication::InternalDraw()
 				std::array<uint32_t, 128> seq;
 				std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
 				std::for_each_n(
-					std::execution::par,
 					seq.begin(),
 					drawThreadCount,
 					[&pipeline,
