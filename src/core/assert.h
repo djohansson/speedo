@@ -24,10 +24,10 @@
 #define CLEAN_ERRNO() (errno == 0 ? "NULL" : strerror(errno))
 
 // #ifdef __cplusplus
-// //#	define LOG_ERROR(M, ...) std::println(stderr, "{}:{} (errno: {})\n{}\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), cpptrace::generate_trace().to_string(), __VA_ARGS__)
-// #	define LOG_ERROR(M, ...) std::println(stderr, "{}:{} (errno: {})\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), __VA_ARGS__)
+// //#	define LOG_ERROR(M, ...) std::println(stderr, "{}:{} (errno: {})\n{}\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), cpptrace::generate_trace().to_string() __VA_OPT__(,) __VA_ARGS__)
+// #	define LOG_ERROR(M, ...) std::println(stderr, "{}:{} (errno: {})\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO() __VA_OPT__(,) __VA_ARGS__)
 // #else
-#	define LOG_ERROR(M, ...) fprintf(stderr, "%s:%d (errno: %s)\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), __VA_ARGS__)
+#	define LOG_ERROR(M, ...) fprintf(stderr, "%s:%d (errno: %s)\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO() __VA_OPT__(,) __VA_ARGS__)
 //#endif
 
 #ifdef NDEBUG
@@ -35,7 +35,7 @@
 #	define ASSERTF(A, M, ...) ((void)(A))
 #else
 // #ifdef __cplusplus
-// #	define ASSERT(A)                                                                               \
+// #	define ASSERT(A)                                                                           \
 // 		if (!(A))                                                                                  \
 // 		{                                                                                          \
 // 			LOG_ERROR("Assertion failed: {}", #A);                                                 \
@@ -52,12 +52,12 @@
 #	define ASSERTF(A, M, ...)                                                                      \
 		if (!(A))                                                                                  \
 		{                                                                                          \
-			LOG_ERROR(M, __VA_ARGS__);                                                             \
+			LOG_ERROR(M __VA_OPT__(,) __VA_ARGS__);                                                \
 			TRAP();                                                                                \
 		}
 #endif
 // #ifdef __cplusplus
-// #	define CHECK(A)                                                                                \
+// #	define CHECK(A)                                                                            \
 // 		if (!(A))                                                                                  \
 // 		{                                                                                          \
 // 			LOG_ERROR("Check failed: {}", #A);                                                     \
@@ -74,6 +74,6 @@
 #define CHECKF(A, M, ...)                                                                          \
 	if (!(A))                                                                                      \
 	{                                                                                              \
-		LOG_ERROR(M, __VA_ARGS__);                                                                 \
+		LOG_ERROR(M __VA_OPT__(,) __VA_ARGS__);                                                    \
 		TRAP();                                                                                    \
 	}
