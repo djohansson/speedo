@@ -190,7 +190,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 		GetUid(),
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
 		reinterpret_cast<uint64_t>(mySwapchain),
-		std::format("{0}_Swapchain", GetName()));
+		std::format("{}_Swapchain", GetName()));
 #endif
 
 	uint32_t frameCount = config.imageCount;

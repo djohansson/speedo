@@ -49,7 +49,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			GetUid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
 			reinterpret_cast<uint64_t>(myAttachments.back()),
-			std::format("{0}_ColorImageView_{1}", GetName(), attachmentIt));
+			std::format("{}_ColorImageView_{}", GetName(), attachmentIt));
 	#endif
 
 		auto& attachment = myAttachmentDescs.emplace_back();
@@ -207,13 +207,13 @@ RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffe
 		GetUid(),
 		VK_OBJECT_TYPE_RENDER_PASS,
 		reinterpret_cast<uint64_t>(renderPass),
-		std::format("{0}_RenderPass_{1}", GetName(), hashKey));
+		std::format("{}_RenderPass_{}", GetName(), hashKey));
 
 	InternalGetDevice()->AddOwnedObjectHandle(
 		GetUid(),
 		VK_OBJECT_TYPE_FRAMEBUFFER,
 		reinterpret_cast<uint64_t>(frameBuffer),
-		std::format("{0}_FrameBuffer_{1}", GetName(), hashKey));
+		std::format("{}_FrameBuffer_{}", GetName(), hashKey));
 #endif
 
 	return std::make_tuple(renderPass, frameBuffer);

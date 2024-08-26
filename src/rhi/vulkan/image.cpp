@@ -89,6 +89,11 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
+		thread_local static std::string name; // need to stay alive until the image object is fully constructed
+		name = imageFile.filename().string().append("_staging");
+		
+		desc.name = name;
+
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
 			size += mipLevel.size;
@@ -98,7 +103,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			imageFile.string().append("_staging").data());
+			desc.name.data());
 
 		progress = 64;
 
@@ -156,6 +161,10 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		bool hasAlpha = channelCount == 4;
 		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
+		thread_local static std::string name; // need to stay alive until the image object is fully constructed
+		name = imageFile.filename().string().append("_staging");
+
+		desc.name = name;
 		desc.mipLevels.resize(mipCount);
 		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
 		desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -182,7 +191,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			mipOffset,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			imageFile.string().append("_staging").data());
+			desc.name.data());
 
 		void* stagingBuffer;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
@@ -407,14 +416,17 @@ template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device, ValueType&& data, ImageCreateDesc<kVk>&& desc)
 	: DeviceObject(
-		  device,
-		  {"_Image"},
-		  1,
-		  VK_OBJECT_TYPE_IMAGE,
-		  reinterpret_cast<uint64_t*>(&std::get<0>(data)))
+		device,
+		[&desc]{ return DeviceObjectCreateDesc{ desc.name.data() }; }(),
+		1,
+		VK_OBJECT_TYPE_IMAGE,
+		reinterpret_cast<uint64_t*>(&std::get<0>(data)))
 	, myImage(std::forward<ValueType>(data))
 	, myDesc(std::forward<ImageCreateDesc<kVk>>(desc))
-{}
+{
+	// Update the name to point to the DeviceObject's name.
+	myDesc.name = GetName();
+}
 
 template <>
 Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kVk>&& desc)

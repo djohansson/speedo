@@ -108,12 +108,16 @@ Load(
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
+		std::string ibName, vbName;
+		ibName = modelFile.filename().string().append("_staging_ib");
+		vbName = modelFile.filename().string().append("_staging_vb");
+		
 		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
 			device->GetAllocator(),
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			modelFile.string().append("_staging_ib").data());
+			ibName.data());
 
 		void* ibData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
@@ -132,7 +136,7 @@ Load(
 			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			modelFile.string().append("_staging_vb").data());
+			vbName.data());
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
@@ -300,6 +304,10 @@ Load(
 
 		progress = 128;
 
+		std::string ibName, vbName;
+		ibName = modelFile.filename().string().append("_staging_ib");
+		vbName = modelFile.filename().string().append("_staging_vb");
+
 		desc.indexCount = indices.size();
 		desc.vertexCount = vertices.Size();
 
@@ -308,7 +316,7 @@ Load(
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			modelFile.string().append("_staging_ib").data());
+			ibName.data());
 
 		void* ibData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
@@ -325,7 +333,7 @@ Load(
 			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			modelFile.string().append("_staging_vb").data());
+			vbName.data());
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));

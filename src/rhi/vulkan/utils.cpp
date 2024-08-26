@@ -222,7 +222,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
 		srcDataSize,
 		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-		std::string(debugName).append("_staging").data());
+		debugName);
 
 	auto& [bufferHandle, memoryHandle] = bufferData;
 

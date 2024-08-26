@@ -397,7 +397,7 @@ DeviceObject<kVk>::DeviceObject(
 				GetUid(),
 				objectType,
 				objectHandles[objectIt],
-				std::format("{0}{1}", GetName(), objectIt));
+				std::format("{}{}", GetName(), objectIt));
 	}
 #endif
 }

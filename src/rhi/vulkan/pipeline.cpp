@@ -502,7 +502,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 			GetUid(),
 			VK_OBJECT_TYPE_PIPELINE,
 			reinterpret_cast<uint64_t>(pipelineHandle),
-			std::format("{0}_Pipeline_{1}", GetName(), hashKey));
+			std::format("{}_Pipeline_{}", GetName(), hashKey));
 	}
 #endif
 
@@ -958,7 +958,7 @@ Pipeline<kVk>::Pipeline(
 		GetUid(),
 		VK_OBJECT_TYPE_PIPELINE_CACHE,
 		reinterpret_cast<uint64_t>(myCache),
-		std::format("{0}_PipelineCache", GetName()));
+		std::format("{}_PipelineCache", GetName()));
 
 	device->AddOwnedObjectHandle(
 		GetUid(),

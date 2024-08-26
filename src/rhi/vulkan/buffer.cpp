@@ -18,13 +18,16 @@ Buffer<kVk>::Buffer(
 	BufferCreateDesc<kVk>&& desc)
 	: DeviceObject(
 		device,
-		{"_Buffer"},
+		[&desc]{ return DeviceObjectCreateDesc{ desc.name.data() }; }(),
 		1,
 		VK_OBJECT_TYPE_BUFFER,
 		reinterpret_cast<uint64_t*>(&std::get<0>(buffer)))
 	, myBuffer(std::forward<ValueType>(buffer))
 	, myDesc(std::forward<BufferCreateDesc<kVk>>(desc))
-{}
+{
+	// Update the name to point to the DeviceObject's name.
+	myDesc.name = GetName();
+}
 
 template <>
 Buffer<kVk>::Buffer(
