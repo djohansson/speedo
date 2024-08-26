@@ -1465,10 +1465,16 @@ void RhiApplication::InternalDraw()
 	FrameMark;
 	ZoneScopedN("rhi::draw");
 
+	ImGui_ImplVulkan_NewFrame(); // no-op?
+
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
 	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
+
+	TaskCreateInfo<void> IMGUIPrepareDraw;
+	IMGUIPrepareDraw = CreateTask(IMGUIPrepareDrawFunction, rhi, Executor());
+	Executor().Submit({&IMGUIPrepareDraw.handle, 1});
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
@@ -1485,9 +1491,6 @@ void RhiApplication::InternalDraw()
 
 		transferQueue.SubmitCallbacks(Executor(), transferSemaphore.GetValue());
 	}
-
-	ImGui_ImplVulkan_NewFrame(); // no-op?
-	IMGUIPrepareDrawFunction(rhi, Executor()); // todo: kick off earlier (but not before ImGui_ImplGlfw_NewFrame)
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.Flip();
 
@@ -1759,6 +1762,7 @@ void RhiApplication::InternalDraw()
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
 
+			Executor().Join(std::move(IMGUIPrepareDraw.future));
 			IMGUIDrawFunction(cmd);
 
 			window.End(cmd);

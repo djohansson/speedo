@@ -23,7 +23,7 @@ public:
 	// wait for task to finish while helping out processing the thread pools ready queue
 	// as soon as the task is ready, the function will stop processing the ready queue and return
 	template <typename R>
-	std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
+	[[maybe_unused]] std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
 	// blocking call in current thread. dependency chain(s) will be executed asynchrounously in thread pool
 	template <typename... Params>
