@@ -13,7 +13,7 @@
 #include <vector>
 
 #if !defined(__cpp_lib_function_ref) || __cpp_lib_function_ref < 202306L
-#include "delegate.hpp"
+#include <tl/function_ref.hpp>
 #endif
 
 struct TaskState;
@@ -61,8 +61,8 @@ public:
 	std::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
 	std::function_ref<void(void*, void*)> myDeleteFcn;
 #else
-	delegate<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	delegate<void(void*, void*)> myDeleteFcn;
+	tl::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	tl::function_ref<void(void*, void*)> myDeleteFcn;
 #endif
 	std::shared_ptr<TaskState> myState;
 };

@@ -54,7 +54,6 @@ constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTup
 template <typename... Params>
 inline void Task::operator()(Params&&... params)
 {
-	ASSERTF(myInvokeFcn, "Task is not initialized!");
 	ASSERT(!!InternalState());
 
 	auto taskParams = std::make_tuple(std::forward<Params>(params)...);

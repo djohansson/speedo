@@ -18,6 +18,7 @@
     "picosha2",
     "sha-intrinsics",
     "stduuid",
+    "tl-function-ref",
     "unordered-dense",
     "xxhash",
     "zpp-bits",

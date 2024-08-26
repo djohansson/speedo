@@ -47,13 +47,12 @@ void InternalFree(TaskHandle handle) noexcept
 
 Task::~Task()
 {
-	if (myDeleteFcn)
-		myDeleteFcn(myCallableMemory.data(), myArgsMemory.data());
+	myDeleteFcn(myCallableMemory.data(), myArgsMemory.data());
 }
 
 Task::operator bool() const noexcept
 {
-	return myInvokeFcn && myDeleteFcn && myState;
+	return !!InternalState();
 }
 
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
