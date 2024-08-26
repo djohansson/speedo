@@ -8,10 +8,10 @@ void InternalFree(TaskHandle handle) noexcept;
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
 constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTuple&& params, Args&&... args) noexcept
-	: myInvokeFcnPtr(
-		[](const void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
+	: myInvokeFcn(
+		[](void* callablePtr, const void* argsPtr, void* statePtr, const void* paramsPtr)
 		{
-			const auto& callable = *static_cast<const C*>(callablePtr);
+			auto& callable = *static_cast<C*>(callablePtr);
 			const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 			const auto& params = *static_cast<const ParamsTuple*>(paramsPtr);
 
@@ -20,28 +20,16 @@ constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTup
 			auto& state = *static_cast<typename Future<R>::FutureState*>(statePtr);
 
 			if constexpr (std::is_void_v<R>)
-				std_extra::apply(callable, std::tuple_cat(args, params));
+				std::apply(callable, std::tuple_cat(args, params));
 			else
-				state.value = std_extra::apply(callable, std::tuple_cat(args, params));
+				state.value = std::apply(callable, std::tuple_cat(args, params));
 
 			auto counter = state.latch.fetch_sub(1, std::memory_order_release) - 1;
 			ASSERTF(counter == 0, "Latch counter should be zero!");
 
 			state.latch.notify_all();
 		})
-	, myCopyFcnPtr(
-		  [](void* callablePtr,
-			 const void* otherCallablePtr,
-			 void* argsPtr,
-			 const void* otherArgsPtr)
-		  {
-			  std::construct_at(
-				  static_cast<C*>(callablePtr),
-				  *static_cast<const C*>(otherCallablePtr));
-			  std::construct_at(
-				  static_cast<ArgsTuple*>(argsPtr), *static_cast<const ArgsTuple*>(otherArgsPtr));
-		  })
-	, myDeleteFcnPtr(
+	, myDeleteFcn(
 		  [](void* callablePtr, void* argsPtr)
 		  {
 			  std::destroy_at(static_cast<C*>(callablePtr));
@@ -49,8 +37,10 @@ constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTup
 		  })
 	, myState(std::forward<std::shared_ptr<TaskState>>(state))
 {
+#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 201907L
 	static constexpr auto kExpectedTaskSize = 128;
 	static_assert(sizeof(Task) == kExpectedTaskSize);
+#endif
 
 	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
@@ -66,11 +56,11 @@ constexpr Task::Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTup
 template <typename... Params>
 inline void Task::operator()(Params&&... params)
 {
-	ASSERTF(myInvokeFcnPtr, "Task is not initialized!");
+	ASSERTF(myInvokeFcn, "Task is not initialized!");
 	ASSERT(!!InternalState());
 
 	auto taskParams = std::make_tuple(std::forward<Params>(params)...);
-	myInvokeFcnPtr(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);
+	myInvokeFcn(myCallableMemory.data(), myArgsMemory.data(), myState.get(), &taskParams);
 }
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
@@ -82,7 +72,8 @@ TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 		auto* taskPtr = InternalHandleToPtr(handle);
 		auto state = std::make_shared<typename Future<R>::FutureState>();
 		state->mutex.lock();
-		new (taskPtr) Task(
+		std::construct_at(
+			taskPtr,
 			std::static_pointer_cast<TaskState>(state),
 			std::forward<F>(callable),
 			ParamsTuple{},

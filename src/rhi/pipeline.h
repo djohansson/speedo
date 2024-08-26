@@ -138,7 +138,7 @@ public:
 
 	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
 
-	std::optional<TimelineCallback> BindDescriptorSetAuto(
+	TaskHandle BindDescriptorSetAuto(
 		CommandBufferHandle<G> cmd,
 		uint32_t set,
 		std::optional<uint32_t> bufferOffset = std::nullopt);

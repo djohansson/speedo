@@ -5,12 +5,13 @@
 #include "semaphore.h"
 #include "types.h"
 
+#include <core/task.h>
+
 #include <deque>
 #include <memory>
 //#include <source_location>
 #include <vector>
 
-using TimelineCallback = std::function<void(uint64_t)>;
 template <GraphicsApi G>
 struct QueueDeviceSyncInfo
 {
@@ -19,7 +20,9 @@ struct QueueDeviceSyncInfo
 	std::vector<uint64_t> waitSemaphoreValues;
 	std::vector<SemaphoreHandle<G>> signalSemaphores;
 	std::vector<uint64_t> signalSemaphoreValues;
-	std::vector<TimelineCallback> callbacks;
+	 // these will be called after the queue has finished executing the command buffers on the device,
+	 // through manually calling the SubmitCallbacks method from the host.
+	std::vector<TaskHandle> callbacks;
 };
 
 template <GraphicsApi G>
@@ -128,7 +131,7 @@ public:
 	void Wait(QueueHostSyncInfo<G>&& syncInfo) const;
 	void WaitIdle() const;
 	
-	bool ProcessTimelineCallbacks(uint64_t timelineValue);
+	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue);
 
 	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
@@ -157,7 +160,7 @@ private:
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	using TimelineCallbackData = std::tuple<std::vector<TimelineCallback>, uint64_t>;
+	using TimelineCallbackData = std::tuple<std::vector<TaskHandle>, uint64_t>;
 	ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
 
 #if (PROFILING_LEVEL > 0)

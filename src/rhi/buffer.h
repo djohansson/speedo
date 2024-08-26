@@ -20,10 +20,7 @@ struct BufferCreateDesc
 template <GraphicsApi G>
 class Buffer : public DeviceObject<G>
 {
-	using ValueType = std::tuple<
-		BufferHandle<G>,
-		AllocationHandle<G>,
-		std::optional<TimelineCallback>>;
+	using ValueType = std::tuple<BufferHandle<G>, AllocationHandle<G>, TaskHandle>;
 
 public:
 	constexpr Buffer() noexcept = default;

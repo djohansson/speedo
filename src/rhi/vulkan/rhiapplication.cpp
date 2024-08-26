@@ -50,14 +50,12 @@ static void LoadModel(
 		progress);
 	auto oldModel = rhi.pipeline->SetModel(newModel);
 
-	std::vector<TimelineCallback> timelineCallbacks;
-	timelineCallbacks.emplace_back([oldModel = std::move(oldModel)](auto) mutable { oldModel.reset(); });
-	
-	if (const auto& callback = newModel->GetIndexBuffer().GetTimelineCallback(); callback)
-		timelineCallbacks.emplace_back(callback.value());
-
-	if (const auto& callback = newModel->GetVertexBuffer().GetTimelineCallback(); callback)
-		timelineCallbacks.emplace_back(callback.value());
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(CreateTask(
+		[oldModel = std::move(oldModel)] mutable {
+			oldModel.reset(); }).first);
+	timelineCallbacks.emplace_back(newModel->GetIndexBuffer().GetTimelineCallback());
+	timelineCallbacks.emplace_back(newModel->GetVertexBuffer().GetTimelineCallback());
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
@@ -93,11 +91,11 @@ static void LoadImage(
 	rhi.pipeline->GetResources().image = image;
 	rhi.pipeline->GetResources().imageView = imageView;
 
-	std::vector<TimelineCallback> timelineCallbacks;
-	timelineCallbacks.emplace_back([oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)](auto) mutable { oldImage.reset(); oldImageView.reset(); });
-
-	if (const auto& callback = image->GetTimelineCallback(); callback)
-		timelineCallbacks.emplace_back(callback.value());
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(CreateTask(
+		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)] mutable {
+			 oldImage.reset(); oldImageView.reset(); }).first);
+	timelineCallbacks.emplace_back(image->GetTimelineCallback());
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
@@ -1136,7 +1134,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	CreateQueues(*rhi);
 	CreateWindowDependentObjects(*rhi);
 
-	std::vector<TimelineCallback> timelineCallbacks;
+	std::vector<TaskHandle> timelineCallbacks;
 
 	// todo: create some resource global storage
 	rhi->pipeline->GetResources().black = std::make_shared<Image<kVk>>(
@@ -1211,8 +1209,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 				"Materials"},
 			materialData.get());
 
-		if (const auto& callback = rhi->materials->GetTimelineCallback(); callback)
-			timelineCallbacks.emplace_back(callback.value());
+		timelineCallbacks.emplace_back(rhi->materials->GetTimelineCallback());
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
 		static const auto kIdentityMatrix = glm::mat4x4(1.0);
@@ -1230,8 +1227,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 				"ModelInstances"},
 			modelInstances.get());
 
-		if (const auto& callback = rhi->modelInstances->GetTimelineCallback(); callback)
-			timelineCallbacks.emplace_back(callback.value());
+		timelineCallbacks.emplace_back(rhi->modelInstances->GetTimelineCallback());
 
 		cmd.End();
 
@@ -1466,7 +1462,7 @@ void RhiApplication::InternalDraw()
 	{
 		ZoneScopedN("rhi::draw::processGraphics");
 
-		graphicsQueue.ProcessTimelineCallbacks(graphicsSemaphore.GetValue());
+		graphicsQueue.SubmitCallbacks(Executor(), graphicsSemaphore.GetValue());
 	}
 
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
@@ -1474,7 +1470,7 @@ void RhiApplication::InternalDraw()
 	{
 		ZoneScopedN("rhi::draw::processTransfers");
 
-		transferQueue.ProcessTimelineCallbacks(transferSemaphore.GetValue());
+		transferQueue.SubmitCallbacks(Executor(), transferSemaphore.GetValue());
 	}
 
 	ImGui_ImplVulkan_NewFrame(); // no-op?
@@ -1520,7 +1516,7 @@ void RhiApplication::InternalDraw()
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
-		std::vector<TimelineCallback> timelineCallbacks;
+		std::vector<TaskHandle> timelineCallbacks;
 		
 		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
@@ -1606,19 +1602,13 @@ void RhiApplication::InternalDraw()
 							ZoneScopedN("bindState");
 
 							// bind descriptor sets
-							std::array<std::optional<TimelineCallback>, 6> callbacks;
-							callbacks[0] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-							callbacks[1] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-							callbacks[2] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-							callbacks[3] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-							callbacks[4] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
-							callbacks[5] = pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-							for (auto& callback : callbacks)
-							{
-								if (callback)
-									timelineCallbacks.emplace_back(callback.value());
-							}
+							timelineCallbacks.reserve(timelineCallbacks.size() + 6);
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS));
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS));
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES));
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW));
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL));
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES));
 
 							// bind pipeline and buffers
 							pipeline.BindPipelineAuto(cmd);
@@ -1810,7 +1800,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 		ZoneScopedN("~RhiApplication()::waitGraphics");
 
 		graphicsQueue.WaitIdle();
-		graphicsQueue.ProcessTimelineCallbacks(graphicsSubmit.maxTimelineValue);
+		graphicsQueue.SubmitCallbacks(Executor(), graphicsSubmit.maxTimelineValue);
 	}
 
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
@@ -1819,7 +1809,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 		ZoneScopedN("~RhiApplication()::waitTransfer");
 
 		transferQueue.WaitIdle();
-		transferQueue.ProcessTimelineCallbacks(transferSubmit.maxTimelineValue);
+		transferQueue.SubmitCallbacks(Executor(), transferSubmit.maxTimelineValue);
 	}
 
 	ShutdownImgui();

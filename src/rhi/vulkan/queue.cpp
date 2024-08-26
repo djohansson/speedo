@@ -6,14 +6,14 @@
 #include <tracy/TracyVulkan.hpp>
 
 template <>
-bool Queue<kVk>::ProcessTimelineCallbacks(uint64_t timelineValue)
+bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
 {
-	ZoneScopedN("Queue::ProcessTimelineCallbacks");
+	ZoneScopedN("Queue::SubmitCallbacks");
 
 	TimelineCallbackData callbackData;
 	while (myTimelineCallbacks.try_dequeue(callbackData))
 	{
-		const auto& [callbackVector, commandBufferTimelineValue] = callbackData;
+		auto& [callbackVector, commandBufferTimelineValue] = callbackData;
 
 		if (commandBufferTimelineValue > timelineValue)
 		{
@@ -21,8 +21,7 @@ bool Queue<kVk>::ProcessTimelineCallbacks(uint64_t timelineValue)
 			return false;
 		}
 
-		for (auto& callback : callbackVector)
-			callback(commandBufferTimelineValue);
+		executor.Submit(std::span(callbackVector.data(), callbackVector.size()));
 	}
 
 	return true;
@@ -121,16 +120,6 @@ Queue<kVk>::~Queue()
 	if (myProfilingContext)
 		DestroyVkContext(static_cast<TracyVkCtx>(myProfilingContext));
 #endif
-	
-	for (auto& submittedCommandList : myPool.InternalGetSubmittedCommands())
-	{
-		if (!submittedCommandList.empty())
-		{
-			const auto& [cmdArray, cmdTimelineValue] = submittedCommandList.back();
-
-			ProcessTimelineCallbacks(cmdTimelineValue);
-		}
-	}
 
 	ASSERT(myTimelineCallbacks.size_approx() == 0);
 }

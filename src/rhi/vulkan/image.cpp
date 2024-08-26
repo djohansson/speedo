@@ -435,7 +435,7 @@ Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kV
 		std::tuple_cat(
 			image::CreateImage2D(device->GetAllocator(), desc),
 			std::make_tuple(desc.initialLayout),
-			std::make_tuple(std::optional<TimelineCallback>())),
+			std::make_tuple(TaskHandle{})),
 		std::forward<ImageCreateDesc<kVk>>(desc))
 {}
 
@@ -452,11 +452,11 @@ Image<kVk>::Image(
 				return image::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
 			}(),
 			std::make_tuple(std::get<2>(initialData).initialLayout),
-			std::make_tuple(TimelineCallback(
-				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)](uint64_t)
+			std::make_tuple(CreateTask(
+				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]
 				{
 					vmaDestroyBuffer(allocator, buffer, memory);
-				}))),
+				}).first)),
 		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
 {}
 

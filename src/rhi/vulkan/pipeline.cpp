@@ -827,7 +827,7 @@ void Pipeline<kVk>::BindDescriptorSet(
 }
 
 template <>
-std::optional<TimelineCallback> Pipeline<kVk>::BindDescriptorSetAuto(
+TaskHandle Pipeline<kVk>::BindDescriptorSetAuto(
 	CommandBufferHandle<kVk> cmd,
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset)
@@ -841,7 +841,7 @@ std::optional<TimelineCallback> Pipeline<kVk>::BindDescriptorSetAuto(
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
 
-	std::optional<TimelineCallback> timelineCallback;
+	TaskHandle timelineCallback;
 
 	mutex.lock_upgrade();
 
@@ -878,9 +878,9 @@ std::optional<TimelineCallback> Pipeline<kVk>::BindDescriptorSetAuto(
 
 		setRefCount++;
 
-		timelineCallback = TimelineCallback([&setRefCount](uint64_t){
+		timelineCallback = CreateTask([&setRefCount]{
 			 setRefCount--;
-		});
+		}).first;
 	}
 	else
 	{

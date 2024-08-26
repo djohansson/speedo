@@ -47,14 +47,13 @@ void InternalFree(TaskHandle handle) noexcept
 
 Task::~Task()
 {
-	if (myDeleteFcnPtr != nullptr)
-		myDeleteFcnPtr(myCallableMemory.data(), myArgsMemory.data());
+	if (myDeleteFcn)
+		myDeleteFcn(myCallableMemory.data(), myArgsMemory.data());
 }
 
 Task::operator bool() const noexcept
 {
-	return (myInvokeFcnPtr != nullptr) && (myCopyFcnPtr != nullptr) &&
-		   (myDeleteFcnPtr != nullptr) && myState;
+	return myInvokeFcn && myDeleteFcn && myState;
 }
 
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)

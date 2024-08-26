@@ -32,11 +32,7 @@ struct ImageCreateDesc
 template <GraphicsApi G>
 class Image : public DeviceObject<G>
 {
-	using ValueType = std::tuple<
-		ImageHandle<G>,
-		AllocationHandle<G>,
-		ImageLayout<G>,
-		std::optional<TimelineCallback>>;
+	using ValueType = std::tuple<ImageHandle<G>, AllocationHandle<G>, ImageLayout<G>, TaskHandle>;
 
 public:
 	constexpr Image() noexcept = default;

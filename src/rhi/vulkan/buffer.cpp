@@ -41,7 +41,7 @@ Buffer<kVk>::Buffer(
 				desc.usageFlags,
 				desc.memoryFlags,
 				desc.name.data()),
-			std::make_tuple(std::optional<TimelineCallback>())),
+			std::make_tuple(TaskHandle{})),
 		std::forward<BufferCreateDesc<kVk>>(desc))
 {}
 
@@ -64,11 +64,11 @@ Buffer<kVk>::Buffer(
 					std::get<2>(initialData).memoryFlags,
 					std::get<2>(initialData).name.data());
 			}(),
-			std::make_tuple(TimelineCallback(
-				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)](uint64_t)
+			std::make_tuple(CreateTask(
+				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]
 				{
 					vmaDestroyBuffer(allocator, buffer, memory);
-				}))),
+				}).first)),
 		std::forward<BufferCreateDesc<kVk>>(std::get<2>(initialData)))
 {}
 

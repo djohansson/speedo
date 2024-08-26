@@ -5,6 +5,7 @@
 #include "std_extra.h"
 #include "upgradablesharedmutex.h"
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <tuple>
@@ -51,9 +52,14 @@ public:
 
 	alignas(intptr_t) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
 	alignas(intptr_t) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
-	void (*myInvokeFcnPtr)(const void*, const void*, void*, const void*){};
-	void (*myCopyFcnPtr)(void*, const void*, void*, const void*){};
-	void (*myDeleteFcnPtr)(void*, void*){};
+
+#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 201907L
+	std::move_only_function<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	std::move_only_function<void(void*, void*)> myDeleteFcn;
+#else
+	std::function<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	std::function<void(void*, void*)> myDeleteFcn;
+#endif
 	std::shared_ptr<TaskState> myState;
 };
 
