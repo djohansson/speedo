@@ -17,7 +17,7 @@ using min_unsigned_t = std::tuple_element_t<
 	std::bit_width(N) / 8,
 	std::tuple<std::uint8_t, std::uint16_t, std::uint32_t, std::uint64_t>>;
 
-#if __cpp_lib_hardware_interference_size >= 201603
+#if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201603
 using std::hardware_constructive_interference_size;
 using std::hardware_destructive_interference_size;
 #else

@@ -18,7 +18,7 @@ class UpgradableSharedMutex final
 		Writer = 1,
 		Empty = 0
 	};
-#if __cpp_lib_atomic_ref >= 201806
+#if defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806
 	static constexpr uint32_t kAligmnent = std::atomic_ref<value_t>::required_alignment;
 	alignas(kAligmnent) value_t myBits = 0;
 	[[nodiscard]] std::atomic_ref<value_t> InternalAtomicRef() noexcept { return std::atomic_ref(myBits); }
