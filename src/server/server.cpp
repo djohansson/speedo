@@ -89,7 +89,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	}
 
 	auto rpcTask = CreateTask(Rpc, socket, poller);
-	AddDependency(gRpcTask.first, rpcTask.first);
+	AddDependency(gRpcTask.handle, rpcTask.handle);
 	gRpcTask = rpcTask;
 }
 
@@ -138,7 +138,7 @@ Server::Server(std::string_view name, Environment&& env)
 
 	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
-	Executor().Submit({&gRpcTask.first, 1});
+	Executor().Submit({&gRpcTask.handle, 1});
 }
 
 void CreateServer(const PathConfig* paths)

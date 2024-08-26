@@ -97,7 +97,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	}
 
 	auto rpcTask = CreateTask(Rpc, socket, poller);
-	AddDependency(gRpcTask.first, rpcTask.first, true);
+	AddDependency(gRpcTask.handle, rpcTask.handle, true);
 	gRpcTask = rpcTask;
 }
 
@@ -118,7 +118,7 @@ static void Update()
 	gClientApplication->UpdateInput();
 
 	auto drawTask = CreateTask(Draw);
-	AddDependency(gUpdateTask.first, drawTask.first, true);
+	AddDependency(gUpdateTask.handle, drawTask.handle, true);
 	gDrawTask = drawTask;
 }
 
@@ -131,7 +131,7 @@ static void Draw()
 	gClientApplication->Draw();
 
 	auto updateTask = CreateTask(Update);
-	AddDependency(gDrawTask.first, updateTask.first, true);
+	AddDependency(gDrawTask.handle, updateTask.handle, true);
 	gUpdateTask = updateTask;
 }
 
@@ -191,7 +191,7 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gUpdateTask = CreateTask(Update);
 	gUpdateTaskState = kTaskStateRunning;
 
-	std::array<TaskHandle, 2> handles{gRpcTask.first, gUpdateTask.first};
+	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
 	Executor().Submit(handles);
 
 	// initial tick required to initialize data structures in imgui (and potentially others)

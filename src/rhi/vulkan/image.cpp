@@ -434,41 +434,41 @@ Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kV
 		device,
 		std::tuple_cat(
 			image::CreateImage2D(device->GetAllocator(), desc),
-			std::make_tuple(desc.initialLayout),
-			std::make_tuple(TaskHandle{})),
+			std::make_tuple(desc.initialLayout)),
 		std::forward<ImageCreateDesc<kVk>>(desc))
 {}
 
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
+	TaskCreateInfo<void>& timlineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>>&& initialData)
 	: Image(
 		device,
 		std::tuple_cat(
-			[&cmd, &device, &initialData]
-			{
+			[&cmd, &device, &initialData]{
 				return image::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
 			}(),
-			std::make_tuple(std::get<2>(initialData).initialLayout),
-			std::make_tuple(CreateTask(
-				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]
-				{
-					vmaDestroyBuffer(allocator, buffer, memory);
-				}).first)),
+			std::make_tuple(std::get<2>(initialData).initialLayout)),
 		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
-{}
+{
+	timlineCallbackOut = CreateTask(
+		[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
+			vmaDestroyBuffer(allocator, buffer, memory); });
+}
 
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
+	TaskCreateInfo<void>& timlineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	ImageCreateDesc<kVk>&& desc,
 	const void* initialData,
 	size_t initialDataSize)
 	: Image(
 		device,
+		timlineCallbackOut,
 		cmd,
 		std::tuple_cat(
 			CreateStagingBuffer(
@@ -482,10 +482,11 @@ Image<kVk>::Image(
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
+	TaskCreateInfo<void>& timlineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& imageFile,
 	std::atomic_uint8_t& progress)
-	: Image(device, cmd, image::Load(imageFile, device, progress))
+	: Image(device, timlineCallbackOut, cmd, image::Load(imageFile, device, progress))
 {}
 
 template <>

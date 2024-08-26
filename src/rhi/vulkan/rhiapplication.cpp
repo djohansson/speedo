@@ -43,19 +43,23 @@ static void LoadModel(
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
+	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto newModel = std::make_shared<Model<kVk>>(
 		rhi.device,
+		transfersDone,
 		transferQueue.GetPool().Commands(),
 		openFilePath,
 		progress);
 	auto oldModel = rhi.pipeline->SetModel(newModel);
 
-	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(CreateTask(
+	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask(
 		[oldModel = std::move(oldModel)] mutable {
-			oldModel.reset(); }).first);
-	timelineCallbacks.emplace_back(newModel->GetIndexBuffer().GetTimelineCallback());
-	timelineCallbacks.emplace_back(newModel->GetVertexBuffer().GetTimelineCallback());
+			oldModel.reset(); });
+
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(transfersDone[0].handle);
+	timelineCallbacks.emplace_back(transfersDone[1].handle);
+	timelineCallbacks.emplace_back(oldModelDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
@@ -78,8 +82,11 @@ static void LoadImage(
 
 	auto oldImage = rhi.pipeline->GetResources().image;
 	auto oldImageView = rhi.pipeline->GetResources().imageView;
+	
+	TaskCreateInfo<void> transferDone;
 	auto image = std::make_shared<Image<kVk>>(
 		rhi.device,
+		transferDone,
 		transferQueue.GetPool().Commands(),
 		openFilePath,
 		progress);
@@ -88,14 +95,16 @@ static void LoadImage(
 		*image,
 		VK_IMAGE_ASPECT_COLOR_BIT);
 
+	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask(
+		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)] mutable {
+			 oldImage.reset(); oldImageView.reset(); });
+
 	rhi.pipeline->GetResources().image = image;
 	rhi.pipeline->GetResources().imageView = imageView;
 
 	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(CreateTask(
-		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)] mutable {
-			 oldImage.reset(); oldImageView.reset(); }).first);
-	timelineCallbacks.emplace_back(image->GetTimelineCallback());
+	timelineCallbacks.emplace_back(transferDone.handle);
+	timelineCallbacks.emplace_back(oldImageDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		{transferSemaphore},
@@ -1199,8 +1208,11 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		materialData[0].color[3] = 1.0;
 		materialData[0].textureAndSamplerId =
 			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
+
+		TaskCreateInfo<void> materialTransfersDone;
 		rhi->materials = std::make_unique<Buffer<kVk>>(
 			rhi->device,
+			materialTransfersDone,
 			cmd,
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
@@ -1208,8 +1220,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 				"Materials"},
 			materialData.get());
-
-		timelineCallbacks.emplace_back(rhi->materials->GetTimelineCallback());
+		timelineCallbacks.emplace_back(materialTransfersDone.handle);
 
 		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
 		static const auto kIdentityMatrix = glm::mat4x4(1.0);
@@ -1217,8 +1228,11 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
 		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
 		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
+
+		TaskCreateInfo<void> modelTransfersDone;
 		rhi->modelInstances = std::make_unique<Buffer<kVk>>(
 			rhi->device,
+			modelTransfersDone,
 			cmd,
 			BufferCreateDesc<kVk>{
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
@@ -1226,8 +1240,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 				"ModelInstances"},
 			modelInstances.get());
-
-		timelineCallbacks.emplace_back(rhi->modelInstances->GetTimelineCallback());
+		timelineCallbacks.emplace_back(modelTransfersDone.handle);
 
 		cmd.End();
 
@@ -1603,12 +1616,12 @@ void RhiApplication::InternalDraw()
 
 							// bind descriptor sets
 							timelineCallbacks.reserve(timelineCallbacks.size() + 6);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS));
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS));
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES));
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW));
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL));
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES));
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS).handle);
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS).handle);
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES).handle);
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW).handle);
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL).handle);
+							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES).handle);
 
 							// bind pipeline and buffers
 							pipeline.BindPipelineAuto(cmd);

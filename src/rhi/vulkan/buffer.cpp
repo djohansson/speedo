@@ -40,14 +40,14 @@ Buffer<kVk>::Buffer(
 				desc.size,
 				desc.usageFlags,
 				desc.memoryFlags,
-				desc.name.data()),
-			std::make_tuple(TaskHandle{})),
+				desc.name.data())),
 		std::forward<BufferCreateDesc<kVk>>(desc))
 {}
 
 template <>
 Buffer<kVk>::Buffer(
 	const std::shared_ptr<Device<kVk>>& device,
+	TaskCreateInfo<void>& timelineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, BufferCreateDesc<kVk>>&& initialData)
 	: Buffer(
@@ -63,23 +63,25 @@ Buffer<kVk>::Buffer(
 					std::get<2>(initialData).usageFlags,
 					std::get<2>(initialData).memoryFlags,
 					std::get<2>(initialData).name.data());
-			}(),
-			std::make_tuple(CreateTask(
-				[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]
-				{
-					vmaDestroyBuffer(allocator, buffer, memory);
-				}).first)),
+			}()),
 		std::forward<BufferCreateDesc<kVk>>(std::get<2>(initialData)))
-{}
+{
+	timelineCallbackOut = CreateTask(
+		[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
+			vmaDestroyBuffer(allocator, buffer, memory);
+		});
+}
 
 template <>
 Buffer<kVk>::Buffer(
 	const std::shared_ptr<Device<kVk>>& device,
+	TaskCreateInfo<void>& timelineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	BufferCreateDesc<kVk>&& desc,
 	const void* initialData)
 	: Buffer(
 		device,
+		timelineCallbackOut,
 		cmd,
 		std::tuple_cat(
 			CreateStagingBuffer(

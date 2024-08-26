@@ -20,7 +20,7 @@ struct BufferCreateDesc
 template <GraphicsApi G>
 class Buffer : public DeviceObject<G>
 {
-	using ValueType = std::tuple<BufferHandle<G>, AllocationHandle<G>, TaskHandle>;
+	using ValueType = std::tuple<BufferHandle<G>, AllocationHandle<G>>;
 
 public:
 	constexpr Buffer() noexcept = default;
@@ -30,6 +30,7 @@ public:
 		BufferCreateDesc<G>&& desc);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
+		TaskCreateInfo<void>& timelineCallbackOut,
 		CommandBufferHandle<G> cmd,
 		BufferCreateDesc<G>&& desc,
 		const void* initialData);
@@ -39,6 +40,7 @@ public:
 		BufferCreateDesc<G>&& desc);
 	Buffer( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
+		TaskCreateInfo<void>& timelineCallbackOut,
 		CommandBufferHandle<G> cmd,
 		std::tuple<BufferHandle<G>, AllocationHandle<G>, BufferCreateDesc<G>>&& initialData);
 	~Buffer() override;
@@ -51,7 +53,6 @@ public:
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
-	[[nodiscard]] const auto& GetTimelineCallback() const noexcept { return std::get<2>(myBuffer); }
 
 private:
 	ValueType myBuffer{};

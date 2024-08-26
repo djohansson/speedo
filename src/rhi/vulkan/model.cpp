@@ -363,6 +363,7 @@ Load(
 template <>
 Model<kVk>::Model(
 	const std::shared_ptr<Device<kVk>>& device,
+	std::span<TaskCreateInfo<void>> timelineCallbacksOut,
 	CommandBufferHandle<kVk> cmd,
 	std::tuple<
 		BufferHandle<kVk>,
@@ -372,6 +373,7 @@ Model<kVk>::Model(
 		ModelCreateDesc<kVk>>&& initialData)
 	: myIndexBuffer(
 		  device,
+		  timelineCallbacksOut[0],
 		  cmd,
 		  std::make_tuple(
 			  std::get<0>(initialData),
@@ -383,6 +385,7 @@ Model<kVk>::Model(
 				  "IndexBuffer"}))
 	, myVertexBuffer(
 		  device,
+		  timelineCallbacksOut[1],
 		  cmd,
 		  std::make_tuple(
 			  std::get<2>(initialData),
@@ -399,10 +402,11 @@ Model<kVk>::Model(
 template <>
 Model<kVk>::Model(
 	const std::shared_ptr<Device<kVk>>& device,
+	std::span<TaskCreateInfo<void>> timelineCallbacksOut,
 	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& modelFile,
 	std::atomic_uint8_t& progress)
-	: Model(device, cmd, model::Load(modelFile, device, progress))
+	: Model(device, timelineCallbacksOut, cmd, model::Load(modelFile, device, progress))
 {}
 
 template <>

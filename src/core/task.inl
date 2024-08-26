@@ -80,7 +80,7 @@ TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 			std::forward<Args>(args)...);
 		state->mutex.unlock();
 
-		return std::make_pair(handle, Future<R>(std::move(state)));
+		return { .handle = handle, .future = Future<R>(std::move(state)) };
 	}
 
 	CHECKF(false, "Task::InternalAllocate() failed, pool is full?");

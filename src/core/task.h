@@ -107,7 +107,11 @@ public:
 };
 
 template <typename T>
-using TaskCreateInfo = std::pair<TaskHandle, Future<T>>;
+struct TaskCreateInfo 
+{
+	TaskHandle handle;
+	Future<T> future;
+};
 
 template <
 	typename... Params,

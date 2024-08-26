@@ -27,6 +27,7 @@ public:
 	Model(Model&& other) noexcept = default;
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
 		const std::shared_ptr<Device<G>>& device,
+		std::span<TaskCreateInfo<void>> timelineCallbacksOut,
 		CommandBufferHandle<G> cmd,
 		const std::filesystem::path& modelFile,
 		std::atomic_uint8_t& progress);
@@ -44,6 +45,7 @@ public:
 private:
 	Model( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
+		std::span<TaskCreateInfo<void>> timelineCallbacksOut,
 		CommandBufferHandle<G> cmd,
 		std::tuple<
 			BufferHandle<G>,
