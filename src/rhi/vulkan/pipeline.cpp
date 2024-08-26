@@ -330,7 +330,6 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 						InternalGetDevice(),
 						setLayout,
 						DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
-					0,
 					0));
 			}
 		}
@@ -725,11 +724,10 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 		setArrayList.emplace_front(std::make_tuple(
 			DescriptorSetArray<kVk>(
 				InternalGetDevice(), setLayout, DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
-			~0,
-			0));
+			~0));
 	}
 
-	auto& [setArray, setIndex, setRefCount] = setArrayList.front();
+	auto& [setArray, setIndex] = setArrayList.front();
 	++setIndex;
 	ASSERT(setIndex < setArray.Capacity());
 	auto* setHandle = setArray[setIndex];
@@ -740,20 +738,6 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 
 		vkUpdateDescriptorSetWithTemplate(
 			*InternalGetDevice(), setHandle, setTemplate, bindingsData.data());
-	}
-
-	// clean up
-	if (auto setArrayIt = setArrayList.begin(); setArrayIt != setArrayList.end())
-	{
-		setArrayIt++;
-		while (setArrayIt != setArrayList.end())
-		{
-			auto& [setArray, setIndex, setRefCount] = *setArrayIt;
-			if (setRefCount == 0U)
-				setArrayIt = setArrayList.erase(setArrayIt);
-			else
-				setArrayIt++;
-		}
 	}
 }
 
@@ -827,7 +811,7 @@ void Pipeline<kVk>::BindDescriptorSet(
 }
 
 template <>
-TaskCreateInfo<void> Pipeline<kVk>::BindDescriptorSetAuto(
+void Pipeline<kVk>::BindDescriptorSetAuto(
 	CommandBufferHandle<kVk> cmd,
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset)
@@ -840,8 +824,6 @@ TaskCreateInfo<void> Pipeline<kVk>::BindDescriptorSetAuto(
 	const auto& setLayout = layout.GetDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
-
-	TaskCreateInfo<void>  timelineCallback;
 
 	mutex.lock_upgrade();
 
@@ -865,7 +847,7 @@ TaskCreateInfo<void> Pipeline<kVk>::BindDescriptorSetAuto(
 	{
 		auto& setArrayList = setOptionalArrayList.value();
 		ASSERT(!setArrayList.empty());
-		auto& [setArray, setIndex, setRefCount] = setArrayList.front();
+		auto& [setArray, setIndex] = setArrayList.front();
 		auto* handle = setArray[setIndex];
 
 		BindDescriptorSet(
@@ -875,12 +857,6 @@ TaskCreateInfo<void> Pipeline<kVk>::BindDescriptorSetAuto(
 			static_cast<PipelineLayoutHandle<kVk>>(layout),
 			set,
 			bufferOffset);
-
-		setRefCount++;
-
-		timelineCallback = CreateTask([&setRefCount]{
-			 setRefCount--;
-		});
 	}
 	else
 	{
@@ -892,8 +868,6 @@ TaskCreateInfo<void> Pipeline<kVk>::BindDescriptorSetAuto(
 	}
 
 	mutex.unlock_shared();
-
-	return timelineCallback;
 }
 
 template <>

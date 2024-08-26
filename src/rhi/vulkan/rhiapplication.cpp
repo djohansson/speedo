@@ -1528,8 +1528,6 @@ void RhiApplication::InternalDraw()
 		auto& renderImageSet = *rhi.renderImageSet;
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
-
-		std::vector<TaskHandle> timelineCallbacks;
 		
 		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
@@ -1569,7 +1567,6 @@ void RhiApplication::InternalDraw()
 					frameIndex = newFrameIndex,
 					&drawAtomic,
 					&drawCount,
-					&timelineCallbacks,
 					&desc = window.GetConfig()](uint32_t threadIt)
 					{
 						ZoneScoped;
@@ -1610,18 +1607,17 @@ void RhiApplication::InternalDraw()
 
 						auto cmd = queue.GetPool().Commands(beginInfo);
 
-						auto bindState = [&pipeline, &timelineCallbacks](VkCommandBuffer cmd)
+						auto bindState = [&pipeline](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("bindState");
 
 							// bind descriptor sets
-							timelineCallbacks.reserve(timelineCallbacks.size() + 6);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS).handle);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS).handle);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES).handle);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW).handle);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL).handle);
-							timelineCallbacks.emplace_back(pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES).handle);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 							// bind pipeline and buffers
 							pipeline.BindPipelineAuto(cmd);
@@ -1781,8 +1777,7 @@ void RhiApplication::InternalDraw()
 			{graphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore},
 			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed)},
-			std::move(timelineCallbacks)
-		});
+			{}});
 
 		graphicsSubmit = graphicsQueue.Submit();
 		graphicsQueue.EnqueuePresent(window.PreparePresent(graphicsSubmit));

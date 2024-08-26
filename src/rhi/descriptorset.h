@@ -117,10 +117,7 @@ private:
 };
 
 template <GraphicsApi G>
-using DescriptorSetArrayList = std::list<std::tuple<
-	DescriptorSetArray<G>,		// descriptor set array
-	uint8_t,					// current array index. move out from here perhaps?
-	CopyableAtomic<uint32_t>>>; // reference count.
+using DescriptorSetArrayList = std::list<std::tuple<DescriptorSetArray<G>, uint8_t>>;
 
 template <GraphicsApi G>
 struct DescriptorUpdateTemplateCreateDesc
