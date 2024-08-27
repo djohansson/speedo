@@ -4,14 +4,16 @@
 template <>
 Semaphore<kVk>::Semaphore(
 	const std::shared_ptr<Device<kVk>>& device,
-	SemaphoreHandle<kVk>&& semaphore)
+	SemaphoreHandle<kVk>&& handle,
+	SemaphoreCreateDesc<kVk>&& desc)
 	: DeviceObject(
 		  device,
 		  {"_Semaphore"},
 		  1,
 		  VK_OBJECT_TYPE_SEMAPHORE,
-		  reinterpret_cast<uint64_t*>(&semaphore))
-	, mySemaphore(std::forward<SemaphoreHandle<kVk>>(semaphore))
+		  reinterpret_cast<uint64_t*>(&handle))
+	, mySemaphore(std::forward<SemaphoreHandle<kVk>>(handle))
+	, myDesc(std::forward<SemaphoreCreateDesc<kVk>>(desc))
 {}
 
 template <>
@@ -24,7 +26,7 @@ Semaphore<kVk>::Semaphore(
 		typeCreateInfo.semaphoreType = desc.type;
 		typeCreateInfo.initialValue = 0ULL;
 
-		SemaphoreHandle<kVk> semaphore;
+		SemaphoreHandle<kVk> handle;
 		VkSemaphoreCreateInfo createInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 		createInfo.pNext = &typeCreateInfo;
 		createInfo.flags = desc.flags;
@@ -33,15 +35,16 @@ Semaphore<kVk>::Semaphore(
 			*device,
 			&createInfo,
 			&device->GetInstance()->GetHostAllocationCallbacks(),
-			&semaphore));
-		return semaphore;
-	}())
+			&handle));
+		return handle;
+	}(), std::forward<SemaphoreCreateDesc<kVk>>(desc))
 {}
 
 template <>
 Semaphore<kVk>::Semaphore(Semaphore<kVk>&& other) noexcept
 	: DeviceObject(std::forward<Semaphore<kVk>>(other))
 	, mySemaphore(std::exchange(other.mySemaphore, {}))
+	, myDesc(std::exchange(other.myDesc, {}))
 {}
 
 template <>
@@ -59,6 +62,7 @@ Semaphore<kVk>& Semaphore<kVk>::operator=(Semaphore<kVk>&& other) noexcept
 {
 	DeviceObject<kVk>::operator=(std::forward<Semaphore<kVk>>(other));
 	mySemaphore = std::exchange(other.mySemaphore, {});
+	myDesc = std::exchange(other.myDesc, {});
 	return *this;
 }
 
@@ -89,33 +93,10 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	waitInfo.flags = {};
 	waitInfo.semaphoreCount = 1;
 	waitInfo.pSemaphores = &mySemaphore;
-	waitInfo.pValues = &timelineValue;
+	if (GetDesc().type == VK_SEMAPHORE_TYPE_TIMELINE)
+		waitInfo.pValues = &timelineValue;
 
 	auto result = vkWaitSemaphores(*InternalGetDevice(), &waitInfo, timeout);
-	if (result == VK_TIMEOUT)
-		return false;
-
-	VK_CHECK(result);
-
-	return true;
-}
-
-template <>
-bool Semaphore<kVk>::Wait(
-	DeviceHandle<kVk> device,
-	std::span<SemaphoreHandle<kVk>> semaphores,
-	std::span<uint64_t> timelineValues,
-	uint64_t timeout)
-{
-	ZoneScopedN("Semaphore::wait");
-
-	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-	waitInfo.flags = {};
-	waitInfo.semaphoreCount = static_cast<uint32_t>(semaphores.size());
-	waitInfo.pSemaphores = semaphores.data();
-	waitInfo.pValues = timelineValues.data();
-
-	auto result = vkWaitSemaphores(device, &waitInfo, timeout);
 	if (result == VK_TIMEOUT)
 		return false;
 
