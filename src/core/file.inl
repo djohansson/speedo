@@ -426,6 +426,8 @@ std::expected<Record, std::error_code> LoadAsset(
 			manifest = result;
 		else
 			return std::unexpected(result.error());
+
+		return manifest->cacheFileInfo;
 	}
 
 	return LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);

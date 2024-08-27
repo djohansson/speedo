@@ -90,7 +90,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			return std::make_error_code(result);
 
 		thread_local static std::string name; // need to stay alive until the image object is fully constructed
-		name = imageFile.filename().string().append("_staging");
+		name = imageFile.filename().string().append(" loadBin staging");
 		
 		desc.name = name;
 
@@ -162,7 +162,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
 		thread_local static std::string name; // need to stay alive until the image object is fully constructed
-		name = imageFile.filename().string().append("_staging");
+		name = imageFile.filename().string().append("loadImage staging");
 
 		desc.name = name;
 		desc.mipLevels.resize(mipCount);
