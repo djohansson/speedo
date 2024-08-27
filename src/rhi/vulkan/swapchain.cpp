@@ -89,15 +89,15 @@ void Swapchain<kVk>::Transition(
 }
 
 template <>
-void Swapchain<kVk>::SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index)
+void Swapchain<kVk>::SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp)
 {
-	myFrames[myFrameIndex].SetLoadOp(loadOp, index);
+	myFrames[myFrameIndex].SetLoadOp(loadOp, index, stencilLoadOp);
 }
 
 template <>
-void Swapchain<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index)
+void Swapchain<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp)
 {
-	myFrames[myFrameIndex].SetStoreOp(storeOp, index);
+	myFrames[myFrameIndex].SetStoreOp(storeOp, index, stencilStoreOp);
 }
 
 template <>

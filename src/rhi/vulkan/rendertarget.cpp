@@ -403,15 +403,19 @@ void RenderTarget<kVk>::Clear(
 }
 
 template <>
-void RenderTarget<kVk>::SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index)
+void RenderTarget<kVk>::SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp)
 {
 	myAttachmentDescs[index].loadOp = loadOp;
+	if (HasStencilComponent(GetRenderTargetDesc().imageFormats[index]))
+		myAttachmentDescs[index].stencilLoadOp = stencilLoadOp;
 }
 
 template <>
-void RenderTarget<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index)
+void RenderTarget<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp)
 {
 	myAttachmentDescs[index].storeOp = storeOp;
+	if (HasStencilComponent(GetRenderTargetDesc().imageFormats[index]))
+		myAttachmentDescs[index].stencilStoreOp = stencilStoreOp;
 }
 
 template <>

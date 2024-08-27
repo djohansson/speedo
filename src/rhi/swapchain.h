@@ -73,8 +73,8 @@ public:
 
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
 
-	void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index) final;
-	void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index) final;
+	void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<G> stencilLoadOp = {}) final;
+	void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<G> stencilStoreOp = {}) final;
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	

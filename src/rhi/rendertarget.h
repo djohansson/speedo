@@ -61,8 +61,8 @@ struct IRenderTarget
 		ImageLayout<G> layout,
 		uint32_t index) = 0;
 
-	virtual void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index) = 0;
-	virtual void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index) = 0;
+	virtual void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp = {}) = 0;
+	virtual void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp = {}) = 0;
 };
 
 template <GraphicsApi G>
@@ -107,8 +107,8 @@ public:
 		const ClearValue<G>& value,
 		uint32_t index) final;
 
-	void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index) final;
-	void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index) final;
+	void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<G> stencilLoadOp = {}) final;
+	void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<G> stencilStoreOp = {}) final;
 
 	void AddSubpassDescription(SubpassDescription<G>&& description);
 	void AddSubpassDependency(SubpassDependency<G>&& dependency);
