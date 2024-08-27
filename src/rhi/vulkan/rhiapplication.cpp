@@ -619,7 +619,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<kVk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).GetConfig().splitScreenGrid;
+				Extent2d<kVk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).Config().splitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -715,7 +715,8 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	io.IniFilename = nullptr;
+	io.IniFilename = NULL;
+
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 	//io.FontGlobalScale = 1.0f;
@@ -723,6 +724,8 @@ static void IMGUIInit(
 	// auto& platformIo = ImGui::GetPlatformIO();
 	// platformIo.Platform_CreateVkSurface =
 	// 	(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
+
+	LoadIniSettingsFromMemory(window.Config().imguiIniSettings.c_str(), window.Config().imguiIniSettings.size());
 
 	const auto& surfaceCapabilities =
 		rhi.instance->GetSwapchainInfo(
@@ -733,8 +736,8 @@ static void IMGUIInit(
 	float dpiScaleX = 1.0F;
 	float dpiScaleY = 1.0F;
 #else
-	float dpiScaleX = window.GetConfig().contentScale.x;
-	float dpiScaleY = window.GetConfig().contentScale.y;
+	float dpiScaleX = window.Config().contentScale.x;
+	float dpiScaleY = window.Config().contentScale.y;
 #endif
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
@@ -744,7 +747,7 @@ static void IMGUIInit(
 	ImFontConfig config;
 	config.OversampleH = 2;
 	config.OversampleV = 2;
-	config.RasterizerDensity = std::max(window.GetConfig().contentScale.x, window.GetConfig().contentScale.y);
+	config.RasterizerDensity = std::max(window.Config().contentScale.x, window.Config().contentScale.y);
 	config.PixelSnapH = false;
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
@@ -787,17 +790,17 @@ static void IMGUIInit(
 	initInfo.PipelineCache = rhi.pipeline->GetCache();
 	initInfo.DescriptorPool = rhi.pipeline->GetDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
-	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
+	initInfo.ImageCount = window.Config().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
-	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
+	initInfo.UseDynamicRendering = window.Config().swapchainConfig.useDynamicRendering;
 	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetHandle<kVk>>(window.GetFrames()[0]).first;
 	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
 		.pNext = nullptr,
 		.viewMask = 0,
 		.colorAttachmentCount = 1,
-		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format,
+		.pColorAttachmentFormats = &window.Config().swapchainConfig.surfaceFormat.format,
 	};
 	ImGui_ImplVulkan_Init(&initInfo);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
@@ -965,7 +968,7 @@ static void CreateQueues(Rhi<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
-	const uint32_t frameCount = rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.imageCount;
+	const uint32_t frameCount = rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.imageCount;
 	const uint32_t graphicsQueueCount = frameCount;
 	const uint32_t graphicsThreadCount = std::max(1U, std::thread::hardware_concurrency());
 	const uint32_t computeQueueCount = 1U;
@@ -1047,8 +1050,8 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 	auto colorImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
-			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
+			{{rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.extent}},
+			rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
 				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -1059,7 +1062,7 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
+			{{rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.extent}},
 			FindSupportedFormat(
 				rhi.device->GetPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -1556,7 +1559,7 @@ void RhiApplication::InternalDraw()
 			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS, clearValues);
 
 			// setup draw parameters
-			uint32_t drawCount = window.GetConfig().splitScreenGrid.width * window.GetConfig().splitScreenGrid.height;
+			uint32_t drawCount = window.Config().splitScreenGrid.width * window.Config().splitScreenGrid.height;
 			uint32_t drawThreadCount = 0;
 
 			std::atomic_uint32_t drawAtomic = 0UL;
@@ -1581,7 +1584,7 @@ void RhiApplication::InternalDraw()
 					frameIndex = newFrameIndex,
 					&drawAtomic,
 					&drawCount,
-					&desc = window.GetConfig()](uint32_t threadIt)
+					&desc = window.Config()](uint32_t threadIt)
 					{
 						ZoneScoped;
 
@@ -1848,6 +1851,7 @@ void RhiApplication::Tick()
 	ZoneScopedN("RhiApplication::tick");
 
 	auto& rhi = InternalRhi<kVk>();
+	auto& window = rhi.windows.at(GetCurrentWindow());
 	
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
@@ -1857,6 +1861,15 @@ void RhiApplication::Tick()
 		Executor().Call(mainCall);
 	}
 
+	auto& io = ImGui::GetIO();
+	if (io.WantSaveIniSettings)
+	{
+		size_t iniStringSize;
+		const char* iniString = ImGui::SaveIniSettingsToMemory(&iniStringSize);
+		window.Config().imguiIniSettings.assign(iniString, iniStringSize);
+		io.WantSaveIniSettings = false;
+	}
+	
 	IMGUIPrepareDrawFunction(rhi, Executor());
 }
 

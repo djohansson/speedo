@@ -30,6 +30,7 @@ struct WindowConfiguration
 	SwapchainConfiguration<G> swapchainConfig{};
 	glm::vec2 contentScale = glm::vec2(1.0f, 1.0);
 	Extent2d<G> splitScreenGrid{1, 1}; // todo: replace with view list
+	std::string imguiIniSettings;
 	bool fullscreen{false};
 };
 
@@ -53,7 +54,8 @@ public:
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
+	[[nodiscard]] auto& Config() noexcept { return myConfig; }
+	[[nodiscard]] const auto& Config() const noexcept { return myConfig; }
 	[[nodiscard]] const auto& GetCameras() const noexcept { return myCameras; }
 	[[nodiscard]] const auto& GetActiveViewIndex() const noexcept { return myActiveCamera; }
 	[[nodiscard]] const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
