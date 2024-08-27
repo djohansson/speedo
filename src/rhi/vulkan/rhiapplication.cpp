@@ -15,6 +15,8 @@
 #include <imgui_impl_vulkan.h>
 #include <imgui_stdlib.h>
 
+#include <gfx/imgui_extra.h>
+
 //#include <imnodes.h>
 
 #include <nfd.h>
@@ -25,6 +27,7 @@
 namespace rhiapplication
 {
 
+static ConcurrentQueue<ImDrawData> gIMGUIDrawData;
 static UpgradableSharedMutex gDrawMutex{};
 
 static std::tuple<nfdresult_t, nfdchar_t*>
@@ -162,6 +165,8 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
 
 	using namespace ImGui;
+
+	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
 
 	NewFrame();
 
@@ -677,6 +682,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	EndFrame();
 	//UpdatePlatformWindows();
 	Render();
+
+	ImDrawData drawData;
+	static imgui_extra::ImDrawDataSnapshot snapshot;
+	snapshot.SnapUsingSwap(GetDrawData(), &drawData, GetTime());
+	gIMGUIDrawData.enqueue(std::move(drawData));
 }
 
 void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipeline = nullptr)
@@ -685,7 +695,11 @@ void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipelin
 
 	using namespace ImGui;
 
-	ImGui_ImplVulkan_RenderDrawData(GetDrawData(), cmd, pipeline);
+	static ImDrawData drawData;
+	while (gIMGUIDrawData.try_dequeue(drawData));
+
+	ImGui_ImplVulkan_NewFrame();
+	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, pipeline);
 }
 
 static void IMGUIInit(
@@ -1465,17 +1479,11 @@ void RhiApplication::InternalDraw()
 	FrameMark;
 	ZoneScopedN("rhi::draw");
 
-	ImGui_ImplVulkan_NewFrame(); // no-op?
-
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
 	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
-
-	TaskCreateInfo<void> IMGUIPrepareDraw;
-	IMGUIPrepareDraw = CreateTask(IMGUIPrepareDrawFunction, rhi, Executor());
-	Executor().Submit({&IMGUIPrepareDraw.handle, 1});
-
+	
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
@@ -1765,10 +1773,7 @@ void RhiApplication::InternalDraw()
 			window.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
-
-			Executor().Join(std::move(IMGUIPrepareDraw.future));
 			IMGUIDrawFunction(cmd);
-
 			window.End(cmd);
 		}
 		{
@@ -1852,7 +1857,7 @@ void RhiApplication::Tick()
 		Executor().Call(mainCall);
 	}
 
-	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
+	IMGUIPrepareDrawFunction(rhi, Executor());
 }
 
 void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
