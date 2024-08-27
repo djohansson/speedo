@@ -124,7 +124,7 @@ public:
 
 	template <typename T, typename... Ts>
 	void EnqueuePresent(T&& first, Ts&&... rest);
-	QueuePresentInfo<G> Present();
+	[[maybe_unused]] QueuePresentInfo<G> Present();
 
 	void Execute(uint8_t level, uint64_t timelineValue);
 
