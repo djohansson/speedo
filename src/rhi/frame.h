@@ -35,12 +35,15 @@ public:
 
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
 	
-	[[nodiscard]] QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
+	[[nodiscard]] QueuePresentInfo<G> PreparePresent(QueueHostSyncInfo<kVk>&& hostSyncInfo);
 
 	[[nodiscard]] auto& GetFence() noexcept { return myFence; }
 	[[nodiscard]] const auto& GetFence() const noexcept { return myFence; }
+	[[nodiscard]] auto& GetSemaphore() noexcept { return mySemaphore; }
+	[[nodiscard]] const auto& GetSemaphore() const noexcept { return mySemaphore; }
 
 private:
 	Fence<G> myFence{};
+	Semaphore<G> mySemaphore{};
 	ImageLayout<G> myImageLayout{};
 };

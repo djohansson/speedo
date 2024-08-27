@@ -79,7 +79,7 @@ public:
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	
 	[[nodiscard]] FlipResult Flip();
-	[[nodiscard]] QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
+	[[nodiscard]] QueuePresentInfo<G> PreparePresent(QueueHostSyncInfo<G>&& hostSyncInfo);
 
 	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }

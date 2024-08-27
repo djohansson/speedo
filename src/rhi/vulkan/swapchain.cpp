@@ -134,11 +134,12 @@ FlipResult Swapchain<kVk>::Flip()
 }
 
 template <>
-QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent(const QueueHostSyncInfo<kVk>& hostSyncInfo)
+QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent(QueueHostSyncInfo<kVk>&& hostSyncInfo)
 {
 	ZoneScopedN("Swapchain::PreparePresent");
 
-	auto presentInfo = myFrames[myFrameIndex].PreparePresent(hostSyncInfo);
+	auto presentInfo = myFrames[myFrameIndex].PreparePresent(std::forward<QueueHostSyncInfo<kVk>>(hostSyncInfo));
+	
 	presentInfo.swapchains.push_back(mySwapchain);
 
 	return presentInfo;

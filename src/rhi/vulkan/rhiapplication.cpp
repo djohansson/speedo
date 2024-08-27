@@ -1499,11 +1499,12 @@ void RhiApplication::InternalDraw()
 		ZoneScopedN("rhi::draw::submit");
 
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		//auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphicsQueueInfos.at(lastFrameIndex);
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
-		//auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
-
-		if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
+		auto& [computeQueueInfos, computeSemaphore] = rhi.queues[kQueueTypeCompute];
+		auto& [computeQueue, computeSubmit] = computeQueueInfos.front();
+		auto& newFrame = window.GetFrames()[newFrameIndex];
+		
+		//if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
 		{
 			ZoneScopedN("rhi::draw::waitGraphics");
 
@@ -1779,13 +1780,13 @@ void RhiApplication::InternalDraw()
 			{graphicsSemaphore},
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 			{graphicsSubmit.maxTimelineValue},
-			{graphicsSemaphore},
+			{graphicsSemaphore, newFrame.GetSemaphore()},
 			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed)},
 			{}});
 
-		graphicsSubmit = graphicsQueue.Submit();
-		graphicsQueue.EnqueuePresent(window.PreparePresent(graphicsSubmit));
-		graphicsQueue.Present();
+		computeSubmit = graphicsSubmit = graphicsQueue.Submit();
+		computeQueue.EnqueuePresent(window.PreparePresent(std::move(computeSubmit)));
+		computeSubmit = computeQueue.Present();
 	}
 }
 
