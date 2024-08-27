@@ -1784,7 +1784,7 @@ void RhiApplication::InternalDraw()
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 			{graphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore, newFrame.GetSemaphore()},
-			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed)},
+			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed), 0},
 			{}});
 
 		computeSubmit = graphicsSubmit = graphicsQueue.Submit();
