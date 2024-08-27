@@ -1539,7 +1539,9 @@ void RhiApplication::InternalDraw()
 			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
-			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, renderImageSet.GetAttachments().size() - 1);
 			
@@ -1759,6 +1761,7 @@ void RhiApplication::InternalDraw()
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
 			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
 			window.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
