@@ -17,7 +17,7 @@
 namespace client
 {
 
-static TaskCreateInfo<void> gUpdateTask, gDrawTask, gRpcTask;
+static TaskCreateInfo<void> gRpcTask, gTickTask, gDrawTask;
 static UpgradableSharedMutex gClientApplicationMutex;
 static std::shared_ptr<Client> gClientApplication;
 enum TaskState : uint8_t
@@ -28,7 +28,8 @@ enum TaskState : uint8_t
 	kTaskStateDone = 3
 };
 static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
-static std::atomic<TaskState> gUpdateTaskState = kTaskStateNone;
+static std::atomic<TaskState> gTickTaskState = kTaskStateNone;
+static std::atomic<TaskState> gDrawTaskState = kTaskStateNone;
 
 static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
@@ -101,41 +102,45 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	gRpcTask = rpcTask;
 }
 
-static void Draw();
-static void Update()
+static void Tick()
 {
-	ZoneScopedN("client::UpdateInput");
+	ZoneScopedN("client::Tick");
 
-	if (gUpdateTaskState == kTaskStateShuttingDown)
+	if (gTickTaskState == kTaskStateShuttingDown)
 	{
-		gUpdateTaskState = kTaskStateDone;
-		gUpdateTaskState.notify_one();
+		gTickTaskState = kTaskStateDone;
+		gTickTaskState.notify_one();
 		return;
 	}
 
 	std::shared_lock lock{gClientApplicationMutex};
 
-	gClientApplication->UpdateInput();
+	gClientApplication->Tick();
 
-	auto drawTask = CreateTask(Draw);
-	AddDependency(gUpdateTask.handle, drawTask.handle, true);
-	gDrawTask = drawTask;
+	auto tickTask = CreateTask(Tick);
+	AddDependency(gTickTask.handle, tickTask.handle, true);
+	gTickTask = tickTask;
 }
 
 static void Draw()
 {
 	ZoneScopedN("client::Draw");
 
+	if (gDrawTaskState == kTaskStateShuttingDown)
+	{
+		gDrawTaskState = kTaskStateDone;
+		gDrawTaskState.notify_one();
+		return;
+	}
+
 	std::shared_lock lock{gClientApplicationMutex};
 
 	gClientApplication->Draw();
 
-	auto updateTask = CreateTask(Update);
-	AddDependency(gDrawTask.handle, updateTask.handle, true);
-	gUpdateTask = updateTask;
+	auto drawTask = CreateTask(Draw);
+	AddDependency(gDrawTask.handle, drawTask.handle, true);
+	gDrawTask = drawTask;
 }
-
-// updateInput -> draw -> updateInput -> draw -> ... until app termination
 
 } // namespace client
 
@@ -166,7 +171,6 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 , myContext(1)
 , mySocket(myContext, zmq::socket_type::req)
 {
-	using namespace client;
 	// auto toString = [](zmq::event_flags ef) -> std::string {
 	// 	std::string result;
 	// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollin) != zmq::event_flags::none)
@@ -186,12 +190,16 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
+	using namespace client;
+
 	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
-	gUpdateTask = CreateTask(Update);
-	gUpdateTaskState = kTaskStateRunning;
+	gTickTask = CreateTask(client::Tick);
+	gTickTaskState = kTaskStateRunning;
+	gDrawTask = CreateTask(client::Draw);
+	gDrawTaskState = kTaskStateRunning;
 
-	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
+	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
 	Executor().Submit(handles);
 
 	// initial OnEvent call required to initialize data structures in imgui (and potentially others)
@@ -249,10 +257,12 @@ void DestroyClient()
 	using namespace client;
 
 	gRpcTaskState = kTaskStateShuttingDown;
-	gUpdateTaskState = kTaskStateShuttingDown;
+	gTickTaskState = kTaskStateShuttingDown;
+	gDrawTaskState = kTaskStateShuttingDown;
 
 	gRpcTaskState.wait(kTaskStateShuttingDown);
-	gUpdateTaskState.wait(kTaskStateShuttingDown);
+	gTickTaskState.wait(kTaskStateShuttingDown);
+	gDrawTaskState.wait(kTaskStateShuttingDown);
 
 	std::unique_lock lock{gClientApplicationMutex};
 

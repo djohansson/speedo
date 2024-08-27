@@ -31,7 +31,7 @@ public:
 	Application& operator=(const Application&) = delete;
 	Application& operator=(Application&&) noexcept = delete;
 
-	virtual void OnEvent() { InternalUpdateInput(); };
+	virtual void OnEvent() { InternalTick(); };
 
 	template <typename T, typename... Args>
 	static std::shared_ptr<T> Create(Args&&... args)
@@ -72,7 +72,7 @@ protected:
 	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
 
-	virtual void InternalUpdateInput();
+	virtual void InternalTick();
 
 	ConcurrentQueue<MouseEvent> myMouseQueue;
 	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;

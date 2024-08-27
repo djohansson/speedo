@@ -26,7 +26,7 @@ public:
 
 	void OnResizeFramebuffer(WindowHandle window, int width, int height);
 
-	void UpdateInput() { InternalUpdateInput(); };
+	void Tick() { InternalTick(); };
 	void Draw() { InternalDraw(); };
 
 	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
@@ -44,7 +44,7 @@ protected:
 	template <GraphicsApi G>
 	[[nodiscard]] const Rhi<G>& InternalRhi() const;
 
-	void InternalUpdateInput() override;
+	void InternalTick() override;
 
 private:
 	void InternalDraw();

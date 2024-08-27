@@ -29,7 +29,7 @@ void Application::OnKeyboard(const KeyboardEvent& keyboard)
 	myKeyboardQueue.enqueue(keyboard);
 }
 
-void Application::InternalUpdateInput()
+void Application::InternalTick()
 {
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))

@@ -1398,13 +1398,22 @@ const Rhi<kVk>& RhiApplication::InternalRhi<kVk>() const
 	return *std::static_pointer_cast<Rhi<kVk>>(myRhi);
 }
 
-void RhiApplication::InternalUpdateInput()
+void RhiApplication::InternalTick()
 {
 	using namespace rhiapplication;
 
 	auto& rhi = InternalRhi<kVk>();
-	auto& imguiIO = ImGui::GetIO();
+	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& input = myInput;
+	auto& io = ImGui::GetIO();
+
+	if (io.WantSaveIniSettings)
+	{
+		size_t iniStringSize;
+		const char* iniString = ImGui::SaveIniSettingsToMemory(&iniStringSize);
+		window.Config().imguiIniSettings.assign(iniString, iniStringSize);
+		io.WantSaveIniSettings = false;
+	}
 
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))
@@ -1415,7 +1424,7 @@ void RhiApplication::InternalUpdateInput()
 			input.mouse.position[1] = static_cast<float>(mouse.ypos);
 			input.mouse.insideWindow = mouse.insideWindow;
 
-			imguiIO.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
+			io.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
 		}
 
 		if ((mouse.flags & MouseEvent::kButton) != 0)
@@ -1430,28 +1439,28 @@ void RhiApplication::InternalUpdateInput()
 				input.mouse.leftDown = true;
 				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
 				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
-				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
 			}
 			else if (rightPressed)
 			{
 				input.mouse.rightDown = true;
 				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
 				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
-				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
 			}
 			else if (leftReleased)
 			{
 				input.mouse.leftDown = false;
 				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
 				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
-				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
 			}
 			else if (rightReleased)
 			{
 				input.mouse.rightDown = false;
 				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
 				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
-				imguiIO.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
 			}
 		}
 	}
@@ -1464,11 +1473,13 @@ void RhiApplication::InternalUpdateInput()
 		else if (keyboard.action == GLFW_RELEASE)
 			input.keyboard.keysDown[keyboard.key] = false;
 
-		//imguiIO.AddKeyEvent(keyboard.key, keyboard.action);
+		//io.AddKeyEvent(keyboard.key, keyboard.action);
 	}
 
-	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
-		rhi.windows.at(GetCurrentWindow()).OnInputStateChanged(input);
+	if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
+		window.OnInputStateChanged(input);
+
+	IMGUIPrepareDrawFunction(rhi, Executor());
 }
 
 void RhiApplication::InternalDraw()
@@ -1853,16 +1864,6 @@ void RhiApplication::OnEvent()
 	auto& rhi = InternalRhi<kVk>();
 	auto& window = rhi.windows.at(GetCurrentWindow());
 
-	auto& io = ImGui::GetIO();
-	if (io.WantSaveIniSettings)
-	{
-		size_t iniStringSize;
-		const char* iniString = ImGui::SaveIniSettingsToMemory(&iniStringSize);
-		window.Config().imguiIniSettings.assign(iniString, iniStringSize);
-		io.WantSaveIniSettings = false;
-	}
-
-	// todo: move to tick
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
 	{
@@ -1870,8 +1871,6 @@ void RhiApplication::OnEvent()
 
 		Executor().Call(mainCall);
 	}
-	
-	IMGUIPrepareDrawFunction(rhi, Executor());
 }
 
 void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
