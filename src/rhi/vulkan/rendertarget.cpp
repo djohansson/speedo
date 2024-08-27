@@ -458,6 +458,7 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 				.imageLayout = GetLayout(i),
 				.loadOp = myAttachmentDescs[i].loadOp,
 				.storeOp = myAttachmentDescs[i].storeOp,
+				.clearValue = clearValues[i],
 			};
 		}
 
