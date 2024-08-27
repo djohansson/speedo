@@ -377,8 +377,7 @@ void RenderTarget<kVk>::Clear(
 			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 	}
 
-	static const VkImageSubresourceRange kRange{
-		aspectFlags, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+	VkImageSubresourceRange range{aspectFlags, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 
 	if (HasColorComponent(GetRenderTargetDesc().imageFormats[index]))
 	{
@@ -388,7 +387,7 @@ void RenderTarget<kVk>::Clear(
 			GetLayout(index),
 			&value.color,
 			1,
-			&kRange);
+			&range);
 	}
 	else
 	{
@@ -398,7 +397,7 @@ void RenderTarget<kVk>::Clear(
 			GetLayout(index),
 			&value.depthStencil,
 			1,
-			&kRange);
+			&range);
 	}
 }
 
