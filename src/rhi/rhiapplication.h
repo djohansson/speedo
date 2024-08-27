@@ -22,7 +22,7 @@ class RhiApplication : public Application
 public:
 	~RhiApplication() noexcept(false) override;
 
-	void Tick() override;
+	void OnEvent() override;
 
 	void OnResizeFramebuffer(WindowHandle window, int width, int height);
 

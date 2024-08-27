@@ -51,7 +51,7 @@ static void OnSignal(int signal)
 {
 	switch (signal)
 	{	
-	case SIGINT:
+//	case SIGINT:
 	case SIGTERM:
 		gIsInterrupted = true;
 		return;
@@ -453,7 +453,7 @@ int main(int argc, char* argv[], char* envp[])
 	SetWindowCallbacks(window);
 
 	do { glfwWaitEvents();
-	} while (!(bool)glfwWindowShouldClose(window) && TickClient() && !gIsInterrupted);
+	} while (!(bool)glfwWindowShouldClose(window) && OnEventClient() && !gIsInterrupted);
 
 	size_t windowCount;
 	WindowHandle* windows = GetWindows(&windowCount);

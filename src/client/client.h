@@ -12,7 +12,7 @@ class Client : public RhiApplication
 public:
 	~Client() noexcept(false) override;
 
-	void Tick() override;
+	void OnEvent() override;
 
 protected:
 	explicit Client() = default;

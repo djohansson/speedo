@@ -23,7 +23,7 @@ extern "C"
 
 CLIENT_API void CreateClient(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
 CLIENT_API void DestroyClient(void);
-CLIENT_API bool TickClient();
+CLIENT_API bool OnEventClient();
 
 #ifdef __cplusplus
 }

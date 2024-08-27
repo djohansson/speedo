@@ -96,7 +96,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	CreateServer(&gPaths);
 
-	while (TickServer() && !gIsInterrupted) {};
+	while (OnEventServer() && !gIsInterrupted) {};
 
 	DestroyServer();
 

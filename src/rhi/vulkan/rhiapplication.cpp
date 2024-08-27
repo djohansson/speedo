@@ -1844,22 +1844,14 @@ RhiApplication::~RhiApplication() noexcept(false)
 	ASSERT(instance.use_count() == 2);
 }
 
-void RhiApplication::Tick()
+void RhiApplication::OnEvent()
 {
 	using namespace rhiapplication;
 
-	ZoneScopedN("RhiApplication::tick");
+	ZoneScopedN("RhiApplication::OnEvent");
 
 	auto& rhi = InternalRhi<kVk>();
 	auto& window = rhi.windows.at(GetCurrentWindow());
-	
-	TaskHandle mainCall;
-	while (rhi.mainCalls.try_dequeue(mainCall))
-	{
-		ZoneScopedN("RhiApplication::tick::mainCall");
-
-		Executor().Call(mainCall);
-	}
 
 	auto& io = ImGui::GetIO();
 	if (io.WantSaveIniSettings)
@@ -1868,6 +1860,15 @@ void RhiApplication::Tick()
 		const char* iniString = ImGui::SaveIniSettingsToMemory(&iniStringSize);
 		window.Config().imguiIniSettings.assign(iniString, iniStringSize);
 		io.WantSaveIniSettings = false;
+	}
+
+	// todo: move to tick
+	TaskHandle mainCall;
+	while (rhi.mainCalls.try_dequeue(mainCall))
+	{
+		ZoneScopedN("RhiApplication::OnEvent::mainCall");
+
+		Executor().Call(mainCall);
 	}
 	
 	IMGUIPrepareDrawFunction(rhi, Executor());

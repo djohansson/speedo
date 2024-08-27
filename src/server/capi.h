@@ -12,7 +12,7 @@ extern "C"
 
 void CreateServer(const struct PathConfig* paths);
 void DestroyServer(void);
-bool TickServer();
+bool OnEventServer();
 
 #ifdef __cplusplus
 }

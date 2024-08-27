@@ -31,7 +31,7 @@ public:
 	Application& operator=(const Application&) = delete;
 	Application& operator=(Application&&) noexcept = delete;
 
-	virtual void Tick() { InternalUpdateInput(); };
+	virtual void OnEvent() { InternalUpdateInput(); };
 
 	template <typename T, typename... Args>
 	static std::shared_ptr<T> Create(Args&&... args)

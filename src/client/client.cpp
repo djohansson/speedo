@@ -151,11 +151,11 @@ Client::~Client() noexcept(false)
 	std::cout << "Client shutting down, goodbye." << '\n';
 }
 
-void Client::Tick()
+void Client::OnEvent()
 {
 	ZoneScopedN("Client::tick");
 
-	RhiApplication::Tick();
+	RhiApplication::OnEvent();
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
@@ -194,12 +194,12 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
 	Executor().Submit(handles);
 
-	// initial tick required to initialize data structures in imgui (and potentially others)
-	// since RhiApplication draw thread/tasks can launch before next tick is called from main thread
-	Tick();
+	// initial OnEvent call required to initialize data structures in imgui (and potentially others)
+	// since RhiApplication draw thread/tasks can launch before next OnEvent is called from main
+	OnEvent();
 }
 
-bool TickClient()
+bool OnEventClient()
 {	
 	using namespace client;
 
@@ -207,7 +207,7 @@ bool TickClient()
 
 	ASSERT(gClientApplication);
 
-	gClientApplication->Tick();
+	gClientApplication->OnEvent();
 
 	return !gClientApplication->IsExitRequested();
 }

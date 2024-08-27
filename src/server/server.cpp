@@ -107,7 +107,7 @@ Server::~Server() noexcept(false)
 	std::cout << "Server shutting down, goodbye." << '\n';
 }
 
-void Server::Tick()
+void Server::OnEvent()
 {
 	std::cout << "Press q to quit: ";
 	char input;
@@ -115,7 +115,7 @@ void Server::Tick()
 	if (input == 'q')
 		RequestExit();
 
-	Application::Tick();
+	Application::OnEvent();
 }
 
 Server::Server(std::string_view name, Environment&& env)
@@ -193,7 +193,7 @@ void DestroyServer()
 	gServerApplication.reset();
 }
 
-bool TickServer()
+bool OnEventServer()
 {
 	using namespace server;
 
@@ -201,7 +201,7 @@ bool TickServer()
 
 	ASSERT(gServerApplication);
 
-	gServerApplication->Tick();
+	gServerApplication->OnEvent();
 
 	return !gServerApplication->IsExitRequested();
 }
