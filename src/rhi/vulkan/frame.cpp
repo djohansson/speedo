@@ -56,15 +56,6 @@ Frame<kVk>::Frame(Frame<kVk>&& other) noexcept
 {}
 
 template <>
-Frame<kVk>::~Frame()
-{
-	ZoneScopedN("~Frame()");
-
-	if (myFence)
-		myFence.Wait();
-}
-
-template <>
 Frame<kVk>& Frame<kVk>::operator=(Frame<kVk>&& other) noexcept
 {
 	BaseType::operator=(std::forward<Frame<kVk>>(other));
