@@ -101,7 +101,7 @@ void Swapchain<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index)
 }
 
 template <>
-std::tuple<bool, uint32_t, uint32_t> Swapchain<kVk>::Flip()
+FlipResult Swapchain<kVk>::Flip()
 {
 	ZoneScoped;
 

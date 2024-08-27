@@ -20,6 +20,8 @@ struct SwapchainConfiguration
 	bool useDynamicRendering = false;
 };
 
+using FlipResult = std::tuple<bool, uint32_t, uint32_t>;
+
 template <GraphicsApi G>
 class Swapchain : public IRenderTarget<G>, public DeviceObject<G>
 {
@@ -76,7 +78,7 @@ public:
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	
-	[[nodiscard]] std::tuple<bool, uint32_t, uint32_t> Flip();
+	[[nodiscard]] FlipResult Flip();
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent(const QueueHostSyncInfo<G>& hostSyncInfo);
 
 	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
