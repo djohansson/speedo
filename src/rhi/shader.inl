@@ -29,7 +29,7 @@ uint32_t CreateLayoutBindings(
 } // namespace shader
 
 template <GraphicsApi G>
-ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
+ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangConfiguration& config)
 {
 	auto shaderSet = ShaderSet<G>{};
 
@@ -53,6 +53,7 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
+					  &file,
 					  &config](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		SlangCompileRequest* slangRequest = spCreateCompileRequest(slangSession);
@@ -100,7 +101,7 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 		int translationUnitIndex = spAddTranslationUnit(slangRequest, config.sourceLanguage, nullptr);
 
 		spAddTranslationUnitSourceFile(
-			slangRequest, translationUnitIndex, config.file.generic_string().c_str());
+			slangRequest, translationUnitIndex, file.generic_string().c_str());
 
 		std::vector<EntryPoint<G>> entryPoints;
 		for (const auto& [ep, stage] : config.entryPoints)
@@ -195,11 +196,14 @@ ShaderSet<G> ShaderLoader::Load(const SlangConfiguration& config)
 		return {};
 	};
 
-	// todo: make runtime unique hash key from loadertype, loaderversion and slang configuration parameters.
-	// need to rewrite file::LoadAsset and dependant code to support this.
-	file::LoadAsset<
-		std_extra::make_string_literal<"slang">().data(),
-		std_extra::make_string_literal<"0.9.3">().data()>(config.file, loadSlang, loadBin, saveBin);
+	std::string params, paramsHash;
+	params.append("slang-0.9.3"); // todo: read version from slang header
+	params.append(config.ToString());
+	static constexpr size_t kSha2Size = 32;
+	std::array<uint8_t, kSha2Size> sha2;
+	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
+	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
+	file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
 
 	CHECKF(!shaderSet.shaders.empty(), "Failed to load shaders.");
 

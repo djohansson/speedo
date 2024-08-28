@@ -1265,15 +1265,15 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
 		"VertexZPrepass",
 		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-		{
 			shaderSourceFile,
-			SLANG_SOURCE_LANGUAGE_SLANG,
-			SLANG_SPIRV,
-			"SPIRV_1_6",
-			{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-			SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-			SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-		})));
+			{
+				SLANG_SOURCE_LANGUAGE_SLANG,
+				SLANG_SPIRV,
+				"SPIRV_1_6",
+				{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			})));
 
 	rhi->pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
@@ -1294,19 +1294,19 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
 		"Main",
 		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-		{
 			shaderSourceFile,
-			SLANG_SOURCE_LANGUAGE_SLANG,
-			SLANG_SPIRV,
-			"SPIRV_1_6",
 			{
-				{"VertexMain", SLANG_STAGE_VERTEX},
-				{"FragmentMain", SLANG_STAGE_FRAGMENT},
-				{"ComputeMain", SLANG_STAGE_COMPUTE},
-			},
-			SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-			SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-		})));
+				SLANG_SOURCE_LANGUAGE_SLANG,
+				SLANG_SPIRV,
+				"SPIRV_1_6",
+				{
+					{"VertexMain", SLANG_STAGE_VERTEX},
+					{"FragmentMain", SLANG_STAGE_FRAGMENT},
+					{"ComputeMain", SLANG_STAGE_COMPUTE},
+				},
+				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			})));
 
 	rhi->pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
 

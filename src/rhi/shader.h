@@ -49,7 +49,6 @@ class ShaderLoader final
 public:
 	struct SlangConfiguration
 	{
-		std::filesystem::path file; // todo: replace with source code in string
 		SlangSourceLanguage sourceLanguage = SLANG_SOURCE_LANGUAGE_UNKNOWN;
 		SlangCompileTarget target = SLANG_TARGET_UNKNOWN;
 		std::string targetProfile;
@@ -58,6 +57,25 @@ public:
 		SlangDebugInfoLevel debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_STANDARD;
 		SlangDebugInfoFormat debugInfoFormat = SLANG_DEBUG_INFO_FORMAT_DEFAULT;
 		SlangMatrixLayoutMode matrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
+
+		std::string ToString() const
+		{
+			std::string entryPointsString;
+			for (const auto& [name, stage] : entryPoints)
+				entryPointsString.append(std::format("[{}, {}]", name, static_cast<SlangStageIntegral>(stage)));
+
+			return std::format(
+				"sourceLanguage: {}, target: {}, targetProfile: {}, entryPoints: {}, "
+				"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}",
+				static_cast<SlangSourceLanguageIntegral>(sourceLanguage),
+				static_cast<SlangCompileTargetIntegral>(target),
+				targetProfile,
+				entryPointsString,
+				static_cast<SlangOptimizationLevelIntegral>(optimizationLevel),
+				static_cast<SlangDebugInfoLevelIntegral>(debugInfoLevel),
+				static_cast<SlangDebugInfoFormatIntegral>(debugInfoFormat),
+				static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode));
+		}
 	};
 
 	using DownstreamCompiler =
@@ -75,7 +93,7 @@ public:
 	ShaderLoader& operator=(ShaderLoader&&) noexcept = delete;
 
 	template <GraphicsApi G>
-	[[nodiscard]] ShaderSet<G> Load(const SlangConfiguration& config);
+	[[nodiscard]] ShaderSet<G> Load(const std::filesystem::path& file, const SlangConfiguration& config);
 
 private:
 	std::vector<std::filesystem::path> myIncludePaths;

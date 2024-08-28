@@ -151,8 +151,12 @@
 		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
 			+ ' -lcargs'
 			+ ' -lcpptrace'
+			+ ' -lSHA-Intrinsics'
 			+ ' -lTracyClient'
 			+ ' -lzmq'
+#if __WINDOWS__
+		.CommonExecutableLinkerOptions + ' -lole32'
+#endif //__WINDOWS__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ .CommonExecutableLinkerOptions

@@ -348,9 +348,13 @@ Load(
 		return {};
 	};
 
-	file::LoadAsset<
-		std_extra::make_string_literal<"tinyobjloader">().data(),
-		std_extra::make_string_literal<"2.0.15">().data()>(modelFile, loadOBJ, loadBin, saveBin);
+	std::string params, paramsHash;
+	params.append("tinyobjloader-2.0.15"); // todo: read version from tinyobjloader.h
+	static constexpr size_t kSha2Size = 32;
+	std::array<uint8_t, kSha2Size> sha2;
+	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
+	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
+	file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash);
 
 	CHECKF(vbHandle != nullptr && ibHandle != nullptr, "Failed to load model.");
 
