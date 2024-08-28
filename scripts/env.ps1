@@ -15,14 +15,9 @@ function Add-EnvPath
 	{
 		$env:PATH = $path
 	}
-	
-	if ($IsWindows)
-	{
-		$env:PATH += ";$path"
-	}
 	else
 	{
-		$env:PATH += ":$path"
+		$env:PATH += [IO.Path]::PathSeparator + $path
 	}
 }
 
@@ -43,7 +38,7 @@ function Add-EnvDylibPath
 	}
 	else
 	{
-		$env:DYLD_LIBRARY_PATH += ":$path"
+		$env:DYLD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
 	}
 }
 
