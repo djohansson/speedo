@@ -109,7 +109,7 @@ Server::~Server() noexcept(false)
 
 void Server::Tick()
 {
-	std::cout << "Press q to quit: ";
+	std::cout << "Press q to quit: " << std::flush;
 	char input;
 	std::cin >> input;
 	if (input == 'q')
