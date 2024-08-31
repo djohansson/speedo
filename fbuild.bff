@@ -157,6 +157,9 @@
 #if __WINDOWS__
 		.CommonExecutableLinkerOptions + ' -lole32'
 #endif //__WINDOWS__
+#if __OSX__
+		.CommonExecutableLinkerOptions+ ' -framework CoreFoundation'
+#endif //__OSX__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.vcpkg/$Triplet$/lib'
 			+ ' -lmimalloc'
 			+ .CommonExecutableLinkerOptions
