@@ -111,6 +111,7 @@ function Initialize-SystemEnv
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
 	$env:TARGET_COMPILER = Get-NativeCompiler
+	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
 	
 	#Write-Host "Setting system (package manager) environment variables..."
 	Read-EnvFile "$PSScriptRoot/../.env.json"
