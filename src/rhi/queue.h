@@ -168,8 +168,11 @@ private:
 #endif
 };
 
+
 template <GraphicsApi G>
-using QueueGroup = std::tuple<std::vector<std::pair<Queue<G>, QueueHostSyncInfo<G>>>, Semaphore<G>>;
+using QueueHostSyncContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
+template <GraphicsApi G>
+using QueueTimelineContext = std::pair<std::vector<QueueHostSyncContext<G>>, Semaphore<G>>;
 
 #if (PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag)                                                             \

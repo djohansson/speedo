@@ -64,17 +64,13 @@ Queue<kVk>::Queue(
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (PROFILING_LEVEL > 0)
-	if ((device->GetPhysicalDeviceInfo().queueFamilyProperties[myDesc.queueFamilyIndex].queueFlags &
-		 VK_QUEUE_GRAPHICS_BIT) != 0u)
-	{
-		myProfilingContext = CreateVkContext(
-			device->GetPhysicalDevice(),
-			*device,
-			myQueue,
-			myPool.Commands(CommandBufferAccessScopeDesc<kVk>(false)),
-			nullptr,
-			nullptr);
-	}
+	myProfilingContext = CreateVkContext(
+		device->GetPhysicalDevice(),
+		*device,
+		myQueue,
+		myPool.Commands(CommandBufferAccessScopeDesc<kVk>(false)),
+		nullptr,
+		nullptr);
 #endif
 }
 
