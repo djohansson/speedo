@@ -15,14 +15,9 @@ function Add-EnvPath
 	{
 		$env:PATH = $path
 	}
-	
-	if ($IsWindows)
-	{
-		$env:PATH += ";$path"
-	}
 	else
 	{
-		$env:PATH += ":$path"
+		$env:PATH += [IO.Path]::PathSeparator + $path
 	}
 }
 
@@ -43,7 +38,7 @@ function Add-EnvDylibPath
 	}
 	else
 	{
-		$env:DYLD_LIBRARY_PATH += ":$path"
+		$env:DYLD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
 	}
 }
 
@@ -116,6 +111,7 @@ function Initialize-SystemEnv
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
 	$env:TARGET_COMPILER = Get-NativeCompiler
+	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
 	
 	#Write-Host "Setting system (package manager) environment variables..."
 	Read-EnvFile "$PSScriptRoot/../.env.json"

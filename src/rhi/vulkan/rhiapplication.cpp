@@ -968,13 +968,6 @@ static void CreateQueues(Rhi<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
-	const uint32_t frameCount = rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.imageCount;
-	const uint32_t graphicsQueueCount = frameCount;
-	const uint32_t graphicsThreadCount = std::max(1U, std::thread::hardware_concurrency());
-	const uint32_t computeQueueCount = 1U;
-	const uint32_t transferQueueCount = 1U;
-	const uint32_t defaultDrawThreadCount = 2U;
-
 	auto& queues = rhi.queues;
 
 	VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
@@ -983,63 +976,93 @@ static void CreateQueues(Rhi<kVk>& rhi)
 	if (kUsePoolReset)
 		cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
+	static constexpr unsigned minGraphicsQueueCount = 2;
+	static constexpr unsigned minComputeQueueCount = 1;
+	static constexpr unsigned minTransferQueueCount = 1;
+
+	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(
+		kQueueTypeGraphics,
+		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+
+	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(
+		kQueueTypeCompute,
+		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+
+	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(
+		kQueueTypeTransfer,
+		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+
+	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
+	{
+		return (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
+	};
+
+	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
+	auto& [computeQueueInfos, computeSemaphore] = queues[kQueueTypeCompute];
+	auto& [transferQueueInfos, transferSemaphore] = queues[kQueueTypeTransfer];
+
 	const auto& queueFamilies = rhi.device->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
 	{
 		const auto& queueFamily = queueFamilies[queueFamilyIt];
 
-		for (auto type : kAllQueueTypes)
+		auto queueCount = queueFamily.queueCount;
+
+		if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
 		{
-			if ((queueFamily.flags & (1 << static_cast<uint8_t>(type))) != 0U)
+			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto queueCount = queueFamily.queueCount;
-				auto drawThreadCount = defaultDrawThreadCount;
-
-				auto [it, wasInserted] = queues.emplace(
-					type,
-					std::make_tuple(
-						std::vector<std::pair<Queue<kVk>, QueueHostSyncInfo<kVk>>>{},
-						Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE})));
-				
-				auto& [queueInfos, semaphore] = it->second;
-
-				if (type == kQueueTypeGraphics)
-				{
-					if (queueInfos.size() >= graphicsQueueCount)
-						continue;
-
-					queueCount = std::min(queueCount, graphicsQueueCount);
-				}
-				else if (type == kQueueTypeCompute)
-				{
-					if (queueInfos.size() >= computeQueueCount)
-						continue;
-
-					queueCount = std::min(queueCount, computeQueueCount);
-				}
-				else if (type == kQueueTypeTransfer)
-				{
-					if (queueInfos.size() >= transferQueueCount)
-						continue;
-
-					queueCount = std::min(queueCount, transferQueueCount);
-				}
-
-				queueInfos.reserve(queueInfos.size() + queueCount);
-
-				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-				{
-					queueInfos.emplace_back(std::make_pair(
-						Queue<kVk>(
-							rhi.device,
-							CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, drawThreadCount},
-							QueueCreateDesc<kVk>{queueIt, queueFamilyIt}),
-						QueueHostSyncInfo<kVk>{}));
-				}
-
-				break;
+				auto& [queue, syncInfo] = graphicsQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				queue = Queue<kVk>(
+					rhi.device,
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 2},
+					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}
+		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
+		{
+			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+			{
+				auto& [queue, syncInfo] = computeQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				queue = Queue<kVk>(
+					rhi.device,
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
+					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
+			}
+		}
+		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
+		{
+			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+			{
+				auto& [queue, syncInfo] = transferQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				queue = Queue<kVk>(
+					rhi.device,
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
+					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
+			}
+		}
+	}
+
+	CHECKF(!graphicsQueueInfos.empty(), "Failed to find a suitable graphics queue!");
+
+	if (computeQueueInfos.empty())
+	{
+		CHECKF(graphicsQueueInfos.size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
+
+		computeQueueInfos.emplace_back(std::make_pair(
+			std::move(graphicsQueueInfos.back().first),
+			QueueHostSyncInfo<kVk>{}));
+		graphicsQueueInfos.pop_back();
+	}
+
+	if (transferQueueInfos.empty())
+	{
+		CHECKF(graphicsQueueInfos.size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
+
+		transferQueueInfos.emplace_back(std::make_pair(
+			std::move(graphicsQueueInfos.back().first),
+			QueueHostSyncInfo<kVk>{}));
+		graphicsQueueInfos.pop_back();
 	}
 }
 
@@ -1282,15 +1305,15 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
 		"VertexZPrepass",
 		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-		{
 			shaderSourceFile,
-			SLANG_SOURCE_LANGUAGE_SLANG,
-			SLANG_SPIRV,
-			"SPIRV_1_6",
-			{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-			SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-			SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-		})));
+			{
+				SLANG_SOURCE_LANGUAGE_SLANG,
+				SLANG_SPIRV,
+				"SPIRV_1_6",
+				{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			})));
 
 	rhi->pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
@@ -1311,19 +1334,19 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
 		"Main",
 		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-		{
 			shaderSourceFile,
-			SLANG_SOURCE_LANGUAGE_SLANG,
-			SLANG_SPIRV,
-			"SPIRV_1_6",
 			{
-				{"VertexMain", SLANG_STAGE_VERTEX},
-				{"FragmentMain", SLANG_STAGE_FRAGMENT},
-				{"ComputeMain", SLANG_STAGE_COMPUTE},
-			},
-			SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-			SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-		})));
+				SLANG_SOURCE_LANGUAGE_SLANG,
+				SLANG_SPIRV,
+				"SPIRV_1_6",
+				{
+					{"VertexMain", SLANG_STAGE_VERTEX},
+					{"FragmentMain", SLANG_STAGE_FRAGMENT},
+					{"ComputeMain", SLANG_STAGE_COMPUTE},
+				},
+				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			})));
 
 	rhi->pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
 
@@ -1521,9 +1544,12 @@ void RhiApplication::InternalDraw()
 		ZoneScopedN("rhi::draw::submit");
 
 		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(newFrameIndex);
+		static uint8_t graphicsQueueIndex = 0;
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos[graphicsQueueIndex++ % graphicsQueueInfos.size()];
+		
 		auto& [computeQueueInfos, computeSemaphore] = rhi.queues[kQueueTypeCompute];
-		auto& [computeQueue, computeSubmit] = computeQueueInfos.front();
+		static uint8_t computeQueueIndex = 0;
+		auto& [computeQueue, computeSubmit] = computeQueueInfos[computeQueueIndex++ % computeQueueInfos.size()];
 		auto& newFrame = window.GetFrames()[newFrameIndex];
 		
 		//if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)

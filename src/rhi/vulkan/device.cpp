@@ -287,6 +287,8 @@ Device<kVk>::Device(
 	//     reinterpret_cast<uint64_t>(myDevice),
 	//     "Device");
 
+	CHECK(physicalDeviceInfo.queueFamilyProperties.size() > 0);
+
 	myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
 
 	for (uint32_t queueFamilyIt = 0UL;
@@ -299,6 +301,18 @@ Device<kVk>::Device(
 		queueFamilyDesc.queueCount = queueFamilyProperty.queueCount;
 		queueFamilyDesc.flags = queueFamilyProperty.queueFlags;
 	}
+
+	// // merge queue families if they have the same flags.
+	// // only platform qf:s with same flags has been observed on is osx using moltenvk.
+	// // unclear what the spec says about this.
+	// for (auto prevIt = myQueueFamilyDescs.begin(), qfIt = std::next(prevIt); qfIt != myQueueFamilyDescs.end(); qfIt++)
+	// {
+	// 	if (prevIt->flags == qfIt->flags)
+	// 	{
+	// 		qfIt->queueCount += prevIt->queueCount;
+	// 		qfIt = myQueueFamilyDescs.erase(prevIt);
+	// 	}
+	// }
 
 	myAllocator = [this]
 	{

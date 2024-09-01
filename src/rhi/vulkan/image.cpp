@@ -336,9 +336,13 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		return {};
 	};
 
-	file::LoadAsset<
-		std_extra::make_string_literal<"stb_image|stb_image_resize|stb_dxt">().data(),
-		std_extra::make_string_literal<"2.26|0.96|1.10">().data()>(imageFile, loadImage, loadBin, saveBin);
+	std::string params, paramsHash;
+	params.append("stb_image-2.26|stb_image_resize-0.96|stb_dxt-1.10"); // todo: read version from stb headers
+	static constexpr size_t kSha2Size = 32;
+	std::array<uint8_t, kSha2Size> sha2;
+	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
+	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
+	file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
 
 	CHECKF(bufferHandle != nullptr, "Failed to load image.");
 

@@ -35,4 +35,4 @@ Initialize-SystemEnv
 
 Get-NativeTriplet | Initialize-Vcpkg
 
-Initialize-VcpkgEnv
+& $PSScriptRoot/build.ps1

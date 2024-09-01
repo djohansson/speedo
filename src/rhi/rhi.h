@@ -25,7 +25,7 @@ struct Rhi
 	std::shared_ptr<Device<G>> device;
 	std::unique_ptr<Pipeline<G>> pipeline;
 
-	UnorderedMap<QueueType, QueueGroup<G>> queues;
+	UnorderedMap<QueueType, QueueTimelineContext<G>> queues;
 	UnorderedMap<WindowHandle, Window<G>> windows;
 
 	// temp until we have a proper resource manager
