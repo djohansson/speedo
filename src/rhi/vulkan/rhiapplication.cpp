@@ -994,7 +994,10 @@ static void CreateQueues(Rhi<kVk>& rhi)
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
-		return (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
+		auto matchesType = queueFamily.flags & type;
+		auto hasLowerBits = queueFamily.flags & (type - 1);
+		auto hasQueueCount = queueFamily.queueCount > 0;
+		return matchesType && !hasLowerBits && hasQueueCount;
 	};
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
