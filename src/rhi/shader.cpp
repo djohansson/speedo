@@ -26,3 +26,22 @@ ShaderLoader::ShaderLoader(
 		myCompilerSession->setDownstreamCompilerPath(compilerId, path.generic_string().c_str());
 	}
 }
+
+std::string ShaderLoader::SlangConfiguration::ToString() const
+{
+	std::string entryPointsString;
+	for (const auto& [name, stage] : entryPoints)
+		entryPointsString.append(std::format("[{}, {}]", name, static_cast<SlangStageIntegral>(stage)));
+
+	return std::format(
+		"sourceLanguage: {}, target: {}, targetProfile: {}, entryPoints: {}, "
+		"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}",
+		static_cast<SlangSourceLanguageIntegral>(sourceLanguage),
+		static_cast<SlangCompileTargetIntegral>(target),
+		targetProfile,
+		entryPointsString,
+		static_cast<SlangOptimizationLevelIntegral>(optimizationLevel),
+		static_cast<SlangDebugInfoLevelIntegral>(debugInfoLevel),
+		static_cast<SlangDebugInfoFormatIntegral>(debugInfoFormat),
+		static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode));
+}

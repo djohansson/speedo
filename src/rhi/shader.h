@@ -58,24 +58,7 @@ public:
 		SlangDebugInfoFormat debugInfoFormat = SLANG_DEBUG_INFO_FORMAT_DEFAULT;
 		SlangMatrixLayoutMode matrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
 
-		std::string ToString() const
-		{
-			std::string entryPointsString;
-			for (const auto& [name, stage] : entryPoints)
-				entryPointsString.append(std::format("[{}, {}]", name, static_cast<SlangStageIntegral>(stage)));
-
-			return std::format(
-				"sourceLanguage: {}, target: {}, targetProfile: {}, entryPoints: {}, "
-				"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}",
-				static_cast<SlangSourceLanguageIntegral>(sourceLanguage),
-				static_cast<SlangCompileTargetIntegral>(target),
-				targetProfile,
-				entryPointsString,
-				static_cast<SlangOptimizationLevelIntegral>(optimizationLevel),
-				static_cast<SlangDebugInfoLevelIntegral>(debugInfoLevel),
-				static_cast<SlangDebugInfoFormatIntegral>(debugInfoFormat),
-				static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode));
-		}
+		std::string ToString() const;
 	};
 
 	using DownstreamCompiler =
