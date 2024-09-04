@@ -1,11 +1,74 @@
 #include "taskexecutor.h"
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
 
+#include <format>
 #include <iostream>
 #include <shared_mutex>
 
+#ifdef _WIN32
+#	include <windows.h>
+#else
+#	include <pthread.h>
+#endif
+namespace taskexecutor
+{
+#ifdef _WIN32
+
+const DWORD MS_VC_EXCEPTION = 0x406D1388;
+
+#pragma pack(push, 8)
+typedef struct _THREADNAME_INFO
+{
+	DWORD dwType;	  // Must be 0x1000.
+	LPCSTR szName;	  // Pointer to name (in user addr space).
+	DWORD dwThreadID; // Thread ID (-1=caller thread).
+	DWORD dwFlags;	  // Reserved for future use, must be zero.
+} THREADNAME_INFO;
+#pragma pack(pop)
+
+void SetThreadName(uint32_t dwThreadID, const char* threadName)
+{
+	THREADNAME_INFO info;
+	info.dwType = 0x1000;
+	info.szName = threadName;
+	info.dwThreadID = dwThreadID;
+	info.dwFlags = 0;
+
+	__try
+	{
+		RaiseException(MS_VC_EXCEPTION, 0, sizeof(info) / sizeof(ULONG_PTR), (ULONG_PTR*)&info);
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{}
+}
+
+void SetThreadName(const char* threadName)
+{
+	SetThreadName(GetCurrentThreadId(), threadName);
+}
+
+void SetThreadName(std::jthread& thread, const char* threadName)
+{
+	DWORD threadId = ::GetThreadId(static_cast<HANDLE>(thread.native_handle()));
+	SetThreadName(threadId, threadName);
+}
+
+#else
+
+void SetThreadName(std::jthread& thread, const char* threadName)
+{
+	auto handle = thread.native_handle();
+	pthread_setname_np(handle, threadName);
+}
+
+#endif
+
+}
+
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 {
+	using namespace taskexecutor;
+
 	ZoneScopedN("TaskExecutor()");
 
 	ASSERTF(threadCount > 0, "Thread count must be nonzero");
@@ -13,7 +76,9 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt));
+		SetThreadName(
+			myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt)),
+			std::format("TaskThread {}", threadIt).c_str());
 }
 
 TaskExecutor::~TaskExecutor()
