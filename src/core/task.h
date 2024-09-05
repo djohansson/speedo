@@ -1,9 +1,9 @@
 #pragma once
 
 #include "capi.h"
-#include "memorypool.h"
 #include "std_extra.h"
 #include "upgradablesharedmutex.h"
+#include "utils.h"
 
 #include <functional>
 #include <memory>
@@ -15,8 +15,6 @@
 #if !defined(__cpp_lib_function_ref) || __cpp_lib_function_ref < 202306L
 #include <tl/function_ref.hpp>
 #endif
-
-struct TaskState;
 
 // TODO(djohansson): Consider using dynamic memory allocation for callable and arguments if larger tasks are required.
 class alignas (std_extra::hardware_destructive_interference_size) Task final
@@ -36,7 +34,6 @@ public:
 	template <typename... Params>
 	void operator()(Params&&... params);
 
-//private:
 	template <
 		typename... Params,
 		typename... Args,
@@ -46,8 +43,11 @@ public:
 		typename ParamsTuple = std::tuple<Params...>,
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	constexpr Task(std::shared_ptr<TaskState>&& state, F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
+	constexpr Task(std::shared_ptr<struct TaskState>&& state, F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
 
+	void AddDependency(Task& other, bool isContinuation = false);
+
+private:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
@@ -68,8 +68,7 @@ public:
 };
 
 static constexpr std::size_t kTaskPoolSize = (1 << 10); // todo: make this configurable
-using TaskPool = MemoryPool<Task, kTaskPoolSize>;
-using TaskHandle = TaskPool::Handle;
+using TaskHandle = MinSizeIndex<kTaskPoolSize>;
 
 struct TaskState
 {
@@ -86,12 +85,10 @@ class Future
 {
 public:
 	using value_t = std::conditional_t<std::is_void_v<T>, std::nullptr_t, T>;
-	struct FutureState : TaskState
-	{
-		value_t value;
-	};
+	struct FutureState : TaskState { value_t value; };
 
 	constexpr Future() noexcept = default;
+	explicit Future(std::shared_ptr<FutureState>&& state) noexcept;
 	Future(Future&& other) noexcept;
 	Future(const Future& other) noexcept;
 	
@@ -104,9 +101,7 @@ public:
 	[[nodiscard]] bool Valid() const noexcept;
 	void Wait() const;
 
-//private:
-	explicit Future(std::shared_ptr<FutureState>&& state) noexcept;
-
+private:
 	std::shared_ptr<FutureState> myState;
 };
 

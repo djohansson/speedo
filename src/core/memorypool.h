@@ -2,6 +2,7 @@
 
 #include "std_extra.h"
 #include "upgradablesharedmutex.h"
+#include "utils.h"
 
 #include <algorithm>
 #include <array>
@@ -10,16 +11,9 @@
 template <typename T, std::size_t N>
 class MemoryPool final
 {
+	using Handle = MinSizeIndex<N>;
+
 public:
-	struct Handle
-	{
-		static constexpr std_extra::min_unsigned_t<N> kInvalidIndex{static_cast<std_extra::min_unsigned_t<N>>(~0ull)};
-		std_extra::min_unsigned_t<N> value{kInvalidIndex};
-
-		[[nodiscard]] constexpr explicit operator bool() const noexcept { return value != kInvalidIndex; }
-		[[nodiscard]] constexpr auto operator<=>(const Handle&) const noexcept = default;
-	};
-
 	constexpr MemoryPool() noexcept;
 	MemoryPool(const MemoryPool&) = delete;
 	MemoryPool(MemoryPool&&) noexcept = delete;
