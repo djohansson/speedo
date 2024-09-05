@@ -1,16 +1,19 @@
 #include "../image.h"
-
+#include "../rhi.h"
+#include "../shaders/capi.h"
 #include "utils.h"
 
 #include <core/file.h>
 #include <core/math.h>
 #include <core/std_extra.h>
+#include <core/taskexecutor.h>
 
 #include <cstdint>
 #include <execution>
 #include <iostream>
 #include <numeric>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <tuple>
 
@@ -29,7 +32,23 @@
 [[nodiscard]] zpp::bits::members<std_extra::member_count<ImageCreateDesc<kVk>>()> serialize(const ImageCreateDesc<kVk>&);
 //NOLINTEND(readability-identifier-naming)
 
+template <>
+void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
+{
+	ZoneScopedN("Image::Transition");
+
+	if (GetLayout() != layout)
+	{
+		TransitionImageLayout(
+			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size());
+		InternalSetImageLayout(layout);
+	}
+}
+
 namespace image
+{
+
+namespace detail
 {
 
 std::tuple<VkImage, VmaAllocation>
@@ -350,20 +369,93 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 }
 //NOLINTEND(readability-magic-numbers)
 
-} // namespace image
+} // namespace detail
 
-template <>
-void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
+void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress)
 {
-	ZoneScopedN("Image::Transition");
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 
-	if (GetLayout() != layout)
+	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
+
+	auto oldImage = rhi.pipeline->GetResources().image;
+	auto oldImageView = rhi.pipeline->GetResources().imageView;
+	
+	TaskCreateInfo<void> transferDone;
+	auto image = std::make_shared<Image<kVk>>(
+		rhi.device,
+		transferDone,
+		transferQueue.GetPool().Commands(),
+		openFilePath,
+		progress);
+	auto imageView = std::make_shared<ImageView<kVk>>(
+		rhi.device,
+		*image,
+		VK_IMAGE_ASPECT_COLOR_BIT);
+
+	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask(
+		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)] mutable {
+			 oldImage.reset(); oldImageView.reset(); });
+
+	rhi.pipeline->GetResources().image = image;
+	rhi.pipeline->GetResources().imageView = imageView;
+
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(transferDone.handle);
+	timelineCallbacks.emplace_back(oldImageDestroyTask);
+
+	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferSubmit.maxTimelineValue},
+		{transferSemaphore},
+		{++transferSemaphoreValue},
+		std::move(timelineCallbacks)});
+
+	transferSubmit = transferQueue.Submit();
+
+	///////////
+
+	auto [imageTransitionTask, imageTransitionFuture] = CreateTask<uint32_t>([&rhi](
+		Image<kVk>& image,
+		SemaphoreHandle<kVk> waitSemaphore,
+		uint64_t waitSemaphoreValue,
+		uint32_t graphicsQueueIndex)
 	{
-		TransitionImageLayout(
-			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size());
-		InternalSetImageLayout(layout);
-	}
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(graphicsQueueIndex);
+
+		{
+			auto cmd = graphicsQueue.GetPool().Commands();
+
+			GPU_SCOPE(cmd, graphicsQueue, Transition);
+
+			image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
+
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+			{waitSemaphore},
+			{VK_PIPELINE_STAGE_TRANSFER_BIT},
+			{waitSemaphoreValue},
+			{graphicsSemaphore},
+			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
+
+		rhi.pipeline->SetDescriptorData(
+			"gTextures",
+			DescriptorImageInfo<kVk>{
+				{},
+				*rhi.pipeline->GetResources().imageView,
+				rhi.pipeline->GetResources().image->GetLayout()},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			1);
+	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
+
+	rhi.drawCalls.enqueue(imageTransitionTask);
+
+	///////////
 }
+
+} // namespace image
 
 template <>
 void Image<kVk>::Clear(
@@ -437,7 +529,7 @@ Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kV
 	: Image(
 		device,
 		std::tuple_cat(
-			image::CreateImage2D(device->GetAllocator(), desc),
+			image::detail::CreateImage2D(device->GetAllocator(), desc),
 			std::make_tuple(desc.initialLayout)),
 		std::forward<ImageCreateDesc<kVk>>(desc))
 {}
@@ -452,7 +544,7 @@ Image<kVk>::Image(
 		device,
 		std::tuple_cat(
 			[&cmd, &device, &initialData]{
-				return image::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
+				return image::detail::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
 			}(),
 			std::make_tuple(std::get<2>(initialData).initialLayout)),
 		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
@@ -490,7 +582,7 @@ Image<kVk>::Image(
 	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& imageFile,
 	std::atomic_uint8_t& progress)
-	: Image(device, timlineCallbackOut, cmd, image::Load(imageFile, device, progress))
+	: Image(device, timlineCallbackOut, cmd, image::detail::Load(imageFile, device, progress))
 {}
 
 template <>

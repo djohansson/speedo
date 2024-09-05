@@ -15,7 +15,6 @@
 namespace rhi
 {
 
-template <>
 uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
 {
 	const auto& physicalDevices = instance.GetPhysicalDevices();
@@ -83,7 +82,6 @@ uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk
 	return std::get<0>(graphicsDeviceCandidates.front());
 }
 
-template <>
 SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, SurfaceHandle<kVk> surface)
 {
 	const auto& swapchainInfo =
@@ -153,7 +151,6 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	return config;
 };
 
-template <>
 void CreateQueues(Rhi<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
@@ -296,7 +293,6 @@ void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
 }
 
-template <>
 Window<kVk> CreateRhiWindow(
 	const std::shared_ptr<Device<kVk>>& device,
 	SurfaceHandle<kVk>&& surface,
@@ -310,7 +306,6 @@ Window<kVk> CreateRhiWindow(
 		std::forward<WindowState>(windowState));
 }
 
-template <>
 std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>& device)
 {
 	return std::make_unique<Pipeline<kVk>>(
@@ -318,7 +313,6 @@ std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>
 		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
 }
 
-template <>
 std::shared_ptr<Device<kVk>> CreateDevice(
 	const std::shared_ptr<Instance<kVk>>& instance,
 	uint32_t physicalDeviceIndex)
@@ -328,7 +322,6 @@ std::shared_ptr<Device<kVk>> CreateDevice(
 		DeviceConfiguration<kVk>{physicalDeviceIndex});
 }
 
-template <>
 std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
 {
 	return std::make_shared<Instance<kVk>>(
@@ -344,6 +337,49 @@ std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
 				VK_MAKE_VERSION(1, 0, 0),
 				VK_API_VERSION_1_2}});
 				//VK_API_VERSION_1_3}});
+}
+
+template <>
+std::shared_ptr<Rhi<kVk>> CreateRhi(std::string_view name, CreateWindowFunc createWindowFunc)
+{
+	using namespace rhi;
+	
+	WindowState windowState{};
+
+	Window<kVk>::ConfigFile windowConfig{
+		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
+
+	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
+	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
+
+	std::shared_ptr<Rhi<kVk>> rhi;
+	{
+		auto* windowHandle = createWindowFunc(&windowState);
+		auto instance = CreateInstance(name);
+		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
+		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
+		auto pipeline = CreatePipeline(device);
+		rhi = std::make_shared<Rhi<kVk>>(
+			std::move(instance),
+			std::move(device),
+			std::move(pipeline),
+			createWindowFunc);
+
+		windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi->device, surface);
+		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
+
+		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
+			windowHandle,
+			CreateRhiWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
+
+		SetWindows(&windowHandle, 1);
+		SetCurrentWindow(windowHandle);
+	}
+
+	CreateQueues(*rhi);
+	CreateWindowDependentObjects(*rhi);
+
+	return rhi;
 }
 
 } // namespace rhi

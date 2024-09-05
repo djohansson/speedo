@@ -1,8 +1,10 @@
 #include "../model.h"
+#include "../rhi.h"
 #include "../shaders/capi.h"
 #include "utils.h"
 
 #include <core/file.h>
+#include <core/taskexecutor.h>
 #include <core/std_extra.h>
 #include <gfx/bounds.h>
 #include <gfx/vertex.h>
@@ -28,6 +30,9 @@
 //NOLINTEND(readability-identifier-naming)
 
 namespace model
+{
+
+namespace detail
 {
 
 std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
@@ -362,6 +367,44 @@ Load(
 }
 //NOLINTEND(readability-magic-numbers)
 
+} // namespace detail
+
+void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress)
+{
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
+	
+	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
+
+	std::array<TaskCreateInfo<void>, 2> transfersDone;
+	auto newModel = std::make_shared<Model<kVk>>(
+		rhi.device,
+		transfersDone,
+		transferQueue.GetPool().Commands(),
+		openFilePath,
+		progress);
+	auto oldModel = rhi.pipeline->SetModel(newModel);
+
+	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask(
+		[oldModel = std::move(oldModel)] mutable {
+			oldModel.reset(); });
+
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(transfersDone[0].handle);
+	timelineCallbacks.emplace_back(transfersDone[1].handle);
+	timelineCallbacks.emplace_back(oldModelDestroyTask);
+
+	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferSubmit.maxTimelineValue},
+		{transferSemaphore},
+		{++transferSemaphoreValue},
+		std::move(timelineCallbacks)});
+
+	transferSubmit = transferQueue.Submit();
+}
+
 } // namespace model
 
 template <>
@@ -399,7 +442,7 @@ Model<kVk>::Model(
 				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				  "VertexBuffer"}))
-	, myBindings(model::CalculateInputBindingDescriptions(std::get<4>(initialData).attributes))
+	, myBindings(model::detail::CalculateInputBindingDescriptions(std::get<4>(initialData).attributes))
 	, myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<4>(initialData)))
 {}
 
@@ -410,7 +453,7 @@ Model<kVk>::Model(
 	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& modelFile,
 	std::atomic_uint8_t& progress)
-	: Model(device, timelineCallbacksOut, cmd, model::Load(modelFile, device, progress))
+	: Model(device, timelineCallbacksOut, cmd, model::detail::Load(modelFile, device, progress))
 {}
 
 template <>

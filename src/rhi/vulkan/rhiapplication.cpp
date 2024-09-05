@@ -22,6 +22,21 @@
 #include <algorithm>
 #include <shared_mutex>
 
+
+namespace model
+{
+
+void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
+
+} // namespace model
+
+namespace image
+{
+
+void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
+
+} // namespace image
+
 namespace rhiapplication
 {
 
@@ -33,128 +48,6 @@ OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdu8filterite
 	auto resourcePathStr = resourcePath.string();
 	nfdchar_t* openFilePath;
 	return std::make_tuple(NFD_OpenDialog(&openFilePath, filterList, filterCount, resourcePathStr.c_str()), openFilePath);
-}
-
-static void LoadModel(
-	Rhi<kVk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
-{
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
-	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
-	
-	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
-
-	std::array<TaskCreateInfo<void>, 2> transfersDone;
-	auto newModel = std::make_shared<Model<kVk>>(
-		rhi.device,
-		transfersDone,
-		transferQueue.GetPool().Commands(),
-		openFilePath,
-		progress);
-	auto oldModel = rhi.pipeline->SetModel(newModel);
-
-	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask(
-		[oldModel = std::move(oldModel)] mutable {
-			oldModel.reset(); });
-
-	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(transfersDone[0].handle);
-	timelineCallbacks.emplace_back(transfersDone[1].handle);
-	timelineCallbacks.emplace_back(oldModelDestroyTask);
-
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
-		{transferSemaphore},
-		{++transferSemaphoreValue},
-		std::move(timelineCallbacks)});
-
-	transferSubmit = transferQueue.Submit();
-}
-
-static void LoadImage(
-	Rhi<kVk>& rhi, TaskExecutor& executor, nfdchar_t* openFilePath, std::atomic_uint8_t& progress)
-{
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
-	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
-
-	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
-
-	auto oldImage = rhi.pipeline->GetResources().image;
-	auto oldImageView = rhi.pipeline->GetResources().imageView;
-	
-	TaskCreateInfo<void> transferDone;
-	auto image = std::make_shared<Image<kVk>>(
-		rhi.device,
-		transferDone,
-		transferQueue.GetPool().Commands(),
-		openFilePath,
-		progress);
-	auto imageView = std::make_shared<ImageView<kVk>>(
-		rhi.device,
-		*image,
-		VK_IMAGE_ASPECT_COLOR_BIT);
-
-	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask(
-		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)] mutable {
-			 oldImage.reset(); oldImageView.reset(); });
-
-	rhi.pipeline->GetResources().image = image;
-	rhi.pipeline->GetResources().imageView = imageView;
-
-	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(transferDone.handle);
-	timelineCallbacks.emplace_back(oldImageDestroyTask);
-
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
-		{transferSemaphore},
-		{++transferSemaphoreValue},
-		std::move(timelineCallbacks)});
-
-	transferSubmit = transferQueue.Submit();
-
-	///////////
-
-	auto [imageTransitionTask, imageTransitionFuture] = CreateTask<uint32_t>([&rhi](
-		Image<kVk>& image,
-		SemaphoreHandle<kVk> waitSemaphore,
-		uint64_t waitSemaphoreValue,
-		uint32_t graphicsQueueIndex)
-	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(graphicsQueueIndex);
-
-		{
-			auto cmd = graphicsQueue.GetPool().Commands();
-
-			GPU_SCOPE(cmd, graphicsQueue, Transition);
-
-			image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		}
-
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{waitSemaphore},
-			{VK_PIPELINE_STAGE_TRANSFER_BIT},
-			{waitSemaphoreValue},
-			{graphicsSemaphore},
-			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
-
-		rhi.pipeline->SetDescriptorData(
-			"gTextures",
-			DescriptorImageInfo<kVk>{
-				{},
-				*rhi.pipeline->GetResources().imageView,
-				rhi.pipeline->GetResources().image->GetLayout()},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			1);
-	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
-
-	rhi.drawCalls.enqueue(imageTransitionTask);
-
-	///////////
 }
 
 void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
@@ -556,7 +449,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						}
 					},
 					std::move(openFileFuture),
-					LoadModel);
+					model::LoadModel);
 
 				AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
@@ -589,7 +482,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						}
 					},
 					std::move(openFileFuture),
-					LoadImage);
+					image::LoadImage);
 
 				AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
@@ -808,240 +701,6 @@ static void ShutdownImgui()
 	ImGui_ImplGlfw_Shutdown();
 
 	ImGui::DestroyContext();
-}
-
-auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
-{
-	using namespace rhi;
-	using namespace rhiapplication;
-
-	WindowState windowState{};
-
-	Window<kVk>::ConfigFile windowConfig{
-		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
-
-	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
-	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
-
-	std::shared_ptr<Rhi<kVk>> rhi;
-	{
-		auto* windowHandle = createWindowFunc(&windowState);
-		auto instance = CreateInstance<kVk>(std::string_view(name));
-		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
-		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
-		auto pipeline = CreatePipeline(device);
-		rhi = std::make_shared<Rhi<kVk>>(
-			std::move(instance),
-			std::move(device),
-			std::move(pipeline));
-
-		windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi->device, surface);
-		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
-
-		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
-			windowHandle,
-			CreateRhiWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
-
-		SetWindows(&windowHandle, 1);
-		SetCurrentWindow(windowHandle);
-	}
-
-	CreateQueues(*rhi);
-	CreateWindowDependentObjects(*rhi);
-
-	std::vector<TaskHandle> timelineCallbacks;
-
-	// todo: create some resource global storage
-	rhi->pipeline->GetResources().black = std::make_shared<Image<kVk>>(
-		rhi->device,
-		ImageCreateDesc<kVk>{
-			{ImageMipLevelDesc<kVk>{Extent2d<kVk>{4, 4}, 16 * 4, 0}},
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_TILING_LINEAR,
-			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Black"});
-
-	rhi->pipeline->GetResources().blackImageView = std::make_shared<ImageView<kVk>>(
-		rhi->device, *rhi->pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	std::vector<SamplerCreateInfo<kVk>> samplerCreateInfos;
-	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
-		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		nullptr,
-		0U,
-		VK_FILTER_LINEAR,
-		VK_FILTER_LINEAR,
-		VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0F,
-		VK_TRUE,
-		16.F,
-		VK_FALSE,
-		VK_COMPARE_OP_ALWAYS,
-		0.0F,
-		1000.0F,
-		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-		VK_FALSE});
-	rhi->pipeline->GetResources().samplers =
-		std::make_shared<SamplerVector<kVk>>(rhi->device, std::move(samplerCreateInfos));
-	//
-
-	// initialize stuff on graphics queue
-	constexpr uint32_t kTextureId = 1;
-	constexpr uint32_t kSamplerId = 2;
-	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
-	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
-	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
-		
-		auto cmd = graphicsQueue.GetPool().Commands();
-
-		rhi->pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		rhi->pipeline->GetResources().black->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
-		rhi->pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		IMGUIInit(rhi->windows.at(GetCurrentWindow()), *rhi, cmd);
-
-		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
-		materialData[0].color[0] = 1.0;
-		materialData[0].color[1] = 0.0;
-		materialData[0].color[2] = 0.0;
-		materialData[0].color[3] = 1.0;
-		materialData[0].textureAndSamplerId =
-			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
-
-		TaskCreateInfo<void> materialTransfersDone;
-		rhi->materials = std::make_unique<Buffer<kVk>>(
-			rhi->device,
-			materialTransfersDone,
-			cmd,
-			BufferCreateDesc<kVk>{
-				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"Materials"},
-			materialData.get());
-		timelineCallbacks.emplace_back(materialTransfersDone.handle);
-
-		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
-		static const auto kIdentityMatrix = glm::mat4x4(1.0);
-		std::copy_n(&kIdentityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
-		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
-		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
-		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
-
-		TaskCreateInfo<void> modelTransfersDone;
-		rhi->modelInstances = std::make_unique<Buffer<kVk>>(
-			rhi->device,
-			modelTransfersDone,
-			cmd,
-			BufferCreateDesc<kVk>{
-				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"ModelInstances"},
-			modelInstances.get());
-		timelineCallbacks.emplace_back(modelTransfersDone.handle);
-
-		cmd.End();
-
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{},
-			{},
-			{},
-			{graphicsSemaphore},
-			{1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed)},
-			std::move(timelineCallbacks)});
-
-		graphicsSubmit = graphicsQueue.Submit();
-	}
-
-	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]) / "src/rhi/shaders";
-	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
-
-	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
-
-	auto shaderSourceFile = shaderIncludePath / "shaders.slang";
-
-	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
-		"VertexZPrepass",
-		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-			shaderSourceFile,
-			{
-				SLANG_SOURCE_LANGUAGE_SLANG,
-				SLANG_SPIRV,
-				"SPIRV_1_6",
-				{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			})));
-
-	rhi->pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	rhi->pipeline->SetDescriptorData(
-		"gModelInstances",
-		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gViewData",
-			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DESCRIPTOR_SET_CATEGORY_VIEW,
-			i);
-	}
-
-	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
-		"Main",
-		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-			shaderSourceFile,
-			{
-				SLANG_SOURCE_LANGUAGE_SLANG,
-				SLANG_SPIRV,
-				"SPIRV_1_6",
-				{
-					{"VertexMain", SLANG_STAGE_VERTEX},
-					{"FragmentMain", SLANG_STAGE_FRAGMENT},
-					{"ComputeMain", SLANG_STAGE_COMPUTE},
-				},
-				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			})));
-
-	rhi->pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	rhi->pipeline->SetDescriptorData(
-		"gMaterialData",
-		DescriptorBufferInfo<kVk>{*rhi->materials, 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_MATERIAL);
-
-	rhi->pipeline->SetDescriptorData(
-		"gModelInstances",
-		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-	rhi->pipeline->SetDescriptorData(
-		"gSamplers",
-		DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[0]},
-		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
-		kSamplerId);
-
-	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gViewData",
-			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DESCRIPTOR_SET_CATEGORY_VIEW,
-			i);
-	}
-
-	return rhi;
 }
 
 // auto loadGlTF = [](nfdchar_t* openFilePath)
@@ -1505,8 +1164,203 @@ void RhiApplication::InternalDraw()
 RhiApplication::RhiApplication(
 	std::string_view appName, Environment&& env, CreateWindowFunc createWindowFunc)
 	: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-	, myRhi(rhiapplication::CreateRhi(Name(), createWindowFunc))
+	, myRhi(rhi::CreateRhi<kVk>(Name(), createWindowFunc))
 {
+	using namespace rhiapplication;
+	
+	auto& rhi = InternalRhi<kVk>();
+
+	std::vector<TaskHandle> timelineCallbacks;
+
+	// todo: create some resource global storage
+	rhi.pipeline->GetResources().black = std::make_shared<Image<kVk>>(
+		rhi.device,
+		ImageCreateDesc<kVk>{
+			{ImageMipLevelDesc<kVk>{Extent2d<kVk>{4, 4}, 16 * 4, 0}},
+			VK_FORMAT_R8G8B8A8_UNORM,
+			VK_IMAGE_TILING_LINEAR,
+			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			"Black"});
+
+	rhi.pipeline->GetResources().blackImageView = std::make_shared<ImageView<kVk>>(
+		rhi.device, *rhi.pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	std::vector<SamplerCreateInfo<kVk>> samplerCreateInfos;
+	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr,
+		0U,
+		VK_FILTER_LINEAR,
+		VK_FILTER_LINEAR,
+		VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		0.0F,
+		VK_TRUE,
+		16.F,
+		VK_FALSE,
+		VK_COMPARE_OP_ALWAYS,
+		0.0F,
+		1000.0F,
+		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		VK_FALSE});
+	rhi.pipeline->GetResources().samplers =
+		std::make_shared<SamplerVector<kVk>>(rhi.device, std::move(samplerCreateInfos));
+	//
+
+	// initialize stuff on graphics queue
+	constexpr uint32_t kTextureId = 1;
+	constexpr uint32_t kSamplerId = 2;
+	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
+	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
+	{
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
+		
+		auto cmd = graphicsQueue.GetPool().Commands();
+
+		rhi.pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		rhi.pipeline->GetResources().black->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
+		rhi.pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		IMGUIInit(rhi.windows.at(GetCurrentWindow()), rhi, cmd);
+
+		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
+		materialData[0].color[0] = 1.0;
+		materialData[0].color[1] = 0.0;
+		materialData[0].color[2] = 0.0;
+		materialData[0].color[3] = 1.0;
+		materialData[0].textureAndSamplerId =
+			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
+
+		TaskCreateInfo<void> materialTransfersDone;
+		rhi.materials = std::make_unique<Buffer<kVk>>(
+			rhi.device,
+			materialTransfersDone,
+			cmd,
+			BufferCreateDesc<kVk>{
+				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				"Materials"},
+			materialData.get());
+		timelineCallbacks.emplace_back(materialTransfersDone.handle);
+
+		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
+		static const auto kIdentityMatrix = glm::mat4x4(1.0);
+		std::copy_n(&kIdentityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
+		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
+		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
+		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
+
+		TaskCreateInfo<void> modelTransfersDone;
+		rhi.modelInstances = std::make_unique<Buffer<kVk>>(
+			rhi.device,
+			modelTransfersDone,
+			cmd,
+			BufferCreateDesc<kVk>{
+				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				"ModelInstances"},
+			modelInstances.get());
+		timelineCallbacks.emplace_back(modelTransfersDone.handle);
+
+		cmd.End();
+
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+			{},
+			{},
+			{},
+			{graphicsSemaphore},
+			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)},
+			std::move(timelineCallbacks)});
+
+		graphicsSubmit = graphicsQueue.Submit();
+	}
+
+	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
+
+	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
+
+	auto shaderSourceFile = shaderIncludePath / "shaders.slang";
+
+	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = rhi.pipelineLayouts.emplace(
+		"VertexZPrepass",
+		rhi.pipeline->CreateLayout(shaderLoader.Load<kVk>(
+			shaderSourceFile,
+			{
+				SLANG_SOURCE_LANGUAGE_SLANG,
+				SLANG_SPIRV,
+				"SPIRV_1_6",
+				{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			})));
+
+	rhi.pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+	rhi.pipeline->SetDescriptorData(
+		"gModelInstances",
+		DescriptorBufferInfo<kVk>{*rhi.modelInstances, 0, VK_WHOLE_SIZE},
+		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
+	{
+		rhi.pipeline->SetDescriptorData(
+			"gViewData",
+			DescriptorBufferInfo<kVk>{rhi.windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DESCRIPTOR_SET_CATEGORY_VIEW,
+			i);
+	}
+
+	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = rhi.pipelineLayouts.emplace(
+		"Main",
+		rhi.pipeline->CreateLayout(shaderLoader.Load<kVk>(
+			shaderSourceFile,
+			{
+				SLANG_SOURCE_LANGUAGE_SLANG,
+				SLANG_SPIRV,
+				"SPIRV_1_6",
+				{
+					{"VertexMain", SLANG_STAGE_VERTEX},
+					{"FragmentMain", SLANG_STAGE_FRAGMENT},
+					{"ComputeMain", SLANG_STAGE_COMPUTE},
+				},
+				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			})));
+
+	rhi.pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+	rhi.pipeline->SetDescriptorData(
+		"gMaterialData",
+		DescriptorBufferInfo<kVk>{*rhi.materials, 0, VK_WHOLE_SIZE},
+		DESCRIPTOR_SET_CATEGORY_MATERIAL);
+
+	rhi.pipeline->SetDescriptorData(
+		"gModelInstances",
+		DescriptorBufferInfo<kVk>{*rhi.modelInstances, 0, VK_WHOLE_SIZE},
+		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+	rhi.pipeline->SetDescriptorData(
+		"gSamplers",
+		DescriptorImageInfo<kVk>{(*rhi.pipeline->GetResources().samplers)[0]},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
+		kSamplerId);
+
+	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
+	{
+		rhi.pipeline->SetDescriptorData(
+			"gViewData",
+			DescriptorBufferInfo<kVk>{rhi.windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DESCRIPTOR_SET_CATEGORY_VIEW,
+			i);
+	}
 }
 
 RhiApplication::~RhiApplication() noexcept(false)
