@@ -41,3 +41,36 @@ struct Rhi
 	ConcurrentQueue<TaskHandle> mainCalls; // queue with tasks that will be called once on main thread
 	ConcurrentQueue<TaskHandle> drawCalls; // queue with tasks that will be called once on draw thread/task
 };
+
+namespace rhi
+{
+
+template <GraphicsApi G>
+uint32_t DetectSuitableGraphicsDevice(Instance<G>& instance, SurfaceHandle<G> surface);
+
+template <GraphicsApi G>
+SwapchainConfiguration<G> DetectSuitableSwapchain(Device<G>& device, SurfaceHandle<G> surface);
+
+template <GraphicsApi G>
+void CreateQueues(Rhi<G>& rhi);
+
+template <GraphicsApi G>
+void CreateWindowDependentObjects(Rhi<G>& rhi);
+
+template <GraphicsApi G>
+Window<G> CreateRhiWindow(
+	const std::shared_ptr<Device<G>>& device,
+	SurfaceHandle<G>&& surface,
+	typename Window<G>::ConfigFile&& windowConfig,
+	WindowState&& windowState);
+
+template <GraphicsApi G>
+std::unique_ptr<Pipeline<G>> CreatePipeline(const std::shared_ptr<Device<G>>& device);
+
+template <GraphicsApi G>
+std::shared_ptr<Device<G>> CreateDevice(const std::shared_ptr<Instance<G>>& instance, uint32_t physicalDeviceIndex);
+
+template <GraphicsApi G>
+std::shared_ptr<Instance<G>> CreateInstance(std::string_view name);
+
+} // namespace rhi
