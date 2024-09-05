@@ -444,7 +444,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
 
-				auto [openFileTask, openFileFuture] = CreateTask(OpenFileDialogue, std::move(resourcePathString), std::span(filterList));
+				auto [openFileTask, openFileFuture] = CreateTask(OpenFileDialogue, std::move(resourcePathString), filterList);
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
