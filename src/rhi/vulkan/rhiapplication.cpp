@@ -18,6 +18,7 @@
 //#include <imnodes.h>
 
 #include <nfd.h>
+#include <nfd_glfw3.h>
 
 #include <algorithm>
 #include <shared_mutex>
@@ -42,12 +43,25 @@ namespace rhiapplication
 
 static UpgradableSharedMutex gDrawMutex{};
 
-static std::tuple<nfdresult_t, nfdchar_t*>
-OpenFileDialogue(const std::filesystem::path& resourcePath, const nfdu8filteritem_t* filterList, nfdfiltersize_t filterCount)
+static std::tuple<bool, std::string>
+OpenFileDialogue(std::string resourcePathStr, std::span<const nfdu8filteritem_t> filterList)
 {
-	auto resourcePathStr = resourcePath.string();
-	nfdchar_t* openFilePath;
-	return std::make_tuple(NFD_OpenDialog(&openFilePath, filterList, filterCount, resourcePathStr.c_str()), openFilePath);
+	nfdu8char_t* openFilePath;
+	nfdopendialogu8args_t args{};
+	args.filterList = filterList.data();
+	args.filterCount = filterList.size();
+	args.defaultPath = resourcePathStr.c_str();
+	NFD_GetNativeWindowFromGLFWWindow(static_cast<GLFWwindow*>(GetCurrentWindow()), &args.parentWindow);
+
+	if (NFD_OpenDialogU8_With(&openFilePath, &args) == NFD_OKAY)
+	{
+		std::string openFilePathStr;
+		openFilePathStr.assign(openFilePath);
+		NFD_FreePath(openFilePath);
+		return std::make_tuple(true, std::move(openFilePathStr));
+	}
+
+	return {false, {}};
 }
 
 void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
@@ -424,12 +438,13 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto [openFileTask, openFileFuture] = CreateTask(
-					OpenFileDialogue,
-					std::get<std::filesystem::path>(
-						Application::Instance().lock()->Env().variables["ResourcePath"]),
-					nullptr, 0);
+				auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]) / "models";
+				auto resourcePathString = resourcePath.string();
+				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
+					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
+				};
 
+				auto [openFileTask, openFileFuture] = CreateTask(OpenFileDialogue, std::move(resourcePathString), std::span(filterList));
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
@@ -439,12 +454,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						ASSERT(openFileFuture.IsReady());
 
 						auto [openFileResult, openFilePath] = openFileFuture.Get();
-						if (openFileResult == NFD_OKAY)
+						if (openFileResult)
 						{
 							gProgress = 0;
 							gShowProgress = true;
 							loadOp(rhi, executor, openFilePath, gProgress);
-							NFD_FreePath(openFilePath);
 							gShowProgress = false;
 						}
 					},
@@ -457,12 +471,13 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto [openFileTask, openFileFuture] = CreateTask(
-					OpenFileDialogue,
-					std::get<std::filesystem::path>(
-						Application::Instance().lock()->Env().variables["ResourcePath"]),
-					nullptr, 0);
+				auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]) / "images";
+				auto resourcePathString = resourcePath.string();
+				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
+					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
+				};
 
+				auto [openFileTask, openFileFuture] = CreateTask(OpenFileDialogue, std::move(resourcePathString), filterList);
 				auto [loadTask, loadFuture] = CreateTask(
 					[&rhi, &executor](auto openFileFuture, auto loadOp)
 					{
@@ -472,12 +487,11 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 						ASSERT(openFileFuture.IsReady());
 
 						auto [openFileResult, openFilePath] = openFileFuture.Get();
-						if (openFileResult == NFD_OKAY)
+						if (openFileResult)
 						{
 							gProgress = 0;
 							gShowProgress = true;
 							loadOp(rhi, executor, openFilePath, gProgress);
-							NFD_FreePath(openFilePath);
 							gShowProgress = false;
 						}
 					},
