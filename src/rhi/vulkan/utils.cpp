@@ -240,7 +240,8 @@ void TransitionImageLayout(
 	VkFormat format,
 	VkImageLayout oldLayout,
 	VkImageLayout newLayout,
-	uint32_t mipLevels)
+	uint32_t mipLevels,
+	VkImageAspectFlags aspectFlags)
 {
 	VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
 	barrier.oldLayout = oldLayout;
@@ -249,18 +250,7 @@ void TransitionImageLayout(
 	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	barrier.image = image;
 
-	if (HasDepthComponent(format))
-	{
-		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-		if (HasStencilComponent(format))
-			barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
-	else
-	{
-		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
-
+	barrier.subresourceRange.aspectMask = aspectFlags;
 	barrier.subresourceRange.baseMipLevel = 0UL;
 	barrier.subresourceRange.levelCount = mipLevels;
 	barrier.subresourceRange.baseArrayLayer = 0UL;

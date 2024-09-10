@@ -76,7 +76,8 @@ void TransitionImageLayout(
 	VkFormat format,
 	VkImageLayout oldLayout,
 	VkImageLayout newLayout,
-	uint32_t mipLevels);
+	uint32_t mipLevels,
+	VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_NONE);
 
 void CopyBufferToImage(
 	VkCommandBuffer commandBuffer,
