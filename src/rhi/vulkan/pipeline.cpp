@@ -670,14 +670,15 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 		break;
 	case VK_PIPELINE_BIND_POINT_COMPUTE:
 		{
-			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.front().GetEntryPoint();
+			// todo: better handling of multiple compute shaders
+			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.back().GetEntryPoint();
 			CHECK(shaderStage == VK_SHADER_STAGE_COMPUTE_BIT);
 			myComputeState.shaderStage = {
 				VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 				nullptr,
 				0,
 				VK_SHADER_STAGE_COMPUTE_BIT,
-				shaderModules.front(),
+				shaderModules.back(),
 				entryPointName.c_str(),
 				nullptr};
 			myComputeState.launchParameters = launchParams.value_or(ComputeLaunchParameters{});
