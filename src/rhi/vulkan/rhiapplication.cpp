@@ -1182,6 +1182,8 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		SetCurrentWindow(windowHandle);
 	}
 
+	auto& window = rhi->windows.at(GetCurrentWindow());
+
 	CreateQueues(*rhi);
 	CreateWindowDependentObjects(*rhi);
 
@@ -1242,7 +1244,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		rhi->pipeline->GetResources().black->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
 		rhi->pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		IMGUIInit(rhi->windows.at(GetCurrentWindow()), *rhi, cmd);
+		IMGUIInit(window, *rhi, cmd);
 
 		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
 		materialData[0].color[0] = 1.0;
@@ -1329,7 +1331,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	{
 		rhi->pipeline->SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
@@ -1373,7 +1375,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	{
 		rhi->pipeline->SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{rhi->windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
