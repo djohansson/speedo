@@ -526,7 +526,7 @@ ImageView<kVk>::ImageView(const std::shared_ptr<Device<kVk>>& device, ImageViewH
 
 template <>
 ImageView<kVk>::ImageView(
-	const std::shared_ptr<Device<kVk>>& device, const Image<kVk>& image, Flags<kVk> aspectFlags)
+	const std::shared_ptr<Device<kVk>>& device, const Image<kVk>& image, Flags<kVk> aspectFlags, Format<kVk> format)
 	: ImageView<kVk>(
 		  device,
 		  CreateImageView2D(
@@ -534,7 +534,7 @@ ImageView<kVk>::ImageView(
 			  &device->GetInstance()->GetHostAllocationCallbacks(),
 			  0, // "reserved for future use"
 			  image,
-			  image.GetDesc().format,
+			  (format == VK_FORMAT_UNDEFINED ? image.GetDesc().format : format),
 			  aspectFlags,
 			  image.GetDesc().mipLevels.size()))
 {}

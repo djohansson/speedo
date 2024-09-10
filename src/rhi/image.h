@@ -106,7 +106,8 @@ public:
 	ImageView( // creates a view from image
 		const std::shared_ptr<Device<G>>& device,
 		const Image<G>& image,
-		Flags<kVk> aspectFlags);
+		Flags<G> aspectFlags,
+		Format<G> format = {});
 	~ImageView() override;
 
 	[[nodiscard]] ImageView& operator=(ImageView&& other) noexcept;
