@@ -29,7 +29,7 @@ public:
 	void Swap(Frame& rhs) noexcept;
 	friend void Swap(Frame& lhs, Frame& rhs) noexcept { lhs.Swap(rhs); }
 
-	ImageLayout<G> GetLayout(uint32_t) const final;
+	[[nodiscard]] ImageLayout<G> GetLayout(uint32_t) const final;
 
 	void End(CommandBufferHandle<G> cmd) final;
 
