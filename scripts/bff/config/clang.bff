@@ -93,7 +93,7 @@
 #if !__WINDOWS__
 		+ ' -fexperimental-library'
 #endif
-	.LinkerOptions = '"%1" -o "%2" -g -v'
+	.LinkerOptions = '"%1" -o "%2" -g'
 		+ ' -L $LLVMPath$/lib'
 		+ ' -Wl,-rpath,$LLVMPath$/lib'
 		+ .PlatformLibPaths
@@ -115,7 +115,7 @@
 #endif
 	.LinkerOptionsC = ' -lc'
 	.LinkerOptionsCpp = .LinkerOptionsC
-		+ ' -lc -lc++ -lc++abi -lc++experimental'
+		+ ' -lc++ -lc++abi -lc++experimental'
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
 	.ProfilingLevel = '0'

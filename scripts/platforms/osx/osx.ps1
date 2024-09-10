@@ -3,7 +3,7 @@
 
 Write-Host "Installing MacOS dependencies..."
 
-$(xcode-select --install) 2>&1 | Out-Null
+$(xcode-select --install) 2>&1
 
 Install-HomebrewPackage coreutils
 Install-HomebrewPackage pkg-config

@@ -47,6 +47,7 @@ $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePro
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_TOOLS_PATH -NotePropertyValue $llvmToolsPath | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PACKAGE_VERSION -NotePropertyValue $llvmVersion | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION_MAJOR -NotePropertyValue $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) | Out-Null
+
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Initialize-SystemEnv
@@ -54,5 +55,7 @@ Initialize-SystemEnv
 Write-Host "Installing packages for $TargetTriplet using manifest..."
 
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build.output/packages --overlay-triplets=$PSScriptRoot/scripts/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
+
+Write-Host "Building speedo..."
 
 & $PSScriptRoot/build.ps1

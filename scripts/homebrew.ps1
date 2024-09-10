@@ -2,14 +2,14 @@ function Install-HomebrewPackage
 {
 	param([Parameter(Mandatory = $True, Position = 0)] [string] $packageName)
 
-	Write-Host "Installing $packageName..."
+	Write-Host -NoNewline "Installing $packageName..."
 	if (brew list $packageName)
 	{
-		Write-Host "$packageName is already installed."
+		Write-Host " already installed."
 	}
 	else
 	{
 		brew install $packageName
-		Write-Host "$packageName is installed."
+		Write-Host " success."
 	}
 }
