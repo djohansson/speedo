@@ -83,7 +83,7 @@ void Frame<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
 	RenderTarget::End(cmd);
 
-	myImageLayout = this->GetAttachmentDescs()[0].finalLayout;
+	myImageLayout = GetAttachmentDescs()[0].finalLayout;
 }
 
 template <>
