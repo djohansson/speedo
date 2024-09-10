@@ -1,33 +1,57 @@
 {
   "name": "speedo",
-  "dependencies": [
-    "catch2",
-    "cargs",
-    "concurrentqueue",
-    {
-      "name": "cppzmq",
-      "features": [
-        "draft"
+  "features": {
+    "toolchain": {
+      "description": "LLVM Toolchain",
+      "dependencies": [
+        {
+          "name": "llvm",
+          "features": [
+            "clang",
+            "compiler-rt",
+            "libcxx",
+            "libunwind",
+            "tools"
+          ]
+        }
       ]
     },
-    "cpptrace",
-    "fastbuild",
-    "glaze",
-    "mimalloc",
-    "mio",
-    "picosha2",
-    "sha-intrinsics",
-    "stduuid",
-    "tl-function-ref",
-    "unordered-dense",
-    "xxhash",
-    "zpp-bits",
-    "zeromq"
-  ],
-  "features": {
+    "common": {
+      "description": "Common Dependencies for both Client and Server",
+      "dependencies": [
+        "catch2",
+        "cargs",
+        "concurrentqueue",
+        {
+          "name": "cppzmq",
+          "features": [
+            "draft"
+          ]
+        },
+        "cpptrace",
+        "fastbuild",
+        "glaze",
+        "mimalloc",
+        "mio",
+        "picosha2",
+        "sha-intrinsics",
+        "stduuid",
+        "tl-function-ref",
+        "tracy",
+        "unordered-dense",
+        "xxhash",
+        "zpp-bits",
+        "zeromq"
+      ]
+    },
     "client": {
       "description": "Game Client Executable",
       "dependencies": [
+        {
+          "name": "speedo",
+          "features": [ "common" ]
+        },
+        "ade",
         "glfw3",
         "glm",
         {
@@ -37,16 +61,11 @@
             "vulkan-binding"
           ]
         },
+        "imgui-node-editor",
         "nativefiledialog-extended",
         "shader-slang",
         "stb",
         "tinyobjloader",
-        {
-          "name": "tracy",
-          "features": [
-            "gui-tools"
-          ]
-        },
         "vulkan",
         "vulkan-headers",
         "vulkan-loader",
@@ -58,7 +77,10 @@
     "server": {
       "description": "Game Server Executable",
       "dependencies": [
-        "tracy"
+        {
+          "name": "speedo",
+          "features": [ "common" ]
+        }
       ]
     }
   },

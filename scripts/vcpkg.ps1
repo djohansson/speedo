@@ -20,8 +20,6 @@
 
 function Initialize-Vcpkg
 {
-	param([Parameter(Mandatory = $True, ValueFromPipeline=$True, Position = 0)] [string] $Triplet)
-
 	Write-Host "Setting up vcpkg environment..."
 
 	$VcpkgRoot = "~/.vcpkg"
@@ -46,16 +44,5 @@ function Initialize-Vcpkg
 		}
 	}
 
-	Write-Host "Installing vcpkg packages for $Triplet using manifest..."
-
-	if ($IsMacOS)
-	{
-		$Arch = "arch -$(Get-NativeArchitecture)"
-	}
-	else
-	{
-		$Arch = ""
-	}
-	
-	Invoke-Expression("$Arch $VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/../build.vcpkg --overlay-triplets=$PSScriptRoot/triplets --triplet $Triplet --x-feature=client --x-feature=server --no-print-usage")
+	return $VcpkgRoot
 }

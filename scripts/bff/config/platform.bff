@@ -102,7 +102,7 @@ Settings
 #endif
 .PlatformIncludePaths = ' -isysroot $MacOSSDKPath$'
 	+ ' -isystem $MacOSSDKPath$/usr/include'
-.PlatformLibPaths = ''
+.PlatformLibPaths = ' -Wl,-syslibroot $MacOSSDKPath$'
 #endif //__OSX__
 #if __LINUX__
 .LibPrefix = 'lib'
@@ -115,6 +115,9 @@ Settings
 	.CachePath = "/tmp/.fbuild.cache"
 }
 .PlatformIncludePaths = ' -isystem /usr/include/$ProcessorArchitecture$-linux-gnu'
-	+ ' -I /usr/include'
+	+ ' -I/usr/include'
 .PlatformLibPaths = ''
 #endif //__LINUX__
+
+.SystemTriplet = '$ArchitectureName$-$OSName$-release'
+.TargetTriplet = '$ArchitectureName$-$OSName$-clang'
