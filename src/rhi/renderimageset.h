@@ -16,7 +16,7 @@ public:
 	constexpr RenderImageSet() noexcept = default;
 	RenderImageSet(
 		const std::shared_ptr<Device<G>>& device,
-		const std::vector<std::shared_ptr<Image<G>>>& images);
+		std::vector<std::shared_ptr<Image<G>>>&& images);
 	RenderImageSet(RenderImageSet<G>&& other) noexcept;
 	virtual ~RenderImageSet();
 
