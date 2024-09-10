@@ -355,15 +355,29 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 } // namespace image
 
 template <>
-void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
+void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, ImageAspectFlags<kVk> aspectFlags)
 {
 	ZoneScopedN("Image::Transition");
 
-	if (GetLayout() != layout)
+	if (aspectFlags == VK_IMAGE_ASPECT_NONE)
+	{
+		if (HasColorComponent(myDesc.format))
+			aspectFlags |= VK_IMAGE_ASPECT_COLOR_BIT;
+		else
+		{
+			if (HasDepthComponent(myDesc.format))
+				aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+			if (HasStencilComponent(myDesc.format))
+				aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+	}
+
+	if (GetLayout() != layout || GetAspectFlags() != aspectFlags)
 	{
 		TransitionImageLayout(
-			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size());
+			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size(), aspectFlags);
 		InternalSetImageLayout(layout);
+		InternalSetAspectFlags(aspectFlags);
 	}
 }
 
@@ -371,43 +385,36 @@ template <>
 void Image<kVk>::Clear(
 	CommandBufferHandle<kVk> cmd,
 	const ClearValue<kVk>& value,
-	ClearType type,
 	const std::optional<ImageSubresourceRange<kVk>>& range)
 {
 	ZoneScopedN("Image::clear");
 
-	static const VkImageSubresourceRange kDefaultColorRange{
-		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
-	static const VkImageSubresourceRange kDefaultDepthStencilRange{
-		VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-		0,
-		VK_REMAINING_MIP_LEVELS,
-		0,
-		VK_REMAINING_ARRAY_LAYERS};
+	static const VkImageSubresourceRange kDefaultRange{
+		GetAspectFlags(), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 
-	switch (type)
+	if (GetAspectFlags() & VK_IMAGE_ASPECT_COLOR_BIT)
 	{
-	case ClearType::kColor:
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
 			GetLayout(),
 			&value.color,
 			1,
-			range ? &range.value() : &kDefaultColorRange);
-		break;
-	case ClearType::kDepthStencil:
+			range ? &range.value() : &kDefaultRange);
+	}
+	else if (GetAspectFlags() & VK_IMAGE_ASPECT_DEPTH_BIT || GetAspectFlags() & VK_IMAGE_ASPECT_STENCIL_BIT)
+	{
 		vkCmdClearDepthStencilImage(
 			cmd,
 			static_cast<VkImage>(*this),
 			GetLayout(),
 			&value.depthStencil,
 			1,
-			range ? &range.value() : &kDefaultDepthStencilRange);
-		break;
-	default:
-		ASSERT(false);
-		break;
+			range ? &range.value() : &kDefaultRange);
+	}
+	else
+	{
+		CHECK(false); // Unsupported aspect flags.
 	}
 }
 

@@ -67,17 +67,11 @@ public:
 	[[nodiscard]] const auto& GetLayout() const noexcept { return std::get<2>(myImage); }
 	[[nodiscard]] const auto& GetAspectFlags() const noexcept { return std::get<3>(myImage); }
 
-	enum class ClearType : uint8_t
-	{
-		kColor,
-		kDepthStencil
-	};
 	void Clear(
 		CommandBufferHandle<G> cmd,
 		const ClearValue<G>& value = {},
-		ClearType type = ClearType::kColor,
 		const std::optional<ImageSubresourceRange<G>>& range = std::nullopt);
-	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout);
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags = {});
 
 private:
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
