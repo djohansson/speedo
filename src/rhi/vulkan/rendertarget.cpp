@@ -240,9 +240,24 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 	for (; attachmentIt < desc.images.size(); attachmentIt++)
 	{
 		auto& attachment = myAttachmentDescs[attachmentIt];
+		auto& attachmentRef = myAttachmentsReferences[attachmentIt];
 
 		if (auto layout = GetLayout(attachmentIt); layout != attachment.initialLayout)
 			attachment.initialLayout = layout;
+
+		if (auto aspectMask = desc.imageAspectFlags[attachmentIt]; aspectMask != attachmentRef.aspectMask)
+		{
+			// todo: investigate if we need to push this on the timeline
+			attachmentRef.aspectMask = aspectMask;
+			myAttachments[attachmentIt] = CreateImageView2D(
+				*InternalGetDevice(),
+				&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+				0,
+				desc.images[attachmentIt],
+				desc.imageFormats[attachmentIt],
+				aspectMask,
+				1);
+		}
 	}
 }
 

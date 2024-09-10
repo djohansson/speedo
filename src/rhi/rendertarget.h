@@ -128,6 +128,8 @@ protected:
 
 	RenderTarget& operator=(RenderTarget&& other) noexcept;
 
+	void InternalUpdateAttachments(const RenderTargetCreateDesc<G>& desc);
+
 private:
 	[[nodiscard]] uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;
 
@@ -136,8 +138,6 @@ private:
 
 	void InternalInitializeAttachments(const RenderTargetCreateDesc<G>& desc);
 	void InternalInitializeDefaultRenderPass(const RenderTargetCreateDesc<G>& desc);
-
-	void InternalUpdateAttachments(const RenderTargetCreateDesc<G>& desc);
 	void InternalUpdateRenderPasses(const RenderTargetCreateDesc<G>& desc);
 
 	[[maybe_unused]] const RenderTargetHandle<G>& InternalUpdateMap(const RenderTargetCreateDesc<G>& desc);

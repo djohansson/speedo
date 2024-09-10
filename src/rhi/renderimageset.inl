@@ -2,8 +2,7 @@ namespace renderimageset
 {
 
 template <GraphicsApi G>
-RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
-	const std::vector<std::shared_ptr<Image<G>>>& images)
+RenderTargetCreateDesc<G> createRenderTargetCreateDesc(const std::vector<std::shared_ptr<Image<G>>>& images)
 {
 	RenderTargetCreateDesc<G> outDesc{};
 
@@ -42,11 +41,11 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 template <GraphicsApi G>
 RenderImageSet<G>::RenderImageSet(
 	const std::shared_ptr<Device<G>>& device,
-	const std::vector<std::shared_ptr<Image<G>>>& images)
+	std::vector<std::shared_ptr<Image<G>>>&& images)
 	: BaseType(
 		  device,
-		  renderimageset::createRenderTargetCreateDesc(images))
-	, myImages(images)
+		  renderimageset::createRenderTargetCreateDesc<G>(images))
+	, myImages(std::forward<std::vector<std::shared_ptr<Image<G>>>>(images))
 {}
 
 template <GraphicsApi G>
@@ -94,4 +93,7 @@ void RenderImageSet<G>::Transition(
 	CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index)
 {
 	myImages[index]->Transition(cmd, layout, aspectFlags);
+	// todo: clean up this below
+	this->myDesc.imageAspectFlags[index] = aspectFlags;
+	this->InternalUpdateAttachments(this->GetRenderTargetDesc());
 }

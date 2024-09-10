@@ -20,6 +20,5 @@ protected:
 
 	RenderTargetImpl<CreateDescType, kVk>& operator=(RenderTargetImpl&& other) noexcept;
 
-private:
 	CreateDescType myDesc{};
 };
