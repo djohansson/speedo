@@ -790,7 +790,10 @@ static void IMGUIInit(
 	initInfo.PipelineCache = rhi.pipeline->GetCache();
 	initInfo.DescriptorPool = rhi.pipeline->GetDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
-	initInfo.ImageCount = window.Config().swapchainConfig.imageCount;
+	// initInfo.ImageCount is used to determine the number of buffers in flight inside imgui, 
+	// and since we allow up to queuecount in-flight renders pers frame due to triple buffering,
+	// this needs to be set to the queue count accordingly.
+	initInfo.ImageCount = graphicsQueueInfos.size();
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	initInfo.UseDynamicRendering = window.Config().swapchainConfig.useDynamicRendering;
