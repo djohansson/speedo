@@ -171,8 +171,9 @@ void ComputeMain(
 	uint3 dispatchThreadId : SV_DispatchThreadID,
 	uint groupIndex : SV_GroupIndex)
 {
-	RWTexture2D<float4> colorSource = gRWTextures[0];
-	colorSource[dispatchThreadId.xy] = float4(1.0f, 0.0f, 0.0f, 1.0f);
+	Texture2D colorSource = gTextures[0];
+	RWTexture2D colorTarget = gRWTextures[0];
+	colorTarget[dispatchThreadId.xy] = colorSource.Load(int3(dispatchThreadId.xy, 0));
 
 	// float4 color[3];
 	// color[0].r = (r0 >> 0  & 0xFF) / 255.0f;

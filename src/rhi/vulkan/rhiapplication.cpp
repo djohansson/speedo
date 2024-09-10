@@ -152,7 +152,7 @@ static void LoadImage(
 				*rhi.pipeline->GetResources().imageView,
 				rhi.pipeline->GetResources().image->GetLayout()},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			1);
+			42);
 	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
 
 	rhi.drawCalls.enqueue(imageTransitionTask);
@@ -1210,6 +1210,25 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
 		nullptr,
 		0U,
+		VK_FILTER_NEAREST,
+		VK_FILTER_NEAREST,
+		VK_SAMPLER_MIPMAP_MODE_NEAREST,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		0.0F,
+		VK_FALSE,
+		0.0F,
+		VK_FALSE,
+		VK_COMPARE_OP_NEVER,
+		0.0F,
+		VK_LOD_CLAMP_NONE,
+		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
+		VK_FALSE});
+	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
+		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		nullptr,
+		0U,
 		VK_FILTER_LINEAR,
 		VK_FILTER_LINEAR,
 		VK_SAMPLER_MIPMAP_MODE_LINEAR,
@@ -1220,18 +1239,18 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		VK_TRUE,
 		16.F,
 		VK_FALSE,
-		VK_COMPARE_OP_ALWAYS,
+		VK_COMPARE_OP_NEVER,
 		0.0F,
-		1000.0F,
-		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		VK_LOD_CLAMP_NONE,
+		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
 		VK_FALSE});
 	rhi->pipeline->GetResources().samplers =
 		std::make_shared<SamplerVector<kVk>>(rhi->device, std::move(samplerCreateInfos));
 	//
 
 	// initialize stuff on graphics queue
-	constexpr uint32_t kTextureId = 1;
-	constexpr uint32_t kSamplerId = 2;
+	constexpr uint32_t kTextureId = 42;
+	constexpr uint32_t kSamplerId = 1;
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
@@ -1365,11 +1384,38 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
-	rhi->pipeline->SetDescriptorData(
-		"gSamplers",
-		DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[0]},
-		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
-		kSamplerId);
+	for (size_t i = 0; i < rhi->renderImageSet->GetAttachments().size(); i++)
+	{
+		rhi->pipeline->SetDescriptorData(
+			"gTextures",
+			DescriptorImageInfo<kVk>{
+				{},
+				rhi->renderImageSet->GetAttachments()[i],
+				rhi->renderImageSet->GetLayout(i)},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			i);
+	}
+
+	for (size_t i = 0; i < window.GetAttachments().size(); i++)
+	{
+		rhi->pipeline->SetDescriptorData(
+			"gRWTextures",
+			DescriptorImageInfo<kVk>{
+				{},
+				window.GetAttachments()[i],
+				window.GetLayout(i)},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+			i);
+	}
+
+	for (size_t i = 0; i < rhi->pipeline->GetResources().samplers->Size(); i++)
+	{
+		rhi->pipeline->SetDescriptorData(
+			"gSamplers",
+			DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[i]},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
+			i);
+	}
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
