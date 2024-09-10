@@ -22,6 +22,13 @@ extern "C"
 #	define FLOAT3(name) float name[3]
 #	define FLOAT2(name) float name[2]
 #	define UINT(name) uint32_t name
+#	define UINT2(name) uint32_t name[2]
+#	define UINT3(name) uint32_t name[3]
+#	define UINT4(name) uint32_t name[4]
+#	define INT(name) int32_t name
+#	define INT2(name) int32_t name[2]
+#	define INT3(name) int32_t name[3]
+#	define INT4(name) int32_t name[4]
 #else
 #	define alignas(x)
 #	define FLT_MAX 3.402823466e+38
@@ -32,7 +39,14 @@ extern "C"
 #	define FLOAT4(name) float4 name
 #	define FLOAT3(name) float3 name
 #	define FLOAT2(name) float2 name
-#	define UINT(name) uint32_t name
+#	define UINT(name) uint name
+#	define UINT2(name) uint2 name
+#	define UINT3(name) uint3 name
+#	define UINT4(name) uint4 name
+#	define INT(name) int name
+#	define INT2(name) int2 name
+#	define INT3(name) int3 name
+#	define INT4(name) int4 name
 #endif
 
 #define DESCRIPTOR_SET_CATEGORY_GLOBAL 0
