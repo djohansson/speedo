@@ -376,3 +376,7 @@ using PushConstantRange = std::conditional_t<G == kVk, VkPushConstantRange, std:
 template <GraphicsApi G>
 using DescriptorBindingFlags =
 	std::conditional_t<G == kVk, VkDescriptorBindingFlags, std::nullptr_t>;
+
+template <GraphicsApi G>
+using ImageAspectFlags =
+	std::conditional_t<G == kVk, VkImageAspectFlags, std::nullptr_t>;
