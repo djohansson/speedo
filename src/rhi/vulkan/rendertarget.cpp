@@ -17,23 +17,9 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 	uint32_t attachmentIt = 0UL;
 	for (; attachmentIt < desc.images.size(); attachmentIt++)
 	{
-		VkImageAspectFlags aspectFlags{};
-		VkImageLayout finalLayout;
-
-		if (HasColorComponent(desc.imageFormats[attachmentIt]))
-		{
-			aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
-			finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		}
-		else 
-		{
-			if (HasDepthComponent(desc.imageFormats[attachmentIt]))
-				aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-			if (HasStencilComponent(desc.imageFormats[attachmentIt]))
-				aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-
-			finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		}
+		VkImageLayout finalLayout = HasColorComponent(desc.imageFormats[attachmentIt]) ?
+			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL :
+			VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		myAttachments.emplace_back(CreateImageView2D(
 			*InternalGetDevice(),
@@ -41,7 +27,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			0,
 			desc.images[attachmentIt],
 			desc.imageFormats[attachmentIt],
-			aspectFlags,
+			desc.imageAspectFlags[attachmentIt],
 			1));
 
 	#if (GRAPHICS_VALIDATION_LEVEL > 0)
@@ -53,6 +39,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 	#endif
 
 		auto& attachment = myAttachmentDescs.emplace_back();
+		attachment.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
 		attachment.format = desc.imageFormats[attachmentIt];
 		attachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -63,8 +50,10 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 		attachment.finalLayout = finalLayout;
 
 		auto& attachmentRef = myAttachmentsReferences.emplace_back();
+		attachmentRef.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
 		attachmentRef.attachment = attachmentIt;
 		attachmentRef.layout = finalLayout;
+		attachmentRef.aspectMask = desc.imageAspectFlags[attachmentIt];
 	}
 
 	ASSERT(attachmentIt == myAttachmentsReferences.size());
@@ -90,14 +79,14 @@ void RenderTarget<kVk>::InternalInitializeDefaultRenderPass(
 
 	if (hasDepth && hasStencil)
 	{
-		VkSubpassDescription colorAndDepth{};
+		VkSubpassDescription2 colorAndDepth{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
 		colorAndDepth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		colorAndDepth.colorAttachmentCount = myAttachmentsReferences.size() - 1;
 		colorAndDepth.pColorAttachments = myAttachmentsReferences.data();
 		colorAndDepth.pDepthStencilAttachment = &myAttachmentsReferences.back();
 		AddSubpassDescription(std::move(colorAndDepth));
 
-		VkSubpassDependency dep1{};
+		VkSubpassDependency2 dep1{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
 		dep1.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dep1.dstSubpass = subPassIt;
 		dep1.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
@@ -112,14 +101,14 @@ void RenderTarget<kVk>::InternalInitializeDefaultRenderPass(
 	}
 	else
 	{
-		VkSubpassDescription color{};
+		VkSubpassDescription2 color{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
 		color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		color.colorAttachmentCount = myAttachmentsReferences.size();
 		color.pColorAttachments = myAttachmentsReferences.data();
 		color.pDepthStencilAttachment = nullptr;
 		AddSubpassDescription(std::move(color));
 
-		VkSubpassDependency dep0{};
+		VkSubpassDependency2 dep0{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
 		dep0.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dep0.dstSubpass = subPassIt;
 		dep0.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

@@ -25,6 +25,7 @@ struct ImageCreateDesc
 	ImageTiling<G> tiling{};
 	Flags<G> usageFlags{};
 	Flags<G> memoryFlags{};
+	ImageAspectFlags<G> imageAspectFlags{};
 	ImageLayout<G> initialLayout{};
 	std::string_view name; // initially points to an arbitrary string, but will be replaced with a string_view to a string stored DeviceObject during construction of Image.
 };
@@ -32,7 +33,7 @@ struct ImageCreateDesc
 template <GraphicsApi G>
 class Image : public DeviceObject<G>
 {
-	using ValueType = std::tuple<ImageHandle<G>, AllocationHandle<G>, ImageLayout<G>>;
+	using ValueType = std::tuple<ImageHandle<G>, AllocationHandle<G>, ImageLayout<G>, ImageAspectFlags<G>>;
 
 public:
 	constexpr Image() noexcept = default;
@@ -64,6 +65,7 @@ public:
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myImage); }
 	[[nodiscard]] const auto& GetLayout() const noexcept { return std::get<2>(myImage); }
+	[[nodiscard]] const auto& GetAspectFlags() const noexcept { return std::get<3>(myImage); }
 
 	enum class ClearType : uint8_t
 	{
@@ -91,10 +93,11 @@ private:
 	template <GraphicsApi GApi>
 	friend class RenderImageSet;
 
-	// this method is not meant to be used except in very special cases
+	// these methods are not meant to be used except in very special cases
 	// such as for instance to update the image layout after a render pass
 	// (which implicitly changes the image layout).
 	void InternalSetImageLayout(ImageLayout<G> layout) noexcept { std::get<2>(myImage) = layout; }
+	void InternalSetAspectFlags(ImageAspectFlags<G> aspectFlags) noexcept { std::get<3>(myImage) = aspectFlags; }
 
 	ValueType myImage{};
 	ImageCreateDesc<G> myDesc{};

@@ -14,6 +14,7 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 	outDesc.extent = {firstImageExtent.width, firstImageExtent.height};
 	outDesc.imageFormats.reserve(images.size());
 	outDesc.imageLayouts.reserve(images.size());
+	outDesc.imageAspectFlags.reserve(images.size());
 	outDesc.images.reserve(images.size());
 
 	for (const auto& image : images)
@@ -27,6 +28,7 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(
 
 		outDesc.imageFormats.emplace_back(image->GetDesc().format);
 		outDesc.imageLayouts.emplace_back(image->GetLayout());
+		outDesc.imageAspectFlags.emplace_back(image->GetAspectFlags());
 		outDesc.images.emplace_back(*image);
 	}
 

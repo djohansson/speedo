@@ -138,9 +138,9 @@ VkFramebuffer CreateFramebuffer(
 VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
-	const std::vector<VkAttachmentDescription>& attachments,
-	const std::vector<VkSubpassDescription>& subpasses,
-	const std::vector<VkSubpassDependency>& subpassDependencies);
+	const std::vector<VkAttachmentDescription2>& attachments,
+	const std::vector<VkSubpassDescription2>& subpasses,
+	const std::vector<VkSubpassDependency2>& subpassDependencies);
 
 VkRenderPass CreateRenderPass(
 	VkDevice device,

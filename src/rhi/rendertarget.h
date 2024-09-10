@@ -13,6 +13,7 @@ struct RenderTargetCreateDesc
 	Extent2d<G> extent{};
 	std::vector<Format<G>> imageFormats;
 	std::vector<ImageLayout<G>> imageLayouts;
+	std::vector<ImageAspectFlags<G>> imageAspectFlags;
 	std::vector<ImageHandle<G>> images;
 	uint32_t layerCount = 1;
 	bool useDynamicRendering = false;

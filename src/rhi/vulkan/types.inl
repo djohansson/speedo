@@ -100,16 +100,16 @@ template <GraphicsApi G>
 using FramebufferHandle = std::conditional_t<G == kVk, VkFramebuffer, std::nullptr_t>;
 
 template <GraphicsApi G>
-using AttachmentDescription = std::conditional_t<G == kVk, VkAttachmentDescription, std::nullptr_t>;
+using AttachmentDescription = std::conditional_t<G == kVk, VkAttachmentDescription2, std::nullptr_t>;
 
 template <GraphicsApi G>
-using AttachmentReference = std::conditional_t<G == kVk, VkAttachmentReference, std::nullptr_t>;
+using AttachmentReference = std::conditional_t<G == kVk, VkAttachmentReference2, std::nullptr_t>;
 
 template <GraphicsApi G>
-using SubpassDescription = std::conditional_t<G == kVk, VkSubpassDescription, std::nullptr_t>;
+using SubpassDescription = std::conditional_t<G == kVk, VkSubpassDescription2 , std::nullptr_t>;
 
 template <GraphicsApi G>
-using SubpassDependency = std::conditional_t<G == kVk, VkSubpassDependency, std::nullptr_t>;
+using SubpassDependency = std::conditional_t<G == kVk, VkSubpassDependency2, std::nullptr_t>;
 
 template <GraphicsApi G>
 using AttachmentLoadOp = std::conditional_t<G == kVk, VkAttachmentLoadOp, std::nullptr_t>;

@@ -80,6 +80,8 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 	auto& [bufferHandle, memoryHandle, desc] = initialData;
 
+	desc.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+
 	auto loadBin = [&imageFile, &initialData, &device, &progress](auto& inStream) -> std::error_code
 	{
 		progress = 32;
@@ -438,7 +440,8 @@ Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kV
 		device,
 		std::tuple_cat(
 			image::CreateImage2D(device->GetAllocator(), desc),
-			std::make_tuple(desc.initialLayout)),
+			std::make_tuple(desc.initialLayout),
+			std::make_tuple(desc.imageAspectFlags)),
 		std::forward<ImageCreateDesc<kVk>>(desc))
 {}
 
@@ -454,7 +457,8 @@ Image<kVk>::Image(
 			[&cmd, &device, &initialData]{
 				return image::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
 			}(),
-			std::make_tuple(std::get<2>(initialData).initialLayout)),
+			std::make_tuple(std::get<2>(initialData).initialLayout),
+			std::make_tuple(std::get<2>(initialData).imageAspectFlags)),
 		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
 {
 	timlineCallbackOut = CreateTask(

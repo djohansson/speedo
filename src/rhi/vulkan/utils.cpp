@@ -710,11 +710,11 @@ VkFramebuffer CreateFramebuffer(
 VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
-	const std::vector<VkAttachmentDescription>& attachments,
-	const std::vector<VkSubpassDescription>& subpasses,
-	const std::vector<VkSubpassDependency>& subpassDependencies)
+	const std::vector<VkAttachmentDescription2>& attachments,
+	const std::vector<VkSubpassDescription2>& subpasses,
+	const std::vector<VkSubpassDependency2>& subpassDependencies)
 {
-	VkRenderPassCreateInfo renderInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+	VkRenderPassCreateInfo2 renderInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
 	renderInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
 	renderInfo.pAttachments = attachments.data();
 	renderInfo.subpassCount = static_cast<uint32_t>(subpasses.size());
@@ -723,7 +723,7 @@ VkRenderPass CreateRenderPass(
 	renderInfo.pDependencies = subpassDependencies.data();
 
 	VkRenderPass outRenderPass;
-	VK_CHECK(vkCreateRenderPass(device, &renderInfo, hostAllocator, &outRenderPass));
+	VK_CHECK(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
 
 	return outRenderPass;
 }
@@ -743,9 +743,10 @@ VkRenderPass CreateRenderPass(
 	VkImageLayout depthInitialLayout,
 	VkImageLayout depthFinalLayout)
 {
-	std::vector<VkAttachmentDescription> attachments;
+	std::vector<VkAttachmentDescription2> attachments;
 
-	VkAttachmentDescription& colorAttachment = attachments.emplace_back();
+	VkAttachmentDescription2& colorAttachment = attachments.emplace_back();
+	colorAttachment.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
 	colorAttachment.format = colorFormat;
 	colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 	colorAttachment.loadOp = colorLoadOp;
@@ -755,19 +756,20 @@ VkRenderPass CreateRenderPass(
 	colorAttachment.initialLayout = colorInitialLayout;
 	colorAttachment.finalLayout = colorFinalLayout;
 
-	VkAttachmentReference colorAttachmentRef{};
+	VkAttachmentReference2 colorAttachmentRef{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
 	colorAttachmentRef.attachment = 0UL;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachmentRef.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
-	VkSubpassDescription subpass{};
+	VkSubpassDescription2 subpass{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
 	subpass.pipelineBindPoint = bindPoint;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
 
-	VkAttachmentReference depthAttachmentRef{};
+	VkAttachmentReference2 depthAttachmentRef{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
 	if (depthFormat != VK_FORMAT_UNDEFINED)
 	{
-		VkAttachmentDescription& depthAttachment = attachments.emplace_back();
+		VkAttachmentDescription2& depthAttachment = attachments.emplace_back();
 
 		depthAttachment.format = depthFormat;
 		depthAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -780,11 +782,12 @@ VkRenderPass CreateRenderPass(
 
 		depthAttachmentRef.attachment = 1;
 		depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		depthAttachmentRef.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
 		subpass.pDepthStencilAttachment = &depthAttachmentRef;
 	}
 
-	VkSubpassDependency dependency{};
+	VkSubpassDependency2 dependency{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0UL;
 	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
