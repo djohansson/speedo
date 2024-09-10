@@ -33,7 +33,7 @@ public:
 
 	void End(CommandBufferHandle<G> cmd) final;
 
-	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index) final;
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index) final;
 	
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent(QueueHostSyncInfo<kVk>&& hostSyncInfo);
 

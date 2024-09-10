@@ -91,7 +91,7 @@ void RenderImageSet<G>::End(CommandBufferHandle<G> cmd)
 
 template <GraphicsApi G>
 void RenderImageSet<G>::Transition(
-	CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index)
+	CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index)
 {
-	myImages[index]->Transition(cmd, layout);
+	myImages[index]->Transition(cmd, layout, aspectFlags);
 }

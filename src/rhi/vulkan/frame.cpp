@@ -87,7 +87,7 @@ void Frame<kVk>::End(CommandBufferHandle<kVk> cmd)
 }
 
 template <>
-void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, uint32_t index)
+void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, ImageAspectFlags<kVk> aspectFlags, uint32_t index)
 {
 	ZoneScopedN("Frame::TransitionColor");
 
@@ -101,7 +101,8 @@ void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 			GetDesc().imageFormats[index],
 			myImageLayout,
 			layout,
-			1);
+			1,
+			aspectFlags);
 
 		myImageLayout = layout;
 	}

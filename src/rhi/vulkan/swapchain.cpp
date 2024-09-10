@@ -83,9 +83,9 @@ void Swapchain<kVk>::Clear(
 
 template <>
 void Swapchain<kVk>::Transition(
-	CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, uint32_t index)
+	CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, ImageAspectFlags<kVk> aspectFlags, uint32_t index)
 {
-	myFrames[myFrameIndex].Transition(cmd, layout, index);
+	myFrames[myFrameIndex].Transition(cmd, layout, aspectFlags, index);
 }
 
 template <>
@@ -218,6 +218,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 				{config.extent,
 				 {config.surfaceFormat.format},
 				 {VK_IMAGE_LAYOUT_UNDEFINED},
+				 {VK_IMAGE_ASPECT_COLOR_BIT},
 				 {colorImages[frameIt]},
 				 1,
 				 config.useDynamicRendering},

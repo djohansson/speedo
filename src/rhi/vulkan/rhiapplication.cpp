@@ -1595,8 +1595,8 @@ void RhiApplication::InternalDraw()
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
 			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
 			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, renderImageSet.GetAttachments().size() - 1);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
 			
 			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS, clearValues);
 
@@ -1786,21 +1786,62 @@ void RhiApplication::InternalDraw()
 			renderImageSet.End(cmd);
 		}
 		{
-			GPU_SCOPE(cmd, graphicsQueue, copy);
+			GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
-			window.Copy(
-				cmd,
-				renderImageSet,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, renderImageSet.GetAttachments().size() - 1);
+
+			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+
+			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+			for (size_t i = 0; i < renderImageSet.GetAttachments().size(); i++)
+			{
+				pipeline.SetDescriptorData(
+					"gTextures",
+					DescriptorImageInfo<kVk>{
+						{},
+						renderImageSet.GetAttachments()[i],
+						renderImageSet.GetLayout(i)},
+					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+					i);
+			}
+			for (size_t i = 0; i < window.GetAttachments().size(); i++)
+			{
+				pipeline.SetDescriptorData(
+					"gRWTextures",
+					DescriptorImageInfo<kVk>{
+						{},
+						window.GetAttachments()[i],
+						window.GetLayout(i)},
+					DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+					i);
+			}
+			
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+			pipeline.BindPipelineAuto(cmd);
+
+			vkCmdDispatch(cmd, 8, 8, 1);
 		}
+		// {
+		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
+
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+		// 	window.Copy(
+		// 		cmd,
+		// 		renderImageSet,
+		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		0,
+		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		0);
+		// }
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
 
-		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 0);
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 		// 	window.Blit(
 		// 		cmd,
 		// 		renderImageSet,
@@ -1812,10 +1853,6 @@ void RhiApplication::InternalDraw()
 		// }
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
-
-			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
-			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-			window.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 0);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
 			IMGUIDrawFunction(cmd);
@@ -1824,7 +1861,7 @@ void RhiApplication::InternalDraw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, Transition);
 			
-			window.Transition(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 0);
+			window.Transition(cmd, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 		}
 
 		cmd.End();

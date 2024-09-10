@@ -60,6 +60,7 @@ struct IRenderTarget
 	virtual void Transition(
 		CommandBufferHandle<G> cmd,
 		ImageLayout<G> layout,
+		ImageAspectFlags<G> aspectFlags,
 		uint32_t index) = 0;
 
 	virtual void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp = {}) = 0;

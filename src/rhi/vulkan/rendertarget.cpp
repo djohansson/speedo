@@ -266,7 +266,20 @@ void RenderTarget<kVk>::Blit(
 	imageBlit.dstSubresource = dstSubresource;
 	imageBlit.dstOffsets[1] = { static_cast<int32_t>(srcDesc.extent.width), static_cast<int32_t>(srcDesc.extent.height), 1 };
 
-	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
+	VkImageAspectFlags aspectFlags{};
+	if (HasColorComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
+	{
+		aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+	else 
+	{
+		if (HasDepthComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
+			aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (HasStencilComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
+			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, dstIndex);
 
 	vkCmdBlitImage(
 		cmd,
@@ -299,7 +312,20 @@ void RenderTarget<kVk>::Copy(
 	imageCopy.dstOffset = { 0, 0, 0 };
 	imageCopy.extent = { srcDesc.extent.width, srcDesc.extent.height, 1 };
 
-	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, dstIndex);
+	VkImageAspectFlags aspectFlags{};
+	if (HasColorComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
+	{
+		aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+	else 
+	{
+		if (HasDepthComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
+			aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (HasStencilComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
+			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, dstIndex);
 
 	vkCmdCopyImage(
 		cmd,
@@ -351,8 +377,6 @@ void RenderTarget<kVk>::Clear(
 {
 	ZoneScopedN("RenderTarget::Clear");
 
-	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, index);
-
 	VkImageAspectFlags aspectFlags{};
 	if (HasColorComponent(GetRenderTargetDesc().imageFormats[index]))
 	{
@@ -365,6 +389,8 @@ void RenderTarget<kVk>::Clear(
 		if (HasStencilComponent(GetRenderTargetDesc().imageFormats[index]))
 			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 	}
+
+	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, index);
 
 	VkImageSubresourceRange range{aspectFlags, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
 

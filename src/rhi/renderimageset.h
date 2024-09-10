@@ -29,7 +29,7 @@ public:
 
 	virtual void End(CommandBufferHandle<G> cmd);
 
-	virtual void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, uint32_t index);
+	virtual void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index);
 
 private:
 	std::vector<std::shared_ptr<Image<G>>> myImages;
