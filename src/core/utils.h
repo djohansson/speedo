@@ -1,6 +1,7 @@
 #pragma once
 
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
+#include "std_extra.h"
 
 #include <algorithm>
 #include <functional>
@@ -10,6 +11,16 @@
 #include <ankerl/unordered_dense.h>
 
 #include <concurrentqueue/concurrentqueue.h>
+
+template <std::size_t N>
+struct MinSizeIndex
+{
+	static constexpr std_extra::min_unsigned_t<N> kInvalidIndex{static_cast<std_extra::min_unsigned_t<N>>(~0ull)};
+	std_extra::min_unsigned_t<N> value{kInvalidIndex};
+
+	[[nodiscard]] constexpr explicit operator bool() const noexcept { return value != kInvalidIndex; }
+	[[nodiscard]] constexpr auto operator<=>(const MinSizeIndex&) const noexcept = default;
+};
 
 template <typename T, typename Handle>
 struct HandleHash : ankerl::unordered_dense::hash<Handle>

@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include <nfd.h> // todo: move to implementation
+
 template <GraphicsApi G>
 struct WindowConfiguration
 {
@@ -85,3 +87,10 @@ private:
 	std::vector<Camera> myCameras;
 	std::optional<size_t> myActiveCamera;
 };
+
+namespace window
+{
+
+std::tuple<bool, std::string> OpenFileDialogue(std::string resourcePathStr, std::span<const nfdu8filteritem_t> filterList);
+
+} // namespace window

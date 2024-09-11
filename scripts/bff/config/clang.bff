@@ -22,20 +22,27 @@
 #else
 	Error('LLVM_PATH not set')
 #endif // exists(LLVM_PATH)
+#if exists(LLVM_TOOLS_PATH)
+	#import LLVM_TOOLS_PATH
+	.LLVMToolsPath = '$LLVM_TOOLS_PATH$'
+#else
+	Error('LLVM_TOOLS_PATH not set')
+#endif // exists(LLVM_TOOLS_PATH)
 #if exists(LLVM_VERSION_MAJOR)
 	#import LLVM_VERSION_MAJOR
 	.LLVMVersionMajor = '$LLVM_VERSION_MAJOR$'
 #else
 	Error('LLVM_VERSION_MAJOR not set')
 #endif // exists(LLVM_VERSION_MAJOR)
-	.Executable = '$LLVMPath$/bin/clang$ExeSuffix$'
+	.Executable = '$LLVMToolsPath$/clang$ExeSuffix$'
 	.CompilerInfo = 'Clang'
-    .Librarian = '$LLVMPath$/bin/llvm-ar$ExeSuffix$'
-	.Linker = '$LLVMPath$/bin/clang$ExeSuffix$'
+    .Librarian = '$LLVMToolsPath$/llvm-ar$ExeSuffix$'
+	.Linker = '$LLVMToolsPath$/clang$ExeSuffix$'
 #if __WINDOWS__
 	// on Windows, ugly workarounds for "folders with spaces" are never going out of style
 	// note that we need to do this _after_ .Executable, .Librarian and .Linker have been set
 	.LLVMPath = '"$LLVMPath$"'
+	.LLVMToolsPath = '"$LLVMToolsPath$"'
 	.PlatformInfo = 'Windows'
 #endif //__WINDOWS__
 #if __OSX__
@@ -50,7 +57,7 @@
 #if __LINUX__ // linux specific clang bug workaround
 		+ ' -isystem $LLVMPath$/lib/llvm-$LLVMVersionMajor$/include/$ProcessorArchitecture$-unknown-linux-gnu/c++/v1'
 #endif
-		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include'
+		+ ' -isystem $LLVMPath$/tools/llvm/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths // platform specific include paths. should come after LLVM include paths
 		+ ' -fms-extensions'
 		+ ' -fno-rtti'
@@ -87,6 +94,8 @@
 		+ ' -fexperimental-library'
 #endif
 	.LinkerOptions = '"%1" -o "%2" -g'
+		+ ' -L $LLVMPath$/lib'
+		+ ' -Wl,-rpath,$LLVMPath$/lib'
 		+ .PlatformLibPaths
 		+ ' -fuse-ld=lld'
 #if !__WINDOWS__
@@ -104,16 +113,9 @@
 	.DebugLinkerOptions = ' -lmsvcrtd'
 	.ReleaseLinkerOptions = ' -lmsvcrt'
 #endif
-	.LinkerOptionsCpp = ' -L $LLVMPath$/lib'
-		+ ' -L $LLVMPath$/lib/c++'
-#if __OSX__
-		+ ' -L $LLVMPath$/lib/clang/$LLVMVersionMajor$/lib/darwin'
-#endif
-#if !__WINDOWS__
-		+ ' -Wl,-rpath,$LLVMPath$/lib'
-		+ ' -Wl,-rpath,$LLVMPath$/lib/c++'
-		+ ' -lc++'
-#endif
+	.LinkerOptionsC = ' -lc'
+	.LinkerOptionsCpp = .LinkerOptionsC
+		+ ' -lc++ -lc++abi -lc++experimental'
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
 	.ProfilingLevel = '0'
@@ -146,7 +148,8 @@
 		+ ' -fsanitize=thread'
 	//	+ ' -fsanitize=address' // not reliable together with mimalloc yet unfortunately
 	//.LinkerOptions + ' -fsanitize=address'
-	.LinkerOptions + ' -lclang_rt.ubsan_osx_dynamic'
+	.LinkerOptions + ' -L$BuildRootPath$/build.output/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
+		+ ' -lclang_rt.ubsan_osx_dynamic'
 		+ ' -lclang_rt.tsan_osx_dynamic'
 	//	+ ' -lclang_rt.asan_osx_dynamic' // not reliable together with mimalloc yet unfortunately
 #endif

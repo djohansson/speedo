@@ -1,8 +1,9 @@
 #include "task.h"
+#include "memorypool.h"
 
 #include <mutex>
 
-static TaskPool gTaskPool;
+static MemoryPool<Task, kTaskPoolSize> gTaskPool;
 
 Task* InternalHandleToPtr(TaskHandle handle) noexcept
 {
@@ -55,6 +56,22 @@ Task::operator bool() const noexcept
 	return !!InternalState();
 }
 
+void Task::AddDependency(Task& other, bool isContinuation)
+{
+	ASSERT(this != &other);
+	ASSERTF(InternalState(), "Task state is not valid!");
+	ASSERTF(other.InternalState(), "Task state is not valid!");
+
+	TaskState& aState = *InternalState();
+	TaskState& bState = *other.InternalState();
+
+	std::scoped_lock lock(aState.mutex, bState.mutex);
+
+	aState.adjacencies.emplace_back(InternalPtrToHandle(&other));
+	bState.latch.fetch_add(1, std::memory_order_relaxed);
+	bState.continuation = isContinuation;
+}
+
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
 {
 	ASSERT(!!aTaskHandle);
@@ -64,16 +81,6 @@ void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContin
 	Task& aTask = *InternalHandleToPtr(aTaskHandle);
 	Task& bTask = *InternalHandleToPtr(bTaskHandle);
 
-	ASSERTF(aTask.InternalState(), "Task state is not valid!");
-	ASSERTF(bTask.InternalState(), "Task state is not valid!");
-
-	TaskState& aState = *aTask.InternalState();
-	TaskState& bState = *bTask.InternalState();
-
-	std::scoped_lock lock(aState.mutex, bState.mutex);
-
-	aState.adjacencies.emplace_back(bTaskHandle);
-	bState.latch.fetch_add(1, std::memory_order_relaxed);
-	bState.continuation = isContinuation;
+	aTask.AddDependency(bTask, isContinuation);
 }
 

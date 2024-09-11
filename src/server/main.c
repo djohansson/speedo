@@ -30,7 +30,7 @@ static struct cag_option gCmdArgs[] =
 	},
 	{
 		.identifier = 'h',
-		.access_letters = "h",
+		.access_letters = "h?",
 		.access_name = "help",
 		.description = "Shows the command help"
 	}

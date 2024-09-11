@@ -70,10 +70,10 @@ function Invoke-Sudo
 
 function Initialize-VcpkgEnv
 {
-	$Triplet = Get-NativeTriplet
+	$Triplet = Get-TargetTriplet
 
 	#Write-Host "Adding installed vcpkg packages to env:PATH..."
-	$BinDirectory = "$PSScriptRoot/../build.vcpkg/$Triplet/bin"
+	$BinDirectory = "$PSScriptRoot/../build.output/packages/$Triplet/bin"
 	if (Test-Path $BinDirectory)
 	{
 		#Write-Host $BinDirectory
@@ -81,14 +81,14 @@ function Initialize-VcpkgEnv
 	}
 
 	#Write-Host "Adding installed vcpkg packages to env:DYLD_LIBRARY_PATH..."
-	$LibDirectory = "$PSScriptRoot/../build.vcpkg/$Triplet/lib"
+	$LibDirectory = "$PSScriptRoot/../build.output/packages/$Triplet/lib"
 	if (Test-Path $LibDirectory)
 	{
 		#Write-Host $LibDirectory
 		Add-EnvDylibPath $LibDirectory
 	}
 
-	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/../build.vcpkg/$Triplet/tools -Directory -ErrorAction SilentlyContinue)
+	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/../build.output/packages/$Triplet/tools -Directory -ErrorAction SilentlyContinue)
 	{
 		#Write-Host "Adding " $ToolsDirectory " to env:PATH..."
 		Add-EnvPath $ToolsDirectory
@@ -110,7 +110,6 @@ function Initialize-SystemEnv
 	#Write-Host "Initializing development environment..."
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
-	$env:TARGET_COMPILER = Get-NativeCompiler
 	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
 	
 	#Write-Host "Setting system (package manager) environment variables..."

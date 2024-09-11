@@ -13,9 +13,9 @@
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/debug/lib",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-linux-clang/share/vulkan/explicit_layer.d"
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/debug/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
@@ -27,9 +27,9 @@
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/lib",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-linux-clang/share/vulkan/explicit_layer.d"
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
@@ -41,9 +41,9 @@
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-linux-clang/lib",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-linux-clang/share/vulkan/explicit_layer.d"
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
@@ -58,12 +58,12 @@
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/debug/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/debug/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d"
+				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-osx-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
@@ -75,11 +75,11 @@
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
 		{
@@ -91,11 +91,11 @@
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.vcpkg/arm64-osx-clang/share/vulkan/explicit_layer.d",
+				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
 		{
@@ -110,8 +110,8 @@
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/debug/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/debug/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
 			}
@@ -125,8 +125,8 @@
 			"cwd": "${workspaceFolder}",
 			"terminal": "integrated",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib"
 			}
 		},
@@ -139,8 +139,8 @@
 			"cwd": "${workspaceFolder}",
 			"terminal": "integrated",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.vcpkg/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib"
 			}
 		},
@@ -156,8 +156,8 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"},
-				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/debug/bin"},
+				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.output/packages/x64-windows-clang/debug/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -187,7 +187,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -217,7 +217,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -250,7 +250,7 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/debug/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/debug/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -280,7 +280,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -310,7 +310,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.vcpkg/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],

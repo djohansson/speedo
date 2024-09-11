@@ -58,16 +58,11 @@ function Get-NativeOS
 	return $OS
 }
 
-function Get-NativeCompiler
-{
-	return "clang"
-}
-
-function Get-NativeTriplet
+function Get-TargetTriplet
 {
 	$Arch = Get-NativeArchitecture
 	$OS = Get-NativeOS
-	$Compiler = Get-NativeCompiler
+	$Compiler = "clang"
 
 	return "$Arch-$OS-$Compiler"
 }
