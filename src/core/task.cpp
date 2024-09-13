@@ -3,6 +3,11 @@
 
 #include <mutex>
 
+namespace core
+{
+namespace detail
+{
+
 static MemoryPool<Task, kTaskPoolSize> gTaskPool;
 
 Task* InternalHandleToPtr(TaskHandle handle) noexcept
@@ -46,9 +51,14 @@ void InternalFree(TaskHandle handle) noexcept
 	gTaskPool.Free(handle);
 }
 
-Task::~Task()
+} // namespace detail
+
+} // namespace core
+
+Task::~Task() noexcept
 {
 	myDeleteFcn(myCallableMemory.data(), myArgsMemory.data());
+	std::atomic_store(&InternalState(), {});
 }
 
 Task::operator bool() const noexcept
@@ -56,7 +66,7 @@ Task::operator bool() const noexcept
 	return !!InternalState();
 }
 
-void Task::AddDependency(Task& other, bool isContinuation)
+void Task::AddDependency(Task& other, bool isContinuation) noexcept
 {
 	ASSERT(*this);
 	ASSERT(other);
@@ -65,21 +75,19 @@ void Task::AddDependency(Task& other, bool isContinuation)
 	TaskState& aState = *InternalState();
 	TaskState& bState = *other.InternalState();
 
-	std::scoped_lock lock(aState.mutex, bState.mutex);
-
-	aState.adjacencies.emplace_back(InternalPtrToHandle(&other));
-	bState.latch.fetch_add(1, std::memory_order_relaxed);
+	aState.adjacencies[aState.adjacenciesCount++] = core::detail::InternalPtrToHandle(&other);
+	bState.Latch().fetch_add(1, std::memory_order_relaxed);
 	bState.continuation = isContinuation;
 }
 
-void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation)
+void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation) noexcept
 {
 	ASSERT(!!aTaskHandle);
 	ASSERT(!!bTaskHandle);
 	ASSERT(aTaskHandle != bTaskHandle);
 
-	Task& aTask = *InternalHandleToPtr(aTaskHandle);
-	Task& bTask = *InternalHandleToPtr(bTaskHandle);
+	Task& aTask = *core::detail::InternalHandleToPtr(aTaskHandle);
+	Task& bTask = *core::detail::InternalHandleToPtr(bTaskHandle);
 
 	aTask.AddDependency(bTask, isContinuation);
 }

@@ -4,6 +4,10 @@
 #include <iostream>
 #include <shared_mutex>
 
+// #if !defined(__cpp_lib_atomic_shared_ptr) || __cpp_lib_atomic_shared_ptr < 201711L
+// static_assert(false, "std::atomic<std::shared_ptr> is not supported by the standard library!");
+// #endif
+
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 {
 	ZoneScopedN("TaskExecutor()");
@@ -33,14 +37,15 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 {
 	ZoneScopedN("TaskExecutor::InternalTryDelete");
 
-	Task& task = *InternalHandleToPtr(handle);
+	Task& task = *core::detail::InternalHandleToPtr(handle);
+	ASSERT(task);
+	auto state = std::atomic_load(&task.InternalState());
+	auto& latch = state->Latch();
 
-	if (task.InternalState()->latch.load(std::memory_order_relaxed) == 0 && task.InternalState()->mutex.try_lock())
+	if (latch.load(std::memory_order_relaxed) == 0)
 	{
-		auto state = task.InternalState();
 		std::destroy_at(&task);
-		state->mutex.unlock();
-		InternalFree(handle);
+		core::detail::InternalFree(handle);
 		return true;
 	}
 
@@ -51,26 +56,19 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
 
-	std::shared_lock lock(task.InternalState()->mutex);
+	auto state = std::atomic_load(&task.InternalState());
 
-	for (auto& adjacentHandle : task.InternalState()->adjacencies)
+	for (auto adjIt = 0; adjIt < state->adjacenciesCount; adjIt++)
 	{
-		if (!adjacentHandle) // this is ok, means that another thread has claimed it
-			continue;
+		TaskHandle adjacentHandle = state->adjacencies[adjIt];
+		Task& adjacent = *core::detail::InternalHandleToPtr(adjacentHandle);
+		ASSERT(adjacent);
+		auto adjacentState = std::atomic_load(&adjacent.InternalState());
+		auto& latch = adjacentState->Latch();
+		ASSERTF(latch, "Latch needs to have been constructed!");
 
-		Task& adjacent = *InternalHandleToPtr(adjacentHandle);
-
-		ASSERTF(adjacent.InternalState(), "Task has no return state!");
-
-		auto& adjacentState = *adjacent.InternalState();
-
-		ASSERTF(adjacentState.latch, "Latch needs to have been constructed!");
-
-		if (adjacentState.latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
-		{
-			auto handle = std::exchange(adjacentHandle, {});
-			Submit({&handle, 1}, !adjacentState.continuation);
-		}
+		if (latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+			Submit({&adjacentHandle, 1}, !adjacentState->continuation);
 	}
 }
 
