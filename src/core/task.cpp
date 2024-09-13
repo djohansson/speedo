@@ -58,9 +58,9 @@ Task::operator bool() const noexcept
 
 void Task::AddDependency(Task& other, bool isContinuation)
 {
+	ASSERT(*this);
+	ASSERT(other);
 	ASSERT(this != &other);
-	ASSERTF(InternalState(), "Task state is not valid!");
-	ASSERTF(other.InternalState(), "Task state is not valid!");
 
 	TaskState& aState = *InternalState();
 	TaskState& bState = *other.InternalState();
