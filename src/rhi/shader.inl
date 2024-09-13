@@ -90,9 +90,10 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 		spSetDebugInfoFormat(slangRequest, config.debugInfoFormat);
 		spSetOptimizationLevel(slangRequest, config.optimizationLevel);
 		spSetMatrixLayoutMode(slangRequest, config.matrixLayoutMode);
-
-		//spAddPreprocessorDefine(slangRequest, "SHADERTYPES_H_CPU_TARGET", "false");
-
+		
+		for (const auto& [key, value] : config.preprocessorDefinitions)
+			spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
+		
 		int targetIndex = spAddCodeGenTarget(slangRequest, config.target);
 
 		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, config.targetProfile.c_str()));
