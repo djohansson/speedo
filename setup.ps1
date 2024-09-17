@@ -37,9 +37,9 @@ $TargetTriplet = "$Arch-$OS-clang"
 
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
-Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build.output/toolchain --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
+Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
 
-$toolchainPath = "$PSScriptRoot/build.output/toolchain/$SystemTriplet"
+$toolchainPath = "$PSScriptRoot/build/toolchain/$SystemTriplet"
 $llvmToolsPath = "$toolchainPath/tools/llvm"
 $llvmVersion = $(& "$llvmToolsPath/clang" --version | grep "version" | egrep -o '(\d+\.\d+\.\d+-?\w*)')
 
@@ -54,7 +54,7 @@ Initialize-SystemEnv
 
 Write-Host "Installing packages for $TargetTriplet using manifest..."
 
-Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build.output/packages --overlay-triplets=$PSScriptRoot/scripts/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
+Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/packages --overlay-triplets=$PSScriptRoot/scripts/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
 
 Write-Host "Building speedo..."
 

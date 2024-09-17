@@ -5,7 +5,7 @@
 			"name": "(lldb arm64-linux) debug/client",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/debug/client",
+			"program": "${workspaceFolder}/build/debug/client",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
@@ -13,44 +13,44 @@
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/debug/lib",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/debug/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
 			"name": "(lldb arm64-linux) profile/client",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/profile/client",
+			"program": "${workspaceFolder}/build/profile/client",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/lib",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
 			"name": "(lldb arm64-linux) release/client",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/release/client",
+			"program": "${workspaceFolder}/build/release/client",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-linux-clang/lib",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib",
+				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
 			"name": "(lldb arm64-osx) debug/client",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/debug/client",
+			"program": "${workspaceFolder}/build/debug/client",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
@@ -58,51 +58,51 @@
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/debug/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/debug/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-osx-clang/share/vulkan/explicit_layer.d"
+				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d"
 			}
 		},
 		{
 			"name": "(lldb arm64-osx) profile/client",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/profile/client",
+			"program": "${workspaceFolder}/build/profile/client",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
+				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
 		{
 			"name": "(lldb arm64-osx) release/client",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/release/client",
+			"program": "${workspaceFolder}/build/release/client",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
-				"VK_LAYER_PATH": "${workspaceFolder}/build.output/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
+				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
 		{
 			"name": "(lldb arm64-osx) debug/server",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/debug/server",
+			"program": "${workspaceFolder}/build/debug/server",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "integrated",
@@ -110,8 +110,8 @@
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/debug/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/debug/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
 			}
@@ -120,13 +120,13 @@
 			"name": "(lldb arm64-osx) profile/server",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/profile/server",
+			"program": "${workspaceFolder}/build/profile/server",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "integrated",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib"
 			}
 		},
@@ -134,13 +134,13 @@
 			"name": "(lldb arm64-osx) release/server",
 			"type": "lldb",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/release/server",
+			"program": "${workspaceFolder}/build/release/server",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "integrated",
 			"env": {
-				"PATH": "${env:PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build.output/packages/arm64-osx-clang/lib",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib"
 			}
 		},
@@ -148,7 +148,7 @@
 			"name": "(x64-windows) debug/client",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/debug/client.exe",
+			"program": "${workspaceFolder}/build/debug/client.exe",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
@@ -156,8 +156,8 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/debug/bin"},
-				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build.output/packages/x64-windows-clang/debug/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/debug/bin"},
+				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build/packages/x64-windows-clang/debug/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -182,12 +182,12 @@
 			"name": "(x64-windows) profile/client",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/profile/client.exe",
+			"program": "${workspaceFolder}/build/profile/client.exe",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -212,12 +212,12 @@
 			"name": "(x64-windows) release/client",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/release/client.exe",
+			"program": "${workspaceFolder}/build/release/client.exe",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -242,7 +242,7 @@
 			"name": "(x64-windows) debug/server",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/debug/server.exe",
+			"program": "${workspaceFolder}/build/debug/server.exe",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
@@ -250,7 +250,7 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/debug/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/debug/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -275,12 +275,12 @@
 			"name": "(x64-windows) profile/server",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/profile/server.exe",
+			"program": "${workspaceFolder}/build/profile/server.exe",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -305,12 +305,12 @@
 			"name": "(x64-windows) release/server",
 			"type": "cppvsdbg",
 			"request": "launch",
-			"program": "${workspaceFolder}/build.output/release/server.exe",
+			"program": "${workspaceFolder}/build/release/server.exe",
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build.output/packages/x64-windows-clang/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],

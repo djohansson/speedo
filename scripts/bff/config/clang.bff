@@ -148,7 +148,7 @@
 		+ ' -fsanitize=thread'
 	//	+ ' -fsanitize=address' // not reliable together with mimalloc yet unfortunately
 	//.LinkerOptions + ' -fsanitize=address'
-	.LinkerOptions + ' -L$BuildRootPath$/build.output/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
+	.LinkerOptions + ' -L$BuildRootPath$/build/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
 		+ ' -lclang_rt.ubsan_osx_dynamic'
 		+ ' -lclang_rt.tsan_osx_dynamic'
 	//	+ ' -lclang_rt.asan_osx_dynamic' // not reliable together with mimalloc yet unfortunately
