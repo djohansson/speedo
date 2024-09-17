@@ -369,21 +369,25 @@ Load(
 
 } // namespace detail
 
-void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
+void LoadModel(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	ZoneScopedN("model::LoadModel");
+
+	Rhi<kVk>& rhiVk = static_cast<Rhi<kVk>&>(rhi);
+
+	auto& [transferQueueInfos, transferSemaphore] = rhiVk.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto newModel = std::make_shared<Model<kVk>>(
-		rhi.device,
+		rhiVk.device,
 		transfersDone,
 		transferQueue.GetPool().Commands(),
 		filePath,
 		progress);
-	auto oldModel = rhi.pipeline->SetModel(newModel);
+	auto oldModel = rhiVk.pipeline->SetModel(newModel);
 
 	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask(
 		[oldModel = std::move(oldModel)] mutable {
@@ -410,7 +414,7 @@ void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath,
 template <>
 Model<kVk>::Model(
 	const std::shared_ptr<Device<kVk>>& device,
-	std::span<TaskCreateInfo<void>> timelineCallbacksOut,
+	std::array<TaskCreateInfo<void>, 2>& timelineCallbacksOut,
 	CommandBufferHandle<kVk> cmd,
 	std::tuple<
 		BufferHandle<kVk>,
@@ -449,7 +453,7 @@ Model<kVk>::Model(
 template <>
 Model<kVk>::Model(
 	const std::shared_ptr<Device<kVk>>& device,
-	std::span<TaskCreateInfo<void>> timelineCallbacksOut,
+	std::array<TaskCreateInfo<void>, 2>& timelineCallbacksOut,
 	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& modelFile,
 	std::atomic_uint8_t& progress)

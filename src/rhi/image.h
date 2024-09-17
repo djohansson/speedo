@@ -125,3 +125,13 @@ private:
 
 	ImageViewHandle<G> myView{};
 };
+
+struct IRhi;
+class TaskExecutor;
+
+namespace image
+{
+
+void LoadImage(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+
+} // namespace image

@@ -6,6 +6,7 @@
 #include <gfx/bounds.h>
 #include <gfx/vertex.h>
 
+#include <array>
 #include <memory>
 #include <tuple>
 #include <vector>
@@ -27,7 +28,7 @@ public:
 	Model(Model&& other) noexcept = default;
 	Model( // loads a file into a buffer and creates a new model from it. buffer gets garbage collected when finished copying.
 		const std::shared_ptr<Device<G>>& device,
-		std::span<TaskCreateInfo<void>> timelineCallbacksOut,
+		std::array<TaskCreateInfo<void>, 2>& timelineCallbacksOut,
 		CommandBufferHandle<G> cmd,
 		const std::filesystem::path& modelFile,
 		std::atomic_uint8_t& progress);
@@ -45,7 +46,7 @@ public:
 private:
 	Model( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		std::span<TaskCreateInfo<void>> timelineCallbacksOut,
+		std::array<TaskCreateInfo<void>, 2>& timelineCallbacksOut,
 		CommandBufferHandle<G> cmd,
 		std::tuple<
 			BufferHandle<G>,
@@ -59,3 +60,13 @@ private:
 	std::vector<VertexInputBindingDescription<G>> myBindings;
 	ModelCreateDesc<G> myDesc{};
 };
+
+struct IRhi;
+class TaskExecutor;
+
+namespace model
+{
+
+void LoadModel(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+
+} // namespace model

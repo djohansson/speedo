@@ -21,25 +21,51 @@
 #include <algorithm>
 #include <shared_mutex>
 
-
-namespace model
-{
-
-void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
-
-} // namespace model
-
-namespace image
-{
-
-void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
-
-} // namespace image
-
 namespace rhiapplication
 {
 
 static UpgradableSharedMutex gDrawMutex{};
+static std::atomic_uint8_t gProgress = 0;
+static std::atomic_bool gShowProgress = false;
+static bool gShowDemoWindow = false;
+static bool gShowAbout = false;
+
+using LoadOp = void (*)(IRhi& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
+
+void OpenFileDialogueAsync(
+	std::string&& resourcePathString,
+	std::span<const nfdu8filteritem_t> filterList,
+	LoadOp loadOp,
+	Rhi<kVk>& rhi,
+	TaskExecutor& executor)
+{
+	auto [openFileTask, openFileFuture] = CreateTask(
+		window::OpenFileDialogue,
+		std::move(resourcePathString),
+		filterList);
+	auto [loadTask, loadFuture] = CreateTask(
+		[&rhi, &executor](auto openFileFuture, auto loadOp)
+		{
+			ZoneScopedN("RhiApplication::draw::loadTask");
+
+			ASSERT(openFileFuture.Valid());
+			ASSERT(openFileFuture.IsReady());
+
+			auto [openFileResult, openFilePath] = openFileFuture.Get();
+			if (openFileResult)
+			{
+				gProgress = 0;
+				gShowProgress = true;
+				loadOp(rhi, executor, openFilePath, gProgress);
+				gShowProgress = false;
+			}
+		},
+		std::move(openFileFuture),
+		loadOp);
+
+	AddDependency(openFileTask, loadTask);
+	rhi.mainCalls.enqueue(openFileTask);
+}
 
 void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 {
@@ -176,18 +202,15 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	}
 #endif
 
-	static bool gShowDemoWindow = false;
 	if (gShowDemoWindow)
 		ShowDemoWindow(&gShowDemoWindow);
 
-	static bool gShowAbout = false;
 	if (gShowAbout && Begin("About client", &gShowAbout))
 	{
 		End();
 	}
 
-	static std::atomic_uint8_t gProgress = 0;
-	static std::atomic_bool gShowProgress = false;
+
 	if (bool b = gShowProgress.load(std::memory_order_relaxed) &&
 				 Begin(
 					 "Loading",
@@ -409,115 +432,35 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	}
 	*/
 
+	auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]);
+
 	if (BeginMainMenuBar())
 	{
 		if (BeginMenu("File"))
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]) / "models";
-				auto resourcePathString = resourcePath.string();
-				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
+				static constexpr std::array<const nfdu8filteritem_t, 1> filterList ={
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
-
-				auto [openFileTask, openFileFuture] = CreateTask(
-					window::OpenFileDialogue,
-					std::move(resourcePathString),
-					filterList);
-				auto [loadTask, loadFuture] = CreateTask(
-					[&rhi, &executor](auto openFileFuture, auto loadOp)
-					{
-						ZoneScopedN("RhiApplication::draw::loadTask");
-
-						ASSERT(openFileFuture.Valid());
-						ASSERT(openFileFuture.IsReady());
-
-						auto [openFileResult, openFilePath] = openFileFuture.Get();
-						if (openFileResult)
-						{
-							gProgress = 0;
-							gShowProgress = true;
-							loadOp(rhi, executor, openFilePath, gProgress);
-							gShowProgress = false;
-						}
-					},
-					std::move(openFileFuture),
-					model::LoadModel);
-
-				AddDependency(openFileTask, loadTask);
-				rhi.mainCalls.enqueue(openFileTask);
+				OpenFileDialogueAsync((resourcePath / "models").string(), filterList, model::LoadModel, rhi, executor);
 			}
 			
 			if (MenuItem("Open Image..."))
 			{
-				auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]) / "images";
-				auto resourcePathString = resourcePath.string();
 				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
 					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
-				auto [openFileTask, openFileFuture] = CreateTask(
-					window::OpenFileDialogue,
-					std::move(resourcePathString),
-					filterList);
-				auto [loadTask, loadFuture] = CreateTask(
-					[&rhi, &executor](auto openFileFuture, auto loadOp)
-					{
-						ZoneScopedN("RhiApplication::draw::loadTask");
-
-						ASSERT(openFileFuture.Valid());
-						ASSERT(openFileFuture.IsReady());
-
-						auto [openFileResult, openFilePath] = openFileFuture.Get();
-						if (openFileResult)
-						{
-							gProgress = 0;
-							gShowProgress = true;
-							loadOp(rhi, executor, openFilePath, gProgress);
-							gShowProgress = false;
-						}
-					},
-					std::move(openFileFuture),
-					image::LoadImage);
-
-				AddDependency(openFileTask, loadTask);
-				rhi.mainCalls.enqueue(openFileTask);
+				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, image::LoadImage, rhi, executor);
 			}
 			if (MenuItem("Open Scene..."))
 			{
-				auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]) / "scenes";
-				auto resourcePathString = resourcePath.string();
 				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
 					nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
 				};
 
-				auto [openFileTask, openFileFuture] = CreateTask(
-					window::OpenFileDialogue,
-					std::move(resourcePathString),
-					filterList);
-				auto [loadTask, loadFuture] = CreateTask(
-					[&rhi, &executor](auto openFileFuture, auto loadOp)
-					{
-						ZoneScopedN("RhiApplication::draw::loadTask");
-
-						ASSERT(openFileFuture.Valid());
-						ASSERT(openFileFuture.IsReady());
-
-						auto [openFileResult, openFilePath] = openFileFuture.Get();
-						if (openFileResult)
-						{
-							gProgress = 0;
-							gShowProgress = true;
-							loadOp(rhi, executor, openFilePath, gProgress);
-							gShowProgress = false;
-						}
-					},
-					std::move(openFileFuture),
-					scene::LoadScene);
-
-				AddDependency(openFileTask, loadTask);
-				rhi.mainCalls.enqueue(openFileTask);
+				OpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, scene::LoadScene, rhi, executor);
 			}
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
