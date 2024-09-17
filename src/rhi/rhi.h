@@ -19,9 +19,17 @@
 #include <tuple>
 #include <string_view>
 
-template <GraphicsApi G>
-struct Rhi
+struct IRhi
 {
+	virtual ~IRhi() = default;
+	[[nodiscard]] virtual GraphicsApi GetApi() const = 0;
+};
+
+template <GraphicsApi G>
+struct Rhi : public IRhi
+{
+	[[nodiscard]] GraphicsApi GetApi() const final { return G; }
+
 	std::shared_ptr<Instance<G>> instance;
 	std::shared_ptr<Device<G>> device;
 	std::unique_ptr<Pipeline<G>> pipeline;
@@ -47,10 +55,17 @@ struct Rhi
 namespace rhi
 {
 
-template <GraphicsApi G>
-std::shared_ptr<Rhi<G>> CreateRhi(std::string_view name, CreateWindowFunc createWindowFunc);
+[[nodiscard]] std::unique_ptr<IRhi> CreateRhi(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc);
+
+namespace detail
+{
 
 template <GraphicsApi G>
-void CreateWindowDependentObjects(Rhi<G>& rhi);
+void ConstructRhi(Rhi<G>& rhi, std::string_view name, CreateWindowFunc createWindowFunc);
+
+template <GraphicsApi G>
+void ConstructWindowDependentObjects(Rhi<G>& rhi);
+
+} // namespace detail
 
 } // namespace rhi

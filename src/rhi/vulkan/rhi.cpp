@@ -15,6 +15,9 @@
 namespace rhi
 {
 
+namespace detail
+{
+
 uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
 {
 	const auto& physicalDevices = instance.GetPhysicalDevices();
@@ -253,46 +256,6 @@ void CreateQueues(Rhi<kVk>& rhi)
 	}
 }
 
-template <>
-void CreateWindowDependentObjects(Rhi<kVk>& rhi)
-{
-	ZoneScopedN("rhiapplication::createWindowDependentObjects");
-
-	auto colorImage = std::make_shared<Image<kVk>>(
-		rhi.device,
-		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
-			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Main RT Color"});
-
-	auto depthStencilImage = std::make_shared<Image<kVk>>(
-		rhi.device,
-		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
-			FindSupportedFormat(
-				rhi.device->GetPhysicalDevice(),
-				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
-					VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Main RT DepthStencil"});
-
-	rhi.renderImageSet =
-		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage, depthStencilImage});
-
-	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
-}
-
 Window<kVk> CreateRhiWindow(
 	const std::shared_ptr<Device<kVk>>& device,
 	SurfaceHandle<kVk>&& surface,
@@ -340,46 +303,81 @@ std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
 }
 
 template <>
-std::shared_ptr<Rhi<kVk>> CreateRhi(std::string_view name, CreateWindowFunc createWindowFunc)
+void ConstructWindowDependentObjects(Rhi<kVk>& rhi)
 {
-	using namespace rhi;
-	
-	WindowState windowState{};
+	ZoneScopedN("rhiapplication::ConstructWindowDependentObjects");
 
+	auto colorImage = std::make_shared<Image<kVk>>(
+		rhi.device,
+		ImageCreateDesc<kVk>{
+			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
+			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			"Main RT Color"});
+
+	auto depthStencilImage = std::make_shared<Image<kVk>>(
+		rhi.device,
+		ImageCreateDesc<kVk>{
+			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
+			FindSupportedFormat(
+				rhi.device->GetPhysicalDevice(),
+				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+				VK_IMAGE_TILING_OPTIMAL,
+				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
+					VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
+			VK_IMAGE_TILING_OPTIMAL,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_LAYOUT_UNDEFINED,
+			"Main RT DepthStencil"});
+
+	rhi.renderImageSet =
+		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage, depthStencilImage});
+
+	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
+}
+
+template <>
+void ConstructRhi(Rhi<kVk>& rhi, std::string_view name, CreateWindowFunc createWindowFunc)
+{
 	Window<kVk>::ConfigFile windowConfig{
 		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
 
+	WindowState windowState{};
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
-	std::shared_ptr<Rhi<kVk>> rhi;
-	{
-		auto* windowHandle = createWindowFunc(&windowState);
-		auto instance = CreateInstance(name);
-		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
-		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
-		auto pipeline = CreatePipeline(device);
-		rhi = std::make_shared<Rhi<kVk>>(
-			std::move(instance),
-			std::move(device),
-			std::move(pipeline),
-			createWindowFunc);
+	auto* windowHandle = createWindowFunc(&windowState);
 
-		windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi->device, surface);
-		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
+	auto instance = CreateInstance(name);
+	auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
+	auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
+	auto pipeline = CreatePipeline(device);
+	
+	rhi.instance = std::move(instance);
+	rhi.device = std::move(device);
+	rhi.pipeline = std::move(pipeline);
 
-		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
-			windowHandle,
-			CreateRhiWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
+	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
+	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
-		SetWindows(&windowHandle, 1);
-		SetCurrentWindow(windowHandle);
-	}
+	auto [windowIt, windowEmplaceResult] = rhi.windows.emplace(
+		windowHandle,
+		CreateRhiWindow(rhi.device, std::move(surface), std::move(windowConfig), std::move(windowState)));
 
-	CreateQueues(*rhi);
-	CreateWindowDependentObjects(*rhi);
+	SetWindows(&windowHandle, 1);
+	SetCurrentWindow(windowHandle);
 
-	return rhi;
+	CreateQueues(rhi);
+
+	ConstructWindowDependentObjects(rhi);
 }
+
+} // namespace detail
 
 } // namespace rhi

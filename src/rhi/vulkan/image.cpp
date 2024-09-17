@@ -371,7 +371,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 } // namespace detail
 
-void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress)
+void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -386,7 +386,7 @@ void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFileP
 		rhi.device,
 		transferDone,
 		transferQueue.GetPool().Commands(),
-		openFilePath,
+		filePath,
 		progress);
 	auto imageView = std::make_shared<ImageView<kVk>>(
 		rhi.device,

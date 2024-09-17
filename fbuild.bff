@@ -57,7 +57,6 @@
 			+ ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
-			+ ' -DSHADERTYPES_H_CPU_TARGET'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 #if __WINDOWS__
 			+ ' -DVK_USE_PLATFORM_WIN32_KHR=1'

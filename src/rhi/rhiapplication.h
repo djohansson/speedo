@@ -6,6 +6,8 @@
 #include <core/capi.h>
 #include <core/inputstate.h>
 
+#include <rhi/rhi.h>
+
 // todo: move to Config.h
 #if defined(__WINDOWS__)
 #	include <sdkddkver.h>
@@ -13,9 +15,6 @@
 
 #include <memory>
 #include <string_view>
-
-template <GraphicsApi G>
-struct Rhi;
 
 class RhiApplication : public Application
 {	
@@ -49,6 +48,6 @@ protected:
 private:
 	void InternalDraw();
 
-	std::shared_ptr<void> myRhi;
+	std::unique_ptr<IRhi> myRhi;
 	InputState myInput{};
 };

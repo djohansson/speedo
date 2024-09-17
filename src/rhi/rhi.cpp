@@ -7,6 +7,26 @@ namespace rhi
 static FlatSet<WindowHandle> gWindows{};
 static std::optional<WindowHandle> gCurrentWindow{};
 
+std::unique_ptr<IRhi> CreateRhi(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc)
+{
+	using namespace rhi;
+
+	std::unique_ptr<IRhi> rhi;
+	
+	switch (api)
+	{
+	case kVk:
+		rhi = std::make_unique<Rhi<kVk>>();
+		detail::ConstructRhi(static_cast<Rhi<kVk>&>(*rhi), name, createWindowFunc);
+		break;
+	default:
+		CHECK(false);
+		break;
+	}
+
+	return rhi;
+}
+
 }
 
 void ResizeFramebuffer(WindowHandle window, int width, int height)

@@ -369,7 +369,7 @@ Load(
 
 } // namespace detail
 
-void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress)
+void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
@@ -381,7 +381,7 @@ void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFileP
 		rhi.device,
 		transfersDone,
 		transferQueue.GetPool().Commands(),
-		openFilePath,
+		filePath,
 		progress);
 	auto oldModel = rhi.pipeline->SetModel(newModel);
 

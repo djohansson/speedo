@@ -4,9 +4,10 @@
 
 #include <core/application.h>
 #include <core/upgradablesharedmutex.h>
-// #include <core/gltfstream.h>
 // #include <core/nodes/inputoutputnode.h>
 // #include <core/nodes/slangshadernode.h>
+
+#include <gfx/scene.h>
 
 #include <GLFW/glfw3.h>
 
@@ -24,14 +25,14 @@
 namespace model
 {
 
-void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
+void LoadModel(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
 
 } // namespace model
 
 namespace image
 {
 
-void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
+void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
 
 } // namespace image
 
@@ -483,14 +484,41 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 				AddDependency(openFileTask, loadTask);
 				rhi.mainCalls.enqueue(openFileTask);
 			}
-			// if (MenuItem("Open GLTF...") && !myOpenFileFuture.Valid())
-			// {
-			// 	auto [task, openFileFuture] = graph.CreateTask(
-			// 		[&openFileDialogue, &resourcePath, &loadGlTF]
-			// 		{ return openFileDialogue(resourcePath, "gltf,glb", loadGlTF); });
-			// 	executor.Submit(std::move(graph));
-			// 	myOpenFileFuture = std::move(openFileFuture);
-			// }
+			if (MenuItem("Open Scene..."))
+			{
+				auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]) / "scenes";
+				auto resourcePathString = resourcePath.string();
+				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
+					nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
+				};
+
+				auto [openFileTask, openFileFuture] = CreateTask(
+					window::OpenFileDialogue,
+					std::move(resourcePathString),
+					filterList);
+				auto [loadTask, loadFuture] = CreateTask(
+					[&rhi, &executor](auto openFileFuture, auto loadOp)
+					{
+						ZoneScopedN("RhiApplication::draw::loadTask");
+
+						ASSERT(openFileFuture.Valid());
+						ASSERT(openFileFuture.IsReady());
+
+						auto [openFileResult, openFilePath] = openFileFuture.Get();
+						if (openFileResult)
+						{
+							gProgress = 0;
+							gShowProgress = true;
+							loadOp(rhi, executor, openFilePath, gProgress);
+							gShowProgress = false;
+						}
+					},
+					std::move(openFileFuture),
+					scene::LoadScene);
+
+				AddDependency(openFileTask, loadTask);
+				rhi.mainCalls.enqueue(openFileTask);
+			}
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
 				Application::Instance().lock()->RequestExit();
@@ -733,13 +761,13 @@ static void ShutdownImgui()
 template <>
 Rhi<kVk>& RhiApplication::InternalRhi<kVk>()
 {
-	return *std::static_pointer_cast<Rhi<kVk>>(myRhi);
+	return *static_cast<Rhi<kVk>*>(myRhi.get());
 }
 
 template <>
 const Rhi<kVk>& RhiApplication::InternalRhi<kVk>() const
 {
-	return *std::static_pointer_cast<Rhi<kVk>>(myRhi);
+	return *static_cast<const Rhi<kVk>*>(myRhi.get());
 }
 
 void RhiApplication::InternalUpdateInput()
@@ -1160,7 +1188,7 @@ void RhiApplication::InternalDraw()
 RhiApplication::RhiApplication(
 	std::string_view appName, Environment&& env, CreateWindowFunc createWindowFunc)
 	: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-	, myRhi(rhi::CreateRhi<kVk>(Name(), createWindowFunc))
+	, myRhi(rhi::CreateRhi(kVk, Name(), createWindowFunc))
 {
 	using namespace rhiapplication;
 	
@@ -1435,7 +1463,7 @@ void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 
 	rhi.windows.at(window).OnResizeFramebuffer(width, height);
 
-	CreateWindowDependentObjects(rhi);
+	detail::ConstructWindowDependentObjects(rhi);
 }
 
 WindowState* RhiApplication::GetWindowState(WindowHandle window)

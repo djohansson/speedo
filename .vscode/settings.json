@@ -127,6 +127,7 @@
 		"simd": "cpp",
 		"unistd.h": "c",
 		"features.h": "c",
-		"string.h": "c"
+		"string.h": "c",
+		"*.inc": "cpp"
 	}
 }

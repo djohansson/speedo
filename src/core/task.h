@@ -16,16 +16,21 @@
 #include <tl/function_ref.hpp>
 #endif
 
-// TODO(djohansson): Consider using dynamic memory allocation for callable and arguments if larger tasks are required.
+template <typename T>
+struct TaskCreateInfo;
+
 class alignas (std_extra::hardware_destructive_interference_size) Task final
 {
+	template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
+	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+	friend TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
 	friend class TaskExecutor;
 
 public:
 	constexpr Task() noexcept = delete;
 	Task(const Task&) = delete;
 	Task(Task&&) noexcept = delete;
-	~Task();
+	~Task() noexcept;
 
 	Task& operator=(const Task&) = delete;
 	Task& operator=(Task&&) noexcept = delete;
@@ -34,6 +39,9 @@ public:
 	template <typename... Params>
 	void operator()(Params&&... params);
 
+	void AddDependency(Task& other, bool isContinuation = false) noexcept;
+
+private:
 	template <
 		typename... Params,
 		typename... Args,
@@ -43,11 +51,8 @@ public:
 		typename ParamsTuple = std::tuple<Params...>,
 		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	constexpr Task(std::shared_ptr<struct TaskState>&& state, F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
+	constexpr Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
 
-	void AddDependency(Task& other, bool isContinuation = false);
-
-private:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
@@ -64,7 +69,7 @@ private:
 	tl::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
 	tl::function_ref<void(void*, void*)> myDeleteFcn;
 #endif
-	std::shared_ptr<TaskState> myState;
+	std::shared_ptr<struct TaskState> myState;
 };
 
 static constexpr std::size_t kTaskPoolSize = (1 << 10); // todo: make this configurable
@@ -72,12 +77,18 @@ using TaskHandle = MinSizeIndex<kTaskPoolSize>;
 
 struct TaskState
 {
-	std::atomic_uint32_t latch{1U};
-
-	UpgradableSharedMutex mutex; // Protects the variables below
-	std::vector<TaskHandle> adjacencies;
-	bool continuation = false;
-	//
+	std::array<TaskHandle, 128> adjacencies;
+#if defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806
+	static constexpr auto kAligmnent = std::atomic_ref<uint16_t>::required_alignment;
+	alignas(kAligmnent) uint16_t latch{1U};
+	[[nodiscard]] auto Latch() noexcept { return std::atomic_ref(latch); }
+#else
+	static constexpr auto kAligmnent = std_extra::hardware_constructive_interference_size;
+	alignas(kAligmnent) CopyableAtomic<uint16_t> latch{1U};
+	[[nodiscard]] auto& Latch() noexcept { return latch; }
+#endif
+	uint8_t adjacenciesCount : 7;
+	uint8_t continuation : 1;
 };
 
 template <typename T>
@@ -102,6 +113,9 @@ public:
 	void Wait() const;
 
 private:
+	[[nodiscard]] auto& InternalState() noexcept { return myState; }
+	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
+
 	std::shared_ptr<FutureState> myState;
 };
 
@@ -124,7 +138,7 @@ requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>
 [[nodiscard]] TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
 
 // b will start after a has finished
-void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false);
+void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false) noexcept;
 
 #include "task.inl"
 #include "future.inl"
