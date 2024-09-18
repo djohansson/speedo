@@ -155,11 +155,11 @@ void Client::Tick()
 {
 	ZoneScopedN("Client::tick");
 
-	RhiApplication::Tick();
+	RHIApplication::Tick();
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
-: RhiApplication(
+: RHIApplication(
 	std::forward<std::string_view>(name),
 	std::forward<Environment>(env),
 	createWindowFunc)
@@ -195,7 +195,7 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	Executor().Submit(handles);
 
 	// initial tick required to initialize data structures in imgui (and potentially others)
-	// since RhiApplication draw thread/tasks can launch before next tick is called from main thread
+	// since RHIApplication draw thread/tasks can launch before next tick is called from main thread
 	Tick();
 }
 

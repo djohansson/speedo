@@ -16,10 +16,10 @@
 #include <memory>
 #include <string_view>
 
-class RhiApplication : public Application
+class RHIApplication : public Application
 {	
 public:
-	~RhiApplication() noexcept(false) override;
+	~RHIApplication() noexcept(false) override;
 
 	void Tick() override;
 
@@ -31,23 +31,23 @@ public:
 	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
 
 protected:
-	explicit RhiApplication() = default;
-	RhiApplication(
+	explicit RHIApplication() = default;
+	RHIApplication(
 		std::string_view name,
 		Environment&& env,
 		CreateWindowFunc createWindowFunc);
 
 	template <GraphicsApi G>
-	[[nodiscard]] Rhi<G>& InternalRhi();
+	[[nodiscard]] RHI<G>& InternalRHI();
 
 	template <GraphicsApi G>
-	[[nodiscard]] const Rhi<G>& InternalRhi() const;
+	[[nodiscard]] const RHI<G>& InternalRHI() const;
 
 	void InternalUpdateInput() override;
 
 private:
 	void InternalDraw();
 
-	std::unique_ptr<IRhi> myRhi;
+	std::unique_ptr<RHIBase> myRHI;
 	InputState myInput{};
 };

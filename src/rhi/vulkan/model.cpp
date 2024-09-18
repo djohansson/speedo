@@ -369,25 +369,24 @@ Load(
 
 } // namespace detail
 
-void LoadModel(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
+template <>
+void LoadModel(RHI<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	ZoneScopedN("model::LoadModel");
 
-	Rhi<kVk>& rhiVk = static_cast<Rhi<kVk>&>(rhi);
-
-	auto& [transferQueueInfos, transferSemaphore] = rhiVk.queues[kQueueTypeTransfer];
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
 	
 	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto newModel = std::make_shared<Model<kVk>>(
-		rhiVk.device,
+		rhi.device,
 		transfersDone,
 		transferQueue.GetPool().Commands(),
 		filePath,
 		progress);
-	auto oldModel = rhiVk.pipeline->SetModel(newModel);
+	auto oldModel = rhi.pipeline->SetModel(newModel);
 
 	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask(
 		[oldModel = std::move(oldModel)] mutable {

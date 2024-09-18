@@ -154,7 +154,7 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	return config;
 };
 
-void CreateQueues(Rhi<kVk>& rhi)
+void CreateQueues(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
@@ -256,7 +256,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 	}
 }
 
-Window<kVk> CreateRhiWindow(
+Window<kVk> CreateRHIWindow(
 	const std::shared_ptr<Device<kVk>>& device,
 	SurfaceHandle<kVk>&& surface,
 	typename Window<kVk>::ConfigFile&& windowConfig,
@@ -303,7 +303,7 @@ std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
 }
 
 template <>
-void ConstructWindowDependentObjects(Rhi<kVk>& rhi)
+void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::ConstructWindowDependentObjects");
 
@@ -342,9 +342,16 @@ void ConstructWindowDependentObjects(Rhi<kVk>& rhi)
 	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
 }
 
+} // namespace detail
+
 template <>
-void ConstructRhi(Rhi<kVk>& rhi, std::string_view name, CreateWindowFunc createWindowFunc)
+[[nodiscard]] std::unique_ptr<RHIBase> CreateRHI<kVk>(std::string_view name, CreateWindowFunc createWindowFunc)
 {
+	using namespace detail;
+
+	auto rhiPtr = std::make_unique<RHI<kVk>>();
+	auto& rhi = *rhiPtr;
+	
 	Window<kVk>::ConfigFile windowConfig{
 		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
 
@@ -368,7 +375,7 @@ void ConstructRhi(Rhi<kVk>& rhi, std::string_view name, CreateWindowFunc createW
 
 	auto [windowIt, windowEmplaceResult] = rhi.windows.emplace(
 		windowHandle,
-		CreateRhiWindow(rhi.device, std::move(surface), std::move(windowConfig), std::move(windowState)));
+		CreateRHIWindow(rhi.device, std::move(surface), std::move(windowConfig), std::move(windowState)));
 
 	SetWindows(&windowHandle, 1);
 	SetCurrentWindow(windowHandle);
@@ -376,8 +383,8 @@ void ConstructRhi(Rhi<kVk>& rhi, std::string_view name, CreateWindowFunc createW
 	CreateQueues(rhi);
 
 	ConstructWindowDependentObjects(rhi);
-}
 
-} // namespace detail
+	return rhiPtr;
+}
 
 } // namespace rhi

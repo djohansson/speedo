@@ -18,7 +18,7 @@
 
 * in progress: clean up (concurrency-)utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
 * in progress: streamlined project setup process on all platforms.
-* in progress: make RhiApplication & Window class graphics independent (if possible)
+* in progress: make RHIApplication & Window class graphics independent (if possible)
 * in progress: implement interprocess distributed task system using cppzmq &| zpp::bits
 
 * done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible

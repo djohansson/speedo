@@ -30,13 +30,13 @@ static std::atomic_bool gShowProgress = false;
 static bool gShowDemoWindow = false;
 static bool gShowAbout = false;
 
-using LoadOp = void (*)(IRhi& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
+using LoadOp = void (*)(RHI<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
 
 void OpenFileDialogueAsync(
 	std::string&& resourcePathString,
 	std::span<const nfdu8filteritem_t> filterList,
 	LoadOp loadOp,
-	Rhi<kVk>& rhi,
+	RHI<kVk>& rhi,
 	TaskExecutor& executor)
 {
 	auto [openFileTask, openFileFuture] = CreateTask(
@@ -46,7 +46,7 @@ void OpenFileDialogueAsync(
 	auto [loadTask, loadFuture] = CreateTask(
 		[&rhi, &executor](auto openFileFuture, auto loadOp)
 		{
-			ZoneScopedN("RhiApplication::draw::loadTask");
+			ZoneScopedN("RHIApplication::draw::loadTask");
 
 			ASSERT(openFileFuture.Valid());
 			ASSERT(openFileFuture.IsReady());
@@ -67,9 +67,9 @@ void OpenFileDialogueAsync(
 	rhi.mainCalls.enqueue(openFileTask);
 }
 
-void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
+void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 {
-	ZoneScopedN("RhiApplication::IMGUIPrepareDraw");
+	ZoneScopedN("RHIApplication::IMGUIPrepareDraw");
 
 	using namespace ImGui;
 
@@ -209,7 +209,6 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 	{
 		End();
 	}
-
 
 	if (bool b = gShowProgress.load(std::memory_order_relaxed) &&
 				 Begin(
@@ -445,7 +444,6 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 				};
 				OpenFileDialogueAsync((resourcePath / "models").string(), filterList, model::LoadModel, rhi, executor);
 			}
-			
 			if (MenuItem("Open Image..."))
 			{
 				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
@@ -541,7 +539,7 @@ void IMGUIPrepareDrawFunction(Rhi<kVk>& rhi, TaskExecutor& executor)
 
 void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipeline = nullptr)
 {
-	ZoneScopedN("RhiApplication::IMGUIDraw");
+	ZoneScopedN("RHIApplication::IMGUIDraw");
 
 	using namespace ImGui;
 
@@ -550,10 +548,10 @@ void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipelin
 
 static void IMGUIInit(
 	Window<kVk>& window,
-	Rhi<kVk>& rhi,
+	RHI<kVk>& rhi,
 	CommandBufferHandle<kVk> cmd)
 {
-	ZoneScopedN("RhiApplication::IMGUIInit");
+	ZoneScopedN("RHIApplication::IMGUIInit");
 
 	using namespace ImGui;
 	using namespace rhiapplication;
@@ -702,22 +700,22 @@ static void ShutdownImgui()
 } // namespace rhiapplication
 
 template <>
-Rhi<kVk>& RhiApplication::InternalRhi<kVk>()
+RHI<kVk>& RHIApplication::InternalRHI<kVk>()
 {
-	return *static_cast<Rhi<kVk>*>(myRhi.get());
+	return *static_cast<RHI<kVk>*>(myRHI.get());
 }
 
 template <>
-const Rhi<kVk>& RhiApplication::InternalRhi<kVk>() const
+const RHI<kVk>& RHIApplication::InternalRHI<kVk>() const
 {
-	return *static_cast<const Rhi<kVk>*>(myRhi.get());
+	return *static_cast<const RHI<kVk>*>(myRHI.get());
 }
 
-void RhiApplication::InternalUpdateInput()
+void RHIApplication::InternalUpdateInput()
 {
 	using namespace rhiapplication;
 
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 	auto& imguiIO = ImGui::GetIO();
 	auto& input = myInput;
 
@@ -786,13 +784,13 @@ void RhiApplication::InternalUpdateInput()
 		rhi.windows.at(GetCurrentWindow()).OnInputStateChanged(input);
 }
 
-void RhiApplication::InternalDraw()
+void RHIApplication::InternalDraw()
 {
 	using namespace rhiapplication;
 
 	std::unique_lock lock(gDrawMutex);
 
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 
 	FrameMark;
 	ZoneScopedN("rhi::draw");
@@ -1127,14 +1125,14 @@ void RhiApplication::InternalDraw()
 	}
 }
 
-RhiApplication::RhiApplication(
+RHIApplication::RHIApplication(
 	std::string_view appName, Environment&& env, CreateWindowFunc createWindowFunc)
 	: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-	, myRhi(rhi::CreateRhi(kVk, Name(), createWindowFunc))
+	, myRHI(rhi::CreateRHI(kVk, Name(), createWindowFunc))
 {
 	using namespace rhiapplication;
 	
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 
 	std::vector<TaskHandle> timelineCallbacks;
 
@@ -1329,20 +1327,20 @@ RhiApplication::RhiApplication(
 	}
 }
 
-RhiApplication::~RhiApplication() noexcept(false)
+RHIApplication::~RHIApplication() noexcept(false)
 {
 	using namespace rhiapplication;
 
-	ZoneScopedN("~RhiApplication()");
+	ZoneScopedN("~RHIApplication()");
 
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
-		ZoneScopedN("~RhiApplication()::waitGraphics");
+		ZoneScopedN("~RHIApplication()::waitGraphics");
 
 		graphicsQueue.WaitIdle();
 		graphicsQueue.SubmitCallbacks(Executor(), graphicsSubmit.maxTimelineValue);
@@ -1351,7 +1349,7 @@ RhiApplication::~RhiApplication() noexcept(false)
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
 	for (auto& [transferQueue, transferSubmit] : transferQueueInfos)	
 	{
-		ZoneScopedN("~RhiApplication()::waitTransfer");
+		ZoneScopedN("~RHIApplication()::waitTransfer");
 
 		transferQueue.WaitIdle();
 		transferQueue.SubmitCallbacks(Executor(), transferSubmit.maxTimelineValue);
@@ -1359,24 +1357,24 @@ RhiApplication::~RhiApplication() noexcept(false)
 
 	ShutdownImgui();
 
-	myRhi.reset();
+	myRHI.reset();
 
 	ASSERT(device.use_count() == 1);
 	ASSERT(instance.use_count() == 2);
 }
 
-void RhiApplication::Tick()
+void RHIApplication::Tick()
 {
 	using namespace rhiapplication;
 
-	ZoneScopedN("RhiApplication::tick");
+	ZoneScopedN("RHIApplication::tick");
 
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 	
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
 	{
-		ZoneScopedN("RhiApplication::tick::mainCall");
+		ZoneScopedN("RHIApplication::tick::mainCall");
 
 		Executor().Call(mainCall);
 	}
@@ -1384,21 +1382,21 @@ void RhiApplication::Tick()
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
 }
 
-void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
+void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
 {
 	using namespace rhi;
 	using namespace rhiapplication;
 
 	std::unique_lock lock(gDrawMutex);
 
-	ZoneScopedN("RhiApplication::OnResizeFramebuffer");
+	ZoneScopedN("RHIApplication::OnResizeFramebuffer");
 
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
-		ZoneScopedN("RhiApplication::OnResizeFramebuffer::waitGraphics");
+		ZoneScopedN("RHIApplication::OnResizeFramebuffer::waitGraphics");
 
 		graphicsQueue.WaitIdle();
 	}
@@ -1408,11 +1406,11 @@ void RhiApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 	detail::ConstructWindowDependentObjects(rhi);
 }
 
-WindowState* RhiApplication::GetWindowState(WindowHandle window)
+WindowState* RHIApplication::GetWindowState(WindowHandle window)
 {
 	using namespace rhiapplication;
 
-	auto& rhi = InternalRhi<kVk>();
+	auto& rhi = InternalRHI<kVk>();
 
 	return &rhi.windows.at(window).GetState();
 }

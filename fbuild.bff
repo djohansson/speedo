@@ -46,7 +46,7 @@
 		.CompilerInputPattern = "*.cpp"
 	]
 
-	.RhiLibrary =
+	.RHILibrary =
 	[
 		Using(.LibraryCommon)
 
@@ -215,7 +215,7 @@
 		}
 		.DependencyLibraries = {
 			.CoreLibrary,
-			.RhiLibrary,
+			.RHILibrary,
 			.GfxLibrary
 			.ClientLibrary,
 		}

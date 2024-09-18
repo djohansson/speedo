@@ -7,24 +7,18 @@ namespace rhi
 static FlatSet<WindowHandle> gWindows{};
 static std::optional<WindowHandle> gCurrentWindow{};
 
-std::unique_ptr<IRhi> CreateRhi(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc)
-{
-	using namespace rhi;
-
-	std::unique_ptr<IRhi> rhi;
-	
+std::unique_ptr<RHIBase> CreateRHI(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc)
+{	
 	switch (api)
 	{
 	case kVk:
-		rhi = std::make_unique<Rhi<kVk>>();
-		detail::ConstructRhi(static_cast<Rhi<kVk>&>(*rhi), name, createWindowFunc);
-		break;
+		return CreateRHI<kVk>(name, createWindowFunc);
+
 	default:
 		CHECK(false);
-		break;
 	}
 
-	return rhi;
+	return {};
 }
 
 }
@@ -33,7 +27,7 @@ void ResizeFramebuffer(WindowHandle window, int width, int height)
 {
 	using namespace rhi;
 
-	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
+	if (auto app = static_pointer_cast<RHIApplication>(Application::Instance().lock()); app)
 		app->OnResizeFramebuffer(window, width, height);
 }
 
@@ -82,7 +76,7 @@ WindowState* GetWindowState(WindowHandle window)
 {
 	using namespace rhi;
 
-	if (auto app = static_pointer_cast<RhiApplication>(Application::Instance().lock()); app)
+	if (auto app = static_pointer_cast<RHIApplication>(Application::Instance().lock()); app)
 		return app->GetWindowState(window);
 
 	return nullptr;

@@ -61,12 +61,14 @@ private:
 	ModelCreateDesc<G> myDesc{};
 };
 
-struct IRhi;
+template <GraphicsApi G>
+struct RHI;
 class TaskExecutor;
 
 namespace model
 {
 
-void LoadModel(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+template <GraphicsApi G>
+void LoadModel(RHI<G>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
 
 } // namespace model

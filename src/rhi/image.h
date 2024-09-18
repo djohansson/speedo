@@ -126,12 +126,14 @@ private:
 	ImageViewHandle<G> myView{};
 };
 
-struct IRhi;
+template <GraphicsApi G>
+struct RHI;
 class TaskExecutor;
 
 namespace image
 {
 
-void LoadImage(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+template <GraphicsApi G>
+void LoadImage(RHI<G>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
 
 } // namespace image

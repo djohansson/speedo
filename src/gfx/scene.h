@@ -3,12 +3,16 @@
 #include <atomic>
 #include <string_view>
 
-struct IRhi;
+#include <rhi/capi.h>
+
+template <GraphicsApi G>
+struct RHI;
 class TaskExecutor;
 
 namespace scene
 {
 
-void LoadScene(IRhi& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+template <GraphicsApi G>
+void LoadScene(RHI<G>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress) {}
 
 } // namespace scene

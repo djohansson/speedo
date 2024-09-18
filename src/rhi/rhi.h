@@ -19,14 +19,18 @@
 #include <tuple>
 #include <string_view>
 
-struct IRhi
+struct RHIBase
 {
-	virtual ~IRhi() = default;
+	virtual ~RHIBase() = default;
 	[[nodiscard]] virtual GraphicsApi GetApi() const = 0;
+
+	// todo: move these elsewhere?
+	ConcurrentQueue<TaskHandle> mainCalls; // queue with tasks that will be called once on main thread
+	ConcurrentQueue<TaskHandle> drawCalls; // queue with tasks that will be called once on draw thread/task
 };
 
 template <GraphicsApi G>
-struct Rhi : public IRhi
+struct RHI : public RHIBase
 {
 	[[nodiscard]] GraphicsApi GetApi() const final { return G; }
 
@@ -46,25 +50,21 @@ struct Rhi : public IRhi
 
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>> modelInstances;
-
-	// todo: move these elsewhere
-	ConcurrentQueue<TaskHandle> mainCalls; // queue with tasks that will be called once on main thread
-	ConcurrentQueue<TaskHandle> drawCalls; // queue with tasks that will be called once on draw thread/task
 };
 
 namespace rhi
 {
 
-[[nodiscard]] std::unique_ptr<IRhi> CreateRhi(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc);
+[[nodiscard]] std::unique_ptr<RHIBase> CreateRHI(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc);
+template <GraphicsApi G>
+[[nodiscard]] std::unique_ptr<RHIBase> CreateRHI(std::string_view name, CreateWindowFunc createWindowFunc);
 
 namespace detail
 {
 
-template <GraphicsApi G>
-void ConstructRhi(Rhi<G>& rhi, std::string_view name, CreateWindowFunc createWindowFunc);
 
 template <GraphicsApi G>
-void ConstructWindowDependentObjects(Rhi<G>& rhi);
+void ConstructWindowDependentObjects(RHI<G>& rhi);
 
 } // namespace detail
 
