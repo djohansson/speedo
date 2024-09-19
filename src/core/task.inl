@@ -66,10 +66,12 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 	std::construct_at(
 	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),//NOLINT(bugprone-casting-through-void)
 	 	std::forward<Args>(args)...);
+
+	static_assert(sizeof(Task) == kExpectedTaskSize);
 }
 
 template <typename... Params>
-inline void Task::operator()(Params&&... params)
+inline constexpr void Task::operator()(Params&&... params)
 {
 	ASSERT(*this);
 

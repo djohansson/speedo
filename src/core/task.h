@@ -35,9 +35,10 @@ public:
 	Task& operator=(const Task&) = delete;
 	Task& operator=(Task&&) noexcept = delete;
 
-	explicit operator bool() const noexcept;
+	[[nodiscard]] explicit operator bool() const noexcept;
+
 	template <typename... Params>
-	void operator()(Params&&... params);
+	constexpr void operator()(Params&&... params);
 
 	void AddDependency(Task& other, bool isContinuation = false) noexcept;
 
@@ -56,11 +57,12 @@ private:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
-	static constexpr size_t kMaxCallableSizeBytes = 40;
+	static constexpr size_t kMaxCallableSizeBytes = 48;
 	static constexpr size_t kMaxArgsSizeBytes = 32;
+	static constexpr size_t kExpectedTaskSize = 128;
 
-	alignas(intptr_t) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
-	alignas(intptr_t) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
+	alignas(16) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
+	alignas(16) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
 
 #if defined(__cpp_lib_function_ref) && __cpp_lib_function_ref >= 202306L
 	std::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
@@ -104,8 +106,8 @@ public:
 	Future(const Future& other) noexcept;
 	
 	[[nodiscard]] bool operator==(const Future& other) const noexcept;
-	Future& operator=(Future&& other) noexcept;
-	Future& operator=(const Future& other) noexcept;
+	[[maybe_unused]] Future& operator=(Future&& other) noexcept;
+	[[maybe_unused]] Future& operator=(const Future& other) noexcept;
 
 	[[nodiscard]] value_t Get();
 	[[nodiscard]] bool IsReady() const noexcept;
