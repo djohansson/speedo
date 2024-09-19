@@ -134,7 +134,7 @@ protected:
 		ObjectType<G> objectType,
 		const uint64_t* objectHandles);
 
-	DeviceObject& operator=(DeviceObject&& other) noexcept;
+	[[maybe_unused]] DeviceObject& operator=(DeviceObject&& other) noexcept;
 
 	[[nodiscard]] const auto& InternalGetDevice() const noexcept { return myDevice; }
 

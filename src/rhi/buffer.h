@@ -45,7 +45,7 @@ public:
 		std::tuple<BufferHandle<G>, AllocationHandle<G>, BufferCreateDesc<G>>&& initialData);
 	~Buffer() override;
 
-	Buffer& operator=(Buffer&& other) noexcept;
+	[[maybe_unused]] Buffer& operator=(Buffer&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myBuffer); }//NOLINT(google-explicit-constructor)
 
 	void Swap(Buffer& rhs) noexcept;
@@ -73,7 +73,7 @@ public:
 		DeviceSize<G> range);
 	~BufferView();
 
-	BufferView& operator=(BufferView&& other) noexcept;
+	[[maybe_unused]] BufferView& operator=(BufferView&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
 	void Swap(BufferView& rhs) noexcept;

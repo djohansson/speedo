@@ -21,7 +21,7 @@ public:
 	Fence(Fence<G>&& other) noexcept;
 	~Fence();
 
-	Fence& operator=(Fence&& other) noexcept;
+	[[maybe_unused]] Fence& operator=(Fence&& other) noexcept;
 	operator auto() const noexcept { return myFence; }
 
 	void Swap(Fence& rhs) noexcept;

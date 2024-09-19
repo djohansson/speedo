@@ -33,7 +33,7 @@ public:
 		const std::filesystem::path& modelFile,
 		std::atomic_uint8_t& progress);
 
-	Model& operator=(Model&& other) noexcept = default;
+	[[maybe_unused]] Model& operator=(Model&& other) noexcept = default;
 
 	void Swap(Model& rhs) noexcept;
 	friend void Swap(Model& lhs, Model& rhs) noexcept { lhs.Swap(rhs); }

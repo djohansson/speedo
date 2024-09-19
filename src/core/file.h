@@ -48,7 +48,7 @@ public:
 	~Object();
 
 	Object& operator=(const Object&) = delete;
-	Object& operator=(Object&& other) noexcept;
+	[[maybe_unused]] Object& operator=(Object&& other) noexcept;
 
 	void Swap(Object& rhs) noexcept;
 	friend void Swap(Object& lhs, Object& rhs) noexcept { lhs.Swap(rhs); }

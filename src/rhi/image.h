@@ -55,7 +55,7 @@ public:
 		size_t initialDataSize);
 	~Image() override;
 
-	[[nodiscard]] Image& operator=(Image&& other) noexcept;
+	[[maybe_unused]] Image& operator=(Image&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myImage); }//NOLINT(google-explicit-constructor)
 
 	void Swap(Image& rhs) noexcept;

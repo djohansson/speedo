@@ -11,8 +11,8 @@ public:
 	InputOutputNode(InputOutputNode&&) noexcept = default;
 	~InputOutputNode() = default;
 
-	InputOutputNode& operator=(const InputOutputNode&) = default;
-	InputOutputNode& operator=(InputOutputNode&&) noexcept = default;
+	[[maybe_unused]] InputOutputNode& operator=(const InputOutputNode&) = default;
+	[[maybe_unused]] InputOutputNode& operator=(InputOutputNode&&) noexcept = default;
 
 	void Swap(InputOutputNode& rhs) noexcept;
 	friend void Swap(InputOutputNode& lhs, InputOutputNode& rhs) noexcept { lhs.Swap(rhs); }

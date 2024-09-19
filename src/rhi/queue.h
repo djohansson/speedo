@@ -110,7 +110,7 @@ public:
 	Queue(Queue<G>&& other) noexcept;
 	~Queue() override;
 
-	Queue& operator=(Queue&& other) noexcept;
+	[[maybe_unused]] Queue& operator=(Queue&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myQueue; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Queue& rhs) noexcept;

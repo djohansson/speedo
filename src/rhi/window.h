@@ -50,7 +50,7 @@ public:
 	Window(Window&& other) noexcept;
 	~Window();
 
-	Window& operator=(Window&& other) noexcept;
+	[[maybe_unused]] Window& operator=(Window&& other) noexcept;
 
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }

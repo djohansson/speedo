@@ -43,7 +43,7 @@ public:
 		DescriptorSetLayoutCreateDesc<G>&& desc);
 	~DescriptorSetLayout() override;
 
-	DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
+	[[maybe_unused]] DescriptorSetLayout& operator=(DescriptorSetLayout&& other) noexcept;
 	[[nodiscard]] operator auto() const { return std::get<0>(myLayout); }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const DescriptorSetLayout& other) const { return myLayout == other; }
 	[[nodiscard]] bool operator<(const DescriptorSetLayout& other) const { return myLayout < other; }
@@ -96,7 +96,7 @@ public:
 		DescriptorSetArrayCreateDesc<G>&& desc);
 	~DescriptorSetArray() override;
 
-	DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
+	[[maybe_unused]] DescriptorSetArray& operator=(DescriptorSetArray&& other) noexcept;
 	[[nodiscard]] const auto& operator[](uint8_t index) const { return myDescriptorSets[index]; };
 
 	void Swap(DescriptorSetArray& rhs) noexcept;
@@ -140,7 +140,7 @@ public:
 		DescriptorUpdateTemplateCreateDesc<G>&& desc);
 	~DescriptorUpdateTemplate() override;
 
-	DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
+	[[maybe_unused]] DescriptorUpdateTemplate& operator=(DescriptorUpdateTemplate&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myHandle; }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const DescriptorUpdateTemplate& other) const noexcept
 	{

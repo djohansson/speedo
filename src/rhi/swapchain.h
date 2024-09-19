@@ -35,7 +35,7 @@ public:
 		SwapchainHandle<G> previous);
 	~Swapchain();
 
-	Swapchain& operator=(Swapchain&& other) noexcept;
+	[[maybe_unused]] Swapchain& operator=(Swapchain&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return mySwapchain; }
 
 	void Swap(Swapchain& rhs) noexcept;

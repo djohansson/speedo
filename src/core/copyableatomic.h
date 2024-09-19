@@ -14,7 +14,7 @@ public:
 	constexpr explicit CopyableAtomic(value_t val) noexcept;
 	CopyableAtomic(const CopyableAtomic& other) noexcept;
 
-	CopyableAtomic& operator=(const CopyableAtomic& other) noexcept;
+	[[maybe_unused]] CopyableAtomic& operator=(const CopyableAtomic& other) noexcept;
 };
 
 #include "copyableatomic.inl"

@@ -124,7 +124,7 @@ protected:
 		const std::shared_ptr<Device<G>>& device,
 		const RenderTargetCreateDesc<G>& desc);
 
-	RenderTarget& operator=(RenderTarget&& other) noexcept;
+	[[maybe_unused]] RenderTarget& operator=(RenderTarget&& other) noexcept;
 
 private:
 	[[nodiscard]] uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;

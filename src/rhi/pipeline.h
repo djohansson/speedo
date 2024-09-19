@@ -27,7 +27,7 @@ public:
 	PipelineLayout(PipelineLayout<G>&& other) noexcept;
 	~PipelineLayout() override;
 
-	PipelineLayout& operator=(PipelineLayout&& other) noexcept;
+	[[maybe_unused]] PipelineLayout& operator=(PipelineLayout&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myLayout; }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
 	[[nodiscard]] bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
@@ -181,7 +181,7 @@ public:
 		return *myRenderTarget;
 	}
 	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
-	[[nodiscard]] std::shared_ptr<Model<G>> SetModel(const std::shared_ptr<Model<G>>& model);
+	void SetVertexInputState(const Model<G>& model);
 	[[nodiscard]] auto& GetResources() noexcept { return myResources; }
 	[[nodiscard]] const auto& GetResources() const noexcept { return myResources; }
 	//
