@@ -273,7 +273,7 @@ std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>
 {
 	return std::make_unique<Pipeline<kVk>>(
 		device,
-		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
+		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()});
 }
 
 std::shared_ptr<Device<kVk>> CreateDevice(
@@ -353,7 +353,7 @@ template <>
 	auto& rhi = *rhiPtr;
 	
 	Window<kVk>::ConfigFile windowConfig{
-		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
+		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.json"};
 
 	WindowState windowState{};
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;

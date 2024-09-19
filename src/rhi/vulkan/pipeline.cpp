@@ -592,25 +592,14 @@ PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd
 }
 
 template <>
-std::shared_ptr<Model<kVk>> Pipeline<kVk>::SetModel(const std::shared_ptr<Model<kVk>>& model)
+void Pipeline<kVk>::SetVertexInputState(const Model<kVk>& model)
 {
 	myGraphicsState.vertexInput.vertexBindingDescriptionCount =
-		static_cast<uint32_t>(model->GetBindings().size());
-	myGraphicsState.vertexInput.pVertexBindingDescriptions = model->GetBindings().data();
+		static_cast<uint32_t>(model.GetBindings().size());
+	myGraphicsState.vertexInput.pVertexBindingDescriptions = model.GetBindings().data();
 	myGraphicsState.vertexInput.vertexAttributeDescriptionCount =
-		static_cast<uint32_t>(model->GetDesc().attributes.size());
-	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model->GetDesc().attributes.data();
-
-	SetDescriptorData(
-		"gVertexBuffer",
-		DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-
-	auto oldModel = myResources.model;
-	
-	myResources.model = model;
-
-	return oldModel;
+		static_cast<uint32_t>(model.GetDesc().attributes.size());
+	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model.GetDesc().attributes.data();
 }
 
 template <>
@@ -874,7 +863,7 @@ template <>
 Pipeline<kVk>::Pipeline(
 	const std::shared_ptr<Device<kVk>>& device, PipelineConfiguration<kVk>&& defaultConfig)
 	: DeviceObject(device, {})
-	, myConfig{std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
+	, myConfig{std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
 	, myDescriptorPool(
 		  [](const std::shared_ptr<Device<kVk>>& device)
 		  {

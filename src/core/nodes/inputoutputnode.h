@@ -19,7 +19,7 @@ public:
 
 	[[nodiscard]] int& Id() final;
 	[[nodiscard]] std::optional<int>& Selected() final;
-	[[nodiscard]] std::string& Name() final;
+	[[nodiscard]] std::string& GetName() final;
 
 	[[nodiscard]] std::vector<Attribute>& InputAttributes();
 	[[nodiscard]] std::vector<Attribute>& OutputAttributes();

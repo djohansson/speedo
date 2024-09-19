@@ -112,7 +112,7 @@ public:
 		Flags<kVk> aspectFlags);
 	~ImageView() override;
 
-	[[nodiscard]] ImageView& operator=(ImageView&& other) noexcept;
+	[[maybe_unused]] ImageView& operator=(ImageView&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
 	void Swap(ImageView& rhs) noexcept;
@@ -126,14 +126,14 @@ private:
 	ImageViewHandle<G> myView{};
 };
 
-template <GraphicsApi G>
-struct RHI;
-class TaskExecutor;
-
 namespace image
 {
 
 template <GraphicsApi G>
-void LoadImage(RHI<G>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+[[nodiscard]] std::pair<Image<G>, ImageView<G>> LoadImage(
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	std::shared_ptr<Image<G>> oldImage = nullptr,
+	std::shared_ptr<ImageView<G>> oldImageView = nullptr);
 
 } // namespace image

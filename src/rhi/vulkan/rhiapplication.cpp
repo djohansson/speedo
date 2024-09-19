@@ -2,11 +2,6 @@
 #include "../rhiapplication.h"
 #include "utils.h"
 
-#include <core/application.h>
-#include <core/upgradablesharedmutex.h>
-// #include <core/nodes/inputoutputnode.h>
-// #include <core/nodes/slangshadernode.h>
-
 #include <gfx/scene.h>
 
 #include <GLFW/glfw3.h>
@@ -18,54 +13,20 @@
 
 //#include <imnodes.h>
 
-#include <algorithm>
-#include <shared_mutex>
+template <>
+RHI<kVk>& RHIApplication::GetRHI<kVk>() noexcept
+{
+	return *static_cast<RHI<kVk>*>(myRHI.get());
+}
+
+template <>
+const RHI<kVk>& RHIApplication::GetRHI<kVk>() const noexcept
+{
+	return *static_cast<const RHI<kVk>*>(myRHI.get());
+}
 
 namespace rhiapplication
 {
-
-static UpgradableSharedMutex gDrawMutex{};
-static std::atomic_uint8_t gProgress = 0;
-static std::atomic_bool gShowProgress = false;
-static bool gShowDemoWindow = false;
-static bool gShowAbout = false;
-
-using LoadOp = void (*)(RHI<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress);
-
-void OpenFileDialogueAsync(
-	std::string&& resourcePathString,
-	std::span<const nfdu8filteritem_t> filterList,
-	LoadOp loadOp,
-	RHI<kVk>& rhi,
-	TaskExecutor& executor)
-{
-	auto [openFileTask, openFileFuture] = CreateTask(
-		window::OpenFileDialogue,
-		std::move(resourcePathString),
-		filterList);
-	auto [loadTask, loadFuture] = CreateTask(
-		[&rhi, &executor](auto openFileFuture, auto loadOp)
-		{
-			ZoneScopedN("RHIApplication::draw::loadTask");
-
-			ASSERT(openFileFuture.Valid());
-			ASSERT(openFileFuture.IsReady());
-
-			auto [openFileResult, openFilePath] = openFileFuture.Get();
-			if (openFileResult)
-			{
-				gProgress = 0;
-				gShowProgress = true;
-				loadOp(rhi, executor, openFilePath, gProgress);
-				gShowProgress = false;
-			}
-		},
-		std::move(openFileFuture),
-		loadOp);
-
-	AddDependency(openFileTask, loadTask);
-	rhi.mainCalls.enqueue(openFileTask);
-}
 
 void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 {
@@ -147,11 +108,11 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	*/
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
-	static bool gshowStatistics = false;
+	static bool gShowStatistics = false;
 	{
-		if (gshowStatistics)
+		if (gShowStatistics)
 		{
-			if (Begin("Statistics", &gshowStatistics))
+			if (Begin("Statistics", &gShowStatistics))
 			{
 				Text("Unknowns: %u", rhi.device->GetTypeCount(VK_OBJECT_TYPE_UNKNOWN));
 				Text("Instances: %u", rhi.device->GetTypeCount(VK_OBJECT_TYPE_INSTANCE));
@@ -202,15 +163,15 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	}
 #endif
 
-	if (gShowDemoWindow)
-		ShowDemoWindow(&gShowDemoWindow);
+	if (RHIApplication::gShowDemoWindow)
+		ShowDemoWindow(&RHIApplication::gShowDemoWindow);
 
-	if (gShowAbout && Begin("About client", &gShowAbout))
+	if (RHIApplication::gShowAbout && Begin("About client", &RHIApplication::gShowAbout))
 	{
 		End();
 	}
 
-	if (bool b = gShowProgress.load(std::memory_order_relaxed) &&
+	if (bool b = RHIApplication::gShowProgress.load(std::memory_order_relaxed) &&
 				 Begin(
 					 "Loading",
 					 &b,
@@ -218,7 +179,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
 	{
 		SetWindowSize(ImVec2(160, 0));
-		ProgressBar((1.F / 255) * gProgress);
+		ProgressBar((1.F / 255) * RHIApplication::gProgress);
 		End();
 	}
 
@@ -245,7 +206,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 			IMNODES_NAMESPACE::BeginNodeTitleBar();
 
 			float titleBarTextWidth =
-				editableTextField(node->Id(), buffer, node->Name(), 160.0f, node->Selected());
+				editableTextField(node->Id(), buffer, node->GetName(), 160.0f, node->Selected());
 
 			IMNODES_NAMESPACE::EndNodeTitleBar();
 
@@ -431,7 +392,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	}
 	*/
 
-	auto resourcePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]);
+	auto resourcePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]);
 
 	if (BeginMainMenuBar())
 	{
@@ -439,30 +400,66 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				static constexpr std::array<const nfdu8filteritem_t, 1> filterList ={
+				static const std::vector<const nfdu8filteritem_t> filterList ={
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
-				OpenFileDialogueAsync((resourcePath / "models").string(), filterList, model::LoadModel, rhi, executor);
+				OpenFileDialogueAsync((resourcePath / "models").string(), filterList,
+					[](std::string_view filePath, std::atomic_uint8_t& progress){
+						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						CHECK(app);
+						auto& pipeline = app->GetRHI<kVk>().pipeline;
+						CHECK(pipeline);
+						auto& resources = pipeline->GetResources();
+						
+						auto model = std::make_shared<Model<kVk>>(model::LoadModel(filePath, progress, std::atomic_load(&resources.model)));
+
+						pipeline->SetVertexInputState(*model);
+						pipeline->SetDescriptorData(
+							"gVertexBuffer",
+							DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
+							DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+
+						std::atomic_store(&resources.model, model);
+					});
 			}
 			if (MenuItem("Open Image..."))
 			{
-				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
+				static const std::vector<const nfdu8filteritem_t> filterList = {
 					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
-				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, image::LoadImage, rhi, executor);
+				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, 
+					[](std::string_view filePath, std::atomic_uint8_t& progress){
+						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						CHECK(app);
+						auto& pipeline = app->GetRHI<kVk>().pipeline;
+						CHECK(pipeline);
+						auto& resources = pipeline->GetResources();
+						auto [newImage, newImageView] = image::LoadImage(
+							filePath,
+							progress,
+							std::atomic_load(&resources.image),
+							std::atomic_load(&resources.imageView));
+						std::atomic_store(
+							&resources.image,
+							std::make_shared<::Image<kVk>>(std::move(newImage))); // todo: move Image into rhi namespace
+						std::atomic_store(
+							&resources.imageView,
+							std::make_shared<ImageView<kVk>>(std::move(newImageView)));
+					});
 			}
-			if (MenuItem("Open Scene..."))
-			{
-				static constexpr std::array<const nfdu8filteritem_t, 1> filterList = {
-					nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
-				};
+			// if (MenuItem("Open Scene..."))
+			// {
+			// 	static const std::vector<const nfdu8filteritem_t> filterList = {
+			// 		nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
+			// 	};
 
-				OpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, scene::LoadScene, rhi, executor);
-			}
+			// 	OpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, 
+			// 		[&scene = Scene{}](std::string_view filePath, std::atomic_uint8_t& progress){ scene::LoadScene(scene, filePath, progress); });
+			// }
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
-				Application::Instance().lock()->RequestExit();
+				Application::Get().lock()->RequestExit();
 
 			ImGui::EndMenu();
 		}
@@ -514,7 +511,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
-					gshowStatistics = !gshowStatistics;
+					gShowStatistics = !gShowStatistics;
 			}
 #endif
 			ImGui::EndMenu();
@@ -522,10 +519,10 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 		if (BeginMenu("About"))
 		{
 			if (MenuItem("Show IMGUI Demo..."))
-				gShowDemoWindow = !gShowDemoWindow;
+				RHIApplication::gShowDemoWindow = !RHIApplication::gShowDemoWindow;
 			Separator();
 			if (MenuItem("About client..."))
-				gShowAbout = !gShowAbout;
+				RHIApplication::gShowAbout = !RHIApplication::gShowAbout;
 			ImGui::EndMenu();
 		}
 
@@ -593,7 +590,7 @@ static void IMGUIInit(
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["ResourcePath"]));
+	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]));
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -699,23 +696,11 @@ static void ShutdownImgui()
 
 } // namespace rhiapplication
 
-template <>
-RHI<kVk>& RHIApplication::InternalRHI<kVk>()
-{
-	return *static_cast<RHI<kVk>*>(myRHI.get());
-}
-
-template <>
-const RHI<kVk>& RHIApplication::InternalRHI<kVk>() const
-{
-	return *static_cast<const RHI<kVk>*>(myRHI.get());
-}
-
 void RHIApplication::InternalUpdateInput()
 {
 	using namespace rhiapplication;
 
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 	auto& imguiIO = ImGui::GetIO();
 	auto& input = myInput;
 
@@ -790,7 +775,7 @@ void RHIApplication::InternalDraw()
 
 	std::unique_lock lock(gDrawMutex);
 
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 
 	FrameMark;
 	ZoneScopedN("rhi::draw");
@@ -803,15 +788,15 @@ void RHIApplication::InternalDraw()
 	auto& pipeline = *rhi.pipeline;
 
 	TaskCreateInfo<void> IMGUIPrepareDraw;
-	IMGUIPrepareDraw = CreateTask(IMGUIPrepareDrawFunction, rhi, Executor());
-	Executor().Submit({&IMGUIPrepareDraw.handle, 1});
+	IMGUIPrepareDraw = CreateTask(IMGUIPrepareDrawFunction, rhi, GetExecutor());
+	GetExecutor().Submit({&IMGUIPrepareDraw.handle, 1});
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
 		ZoneScopedN("rhi::draw::processGraphics");
 
-		graphicsQueue.SubmitCallbacks(Executor(), graphicsSemaphore.GetValue());
+		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSemaphore.GetValue());
 	}
 
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
@@ -819,7 +804,7 @@ void RHIApplication::InternalDraw()
 	{
 		ZoneScopedN("rhi::draw::processTransfers");
 
-		transferQueue.SubmitCallbacks(Executor(), transferSemaphore.GetValue());
+		transferQueue.SubmitCallbacks(GetExecutor(), transferSemaphore.GetValue());
 	}
 
 	auto [flipSuccess, lastFrameIndex, newFrameIndex] = window.Flip();
@@ -852,7 +837,7 @@ void RHIApplication::InternalDraw()
 		{
 			ZoneScopedN("rhi::draw::drawCall");
 
-			Executor().Call(drawCall, newFrameIndex);
+			GetExecutor().Call(drawCall, newFrameIndex);
 		}
 
 		window.UpdateViewBuffer(); // todo: move to drawCall
@@ -888,7 +873,7 @@ void RHIApplication::InternalDraw()
 
 			// draw views using secondary command buffers
 			// todo: generalize this to other types of draws
-			if (pipeline.GetResources().model)
+			if (std::atomic_load(&pipeline.GetResources().model))
 			{
 				ZoneScopedN("rhi::draw::drawViews");
 
@@ -945,9 +930,17 @@ void RHIApplication::InternalDraw()
 
 						auto cmd = queue.GetPool().Commands(beginInfo);
 
-						auto bindState = [&pipeline](VkCommandBuffer cmd)
+						auto& model = *std::atomic_load(&pipeline.GetResources().model);
+
+						auto bindState = [&pipeline, &model](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("bindState");
+
+							// bind vertex inputs
+							BufferHandle<kVk> vbs[] = {model.GetVertexBuffer()};
+							DeviceSize<kVk> offsets[] = {0};
+							vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
+							vkCmdBindIndexBuffer(cmd, model.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
 							// bind descriptor sets
 							pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
@@ -959,11 +952,6 @@ void RHIApplication::InternalDraw()
 
 							// bind pipeline and buffers
 							pipeline.BindPipelineAuto(cmd);
-
-							BufferHandle<kVk> vbs[] = {pipeline.GetResources().model->GetVertexBuffer()};
-							DeviceSize<kVk> offsets[] = {0};
-							vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
-							vkCmdBindIndexBuffer(cmd, pipeline.GetResources().model->GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 						};
 
 						bindState(cmd);
@@ -975,7 +963,7 @@ void RHIApplication::InternalDraw()
 
 						while (drawIt < drawCount)
 						{
-							auto drawView = [&pushConstants, &pipeline, &cmd, &dx, &dy, &desc](uint16_t viewIt)
+							auto drawView = [&pushConstants, &pipeline, &model, &cmd, &dx, &dy, &desc](uint16_t viewIt)
 							{
 								ZoneScopedN("drawView");
 
@@ -1016,7 +1004,7 @@ void RHIApplication::InternalDraw()
 
 								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | materialIndex;
 
-								auto drawModel = [&pushConstants, &pipeline](VkCommandBuffer cmd)
+								auto drawModel = [&pushConstants, &pipeline, &model](VkCommandBuffer cmd)
 								{
 									ZoneScopedN("drawModel");
 
@@ -1037,7 +1025,7 @@ void RHIApplication::InternalDraw()
 
 										vkCmdDrawIndexed(
 											cmd,
-											pipeline.GetResources().model->GetDesc().indexCount,
+											model.GetDesc().indexCount,
 											1,
 											0,
 											0,
@@ -1098,7 +1086,7 @@ void RHIApplication::InternalDraw()
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
 
-			Executor().Join(std::move(IMGUIPrepareDraw.future));
+			GetExecutor().Join(std::move(IMGUIPrepareDraw.future));
 			IMGUIDrawFunction(cmd);
 
 			window.End(cmd);
@@ -1128,11 +1116,11 @@ void RHIApplication::InternalDraw()
 RHIApplication::RHIApplication(
 	std::string_view appName, Environment&& env, CreateWindowFunc createWindowFunc)
 	: Application(std::forward<std::string_view>(appName), std::forward<Environment>(env))
-	, myRHI(rhi::CreateRHI(kVk, Name(), createWindowFunc))
+	, myRHI(rhi::CreateRHI(kVk, GetName(), createWindowFunc))
 {
 	using namespace rhiapplication;
 	
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 
 	std::vector<TaskHandle> timelineCallbacks;
 
@@ -1246,8 +1234,8 @@ RHIApplication::RHIApplication(
 		graphicsSubmit = graphicsQueue.Submit();
 	}
 
-	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]) / "src/rhi/shaders";
-	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
+	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 
@@ -1333,7 +1321,7 @@ RHIApplication::~RHIApplication() noexcept(false)
 
 	ZoneScopedN("~RHIApplication()");
 
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
@@ -1343,7 +1331,7 @@ RHIApplication::~RHIApplication() noexcept(false)
 		ZoneScopedN("~RHIApplication()::waitGraphics");
 
 		graphicsQueue.WaitIdle();
-		graphicsQueue.SubmitCallbacks(Executor(), graphicsSubmit.maxTimelineValue);
+		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSubmit.maxTimelineValue);
 	}
 
 	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
@@ -1352,7 +1340,7 @@ RHIApplication::~RHIApplication() noexcept(false)
 		ZoneScopedN("~RHIApplication()::waitTransfer");
 
 		transferQueue.WaitIdle();
-		transferQueue.SubmitCallbacks(Executor(), transferSubmit.maxTimelineValue);
+		transferQueue.SubmitCallbacks(GetExecutor(), transferSubmit.maxTimelineValue);
 	}
 
 	ShutdownImgui();
@@ -1369,14 +1357,14 @@ void RHIApplication::Tick()
 
 	ZoneScopedN("RHIApplication::tick");
 
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 	
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
 	{
 		ZoneScopedN("RHIApplication::tick::mainCall");
 
-		Executor().Call(mainCall);
+		GetExecutor().Call(mainCall);
 	}
 
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
@@ -1391,7 +1379,7 @@ void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 
 	ZoneScopedN("RHIApplication::OnResizeFramebuffer");
 
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
@@ -1410,7 +1398,7 @@ WindowState* RHIApplication::GetWindowState(WindowHandle window)
 {
 	using namespace rhiapplication;
 
-	auto& rhi = InternalRHI<kVk>();
+	auto& rhi = GetRHI<kVk>();
 
 	return &rhi.windows.at(window).GetState();
 }

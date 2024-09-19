@@ -62,7 +62,6 @@ template <GraphicsApi G>
 namespace detail
 {
 
-
 template <GraphicsApi G>
 void ConstructWindowDependentObjects(RHI<G>& rhi);
 

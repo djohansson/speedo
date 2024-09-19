@@ -34,33 +34,18 @@ public:
 	virtual void Tick() { InternalUpdateInput(); };
 
 	template <typename T, typename... Args>
-	static std::shared_ptr<T> Create(Args&&... args)
-	{
-		static_assert(std::is_base_of_v<Application, T>);
+	static std::shared_ptr<T> Create(Args&&... args);
 
-		 // workaround for protected constructors in T
-		struct U : public T { constexpr U() = default;
-			explicit U(Args&&... args) : T(std::forward<Args>(args)...) {}
-		};
+	[[nodiscard]] auto& GetName() noexcept { return myName; }
+	[[nodiscard]] const auto& GetName() const noexcept { return myName; }
 
-		// silly dance to make Application::Instance() work during construction
-		auto app = std::make_shared_for_overwrite<U>();
-		gApplication = app;
-		std::construct_at(app.get(), std::forward<Args>(args)...);
+	[[nodiscard]] auto& GetEnv() noexcept { return myEnvironment; }
+	[[nodiscard]] const auto& GetEnv() const noexcept { return myEnvironment; }
 
-		return app;
-	}
+	[[nodiscard]] auto& GetExecutor() noexcept { return *myExecutor; }
+	[[nodiscard]] const auto& GetExecutor() const noexcept { return *myExecutor; }
 
-	[[nodiscard]] auto& Name() noexcept { return myName; }
-	[[nodiscard]] const auto& Name() const noexcept { return myName; }
-
-	[[nodiscard]] auto& Env() noexcept { return myEnvironment; }
-	[[nodiscard]] const auto& Env() const noexcept { return myEnvironment; }
-
-	[[nodiscard]] auto& Executor() noexcept { return *myExecutor; }
-	[[nodiscard]] const auto& Executor() const noexcept { return *myExecutor; }
-
-	[[nodiscard]] static auto& Instance() noexcept { return gApplication; }
+	[[nodiscard]] static auto& Get() noexcept { return gApplication; }
 
 	void RequestExit() noexcept { myExitRequested = true; }
 	[[nodiscard]] bool IsExitRequested() const noexcept { return myExitRequested; }
@@ -83,3 +68,5 @@ private:
 	std::unique_ptr<TaskExecutor> myExecutor;
 	std::atomic_bool myExitRequested = false;
 };
+
+#include "application.inl"

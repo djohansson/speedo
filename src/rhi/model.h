@@ -40,8 +40,8 @@ public:
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const auto& GetBindings() const noexcept { return myBindings; }
-	[[nodiscard]] const auto& GetIndexBuffer() { return myIndexBuffer; }
-	[[nodiscard]] const auto& GetVertexBuffer() { return myVertexBuffer; }
+	[[nodiscard]] const auto& GetIndexBuffer() const noexcept { return myIndexBuffer; }
+	[[nodiscard]] const auto& GetVertexBuffer() const noexcept { return myVertexBuffer; }
 	
 private:
 	Model( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
@@ -61,14 +61,10 @@ private:
 	ModelCreateDesc<G> myDesc{};
 };
 
-template <GraphicsApi G>
-struct RHI;
-class TaskExecutor;
-
 namespace model
 {
 
 template <GraphicsApi G>
-void LoadModel(RHI<G>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress);
+[[nodiscard]] Model<G> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, std::shared_ptr<Model<G>> oldModel = nullptr);
 
 } // namespace model

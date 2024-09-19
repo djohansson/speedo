@@ -1,10 +1,9 @@
 #include "../model.h"
-#include "../rhi.h"
+#include "../rhiapplication.h"
 #include "../shaders/capi.h"
 #include "utils.h"
 
 #include <core/file.h>
-#include <core/taskexecutor.h>
 #include <core/std_extra.h>
 #include <gfx/bounds.h>
 #include <gfx/vertex.h>
@@ -369,45 +368,6 @@ Load(
 
 } // namespace detail
 
-template <>
-void LoadModel(RHI<kVk>& rhi, TaskExecutor& executor, std::string_view filePath, std::atomic_uint8_t& progress)
-{
-	ZoneScopedN("model::LoadModel");
-
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
-	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
-	
-	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
-
-	std::array<TaskCreateInfo<void>, 2> transfersDone;
-	auto newModel = std::make_shared<Model<kVk>>(
-		rhi.device,
-		transfersDone,
-		transferQueue.GetPool().Commands(),
-		filePath,
-		progress);
-	auto oldModel = rhi.pipeline->SetModel(newModel);
-
-	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask(
-		[oldModel = std::move(oldModel)] mutable {
-			oldModel.reset(); });
-
-	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(transfersDone[0].handle);
-	timelineCallbacks.emplace_back(transfersDone[1].handle);
-	timelineCallbacks.emplace_back(oldModelDestroyTask);
-
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
-		{transferSemaphore},
-		{++transferSemaphoreValue},
-		std::move(timelineCallbacks)});
-
-	transferSubmit = transferQueue.Submit();
-}
-
 } // namespace model
 
 template <>
@@ -467,3 +427,51 @@ void Model<kVk>::Swap(Model& rhs) noexcept
 	std::swap(myBindings, rhs.myBindings);
 	std::swap(myDesc, rhs.myDesc);
 }
+
+namespace model
+{
+
+template <>
+Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, std::shared_ptr<Model<kVk>> oldModel)
+{
+	ZoneScopedN("model::LoadModel");
+
+	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+	CHECK(app);
+	auto& rhi = app->GetRHI<kVk>();
+	
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
+	
+	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
+
+	std::array<TaskCreateInfo<void>, 2> transfersDone;
+	auto model = Model<kVk>(
+		rhi.device,
+		transfersDone,
+		transferQueue.GetPool().Commands(),
+		filePath,
+		progress);
+
+ 	// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
+	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([oldModel] {});
+
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(transfersDone[0].handle);
+	timelineCallbacks.emplace_back(transfersDone[1].handle);
+	timelineCallbacks.emplace_back(oldModelDestroyTask);
+
+	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferSubmit.maxTimelineValue},
+		{transferSemaphore},
+		{++transferSemaphoreValue},
+		std::move(timelineCallbacks)});
+
+	transferSubmit = transferQueue.Submit();
+
+	return model;
+}
+
+} // namespace model
