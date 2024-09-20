@@ -951,8 +951,7 @@ void RhiApplication::InternalDraw()
 			{
 				ZoneScopedN("rhi::draw::drawViews");
 
-				drawThreadCount =
-					std::min<uint32_t>(drawCount, std::max(1U, graphicsQueue.GetPool().GetDesc().levelCount - 1));
+				drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
 
 				std::array<uint32_t, 128> seq;
 				std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);

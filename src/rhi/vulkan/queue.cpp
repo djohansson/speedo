@@ -64,13 +64,14 @@ Queue<kVk>::Queue(
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (PROFILING_LEVEL > 0)
-	myProfilingContext = CreateVkContext(
-		device->GetPhysicalDevice(),
-		*device,
-		myQueue,
-		myPool.Commands(CommandBufferAccessScopeDesc<kVk>(false)),
-		nullptr,
-		nullptr);
+	if (myPool.GetDesc().supportsProfiling)
+		myProfilingContext = CreateVkContext(
+			device->GetPhysicalDevice(),
+			*device,
+			myQueue,
+			myPool.Commands(CommandBufferAccessScopeDesc<kVk>(false)),
+			nullptr,
+			nullptr);
 #endif
 }
 

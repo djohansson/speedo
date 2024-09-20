@@ -184,7 +184,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
-		return (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
+		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
@@ -205,7 +205,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 				auto& [queue, syncInfo] = graphicsQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 2},
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1, true},
 					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}
@@ -216,7 +216,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 				auto& [queue, syncInfo] = computeQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, true},
 					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}
@@ -227,7 +227,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 				auto& [queue, syncInfo] = transferQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, false},
 					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}

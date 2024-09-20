@@ -158,13 +158,11 @@ CommandPool<kVk>::CommandPool(
 		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
 	, myDesc(std::forward<CommandPoolCreateDesc<kVk>>(std::get<0>(descAndData)))
 	, myPool(std::forward<CommandPoolHandle<kVk>>(std::get<1>(descAndData)))
-	, myPendingCommands(myDesc.levelCount)
-	, mySubmittedCommands(myDesc.levelCount)
-	, myFreeCommands(myDesc.levelCount)
-	, myRecordingCommands(myDesc.levelCount)
-{
-	ASSERT(myDesc.levelCount > 0);
-}
+	, myPendingCommands(myDesc.levelCount + 1)
+	, mySubmittedCommands(myDesc.levelCount + 1)
+	, myFreeCommands(myDesc.levelCount + 1)
+	, myRecordingCommands(myDesc.levelCount + 1)
+{}
 
 template <>
 CommandPool<kVk>::CommandPool(
