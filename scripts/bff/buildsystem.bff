@@ -315,12 +315,10 @@ function AddExecutable(.Executable .CompilerConfig)
 
 		If (.ConfigName == 'debug')
 		{
-			^LinkerOptions + .DebugLinkerOptions
 			^LinkerOptions + .DebugExecutableLinkerOptions
 		}
 		If (.ConfigName != 'debug')
 		{
-			^LinkerOptions + .ReleaseLinkerOptions
 			^LinkerOptions + .ReleaseExecutableLinkerOptions
 		}
 		

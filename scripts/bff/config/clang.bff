@@ -59,9 +59,11 @@
 #endif
 		+ ' -isystem $LLVMPath$/tools/llvm/lib/clang/$LLVMVersionMajor$/include'
 		+ .PlatformIncludePaths // platform specific include paths. should come after LLVM include paths
-		+ ' -fms-extensions'
+		+ ' -fno-ms-compatibility'
 		+ ' -fno-rtti'
 		+ ' -fno-exceptions'
+		+ ' -DLIBCXX_USE_COMPILER_RT=YES'
+		+ ' -DLIBCXXABI_USE_COMPILER_RT=YES'
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'
@@ -69,12 +71,14 @@
 		+ ' -DUNICODE'
 		+ ' -D_UNICODE'
 		+ ' -D_CRT_SECURE_NO_WARNINGS'
+		+ ' -D_SILENCE_ALL_CXX20_DEPRECATION_WARNINGS'
 		+ ' -DVC_EXTRALEAN'
 		+ ' -DNOMINMAX'
 		+ ' -D_WINSOCKAPI_' // stops windows.h including winsock.h
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -Xclang -cfguard'
+		+ ' -Xclang --dependent-lib=clang_rt.builtins-x86_64.lib'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -93,12 +97,14 @@
 #if !__WINDOWS__
 		+ ' -fexperimental-library'
 #endif
-	.LinkerOptions = '"%1" -o "%2" -g'
+	.LinkerOptions = '"%1" -o "%2" -g -v -fuse-ld=lld'
 		+ ' -L $LLVMPath$/lib'
-		+ ' -Wl,-rpath,$LLVMPath$/lib'
+		+ ' -L $LLVMPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
 		+ .PlatformLibPaths
-		+ ' -fuse-ld=lld'
 #if !__WINDOWS__
+		+ ' --rtlib=compiler-rt'
+		+ ' -Wl,-rpath,$LLVMPath$/lib'
+		+ ' -Wl,-rpath,$LLVMPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
 		// + ' -fvisibility=hidden'
 		+ ' -fvisibility=inlines-hidden'
 		// + ' -fvisibility=ms-compat'
@@ -107,15 +113,22 @@
 		// + ' -fdata-sections'
 		// + ' -z now'
 		// + ' -z relro'
-	.DebugLinkerOptions = ''
-	.ReleaseLinkerOptions = ''
+
 #else
-	.DebugLinkerOptions = ' -lmsvcrtd'
-	.ReleaseLinkerOptions = ' -lmsvcrt'
+		+ ' -nostdlib -nodefaultlibs'
 #endif
+#if !__WINDOWS__
 	.LinkerOptionsC = ' -lc'
+#else
+	.LinkerOptionsC = ' -lclang_rt.builtins-x86_64'
+	//.LinkerOptionsC = ' -lclang_rt.builtins-x86_64 -lucrt'
+	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime'
+	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime -lkernel32'
+#endif
 	.LinkerOptionsCpp = .LinkerOptionsC
+#if !__WINDOWS__
 		+ ' -lc++ -lc++abi -lc++experimental'
+#endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
 	.ProfilingLevel = '0'
