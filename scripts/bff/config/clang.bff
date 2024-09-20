@@ -57,7 +57,8 @@
 #if __LINUX__ // linux specific clang bug workaround
 		+ ' -isystem $LLVMPath$/lib/llvm-$LLVMVersionMajor$/include/$ProcessorArchitecture$-unknown-linux-gnu/c++/v1'
 #endif
-		+ ' -isystem $LLVMPath$/tools/llvm/lib/clang/$LLVMVersionMajor$/include'
+		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include' // typical llvm install location
+		+ ' -isystem $LLVMPath$/tools/llvm/lib/clang/$LLVMVersionMajor$/include' // vcpkg llvm install location
 		+ .PlatformIncludePaths // platform specific include paths. should come after LLVM include paths
 		+ ' -fno-ms-compatibility'
 		+ ' -fno-rtti'
