@@ -67,35 +67,35 @@ using OutputSerializer = zpp::bits::out<mio_extra::ResizeableMemoryMapSink, zpp:
 using LoadFn = std::function<std::error_code(InputSerializer&)>;
 using SaveFn = std::function<std::error_code(OutputSerializer&)>;
 
-std::expected<std::string, std::error_code> GetTimeStamp(const std::filesystem::path& filePath) noexcept;
+[[nodiscard]] std::expected<std::string, std::error_code> GetTimeStamp(const std::filesystem::path& filePath) noexcept;
 
-std::expected<std::filesystem::path, std::error_code> GetCanonicalPath(
+[[nodiscard]] std::expected<std::filesystem::path, std::error_code> GetCanonicalPath(
 	const char* pathStr,
 	const char* defaultPathStr,
 	bool createIfMissing = false) noexcept;
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath);
+[[nodiscard]] std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp);
+[[nodiscard]] std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp);
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp);
+[[nodiscard]] std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp);
 
 template <typename T>
-std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
+[[nodiscard]] std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept;
+[[nodiscard]] std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept;
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath);
+[[nodiscard]] std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath);
 
 template <typename T>
-[[maybe_unused]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
+[[nodiscard]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
 
-[[maybe_unused]] std::expected<Record, std::error_code> LoadAsset(
+[[nodiscard]] std::expected<Record, std::error_code> LoadAsset(
 	const std::filesystem::path& filePath,
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,
