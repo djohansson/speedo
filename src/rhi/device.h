@@ -94,8 +94,8 @@ private:
 	};
 	using ObjectInfos = std::vector<ObjectNameInfo>;
 
-	std::shared_mutex
-		myObjectMutex; // protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
+	// protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
+	std::shared_mutex myObjectMutex;
 	UnorderedMap<uint64_t, ObjectInfos, IdentityHash<uint64_t>> myOwnerToDeviceObjectInfoMap;
 	UnorderedMap<ObjectType<G>, uint32_t> myObjectTypeToCountMap;
 #endif
