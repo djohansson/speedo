@@ -1,6 +1,6 @@
 .speedo/*
 .vs/*
-build/*
+build*/*
 
 *.fdb
 *.log
