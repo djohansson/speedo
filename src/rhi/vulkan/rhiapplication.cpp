@@ -1000,7 +1000,7 @@ void RHIApplication::InternalDraw()
 								setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
 
 								uint16_t viewIndex = viewIt;
-								uint16_t materialIndex = 0UI16;
+								uint16_t materialIndex = 0U;
 
 								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | materialIndex;
 
