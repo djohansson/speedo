@@ -163,7 +163,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		return {};
 	};
 
-	auto loadImage = [&imageFile, &initialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&imageFile, &initialData, &device, &progressOut](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		progressOut = 32;
 
