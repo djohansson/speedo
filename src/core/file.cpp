@@ -139,7 +139,7 @@ std::expected<Record, std::error_code> LoadAsset(
 
 		AssetManifest manifest{asset.value(), cache.value()};
 
-		if (auto result = glz::write<glz::opts{.prettify = true}>(manifest, manifestFile); !result)
+		if (auto result = glz::write<glz::opts{.prettify = true}>(manifest, manifestFile); result.ec != glz::error_code::none)
 			return std::unexpected(std::make_error_code(std::errc::io_error));
 
 		manifestFile.truncate(manifestFile.Size(), error);
