@@ -4,6 +4,7 @@
 #include "types.h"
 
 #include <core/file.h>
+#include <core/resource.h>
 #include <core/utils.h>
 
 #include <atomic>
@@ -107,11 +108,13 @@ struct DeviceObjectCreateDesc
 };
 
 template <GraphicsApi G>
-class DeviceObject
+class DeviceObject : public IResource
 {
 public:
 	DeviceObject(const DeviceObject&) = delete;
 	virtual ~DeviceObject();
+
+	uuids::uuid GetUUID() const noexcept final { return myUid; }
 
 	[[nodiscard]] DeviceObject& operator=(const DeviceObject&) = delete;
 
@@ -126,13 +129,15 @@ protected:
 	DeviceObject(DeviceObject<G>&& other) noexcept;
 	DeviceObject( // no object names are set
 		const std::shared_ptr<Device<G>>& device,
-		DeviceObjectCreateDesc&& desc);
+		DeviceObjectCreateDesc&& desc,
+		uuids::uuid&& uuid = uuids::uuid_system_generator{}());
 	DeviceObject( // uses desc.name and one objectType for all objectHandles
 		const std::shared_ptr<Device<G>>& device,
 		DeviceObjectCreateDesc&& desc,
 		uint32_t objectCount,
 		ObjectType<G> objectType,
-		const uint64_t* objectHandles);
+		const uint64_t* objectHandles,
+		uuids::uuid&& uuid = uuids::uuid_system_generator{}());
 
 	[[maybe_unused]] DeviceObject& operator=(DeviceObject&& other) noexcept;
 
