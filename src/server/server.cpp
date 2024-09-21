@@ -27,7 +27,7 @@ enum TaskState : uint8_t
 };
 static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
 
-static std::string Say(const std::string& str)
+std::string Say(const std::string& str)
 {
 	using namespace std::literals;
 
