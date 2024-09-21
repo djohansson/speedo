@@ -204,9 +204,9 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
+	auto loadResult = file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
 
-	CHECKF(!shaderSet.shaders.empty(), "Failed to load shaders.");
+	CHECKF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;
 }
