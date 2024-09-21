@@ -404,14 +404,14 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
 				OpenFileDialogueAsync((resourcePath / "models").string(), filterList,
-					[](std::string_view filePath, std::atomic_uint8_t& progress){
+					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 						CHECK(app);
 						auto& pipeline = app->GetRHI<kVk>().pipeline;
 						CHECK(pipeline);
 						auto& resources = pipeline->GetResources();
 						
-						auto model = std::make_shared<Model<kVk>>(model::LoadModel(filePath, progress, std::atomic_load(&resources.model)));
+						auto model = std::make_shared<Model<kVk>>(model::LoadModel(filePath, progressOut, std::atomic_load(&resources.model)));
 
 						pipeline->SetVertexInputState(*model);
 						pipeline->SetDescriptorData(
@@ -429,7 +429,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 				};
 
 				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, 
-					[](std::string_view filePath, std::atomic_uint8_t& progress){
+					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 						CHECK(app);
 						auto& pipeline = app->GetRHI<kVk>().pipeline;
@@ -437,7 +437,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 						auto& resources = pipeline->GetResources();
 						auto [newImage, newImageView] = image::LoadImage(
 							filePath,
-							progress,
+							progressOut,
 							std::atomic_load(&resources.image),
 							std::atomic_load(&resources.imageView));
 						std::atomic_store(

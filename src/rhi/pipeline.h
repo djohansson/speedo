@@ -96,8 +96,7 @@ class Pipeline : public DeviceObject<G>
 
 	using PipelineLayoutSetType = UnorderedSet<
 		PipelineLayout<G>,
-		HandleHash<PipelineLayout<G>,
-		PipelineLayoutHandle<G>>>;
+		HandleHash<PipelineLayout<G>, PipelineLayoutHandle<G>>>;
 
 	using DescriptorMapType = UnorderedMap<
 		DescriptorSetLayoutHandle<G>, // todo: monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.

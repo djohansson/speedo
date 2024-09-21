@@ -159,7 +159,8 @@ std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::
 	if (error)
 		return std::unexpected(error);
 
-	glz::write<glz::opts{.prettify = true}>(object, file);
+	if (auto result = glz::write<glz::opts{.prettify = true}>(object, file); !result)
+		return std::unexpected(std::make_error_code(std::errc::io_error));
 	
 	file.truncate(file.Size(), error);
 
