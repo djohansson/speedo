@@ -3,8 +3,8 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO shader-slang/glslang
-    REF 4c20dc0cbb3b20d2afb9ee8595a39508f1066623
-    SHA512 db2e4e3d51e0d5effa0ddde9e145aac74a87487ae9cb9b44125755b2c3a290ba295004ba8573bd9b5aa0a541f788e3ed3db8fbb81b41222d9503fe62a19a67cb
+    REF d86ef8a6e2b10508266ec8d63d64e866479d70d1
+    SHA512 434b21da22b005a3ceba2c7170ed855767c4e66c6c5ad06c5b532256f50beca113f93aa8a7f0deb355e12df31fdfcc2f7058427112c0145ce1387e38b0cb53ea
     HEAD_REF master
     PATCHES
         cmake.patch # Remove on next version (Upstream PR #3406 and #3420).
