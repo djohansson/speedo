@@ -35,7 +35,7 @@ public:
 	CommandBufferArray(CommandBufferArray&& other) noexcept;
 	~CommandBufferArray() override;
 
-	[[nodiscard]] CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
+	[[maybe_unused]] CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
 	[[nodiscard]] CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
 
 	void Swap(CommandBufferArray& rhs) noexcept;
@@ -87,7 +87,7 @@ struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 	CommandBufferAccessScopeDesc(bool scopedBeginEnd = true) noexcept;//NOLINT(google-explicit-constructor)
 	CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<G>& other) noexcept;
 
-	[[nodiscard]] CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other) noexcept;
+	[[maybe_unused]] CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other) noexcept;
 	[[nodiscard]] bool operator==(const CommandBufferAccessScopeDesc<G>& other) const noexcept;
 
 	CommandBufferInheritanceInfo<kVk> inheritance{};
@@ -106,7 +106,7 @@ public:
 	CommandBufferAccessScope(CommandBufferAccessScope&& other) noexcept;
 	~CommandBufferAccessScope();
 
-	[[nodiscard]] CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
+	[[maybe_unused]] CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
 	[[nodiscard]] operator auto() const { return (*myArray)[myIndex]; }//NOLINT(google-explicit-constructor)
 
 	void Swap(CommandBufferAccessScope<G>& rhs) noexcept;
@@ -136,8 +136,9 @@ template <GraphicsApi G>
 struct CommandPoolCreateDesc
 {
 	CommandPoolCreateFlags<G> flags{};
-	uint32_t queueFamilyIndex = 0UL;
-	uint32_t levelCount = 1;
+	uint32_t queueFamilyIndex : 27;
+	uint32_t levelCount : 4;
+	uint32_t supportsProfiling : 1;
 };
 
 template <GraphicsApi G>
@@ -151,7 +152,7 @@ public:
 	CommandPool(CommandPool&& other) noexcept;
 	~CommandPool() override;
 
-	CommandPool& operator=(CommandPool&& other) noexcept;
+	[[maybe_unused]] CommandPool& operator=(CommandPool&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myPool; }//NOLINT(google-explicit-constructor)
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }

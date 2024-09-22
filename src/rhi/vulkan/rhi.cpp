@@ -15,6 +15,9 @@
 namespace rhi
 {
 
+namespace detail
+{
+
 uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
 {
 	const auto& physicalDevices = instance.GetPhysicalDevices();
@@ -151,7 +154,7 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	return config;
 };
 
-void CreateQueues(Rhi<kVk>& rhi)
+void CreateQueues(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
@@ -181,7 +184,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
-		return (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
+		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
 	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
@@ -202,7 +205,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 				auto& [queue, syncInfo] = graphicsQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 2},
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1, true},
 					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}
@@ -213,7 +216,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 				auto& [queue, syncInfo] = computeQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, true},
 					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}
@@ -224,7 +227,7 @@ void CreateQueues(Rhi<kVk>& rhi)
 				auto& [queue, syncInfo] = transferQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
+					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, false},
 					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
 			}
 		}
@@ -253,10 +256,56 @@ void CreateQueues(Rhi<kVk>& rhi)
 	}
 }
 
-template <>
-void CreateWindowDependentObjects(Rhi<kVk>& rhi)
+Window<kVk> CreateRHIWindow(
+	const std::shared_ptr<Device<kVk>>& device,
+	SurfaceHandle<kVk>&& surface,
+	typename Window<kVk>::ConfigFile&& windowConfig,
+	WindowState&& windowState)
 {
-	ZoneScopedN("rhiapplication::createWindowDependentObjects");
+	return Window<kVk>(
+		device,
+		std::forward<SurfaceHandle<kVk>>(surface),
+		std::forward<Window<kVk>::ConfigFile>(windowConfig),
+		std::forward<WindowState>(windowState));
+}
+
+std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>& device)
+{
+	return std::make_unique<Pipeline<kVk>>(
+		device,
+		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()});
+}
+
+std::shared_ptr<Device<kVk>> CreateDevice(
+	const std::shared_ptr<Instance<kVk>>& instance,
+	uint32_t physicalDeviceIndex)
+{
+	return std::make_shared<Device<kVk>>(
+		instance,
+		DeviceConfiguration<kVk>{physicalDeviceIndex});
+}
+
+std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
+{
+	return std::make_shared<Instance<kVk>>(
+		InstanceConfiguration<kVk>{
+			name.data(),
+			"speedo",
+			ApplicationInfo<kVk>{
+				VK_STRUCTURE_TYPE_APPLICATION_INFO,
+				nullptr,
+				nullptr,
+				VK_MAKE_VERSION(1, 0, 0),
+				nullptr,
+				VK_MAKE_VERSION(1, 0, 0),
+				VK_API_VERSION_1_2}});
+				//VK_API_VERSION_1_3}});
+}
+
+template <>
+void ConstructWindowDependentObjects(RHI<kVk>& rhi)
+{
+	ZoneScopedN("rhiapplication::ConstructWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<kVk>>(
 		rhi.device,
@@ -293,93 +342,49 @@ void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
 }
 
-Window<kVk> CreateRhiWindow(
-	const std::shared_ptr<Device<kVk>>& device,
-	SurfaceHandle<kVk>&& surface,
-	typename Window<kVk>::ConfigFile&& windowConfig,
-	WindowState&& windowState)
-{
-	return Window<kVk>(
-		device,
-		std::forward<SurfaceHandle<kVk>>(surface),
-		std::forward<Window<kVk>::ConfigFile>(windowConfig),
-		std::forward<WindowState>(windowState));
-}
-
-std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>& device)
-{
-	return std::make_unique<Pipeline<kVk>>(
-		device,
-		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
-}
-
-std::shared_ptr<Device<kVk>> CreateDevice(
-	const std::shared_ptr<Instance<kVk>>& instance,
-	uint32_t physicalDeviceIndex)
-{
-	return std::make_shared<Device<kVk>>(
-		instance,
-		DeviceConfiguration<kVk>{physicalDeviceIndex});
-}
-
-std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
-{
-	return std::make_shared<Instance<kVk>>(
-		InstanceConfiguration<kVk>{
-			name.data(),
-			"speedo",
-			ApplicationInfo<kVk>{
-				VK_STRUCTURE_TYPE_APPLICATION_INFO,
-				nullptr,
-				nullptr,
-				VK_MAKE_VERSION(1, 0, 0),
-				nullptr,
-				VK_MAKE_VERSION(1, 0, 0),
-				VK_API_VERSION_1_2}});
-				//VK_API_VERSION_1_3}});
-}
+} // namespace detail
 
 template <>
-std::shared_ptr<Rhi<kVk>> CreateRhi(std::string_view name, CreateWindowFunc createWindowFunc)
+[[nodiscard]] std::unique_ptr<RHIBase> CreateRHI<kVk>(std::string_view name, CreateWindowFunc createWindowFunc)
 {
-	using namespace rhi;
+	using namespace detail;
+
+	auto rhiPtr = std::make_unique<RHI<kVk>>();
+	auto& rhi = *rhiPtr;
 	
-	WindowState windowState{};
-
 	Window<kVk>::ConfigFile windowConfig{
-		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
+		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.json"};
 
+	WindowState windowState{};
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
-	std::shared_ptr<Rhi<kVk>> rhi;
-	{
-		auto* windowHandle = createWindowFunc(&windowState);
-		auto instance = CreateInstance(name);
-		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
-		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
-		auto pipeline = CreatePipeline(device);
-		rhi = std::make_shared<Rhi<kVk>>(
-			std::move(instance),
-			std::move(device),
-			std::move(pipeline),
-			createWindowFunc);
+	auto* windowHandle = createWindowFunc(&windowState);
 
-		windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi->device, surface);
-		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
+	auto instance = CreateInstance(name);
+	auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
+	auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
+	auto pipeline = CreatePipeline(device);
+	
+	rhi.instance = std::move(instance);
+	rhi.device = std::move(device);
+	rhi.pipeline = std::move(pipeline);
 
-		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
-			windowHandle,
-			CreateRhiWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
+	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
+	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
-		SetWindows(&windowHandle, 1);
-		SetCurrentWindow(windowHandle);
-	}
+	auto [windowIt, windowEmplaceResult] = rhi.windows.emplace(
+		windowHandle,
+		CreateRHIWindow(rhi.device, std::move(surface), std::move(windowConfig), std::move(windowState)));
 
-	CreateQueues(*rhi);
-	CreateWindowDependentObjects(*rhi);
+	SetWindows(&windowHandle, 1);
+	SetCurrentWindow(windowHandle);
 
-	return rhi;
+	CreateQueues(rhi);
+
+	ConstructWindowDependentObjects(rhi);
+
+	return rhiPtr;
 }
 
 } // namespace rhi

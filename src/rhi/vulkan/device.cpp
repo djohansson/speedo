@@ -149,7 +149,7 @@ Device<kVk>::Device(
 	DeviceConfiguration<kVk>&& defaultConfig)
 	: myInstance(instance)
 	, myConfig{
-		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "device.json",
+		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "device.json",
 		std::forward<DeviceConfiguration<kVk>>(defaultConfig)}
 	, myPhysicalDeviceIndex(myConfig.physicalDeviceIndex)
 {
@@ -389,10 +389,10 @@ DeviceObject<kVk>::DeviceObject(DeviceObject&& other) noexcept
 
 template <>
 DeviceObject<kVk>::DeviceObject(
-	const std::shared_ptr<Device<kVk>>& device, DeviceObjectCreateDesc&& desc)
+	const std::shared_ptr<Device<kVk>>& device, DeviceObjectCreateDesc&& desc, uuids::uuid&& uuid)
 	: myDevice(device)
 	, myDesc(std::forward<DeviceObjectCreateDesc>(desc))
-	, myUid(uuids::uuid_system_generator{}())
+	, myUid(std::forward<uuids::uuid>(uuid))
 {}
 
 template <>
@@ -401,8 +401,9 @@ DeviceObject<kVk>::DeviceObject(
 	DeviceObjectCreateDesc&& desc,
 	uint32_t objectCount,
 	ObjectType<kVk> objectType,
-	const uint64_t* objectHandles)
-	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc))
+	const uint64_t* objectHandles,
+	uuids::uuid&& uuid)
+	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc), std::forward<uuids::uuid>(uuid))
 {
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	{

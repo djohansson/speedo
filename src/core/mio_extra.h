@@ -28,7 +28,7 @@ public:
 	ResizeableMemoryMapSink(ResizeableMemoryMapSink&&) noexcept = default;
 
 	ResizeableMemoryMapSink& operator=(const ResizeableMemoryMapSink&) = delete;
-	ResizeableMemoryMapSink& operator=(ResizeableMemoryMapSink&&) noexcept = default;
+	[[maybe_unused]] ResizeableMemoryMapSink& operator=(ResizeableMemoryMapSink&&) noexcept = default;
 
 	[[maybe_unused]] std::expected<void, std::error_code> resize(size_t size)//NOLINT(readability-identifier-naming)
 	{

@@ -5,22 +5,27 @@
 #include <core/application.h>
 #include <core/capi.h>
 #include <core/inputstate.h>
+#include <core/taskexecutor.h>
+#include <core/upgradablesharedmutex.h>
+
+#include <rhi/rhi.h>
 
 // todo: move to Config.h
 #if defined(__WINDOWS__)
 #	include <sdkddkver.h>
 #endif
 
+#include <algorithm>
 #include <memory>
+#include <shared_mutex>
+#include <span>
+#include <string>
 #include <string_view>
 
-template <GraphicsApi G>
-struct Rhi;
-
-class RhiApplication : public Application
+class RHIApplication : public Application
 {	
 public:
-	~RhiApplication() noexcept(false) override;
+	~RHIApplication() noexcept(false) override;
 
 	void OnEvent() override;
 
@@ -31,24 +36,43 @@ public:
 
 	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
 
+	[[nodiscard]] RHIBase& GetRHI() noexcept { return *myRHI; }
+	[[nodiscard]] const RHIBase& GetRHI() const noexcept { return *myRHI; }
+
+	template <GraphicsApi G>
+	[[nodiscard]] RHI<G>& GetRHI() noexcept;
+
+	template <GraphicsApi G>
+	[[nodiscard]] const RHI<G>& GetRHI() const noexcept;
+
+	static UpgradableSharedMutex gDrawMutex;
+	static std::atomic_uint8_t gProgress;
+	static std::atomic_bool gShowProgress;
+	static bool gShowAbout;
+	static bool gShowDemoWindow;
+
 protected:
-	explicit RhiApplication() = default;
-	RhiApplication(
+	explicit RHIApplication() = default;
+	RHIApplication(
 		std::string_view name,
 		Environment&& env,
 		CreateWindowFunc createWindowFunc);
-
-	template <GraphicsApi G>
-	[[nodiscard]] Rhi<G>& InternalRhi();
-
-	template <GraphicsApi G>
-	[[nodiscard]] const Rhi<G>& InternalRhi() const;
 
 	void InternalTick() override;
 
 private:
 	void InternalDraw();
 
-	std::shared_ptr<void> myRhi;
+	std::unique_ptr<RHIBase> myRHI;
 	InputState myInput{};
 };
+
+namespace rhiapplication
+{
+
+template <typename LoadOp>
+void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<const nfdu8filteritem_t>& filterList, LoadOp loadOp);
+
+} // namespace rhiapplication
+
+#include "rhiapplication.inl"

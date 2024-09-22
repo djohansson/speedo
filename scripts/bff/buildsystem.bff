@@ -1,8 +1,8 @@
 #once
 
 .BuildRootPath = '$_WORKING_DIR_$'
-.IntermediateFilePath = '$BuildRootPath$/build.intermediate'
-.BuildOutputPath = '$BuildRootPath$/build.output'
+.IntermediateFilePath = '$BuildRootPath$/build/intermediate'
+.BuildOutputPath = '$BuildRootPath$/build'
 
 #include "config/platform.bff"
 #include "config/clang.bff"
@@ -315,12 +315,10 @@ function AddExecutable(.Executable .CompilerConfig)
 
 		If (.ConfigName == 'debug')
 		{
-			^LinkerOptions + .DebugLinkerOptions
 			^LinkerOptions + .DebugExecutableLinkerOptions
 		}
 		If (.ConfigName != 'debug')
 		{
-			^LinkerOptions + .ReleaseLinkerOptions
 			^LinkerOptions + .ReleaseExecutableLinkerOptions
 		}
 		

@@ -11,15 +11,15 @@ public:
 	InputOutputNode(InputOutputNode&&) noexcept = default;
 	~InputOutputNode() = default;
 
-	InputOutputNode& operator=(const InputOutputNode&) = default;
-	InputOutputNode& operator=(InputOutputNode&&) noexcept = default;
+	[[maybe_unused]] InputOutputNode& operator=(const InputOutputNode&) = default;
+	[[maybe_unused]] InputOutputNode& operator=(InputOutputNode&&) noexcept = default;
 
 	void Swap(InputOutputNode& rhs) noexcept;
 	friend void Swap(InputOutputNode& lhs, InputOutputNode& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] int& Id() final;
 	[[nodiscard]] std::optional<int>& Selected() final;
-	[[nodiscard]] std::string& Name() final;
+	[[nodiscard]] std::string& GetName() final;
 
 	[[nodiscard]] std::vector<Attribute>& InputAttributes();
 	[[nodiscard]] std::vector<Attribute>& OutputAttributes();

@@ -51,7 +51,7 @@ public:
 	Window(Window&& other) noexcept;
 	~Window();
 
-	Window& operator=(Window&& other) noexcept;
+	[[maybe_unused]] Window& operator=(Window&& other) noexcept;
 
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
@@ -91,6 +91,6 @@ private:
 namespace window
 {
 
-std::tuple<bool, std::string> OpenFileDialogue(std::string resourcePathStr, std::span<const nfdu8filteritem_t> filterList);
+std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<const nfdu8filteritem_t>& filterList);
 
 } // namespace window

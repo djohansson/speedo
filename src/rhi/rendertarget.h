@@ -126,7 +126,7 @@ protected:
 		const std::shared_ptr<Device<G>>& device,
 		const RenderTargetCreateDesc<G>& desc);
 
-	RenderTarget& operator=(RenderTarget&& other) noexcept;
+	[[maybe_unused]] RenderTarget& operator=(RenderTarget&& other) noexcept;
 
 	void InternalUpdateAttachments(const RenderTargetCreateDesc<G>& desc);
 

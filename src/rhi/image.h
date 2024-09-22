@@ -43,20 +43,20 @@ public:
 		ImageCreateDesc<G>&& desc);
 	Image( // loads a file into a buffer and creates a new image from it.
 		const std::shared_ptr<Device<G>>& device,
-		TaskCreateInfo<void>& timlineCallbackOut,
 		CommandBufferHandle<G> cmd,
 		const std::filesystem::path& imageFile,
-		std::atomic_uint8_t& progress);
+		std::atomic_uint8_t& progressOut,
+		TaskCreateInfo<void>& timlineCallbackOut);
 	Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		const std::shared_ptr<Device<G>>& device,
-		TaskCreateInfo<void>& timlineCallbackOut,
 		CommandBufferHandle<G> cmd,
 		ImageCreateDesc<G>&& desc,
 		const void* initialData,
-		size_t initialDataSize);
+		size_t initialDataSize,
+		TaskCreateInfo<void>& timlineCallbackOut);
 	~Image() override;
 
-	[[nodiscard]] Image& operator=(Image&& other) noexcept;
+	[[maybe_unused]] Image& operator=(Image&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myImage); }//NOLINT(google-explicit-constructor)
 
 	void Swap(Image& rhs) noexcept;
@@ -76,8 +76,8 @@ public:
 private:
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		const std::shared_ptr<Device<G>>& device,
-		TaskCreateInfo<void>& timlineCallbackOut,
 		CommandBufferHandle<G> cmd,
+		TaskCreateInfo<void>& timlineCallbackOut,
 		std::tuple<BufferHandle<G>, AllocationHandle<G>, ImageCreateDesc<G>>&& initialData);
 	Image( // takes ownership of provided image handle & allocation
 		const std::shared_ptr<Device<G>>& device,
@@ -110,7 +110,7 @@ public:
 		Format<G> format = {});
 	~ImageView() override;
 
-	[[nodiscard]] ImageView& operator=(ImageView&& other) noexcept;
+	[[maybe_unused]] ImageView& operator=(ImageView&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
 	void Swap(ImageView& rhs) noexcept;
@@ -123,3 +123,15 @@ private:
 
 	ImageViewHandle<G> myView{};
 };
+
+namespace image
+{
+
+template <GraphicsApi G>
+[[nodiscard]] std::pair<Image<G>, ImageView<G>> LoadImage(
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	std::shared_ptr<Image<G>> oldImage = nullptr,
+	std::shared_ptr<ImageView<G>> oldImageView = nullptr);
+
+} // namespace image

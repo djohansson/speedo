@@ -7,7 +7,7 @@
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
-class Client : public RhiApplication
+class Client : public RHIApplication
 {	
 public:
 	~Client() noexcept(false) override;

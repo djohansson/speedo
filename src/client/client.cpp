@@ -164,7 +164,7 @@ void Client::OnEvent()
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
-: RhiApplication(
+: RHIApplication(
 	std::forward<std::string_view>(name),
 	std::forward<Environment>(env),
 	createWindowFunc)
@@ -199,11 +199,11 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gDrawTask = CreateTask(client::Draw);
 	gDrawTaskState = kTaskStateRunning;
 
-	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
-	Executor().Submit(handles);
+	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
+	GetExecutor().Submit(handles);
 
 	// initial OnEvent call required to initialize data structures in imgui (and potentially others)
-	// since RhiApplication draw thread/tasks can launch before next OnEvent is called from main
+	// since RHIApplication draw thread/tasks can launch before next OnEvent is called from main
 	OnEvent();
 }
 

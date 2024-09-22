@@ -27,7 +27,7 @@ enum TaskState : uint8_t
 };
 static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
 
-static std::string Say(const std::string& str)
+std::string Say(const std::string& str)
 {
 	using namespace std::literals;
 
@@ -139,7 +139,7 @@ Server::Server(std::string_view name, Environment&& env)
 
 	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
-	Executor().Submit({&gRpcTask.handle, 1});
+	GetExecutor().Submit({&gRpcTask.handle, 1});
 }
 
 void CreateServer(const PathConfig* paths)

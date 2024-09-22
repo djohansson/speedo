@@ -1,25 +1,22 @@
 # TODO
 
-* todo: compute pipeline
-* todo: generalize drawcall submission & move out of window class. use sorted draw call lists.
+* todo: generalize drawcall submission & move out of rhiapplication class. use sorted draw call lists.
 * todo: multi window/swapchain capability
-* todo: resource loading / manager
 * todo: proper GLTF support
-* todo: (maybe) switch from ms-gltf to cgltf
 * todo: frame graph
 * todo: clustered forward shading
 * todo: shader graph
-* todo: split and clean up concurrency-utils
-* todo: refactor GraphicsContext into separate class
 * todo: (maybe) use Scatter/Gather I/O
 * todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
 * todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 * todo: remove all use of preprocessor macros, and replace with constexpr functions so that we can migrate to using modules.
 
-* in progress: clean up (concurrency-)utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
 * in progress: streamlined project setup process on all platforms.
-* in progress: make RhiApplication & Window class graphics independent (if possible)
+* in progress: make RHIApplication & Window class graphics independent (if possible)
 * in progress: implement interprocess distributed task system using cppzmq &| zpp::bits
+* in progress: compute pipeline
+* in progress: bootstrapped clang & libc++ compiler toolchain used on all platforms. (windows is fragile and tricky to set up, mac and linux should work by now)
+* in progress: resource loading / manager
 
 * done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible
 * done: instrumentation and timing information
@@ -33,5 +30,8 @@
 * done: replace all external deps with vcpkg packages
 * done: replace cereal with glaze & zpp::bits
 * done: untangle client dependencies
+* done: switch from ms-gltf to cgltf
+* done: clean up (concurrency-)utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
 
 * cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
+* cut: refactor GraphicsContext into separate class

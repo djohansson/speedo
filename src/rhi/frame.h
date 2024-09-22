@@ -24,7 +24,7 @@ public:
 	Frame(Frame<G>&& other) noexcept;
 	~Frame() = default;
 
-	[[nodiscard]] Frame& operator=(Frame&& other) noexcept;
+	[[maybe_unused]] Frame& operator=(Frame&& other) noexcept;
 
 	void Swap(Frame& rhs) noexcept;
 	friend void Swap(Frame& lhs, Frame& rhs) noexcept { lhs.Swap(rhs); }

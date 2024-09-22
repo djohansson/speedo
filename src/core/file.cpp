@@ -89,8 +89,8 @@ std::expected<Record, std::error_code> LoadAsset(
 	
 	ZoneScoped;
 
-	auto rootPath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]);
-	auto cacheDir = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]);
+	auto rootPath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]);
+	auto cacheDir = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]);
 	auto cacheDirStatus = std::filesystem::status(cacheDir);
 	if (!std::filesystem::exists(cacheDirStatus) ||
 		!std::filesystem::is_directory(cacheDirStatus))
@@ -139,7 +139,8 @@ std::expected<Record, std::error_code> LoadAsset(
 
 		AssetManifest manifest{asset.value(), cache.value()};
 
-		glz::write<glz::opts{.prettify = true}>(manifest, manifestFile);
+		if (auto result = glz::write<glz::opts{.prettify = true}>(manifest, manifestFile); result.ec != glz::error_code::none)
+			return std::unexpected(std::make_error_code(std::errc::io_error));
 
 		manifestFile.truncate(manifestFile.Size(), error);
 

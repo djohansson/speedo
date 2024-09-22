@@ -13,8 +13,8 @@ public:
 	SlangShaderNode(SlangShaderNode&&) noexcept = default;
 	~SlangShaderNode() = default;
 
-	SlangShaderNode& operator=(const SlangShaderNode&) = default;
-	SlangShaderNode& operator=(SlangShaderNode&&) noexcept = default;
+	[[maybe_unused]] SlangShaderNode& operator=(const SlangShaderNode&) = default;
+	[[maybe_unused]] SlangShaderNode& operator=(SlangShaderNode&&) noexcept = default;
 
 	void Swap(SlangShaderNode& rhs) noexcept;
 	friend void Swap(SlangShaderNode& lhs, SlangShaderNode& rhs) noexcept { lhs.Swap(rhs); }

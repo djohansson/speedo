@@ -90,9 +90,10 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 		spSetDebugInfoFormat(slangRequest, config.debugInfoFormat);
 		spSetOptimizationLevel(slangRequest, config.optimizationLevel);
 		spSetMatrixLayoutMode(slangRequest, config.matrixLayoutMode);
-
-		//spAddPreprocessorDefine(slangRequest, "SHADERTYPES_H_CPU_TARGET", "false");
-
+		
+		for (const auto& [key, value] : config.preprocessorDefinitions)
+			spAddPreprocessorDefine(slangRequest, key.c_str(), value.c_str());
+		
 		int targetIndex = spAddCodeGenTarget(slangRequest, config.target);
 
 		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, config.targetProfile.c_str()));
@@ -203,9 +204,9 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
+	auto loadResult = file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
 
-	CHECKF(!shaderSet.shaders.empty(), "Failed to load shaders.");
+	CHECKF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;
 }

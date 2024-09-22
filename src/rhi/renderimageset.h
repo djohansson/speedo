@@ -20,7 +20,7 @@ public:
 	RenderImageSet(RenderImageSet<G>&& other) noexcept;
 	virtual ~RenderImageSet();
 
-	RenderImageSet& operator=(RenderImageSet<G>&& other) noexcept;
+	[[maybe_unused]] RenderImageSet& operator=(RenderImageSet<G>&& other) noexcept;
 
 	void Swap(RenderImageSet& rhs) noexcept;
 	friend void Swap(RenderImageSet& lhs, RenderImageSet& rhs) noexcept { lhs.Swap(rhs); }

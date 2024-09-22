@@ -16,7 +16,7 @@ public:
 	SamplerVector(SamplerVector&& other) noexcept;
 	~SamplerVector() override;
 
-	SamplerVector& operator=(SamplerVector&& other) noexcept;
+	[[maybe_unused]] SamplerVector& operator=(SamplerVector&& other) noexcept;
 	[[nodiscard]] auto operator[](uint32_t index) const noexcept { return mySamplers[index]; };
 
 	void Swap(SamplerVector& rhs) noexcept;

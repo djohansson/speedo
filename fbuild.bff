@@ -36,7 +36,7 @@
 		.Name = 'core'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -Wno-deprecated-builtins'
@@ -46,7 +46,7 @@
 		.CompilerInputPattern = "*.cpp"
 	]
 
-	.RhiLibrary =
+	.RHILibrary =
 	[
 		Using(.LibraryCommon)
 
@@ -55,9 +55,8 @@
 		.Name = 'rhi'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
-			+ ' -DSHADERTYPES_H_CPU_TARGET'
 			+ ' -DUUID_SYSTEM_GENERATOR'
 #if __WINDOWS__
 			+ ' -DVK_USE_PLATFORM_WIN32_KHR=1'
@@ -90,7 +89,7 @@
 		.Name = 'gfx'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -Wno-deprecated-builtins'
 			+ ' -Wno-missing-braces'
@@ -107,7 +106,7 @@
 		.Name = 'server'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZMQ_BUILD_DRAFT_API'
@@ -127,7 +126,7 @@
 		.Name = 'server'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.c'
 	]
@@ -157,12 +156,12 @@
 	#endif //__WINDOWS__
 	#if __OSX__
 		.CommonExecutableLinkerOptions + ' -framework CoreFoundation'
-			+ ' -rpath @executable_path/../../build.output/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
+			+ ' -rpath @executable_path/../../build/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
 	#endif //__OSX__
-		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.output/packages/$TargetTriplet$/lib'
+		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/lib'
 			+ ' -lmimalloc'
 			+ .CommonExecutableLinkerOptions
-		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.output/packages/$TargetTriplet$/debug/lib'
+		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
 			+ ' -lmimalloc-debug'
 			+ .CommonExecutableLinkerOptions
 	]
@@ -180,7 +179,7 @@
 		.Name = 'client'
 		.LibraryCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
 			+ ' -DZMQ_BUILD_DRAFT_API'
@@ -200,7 +199,7 @@
 		.Name = 'client'
 		.ObjectListCompilerOptions = .CompilerOptionsC
 			+ ' -I$ProjectBasePath$'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ ' -DGLFW_INCLUDE_NONE'
 		.CompilerInputPath = '$ProjectBasePath$/client'
 		.CompilerInputPattern = '*.c'
@@ -216,7 +215,7 @@
 		}
 		.DependencyLibraries = {
 			.CoreLibrary,
-			.RhiLibrary,
+			.RHILibrary,
 			.GfxLibrary
 			.ClientLibrary,
 		}
@@ -246,25 +245,25 @@
 		.CommonExecutableLinkerOptions + ' -framework Cocoa'
 			+ ' -framework IOKit'
 			+ ' -framework CoreVideo'
-			+ ' -rpath @executable_path/../../build.output/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
+			+ ' -rpath @executable_path/../../build/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
 	#endif //__OSX__
 	#if __LINUX__
 		.CommonExecutableLinkerOptions + ' -lm -luuid'
 	#endif //__OSX__
-		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.output/packages/$TargetTriplet$/lib'
+		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/lib'
 			+ ' -lmimalloc'
 			+ ' -limgui'
 			+ .CommonExecutableLinkerOptions
-		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.output/packages/$TargetTriplet$/debug/lib'
+		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
 			+ ' -lmimalloc-debug'
 			+ ' -limguid'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
-		.ReleaseExecutableLinkerOptions + ' -rpath @executable_path/../../build.output/packages/$TargetTriplet$/bin'
-			+ ' -rpath @executable_path/../../build.output/packages/$TargetTriplet$/lib'
+		.ReleaseExecutableLinkerOptions + ' -rpath @executable_path/../../build/packages/$TargetTriplet$/bin'
+			+ ' -rpath @executable_path/../../build/packages/$TargetTriplet$/lib'
 			+ .CommonExecutableLinkerOptions
-		.DebugExecutableLinkerOptions + ' -rpath @executable_path/../../build.output/packages/$TargetTriplet$/debug/bin'
-			+ ' -rpath @executable_path/../../build.output/packages/$TargetTriplet$/debug/lib'
+		.DebugExecutableLinkerOptions + ' -rpath @executable_path/../../build/packages/$TargetTriplet$/debug/bin'
+			+ ' -rpath @executable_path/../../build/packages/$TargetTriplet$/debug/lib'
 			+ .CommonExecutableLinkerOptions
 	#endif
 	]
@@ -278,7 +277,7 @@
 		.Name = 'core-tests'
 		.ObjectListCompilerOptions = .CompilerOptionsCpp
 			+ ' -I$BuildRootPath$/src'
-			+ ' -isystem $BuildRootPath$/build.output/packages/$TargetTriplet$/include'
+			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 		.CompilerInputPath = '$ProjectBasePath$'
 		.CompilerInputPattern = '*.cpp'
@@ -302,19 +301,19 @@
 			+ ' -lcpptrace'
 	#if __OSX__
 		.CommonExecutableLinkerOptions + ' -framework CoreFoundation'
-			+ ' -rpath @executable_path/../../build.output/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
+			+ ' -rpath @executable_path/../../build/toolchain/$SystemTriplet$/tools/llvm/lib/clang/$LLVMVersionMajor$/lib/darwin'
 	#endif //__OSX__
-		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build.output/packages/$TargetTriplet$/lib/'
+		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/lib/'
 			+ ' -lmimalloc'
 			+ ' -lCatch2'
 			+ .CommonExecutableLinkerOptions
-		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build.output/packages/$TargetTriplet$/debug/lib/'
+		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib/'
 			+ ' -lmimalloc-debug'
 			+ ' -lCatch2d'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
-		.ReleaseExecutableLinkerOptions + ' -rpath @executable_path/../../build.output/packages/$TargetTriplet$/lib'
-		.DebugExecutableLinkerOptions + ' -rpath @executable_path/../../build.output/packages/$TargetTriplet$/debug/lib'
+		.ReleaseExecutableLinkerOptions + ' -rpath @executable_path/../../build/packages/$TargetTriplet$/lib'
+		.DebugExecutableLinkerOptions + ' -rpath @executable_path/../../build/packages/$TargetTriplet$/debug/lib'
 	#endif
 	]
 
@@ -328,28 +327,28 @@
 		}
 		.TestOutputName = 'core-tests'
 		.Environment = {
-			'PATH=$BuildRootPath$/build.output/packages/$TargetTriplet$/bin',
+			'PATH=$BuildRootPath$/build/packages/$TargetTriplet$/bin',
 #if __OSX__
-			'DYLD_LIBRARY_PATH=$BuildRootPath$/build.output/packages/$TargetTriplet$/lib',
+			'DYLD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/lib',
 			'DYLD_INSERT_LIBRARIES=libmimalloc$DllSuffix$'
 #endif
 #if __LINUX__
-			'LD_LIBRARY_PATH=$BuildRootPath$/build.output/packages/$TargetTriplet$/lib',
+			'LD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/lib',
 #endif
 		}
 		.DebugEnvironment = {
-			'PATH=$BuildRootPath$/build.output/packages/$TargetTriplet$/debug/bin'
+			'PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/bin'
 #if __OSX__
-			'DYLD_LIBRARY_PATH=$BuildRootPath$/build.output/packages/$TargetTriplet$/debug/lib'
+			'DYLD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
 			'DYLD_INSERT_LIBRARIES=libmimalloc-debug$DllSuffix$'
 #endif
 #if __LINUX__
-			'LD_LIBRARY_PATH=$BuildRootPath$/build.output/packages/$TargetTriplet$/debug/lib'
+			'LD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
 #endif
 		}
 	]
 
-	.VisualStudioFilesDir = '$BuildRootPath$/build.output/visualstudio'
+	.VisualStudioFilesDir = '$BuildRootPath$/build/visualstudio'
 
 	.AllProject =
 	[

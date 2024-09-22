@@ -9,7 +9,8 @@
           "features": [
             "clang",
             "compiler-rt",
-            "libcxx"
+            "libcxx",
+            "tools"
           ]
         }
       ]
@@ -49,6 +50,8 @@
           "name": "speedo",
           "features": [ "common" ]
         },
+        "ade",
+        "cgltf",
         "glfw3",
         "glm",
         {

@@ -1,12 +1,11 @@
 #include "../image.h"
-#include "../rhi.h"
+#include "../rhiapplication.h"
 #include "../shaders/capi.h"
 #include "utils.h"
 
 #include <core/file.h>
 #include <core/math.h>
 #include <core/std_extra.h>
-#include <core/taskexecutor.h>
 
 #include <cstdint>
 #include <execution>
@@ -91,7 +90,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	const std::filesystem::path& imageFile,
 	const std::shared_ptr<Device<kVk>>& device,
-	std::atomic_uint8_t& progress)
+	std::atomic_uint8_t& progressOut)
 {
 	ZoneScopedN("image::load");
 
@@ -101,9 +100,9 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 	desc.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
 
-	auto loadBin = [&imageFile, &initialData, &device, &progress](auto& inStream) -> std::error_code
+	auto loadBin = [&imageFile, &initialData, &device, &progressOut](auto& inStream) -> std::error_code
 	{
-		progress = 32;
+		progressOut = 32;
 
 		auto& [bufferHandle, memoryHandle, desc] = initialData;
 
@@ -126,11 +125,11 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			desc.name.data());
 
-		progress = 64;
+		progressOut = 64;
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
-		auto result = inStream(std::span(static_cast<char*>(data), size));
+		auto result = inStream(std::span(static_cast<stbi_uc*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
@@ -138,12 +137,12 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
 
-		progress = 255;
+		progressOut = 255;
 
 		return {};
 	};
 
-	auto saveBin = [&initialData, &device, &progress](auto& outStream) -> std::error_code
+	auto saveBin = [&initialData, &device, &progressOut](auto& outStream) -> std::error_code
 	{
 		auto& [bufferHandle, memoryHandle, desc] = initialData;
 		
@@ -156,19 +155,19 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
-		auto result = outStream(std::span(static_cast<const char*>(data), size));
+		auto result = outStream(std::span(static_cast<const stbi_uc*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), memoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
 
-		progress = 255;
+		progressOut = 255;
 
 		return {};
 	};
 
-	auto loadImage = [&imageFile, &initialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&imageFile, &initialData, &device, &progressOut](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		progress = 32;
+		progressOut = 32;
 
 		auto& [bufferHandle, memoryHandle, desc] = initialData;
 
@@ -278,7 +277,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		dst += compressBlocks(
 			src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
 
-		progress += 2*dprogress;
+		progressOut += 2*dprogress;
 
 		std::array<std::vector<stbi_uc>, 2> mipBuffers;
 		for (size_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
@@ -339,13 +338,13 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 					4);
 			}
 
-			progress += dprogress;
+			progressOut += dprogress;
 
 			src = mipBuffers[currentBuffer].data();
 			dst +=
 				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
 
-			progress += dprogress;
+			progressOut += dprogress;
 		}
 
 		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
@@ -363,99 +362,15 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
+	auto loadResult = file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
 
-	CHECKF(bufferHandle != nullptr, "Failed to load image.");
+	CHECKF(loadResult && bufferHandle != nullptr, "Failed to load image.");
 
 	return initialData;
 }
 //NOLINTEND(readability-magic-numbers)
 
 } // namespace detail
-
-void LoadImage(Rhi<kVk>& rhi, TaskExecutor& executor, std::string_view openFilePath, std::atomic_uint8_t& progress)
-{
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
-	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
-
-	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
-
-	auto oldImage = rhi.pipeline->GetResources().image;
-	auto oldImageView = rhi.pipeline->GetResources().imageView;
-	
-	TaskCreateInfo<void> transferDone;
-	auto image = std::make_shared<Image<kVk>>(
-		rhi.device,
-		transferDone,
-		transferQueue.GetPool().Commands(),
-		openFilePath,
-		progress);
-	auto imageView = std::make_shared<ImageView<kVk>>(
-		rhi.device,
-		*image,
-		VK_IMAGE_ASPECT_COLOR_BIT);
-
-	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask(
-		[oldImage = std::move(oldImage), oldImageView = std::move(oldImageView)] mutable {
-			 oldImage.reset(); oldImageView.reset(); });
-
-	rhi.pipeline->GetResources().image = image;
-	rhi.pipeline->GetResources().imageView = imageView;
-
-	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(transferDone.handle);
-	timelineCallbacks.emplace_back(oldImageDestroyTask);
-
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
-		{transferSemaphore},
-		{++transferSemaphoreValue},
-		std::move(timelineCallbacks)});
-
-	transferSubmit = transferQueue.Submit();
-
-	///////////
-
-	auto [imageTransitionTask, imageTransitionFuture] = CreateTask<uint32_t>([&rhi](
-		Image<kVk>& image,
-		SemaphoreHandle<kVk> waitSemaphore,
-		uint64_t waitSemaphoreValue,
-		uint32_t graphicsQueueIndex)
-	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(graphicsQueueIndex);
-
-		{
-			auto cmd = graphicsQueue.GetPool().Commands();
-
-			GPU_SCOPE(cmd, graphicsQueue, Transition);
-
-			image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		}
-
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{waitSemaphore},
-			{VK_PIPELINE_STAGE_TRANSFER_BIT},
-			{waitSemaphoreValue},
-			{graphicsSemaphore},
-			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
-
-		rhi.pipeline->SetDescriptorData(
-			"gTextures",
-			DescriptorImageInfo<kVk>{
-				{},
-				*rhi.pipeline->GetResources().imageView,
-				rhi.pipeline->GetResources().image->GetLayout()},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			1);
-	}, *rhi.pipeline->GetResources().image, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
-
-	rhi.drawCalls.enqueue(imageTransitionTask);
-
-	///////////
-}
 
 } // namespace image
 
@@ -560,8 +475,8 @@ Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kV
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
-	TaskCreateInfo<void>& timlineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
+	TaskCreateInfo<void>& timlineCallbackOut,
 	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>>&& initialData)
 	: Image(
 		device,
@@ -581,15 +496,15 @@ Image<kVk>::Image(
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
-	TaskCreateInfo<void>& timlineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	ImageCreateDesc<kVk>&& desc,
 	const void* initialData,
-	size_t initialDataSize)
+	size_t initialDataSize,
+	TaskCreateInfo<void>& timlineCallbackOut)
 	: Image(
 		device,
-		timlineCallbackOut,
 		cmd,
+		timlineCallbackOut,
 		std::tuple_cat(
 			CreateStagingBuffer(
 				device->GetAllocator(),
@@ -602,11 +517,11 @@ Image<kVk>::Image(
 template <>
 Image<kVk>::Image(
 	const std::shared_ptr<Device<kVk>>& device,
-	TaskCreateInfo<void>& timlineCallbackOut,
 	CommandBufferHandle<kVk> cmd,
 	const std::filesystem::path& imageFile,
-	std::atomic_uint8_t& progress)
-	: Image(device, timlineCallbackOut, cmd, image::detail::Load(imageFile, device, progress))
+	std::atomic_uint8_t& progressOut,
+	TaskCreateInfo<void>& timlineCallbackOut)
+	: Image(device, cmd, timlineCallbackOut, image::detail::Load(imageFile, device, progressOut))
 {}
 
 template <>
@@ -665,3 +580,89 @@ void ImageView<kVk>::Swap(ImageView& rhs) noexcept
 	DeviceObject::Swap(rhs);
 	std::swap(myView, rhs.myView);
 }
+
+namespace image
+{
+
+template <>
+std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
+	std::string_view filePath,
+	std::atomic_uint8_t& progressOut,
+	std::shared_ptr<Image<kVk>> oldImage,
+	std::shared_ptr<ImageView<kVk>> oldImageView)
+{
+	ZoneScopedN("image::LoadImage");
+
+	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+	CHECK(app);
+	auto& rhi = app->GetRHI<kVk>();
+
+	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
+
+	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
+
+	// a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
+	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask([oldImage, oldImageView] {});
+
+	TaskCreateInfo<void> transferDone;
+	std::pair<Image<kVk>, ImageView<kVk>> result{
+		Image<kVk>(rhi.device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone),
+		ImageView<kVk>(rhi.device, result.first, VK_IMAGE_ASPECT_COLOR_BIT)};
+
+	std::vector<TaskHandle> timelineCallbacks;
+	timelineCallbacks.emplace_back(transferDone.handle);
+	timelineCallbacks.emplace_back(oldImageDestroyTask);
+
+	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferSubmit.maxTimelineValue},
+		{transferSemaphore},
+		{++transferSemaphoreValue},
+		std::move(timelineCallbacks)});
+
+	transferSubmit = transferQueue.Submit();
+
+	///////////
+
+	auto [imageTransitionTask, imageTransitionFuture] = CreateTask<uint32_t>([&rhi](
+		Image<kVk>& image,
+		ImageView<kVk>& imageView, // todo: use handles or shared ptrs
+		SemaphoreHandle<kVk> waitSemaphore,
+		uint64_t waitSemaphoreValue,
+		uint32_t graphicsQueueIndex)
+	{
+		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(graphicsQueueIndex);
+
+		{
+			auto cmd = graphicsQueue.GetPool().Commands();
+
+			GPU_SCOPE(cmd, graphicsQueue, Transition);
+
+			image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
+
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+			{waitSemaphore},
+			{VK_PIPELINE_STAGE_TRANSFER_BIT},
+			{waitSemaphoreValue},
+			{graphicsSemaphore},
+			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
+
+		rhi.pipeline->SetDescriptorData(
+			"gTextures",
+			DescriptorImageInfo<kVk>{{}, imageView,	image.GetLayout()},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			1);
+	}, result.first, result.second, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
+
+	rhi.drawCalls.enqueue(imageTransitionTask);
+
+	///////////
+
+	return result;
+}
+
+} // namespace image
