@@ -1,33 +1,54 @@
 {
   "name": "speedo",
-  "dependencies": [
-    "catch2",
-    "cargs",
-    "concurrentqueue",
-    {
-      "name": "cppzmq",
-      "features": [
-        "draft"
+  "features": {
+    "toolchain": {
+      "description": "LLVM & libc++ Toolchain",
+      "dependencies": [
+        {
+          "name": "llvm",
+          "features": [
+            "clang",
+            "compiler-rt",
+            "libcxx"
+          ]
+        }
       ]
     },
-    "cpptrace",
-    "fastbuild",
-    "glaze",
-    "mimalloc",
-    "mio",
-    "picosha2",
-    "sha-intrinsics",
-    "stduuid",
-    "tl-function-ref",
-    "unordered-dense",
-    "xxhash",
-    "zpp-bits",
-    "zeromq"
-  ],
-  "features": {
+    "common": {
+      "description": "Common Dependencies for both Client and Server",
+      "dependencies": [
+        "catch2",
+        "cargs",
+        "concurrentqueue",
+        {
+          "name": "cppzmq",
+          "features": [
+            "draft"
+          ]
+        },
+        "cpptrace",
+        "fastbuild",
+        "glaze",
+        "mimalloc",
+        "mio",
+        "picosha2",
+        "sha-intrinsics",
+        "stduuid",
+        "tl-function-ref",
+        "tracy",
+        "unordered-dense",
+        "xxhash",
+        "zpp-bits",
+        "zeromq"
+      ]
+    },
     "client": {
       "description": "Game Client Executable",
       "dependencies": [
+        {
+          "name": "speedo",
+          "features": [ "common" ]
+        },
         "glfw3",
         "glm",
         {
@@ -58,9 +79,12 @@
     "server": {
       "description": "Game Server Executable",
       "dependencies": [
-        "tracy"
+        {
+          "name": "speedo",
+          "features": [ "common" ]
+        }
       ]
     }
   },
-  "builtin-baseline": "1de2026f28ead93ff1773e6e680387643e914ea1"
+  "builtin-baseline": "3508985146f1b1d248c67ead13f8f54be5b4f5da"
 }
