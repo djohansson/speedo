@@ -2,15 +2,22 @@
   "name": "speedo",
   "features": {
     "toolchain": {
-      "description": "LLVM & libc++ Toolchain",
+      "description": "LLVM Toolchain",
       "dependencies": [
         {
           "name": "llvm",
           "features": [
             "clang",
+            "clang-tools-extra",
             "compiler-rt",
             "libcxx",
-            "tools"
+            {
+              "name": "libcxxabi",
+              "platforms": [
+                "osx"
+              ]
+            },
+            "lld"
           ]
         }
       ]

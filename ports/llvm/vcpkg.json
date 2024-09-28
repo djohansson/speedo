@@ -229,7 +229,6 @@
           "default-features": false,
           "features": [
             "clang",
-            "libcxxabi",
             "tools"
           ]
         }
@@ -243,7 +242,6 @@
           "default-features": false,
           "features": [
             "clang",
-            "libcxx",
             "tools"
           ]
         }

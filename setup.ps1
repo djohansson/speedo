@@ -32,7 +32,8 @@ else
 $VcpkgRoot = Initialize-Vcpkg
 $Arch = Get-NativeArchitecture
 $OS = Get-NativeOS
-$SystemTriplet = "$Arch-$OS-release" # or --cmake-args=-DVCPKG_BUILD_TYPE=release
+
+$SystemTriplet = "$Arch-$OS-release"
 $TargetTriplet = "$Arch-$OS-clang"
 
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
