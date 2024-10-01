@@ -172,7 +172,7 @@ private:
 template <GraphicsApi G>
 using QueueHostSyncContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
 template <GraphicsApi G>
-using QueueTimelineContext = std::pair<std::vector<QueueHostSyncContext<G>>, Semaphore<G>>;
+using QueueTimelineContext = std::tuple<Semaphore<G>, CopyableAtomic<uint64_t>, std::vector<QueueHostSyncContext<G>>>;
 
 #if (PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag)                                                             \

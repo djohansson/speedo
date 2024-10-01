@@ -172,24 +172,24 @@ void CreateQueues(RHI<kVk>& rhi)
 
 	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(
 		kQueueTypeGraphics,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, std::vector<QueueHostSyncContext<kVk>>{}));
 
 	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(
 		kQueueTypeCompute,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, std::vector<QueueHostSyncContext<kVk>>{}));
 
 	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(
 		kQueueTypeTransfer,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, std::vector<QueueHostSyncContext<kVk>>{}));
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
 		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
-	auto& [computeQueueInfos, computeSemaphore] = queues[kQueueTypeCompute];
-	auto& [transferQueueInfos, transferSemaphore] = queues[kQueueTypeTransfer];
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = queues[kQueueTypeGraphics];
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = queues[kQueueTypeCompute];
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = queues[kQueueTypeTransfer];
 
 	const auto& queueFamilies = rhi.device->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)

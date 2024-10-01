@@ -440,10 +440,8 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 	CHECK(app);
 	auto& rhi = app->GetRHI<kVk>();
 	
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
 	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
-	
-	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
 
 	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto model = Model<kVk>(

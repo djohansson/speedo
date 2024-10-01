@@ -62,8 +62,8 @@ public:
 	friend void Swap(Image& lhs, Image& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
-	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myImage); }
-	[[nodiscard]] const auto& GetLayout() const noexcept { return std::get<2>(myImage); }
+	[[nodiscard]] auto GetMemory() const noexcept { return std::get<1>(myImage); }
+	[[nodiscard]] auto GetLayout() const noexcept { return std::get<2>(myImage); }
 
 	enum class ClearType : uint8_t
 	{

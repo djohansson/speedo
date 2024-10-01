@@ -615,7 +615,7 @@ static void IMGUIInit(
 	StyleColorsClassic();
 	io.FontDefault = defaultFont;
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 	auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 
 	// Setup Vulkan binding
@@ -791,7 +791,7 @@ void RHIApplication::InternalDraw()
 	IMGUIPrepareDraw = CreateTask(IMGUIPrepareDrawFunction, rhi, GetExecutor());
 	GetExecutor().Submit({&IMGUIPrepareDraw.handle, 1});
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
 		ZoneScopedN("rhi::draw::processGraphics");
@@ -799,7 +799,15 @@ void RHIApplication::InternalDraw()
 		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSemaphore.GetValue());
 	}
 
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
+	for (auto& [computeQueue, computeSubmit] : computeQueueInfos)	
+	{
+		ZoneScopedN("rhi::draw::processCompute");
+
+		computeQueue.SubmitCallbacks(GetExecutor(), computeSemaphore.GetValue());
+	}
+
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
 	for (auto& [transferQueue, transferSubmit] : transferQueueInfos)	
 	{
 		ZoneScopedN("rhi::draw::processTransfers");
@@ -813,20 +821,18 @@ void RHIApplication::InternalDraw()
 	{
 		ZoneScopedN("rhi::draw::submit");
 
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 		static uint8_t graphicsQueueIndex = 0;
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos[graphicsQueueIndex++ % graphicsQueueInfos.size()];
 		
-		auto& [computeQueueInfos, computeSemaphore] = rhi.queues[kQueueTypeCompute];
+		auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
 		static uint8_t computeQueueIndex = 0;
 		auto& [computeQueue, computeSubmit] = computeQueueInfos[computeQueueIndex++ % computeQueueInfos.size()];
 		auto& newFrame = window.GetFrames()[newFrameIndex];
 		
-		//if (auto timelineValue = graphicsSubmit.maxTimelineValue; timelineValue)
 		{
 			ZoneScopedN("rhi::draw::waitGraphics");
 
-			//graphicsSemaphore.Wait(timelineValue);
 			graphicsQueue.WaitIdle();
 		}
 		
@@ -1046,9 +1052,7 @@ void RHIApplication::InternalDraw()
 			}
 
 			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
-				graphicsQueue.Execute(
-					threadIt,
-					1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed));
+				graphicsQueue.Execute(threadIt, ++graphicsSemaphoreValue);
 
 			renderImageSet.End(cmd);
 		}
@@ -1104,7 +1108,7 @@ void RHIApplication::InternalDraw()
 			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
 			{graphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore, newFrame.GetSemaphore()},
-			{1 + device.TimelineValue().fetch_add(1, std::memory_order_relaxed), 0},
+			{++graphicsSemaphoreValue, 0},
 			{}});
 
 		computeSubmit = graphicsSubmit = graphicsQueue.Submit();
@@ -1169,7 +1173,7 @@ RHIApplication::RHIApplication(
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
@@ -1228,7 +1232,7 @@ RHIApplication::RHIApplication(
 			{},
 			{},
 			{graphicsSemaphore},
-			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)},
+			{++graphicsSemaphoreValue},
 			std::move(timelineCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
@@ -1325,7 +1329,7 @@ RHIApplication::~RHIApplication() noexcept(false)
 	auto device = rhi.device;
 	auto instance = rhi.instance;
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
 		ZoneScopedN("~RHIApplication()::waitGraphics");
@@ -1334,7 +1338,16 @@ RHIApplication::~RHIApplication() noexcept(false)
 		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSubmit.maxTimelineValue);
 	}
 
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
+	for (auto& [computeQueue, computeSubmit] : computeQueueInfos)	
+	{
+		ZoneScopedN("~RHIApplication()::waitCompute");
+
+		computeQueue.WaitIdle();
+		computeQueue.SubmitCallbacks(GetExecutor(), computeSubmit.maxTimelineValue);
+	}
+
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
 	for (auto& [transferQueue, transferSubmit] : transferQueueInfos)	
 	{
 		ZoneScopedN("~RHIApplication()::waitTransfer");
@@ -1381,7 +1394,7 @@ void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 
 	auto& rhi = GetRHI<kVk>();
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 	for (auto& [graphicsQueue, graphicsSubmit] : graphicsQueueInfos)	
 	{
 		ZoneScopedN("RHIApplication::OnResizeFramebuffer::waitGraphics");
