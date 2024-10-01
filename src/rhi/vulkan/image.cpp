@@ -508,6 +508,15 @@ Image<kVk>::~Image()
 }
 
 template <>
+Image<kVk>& Image<kVk>::operator=(Image<kVk>&& other) noexcept
+{
+	DeviceObject::operator=(std::forward<Image>(other));
+	myImage = std::exchange(other.myImage, {});
+	myDesc = std::exchange(other.myDesc, {});
+	return *this;
+}
+
+template <>
 ImageView<kVk>::ImageView(ImageView&& other) noexcept
 	: DeviceObject(std::forward<ImageView>(other))
 	, myView(std::exchange(other.myView, {}))
@@ -582,9 +591,9 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask([oldImage, oldImageView] {});
 
 	TaskCreateInfo<void> transferDone;
-	std::pair<Image<kVk>, ImageView<kVk>> result{
-		Image<kVk>(rhi.device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone),
-		ImageView<kVk>(rhi.device, result.first, VK_IMAGE_ASPECT_COLOR_BIT)};
+	std::pair<Image<kVk>, ImageView<kVk>> result;
+	result.first = Image<kVk>(rhi.device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
+	result.second = ImageView<kVk>(rhi.device, result.first, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	std::vector<TaskHandle> timelineCallbacks;
 	timelineCallbacks.emplace_back(transferDone.handle);
