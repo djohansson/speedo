@@ -16,8 +16,8 @@ public:
 	}
 	~LockedReadScope() noexcept { myMutex.unlock_shared(); }
 
-	const T* operator->() const noexcept { return &myData; }
-	const T& operator*() const noexcept { return myData; }
+	[[nodiscard]] const T* operator->() const noexcept { return &myData; }
+	[[nodiscard]] const T& operator*() const noexcept { return myData; }
 
 private:
 	LockedReadScope() = delete;
@@ -42,8 +42,8 @@ public:
 	}
 	~LockedWriteScope() noexcept { myMutex.unlock(); }
 
-	T* operator->() const noexcept { return &myData; }
-	T& operator*() const noexcept { return myData; }
+	[[nodiscard]] T* operator->() const noexcept { return &myData; }
+	[[nodiscard]] T& operator*() const noexcept { return myData; }
 
 private:
 	LockedWriteScope() = delete;
