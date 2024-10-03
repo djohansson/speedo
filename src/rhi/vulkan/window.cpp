@@ -29,9 +29,10 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 	ASSERT(viewCount <= SHADER_TYPES_VIEW_COUNT);
+	auto cameras = myCameras.Read();
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{
-		auto mvp = myCameras[viewIt].GetProjectionMatrix() * myCameras[viewIt].GetViewMatrix();
+		auto mvp = cameras.Get()[viewIt].GetProjectionMatrix() * cameras.Get()[viewIt].GetViewMatrix();
 #if (GLM_ARCH & GLM_ARCH_AVX_BIT) && (GRAPHICS_VALIDATION_LEVEL <= 1)
 		_mm256_stream_ps(&viewDataPtr->viewProjection[0][0], _mm256_insertf128_ps(_mm256_castps128_ps256(mvp[0].data), mvp[1].data, 1));
 		_mm256_stream_ps(&viewDataPtr->viewProjection[2][0], _mm256_insertf128_ps(_mm256_castps128_ps256(mvp[2].data), mvp[3].data, 1));
@@ -58,7 +59,9 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 template <>
 void Window<kVk>::InternalInitializeViews()
 {
-	myCameras.resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
+	auto cameras = myCameras.Write();
+
+	cameras.Get().resize(myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 
 	unsigned width = myConfig.swapchainConfig.extent.width / myConfig.splitScreenGrid.width;
 	unsigned height = myConfig.swapchainConfig.extent.height / myConfig.splitScreenGrid.height;
@@ -66,7 +69,7 @@ void Window<kVk>::InternalInitializeViews()
 	for (unsigned j = 0; j < myConfig.splitScreenGrid.height; j++)
 		for (unsigned i = 0; i < myConfig.splitScreenGrid.width; i++)
 		{
-			auto& cam = myCameras[j * myConfig.splitScreenGrid.width + i];
+			auto& cam = cameras.Get()[j * myConfig.splitScreenGrid.width + i];
 			cam.GetDesc().viewport.x = i * width;
 			cam.GetDesc().viewport.y = j * height;
 			cam.GetDesc().viewport.width = width;
@@ -113,6 +116,8 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 {
 	ZoneScopedN("Window::InternalUpdateViews");
 
+	auto cameras = myCameras.Write();
+
 	myTimestamps[1] = myTimestamps[0];
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
@@ -123,7 +128,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 		// todo: generic view index calculation
 		size_t viewIdx = myConfig.splitScreenGrid.width * input.mouse.position[0] / (myConfig.swapchainConfig.extent.width / myConfig.contentScale.x);
 		size_t viewIdy = myConfig.splitScreenGrid.height * input.mouse.position[1] / (myConfig.swapchainConfig.extent.height / myConfig.contentScale.y);
-		myActiveCamera = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, myCameras.size() - 1);
+		myActiveCamera = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, cameras.Get().size() - 1);
 
 		//std::cout << *myActiveCamera << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
 	}
@@ -166,7 +171,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 			}
 		}
 
-		auto& view = myCameras[*myActiveCamera];
+		auto& view = cameras.Get()[*myActiveCamera];
 
 		bool doUpdateViewMatrix = false;
 
@@ -214,7 +219,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 
 		if (doUpdateViewMatrix)
 		{
-			myCameras[*myActiveCamera].UpdateViewMatrix();
+			cameras.Get()[*myActiveCamera].UpdateViewMatrix();
 		}
 	}
 }

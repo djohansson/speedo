@@ -101,7 +101,7 @@ public:
 		, myData(std::exchange(other.myData, {})) {}
 	~LockedAccess() noexcept = default;
 
-	[[nodiscard]] LockedAccess& operator=(LockedAccess&& other) noexcept
+	[[maye_unused]] LockedAccess& operator=(LockedAccess&& other) noexcept
 	{
 		if (this != &other)
 		{
@@ -111,7 +111,7 @@ public:
 		return *this;
 	}
 
-	[[nodiscard]] auto Read() noexcept { return LockedReadScope(myData, myMutex); }
+	[[nodiscard]] auto Read() const noexcept { return LockedReadScope(myData, myMutex); }
 	[[nodiscard]] auto Write() noexcept { return LockedWriteScope(myData, myMutex); }
 
 	void Swap(LockedAccess& rhs) noexcept
@@ -125,6 +125,6 @@ private:
 	LockedAccess(const LockedAccess&) = delete;
 	LockedAccess& operator=(const LockedAccess&) = delete;
 
-	MutexT myMutex{};
+	mutable MutexT myMutex{};
 	T myData{};
 };
