@@ -3,6 +3,7 @@
 
 #include <core/assert.h>
 #include <core/file.h>
+#include <core/lockedaccess.h>
 #include <core/upgradablesharedmutex.h>
 #include <server/rpc.h>
 
@@ -10,7 +11,6 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
 #include <string>
 #include <system_error>
 
@@ -18,8 +18,7 @@ namespace client
 {
 
 static TaskCreateInfo<void> gUpdateTask, gDrawTask, gRpcTask;
-static UpgradableSharedMutex gClientApplicationMutex;
-static std::shared_ptr<Client> gClientApplication;
+static LockedAccess<std::shared_ptr<Client>> gClientApplication;
 enum TaskState : uint8_t
 {
 	kTaskStateNone = 0,
@@ -44,7 +43,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	std::shared_lock lock{gClientApplicationMutex};
+	auto appPtrReadScope = gClientApplication.Read();
 
 	static constexpr unsigned kBufferSize = 64;
 	std::array<std::byte, kBufferSize> responseData;
@@ -113,9 +112,9 @@ static void Update()
 		return;
 	}
 
-	std::shared_lock lock{gClientApplicationMutex};
+	auto appPtrReadScope = gClientApplication.Read();
 
-	gClientApplication->UpdateInput();
+	appPtrReadScope->UpdateInput();
 
 	auto drawTask = CreateTask(Draw);
 	AddDependency(gUpdateTask.handle, drawTask.handle, true);
@@ -126,9 +125,9 @@ static void Draw()
 {
 	ZoneScopedN("client::Draw");
 
-	std::shared_lock lock{gClientApplicationMutex};
+	auto appPtrReadScope = gClientApplication.Read();
 
-	gClientApplication->Draw();
+	appPtrReadScope->Draw();
 
 	auto updateTask = CreateTask(Update);
 	AddDependency(gDrawTask.handle, updateTask.handle, true);
@@ -203,13 +202,11 @@ bool TickClient()
 {	
 	using namespace client;
 
-	std::shared_lock lock{gClientApplicationMutex};
+	auto appPtrReadScope = gClientApplication.Read();
 
-	ASSERT(gClientApplication);
+	appPtrReadScope->Tick();
 
-	gClientApplication->Tick();
-
-	return !gClientApplication->IsExitRequested();
+	return !appPtrReadScope->IsExitRequested();
 }
 
 void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
@@ -230,9 +227,9 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		return;
 	}
 
-	std::unique_lock lock{gClientApplicationMutex};
+	auto appPtrWriteScope = gClientApplication.Write();
 
-	gClientApplication = Application::Create<Client>(
+	appPtrWriteScope = Application::Create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root.value()},
@@ -241,7 +238,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	ASSERT(gClientApplication);
+	ASSERT(appPtrWriteScope.Get());
 }
 
 void DestroyClient()
@@ -254,10 +251,10 @@ void DestroyClient()
 	gRpcTaskState.wait(kTaskStateShuttingDown);
 	gUpdateTaskState.wait(kTaskStateShuttingDown);
 
-	std::unique_lock lock{gClientApplicationMutex};
+	auto appPtrWriteScope = gClientApplication.Write();
 
-	ASSERT(gClientApplication);
-	ASSERT(gClientApplication.use_count() == 1);
+	ASSERT(appPtrWriteScope.Get());
+	ASSERT(appPtrWriteScope.Get().use_count() == 1);
 	
-	gClientApplication.reset();
+	appPtrWriteScope.Get().reset();
 }

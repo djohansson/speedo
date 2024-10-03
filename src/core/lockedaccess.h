@@ -1,5 +1,6 @@
 #pragma once
 
+#include "std_extra.h"
 #include "upgradablesharedmutex.h"
 
 #include <utility>
@@ -9,15 +10,27 @@ class LockedReadScope
 {
 public:
 	explicit LockedReadScope(const T& data, MutexT& mutex) noexcept
-		: myData(data)
-		, myMutex(mutex)
+		: myMutex(mutex)
+		, myData(data)
 	{
 		myMutex.lock_shared();
 	}
 	~LockedReadScope() noexcept { myMutex.unlock_shared(); }
 
-	[[nodiscard]] const T* operator->() const noexcept { return &myData; }
-	[[nodiscard]] const T& operator*() const noexcept { return myData; }
+	[[nodiscard]] auto* operator->() const noexcept
+	{
+		if constexpr (std_extra::is_pointer_like_v<T>)
+			return myData.operator->();
+		else return &myData;
+	}
+	[[nodiscard]] auto& operator*() const noexcept
+	{
+		if constexpr (std_extra::is_pointer_like_v<T>)
+			return myData.operator*();
+		else return myData;
+	}
+
+	const auto& Get() const noexcept { return myData; }
 
 private:
 	LockedReadScope() = delete;
@@ -26,8 +39,8 @@ private:
 	LockedReadScope& operator=(const LockedReadScope&) = delete;
 	LockedReadScope& operator=(LockedReadScope&&) = delete;
 
-	const T& myData;
 	MutexT& myMutex;
+	const T& myData;
 };
 
 template <typename T, typename MutexT>
@@ -35,16 +48,34 @@ class LockedWriteScope
 {
 public:
 	explicit LockedWriteScope(T& data, MutexT& mutex) noexcept
-		: myData(data)
-		, myMutex(mutex)
+		: myMutex(mutex)
+		, myData(data)
 	{
 		myMutex.lock();
 	}
 	~LockedWriteScope() noexcept { myMutex.unlock(); }
 
-	[[nodiscard]] T* operator->() const noexcept { return &myData; }
-	[[nodiscard]] T& operator*() const noexcept { return myData; }
+	[[maybe_unused]] LockedWriteScope& operator=(T&& data) noexcept
+	{
+		myData = std::forward<T>(data);
+		return *this;
+	}
 
+	[[nodiscard]] auto* operator->() const noexcept
+	{
+		if constexpr (std_extra::is_pointer_like_v<T>)
+			return myData.operator->();
+		else return &myData;
+	}
+	[[nodiscard]] auto& operator*() const noexcept
+	{
+		if constexpr (std_extra::is_pointer_like_v<T>)
+			return myData.operator*();
+		else return myData;
+	}
+
+	auto& Get() noexcept { return myData; }
+	
 private:
 	LockedWriteScope() = delete;
 	LockedWriteScope(const LockedWriteScope&) = delete;
@@ -52,8 +83,8 @@ private:
 	LockedWriteScope& operator=(const LockedWriteScope&) = delete;
 	LockedWriteScope& operator=(LockedWriteScope&&) = delete;
 
-	T& myData;
 	MutexT& myMutex;
+	T& myData;
 };
 
 template <typename T, typename MutexT = UpgradableSharedMutex>
@@ -66,16 +97,16 @@ public:
 	LockedAccess() noexcept {}
 	LockedAccess(T&& data) noexcept : myData(std::forward<T>(data)) {}
 	LockedAccess(LockedAccess&& other) noexcept
-		: myData(std::exchange(other.myData, {}))
-		, myMutex(std::exchange(other.myMutex, {})) {}
+		: myMutex(std::exchange(other.myMutex, {}))
+		, myData(std::exchange(other.myData, {})) {}
 	~LockedAccess() noexcept = default;
 
 	[[nodiscard]] LockedAccess& operator=(LockedAccess&& other) noexcept
 	{
 		if (this != &other)
 		{
-			myData = std::exchange(other.myData, {});
 			myMutex = std::exchange(other.myMutex, {});
+			myData = std::exchange(other.myData, {});
 		}
 		return *this;
 	}
@@ -85,8 +116,8 @@ public:
 
 	void Swap(LockedAccess& rhs) noexcept
 	{
-		std::swap(myData, rhs.myData);
 		std::swap(myMutex, rhs.myMutex);
+		std::swap(myData, rhs.myData);
 	}
 	friend void Swap(LockedAccess& lhs, LockedAccess& rhs) noexcept { lhs.Swap(rhs); }
 
@@ -94,6 +125,6 @@ private:
 	LockedAccess(const LockedAccess&) = delete;
 	LockedAccess& operator=(const LockedAccess&) = delete;
 
-	T myData{};
 	MutexT myMutex{};
+	T myData{};
 };
