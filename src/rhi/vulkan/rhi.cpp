@@ -172,15 +172,15 @@ void CreateQueues(RHI<kVk>& rhi)
 
 	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(
 		kQueueTypeGraphics,
-		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, LockedAccess<std::vector<QueueContext<kVk>>>{}));
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
 
 	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(
 		kQueueTypeCompute,
-		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, LockedAccess<std::vector<QueueContext<kVk>>>{}));
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
 
 	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(
 		kQueueTypeTransfer,
-		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, LockedAccess<std::vector<QueueContext<kVk>>>{}));
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{

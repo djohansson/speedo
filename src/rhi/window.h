@@ -10,7 +10,7 @@
 #include <core/capi.h>
 #include <core/file.h>
 #include <core/inputstate.h>
-#include <core/lockedaccess.h>
+#include <core/concurrentaccess.h>
 #include <core/utils.h>
 
 #include <gfx/glm_extra.h>
@@ -83,7 +83,7 @@ private:
 	WindowState myState{};
 	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
-	LockedAccess<std::vector<Camera>> myCameras;
+	ConcurrentAccess<std::vector<Camera>> myCameras;
 	std::optional<size_t> myActiveCamera;
 };
 

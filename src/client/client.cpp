@@ -3,7 +3,7 @@
 
 #include <core/assert.h>
 #include <core/file.h>
-#include <core/lockedaccess.h>
+#include <core/concurrentaccess.h>
 #include <core/upgradablesharedmutex.h>
 #include <server/rpc.h>
 
@@ -18,7 +18,7 @@ namespace client
 {
 
 static TaskCreateInfo<void> gUpdateTask, gDrawTask, gRpcTask;
-static LockedAccess<std::shared_ptr<Client>> gClientApplication;
+static ConcurrentAccess<std::shared_ptr<Client>> gClientApplication;
 enum TaskState : uint8_t
 {
 	kTaskStateNone = 0,
@@ -42,8 +42,6 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		gRpcTaskState.notify_one();
 		return;
 	}
-
-	auto appPtrReadScope = gClientApplication.Read();
 
 	static constexpr unsigned kBufferSize = 64;
 	std::array<std::byte, kBufferSize> responseData;
@@ -86,7 +84,6 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 			}
 		}
 
-		// IMPORTANT: check for if we are shutting down. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
 		if (gRpcTaskState == kTaskStateShuttingDown)
 		{
 			gRpcTaskState = kTaskStateDone;
@@ -112,9 +109,7 @@ static void Update()
 		return;
 	}
 
-	auto appPtrReadScope = gClientApplication.Read();
-
-	appPtrReadScope->UpdateInput();
+	ConcurrentReadScope(gClientApplication)->UpdateInput();
 
 	auto drawTask = CreateTask(Draw);
 	AddDependency(gUpdateTask.handle, drawTask.handle, true);
@@ -125,9 +120,7 @@ static void Draw()
 {
 	ZoneScopedN("client::Draw");
 
-	auto appPtrReadScope = gClientApplication.Read();
-
-	appPtrReadScope->Draw();
+	ConcurrentReadScope(gClientApplication)->Draw();
 
 	auto updateTask = CreateTask(Update);
 	AddDependency(gDrawTask.handle, updateTask.handle, true);
@@ -202,11 +195,11 @@ bool TickClient()
 {	
 	using namespace client;
 
-	auto appPtrReadScope = gClientApplication.Read();
+	auto appPtr = ConcurrentReadScope(gClientApplication);
 
-	appPtrReadScope->Tick();
+	appPtr->Tick();
 
-	return !appPtrReadScope->IsExitRequested();
+	return !appPtr->IsExitRequested();
 }
 
 void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
@@ -227,9 +220,9 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		return;
 	}
 
-	auto appPtrWriteScope = gClientApplication.Write();
+	auto appPtr = ConcurrentWriteScope(gClientApplication);
 
-	appPtrWriteScope = Application::Create<Client>(
+	appPtr = Application::Create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root.value()},
@@ -238,7 +231,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	ASSERT(appPtrWriteScope.Get());
+	ASSERT(appPtr.Get());
 }
 
 void DestroyClient()
@@ -251,10 +244,10 @@ void DestroyClient()
 	gRpcTaskState.wait(kTaskStateShuttingDown);
 	gUpdateTaskState.wait(kTaskStateShuttingDown);
 
-	auto appPtrWriteScope = gClientApplication.Write();
+	auto appPtr = ConcurrentWriteScope(gClientApplication);
 
-	ASSERT(appPtrWriteScope.Get());
-	ASSERT(appPtrWriteScope.Get().use_count() == 1);
+	ASSERT(appPtr.Get());
+	ASSERT(appPtr.Get().use_count() == 1);
 	
-	appPtrWriteScope.Get().reset();
+	appPtr.Get().reset();
 }
