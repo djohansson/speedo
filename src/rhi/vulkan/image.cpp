@@ -23,7 +23,7 @@
 #include <stb_dxt.h>
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include <stb_image_resize.h>
+#include <stb_image_resize2.h>
 
 #include <zpp_bits.h>
 
@@ -307,7 +307,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 						auto threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
 
-						stbir_resize_uint8(
+						stbir_resize_uint8_linear(
 							src + threadId * threadRowCount * previousExtent.width * 4,
 							static_cast<int>(previousExtent.width),
 							static_cast<int>(threadRowCount + threadRowCountRest),
@@ -317,14 +317,14 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 							static_cast<int>(currentExtent.width),
 							static_cast<int>(((threadRowCount + threadRowCountRest) >> 1)),
 							static_cast<int>(currentExtent.width * 4),
-							4);
+							STBIR_RGBA);
 					});
 			}
 			else
 			{
 				ZoneScopedN("image::loadImage::mip::resize");
 
-				stbir_resize_uint8(
+				stbir_resize_uint8_linear(
 					src,
 					static_cast<int>(previousExtent.width),
 					static_cast<int>(previousExtent.height),
@@ -333,7 +333,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 					static_cast<int>(currentExtent.width),
 					static_cast<int>(currentExtent.height),
 					static_cast<int>(currentExtent.width * 4),
-					4);
+					STBIR_RGBA);
 			}
 
 			progressOut += dprogress;
