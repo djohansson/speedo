@@ -6,10 +6,14 @@
       "dependencies": [
         {
           "name": "llvm",
+          "default-features": false,
           "features": [
             "clang",
             "compiler-rt",
+            "default-targets",
             "libcxx",
+            "libcxxabi",
+            "lld",
             "tools"
           ]
         }
