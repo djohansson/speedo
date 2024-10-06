@@ -4,7 +4,8 @@ include_guard()
 
 # todo: import LLVMConfig.cmake
 
-set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM root path")
+set(LLVM_PATH $ENV{LLVM_PATH} CACHE PATH "LLVM root path")
+set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM tools path")
 set(LLVM_VERSION_MAJOR $ENV{LLVM_VERSION_MAJOR} CACHE PATH "LLVM major version")
 
 # todo: cross-compiling support. this is currently not used.
@@ -87,26 +88,17 @@ else()
 	set(CLANG_COMMON_FLAGS "${CLANG_COMMON_FLAGS} -march=native")
 endif()
 set(CLANG_C_FLAGS "")
-set(CLANG_CXX_FLAGS "")
-set(LLD_COMMON_FLAGS "")
+#set(CLANG_C_FLAGS "-pthread")
+#set(CLANG_C_FLAGS "-nostdinc") # todo: use llvm libc headers
+set(CLANG_CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
+#set(LLD_COMMON_FLAGS "-L${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -Wl,-Bstatic -lc++ -Wl,-Bdynamic")
+set(LLD_COMMON_FLAGS "-L${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib -lc++ -lc++abi")
 set(LLD_COMMON_FLAGS_DEBUG "")
 set(LLD_COMMON_FLAGS_RELEASE "")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(CLANG_COMMON_FLAGS "${CLANG_COMMON_FLAGS} -Xclang -cfguard")
-	# fixme: this is not corrent to set here, since for example vcpkg sets this outside of the toolchain (VCPKG_CRT_LINKAGE)
-	# but since this is not working correctly on windows atm we work around this by setting it here for now.
-	# the problem seems to be with libraries that are tagged as forced static linkage only in vcpkg, causing crt lib mismatches.
-	# we should investigate this further and fix it properly.
-	set(LLD_COMMON_FLAGS_DEBUG "-lmsvcrtd")
-	set(LLD_COMMON_FLAGS_RELEASE "-lmsvcrt")
-	# set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-	# set(CMAKE_STANDARD_LIBRARIES "kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib psapi.lib ws2_32.lib iphlpapi.lib crypt32.lib userenv.lib")
-	# set(CMAKE_STANDARD_LIBRARIES_DEBUG "msvcrtd.lib")
-	# set(CMAKE_STANDARD_LIBRARIES_RELEASE "msvcrt.lib")
 else()
-	set(CLANG_CXX_FLAGS "${CLANG_CXX_FLAGS} -stdlib=libc++")
-	set(LLD_COMMON_FLAGS "${LLD_COMMON_FLAGS} -lc++ -lc++abi")
 	if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 		set(CLANG_C_FLAGS "${CLANG_C_FLAGS} -D_GNU_SOURCE")
 		set(LLD_COMMON_FLAGS "${LLD_COMMON_FLAGS} -Wl,--undefined-version")
