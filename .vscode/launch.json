@@ -14,7 +14,7 @@
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/debug/lib",
+				"LD_LIBRARY_PATH": "${env:LD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/debug/lib:${workspaceFolder}/build/toolchain/arm64-linux-release/lib",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
@@ -28,7 +28,7 @@
 			"terminal": "console",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib",
+				"LD_LIBRARY_PATH": "${env:LD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib:${workspaceFolder}/build/toolchain/arm64-linux-release/lib",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
@@ -42,7 +42,7 @@
 			"terminal": "console",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
-				"LD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib",
+				"LD_LIBRARY_PATH": "${env:LD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib:${workspaceFolder}/build/toolchain/arm64-linux-release/lib",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-linux-clang/share/vulkan/explicit_layer.d"
 			}
 		},
