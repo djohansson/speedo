@@ -329,21 +329,21 @@
 		.Environment = {
 			'PATH=$BuildRootPath$/build/packages/$TargetTriplet$/bin',
 #if __OSX__
-			'DYLD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/lib',
+			'DYLD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/lib:$BuildRootPath$/build/toolchain/$SystemTriplet$/lib',
 			'DYLD_INSERT_LIBRARIES=libmimalloc$DllSuffix$'
 #endif
 #if __LINUX__
-			'LD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/lib',
+			'LD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/lib:$BuildRootPath$/build/toolchain/$SystemTriplet$/lib',
 #endif
 		}
 		.DebugEnvironment = {
 			'PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/bin'
 #if __OSX__
-			'DYLD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
+			'DYLD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib:$BuildRootPath$/build/toolchain/$SystemTriplet$/lib'
 			'DYLD_INSERT_LIBRARIES=libmimalloc-debug$DllSuffix$'
 #endif
 #if __LINUX__
-			'LD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
+			'LD_LIBRARY_PATH=$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib:$BuildRootPath$/build/toolchain/$SystemTriplet$/lib'
 #endif
 		}
 	]
