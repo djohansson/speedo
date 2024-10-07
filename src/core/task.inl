@@ -26,7 +26,7 @@ static void InternalInvoke(void* callablePtr, const void* argsPtr, void* statePt
 	else
 		state.value = std::apply(callable, std::tuple_cat(args, params));
 
-	auto& latch = state.Latch();
+	auto latch = state.Latch();
 
 	auto counter = latch.fetch_sub(1, std::memory_order_release) - 1;
 	ASSERTF(counter == 0, "Latch counter should be zero!");

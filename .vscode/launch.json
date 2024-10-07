@@ -59,7 +59,7 @@
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/debug/lib:${workspaceFolder}/build/toolchain/arm64-osx-release/lib",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/debug/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
@@ -76,7 +76,7 @@
 			"terminal": "console",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib:${workspaceFolder}/build/toolchain/arm64-osx-release/lib",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
@@ -92,7 +92,7 @@
 			"terminal": "console",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib:${workspaceFolder}/build/toolchain/arm64-osx-release/lib",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
 				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
@@ -111,7 +111,7 @@
 				"MIMALLOC_VERBOSE": "1",
 				"MIMALLOC_SHOW_ERRORS": "1",
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/debug/lib:${workspaceFolder}/build/toolchain/arm64-osx-release/lib",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/debug/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
 			}
@@ -126,7 +126,7 @@
 			"terminal": "integrated",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib:${workspaceFolder}/build/toolchain/arm64-osx-release/lib",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib"
 			}
 		},
@@ -140,7 +140,7 @@
 			"terminal": "integrated",
 			"env": {
 				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/bin",
-				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib:${workspaceFolder}/build/toolchain/arm64-osx-release/lib",
+				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib"
 			}
 		},

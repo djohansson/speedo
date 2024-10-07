@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.25.1)
 include_guard()
 
 # todo: import LLVMConfig.cmake
-
 set(LLVM_PATH $ENV{LLVM_PATH} CACHE PATH "LLVM root path")
 set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM tools path")
 set(LLVM_VERSION_MAJOR $ENV{LLVM_VERSION_MAJOR} CACHE PATH "LLVM major version")
@@ -82,17 +81,18 @@ endif()
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(CLANG_COMMON_FLAGS "")
+set(LLD_COMMON_FLAGS "")
+
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
 	set(CLANG_COMMON_FLAGS "${CLANG_COMMON_FLAGS} -march=native+crc+crypto")
 else()
 	set(CLANG_COMMON_FLAGS "${CLANG_COMMON_FLAGS} -march=native")
 endif()
+
 set(CLANG_C_FLAGS "")
-#set(CLANG_C_FLAGS "-pthread")
 #set(CLANG_C_FLAGS "-nostdinc") # todo: use llvm libc headers
 set(CLANG_CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
-#set(LLD_COMMON_FLAGS "-L${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -Wl,-Bstatic -lc++ -Wl,-Bdynamic")
-set(LLD_COMMON_FLAGS "-L${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib -lc++ -lc++abi")
+set(LLD_COMMON_FLAGS "${LLD_COMMON_FLAGS} -L${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib -lc++ -lc++abi")
 set(LLD_COMMON_FLAGS_DEBUG "")
 set(LLD_COMMON_FLAGS_RELEASE "")
 
@@ -105,10 +105,10 @@ else()
 	endif()
 endif()
 
-set(CMAKE_C_FLAGS_INIT "${CLANG_COMMON_FLAGS} ${CLANG_C_FLAGS}")
+set(CMAKE_C_FLAGS_INIT "${CLANG_C_FLAGS} ${CLANG_COMMON_FLAGS}")
 set(CMAKE_C_FLAGS_DEBUG_INIT "-O0 -g -D_DEBUG -fno-omit-frame-pointer")
 set(CMAKE_C_FLAGS_RELEASE_INIT "-O3 -g -DNDEBUG")
-set(CMAKE_CXX_FLAGS_INIT "${CLANG_COMMON_FLAGS} ${CLANG_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS_INIT "${CLANG_CXX_FLAGS} ${CLANG_COMMON_FLAGS}") # order is important - libc includes must come after libc++
 set(CMAKE_CXX_FLAGS_DEBUG_INIT "-O0 -g -D_DEBUG -fno-omit-frame-pointer")
 set(CMAKE_CXX_FLAGS_RELEASE_INIT "-O3 -g -DNDEBUG")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${LLD_COMMON_FLAGS}")

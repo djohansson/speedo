@@ -90,6 +90,6 @@ private:
 namespace window
 {
 
-std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<const nfdu8filteritem_t>& filterList);
+std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList);
 
 } // namespace window

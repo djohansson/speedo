@@ -43,28 +43,22 @@
 	// note that we need to do this _after_ .Executable, .Librarian and .Linker have been set
 	.LLVMPath = '"$LLVMPath$"'
 	.LLVMToolsPath = '"$LLVMToolsPath$"'
-	.PlatformInfo = 'Windows'
+	.PlatformInfo = 'windows'
 #endif //__WINDOWS__
 #if __OSX__
-	.PlatformInfo = 'OSX'
+	.PlatformInfo = 'darwin'
 #endif //__OSX__
 #if __LINUX__
-	.PlatformInfo = 'Linux'
+	.PlatformInfo = 'linux'
 #endif //__LINUX__
 	.Compiler = 'Compiler-Clang'
 	.CompilerOptions = '-o "%2" "%1" -c -g -Wall'
-		+ ' -isystem $LLVMPath$/include/c++/v1' // libc++ location
-#if __LINUX__ // linux specific clang bug workaround
-		+ ' -isystem $LLVMPath$/lib/llvm-$LLVMVersionMajor$/include/$ProcessorArchitecture$-unknown-linux-gnu/c++/v1'
-#endif
-		+ ' -isystem $LLVMPath$/lib/clang/$LLVMVersionMajor$/include' // typical llvm install location
-		+ ' -isystem $LLVMPath$/tools/llvm/lib/clang/$LLVMVersionMajor$/include' // vcpkg llvm install location
+		+ ' -isystem $LLVMPath$/include/c++/v1' // libc++ location. must come before compiler toolchain include path
+		+ ' -isystem $LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/include' // vcpkg llvm compiler toolchain include path
 		+ .PlatformIncludePaths // platform specific include paths. should come after LLVM include paths
 		+ ' -fno-ms-compatibility'
 		+ ' -fno-rtti'
 		+ ' -fno-exceptions'
-		+ ' -DLIBCXX_USE_COMPILER_RT=YES'
-		+ ' -DLIBCXXABI_USE_COMPILER_RT=YES'
 #if __WINDOWS__
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'
@@ -79,7 +73,6 @@
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -Xclang -cfguard'
-		+ ' -Xclang --dependent-lib=clang_rt.builtins-x86_64.lib'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -93,42 +86,41 @@
 		+ ' -fpic'
 		+ ' -fno-plt'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c23 -nostdinc'
-	.CompilerOptionsCpp = ' -std=c++26 -nostdinc++'
+	.CompilerOptionsC = ' -std=c23'  // todo: use llvm libc headers -nostdinc
+	.CompilerOptionsCpp = ' -std=c++26 -nostdinc++ -nostdlib++'
 #if !__WINDOWS__
 		+ ' -fexperimental-library'
 #endif
-	.LinkerOptions = '"%1" -o "%2" -g -v -fuse-ld=lld'
-		+ ' -L $LLVMPath$/lib'
-		+ ' -L $LLVMPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
+	.LinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
+		+ ' -L$LLVMPath$/lib'
+		+ ' -L$LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
 		+ .PlatformLibPaths
 #if !__WINDOWS__
-		+ ' --rtlib=compiler-rt'
-		+ ' -Wl,-rpath,$LLVMPath$/lib'
-		+ ' -Wl,-rpath,$LLVMPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
+		+ ' -rpath $LLVMPath$/lib'
+		+ ' -rpath $LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
 		// + ' -fvisibility=hidden'
-		+ ' -fvisibility=inlines-hidden'
+		// + ' -fvisibility=inlines-hidden'
 		// + ' -fvisibility=ms-compat'
-		+ ' -Bsymbolic' // make sure to mark exports with __attribute__((visibility("protected")))
+		// + ' -Bsymbolic' // make sure to mark exports with __attribute__((visibility("protected")))
 		// + ' -ffunction-sections'
 		// + ' -fdata-sections'
 		// + ' -z now'
 		// + ' -z relro'
-
 #else
 		+ ' -nostdlib -nodefaultlibs'
 #endif
-#if !__WINDOWS__
-	.LinkerOptionsC = ' -lc'
-#else
-	.LinkerOptionsC = ' -lclang_rt.builtins-x86_64'
+#if __WINDOWS__
+	.LinkerOptionsC = ' -lucrt'
 	//.LinkerOptionsC = ' -lclang_rt.builtins-x86_64 -lucrt'
 	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime'
 	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime -lkernel32'
+#else
+	.LinkerOptionsC = ''
 #endif
 	.LinkerOptionsCpp = .LinkerOptionsC
+		+ ' -lc++ -lc++abi'
 #if !__WINDOWS__
-		+ ' -lc++ -lc++abi -lc++experimental'
+		+ ' -lc++experimental'
 #endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'

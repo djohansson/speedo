@@ -60,10 +60,10 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	server::RpcSay::server server{inStream, outStream};
 
-	if (auto socketCount = poller.wait(2ms))
+	/*if (auto socketCount = */poller.wait(2ms);/*)
 	{
-		//std::cout << "got " << socketCount << " sockets hit" << std::endl;
-	}
+		std::cout << "got " << socketCount << " sockets hit" << std::endl;
+	}*/
 
 	if (auto recvResult = /*inEvent.*/socket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
 	{

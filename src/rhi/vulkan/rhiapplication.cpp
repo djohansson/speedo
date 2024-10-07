@@ -400,7 +400,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				static const std::vector<const nfdu8filteritem_t> filterList ={
+				static const std::vector<nfdu8filteritem_t> filterList ={
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
 				OpenFileDialogueAsync((resourcePath / "models").string(), filterList,
@@ -424,7 +424,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 			}
 			if (MenuItem("Open Image..."))
 			{
-				static const std::vector<const nfdu8filteritem_t> filterList = {
+				static const std::vector<nfdu8filteritem_t> filterList = {
 					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
@@ -450,7 +450,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 			}
 			// if (MenuItem("Open Scene..."))
 			// {
-			// 	static const std::vector<const nfdu8filteritem_t> filterList = {
+			// 	static const std::vector<nfdu8filteritem_t> filterList = {
 			// 		nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
 			// 	};
 
