@@ -57,7 +57,7 @@ public:
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
-	[[nodiscard]] auto GetCameras() const noexcept { return myCameras.Read(); }
+	[[nodiscard]] auto GetCameras() const noexcept { return ConcurrentReadScope(myCameras); }
 	[[nodiscard]] const auto& GetActiveViewIndex() const noexcept { return myActiveCamera; }
 	[[nodiscard]] const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 	[[nodiscard]] auto& GetState() noexcept { return myState; }

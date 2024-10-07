@@ -190,9 +190,9 @@ void CreateQueues(RHI<kVk>& rhi)
 	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = queues[kQueueTypeGraphics];
 	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = queues[kQueueTypeCompute];
 	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = queues[kQueueTypeTransfer];
-	auto graphicsQueueInfosWriteScope = graphicsQueueInfos.Write();
-	auto computeQueueInfosWriteScope = computeQueueInfos.Write();
-	auto transferQueueInfosWriteScope = transferQueueInfos.Write();
+	auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
+	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
+	auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
 	
 	const auto& queueFamilies = rhi.device->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)

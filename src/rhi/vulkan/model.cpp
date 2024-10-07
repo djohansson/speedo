@@ -441,7 +441,7 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 	auto& rhi = app->GetRHI<kVk>();
 	
 	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
-	auto transferQueueInfosWriteScope = transferQueueInfos.Write();
+	auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
 	auto& [transferQueue, transferSubmit] = transferQueueInfosWriteScope->front();
 
 	std::array<TaskCreateInfo<void>, 2> transfersDone;

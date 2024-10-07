@@ -585,7 +585,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	CHECK(pipeline);
 
 	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
-	auto transferQueueInfosScope = transferQueueInfos.Write();
+	auto transferQueueInfosScope = ConcurrentWriteScope(transferQueueInfos);
 	auto& [transferQueue, transferSubmit] = transferQueueInfosScope->front();
 
 	// a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
@@ -614,7 +614,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	///////////
 
 	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
-	auto computeQueueInfosScope = computeQueueInfos.Write();
+	auto computeQueueInfosScope = ConcurrentWriteScope(computeQueueInfos);
 	auto& [computeQueue, computeSubmit] = computeQueueInfosScope->back();
 
 	{

@@ -185,7 +185,7 @@ void DestroyServer()
 	gRpcTaskState = kTaskStateShuttingDown;
 	gRpcTaskState.wait(kTaskStateShuttingDown);
 
-	auto appPtrWriteScope = gServerApplication.Write();
+	auto appPtrWriteScope = ConcurrentWriteScope(gServerApplication);
 
 	ASSERT(appPtrWriteScope.Get());
 	ASSERT(appPtrWriteScope.Get().use_count() == 1);
@@ -197,7 +197,7 @@ bool TickServer()
 {
 	using namespace server;
 
-	auto appPtrReadScope = gServerApplication.Read();
+	auto appPtrReadScope = ConcurrentReadScope(gServerApplication);
 
 	ASSERT(appPtrReadScope.Get());
 
