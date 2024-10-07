@@ -183,9 +183,6 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gUpdateTask = CreateTask(Update);
 	gUpdateTaskState = kTaskStateRunning;
 
-	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
-	GetExecutor().Submit(handles);
-
 	// initial tick required to initialize data structures in imgui (and potentially others)
 	// since RHIApplication draw thread/tasks can launch before next tick is called from main thread
 	Tick();
@@ -232,6 +229,9 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		createWindowFunc);
 
 	ASSERT(appPtr.Get());
+
+	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
+	appPtr->GetExecutor().Submit(handles);
 }
 
 void DestroyClient()
