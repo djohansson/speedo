@@ -71,6 +71,12 @@
         "shader-slang",
         "stb",
         "tinyobjloader",
+        {
+          "name": "tracy",
+          "features": [
+            "gui-tools"
+          ]
+        },
         "vulkan",
         "vulkan-headers",
         "vulkan-loader",
