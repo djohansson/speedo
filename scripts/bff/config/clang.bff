@@ -86,7 +86,7 @@
 		+ ' -fpic'
 		+ ' -fno-plt'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c23'  // todo: use llvm libc headers -nostdinc
+	.CompilerOptionsC = ' -std=c23 -nostdinc -nostdlib'  // todo: use llvm libc headers
 	.CompilerOptionsCpp = ' -std=c++26 -nostdinc++ -nostdlib++'
 #if !__WINDOWS__
 		+ ' -fexperimental-library'
@@ -96,6 +96,7 @@
 		+ ' -L$LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
 		+ .PlatformLibPaths
 #if !__WINDOWS__
+		// todo: deploy all runtime dependencies to the same folder as the executable
 		+ ' -rpath $LLVMPath$/lib'
 		+ ' -rpath $LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
 		// + ' -fvisibility=hidden'
@@ -106,16 +107,16 @@
 		// + ' -fdata-sections'
 		// + ' -z now'
 		// + ' -z relro'
-#else
-		+ ' -nostdlib -nodefaultlibs'
 #endif
+		+ ' -nodefaultlibs'
+
 #if __WINDOWS__
 	.LinkerOptionsC = ' -lucrt'
 	//.LinkerOptionsC = ' -lclang_rt.builtins-x86_64 -lucrt'
 	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime'
 	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime -lkernel32'
 #else
-	.LinkerOptionsC = ''
+	.LinkerOptionsC = ' -lc -lpthread'
 #endif
 	.LinkerOptionsCpp = .LinkerOptionsC
 		+ ' -lc++ -lc++abi'
