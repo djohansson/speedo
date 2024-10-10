@@ -174,11 +174,15 @@ if("libc" IN_LIST FEATURES)
     list(APPEND LLVM_ENABLE_RUNTIMES "libc")
 endif()
 if("libcxx" IN_LIST FEATURES)
-    if(VCPKG_DETECTED_CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" AND VCPKG_DETECTED_MSVC_VERSION LESS "1914")
-        # libcxx supports being built with clang-cl, but not with MSVC’s cl.exe, as cl doesn’t support the #include_next extension.
-        # Furthermore, VS 2017 or newer (19.14) is required.
-        # More info: https://releases.llvm.org/17.0.1/projects/libcxx/docs/BuildingLibcxx.html#support-for-windows
-        message(FATAL_ERROR "libcxx requiries MSVC 19.14 or newer.")
+    if(VCPKG_DETECTED_CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR VCPKG_DETECTED_CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        if(VCPKG_DETECTED_MSVC_VERSION LESS "1914")
+            message(FATAL_ERROR "libcxx requiries MSVC 19.14 or newer.")
+        endif()
+        list(APPEND FEATURE_OPTIONS
+            -DLIBCXX_ENABLE_SHARED=OFF
+            -DLIBCXX_ENABLE_STATIC=ON
+            -DLIBCXX_USE_COMPILER_RT=ON
+        )
     endif()
     list(APPEND LLVM_ENABLE_RUNTIMES "libcxx")
 endif()
@@ -364,6 +368,8 @@ if("flang" IN_LIST FEATURES)
     list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/flang/Optimizer/HLFIR/CMakeFiles")
     list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/flang/Optimizer/Transforms/CMakeFiles")
 endif()
+# this folder ends up empty for some reason
+list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/clang/Basic/Target")
 if(empty_dirs)
     foreach(empty_dir IN LISTS empty_dirs)
         if(NOT EXISTS "${empty_dir}")
@@ -389,7 +395,7 @@ endif()
 
 # LLVM generates shared libraries in a static build (LLVM-C.dll, libclang.dll, LTO.dll, Remarks.dll, ...)
 # for the corresponding export targets (used in LLVMExports-<config>.cmake files on the Windows platform)
-if(VCPKG_TARGET_IS_WINDOWS)
+if(VCPKG_TARGET_IS_WINDOWS AND BUILD_SHARED_LIBS)
     set(VCPKG_POLICY_DLLS_IN_STATIC_LIBRARY enabled)
 else()
     file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin"

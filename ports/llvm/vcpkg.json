@@ -229,7 +229,7 @@
           "default-features": false,
           "features": [
             "clang",
-            "libcxxabi",
+            "compiler-rt",
             "tools"
           ]
         }
