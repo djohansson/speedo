@@ -10,6 +10,7 @@
 #include <core/capi.h>
 #include <core/file.h>
 #include <core/inputstate.h>
+#include <core/concurrentaccess.h>
 #include <core/utils.h>
 
 #include <gfx/glm_extra.h>
@@ -58,7 +59,7 @@ public:
 
 	[[nodiscard]] auto& Config() noexcept { return myConfig; }
 	[[nodiscard]] const auto& Config() const noexcept { return myConfig; }
-	[[nodiscard]] const auto& GetCameras() const noexcept { return myCameras; }
+	[[nodiscard]] auto GetCameras() const noexcept { return ConcurrentReadScope(myCameras); }
 	[[nodiscard]] const auto& GetActiveViewIndex() const noexcept { return myActiveCamera; }
 	[[nodiscard]] const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 	[[nodiscard]] auto& GetState() noexcept { return myState; }
@@ -84,13 +85,13 @@ private:
 	WindowState myState{};
 	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
-	std::vector<Camera> myCameras;
+	ConcurrentAccess<std::vector<Camera>> myCameras;
 	std::optional<size_t> myActiveCamera;
 };
 
 namespace window
 {
 
-std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<const nfdu8filteritem_t>& filterList);
+std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList);
 
 } // namespace window

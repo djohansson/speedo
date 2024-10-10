@@ -104,6 +104,24 @@ class apply_result<F, Tuple, std::void_t<apply_result_t<F, Tuple>>>
 	using type = apply_result_t<F, Tuple>;
 };
 
+template <typename>
+std::false_type is_pointer_like(unsigned long);
+
+template <typename T>
+auto is_pointer_like(int) -> decltype(*std::declval<T>(), std::true_type{});
+
+template <typename T>
+auto is_pointer_like(long) -> decltype(std::declval<T>().operator->(), std::true_type{});
+
+template <typename T>
+auto is_pointer_like(short) -> decltype(std::declval<T>().operator*(), std::true_type{});
+
+template <typename T>
+using is_pointer_like_dereferencable = decltype(is_pointer_like<T>(0));
+
+template <typename T>
+static auto constexpr is_pointer_like_v = is_pointer_like_dereferencable<T>::value;
+
 namespace detail
 {
 struct universal_type

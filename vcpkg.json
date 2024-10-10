@@ -6,18 +6,16 @@
       "dependencies": [
         {
           "name": "llvm",
+          "default-features": false,
           "features": [
             "clang",
             "clang-tools-extra",
             "compiler-rt",
+            "default-targets",
             "libcxx",
-            {
-              "name": "libcxxabi",
-              "platforms": [
-                "osx"
-              ]
-            },
-            "lld"
+            "libcxxabi",
+            "lld",
+            "tools"
           ]
         }
       ]
@@ -96,5 +94,5 @@
       ]
     }
   },
-  "builtin-baseline": "3508985146f1b1d248c67ead13f8f54be5b4f5da"
+  "builtin-baseline": "c82f74667287d3dc386bce81e44964370c91a289"
 }

@@ -32,13 +32,35 @@ function Add-EnvDylibPath
 		return
 	}
 
-	if ("" -eq $env:DYLD_LIBRARY_PATH -or $null -eq $env:DYLD_LIBRARY_PATH)
+	if ($IsWindows)
 	{
-		$env:DYLD_LIBRARY_PATH = $path
+		Write-Warning "Windows uses PATH for DLLs, please use Add-EnvPath instead"
+	}
+	elseif ($IsMacOS)
+	{
+		if ("" -eq $env:DYLD_LIBRARY_PATH -or $null -eq $env:DYLD_LIBRARY_PATH)
+		{
+			$env:DYLD_LIBRARY_PATH = $path
+		}
+		else
+		{
+			$env:DYLD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
+		}
+	}
+	elseif ($IsLinux)
+	{
+		if ("" -eq $env:LD_LIBRARY_PATH -or $null -eq $env:LD_LIBRARY_PATH)
+		{
+			$env:LD_LIBRARY_PATH = $path
+		}
+		else
+		{
+			$env:LD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
+		}
 	}
 	else
 	{
-		$env:DYLD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
+		Write-Error "Unsupported Operating System" # please implement me
 	}
 }
 

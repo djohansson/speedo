@@ -172,25 +172,28 @@ void CreateQueues(RHI<kVk>& rhi)
 
 	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(
 		kQueueTypeGraphics,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
 
 	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(
 		kQueueTypeCompute,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
 
 	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(
 		kQueueTypeTransfer,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
 		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
-	auto& [computeQueueInfos, computeSemaphore] = queues[kQueueTypeCompute];
-	auto& [transferQueueInfos, transferSemaphore] = queues[kQueueTypeTransfer];
-
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = queues[kQueueTypeGraphics];
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = queues[kQueueTypeCompute];
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = queues[kQueueTypeTransfer];
+	auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
+	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
+	auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
+	
 	const auto& queueFamilies = rhi.device->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
 	{
@@ -202,7 +205,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = graphicsQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				auto& [queue, syncInfo] = graphicsQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1, true},
@@ -213,7 +216,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = computeQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				auto& [queue, syncInfo] = computeQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, true},
@@ -224,7 +227,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = transferQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				auto& [queue, syncInfo] = transferQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, false},
@@ -233,26 +236,26 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 	}
 
-	CHECKF(!graphicsQueueInfos.empty(), "Failed to find a suitable graphics queue!");
+	CHECKF(!graphicsQueueInfosWriteScope->empty(), "Failed to find a suitable graphics queue!");
 
-	if (computeQueueInfos.empty())
+	if (computeQueueInfosWriteScope->empty())
 	{
-		CHECKF(graphicsQueueInfos.size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
+		CHECKF(graphicsQueueInfosWriteScope->size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
 
-		computeQueueInfos.emplace_back(std::make_pair(
-			std::move(graphicsQueueInfos.back().first),
+		computeQueueInfosWriteScope->emplace_back(std::make_pair(
+			std::move(graphicsQueueInfosWriteScope->back().first),
 			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfos.pop_back();
+		graphicsQueueInfosWriteScope->pop_back();
 	}
 
-	if (transferQueueInfos.empty())
+	if (transferQueueInfosWriteScope->empty())
 	{
-		CHECKF(graphicsQueueInfos.size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
+		CHECKF(graphicsQueueInfosWriteScope->size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
 
-		transferQueueInfos.emplace_back(std::make_pair(
-			std::move(graphicsQueueInfos.back().first),
+		transferQueueInfosWriteScope->emplace_back(std::make_pair(
+			std::move(graphicsQueueInfosWriteScope->back().first),
 			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfos.pop_back();
+		graphicsQueueInfosWriteScope->pop_back();
 	}
 }
 

@@ -1,0 +1,25 @@
+From fedd182cd3483b98fb2d73c9555ba00c93b75742 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Mon, 7 Oct 2024 14:13:27 +0200
+Subject: [PATCH] vk query count
+
+---
+ public/tracy/TracyVulkan.hpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/public/tracy/TracyVulkan.hpp b/public/tracy/TracyVulkan.hpp
+index c34b718..e518b1e 100644
+--- a/public/tracy/TracyVulkan.hpp
++++ b/public/tracy/TracyVulkan.hpp
+@@ -90,7 +90,7 @@ class VkCtx
+ {
+     friend class VkCtxScope;
+ 
+-    enum { QueryCount = 64 * 1024 };
++    enum { QueryCount = 4 * 1024 };
+ 
+ public:
+ #if defined TRACY_VK_USE_SYMBOL_TABLE
+-- 
+2.39.5 (Apple Git-154)
+

@@ -63,9 +63,9 @@ public:
 	friend void Swap(Image& lhs, Image& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
-	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myImage); }
-	[[nodiscard]] const auto& GetLayout() const noexcept { return std::get<2>(myImage); }
-	[[nodiscard]] const auto& GetAspectFlags() const noexcept { return std::get<3>(myImage); }
+	[[nodiscard]] auto GetMemory() const noexcept { return std::get<1>(myImage); }
+	[[nodiscard]] auto GetLayout() const noexcept { return std::get<2>(myImage); }
+	[[nodiscard]] auto GetAspectFlags() const noexcept { return std::get<3>(myImage); }
 
 	void Clear(
 		CommandBufferHandle<G> cmd,

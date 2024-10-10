@@ -23,7 +23,7 @@
 #include <stb_dxt.h>
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include <stb_image_resize.h>
+#include <stb_image_resize2.h>
 
 #include <zpp_bits.h>
 
@@ -309,7 +309,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 						auto threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
 
-						stbir_resize_uint8(
+						stbir_resize_uint8_linear(
 							src + threadId * threadRowCount * previousExtent.width * 4,
 							static_cast<int>(previousExtent.width),
 							static_cast<int>(threadRowCount + threadRowCountRest),
@@ -319,14 +319,14 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 							static_cast<int>(currentExtent.width),
 							static_cast<int>(((threadRowCount + threadRowCountRest) >> 1)),
 							static_cast<int>(currentExtent.width * 4),
-							4);
+							STBIR_RGBA);
 					});
 			}
 			else
 			{
 				ZoneScopedN("image::loadImage::mip::resize");
 
-				stbir_resize_uint8(
+				stbir_resize_uint8_linear(
 					src,
 					static_cast<int>(previousExtent.width),
 					static_cast<int>(previousExtent.height),
@@ -335,7 +335,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 					static_cast<int>(currentExtent.width),
 					static_cast<int>(currentExtent.height),
 					static_cast<int>(currentExtent.width * 4),
-					4);
+					STBIR_RGBA);
 			}
 
 			progressOut += dprogress;
@@ -532,6 +532,15 @@ Image<kVk>::~Image()
 }
 
 template <>
+Image<kVk>& Image<kVk>::operator=(Image<kVk>&& other) noexcept
+{
+	DeviceObject::operator=(std::forward<Image>(other));
+	myImage = std::exchange(other.myImage, {});
+	myDesc = std::exchange(other.myDesc, {});
+	return *this;
+}
+
+template <>
 ImageView<kVk>::ImageView(ImageView&& other) noexcept
 	: DeviceObject(std::forward<ImageView>(other))
 	, myView(std::exchange(other.myView, {}))
@@ -596,69 +605,71 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 	CHECK(app);
 	auto& rhi = app->GetRHI<kVk>();
+	auto& pipeline = rhi.pipeline;
+	CHECK(pipeline);
 
-	auto& [transferQueueInfos, transferSemaphore] = rhi.queues[kQueueTypeTransfer];
-	auto& [transferQueue, transferSubmit] = transferQueueInfos.front();
-
-	uint64_t transferSemaphoreValue = transferSubmit.maxTimelineValue;
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
+	auto transferQueueInfosScope = ConcurrentWriteScope(transferQueueInfos);
+	auto& [transferQueue, transferSubmit] = transferQueueInfosScope->front();
 
 	// a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
 	auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask([oldImage, oldImageView] {});
 
 	TaskCreateInfo<void> transferDone;
-	std::pair<Image<kVk>, ImageView<kVk>> result{
-		Image<kVk>(rhi.device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone),
-		ImageView<kVk>(rhi.device, result.first, VK_IMAGE_ASPECT_COLOR_BIT)};
+	std::pair<Image<kVk>, ImageView<kVk>> result;
+	auto& [image, imageView] = result;
+	image = Image<kVk>(rhi.device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
+	imageView = ImageView<kVk>(rhi.device, result.first, VK_IMAGE_ASPECT_COLOR_BIT);
 
-	std::vector<TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(transferDone.handle);
-	timelineCallbacks.emplace_back(oldImageDestroyTask);
+	std::vector<TaskHandle> transferTimelineCallbacks;
+	transferTimelineCallbacks.emplace_back(transferDone.handle);
+	transferTimelineCallbacks.emplace_back(oldImageDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
+		{},
+		{},
+		{},
 		{transferSemaphore},
 		{++transferSemaphoreValue},
-		std::move(timelineCallbacks)});
+		std::move(transferTimelineCallbacks)});
 
 	transferSubmit = transferQueue.Submit();
 
 	///////////
 
-	auto [imageTransitionTask, imageTransitionFuture] = CreateTask<uint32_t>([&rhi](
-		Image<kVk>& image,
-		ImageView<kVk>& imageView, // todo: use handles or shared ptrs
-		SemaphoreHandle<kVk> waitSemaphore,
-		uint64_t waitSemaphoreValue,
-		uint32_t graphicsQueueIndex)
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
+	auto computeQueueInfosScope = ConcurrentWriteScope(computeQueueInfos);
+	auto& [computeQueue, computeSubmit] = computeQueueInfosScope->back();
+
 	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi.queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.at(graphicsQueueIndex);
+		auto cmd = computeQueue.GetPool().Commands();
 
-		{
-			auto cmd = graphicsQueue.GetPool().Commands();
+		GPU_SCOPE(cmd, computeQueue, Transition);
 
-			GPU_SCOPE(cmd, graphicsQueue, Transition);
+		image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	}
 
-			image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		}
-
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{waitSemaphore},
-			{VK_PIPELINE_STAGE_TRANSFER_BIT},
-			{waitSemaphoreValue},
-			{graphicsSemaphore},
-			{1 + rhi.device->TimelineValue().fetch_add(1, std::memory_order_relaxed)}});
-
-		rhi.pipeline->SetDescriptorData(
+	auto [setDescriptorTask, setDescriptorFuture] = CreateTask([&pipeline, imageView = static_cast<ImageViewHandle<kVk>>(imageView), imageLayout = image.GetLayout()]()
+	{
+		pipeline->SetDescriptorData(
 			"gTextures",
-			DescriptorImageInfo<kVk>{{}, imageView,	image.GetLayout()},
+			DescriptorImageInfo<kVk>{{}, imageView,	imageLayout},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			1);
-	}, result.first, result.second, static_cast<SemaphoreHandle<kVk>>(transferSemaphore), transferSubmit.maxTimelineValue);
+	});
 
-	rhi.drawCalls.enqueue(imageTransitionTask);
+	std::vector<TaskHandle> transitionTimelineCallbacks;
+	transitionTimelineCallbacks.emplace_back(setDescriptorTask);
+	
+	computeQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		{transferSemaphore},
+		{VK_PIPELINE_STAGE_TRANSFER_BIT},
+		{transferSubmit.maxTimelineValue},
+		{computeSemaphore},
+		{++computeSemaphoreValue},
+		std::move(transitionTimelineCallbacks)});
+
+	computeSubmit = computeQueue.Submit();
 
 	///////////
 

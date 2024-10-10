@@ -5,6 +5,7 @@
 #include <core/application.h>
 #include <core/assert.h>
 #include <core/file.h>
+#include <core/concurrentaccess.h>
 
 #include <array>
 #include <iostream>
@@ -16,8 +17,7 @@ namespace server
 {
 
 static TaskCreateInfo<void> gRpcTask{};
-static UpgradableSharedMutex gServerApplicationMutex;
-static std::shared_ptr<Server> gServerApplication;
+static ConcurrentAccess<std::shared_ptr<Server>> gServerApplication;
 enum TaskState : uint8_t
 {
 	kTaskStateNone = 0,
@@ -51,8 +51,6 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		return;
 	}
 
-	std::shared_lock lock{gServerApplicationMutex};
-
 	static constexpr unsigned kBufferSize = 64;
 	std::array<std::byte, kBufferSize> requestData;
 	std::array<std::byte, kBufferSize> responseData;
@@ -62,10 +60,10 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	server::RpcSay::server server{inStream, outStream};
 
-	if (auto socketCount = poller.wait(2ms))
+	/*if (auto socketCount = */poller.wait(2ms);/*)
 	{
-		//std::cout << "got " << socketCount << " sockets hit" << std::endl;
-	}
+		std::cout << "got " << socketCount << " sockets hit" << std::endl;
+	}*/
 
 	if (auto recvResult = /*inEvent.*/socket.recv(zmq::buffer(requestData), zmq::recv_flags::dontwait))
 	{
@@ -139,7 +137,6 @@ Server::Server(std::string_view name, Environment&& env)
 
 	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
-	GetExecutor().Submit({&gRpcTask.handle, 1});
 }
 
 void CreateServer(const PathConfig* paths)
@@ -166,9 +163,9 @@ void CreateServer(const PathConfig* paths)
 		return;
 	}
 
-	std::unique_lock lock{gServerApplicationMutex};
+	auto appPtr = ConcurrentWriteScope(gServerApplication);
 
-	gServerApplication = Application::Create<Server>(
+	appPtr = Application::Create<Server>(
 		"server",
 		Environment{{
 			{"RootPath", root.value()},
@@ -176,7 +173,9 @@ void CreateServer(const PathConfig* paths)
 			{"UserProfilePath", userPath.value()}
 		}});
 
-	ASSERT(gServerApplication);
+	ASSERT(appPtr.Get());
+
+	appPtr->GetExecutor().Submit({&gRpcTask.handle, 1});
 }
 
 void DestroyServer()
@@ -186,23 +185,23 @@ void DestroyServer()
 	gRpcTaskState = kTaskStateShuttingDown;
 	gRpcTaskState.wait(kTaskStateShuttingDown);
 
-	std::unique_lock lock{gServerApplicationMutex};
+	auto appPtrWriteScope = ConcurrentWriteScope(gServerApplication);
 
-	ASSERT(gServerApplication);
-	ASSERT(gServerApplication.use_count() == 1);
+	ASSERT(appPtrWriteScope.Get());
+	ASSERT(appPtrWriteScope.Get().use_count() == 1);
 	
-	gServerApplication.reset();
+	appPtrWriteScope.Get().reset();
 }
 
 bool OnEventServer()
 {
 	using namespace server;
 
-	std::shared_lock lock{gServerApplicationMutex};
+	auto appPtrReadScope = ConcurrentReadScope(gServerApplication);
 
-	ASSERT(gServerApplication);
+	ASSERT(appPtrReadScope.Get());
 
-	gServerApplication->OnEvent();
+	appPtrReadScope->OnEvent();
 
-	return !gServerApplication->IsExitRequested();
+	return !appPtrReadScope->IsExitRequested();
 }

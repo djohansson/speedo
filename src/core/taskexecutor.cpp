@@ -105,9 +105,8 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 	Task& task = *core::detail::InternalHandleToPtr(handle);
 	ASSERT(task);
 	auto state = std::atomic_load(&task.InternalState());
-	auto& latch = state->Latch();
-
-	if (latch.load(std::memory_order_relaxed) == 0)
+	
+	if (state->Latch().load(std::memory_order_relaxed) == 0)
 	{
 		std::destroy_at(&task);
 		core::detail::InternalFree(handle);
@@ -129,7 +128,7 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 		Task& adjacent = *core::detail::InternalHandleToPtr(adjacentHandle);
 		ASSERT(adjacent);
 		auto adjacentState = std::atomic_load(&adjacent.InternalState());
-		auto& latch = adjacentState->Latch();
+		auto latch = adjacentState->Latch();
 		ASSERTF(latch, "Latch needs to have been constructed!");
 
 		if (latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)

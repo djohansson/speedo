@@ -6,6 +6,7 @@
 #include "types.h"
 
 #include <core/task.h>
+#include <core/concurrentaccess.h>
 
 #include <deque>
 #include <memory>
@@ -168,11 +169,11 @@ private:
 #endif
 };
 
+template <GraphicsApi G>
+using QueueContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
 
 template <GraphicsApi G>
-using QueueHostSyncContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
-template <GraphicsApi G>
-using QueueTimelineContext = std::pair<std::vector<QueueHostSyncContext<G>>, Semaphore<G>>;
+using QueueTimelineContext = std::tuple<Semaphore<G>, CopyableAtomic<uint64_t>, ConcurrentAccess<std::vector<QueueContext<G>>>>;
 
 #if (PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag)                                                             \

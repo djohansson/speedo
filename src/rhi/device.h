@@ -64,8 +64,6 @@ public:
 
 	[[nodiscard]] auto GetAllocator() const noexcept { return myAllocator; }
 
-	[[nodiscard]] auto& TimelineValue() { return myTimelineValue; }
-
 	void WaitIdle() const;
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
@@ -86,7 +84,6 @@ private:
 	uint32_t myPhysicalDeviceIndex = 0UL;
 	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
 	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)
-	std::atomic_uint64_t myTimelineValue;
 
 #if (GRAPHICS_VALIDATION_LEVEL > 0)
 	struct ObjectNameInfo : ObjectInfo<G>

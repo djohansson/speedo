@@ -342,6 +342,21 @@ static void SetWindowCallbacks(GLFWwindow* window)
 	glfwSetWindowTitle(window, GetApplicationName());
 }
 
+static void* GlfwAllocate(size_t size, void* /*user*/)
+{
+	return mi_malloc(size);
+}
+
+static void GlfwDeallocate(void* block, void* /*user*/)
+{
+	mi_free(block);
+}
+
+static void* GlfwReallocate(void* block, size_t size, void* /*user*/)
+{
+	return mi_realloc(block, size);
+}
+
 int main(int argc, char* argv[], char* envp[])
 {
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
@@ -379,6 +394,9 @@ int main(int argc, char* argv[], char* envp[])
 	}
 
 	glfwSetErrorCallback(OnError);
+	
+	GLFWallocator allocator = { .allocate = GlfwAllocate, .reallocate = GlfwReallocate, .deallocate = GlfwDeallocate };
+	glfwInitAllocator(&allocator);
 	
 	if (!glfwInit())
 	{

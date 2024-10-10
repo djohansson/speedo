@@ -35,3 +35,4 @@
 
 * cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 * cut: refactor GraphicsContext into separate class
+* cut: USD integration. Too much bloat (boost, python etc). Use GLTF instead.

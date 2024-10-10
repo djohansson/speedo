@@ -6,7 +6,7 @@ namespace window
 {
 
 std::tuple<bool, std::string>
-OpenFileDialogue(std::string&& resourcePathString, const std::vector<const nfdu8filteritem_t>& filterList)
+OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList)
 {
 	nfdu8char_t* openFilePath;
 	nfdopendialogu8args_t args{};

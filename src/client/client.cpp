@@ -3,6 +3,7 @@
 
 #include <core/assert.h>
 #include <core/file.h>
+#include <core/concurrentaccess.h>
 #include <core/upgradablesharedmutex.h>
 #include <server/rpc.h>
 
@@ -10,7 +11,6 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
-#include <shared_mutex>
 #include <string>
 #include <system_error>
 
@@ -18,8 +18,7 @@ namespace client
 {
 
 static TaskCreateInfo<void> gRpcTask, gTickTask, gDrawTask;
-static UpgradableSharedMutex gClientApplicationMutex;
-static std::shared_ptr<Client> gClientApplication;
+static ConcurrentAccess<std::shared_ptr<Client>> gClientApplication;
 enum TaskState : uint8_t
 {
 	kTaskStateNone = 0,
@@ -44,8 +43,6 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		gRpcTaskState.notify_one();
 		return;
 	}
-
-	std::shared_lock lock{gClientApplicationMutex};
 
 	static constexpr unsigned kBufferSize = 64;
 	std::array<std::byte, kBufferSize> responseData;
@@ -88,7 +85,6 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 			}
 		}
 
-		// IMPORTANT: check for if we are shutting down. If we don't, we'll be stuck in an infinite loop since we are never releasing gClientApplicationMutex.
 		if (gRpcTaskState == kTaskStateShuttingDown)
 		{
 			gRpcTaskState = kTaskStateDone;
@@ -113,9 +109,7 @@ static void Tick()
 		return;
 	}
 
-	std::shared_lock lock{gClientApplicationMutex};
-
-	gClientApplication->Tick();
+	ConcurrentReadScope(gClientApplication)->Tick();
 
 	auto tickTask = CreateTask(Tick);
 	AddDependency(gTickTask.handle, tickTask.handle, true);
@@ -133,9 +127,7 @@ static void Draw()
 		return;
 	}
 
-	std::shared_lock lock{gClientApplicationMutex};
-
-	gClientApplication->Draw();
+	ConcurrentReadScope(gClientApplication)->Draw();
 
 	auto drawTask = CreateTask(Draw);
 	AddDependency(gDrawTask.handle, drawTask.handle, true);
@@ -199,9 +191,6 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gDrawTask = CreateTask(client::Draw);
 	gDrawTaskState = kTaskStateRunning;
 
-	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
-	GetExecutor().Submit(handles);
-
 	// initial OnEvent call required to initialize data structures in imgui (and potentially others)
 	// since RHIApplication draw thread/tasks can launch before next OnEvent is called from main
 	OnEvent();
@@ -211,13 +200,11 @@ bool OnEventClient()
 {	
 	using namespace client;
 
-	std::shared_lock lock{gClientApplicationMutex};
+	auto appPtr = ConcurrentReadScope(gClientApplication);
 
-	ASSERT(gClientApplication);
+	appPtr->OnEvent();
 
-	gClientApplication->OnEvent();
-
-	return !gClientApplication->IsExitRequested();
+	return !appPtr->IsExitRequested();
 }
 
 void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
@@ -238,9 +225,9 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		return;
 	}
 
-	std::unique_lock lock{gClientApplicationMutex};
+	auto appPtr = ConcurrentWriteScope(gClientApplication);
 
-	gClientApplication = Application::Create<Client>(
+	appPtr = Application::Create<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root.value()},
@@ -249,7 +236,10 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	ASSERT(gClientApplication);
+	ASSERT(appPtr.Get());
+
+	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
+	appPtr->GetExecutor().Submit(handles);
 }
 
 void DestroyClient()
@@ -264,10 +254,10 @@ void DestroyClient()
 	gTickTaskState.wait(kTaskStateShuttingDown);
 	gDrawTaskState.wait(kTaskStateShuttingDown);
 
-	std::unique_lock lock{gClientApplicationMutex};
+	auto appPtr = ConcurrentWriteScope(gClientApplication);
 
-	ASSERT(gClientApplication);
-	ASSERT(gClientApplication.use_count() == 1);
+	ASSERT(appPtr.Get());
+	ASSERT(appPtr.Get().use_count() == 1);
 	
-	gClientApplication.reset();
+	appPtr.Get().reset();
 }

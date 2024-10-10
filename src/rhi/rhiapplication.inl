@@ -2,7 +2,7 @@ namespace rhiapplication
 {
 
 template <typename LoadOp>
-void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<const nfdu8filteritem_t>& filterList, LoadOp loadOp)
+void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
 {
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 	CHECK(app);
