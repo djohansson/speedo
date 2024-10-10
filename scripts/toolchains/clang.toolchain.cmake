@@ -90,17 +90,19 @@ set(COMPILE_C_FLAGS "") #set(COMPILE_C_FLAGS "-nostdinc") # todo: use llvm libc 
 set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -nostdlib")
 set(COMPILE_CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
 
-set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -L${LLVM_PATH}/lib -Wl,-rpath,${LLVM_PATH}/lib -nodefaultlibs -lc -lpthread -lc++ -lc++abi")
+set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -L${LLVM_PATH}/lib -nodefaultlibs -lc++")
 set(LINK_COMMON_FLAGS_DEBUG "")
 set(LINK_COMMON_FLAGS_RELEASE "")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -Xclang -cfguard")
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -lucrt")
 else()
 	if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 		set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -D_GNU_SOURCE")
 		set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
 	endif()
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++abi")
 endif()
 
 set(CMAKE_C_FLAGS_INIT "${COMPILE_C_FLAGS} ${COMPILE_COMMON_FLAGS}")

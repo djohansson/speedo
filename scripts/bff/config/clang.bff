@@ -119,9 +119,9 @@
 	.LinkerOptionsC = ' -lc -lpthread'
 #endif
 	.LinkerOptionsCpp = .LinkerOptionsC
-		+ ' -lc++ -lc++abi'
+		+ ' -lc++'
 #if !__WINDOWS__
-		+ ' -lc++experimental'
+		+ ' -lc++abi'
 #endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
