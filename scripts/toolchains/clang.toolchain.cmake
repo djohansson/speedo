@@ -92,7 +92,7 @@ else()
 endif()
 
 set(COMPILE_C_FLAGS "") #set(COMPILE_C_FLAGS "-nostdinc") # todo: use llvm libc headers
-set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -nostdlib")
+#set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -nostdlib")
 set(COMPILE_CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
 
 set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -L${LLVM_PATH}/lib -nodefaultlibs -lc++")
