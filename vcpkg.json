@@ -62,6 +62,14 @@
         "ade",
         "cgltf",
         "glfw3",
+        {
+          "name": "glfw3",
+          "default-features": false,
+          "features": [
+            "wayland"
+          ],
+          "platform": "linux"
+        },
         "glm",
         {
           "name": "imgui",
