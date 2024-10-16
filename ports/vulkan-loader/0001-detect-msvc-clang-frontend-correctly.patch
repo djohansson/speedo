@@ -1,0 +1,25 @@
+From 992916e1ae091f9a86d1f20d655421e2b17e83a5 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Wed, 16 Oct 2024 10:11:10 +0200
+Subject: [PATCH 1/2] detect msvc clang frontend correctly
+
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f33780f..aabd4fa 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -170,7 +170,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+     target_compile_options(loader_common_options INTERFACE -Wno-missing-field-initializers)
+ 
+     # need to prepend /clang: to compiler arguments when using clang-cl
+-    if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND "${CMAKE_CXX_SIMULATE_ID}" MATCHES "MSVC")
++    if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_FRONTEND_VARIANT MATCHES "MSVC")
+         target_compile_options(loader_common_options INTERFACE /clang:-fno-strict-aliasing)
+     else()
+         target_compile_options(loader_common_options INTERFACE -fno-strict-aliasing)
+-- 
+2.47.0.windows.1
+
