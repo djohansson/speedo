@@ -56,6 +56,7 @@ set(CMAKE_CXX_COMPILER_LINKER_ID LLD)
 set(CMAKE_CXX_COMPILER_LINKER_FRONTEND_VARIANT "GNU")
 #set(CMAKE_CXX_COMPILER_WORKS TRUE)
 
+# don't use CMAKE_LINKER, its apparently an "implementation detail" in wonderful CMakeland
 #set(CMAKE_LINKER ${LLVM_TOOLS_PATH}/lld${CMAKE_EXECUTABLE_SUFFIX})
 
 set(CMAKE_LINKER_TYPE LLD)
@@ -66,8 +67,9 @@ set(CMAKE_CXX_USING_LINKER_MODE FLAG)
 
 set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_CXX_STANDARD 26)
+# setting these have no effect, obviously (-‸ლ)
+# set(CMAKE_C_STANDARD 23)
+# set(CMAKE_CXX_STANDARD 26)
 
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -94,15 +96,15 @@ else()
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -march=native")
 endif()
 
-set(COMPILE_C_FLAGS "") #set(COMPILE_C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
-set(COMPILE_CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
+set(COMPILE_C_FLAGS "-std=c23") #set(COMPILE_C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
+set(COMPILE_CXX_FLAGS "-std=c++26 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
 
 set(LINK_COMMON_FLAGS "-nodefaultlibs -L${LLVM_PATH}/lib")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -Xclang -cfguard")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -llibc++")
-	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO, so disable for now
 else()
 	if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 		set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -D_GNU_SOURCE")
