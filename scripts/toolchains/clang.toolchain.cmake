@@ -89,7 +89,6 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(COMPILE_COMMON_FLAGS "")
-set(LINK_COMMON_FLAGS "-nodefaultlibs")
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -march=native+crc+crypto")
@@ -97,24 +96,24 @@ else()
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -march=native")
 endif()
 
-set(COMPILE_C_FLAGS "") #set(COMPILE_C_FLAGS "-nostdinc") # todo: use llvm libc headers
-#set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -nostdlib")
+set(COMPILE_C_FLAGS "") #set(COMPILE_C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
 set(COMPILE_CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
 
-set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -L${LLVM_PATH}/lib -llibc++")
-set(LINK_COMMON_FLAGS_DEBUG "")
-set(LINK_COMMON_FLAGS_RELEASE "")
+set(LINK_COMMON_FLAGS "-nodefaultlibs -L${LLVM_PATH}/lib")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -Xclang -cfguard")
-	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -lucrt")
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -llibc++")
 else()
 	if(CMAKE_SYSTEM_NAME MATCHES "Linux")
 		set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -D_GNU_SOURCE")
 		set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
 	endif()
-	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++abi")
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
 endif()
+
+set(LINK_COMMON_FLAGS_DEBUG "")
+set(LINK_COMMON_FLAGS_RELEASE "")
 
 set(CMAKE_C_FLAGS_INIT "${COMPILE_C_FLAGS} ${COMPILE_COMMON_FLAGS}")
 set(CMAKE_C_FLAGS_DEBUG_INIT "-O0 -g -D_DEBUG -fno-omit-frame-pointer")
