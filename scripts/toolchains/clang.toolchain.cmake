@@ -104,7 +104,7 @@ set(COMPILE_CXX_FLAGS "-std=c++17 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/
 set(LINK_COMMON_FLAGS "-nodefaultlibs -L${LLVM_PATH}/lib")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -Xclang -cfguard")
+	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D_CRT_STDIO_ISO_WIDE_SPECIFIERS=1 -Xclang -cfguard")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -llibc++")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO, so disable for now
 else()
