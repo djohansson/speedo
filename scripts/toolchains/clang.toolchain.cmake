@@ -88,7 +88,9 @@ set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
-set(COMPILE_COMMON_FLAGS "-fno-ms-compatibility -fno-rtti -fno-exceptions")
+set(COMPILE_COMMON_FLAGS "")
+#set(COMPILE_COMMON_FLAGS "-fno-ms-compatibility")
+set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -fno-rtti -fno-exceptions")
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -march=native+crc+crypto")
@@ -96,8 +98,8 @@ else()
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -march=native")
 endif()
 
-set(COMPILE_C_FLAGS "-std=c23") #set(COMPILE_C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
-set(COMPILE_CXX_FLAGS "-std=c++26 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
+set(COMPILE_C_FLAGS "-std=c17") #set(COMPILE_C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
+set(COMPILE_CXX_FLAGS "-std=c++17 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
 
 set(LINK_COMMON_FLAGS "-nodefaultlibs -L${LLVM_PATH}/lib")
 
