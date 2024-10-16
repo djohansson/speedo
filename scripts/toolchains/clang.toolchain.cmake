@@ -101,7 +101,9 @@ endif()
 set(COMPILE_C_FLAGS "-std=c17") #set(COMPILE_C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
 set(COMPILE_CXX_FLAGS "-std=c++17 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
 
-set(LINK_COMMON_FLAGS "-nodefaultlibs -L${LLVM_PATH}/lib")
+set(LINK_COMMON_FLAGS "")
+#set(LINK_COMMON_FLAGS "-nodefaultlibs")
+set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -L${LLVM_PATH}/lib")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D_CRT_STDIO_ISO_WIDE_SPECIFIERS=1 -Xclang -cfguard")
