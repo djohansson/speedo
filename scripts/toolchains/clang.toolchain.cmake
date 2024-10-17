@@ -90,7 +90,7 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(COMPILE_COMMON_FLAGS "")
 #set(COMPILE_COMMON_FLAGS "-fno-ms-compatibility")
-set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -fno-rtti -fno-exceptions")
+#set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -fno-rtti -fno-exceptions")
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
 	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -march=native+crc+crypto")
@@ -104,24 +104,28 @@ set(COMPILE_CXX_FLAGS "-std=c++17 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/
 set(LINK_COMMON_FLAGS "")
 #set(LINK_COMMON_FLAGS "-nodefaultlibs")
 set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -L${LLVM_PATH}/lib")
+set(LINK_COMMON_FLAGS_DEBUG "")
+set(LINK_COMMON_FLAGS_RELEASE "")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D_CRT_STDIO_ISO_WIDE_SPECIFIERS=1 -Xclang -cfguard")
+	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -DVC_EXTRALEAN -DNOMINMAX -D_WINSOCKAPI_ -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -Xclang -cfguard")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -llibc++")
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+	set(LINK_COMMON_FLAGS_DEBUG "${LINK_COMMON_FLAGS_DEBUG} -lmsvcrtd.lib -lmsvcprtd.lib -lvcruntimed.lib") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(LINK_COMMON_FLAGS_RELEASE "${LINK_COMMON_FLAGS_RELEASE} -lmsvcrt.lib -lmsvcprt.lib -lvcruntime.lib") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO, so disable for now
-else()
-	if(CMAKE_SYSTEM_NAME MATCHES "Linux")
-		set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -D_GNU_SOURCE")
-		set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
-	endif()
-	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -fpic -fno-plt")
+elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
+	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D__LINUX__ -D__linux__ -fpic -fno-plt")
+	set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -D_GNU_SOURCE")
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
+	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D__APPLE__ -D__OSX__ -fpic -fno-plt")
+	set(COMPILE_C_FLAGS "${COMPILE_C_FLAGS} -D_GNU_SOURCE")
+	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,--undefined-version")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
-
-set(LINK_COMMON_FLAGS_DEBUG "")
-set(LINK_COMMON_FLAGS_RELEASE "")
 
 set(CMAKE_C_FLAGS_INIT "${COMPILE_C_FLAGS} ${COMPILE_COMMON_FLAGS}")
 set(CMAKE_C_FLAGS_DEBUG_INIT "-O0 -g -D_DEBUG -fno-omit-frame-pointer")
