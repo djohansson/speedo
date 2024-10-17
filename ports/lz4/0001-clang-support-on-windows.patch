@@ -1,0 +1,34 @@
+From e2d656b0f62da26cfc125fa55360ab8996acff82 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Thu, 17 Oct 2024 22:38:48 +0200
+Subject: [PATCH] clang support on windows
+
+---
+ build/cmake/CMakeLists.txt | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/build/cmake/CMakeLists.txt b/build/cmake/CMakeLists.txt
+index c372733..1b263d6 100644
+--- a/build/cmake/CMakeLists.txt
++++ b/build/cmake/CMakeLists.txt
+@@ -98,7 +98,7 @@ if(BUILD_SHARED_LIBS)
+     OUTPUT_NAME lz4
+     SOVERSION "${LZ4_VERSION_MAJOR}"
+     VERSION "${LZ4_VERSION_STRING}")
+-  if(MSVC)
++  if(WIN32 AND (${CMAKE_C_COMPILER_ID} MATCHES "(MSVC|Clang)"))
+     target_compile_definitions(lz4_shared PRIVATE
+       LZ4_DLL_EXPORT=1)
+   endif()
+@@ -106,7 +106,7 @@ if(BUILD_SHARED_LIBS)
+ endif()
+ if(BUILD_STATIC_LIBS)
+   set(STATIC_LIB_NAME lz4)
+-  if (MSVC AND BUILD_SHARED_LIBS)
++  if (WIN32 AND (${CMAKE_C_COMPILER_ID} MATCHES "(MSVC|Clang)") AND BUILD_SHARED_LIBS)
+     set(STATIC_LIB_NAME lz4_static)
+   endif()
+   add_library(lz4_static STATIC ${LZ4_SOURCES})
+-- 
+2.47.0.windows.1
+
