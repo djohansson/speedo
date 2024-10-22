@@ -23,6 +23,8 @@ vcpkg_check_features(
 set(PLATFORM_OPTIONS "")
 if(VCPKG_TARGET_IS_MINGW)
     list(APPEND PLATFORM_OPTIONS "-DCMAKE_SYSTEM_VERSION=6.0" "-DZMQ_HAVE_IPC=0")
+elseif(VCPKG_TARGET_IS_WINDOWS)
+    list(APPEND PLATFORM_OPTIONS "-DPOLLER=epoll")
 endif()
 
 vcpkg_find_acquire_program(PKGCONFIG)
