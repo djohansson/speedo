@@ -1,0 +1,36 @@
+From 2e78f394eb03509d17e0bf2c9fa7549397416c47 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 22 Oct 2024 22:19:36 +0200
+Subject: [PATCH] msvc flags
+
+---
+ cmake/config.cmake | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/cmake/config.cmake b/cmake/config.cmake
+index 6a6e158..7e3cae6 100644
+--- a/cmake/config.cmake
++++ b/cmake/config.cmake
+@@ -13,7 +13,7 @@ if (NOT NO_ISA_EXTENSIONS)
+             set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native")
+         endif()
+     endif()
+-    if(WIN32)
++    if(MSVC)
+         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /arch:AVX2")
+         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} /arch:AVX2")
+     endif()
+@@ -27,7 +27,9 @@ endif()
+ 
+ if(WIN32)
+     add_definitions(-DNOMINMAX -DWIN32_LEAN_AND_MEAN)
+-    add_compile_options(/MP)
++    if (MSVC)
++        add_compile_options(/MP)
++    endif()
+ else()
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fdiagnostics-color=always")
+     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fdiagnostics-color=always")
+-- 
+2.47.0.windows.1
+

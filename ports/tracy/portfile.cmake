@@ -7,6 +7,7 @@ vcpkg_from_github(
     PATCHES
         build-tools.patch
         vk-query-count.patch
+        msvc-flags.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
