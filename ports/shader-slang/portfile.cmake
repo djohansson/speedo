@@ -10,6 +10,7 @@ vcpkg_from_github(
 		0001-include-process.h.patch
 		0002-include-intrin.h.patch
 		0003-add-crtdbg.h-includes.patch
+		0004-cxx20-fixes.patch
 )
 
 vcpkg_cmake_configure(

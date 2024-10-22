@@ -1,0 +1,25 @@
+From db9bc3a7bdc823f3c49bf5ee252d6cd44f4ca666 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 22 Oct 2024 22:49:40 +0200
+Subject: [PATCH 4/4] cxx20-fixes
+
+---
+ source/core/slang-io.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/source/core/slang-io.cpp b/source/core/slang-io.cpp
+index dd390fc..18ee416 100644
+--- a/source/core/slang-io.cpp
++++ b/source/core/slang-io.cpp
+@@ -733,7 +733,7 @@ namespace Slang
+         auto result = std::filesystem::relative(p2, p1, ec);
+         if (ec)
+             return path;
+-        return String(UnownedStringSlice(result.generic_u8string().c_str()));
++        return String(UnownedStringSlice(result.generic_string().c_str()));
+     }
+ 
+     SlangResult Path::remove(const String& path)
+-- 
+2.47.0.windows.1
+
