@@ -1,0 +1,40 @@
+From 3377322c10188da558dfbde15ea2ddfc2ca1c085 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 22 Oct 2024 16:17:42 +0200
+Subject: [PATCH 3/3] add crtdbg.h includes
+
+---
+ source/slangc/main.cpp               | 1 +
+ tools/slang-test/slang-test-main.cpp | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/source/slangc/main.cpp b/source/slangc/main.cpp
+index 6e76e2f..0318b1c 100644
+--- a/source/slangc/main.cpp
++++ b/source/slangc/main.cpp
+@@ -12,6 +12,7 @@ using namespace Slang;
+ #include <assert.h>
+ 
+ #ifdef _WIN32
++#include <crtdbg.h>
+ #define MAIN slangc_main
+ #else
+ #define MAIN main
+diff --git a/tools/slang-test/slang-test-main.cpp b/tools/slang-test/slang-test-main.cpp
+index 47a87dd..8c3fc15 100644
+--- a/tools/slang-test/slang-test-main.cpp
++++ b/tools/slang-test/slang-test-main.cpp
+@@ -53,6 +53,10 @@
+ #include <atomic>
+ #include <thread>
+ 
++#ifdef _MSC_VER
++#include <crtdbg.h>
++#endif
++
+ using namespace Slang;
+ 
+ // Options for a particular test
+-- 
+2.47.0.windows.1
+

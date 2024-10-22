@@ -1,0 +1,25 @@
+From f13005f197319c36f45d089b5d91a2bfeddb3cce Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Thu, 17 Oct 2024 22:23:09 +0200
+Subject: [PATCH 2/3] include intrin.h
+
+---
+ source/core/slang-byte-encode-util.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/source/core/slang-byte-encode-util.h b/source/core/slang-byte-encode-util.h
+index 728f9ac..8834492 100644
+--- a/source/core/slang-byte-encode-util.h
++++ b/source/core/slang-byte-encode-util.h
+@@ -3,6 +3,8 @@
+ 
+ #include "slang-list.h"
+ 
++#include <intrin.h>
++
+ namespace Slang {
+ 
+ struct ByteEncodeUtil
+-- 
+2.47.0.windows.1
+

@@ -6,14 +6,10 @@ vcpkg_from_github(
 	REF 7e7d46cf06c6863520ccd8d7cc26b70141adc145 #v${VERSION}
 	SHA512 d0f7bc146107f81b62e81bad3ced8548fd904a82686909de058b902066196daa72d1492e5e638db98518f55b263320ee8d94be97055b719cfd88011a0746d6ab
 	HEAD_REF master
-	# PATCHES
-	# 	clang-windows.patch
-	# 	clang-windows-2.patch
-	# 	remove-external.patch
-	# 	0001-find-nvapi.patch
-	# 	0002-dxil-support-option.patch
-	# 	0003-imgui_impl_win32-include.patch
-	# 	0004-cast-to-int64.patch
+	PATCHES
+		0001-include-process.h.patch
+		0002-include-intrin.h.patch
+		0003-add-crtdbg.h-includes.patch
 )
 
 vcpkg_cmake_configure(
@@ -23,6 +19,7 @@ vcpkg_cmake_configure(
 		-DSLANG_ENABLE_GFX=OFF
 		-DSLANG_SLANG_LLVM_FLAVOR=DISABLE
 		-DSLANG_ENABLE_DXIL=OFF
+		-DSLANG_ENABLE_PREBUILT_BINARIES=OFF
 )
 
 vcpkg_cmake_install()
