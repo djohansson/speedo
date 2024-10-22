@@ -1,0 +1,24 @@
+From 8e492bd43a03b38f6bcaa016c97893f7605cada9 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 22 Oct 2024 16:01:54 +0200
+Subject: [PATCH] remove debug postfix
+
+---
+ CMakeLists.txt | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a734ad1..33ebebf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -101,7 +101,6 @@ if(ENABLE_HLSL)
+ endif()
+ 
+ if(WIN32)
+-    set(CMAKE_DEBUG_POSTFIX "d")
+     option(OVERRIDE_MSVCCRT "Overrides runtime of MSVC " ON)
+     if(MSVC AND OVERRIDE_MSVCCRT)
+         include(ChooseMSVCCRT.cmake)
+-- 
+2.47.0.windows.1
+

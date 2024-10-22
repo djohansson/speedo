@@ -9,6 +9,7 @@ vcpkg_from_github(
     PATCHES
         cmake.patch # Remove on next version (Upstream PR #3406 and #3420).
         standalone_header_install_fix.patch
+        0001-remove-debug-postfix.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
