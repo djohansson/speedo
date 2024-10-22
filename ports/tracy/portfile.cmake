@@ -35,6 +35,7 @@ vcpkg_cmake_configure(
     OPTIONS
         -DDOWNLOAD_CAPSTONE=OFF
         -DLEGACY=ON
+        -DNO_PARALLEL_STL=ON
         ${FEATURE_OPTIONS}
     OPTIONS_RELEASE
         ${TOOLS_OPTIONS}
