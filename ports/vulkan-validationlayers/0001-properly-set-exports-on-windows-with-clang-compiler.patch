@@ -1,0 +1,41 @@
+From 3be01c1316f45ec5966a1d236c01da399194a488 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Mon, 29 Apr 2024 00:00:46 +0200
+Subject: [PATCH] properly set exports on windows with clang compiler
+
+---
+ layers/CMakeLists.txt | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/layers/CMakeLists.txt b/layers/CMakeLists.txt
+index efd5d27..6dbf93d 100644
+--- a/layers/CMakeLists.txt
++++ b/layers/CMakeLists.txt
+@@ -326,13 +326,17 @@ source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${LAYER_SOURCES})
+ 
+ set_target_properties(vvl PROPERTIES OUTPUT_NAME ${LAYER_NAME})
+ 
+-if(MSVC)
+-    target_link_options(vvl PRIVATE /DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
+-    target_compile_options(vvl PRIVATE /bigobj)
+-elseif(MINGW)
+-    target_sources(vvl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
+-    target_compile_options(vvl PRIVATE -Wa,-mbig-obj)
+-    set_target_properties(vvl PROPERTIES PREFIX "") # remove the prefix "lib" so the manifest json "library_path" matches
++if(WIN32)
++    if(MSVC)
++        target_link_options(vvl PRIVATE /DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
++        target_compile_options(vvl PRIVATE /bigobj)
++    elseif(MINGW)
++        target_sources(vvl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
++        target_compile_options(vvl PRIVATE -Wa,-mbig-obj)
++        set_target_properties(vvl PROPERTIES PREFIX "") # remove the prefix "lib" so the manifest json "library_path" matches
++    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++        target_link_options(vvl PRIVATE -Wl,/DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
++    endif()
+ elseif(APPLE)
+ 
+ # IOS and APPLE can both be true (FYI)
+-- 
+2.44.0.windows.1
+
