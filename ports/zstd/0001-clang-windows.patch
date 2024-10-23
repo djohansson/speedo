@@ -1,0 +1,25 @@
+From 31b52b541d32e0a982a159adc879d5d045c0cfe1 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Wed, 31 Jul 2024 22:22:43 +0200
+Subject: [PATCH] clang-windows
+
+---
+ build/cmake/lib/CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/build/cmake/lib/CMakeLists.txt b/build/cmake/lib/CMakeLists.txt
+index 1e7d3ea..0c0429e 100644
+--- a/build/cmake/lib/CMakeLists.txt
++++ b/build/cmake/lib/CMakeLists.txt
+@@ -183,7 +183,7 @@ if (ZSTD_BUILD_SHARED AND ZSTD_BUILD_STATIC)
+ endif ()
+ 
+ # Add specific compile definitions for MSVC project
+-if (MSVC)
++if (MSVC OR (WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT MINGW))
+     if (ZSTD_BUILD_SHARED)
+         set_property(TARGET libzstd_shared APPEND PROPERTY COMPILE_DEFINITIONS "ZSTD_DLL_EXPORT=1;ZSTD_HEAPMODE=0;_CONSOLE;_CRT_SECURE_NO_WARNINGS")
+     endif ()
+-- 
+2.45.2.windows.1
+
