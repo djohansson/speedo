@@ -1,0 +1,297 @@
+From fa7dbcbaf48dae644e76363ac9521b81a23b7c64 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Wed, 23 Oct 2024 12:19:37 +0200
+Subject: [PATCH] windows unicode fixes
+
+---
+ Code/Core/Env/Assert.cpp          |  2 +-
+ Code/Core/Env/Env.cpp             |  8 +++----
+ Code/Core/FileIO/FileIO.cpp       | 38 +++++++++++++++----------------
+ Code/Core/FileIO/FileStream.cpp   |  2 +-
+ Code/Core/Network/Network.cpp     |  4 ++--
+ Code/Core/Process/Process.cpp     |  2 +-
+ Code/Core/Process/SystemMutex.cpp |  2 +-
+ 7 files changed, 29 insertions(+), 29 deletions(-)
+
+diff --git a/Code/Core/Env/Assert.cpp b/Code/Core/Env/Assert.cpp
+index 8249af3..16c68e3 100644
+--- a/Code/Core/Env/Assert.cpp
++++ b/Code/Core/Env/Assert.cpp
+@@ -110,7 +110,7 @@ bool IsDebuggerAttached()
+             #if defined( __WINDOWS__ )
+                 // TODO:LINUX Fix MessageBox use
+                 // TODO:OSX Fix MessageBox use
+-                const int res = MessageBox( nullptr, buffer, "Assertion Failed - Break Execution?", MB_YESNO | MB_ICONERROR );
++                const int res = MessageBoxA( nullptr, buffer, "Assertion Failed - Break Execution?", MB_YESNO | MB_ICONERROR );
+                 return ( res == IDYES );
+             #endif
+         }
+diff --git a/Code/Core/Env/Env.cpp b/Code/Core/Env/Env.cpp
+index 7e9da1e..56ac2d1 100644
+--- a/Code/Core/Env/Env.cpp
++++ b/Code/Core/Env/Env.cpp
+@@ -196,7 +196,7 @@ Env::ProcessorInfo::ProcessorInfo()
+     #if defined( __WINDOWS__ )
+         // try to get the env variable into whatever storage we have available
+         uint32_t maxSize = envVarValue.GetReserved();
+-        DWORD ret = ::GetEnvironmentVariable( envVarName, envVarValue.Get(), maxSize );
++        DWORD ret = ::GetEnvironmentVariableA( envVarName, envVarValue.Get(), maxSize );
+ 
+         // variable does not exist
+         if ( ret == 0 )
+@@ -210,7 +210,7 @@ Env::ProcessorInfo::ProcessorInfo()
+             // not enough space, allocate enough
+             envVarValue.SetReserved( ret );
+             maxSize = envVarValue.GetReserved();
+-            ret = ::GetEnvironmentVariable( envVarName, envVarValue.Get(), maxSize );
++            ret = ::GetEnvironmentVariableA( envVarName, envVarValue.Get(), maxSize );
+             ASSERT( ret <= maxSize ); // should have fit
+         }
+ 
+@@ -236,7 +236,7 @@ Env::ProcessorInfo::ProcessorInfo()
+ /*static*/ bool Env::SetEnvVariable( const char * envVarName, const AString & envVarValue )
+ {
+     #if defined( __WINDOWS__ )
+-        return ::SetEnvironmentVariable( envVarName, envVarValue.Get() ) != 0;
++        return ::SetEnvironmentVariableA( envVarName, envVarValue.Get() ) != 0;
+     #elif defined( __LINUX__ ) || defined( __APPLE__ )
+         return ::setenv( envVarName, envVarValue.Get(), 1 ) == 0;
+     #else
+@@ -249,7 +249,7 @@ Env::ProcessorInfo::ProcessorInfo()
+ /*static*/ void Env::GetCmdLine( AString & cmdLine )
+ {
+     #if defined( __WINDOWS__ )
+-        cmdLine = ::GetCommandLine();
++        cmdLine = ::GetCommandLineA();
+     #elif defined( __APPLE__ )
+         int argc = *_NSGetArgc();
+         const char ** argv = const_cast< const char ** >( *_NSGetArgv() );
+diff --git a/Code/Core/FileIO/FileIO.cpp b/Code/Core/FileIO/FileIO.cpp
+index c657993..98550f2 100644
+--- a/Code/Core/FileIO/FileIO.cpp
++++ b/Code/Core/FileIO/FileIO.cpp
+@@ -109,7 +109,7 @@
+ /*static*/ bool FileIO::DirectoryDelete( const AString & path )
+ {
+ #if defined( __WINDOWS__ )
+-    const BOOL result = RemoveDirectory( path.Get() );
++    const BOOL result = RemoveDirectoryA( path.Get() );
+     if ( result == FALSE )
+     {
+         return false; // failed to delete
+@@ -133,7 +133,7 @@
+ {
+     PROFILE_FUNCTION;
+ #if defined( __WINDOWS__ )
+-    const BOOL result = DeleteFile( fileName );
++    const BOOL result = DeleteFileA( fileName );
+     if ( result == FALSE )
+     {
+         return false; // failed to delete
+@@ -160,7 +160,7 @@
+     DWORD flags = COPY_FILE_COPY_SYMLINK;
+     flags = ( allowOverwrite ? flags : flags | COPY_FILE_FAIL_IF_EXISTS );
+ 
+-    BOOL result = CopyFileEx( srcFileName, dstFileName, nullptr, nullptr, nullptr, flags );
++    BOOL result = CopyFileExA( srcFileName, dstFileName, nullptr, nullptr, nullptr, flags );
+     if ( result == FALSE )
+     {
+         // even if we allow overwrites, Windows will fail if the dest file
+@@ -168,7 +168,7 @@
+         if ( ( GetLastError() == ERROR_ACCESS_DENIED ) && ( allowOverwrite ) )
+         {
+             // see if dst file is read-only
+-            DWORD dwAttrs = GetFileAttributes( dstFileName );
++            DWORD dwAttrs = GetFileAttributesA( dstFileName );
+             if ( dwAttrs == INVALID_FILE_ATTRIBUTES )
+             {
+                 return false; // can't even get the attributes, nothing more we can do
+@@ -180,13 +180,13 @@
+ 
+             // try to remove read-only flag on dst file
+             dwAttrs = ( dwAttrs & (uint32_t)(~FILE_ATTRIBUTE_READONLY) );
+-            if ( FALSE == SetFileAttributes( dstFileName, dwAttrs ) )
++            if ( FALSE == SetFileAttributesA( dstFileName, dwAttrs ) )
+             {
+                 return false; // failed to remove read-only flag
+             }
+ 
+             // try to copy again
+-            result = CopyFileEx( srcFileName, dstFileName, nullptr, nullptr, nullptr, flags );
++            result = CopyFileExA( srcFileName, dstFileName, nullptr, nullptr, nullptr, flags );
+             return ( result == TRUE );
+         }
+     }
+@@ -324,7 +324,7 @@
+ /*static*/ bool FileIO::FileMove( const AString & srcFileName, const AString & dstFileName )
+ {
+ #if defined( __WINDOWS__ )
+-    return ( TRUE == ::MoveFileEx( srcFileName.Get(), dstFileName.Get(), MOVEFILE_REPLACE_EXISTING ) );
++    return ( TRUE == ::MoveFileExA( srcFileName.Get(), dstFileName.Get(), MOVEFILE_REPLACE_EXISTING ) );
+ #elif defined( __LINUX__ ) || defined( __APPLE__ )
+     return ( rename( srcFileName.Get(), dstFileName.Get() ) == 0 );
+ #else
+@@ -399,7 +399,7 @@
+ {
+     #if defined( __WINDOWS__ )
+         WIN32_FILE_ATTRIBUTE_DATA fileAttribs;
+-        if ( GetFileAttributesEx( fileName.Get(), GetFileExInfoStandard, &fileAttribs ) )
++        if ( GetFileAttributesExA( fileName.Get(), GetFileExInfoStandard, &fileAttribs ) )
+         {
+             info.m_Name = fileName;
+             info.m_Attributes = fileAttribs.dwFileAttributes;
+@@ -431,7 +431,7 @@
+ {
+     #if defined( __WINDOWS__ )
+         char buffer[ MAX_PATH ];
+-        const DWORD len = GetCurrentDirectory( MAX_PATH, buffer );
++        const DWORD len = GetCurrentDirectoryA( MAX_PATH, buffer );
+         if ( len != 0 )
+         {
+             output = buffer;
+@@ -466,7 +466,7 @@
+         // (we'll use the windows directory)
+         char otherFolder[ 512 ];
+         otherFolder[ 0 ] = 0;
+-        const UINT len = ::GetWindowsDirectory( otherFolder, 512 );
++        const UINT len = ::GetWindowsDirectoryA( otherFolder, 512 );
+         if ( ( len == 0 ) || ( len > 511 ) )
+         {
+             return false;
+@@ -480,13 +480,13 @@
+         }
+ 
+         // set "other" dir
+-        if ( ::SetCurrentDirectory( otherFolder ) == FALSE )
++        if ( ::SetCurrentDirectoryA( otherFolder ) == FALSE )
+         {
+             return false;
+         }
+ 
+         // set the actual directory we want
+-        if ( ::SetCurrentDirectory( dir.Get() ) == TRUE )
++        if ( ::SetCurrentDirectoryA( dir.Get() ) == TRUE )
+         {
+             return true;
+         }
+@@ -507,7 +507,7 @@
+ {
+     #if defined( __WINDOWS__ )
+         char buffer[ MAX_PATH ];
+-        const DWORD len = GetTempPath( MAX_PATH, buffer );
++        const DWORD len = GetTempPathA( MAX_PATH, buffer );
+         if ( len != 0 )
+         {
+             output = buffer;
+@@ -535,7 +535,7 @@
+ /*static*/ bool FileIO::DirectoryCreate( const AString & path )
+ {
+     #if defined( __WINDOWS__ )
+-        if ( CreateDirectory( path.Get(), nullptr ) )
++        if ( CreateDirectoryA( path.Get(), nullptr ) )
+         {
+             return true;
+         }
+@@ -571,7 +571,7 @@
+ /*static*/ bool FileIO::DirectoryExists( const AString & path )
+ {
+     #if defined( __WINDOWS__ )
+-        const DWORD res = GetFileAttributes( path.Get() );
++        const DWORD res = GetFileAttributesA( path.Get() );
+         if ( ( res != INVALID_FILE_ATTRIBUTES ) &&
+             ( ( res & FILE_ATTRIBUTE_DIRECTORY ) != 0 ) )
+         {
+@@ -793,7 +793,7 @@
+ {
+     #if defined( __WINDOWS__ )
+         WIN32_FILE_ATTRIBUTE_DATA fileAttribs;
+-        if ( GetFileAttributesEx( fileName.Get(), GetFileExInfoStandard, &fileAttribs ) )
++        if ( GetFileAttributesExA( fileName.Get(), GetFileExInfoStandard, &fileAttribs ) )
+         {
+             const FILETIME ftWrite = fileAttribs.ftLastWriteTime;
+             const uint64_t lastWriteTime = (uint64_t)ftWrite.dwLowDateTime | ( (uint64_t)ftWrite.dwHighDateTime << 32 );
+@@ -823,7 +823,7 @@
+ {
+     #if defined( __WINDOWS__ )
+         // open the file
+-        HANDLE hFile = CreateFile( fileName.Get(),
++        HANDLE hFile = CreateFileA( fileName.Get(),
+                                    FILE_WRITE_ATTRIBUTES,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                    nullptr,
+@@ -906,7 +906,7 @@
+ {
+     #if defined( __WINDOWS__ )
+         // see if dst file is read-only
+-        const DWORD dwAttrs = GetFileAttributes( fileName );
++        const DWORD dwAttrs = GetFileAttributesA( fileName );
+         if ( dwAttrs == INVALID_FILE_ATTRIBUTES )
+         {
+             return false; // can't even get the attributes, nothing more we can do
+@@ -923,7 +923,7 @@
+         }
+ 
+         // try to set change
+-        if ( FALSE == SetFileAttributes( fileName, dwNewAttrs ) )
++        if ( FALSE == SetFileAttributesA( fileName, dwNewAttrs ) )
+         {
+             return false; // failed
+         }
+diff --git a/Code/Core/FileIO/FileStream.cpp b/Code/Core/FileIO/FileStream.cpp
+index f400f8b..1316d2e 100644
+--- a/Code/Core/FileIO/FileStream.cpp
++++ b/Code/Core/FileIO/FileStream.cpp
+@@ -91,7 +91,7 @@ bool FileStream::Open( const char * fileName, uint32_t fileMode )
+         size_t retryCount = 0;
+         while ( retryCount < 5 )
+         {
+-            HANDLE h = CreateFile( fileName,            // _In_     LPCTSTR lpFileName,
++            HANDLE h = CreateFileA( fileName,            // _In_     LPCTSTR lpFileName,
+                                    desiredAccess,       // _In_     DWORD dwDesiredAccess,
+                                    shareMode,           // _In_     DWORD dwShareMode,
+                                    nullptr,             // _In_opt_ LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+diff --git a/Code/Core/Network/Network.cpp b/Code/Core/Network/Network.cpp
+index abc75e2..05d1317 100644
+--- a/Code/Core/Network/Network.cpp
++++ b/Code/Core/Network/Network.cpp
+@@ -54,9 +54,9 @@
+     const NetworkStartupHelper nsh; // ensure network is up if not already
+ 
+     #if defined( __WINDOWS__ )
+-        TCHAR buffer[ 256 ];
++        char buffer[256];
+         DWORD bufferSize = sizeof( buffer );
+-        if ( GetComputerNameEx( ComputerNameDnsDomain, buffer, &bufferSize ) )
++        if ( GetComputerNameExA( ComputerNameDnsDomain, buffer, &bufferSize ) )
+         {
+             domainName = buffer;
+             return;
+diff --git a/Code/Core/Process/Process.cpp b/Code/Core/Process/Process.cpp
+index 5ccef77..83673d5 100644
+--- a/Code/Core/Process/Process.cpp
++++ b/Code/Core/Process/Process.cpp
+@@ -256,7 +256,7 @@ bool Process::Spawn( const char * executable,
+ 
+         // create the child
+         PRAGMA_DISABLE_PUSH_MSVC( 6335 ) // False positive: Leaking process information handle '%s'
+-        if ( !CreateProcess( nullptr, //executable,
++        if ( !CreateProcessA( nullptr, //executable,
+                              fullArgs.Get(),
+                              nullptr,
+                              nullptr,
+diff --git a/Code/Core/Process/SystemMutex.cpp b/Code/Core/Process/SystemMutex.cpp
+index d8c51c8..2288d9b 100644
+--- a/Code/Core/Process/SystemMutex.cpp
++++ b/Code/Core/Process/SystemMutex.cpp
+@@ -47,7 +47,7 @@ bool SystemMutex::TryLock()
+     ASSERT( !IsLocked() ); // Invalid to lock more than once
+ 
+     #if defined( __WINDOWS__ )
+-        void * handle = (void *)CreateMutex( nullptr, TRUE, m_Name.Get() );
++        void * handle = (void *)CreateMutexA( nullptr, TRUE, m_Name.Get() );
+         if ( GetLastError() == ERROR_ALREADY_EXISTS )
+         {
+             if ( ( handle != INVALID_HANDLE_VALUE ) && ( handle != nullptr ) )
+-- 
+2.47.0.windows.1
+
