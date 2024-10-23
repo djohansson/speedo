@@ -1,19 +1,19 @@
-From ff19164b0b8fa9501111bf40128078003568d4a0 Mon Sep 17 00:00:00 2001
+From 078c9b20aa92f07aec9e69e609fd38d51a0b1a74 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
-Date: Wed, 23 Oct 2024 13:03:06 +0200
+Date: Wed, 23 Oct 2024 13:37:03 +0200
 Subject: [PATCH] windows unicode fixes
 
 ---
  Code/Core/Env/Assert.cpp                      |  2 +-
- Code/Core/Env/Env.cpp                         |  8 +--
- Code/Core/FileIO/FileIO.cpp                   | 72 +++++++++----------
+ Code/Core/Env/Env.cpp                         |  8 +-
+ Code/Core/FileIO/FileIO.cpp                   | 80 +++++++++----------
  Code/Core/FileIO/FileStream.cpp               |  2 +-
  Code/Core/Network/Network.cpp                 |  4 +-
  Code/Core/Process/Process.cpp                 |  4 +-
  Code/Core/Process/SystemMutex.cpp             |  2 +-
  .../FBuild/FBuildCore/Cache/CachePlugin.cpp   |  2 +-
  .../VSProjLoaderInterface.h                   |  2 +-
- 9 files changed, 49 insertions(+), 49 deletions(-)
+ 9 files changed, 53 insertions(+), 53 deletions(-)
 
 diff --git a/Code/Core/Env/Assert.cpp b/Code/Core/Env/Assert.cpp
 index 8249af3..16c68e3 100644
@@ -69,7 +69,7 @@ index 7e9da1e..56ac2d1 100644
          int argc = *_NSGetArgc();
          const char ** argv = const_cast< const char ** >( *_NSGetArgv() );
 diff --git a/Code/Core/FileIO/FileIO.cpp b/Code/Core/FileIO/FileIO.cpp
-index c657993..68dbeff 100644
+index c657993..eeca288 100644
 --- a/Code/Core/FileIO/FileIO.cpp
 +++ b/Code/Core/FileIO/FileIO.cpp
 @@ -83,7 +83,7 @@
@@ -268,6 +268,15 @@ index c657993..68dbeff 100644
          if ( hFind == INVALID_HANDLE_VALUE)
          {
              return;
+@@ -1145,7 +1145,7 @@
+         }
+     }
+     #if defined( __WINDOWS__ )
+-        while ( FindNextFile( hFind, &findData ) != 0 );
++        while ( FindNextFileA( hFind, &findData ) != 0 );
+     #endif
+ 
+     #if defined( __WINDOWS__ )
 @@ -1167,8 +1167,8 @@
          pathCopy += '*'; // don't want to use wildcard to filter folders
  
@@ -295,6 +304,15 @@ index c657993..68dbeff 100644
          if ( hFind == INVALID_HANDLE_VALUE)
          {
              return;
+@@ -1219,7 +1219,7 @@
+                 results->Append( pathCopy );
+             }
+         }
+-        while ( FindNextFile( hFind, &findData ) != 0 );
++        while ( FindNextFileA( hFind, &findData ) != 0 );
+ 
+         FindClose( hFind );
+ 
 @@ -1310,8 +1310,8 @@
      #if defined( __WINDOWS__ )
          pathCopy += '*';
@@ -355,6 +373,24 @@ index c657993..68dbeff 100644
  
          FindClose( hFind );
  
+@@ -1741,7 +1741,7 @@
+ 
+         // Open Registry Entry
+         HKEY key;
+-        if ( RegOpenKeyEx( HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\FileSystem", 0, KEY_READ, &key ) != ERROR_SUCCESS )
++        if ( RegOpenKeyExA( HKEY_LOCAL_MACHINE, "SYSTEM\\CurrentControlSet\\Control\\FileSystem", 0, KEY_READ, &key ) != ERROR_SUCCESS )
+         {
+             return false; // Entry doesn't exit
+         }
+@@ -1749,7 +1749,7 @@
+         // Read Value
+         DWORD value = 0;
+         DWORD valueSize = sizeof(DWORD);
+-        const LONG result = ::RegQueryValueEx( key,
++        const LONG result = ::RegQueryValueExA( key,
+                                                 "LongPathsEnabled",
+                                                 nullptr,
+                                                 nullptr,
 diff --git a/Code/Core/FileIO/FileStream.cpp b/Code/Core/FileIO/FileStream.cpp
 index f400f8b..1316d2e 100644
 --- a/Code/Core/FileIO/FileStream.cpp
