@@ -108,7 +108,7 @@ set(LINK_COMMON_FLAGS_DEBUG "")
 set(LINK_COMMON_FLAGS_RELEASE "")
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -DVC_EXTRALEAN -DNOMINMAX -D_WINSOCKAPI_ -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -Xclang -cfguard")
+	set(COMPILE_COMMON_FLAGS "${COMPILE_COMMON_FLAGS} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -DVC_EXTRALEAN -DNOMINMAX -D_WINSOCKAPI_ -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -D_LIBCXX_ABI_FORCE_MICROSOFT -Xclang -cfguard")
 	set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -llibc++")
 	set(LINK_COMMON_FLAGS_DEBUG "${LINK_COMMON_FLAGS_DEBUG} -lmsvcrtd.lib -lmsvcprtd.lib -lvcruntimed.lib") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(LINK_COMMON_FLAGS_RELEASE "${LINK_COMMON_FLAGS_RELEASE} -lmsvcrt.lib -lmsvcprt.lib -lvcruntime.lib") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
