@@ -63,13 +63,16 @@
 		+ ' -D__WINDOWS__'
 		+ ' -D_WIN32'
 		+ ' -D_WIN64'
-		+ ' -DUNICODE'
-		+ ' -D_UNICODE'
+		+ ' -D_CRT_DECLARE_NONSTDC_NAMES'
 		+ ' -D_CRT_SECURE_NO_WARNINGS'
-		+ ' -D_SILENCE_ALL_CXX20_DEPRECATION_WARNINGS'
-		+ ' -DVC_EXTRALEAN'
+		+ ' -D_CRT_STDIO_ISO_WIDE_SPECIFIERS'
+		+ ' -D_LIBCXX_ABI_FORCE_MICROSOFT'
+		// + ' -DUNICODE'
+		// + ' -D_UNICODE'
+		// + ' -D_SILENCE_ALL_CXX20_DEPRECATION_WARNINGS'
+		// + ' -DVC_EXTRALEAN'
 		+ ' -DNOMINMAX'
-		+ ' -D_WINSOCKAPI_' // stops windows.h including winsock.h
+		// + ' -D_WINSOCKAPI_' // stops windows.h including winsock.h
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -Xclang -cfguard'
@@ -87,10 +90,7 @@
 		+ ' -fno-plt'
 #endif //__LINUX__
 	.CompilerOptionsC = ' -std=c23 -nostdinc -nostdlib'  // todo: use llvm libc headers
-	.CompilerOptionsCpp = ' -std=c++26 -nostdinc++ -nostdlib++'
-#if !__WINDOWS__
-		+ ' -fexperimental-library'
-#endif
+	.CompilerOptionsCpp = ' -std=c++26 -fexperimental-library -nostdinc++ -nostdlib++'
 	.LinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
 		+ ' -L$LLVMPath$/lib'
 		+ ' -L$LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
@@ -110,19 +110,6 @@
 #endif
 		+ ' -nodefaultlibs'
 
-#if __WINDOWS__
-	.LinkerOptionsC = ' -lucrt'
-	//.LinkerOptionsC = ' -lclang_rt.builtins-x86_64 -lucrt'
-	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime'
-	//.LinkerOptionsC = ' -lmsvcrt -lucrt -lmsvcprt -lvcruntime -lkernel32'
-#else
-	.LinkerOptionsC = ' -lc -lpthread'
-#endif
-	.LinkerOptionsCpp = .LinkerOptionsC
-		+ ' -lc++'
-#if !__WINDOWS__
-		+ ' -lc++abi'
-#endif
 	.LibrarianOptions = 'rcs "%2" "%1"'
 	.LibrarianType = 'ar'
 	.ProfilingLevel = '0'
@@ -160,6 +147,11 @@
 		+ ' -lclang_rt.tsan_osx_dynamic'
 	//	+ ' -lclang_rt.asan_osx_dynamic' // not reliable together with mimalloc yet unfortunately
 #endif
+#if __WINDOWS__
+	.LinkerOptions + ' -Xlinker /NODEFAULTLIB -lkernel32 -loldnames -liso_stdio_wide_specifiers -lmsvcrtd -lucrtd -lmsvcprtd -lvcruntimed -llibc++'
+#else
+	.LinkerOptions + ' -lc -lpthread -lc++ -lc++abi'
+#endif
 ]
 
 .Clang_Native_ReleaseConfig =
@@ -171,6 +163,11 @@
 	.CompilerOptions + ' -DNDEBUG'
 #if !__OSX__
 		+ ' -flto=thin'
+#endif
+#if __WINDOWS__
+	.LinkerOptions + ' -Xlinker /NODEFAULTLIB -lkernel32 -loldnames -liso_stdio_wide_specifiers -lmsvcrt -lucrt -lmsvcprt -lvcruntime -llibc++'
+#else
+	.LinkerOptions + ' -lc -lpthread -lc++ -lc++abi'
 #endif
 ]
 

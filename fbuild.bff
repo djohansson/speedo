@@ -19,8 +19,7 @@
 	// 	.ProjectBasePath = '$BuildRootPath$/src'
 		
 	// 	.Name = 'core'
-	// 	.LibraryCompilerOptions = .CompilerOptionsCpp
-	// 		+ ' -I$ProjectBasePath$'
+	// 	.LibraryCompilerOptions = '-I$ProjectBasePath$'
 	// 		+ ' -fprebuilt-module-path=$IntermediatePath$'
 	// 	.CompilerInputFiles = {
 	// 		'$ProjectBasePath$/core/std.cpp',
@@ -34,8 +33,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'core'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$ProjectBasePath$'
+		.LibraryCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
@@ -53,8 +51,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'rhi'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$ProjectBasePath$'
+		.LibraryCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
@@ -87,8 +84,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'gfx'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$ProjectBasePath$'
+		.LibraryCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -Wno-deprecated-builtins'
@@ -104,8 +100,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'server'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$ProjectBasePath$'
+		.LibraryCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
@@ -124,8 +119,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'server'
-		.ObjectListCompilerOptions = .CompilerOptionsC
-			+ ' -I$ProjectBasePath$'
+		.ObjectListCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 		.CompilerInputPath = '$ProjectBasePath$/server'
 		.CompilerInputPattern = '*.c'
@@ -145,8 +139,7 @@
 		}
 		.DependencyDLLs = {
 		}
-		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -lcargs'
+		.CommonExecutableLinkerOptions = ' -lcargs'
 			+ ' -lcpptrace'
 			+ ' -lSHA-Intrinsics'
 			+ ' -lTracyClient'
@@ -177,8 +170,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'client'
-		.LibraryCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$ProjectBasePath$'
+		.LibraryCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 			+ ' -DUUID_SYSTEM_GENERATOR'
@@ -197,8 +189,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src'
 		
 		.Name = 'client'
-		.ObjectListCompilerOptions = .CompilerOptionsC
-			+ ' -I$ProjectBasePath$'
+		.ObjectListCompilerOptions = ' -I$ProjectBasePath$'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ ' -DGLFW_INCLUDE_NONE'
 		.CompilerInputPath = '$ProjectBasePath$/client'
@@ -221,8 +212,7 @@
 		}
 		.DependencyDLLs = {
 		}
-		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -lcargs'
+		.CommonExecutableLinkerOptions = ' -lcargs'
 			+ ' -lcpptrace'
 			+ ' -lnfd'
 			+ ' -lTracyClient'
@@ -275,8 +265,7 @@
 		.ProjectBasePath = '$BuildRootPath$/src/tests'
 		
 		.Name = 'core-tests'
-		.ObjectListCompilerOptions = .CompilerOptionsCpp
-			+ ' -I$BuildRootPath$/src'
+		.ObjectListCompilerOptions = ' -I$BuildRootPath$/src'
 			+ ' -isystem $BuildRootPath$/build/packages/$TargetTriplet$/include'
 			+ .GlmDefines
 		.CompilerInputPath = '$ProjectBasePath$'
@@ -296,8 +285,7 @@
 		}
 		.DependencyDLLs = {
 		}
-		.CommonExecutableLinkerOptions = .LinkerOptionsCpp
-			+ ' -lTracyClient'
+		.CommonExecutableLinkerOptions = ' -lTracyClient'
 			+ ' -lcpptrace'
 	#if __OSX__
 		.CommonExecutableLinkerOptions + ' -framework CoreFoundation'

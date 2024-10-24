@@ -159,6 +159,15 @@ function AddObjectList(.ObjectList .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
 		}
 
+		If(.CompilerInputPattern == '*.c')
+		{
+			^CompilerOptions + .CompilerOptionsC
+		}
+		If(.CompilerInputPattern != '*.c')
+		{
+			^CompilerOptions + .CompilerOptionsCpp
+		}
+
 		.CompilerOptions + ' -DPROFILING_LEVEL=$ProfilingLevel$'
 		.CompilerOptions + ' -DGRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
 		.CompilerOptions + .ObjectListCompilerOptions
@@ -209,6 +218,15 @@ function AddLibrary(.Library .CompilerConfig)
 			^ReturnValues = { }
 			AddTask(.Task .CompilerConfig)
 			^PreBuildDependencies + .ReturnValues
+		}
+
+		If(.CompilerInputPattern == '*.c')
+		{
+			^CompilerOptions + .CompilerOptionsC
+		}
+		If(.CompilerInputPattern != '*.c')
+		{
+			^CompilerOptions + .CompilerOptionsCpp
 		}
 
 		.CompilerOptions + ' -DPROFILING_LEVEL=$ProfilingLevel$'
