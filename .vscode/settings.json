@@ -128,6 +128,16 @@
 		"unistd.h": "c",
 		"features.h": "c",
 		"string.h": "c",
-		"*.inc": "cpp"
+		"*.inc": "cpp",
+		"barrier": "cpp",
+		"csetjmp": "cpp",
+		"cuchar": "cpp",
+		"latch": "cpp",
+		"mdspan": "cpp",
+		"numbers": "cpp",
+		"scoped_allocator": "cpp",
+		"stdfloat": "cpp",
+		"strstream": "cpp",
+		"syncstream": "cpp"
 	}
 }
