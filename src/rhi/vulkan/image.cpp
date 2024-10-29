@@ -31,19 +31,6 @@
 [[nodiscard]] zpp::bits::members<std_extra::member_count<ImageCreateDesc<kVk>>()> serialize(const ImageCreateDesc<kVk>&);
 //NOLINTEND(readability-identifier-naming)
 
-template <>
-void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout)
-{
-	ZoneScopedN("Image::Transition");
-
-	if (GetLayout() != layout)
-	{
-		TransitionImageLayout(
-			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size());
-		InternalSetImageLayout(layout);
-	}
-}
-
 namespace image
 {
 

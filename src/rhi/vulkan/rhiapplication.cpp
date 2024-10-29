@@ -30,6 +30,8 @@ const RHI<kVk>& RHIApplication::GetRHI<kVk>() const noexcept
 namespace rhiapplication
 {
 
+static ConcurrentQueue<ImDrawData> gIMGUIDrawData;
+
 void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 {
 	ZoneScopedN("RHIApplication::IMGUIPrepareDraw");
@@ -473,7 +475,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<kVk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).Config().splitScreenGrid;
+				Extent2d<kVk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).GetConfig().splitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -549,7 +551,7 @@ void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipelin
 
 	using namespace ImGui;
 
-	static ImDrawData drawData;
+	ImDrawData drawData;
 	while (gIMGUIDrawData.try_dequeue(drawData));
 
 	ImGui_ImplVulkan_NewFrame();
@@ -579,7 +581,7 @@ static void IMGUIInit(
 	// platformIo.Platform_CreateVkSurface =
 	// 	(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
 
-	LoadIniSettingsFromMemory(window.Config().imguiIniSettings.c_str(), window.Config().imguiIniSettings.size());
+	LoadIniSettingsFromMemory(window.GetConfig().imguiIniSettings.c_str(), window.GetConfig().imguiIniSettings.size());
 
 	const auto& surfaceCapabilities =
 		rhi.instance->GetSwapchainInfo(
@@ -590,8 +592,8 @@ static void IMGUIInit(
 	float dpiScaleX = 1.0F;
 	float dpiScaleY = 1.0F;
 #else
-	float dpiScaleX = window.Config().contentScale.x;
-	float dpiScaleY = window.Config().contentScale.y;
+	float dpiScaleX = window.GetConfig().contentScale.x;
+	float dpiScaleY = window.GetConfig().contentScale.y;
 #endif
 
 	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
@@ -601,7 +603,7 @@ static void IMGUIInit(
 	ImFontConfig config;
 	config.OversampleH = 2;
 	config.OversampleV = 2;
-	config.RasterizerDensity = std::max(window.Config().contentScale.x, window.Config().contentScale.y);
+	config.RasterizerDensity = std::max(window.GetConfig().contentScale.x, window.GetConfig().contentScale.y);
 	config.PixelSnapH = false;
 
 	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
@@ -642,19 +644,19 @@ static void IMGUIInit(
 	initInfo.DescriptorPool = rhi.pipeline->GetDescriptorPool();
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
 	// initInfo.ImageCount is used to determine the number of buffers in flight inside imgui, 
-	// and since we allow up to queuecount in-flight renders pers frame due to triple buffering,
+	// and since we allow up to queuecount in-flight renders per frame due to triple buffering,
 	// this needs to be set to the queue count accordingly.
-	initInfo.ImageCount = graphicsQueueInfos.size();
+	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
-	initInfo.UseDynamicRendering = window.Config().swapchainConfig.useDynamicRendering;
+	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
 	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetHandle<kVk>>(window.GetFrames()[0]).first;
 	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
 		.pNext = nullptr,
 		.viewMask = 0,
 		.colorAttachmentCount = 1,
-		.pColorAttachmentFormats = &window.Config().swapchainConfig.surfaceFormat.format,
+		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format,
 	};
 	ImGui_ImplVulkan_Init(&initInfo);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
@@ -818,7 +820,7 @@ DetectSuitableSwapchain(Device<kVk>& device, SurfaceHandle<kVk> surface)
 	return config;
 };
 
-static void CreateQueues(Rhi<kVk>& rhi)
+static void CreateQueues(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
@@ -834,17 +836,11 @@ static void CreateQueues(Rhi<kVk>& rhi)
 	static constexpr unsigned minComputeQueueCount = 1;
 	static constexpr unsigned minTransferQueueCount = 1;
 
-	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(
-		kQueueTypeGraphics,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(kQueueTypeGraphics, QueueTimelineContext<kVk>{});
+	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(kQueueTypeCompute, QueueTimelineContext<kVk>{});
+	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(kQueueTypeTransfer, QueueTimelineContext<kVk>{});
 
-	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(
-		kQueueTypeCompute,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
-
-	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(
-		kQueueTypeTransfer,
-		QueueTimelineContext<kVk>{{}, {rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}});
+	//std::get<0>(*graphicsQueuesIt) = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}};
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
@@ -854,9 +850,9 @@ static void CreateQueues(Rhi<kVk>& rhi)
 		return matchesType && !hasLowerBits && hasQueueCount;
 	};
 
-	auto& [graphicsQueueInfos, graphicsSemaphore] = queues[kQueueTypeGraphics];
-	auto& [computeQueueInfos, computeSemaphore] = queues[kQueueTypeCompute];
-	auto& [transferQueueInfos, transferSemaphore] = queues[kQueueTypeTransfer];
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = graphicsQueuesIt->second;
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = computeQueuesIt->second;
+	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = transferQueuesIt->second;
 
 	const auto& queueFamilies = rhi.device->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
@@ -869,7 +865,8 @@ static void CreateQueues(Rhi<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = graphicsQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
+				auto& [queue, syncInfo] = graphicsQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 2},
@@ -880,7 +877,8 @@ static void CreateQueues(Rhi<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = computeQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
+				auto& [queue, syncInfo] = computeQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
@@ -891,7 +889,8 @@ static void CreateQueues(Rhi<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = transferQueueInfos.emplace_back(QueueHostSyncContext<kVk>{});
+				auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
+				auto& [queue, syncInfo] = transferQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
@@ -900,38 +899,42 @@ static void CreateQueues(Rhi<kVk>& rhi)
 		}
 	}
 
-	CHECKF(!graphicsQueueInfos.empty(), "Failed to find a suitable graphics queue!");
+	CHECKF(!ConcurrentReadScope(graphicsQueueInfos)->empty(), "Failed to find a suitable graphics queue!");
 
-	if (computeQueueInfos.empty())
+	if (auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos); computeQueueInfosWriteScope->empty())
 	{
-		CHECKF(graphicsQueueInfos.size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
+		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
 
-		computeQueueInfos.emplace_back(std::make_pair(
-			std::move(graphicsQueueInfos.back().first),
+		CHECKF(graphicsQueueInfosWriteScope->size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
+
+		computeQueueInfosWriteScope->emplace_back(std::make_pair(
+			std::move(graphicsQueueInfosWriteScope->back().first),
 			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfos.pop_back();
+		graphicsQueueInfosWriteScope->pop_back();
 	}
 
-	if (transferQueueInfos.empty())
+	if (auto transferQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos); transferQueueInfosWriteScope->empty())
 	{
-		CHECKF(graphicsQueueInfos.size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
+		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
 
-		transferQueueInfos.emplace_back(std::make_pair(
-			std::move(graphicsQueueInfos.back().first),
+		CHECKF(graphicsQueueInfosWriteScope->size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
+
+		transferQueueInfosWriteScope->emplace_back(std::make_pair(
+			std::move(graphicsQueueInfosWriteScope->back().first),
 			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfos.pop_back();
+		graphicsQueueInfosWriteScope->pop_back();
 	}
 }
 
-static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
+static void CreateWindowDependentObjects(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createWindowDependentObjects");
 
 	auto colorImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.extent}},
-			rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.surfaceFormat.format,
+			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
+			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -942,7 +945,7 @@ static void CreateWindowDependentObjects(Rhi<kVk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).Config().swapchainConfig.extent}},
+			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
 			FindSupportedFormat(
 				rhi.device->GetPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -974,7 +977,7 @@ auto CreatePipeline(const auto& device)
 {
 	return std::make_unique<Pipeline<kVk>>(
 		device,
-		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "pipeline.cache").string()});
+		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()});
 }
 
 auto CreateDevice(const auto& instance, auto physicalDeviceIndex)
@@ -1008,19 +1011,19 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	WindowState windowState{};
 
 	Window<kVk>::ConfigFile windowConfig{
-		std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / "window.json"};
+		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.json"};
 
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
-	std::shared_ptr<Rhi<kVk>> rhi;
+	std::shared_ptr<RHI<kVk>> rhi;
 	{
 		auto* windowHandle = createWindowFunc(&windowState);
 		auto instance = CreateInstance(name);
 		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
 		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
 		auto pipeline = CreatePipeline(device);
-		rhi = std::make_shared<Rhi<kVk>>(
+		rhi = std::make_shared<RHI<kVk>>(
 			std::move(instance),
 			std::move(device),
 			std::move(pipeline));
@@ -1108,8 +1111,9 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
-		auto& [graphicsQueueInfos, graphicsSemaphore] = rhi->queues[kQueueTypeGraphics];
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfos.front();
+		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi->queues[kQueueTypeGraphics];
+		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
+		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfosWriteScope->front();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -1117,7 +1121,7 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 		rhi->pipeline->GetResources().black->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
 		rhi->pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		IMGUIInit(window, *rhi, cmd);
+		IMGUIInit(window, *rhi, graphicsQueue);
 
 		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
 		materialData[0].color[0] = 1.0;
@@ -1167,14 +1171,14 @@ auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
 			{},
 			{},
 			{graphicsSemaphore},
-			{1 + rhi->device->TimelineValue().fetch_add(1, std::memory_order_relaxed)},
+			{++graphicsSemaphoreValue},
 			std::move(timelineCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
 	}
 
-	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["RootPath"]) / "src/rhi/shaders";
-	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Instance().lock()->Env().variables["UserProfilePath"]) / ".slang.intermediate";
+	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 
@@ -1327,7 +1331,7 @@ void RHIApplication::InternalTick()
 	{
 		size_t iniStringSize;
 		const char* iniString = ImGui::SaveIniSettingsToMemory(&iniStringSize);
-		window.Config().imguiIniSettings.assign(iniString, iniStringSize);
+		window.GetConfig().imguiIniSettings.assign(iniString, iniStringSize);
 		io.WantSaveIniSettings = false;
 	}
 
@@ -1395,7 +1399,7 @@ void RHIApplication::InternalTick()
 	if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
 		window.OnInputStateChanged(input);
 
-	IMGUIPrepareDrawFunction(rhi, Executor());
+	IMGUIPrepareDrawFunction(rhi, GetExecutor());
 }
 
 void RHIApplication::InternalDraw()
@@ -1514,7 +1518,7 @@ void RHIApplication::InternalDraw()
 			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS, clearValues);
 
 			// setup draw parameters
-			uint32_t drawCount = window.Config().splitScreenGrid.width * window.Config().splitScreenGrid.height;
+			uint32_t drawCount = window.GetConfig().splitScreenGrid.width * window.GetConfig().splitScreenGrid.height;
 			uint32_t drawThreadCount = 0;
 
 			std::atomic_uint32_t drawAtomic = 0UL;
@@ -1538,7 +1542,7 @@ void RHIApplication::InternalDraw()
 					frameIndex = newFrameIndex,
 					&drawAtomic,
 					&drawCount,
-					&desc = window.Config()](uint32_t threadIt)
+					&desc = window.GetConfig()](uint32_t threadIt)
 					{
 						ZoneScoped;
 
@@ -1815,6 +1819,7 @@ RHIApplication::RHIApplication(
 			VK_IMAGE_TILING_LINEAR,
 			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			VK_IMAGE_ASPECT_COLOR_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			"Black"});
 

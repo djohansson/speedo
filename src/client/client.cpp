@@ -152,7 +152,7 @@ void Client::OnEvent()
 {
 	ZoneScopedN("Client::tick");
 
-	RhiApplication::OnEvent();
+	super_t::OnEvent();
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
@@ -238,7 +238,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	ASSERT(appPtr.Get());
 
-	std::array<TaskHandle, 2> handles{gRpcTask.handle, gUpdateTask.handle};
+	std::array<TaskHandle, 2> handles{gRpcTask.handle, gTickTask.handle};
 	appPtr->GetExecutor().Submit(handles);
 }
 
