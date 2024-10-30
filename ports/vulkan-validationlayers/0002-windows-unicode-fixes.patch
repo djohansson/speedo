@@ -1,0 +1,104 @@
+From 76491df55f0860d25f27fe50b7645714dcc5310a Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Wed, 30 Oct 2024 22:53:10 +0100
+Subject: [PATCH] windows unicode fixes
+
+---
+ layers/error_message/logging.cpp                  |  2 +-
+ layers/vk_layer_config.cpp                        | 10 +++++-----
+ layers/vulkan/generated/vk_function_pointers.cpp  |  4 ++--
+ scripts/generators/function_pointers_generator.py |  4 ++--
+ 4 files changed, 10 insertions(+), 10 deletions(-)
+
+diff --git a/layers/error_message/logging.cpp b/layers/error_message/logging.cpp
+index 361a725..29f5a42 100644
+--- a/layers/error_message/logging.cpp
++++ b/layers/error_message/logging.cpp
+@@ -728,7 +728,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL MessengerWin32DebugOutputMsg(VkDebugUtilsMessageS
+     [[maybe_unused]] const char *cstr = tmp.c_str();
+ 
+ #ifdef VK_USE_PLATFORM_WIN32_KHR
+-    OutputDebugString(cstr);
++    OutputDebugStringA(cstr);
+ #endif
+ 
+     return false;
+diff --git a/layers/vk_layer_config.cpp b/layers/vk_layer_config.cpp
+index cccf731..2d3536a 100644
+--- a/layers/vk_layer_config.cpp
++++ b/layers/vk_layer_config.cpp
+@@ -78,12 +78,12 @@ std::string GetEnvironment(const char *variable) {
+     const char *output = getenv(variable);
+     return output == NULL ? "" : output;
+ #elif defined(_WIN32)
+-    int size = GetEnvironmentVariable(variable, NULL, 0);
++    int size = GetEnvironmentVariableA(variable, NULL, 0);
+     if (size == 0) {
+         return "";
+     }
+     char *buffer = new char[size];
+-    GetEnvironmentVariable(variable, buffer, size);
++    GetEnvironmentVariableA(variable, buffer, size);
+     string output = buffer;
+     delete[] buffer;
+     return output;
+@@ -115,7 +115,7 @@ void SetEnvironment(const char *variable, const char *value) {
+ #if !defined(__ANDROID__) && !defined(_WIN32)
+     setenv(variable, value, 1);
+ #elif defined(_WIN32)
+-    SetEnvironmentVariable(variable, value);
++    SetEnvironmentVariableA(variable, value);
+ #elif defined(__ANDROID__)
+     (void)variable;
+     (void)value;
+@@ -259,11 +259,11 @@ string ConfigFile::FindSettings() {
+     const size_t hives_to_check_count = IsHighIntegrity() ? 1 : hives.size();  // Admin checks only the default hive
+ 
+     for (size_t hive_index = 0; hive_index < hives_to_check_count; ++hive_index) {
+-        LSTATUS err = RegOpenKeyEx(hives[hive_index], "Software\\Khronos\\Vulkan\\Settings", 0, KEY_READ, &key);
++        LSTATUS err = RegOpenKeyExA(hives[hive_index], "Software\\Khronos\\Vulkan\\Settings", 0, KEY_READ, &key);
+         if (err == ERROR_SUCCESS) {
+             char name[2048];
+             DWORD i = 0, name_size, type, value, value_size;
+-            while (ERROR_SUCCESS == RegEnumValue(key, i++, name, &(name_size = sizeof(name)), nullptr, &type,
++            while (ERROR_SUCCESS == RegEnumValueA(key, i++, name, &(name_size = sizeof(name)), nullptr, &type,
+                                                  reinterpret_cast<LPBYTE>(&value), &(value_size = sizeof(value)))) {
+                 // Check if the registry entry is a dword with a value of zero
+                 if (type != REG_DWORD || value != 0) {
+diff --git a/layers/vulkan/generated/vk_function_pointers.cpp b/layers/vulkan/generated/vk_function_pointers.cpp
+index 4f679c0..4da7140 100644
+--- a/layers/vulkan/generated/vk_function_pointers.cpp
++++ b/layers/vulkan/generated/vk_function_pointers.cpp
+@@ -36,10 +36,10 @@
+ typedef HMODULE dl_handle;
+ static dl_handle open_library(const char *lib_path) {
+     // Try loading the library the original way first.
+-    dl_handle lib_handle = LoadLibrary(lib_path);
++    dl_handle lib_handle = LoadLibraryA(lib_path);
+     if (lib_handle == NULL && GetLastError() == ERROR_MOD_NOT_FOUND) {
+         // If that failed, then try loading it with broader search folders.
+-        lib_handle = LoadLibraryEx(lib_path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
++        lib_handle = LoadLibraryExA(lib_path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
+     }
+     return lib_handle;
+ }
+diff --git a/scripts/generators/function_pointers_generator.py b/scripts/generators/function_pointers_generator.py
+index 0f0817b..c95e2ac 100644
+--- a/scripts/generators/function_pointers_generator.py
++++ b/scripts/generators/function_pointers_generator.py
+@@ -110,10 +110,10 @@ void ResetAllExtensions();
+ typedef HMODULE dl_handle;
+ static dl_handle open_library(const char *lib_path) {
+     // Try loading the library the original way first.
+-    dl_handle lib_handle = LoadLibrary(lib_path);
++    dl_handle lib_handle = LoadLibraryA(lib_path);
+     if (lib_handle == NULL && GetLastError() == ERROR_MOD_NOT_FOUND) {
+         // If that failed, then try loading it with broader search folders.
+-        lib_handle = LoadLibraryEx(lib_path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
++        lib_handle = LoadLibraryExA(lib_path, NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
+     }
+     return lib_handle;
+ }
+-- 
+2.47.0.windows.1
+
