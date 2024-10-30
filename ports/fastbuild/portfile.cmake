@@ -6,6 +6,8 @@ vcpkg_from_github(
 	REF 415d4a33c757e1e1f2c3ef8dae96702295d3f7e3
 	SHA512 5bc6a1eea71c4ef715c39cf1d2738b4accbc3f1cd8698fc3bbd985466a664b9142a5d1b15b5cb6fd05f5fb13df713cdf027ea730755df4c4f77dab1b37a222ff
 	HEAD_REF master
+	PATCHES
+		0001-windows-unicode-fixes.patch
 )
 
 vcpkg_cmake_configure(
