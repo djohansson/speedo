@@ -110,7 +110,7 @@ public:
 		, myData(std::exchange(other.myData, {})) {}
 	~ConcurrentAccess() noexcept = default;
 
-	[[maye_unused]] ConcurrentAccess& operator=(ConcurrentAccess&& other) noexcept
+	[[maybe_unused]] ConcurrentAccess& operator=(ConcurrentAccess&& other) noexcept
 	{
 		if (this != &other)
 		{
