@@ -9,6 +9,7 @@ vcpkg_from_github(
     PATCHES
       0001-properly-set-exports-on-windows-with-clang-compiler.patch
       0002-windows-unicode-fixes.patch
+      0003-fix-compile-error.patch
 )
 
 vcpkg_find_acquire_program(PYTHON3)

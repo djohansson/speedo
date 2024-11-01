@@ -9,6 +9,7 @@ vcpkg_from_github(
         vk-query-count.patch
         0001-msvc-flags.patch
         0002-clang-NO_CHARCONV.patch
+        0003-cxx26-fix-invalid-enum-use.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS

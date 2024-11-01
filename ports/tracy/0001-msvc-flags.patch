@@ -1,7 +1,7 @@
 From 2e78f394eb03509d17e0bf2c9fa7549397416c47 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 22 Oct 2024 22:19:36 +0200
-Subject: [PATCH 1/2] msvc flags
+Subject: [PATCH 1/3] msvc flags
 
 ---
  cmake/config.cmake | 6 ++++--

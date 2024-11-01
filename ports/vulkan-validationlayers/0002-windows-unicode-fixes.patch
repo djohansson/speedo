@@ -1,7 +1,7 @@
 From 76491df55f0860d25f27fe50b7645714dcc5310a Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Wed, 30 Oct 2024 22:53:10 +0100
-Subject: [PATCH] windows unicode fixes
+Subject: [PATCH 2/3] windows unicode fixes
 
 ---
  layers/error_message/logging.cpp                  |  2 +-
@@ -100,5 +100,5 @@ index 0f0817b..c95e2ac 100644
      return lib_handle;
  }
 -- 
-2.47.0.windows.1
+2.47.0.windows.2
 
