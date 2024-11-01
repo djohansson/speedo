@@ -59,6 +59,16 @@ set(CMAKE_CXX_COMPILER_LINKER_FRONTEND_VARIANT "GNU")
 # don't use CMAKE_LINKER, its apparently an "implementation detail" in wonderful CMakeland
 #set(CMAKE_LINKER ${LLVM_TOOLS_PATH}/lld${CMAKE_EXECUTABLE_SUFFIX})
 
+set(CMAKE_C11_STANDARD_COMPILE_OPTION "-std=c11")
+set(CMAKE_C17_STANDARD_COMPILE_OPTION "-std=c17")
+set(CMAKE_C23_STANDARD_COMPILE_OPTION "-std=c23")
+set(CMAKE_CXX11_STANDARD_COMPILE_OPTION "-std=c++11")
+set(CMAKE_CXX14_STANDARD_COMPILE_OPTION "-std=c++14")
+set(CMAKE_CXX17_STANDARD_COMPILE_OPTION "-std=c++17")
+set(CMAKE_CXX20_STANDARD_COMPILE_OPTION "-std=c++20")
+set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "-std=c++23")
+set(CMAKE_CXX26_STANDARD_COMPILE_OPTION "-std=c++26")
+
 set(CMAKE_LINKER_TYPE LLD)
 set(CMAKE_C_USING_LINKER_LLD "-fuse-ld=lld")
 set(CMAKE_C_USING_LINKER_MODE FLAG)
@@ -67,39 +77,29 @@ set(CMAKE_CXX_USING_LINKER_MODE FLAG)
 
 set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 
-# setting these have no effect, obviously (-‸ლ)
-# set(CMAKE_C_STANDARD 23)
-# set(CMAKE_CXX_STANDARD 26)
-
-# set(CMAKE_C_STANDARD_REQUIRED ON)
-# set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# set(CMAKE_C_EXTENSIONS OFF)
-# set(CMAKE_CXX_EXTENSIONS OFF)
-
-# set(CMAKE_C_EXCEPTIONS OFF)
-# set(CMAKE_CXX_EXCEPTIONS OFF)
-
-# set(CMAKE_C_RTTI OFF)
-# set(CMAKE_CXX_RTTI OFF)
-
-# set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
-# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
-set(C_FLAGS "")
+set(COMPILE_FLAGS "")
+set(COMPILE_FLAGS_DEBUG "-fno-omit-frame-pointer")
+set(COMPILE_FLAGS_RELEASE "")
+set(C_FLAGS "-std=c23") #set(C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
-set(CXX_FLAGS "")
-set(CXX_FLAGS_DEBUG "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG")
-set(CXX_FLAGS_RELEASE "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
+set(CXX_FLAGS "-std=c++26 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
+set(CXX_FLAGS_DEBUG "")
+set(CXX_FLAGS_RELEASE "")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-ms-compatibility")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-rtti -fno-exceptions")
-set(LINK_FLAGS "-L${LLVM_PATH}/lib")
-#set(LINK_COMMON_FLAGS "${LINK_COMMON_FLAGS} -nodefaultlibs")
+set(LINK_FLAGS "-L${LLVM_PATH}/lib") #set(LINK_FLAGS "${LINK_FLAGS} -nodefaultlibs")
 set(LINK_FLAGS_DEBUG "")
 set(LINK_FLAGS_RELEASE "")
+
+set(C_DEFINES "")
+set(C_DEFINES_DEBUG "")
+set(C_DEFINES_RELEASE "")
+set(CXX_DEFINES "")
+set(CXX_DEFINES_DEBUG "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG")
+set(CXX_DEFINES_RELEASE "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
 	set(C_FLAGS "${C_FLAGS} -march=native+crc+crypto")
@@ -107,32 +107,33 @@ else()
 	set(C_FLAGS "${C_FLAGS} -march=native")
 endif()
 
-set(C_FLAGS "-std=c17") #set(C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
-set(CXX_FLAGS "-std=c++20 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1")
-
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-	set(C_FLAGS "${C_FLAGS} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -Xclang -cfguard")
-	set(CXX_FLAGS "${CXX_FLAGS} -D_LIBCXX_ABI_FORCE_MICROSOFT")
+	set(C_DEFINES "${C_DEFINES} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS")
+	set(C_DEFINES "${C_DEFINES} -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
+	set(CXX_DEFINES "${CXX_FLAGS} -D_LIBCXX_ABI_FORCE_MICROSOFT")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -Xclang -cfguard")
 	set(LINK_FLAGS "${LINK_FLAGS} -llibc++")
-	set(LINK_FLAGS_DEBUG "${LINK_FLAGS_DEBUG} -lmsvcprtd.lib") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
-	set(LINK_FLAGS_RELEASE "${LINK_FLAGS_RELEASE} -lmsvcprt.lib") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(LINK_FLAGS_DEBUG "${LINK_FLAGS_DEBUG} -lmsvcprtd") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(LINK_FLAGS_RELEASE "${LINK_FLAGS_RELEASE} -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO, so disable for now
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
-	set(C_FLAGS "${C_FLAGS} -D__LINUX__ -D__linux__ -D_GNU_SOURCE -fpic -fno-plt")
+	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic -fno-plt")
 	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version -lc -lpthread -lc++ -lc++abi")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
-	set(C_FLAGS "${C_FLAGS} -D__APPLE__ -D__OSX__ -fpic -fno-plt -D_GNU_SOURCE")
+	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic -fno-plt")
 	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version -lc -lpthread -lc++ -lc++abi")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
-set(CMAKE_C_FLAGS_INIT "${C_FLAGS}")
-set(CMAKE_C_FLAGS_DEBUG_INIT "${C_FLAGS_DEBUG} -O0 -g -D_DEBUG -fno-omit-frame-pointer")
-set(CMAKE_C_FLAGS_RELEASE_INIT "${C_FLAGS_RELEASE} -O3 -g -DNDEBUG")
-set(CMAKE_CXX_FLAGS_INIT "${C_FLAGS} ${CXX_FLAGS}")
-set(CMAKE_CXX_FLAGS_DEBUG_INIT "${C_FLAGS_DEBUG} ${CXX_FLAGS_DEBUG} -O0 -g -D_DEBUG -fno-omit-frame-pointer")
-set(CMAKE_CXX_FLAGS_RELEASE_INIT "${C_FLAGS_RELEASE} ${CXX_FLAGS_RELEASE} -O3 -g -DNDEBUG")
+set(CMAKE_C_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${C_FLAGS}")
+set(CMAKE_C_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG}")
+set(CMAKE_C_FLAGS_RELEASE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE}")
+set(CMAKE_CXX_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${CXX_DEFINES} ${CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG} ${CXX_DEFINES_DEBUG} ${CXX_FLAGS_DEBUG}")
+set(CMAKE_CXX_FLAGS_RELEASE_INIT "${COMPILE_FLAGS_RELEASE} ${C_DEFINES_RELEASE} ${C_FLAGS_RELEASE} ${CXX_DEFINES_RELEASE} ${CXX_FLAGS_RELEASE}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${LINK_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS_DEBUG_INIT "${LINK_FLAGS_DEBUG}")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE_INIT "${LINK_FLAGS_RELEASE}")

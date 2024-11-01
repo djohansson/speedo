@@ -1,0 +1,37 @@
+{
+	"version": 8,
+	"configurePresets": [
+		{
+			"name": "x64-windows-clang",
+			"displayName": "Speedo Toolchain for x64-windows-clang",
+			"description": "",
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/${presetName}",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "Debug",
+				"CMAKE_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
+				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
+				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
+				"LLVM_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release",
+				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release/tools/llvm",
+				"LLVM_VERSION_MAJOR": "18"
+			}
+		}
+	],
+	"buildPresets": [
+		{
+			"name": "Debug",
+			"description": "",
+			"displayName": "",
+			"configurePreset": "x64-windows-clang",
+			"configuration": "Debug"
+		},
+		{
+			"name": "Release",
+			"description": "",
+			"displayName": "",
+			"configurePreset": "x64-windows-clang",
+			"configuration": "Release"
+		}
+	]
+}
