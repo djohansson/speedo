@@ -238,7 +238,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 
 	ASSERT(appPtr.Get());
 
-	std::array<TaskHandle, 2> handles{gRpcTask.handle, gTickTask.handle};
+	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
 	appPtr->GetExecutor().Submit(handles);
 }
 
