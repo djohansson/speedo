@@ -25,7 +25,7 @@ uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk
 	std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
 	graphicsDeviceCandidates.reserve(physicalDevices.size());
 
-	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << '\n';
 
 	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
@@ -36,7 +36,7 @@ uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk
 		const auto& physicalDeviceInfo = instance.GetPhysicalDeviceInfo(physicalDevice);
 		const auto& swapchainInfo = instance.UpdateSwapchainInfo(physicalDevice, surface);
 
-		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << '\n';
 
 		for (uint32_t queueFamilyIt = 0;

@@ -1,6 +1,6 @@
 #pragma once
 
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 #	ifndef TRACY_ENABLE
 #		define TRACY_ENABLE
 #	endif

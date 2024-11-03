@@ -15,7 +15,7 @@
 namespace device
 {
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 static PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
 #endif
 
@@ -29,7 +29,7 @@ void Device<kVk>::WaitIdle() const
 	VK_CHECK(vkDeviceWaitIdle(myDevice));
 }
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 template <>
 void Device<kVk>::AddOwnedObjectHandle(
 	const uuids::uuid& ownerId,
@@ -141,7 +141,7 @@ uint32_t Device<kVk>::GetTypeCount(ObjectType<kVk> type)
 
 	return myObjectTypeToCountMap[type];
 }
-#endif // GRAPHICS_VALIDATION_LEVEL > 0
+#endif // SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0
 
 template <>
 Device<kVk>::Device(
@@ -157,7 +157,7 @@ Device<kVk>::Device(
 
 	const auto& physicalDeviceInfo = GetPhysicalDeviceInfo();
 	
-	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName
 				  << "\" is selected as primary graphics device" << '\n';
 
@@ -173,7 +173,7 @@ Device<kVk>::Device(
 		queuePriorities.resize(queueFamilyProperty.queueCount);
 		std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0F);
 
-		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << "Queue Family " << queueFamilyIt << 
 				", queueFlags: " << queueFamilyProperty.queueFlags <<
 				", queueCount: " << queueFamilyProperty.queueCount << '\n';
@@ -195,7 +195,7 @@ Device<kVk>::Device(
 	vkEnumerateDeviceExtensionProperties(
 		GetPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
 
-	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << '\n';
 
 	std::vector<const char*> deviceExtensions;
@@ -204,7 +204,7 @@ Device<kVk>::Device(
 	{
 		deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
 
-		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
+		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << deviceExtensions.back() << '\n';
 	}
 
@@ -240,7 +240,7 @@ Device<kVk>::Device(
 
 	VK_CHECK(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		device::gVkSetDebugUtilsObjectNameExt = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
 			vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
@@ -368,7 +368,7 @@ Device<kVk>::~Device()
 
 	// it is the applications responsibility to wait and destroy all queues complete gpu execution before destroying the Device.
 
-	if constexpr(GRAPHICS_VALIDATION_LEVEL > 0)
+	if constexpr(SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1U);
@@ -405,7 +405,7 @@ DeviceObject<kVk>::DeviceObject(
 	uuids::uuid&& uuid)
 	: DeviceObject(device, std::forward<DeviceObjectCreateDesc>(desc), std::forward<uuids::uuid>(uuid))
 {
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
 			device->AddOwnedObjectHandle(
@@ -420,7 +420,7 @@ DeviceObject<kVk>::DeviceObject(
 template <>
 DeviceObject<kVk>::~DeviceObject()
 {
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (myDevice)
 			myDevice->ClearOwnedObjectHandles(GetUid());

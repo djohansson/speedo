@@ -176,7 +176,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 
 	if (previous != nullptr)
 	{
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		device.EraseOwnedObjectHandle(GetUid(), reinterpret_cast<uint64_t>(previous));
 #endif
 
@@ -186,7 +186,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 			&device.GetInstance()->GetHostAllocationCallbacks());
 	}
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	device.AddOwnedObjectHandle(
 		GetUid(),
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,

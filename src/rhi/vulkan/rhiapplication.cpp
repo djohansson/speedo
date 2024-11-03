@@ -113,7 +113,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	};
 	*/
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	static bool gShowStatistics = false;
 	{
 		if (gShowStatistics)
@@ -514,7 +514,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 				if (anyChanged)
 					rhi.windows.at(GetCurrentWindow()).OnResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
 			}
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
 					gShowStatistics = !gShowStatistics;

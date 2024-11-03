@@ -30,7 +30,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 			desc.imageAspectFlags[attachmentIt],
 			1));
 
-	#if (GRAPHICS_VALIDATION_LEVEL > 0)
+	#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		InternalGetDevice()->AddOwnedObjectHandle(
 			GetUid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
@@ -191,7 +191,7 @@ RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffe
 		desc.extent.height,
 		desc.layerCount);
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	InternalGetDevice()->AddOwnedObjectHandle(
 		GetUid(),
 		VK_OBJECT_TYPE_RENDER_PASS,

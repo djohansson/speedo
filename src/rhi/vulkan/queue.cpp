@@ -63,7 +63,7 @@ Queue<kVk>::Queue(
 		static_cast<uint32_t>(kQueueFamilyFlagBitsVideoEncode) ==
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	if (myPool.GetDesc().supportsProfiling)
 		myProfilingContext = CreateVkContext(
 			device->GetPhysicalDevice(),
@@ -101,7 +101,7 @@ Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
 	, myPool(std::exchange(other.myPool, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	, myProfilingContext(std::exchange(other.myProfilingContext, {}))
 #endif
 {}
@@ -113,7 +113,7 @@ Queue<kVk>::~Queue()
 
 	ZoneScopedN("Queue::~Queue()");
 
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	if (myProfilingContext)
 		DestroyVkContext(static_cast<TracyVkCtx>(myProfilingContext));
 #endif
@@ -133,7 +133,7 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 	decltype(other.myTimelineCallbacks) tmp;
 	std::swap(other.myTimelineCallbacks, tmp);
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	myProfilingContext = std::exchange(other.myProfilingContext, {});
 #endif
 	return *this;
@@ -149,12 +149,12 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 	std::swap(myPendingSubmits, other.myPendingSubmits);
 	std::swap(myScratchMemory, other.myScratchMemory);
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	std::swap(myProfilingContext, other.myProfilingContext);
 #endif
 }
 
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 template <>
 void Queue<kVk>::GpuScopeCollect(CommandBufferHandle<kVk> cmd)
 {

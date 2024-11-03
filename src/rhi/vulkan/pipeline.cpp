@@ -495,7 +495,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
 		&pipelineHandle));
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		InternalGetDevice()->AddOwnedObjectHandle(
 			GetUid(),
@@ -917,7 +917,7 @@ Pipeline<kVk>::Pipeline(
 	InternalResetGraphicsState();
 	InternalResetComputeState();
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	device->AddOwnedObjectHandle(
 		GetUid(),
 		VK_OBJECT_TYPE_PIPELINE_CACHE,

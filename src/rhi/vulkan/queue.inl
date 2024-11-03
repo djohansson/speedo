@@ -23,7 +23,7 @@ void Queue<kVk>::EnqueuePresent(T&& first, Ts&&... rest)
 }
 
 
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 template <>
 template <SourceLocationData Location>
 std::shared_ptr<void> Queue<kVk>::GpuScope(CommandBufferHandle<kVk> cmd)

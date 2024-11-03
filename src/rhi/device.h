@@ -66,7 +66,7 @@ public:
 
 	void WaitIdle() const;
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	void AddOwnedObjectHandle(
 		const uuids::uuid& ownerId,
 		ObjectType<G> objectType,
@@ -85,7 +85,7 @@ private:
 	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
 	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	struct ObjectNameInfo : ObjectInfo<G>
 	{
 		std::string name;

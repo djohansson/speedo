@@ -14,7 +14,7 @@
 
 #include <vector>
 
-#if (PROFILING_LEVEL > 0)
+#if (SPEEDO_PROFILING_LEVEL > 0)
 #	define VK_CHECK(expr)                                                                         \
 		do                                                                                         \
 		{                                                                                          \
