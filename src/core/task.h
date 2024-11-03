@@ -80,7 +80,7 @@ using TaskHandle = MinSizeIndex<kTaskPoolSize>;
 struct TaskState
 {
 	std::array<TaskHandle, 128> adjacencies;
-#if defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806
+#if 0 && defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806
 	static constexpr auto kAligmnent = std::atomic_ref<uint16_t>::required_alignment;
 	alignas(kAligmnent) uint16_t latch{1U};
 	[[nodiscard]] auto Latch() noexcept { return std::atomic_ref(latch); }

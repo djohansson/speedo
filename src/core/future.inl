@@ -77,8 +77,8 @@ void Future<T>::Wait() const
 {
 	ASSERTF(Valid(), "Future is not valid!");
 
-	auto latch = std::atomic_load(&InternalState())->Latch();
+	auto& state = *std::atomic_load(&InternalState());
 
-	while (auto current = latch.load(std::memory_order_relaxed))
-		latch.wait(current, std::memory_order_acquire);
+	while (auto current = state.Latch().load(std::memory_order_relaxed))
+		state.Latch().wait(current, std::memory_order_acquire);
 }

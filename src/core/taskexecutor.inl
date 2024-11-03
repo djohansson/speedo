@@ -32,9 +32,9 @@ void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
 	ZoneScopedN("TaskExecutor::InternalCall");
 
 	Task& task = *core::detail::InternalHandleToPtr(handle);
-	auto state = std::atomic_load(&task.InternalState());
+	auto& state = *std::atomic_load(&task.InternalState());
 	
-	ASSERT(state->Latch().load(std::memory_order_relaxed) == 1);
+	ASSERT(state.Latch().load(std::memory_order_relaxed) == 1);
 	
 	task(params...);
 	InternalScheduleAdjacent(task);

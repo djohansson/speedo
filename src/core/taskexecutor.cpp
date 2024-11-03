@@ -104,9 +104,9 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 
 	Task& task = *core::detail::InternalHandleToPtr(handle);
 	ASSERT(task);
-	auto state = std::atomic_load(&task.InternalState());
+	auto& state = *std::atomic_load(&task.InternalState());
 	
-	if (state->Latch().load(std::memory_order_relaxed) == 0)
+	if (state.Latch().load(std::memory_order_relaxed) == 0)
 	{
 		std::destroy_at(&task);
 		core::detail::InternalFree(handle);
@@ -120,19 +120,18 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 {
 	ZoneScopedN("TaskExecutor::InternalScheduleAdjacent");
 
-	auto state = std::atomic_load(&task.InternalState());
+	auto& state = *std::atomic_load(&task.InternalState());
 
-	for (auto adjIt = 0; adjIt < state->adjacenciesCount; adjIt++)
+	for (auto adjIt = 0; adjIt < state.adjacenciesCount; adjIt++)
 	{
-		TaskHandle adjacentHandle = state->adjacencies[adjIt];
+		TaskHandle adjacentHandle = state.adjacencies[adjIt];
 		Task& adjacent = *core::detail::InternalHandleToPtr(adjacentHandle);
 		ASSERT(adjacent);
-		auto adjacentState = std::atomic_load(&adjacent.InternalState());
-		auto latch = adjacentState->Latch();
-		ASSERTF(latch, "Latch needs to have been constructed!");
+		auto& adjacentState = *std::atomic_load(&adjacent.InternalState());
+		ASSERTF(adjacentState.Latch(), "Latch needs to have been constructed!");
 
-		if (latch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
-			Submit({&adjacentHandle, 1}, !adjacentState->continuation);
+		if (adjacentState.Latch().fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+			Submit({&adjacentHandle, 1}, !adjacentState.continuation);
 	}
 }
 
