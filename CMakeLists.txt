@@ -1,3 +1,5 @@
+###############################################################################
+
 cmake_minimum_required(VERSION 3.10)
 
 set(SPEEDO_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -23,19 +25,20 @@ message("VERSION ${SPEEDO_VERSION_STRING}")
 
 project(speedo LANGUAGES C CXX VERSION ${SPEEDO_VERSION_STRING})
 
-#find_package(Threads REQUIRED)
 find_package(Vulkan REQUIRED)
 find_package(cpptrace CONFIG REQUIRED)
 find_package(stduuid CONFIG REQUIRED)
-#find_package(SHA-Intrinsics CONFIG REQUIRED)
+find_package(xxhash CONFIG REQUIRED)
+find_package(SHA-Intrinsics CONFIG REQUIRED)
 find_package(Tracy CONFIG REQUIRED)
 find_package(cppzmq CONFIG REQUIRED)
 find_package(imgui CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
+find_package(slang CONFIG REQUIRED)
 find_package(cargs CONFIG REQUIRED)
-find_package(mimalloc CONFIG REQUIRED)
-find_package(SHA-Intrinsics REQUIRED)
+#find_package(mimalloc CONFIG REQUIRED)
+find_package(nfd CONFIG REQUIRED)
 
 ###############################################################################
 
@@ -48,6 +51,7 @@ file(
 add_library(core STATIC ${CORE_SOURCE_FILES})
 target_compile_features(core PUBLIC cxx_std_26)
 target_compile_definitions(core PUBLIC UUID_SYSTEM_GENERATOR)
+target_compile_definitions(core PUBLIC $<$<CONFIG:Debug>:SPEEDO_PROFILING_LEVEL=1>$<$<NOT:$<CONFIG:Debug>>:SPEEDO_PROFILING_LEVEL=0>)
 
 target_include_directories(
 	core
@@ -55,7 +59,9 @@ target_include_directories(
 )
 target_link_libraries(
 	core
-	PRIVATE cpptrace::cpptrace stduuid Tracy::TracyClient
+	PRIVATE
+		#$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		SHA-Intrinsics cpptrace::cpptrace stduuid Tracy::TracyClient
 )
 
 ###############################################################################
@@ -68,7 +74,6 @@ file(
 
 add_library(gfx STATIC ${GFX_SOURCE_FILES})
 target_compile_features(gfx PUBLIC cxx_std_26)
-target_compile_definitions(gfx PUBLIC UUID_SYSTEM_GENERATOR)
 
 target_include_directories(
 	gfx
@@ -76,20 +81,20 @@ target_include_directories(
 )
 target_link_libraries(
 	gfx
-	PRIVATE cpptrace::cpptrace stduuid Tracy::TracyClient imgui glm::glm glfw3 Vulkan::Vulkan
+	PRIVATE core xxHash::xxhash imgui::imgui glm::glm
 )
 
 ###############################################################################
 
 file(
-	GLOB
+	GLOB_RECURSE
 	RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/*.cpp
 )
 
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
 target_compile_features(rhi PUBLIC cxx_std_26)
-target_compile_definitions(rhi PUBLIC UUID_SYSTEM_GENERATOR)
+target_compile_definitions(rhi PUBLIC $<$<CONFIG:Debug>:SPEEDO_GRAPHICS_VALIDATION_LEVEL=1>$<$<NOT:$<CONFIG:Debug>>:SPEEDO_GRAPHICS_VALIDATION_LEVEL=0>)
 if (WIN32)
 	target_compile_definitions(rhi PUBLIC VK_USE_PLATFORM_WIN32_KHR=1)
 endif()
@@ -100,7 +105,7 @@ target_include_directories(
 )
 target_link_libraries(
 	rhi
-	PRIVATE cpptrace::cpptrace stduuid Tracy::TracyClient imgui glm::glm
+	PRIVATE core xxHash::xxhash Vulkan::Vulkan
 )
 
 ###############################################################################
@@ -112,6 +117,7 @@ file(
 )
 
 add_library(serverlib STATIC ${SERVERLIB_SOURCE_FILES})
+set_property(TARGET serverlib PROPERTY OUTPUT_NAME server)
 target_compile_features(serverlib PUBLIC cxx_std_26)
 target_compile_definitions(serverlib PUBLIC UUID_SYSTEM_GENERATOR ZMQ_BUILD_DRAFT_API)
 
@@ -133,6 +139,7 @@ file(
 )
 
 add_library(clientlib STATIC ${CLIENTLIB_SOURCE_FILES})
+set_property(TARGET clientlib PROPERTY OUTPUT_NAME client)
 target_compile_features(clientlib PUBLIC cxx_std_26)
 target_compile_definitions(clientlib PUBLIC UUID_SYSTEM_GENERATOR ZMQ_BUILD_DRAFT_API)
 
@@ -142,7 +149,7 @@ target_include_directories(
 )
 target_link_libraries(
 	clientlib
-	PRIVATE cpptrace::cpptrace stduuid Tracy::TracyClient cppzmq
+	PRIVATE cppzmq serverlib
 )
 
 ###############################################################################
@@ -162,5 +169,27 @@ target_include_directories(
 )
 target_link_libraries(
 	server
-	PRIVATE $<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc> cargs core serverlib
+	PRIVATE core serverlib cargs
 )
+
+###############################################################################
+
+file(
+	GLOB
+	CLIENT_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/client/*.c
+)
+
+add_executable(client ${CLIENT_SOURCE_FILES})
+target_compile_features(client PUBLIC c_std_23)
+
+target_include_directories(
+	client
+	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+)
+target_link_libraries(
+	client
+	PRIVATE core gfx rhi clientlib cargs glfw slang nfd::nfd
+)
+
+###############################################################################

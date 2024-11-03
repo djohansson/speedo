@@ -112,9 +112,7 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(C_DEFINES "${C_DEFINES} -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
 	set(CXX_DEFINES "${CXX_FLAGS} -D_LIBCXX_ABI_FORCE_MICROSOFT")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -Xclang -cfguard")
-	set(LINK_FLAGS "${LINK_FLAGS} -llibc++")
-	set(LINK_FLAGS_DEBUG "${LINK_FLAGS_DEBUG} -lmsvcprtd") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
-	set(LINK_FLAGS_RELEASE "${LINK_FLAGS_RELEASE} -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(LINK_FLAGS "${LINK_FLAGS} -llibc++ -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO, so disable for now
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")

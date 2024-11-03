@@ -41,13 +41,7 @@
         "cpptrace",
         "fastbuild",
         "glaze",
-        {
-          "name": "mimalloc",
-          "features": [
-            "asm",
-            "override"
-          ]
-        },
+        "mimalloc",
         "mio",
         "picosha2",
         "sha-intrinsics",
