@@ -2,7 +2,9 @@
 
 #include <iostream>
 
+#if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc-new-delete.h>
+#endif
 
 std::weak_ptr<Application> gApplication;
 

@@ -8,7 +8,9 @@
 #include <vector>
 #include <iostream>
 
+#if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
+#endif
 
 namespace instance
 {
@@ -203,6 +205,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 : myConfig(std::forward<InstanceConfiguration<kVk>>(defaultConfig))
 , myHostAllocationCallbacks{
 	nullptr,
+#if defined(SPEEDO_USE_MIMALLOC)
 	[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return mi_malloc_aligned(size, alignment);
@@ -215,6 +218,33 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	{
 		mi_free(pMemory);
 	},
+#elif defined(__WINDOWS__)
+	[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	{
+		return _aligned_malloc(size, alignment);
+	},
+	[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	{
+		return _aligned_realloc(pOriginal, size, alignment);
+	},
+	[](void* /*pUserData*/, void* pMemory)
+	{
+		_aligned_free(pMemory);
+	},
+#else
+[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	{
+		return std::aligned_alloc(alignment, size);
+	},
+	[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	{
+		return std::realloc(pOriginal, size);
+	},
+	[](void* /*pUserData*/, void* pMemory)
+	{
+		std::free(pMemory);
+	},
+#endif
 	nullptr,
 	nullptr}
 {

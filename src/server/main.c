@@ -10,7 +10,9 @@
 
 #include <cargs.h>
 #include <ctrace/ctrace.h>
+#if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
+#endif
 
 static struct cag_option gCmdArgs[] =
 {
@@ -60,7 +62,9 @@ static void OnSignal(int signal)
 
 int main(int argc, char* argv[], char* envp[])
 {
+#if defined(SPEEDO_USE_MIMALLOC)
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
+#endif
 	
 	signal(SIGINT, &OnSignal);
 	signal(SIGTERM, &OnSignal);

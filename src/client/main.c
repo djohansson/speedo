@@ -17,7 +17,9 @@
 #	define GLFW_EXPOSE_NATIVE_WIN32
 #	include <GLFW/glfw3native.h>
 #endif
+#if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
+#endif
 
 static struct cag_option gCmdArgs[] =
 {
@@ -344,22 +346,36 @@ static void SetWindowCallbacks(GLFWwindow* window)
 
 static void* GlfwAllocate(size_t size, void* /*user*/)
 {
+#if defined(SPEEDO_USE_MIMALLOC)
 	return mi_malloc(size);
+#else
+	return malloc(size);
+#endif
 }
 
 static void GlfwDeallocate(void* block, void* /*user*/)
 {
+#if defined(SPEEDO_USE_MIMALLOC)
 	mi_free(block);
+#else
+	free(block);
+#endif
 }
 
 static void* GlfwReallocate(void* block, size_t size, void* /*user*/)
 {
+#if defined(SPEEDO_USE_MIMALLOC)
 	return mi_realloc(block, size);
+#else
+	return realloc(block, size);
+#endif
 }
 
 int main(int argc, char* argv[], char* envp[])
 {
+#if defined(SPEEDO_USE_MIMALLOC)
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
+#endif
 
 	signal(SIGINT, &OnSignal);
 	signal(SIGTERM, &OnSignal);
@@ -419,7 +435,6 @@ int main(int argc, char* argv[], char* envp[])
 		return EXIT_FAILURE;
 	}
 
-#if (GRAPHICS_VALIDATION_LEVEL > 0)
 	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
 	{
 		GLFWmonitor* monitor = monitors[monitorIt];
@@ -450,7 +465,6 @@ int main(int argc, char* argv[], char* envp[])
 			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
 			xscale, yscale);
 	}
-#endif
 
 	// todo: enable raw mouse input
 	// if (!glfwRawMouseMotionSupported())
