@@ -11,6 +11,8 @@ vcpkg_from_github(
 		0002-include-intrin.h.patch
 		0003-add-crtdbg.h-includes.patch
 		0004-cxx20-fixes.patch
+		0005-remove-vcpkg-dependency.patch
+		0006-add-package-cruft.patch
 )
 
 vcpkg_cmake_configure(
@@ -21,14 +23,14 @@ vcpkg_cmake_configure(
 		-DSLANG_SLANG_LLVM_FLAVOR=DISABLE
 		-DSLANG_ENABLE_DXIL=OFF
 		-DSLANG_ENABLE_PREBUILT_BINARIES=OFF
+	MAYBE_UNUSED_VARIABLES
+		SLANG_ENABLE_DXIL
 )
 
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 vcpkg_fixup_pkgconfig()
-
-#vcpkg_cmake_config_fixup()
-
+vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH lib/cmake/slang)
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 

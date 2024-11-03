@@ -1,7 +1,7 @@
 From 3377322c10188da558dfbde15ea2ddfc2ca1c085 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 22 Oct 2024 16:17:42 +0200
-Subject: [PATCH 3/4] add crtdbg.h includes
+Subject: [PATCH 3/6] add crtdbg.h includes
 
 ---
  source/slangc/main.cpp               | 1 +
@@ -36,5 +36,5 @@ index 47a87dd..8c3fc15 100644
  
  // Options for a particular test
 -- 
-2.47.0.windows.1
+2.47.0.windows.2
 

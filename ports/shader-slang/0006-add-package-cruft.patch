@@ -1,0 +1,81 @@
+From 2160edcfa12af113a15a2b20b1935402c803b594 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Fri, 1 Nov 2024 20:03:52 +0100
+Subject: [PATCH 6/6] add package cruft
+
+---
+ CMakeLists.txt        | 22 ++++++++++++++++++++++
+ cmake/Config.cmake.in |  5 +++++
+ cmake/FindSlang.cmake | 16 ++++++++++++++++
+ 3 files changed, 43 insertions(+)
+ create mode 100644 cmake/Config.cmake.in
+ create mode 100644 cmake/FindSlang.cmake
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c5b6a40..a2a5f1a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -879,3 +879,25 @@ install(DIRECTORY
+ )
+ 
+ include(CPack)
++
++install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-targets)
++install(EXPORT ${PROJECT_NAME}-targets DESTINATION lib/cmake/${PROJECT_NAME})
++
++include(CMakePackageConfigHelpers)
++configure_package_config_file(
++	${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
++	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
++	INSTALL_DESTINATION lib/cmake/${PROJECT_NAME})
++write_basic_package_version_file(
++	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-version.cmake"
++	VERSION ${SLANG_VERSION_FULL}
++	COMPATIBILITY AnyNewerVersion)
++install(
++	FILES
++		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
++		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-version.cmake"
++		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSlang.cmake"
++	DESTINATION lib/cmake/${PROJECT_NAME})
++export(
++	EXPORT ${PROJECT_NAME}-targets
++	FILE "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}-targets.cmake")
+diff --git a/cmake/Config.cmake.in b/cmake/Config.cmake.in
+new file mode 100644
+index 0000000..70cc99c
+--- /dev/null
++++ b/cmake/Config.cmake.in
+@@ -0,0 +1,5 @@
++@PACKAGE_INIT@
++
++include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@-targets.cmake")
++
++check_required_components(@PROJECT_NAME@)
+\ No newline at end of file
+diff --git a/cmake/FindSlang.cmake b/cmake/FindSlang.cmake
+new file mode 100644
+index 0000000..ccc125e
+--- /dev/null
++++ b/cmake/FindSlang.cmake
+@@ -0,0 +1,16 @@
++find_path(slang_INCLUDE_DIRS slang.h)
++
++if (slang_INCLUDE_DIRS)
++    set(slang_FOUND YES)
++    if (NOT slang_FIND_QUIETLY)
++        message(STATUS "Found slang: ${slang_INCLUDE_DIRS}")
++    endif ()
++else ()
++    if (slang_FIND_REQUIRED)
++        message(SEND_ERROR "Could NOT find slang")
++    else ()
++        if (NOT slang_FIND_QUIETLY)
++            message(STATUS "Could NOT find slang")
++        endif ()
++    endif ()
++endif ()
+\ No newline at end of file
+-- 
+2.47.0.windows.2
+
