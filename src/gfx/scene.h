@@ -4,15 +4,15 @@
 #include <string_view>
 #include <memory>
 
-#include <rhi/capi.h>
+// #include <rhi/capi.h>
 
-template <GraphicsApi G>
-struct Scene {};
+// template <GraphicsApi G>
+// struct Scene {};
 
-namespace scene
-{
+// namespace scene
+// {
 
-template <GraphicsApi G>
-void LoadScene(Scene<G>& scene, std::string_view filePath, std::atomic_uint8_t& progress) {}
+// template <GraphicsApi G>
+// void LoadScene(Scene<G>& scene, std::string_view filePath, std::atomic_uint8_t& progress) {}
 
-} // namespace scene
+// } // namespace scene
