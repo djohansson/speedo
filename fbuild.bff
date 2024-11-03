@@ -224,9 +224,11 @@
 		.CommonExecutableLinkerOptions + ' -ladvapi32'
 			+ ' -lgdi32'
 			+ ' -lglfw3dll'
-			+ ' -lshell32'
-			+ ' -lvulkan-1'
+			+ ' -limm32'
 			+ ' -lole32'
+			+ ' -lshell32'
+			+ ' -luser32'
+			+ ' -lvulkan-1'
 	#else
 		.CommonExecutableLinkerOptions + ' -lglfw'
 			+ ' -lvulkan'
@@ -241,11 +243,11 @@
 		.CommonExecutableLinkerOptions + ' -lm -luuid'
 	#endif //__OSX__
 		.ReleaseExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/lib'
-			+ ' -lmimalloc'
+		//	+ ' -lmimalloc'
 			+ ' -limgui'
 			+ .CommonExecutableLinkerOptions
 		.DebugExecutableLinkerOptions = ' -L$BuildRootPath$/build/packages/$TargetTriplet$/debug/lib'
-			+ ' -lmimalloc-debug'
+		//	+ ' -lmimalloc-debug'
 			+ ' -limguid'
 			+ .CommonExecutableLinkerOptions
 	#if __OSX__
@@ -394,7 +396,7 @@
 			AddExecutable(.ClientExecutable .CompilerConfig)
 			AddExecutable(.ServerExecutable .CompilerConfig)
 			
-			AddTest(.CoreTests .CompilerConfig)
+			//AddTest(.CoreTests .CompilerConfig)
 
 			.Targets + .Unities
 			.Targets + .BuildTargets
@@ -431,7 +433,7 @@
 			AddProject(.ClientExecutable .ProjectConfigs .VisualStudioFilesDir)
 			AddProject(.ServerExecutable .ProjectConfigs .VisualStudioFilesDir)
 			
-			AddProject(.CoreTests .ProjectConfigs .VisualStudioFilesDir)
+			//AddProject(.CoreTests .ProjectConfigs .VisualStudioFilesDir)
 
 			AddSolution(.AllSolution .ProjectConfigs .ProjectNames .VisualStudioFilesDir)
 

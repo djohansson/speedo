@@ -76,6 +76,7 @@
 		+ ' -D_MT'
 		+ ' -D_DLL'
 		+ ' -Xclang -cfguard'
+		+ ' -Xclang -gcodeview'
 #endif //__WINDOWS__
 #if __OSX__
 		+ ' -D__APPLE__'
@@ -89,8 +90,8 @@
 		+ ' -fpic'
 		+ ' -fno-plt'
 #endif //__LINUX__
-	.CompilerOptionsC = ' -std=c23 -nostdinc -nostdlib'  // todo: use llvm libc headers
-	.CompilerOptionsCpp = ' -std=c++26 -fexperimental-library -nostdinc++ -nostdlib++'
+	.CompilerOptionsC = ' -std=c23'  // todo: use llvm libc headers
+	.CompilerOptionsCpp = ' -std=c++26 -nostdlib -nostdinc++ -nostdlib++ -fexperimental-library'
 	.LinkerOptions = '"%1" -o "%2" -g -fuse-ld=lld'
 		+ ' -L$LLVMPath$/lib'
 		+ ' -L$LLVMToolsPath$/lib/clang/$LLVMVersionMajor$/lib/$PlatformInfo$'
@@ -138,6 +139,9 @@
 		+ ' -D_DEBUG'
 		+ ' -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG'
 		+ ' -fno-omit-frame-pointer'
+#if __WINDOWS__
+		+ ' -Xclang --dependent-lib=msvcrtd'
+#endif
 #if __OSX__
 		+ ' -fsanitize=undefined'
 		+ ' -fsanitize=thread'
@@ -149,7 +153,7 @@
 	//	+ ' -lclang_rt.asan_osx_dynamic' // not reliable together with mimalloc yet unfortunately
 #endif
 #if __WINDOWS__
-	.LinkerOptions + ' -Xlinker /NODEFAULTLIB -Xlinker /FORCE -Xlinker /GUARD:CF -lkernel32 -loldnames -liso_stdio_wide_specifiers -lmsvcrtd -lucrtd -lmsvcprtd.lib -lvcruntimed -llibc++'
+	.LinkerOptions + ' -Xclang --dependent-lib=msvcrtd -Xlinker /NODEFAULTLIB -Xlinker /GUARD:CF -lmsvcrtd -lucrtd -lmsvcprtd -lvcruntimed -llibc++ -lkernel32 -loldnames -liso_stdio_wide_specifiers'
 #else
 	.LinkerOptions + ' -lc -lpthread -lc++ -lc++abi'
 #endif
@@ -163,11 +167,14 @@
 	.CompilerOptions + ' -O3'
 	.CompilerOptions + ' -DNDEBUG'
 		+ ' -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE'
+#if __WINDOWS__
+		+ ' -Xclang --dependent-lib=msvcrt'
+#endif
 #if !__OSX__
 		+ ' -flto=thin'
 #endif
 #if __WINDOWS__
-	.LinkerOptions + ' -Xlinker /NODEFAULTLIB -Xlinker /FORCE -Xlinker /GUARD:CF -lkernel32 -loldnames -liso_stdio_wide_specifiers -lmsvcrt -lucrt -lmsvcprt.lib -lvcruntime -llibc++'
+	.LinkerOptions + ' -Xclang --dependent-lib=msvcrtd -Xlinker /NODEFAULTLIB -Xlinker /GUARD:CF -lmsvcrt -lucrt -lmsvcprt -lvcruntime -llibc++ -lkernel32 -loldnames -liso_stdio_wide_specifiers'
 #else
 	.LinkerOptions + ' -lc -lpthread -lc++ -lc++abi'
 #endif
