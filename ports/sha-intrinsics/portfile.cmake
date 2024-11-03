@@ -5,8 +5,12 @@ vcpkg_from_github(
     REF 1da6cf076c6b062f67db1c834b7488b9ef269587
     SHA512 5ed68cf080bcc0ec4096465ab3a2a20b8a0681a20df45d14e855739cb0c73c0ff7efb0cf02afaea08f68e05a050370738809bf48bf048a627b5b15436253edc9
     HEAD_REF master
+    PATCHES
+        0001-add-config.patch
 )
 vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}")
 vcpkg_cmake_install()
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/${PORT})
 vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")

@@ -1,0 +1,110 @@
+From 45b5a5541a5e3d95add0da215746590367a22a03 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Fri, 1 Nov 2024 11:35:10 +0100
+Subject: [PATCH] add config
+
+---
+ CMakeLists.txt                | 39 +++++++++++++++++++++++++----------
+ cmake/Config.cmake.in         |  5 +++++
+ cmake/FindSHAIntrinsics.cmake | 17 +++++++++++++++
+ 3 files changed, 50 insertions(+), 11 deletions(-)
+ create mode 100644 cmake/Config.cmake.in
+ create mode 100644 cmake/FindSHAIntrinsics.cmake
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 70ca307..a19e4bf 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -4,25 +4,42 @@ project(SHA-Intrinsics VERSION 0.1.0 LANGUAGES C CXX)
+ if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
+ 	set(HEADER_FILES sha-intrinsics.h sha1-arm.h sha256-arm.h sha256.h sha512.h)
+ 	set(SRC_FILES sha1-arm.c sha256-arm.c sha256.c sha512.c)
+-	add_library(SHA-Intrinsics STATIC ${SRC_FILES})
+-	set_target_properties(SHA-Intrinsics PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
++	add_library(${PROJECT_NAME} STATIC ${SRC_FILES})
++	set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
+ elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "X86|x86.*|amd64|AMD64")
+ 	set(HEADER_FILES sha-intrinsics.h sha1-x86.h sha256-x86.h sha256.h sha512.h)
+ 	set(SRC_FILES sha1-x86.c sha256-x86.c sha256.c sha512.c)
+-	add_library(SHA-Intrinsics STATIC ${SRC_FILES})
+-	set_target_properties(SHA-Intrinsics PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
++	add_library(${PROJECT_NAME} STATIC ${SRC_FILES})
++	set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
+ 	if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+-		target_compile_options(SHA-Intrinsics PUBLIC -mssse3 -msse4 -msha)
++		target_compile_options(${PROJECT_NAME} PUBLIC -mssse3 -msse4 -msha)
+ 	endif()
+ else()
+ 	message(WARNING "CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
+ 	set(HEADER_FILES sha-intrinsics.h sha256.h sha512.h)
+ 	set(SRC_FILES sha256.c sha512.c)
+-	add_library(SHA-Intrinsics STATIC ${SRC_FILES})
+-	set_target_properties(SHA-Intrinsics PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
+-endif ()
++	add_library(${PROJECT_NAME} STATIC ${SRC_FILES})
++	set_target_properties(${PROJECT_NAME} PROPERTIES PUBLIC_HEADER "${HEADER_FILES}")
++endif()
+ 
++install(TARGETS ${PROJECT_NAME} EXPORT ${PROJECT_NAME}-targets)
++install(EXPORT ${PROJECT_NAME}-targets DESTINATION lib/cmake/${PROJECT_NAME})
++
++include(CMakePackageConfigHelpers)
++configure_package_config_file(
++	${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
++	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
++	INSTALL_DESTINATION lib/cmake/${PROJECT_NAME})
++write_basic_package_version_file(
++	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-version.cmake"
++	VERSION "0.1.0"
++	COMPATIBILITY AnyNewerVersion)
+ install(
+-	TARGETS SHA-Intrinsics
+-	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+-	PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
++	FILES
++		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
++		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-version.cmake"
++		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSHAIntrinsics.cmake"
++	DESTINATION lib/cmake/${PROJECT_NAME})
++export(
++	EXPORT ${PROJECT_NAME}-targets
++	FILE "${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}-targets.cmake")
+diff --git a/cmake/Config.cmake.in b/cmake/Config.cmake.in
+new file mode 100644
+index 0000000..70cc99c
+--- /dev/null
++++ b/cmake/Config.cmake.in
+@@ -0,0 +1,5 @@
++@PACKAGE_INIT@
++
++include("${CMAKE_CURRENT_LIST_DIR}/@PROJECT_NAME@-targets.cmake")
++
++check_required_components(@PROJECT_NAME@)
+\ No newline at end of file
+diff --git a/cmake/FindSHAIntrinsics.cmake b/cmake/FindSHAIntrinsics.cmake
+new file mode 100644
+index 0000000..8587cc3
+--- /dev/null
++++ b/cmake/FindSHAIntrinsics.cmake
+@@ -0,0 +1,17 @@
++find_path(SHA-Intrinsics_INCLUDE_DIRS sha-intrinsics.h)
++find_library(SHA-Intrinsics_LIBRARIES SHA-Intrinsics)
++
++if (SHA-Intrinsics_LIBRARIES AND SHA-Intrinsics_INCLUDE_DIRS)
++    set(SHA-Intrinsics_FOUND YES)
++    if (NOT SHA-Intrinsics_FIND_QUIETLY)
++        message(STATUS "Found SHA-Intrinsics: ${SHA-Intrinsics_LIBRARIES}")
++    endif ()
++else ()
++    if (SHA-Intrinsics_FIND_REQUIRED)
++        message(SEND_ERROR "Could NOT find SHA-Intrinsics")
++    else ()
++        if (NOT SHA-Intrinsics_FIND_QUIETLY)
++            message(STATUS "Could NOT find SHA-Intrinsics")
++        endif ()
++    endif ()
++endif ()
+\ No newline at end of file
+-- 
+2.47.0.windows.2
+
