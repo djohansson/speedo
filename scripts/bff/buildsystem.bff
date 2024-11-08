@@ -168,8 +168,8 @@ function AddObjectList(.ObjectList .CompilerConfig)
 			^CompilerOptions + .CompilerOptionsCpp
 		}
 
-		.CompilerOptions + ' -DPROFILING_LEVEL=$ProfilingLevel$'
-		.CompilerOptions + ' -DGRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
+		.CompilerOptions + ' -DSPEEDO_PROFILING_LEVEL=$ProfilingLevel$'
+		.CompilerOptions + ' -DSPEEDO_GRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
 		.CompilerOptions + .ObjectListCompilerOptions
 
 		ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
@@ -229,8 +229,8 @@ function AddLibrary(.Library .CompilerConfig)
 			^CompilerOptions + .CompilerOptionsCpp
 		}
 
-		.CompilerOptions + ' -DPROFILING_LEVEL=$ProfilingLevel$'
-		.CompilerOptions + ' -DGRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
+		.CompilerOptions + ' -DSPEEDO_PROFILING_LEVEL=$ProfilingLevel$'
+		.CompilerOptions + ' -DSPEEDO_GRAPHICS_VALIDATION_LEVEL=$GraphicsValidationLevel$'
 		.CompilerOptions + .LibraryCompilerOptions
 
 		ForEach(.CompilerOption in .ConfigDependentCompilerOptions)
