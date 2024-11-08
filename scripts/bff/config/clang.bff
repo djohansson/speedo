@@ -153,7 +153,7 @@
 	//	+ ' -lclang_rt.asan_osx_dynamic' // not reliable together with mimalloc yet unfortunately
 #endif
 #if __WINDOWS__
-	.LinkerOptions + ' -Xclang --dependent-lib=msvcrtd -Xlinker /NODEFAULTLIB -Xlinker /GUARD:CF -lmsvcrtd -lucrtd -lmsvcprtd -lvcruntimed -llibc++ -lkernel32 -loldnames -liso_stdio_wide_specifiers'
+	.LinkerOptions + ' -Xclang --dependent-lib=msvcrtd -Xlinker /NODEFAULTLIB -Xlinker /GUARD:CF -lmsvcrtd -lucrtd -lmsvcprt -lvcruntime -llibc++ -lkernel32 -loldnames -liso_stdio_wide_specifiers'
 #else
 	.LinkerOptions + ' -lc -lpthread -lc++ -lc++abi'
 #endif
