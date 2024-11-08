@@ -77,7 +77,7 @@ void TransitionImageLayout(
 	VkImageLayout oldLayout,
 	VkImageLayout newLayout,
 	uint32_t mipLevels,
-	VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_NONE);
+	VkImageAspectFlags aspectFlags);
 
 void CopyBufferToImage(
 	VkCommandBuffer commandBuffer,
@@ -114,6 +114,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkImageTiling tiling,
 	VkImageUsageFlags usage,
 	VkMemoryPropertyFlags memoryFlags,
+	VkImageAspectFlags aspectFlags,
 	const char* debugName,
 	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 

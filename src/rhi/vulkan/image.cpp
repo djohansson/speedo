@@ -69,6 +69,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		desc.tiling,
 		desc.usageFlags,
 		desc.memoryFlags,
+		desc.imageAspectFlags,
 		desc.name.data(),
 		desc.initialLayout);
 }

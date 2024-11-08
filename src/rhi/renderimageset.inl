@@ -32,6 +32,7 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(const std::vector<std::sh
 	}
 
 	outDesc.layerCount = 1;
+	outDesc.useDynamicRendering = true;
 
 	return outDesc;
 }

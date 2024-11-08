@@ -173,13 +173,7 @@ public:
 		uint32_t set,
 		uint32_t index);	
 
-	// todo: rewrite to use generic resource model
-	[[nodiscard]] auto& GetRenderTarget() const noexcept
-	{
-		ASSERT(myRenderTarget);
-		return *myRenderTarget;
-	}
-	void SetRenderTarget(const std::shared_ptr<RenderTarget<G>>& renderTarget);
+	void SetRenderTarget(RenderTarget<G>& renderTarget);
 	void SetVertexInputState(const Model<G>& model);
 	[[nodiscard]] auto& GetResources() noexcept { return myResources; }
 	[[nodiscard]] const auto& GetResources() const noexcept { return myResources; }
@@ -231,7 +225,7 @@ private:
 
 	// auto api shared state
 	PipelineBindPoint<G> myBindPoint{};
-	std::shared_ptr<RenderTarget<G>> myRenderTarget;
+	RenderTargetHandle<G> myRenderTarget;
 	PipelineResourceView<G> myResources;
 	PipelineLayoutSetType myLayouts;
 	//UnorderedSet<RenderTarget<G>> renderTargets;
@@ -254,6 +248,7 @@ private:
 		PipelineColorBlendStateCreateInfo<G> colorBlend{};
 		std::vector<DynamicState<G>> dynamicStateDescs;
 		PipelineDynamicStateCreateInfo<G> dynamicState{};
+		const PipelineRenderingCreateInfo<G>* dynamicRendering{};
 	} myGraphicsState{};
 
 	struct ComputeState

@@ -5,9 +5,9 @@
 #include <format>
 
 template <>
-const RenderInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
+const RenderInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
-	return myFrames[myFrameIndex].Begin(cmd, contents, clearValues);
+	return myFrames[myFrameIndex].Begin(cmd, contents);
 }
 
 template <>
@@ -38,6 +38,14 @@ template <>
 ImageLayout<kVk> Swapchain<kVk>::GetLayout(uint32_t index) const
 {
 	return myFrames[myFrameIndex].GetLayout(index);
+}
+
+template <>
+const std::optional<PipelineRenderingCreateInfo<kVk>>& Swapchain<kVk>::GetPipelineRenderingCreateInfo() const 
+{
+	static constexpr std::optional<PipelineRenderingCreateInfo<kVk>> kNullPipelineRenderingCreateInfo;
+
+	return kNullPipelineRenderingCreateInfo;
 }
 
 template <>
@@ -160,7 +168,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 	info.imageColorSpace = config.surfaceFormat.colorSpace;
 	info.imageExtent = config.extent;
 	info.imageArrayLayers = 1;
-	info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+	info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT /*| VK_IMAGE_USAGE_STORAGE_BIT*/ | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
@@ -220,6 +228,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 				 {VK_IMAGE_LAYOUT_UNDEFINED},
 				 {VK_IMAGE_ASPECT_COLOR_BIT},
 				 {colorImages[frameIt]},
+				 {ClearValue<kVk>{}},
 				 1,
 				 config.useDynamicRendering},
 				frameIt});

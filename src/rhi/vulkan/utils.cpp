@@ -541,6 +541,16 @@ void TransitionImageLayout(
 		sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 		destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	}
+	else if (
+		oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
+		newLayout == VK_IMAGE_LAYOUT_GENERAL)
+	{
+		barrier.srcAccessMask = VK_ACCESS_NONE_KHR;
+		barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+
+		sourceStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		destinationStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+	}
 	else
 	{
 		ASSERT(false); // not implemented yet
@@ -647,6 +657,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkImageTiling tiling,
 	VkImageUsageFlags usage,
 	VkMemoryPropertyFlags memoryFlags,
+	VkImageAspectFlags aspectFlags,
 	const char* debugName,
 	VkImageLayout initialLayout)
 {
@@ -672,7 +683,8 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		format,
 		initialLayout,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		mipLevels);
+		mipLevels,
+		aspectFlags);
 
 	CopyBufferToImage(
 		commandBuffer,

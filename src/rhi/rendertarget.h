@@ -15,8 +15,9 @@ struct RenderTargetCreateDesc
 	std::vector<ImageLayout<G>> imageLayouts;
 	std::vector<ImageAspectFlags<G>> imageAspectFlags;
 	std::vector<ImageHandle<G>> images;
+	std::vector<VkClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depthStencil = {1.0F, 0}}};
 	uint32_t layerCount = 1;
-	bool useDynamicRendering = false;
+	bool useDynamicRendering = true;
 };
 
 template <GraphicsApi G>
@@ -26,9 +27,10 @@ struct IRenderTarget
 	[[nodiscard]] virtual std::span<const ImageViewHandle<G>> GetAttachments() const = 0;
 	[[nodiscard]] virtual std::span<const AttachmentDescription<G>> GetAttachmentDescs() const = 0;
 	[[nodiscard]] virtual ImageLayout<G> GetLayout(uint32_t index) const = 0;
+	[[nodiscard]] virtual const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const = 0;
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] virtual const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) = 0;
+	[[maybe_unused]] virtual const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
 	virtual void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const = 0;
@@ -80,8 +82,9 @@ public:
 
 	std::span<const ImageViewHandle<G>> GetAttachments() const final { return myAttachments; }
 	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final { return myAttachmentDescs; }
+	const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final { return myPipelineRenderingCreateInfo; }
 
-	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const final;
@@ -148,7 +151,15 @@ private:
 	std::vector<AttachmentReference<G>> myAttachmentsReferences;
 	std::vector<SubpassDescription<G>> mySubPassDescs;
 	std::vector<SubpassDependency<G>> mySubPassDependencies;
+
 	std::optional<RenderInfo<G>> myRenderInfo;
+	std::optional<PipelineRenderingCreateInfo<G>> myPipelineRenderingCreateInfo;
+	std::vector<RenderingAttachmentInfo<G>> myColorAttachmentInfos;
+	std::optional<RenderingAttachmentInfo<G>> myDepthAttachmentInfo;
+	std::optional<RenderingAttachmentInfo<G>> myStencilAttachmentInfo;
+	std::vector<Format<G>> myColorAttachmentFormats;
+	std::optional<Format<G>> myDepthAttachmentFormat;
+	std::optional<Format<G>> myStencilAttachmentFormat;
 
 	UnorderedMap<uint64_t, RenderTargetHandle<G>> myCache; // todo: consider making global
 };

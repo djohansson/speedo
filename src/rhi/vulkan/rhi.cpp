@@ -309,15 +309,19 @@ template <>
 void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::ConstructWindowDependentObjects");
-
-	auto colorImage = std::make_shared<Image<kVk>>(
+	
+	auto& window = rhi.windows.at(GetCurrentWindow());
+	auto frameCount = window.GetFrames().size();
+	rhi.renderImageSets.reserve(frameCount);
+	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
+	{
+		auto colorImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
-			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
+			{{window.GetConfig().swapchainConfig.extent}},
+			window.GetConfig().swapchainConfig.surfaceFormat.format,
 			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED,
@@ -326,7 +330,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 	auto depthStencilImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
+			{{window.GetConfig().swapchainConfig.extent}},
 			FindSupportedFormat(
 				rhi.device->GetPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
@@ -334,17 +338,14 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
 					VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
 			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-				VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			"Main RT DepthStencil"});
 
-	rhi.renderImageSet =
-		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage, depthStencilImage});
-
-	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
+		rhi.renderImageSets.emplace_back(RenderImageSet<kVk>(rhi.device, std::vector{colorImage, depthStencilImage}));
+	}
 }
 
 } // namespace detail

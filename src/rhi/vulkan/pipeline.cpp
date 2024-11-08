@@ -467,9 +467,10 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	const auto layoutIt = InternalGetLayout();
 	CHECK(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
-	auto& renderTarget = GetRenderTarget();
 
-	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO, nullptr, 0};
+	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+	pipelineInfo.pNext = myGraphicsState.dynamicRendering;
+	pipelineInfo.flags = 0;
 	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
 	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
 	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
@@ -481,7 +482,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
-	pipelineInfo.renderPass = std::get<0>(static_cast<RenderTargetHandle<kVk>>(renderTarget));
+	pipelineInfo.renderPass = std::get<0>(myRenderTarget);
 	pipelineInfo.subpass = 0; // TODO(djohansson): loop through all subpasses?
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -682,16 +683,17 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 }
 
 template <>
-void Pipeline<kVk>::SetRenderTarget(const std::shared_ptr<RenderTarget<kVk>>& renderTarget)
+void Pipeline<kVk>::SetRenderTarget(RenderTarget<kVk>& renderTarget)
 {
-	auto extent = renderTarget ? renderTarget->GetRenderTargetDesc().extent : Extent2d<kVk>{0, 0};
+	auto extent = renderTarget.GetRenderTargetDesc().extent;
 
 	myGraphicsState.viewports[0].width = static_cast<float>(extent.width);
 	myGraphicsState.viewports[0].height = static_cast<float>(extent.height);
 	myGraphicsState.scissorRects[0].offset = {0, 0};
 	myGraphicsState.scissorRects[0].extent = {extent.width, extent.height};
+	myGraphicsState.dynamicRendering = renderTarget.GetPipelineRenderingCreateInfo() ? &renderTarget.GetPipelineRenderingCreateInfo().value() : nullptr;
 
-	myRenderTarget = renderTarget;
+	myRenderTarget = static_cast<RenderTargetHandle<kVk>>(renderTarget);
 }
 
 template <>

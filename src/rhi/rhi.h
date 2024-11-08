@@ -46,7 +46,7 @@ struct RHI : public RHIBase
 	UnorderedMap<std::string, PipelineLayoutHandle<G>> pipelineLayouts;
 	//std::unique_ptr<ResourceContext<G>> resources;
 
-	std::shared_ptr<RenderImageSet<G>> renderImageSet;
+	std::vector<RenderImageSet<G>> renderImageSets;
 
 	std::unique_ptr<Buffer<G>> materials;
 	std::unique_ptr<Buffer<G>> modelInstances;

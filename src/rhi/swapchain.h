@@ -17,7 +17,7 @@ struct SwapchainConfiguration
 	SurfaceFormat<G> surfaceFormat{};
 	PresentMode<G> presentMode{};
 	uint8_t imageCount{};
-	bool useDynamicRendering = false;
+	bool useDynamicRendering = true;
 };
 
 using FlipResult = std::tuple<bool, uint32_t, uint32_t>;
@@ -45,8 +45,9 @@ public:
 	std::span<const ImageViewHandle<G>> GetAttachments() const final;
 	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final;
 	ImageLayout<G> GetLayout(uint32_t index) const final;
+	const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final;
 
-	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents, std::span<const VkClearValue> clearValues) final;
+	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const final;

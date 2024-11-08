@@ -380,3 +380,12 @@ using DescriptorBindingFlags =
 template <GraphicsApi G>
 using ImageAspectFlags =
 	std::conditional_t<G == kVk, VkImageAspectFlags, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PipelineRenderingCreateInfo = 
+	std::conditional_t<G == kVk, VkPipelineRenderingCreateInfoKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using RenderingAttachmentInfo = 
+	std::conditional_t<G == kVk, VkRenderingAttachmentInfoKHR, std::nullptr_t>;
+	

@@ -239,11 +239,11 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 	uint32_t attachmentIt = 0UL;
 	for (; attachmentIt < desc.images.size(); attachmentIt++)
 	{
-		auto& attachment = myAttachmentDescs[attachmentIt];
+		auto& attachmentDesc = myAttachmentDescs[attachmentIt];
 		auto& attachmentRef = myAttachmentsReferences[attachmentIt];
 
-		if (auto layout = GetLayout(attachmentIt); layout != attachment.initialLayout)
-			attachment.initialLayout = layout;
+		if (auto layout = GetLayout(attachmentIt); layout != attachmentDesc.initialLayout)
+			attachmentDesc.initialLayout = layout;
 
 		if (auto aspectMask = desc.imageAspectFlags[attachmentIt]; aspectMask != attachmentRef.aspectMask)
 		{
@@ -258,6 +258,80 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 				aspectMask,
 				1);
 		}
+	}
+
+	if (desc.useDynamicRendering)
+	{
+		myColorAttachmentInfos.clear();
+		myColorAttachmentInfos.reserve(myAttachments.size());
+		myDepthAttachmentInfo.reset();
+		myStencilAttachmentInfo.reset();
+		myColorAttachmentFormats.clear();
+		myColorAttachmentFormats.reserve(myAttachments.size());
+		myDepthAttachmentFormat.reset();
+		myStencilAttachmentFormat.reset();
+
+		CHECK(desc.clearValues.size() == myAttachments.size());
+			
+		for (uint32_t i = 0; i < myAttachments.size(); i++)
+		{
+			const auto& attachment = myAttachments[i];
+			const auto& attachmentDesc = myAttachmentDescs[i];
+			const auto& clearValue = desc.clearValues[i];
+
+			if (HasColorComponent(attachmentDesc.format))
+			{
+				myColorAttachmentInfos.emplace_back(VkRenderingAttachmentInfoKHR
+				{
+					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+					.pNext = nullptr,
+					.imageView = attachment,
+					.imageLayout = GetLayout(i),
+					.loadOp = attachmentDesc.loadOp,
+					.storeOp = attachmentDesc.storeOp,
+					.clearValue = clearValue,
+				});
+				myColorAttachmentFormats.emplace_back(attachmentDesc.format);
+			}
+			else if (HasDepthComponent(attachmentDesc.format))
+			{
+				myDepthAttachmentInfo = VkRenderingAttachmentInfoKHR
+				{
+					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+					.pNext = nullptr,
+					.imageView = attachment,
+					.imageLayout = GetLayout(i),
+					.loadOp = attachmentDesc.loadOp,
+					.storeOp = attachmentDesc.storeOp,
+					.clearValue = clearValue,
+				};
+				myDepthAttachmentFormat = attachmentDesc.format;
+			}
+			else if (HasStencilComponent(attachmentDesc.format))
+			{
+				myStencilAttachmentInfo = VkRenderingAttachmentInfoKHR
+				{
+					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
+					.pNext = nullptr,
+					.imageView = attachment,
+					.imageLayout = GetLayout(i),
+					.loadOp = attachmentDesc.loadOp,
+					.storeOp = attachmentDesc.storeOp,
+					.clearValue = clearValue,
+				};
+				myStencilAttachmentFormat = attachmentDesc.format;
+			}
+		}
+
+		myPipelineRenderingCreateInfo = VkPipelineRenderingCreateInfoKHR{
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+			.pNext = nullptr,
+			.viewMask = 0,
+			.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentInfos.size()),
+			.pColorAttachmentFormats = myColorAttachmentFormats.data(),
+			.depthAttachmentFormat = myDepthAttachmentFormat.value_or(Format<kVk>{}),
+			.stencilAttachmentFormat = myStencilAttachmentFormat.value_or(Format<kVk>{}),
+		};
 	}
 }
 
@@ -459,62 +533,56 @@ template <>
 const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 {
 	InternalUpdateAttachments(GetRenderTargetDesc());
+	
+	if (GetRenderTargetDesc().useDynamicRendering)
+	{
+		static const RenderTargetHandle<kVk> kEmptyRTHandle{};
+		return kEmptyRTHandle;
+	}
+
 	InternalUpdateRenderPasses(GetRenderTargetDesc());
 
 	return InternalUpdateMap(GetRenderTargetDesc());
 }
 
 template <>
-const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents, std::span<const VkClearValue> clearValues)
+const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
 	ZoneScopedN("RenderTarget::Begin");
 
 	ASSERT(!myRenderInfo.has_value());
 
-	if (GetRenderTargetDesc().useDynamicRendering)
+	const auto& desc = GetRenderTargetDesc();
+
+	if (desc.useDynamicRendering)
 	{
-		thread_local std::vector<VkRenderingAttachmentInfoKHR> gAttachmentInfos(myAttachments.size());
-
-		if (gAttachmentInfos.size() != myAttachments.size())
-			gAttachmentInfos.resize(myAttachments.size());
-			
-		for (uint32_t i = 0; i < myAttachments.size(); i++)
-		{
-			gAttachmentInfos[i] = VkRenderingAttachmentInfoKHR
-			{
-				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
-				.pNext = nullptr,
-				.imageView = myAttachments[i],
-				.imageLayout = GetLayout(i),
-				.loadOp = myAttachmentDescs[i].loadOp,
-				.storeOp = myAttachmentDescs[i].storeOp,
-				.clearValue = clearValues[i],
-			};
-		}
-
-		myRenderInfo = VkRenderingInfoKHR
-		{
-			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
-			.pNext = nullptr,
-			.flags = 0,
-			.renderArea = {0, 0, GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height},
-			.layerCount = 1,
-			.viewMask = 0,
-			.colorAttachmentCount = static_cast<uint32_t>(gAttachmentInfos.size()),
-			.pColorAttachments = gAttachmentInfos.data(),
-		};
-
 		static auto vkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
 			vkGetInstanceProcAddr(
 				*InternalGetDevice()->GetInstance(),
 				"vkCmdBeginRenderingKHR"));
 		ASSERT(vkCmdBeginRenderingKHR != nullptr);
+
+		auto renderInfo = VkRenderingInfoKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+			.pNext = nullptr,
+			.flags = 0,
+			.renderArea = {0, 0, desc.extent.width, desc.extent.height},
+			.layerCount = 1,
+			.viewMask = 0,
+			.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentInfos.size()),
+			.pColorAttachments = myColorAttachmentInfos.data(),
+			.pDepthAttachment = myDepthAttachmentInfo ? &myDepthAttachmentInfo.value() : nullptr,
+			.pStencilAttachment = myStencilAttachmentInfo ? &myStencilAttachmentInfo.value() : nullptr,
+		};
+
+		myRenderInfo = std::move(renderInfo);
 		
 		vkCmdBeginRenderingKHR(cmd, &std::get<VkRenderingInfoKHR>(myRenderInfo.value()));
 	}
 	else
 	{
-		CHECK(clearValues.size() <= myAttachments.size());
+		CHECK(desc.clearValues.size() == myAttachments.size());
 
 		const auto& [renderPass, frameBuffer] = InternalGetValues();
 
@@ -523,15 +591,11 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 			nullptr,
 			renderPass,
 			frameBuffer,
-			{{0, 0}, {GetRenderTargetDesc().extent.width, GetRenderTargetDesc().extent.height}},
-			static_cast<uint32_t>(clearValues.size()),
-			clearValues.data()};
+			{{0, 0}, {desc.extent.width, desc.extent.height}},
+			static_cast<uint32_t>(desc.clearValues.size()),
+			desc.clearValues.data()};
 
-		{
-			ZoneScopedN("RenderTarget::Begin::vkCmdBeginRenderPass");
-
-			vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderInfo.value()), contents);
-		}
+		vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderInfo.value()), contents);
 	}
 
 	return myRenderInfo.value();

@@ -541,8 +541,11 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 
 	ImDrawData drawData;
 	static imgui_extra::ImDrawDataSnapshot snapshot;
-	snapshot.SnapUsingSwap(GetDrawData(), &drawData, GetTime());
-	gIMGUIDrawData.enqueue(std::move(drawData));
+	if (auto data = GetDrawData())
+	{
+		snapshot.SnapUsingSwap(data, &drawData, GetTime());
+		gIMGUIDrawData.enqueue(std::move(drawData));
+	}
 }
 
 void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipeline = nullptr)
@@ -651,8 +654,8 @@ static void IMGUIInit(
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
 	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetHandle<kVk>>(window.GetFrames()[0]).first;
-	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfo{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfoKHR{
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
 		.pNext = nullptr,
 		.viewMask = 0,
 		.colorAttachmentCount = 1,
@@ -681,610 +684,6 @@ static void ShutdownImgui()
 	ImGui_ImplGlfw_Shutdown();
 
 	ImGui::DestroyContext();
-}
-
-static uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
-{
-	const auto& physicalDevices = instance.GetPhysicalDevices();
-
-	std::vector<std::tuple<uint32_t, uint32_t>> graphicsDeviceCandidates;
-	graphicsDeviceCandidates.reserve(physicalDevices.size());
-
-	if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << '\n';
-
-	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
-			physicalDeviceIt++)
-	{
-		auto* physicalDevice = physicalDevices[physicalDeviceIt];
-
-		const auto& physicalDeviceInfo = instance.GetPhysicalDeviceInfo(physicalDevice);
-		const auto& swapchainInfo = instance.UpdateSwapchainInfo(physicalDevice, surface);
-
-		if constexpr (GRAPHICS_VALIDATION_LEVEL > 0)
-			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << '\n';
-
-		for (uint32_t queueFamilyIt = 0;
-				queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
-				queueFamilyIt++)
-		{
-			const auto& queueFamilyProperties =
-				physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
-			const auto& queueFamilyPresentSupport =
-				swapchainInfo.queueFamilyPresentSupport[queueFamilyIt];
-
-			if (((queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0U) &&
-				(queueFamilyPresentSupport != 0U))
-				graphicsDeviceCandidates.emplace_back(physicalDeviceIt, queueFamilyIt);
-		}
-	}
-
-	std::sort(
-		graphicsDeviceCandidates.begin(),
-		graphicsDeviceCandidates.end(),
-		[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
-		{
-			constexpr uint32_t kDeviceTypePriority[]{
-				4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
-				1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
-				0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
-				2,		   //VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU = 3,
-				3,		   //VK_PHYSICAL_DEVICE_TYPE_CPU = 4,
-				0x7FFFFFFF //VK_PHYSICAL_DEVICE_TYPE_MAX_ENUM = 0x7FFFFFFF
-			};
-			const auto& [lhsPhysicalDeviceIndex, lhsQueueFamilyIndex] = lhs;
-			const auto& [rhsPhysicalDeviceIndex, rhsQueueFamilyIndex] = rhs;
-
-			auto lhsDeviceType =
-				instance.GetPhysicalDeviceInfo(physicalDevices[lhsPhysicalDeviceIndex])
-					.deviceProperties.properties.deviceType;
-			auto rhsDeviceType =
-				instance.GetPhysicalDeviceInfo(physicalDevices[rhsPhysicalDeviceIndex])
-					.deviceProperties.properties.deviceType;
-
-			return kDeviceTypePriority[lhsDeviceType] < kDeviceTypePriority[rhsDeviceType];
-		});
-
-	CHECKF(!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU!");
-
-	return std::get<0>(graphicsDeviceCandidates.front());
-}
-
-static SwapchainConfiguration<kVk>
-DetectSuitableSwapchain(Device<kVk>& device, SurfaceHandle<kVk> surface)
-{
-	const auto& swapchainInfo =
-		device.GetInstance()->GetSwapchainInfo(device.GetPhysicalDevice(), surface);
-
-	SwapchainConfiguration<kVk> config{swapchainInfo.capabilities.currentExtent};
-
-	constexpr Format<kVk> kRequestSurfaceImageFormat[]{
-		VK_FORMAT_B8G8R8A8_UNORM,
-		VK_FORMAT_R8G8B8A8_UNORM,
-		VK_FORMAT_B8G8R8_UNORM,
-		VK_FORMAT_R8G8B8_UNORM};
-	constexpr ColorSpace<kVk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	constexpr PresentMode<kVk> kRequestPresentMode[]{
-		VK_PRESENT_MODE_MAILBOX_KHR,
-		VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-		VK_PRESENT_MODE_FIFO_KHR,
-		VK_PRESENT_MODE_IMMEDIATE_KHR};
-
-	// Request several formats, the first found will be used
-	// If none of the requested image formats could be found, use the first available
-	for (auto requestIt : kRequestSurfaceImageFormat)
-	{
-		SurfaceFormat<kVk> requestedFormat{requestIt, kRequestSurfaceColorSpace};
-
-		auto formatIt = std::find_if(
-			swapchainInfo.formats.begin(),
-			swapchainInfo.formats.end(),
-			[&requestedFormat](VkSurfaceFormatKHR format)
-			{
-				return requestedFormat.format == format.format &&
-						requestedFormat.colorSpace == format.colorSpace;
-			});
-
-		if (formatIt != swapchainInfo.formats.end())
-		{
-			config.surfaceFormat = *formatIt;
-			break;
-		}
-	}
-
-	// Request a certain mode and confirm that it is available. If not use
-	// VK_PRESENT_MODE_FIFO_KHR which is mandatory
-	for (auto requestIt : kRequestPresentMode)
-	{
-		auto modeIt = std::find(
-			swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(), requestIt);
-
-		if (modeIt != swapchainInfo.presentModes.end())
-		{
-			config.presentMode = *modeIt;
-
-			switch (config.presentMode)
-			{
-			case VK_PRESENT_MODE_MAILBOX_KHR:
-				config.imageCount = 3;
-				break;
-			default:
-				config.imageCount = 2;
-				break;
-			}
-
-			break;
-		}
-	}
-
-	return config;
-};
-
-static void CreateQueues(RHI<kVk>& rhi)
-{
-	ZoneScopedN("rhiapplication::createQueues");
-
-	auto& queues = rhi.queues;
-
-	VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-
-	constexpr bool kUsePoolReset = true;
-	if (kUsePoolReset)
-		cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-
-	static constexpr unsigned minGraphicsQueueCount = 2;
-	static constexpr unsigned minComputeQueueCount = 1;
-	static constexpr unsigned minTransferQueueCount = 1;
-
-	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(kQueueTypeGraphics, QueueTimelineContext<kVk>{});
-	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(kQueueTypeCompute, QueueTimelineContext<kVk>{});
-	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(kQueueTypeTransfer, QueueTimelineContext<kVk>{});
-
-	//std::get<0>(*graphicsQueuesIt) = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}};
-
-	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
-	{
-		auto matchesType = queueFamily.flags & type;
-		auto hasLowerBits = queueFamily.flags & (type - 1);
-		auto hasQueueCount = queueFamily.queueCount > 0;
-		return matchesType && !hasLowerBits && hasQueueCount;
-	};
-
-	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = graphicsQueuesIt->second;
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = computeQueuesIt->second;
-	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = transferQueuesIt->second;
-
-	const auto& queueFamilies = rhi.device->GetQueueFamilies();
-	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
-	{
-		const auto& queueFamily = queueFamilies[queueFamilyIt];
-
-		auto queueCount = queueFamily.queueCount;
-
-		if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
-		{
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-			{
-				auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-				auto& [queue, syncInfo] = graphicsQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
-				queue = Queue<kVk>(
-					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 2},
-					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
-			}
-		}
-		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
-		{
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-			{
-				auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
-				auto& [queue, syncInfo] = computeQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
-				queue = Queue<kVk>(
-					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
-					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
-			}
-		}
-		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
-		{
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-			{
-				auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
-				auto& [queue, syncInfo] = transferQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
-				queue = Queue<kVk>(
-					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1},
-					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
-			}
-		}
-	}
-
-	CHECKF(!ConcurrentReadScope(graphicsQueueInfos)->empty(), "Failed to find a suitable graphics queue!");
-
-	if (auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos); computeQueueInfosWriteScope->empty())
-	{
-		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-
-		CHECKF(graphicsQueueInfosWriteScope->size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
-
-		computeQueueInfosWriteScope->emplace_back(std::make_pair(
-			std::move(graphicsQueueInfosWriteScope->back().first),
-			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfosWriteScope->pop_back();
-	}
-
-	if (auto transferQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos); transferQueueInfosWriteScope->empty())
-	{
-		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-
-		CHECKF(graphicsQueueInfosWriteScope->size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
-
-		transferQueueInfosWriteScope->emplace_back(std::make_pair(
-			std::move(graphicsQueueInfosWriteScope->back().first),
-			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfosWriteScope->pop_back();
-	}
-}
-
-static void CreateWindowDependentObjects(RHI<kVk>& rhi)
-{
-	ZoneScopedN("rhiapplication::createWindowDependentObjects");
-
-	auto colorImage = std::make_shared<Image<kVk>>(
-		rhi.device,
-		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
-			rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.surfaceFormat.format,
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_ASPECT_COLOR_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Main RT Color"});
-
-	auto depthStencilImage = std::make_shared<Image<kVk>>(
-		rhi.device,
-		ImageCreateDesc<kVk>{
-			{{rhi.windows.at(GetCurrentWindow()).GetConfig().swapchainConfig.extent}},
-			FindSupportedFormat(
-				rhi.device->GetPhysicalDevice(),
-				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT),
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Main RT DepthStencil"});
-
-	rhi.renderImageSet =
-		std::make_shared<RenderImageSet<kVk>>(rhi.device, std::vector{colorImage, depthStencilImage});
-
-	rhi.pipeline->SetRenderTarget(rhi.renderImageSet);
-}
-
-auto CreateRhiWindow(const auto& device, auto&& surface, auto&& windowConfig, auto&& windowState)
-{
-	return Window<kVk>(
-		device,
-		std::forward<decltype(surface)>(surface),
-		std::forward<decltype(windowConfig)>(windowConfig),
-		std::forward<decltype(windowState)>(windowState));
-}
-
-auto CreatePipeline(const auto& device)
-{
-	return std::make_unique<Pipeline<kVk>>(
-		device,
-		PipelineConfiguration<kVk>{(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()});
-}
-
-auto CreateDevice(const auto& instance, auto physicalDeviceIndex)
-{
-	return std::make_shared<Device<kVk>>(
-		instance,
-		DeviceConfiguration<kVk>{physicalDeviceIndex});
-}
-
-auto CreateInstance(const auto& name)
-{
-	return std::make_shared<Instance<kVk>>(
-		InstanceConfiguration<kVk>{
-			name,
-			"speedo",
-			ApplicationInfo<kVk>{
-				VK_STRUCTURE_TYPE_APPLICATION_INFO,
-				nullptr,
-				nullptr,
-				VK_MAKE_VERSION(1, 0, 0),
-				nullptr,
-				VK_MAKE_VERSION(1, 0, 0),
-				VK_API_VERSION_1_2}});
-				//VK_API_VERSION_1_3}});
-}
-
-auto CreateRhi(const auto& name, CreateWindowFunc createWindowFunc)
-{
-	using namespace rhiapplication;
-
-	WindowState windowState{};
-
-	Window<kVk>::ConfigFile windowConfig{
-		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.json"};
-
-	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
-	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
-
-	std::shared_ptr<RHI<kVk>> rhi;
-	{
-		auto* windowHandle = createWindowFunc(&windowState);
-		auto instance = CreateInstance(name);
-		auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
-		auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
-		auto pipeline = CreatePipeline(device);
-		rhi = std::make_shared<RHI<kVk>>(
-			std::move(instance),
-			std::move(device),
-			std::move(pipeline));
-
-		windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi->device, surface);
-		windowConfig.contentScale = {windowState.xscale, windowState.yscale};
-
-		auto [windowIt, windowEmplaceResult] = rhi->windows.emplace(
-			windowHandle,
-			CreateRhiWindow(rhi->device, std::move(surface), std::move(windowConfig), std::move(windowState)));
-
-		SetWindows(&windowHandle, 1);
-		SetCurrentWindow(windowHandle);
-	}
-
-	auto& window = rhi->windows.at(GetCurrentWindow());
-
-	CreateQueues(*rhi);
-	CreateWindowDependentObjects(*rhi);
-
-	std::vector<TaskHandle> timelineCallbacks;
-
-	// todo: create some resource global storage
-	rhi->pipeline->GetResources().black = std::make_shared<Image<kVk>>(
-		rhi->device,
-		ImageCreateDesc<kVk>{
-			{ImageMipLevelDesc<kVk>{Extent2d<kVk>{4, 4}, 16 * 4, 0}},
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_TILING_LINEAR,
-			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_ASPECT_COLOR_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Black"});
-
-	rhi->pipeline->GetResources().blackImageView = std::make_shared<ImageView<kVk>>(
-		rhi->device, *rhi->pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
-
-	std::vector<SamplerCreateInfo<kVk>> samplerCreateInfos;
-	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
-		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		nullptr,
-		0U,
-		VK_FILTER_NEAREST,
-		VK_FILTER_NEAREST,
-		VK_SAMPLER_MIPMAP_MODE_NEAREST,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0F,
-		VK_FALSE,
-		0.0F,
-		VK_FALSE,
-		VK_COMPARE_OP_NEVER,
-		0.0F,
-		VK_LOD_CLAMP_NONE,
-		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-		VK_FALSE});
-	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
-		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		nullptr,
-		0U,
-		VK_FILTER_LINEAR,
-		VK_FILTER_LINEAR,
-		VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0F,
-		VK_TRUE,
-		16.F,
-		VK_FALSE,
-		VK_COMPARE_OP_NEVER,
-		0.0F,
-		VK_LOD_CLAMP_NONE,
-		VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK,
-		VK_FALSE});
-	rhi->pipeline->GetResources().samplers =
-		std::make_shared<SamplerVector<kVk>>(rhi->device, std::move(samplerCreateInfos));
-	//
-
-	// initialize stuff on graphics queue
-	constexpr uint32_t kTextureId = 42;
-	constexpr uint32_t kSamplerId = 1;
-	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
-	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
-	{
-		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi->queues[kQueueTypeGraphics];
-		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfosWriteScope->front();
-		
-		auto cmd = graphicsQueue.GetPool().Commands();
-
-		rhi->pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-		rhi->pipeline->GetResources().black->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
-		rhi->pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-		IMGUIInit(window, *rhi, graphicsQueue);
-
-		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
-		materialData[0].color[0] = 1.0;
-		materialData[0].color[1] = 0.0;
-		materialData[0].color[2] = 0.0;
-		materialData[0].color[3] = 1.0;
-		materialData[0].textureAndSamplerId =
-			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
-
-		TaskCreateInfo<void> materialTransfersDone;
-		rhi->materials = std::make_unique<Buffer<kVk>>(
-			rhi->device,
-			materialTransfersDone,
-			cmd,
-			BufferCreateDesc<kVk>{
-				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"Materials"},
-			materialData.get());
-		timelineCallbacks.emplace_back(materialTransfersDone.handle);
-
-		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
-		static const auto kIdentityMatrix = glm::mat4x4(1.0);
-		std::copy_n(&kIdentityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
-		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
-		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
-		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
-
-		TaskCreateInfo<void> modelTransfersDone;
-		rhi->modelInstances = std::make_unique<Buffer<kVk>>(
-			rhi->device,
-			modelTransfersDone,
-			cmd,
-			BufferCreateDesc<kVk>{
-				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"ModelInstances"},
-			modelInstances.get());
-		timelineCallbacks.emplace_back(modelTransfersDone.handle);
-
-		cmd.End();
-
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{},
-			{},
-			{},
-			{graphicsSemaphore},
-			{++graphicsSemaphoreValue},
-			std::move(timelineCallbacks)});
-
-		graphicsSubmit = graphicsQueue.Submit();
-	}
-
-	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
-	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
-
-	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
-
-	auto shaderSourceFile = shaderIncludePath / "shaders.slang";
-
-	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
-		"VertexZPrepass",
-		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-			shaderSourceFile,
-			{
-				SLANG_SOURCE_LANGUAGE_SLANG,
-				SLANG_SPIRV,
-				"SPIRV_1_6",
-				{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			})));
-
-	rhi->pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	rhi->pipeline->SetDescriptorData(
-		"gModelInstances",
-		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gViewData",
-			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DESCRIPTOR_SET_CATEGORY_VIEW,
-			i);
-	}
-
-	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = rhi->pipelineLayouts.emplace(
-		"Main",
-		rhi->pipeline->CreateLayout(shaderLoader.Load<kVk>(
-			shaderSourceFile,
-			{
-				SLANG_SOURCE_LANGUAGE_SLANG,
-				SLANG_SPIRV,
-				"SPIRV_1_6",
-				{
-					{"VertexMain", SLANG_STAGE_VERTEX},
-					{"FragmentMain", SLANG_STAGE_FRAGMENT},
-					{"ComputeMain", SLANG_STAGE_COMPUTE},
-				},
-				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-			})));
-
-	rhi->pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
-
-	rhi->pipeline->SetDescriptorData(
-		"gMaterialData",
-		DescriptorBufferInfo<kVk>{*rhi->materials, 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_MATERIAL);
-
-	rhi->pipeline->SetDescriptorData(
-		"gModelInstances",
-		DescriptorBufferInfo<kVk>{*rhi->modelInstances, 0, VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-	for (size_t i = 0; i < rhi->renderImageSet->GetAttachments().size(); i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gTextures",
-			DescriptorImageInfo<kVk>{
-				{},
-				rhi->renderImageSet->GetAttachments()[i],
-				rhi->renderImageSet->GetLayout(i)},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			i);
-	}
-
-	for (size_t i = 0; i < window.GetAttachments().size(); i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gRWTextures",
-			DescriptorImageInfo<kVk>{
-				{},
-				window.GetAttachments()[i],
-				window.GetLayout(i)},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-			i);
-	}
-
-	for (size_t i = 0; i < rhi->pipeline->GetResources().samplers->Size(); i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gSamplers",
-			DescriptorImageInfo<kVk>{(*rhi->pipeline->GetResources().samplers)[i]},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
-			i);
-	}
-
-	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
-	{
-		rhi->pipeline->SetDescriptorData(
-			"gViewData",
-			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
-			DESCRIPTOR_SET_CATEGORY_VIEW,
-			i);
-	}
-
-	return rhi;
 }
 
 // auto loadGlTF = [](nfdchar_t* openFilePath)
@@ -1418,10 +817,6 @@ void RHIApplication::InternalDraw()
 	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
-	TaskCreateInfo<void> IMGUIPrepareDraw;
-	IMGUIPrepareDraw = CreateTask(IMGUIPrepareDrawFunction, rhi, GetExecutor());
-	GetExecutor().Submit({&IMGUIPrepareDraw.handle, 1});
-
 	{
 		ZoneScopedN("rhi::draw::processGraphics");
 
@@ -1460,10 +855,11 @@ void RHIApplication::InternalDraw()
 		auto graphicsQueueIndex = gGraphicsQueueIndex++;
 		auto computeQueueIndex = gComputeQueueIndex++;
 
+		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
+
 		{
 			ZoneScopedN("rhi::draw::waitGraphics");
 
-			auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 			auto graphicsQueueInfosReadScope = ConcurrentReadScope(graphicsQueueInfos);
 			graphicsQueueIndex %= graphicsQueueInfosReadScope->size();
 			auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosReadScope)[graphicsQueueIndex];
@@ -1471,7 +867,6 @@ void RHIApplication::InternalDraw()
 			graphicsQueue.WaitIdle();
 		}
 
-		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
 		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[graphicsQueueIndex];
 		
@@ -1489,24 +884,19 @@ void RHIApplication::InternalDraw()
 		{
 			ZoneScopedN("rhi::draw::drawCall");
 
-			GetExecutor().Call(drawCall, newFrameIndex);
+			GetExecutor().Call(drawCall);
 		}
 
 		window.UpdateViewBuffer(); // todo: move to drawCall
-
-		static constexpr VkClearValue clearValues[] = {
-			{.color = {0.2F, 0.2F, 0.2F, 1.0F}},
-			{.depthStencil = {1.0F, 0}}};
+		
+		auto& renderImageSet = rhi.renderImageSets[newFrameIndex];
 
 		auto cmd = graphicsQueue.GetPool().Commands();
-		auto& renderImageSet = *rhi.renderImageSet;
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
 		{
 			GPU_SCOPE(cmd, graphicsQueue, draw);
-
-			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
@@ -1514,8 +904,11 @@ void RHIApplication::InternalDraw()
 			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
+
+			rhi.pipeline->SetRenderTarget(renderImageSet);
+			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 			
-			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS, clearValues);
+			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			// setup draw parameters
 			uint32_t drawCount = window.GetConfig().splitScreenGrid.width * window.GetConfig().splitScreenGrid.height;
@@ -1554,13 +947,9 @@ void RHIApplication::InternalDraw()
 
 						ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
-						CommandBufferInheritanceInfo<kVk> inheritInfo{
-							VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
-
+						CommandBufferInheritanceInfo<kVk> inheritInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 						CommandBufferAccessScopeDesc<kVk> beginInfo{};
-						beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT |
-										VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-						beginInfo.pInheritanceInfo = &inheritInfo;
+						beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 						beginInfo.level = threadIt + 1;
 
 						uint32_t dx = 0;
@@ -1570,14 +959,16 @@ void RHIApplication::InternalDraw()
 						{
 							inheritInfo.renderPass = renderPassBeginInfo->renderPass;
 							inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
+							beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+							beginInfo.pInheritanceInfo = &inheritInfo;
 
 							dx = renderPassBeginInfo->renderArea.extent.width / desc.splitScreenGrid.width;
 							dy = renderPassBeginInfo->renderArea.extent.height / desc.splitScreenGrid.height;
 						}
-						else
+						else if (const auto* renderInfoKHR = std::get_if<VkRenderingInfoKHR>(&renderInfo))
 						{
-							// todo: dynamic rendering
-							CHECK(false);
+							dx = renderInfoKHR->renderArea.extent.width / desc.splitScreenGrid.width;
+							dy = renderInfoKHR->renderArea.extent.height / desc.splitScreenGrid.height;
 						}
 
 						auto cmd = queue.GetPool().Commands(beginInfo);
@@ -1702,59 +1093,59 @@ void RHIApplication::InternalDraw()
 
 			renderImageSet.End(cmd);
 		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, computeMain);
-
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, renderImageSet.GetAttachments().size() - 1);
-
-			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
-			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-			window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-
-			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
-
-			for (size_t i = 0; i < renderImageSet.GetAttachments().size(); i++)
-			{
-				pipeline.SetDescriptorData(
-					"gTextures",
-					DescriptorImageInfo<kVk>{
-						{},
-						renderImageSet.GetAttachments()[i],
-						renderImageSet.GetLayout(i)},
-					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-					i);
-			}
-			for (size_t i = 0; i < window.GetAttachments().size(); i++)
-			{
-				pipeline.SetDescriptorData(
-					"gRWTextures",
-					DescriptorImageInfo<kVk>{
-						{},
-						window.GetAttachments()[i],
-						window.GetLayout(i)},
-					DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-					i);
-			}
-			
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
-			pipeline.BindPipelineAuto(cmd);
-
-			vkCmdDispatch(cmd, 8, 8, 1);
-		}
 		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
+		// 	GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
-		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-		// 	window.Copy(
-		// 		cmd,
-		// 		renderImageSet,
-		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		// 		0,
-		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		// 		0);
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT, renderImageSet.GetAttachments().size() - 1);
+
+		// 	window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+		// 	window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+		// 	window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+
+		// 	pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+		// 	for (size_t i = 0; i < renderImageSet.GetAttachments().size(); i++)
+		// 	{
+		// 		pipeline.SetDescriptorData(
+		// 			"gTextures",
+		// 			DescriptorImageInfo<kVk>{
+		// 				{},
+		// 				renderImageSet.GetAttachments()[i],
+		// 				renderImageSet.GetLayout(i)},
+		// 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		// 			i);
+		// 	}
+		// 	for (size_t i = 0; i < window.GetAttachments().size(); i++)
+		// 	{
+		// 		pipeline.SetDescriptorData(
+		// 			"gRWTextures",
+		// 			DescriptorImageInfo<kVk>{
+		// 				{},
+		// 				window.GetAttachments()[i],
+		// 				window.GetLayout(i)},
+		// 			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+		// 			i);
+		// 	}
+			
+		// 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+		// 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+		// 	pipeline.BindPipelineAuto(cmd);
+
+		// 	vkCmdDispatch(cmd, 8, 8, 1);
 		// }
+		{
+			GPU_SCOPE(cmd, graphicsQueue, copy);
+
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			window.Copy(
+				cmd,
+				renderImageSet,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0);
+		}
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
 
@@ -1769,11 +1160,17 @@ void RHIApplication::InternalDraw()
 		// 		VK_FILTER_NEAREST);
 		// }
 		{
-			GPU_SCOPE(cmd, graphicsQueue, imgui);
-			
-			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE, {});
+			//GetExecutor().Join(std::move(IMGUIPrepareDraw.future));
 
-			GetExecutor().Join(std::move(IMGUIPrepareDraw.future));
+			GPU_SCOPE(cmd, graphicsQueue, imgui);
+
+			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			window.Transition(cmd, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			
+			rhi.pipeline->SetRenderTarget(newFrame);
+			
+			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
 			IMGUIDrawFunction(cmd);
 			window.End(cmd);
 		}
