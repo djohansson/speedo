@@ -1,4 +1,4 @@
-#/bin/zsh
+#/bin/bash
 
 brew_install() {
 	printf "Installing homebrew..."
