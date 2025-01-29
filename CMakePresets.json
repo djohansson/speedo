@@ -5,28 +5,65 @@
 			"name": "x64-windows-clang",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build/${presetName}",
+			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
-				"CMAKE_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}"
 			},
 			"environment": {
 				"LLVM_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release/tools/llvm",
-				"LLVM_VERSION_MAJOR": "18"
+				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release/tools/llvm"
+			},
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Windows"
+			}
+		},
+		{
+			"name": "arm64-osx-clang",
+			"generator": "Ninja Multi-Config",
+			"binaryDir": "${sourceDir}/build/${presetName}",
+			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
+			"cacheVariables": {
+				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
+				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}"
+			},
+			"environment": {
+				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-osx-release",
+				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/arm64-osx-release/tools/llvm"
+			},
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Darwin"
 			}
 		}
 	],
 	"buildPresets": [
 		{
-			"name": "Debug",
+			"name": "x64-windows-clang-debug",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "Debug"
+			"configuration": "Debug",
+			"displayName": "Debug"
 		},
 		{
-			"name": "Release",
+			"name": "x64-windows-clang-release",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "RelWithDebInfo"
+			"configuration": "RelWithDebInfo",
+			"displayName": "Release"
+		},
+		{
+			"name": "arm64-osx-clang-debug",
+			"configurePreset": "arm64-osx-clang",
+			"configuration": "Debug",
+			"displayName": "Debug"
+		},
+		{
+			"name": "arm64-osx-clang-release",
+			"configurePreset": "arm64-osx-clang",
+			"configuration": "RelWithDebInfo",
+			"displayName": "Release"
 		}
 	]
 }
