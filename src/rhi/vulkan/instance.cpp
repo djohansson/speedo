@@ -310,9 +310,9 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
 	std::vector<const char*> requiredExtensions = {
-	// must be sorted lexicographically for std::includes to work!
 #if defined(__OSX__)
 		"VK_EXT_metal_surface",
+		"VK_KHR_get_physical_device_properties2",
 		"VK_KHR_portability_enumeration",
 		"VK_KHR_surface",
 #elif defined(__WINDOWS__)
@@ -320,15 +320,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		"VK_KHR_win32_surface",
 #elif defined(__LINUX__)
 		"VK_KHR_surface",
-#	if defined(VK_USE_PLATFORM_XCB_KHR)
-		"VK_KHR_xcb_surface",
-#	elif defined(VK_USE_PLATFORM_XLIB_KHR)
-		"VK_KHR_xlib_surface",
-#	elif defined(VK_USE_PLATFORM_WAYLAND_KHR)
 		"VK_KHR_wayland_surface",
-#	else // default to xcb
-		"VK_KHR_xcb_surface",
-#	endif
 #endif
 	};
 	std::vector<const char*> requiredLayers = {};
