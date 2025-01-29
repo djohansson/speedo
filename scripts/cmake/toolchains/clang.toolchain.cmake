@@ -85,7 +85,7 @@ set(COMPILE_FLAGS_RELEASE "")
 set(C_FLAGS "-std=c23") #set(C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
-set(CXX_FLAGS "-std=c++26 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
+set(CXX_FLAGS "-std=c++23 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
 set(CXX_FLAGS_DEBUG "")
 set(CXX_FLAGS_RELEASE "")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-ms-compatibility")
