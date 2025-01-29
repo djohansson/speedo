@@ -37,159 +37,223 @@ find_package(glm CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(slang CONFIG REQUIRED)
 find_package(cargs CONFIG REQUIRED)
-#find_package(mimalloc CONFIG REQUIRED)
+find_package(mimalloc CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
 
 ###############################################################################
 
-file(
-	GLOB
-	CORE_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/core/*.cpp
+file(GLOB CORE_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/core/*.cpp)
+add_library(core STATIC	${CORE_SOURCE_FILES})
+target_compile_features(
+	core
+	PUBLIC
+		cxx_std_26
 )
-
-add_library(core STATIC ${CORE_SOURCE_FILES})
-target_compile_features(core PUBLIC cxx_std_26)
-target_compile_definitions(core PUBLIC UUID_SYSTEM_GENERATOR)
-target_compile_definitions(core PUBLIC $<$<CONFIG:Debug>:SPEEDO_PROFILING_LEVEL=1>$<$<NOT:$<CONFIG:Debug>>:SPEEDO_PROFILING_LEVEL=0>)
-
+target_compile_definitions(
+	core
+	PUBLIC
+		SPEEDO_PROFILING_LEVEL=$<CONFIG:Debug>
+		SPEEDO_USE_MIMALLOC
+	PRIVATE
+		UUID_SYSTEM_GENERATOR
+)
 target_include_directories(
 	core
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	core
 	PRIVATE
-		#$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
-		SHA-Intrinsics cpptrace::cpptrace stduuid Tracy::TracyClient
+		mimalloc
+		SHA-Intrinsics
+		cpptrace::cpptrace
+		stduuid
+		Tracy::TracyClient
 )
 
 ###############################################################################
 
-file(
-	GLOB
-	GFX_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/gfx/*.cpp
-)
-
+file(GLOB GFX_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
 add_library(gfx STATIC ${GFX_SOURCE_FILES})
-target_compile_features(gfx PUBLIC cxx_std_26)
 
+target_compile_features(
+	gfx
+	PUBLIC
+		cxx_std_26
+)
 target_include_directories(
 	gfx
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	gfx
-	PRIVATE core xxHash::xxhash imgui::imgui glm::glm
+	PRIVATE
+		core
+		xxHash::xxhash
+		imgui::imgui
+		glm::glm
 )
 
 ###############################################################################
 
-file(
-	GLOB_RECURSE
-	RHI_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/rhi/*.cpp
-)
-
+file(GLOB_RECURSE RHI_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/rhi/*.cpp)
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
-target_compile_features(rhi PUBLIC cxx_std_26)
-target_compile_definitions(rhi PUBLIC $<$<CONFIG:Debug>:SPEEDO_GRAPHICS_VALIDATION_LEVEL=1>$<$<NOT:$<CONFIG:Debug>>:SPEEDO_GRAPHICS_VALIDATION_LEVEL=0>)
-if (WIN32)
-	target_compile_definitions(rhi PUBLIC VK_USE_PLATFORM_WIN32_KHR=1)
-endif()
 
+target_compile_features(
+	rhi
+	PUBLIC
+		cxx_std_26
+)
+target_compile_definitions(
+	rhi
+	PUBLIC
+		SPEEDO_GRAPHICS_VALIDATION_LEVEL=$<CONFIG:Debug>
+	PRIVATE
+		UUID_SYSTEM_GENERATOR
+)
 target_include_directories(
 	rhi
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	rhi
-	PRIVATE core xxHash::xxhash Vulkan::Vulkan
+	PRIVATE
+		core
+		xxHash::xxhash
+		Vulkan::Vulkan
 )
 
 ###############################################################################
 
-file(
-	GLOB
-	SERVERLIB_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/server/*.cpp
-)
-
+file(GLOB SERVERLIB_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/server/*.cpp)
 add_library(serverlib STATIC ${SERVERLIB_SOURCE_FILES})
-set_property(TARGET serverlib PROPERTY OUTPUT_NAME server)
-target_compile_features(serverlib PUBLIC cxx_std_26)
-target_compile_definitions(serverlib PUBLIC UUID_SYSTEM_GENERATOR ZMQ_BUILD_DRAFT_API)
 
+set_property(
+	TARGET
+		serverlib
+	PROPERTY OUTPUT_NAME
+		server
+)
+target_compile_features(
+	serverlib
+	PUBLIC
+		cxx_std_26
+)
+target_compile_definitions(
+	serverlib
+	PRIVATE
+		UUID_SYSTEM_GENERATOR
+		ZMQ_BUILD_DRAFT_API
+)
 target_include_directories(
 	serverlib
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	serverlib
-	PRIVATE cpptrace::cpptrace stduuid Tracy::TracyClient cppzmq
+	PRIVATE
+		cpptrace::cpptrace
+		stduuid
+		Tracy::TracyClient
+		cppzmq
 )
 
 ###############################################################################
 
-file(
-	GLOB
-	CLIENTLIB_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/client/*.cpp
-)
-
+file(GLOB CLIENTLIB_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/client/*.cpp)
 add_library(clientlib STATIC ${CLIENTLIB_SOURCE_FILES})
-set_property(TARGET clientlib PROPERTY OUTPUT_NAME client)
-target_compile_features(clientlib PUBLIC cxx_std_26)
-target_compile_definitions(clientlib PUBLIC UUID_SYSTEM_GENERATOR ZMQ_BUILD_DRAFT_API)
 
+set_property(
+	TARGET
+		clientlib
+	PROPERTY OUTPUT_NAME
+		client
+)
+target_compile_features(
+	clientlib
+	PUBLIC
+		cxx_std_26
+)
+target_compile_definitions(
+	clientlib
+	PRIVATE
+		UUID_SYSTEM_GENERATOR
+		ZMQ_BUILD_DRAFT_API
+)
 target_include_directories(
 	clientlib
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	clientlib
-	PRIVATE cppzmq serverlib
+	PRIVATE
+		cppzmq
+		serverlib
 )
 
 ###############################################################################
 
-file(
-	GLOB
-	SERVER_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/server/*.c
-)
-
+file(GLOB SERVER_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/server/*.c)
 add_executable(server ${SERVER_SOURCE_FILES})
-target_compile_features(server PUBLIC c_std_23)
 
+target_compile_features(
+	server
+	PUBLIC
+		c_std_23
+)
 target_include_directories(
 	server
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	server
-	PRIVATE core serverlib cargs
+	PRIVATE
+		core
+		serverlib
+		cargs
+		$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>
 )
 
 ###############################################################################
 
-file(
-	GLOB
-	CLIENT_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/client/*.c
-)
-
+file(GLOB CLIENT_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/client/*.c)
 add_executable(client ${CLIENT_SOURCE_FILES})
-target_compile_features(client PUBLIC c_std_23)
 
+target_compile_features(
+	client
+	PUBLIC
+		c_std_23
+)
 target_include_directories(
 	client
-	PUBLIC $<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}> $<INSTALL_INTERFACE:include/speedo>
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
 )
 target_link_libraries(
 	client
-	PRIVATE core gfx rhi clientlib cargs glfw slang nfd::nfd
+	PRIVATE
+		core
+		gfx
+		rhi
+		clientlib
+		cargs
+		glfw
+		slang
+		nfd::nfd
+		$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>
 )
 
 ###############################################################################
