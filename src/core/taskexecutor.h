@@ -49,7 +49,7 @@ private:
 
 	void InternalPurgeDeletionQueue();
 
-	void InternalThreadMain(uint32_t threadId);
+	void InternalThreadMain(uint32_t threadIndex);
 
 	std::vector<std::jthread> myThreads;
 	std::stop_source myStopSource;

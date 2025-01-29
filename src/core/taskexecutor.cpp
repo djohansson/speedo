@@ -163,7 +163,7 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 	myDeletionQueue.enqueue_bulk(nextDeletionQueue.begin(), nextDeletionQueue.size());
 }
 
-void TaskExecutor::InternalThreadMain(uint32_t threadId)
+void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 {
 	std::shared_lock lock(myMutex);
 	auto stopToken = myStopSource.get_token();
