@@ -10,7 +10,8 @@ Fence<kVk>::Fence(
 		  {"_Fence"},
 		  1,
 		  VK_OBJECT_TYPE_FENCE,
-		  reinterpret_cast<uint64_t*>(&fence))
+		  reinterpret_cast<uint64_t*>(&fence),
+		  uuids::uuid_system_generator{}())
 	, myFence(std::forward<FenceHandle<kVk>>(fence))
 {}
 

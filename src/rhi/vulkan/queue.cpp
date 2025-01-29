@@ -37,7 +37,8 @@ Queue<kVk>::Queue(
 		  {"_Queue"},
 		  1,
 		  VK_OBJECT_TYPE_QUEUE,
-		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)))
+		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)),
+		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<QueueCreateDesc<kVk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
 	, myPool(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc))

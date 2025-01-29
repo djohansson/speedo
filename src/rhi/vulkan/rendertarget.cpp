@@ -629,7 +629,7 @@ void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 template <>
 RenderTarget<kVk>::RenderTarget(
 	const std::shared_ptr<Device<kVk>>& device, const RenderTargetCreateDesc<kVk>& desc)
-	: DeviceObject(device, {})
+	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
 {
 	ZoneScopedN("RenderTarget()");
 

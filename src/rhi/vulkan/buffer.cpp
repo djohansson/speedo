@@ -21,7 +21,8 @@ Buffer<kVk>::Buffer(
 		[&desc]{ return DeviceObjectCreateDesc{ desc.name.data() }; }(),
 		1,
 		VK_OBJECT_TYPE_BUFFER,
-		reinterpret_cast<uint64_t*>(&std::get<0>(buffer)))
+		reinterpret_cast<uint64_t*>(&std::get<0>(buffer)),
+		uuids::uuid_system_generator{}())
 	, myBuffer(std::forward<ValueType>(buffer))
 	, myDesc(std::forward<BufferCreateDesc<kVk>>(desc))
 {
@@ -130,7 +131,8 @@ BufferView<kVk>::BufferView(
 		  {"_View"},
 		  1,
 		  VK_OBJECT_TYPE_BUFFER_VIEW,
-		  reinterpret_cast<uint64_t*>(&view))
+		  reinterpret_cast<uint64_t*>(&view),
+		  uuids::uuid_system_generator{}())
 	, myView(std::forward<BufferViewHandle<kVk>>(view))
 {}
 

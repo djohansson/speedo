@@ -40,7 +40,8 @@ CommandBufferArray<kVk>::CommandBufferArray(
 		  {"_CommandBufferArray"},
 		  kCommandBufferCount,
 		  VK_OBJECT_TYPE_COMMAND_BUFFER,
-		  reinterpret_cast<uint64_t*>(std::get<1>(descAndData).data()))
+		  reinterpret_cast<uint64_t*>(std::get<1>(descAndData).data()),
+		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<CommandBufferArrayCreateDesc<kVk>>(std::get<0>(descAndData)))
 	, myArray(std::forward<std::array<CommandBufferHandle<kVk>, kCommandBufferCount>>(
 		  std::get<1>(descAndData)))
@@ -155,7 +156,8 @@ CommandPool<kVk>::CommandPool(
 		  {},
 		  1,
 		  VK_OBJECT_TYPE_COMMAND_POOL,
-		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)))
+		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndData)),
+		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<CommandPoolCreateDesc<kVk>>(std::get<0>(descAndData)))
 	, myPool(std::forward<CommandPoolHandle<kVk>>(std::get<1>(descAndData)))
 	, myPendingCommands(myDesc.levelCount + 1)

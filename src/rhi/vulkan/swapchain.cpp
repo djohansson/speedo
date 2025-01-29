@@ -252,7 +252,7 @@ Swapchain<kVk>::Swapchain(
 	const SwapchainConfiguration<kVk>& config,
 	SurfaceHandle<kVk>&& surface,
 	SwapchainHandle<kVk> previous)
-	: DeviceObject(device, {})
+	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
 	, myDesc{config.extent} // more?
 	, mySurface(std::forward<SurfaceHandle<kVk>>(surface))
 {

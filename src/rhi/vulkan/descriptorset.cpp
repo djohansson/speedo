@@ -21,7 +21,8 @@ DescriptorSetLayout<kVk>::DescriptorSetLayout(
 		  {"_DescriptorSetLayout"},
 		  1,
 		  VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
-		  reinterpret_cast<uint64_t*>(&std::get<0>(layout)))
+		  reinterpret_cast<uint64_t*>(&std::get<0>(layout)),
+		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<DescriptorSetLayoutCreateDesc<kVk>>(desc))
 	, myLayout(std::forward<ValueType>(layout))
 {}
@@ -117,7 +118,8 @@ DescriptorSetArray<kVk>::DescriptorSetArray(
 		  {"_DescriptorSet"},
 		  descriptorSetHandles.size(),
 		  VK_OBJECT_TYPE_DESCRIPTOR_SET,
-		  reinterpret_cast<uint64_t*>(descriptorSetHandles.data()))
+		  reinterpret_cast<uint64_t*>(descriptorSetHandles.data()),
+		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<DescriptorSetArrayCreateDesc<kVk>>(desc))
 	, myDescriptorSets(std::forward<ArrayType>(descriptorSetHandles))
 {}
@@ -236,7 +238,8 @@ DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(
 		  {"_DescriptorUpdateTemplate"},
 		  1,
 		  VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE,
-		  reinterpret_cast<uint64_t*>(&handle))
+		  reinterpret_cast<uint64_t*>(&handle),
+		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<DescriptorUpdateTemplateCreateDesc<kVk>>(desc))
 	, myHandle(std::forward<DescriptorUpdateTemplateHandle<kVk>>(handle))
 {}

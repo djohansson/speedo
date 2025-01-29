@@ -441,7 +441,8 @@ Image<kVk>::Image(
 		[&desc]{ return DeviceObjectCreateDesc{ desc.name.data() }; }(),
 		1,
 		VK_OBJECT_TYPE_IMAGE,
-		reinterpret_cast<uint64_t*>(&std::get<0>(data)))
+		reinterpret_cast<uint64_t*>(&std::get<0>(data)),
+		uuids::uuid_system_generator{}())
 	, myImage(std::forward<ValueType>(data))
 	, myDesc(std::forward<ImageCreateDesc<kVk>>(desc))
 {
@@ -537,7 +538,12 @@ ImageView<kVk>::ImageView(ImageView&& other) noexcept
 template <>
 ImageView<kVk>::ImageView(const std::shared_ptr<Device<kVk>>& device, ImageViewHandle<kVk>&& view)
 	: DeviceObject(
-		  device, {"_View"}, 1, VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<uint64_t*>(&view))
+		  device,
+		  {"_View"},
+		  1,
+		  VK_OBJECT_TYPE_IMAGE_VIEW,
+		  reinterpret_cast<uint64_t*>(&view),
+		  uuids::uuid_system_generator{}())
 	, myView(std::forward<ImageViewHandle<kVk>>(view))
 {}
 

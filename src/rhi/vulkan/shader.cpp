@@ -329,7 +329,8 @@ ShaderModule<kVk>::ShaderModule(
 		  {std::get<0>(entryPoint)},
 		  1,
 		  VK_OBJECT_TYPE_SHADER_MODULE,
-		  reinterpret_cast<uint64_t*>(&shaderModule))
+		  reinterpret_cast<uint64_t*>(&shaderModule),
+		  uuids::uuid_system_generator{}())
 	, myShaderModule(std::forward<ShaderModuleHandle<kVk>>(shaderModule))
 	, myEntryPoint(entryPoint)
 {}

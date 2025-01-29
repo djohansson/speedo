@@ -166,7 +166,8 @@ PipelineLayout<kVk>::PipelineLayout(
 		  {"_PipelineLayout"},
 		  1,
 		  VK_OBJECT_TYPE_PIPELINE_LAYOUT,
-		  reinterpret_cast<uint64_t*>(&layout))
+		  reinterpret_cast<uint64_t*>(&layout),
+		  uuids::uuid_system_generator{}())
 	, myShaderModules(std::exchange(shaderModules, {}))
 	, myDescriptorSetLayouts(std::exchange(descriptorSetLayouts, {}))
 	, myLayout(std::forward<PipelineLayoutHandle<kVk>>(layout))
@@ -865,7 +866,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 template <>
 Pipeline<kVk>::Pipeline(
 	const std::shared_ptr<Device<kVk>>& device, PipelineConfiguration<kVk>&& defaultConfig)
-	: DeviceObject(device, {})
+	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
 	, myConfig{std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
 	, myDescriptorPool(
 		  [](const std::shared_ptr<Device<kVk>>& device)

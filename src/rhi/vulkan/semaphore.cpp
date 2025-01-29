@@ -11,7 +11,8 @@ Semaphore<kVk>::Semaphore(
 		  {"_Semaphore"},
 		  1,
 		  VK_OBJECT_TYPE_SEMAPHORE,
-		  reinterpret_cast<uint64_t*>(&handle))
+		  reinterpret_cast<uint64_t*>(&handle),
+		  uuids::uuid_system_generator{}())
 	, mySemaphore(std::forward<SemaphoreHandle<kVk>>(handle))
 	, myDesc(std::forward<SemaphoreCreateDesc<kVk>>(desc))
 {}

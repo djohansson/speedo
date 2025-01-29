@@ -11,7 +11,8 @@ SamplerVector<kVk>::SamplerVector(
 		  {"_Sampler"},
 		  samplers.size(),
 		  VK_OBJECT_TYPE_SAMPLER,
-		  reinterpret_cast<uint64_t*>(samplers.data()))
+		  reinterpret_cast<uint64_t*>(samplers.data()),
+		  uuids::uuid_system_generator{}())
 	, mySamplers(std::forward<std::vector<SamplerHandle<kVk>>>(samplers))
 {}
 

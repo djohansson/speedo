@@ -127,14 +127,14 @@ protected:
 	DeviceObject( // no object names are set
 		const std::shared_ptr<Device<G>>& device,
 		DeviceObjectCreateDesc&& desc,
-		uuids::uuid&& uuid = uuids::uuid_system_generator{}());
+		uuids::uuid&& uuid);
 	DeviceObject( // uses desc.name and one objectType for all objectHandles
 		const std::shared_ptr<Device<G>>& device,
 		DeviceObjectCreateDesc&& desc,
 		uint32_t objectCount,
 		ObjectType<G> objectType,
 		const uint64_t* objectHandles,
-		uuids::uuid&& uuid = uuids::uuid_system_generator{}());
+		uuids::uuid&& uuid);
 
 	[[maybe_unused]] DeviceObject& operator=(DeviceObject&& other) noexcept;
 
