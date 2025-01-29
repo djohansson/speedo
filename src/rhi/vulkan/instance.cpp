@@ -347,7 +347,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		const VkBool32 settingValidateSync = VK_FALSE;
 		const VkBool32 settingThreadSafety = VK_TRUE;
 		static constexpr std::array<const char*, 1> kSettingDebugAction = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
-		static constexpr std::array<const char*, 5> kSettingReportFlags = {"info", "warn", "perf", "error", "debug"};
+		static constexpr std::array<const char*, 4> kSettingReportFlags = {"info", "warn", "perf", "error"};
 		const VkBool32 settingEnableMessageLimit = VK_TRUE;
 		const int32_t settingDuplicateMessageLimit = 3;
 
