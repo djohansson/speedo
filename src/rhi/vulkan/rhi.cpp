@@ -290,19 +290,7 @@ std::shared_ptr<Device<kVk>> CreateDevice(
 
 std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
 {
-	return std::make_shared<Instance<kVk>>(
-		InstanceConfiguration<kVk>{
-			name.data(),
-			"speedo",
-			ApplicationInfo<kVk>{
-				VK_STRUCTURE_TYPE_APPLICATION_INFO,
-				nullptr,
-				nullptr,
-				VK_MAKE_VERSION(1, 0, 0),
-				nullptr,
-				VK_MAKE_VERSION(1, 0, 0),
-				VK_API_VERSION_1_2}});
-				//VK_API_VERSION_1_3}});
+	return std::make_shared<Instance<kVk>>(InstanceConfiguration<kVk>{name.data(), "speedo"});
 }
 
 template <>

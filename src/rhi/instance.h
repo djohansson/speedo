@@ -14,6 +14,17 @@ struct InstanceConfiguration
 	std::string applicationName;
 	std::string engineName;
 	ApplicationInfo<G> appInfo{};
+
+	InstanceConfiguration() = default;
+	InstanceConfiguration(std::string&& applicationName, std::string&& engineName);
+	InstanceConfiguration(InstanceConfiguration&& other) noexcept
+		: applicationName(std::forward<std::string>(other.applicationName))
+		, engineName(std::forward<std::string>(other.engineName))
+		, appInfo(std::forward<ApplicationInfo<G>>(other.appInfo))
+	{
+		appInfo.pApplicationName = applicationName.c_str();
+		appInfo.pEngineName = engineName.c_str();
+	}
 };
 
 template <GraphicsApi G>

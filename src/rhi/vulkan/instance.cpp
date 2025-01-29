@@ -171,6 +171,23 @@ VkDebugUtilsMessengerCreateInfoEXT gDebugUtilsMessengerCallbackCreateInfo{
 } // namespace instance
 
 template <>
+InstanceConfiguration<kVk>::InstanceConfiguration(std::string&& applicationName, std::string&& engineName)
+	: applicationName(std::forward<std::string>(applicationName))
+	, engineName(std::forward<std::string>(engineName))
+	, appInfo{
+		VK_STRUCTURE_TYPE_APPLICATION_INFO,
+		nullptr,
+		nullptr,
+		VK_MAKE_VERSION(1, 0, 0),
+		nullptr,
+		VK_MAKE_VERSION(1, 0, 0),
+		VK_API_VERSION_1_2}
+{
+	appInfo.pApplicationName = this->applicationName.c_str();
+	appInfo.pEngineName = this->engineName.c_str();
+}
+
+template <>
 void Instance<kVk>::UpdateSurfaceCapabilities(
 	PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
 {
