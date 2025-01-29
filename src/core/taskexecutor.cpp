@@ -53,8 +53,19 @@ void SetThreadName(const char* threadName)
 
 void SetThreadName(std::jthread& thread, const char* threadName)
 {
-	DWORD threadId = ::GetThreadId(static_cast<HANDLE>(thread.native_handle()));
-	SetThreadName(threadId, threadName);
+	SetThreadName(::GetThreadId(static_cast<HANDLE>(thread.native_handle())), threadName);
+}
+
+#elif defined(__APPLE__)
+
+void SetThreadName(const char* threadName)
+{
+	pthread_setname_np(threadName);
+}
+
+void SetThreadName(std::jthread& /*thread*/, const char* threadName)
+{
+	SetThreadName(threadName);
 }
 
 #else
@@ -80,9 +91,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		SetThreadName(
-			myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt)),
-			std::format("TaskThread {}", threadIt).c_str());
+		myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt));
 }
 
 TaskExecutor::~TaskExecutor()
@@ -165,6 +174,10 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 
 void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 {
+	using namespace taskexecutor;
+	
+	SetThreadName(myThreads[threadIndex], std::format("TaskThread {}", threadIndex).c_str());
+			
 	std::shared_lock lock(myMutex);
 	auto stopToken = myStopSource.get_token();
 
