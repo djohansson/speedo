@@ -121,7 +121,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic -fno-plt")
-	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version -lc -lpthread -lc++ -lc++abi")
+	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
