@@ -29,7 +29,6 @@
     "common": {
       "description": "Common Dependencies for both Client and Server",
       "dependencies": [
-        "catch2",
         "cargs",
         "concurrentqueue",
         {
