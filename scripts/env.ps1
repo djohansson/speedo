@@ -1,26 +1,5 @@
 . $PSScriptRoot/platform.ps1
 
-function Add-EnvPath
-{
-	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
-
-	if (-not (Test-Path $path))
-	{
-		Write-Error "Path does not exist: $path"
-
-		return
-	}
-
-	if ("" -eq $env:PATH -or $null -eq $env:PATH)
-	{
-		$env:PATH = $path
-	}
-	else
-	{
-		$env:PATH += [IO.Path]::PathSeparator + $path
-	}
-}
-
 function Add-EnvDylibPath
 {
 	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
@@ -34,7 +13,14 @@ function Add-EnvDylibPath
 
 	if ($IsWindows)
 	{
-		Write-Warning "Windows uses PATH for DLLs, please use Add-EnvPath instead"
+		if ("" -eq $env:PATH -or $null -eq $env:PATH)
+		{
+			$env:PATH = $path
+		}
+		else
+		{
+			$env:PATH += [IO.Path]::PathSeparator + $path
+		}
 	}
 	elseif ($IsMacOS)
 	{
@@ -102,12 +88,12 @@ function Initialize-VcpkgEnv
 		Add-EnvPath $BinDirectory
 	}
 
-	#Write-Host "Adding installed vcpkg packages to env:DYLD_LIBRARY_PATH..."
-	$LibDirectory = "$PSScriptRoot/../build/packages/$Triplet/lib"
-	if (Test-Path $LibDirectory)
+	#Write-Host "Adding installed vcpkg packages dylib/dll/so:s..."
+	$DylibDirectory = "$PSScriptRoot/../build/packages/$Triplet"
+	if (Test-Path $DylibDirectory)
 	{
-		#Write-Host $LibDirectory
-		Add-EnvDylibPath $LibDirectory
+		#Write-Host $DylibDirectory
+		Add-EnvDylibPath $DylibDirectory
 	}
 
 	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/../build/packages/$Triplet/tools -Directory -ErrorAction SilentlyContinue)
@@ -136,6 +122,14 @@ function Initialize-SystemEnv
 	
 	#Write-Host "Setting system (package manager) environment variables..."
 	Read-EnvFile "$PSScriptRoot/../.env.json"
+
+	#Write-Host "Adding toolchain dylib/dll/so:s..."
+	$DylibDirectory = "$PSScriptRoot/../build/toolchain/$Triplet"
+	if (Test-Path $DylibDirectory)
+	{
+		#Write-Host $DylibDirectory
+		Add-EnvDylibPath $DylibDirectory
+	}
 }
 
 function Invoke-VcpkgEnv

@@ -2,33 +2,6 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "FastBuild (Cache)",
-			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -cache} 2>&1'",
-			"group": {
-				"kind": "build",
-				"isDefault": true
-			}
-		},
-		{
-			"label": "FastBuild (Clean, Cache)",
-			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -clean -cache} 2>&1'",
-			"group": "build"
-		},
-		{
-			"label": "FastBuild (Clean, No Cache)",
-			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -clean} 2>&1'",
-			"group": "build"
-		},
-		{
-			"label": "FastBuild (Compilation Database)",
-			"type": "shell",
-			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Invoke-VcpkgEnv FBuild all -compdb} 2>&1'",
-			"group": "build"
-		},
-		{
 			"label": "Clang-Format (All)",
 			"type": "shell",
 			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Initialize-SystemEnv; (Get-ChildItem -Path ${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath ${workspaceFolder}/.clang-format-files -Force; & \"$Env:LLVM_TOOLS_PATH/clang-format\" -i -style=file -files ${workspaceFolder}/.clang-format-files } 2>&1'",

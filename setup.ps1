@@ -64,7 +64,3 @@ Initialize-SystemEnv
 Write-Host "Installing packages for $TargetTriplet using manifest..."
 
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/packages --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
-
-Write-Host "Building speedo..."
-
-& $PSScriptRoot/build.ps1
