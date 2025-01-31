@@ -8,7 +8,7 @@ vcpkg_from_github(
 	HEAD_REF master
 	PATCHES
 		0001-include-process.h.patch
-		0002-include-intrin.h.patch
+		#0002-include-intrin.h.patch // TODO: fix patch on win32
 		0003-add-crtdbg.h-includes.patch
 		0004-cxx20-fixes.patch
 		0005-remove-vcpkg-dependency.patch
