@@ -31,8 +31,6 @@ else()
 	set(CMAKE_EXECUTABLE_SUFFIX "")
 endif()
 
-# set(CMAKE_TRY_COMPILE_PLATFORM_VARIABLES "CMAKE_SYSTEM_PROCESSOR;CMAKE_SYSTEM_NAME;CMAKE_SYSTEM_VERSION")
-
 # UUID to enable CMake's `import std` handling
 # it may potentially change with CMake versions
 # set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "0e5b6991-d74f-4b3d-a41c-cf096e0b2508") 
@@ -41,18 +39,29 @@ endif()
 set(CMAKE_AR ${LLVM_TOOLS_PATH}/llvm-ar${CMAKE_EXECUTABLE_SUFFIX})
 
 set(CMAKE_C_COMPILER ${LLVM_TOOLS_PATH}/clang${CMAKE_EXECUTABLE_SUFFIX})
+execute_process(COMMAND ${CMAKE_C_COMPILER} --version OUTPUT_VARIABLE ClangVersionOutput)
+string(REGEX MATCH "^clang version ([0-9]+\.[0-9]+\.[0-9]+).*$" Unused "${ClangVersionOutput}")
 set(CMAKE_C_COMPILER_ID "Clang")
 set(CMAKE_C_COMPILER_ID_RUN TRUE)
 set(CMAKE_C_COMPILER_FRONTEND_VARIANT "GNU")
 set(CMAKE_C_COMPILER_LINKER_ID LLD)
 set(CMAKE_C_COMPILER_LINKER_FRONTEND_VARIANT "GNU")
+set(CMAKE_C_COMPILER_VERSION "${CMAKE_MATCH_1}")
+set(CMAKE_C_STANDARD_COMPUTED_DEFAULT "23")
+set(CMAKE_C_EXTENSIONS_COMPUTED_DEFAULT "OFF")
 set(CMAKE_C_COMPILER_WORKS TRUE)
+
 set(CMAKE_CXX_COMPILER ${LLVM_TOOLS_PATH}/clang++${CMAKE_EXECUTABLE_SUFFIX})
+execute_process(COMMAND ${CMAKE_CXX_COMPILER} --version OUTPUT_VARIABLE ClangVersionOutput)
+string(REGEX MATCH "^clang version ([0-9]+\.[0-9]+\.[0-9]+).*$" Unused "${ClangVersionOutput}")
 set(CMAKE_CXX_COMPILER_ID "Clang")
 set(CMAKE_CXX_COMPILER_ID_RUN TRUE)
 set(CMAKE_CXX_COMPILER_FRONTEND_VARIANT "GNU")
 set(CMAKE_CXX_COMPILER_LINKER_ID LLD)
 set(CMAKE_CXX_COMPILER_LINKER_FRONTEND_VARIANT "GNU")
+set(CMAKE_CXX_COMPILER_VERSION "${CMAKE_MATCH_1}")
+set(CMAKE_CXX_STANDARD_COMPUTED_DEFAULT "23")
+set(CMAKE_CXX_EXTENSIONS_COMPUTED_DEFAULT "OFF")
 set(CMAKE_CXX_COMPILER_WORKS TRUE)
 
 # don't use CMAKE_LINKER, its apparently an "implementation detail" in wonderful CMakeland
@@ -81,10 +90,10 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 set(COMPILE_FLAGS "")
 set(COMPILE_FLAGS_DEBUG "-fno-omit-frame-pointer")
 set(COMPILE_FLAGS_RELEASE "")
-set(C_FLAGS "-std=c23") #set(C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
+set(C_FLAGS "") #set(C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
-set(CXX_FLAGS "-std=c++23 -nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
+set(CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
 set(CXX_FLAGS_DEBUG "")
 set(CXX_FLAGS_RELEASE "")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-ms-compatibility")
