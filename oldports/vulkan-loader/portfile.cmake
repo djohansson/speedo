@@ -4,28 +4,17 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO KhronosGroup/Vulkan-Loader
     REF "vulkan-sdk-${VERSION}"
-    SHA512 8ec98e0da867f829e048e100a97d7b94a3c40f56f858e3eb81f11f6f58e20e59da6ca8785a9642958ff3b698c618b9968407028cc66dfa0ad296576bf9db45ca
+    SHA512 42ecf05e498f6422cea9d6ef70df5a936536524c1ff4d8cb391b5c55dd409082a6b2fc2eee5b395306c782ca32a7344faceef3e5385b382fb5a7e6564cfce4b5
     HEAD_REF main
     PATCHES
-        0001-clang-windows.patch
+      0001-detect-msvc-clang-frontend-correctly.patch
+      0002-fix-detection-of-clang-cl.patch
 )
-
-vcpkg_find_acquire_program(PYTHON3)
-get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
-vcpkg_add_to_path("${PYTHON3_DIR}")
-
-if (VCPKG_TARGET_IS_WINDOWS)
-    set(ASM_FLAGS -DUSE_MASM:BOOL=OFF)
-else()
-    set(ASM_FLAGS -DUSE_GAS:BOOL=OFF)
-endif()
 
 vcpkg_cmake_configure(
   SOURCE_PATH "${SOURCE_PATH}"
   OPTIONS
     -DBUILD_TESTS:BOOL=OFF
-    -DLOADER_CODEGEN:BOOL=ON
-    ${ASM_FLAGS}
 )
 vcpkg_cmake_install()
 vcpkg_fixup_pkgconfig()
