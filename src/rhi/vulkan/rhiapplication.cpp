@@ -548,7 +548,27 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	}
 }
 
-void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipeline = nullptr)
+struct IMGUIDeleteBufferData
+{
+	std::vector<TaskHandle> tasksOut;
+};
+
+void IMGUIDeleteBuffer(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, const VkAllocationCallbacks* allocator, void* userData)
+{
+	auto& data = *static_cast<IMGUIDeleteBufferData*>(userData);
+
+	auto [deleteBufferTask, deleteBufferFuture] = CreateTask([device, buffer, memory, allocator] {
+		vkDestroyBuffer(device, buffer, allocator);
+		vkFreeMemory(device, memory, allocator);
+	});
+
+	data.tasksOut.push_back(deleteBufferTask);
+}
+
+void IMGUIDrawFunction(
+	CommandBufferHandle<kVk> cmd,
+	IMGUIDeleteBufferData& deleteData,
+	PipelineHandle<kVk> pipeline = nullptr)
 {
 	ZoneScopedN("RHIApplication::IMGUIDraw");
 
@@ -558,7 +578,7 @@ void IMGUIDrawFunction(CommandBufferHandle<kVk> cmd, PipelineHandle<kVk> pipelin
 	while (gIMGUIDrawData.try_dequeue(drawData));
 
 	ImGui_ImplVulkan_NewFrame();
-	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, pipeline);
+	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, IMGUIDeleteBuffer, &deleteData, pipeline);
 }
 
 static void IMGUIInit(
@@ -1159,6 +1179,7 @@ void RHIApplication::InternalDraw()
 		// 		0,
 		// 		VK_FILTER_NEAREST);
 		// }
+		IMGUIDeleteBufferData deleteData{};
 		{
 			//GetExecutor().Join(std::move(IMGUIPrepareDraw.future));
 
@@ -1171,7 +1192,7 @@ void RHIApplication::InternalDraw()
 			rhi.pipeline->SetRenderTarget(newFrame);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			IMGUIDrawFunction(cmd);
+			IMGUIDrawFunction(cmd, deleteData);
 			window.End(cmd);
 		}
 		{
@@ -1188,7 +1209,7 @@ void RHIApplication::InternalDraw()
 			{graphicsSubmit.maxTimelineValue},
 			{graphicsSemaphore, newFrame.GetSemaphore()},
 			{++graphicsSemaphoreValue, 0},
-			{}});
+			{std::move(deleteData.tasksOut)}});
 
 		computeSubmit = graphicsSubmit = graphicsQueue.Submit();
 		computeQueue.EnqueuePresent(window.PreparePresent(std::move(computeSubmit)));
