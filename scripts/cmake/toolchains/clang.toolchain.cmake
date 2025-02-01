@@ -5,7 +5,6 @@ include_guard()
 # todo: import LLVMConfig.cmake
 set(LLVM_PATH $ENV{LLVM_PATH} CACHE PATH "LLVM root path")
 set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM tools path")
-set(LLVM_VERSION_MAJOR $ENV{LLVM_VERSION_MAJOR} CACHE PATH "LLVM major version")
 
 # todo: cross-compiling support. this is currently not used.
 set(TARGET_ARCHITECTURE $ENV{TARGET_ARCHITECTURE} CACHE PATH "Target architecture")

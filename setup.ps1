@@ -50,13 +50,9 @@ Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build
 
 $toolchainPath = "$PSScriptRoot/build/toolchain/$SystemTriplet"
 $llvmToolsPath = "$toolchainPath/tools/llvm"
-$llvmVersion = (& "$llvmToolsPath/clang" --version | Select-String -Pattern '(\d+\.\d+\.\d+-?\w*)').Matches[0].Value.ToString()
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue $toolchainPath | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_TOOLS_PATH -NotePropertyValue $llvmToolsPath | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PACKAGE_VERSION -NotePropertyValue $llvmVersion | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_VERSION_MAJOR -NotePropertyValue $llvmVersion.Substring(0, $llvmVersion.IndexOf('.')) | Out-Null
-
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Initialize-SystemEnv
