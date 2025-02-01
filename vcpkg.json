@@ -45,7 +45,6 @@
         "sha-intrinsics",
         "stduuid",
         "tl-function-ref",
-        "tracy",
         "unordered-dense",
         "xxhash",
         "zpp-bits",
@@ -82,12 +81,6 @@
         "shader-slang",
         "stb",
         "tinyobjloader",
-        {
-          "name": "tracy",
-          "features": [
-            "gui-tools"
-          ]
-        },
         "vulkan",
         "vulkan-headers",
         "vulkan-loader",
