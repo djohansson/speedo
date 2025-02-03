@@ -51,7 +51,7 @@
 			"name": "x64-windows-clang-release",
 			"configurePreset": "x64-windows-clang",
 			"configuration": "RelWithDebInfo",
-			"displayName": "Release"
+			"displayName": "RelWithDebInfo"
 		},
 		{
 			"name": "arm64-osx-clang-debug",
@@ -63,7 +63,7 @@
 			"name": "arm64-osx-clang-release",
 			"configurePreset": "arm64-osx-clang",
 			"configuration": "RelWithDebInfo",
-			"displayName": "Release"
+			"displayName": "RelWithDebInfo"
 		}
 	]
 }
