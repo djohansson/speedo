@@ -344,7 +344,7 @@ static void SetWindowCallbacks(GLFWwindow* window)
 	glfwSetWindowTitle(window, GetApplicationName());
 }
 
-static void* GlfwAllocate(size_t size, void* /*user*/)
+static void* GlfwAllocate(size_t size, void* user)
 {
 #if defined(SPEEDO_USE_MIMALLOC)
 	return mi_malloc(size);
@@ -353,7 +353,7 @@ static void* GlfwAllocate(size_t size, void* /*user*/)
 #endif
 }
 
-static void GlfwDeallocate(void* block, void* /*user*/)
+static void GlfwDeallocate(void* block, void* user)
 {
 #if defined(SPEEDO_USE_MIMALLOC)
 	mi_free(block);
@@ -362,7 +362,7 @@ static void GlfwDeallocate(void* block, void* /*user*/)
 #endif
 }
 
-static void* GlfwReallocate(void* block, size_t size, void* /*user*/)
+static void* GlfwReallocate(void* block, size_t size, void* user)
 {
 #if defined(SPEEDO_USE_MIMALLOC)
 	return mi_realloc(block, size);
