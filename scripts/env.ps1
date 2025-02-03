@@ -1,5 +1,26 @@
 . $PSScriptRoot/platform.ps1
 
+function Add-EnvPath
+{
+	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
+
+	if (-not (Test-Path $path))
+	{
+		Write-Error "Path does not exist: $path"
+
+		return
+	}
+
+	if ("" -eq $env:PATH -or $null -eq $env:PATH)
+	{
+		$env:PATH = $path
+	}
+	else
+	{
+		$env:PATH += [IO.Path]::PathSeparator + $path
+	}
+}
+
 function Add-EnvDylibPath
 {
 	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
