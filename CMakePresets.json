@@ -7,6 +7,7 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
+				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}"
 			},
@@ -26,6 +27,7 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
+				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}"
 			},
@@ -44,26 +46,32 @@
 		{
 			"name": "x64-windows-clang-debug",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "Debug",
-			"displayName": "Debug"
+			"configuration": "debug"
+		},
+		{
+			"name": "x64-windows-clang-profile",
+			"configurePreset": "x64-windows-clang",
+			"configuration": "profile"
 		},
 		{
 			"name": "x64-windows-clang-release",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "RelWithDebInfo",
-			"displayName": "RelWithDebInfo"
+			"configuration": "release"
 		},
 		{
 			"name": "arm64-osx-clang-debug",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "Debug",
-			"displayName": "Debug"
+			"configuration": "debug"
+		},
+		{
+			"name": "arm64-osx-clang-profile",
+			"configurePreset": "arm64-osx-clang",
+			"configuration": "profile"
 		},
 		{
 			"name": "arm64-osx-clang-release",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "RelWithDebInfo",
-			"displayName": "RelWithDebInfo"
+			"configuration": "release"
 		}
 	]
 }
