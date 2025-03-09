@@ -1,20 +1,21 @@
-From 76491df55f0860d25f27fe50b7645714dcc5310a Mon Sep 17 00:00:00 2001
+From cb5eac698d403c29ed8eb9bbfc86d4c361316061 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
-Date: Wed, 30 Oct 2024 22:53:10 +0100
-Subject: [PATCH 2/3] windows unicode fixes
+Date: Sun, 9 Mar 2025 15:02:47 +0100
+Subject: [PATCH] fix implicit ANSI code under UNICODE define
 
 ---
- layers/error_message/logging.cpp                  |  2 +-
- layers/vk_layer_config.cpp                        | 10 +++++-----
- layers/vulkan/generated/vk_function_pointers.cpp  |  4 ++--
- scripts/generators/function_pointers_generator.py |  4 ++--
- 4 files changed, 10 insertions(+), 10 deletions(-)
+ layers/error_message/logging.cpp                  | 2 +-
+ layers/layer_options.cpp                          | 2 +-
+ layers/vk_layer_config.cpp                        | 6 +++---
+ layers/vulkan/generated/vk_function_pointers.cpp  | 4 ++--
+ scripts/generators/function_pointers_generator.py | 4 ++--
+ 5 files changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/layers/error_message/logging.cpp b/layers/error_message/logging.cpp
-index 361a725..29f5a42 100644
+index 4210d65..fc5f411 100644
 --- a/layers/error_message/logging.cpp
 +++ b/layers/error_message/logging.cpp
-@@ -728,7 +728,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL MessengerWin32DebugOutputMsg(VkDebugUtilsMessageS
+@@ -781,7 +781,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL MessengerWin32DebugOutputMsg(VkDebugUtilsMessageS
      [[maybe_unused]] const char *cstr = tmp.c_str();
  
  #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -23,11 +24,24 @@ index 361a725..29f5a42 100644
  #endif
  
      return false;
+diff --git a/layers/layer_options.cpp b/layers/layer_options.cpp
+index 0a2dc8c..c7765f8 100644
+--- a/layers/layer_options.cpp
++++ b/layers/layer_options.cpp
+@@ -902,7 +902,7 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings *settings_data, VkuL
+             const char *cstr = tmp.c_str();
+             printf("%s", cstr);
+ #ifdef VK_USE_PLATFORM_WIN32_KHR
+-            OutputDebugString(cstr);
++            OutputDebugStringA(cstr);
+ #endif
+ #ifdef VK_USE_PLATFORM_ANDROID_KHR
+             __android_log_print(ANDROID_LOG_INFO, "VALIDATION", "%s", cstr);
 diff --git a/layers/vk_layer_config.cpp b/layers/vk_layer_config.cpp
-index cccf731..2d3536a 100644
+index 795f307..41ed6f6 100644
 --- a/layers/vk_layer_config.cpp
 +++ b/layers/vk_layer_config.cpp
-@@ -78,12 +78,12 @@ std::string GetEnvironment(const char *variable) {
+@@ -54,12 +54,12 @@ std::string GetEnvironment(const char *variable) {
      const char *output = getenv(variable);
      return output == NULL ? "" : output;
  #elif defined(_WIN32)
@@ -39,10 +53,10 @@ index cccf731..2d3536a 100644
      char *buffer = new char[size];
 -    GetEnvironmentVariable(variable, buffer, size);
 +    GetEnvironmentVariableA(variable, buffer, size);
-     string output = buffer;
+     std::string output = buffer;
      delete[] buffer;
      return output;
-@@ -115,7 +115,7 @@ void SetEnvironment(const char *variable, const char *value) {
+@@ -91,7 +91,7 @@ void SetEnvironment(const char *variable, const char *value) {
  #if !defined(__ANDROID__) && !defined(_WIN32)
      setenv(variable, value, 1);
  #elif defined(_WIN32)
@@ -51,22 +65,8 @@ index cccf731..2d3536a 100644
  #elif defined(__ANDROID__)
      (void)variable;
      (void)value;
-@@ -259,11 +259,11 @@ string ConfigFile::FindSettings() {
-     const size_t hives_to_check_count = IsHighIntegrity() ? 1 : hives.size();  // Admin checks only the default hive
- 
-     for (size_t hive_index = 0; hive_index < hives_to_check_count; ++hive_index) {
--        LSTATUS err = RegOpenKeyEx(hives[hive_index], "Software\\Khronos\\Vulkan\\Settings", 0, KEY_READ, &key);
-+        LSTATUS err = RegOpenKeyExA(hives[hive_index], "Software\\Khronos\\Vulkan\\Settings", 0, KEY_READ, &key);
-         if (err == ERROR_SUCCESS) {
-             char name[2048];
-             DWORD i = 0, name_size, type, value, value_size;
--            while (ERROR_SUCCESS == RegEnumValue(key, i++, name, &(name_size = sizeof(name)), nullptr, &type,
-+            while (ERROR_SUCCESS == RegEnumValueA(key, i++, name, &(name_size = sizeof(name)), nullptr, &type,
-                                                  reinterpret_cast<LPBYTE>(&value), &(value_size = sizeof(value)))) {
-                 // Check if the registry entry is a dword with a value of zero
-                 if (type != REG_DWORD || value != 0) {
 diff --git a/layers/vulkan/generated/vk_function_pointers.cpp b/layers/vulkan/generated/vk_function_pointers.cpp
-index 4f679c0..4da7140 100644
+index d77ded6..616e9e1 100644
 --- a/layers/vulkan/generated/vk_function_pointers.cpp
 +++ b/layers/vulkan/generated/vk_function_pointers.cpp
 @@ -36,10 +36,10 @@
@@ -100,5 +100,5 @@ index 0f0817b..c95e2ac 100644
      return lib_handle;
  }
 -- 
-2.47.0.windows.2
+2.48.1.windows.1
 
