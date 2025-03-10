@@ -99,36 +99,35 @@ function Invoke-Sudo
 
 function Initialize-VcpkgEnv
 {
-	$Triplet = Get-TargetTriplet
-
-	#Write-Host "Adding installed vcpkg packages to env:PATH..."
-	$BinDirectory = "$PSScriptRoot/../build/packages/$Triplet/bin"
-	if (Test-Path $BinDirectory)
+	$packagesPath = "$PSScriptRoot/../build/packages/$env:TARGET_TRIPLET"
+	if ($config -eq 'debug')
 	{
-		#Write-Host $BinDirectory
-		Add-EnvPath $BinDirectory
+		$packagesPath = $packagesPath + '/debug'
 	}
 
-	#Write-Host "Adding installed vcpkg packages dylib/dll/so:s..."
-	$DylibDirectory = "$PSScriptRoot/../build/packages/$Triplet"
-	if (Test-Path $DylibDirectory)
+	$libPath = $packagesPath + '/lib'
+	if (Test-Path $libPath)
 	{
-		#Write-Host $DylibDirectory
-		Add-EnvDylibPath $DylibDirectory
+		Add-EnvDylibPath $libPath
 	}
 
-	foreach($ToolsDirectory in Get-ChildItem -Path $PSScriptRoot/../build/packages/$Triplet/tools -Directory -ErrorAction SilentlyContinue)
+	$binPath = $packagesPath + '/bin'
+	if (Test-Path $binPath)
 	{
-		#Write-Host "Adding " $ToolsDirectory " to env:PATH..."
-		Add-EnvPath $ToolsDirectory
+		Add-EnvPath $binPath
+	}
+
+	foreach($toolsPath in Get-ChildItem -Path $PSScriptRoot/../build/packages/$env:TARGET_TRIPLET/tools -Directory -ErrorAction SilentlyContinue)
+	{
+		Add-EnvPath $toolsPath
 
 		if ($IsLinux -or $IsMacOS)
 		{
-			foreach ($Tool in Get-ChildItem $ToolsDirectory -File -Recurse -ErrorAction SilentlyContinue)
+			foreach ($tool in Get-ChildItem $toolsPath -File -Recurse -ErrorAction SilentlyContinue)
 			{
-				#Write-Host "Granting executable rights to " $Tool 
-				Invoke-Expression "chmod +x $Tool"
-				#Invoke-Sudo "chmod +x $Tool"
+				#Write-Host "Granting executable rights to " $tool 
+				Invoke-Expression "chmod +x $tool"
+				#Invoke-Sudo "chmod +x $tool"
 			}
 		}
 	}
@@ -139,17 +138,18 @@ function Initialize-SystemEnv
 	#Write-Host "Initializing development environment..."
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
+	$env:TARGET_TRIPLET = Get-TargetTriplet
 	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
 	
 	#Write-Host "Setting system (package manager) environment variables..."
 	Read-EnvFile "$PSScriptRoot/../.env.json"
 
-	#Write-Host "Adding toolchain dylib/dll/so:s..."
-	$DylibDirectory = "$PSScriptRoot/../build/toolchain/$Triplet"
-	if (Test-Path $DylibDirectory)
+	Write-Host "Adding toolchain dylib/dll/so:s..."
+	$libPath = "$PSScriptRoot/../build/toolchain/$env:TARGET_ARCHITECTURE-$env:TARGET_OS-release/lib"
+	if (Test-Path $libPath)
 	{
-		#Write-Host $DylibDirectory
-		Add-EnvDylibPath $DylibDirectory
+		Write-Host "Adding $libPath"
+		Add-EnvDylibPath $libPath
 	}
 }
 
