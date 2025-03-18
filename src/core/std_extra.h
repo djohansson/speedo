@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <concepts>
+#include <new>
 #include <string>
 #include <string_view>
 #include <tuple>

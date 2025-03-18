@@ -1,6 +1,6 @@
 {
   "name": "llvm",
-  "version": "19.1.7",
+  "version": "20.1.0",
   "port-version": 1,
   "description": "The LLVM Compiler Infrastructure.",
   "homepage": "https://llvm.org",
@@ -28,7 +28,6 @@
     "clang",
     "default-targets",
     "enable-bindings",
-    "enable-terminfo",
     "enable-zlib",
     "enable-zstd",
     "lld",
@@ -175,9 +174,6 @@
     "enable-rtti": {
       "description": "Build LLVM with run-time type information."
     },
-    "enable-terminfo": {
-      "description": "Use terminfo database if available."
-    },
     "enable-zlib": {
       "description": "Build with ZLib.",
       "dependencies": [
@@ -280,7 +276,6 @@
           "default-features": false,
           "features": [
             "clang",
-            "enable-terminfo",
             "tools"
           ]
         }

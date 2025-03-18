@@ -122,11 +122,11 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(LINK_FLAGS "${LINK_FLAGS} -llibc++ -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
-	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic -fno-plt")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic")
 	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version -lc -lpthread -lc++ -lc++abi")
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
-	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic -fno-plt")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic")
 	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
 endif()
 
