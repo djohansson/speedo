@@ -109,9 +109,9 @@ set(CXX_DEFINES_DEBUG "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG")
 set(CXX_DEFINES_RELEASE "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm.*|aarch64")
-	set(C_FLAGS "${C_FLAGS} -march=native+crc+crypto")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=native+crc+crypto")
 else()
-	set(C_FLAGS "${C_FLAGS} -march=native")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=native")
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
