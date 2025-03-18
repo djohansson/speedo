@@ -1,0 +1,75 @@
+From 37641d71d5d697a691cdac13a0a1044e9916c982 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 18 Mar 2025 21:00:51 +0100
+Subject: [PATCH 3/5] find lz4 and miniz
+
+---
+ CMakeLists.txt                   | 8 ++++++++
+ source/core/CMakeLists.txt       | 2 +-
+ source/slang-rt/CMakeLists.txt   | 2 +-
+ source/slang-wasm/CMakeLists.txt | 4 ++--
+ 4 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d9e44b05..774389b7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -303,6 +303,14 @@ if(${SLANG_USE_SYSTEM_UNORDERED_DENSE})
+     find_package(unordered_dense CONFIG QUIET)
+ endif()
+ 
++if(${SLANG_USE_SYSTEM_MINIZ})
++    find_package(miniz CONFIG REQUIRED)
++endif()
++
++if(${SLANG_USE_SYSTEM_LZ4})
++    find_package(lz4 CONFIG REQUIRED)
++endif()
++
+ add_subdirectory(external)
+ 
+ # webgpu_dawn is only available as a fetched shared library, since Dawn's nested source
+diff --git a/source/core/CMakeLists.txt b/source/core/CMakeLists.txt
+index 8228d006..e6f78008 100644
+--- a/source/core/CMakeLists.txt
++++ b/source/core/CMakeLists.txt
+@@ -3,7 +3,7 @@ slang_add_target(
+     STATIC
+     EXCLUDE_FROM_ALL
+     USE_EXTRA_WARNINGS
+-    LINK_WITH_PRIVATE miniz lz4_static Threads::Threads ${CMAKE_DL_LIBS}
++    LINK_WITH_PRIVATE miniz::miniz lz4::lz4 Threads::Threads ${CMAKE_DL_LIBS}
+     LINK_WITH_PUBLIC unordered_dense::unordered_dense
+     INCLUDE_DIRECTORIES_PUBLIC
+         ${slang_SOURCE_DIR}/source
+diff --git a/source/slang-rt/CMakeLists.txt b/source/slang-rt/CMakeLists.txt
+index 5a0d2881..cd4a6587 100644
+--- a/source/slang-rt/CMakeLists.txt
++++ b/source/slang-rt/CMakeLists.txt
+@@ -5,7 +5,7 @@ if(SLANG_ENABLE_SLANGRT)
+         # This compiles 'core' again with the SLANG_RT_DYNAMIC_EXPORT macro defined
+         EXTRA_SOURCE_DIRS ${slang_SOURCE_DIR}/source/core
+         USE_EXTRA_WARNINGS
+-        LINK_WITH_PRIVATE miniz lz4_static Threads::Threads ${CMAKE_DL_LIBS}
++        LINK_WITH_PRIVATE miniz::miniz lz4::lz4 Threads::Threads ${CMAKE_DL_LIBS}
+         LINK_WITH_PUBLIC unordered_dense::unordered_dense
+         EXPORT_MACRO_PREFIX SLANG_RT
+         INCLUDE_DIRECTORIES_PUBLIC ${slang_SOURCE_DIR}/include
+diff --git a/source/slang-wasm/CMakeLists.txt b/source/slang-wasm/CMakeLists.txt
+index c6c5601e..52b5642f 100644
+--- a/source/slang-wasm/CMakeLists.txt
++++ b/source/slang-wasm/CMakeLists.txt
+@@ -10,8 +10,8 @@ if(EMSCRIPTEN)
+         EXCLUDE_FROM_ALL
+         USE_FEWER_WARNINGS
+         LINK_WITH_PRIVATE
+-            miniz
+-            lz4_static
++            miniz::miniz
++            lz4::lz4
+             slang
+             core
+             compiler-core
+-- 
+2.39.5 (Apple Git-154)
+

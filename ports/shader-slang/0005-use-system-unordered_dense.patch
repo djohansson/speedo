@@ -1,0 +1,39 @@
+From c5e3d549cfd9a61be453ce6b48aa3a741f2ac21b Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 18 Mar 2025 21:47:55 +0100
+Subject: [PATCH 5/5] use system unordered_dense
+
+---
+ source/core/slang-dictionary.h | 2 +-
+ source/core/slang-hash.h       | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/source/core/slang-dictionary.h b/source/core/slang-dictionary.h
+index 79f6dee3..fcca1160 100644
+--- a/source/core/slang-dictionary.h
++++ b/source/core/slang-dictionary.h
+@@ -1,7 +1,7 @@
+ #ifndef SLANG_CORE_DICTIONARY_H
+ #define SLANG_CORE_DICTIONARY_H
+ 
+-#include "../../external/unordered_dense/include/ankerl/unordered_dense.h"
++#include <ankerl/unordered_dense.h>
+ #include "slang-common.h"
+ #include "slang-exception.h"
+ #include "slang-hash.h"
+diff --git a/source/core/slang-hash.h b/source/core/slang-hash.h
+index ebe3d197..9c5d1242 100644
+--- a/source/core/slang-hash.h
++++ b/source/core/slang-hash.h
+@@ -1,7 +1,7 @@
+ #ifndef SLANG_CORE_HASH_H
+ #define SLANG_CORE_HASH_H
+ 
+-#include "../../external/unordered_dense/include/ankerl/unordered_dense.h"
++#include <ankerl/unordered_dense.h>
+ #include "slang-math.h"
+ #include "slang.h"
+ 
+-- 
+2.39.5 (Apple Git-154)
+

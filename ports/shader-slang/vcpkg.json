@@ -1,28 +1,14 @@
 {
   "name": "shader-slang",
-  "version": "2024.11.1",
+  "version": "2025.3",
   "description": "Slang is a shading language that makes it easier to build and maintain large shader codebases in a modular and extensible fashion, while also maintaining the highest possible performance on modern GPUs and graphics APIs. Slang is based on years of collaboration between researchers at NVIDIA, Carnegie Mellon University, and Stanford.",
   "homepage": "https://github.com/djohansson/slang",
   "license": "MIT",
   "supports": "((x86 & windows) | (x64 & (windows | linux | osx)) | (arm64 & (linux | osx))) & !uwp & !static",
   "dependencies": [
-    "glm",
-    "glslang",
-    {
-      "name": "imgui",
-      "features": [
-        {
-          "name": "win32-binding",
-          "platform": "windows & !uwp"
-        }
-      ]
-    },
-    "spirv-tools",
     "spirv-headers",
-    "stb",
     "miniz",
     "lz4",
-    "tinyobjloader",
     "unordered-dense",
     {
       "name": "vcpkg-cmake",
@@ -31,7 +17,6 @@
     {
       "name": "vcpkg-cmake-config",
       "host": true
-    },
-    "vulkan"
+    }
   ]
 }

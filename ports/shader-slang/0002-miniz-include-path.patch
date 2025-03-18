@@ -1,0 +1,39 @@
+From d79f9e0ef7d4633fae5eddec4efa7a60e6fe722a Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 18 Mar 2025 20:44:58 +0100
+Subject: [PATCH 2/5] miniz include path
+
+---
+ source/core/slang-deflate-compression-system.cpp | 2 +-
+ source/core/slang-zip-file-system.cpp            | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/source/core/slang-deflate-compression-system.cpp b/source/core/slang-deflate-compression-system.cpp
+index 1cbea01f..b8b34773 100644
+--- a/source/core/slang-deflate-compression-system.cpp
++++ b/source/core/slang-deflate-compression-system.cpp
+@@ -8,7 +8,7 @@
+ 
+ #include "slang-blob.h"
+ 
+-#include <miniz.h>
++#include <miniz/miniz.h>
+ 
+ namespace Slang
+ {
+diff --git a/source/core/slang-zip-file-system.cpp b/source/core/slang-zip-file-system.cpp
+index 9c805dc5..115745e0 100644
+--- a/source/core/slang-zip-file-system.cpp
++++ b/source/core/slang-zip-file-system.cpp
+@@ -10,7 +10,7 @@
+ #include "slang-string-util.h"
+ #include "slang-uint-set.h"
+ 
+-#include <miniz.h>
++#include <miniz/miniz.h>
+ 
+ namespace Slang
+ {
+-- 
+2.39.5 (Apple Git-154)
+

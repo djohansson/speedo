@@ -1,0 +1,60 @@
+From ea651e77bccc34178d809ae58add9b4f55a02162 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 18 Mar 2025 20:25:58 +0100
+Subject: [PATCH 1/5] remove SPIRV-Headers
+
+---
+ source/compiler-core/CMakeLists.txt     | 1 -
+ source/slang-core-module/CMakeLists.txt | 1 -
+ source/slang/CMakeLists.txt             | 4 ++--
+ 3 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/source/compiler-core/CMakeLists.txt b/source/compiler-core/CMakeLists.txt
+index 4d1bff17..6a1d536a 100644
+--- a/source/compiler-core/CMakeLists.txt
++++ b/source/compiler-core/CMakeLists.txt
+@@ -4,7 +4,6 @@ slang_add_target(
+     EXCLUDE_FROM_ALL
+     USE_EXTRA_WARNINGS
+     LINK_WITH_PRIVATE core
+-    INCLUDE_FROM_PUBLIC SPIRV-Headers
+ )
+ if(NOT MSVC)
+     # This is necessary to compile the DXC headers
+diff --git a/source/slang-core-module/CMakeLists.txt b/source/slang-core-module/CMakeLists.txt
+index 96a874d0..37274c3b 100644
+--- a/source/slang-core-module/CMakeLists.txt
++++ b/source/slang-core-module/CMakeLists.txt
+@@ -114,7 +114,6 @@ set(core_module_source_common_args
+     core
+     slang-capability-defs
+     slang-reflect-headers
+-    SPIRV-Headers
+     INCLUDE_DIRECTORIES_PRIVATE
+     ../slang
+     FOLDER
+diff --git a/source/slang/CMakeLists.txt b/source/slang/CMakeLists.txt
+index 26749889..7d844e1f 100644
+--- a/source/slang/CMakeLists.txt
++++ b/source/slang/CMakeLists.txt
+@@ -161,7 +161,7 @@ slang_add_target(
+     EXPLICIT_SOURCE
+         ${SLANG_LOOKUP_GENERATED_SOURCE}
+         ${SLANG_SPIRV_CORE_GRAMMAR_SOURCE}
+-    LINK_WITH_PRIVATE core SPIRV-Headers
++    LINK_WITH_PRIVATE core
+     EXCLUDE_FROM_ALL
+     FOLDER generated
+ )
+@@ -222,7 +222,7 @@ set(slang_link_args
+     slang-capability-lookup
+     slang-reflect-headers
+     slang-lookup-tables
+-    SPIRV-Headers
++    $<$<NOT:$<BOOL:${SLANG_USE_SYSTEM_SPIRV_HEADERS}>>:SPIRV-Headers>
+ )
+ set(slang_interface_args INCLUDE_DIRECTORIES_PUBLIC ${slang_SOURCE_DIR}/include)
+ set(slang_public_lib_args
+-- 
+2.39.5 (Apple Git-154)
+

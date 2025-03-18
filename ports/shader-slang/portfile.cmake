@@ -2,35 +2,43 @@ vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
 
 vcpkg_from_github(
 	OUT_SOURCE_PATH SOURCE_PATH
-	REPO djohansson/slang
-	REF 7e7d46cf06c6863520ccd8d7cc26b70141adc145 #v${VERSION}
-	SHA512 d0f7bc146107f81b62e81bad3ced8548fd904a82686909de058b902066196daa72d1492e5e638db98518f55b263320ee8d94be97055b719cfd88011a0746d6ab
+	REPO shader-slang/slang
+	REF v${VERSION}
+	SHA512 a3054f1318952fa28fe4d3fea91d9214459667251f8850f0533de047dfa97fd00f7317ddef33df03e8d40586f7dbd3d9125c0af0a41157a481424d072a0e510b
 	HEAD_REF master
 	PATCHES
-		0001-include-process.h.patch
-		0002-include-intrin.h.patch #TODO: fix patch on win32
-		0003-add-crtdbg.h-includes.patch
-		0004-cxx20-fixes.patch
-		0005-remove-vcpkg-dependency.patch
-		0006-add-package-cruft.patch
+		0001-remove-SPIRV-Headers.patch
+		0002-miniz-include-path.patch
+		0003-find-lz4-and-miniz.patch
+		0004-generators-path-fix.patch
+		0005-use-system-unordered_dense.patch
 )
 
 vcpkg_cmake_configure(
 	SOURCE_PATH "${SOURCE_PATH}"
 	OPTIONS
 		-DSLANG_VERSION_FULL=${VERSION}
-		-DSLANG_ENABLE_GFX=OFF
 		-DSLANG_SLANG_LLVM_FLAVOR=DISABLE
+		-DSLANG_ENABLE_GFX=OFF
 		-DSLANG_ENABLE_DXIL=OFF
+		-DSLANG_ENABLE_EXAMPLES=OFF
 		-DSLANG_ENABLE_PREBUILT_BINARIES=OFF
-	MAYBE_UNUSED_VARIABLES
-		SLANG_ENABLE_DXIL
+		-DSLANG_ENABLE_SLANG_GLSLANG=OFF
+		-DSLANG_ENABLE_SLANG_RHI=OFF
+		-DSLANG_ENABLE_TESTS=OFF
+		-DSLANG_USE_SYSTEM_MINIZ=ON
+		-DSLANG_USE_SYSTEM_LZ4=ON
+		-DSLANG_USE_SYSTEM_VULKAN_HEADERS=ON
+		-DSLANG_USE_SYSTEM_SPIRV_HEADERS=ON
+		-DSLANG_USE_SYSTEM_UNORDERED_DENSE=ON
+		-DSLANG_SPIRV_HEADERS_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include
 )
 
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
+
 vcpkg_fixup_pkgconfig()
-vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH lib/cmake/slang)
+vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH cmake)
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
