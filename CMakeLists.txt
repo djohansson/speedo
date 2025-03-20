@@ -66,7 +66,7 @@ target_include_directories(
 target_link_libraries(
 	core
 	PRIVATE
-		mimalloc
+		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
 		SHA-Intrinsics
 		cpptrace::cpptrace
 		stduuid
