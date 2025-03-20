@@ -2,6 +2,12 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
+			"label": "export-molten-vk-path",
+			"type": "shell",
+			"command": "export MOLTEN_VK_PATH=$(brew --prefix molten-vk)",
+			"group": "none"
+		},
+		{
 			"label": "Clang-Format (All)",
 			"type": "shell",
 			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Initialize-SystemEnv; (Get-ChildItem -Path ${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath ${workspaceFolder}/.clang-format-files -Force; & \"$Env:LLVM_TOOLS_PATH/clang-format\" -i -style=file -files ${workspaceFolder}/.clang-format-files } 2>&1'",

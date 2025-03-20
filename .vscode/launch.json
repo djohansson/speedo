@@ -54,6 +54,7 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
+			"preLaunchTask": "export-molten-vk-path",
 			"env": {
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
@@ -74,6 +75,7 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
+			"preLaunchTask": "export-molten-vk-path",
 			"env": {
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
@@ -89,6 +91,7 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
+			"preLaunchTask": "export-molten-vk-path",
 			"env": {
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
