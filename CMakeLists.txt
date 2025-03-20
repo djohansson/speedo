@@ -251,7 +251,7 @@ target_link_libraries(
 		clientlib
 		cargs
 		glfw
-		slang
+		slang::slang
 		nfd::nfd
 		$<$<PLATFORM_ID:Darwin>:LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
