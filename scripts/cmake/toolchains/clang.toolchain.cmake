@@ -87,9 +87,9 @@ set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(COMPILE_FLAGS "")
-set(COMPILE_FLAGS_DEBUG "-fno-omit-frame-pointer")
-set(COMPILE_FLAGS_RELEASE "")
-set(C_FLAGS "") #set(C_FLAGS "-nostdinc -nostdlib") # todo: use llvm libc headers
+set(COMPILE_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer")
+set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math")
+set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
 set(CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
@@ -120,19 +120,18 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(CXX_DEFINES "${CXX_FLAGS} -D_LIBCXX_ABI_FORCE_MICROSOFT")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -Xclang -cfguard")
 	set(LINK_FLAGS "${LINK_FLAGS} -llibc++ -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO on windows
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic")
 	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version -lc -lpthread -lc++ -lc++abi")
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic")
 	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
-
-# vulkan loader fails to link with LTO on windows
-# + weird dylib issues on macOS - https://github.com/llvm/llvm-project/issues/109549
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE)
 
 set(CMAKE_C_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${C_FLAGS}")
 set(CMAKE_C_FLAGS_DEBUG_INIT "${COMPILE_FLAGS_DEBUG} ${C_DEFINES_DEBUG} ${C_FLAGS_DEBUG}")
