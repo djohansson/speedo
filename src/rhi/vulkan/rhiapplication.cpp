@@ -567,7 +567,7 @@ void IMGUIDeleteBuffer(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, 
 
 void IMGUIDrawFunction(
 	CommandBufferHandle<kVk> cmd,
-	IMGUIDeleteBufferData& deleteData,
+	IMGUIDeleteBufferData& /*deleteData*/,
 	PipelineHandle<kVk> pipeline = nullptr)
 {
 	ZoneScopedN("RHIApplication::IMGUIDraw");
@@ -578,7 +578,7 @@ void IMGUIDrawFunction(
 	while (gIMGUIDrawData.try_dequeue(drawData));
 
 	ImGui_ImplVulkan_NewFrame();
-	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, IMGUIDeleteBuffer, &deleteData, pipeline);
+	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, /*IMGUIDeleteBuffer, &deleteData,*/ pipeline);
 }
 
 static void IMGUIInit(
