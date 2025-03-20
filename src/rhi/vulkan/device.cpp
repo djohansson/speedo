@@ -249,13 +249,13 @@ Device<kVk>::Device(
 #endif
 
 	// AddOwnedObjectHandle(
-	//     GetUid(),
+	//     GetUuid(),
 	//     VK_OBJECT_TYPE_INSTANCE,
 	//     reinterpret_cast<uint64_t>(myInstance->GetInstance()),
 	//     "Instance");
 
 	// AddOwnedObjectHandle(
-	//     GetUid(),
+	//     GetUuid(),
 	//     VK_OBJECT_TYPE_SURFACE_KHR,
 	//     reinterpret_cast<uint64_t>(myInstance->GetSurface()),
 	//     "Instance_Surface");
@@ -275,14 +275,14 @@ Device<kVk>::Device(
 	//         physicalDeviceIt);
 
 	//     AddOwnedObjectHandle(
-	//         GetUid(),
+	//         GetUuid(),
 	//         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
 	//         reinterpret_cast<uint64_t>(physicalDevice),
 	//         stringBuffer);
 	// }
 
 	// AddOwnedObjectHandle(
-	//     GetUid(),
+	//     GetUuid(),
 	//     VK_OBJECT_TYPE_DEVICE,
 	//     reinterpret_cast<uint64_t>(myDevice),
 	//     "Device");
@@ -384,7 +384,7 @@ template <>
 DeviceObject<kVk>::DeviceObject(DeviceObject&& other) noexcept
 	: myDevice(std::exchange(other.myDevice, {}))
 	, myDesc(std::exchange(other.myDesc, {}))
-	, myUid(std::exchange(other.myUid, {}))
+	, myUuid(std::exchange(other.myUuid, {}))
 {}
 
 template <>
@@ -392,7 +392,7 @@ DeviceObject<kVk>::DeviceObject(
 	const std::shared_ptr<Device<kVk>>& device, DeviceObjectCreateDesc&& desc, uuids::uuid&& uuid)
 	: myDevice(device)
 	, myDesc(std::forward<DeviceObjectCreateDesc>(desc))
-	, myUid(std::forward<uuids::uuid>(uuid))
+	, myUuid(std::forward<uuids::uuid>(uuid))
 {}
 
 template <>
@@ -409,7 +409,7 @@ DeviceObject<kVk>::DeviceObject(
 	{
 		for (uint32_t objectIt = 0; objectIt < objectCount; objectIt++)
 			device->AddOwnedObjectHandle(
-				GetUid(),
+				GetUuid(),
 				objectType,
 				objectHandles[objectIt],
 				std::format("{}{}", GetName(), objectIt));
@@ -423,7 +423,7 @@ DeviceObject<kVk>::~DeviceObject()
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (myDevice)
-			myDevice->ClearOwnedObjectHandles(GetUid());
+			myDevice->ClearOwnedObjectHandles(GetUuid());
 	}
 #endif
 }
@@ -433,7 +433,7 @@ DeviceObject<kVk>& DeviceObject<kVk>::operator=(DeviceObject&& other) noexcept
 {
 	myDevice = std::exchange(other.myDevice, {});
 	myDesc = std::exchange(other.myDesc, {});
-	myUid = std::exchange(other.myUid, {});
+	myUuid = std::exchange(other.myUuid, {});
 	return *this;
 }
 
@@ -442,5 +442,5 @@ void DeviceObject<kVk>::Swap(DeviceObject& rhs) noexcept
 {
 	std::swap(myDevice, rhs.myDevice);
 	std::swap(myDesc, rhs.myDesc);
-	std::swap(myUid, rhs.myUid);
+	std::swap(myUuid, rhs.myUuid);
 }

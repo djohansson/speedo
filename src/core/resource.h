@@ -8,7 +8,7 @@ struct IResource
 {
 	virtual ~IResource() = default;
 
-	[[nodiscard]] virtual uuids::uuid GetUUID() const noexcept = 0;
+	[[nodiscard]] virtual const uuids::uuid& GetUuid() const noexcept = 0;
 };
 
 struct ResourceHash : ankerl::unordered_dense::hash<uuids::uuid>

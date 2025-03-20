@@ -111,15 +111,14 @@ public:
 	DeviceObject(const DeviceObject&) = delete;
 	virtual ~DeviceObject();
 
-	uuids::uuid GetUUID() const noexcept final { return myUid; }
+	[[nodiscard]] const uuids::uuid& GetUuid() const noexcept final { return myUuid; }
 
 	[[nodiscard]] DeviceObject& operator=(const DeviceObject&) = delete;
 
 	void Swap(DeviceObject& rhs) noexcept;
 
 	[[nodiscard]] std::string_view GetName() const noexcept { return myDesc.name; }
-	[[nodiscard]] const uuids::uuid& GetUid() const noexcept { return myUid; }
-	[[nodiscard]] bool IsValid() const noexcept { return !myUid.is_nil(); }
+	[[nodiscard]] bool IsValid() const noexcept { return !myUuid.is_nil(); }
 
 protected:
 	constexpr DeviceObject() noexcept = default;
@@ -143,5 +142,5 @@ protected:
 private:
 	std::shared_ptr<Device<G>> myDevice;
 	DeviceObjectCreateDesc myDesc{};
-	uuids::uuid myUid;
+	uuids::uuid myUuid;
 };

@@ -32,7 +32,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 
 	#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		InternalGetDevice()->AddOwnedObjectHandle(
-			GetUid(),
+			GetUuid(),
 			VK_OBJECT_TYPE_IMAGE_VIEW,
 			reinterpret_cast<uint64_t>(myAttachments.back()),
 			std::format("{}_ColorImageView_{}", GetName(), attachmentIt));
@@ -193,13 +193,13 @@ RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffe
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	InternalGetDevice()->AddOwnedObjectHandle(
-		GetUid(),
+		GetUuid(),
 		VK_OBJECT_TYPE_RENDER_PASS,
 		reinterpret_cast<uint64_t>(renderPass),
 		std::format("{}_RenderPass_{}", GetName(), hashKey));
 
 	InternalGetDevice()->AddOwnedObjectHandle(
-		GetUid(),
+		GetUuid(),
 		VK_OBJECT_TYPE_FRAMEBUFFER,
 		reinterpret_cast<uint64_t>(frameBuffer),
 		std::format("{}_FrameBuffer_{}", GetName(), hashKey));

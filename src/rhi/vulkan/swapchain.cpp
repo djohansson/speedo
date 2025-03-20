@@ -185,7 +185,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 	if (previous != nullptr)
 	{
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		device.EraseOwnedObjectHandle(GetUid(), reinterpret_cast<uint64_t>(previous));
+		device.EraseOwnedObjectHandle(GetUuid(), reinterpret_cast<uint64_t>(previous));
 #endif
 
 		vkDestroySwapchainKHR(
@@ -196,7 +196,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	device.AddOwnedObjectHandle(
-		GetUid(),
+		GetUuid(),
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
 		reinterpret_cast<uint64_t>(mySwapchain),
 		std::format("{}_Swapchain", GetName()));

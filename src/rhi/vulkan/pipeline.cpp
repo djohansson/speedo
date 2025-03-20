@@ -500,7 +500,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		InternalGetDevice()->AddOwnedObjectHandle(
-			GetUid(),
+			GetUuid(),
 			VK_OBJECT_TYPE_PIPELINE,
 			reinterpret_cast<uint64_t>(pipelineHandle),
 			std::format("{}_Pipeline_{}", GetName(), hashKey));
@@ -922,13 +922,13 @@ Pipeline<kVk>::Pipeline(
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	device->AddOwnedObjectHandle(
-		GetUid(),
+		GetUuid(),
 		VK_OBJECT_TYPE_PIPELINE_CACHE,
 		reinterpret_cast<uint64_t>(myCache),
 		std::format("{}_PipelineCache", GetName()));
 
 	device->AddOwnedObjectHandle(
-		GetUid(),
+		GetUuid(),
 		VK_OBJECT_TYPE_DESCRIPTOR_POOL,
 		reinterpret_cast<uint64_t>(myDescriptorPool),
 		"Device_DescriptorPool");
