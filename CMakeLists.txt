@@ -223,7 +223,7 @@ target_link_libraries(
 		core
 		serverlib
 		cargs
-		$<$<PLATFORM_ID:Darwin>:LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 
 ###############################################################################
@@ -253,7 +253,7 @@ target_link_libraries(
 		glfw
 		slang::slang
 		nfd::nfd
-		$<$<PLATFORM_ID:Darwin>:LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
+		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 
 ###############################################################################
