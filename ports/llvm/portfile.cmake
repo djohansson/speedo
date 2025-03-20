@@ -181,9 +181,28 @@ if("libcxx" IN_LIST FEATURES)
         message(FATAL_ERROR "libcxx requiries MSVC 19.14 or newer.")
     endif()
     list(APPEND LLVM_ENABLE_RUNTIMES "libcxx")
+    # djohansson - Darwin system libc++[abi].dylib is abi incompatible with vanilla libc++[abi].dylib.
+    # So we need to build libc++[abi] as static library unfortunately.
+    if (VCPKG_CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        list(APPEND FEATURE_OPTIONS
+            -DLIBCXX_ENABLE_SHARED=OFF
+            -DLIBCXX_ENABLE_STATIC=ON
+            -DLIBCXX_HERMETIC_STATIC_LIBRARY=ON
+            -DLIBCXX_ENABLE_STATIC_ABI_LIBRARY=ON
+        )
+    endif()
 endif()
 if("libcxxabi" IN_LIST FEATURES)
     list(APPEND LLVM_ENABLE_RUNTIMES "libcxxabi")
+    # djohansson - Darwin system libc++[abi].dylib is abi incompatible with vanilla libc++[abi].dylib.
+    # So we need to build libc++[abi] as static library unfortunately.
+    if (VCPKG_CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        list(APPEND FEATURE_OPTIONS
+            -DLIBCXXABI_ENABLE_SHARED=OFF
+            -DLIBCXXABI_ENABLE_STATIC=ON
+            -DLIBCXXABI_ENABLE_STATIC_UNWINDER=ON
+        )
+    endif()
 endif()
 if("libunwind" IN_LIST FEATURES)
     list(APPEND LLVM_ENABLE_RUNTIMES "libunwind")
