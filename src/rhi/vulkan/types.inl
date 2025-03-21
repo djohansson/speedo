@@ -322,10 +322,17 @@ using CommandBufferInheritanceInfo =
 	std::conditional_t<G == kVk, VkCommandBufferInheritanceInfo, std::nullptr_t>;
 
 template <GraphicsApi G>
+using CommandBufferInheritanceRenderingInfo =
+	std::conditional_t<G == kVk, VkCommandBufferInheritanceRenderingInfoKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
 using CommandBufferLevel = std::conditional_t<G == kVk, VkCommandBufferLevel, std::nullptr_t>;
 
 template <GraphicsApi G>
-using RenderInfo = std::conditional_t<G == kVk, std::variant<VkRenderPassBeginInfo, VkRenderingInfoKHR>, std::nullptr_t>;
+using RenderPassBeginInfo = std::conditional_t<G == kVk, VkRenderPassBeginInfo, std::nullptr_t>;
+
+template <GraphicsApi G>
+using RenderingInfo = std::conditional_t<G == kVk, VkRenderingInfoKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
 using SubmitInfo = std::conditional_t<G == kVk, VkSubmitInfo, std::nullptr_t>;

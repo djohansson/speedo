@@ -694,7 +694,7 @@ void Pipeline<kVk>::SetRenderTarget(RenderTarget<kVk>& renderTarget)
 	myGraphicsState.scissorRects[0].extent = {extent.width, extent.height};
 	myGraphicsState.dynamicRendering = renderTarget.GetPipelineRenderingCreateInfo() ? &renderTarget.GetPipelineRenderingCreateInfo().value() : nullptr;
 
-	myRenderTarget = static_cast<RenderTargetHandle<kVk>>(renderTarget);
+	myRenderTarget = static_cast<RenderTargetPassHandle<kVk>>(renderTarget);
 }
 
 template <>

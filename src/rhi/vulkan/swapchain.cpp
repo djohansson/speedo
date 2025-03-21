@@ -5,7 +5,7 @@
 #include <format>
 
 template <>
-const RenderInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
+const RenderTargetBeginInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
 	return myFrames[myFrameIndex].Begin(cmd, contents);
 }

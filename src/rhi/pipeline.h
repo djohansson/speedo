@@ -225,7 +225,7 @@ private:
 
 	// auto api shared state
 	PipelineBindPoint<G> myBindPoint{};
-	RenderTargetHandle<G> myRenderTarget;
+	RenderTargetPassHandle<G> myRenderTarget;
 	PipelineResourceView<G> myResources;
 	PipelineLayoutSetType myLayouts;
 	//UnorderedSet<RenderTarget<G>> renderTargets;

@@ -2,10 +2,11 @@
 
 #include "utils.h"
 
-#include <xxhash.h>
-
+#include <cstdint>
 #include <format>
 #include <memory>
+
+#include <xxhash.h>
 
 template <>
 void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDesc<kVk>& desc)
@@ -169,7 +170,7 @@ RenderTarget<kVk>::InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& d
 }
 
 template <>
-RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffer(
+RenderTargetPassHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffer(
 	uint64_t hashKey, const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalCreateRenderPassAndFrameBuffer");
@@ -209,7 +210,7 @@ RenderTargetHandle<kVk> RenderTarget<kVk>::InternalCreateRenderPassAndFrameBuffe
 }
 
 template <>
-const RenderTargetHandle<kVk>&
+const RenderTargetPassHandle<kVk>&
 RenderTarget<kVk>::InternalUpdateMap(const RenderTargetCreateDesc<kVk>& desc)
 {
 	ZoneScopedN("RenderTarget::InternalUpdateMap");
@@ -530,13 +531,13 @@ void RenderTarget<kVk>::NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContent
 }
 
 template <>
-const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
+const RenderTargetPassHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 {
 	InternalUpdateAttachments(GetRenderTargetDesc());
 	
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
-		static const RenderTargetHandle<kVk> kEmptyRTHandle{};
+		static const RenderTargetPassHandle<kVk> kEmptyRTHandle{};
 		return kEmptyRTHandle;
 	}
 
@@ -546,11 +547,11 @@ const RenderTargetHandle<kVk>& RenderTarget<kVk>::InternalGetValues()
 }
 
 template <>
-const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
+const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
 {
 	ZoneScopedN("RenderTarget::Begin");
 
-	ASSERT(!myRenderInfo.has_value());
+	ASSERT(!myRenderTargetBeginInfo.has_value());
 
 	const auto& desc = GetRenderTargetDesc();
 
@@ -562,23 +563,36 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 				"vkCmdBeginRenderingKHR"));
 		ASSERT(vkCmdBeginRenderingKHR != nullptr);
 
-		auto renderInfo = VkRenderingInfoKHR
+		myRenderTargetBeginInfo = DynamicRenderingInfo<kVk>
 		{
-			.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
-			.pNext = nullptr,
-			.flags = 0,
-			.renderArea = {0, 0, desc.extent.width, desc.extent.height},
-			.layerCount = 1,
-			.viewMask = 0,
-			.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentInfos.size()),
-			.pColorAttachments = myColorAttachmentInfos.data(),
-			.pDepthAttachment = myDepthAttachmentInfo ? &myDepthAttachmentInfo.value() : nullptr,
-			.pStencilAttachment = myStencilAttachmentInfo ? &myStencilAttachmentInfo.value() : nullptr,
+			.renderInfo = RenderingInfo<kVk>
+			{
+				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
+				.pNext = nullptr,
+				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u,
+				.renderArea = {0, 0, desc.extent.width, desc.extent.height},
+				.layerCount = 1,
+				.viewMask = 0,
+				.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentInfos.size()),
+				.pColorAttachments = myColorAttachmentInfos.data(),
+				.pDepthAttachment = myDepthAttachmentInfo ? &myDepthAttachmentInfo.value() : nullptr,
+				.pStencilAttachment = myStencilAttachmentInfo ? &myStencilAttachmentInfo.value() : nullptr,
+			},
+			.inheritanceInfo = CommandBufferInheritanceRenderingInfo<kVk>
+			{
+				.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO_KHR,
+				.pNext = nullptr,
+				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u,
+				.viewMask = 0,
+				.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentFormats.size()),
+				.pColorAttachmentFormats = myColorAttachmentFormats.data(),
+				.depthAttachmentFormat = myDepthAttachmentFormat.value_or(Format<kVk>{}),
+				.stencilAttachmentFormat = myStencilAttachmentFormat.value_or(Format<kVk>{}),
+				.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+			}
 		};
 
-		myRenderInfo = std::move(renderInfo);
-		
-		vkCmdBeginRenderingKHR(cmd, &std::get<VkRenderingInfoKHR>(myRenderInfo.value()));
+		vkCmdBeginRenderingKHR(cmd, &std::get<DynamicRenderingInfo<kVk>>(myRenderTargetBeginInfo.value()).renderInfo);
 	}
 	else
 	{
@@ -586,7 +600,7 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 
 		const auto& [renderPass, frameBuffer] = InternalGetValues();
 
-		myRenderInfo = VkRenderPassBeginInfo{
+		myRenderTargetBeginInfo = RenderPassBeginInfo<kVk>{
 			VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 			nullptr,
 			renderPass,
@@ -595,16 +609,16 @@ const RenderInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<kVk> cmd, Su
 			static_cast<uint32_t>(desc.clearValues.size()),
 			desc.clearValues.data()};
 
-		vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderInfo.value()), contents);
+		vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderTargetBeginInfo.value()), contents);
 	}
 
-	return myRenderInfo.value();
+	return myRenderTargetBeginInfo.value();
 }
 
 template <>
 void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
-	ASSERT(myRenderInfo.has_value());
+	ASSERT(myRenderTargetBeginInfo.has_value());
 
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
@@ -623,7 +637,7 @@ void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 		vkCmdEndRenderPass(cmd);
 	}
 
-	myRenderInfo = {};
+	myRenderTargetBeginInfo = {};
 }
 
 template <>
@@ -658,7 +672,7 @@ RenderTarget<kVk>::~RenderTarget()
 {
 	ZoneScopedN("~RenderTarget()");
 
-	ASSERT(!myRenderInfo.has_value());
+	ASSERT(!myRenderTargetBeginInfo.has_value());
 
 	for (const auto& entry : myCache)
 	{
@@ -682,7 +696,7 @@ RenderTarget<kVk>::~RenderTarget()
 template <>
 RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 {
-	ASSERT(!myRenderInfo.has_value());
+	ASSERT(!myRenderTargetBeginInfo.has_value());
 
 	DeviceObject::operator=(std::forward<RenderTarget>(other));
 	myAttachments = std::exchange(other.myAttachments, {});
@@ -697,7 +711,7 @@ RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 template <>
 void RenderTarget<kVk>::Swap(RenderTarget& rhs) noexcept
 {
-	ASSERT(!myRenderInfo.has_value());
+	ASSERT(!myRenderTargetBeginInfo.has_value());
 
 	DeviceObject::Swap(rhs);
 	std::swap(myAttachments, rhs.myAttachments);

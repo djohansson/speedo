@@ -673,7 +673,7 @@ static void IMGUIInit(
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
-	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetHandle<kVk>>(window.GetFrames()[0]).first;
+	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetPassHandle<kVk>>(window.GetFrames()[0]).first;
 	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfoKHR{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
 		.pNext = nullptr,
@@ -928,7 +928,7 @@ void RHIApplication::InternalDraw()
 			rhi.pipeline->SetRenderTarget(renderImageSet);
 			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 			
-			auto renderInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
+			auto renderTargetInfo = renderImageSet.Begin(cmd, VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS);
 
 			// setup draw parameters
 			uint32_t drawCount = window.GetConfig().splitScreenGrid.width * window.GetConfig().splitScreenGrid.height;
@@ -951,7 +951,8 @@ void RHIApplication::InternalDraw()
 					drawThreadCount,
 					[&pipeline,
 					&queue = graphicsQueue,
-					&renderInfo,
+					&renderTargetInfo,
+					&renderImageSet,
 					frameIndex = newFrameIndex,
 					&drawAtomic,
 					&drawCount,
@@ -969,26 +970,30 @@ void RHIApplication::InternalDraw()
 
 						CommandBufferInheritanceInfo<kVk> inheritInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 						CommandBufferAccessScopeDesc<kVk> beginInfo{};
+						beginInfo.pInheritanceInfo = &inheritInfo;
 						beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 						beginInfo.level = threadIt + 1;
+						// for dynamic rendering, setting this here is just to silence vvl warnings
+						beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+						//
 
 						uint32_t dx = 0;
 						uint32_t dy = 0;
 
-						if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderInfo))
+						if (const auto* dynamicRenderingInfo = std::get_if<DynamicRenderingInfo<kVk>>(&renderTargetInfo))
+						{
+							inheritInfo.pNext = &dynamicRenderingInfo->inheritanceInfo;
+
+							dx = dynamicRenderingInfo->renderInfo.renderArea.extent.width / desc.splitScreenGrid.width;
+							dy = dynamicRenderingInfo->renderInfo.renderArea.extent.height / desc.splitScreenGrid.height;
+						} 
+						else if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderTargetInfo))
 						{
 							inheritInfo.renderPass = renderPassBeginInfo->renderPass;
 							inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
-							beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
-							beginInfo.pInheritanceInfo = &inheritInfo;
 
 							dx = renderPassBeginInfo->renderArea.extent.width / desc.splitScreenGrid.width;
 							dy = renderPassBeginInfo->renderArea.extent.height / desc.splitScreenGrid.height;
-						}
-						else if (const auto* renderInfoKHR = std::get_if<VkRenderingInfoKHR>(&renderInfo))
-						{
-							dx = renderInfoKHR->renderArea.extent.width / desc.splitScreenGrid.width;
-							dy = renderInfoKHR->renderArea.extent.height / desc.splitScreenGrid.height;
 						}
 
 						auto cmd = queue.GetPool().Commands(beginInfo);

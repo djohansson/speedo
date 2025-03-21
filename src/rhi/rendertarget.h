@@ -21,6 +21,16 @@ struct RenderTargetCreateDesc
 };
 
 template <GraphicsApi G>
+struct DynamicRenderingInfo
+{
+	RenderingInfo<G> renderInfo;
+	CommandBufferInheritanceRenderingInfo<G> inheritanceInfo;
+};
+
+template <GraphicsApi G>
+using RenderTargetBeginInfo = std::variant<DynamicRenderingInfo<G>, RenderPassBeginInfo<G>>;
+
+template <GraphicsApi G>
 struct IRenderTarget
 {
 	[[nodiscard]] virtual const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const = 0;
@@ -30,7 +40,7 @@ struct IRenderTarget
 	[[nodiscard]] virtual const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const = 0;
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] virtual const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
+	[[maybe_unused]] virtual const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
 	virtual void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const = 0;
@@ -70,7 +80,7 @@ struct IRenderTarget
 };
 
 template <GraphicsApi G>
-using RenderTargetHandle = std::pair<RenderPassHandle<G>, FramebufferHandle<G>>;
+using RenderTargetPassHandle = std::pair<RenderPassHandle<G>, FramebufferHandle<G>>;
 
 template <GraphicsApi G>
 class RenderTarget : public IRenderTarget<G>, public DeviceObject<G>
@@ -84,7 +94,7 @@ public:
 	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final { return myAttachmentDescs; }
 	const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final { return myPipelineRenderingCreateInfo; }
 
-	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const final;
@@ -136,15 +146,15 @@ protected:
 private:
 	[[nodiscard]] uint64_t InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& desc) const;
 
-	[[nodiscard]] RenderTargetHandle<G> InternalCreateRenderPassAndFrameBuffer(
+	[[nodiscard]] RenderTargetPassHandle<G> InternalCreateRenderPassAndFrameBuffer(
 		uint64_t hashKey, const RenderTargetCreateDesc<kVk>& desc);
 
 	void InternalInitializeAttachments(const RenderTargetCreateDesc<G>& desc);
 	void InternalInitializeDefaultRenderPass(const RenderTargetCreateDesc<G>& desc);
 	void InternalUpdateRenderPasses(const RenderTargetCreateDesc<G>& desc);
 
-	[[maybe_unused]] const RenderTargetHandle<G>& InternalUpdateMap(const RenderTargetCreateDesc<G>& desc);
-	[[nodiscard]] const RenderTargetHandle<G>& InternalGetValues();
+	[[maybe_unused]] const RenderTargetPassHandle<G>& InternalUpdateMap(const RenderTargetCreateDesc<G>& desc);
+	[[nodiscard]] const RenderTargetPassHandle<G>& InternalGetValues();
 
 	std::vector<ImageViewHandle<G>> myAttachments;
 	std::vector<AttachmentDescription<G>> myAttachmentDescs;
@@ -152,7 +162,7 @@ private:
 	std::vector<SubpassDescription<G>> mySubPassDescs;
 	std::vector<SubpassDependency<G>> mySubPassDependencies;
 
-	std::optional<RenderInfo<G>> myRenderInfo;
+	std::optional<RenderTargetBeginInfo<G>> myRenderTargetBeginInfo;
 	std::optional<PipelineRenderingCreateInfo<G>> myPipelineRenderingCreateInfo;
 	std::vector<RenderingAttachmentInfo<G>> myColorAttachmentInfos;
 	std::optional<RenderingAttachmentInfo<G>> myDepthAttachmentInfo;
@@ -161,7 +171,7 @@ private:
 	std::optional<Format<G>> myDepthAttachmentFormat;
 	std::optional<Format<G>> myStencilAttachmentFormat;
 
-	UnorderedMap<uint64_t, RenderTargetHandle<G>> myCache; // todo: consider making global
+	UnorderedMap<uint64_t, RenderTargetPassHandle<G>> myCache; // todo: consider making global
 };
 
 #include "rendertarget.inl"

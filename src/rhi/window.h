@@ -79,7 +79,7 @@ private:
 	[[nodiscard]] uint32_t InternalDrawViews(
 		Pipeline<G>& pipeline,
 		Queue<G>& queue,
-		const RenderInfo<G>& renderInfo);
+		const RenderingInfo<G>& renderInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
 	WindowState myState{};

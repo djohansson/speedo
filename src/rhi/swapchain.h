@@ -47,7 +47,7 @@ public:
 	ImageLayout<G> GetLayout(uint32_t index) const final;
 	const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final;
 
-	const RenderInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const final;
