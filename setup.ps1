@@ -46,6 +46,8 @@ $TargetTriplet = "$Arch-$OS-clang"
 
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
+#todo: add --x-abi-tools-use-exact-version?
+#$env:VCPKG_FORCE_SYSTEM_BINARIES = "1"
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
 
 $toolchainPath = "$PSScriptRoot/build/toolchain/$SystemTriplet"
@@ -56,7 +58,10 @@ $global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_TOOLS_PATH -N
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Initialize-SystemEnv
+Initialize-VcpkgEnv
 
 Write-Host "Installing packages for $TargetTriplet using manifest..."
 
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/packages --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
+
+Initialize-VcpkgToolsEnv
