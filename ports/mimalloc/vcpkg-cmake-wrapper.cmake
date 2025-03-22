@@ -8,14 +8,13 @@ if(CMAKE_CURRENT_LIST_DIR STREQUAL "${MIMALLOC_CMAKE_DIR}/${MIMALLOC_VERSION_DIR
     else()
         set(MIMALLOC_LIBRARY_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
     endif()
-    set(MIMALLOC_OBJECT_DIR "MIMALLOC_OBJECT_DIR-NOTFOUND") # not installed
+    set(MIMALLOC_OBJECT_DIR "${MIMALLOC_LIBRARY_DIR}")
     set(MIMALLOC_TARGET_DIR "${MIMALLOC_LIBRARY_DIR}")
 endif()
 
-if(TARGET mimalloc AND NOT TARGET mimalloc-static)
-    add_library(mimalloc-static INTERFACE IMPORTED)
-    set_target_properties(mimalloc-static PROPERTIES INTERFACE_LINK_LIBRARIES mimalloc)
-elseif(TARGET mimalloc-static AND NOT TARGET mimalloc)
-    add_library(mimalloc INTERFACE IMPORTED)
-    set_target_properties(mimalloc PROPERTIES INTERFACE_LINK_LIBRARIES mimalloc-static)
+# vcpkg always configures either a static or dynamic library.
+# ensure to always expose the mimalloc target as either the static or dynamic build.
+if(TARGET mimalloc-static AND NOT TARGET mimalloc)
+  add_library(mimalloc INTERFACE IMPORTED)
+  set_target_properties(mimalloc PROPERTIES INTERFACE_LINK_LIBRARIES mimalloc-static)
 endif()
