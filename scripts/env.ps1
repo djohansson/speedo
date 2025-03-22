@@ -2,7 +2,10 @@
 
 function Add-EnvPath
 {
-	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
+	param(
+		[Parameter(Mandatory = $True, Position = 0)] [string] $path,
+		[Parameter(Mandatory = $False, Position = 1)] [EnvironmentVariableTarget] $scope = [EnvironmentVariableTarget]::Process
+	)
 
 	if (-not (Test-Path $path))
 	{
@@ -13,17 +16,20 @@ function Add-EnvPath
 
 	if ("" -eq $env:PATH -or $null -eq $env:PATH)
 	{
-		$env:PATH = $path
+		[Environment]::SetEnvironmentVariable("PATH", $path, $scope)
 	}
 	else
 	{
-		$env:PATH += [IO.Path]::PathSeparator + $path
+		[Environment]::SetEnvironmentVariable("PATH", $env:PATH + [IO.Path]::PathSeparator + $path, $scope)
 	}
 }
 
 function Add-EnvDylibPath
 {
-	param([Parameter(Mandatory = $True, Position = 0)] [string] $path)
+	param(
+		[Parameter(Mandatory = $True, Position = 0)] [string] $path,
+		[Parameter(Mandatory = $False, Position = 1)] [EnvironmentVariableTarget] $scope = [EnvironmentVariableTarget]::Process
+	)
 
 	if (-not (Test-Path $path))
 	{
@@ -34,35 +40,28 @@ function Add-EnvDylibPath
 
 	if ($IsWindows)
 	{
-		if ("" -eq $env:PATH -or $null -eq $env:PATH)
-		{
-			$env:PATH = $path
-		}
-		else
-		{
-			$env:PATH += [IO.Path]::PathSeparator + $path
-		}
+		Add-EnvPath $path $scope
 	}
 	elseif ($IsMacOS)
 	{
 		if ("" -eq $env:DYLD_LIBRARY_PATH -or $null -eq $env:DYLD_LIBRARY_PATH)
 		{
-			$env:DYLD_LIBRARY_PATH = $path
+			[Environment]::SetEnvironmentVariable("DYLD_LIBRARY_PATH", $path, $scope)
 		}
 		else
 		{
-			$env:DYLD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
+			[Environment]::SetEnvironmentVariable("DYLD_LIBRARY_PATH", $env:DYLD_LIBRARY_PATH + [IO.Path]::PathSeparator + $path, $scope)
 		}
 	}
 	elseif ($IsLinux)
 	{
 		if ("" -eq $env:LD_LIBRARY_PATH -or $null -eq $env:LD_LIBRARY_PATH)
 		{
-			$env:LD_LIBRARY_PATH = $path
+			[Environment]::SetEnvironmentVariable("LD_LIBRARY_PATH", $path, $scope)
 		}
 		else
 		{
-			$env:LD_LIBRARY_PATH += [IO.Path]::PathSeparator + $path
+			[Environment]::SetEnvironmentVariable("LD_LIBRARY_PATH", $env:LD_LIBRARY_PATH + [IO.Path]::PathSeparator + $path, $scope)
 		}
 	}
 	else
@@ -73,7 +72,10 @@ function Add-EnvDylibPath
 
 function Read-EnvFile
 {
-	param([Parameter(Mandatory = $True, Position = 0)] [string] $envFile)
+	param(
+		[Parameter(Mandatory = $True, Position = 0)] [string] $envFile,
+		[Parameter(Mandatory = $False, Position = 1)] [EnvironmentVariableTarget] $scope = [EnvironmentVariableTarget]::Process
+	)
 
 	if (-not (Test-Path $envFile))
 	{
@@ -86,7 +88,7 @@ function Read-EnvFile
 
 	foreach($property in $localEnv.psobject.properties)
 	{
-		[Environment]::SetEnvironmentVariable($property.Name, $property.Value)
+		[Environment]::SetEnvironmentVariable($property.Name, $property.Value, $scope)
 
 		#Write-Host $property.Name "=" $property.Value
 	}
@@ -99,24 +101,53 @@ function Invoke-Sudo
 
 function Initialize-VcpkgEnv
 {
-	$packagesPath = "$PSScriptRoot/../build/packages/$env:TARGET_TRIPLET"
-	if ($config -eq 'debug')
+	$packageRoot = "$PSScriptRoot/../build/packages/$env:TARGET_TRIPLET"
+
+	Add-EnvPath "$packageRoot/bin"
+	Add-EnvPath "$packageRoot/debug/bin"
+	
+	if ($IsWindows)
 	{
-		$packagesPath = $packagesPath + '/debug'
+		Add-EnvDylibPath "$packageRoot/bin"
+		Add-EnvDylibPath "$packageRoot/debug/bin"
+	}
+	else
+	{
+		Add-EnvDylibPath "$packageRoot/lib"
+		Add-EnvDylibPath "$packageRoot/debug/lib"
+	}
+}
+
+function Initialize-SystemEnv
+{
+	#Write-Host "Initializing development environment..."
+	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
+	$env:TARGET_OS = Get-NativeOS
+	$env:TARGET_TRIPLET = Get-TargetTriplet
+	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
+
+	Write-Host "Adding toolchain dylib/dll/so:s..."
+	$toolchainRoot = "$PSScriptRoot/../build/toolchain/$env:TARGET_ARCHITECTURE-$env:TARGET_OS-release"
+	if ($IsWindows)
+	{
+		$dynlibPath = "$toolchainRoot/bin"
+	}
+	else
+	{
+		$dynlibPath = "$toolchainRoot/lib"
+	}
+	if (Test-Path $dynlibPath)
+	{
+		Write-Host "Adding $dynlibPath"
+		Add-EnvDylibPath $dynlibPath
 	}
 
-	$libPath = $packagesPath + '/lib'
-	if (Test-Path $libPath)
-	{
-		Add-EnvDylibPath $libPath
-	}
+	#Write-Host "Setting system (package manager) environment variables..."
+	Read-EnvFile "$PSScriptRoot/../.env.json"
+}
 
-	$binPath = $packagesPath + '/bin'
-	if (Test-Path $binPath)
-	{
-		Add-EnvPath $binPath
-	}
-
+function Initialize-VcpkgToolsEnv
+{ 
 	foreach($toolsPath in Get-ChildItem -Path $PSScriptRoot/../build/packages/$env:TARGET_TRIPLET/tools -Directory -ErrorAction SilentlyContinue)
 	{
 		Add-EnvPath $toolsPath
@@ -133,26 +164,6 @@ function Initialize-VcpkgEnv
 	}
 }
 
-function Initialize-SystemEnv
-{
-	#Write-Host "Initializing development environment..."
-	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
-	$env:TARGET_OS = Get-NativeOS
-	$env:TARGET_TRIPLET = Get-TargetTriplet
-	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
-	
-	#Write-Host "Setting system (package manager) environment variables..."
-	Read-EnvFile "$PSScriptRoot/../.env.json"
-
-	Write-Host "Adding toolchain dylib/dll/so:s..."
-	$libPath = "$PSScriptRoot/../build/toolchain/$env:TARGET_ARCHITECTURE-$env:TARGET_OS-release/lib"
-	if (Test-Path $libPath)
-	{
-		Write-Host "Adding $libPath"
-		Add-EnvDylibPath $libPath
-	}
-}
-
 function Invoke-VcpkgEnv
 {
 	param(
@@ -160,7 +171,6 @@ function Invoke-VcpkgEnv
 		[Parameter(Mandatory = $True, ValueFromRemainingArguments = $true, Position = 1)][string[]] $argsList
 	)
 
-	Initialize-SystemEnv
 	Initialize-VcpkgEnv
 
 	$arguments = Join-String -Separator " " -InputObject $argsList
