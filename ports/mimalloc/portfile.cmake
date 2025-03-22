@@ -1,9 +1,11 @@
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO microsoft/mimalloc
-  HEAD_REF dev3
+  HEAD_REF dev2
   REF v${VERSION}
-  SHA512 ee9a0d1c348a409744009be2a3e4e8a0329a967b4523d489aab1b8e9d382e602d42a3d03beee09218fe65cdee27891d2af476e3d57ae1de1079343f5a343cea4
+  SHA512 c5361881db58a9a02904fd90e32f5c58ff9590a5983f5125163e875d47699936b8550c283e50e3d9c18ebc37404dc18ce5646a9381f7057c57324cf7f76ffd95
+  PATCHES
+    0001-clang-fix.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
@@ -12,7 +14,7 @@ vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     guarded     MI_GUARDED
     secure      MI_SECURE
     override    MI_OVERRIDE
-    optarch     MI_OPT_ARCH
+    #optarch     MI_OPT_ARCH
     optsimd     MI_OPT_SIMD
     xmalloc     MI_XMALLOC
     asm         MI_SEE_ASM

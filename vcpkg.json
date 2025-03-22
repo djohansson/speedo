@@ -39,7 +39,15 @@
         },
         "cpptrace",
         "glaze",
-        "mimalloc",
+        {
+          "name": "mimalloc",
+          "features": [
+            "c",
+            "override",
+            "optarch",
+            "asm"
+          ]
+        },
         "mio",
         "picosha2",
         "sha-intrinsics",
