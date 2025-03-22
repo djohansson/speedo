@@ -12,6 +12,10 @@ vcpkg_from_github(
 		0003-find-lz4-and-miniz.patch
 		0004-generators-path-fix.patch
 		0005-use-system-unordered_dense.patch
+		0006-msvc-add-intrin.h-include.patch
+		0007-change-MSVC-to-WIN32.patch
+		0008-msvc-include-crtdgb.h.patch
+		0009-temp-lld-patch.patch
 )
 
 vcpkg_cmake_configure(
