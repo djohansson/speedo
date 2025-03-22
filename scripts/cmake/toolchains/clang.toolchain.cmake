@@ -88,7 +88,7 @@ set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
-set(COMPILE_FLAGS "")
+set(COMPILE_FLAGS "-g")
 set(COMPILE_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer")
 set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
@@ -117,13 +117,12 @@ else()
 endif()
 
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
-	set(C_DEFINES "${C_DEFINES} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS")
-	set(C_DEFINES "${C_DEFINES} -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
+	set(C_DEFINES "${C_DEFINES} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
 	set(CXX_DEFINES "${CXX_DEFINES} -D_LIBCXX_ABI_FORCE_MICROSOFT")
-	set(COMPILE_FLAGS "${COMPILE_FLAGS} -Xclang -cfguard")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -gcodeview -Xclang -cfguard")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -loldnames")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-llibc++ -lmsvcprt")
-	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /GUARD:CF") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /DEBUG -Xlinker /GUARD:CF") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO on windows
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
