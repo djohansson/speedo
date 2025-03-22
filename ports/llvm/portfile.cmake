@@ -415,3 +415,9 @@ else()
         "${CURRENT_PACKAGES_DIR}/debug/bin"
     )
 endif()
+
+file(REMOVE_RECURSE
+    "${CURRENT_PACKAGES_DIR}/include/clang/Basic/Target/MSP430"
+    "${CURRENT_PACKAGES_DIR}/include/clang/CIRFrontendAction"
+    "${CURRENT_PACKAGES_DIR}/include/clang/Basic/Target"
+)
