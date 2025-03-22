@@ -25,6 +25,6 @@ foreach ($program in $Programs)
 		NoNewWindow = $true
 	}
 	Start-Process @processOptions
-
-	exit 0
 }
+
+exit 0
