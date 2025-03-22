@@ -6,7 +6,7 @@ Write-Host "Installing Windows dependencies..."
 Install-WinGetClient
 Install-VSSetup
 
-$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
+$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.5.0.0")
 if (-not ($pwshCmd))
 { 
 	Write-Host "Installing Powershell Core..."
@@ -18,7 +18,7 @@ if (-not ($pwshCmd))
 	$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
 }
 	
-$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
+$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.49.0.0")
 if (-not ($gitCmd))
 {
 	Write-Host "Installing Git..."
@@ -27,17 +27,17 @@ if (-not ($gitCmd))
 
 	$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
 
-	$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.41.0.0")
+	$gitCmd = Get-Command "git" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"2.49.0.0")
 }
 
-$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
+$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.26100
 if (-not ($windowsSdkInfo))
 {
-	Write-Host "Installing WindowsSDK 10.0.22621 (requires process elevation)..."
+	Write-Host "Installing WindowsSDK 10.0.26100 (requires process elevation)..."
 
-	Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.22621 | Out-Null" -Wait
+	Start-Process pwsh -Verb runas -ArgumentList "-c Install-WinGetPackage -Mode Silent -Id Microsoft.WindowsSDK.10.0.26100 | Out-Null" -Wait
 
-	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.22621
+	$windowsSdkInfo = Get-WinGetPackage Microsoft.WindowsSDK.10.0.26100
 }
 $winSDKManifest = [xml](Get-Content -Path "C:\Program Files (x86)\Windows Kits\10\SDKManifest.xml")
 $platformIndentityStr = $winSDKManifest.FileList.PlatformIdentity
