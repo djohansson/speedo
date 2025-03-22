@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.29.1)
 
 include_guard()
 
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
 # todo: import LLVMConfig.cmake
 set(LLVM_PATH $ENV{LLVM_PATH} CACHE PATH "LLVM root path")
 set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM tools path")
@@ -117,19 +119,25 @@ endif()
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(C_DEFINES "${C_DEFINES} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS")
 	set(C_DEFINES "${C_DEFINES} -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
-	set(CXX_DEFINES "${CXX_FLAGS} -D_LIBCXX_ABI_FORCE_MICROSOFT")
+	set(CXX_DEFINES "${CXX_DEFINES} -D_LIBCXX_ABI_FORCE_MICROSOFT")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -Xclang -cfguard")
-	set(LINK_FLAGS "${LINK_FLAGS} -llibc++ -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
+	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -loldnames")
+	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-llibc++ -lmsvcprt")
+	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /GUARD:CF") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO on windows
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic")
-	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version -lc -lpthread -lc++ -lc++abi")
+	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")
+	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-lc++ -lc++abi")
+	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -fpic")
-	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -lc -lpthread -lc++ -lc++abi")
+	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")
+	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-lc++ -lc++abi")
+	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
@@ -154,3 +162,7 @@ set(CMAKE_SHARED_LINKER_FLAGS_DEBUG_INIT "${LINK_FLAGS_DEBUG}")
 set(CMAKE_SHARED_LINKER_FLAGS_PROFILE_INIT "${LINK_FLAGS_RELEASE}")
 set(CMAKE_SHARED_LINKER_FLAGS_RELEASE_INIT "${LINK_FLAGS_RELEASE}")
 
+# todo: remove this when CMake supports it
+set(CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT}" CACHE STRING "C standard libs" FORCE)
+set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT} ${CMAKE_CXX_STANDARD_LIBRARIES_INIT}" CACHE STRING "CXX standard libs" FORCE)
+#
