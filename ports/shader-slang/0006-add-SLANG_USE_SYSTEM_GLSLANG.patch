@@ -1,0 +1,78 @@
+From bb8f4045058e8aa9ea363680039c32fd917572b6 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 25 Mar 2025 18:22:55 +0100
+Subject: [PATCH 6/6] add SLANG_USE_SYSTEM_GLSLANG
+
+---
+ CMakeLists.txt                         | 6 ++++++
+ external/CMakeLists.txt                | 2 +-
+ source/slang-glslang/CMakeLists.txt    | 2 +-
+ source/slang-glslang/slang-glslang.cpp | 2 +-
+ 4 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 774389b7..677b779d 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -156,6 +156,7 @@ advanced_option(
+     "Build using system unordered dense"
+     OFF
+ )
++advanced_option(SLANG_USE_SYSTEM_GLSLANG "Build using system glslang" OFF)
+ 
+ option(
+     SLANG_SPIRV_HEADERS_INCLUDE_DIR
+@@ -311,6 +312,11 @@ if(${SLANG_USE_SYSTEM_LZ4})
+     find_package(lz4 CONFIG REQUIRED)
+ endif()
+ 
++if(${SLANG_USE_SYSTEM_GLSLANG})
++    find_package(glslang CONFIG REQUIRED)
++    find_package(SPIRV-Tools CONFIG REQUIRED)
++endif()
++
+ add_subdirectory(external)
+ 
+ # webgpu_dawn is only available as a fetched shared library, since Dawn's nested source
+diff --git a/external/CMakeLists.txt b/external/CMakeLists.txt
+index 446055a8..291905b3 100644
+--- a/external/CMakeLists.txt
++++ b/external/CMakeLists.txt
+@@ -72,7 +72,7 @@ if(NOT ${SLANG_USE_SYSTEM_SPIRV_HEADERS})
+     add_subdirectory(spirv-headers EXCLUDE_FROM_ALL ${system})
+ endif()
+ 
+-if(SLANG_ENABLE_SLANG_GLSLANG)
++if(${SLANG_ENABLE_SLANG_GLSLANG} AND NOT ${SLANG_USE_SYSTEM_GLSLANG})
+     # SPIRV-Tools
+     set(SPIRV_TOOLS_BUILD_STATIC ON)
+     set(SPIRV_WERROR OFF)
+diff --git a/source/slang-glslang/CMakeLists.txt b/source/slang-glslang/CMakeLists.txt
+index c457ad47..b661d062 100644
+--- a/source/slang-glslang/CMakeLists.txt
++++ b/source/slang-glslang/CMakeLists.txt
+@@ -6,7 +6,7 @@ if(SLANG_ENABLE_SLANG_GLSLANG)
+         .
+         MODULE
+         USE_FEWER_WARNINGS
+-        LINK_WITH_PRIVATE glslang SPIRV SPIRV-Tools-opt
++        LINK_WITH_PRIVATE glslang::glslang SPIRV-Tools-static SPIRV-Tools-opt
+         INCLUDE_DIRECTORIES_PRIVATE ${slang_SOURCE_DIR}/include
+         INSTALL
+         EXPORT_SET_NAME SlangTargets
+diff --git a/source/slang-glslang/slang-glslang.cpp b/source/slang-glslang/slang-glslang.cpp
+index ca45be05..801ad2c2 100644
+--- a/source/slang-glslang/slang-glslang.cpp
++++ b/source/slang-glslang/slang-glslang.cpp
+@@ -1,7 +1,7 @@
+ // slang-glslang.cpp
+ #include "slang-glslang.h"
+ 
+-#include "SPIRV/GlslangToSpv.h"
++#include "glslang/SPIRV/GlslangToSpv.h"
+ #include "glslang/MachineIndependent/localintermediate.h"
+ #include "glslang/Public/ShaderLang.h"
+ #include "slang.h"
+-- 
+2.39.5 (Apple Git-154)
+

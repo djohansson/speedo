@@ -1,7 +1,7 @@
 From d79f9e0ef7d4633fae5eddec4efa7a60e6fe722a Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 18 Mar 2025 20:44:58 +0100
-Subject: [PATCH 2/5] miniz include path
+Subject: [PATCH 2/6] miniz include path
 
 ---
  source/core/slang-deflate-compression-system.cpp | 2 +-

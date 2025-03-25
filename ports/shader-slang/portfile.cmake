@@ -12,10 +12,11 @@ vcpkg_from_github(
 		0003-find-lz4-and-miniz.patch
 		0004-generators-path-fix.patch
 		0005-use-system-unordered_dense.patch
-		0006-msvc-add-intrin.h-include.patch
+		0006-add-SLANG_USE_SYSTEM_GLSLANG.patch
 		0007-change-MSVC-to-WIN32.patch
 		0008-msvc-include-crtdgb.h.patch
 		0009-temp-lld-patch.patch
+		0010-msvc-add-intrin.h-include.patch
 )
 
 vcpkg_cmake_configure(
@@ -27,7 +28,7 @@ vcpkg_cmake_configure(
 		-DSLANG_ENABLE_DXIL=OFF
 		-DSLANG_ENABLE_EXAMPLES=OFF
 		-DSLANG_ENABLE_PREBUILT_BINARIES=OFF
-		-DSLANG_ENABLE_SLANG_GLSLANG=OFF
+		-DSLANG_ENABLE_SLANG_GLSLANG=ON
 		-DSLANG_ENABLE_SLANG_RHI=OFF
 		-DSLANG_ENABLE_TESTS=OFF
 		-DSLANG_USE_SYSTEM_MINIZ=ON
@@ -35,6 +36,7 @@ vcpkg_cmake_configure(
 		-DSLANG_USE_SYSTEM_VULKAN_HEADERS=ON
 		-DSLANG_USE_SYSTEM_SPIRV_HEADERS=ON
 		-DSLANG_USE_SYSTEM_UNORDERED_DENSE=ON
+		-DSLANG_USE_SYSTEM_GLSLANG=ON
 		-DSLANG_SPIRV_HEADERS_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include
 )
 

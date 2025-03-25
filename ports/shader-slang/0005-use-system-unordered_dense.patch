@@ -1,7 +1,7 @@
 From c5e3d549cfd9a61be453ce6b48aa3a741f2ac21b Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 18 Mar 2025 21:47:55 +0100
-Subject: [PATCH 5/5] use system unordered_dense
+Subject: [PATCH 5/6] use system unordered_dense
 
 ---
  source/core/slang-dictionary.h | 2 +-

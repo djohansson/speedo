@@ -1,7 +1,7 @@
 From 37641d71d5d697a691cdac13a0a1044e9916c982 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 18 Mar 2025 21:00:51 +0100
-Subject: [PATCH 3/5] find lz4 and miniz
+Subject: [PATCH 3/6] find lz4 and miniz
 
 ---
  CMakeLists.txt                   | 8 ++++++++

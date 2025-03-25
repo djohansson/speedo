@@ -1,7 +1,7 @@
 From ea651e77bccc34178d809ae58add9b4f55a02162 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 18 Mar 2025 20:25:58 +0100
-Subject: [PATCH 1/5] remove SPIRV-Headers
+Subject: [PATCH 1/6] remove SPIRV-Headers
 
 ---
  source/compiler-core/CMakeLists.txt     | 1 -

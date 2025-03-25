@@ -6,10 +6,17 @@
   "license": "MIT",
   "supports": "((x86 & windows) | (x64 & (windows | linux | osx)) | (arm64 & (linux | osx))) & !uwp & !static",
   "dependencies": [
-    "spirv-headers",
     "miniz",
     "lz4",
     "unordered-dense",
+    {
+      "name": "glslang",
+      "features": [
+        "opt"
+      ]
+    },
+    "spirv-headers",
+    "spirv-tools",
     {
       "name": "vcpkg-cmake",
       "host": true

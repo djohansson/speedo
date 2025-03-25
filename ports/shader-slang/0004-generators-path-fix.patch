@@ -1,7 +1,7 @@
 From 31641e5d82a35ac3603c372eee12e7f80fb71cbc Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
 Date: Tue, 18 Mar 2025 21:06:10 +0100
-Subject: [PATCH 4/5] generators path fix
+Subject: [PATCH 4/6] generators path fix
 
 ---
  prelude/CMakeLists.txt                  | 2 +-
