@@ -102,9 +102,6 @@ function Invoke-Sudo
 function Initialize-VcpkgEnv
 {
 	$packageRoot = "$PSScriptRoot/../build/packages/$env:TARGET_TRIPLET"
-
-	Add-EnvPath "$packageRoot/bin"
-	Add-EnvPath "$packageRoot/debug/bin"
 	
 	if ($IsWindows)
 	{
@@ -126,7 +123,7 @@ function Initialize-SystemEnv
 	$env:TARGET_TRIPLET = Get-TargetTriplet
 	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
 
-	Write-Host "Adding toolchain dylib/dll/so:s..."
+	#Write-Host "Adding toolchain dylib/dll/so:s..."
 	$toolchainRoot = "$PSScriptRoot/../build/toolchain/$env:TARGET_ARCHITECTURE-$env:TARGET_OS-release"
 	if ($IsWindows)
 	{
@@ -138,7 +135,7 @@ function Initialize-SystemEnv
 	}
 	if (Test-Path $dynlibPath)
 	{
-		Write-Host "Adding $dynlibPath"
+		#Write-Host "Adding $dynlibPath"
 		Add-EnvDylibPath $dynlibPath
 	}
 
