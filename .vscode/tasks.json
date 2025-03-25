@@ -2,9 +2,9 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "export-molten-vk-path",
+			"label": "export-vk-driver-path",
 			"type": "shell",
-			"command": "export MOLTEN_VK_PATH=$(brew --prefix molten-vk)",
+			"command": "printf 'VK_DRIVER_FILES=%s%s' $(brew --prefix molten-vk) '/share/vulkan/icd.d/MoltenVK_icd.json' > ${userHome}/.speedo/.env",
 			"group": "none"
 		},
 		{

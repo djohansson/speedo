@@ -16,5 +16,4 @@ Install-HomebrewPackage molten-vk
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName MACOS_SDK_PATH -NotePropertyValue $(xcrun --show-sdk-path) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue $($(brew --prefix powershell) + '/bin') | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName MOLTEN_VK_PATH -NotePropertyValue $(brew --prefix molten-vk) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName CMAKE_APPLE_SILICON_PROCESSOR -NotePropertyValue $(Get-NativeArchitecture) | Out-Null

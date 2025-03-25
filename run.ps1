@@ -1,12 +1,15 @@
 param([string[]]$Programs, [string]$Config='release')
 
 . $PSScriptRoot/scripts/env.ps1
-. $PSScriptRoot/scripts/platform.ps1
 
 Initialize-SystemEnv
 Initialize-VcpkgEnv
 
 $env:VK_LAYER_PATH = $PSScriptRoot + '/build/packages/' + $env:TARGET_TRIPLET + '/share/vulkan/explicit_layer.d'
+if ($IsMacOS)
+{
+	$env:VK_DRIVER_FILES = $(brew --prefix molten-vk) + '/share/vulkan/icd.d/MoltenVK_icd.json'
+}
 
 foreach ($program in $Programs)
 {

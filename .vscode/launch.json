@@ -54,7 +54,8 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
-			"preLaunchTask": "export-molten-vk-path",
+			"preLaunchTask": "export-vk-driver-path",
+			"envFile": "${userHome}/.speedo/.env",
 			"env": {
 				"MIMALLOC_SHOW_STATS": "1",
 				"MIMALLOC_VERBOSE": "1",
@@ -63,7 +64,6 @@
 				"DYLD_INSERT_LIBRARIES": "libmimalloc-debug.dylib",
 				"DYLD_PRINT_LIBRARIES": "1",
 				"TSAN_OPTIONS": "suppressions=${workspaceFolder}/tsan-suppressions.txt",
-				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d"
 			}
 		},
@@ -75,11 +75,11 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
-			"preLaunchTask": "export-molten-vk-path",
+			"preLaunchTask": "export-vk-driver-path",
+			"envFile": "${userHome}/.speedo/.env",
 			"env": {
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
-				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
@@ -91,11 +91,11 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
-			"preLaunchTask": "export-molten-vk-path",
+			"preLaunchTask": "export-vk-driver-path",
+			"envFile": "${userHome}/.speedo/.env",
 			"env": {
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
 				"DYLD_INSERT_LIBRARIES": "libmimalloc.dylib",
-				"VK_DRIVER_FILES": "${env:MOLTEN_VK_PATH}/share/vulkan/icd.d/MoltenVK_icd.json",
 				"VK_LAYER_PATH": "${workspaceFolder}/build/packages/arm64-osx-clang/share/vulkan/explicit_layer.d",
 			}
 		},
