@@ -1,0 +1,32 @@
+From 5beed8e10aaa4b14d3b359e97a3552786167f299 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 25 Mar 2025 18:31:46 +0100
+Subject: [PATCH] add public headers
+
+---
+ glslang/CMakeLists.txt | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/glslang/CMakeLists.txt b/glslang/CMakeLists.txt
+index 47925d8..954cbac 100644
+--- a/glslang/CMakeLists.txt
++++ b/glslang/CMakeLists.txt
+@@ -264,6 +264,15 @@ if(GLSLANG_ENABLE_INSTALL)
+         Include/glslang_c_shader_types.h
+         Include/ResourceLimits.h
+         Include/visibility.h
++        Include/arrays.h
++        Include/BaseTypes.h
++        Include/Common.h
++        Include/ConstantUnion.h
++        Include/intermediate.h
++        Include/PoolAlloc.h
++        Include/SpirvIntrinsics.h
++        Include/Types.h
++        MachineIndependent/localintermediate.h
+         MachineIndependent/Versions.h)
+ 
+     foreach(file ${PUBLIC_HEADERS})
+-- 
+2.39.5 (Apple Git-154)
+
