@@ -2,16 +2,24 @@
 
 #include <core/assert.h>
 
+#include <errno.h>
 #include <signal.h> 
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <cargs.h>
 #include <ctrace/ctrace.h>
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
+#endif
+
+#if defined(__WINDOWS__)
+#include <synchapi.h>
+#else
+#include <unistd.h>
 #endif
 
 static struct cag_option gCmdArgs[] =
@@ -60,18 +68,62 @@ static void OnSignal(int signal)
 	ctrace_print_stacktrace(&trace, stderr, 1);
 }
 
+static int Sleep(const struct timespec* duration, struct timespec* remaining)
+{
+#if defined(__WINDOWS__)
+	struct timespec start;
+	timespec_get(&start, TIME_UTC);
+
+	DWORD t = SleepEx(
+		(DWORD)(duration->tv_sec * 1000 + duration->tv_nsec / 1000000 +
+				(((duration->tv_nsec % 1000000) == 0) ? 0 : 1)), TRUE);
+
+	if (t == 0)
+	{
+		return 0;
+	}
+	else
+	{
+		if (remaining != NULL)
+		{
+			timespec_get(remaining, TIME_UTC);
+			remaining->tv_sec -= start.tv_sec;
+			remaining->tv_nsec -= start.tv_nsec;
+			if (remaining->tv_nsec < 0)
+			{
+				remaining->tv_nsec += 1000000000;
+				remaining->tv_sec -= 1;
+			}
+		}
+
+		return (t == WAIT_IO_COMPLETION) ? -1 : -2;
+	}
+#else
+	int res = nanosleep(duration, remaining);
+	if (res == 0)
+	{
+		return 0;
+	}
+	if (errno == EINTR)
+	{
+		return -1;
+	}
+	return -2;
+#endif
+}
+
 int main(int argc, char* argv[], char* envp[])
 {
 #if defined(SPEEDO_USE_MIMALLOC)
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
 #endif
-	
-	signal(SIGINT, &OnSignal);
-	signal(SIGTERM, &OnSignal);
-	signal(SIGILL, &OnSignal);
-	signal(SIGABRT, &OnSignal);
-	signal(SIGFPE, &OnSignal);
-	signal(SIGSEGV, &OnSignal);
+
+	sigaction(SIGINT, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGTERM, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGILL, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGABRT, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGFPE, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGSEGV, &(struct sigaction){.sa_handler = OnSignal}, NULL);
 
 	ASSERT(argv != NULL);
 	ASSERT(envp != NULL);
@@ -98,11 +150,16 @@ int main(int argc, char* argv[], char* envp[])
 		}
 	}
 
-	CreateServer(&gPaths);
+	ServerCreate(&gPaths);
 
-	while (OnEventServer() && !gIsInterrupted) {};
+	fprintf(stdout, "Press Ctrl-C to quit\n");
 
-	DestroyServer();
+	while (ServerExitRequested() && !gIsInterrupted)
+	{
+		Sleep(&(struct timespec){.tv_nsec=100000000}, NULL);
+	};
+
+	ServerDestroy();
 
 	return EXIT_SUCCESS;
 }

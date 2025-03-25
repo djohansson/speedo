@@ -10,9 +10,9 @@ extern "C"
 #include <stdbool.h>
 #endif
 
-void CreateServer(const struct PathConfig* paths);
-void DestroyServer(void);
-bool OnEventServer();
+void ServerCreate(const struct PathConfig* paths);
+void ServerDestroy(void);
+bool ServerExitRequested();
 
 #ifdef __cplusplus
 }

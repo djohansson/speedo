@@ -21,9 +21,9 @@ extern "C"
 #include <stdbool.h>
 #endif
 
-CLIENT_API void CreateClient(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
-CLIENT_API void DestroyClient(void);
-CLIENT_API bool OnEventClient();
+CLIENT_API void ClientCreate(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
+CLIENT_API void ClientDestroy(void);
+CLIENT_API bool ClientMain();
 
 #ifdef __cplusplus
 }

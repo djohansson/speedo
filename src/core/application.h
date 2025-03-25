@@ -31,8 +31,6 @@ public:
 	Application& operator=(const Application&) = delete;
 	Application& operator=(Application&&) noexcept = delete;
 
-	virtual void OnEvent() { InternalTick(); };
-
 	template <typename T, typename... Args>
 	static std::shared_ptr<T> Create(Args&&... args);
 
@@ -50,17 +48,9 @@ public:
 	void RequestExit() noexcept { myExitRequested = true; }
 	[[nodiscard]] bool IsExitRequested() const noexcept { return myExitRequested; }
 
-	void OnMouse(const MouseEvent& mouse);
-	void OnKeyboard(const KeyboardEvent& keyboard);
-
 protected:
 	explicit Application() = default;
 	Application(std::string_view name, Environment&& env);
-
-	virtual void InternalTick();
-
-	ConcurrentQueue<MouseEvent> myMouseQueue;
-	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 
 private:
 	std::string myName;

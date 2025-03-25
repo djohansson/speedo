@@ -4,8 +4,6 @@
 
 #include <gfx/scene.h>
 
-#include <GLFW/glfw3.h>
-
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
@@ -737,13 +735,32 @@ static void ShutdownImgui()
 
 } // namespace rhiapplication
 
-void RHIApplication::InternalTick()
+bool RHIApplication::Main()
 {
 	using namespace rhiapplication;
+	
+	ZoneScopedN("RHIApplication::Main");
 
 	auto& rhi = GetRHI<kVk>();
 	auto& window = rhi.windows.at(GetCurrentWindow());
-	auto& input = myInput;
+
+	TaskHandle mainCall;
+	while (rhi.mainCalls.try_dequeue(mainCall))
+	{
+		GetExecutor().Call(mainCall);
+	}
+
+	return !IsExitRequested();
+}
+
+void RHIApplication::OnInputStateChanged(const InputState& input)
+{
+	using namespace rhiapplication;
+	
+	ZoneScopedN("RHIApplication::OnInputStateChanged");
+
+	auto& rhi = GetRHI<kVk>();
+	auto& window = rhi.windows.at(GetCurrentWindow());
 	auto& io = ImGui::GetIO();
 
 	if (io.WantSaveIniSettings)
@@ -754,74 +771,13 @@ void RHIApplication::InternalTick()
 		io.WantSaveIniSettings = false;
 	}
 
-	MouseEvent mouse;
-	while (myMouseQueue.try_dequeue(mouse))
-	{
-		if ((mouse.flags & MouseEvent::kPosition) != 0)
-		{
-			input.mouse.position[0] = static_cast<float>(mouse.xpos);
-			input.mouse.position[1] = static_cast<float>(mouse.ypos);
-			input.mouse.insideWindow = mouse.insideWindow;
-
-			io.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
-		}
-
-		if ((mouse.flags & MouseEvent::kButton) != 0)
-		{
-			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
-			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);
-			bool leftReleased = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_RELEASE);
-			bool rightReleased = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_RELEASE);
-
-			if (leftPressed)
-			{
-				input.mouse.leftDown = true;
-				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
-			}
-			else if (rightPressed)
-			{
-				input.mouse.rightDown = true;
-				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
-			}
-			else if (leftReleased)
-			{
-				input.mouse.leftDown = false;
-				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
-			}
-			else if (rightReleased)
-			{
-				input.mouse.rightDown = false;
-				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
-			}
-		}
-	}
-
-	KeyboardEvent keyboard;
-	while (myKeyboardQueue.try_dequeue(keyboard))
-	{
-		if (keyboard.action == GLFW_PRESS)
-			input.keyboard.keysDown[keyboard.key] = true;
-		else if (keyboard.action == GLFW_RELEASE)
-			input.keyboard.keysDown[keyboard.key] = false;
-
-		//io.AddKeyEvent(keyboard.key, keyboard.action);
-	}
-
 	if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
 		window.OnInputStateChanged(input);
 
 	IMGUIPrepareDrawFunction(rhi, GetExecutor());
 }
 
-void RHIApplication::InternalDraw()
+void RHIApplication::Draw()
 {
 	using namespace rhiapplication;
 
@@ -830,7 +786,7 @@ void RHIApplication::InternalDraw()
 	auto& rhi = GetRHI<kVk>();
 
 	FrameMark;
-	ZoneScopedN("rhi::draw");
+	ZoneScopedN("RHIApplication::Draw");
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
@@ -838,7 +794,7 @@ void RHIApplication::InternalDraw()
 	auto& pipeline = *rhi.pipeline;
 
 	{
-		ZoneScopedN("rhi::draw::processGraphics");
+		ZoneScopedN("RHIApplication::Draw::processGraphics");
 
 		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
@@ -847,7 +803,7 @@ void RHIApplication::InternalDraw()
 	}
 
 	{
-		ZoneScopedN("rhi::draw::processCompute");
+		ZoneScopedN("RHIApplication::Draw::processCompute");
 
 		auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
 		auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
@@ -856,7 +812,7 @@ void RHIApplication::InternalDraw()
 	}
 
 	{
-		ZoneScopedN("rhi::draw::processTransfers");
+		ZoneScopedN("RHIApplication::Draw::processTransfers");
 
 		auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
 		auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
@@ -868,7 +824,7 @@ void RHIApplication::InternalDraw()
 
 	if (flipSuccess)
 	{
-		ZoneScopedN("rhi::draw::submit");
+		ZoneScopedN("RHIApplication::Draw::submit");
 
 		static uint8_t gGraphicsQueueIndex = 0;
 		static uint8_t gComputeQueueIndex = 0;
@@ -878,7 +834,7 @@ void RHIApplication::InternalDraw()
 		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 
 		{
-			ZoneScopedN("rhi::draw::waitGraphics");
+			ZoneScopedN("RHIApplication::Draw::waitGraphics");
 
 			auto graphicsQueueInfosReadScope = ConcurrentReadScope(graphicsQueueInfos);
 			graphicsQueueIndex %= graphicsQueueInfosReadScope->size();
@@ -902,7 +858,7 @@ void RHIApplication::InternalDraw()
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
 		{
-			ZoneScopedN("rhi::draw::drawCall");
+			ZoneScopedN("RHIApplication::Draw::drawCall");
 
 			GetExecutor().Call(drawCall);
 		}
@@ -940,7 +896,7 @@ void RHIApplication::InternalDraw()
 			// todo: generalize this to other types of draws
 			if (std::atomic_load(&pipeline.GetResources().model))
 			{
-				ZoneScopedN("rhi::draw::drawViews");
+				ZoneScopedN("RHIApplication::Draw::drawViews");
 
 				drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
 
@@ -1473,24 +1429,6 @@ RHIApplication::~RHIApplication() noexcept(false)
 
 	ASSERT(device.use_count() == 1);
 	ASSERT(instance.use_count() == 2);
-}
-
-void RHIApplication::OnEvent()
-{
-	using namespace rhiapplication;
-
-	ZoneScopedN("RHIApplication::OnEvent");
-
-	auto& rhi = GetRHI<kVk>();
-	auto& window = rhi.windows.at(GetCurrentWindow());
-
-	TaskHandle mainCall;
-	while (rhi.mainCalls.try_dequeue(mainCall))
-	{
-		ZoneScopedN("RHIApplication::OnEvent::mainCall");
-
-		GetExecutor().Call(mainCall);
-	}
 }
 
 void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)

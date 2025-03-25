@@ -377,12 +377,12 @@ int main(int argc, char* argv[], char* envp[])
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
 #endif
 
-	signal(SIGINT, &OnSignal);
-	signal(SIGTERM, &OnSignal);
-	signal(SIGILL, &OnSignal);
-	signal(SIGABRT, &OnSignal);
-	signal(SIGFPE, &OnSignal);
-	signal(SIGSEGV, &OnSignal);
+	sigaction(SIGINT, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGTERM, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGILL, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGABRT, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGFPE, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	sigaction(SIGSEGV, &(struct sigaction){.sa_handler = OnSignal}, NULL);
 
 	ASSERT(argv != NULL);
 	ASSERT(envp != NULL);
@@ -475,7 +475,7 @@ int main(int argc, char* argv[], char* envp[])
 	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 	// glfwSetInputMode(g_window.handle, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 
-	CreateClient(OnCreateWindow, &gPaths);
+	ClientCreate(OnCreateWindow, &gPaths);
 
 	glfwSetMonitorCallback(OnMonitorChanged);
 
@@ -485,14 +485,14 @@ int main(int argc, char* argv[], char* envp[])
 	SetWindowCallbacks(window);
 
 	do { glfwWaitEvents();
-	} while (!(bool)glfwWindowShouldClose(window) && OnEventClient() && !gIsInterrupted);
+	} while (!(bool)glfwWindowShouldClose(window) && ClientMain() && !gIsInterrupted);
 
 	size_t windowCount;
 	WindowHandle* windows = GetWindows(&windowCount);
 	for (size_t i = 0; i < windowCount; ++i)
 		glfwDestroyWindow(windows[i]);
 
-	DestroyClient();
+	ClientDestroy();
 
 	glfwTerminate();
 

@@ -21,23 +21,12 @@ Application::Application(std::string_view name, Environment&& env)
 	});
 }
 
-void Application::OnMouse(const MouseEvent& mouse)
+const char* GetApplicationName(void)
 {
-	myMouseQueue.enqueue(mouse);
+	if (auto app = Application::Get().lock(); app)
+		return app->GetName().data();
+
+	return nullptr;
 }
 
-void Application::OnKeyboard(const KeyboardEvent& keyboard)
-{
-	myKeyboardQueue.enqueue(keyboard);
-}
 
-void Application::InternalTick()
-{
-	MouseEvent mouse;
-	while (myMouseQueue.try_dequeue(mouse))
-	{}
-
-	KeyboardEvent keyboard;
-	while (myKeyboardQueue.try_dequeue(keyboard))
-	{}
-}

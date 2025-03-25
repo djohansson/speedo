@@ -2,6 +2,7 @@
 #include "client.h"
 
 #include <core/assert.h>
+#include <core/eventhandlers.h>
 #include <core/file.h>
 #include <core/concurrentaccess.h>
 #include <core/upgradablesharedmutex.h>
@@ -13,6 +14,10 @@
 #include <mutex>
 #include <string>
 #include <system_error>
+
+#include <GLFW/glfw3.h>
+
+#include <imgui.h>
 
 namespace client
 {
@@ -148,11 +153,94 @@ Client::~Client() noexcept(false)
 	std::cout << "Client shutting down, goodbye." << '\n';
 }
 
-void Client::OnEvent()
+void Client::OnKeyboard(const KeyboardEvent& keyboard)
 {
-	ZoneScopedN("Client::tick");
+	ZoneScopedN("Client::OnKeyboard");
 
-	super_t::OnEvent();
+	myKeyboardQueue.enqueue(keyboard);
+}
+
+void Client::OnMouse(const MouseEvent& mouse)
+{
+	ZoneScopedN("Client::OnMouse");
+
+	myMouseQueue.enqueue(mouse);
+}
+
+void Client::Tick()
+{
+	auto& io = ImGui::GetIO();
+	auto& input = myInput;
+
+	MouseEvent mouse;
+	while (myMouseQueue.try_dequeue(mouse))
+	{
+		if ((mouse.flags & MouseEvent::kPosition) != 0)
+		{
+			input.mouse.position[0] = static_cast<float>(mouse.xpos);
+			input.mouse.position[1] = static_cast<float>(mouse.ypos);
+			input.mouse.insideWindow = mouse.insideWindow;
+
+			io.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
+		}
+
+		if ((mouse.flags & MouseEvent::kButton) != 0)
+		{
+			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
+			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);
+			bool leftReleased = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_RELEASE);
+			bool rightReleased = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_RELEASE);
+
+			if (leftPressed)
+			{
+				input.mouse.leftDown = true;
+				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
+			}
+			else if (rightPressed)
+			{
+				input.mouse.rightDown = true;
+				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
+			}
+			else if (leftReleased)
+			{
+				input.mouse.leftDown = false;
+				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
+			}
+			else if (rightReleased)
+			{
+				input.mouse.rightDown = false;
+				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
+				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
+			}
+		}
+	}
+
+	KeyboardEvent keyboard;
+	while (myKeyboardQueue.try_dequeue(keyboard))
+	{
+		if (keyboard.action == GLFW_PRESS)
+			input.keyboard.keysDown[keyboard.key] = true;
+		else if (keyboard.action == GLFW_RELEASE)
+			input.keyboard.keysDown[keyboard.key] = false;
+
+		io.AddKeyEvent(static_cast<ImGuiKey>(keyboard.key), static_cast<ImGuiKey>(keyboard.action));
+	}
+
+	RHIApplication::OnInputStateChanged(input);
+}
+
+bool Client::Main()
+{
+	ZoneScopedN("Client::Main");
+
+	return RHIApplication::Main();
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
@@ -163,6 +251,11 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 , myContext(1)
 , mySocket(myContext, zmq::socket_type::req)
 {
+	using namespace core;
+
+	AddMouseHandler(std::dynamic_pointer_cast<MouseEventHandler>(Application::Get().lock()));
+	AddKeyboardHandler(std::dynamic_pointer_cast<KeyboardEventHandler>(Application::Get().lock()));
+
 	// auto toString = [](zmq::event_flags ef) -> std::string {
 	// 	std::string result;
 	// 	if (zmq::detail::enum_bit_and(ef, zmq::event_flags::pollin) != zmq::event_flags::none)
@@ -191,23 +284,19 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gDrawTask = CreateTask(client::Draw);
 	gDrawTaskState = kTaskStateRunning;
 
-	// initial OnEvent call required to initialize data structures in imgui (and potentially others)
-	// since RHIApplication draw thread/tasks can launch before next OnEvent is called from main
-	OnEvent();
+	// initial Tick call required to initialize data structures in imgui (and potentially others)
+	// since RHIApplication draw thread/tasks can launch before next Tick is called
+	Tick();
 }
 
-bool OnEventClient()
+bool ClientMain()
 {	
 	using namespace client;
 
-	auto appPtr = ConcurrentReadScope(gClientApplication);
-
-	appPtr->OnEvent();
-
-	return !appPtr->IsExitRequested();
+	return ConcurrentReadScope(gClientApplication)->Main();
 }
 
-void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
+void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 {
 	using namespace client;
 	using namespace file;
@@ -242,7 +331,7 @@ void CreateClient(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	appPtr->GetExecutor().Submit(handles);
 }
 
-void DestroyClient()
+void ClientDestroy()
 {
 	using namespace client;
 

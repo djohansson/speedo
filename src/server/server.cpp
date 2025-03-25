@@ -106,17 +106,6 @@ Server::~Server() noexcept(false)
 	std::cout << "Server shutting down, goodbye." << '\n';
 }
 
-void Server::OnEvent()
-{
-	std::cout << "Press q to quit: " << std::flush;
-	char input;
-	std::cin >> input;
-	if (input == 'q')
-		RequestExit();
-
-	Application::OnEvent();
-}
-
 Server::Server(std::string_view name, Environment&& env)
 : Application(std::forward<std::string_view>(name), std::forward<Environment>(env))
 , myContext(1)
@@ -139,7 +128,7 @@ Server::Server(std::string_view name, Environment&& env)
 	gRpcTaskState = kTaskStateRunning;
 }
 
-void CreateServer(const PathConfig* paths)
+void ServerCreate(const PathConfig* paths)
 {
 	using namespace server;
 	using namespace file;
@@ -178,7 +167,7 @@ void CreateServer(const PathConfig* paths)
 	appPtr->GetExecutor().Submit({&gRpcTask.handle, 1});
 }
 
-void DestroyServer()
+void ServerDestroy()
 {
 	using namespace server;
 
@@ -193,15 +182,9 @@ void DestroyServer()
 	appPtrWriteScope.Get().reset();
 }
 
-bool OnEventServer()
+bool ServerExitRequested()
 {
 	using namespace server;
 
-	auto appPtrReadScope = ConcurrentReadScope(gServerApplication);
-
-	ASSERT(appPtrReadScope.Get());
-
-	appPtrReadScope->OnEvent();
-
-	return !appPtrReadScope->IsExitRequested();
+	return !ConcurrentReadScope(gServerApplication)->IsExitRequested();
 }

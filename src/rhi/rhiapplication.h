@@ -5,9 +5,6 @@
 #include <core/application.h>
 #include <core/capi.h>
 #include <core/inputstate.h>
-#include <core/taskexecutor.h>
-#include <core/upgradablesharedmutex.h>
-
 #include <rhi/rhi.h>
 
 // todo: move to Config.h
@@ -26,13 +23,13 @@ class RHIApplication : public Application
 {	
 public:
 	~RHIApplication() noexcept(false) override;
-
-	void OnEvent() override;
+	
+	virtual bool Main();
 
 	void OnResizeFramebuffer(WindowHandle window, int width, int height);
-
-	void Tick() { InternalTick(); };
-	void Draw() { InternalDraw(); };
+	void OnInputStateChanged(const InputState& input);
+	
+	void Draw();
 
 	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
 
@@ -58,13 +55,8 @@ protected:
 		Environment&& env,
 		CreateWindowFunc createWindowFunc);
 
-	void InternalTick() override;
-
 private:
-	void InternalDraw();
-
 	std::unique_ptr<RHIBase> myRHI;
-	InputState myInput{};
 };
 
 namespace rhiapplication

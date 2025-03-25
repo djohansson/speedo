@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/inputstate.h>
+#include <core/eventhandlers.h>
 #include <rhi/rhiapplication.h>
 
 #include <string_view>
@@ -7,14 +9,16 @@
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
-class Client : public RHIApplication
-{
-	using super_t = RHIApplication;
-	
+class Client : public RHIApplication, public KeyboardEventHandler, public MouseEventHandler
+{	
 public:
 	~Client() noexcept(false) override;
 
-	void OnEvent() override;
+	void OnKeyboard(const KeyboardEvent& keyboard) override;
+	void OnMouse(const MouseEvent& mouse) override;
+	bool Main() override;
+
+	void Tick();
 
 protected:
 	explicit Client() = default;
@@ -24,4 +28,8 @@ private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
 	zmq::active_poller_t myPoller;
+
+	ConcurrentQueue<MouseEvent> myMouseQueue;
+	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
+	InputState myInput{};
 };
