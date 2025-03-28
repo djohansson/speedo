@@ -1014,8 +1014,8 @@ void RHIApplication::Draw()
 									ASSERT(height > 0);
 
 									VkRect2D scissor{};
-									scissor.offset = {x, y};
-									scissor.extent = {width, height};
+									scissor.offset = {.x = x, .y = y};
+									scissor.extent = {.width = width, .height = height};
 
 									vkCmdSetViewport(cmd, 0, 1, &viewport);
 									vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -1165,12 +1165,12 @@ void RHIApplication::Draw()
 		cmd.End();
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{graphicsSemaphore},
-			{VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			{graphicsSubmit.maxTimelineValue},
-			{graphicsSemaphore, newFrame.GetSemaphore()},
-			{++graphicsSemaphoreValue, 0},
-			{std::move(deleteData.tasksOut)}});
+			.waitSemaphores = {graphicsSemaphore},
+			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
+			.waitSemaphoreValues = {graphicsSubmit.maxTimelineValue},
+			.signalSemaphores = {graphicsSemaphore, newFrame.GetSemaphore()},
+			.signalSemaphoreValues = {++graphicsSemaphoreValue, 0},
+			.callbacks = {std::move(deleteData.tasksOut)}});
 
 		computeSubmit = graphicsSubmit = graphicsQueue.Submit();
 		computeQueue.EnqueuePresent(window.PreparePresent(std::move(computeSubmit)));
@@ -1193,14 +1193,14 @@ RHIApplication::RHIApplication(
 	rhi.pipeline->GetResources().black = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{ImageMipLevelDesc<kVk>{Extent2d<kVk>{4, 4}, 16 * 4, 0}},
-			VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_TILING_LINEAR,
-			VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_ASPECT_COLOR_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Black"});
+			.mipLevels = {ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{4, 4}, .size = 16 * 4, .offset = 0}},
+			.format = VK_FORMAT_R8G8B8A8_UNORM,
+			.tiling = VK_IMAGE_TILING_LINEAR,
+			.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+			.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.name = "Black"});
 
 	rhi.pipeline->GetResources().blackImageView = std::make_shared<ImageView<kVk>>(
 		rhi.device, *rhi.pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -1262,10 +1262,10 @@ RHIApplication::RHIApplication(
 			materialTransfersDone,
 			cmd,
 			BufferCreateDesc<kVk>{
-				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"Materials"},
+				.size = SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
+				.usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				.memoryFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				.name = "Materials"},
 			materialData.get());
 		timelineCallbacks.emplace_back(materialTransfersDone.handle);
 
@@ -1282,22 +1282,22 @@ RHIApplication::RHIApplication(
 			modelTransfersDone,
 			cmd,
 			BufferCreateDesc<kVk>{
-				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"ModelInstances"},
+				.size = SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
+				.usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				.memoryFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				.name = "ModelInstances"},
 			modelInstances.get());
 		timelineCallbacks.emplace_back(modelTransfersDone.handle);
 
 		cmd.End();
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			{},
-			{},
-			{},
-			{graphicsSemaphore},
-			{++graphicsSemaphoreValue},
-			std::move(timelineCallbacks)});
+			.waitSemaphores = {},
+			.waitDstStageMasks = {},
+			.waitSemaphoreValues = {},
+			.signalSemaphores = {graphicsSemaphore},
+			.signalSemaphoreValues = {++graphicsSemaphoreValue},
+			.callbacks = std::move(timelineCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
 	}
@@ -1314,12 +1314,12 @@ RHIApplication::RHIApplication(
 		rhi.pipeline->CreateLayout(shaderLoader.Load<kVk>(
 			shaderSourceFile,
 			{
-				SLANG_SOURCE_LANGUAGE_SLANG,
-				SLANG_SPIRV,
-				"SPIRV_1_6",
-				{{"VertexZPrepass", SLANG_STAGE_VERTEX}},
-				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+				.target = SLANG_SPIRV,
+				.targetProfile = "SPIRV_1_6",
+				.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
+				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
 			})));
 
 	rhi.pipeline->BindLayoutAuto(zPrepassShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);
@@ -1343,16 +1343,16 @@ RHIApplication::RHIApplication(
 		rhi.pipeline->CreateLayout(shaderLoader.Load<kVk>(
 			shaderSourceFile,
 			{
-				SLANG_SOURCE_LANGUAGE_SLANG,
-				SLANG_SPIRV,
-				"SPIRV_1_6",
-				{
+				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+				.target = SLANG_SPIRV,
+				.targetProfile = "SPIRV_1_6",
+				.entryPoints = {
 					{"VertexMain", SLANG_STAGE_VERTEX},
 					{"FragmentMain", SLANG_STAGE_FRAGMENT},
 					{"ComputeMain", SLANG_STAGE_COMPUTE},
 				},
-				SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-				SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
 			})));
 
 	rhi.pipeline->BindLayoutAuto(mainShaderLayoutPairIt->second, VK_PIPELINE_BIND_POINT_GRAPHICS);

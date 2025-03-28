@@ -11,11 +11,10 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <tuple>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -28,10 +27,8 @@
 [[nodiscard]] zpp::bits::members<std_extra::member_count<Bounds3f>()> serialize(const Bounds3f&);
 //NOLINTEND(readability-identifier-naming)
 
-namespace model
-{
 
-namespace detail
+namespace model::detail
 {
 
 std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
@@ -112,7 +109,8 @@ Load(
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
-		std::string ibName, vbName;
+		std::string ibName;
+		std::string vbName;
 		ibName = modelFile.filename().string().append("_staging_ib");
 		vbName = modelFile.filename().string().append("_staging_vb");
 		
@@ -201,7 +199,7 @@ Load(
 		std::vector<material_t> materials;
 		std::string warn;
 		std::string err;
-		CHECKF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()), "%s", err.c_str())
+		CHECKF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()), "%s", err)
 
 		progress = 64;
 
@@ -278,7 +276,7 @@ Load(
 				{
 					std::array<float, 2> uvs = {
 						attrib.texcoords[2UL * index.texcoord_index],
-						1.0F - attrib.texcoords[2UL * index.texcoord_index + 1]};
+						1.0F - attrib.texcoords[(2UL * index.texcoord_index) + 1]};
 					std::copy_n(
 						uvs.data(), uvs.size(), &vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, texCoord01)));
 				}
@@ -290,7 +288,7 @@ Load(
 						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, color)));
 
 				uint64_t vertexIndex = vertex.Hash();
-				if (uniqueVertices.count(vertexIndex) == 0)
+				if (!uniqueVertices.contains(vertexIndex))
 				{
 					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.Size() - 1);
 
@@ -308,7 +306,8 @@ Load(
 
 		progress = 128;
 
-		std::string ibName, vbName;
+		std::string ibName;
+		std::string vbName;
 		ibName = modelFile.filename().string().append("_staging_ib");
 		vbName = modelFile.filename().string().append("_staging_vb");
 
@@ -352,7 +351,8 @@ Load(
 		return {};
 	};
 
-	std::string params, paramsHash;
+	std::string params;
+	std::string paramsHash;
 	params.append("tinyobjloader-2.0.15"); // todo: read version from tinyobjloader.h
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
@@ -366,9 +366,7 @@ Load(
 }
 //NOLINTEND(readability-magic-numbers)
 
-} // namespace detail
-
-} // namespace model
+} // namespace model::detail
 
 template <>
 Model<kVk>::Model(
@@ -389,10 +387,10 @@ Model<kVk>::Model(
 			  std::get<0>(initialData),
 			  std::get<1>(initialData),
 			  BufferCreateDesc<kVk>{
-				  std::get<4>(initialData).indexCount * sizeof(uint32_t),
-				  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				  "IndexBuffer"}))
+				  .size = std::get<4>(initialData).indexCount * sizeof(uint32_t),
+				  .usageFlags = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+				  .memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				  .name = "IndexBuffer"}))
 	, myVertexBuffer(
 		  device,
 		  timelineCallbacksOut[1],
@@ -401,10 +399,10 @@ Model<kVk>::Model(
 			  std::get<2>(initialData),
 			  std::get<3>(initialData),
 			  BufferCreateDesc<kVk>{
-				  std::get<4>(initialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
-				  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				  "VertexBuffer"}))
+				  .size = std::get<4>(initialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
+				  .usageFlags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				  .memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				  .name = "VertexBuffer"}))
 	, myBindings(model::detail::CalculateInputBindingDescriptions(std::get<4>(initialData).attributes))
 	, myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<4>(initialData)))
 {}
@@ -453,7 +451,7 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 		progress);
 
  	// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
-	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([oldModel] {});
+	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([model = std::move(oldModel)] {});
 
 	std::vector<TaskHandle> timelineCallbacks;
 	timelineCallbacks.emplace_back(transfersDone[0].handle);
@@ -461,12 +459,12 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 	timelineCallbacks.emplace_back(oldModelDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
-		{transferSemaphore},
-		{++transferSemaphoreValue},
-		std::move(timelineCallbacks)});
+		.waitSemaphores = {transferSemaphore},
+		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
+		.waitSemaphoreValues = {transferSubmit.maxTimelineValue},
+		.signalSemaphores = {transferSemaphore},
+		.signalSemaphoreValues = {++transferSemaphoreValue},
+		.callbacks = std::move(timelineCallbacks)});
 
 	transferSubmit = transferQueue.Submit();
 

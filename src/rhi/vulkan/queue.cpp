@@ -115,7 +115,7 @@ Queue<kVk>::~Queue()
 	ZoneScopedN("Queue::~Queue()");
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-	if (myProfilingContext)
+	if (myProfilingContext != nullptr)
 		DestroyVkContext(static_cast<TracyVkCtx>(myProfilingContext));
 #endif
 
@@ -159,7 +159,7 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 template <>
 void Queue<kVk>::GpuScopeCollect(CommandBufferHandle<kVk> cmd)
 {
-	if (myProfilingContext)
+	if (myProfilingContext != nullptr)
 		TracyVkCollect(static_cast<TracyVkCtx>(myProfilingContext), cmd);
 }
 
@@ -174,7 +174,7 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 	// static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	// static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
-	if (myProfilingContext)
+	if (myProfilingContext != nullptr)
 	{
 		return std::make_shared<tracy::VkCtxScope>(
 			static_cast<TracyVkCtx>(myProfilingContext),
@@ -218,7 +218,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 
 		maxTimelineValue = std::max<uint64_t>(maxTimelineValue, pendingSubmit.timelineValue);
 
-		myTimelineCallbacks.enqueue(std::make_tuple(std::move(pendingSubmit.callbacks), maxTimelineValue));
+		myTimelineCallbacks.enqueue(std::make_tuple(pendingSubmit.callbacks, maxTimelineValue));
 	}
 
 	auto* submitBegin = reinterpret_cast<SubmitInfo<kVk>*>(timelinePtr);
@@ -240,7 +240,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueHostSyncInfo<kVk> syncInfo{{}, maxTimelineValue};
+	QueueHostSyncInfo<kVk> syncInfo{.fences = {}, .maxTimelineValue = maxTimelineValue};
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 

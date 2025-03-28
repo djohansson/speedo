@@ -1,10 +1,8 @@
-#include "../command.h"
 #include "../frame.h"
 #include "../rendertarget.h"
 
 #include "utils.h"
 
-#include <format>
 #include <string_view>
 
 template <>

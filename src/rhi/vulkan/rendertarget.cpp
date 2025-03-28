@@ -352,7 +352,7 @@ void RenderTarget<kVk>::Blit(
 
 	VkImageBlit imageBlit{};
 	imageBlit.srcSubresource = srcSubresource;
-	imageBlit.srcOffsets[1] = { static_cast<int32_t>(srcDesc.extent.width), static_cast<int32_t>(srcDesc.extent.height), 1 };
+	imageBlit.srcOffsets[1] = { .x = static_cast<int32_t>(srcDesc.extent.width), .y = static_cast<int32_t>(srcDesc.extent.height), .z = 1 };
 	imageBlit.dstSubresource = dstSubresource;
 	imageBlit.dstOffsets[1] = { .x = static_cast<int32_t>(GetRenderTargetDesc().extent.width), .y = static_cast<int32_t>(GetRenderTargetDesc().extent.height), .z = 1 };
 
@@ -397,10 +397,10 @@ void RenderTarget<kVk>::Copy(
 
 	VkImageCopy imageCopy{};
 	imageCopy.srcSubresource = srcSubresource;
-	imageCopy.srcOffset = { 0, 0, 0 };
+	imageCopy.srcOffset = { .x = 0, .y = 0, .z = 0 };
 	imageCopy.dstSubresource = dstSubresource;
-	imageCopy.dstOffset = { 0, 0, 0 };
-	imageCopy.extent = { srcDesc.extent.width, srcDesc.extent.height, 1 };
+	imageCopy.dstOffset = { .x = 0, .y = 0, .z = 0 };
+	imageCopy.extent = { .width = srcDesc.extent.width, .height = srcDesc.extent.height, .depth = 1 };
 
 	VkImageAspectFlags aspectFlags{};
 	if (HasColorComponent(GetRenderTargetDesc().imageFormats[srcIndex]))

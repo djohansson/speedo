@@ -205,33 +205,33 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = graphicsQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
+				auto& [queue, syncInfo] = graphicsQueueInfosWriteScope->emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 1, true},
-					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
+					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 1, .supportsProfiling = 1},
+					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
 		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = computeQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
+				auto& [queue, syncInfo] = computeQueueInfosWriteScope->emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, true},
-					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
+					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 0, .supportsProfiling = 1},
+					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
 		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = transferQueueInfosWriteScope->emplace_back(QueueContext<kVk>{});
+				auto& [queue, syncInfo] = transferQueueInfosWriteScope->emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{cmdPoolCreateFlags, queueFamilyIt, 0, false},
-					QueueCreateDesc<kVk>{queueIt, queueFamilyIt});
+					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 0, .supportsProfiling = 0},
+					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
 	}
@@ -265,11 +265,11 @@ Window<kVk> CreateRHIWindow(
 	typename Window<kVk>::ConfigFile&& windowConfig,
 	WindowState&& windowState)
 {
-	return Window<kVk>(
+	return {
 		device,
 		std::forward<SurfaceHandle<kVk>>(surface),
 		std::forward<Window<kVk>::ConfigFile>(windowConfig),
-		std::forward<WindowState>(windowState));
+		std::forward<WindowState>(windowState)};
 }
 
 std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>& device)
@@ -306,33 +306,33 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 		auto colorImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{window.GetConfig().swapchainConfig.extent}},
-			window.GetConfig().swapchainConfig.surfaceFormat.format,
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_ASPECT_COLOR_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Main RT Color"});
+			.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
+			.format = window.GetConfig().swapchainConfig.surfaceFormat.format,
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
+			.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,
+			.name = "Main RT Color"});
 
 	auto depthStencilImage = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			{{window.GetConfig().swapchainConfig.extent}},
-			FindSupportedFormat(
+			.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
+			.format = FindSupportedFormat(
 				rhi.device->GetPhysicalDevice(),
 				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
 					VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
-			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			"Main RT DepthStencil"});
+			.tiling = VK_IMAGE_TILING_OPTIMAL,
+			.usageFlags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			.imageAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+			.name = "Main RT DepthStencil"});
 
-		rhi.renderImageSets.emplace_back(RenderImageSet<kVk>(rhi.device, std::vector{colorImage, depthStencilImage}));
+		rhi.renderImageSets.emplace_back(rhi.device, std::vector{colorImage, depthStencilImage});
 	}
 }
 

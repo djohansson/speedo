@@ -223,14 +223,14 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 		myFrames.emplace_back(
 			InternalGetDevice(),
 			FrameCreateDesc<kVk>{
-				{config.extent,
-				 {config.surfaceFormat.format},
-				 {VK_IMAGE_LAYOUT_UNDEFINED},
-				 {VK_IMAGE_ASPECT_COLOR_BIT},
-				 {colorImages[frameIt]},
-				 {ClearValue<kVk>{}},
-				 1,
-				 config.useDynamicRendering},
+				{.extent = config.extent,
+				 .imageFormats = {config.surfaceFormat.format},
+				 .imageLayouts = {VK_IMAGE_LAYOUT_UNDEFINED},
+				 .imageAspectFlags = {VK_IMAGE_ASPECT_COLOR_BIT},
+				 .images = {colorImages[frameIt]},
+				 .clearValues = {ClearValue<kVk>{}},
+				 .layerCount = 1,
+				 .useDynamicRendering = config.useDynamicRendering},
 				frameIt});
 
 	myFrameIndex.store(frameCount - 1);
