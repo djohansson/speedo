@@ -12,10 +12,7 @@
 #	include <sdkddkver.h>
 #endif
 
-#include <algorithm>
 #include <memory>
-#include <shared_mutex>
-#include <span>
 #include <string>
 #include <string_view>
 
