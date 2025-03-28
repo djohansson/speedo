@@ -129,7 +129,6 @@ public:
 
 	void Execute(uint8_t level, uint64_t timelineValue);
 
-	void Wait(QueueHostSyncInfo<G>&& syncInfo) const;
 	void WaitIdle() const;
 	
 	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue);
