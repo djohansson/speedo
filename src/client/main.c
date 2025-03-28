@@ -61,12 +61,11 @@ static void OnSignal(int signal)
 		break;
 	}
 
-#if !defined(__WINDOWS__)
-	fprintf(stderr, "Unhandled signal: %s\n", strsignal(signal));
+#if defined(__WINDOWS__)
+	LOG_ERROR("Unhandled signal\n");
+#else
+	LOG_ERROR("Unhandled signal: %s\n", strsignal(signal));
 #endif
-
-	ctrace_stacktrace trace = ctrace_generate_trace(0, 64);
-	ctrace_print_stacktrace(&trace, stderr, 1);
 }
 
 static void OnError(int error, const char* description)
