@@ -354,7 +354,7 @@ void RenderTarget<kVk>::Blit(
 	imageBlit.srcSubresource = srcSubresource;
 	imageBlit.srcOffsets[1] = { static_cast<int32_t>(srcDesc.extent.width), static_cast<int32_t>(srcDesc.extent.height), 1 };
 	imageBlit.dstSubresource = dstSubresource;
-	imageBlit.dstOffsets[1] = { static_cast<int32_t>(srcDesc.extent.width), static_cast<int32_t>(srcDesc.extent.height), 1 };
+	imageBlit.dstOffsets[1] = { .x = static_cast<int32_t>(GetRenderTargetDesc().extent.width), .y = static_cast<int32_t>(GetRenderTargetDesc().extent.height), .z = 1 };
 
 	VkImageAspectFlags aspectFlags{};
 	if (HasColorComponent(GetRenderTargetDesc().imageFormats[srcIndex]))
