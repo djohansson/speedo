@@ -92,9 +92,9 @@ struct QueueCreateDesc
 
 struct SourceLocationData
 {
-	const char* name{};
-	const char* function{};
-	const char* file{};
+	const char* name = nullptr;
+	const char* function = nullptr;
+	const char* file = nullptr;
 	uint32_t line = 0UL;
 	uint32_t color = 0UL;
 };
@@ -176,18 +176,13 @@ template <GraphicsApi G>
 using QueueTimelineContext = std::tuple<Semaphore<G>, CopyableAtomic<uint64_t>, ConcurrentAccess<std::vector<QueueContext<G>>>>;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-#	define GPU_SCOPE(cmd, queue, tag)                                                             \
-		auto tag##__scope =                                                                        \
-			(queue)                                                                                \
-				.GpuScope<SourceLocationData{                                                      \
-					.name = std_extra::make_string_literal<#tag>().data(),                         \
-					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(),      \
-					.file = std_extra::make_string_literal<__FILE__>().data(),                     \
-					.line = __LINE__}>(cmd);
-#	define GPU_SCOPE_COLLECT(cmd, queue)                                                          \
-		{                                                                                          \
-			(queue).GpuScopeCollect(cmd);                                                          \
-		}
+#	define GPU_SCOPE(cmd, queue, tag) \
+		auto tag##__scope = (queue).GpuScope<SourceLocationData{ \
+					.name = std_extra::make_string_literal<#tag>().data(), \
+					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(), \
+					.file = std_extra::make_string_literal<__FILE__>().data(), \
+					.line = __LINE__}>(cmd)
+#	define GPU_SCOPE_COLLECT(cmd, queue) (queue).GpuScopeCollect(cmd)
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}
 #	define GPU_SCOPE_COLLECT(cmd, queue) {}
