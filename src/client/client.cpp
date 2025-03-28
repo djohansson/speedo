@@ -230,7 +230,7 @@ void Client::Tick()
 		else if (keyboard.action == GLFW_RELEASE)
 			input.keyboard.keysDown[keyboard.key] = false;
 
-		io.AddKeyEvent(static_cast<ImGuiKey>(keyboard.key), static_cast<ImGuiKey>(keyboard.action));
+		//io.AddKeyEvent(static_cast<ImGuiKey>(keyboard.key), static_cast<ImGuiKey>(keyboard.action));
 	}
 
 	RHIApplication::OnInputStateChanged(input);
