@@ -67,12 +67,12 @@ void Fence<kVk>::Wait(bool waitAll, uint64_t timeout) const
 
 template <>
 void Fence<kVk>::Wait(
-	const std::shared_ptr<Device<kVk>>& device,
-	std::span<FenceHandle<kVk>> fences,
+	DeviceHandle<kVk> device,
+	std::span<const FenceHandle<kVk>> fences,
 	bool waitAll,
 	uint64_t timeout)
 {
 	ZoneScopedN("Fence::wait");
 
-	VK_CHECK(vkWaitForFences(*device, static_cast<uint32_t>(fences.size()), fences.data(), waitAll, timeout));
+	VK_CHECK(vkWaitForFences(device, static_cast<uint32_t>(fences.size()), fences.data(), waitAll, timeout));
 }
