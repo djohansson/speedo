@@ -1,10 +1,14 @@
 template <GraphicsApi G>
-QueueHostSyncInfo<G>& QueueHostSyncInfo<G>::operator|=(QueueHostSyncInfo<G>&& other)
+QueueSyncInfo<G>& QueueSyncInfo<G>::operator|=(QueueSyncInfo<G>&& other)
 {
 	fences.insert(
 		fences.end(),
 		std::make_move_iterator(other.fences.begin()),
 		std::make_move_iterator(other.fences.end()));
+	semaphores.insert(
+		semaphores.end(),
+		std::make_move_iterator(other.semaphores.begin()),
+		std::make_move_iterator(other.semaphores.end()));
 	maxTimelineValue = std::max(maxTimelineValue, other.maxTimelineValue);
 
 	return *this;
@@ -13,10 +17,6 @@ QueueHostSyncInfo<G>& QueueHostSyncInfo<G>::operator|=(QueueHostSyncInfo<G>&& ot
 template <GraphicsApi G>
 QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other)
 {
-	waitSemaphores.insert(
-		waitSemaphores.end(),
-		std::make_move_iterator(other.waitSemaphores.begin()),
-		std::make_move_iterator(other.waitSemaphores.end()));
 	swapchains.insert(
 		swapchains.end(),
 		std::make_move_iterator(other.swapchains.begin()),
@@ -30,15 +30,15 @@ QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other
 		std::make_move_iterator(other.results.begin()),
 		std::make_move_iterator(other.results.end()));
 	
-	QueueHostSyncInfo<G>::operator|=(std::move(other));
+	QueueSyncInfo<G>::operator|=(std::move(other));
 	
 	return *this;
 }
 
 template <GraphicsApi G>
-QueueHostSyncInfo<G> operator|(QueueHostSyncInfo<G>&& lhs, QueueHostSyncInfo<G>&& rhs)
+QueueSyncInfo<G> operator|(QueueSyncInfo<G>&& lhs, QueueSyncInfo<G>&& rhs)
 {
-	return std::forward<QueueHostSyncInfo<G>>(lhs |= std::forward<QueueHostSyncInfo<G>>(rhs));
+	return std::forward<QueueSyncInfo<G>>(lhs |= std::forward<QueueSyncInfo<G>>(rhs));
 }
 
 template <GraphicsApi G>

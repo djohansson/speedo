@@ -35,7 +35,7 @@ public:
 
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index) final;
 	
-	[[nodiscard]] QueuePresentInfo<G> PreparePresent(QueueHostSyncInfo<kVk>&& hostSyncInfo);
+	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
 
 	[[nodiscard]] auto& GetFence() noexcept { return myFence; }
 	[[nodiscard]] const auto& GetFence() const noexcept { return myFence; }

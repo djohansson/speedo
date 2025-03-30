@@ -42,7 +42,7 @@ Frame<kVk>::Frame(
 	const std::shared_ptr<Device<kVk>>& device, FrameCreateDesc<kVk>&& desc)
 	: BaseType(device, std::forward<FrameCreateDesc<kVk>>(desc))
 	, myFence(device, FenceCreateDesc<kVk>{})
-	, mySemaphore(device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_BINARY})
+	, mySemaphore(device, SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY})
 	, myImageLayout(VK_IMAGE_LAYOUT_UNDEFINED)
 {}
 
@@ -107,14 +107,7 @@ void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 }
 
 template <>
-QueuePresentInfo<kVk> Frame<kVk>::PreparePresent(QueueHostSyncInfo<kVk>&& hostSyncInfo)
+QueuePresentInfo<kVk> Frame<kVk>::PreparePresent()
 {
-	hostSyncInfo.fences.push_back(myFence);
-
-	return QueuePresentInfo<kVk>{
-		{std::forward<QueueHostSyncInfo<kVk>>(hostSyncInfo)},
-		{mySemaphore},
-		{},
-		{GetDesc().index},
-		{}};
+	return QueuePresentInfo<kVk>{{{}, {mySemaphore}}, {}, {GetDesc().index}, {}};
 }

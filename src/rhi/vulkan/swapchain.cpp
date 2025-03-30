@@ -109,44 +109,48 @@ void Swapchain<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index, 
 }
 
 template <>
-FlipResult Swapchain<kVk>::Flip()
+FlipResult<kVk> Swapchain<kVk>::Flip()
 {
 	ZoneScoped;
-
-	auto& device = *InternalGetDevice();
 
 	auto lastFrameIndex = myFrameIndex;
 	
 	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{});
+	Semaphore<kVk> semaphore(InternalGetDevice(), SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
 
 	auto frameIndex = myFrameIndex.load();
 	auto flipResult = CheckFlipOrPresentResult(vkAcquireNextImageKHR(
-		device,
+		*InternalGetDevice(),
 		mySwapchain,
 		UINT64_MAX,
-		VK_NULL_HANDLE,
+		semaphore,
 		fence,
 		&frameIndex));
 	myFrameIndex.store(frameIndex);
 
+	auto& lastFrame = myFrames[lastFrameIndex];
 	auto& newFrame = myFrames[myFrameIndex];
 
 	newFrame.GetFence().Swap(fence);
+	lastFrame.GetSemaphore().Swap(semaphore);
 
 	auto zoneNameStr =
 		std::format("Swapchain::flip frame:{0}", flipResult == VK_SUCCESS ? myFrameIndex : ~0U);
 
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
-	return std::make_tuple(flipResult == VK_SUCCESS, lastFrameIndex, myFrameIndex);
+	return FlipResult<kVk>{
+		.lastFrameIndex = lastFrameIndex,
+		.newFrameIndex = myFrameIndex,
+		.succeess = flipResult == VK_SUCCESS};
 }
 
 template <>
-QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent(QueueHostSyncInfo<kVk>&& hostSyncInfo)
+QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent()
 {
 	ZoneScopedN("Swapchain::PreparePresent");
 
-	auto presentInfo = myFrames[myFrameIndex].PreparePresent(std::forward<QueueHostSyncInfo<kVk>>(hostSyncInfo));
+	auto presentInfo = myFrames[myFrameIndex].PreparePresent();
 	
 	presentInfo.swapchains.push_back(mySwapchain);
 
@@ -253,7 +257,7 @@ Swapchain<kVk>::Swapchain(
 	SurfaceHandle<kVk>&& surface,
 	SwapchainHandle<kVk> previous)
 	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
-	, myDesc{config.extent} // more?
+	, myDesc{.extent = config.extent} // more?
 	, mySurface(std::forward<SurfaceHandle<kVk>>(surface))
 {
 	ZoneScopedN("Swapchain()");

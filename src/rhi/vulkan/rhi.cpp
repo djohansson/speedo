@@ -244,7 +244,7 @@ void CreateQueues(RHI<kVk>& rhi)
 
 		computeQueueInfosWriteScope->emplace_back(std::make_pair(
 			std::move(graphicsQueueInfosWriteScope->back().first),
-			QueueHostSyncInfo<kVk>{}));
+			QueueSyncInfo<kVk>{}));
 		graphicsQueueInfosWriteScope->pop_back();
 	}
 
@@ -254,7 +254,7 @@ void CreateQueues(RHI<kVk>& rhi)
 
 		transferQueueInfosWriteScope->emplace_back(std::make_pair(
 			std::move(graphicsQueueInfosWriteScope->back().first),
-			QueueHostSyncInfo<kVk>{}));
+			QueueSyncInfo<kVk>{}));
 		graphicsQueueInfosWriteScope->pop_back();
 	}
 }

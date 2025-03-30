@@ -188,7 +188,7 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 #endif
 
 template <>
-QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
+QueueSyncInfo<kVk> Queue<kVk>::Submit()
 {
 	ZoneScopedN("Queue::submit");
 
@@ -240,7 +240,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueHostSyncInfo<kVk> syncInfo{.fences = {}, .maxTimelineValue = maxTimelineValue};
+	QueueSyncInfo<kVk> syncInfo{.fences = {}, .maxTimelineValue = maxTimelineValue};
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
@@ -265,11 +265,9 @@ QueuePresentInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::present");
 
-	Fence<kVk>::Wait(InternalGetDevice(), myPendingPresent.fences);
-
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
-	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
+	presentInfo.waitSemaphoreCount = myPendingPresent.semaphores.size();
+	presentInfo.pWaitSemaphores = myPendingPresent.semaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentInfo.pSwapchains = myPendingPresent.swapchains.data();
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
@@ -277,7 +275,7 @@ QueuePresentInfo<kVk> Queue<kVk>::Present()
 
 	CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
-	return std::move(myPendingPresent);
+	return std::exchange(myPendingPresent, {});
 }
 
 template <>
