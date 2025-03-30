@@ -1115,31 +1115,31 @@ void RHIApplication::Draw()
 
 		// 	vkCmdDispatch(cmd, 8, 8, 1);
 		// }
-		{
-			GPU_SCOPE(cmd, graphicsQueue, copy);
-
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-			window.Copy(
-				cmd,
-				renderImageSet,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0);
-		}
 		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
+		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
 
 		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-		// 	window.Blit(
+		// 	window.Copy(
 		// 		cmd,
 		// 		renderImageSet,
 		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
 		// 		0,
 		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		// 		0,
-		// 		VK_FILTER_NEAREST);
+		// 		0);
 		// }
+		{
+			GPU_SCOPE(cmd, graphicsQueue, blit);
+
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			window.Blit(
+				cmd,
+				renderImageSet,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0,
+				VK_FILTER_NEAREST);
+		}
 		IMGUIDeleteBufferData deleteData{};
 		{
 			//GetExecutor().Join(std::move(IMGUIPrepareDraw.future));
