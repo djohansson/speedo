@@ -105,3 +105,22 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 
 	return true;
 }
+
+template <>
+void Semaphore<kVk>::Wait(
+	DeviceHandle<kVk> device,
+	std::span<const SemaphoreHandle<kVk>> semaphores,
+	std::span<const uint64_t> semaphoreValues,
+	uint64_t timeout)
+{
+	ZoneScopedN("Semaphore::wait");
+
+	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+	waitInfo.flags = {};
+	waitInfo.semaphoreCount = semaphores.size();
+	waitInfo.pSemaphores = semaphores.data();
+	waitInfo.pValues = semaphoreValues.data();
+
+	VK_CHECK(vkWaitSemaphores(device, &waitInfo, timeout));
+}
+

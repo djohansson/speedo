@@ -5,6 +5,7 @@
 
 #include <memory>
 #include <span>
+#include <utility>
 
 template <GraphicsApi G>
 struct SemaphoreCreateDesc
@@ -34,6 +35,11 @@ public:
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	[[maybe_unused]] bool Wait(uint64_t timelineValue = 0, uint64_t timeout = ~0ULL) const;
+	static void Wait(
+		DeviceHandle<G> device,
+		std::span<const SemaphoreHandle<G>> semaphores,
+		std::span<const uint64_t> semaphoreValues,
+		uint64_t timeout = ~0ULL);
 
 private:
 	Semaphore(
