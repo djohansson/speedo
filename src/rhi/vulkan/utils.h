@@ -15,16 +15,21 @@
 #include <vector>
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-#	define VK_CHECK(expr)                                                                         \
-		do                                                                                         \
-		{                                                                                          \
-			VkResult __result = (expr);                                                            \
-			CHECKF(                                                                               \
-				__result == VK_SUCCESS,                                                            \
-				"'%s' failed with %s",                                                             \
-				#expr,                                                                             \
-				string_VkResult(__result));                                                        \
-		} while (0)
+#ifdef __cplusplus
+#	define VK_CHECK(A) \
+	if (!(A == VK_SUCCESS)) \
+	{ \
+		LOG_ERROR("{} failed with {}", #A, string_VkResult(A)); \
+		TRAP(); \
+	}
+#else
+#	define VK_CHECK(A) \
+	if (!(A == VK_SUCCESS)) \
+	{ \
+		LOG_ERROR("%s failed with %s", #A, string_VkResult(A)); \
+		TRAP(); \
+	}
+#endif
 #else
 #	define VK_CHECK(expr) static_cast<void>(expr);
 #endif
