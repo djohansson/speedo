@@ -1125,8 +1125,6 @@ void RHIApplication::Draw()
 		}
 		IMGUIDeleteBufferData deleteData{};
 		{
-			//GetExecutor().Join(std::move(IMGUIPrepareDraw.future));
-
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
 			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
