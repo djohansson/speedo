@@ -620,12 +620,12 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	transferTimelineCallbacks.emplace_back(oldImageDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{},
-		{},
-		{},
-		{transferSemaphore},
-		{++transferSemaphoreValue},
-		std::move(transferTimelineCallbacks)});
+		.waitSemaphores = {},
+		.waitDstStageMasks = {},
+		.waitSemaphoreValues = {},
+		.signalSemaphores = {transferSemaphore},
+		.signalSemaphoreValues = {++transferSemaphoreValue},
+		.callbacks = std::move(transferTimelineCallbacks)});
 
 	transferSubmit = transferQueue.Submit();
 
@@ -656,12 +656,12 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	transitionTimelineCallbacks.emplace_back(setDescriptorTask);
 	
 	computeQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		{transferSemaphore},
-		{VK_PIPELINE_STAGE_TRANSFER_BIT},
-		{transferSubmit.maxTimelineValue},
-		{computeSemaphore},
-		{++computeSemaphoreValue},
-		std::move(transitionTimelineCallbacks)});
+		.waitSemaphores = {transferSemaphore},
+		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
+		.waitSemaphoreValues = {transferSubmit.maxTimelineValue},
+		.signalSemaphores = {computeSemaphore},
+		.signalSemaphoreValues = {++computeSemaphoreValue},
+		.callbacks = std::move(transitionTimelineCallbacks)});
 
 	computeSubmit = computeQueue.Submit();
 
