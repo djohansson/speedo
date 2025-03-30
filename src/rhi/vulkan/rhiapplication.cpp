@@ -819,26 +819,15 @@ void RHIApplication::Draw()
 		for (auto& [transferQueue, transferSubmit] : *transferQueueInfosWriteScope)	
 			transferQueue.SubmitCallbacks(GetExecutor(), transferSemaphore.GetValue());
 	}
-
-	static uint8_t gComputeQueueIndex = 0;
-
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
-	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
-	auto computeQueueIndex = gComputeQueueIndex++ % computeQueueInfosWriteScope->size();
-	auto& [computeQueue, computeSubmit] = (*computeQueueInfosWriteScope)[computeQueueIndex];
-
-	{
-		ZoneScopedN("RHIApplication::Draw::waitCompute");
-
-		computeQueue.WaitIdle();
-		computeQueue.GetPool().Reset();
-	}
 	
-	auto [lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
+	auto [oldSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
 
 	if (flipSuccess)
 	{
 		ZoneScopedN("RHIApplication::Draw::submit");
+
+		auto& lastFrame = window.GetFrames()[lastFrameIndex];
+		auto& newFrame = window.GetFrames()[newFrameIndex];
 
 		static uint8_t gGraphicsQueueIndex = 0;
 
@@ -848,9 +837,6 @@ void RHIApplication::Draw()
 		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[graphicsQueueIndex];
 		
 		graphicsQueue.GetPool().Reset();
-		
-		auto& lastFrame = window.GetFrames()[lastFrameIndex];
-		auto& newFrame = window.GetFrames()[newFrameIndex];
 
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
@@ -1170,10 +1156,25 @@ void RHIApplication::Draw()
 			.callbacks = std::move(deleteData.tasksOut)});
 
 		graphicsSubmit = graphicsQueue.Submit();
-
-		computeQueue.EnqueuePresent(window.PreparePresent());
-		computeSubmit = computeQueue.Present();
 	}
+
+	static uint8_t gComputeQueueIndex = 0;
+
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
+	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
+	auto computeQueueIndex = gComputeQueueIndex++ % computeQueueInfosWriteScope->size();
+	auto& [computeQueue, computeSubmit] = (*computeQueueInfosWriteScope)[computeQueueIndex];
+
+	{
+		ZoneScopedN("RHIApplication::Draw::waitCompute");
+
+		// wait for previous compute + present to finish
+		computeQueue.WaitIdle();
+		computeQueue.GetPool().Reset();
+	}
+
+	computeQueue.EnqueuePresent(window.PreparePresent());
+	computeSubmit = computeQueue.Present();
 }
 
 RHIApplication::RHIApplication(
@@ -1413,11 +1414,6 @@ RHIApplication::~RHIApplication() noexcept(false)
 	}
 
 	ShutdownImgui();
-
-	myRHI.reset();
-
-	ASSERT(rhi.device.use_count() == 1);
-	ASSERT(rhi.instance.use_count() == 2);
 }
 
 void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)

@@ -140,6 +140,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
 	return FlipResult<kVk>{
+		.oldSemaphore = std::move(semaphore),
 		.lastFrameIndex = lastFrameIndex,
 		.newFrameIndex = myFrameIndex,
 		.succeess = flipResult == VK_SUCCESS};
