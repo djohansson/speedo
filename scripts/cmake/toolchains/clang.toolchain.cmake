@@ -89,7 +89,7 @@ set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
 set(COMPILE_FLAGS "-g")
-set(COMPILE_FLAGS_DEBUG "-O0 -fno-omit-frame-pointer")
+set(COMPILE_FLAGS_DEBUG "-Og -fno-omit-frame-pointer -fno-inline-functions")
 set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
