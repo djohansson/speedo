@@ -410,9 +410,9 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 				OpenFileDialogueAsync((resourcePath / "models").string(), filterList,
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-						CHECK(app);
+						ENSURE(app);
 						auto& pipeline = app->GetRHI<kVk>().pipeline;
-						CHECK(pipeline);
+						ENSURE(pipeline);
 						auto& resources = pipeline->GetResources();
 						
 						auto model = std::make_shared<Model<kVk>>(model::LoadModel(filePath, progressOut, std::atomic_load(&resources.model)));
@@ -435,9 +435,9 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, 
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-						CHECK(app);
+						ENSURE(app);
 						auto& pipeline = app->GetRHI<kVk>().pipeline;
-						CHECK(pipeline);
+						ENSURE(pipeline);
 						auto& resources = pipeline->GetResources();
 						auto [newImage, newImageView] = image::LoadImage(
 							filePath,
@@ -669,7 +669,7 @@ static void IMGUIInit(
 	// this needs to be set to the queue count accordingly.
 	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.device->GetInstance()->GetHostAllocationCallbacks();
-	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
+	initInfo.CheckVkResultFn = [](VkResult result) { VK_ENSURE(result); };
 	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
 	initInfo.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetPassHandle<kVk>>(window.GetFrames()[0]).first;
 	initInfo.PipelineRenderingCreateInfo = VkPipelineRenderingCreateInfoKHR{

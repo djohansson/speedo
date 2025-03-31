@@ -30,7 +30,7 @@ SamplerVector<kVk>::SamplerVector(
 			for (const auto& createInfo : createInfos)
 			{
 				SamplerHandle<kVk> outSampler;
-				VK_CHECK(vkCreateSampler(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outSampler));
+				VK_ENSURE(vkCreateSampler(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outSampler));
 
 				outSamplers.emplace_back(std::move(outSampler));
 			}

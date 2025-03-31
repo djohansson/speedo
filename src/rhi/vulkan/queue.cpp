@@ -244,7 +244,7 @@ QueueSyncInfo<kVk> Queue<kVk>::Submit()
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
-		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, VK_NULL_HANDLE));
+		VK_ENSURE(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, VK_NULL_HANDLE));
 	}
 
 	myPendingSubmits.clear();
@@ -257,7 +257,7 @@ void Queue<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Queue::waitIdle");
 
-	VK_CHECK(vkQueueWaitIdle(myQueue));
+	VK_ENSURE(vkQueueWaitIdle(myQueue));
 }
 
 template <>

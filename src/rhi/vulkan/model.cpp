@@ -122,7 +122,7 @@ Load(
 			ibName.data());
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
 		auto ibResult = inStream(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
 		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 		if (failure(ibResult))
@@ -141,7 +141,7 @@ Load(
 			vbName.data());
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
 		auto vbResult = inStream(
 			std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
@@ -166,14 +166,14 @@ Load(
 			return std::make_error_code(result);
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), ibMemHandle, &ibData));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), ibMemHandle, &ibData));
 		auto ibResult = out(std::span(static_cast<const char*>(ibData), desc.indexCount * sizeof(uint32_t)));
 		vmaUnmapMemory(device->GetAllocator(), ibMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
 		auto vbResult = out(std::span(
 			static_cast<const char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), vbMemHandle);
@@ -199,7 +199,7 @@ Load(
 		std::vector<material_t> materials;
 		std::string warn;
 		std::string err;
-		CHECKF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()), "%s", err)
+		ENSUREF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()), "%s", err)
 
 		progress = 64;
 
@@ -322,7 +322,7 @@ Load(
 			ibName.data());
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
 		memcpy(ibData, indices.data(), desc.indexCount * sizeof(uint32_t));
 		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 
@@ -339,7 +339,7 @@ Load(
 			vbName.data());
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
 		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 
@@ -360,7 +360,7 @@ Load(
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
 	auto loadResult = file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash);
 
-	CHECKF(loadResult && vbHandle != nullptr && ibHandle != nullptr, "Failed to load model.");
+	ENSUREF(loadResult && vbHandle != nullptr && ibHandle != nullptr, "Failed to load model.");
 
 	return initialData;
 }
@@ -435,7 +435,7 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 	ZoneScopedN("model::LoadModel");
 
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-	CHECK(app);
+	ENSURE(app);
 	auto& rhi = app->GetRHI<kVk>();
 	
 	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];

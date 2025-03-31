@@ -72,7 +72,7 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 		(static_cast<unsigned int>(!cacheData.empty()) != 0U) ? cacheData.data() : nullptr;
 
 	PipelineCacheHandle<kVk> cache;
-	VK_CHECK(vkCreatePipelineCache(
+	VK_ENSURE(vkCreatePipelineCache(
 		*device,
 		&createInfo,
 		&device->GetInstance()->GetHostAllocationCallbacks(),
@@ -86,11 +86,11 @@ GetPipelineCacheData(DeviceHandle<kVk> device, PipelineCacheHandle<kVk> pipeline
 {
 	std::vector<char> cacheData;
 	size_t cacheDataSize = 0;
-	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
+	VK_ENSURE(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
 	if (cacheDataSize != 0U)
 	{
 		cacheData.resize(cacheDataSize);
-		VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
+		VK_ENSURE(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
 	}
 
 	return cacheData;
@@ -197,7 +197,7 @@ PipelineLayout<kVk>::PipelineLayout(
 			  pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 
 			  VkPipelineLayout layout;
-			  VK_CHECK(vkCreatePipelineLayout(
+			  VK_ENSURE(vkCreatePipelineLayout(
 				  *device,
 				  &pipelineLayoutInfo,
 				  &device->GetInstance()->GetHostAllocationCallbacks(),
@@ -263,7 +263,7 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 	ASSERT(result != XXH_ERROR);
 
 	auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	auto layoutHandle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
 	//result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
@@ -285,7 +285,7 @@ template <>
 void Pipeline<kVk>::InternalPrepareDescriptorSets()
 {
 	const auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 
 	for (const auto& [set, setLayout] : layout.GetDescriptorSetLayouts())
@@ -466,7 +466,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
 	const auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -489,7 +489,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
-	VK_CHECK(vkCreateGraphicsPipelines(
+	VK_ENSURE(vkCreateGraphicsPipelines(
 		*InternalGetDevice(),
 		myCache,
 		1,
@@ -516,7 +516,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	ZoneScopedN("Pipeline::InternalCreateComputePipeline");
 
 	const auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 
 	VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, nullptr, 0};
@@ -526,7 +526,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
-	VK_CHECK(vkCreateComputePipelines(
+	VK_ENSURE(vkCreateComputePipelines(
 		*InternalGetDevice(),
 		myCache,
 		1,
@@ -628,7 +628,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 {
 	myBindPoint = bindPoint;
 	myCurrentLayoutIt = myLayouts.find(layoutHandle);
-	CHECK(myCurrentLayoutIt != myLayouts.end());
+	ENSURE(myCurrentLayoutIt != myLayouts.end());
 	const auto& layout = *myCurrentLayoutIt;
 	const auto& shaderModules = layout.GetShaderModules();
 
@@ -663,7 +663,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 		{
 			// todo: better handling of multiple compute shaders
 			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.back().GetEntryPoint();
-			CHECK(shaderStage == VK_SHADER_STAGE_COMPUTE_BIT);
+			ENSURE(shaderStage == VK_SHADER_STAGE_COMPUTE_BIT);
 			myComputeState.shaderStage = {
 				VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 				nullptr,
@@ -812,7 +812,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	ZoneScopedN("Pipeline::BindDescriptorSetAuto");
 
 	const auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 	const auto& setLayout = layout.GetDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
@@ -902,7 +902,7 @@ Pipeline<kVk>::Pipeline(
 			  // VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 
 			  VkDescriptorPool outDescriptorPool;
-			  VK_CHECK(vkCreateDescriptorPool(
+			  VK_ENSURE(vkCreateDescriptorPool(
 				  *device,
 				  &poolInfo,
 				  &device->GetInstance()->GetHostAllocationCallbacks(),

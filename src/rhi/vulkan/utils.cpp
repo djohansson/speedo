@@ -184,7 +184,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 
 	VkBuffer outBuffer;
 	VmaAllocation outBufferMemory;
-	VK_CHECK(
+	VK_ENSURE(
 		vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
 
 	return std::make_tuple(outBuffer, outBufferMemory);
@@ -237,7 +237,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
 	auto& [bufferHandle, memoryHandle] = bufferData;
 
 	void* data;
-	VK_CHECK(vmaMapMemory(allocator, memoryHandle, &data));
+	VK_ENSURE(vmaMapMemory(allocator, memoryHandle, &data));
 	memcpy(data, srcData, srcDataSize);
 	vmaUnmapMemory(allocator, memoryHandle);
 
@@ -456,7 +456,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkImage outImage;
 	VmaAllocation outImageMemory;
 	VmaAllocationInfo outAllocInfo;
-	VK_CHECK(vmaCreateImage(
+	VK_ENSURE(vmaCreateImage(
 		allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
 	return std::make_tuple(outImage, outImageMemory);
@@ -542,7 +542,7 @@ VkImageView CreateImageView2D(
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
 	VkImageView outImageView;
-	VK_CHECK(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
+	VK_ENSURE(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
 
 	return outImageView;
 }
@@ -566,7 +566,7 @@ VkFramebuffer CreateFramebuffer(
 	info.layers = layers;
 
 	VkFramebuffer outFramebuffer;
-	VK_CHECK(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
+	VK_ENSURE(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
 
 	return outFramebuffer;
 }
@@ -587,7 +587,7 @@ VkRenderPass CreateRenderPass(
 	renderInfo.pDependencies = subpassDependencies.data();
 
 	VkRenderPass outRenderPass;
-	VK_CHECK(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
+	VK_ENSURE(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
 
 	return outRenderPass;
 }
@@ -671,7 +671,7 @@ VkRenderPass CreateRenderPass(
 VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)
 {
 	VkSurfaceKHR surface;
-	VK_CHECK(glfwCreateWindowSurface(
+	VK_ENSURE(glfwCreateWindowSurface(
 		instance,
 		reinterpret_cast<GLFWwindow*>(view),
 		hostAllocator,
@@ -700,7 +700,7 @@ VkResult CheckFlipOrPresentResult(VkResult result)
 		std::println("error: flip/present returned {}", string_VkResult(result));
 		break;
 	default:
-		CHECKF(false, "Invalid error code.");
+		ENSUREF(false, "Invalid error code.");
 	}
 
 	return result;

@@ -21,7 +21,7 @@ CreateArray(const std::shared_ptr<Device<kVk>>& device, const CommandBufferArray
 		cmdInfo.commandPool = desc.pool;
 		cmdInfo.level = desc.level == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		cmdInfo.commandBufferCount = CommandBufferArray<kVk>::Capacity();
-		VK_CHECK(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
+		VK_ENSURE(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
 	}
 
 	return outArray;
@@ -112,7 +112,7 @@ void CommandBufferArray<kVk>::Reset()
 		{
 			ZoneScopedN("CommandBufferArray::reset::vkResetCommandBuffer");
 
-			VK_CHECK(
+			VK_ENSURE(
 				vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 		}
 	}
@@ -128,7 +128,7 @@ uint8_t CommandBufferArray<kVk>::Begin(const CommandBufferBeginInfo<kVk>& beginI
 	ASSERT(!Recording(myBits.head));
 	ASSERT(!Full());
 
-	VK_CHECK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
+	VK_ENSURE(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
 
 	myBits.recordingFlags |= (1 << myBits.head);
 
@@ -144,7 +144,7 @@ void CommandBufferArray<kVk>::End(uint8_t index)
 
 	myBits.recordingFlags &= ~(1 << index);
 
-	VK_CHECK(vkEndCommandBuffer(myArray[index]));
+	VK_ENSURE(vkEndCommandBuffer(myArray[index]));
 }
 
 template <>
@@ -180,7 +180,7 @@ CommandPool<kVk>::CommandPool(
 					cmdPoolInfo.queueFamilyIndex = desc.queueFamilyIndex;
 
 					VkCommandPool outPool;
-					VK_CHECK(vkCreateCommandPool(
+					VK_ENSURE(vkCreateCommandPool(
 						*device,
 						&cmdPoolInfo,
 						&device->GetInstance()->GetHostAllocationCallbacks(),
@@ -250,7 +250,7 @@ void CommandPool<kVk>::Reset()
 	{
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
-		VK_CHECK(vkResetCommandPool(
+		VK_ENSURE(vkResetCommandPool(
 			*InternalGetDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
 	}
 

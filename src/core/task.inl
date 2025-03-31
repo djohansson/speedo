@@ -94,7 +94,7 @@ TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 			std::static_pointer_cast<typename Future<R>::FutureState>(std::atomic_load(&task.InternalState()))) };
 	}
 
-	CHECKF(false, "Task::InternalAllocate() failed, pool is full?");
+	ENSUREF(false, "Task::InternalAllocate() failed, pool is full?");
 
 	return {};
 }

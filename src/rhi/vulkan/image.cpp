@@ -116,7 +116,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		progressOut = 64;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
 		auto result = inStream(std::span(static_cast<stbi_uc*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
 		if (failure(result))
@@ -142,7 +142,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			size += mipLevel.size;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
 		auto result = outStream(std::span(static_cast<const stbi_uc*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), memoryHandle);
 		if (failure(result))
@@ -202,7 +202,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			desc.name.data());
 
 		void* stagingBuffer;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
+		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
 
 		auto compressBlocks = [](const stbi_uc* src,
 								 unsigned char* dst,
@@ -352,7 +352,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
 	auto loadResult = file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
 
-	CHECKF(loadResult && bufferHandle != nullptr, "Failed to load image.");
+	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image.");
 
 	return initialData;
 }
@@ -422,7 +422,7 @@ void Image<kVk>::Clear(
 	}
 	else
 	{
-		CHECK(false); // Unsupported aspect flags.
+		ENSURE(false); // Unsupported aspect flags.
 	}
 }
 
@@ -597,10 +597,10 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	ZoneScopedN("image::LoadImage");
 
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-	CHECK(app);
+	ENSURE(app);
 	auto& rhi = app->GetRHI<kVk>();
 	auto& pipeline = rhi.pipeline;
-	CHECK(pipeline);
+	ENSURE(pipeline);
 
 	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
 	auto transferQueueInfosScope = ConcurrentWriteScope(transferQueueInfos);

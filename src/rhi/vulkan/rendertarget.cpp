@@ -272,7 +272,7 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 		myDepthAttachmentFormat.reset();
 		myStencilAttachmentFormat.reset();
 
-		CHECK(desc.clearValues.size() == myAttachments.size());
+		ENSURE(desc.clearValues.size() == myAttachments.size());
 			
 		for (uint32_t i = 0; i < myAttachments.size(); i++)
 		{
@@ -596,7 +596,7 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 	}
 	else
 	{
-		CHECK(desc.clearValues.size() == myAttachments.size());
+		ENSURE(desc.clearValues.size() == myAttachments.size());
 
 		const auto& [renderPass, frameBuffer] = InternalGetValues();
 

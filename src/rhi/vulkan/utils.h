@@ -16,14 +16,14 @@
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #ifdef __cplusplus
-#	define VK_CHECK(A) \
+#	define VK_ENSURE(A) \
 	if (!(A == VK_SUCCESS)) \
 	{ \
 		LOG_ERROR("{} failed with {}", #A, string_VkResult(A)); \
 		TRAP(); \
 	}
 #else
-#	define VK_CHECK(A) \
+#	define VK_ENSURE(A) \
 	if (!(A == VK_SUCCESS)) \
 	{ \
 		LOG_ERROR("%s failed with %s", #A, string_VkResult(A)); \
@@ -31,7 +31,7 @@
 	}
 #endif
 #else
-#	define VK_CHECK(expr) static_cast<void>(expr);
+#	define VK_ENSURE(expr) static_cast<void>(expr);
 #endif
 
 void InitDeviceExtensions(VkDevice device);

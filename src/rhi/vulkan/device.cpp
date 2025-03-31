@@ -26,7 +26,7 @@ void Device<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");
 
-	VK_CHECK(vkDeviceWaitIdle(myDevice));
+	VK_ENSURE(vkDeviceWaitIdle(myDevice));
 }
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
@@ -65,7 +65,7 @@ void Device<kVk>::AddOwnedObjectHandle(
 		{
 			ZoneScopedN("Device::AddOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
 
-			VK_CHECK(device::gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
+			VK_ENSURE(device::gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
 		}
 
 		myObjectTypeToCountMap[objectType]++;
@@ -239,7 +239,7 @@ Device<kVk>::Device(
 	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size());
 	deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
-	VK_CHECK(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
+	VK_ENSURE(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
 
 	InitDeviceExtensions(myDevice);
 
@@ -290,7 +290,7 @@ Device<kVk>::Device(
 	//     reinterpret_cast<uint64_t>(myDevice),
 	//     "Device");
 
-	CHECK(physicalDeviceInfo.queueFamilyProperties.size() > 0);
+	ENSURE(physicalDeviceInfo.queueFamilyProperties.size() > 0);
 
 	myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
 

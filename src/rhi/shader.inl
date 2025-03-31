@@ -67,7 +67,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 			if (!std::filesystem::exists(path))
 			{
 				std::filesystem::create_directories(path, error);
-				CHECKF(!error, "Failed to create intermediate path.");
+				ENSUREF(!error, "Failed to create intermediate path.");
 			}
 
 			std::cout << "Set intermediate path: " << path << '\n';
@@ -107,7 +107,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 		std::vector<EntryPoint<G>> entryPoints;
 		for (const auto& [ep, stage] : config.entryPoints)
 		{
-			CHECKF(spAddEntryPoint(slangRequest, translationUnitIndex, ep.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
+			ENSUREF(spAddEntryPoint(slangRequest, translationUnitIndex, ep.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
 			entryPoints.emplace_back("main", shader::GetStageFlag<G>(stage), std::nullopt);
 		}
 
@@ -120,7 +120,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 		{
 			spDestroyCompileRequest(slangRequest);
 
-			CHECKF(false, "Failed to compile slang file.");
+			ENSUREF(false, "Failed to compile slang file.");
 		}
 
 		int depCount = spGetDependencyFileCount(slangRequest);
@@ -139,7 +139,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 			{
 				spDestroyCompileRequest(slangRequest);
 
-				CHECKF(false, "Failed to get slang blob.");
+				ENSUREF(false, "Failed to get slang blob.");
 			}
 
 			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), entryPoint));
@@ -206,7 +206,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
 	auto loadResult = file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
 
-	CHECKF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
+	ENSUREF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;
 }

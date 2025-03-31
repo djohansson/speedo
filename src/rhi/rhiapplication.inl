@@ -5,7 +5,7 @@ template <typename LoadOp>
 void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
 {
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-	CHECK(app);
+	ENSURE(app);
 	auto& rhi = app->GetRHI();
 	
 	auto [openFileTask, openFileFuture] = CreateTask(

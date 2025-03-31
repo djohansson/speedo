@@ -188,7 +188,7 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 
 void TaskExecutor::InternalSubmit(std::span<TaskHandle> handles)
 {
-	CHECK(myReadyQueue.enqueue_bulk(handles.data(), handles.size()));
+	ENSURE(myReadyQueue.enqueue_bulk(handles.data(), handles.size()));
 }
 
 void TaskExecutor::Submit(std::span<TaskHandle> handles, bool wakeThreads)

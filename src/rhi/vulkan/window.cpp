@@ -24,7 +24,7 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 
 	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].GetMemory();
 	void* data;
-	VK_CHECK(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
+	VK_ENSURE(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
 
 	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);

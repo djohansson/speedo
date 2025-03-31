@@ -347,7 +347,7 @@ ShaderModule<kVk>::ShaderModule(const std::shared_ptr<Device<kVk>>& device, cons
 			  info.pCode = codePtr;
 
 			  VkShaderModule vkShaderModule;
-			  VK_CHECK(vkCreateShaderModule(*device, &info, &device->GetInstance()->GetHostAllocationCallbacks(), &vkShaderModule));
+			  VK_ENSURE(vkCreateShaderModule(*device, &info, &device->GetInstance()->GetHostAllocationCallbacks(), &vkShaderModule));
 			  return vkShaderModule;
 		  }(reinterpret_cast<const uint32_t*>(std::get<0>(shader).data()), std::get<0>(shader).size()),
 		  std::get<1>(shader))

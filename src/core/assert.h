@@ -34,50 +34,31 @@
 	ctrace_print_stacktrace(&trace, stderr, 1)
 #endif
 
-#ifdef NDEBUG
-#	define ASSERT(A) ((void)(A))
-#	define ASSERTF(A, M, ...) ((void)(A))
-#else
 #ifdef __cplusplus
-#	define ASSERT(A) \
-		if (!(A)) \
-		{ \
-			LOG_ERROR("Assertion failed: {}", #A); \
-			TRAP(); \
-		}
-#else
-#	define ASSERT(A) \
-		if (!(A)) \
-		{ \
-			LOG_ERROR("Assertion failed: %s", #A); \
-			TRAP(); \
-		}
-#endif
-#	define ASSERTF(A, M, ...) \
-		if (!(A)) \
-		{ \
-			LOG_ERROR(M __VA_OPT__(,) __VA_ARGS__); \
-			TRAP(); \
-		}
-#endif
-#ifdef __cplusplus
-#	define CHECK(A) \
+#	define ENSURE(A) \
 		if (!(A)) \
 		{ \
 			LOG_ERROR("Check failed: {}", #A); \
 			TRAP(); \
 		}
 #else
-#	define CHECK(A) \
+#	define ENSURE(A) \
 		if (!(A)) \
 		{ \
 			LOG_ERROR("Check failed: %s", #A); \
 			TRAP(); \
 		}
 #endif
-#define CHECKF(A, M, ...) \
+#define ENSUREF(A, M, ...) \
 	if (!(A)) \
 	{ \
 		LOG_ERROR(M __VA_OPT__(,) __VA_ARGS__); \
 		TRAP(); \
 	}
+#ifdef NDEBUG
+#	define ASSERT(A) ((void)(A))
+#	define ASSERTF(A, M, ...) ((void)(A))
+#else
+#	define ASSERT(A) ENSURE(A)
+#	define ASSERTF(A, M, ...) ENSUREF(A, M __VA_OPT__(,) __VA_ARGS__)
+#endif

@@ -67,7 +67,7 @@ DescriptorSetLayout<kVk>::DescriptorSetLayout(
 			  layoutInfo.pBindings = bindings.data();
 
 			  VkDescriptorSetLayout layout;
-			  VK_CHECK(vkCreateDescriptorSetLayout(
+			  VK_ENSURE(vkCreateDescriptorSetLayout(
 				  *device,
 				  &layoutInfo,
 				  &device->GetInstance()->GetHostAllocationCallbacks(),
@@ -150,7 +150,7 @@ DescriptorSetArray<kVk>::DescriptorSetArray(
 			  allocInfo.descriptorPool = desc.pool;
 			  allocInfo.descriptorSetCount = layouts.size();
 			  allocInfo.pSetLayouts = layouts.data();
-			  VK_CHECK(vkAllocateDescriptorSets(*device, &allocInfo, sets.data()));
+			  VK_ENSURE(vkAllocateDescriptorSets(*device, &allocInfo, sets.data()));
 
 			  return sets;
 		  }())

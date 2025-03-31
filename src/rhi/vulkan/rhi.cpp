@@ -80,7 +80,7 @@ uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk
 			return kDeviceTypePriority[lhsDeviceType] < kDeviceTypePriority[rhsDeviceType];
 		});
 
-	CHECKF(!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU!");
+	ENSUREF(!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU!");
 
 	return std::get<0>(graphicsDeviceCandidates.front());
 }
@@ -236,11 +236,11 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 	}
 
-	CHECKF(!graphicsQueueInfosWriteScope->empty(), "Failed to find a suitable graphics queue!");
+	ENSUREF(!graphicsQueueInfosWriteScope->empty(), "Failed to find a suitable graphics queue!");
 
 	if (computeQueueInfosWriteScope->empty())
 	{
-		CHECKF(graphicsQueueInfosWriteScope->size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
+		ENSUREF(graphicsQueueInfosWriteScope->size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
 
 		computeQueueInfosWriteScope->emplace_back(std::make_pair(
 			std::move(graphicsQueueInfosWriteScope->back().first),
@@ -250,7 +250,7 @@ void CreateQueues(RHI<kVk>& rhi)
 
 	if (transferQueueInfosWriteScope->empty())
 	{
-		CHECKF(graphicsQueueInfosWriteScope->size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
+		ENSUREF(graphicsQueueInfosWriteScope->size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
 
 		transferQueueInfosWriteScope->emplace_back(std::make_pair(
 			std::move(graphicsQueueInfosWriteScope->back().first),

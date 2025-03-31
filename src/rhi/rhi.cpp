@@ -13,9 +13,8 @@ std::unique_ptr<RHIBase> CreateRHI(GraphicsApi api, std::string_view name, Creat
 	{
 	case kVk:
 		return CreateRHI<kVk>(name, createWindowFunc);
-
 	default:
-		CHECK(false);
+		ENSUREF(false, "Invalid Graphics API");
 	}
 
 	return {};

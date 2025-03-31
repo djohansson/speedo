@@ -291,7 +291,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	}
 
 	uint32_t instanceLayerCount;
-	VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
+	VK_ENSURE(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
 	
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << instanceLayerCount << " vulkan layer(s) found:" << '\n';
@@ -299,7 +299,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	if (instanceLayerCount > 0)
 	{
 		std::vector<VkLayerProperties> instanceLayers(instanceLayerCount);
-		VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data()));
+		VK_ENSURE(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data()));
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
 			for (uint32_t i = 0; i < instanceLayerCount; ++i)
@@ -435,14 +435,14 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
 
-	VK_CHECK(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
+	VK_ENSURE(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
 
 	uint32_t physicalDeviceCount = 0;
-	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
+	VK_ENSURE(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
 	ASSERTF(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
 	
 	myPhysicalDevices.resize(physicalDeviceCount);
-	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
+	VK_ENSURE(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
 
 	for (auto* physicalDevice : myPhysicalDevices)
 	{
@@ -459,7 +459,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 				"vkCreateDebugUtilsMessengerEXT"));
 		ASSERT(vkCreateDebugUtilsMessengerEXT != nullptr);
 
-		VK_CHECK(vkCreateDebugUtilsMessengerEXT(
+		VK_ENSURE(vkCreateDebugUtilsMessengerEXT(
 			myInstance,
 			&gDebugUtilsMessengerCallbackCreateInfo,
 			&myHostAllocationCallbacks,

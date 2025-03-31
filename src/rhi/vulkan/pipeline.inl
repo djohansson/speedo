@@ -60,7 +60,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set)
 {
 	auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
@@ -155,7 +155,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set)
 {
 	auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
@@ -254,7 +254,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index)
 {
 	auto layoutIt = InternalGetLayout();
-	CHECK(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
