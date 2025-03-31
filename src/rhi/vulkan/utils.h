@@ -34,6 +34,8 @@
 #	define VK_CHECK(expr) static_cast<void>(expr);
 #endif
 
+void InitDeviceExtensions(VkDevice device);
+
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);
 uint32_t GetFormatSize(VkFormat format);
 

@@ -222,7 +222,8 @@ Device<kVk>::Device(
 #endif
 		//VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
 	ASSERT(std::includes(
 		deviceExtensions.begin(),
@@ -239,6 +240,8 @@ Device<kVk>::Device(
 	deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
 
 	VK_CHECK(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
+
+	InitDeviceExtensions(myDevice);
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{

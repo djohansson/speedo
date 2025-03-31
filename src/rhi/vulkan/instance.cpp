@@ -52,9 +52,16 @@ void GetPhysicalDeviceInfo2(
 		.pNext = &gInlineUniformBlockFeature,
 		.dynamicRendering = VK_TRUE,
 	};
+
+	static VkPhysicalDeviceSynchronization2FeaturesKHR gSynchronization2Feature
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+		.pNext = &gDynamicRenderingFeature,
+		.synchronization2 = VK_TRUE,
+	};
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeatures12Ex.pNext = &gDynamicRenderingFeature;
+	deviceInfo.deviceFeatures12Ex.pNext = &gSynchronization2Feature;
 	deviceInfo.deviceFeatures12Ex.timelineSemaphore = VK_TRUE;
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -331,14 +338,12 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		"VK_EXT_metal_surface",
 		"VK_KHR_get_physical_device_properties2",
 		"VK_KHR_portability_enumeration",
-		"VK_KHR_surface",
 #elif defined(__WINDOWS__)
-		"VK_KHR_surface",
-		"VK_KHR_win32_surface",
+			"VK_KHR_win32_surface",
 #elif defined(__LINUX__)
-		"VK_KHR_surface",
-		"VK_KHR_wayland_surface",
+			"VK_KHR_wayland_surface",
 #endif
+		"VK_KHR_surface"
 	};
 	std::vector<const char*> requiredLayers = {};
 
