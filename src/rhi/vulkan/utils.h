@@ -12,7 +12,7 @@
 #include <core/utils.h>
 #include <rhi/types.h>
 
-#include <vector>
+#include <span>
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #ifdef __cplusplus
@@ -46,7 +46,7 @@ FindMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFla
 
 VkFormat FindSupportedFormat(
 	VkPhysicalDevice device,
-	const std::vector<VkFormat>& candidates,
+	std::span<const VkFormat> candidates,
 	VkImageTiling tiling,
 	VkFormatFeatureFlags features);
 
@@ -145,9 +145,9 @@ VkFramebuffer CreateFramebuffer(
 VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
-	const std::vector<VkAttachmentDescription2>& attachments,
-	const std::vector<VkSubpassDescription2>& subpasses,
-	const std::vector<VkSubpassDependency2>& subpassDependencies);
+	std::span<const VkAttachmentDescription2> attachments,
+	std::span<const VkSubpassDescription2> subpasses,
+	std::span<const VkSubpassDependency2> subpassDependencies);
 
 VkRenderPass CreateRenderPass(
 	VkDevice device,

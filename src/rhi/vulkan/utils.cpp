@@ -1,4 +1,7 @@
+#include "utils.h"
+
 #include <core/assert.h>
+
 #define VMA_IMPLEMENTATION
 #define VMA_ASSERT(expr) ASSERT(expr)
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 1)
@@ -19,10 +22,6 @@
 #	include <GLFW/glfw3native.h>
 #endif
 
-#include "utils.h"
-
-#include <array>
-#include <iostream>
 #include <print>
 
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor)
@@ -122,7 +121,7 @@ FindMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFla
 
 VkFormat FindSupportedFormat(
 	VkPhysicalDevice device,
-	const std::vector<VkFormat>& candidates,
+	std::span<const VkFormat> candidates,
 	VkImageTiling tiling,
 	VkFormatFeatureFlags features)
 {
@@ -165,7 +164,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 
 	VmaAllocationCreateInfo allocInfo{};
 	allocInfo.flags = VMA_ALLOCATION_CREATE_USER_DATA_COPY_STRING_BIT;
-	allocInfo.usage = ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0u)
+	allocInfo.usage = ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0U)
 						  ? VMA_MEMORY_USAGE_GPU_ONLY
 						  : VMA_MEMORY_USAGE_UNKNOWN;
 	allocInfo.requiredFlags = flags;
@@ -756,9 +755,9 @@ VkFramebuffer CreateFramebuffer(
 VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
-	const std::vector<VkAttachmentDescription2>& attachments,
-	const std::vector<VkSubpassDescription2>& subpasses,
-	const std::vector<VkSubpassDependency2>& subpassDependencies)
+	std::span<const VkAttachmentDescription2> attachments,
+	std::span<const VkSubpassDescription2> subpasses,
+	std::span<const VkSubpassDependency2> subpassDependencies)
 {
 	VkRenderPassCreateInfo2 renderInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
 	renderInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
