@@ -397,15 +397,15 @@ void CopyBufferToImage(
 		uint32_t mipHeight = height >> mipIt;
 
 		auto& region = regions[mipIt];
-		region.bufferOffset = *(mipOffsets + mipIt * mipOffsetsStride);
+		region.bufferOffset = *(mipOffsets + static_cast<size_t>(mipIt * mipOffsetsStride));
 		region.bufferRowLength = 0UL;
 		region.bufferImageHeight = 0UL;
 		region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		region.imageSubresource.mipLevel = mipIt;
 		region.imageSubresource.baseArrayLayer = 0UL;
 		region.imageSubresource.layerCount = 1;
-		region.imageOffset = {0, 0, 0};
-		region.imageExtent = {mipWidth, mipHeight, 1};
+		region.imageOffset = {.x = 0, .y = 0, .z = 0};
+		region.imageExtent = {.width = mipWidth, .height = mipHeight, .depth = 1};
 	}
 
 	vkCmdCopyBufferToImage(

@@ -304,33 +304,33 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
 	{
 		auto colorImage = std::make_shared<Image<kVk>>(
-		rhi.device,
-		ImageCreateDesc<kVk>{
-			.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
-			.format = window.GetConfig().swapchainConfig.surfaceFormat.format,
-			.tiling = VK_IMAGE_TILING_OPTIMAL,
-			.usageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
-			.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED,
-			.name = "Main RT Color"});
+			rhi.device,
+			ImageCreateDesc<kVk>{
+				.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
+				.format = window.GetConfig().swapchainConfig.surfaceFormat.format,
+				.tiling = VK_IMAGE_TILING_OPTIMAL,
+				.usageFlags = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
+				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.name = "Main RT Color"});
 
-	auto depthStencilImage = std::make_shared<Image<kVk>>(
-		rhi.device,
-		ImageCreateDesc<kVk>{
-			.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
-			.format = FindSupportedFormat(
-				rhi.device->GetPhysicalDevice(),
-				{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
-				VK_IMAGE_TILING_OPTIMAL,
-				VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
-					VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
-			.tiling = VK_IMAGE_TILING_OPTIMAL,
-			.usageFlags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-			.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-			.imageAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
-			.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-			.name = "Main RT DepthStencil"});
+		auto depthStencilImage = std::make_shared<Image<kVk>>(
+			rhi.device,
+			ImageCreateDesc<kVk>{
+				.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
+				.format = FindSupportedFormat(
+					rhi.device->GetPhysicalDevice(),
+					{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+					VK_IMAGE_TILING_OPTIMAL,
+					VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
+						VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT),
+				.tiling = VK_IMAGE_TILING_OPTIMAL,
+				.usageFlags = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+				.memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				.imageAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+				.name = "Main RT DepthStencil"});
 
 		rhi.renderImageSets.emplace_back(rhi.device, std::vector{colorImage, depthStencilImage});
 	}
