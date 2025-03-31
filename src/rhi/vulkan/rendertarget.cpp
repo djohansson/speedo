@@ -54,7 +54,13 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 		attachmentRef.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
 		attachmentRef.attachment = attachmentIt;
 		attachmentRef.layout = finalLayout;
-		attachmentRef.aspectMask = desc.imageAspectFlags[attachmentIt];
+
+		auto aspectMask = desc.imageAspectFlags[attachmentIt];
+
+		if (aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+			aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+		attachmentRef.aspectMask = aspectMask;
 	}
 
 	ASSERT(attachmentIt == myAttachmentsReferences.size());
@@ -248,6 +254,9 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 
 		if (auto aspectMask = desc.imageAspectFlags[attachmentIt]; aspectMask != attachmentRef.aspectMask)
 		{
+			if (aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+				aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
 			// todo: investigate if we need to push this on the timeline
 			attachmentRef.aspectMask = aspectMask;
 			myAttachments[attachmentIt] = CreateImageView2D(

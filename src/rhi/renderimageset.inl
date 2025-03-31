@@ -2,7 +2,7 @@ namespace renderimageset
 {
 
 template <GraphicsApi G>
-RenderTargetCreateDesc<G> createRenderTargetCreateDesc(const std::vector<std::shared_ptr<Image<G>>>& images)
+RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const std::vector<std::shared_ptr<Image<G>>>& images)
 {
 	RenderTargetCreateDesc<G> outDesc{};
 
@@ -31,6 +31,7 @@ RenderTargetCreateDesc<G> createRenderTargetCreateDesc(const std::vector<std::sh
 		outDesc.images.emplace_back(*image);
 	}
 
+	// todo: configure
 	outDesc.layerCount = 1;
 	outDesc.useDynamicRendering = true;
 
@@ -45,7 +46,7 @@ RenderImageSet<G>::RenderImageSet(
 	std::vector<std::shared_ptr<Image<G>>>&& images)
 	: BaseType(
 		  device,
-		  renderimageset::createRenderTargetCreateDesc<G>(images))
+		  renderimageset::CreateRenderTargetCreateDesc<G>(images))
 	, myImages(std::forward<std::vector<std::shared_ptr<Image<G>>>>(images))
 {}
 

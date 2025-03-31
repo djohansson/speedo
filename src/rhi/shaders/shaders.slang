@@ -77,6 +77,7 @@ float3 SignedOctDecode(float3 n)
 	return normalize(OutN);
 }
 
+[shader("vertex")]
 VertexZPrepassOutput VertexZPrepass(InputStream input)
 {
 	VertexZPrepassOutput output;
@@ -98,6 +99,7 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	return output;
 }
 
+[shader("vertex")]
 VertexOutput VertexMain(InputStream input)
 {
 	VertexOutput output;
@@ -124,6 +126,7 @@ VertexOutput VertexMain(InputStream input)
 	return output;
 }
 
+[shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input)
 {
 	VertexP3fN3fT014fC4f v = input.vertex;
@@ -164,16 +167,50 @@ FragmentOutput FragmentMain(VertexOutput input)
 	return output;
 }
 
-[numthreads(8, 8, 1)]
+float3 ApplySRGBCurve(float3 x)
+{
+    // Approximately pow(x, 1.0 / 2.2)
+    return select(x < 0.0031308, 12.92 * x, 1.055 * pow(x, 1.0 / 2.4) - 0.055);
+}
+
+float3 RemoveSRGBCurve(float3 x)
+{
+    // Approximately pow(x, 2.2)
+    return select(x < 0.04045, x / 12.92, pow((x + 0.055) / 1.055, 2.4));
+}
+
+[shader("compute")]
+[numthreads(16, 16, 1)]
 void ComputeMain(
 	uint3 groupId : SV_GroupID,
 	uint3 groupThreadId : SV_GroupThreadID,
 	uint3 dispatchThreadId : SV_DispatchThreadID,
 	uint groupIndex : SV_GroupIndex)
 {
-	Texture2D colorSource = gTextures[0];
-	RWTexture2D colorTarget = gRWTextures[0];
-	colorTarget[dispatchThreadId.xy] = colorSource.Load(int3(dispatchThreadId.xy, 0));
+	uint frameIndex = gPushConstants.frameIndex;
+
+	Texture2D src = gTextures[frameIndex];
+	RWTexture2D dst = gRWTextures[frameIndex];
+
+    uint3 srcDim;
+    src.GetDimensions(0, srcDim.x, srcDim.y, srcDim.z);
+
+    uint3 dstDim;
+    dst.GetDimensions(0, dstDim.x, dstDim.y, dstDim.z);
+
+    static const uint2 bucketSize = uint2(16, 16);
+
+    for (uint j = 0; j < bucketSize.x; j++)
+        for (uint i = 0; i < bucketSize.y; i++)
+        {
+            uint2 idx = dispatchThreadId.xy * bucketSize + uint2(i, j);
+            if (any(idx >= dstDim.xy))
+                break;
+
+            float4 data = src.Load(int3(idx, 0));
+            dst.Store(idx, float4(data.rgb), data.a);
+		}
+
 
 	// float4 color[3];
 	// color[0].r = (r0 >> 0  & 0xFF) / 255.0f;
