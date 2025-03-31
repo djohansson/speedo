@@ -1060,10 +1060,14 @@ void RHIApplication::Draw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
 
-			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
 			window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 
@@ -1082,7 +1086,7 @@ void RHIApplication::Draw()
 				sizeof(pushConstants),
 				&pushConstants);
 
-			vkCmdDispatch(cmd, 8U, 8U, 1U);
+			vkCmdDispatch(cmd, 16U, 8U, 1U);
 		}
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, copy);

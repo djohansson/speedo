@@ -192,25 +192,27 @@ void ComputeMain(
 	Texture2D src = gTextures[frameIndex];
 	RWTexture2D dst = gRWTextures[frameIndex];
 
-    uint3 srcDim;
-    src.GetDimensions(0, srcDim.x, srcDim.y, srcDim.z);
-
     uint3 dstDim;
     dst.GetDimensions(0, dstDim.x, dstDim.y, dstDim.z);
 
-    static const uint2 bucketSize = uint2(16, 16);
+    static const uint2 bucketSize = uint2(16, 16); 
 
     for (uint j = 0; j < bucketSize.x; j++)
+    {
+        uint y = dispatchThreadId.y * bucketSize.y + j;
+        if (y >= dstDim.y)
+            break;
+
         for (uint i = 0; i < bucketSize.y; i++)
         {
-            uint2 idx = dispatchThreadId.xy * bucketSize + uint2(i, j);
-            if (any(idx >= dstDim.xy))
+            uint x = dispatchThreadId.x * bucketSize.x + i;
+            if (x >= dstDim.x)
                 break;
 
-            float4 data = src.Load(int3(idx, 0));
-            dst.Store(idx, float4(data.rgb), data.a);
-		}
-
+            uint2 xy = uint2(x, y);
+            dst[xy] = src[xy];
+        }
+    }
 
 	// float4 color[3];
 	// color[0].r = (r0 >> 0  & 0xFF) / 255.0f;
