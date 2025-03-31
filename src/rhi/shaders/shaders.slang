@@ -192,8 +192,8 @@ void ComputeMain(
 	Texture2D src = gTextures[frameIndex];
 	RWTexture2D dst = gRWTextures[frameIndex];
 
-    uint3 dstDim;
-    dst.GetDimensions(0, dstDim.x, dstDim.y, dstDim.z);
+    uint2 dstDim;
+    dst.GetDimensions(dstDim.x, dstDim.y);
 
     static const uint2 bucketSize = uint2(16, 16); 
 
@@ -210,7 +210,9 @@ void ComputeMain(
                 break;
 
             uint2 xy = uint2(x, y);
-            dst[xy] = src[xy];
+
+            // dst[xy] = src[xy];
+            dst.Store(xy, src.Load(int3(xy, 0)));
         }
     }
 
