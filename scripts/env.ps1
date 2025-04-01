@@ -33,9 +33,7 @@ function Add-EnvDylibPath
 
 	if (-not (Test-Path $path))
 	{
-		Write-Error "Path does not exist: $path"
-
-		return
+		Write-Warning "Path does not exist: $path"
 	}
 
 	if ($IsWindows)
