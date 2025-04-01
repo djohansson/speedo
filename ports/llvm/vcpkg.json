@@ -8,10 +8,6 @@
   "supports": "!uwp & !(arm & windows)",
   "dependencies": [
     {
-      "name": "atl",
-      "platform": "windows & !mingw"
-    },
-    {
       "name": "vcpkg-cmake",
       "host": true
     },
