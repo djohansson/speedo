@@ -66,7 +66,6 @@ target_include_directories(
 target_link_libraries(
 	core
 	PRIVATE
-		mimalloc
 		SHA-Intrinsics
 		cpptrace::cpptrace
 		stduuid
@@ -220,6 +219,7 @@ target_include_directories(
 target_link_libraries(
 	server
 	PRIVATE
+		mimalloc
 		core
 		serverlib
 		cargs
@@ -245,6 +245,7 @@ target_include_directories(
 target_link_libraries(
 	client
 	PRIVATE
+		mimalloc
 		core
 		gfx
 		rhi
