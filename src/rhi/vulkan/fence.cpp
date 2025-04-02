@@ -58,11 +58,17 @@ void Fence<kVk>::Swap(Fence& rhs) noexcept
 }
 
 template <>
-void Fence<kVk>::Wait(bool waitAll, uint64_t timeout) const
+bool Fence<kVk>::Wait(uint64_t timeout) const
 {
 	ZoneScopedN("Fence::wait");
 
-	VK_ENSURE(vkWaitForFences(*InternalGetDevice(), 1, &myFence, waitAll, timeout));
+	auto result = vkWaitForFences(*InternalGetDevice(), 1, &myFence, false, timeout);
+	if (result == VK_SUCCESS)
+		return true;
+
+	ENSURE(result == VK_TIMEOUT);
+
+	return false;
 }
 
 template <>
