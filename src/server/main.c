@@ -117,12 +117,12 @@ int main(int argc, char* argv[], char* envp[])
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
 #endif
 
-	sigaction(SIGINT, &(struct sigaction){.sa_handler = OnSignal}, NULL);
-	sigaction(SIGTERM, &(struct sigaction){.sa_handler = OnSignal}, NULL);
-	sigaction(SIGILL, &(struct sigaction){.sa_handler = OnSignal}, NULL);
-	sigaction(SIGABRT, &(struct sigaction){.sa_handler = OnSignal}, NULL);
-	sigaction(SIGFPE, &(struct sigaction){.sa_handler = OnSignal}, NULL);
-	sigaction(SIGSEGV, &(struct sigaction){.sa_handler = OnSignal}, NULL);
+	signal(SIGINT, OnSignal);
+	signal(SIGTERM, OnSignal);
+	signal(SIGILL, OnSignal);
+	signal(SIGABRT, OnSignal);
+	signal(SIGFPE, OnSignal);
+	signal(SIGSEGV, OnSignal);
 
 	ASSERT(argv != NULL);
 	ASSERT(envp != NULL);
