@@ -9,9 +9,7 @@ function Add-EnvPath
 
 	if (-not (Test-Path $path))
 	{
-		Write-Error "Path does not exist: $path"
-
-		return
+		Write-Warning "Path does not exist: $path"
 	}
 
 	if ("" -eq $env:PATH -or $null -eq $env:PATH)
