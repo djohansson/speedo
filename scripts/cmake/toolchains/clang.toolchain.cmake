@@ -119,7 +119,7 @@ endif()
 if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(C_DEFINES "${C_DEFINES} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
 	set(CXX_DEFINES "${CXX_DEFINES} -D_LIBCXX_ABI_FORCE_MICROSOFT")
-	set(COMPILE_FLAGS "${COMPILE_FLAGS} -gcodeview -Xclang -cfguard")
+	set(COMPILE_FLAGS "${COMPILE_FLAGS} -Xclang -cfguard")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -loldnames")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-llibc++ -lmsvcprt")
 	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /DEBUG -Xlinker /GUARD:CF") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
