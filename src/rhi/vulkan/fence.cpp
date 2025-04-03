@@ -62,7 +62,7 @@ bool Fence<kVk>::Wait(uint64_t timeout) const
 {
 	ZoneScopedN("Fence::wait");
 
-	auto result = vkWaitForFences(*InternalGetDevice(), 1, &myFence, false, timeout);
+	auto result = vkWaitForFences(*InternalGetDevice(), 1, &myFence, true, timeout);
 	if (result == VK_SUCCESS)
 		return true;
 
