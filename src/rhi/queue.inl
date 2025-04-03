@@ -1,14 +1,14 @@
 template <GraphicsApi G>
 QueueSyncInfo<G>& QueueSyncInfo<G>::operator|=(QueueSyncInfo<G>&& other)
 {
-	fences.insert(
-		fences.end(),
-		std::make_move_iterator(other.fences.begin()),
-		std::make_move_iterator(other.fences.end()));
-	semaphores.insert(
-		semaphores.end(),
-		std::make_move_iterator(other.semaphores.begin()),
-		std::make_move_iterator(other.semaphores.end()));
+	waitFences.insert(
+		waitFences.end(),
+		std::make_move_iterator(other.waitFences.begin()),
+		std::make_move_iterator(other.waitFences.end()));
+	waitSemaphores.insert(
+		waitSemaphores.end(),
+		std::make_move_iterator(other.waitSemaphores.begin()),
+		std::make_move_iterator(other.waitSemaphores.end()));
 	maxTimelineValue = std::max(maxTimelineValue, other.maxTimelineValue);
 
 	return *this;

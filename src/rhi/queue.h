@@ -30,9 +30,9 @@ struct QueueDeviceSyncInfo
 template <GraphicsApi G>
 struct QueueSyncInfo
 {
-	std::vector<FenceHandle<G>> fences;
-	std::vector<SemaphoreHandle<G>> semaphores;
-	uint64_t maxTimelineValue = 0ULL; // todo: need to store all semaphores + values?
+	std::vector<FenceHandle<G>> waitFences;
+	std::vector<SemaphoreHandle<G>> waitSemaphores;
+	uint64_t maxTimelineValue = 0ULL;
 
 	QueueSyncInfo<G>& operator|=(QueueSyncInfo<G>&& other);
 	friend QueueSyncInfo<G> operator|(QueueSyncInfo<G>&& lhs, QueueSyncInfo<G>&& rhs);

@@ -240,7 +240,7 @@ QueueSyncInfo<kVk> Queue<kVk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueSyncInfo<kVk> syncInfo{.fences = {}, .maxTimelineValue = maxTimelineValue};
+	QueueSyncInfo<kVk> syncInfo{.maxTimelineValue = maxTimelineValue};
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
@@ -266,8 +266,8 @@ QueuePresentInfo<kVk> Queue<kVk>::Present()
 	ZoneScopedN("Queue::present");
 
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.waitSemaphoreCount = myPendingPresent.semaphores.size();
-	presentInfo.pWaitSemaphores = myPendingPresent.semaphores.data();
+	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
+	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentInfo.pSwapchains = myPendingPresent.swapchains.data();
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
