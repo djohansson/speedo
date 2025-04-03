@@ -1,4 +1,5 @@
 #include "application.h"
+#include <core/assert.h>
 
 #include <iostream>
 
@@ -16,7 +17,7 @@ Application::Application(std::string_view name, Environment&& env)
 	ASSERTF(gApplication.use_count() == 1, "There can only be one application at a time");
 	std::set_terminate([]()
 	{
-		std::cerr << "Unknown exception caught\n";
+		ENSUREF(false, "Uncaught exception, application will close");
 		std::exit(EXIT_FAILURE);
 	});
 }
