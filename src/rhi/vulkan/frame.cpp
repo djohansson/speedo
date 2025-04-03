@@ -104,5 +104,5 @@ void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 template <>
 QueuePresentInfo<kVk> Frame<kVk>::PreparePresent()
 {
-	return QueuePresentInfo<kVk>{{{}, {}}, {}, {GetDesc().index}, {}};
+	return QueuePresentInfo<kVk>{.swapchains={}, .imageIndices={GetDesc().index}, .results={}};
 }

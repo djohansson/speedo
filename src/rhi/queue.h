@@ -28,14 +28,11 @@ struct QueueDeviceSyncInfo
 };
 
 template <GraphicsApi G>
-struct QueueSyncInfo
+struct QueueHostSyncInfo
 {
 	std::vector<FenceHandle<G>> waitFences;
 	std::vector<SemaphoreHandle<G>> waitSemaphores;
 	uint64_t maxTimelineValue = 0ULL;
-
-	QueueSyncInfo<G>& operator|=(QueueSyncInfo<G>&& other);
-	friend QueueSyncInfo<G> operator|(QueueSyncInfo<G>&& lhs, QueueSyncInfo<G>&& rhs);
 };
 
 template <GraphicsApi G>
@@ -46,11 +43,14 @@ struct QueueSubmitInfo : QueueDeviceSyncInfo<G>
 };
 
 template <GraphicsApi G>
-struct QueuePresentInfo : QueueSyncInfo<G>
+struct QueuePresentInfo
 {
 	std::vector<SwapchainHandle<G>> swapchains;
 	std::vector<uint32_t> imageIndices;
 	std::vector<Result<G>> results;
+	// these will be called after the queue has finished executing the command buffers on the device,
+	// through manually calling the SubmitCallbacks method from the host.
+	std::vector<TaskHandle> callbacks;
 
 	QueuePresentInfo<G>& operator|=(QueuePresentInfo<G>&& other);
 	friend QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs);
@@ -122,17 +122,18 @@ public:
 
 	template <typename T, typename... Ts>
 	void EnqueueSubmit(T&& first, Ts&&... rest);
-	[[nodiscard]] QueueSyncInfo<G> Submit();
+	[[nodiscard]] QueueHostSyncInfo<G> Submit();
 
 	template <typename T, typename... Ts>
 	void EnqueuePresent(T&& first, Ts&&... rest);
-	[[maybe_unused]] QueuePresentInfo<G> Present();
+	[[maybe_unused]] QueueHostSyncInfo<G> Present(std::span<const SemaphoreHandle<kVk>> waitSemaphores);
 
 	void Execute(uint8_t level, uint64_t timelineValue);
 
 	void WaitIdle() const;
 	
 	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue);
+	bool CallCallbacks(TaskExecutor& executor, uint64_t timelineValue);
 
 	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
@@ -170,7 +171,7 @@ private:
 };
 
 template <GraphicsApi G>
-using QueueContext = std::pair<Queue<G>, QueueSyncInfo<G>>;
+using QueueContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
 
 template <GraphicsApi G>
 using QueueTimelineContext = std::tuple<Semaphore<G>, CopyableAtomic<uint64_t>, ConcurrentAccess<std::vector<QueueContext<G>>>>;

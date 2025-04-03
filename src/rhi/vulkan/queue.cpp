@@ -28,6 +28,29 @@ bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
 }
 
 template <>
+bool Queue<kVk>::CallCallbacks(TaskExecutor& executor, uint64_t timelineValue)
+{
+	ZoneScopedN("Queue::SubmitCallbacks");
+
+	TimelineCallbackData callbackData;
+	while (myTimelineCallbacks.try_dequeue(callbackData))
+	{
+		auto& [callbackVector, commandBufferTimelineValue] = callbackData;
+
+		if (commandBufferTimelineValue > timelineValue)
+		{
+			myTimelineCallbacks.enqueue(std::move(callbackData));
+			return false;
+		}
+
+		for (auto callback : callbackVector)
+			executor.Call(callback);
+	}
+
+	return true;
+}
+
+template <>
 Queue<kVk>::Queue(
 	const std::shared_ptr<Device<kVk>>& device,
 	CommandPoolCreateDesc<kVk>&& commandPoolDesc,
@@ -188,7 +211,7 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 #endif
 
 template <>
-QueueSyncInfo<kVk> Queue<kVk>::Submit()
+QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 {
 	ZoneScopedN("Queue::submit");
 
@@ -240,7 +263,7 @@ QueueSyncInfo<kVk> Queue<kVk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueSyncInfo<kVk> syncInfo{.maxTimelineValue = maxTimelineValue};
+	QueueHostSyncInfo<kVk> syncInfo{.maxTimelineValue = maxTimelineValue};
 	{
 		ZoneScopedN("Queue::submit::vkQueueSubmit");
 
@@ -261,21 +284,28 @@ void Queue<kVk>::WaitIdle() const
 }
 
 template <>
-QueuePresentInfo<kVk> Queue<kVk>::Present()
+QueueHostSyncInfo<kVk> Queue<kVk>::Present(std::span<const SemaphoreHandle<kVk>> waitSemaphores)
 {
 	ZoneScopedN("Queue::present");
 
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
-	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
+	presentInfo.waitSemaphoreCount = waitSemaphores.size();
+	presentInfo.pWaitSemaphores = waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentInfo.pSwapchains = myPendingPresent.swapchains.data();
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
 	presentInfo.pResults = myPendingPresent.results.data();
 
+	QueueHostSyncInfo<kVk> result;
+	result.waitSemaphores.assign(waitSemaphores.begin(), waitSemaphores.end());
+
+	myTimelineCallbacks.enqueue(std::make_tuple(myPendingPresent.callbacks, 0));
+
 	CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
-	return std::exchange(myPendingPresent, {});
+	myPendingPresent = {};
+
+	return result;
 }
 
 template <>

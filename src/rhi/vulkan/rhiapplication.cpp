@@ -804,7 +804,8 @@ void RHIApplication::Draw()
 		auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
 		auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
 		for (auto& [computeQueue, computeSubmit] : *computeQueueInfosWriteScope)	
-			computeQueue.SubmitCallbacks(GetExecutor(), computeSemaphore.GetValue());
+			//computeQueue.SubmitCallbacks(GetExecutor(), computeSemaphore.GetValue());
+			computeQueue.CallCallbacks(GetExecutor(), computeSemaphore.GetValue());
 	}
 
 	{
@@ -828,7 +829,6 @@ void RHIApplication::Draw()
 	{
 		ZoneScopedN("RHIApplication::Draw::waitCompute");
 
-		// wait for previous compute to finish
 		computeQueue.WaitIdle();
 		computeQueue.GetPool().Reset();
 	}
@@ -849,8 +849,13 @@ void RHIApplication::Draw()
 		gGraphicsQueueIndex = (gGraphicsQueueIndex + 1) % graphicsQueueInfosWriteScope->size();
 		auto& [lastGraphicsQueue, lastGraphicsSubmit] = (*graphicsQueueInfosWriteScope)[lastQueueIndex];
 		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[gGraphicsQueueIndex];
-		
-		graphicsQueue.GetPool().Reset();
+
+		{
+			ZoneScopedN("RHIApplication::Draw::waitGraphics");
+	
+			graphicsQueue.WaitIdle();
+			graphicsQueue.GetPool().Reset();
+		}
 
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
@@ -1127,7 +1132,7 @@ void RHIApplication::Draw()
 		// 		0,
 		// 		VK_FILTER_NEAREST);
 		// }
-		std::vector<TaskHandle> callbacks;
+		std::vector<TaskHandle> graphicsCallbacks;
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
@@ -1138,7 +1143,7 @@ void RHIApplication::Draw()
 			rhi.pipeline->SetRenderTarget(newFrame);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			IMGUIDrawFunction(cmd, callbacks);
+			IMGUIDrawFunction(cmd, graphicsCallbacks);
 			window.End(cmd);
 		}
 		{
@@ -1149,32 +1154,40 @@ void RHIApplication::Draw()
 
 		cmd.End();
 
-		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
-
 		SemaphoreHandle<kVk> acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
-		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
-
-		callbacks.emplace_back(
+		graphicsCallbacks.emplace_back(
 			CreateTask(
 				[fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
-				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore)),
-				 graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]{ ENSURE(fence); fence->Wait(); }).handle);
+				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore))]
+				 {
+					ENSURE(fence);
+					fence->Wait();
+				 }).handle);
 
+		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {graphicsSemaphore, acquireNextImageSemaphoreHandle},
 			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_NONE},
 			.waitSemaphoreValues = {lastGraphicsSubmit.maxTimelineValue, 1},
-			.signalSemaphores = {graphicsSemaphore, graphicsDoneSemaphoreHandle},
+			.signalSemaphores = {graphicsSemaphore, graphicsDoneSemaphore},
 			.signalSemaphoreValues = {++graphicsSemaphoreValue, 1},
-			.callbacks = std::move(callbacks)});
+			.callbacks = std::move(graphicsCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
 
-		auto presentInfo = window.PreparePresent();
-		presentInfo.waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
+		// todo: put compute on separate thread
 
+		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
+		auto presentInfo = window.PreparePresent();
+		presentInfo.callbacks.emplace_back(
+			CreateTask(
+				[&computeQueue, graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]
+				{
+					computeQueue.WaitIdle();
+					//vkWaitForPresentKHR();
+				}).handle);
 		computeQueue.EnqueuePresent(std::move(presentInfo));
-		computeSubmit = computeQueue.Present();
+		computeSubmit = computeQueue.Present({graphicsDoneSemaphoreHandle});
 	}
 }
 
