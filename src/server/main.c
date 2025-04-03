@@ -17,7 +17,7 @@
 #endif
 
 #if defined(__WINDOWS__)
-#include <synchapi.h>
+#include <windows.h>
 #else
 #include <unistd.h>
 #endif
@@ -67,7 +67,7 @@ static void OnSignal(int signal)
 #endif
 }
 
-static int Sleep(const struct timespec* duration, struct timespec* remaining)
+static int _Sleep(const struct timespec* duration, struct timespec* remaining)
 {
 #if defined(__WINDOWS__)
 	struct timespec start;
@@ -155,7 +155,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	while (ServerExitRequested() && !gIsInterrupted)
 	{
-		Sleep(&(struct timespec){.tv_nsec=100000000}, NULL);
+		_Sleep(&(struct timespec){.tv_nsec=100000000}, NULL);
 	};
 
 	ServerDestroy();

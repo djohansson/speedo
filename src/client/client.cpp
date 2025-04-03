@@ -6,7 +6,7 @@
 #include <core/file.h>
 #include <core/concurrentaccess.h>
 #include <core/upgradablesharedmutex.h>
-#include <server/rpc.h>
+#include <server/rpc/rpc.h>
 
 #include <array>
 #include <iostream>

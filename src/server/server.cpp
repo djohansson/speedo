@@ -1,6 +1,6 @@
 #include "capi.h"
 #include "server.h"
-#include "rpc.h"
+#include "rpc/rpc.h"
 
 #include <core/application.h>
 #include <core/assert.h>
