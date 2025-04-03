@@ -631,14 +631,14 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 
 	///////////
 
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
-	auto computeQueueInfosScope = ConcurrentWriteScope(computeQueueInfos);
-	auto& [computeQueue, computeSubmit] = computeQueueInfosScope->back();
+	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
+	auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
+	auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfosWriteScope->back();
 
 	{
-		auto cmd = computeQueue.GetPool().Commands();
+		auto cmd = graphicsQueue.GetPool().Commands();
 
-		GPU_SCOPE(cmd, computeQueue, Transition);
+		GPU_SCOPE(cmd, graphicsQueue, Transition);
 
 		image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
@@ -655,15 +655,15 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	std::vector<TaskHandle> transitionTimelineCallbacks;
 	transitionTimelineCallbacks.emplace_back(setDescriptorTask);
 	
-	computeQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+	graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		.waitSemaphores = {transferSemaphore},
 		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
 		.waitSemaphoreValues = {transferSubmit.maxTimelineValue},
-		.signalSemaphores = {computeSemaphore},
-		.signalSemaphoreValues = {++computeSemaphoreValue},
+		.signalSemaphores = {graphicsSemaphore},
+		.signalSemaphoreValues = {++graphicsSemaphoreValue},
 		.callbacks = std::move(transitionTimelineCallbacks)});
 
-	computeSubmit = computeQueue.Submit();
+	graphicsSubmit = graphicsQueue.Submit();
 
 	///////////
 
