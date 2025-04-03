@@ -31,7 +31,8 @@
 				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
-				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
+				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+				"CMAKE_OSX_SYSROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
 			},
 			"environment": {
 				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-osx-release",
