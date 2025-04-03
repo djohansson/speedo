@@ -816,7 +816,7 @@ void RHIApplication::Draw()
 			transferQueue.SubmitCallbacks(GetExecutor(), transferSemaphore.GetValue());
 	}
 	
-	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
+	auto [acquireNextImageFence, acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
 
 	static uint8_t gComputeQueueIndex = 0;
 
@@ -1156,8 +1156,9 @@ void RHIApplication::Draw()
 
 		callbacks.emplace_back(
 			CreateTask(
-				[acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore)),
-				 graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]{}).handle);
+				[fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
+				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore)),
+				 graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]{ ENSURE(fence); fence->Wait(); }).handle);
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {graphicsSemaphore, acquireNextImageSemaphoreHandle},

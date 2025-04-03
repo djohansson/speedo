@@ -131,14 +131,13 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	auto& lastFrame = myFrames[lastFrameIndex];
 	auto& newFrame = myFrames[myFrameIndex];
 
-	newFrame.GetFence().Swap(fence);
-
 	auto zoneNameStr =
-		std::format("Swapchain::flip frame:{0}", flipResult == VK_SUCCESS ? myFrameIndex : ~0U);
+		std::format("Swapchain::flip frame:{}", flipResult == VK_SUCCESS ? myFrameIndex : ~0U);
 
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
 	return FlipResult<kVk>{
+		.acquireNextImageFence = std::move(fence),
 		.acquireNextImageSemaphore = std::move(semaphore),
 		.lastFrameIndex = lastFrameIndex,
 		.newFrameIndex = myFrameIndex,

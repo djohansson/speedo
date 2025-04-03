@@ -37,10 +37,6 @@ public:
 	
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
 
-	[[nodiscard]] auto& GetFence() noexcept { return myFence; }
-	[[nodiscard]] const auto& GetFence() const noexcept { return myFence; }
-
 private:
-	Fence<G> myFence{};
 	ImageLayout<G> myImageLayout{};
 };
