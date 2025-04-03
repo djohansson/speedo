@@ -10,6 +10,7 @@
 #include <imgui_stdlib.h>
 
 #include <gfx/imgui_extra.h>
+#include <memory>
 
 //#include <imnodes.h>
 
@@ -546,26 +547,21 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	}
 }
 
-struct IMGUIDeleteBufferData
-{
-	std::vector<TaskHandle> tasksOut;
-};
-
 void IMGUIDeleteBuffer(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, const VkAllocationCallbacks* allocator, void* userData)
 {
-	auto& data = *static_cast<IMGUIDeleteBufferData*>(userData);
+	auto& callbacks = *static_cast<std::vector<TaskHandle>*>(userData);
 
 	auto [deleteBufferTask, deleteBufferFuture] = CreateTask([device, buffer, memory, allocator] {
 		vkDestroyBuffer(device, buffer, allocator);
 		vkFreeMemory(device, memory, allocator);
 	});
 
-	data.tasksOut.push_back(deleteBufferTask);
+	callbacks.push_back(deleteBufferTask);
 }
 
 void IMGUIDrawFunction(
 	CommandBufferHandle<kVk> cmd,
-	IMGUIDeleteBufferData& /*deleteData*/,
+	std::vector<TaskHandle>& /*callbacks*/,
 	PipelineHandle<kVk> pipeline = nullptr)
 {
 	ZoneScopedN("RHIApplication::IMGUIDraw");
@@ -576,7 +572,7 @@ void IMGUIDrawFunction(
 	while (gIMGUIDrawData.try_dequeue(drawData));
 
 	ImGui_ImplVulkan_NewFrame();
-	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, /*IMGUIDeleteBuffer, &deleteData,*/ pipeline);
+	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, /*callbacks,*/ pipeline);
 }
 
 static void IMGUIInit(
@@ -820,7 +816,22 @@ void RHIApplication::Draw()
 			transferQueue.SubmitCallbacks(GetExecutor(), transferSemaphore.GetValue());
 	}
 	
-	auto [oldSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
+	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
+
+	static uint8_t gComputeQueueIndex = 0;
+
+	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
+	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
+	gComputeQueueIndex = (gComputeQueueIndex + 1) % computeQueueInfosWriteScope->size();
+	auto& [computeQueue, computeSubmit] = (*computeQueueInfosWriteScope)[gComputeQueueIndex];
+
+	{
+		ZoneScopedN("RHIApplication::Draw::waitCompute");
+
+		// wait for previous compute to finish
+		computeQueue.WaitIdle();
+		computeQueue.GetPool().Reset();
+	}
 
 	if (flipSuccess)
 	{
@@ -833,8 +844,11 @@ void RHIApplication::Draw()
 
 		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
 		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-		auto graphicsQueueIndex = gGraphicsQueueIndex++ % graphicsQueueInfosWriteScope->size();
-		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[graphicsQueueIndex];
+		
+		auto lastQueueIndex = gGraphicsQueueIndex;
+		gGraphicsQueueIndex = (gGraphicsQueueIndex + 1) % graphicsQueueInfosWriteScope->size();
+		auto& [lastGraphicsQueue, lastGraphicsSubmit] = (*graphicsQueueInfosWriteScope)[lastQueueIndex];
+		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[gGraphicsQueueIndex];
 		
 		graphicsQueue.GetPool().Reset();
 
@@ -1053,53 +1067,53 @@ void RHIApplication::Draw()
 			}
 
 			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
-				graphicsQueue.Execute(threadIt, ++graphicsSemaphoreValue);
+				graphicsQueue.Execute(threadIt, graphicsSemaphoreValue);
 
 			renderImageSet.End(cmd);
 		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, computeMain);
-
-			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
-			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
-			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
-
-			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
-			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-			window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-
-			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
-			pipeline.BindPipelineAuto(cmd);
-
-			PushConstants pushConstants{.frameIndex = newFrameIndex};
-
-			vkCmdPushConstants(
-				cmd,
-				pipeline.GetLayout(),
-				VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-				0,
-				sizeof(pushConstants),
-				&pushConstants);
-
-			vkCmdDispatch(cmd, 16U, 8U, 1U);
-		}
 		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
+		// 	GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
-		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-		// 	window.Copy(
+		// 	renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+		// 	renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
+		// 	renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+		// 	renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
+
+		// 	window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
+		// 	window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+		// 	window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+
+		// 	pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
+		// 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+		// 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+		// 	pipeline.BindPipelineAuto(cmd);
+
+		// 	PushConstants pushConstants{.frameIndex = newFrameIndex};
+
+		// 	vkCmdPushConstants(
 		// 		cmd,
-		// 		renderImageSet,
-		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		pipeline.GetLayout(),
+		// 		VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
 		// 		0,
-		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-		// 		0);
+		// 		sizeof(pushConstants),
+		// 		&pushConstants);
+
+		// 	vkCmdDispatch(cmd, 16U, 8U, 1U);
 		// }
+		{
+			GPU_SCOPE(cmd, graphicsQueue, copy);
+
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			window.Copy(
+				cmd,
+				renderImageSet,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0,
+				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				0);
+		}
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
 
@@ -1113,7 +1127,7 @@ void RHIApplication::Draw()
 		// 		0,
 		// 		VK_FILTER_NEAREST);
 		// }
-		IMGUIDeleteBufferData deleteData{};
+		std::vector<TaskHandle> callbacks;
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
@@ -1124,7 +1138,7 @@ void RHIApplication::Draw()
 			rhi.pipeline->SetRenderTarget(newFrame);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			IMGUIDrawFunction(cmd, deleteData);
+			IMGUIDrawFunction(cmd, callbacks);
 			window.End(cmd);
 		}
 		{
@@ -1135,34 +1149,32 @@ void RHIApplication::Draw()
 
 		cmd.End();
 
+		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
+
+		SemaphoreHandle<kVk> acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
+		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
+
+		callbacks.emplace_back(
+			CreateTask(
+				[acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore)),
+				 graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]{}).handle);
+
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			.waitSemaphores = {graphicsSemaphore, lastFrame.GetSemaphore()},
-			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT},
-			.waitSemaphoreValues = {graphicsSubmit.maxTimelineValue, 1},
-			.signalSemaphores = {graphicsSemaphore, newFrame.GetSemaphore()},
+			.waitSemaphores = {graphicsSemaphore, acquireNextImageSemaphoreHandle},
+			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_NONE},
+			.waitSemaphoreValues = {lastGraphicsSubmit.maxTimelineValue, 1},
+			.signalSemaphores = {graphicsSemaphore, graphicsDoneSemaphoreHandle},
 			.signalSemaphoreValues = {++graphicsSemaphoreValue, 1},
-			.callbacks = std::move(deleteData.tasksOut)});
+			.callbacks = std::move(callbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
+
+		auto presentInfo = window.PreparePresent();
+		presentInfo.waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
+
+		computeQueue.EnqueuePresent(std::move(presentInfo));
+		computeSubmit = computeQueue.Present();
 	}
-
-	static uint8_t gComputeQueueIndex = 0;
-
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
-	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
-	auto computeQueueIndex = gComputeQueueIndex++ % computeQueueInfosWriteScope->size();
-	auto& [computeQueue, computeSubmit] = (*computeQueueInfosWriteScope)[computeQueueIndex];
-
-	{
-		ZoneScopedN("RHIApplication::Draw::waitCompute");
-
-		// wait for previous compute + present to finish
-		computeQueue.WaitIdle();
-		computeQueue.GetPool().Reset();
-	}
-
-	computeQueue.EnqueuePresent(window.PreparePresent());
-	computeSubmit = computeQueue.Present();
 }
 
 RHIApplication::RHIApplication(

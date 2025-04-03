@@ -39,11 +39,8 @@ public:
 
 	[[nodiscard]] auto& GetFence() noexcept { return myFence; }
 	[[nodiscard]] const auto& GetFence() const noexcept { return myFence; }
-	[[nodiscard]] auto& GetSemaphore() noexcept { return mySemaphore; }
-	[[nodiscard]] const auto& GetSemaphore() const noexcept { return mySemaphore; }
 
 private:
 	Fence<G> myFence{};
-	Semaphore<G> mySemaphore{};
 	ImageLayout<G> myImageLayout{};
 };

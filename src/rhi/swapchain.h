@@ -23,7 +23,7 @@ struct SwapchainConfiguration
 template <GraphicsApi G>
 struct FlipResult
 {
-	Semaphore<G> oldSemaphore{};
+	Semaphore<G> acquireNextImageSemaphore{};
 	uint32_t lastFrameIndex = 0;
 	uint32_t newFrameIndex = 0;
 	bool succeess = false;

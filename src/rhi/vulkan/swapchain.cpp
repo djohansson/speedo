@@ -132,7 +132,6 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	auto& newFrame = myFrames[myFrameIndex];
 
 	newFrame.GetFence().Swap(fence);
-	lastFrame.GetSemaphore().Swap(semaphore);
 
 	auto zoneNameStr =
 		std::format("Swapchain::flip frame:{0}", flipResult == VK_SUCCESS ? myFrameIndex : ~0U);
@@ -140,7 +139,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
 	return FlipResult<kVk>{
-		.oldSemaphore = std::move(semaphore),
+		.acquireNextImageSemaphore = std::move(semaphore),
 		.lastFrameIndex = lastFrameIndex,
 		.newFrameIndex = myFrameIndex,
 		.succeess = flipResult == VK_SUCCESS};

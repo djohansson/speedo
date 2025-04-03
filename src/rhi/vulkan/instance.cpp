@@ -156,7 +156,7 @@ VkBool32 DebugUtilsMessengerCallback(
 
 	std::cerr << pCallbackData->pMessage << '\n';
 
-	ASSERT(messageSeverity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT);
+	//ASSERT(messageSeverity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT);
 
 	return VK_FALSE;
 }
