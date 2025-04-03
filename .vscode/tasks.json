@@ -18,6 +18,21 @@
 			"type": "shell",
 			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Initialize-SystemEnv; & \"$Env:LLVM_TOOLS_PATH/clang-tidy\" --fix --format-style=file -p ${workspaceFolder}/compile_commands.json } 2>&1'",
 			"group": "none"
+		},
+		{
+			"type": "cmake",
+			"label": "CMake: build",
+			"command": "build",
+			"targets": [
+				"all"
+			],
+			"preset": "${command:cmake.activeBuildPresetName}",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [],
+			"detail": "CMake template build task"
 		}
 	]
 }
