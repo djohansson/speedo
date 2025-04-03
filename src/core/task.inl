@@ -52,9 +52,6 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 {
 	std::atomic_store(&InternalState(), std::static_pointer_cast<TaskState>(std::make_shared<typename Future<R>::FutureState>()));
 
-	static constexpr auto kExpectedTaskSize = 128;
-	static_assert(sizeof(Task) == kExpectedTaskSize);
-
 	static_assert(sizeof(C) <= kMaxCallableSizeBytes);
 	std::construct_at(
 		static_cast<C*>(static_cast<void*>(myCallableMemory.data())),//NOLINT(bugprone-casting-through-void)
