@@ -59,9 +59,23 @@ void GetPhysicalDeviceInfo2(
 		.pNext = &gDynamicRenderingFeature,
 		.synchronization2 = VK_TRUE,
 	};
+
+	static VkPhysicalDevicePresentIdFeaturesKHR gPresentIdFeature
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
+		.pNext = &gSynchronization2Feature,
+		.presentId = VK_TRUE,
+	};
+
+	static VkPhysicalDevicePresentWaitFeaturesKHR gPresentWaitFeature
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
+		.pNext = &gPresentIdFeature,
+		.presentWait = VK_TRUE,
+	};
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeatures12Ex.pNext = &gSynchronization2Feature;
+	deviceInfo.deviceFeatures12Ex.pNext = &gPresentWaitFeature;
 	deviceInfo.deviceFeatures12Ex.timelineSemaphore = VK_TRUE;
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
