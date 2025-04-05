@@ -96,10 +96,10 @@ void Window<kVk>::OnResizeFramebuffer(int width, int height)
 	ASSERT(myConfig.contentScale.x == myState.xscale);
 	ASSERT(myConfig.contentScale.y == myState.yscale);
 
-	myState.width = myConfig.swapchainConfig.extent.width / myState.xscale;
-	myState.height = myConfig.swapchainConfig.extent.height / myState.yscale;
+	myState.width = static_cast<uint32_t>(myConfig.swapchainConfig.extent.width / myState.xscale);
+	myState.height = static_cast<uint32_t>(myConfig.swapchainConfig.extent.height / myState.yscale);
 
-	InternalCreateSwapchain(myConfig.swapchainConfig, *this);
+	InternalCreateSwapchain(myConfig.swapchainConfig, *static_cast<Swapchain<kVk>*>(this));
 	InternalInitializeViews();
 }
 
@@ -233,6 +233,7 @@ void Window<kVk>::OnInputStateChanged(const InputState& input)
 template <>
 Window<kVk>::Window(
 	const std::shared_ptr<Device<kVk>>& device,
+	WindowHandle&& window,
 	SurfaceHandle<kVk>&& surface,
 	ConfigFile&& config,
 	WindowState&& state)
@@ -240,9 +241,10 @@ Window<kVk>::Window(
 		device,
 		config.swapchainConfig,
 		std::forward<SurfaceHandle<kVk>>(surface), VK_NULL_HANDLE)
+	, myWindow(std::forward<WindowHandle>(window))
 	, myConfig(std::forward<ConfigFile>(config))
 	, myState(std::forward<WindowState>(state))
-	, myViewBuffers(std::make_unique<Buffer<kVk>[]>(SHADER_TYPES_FRAME_COUNT))
+	, myViewBuffers(SHADER_TYPES_FRAME_COUNT)
 {
 	ZoneScopedN("Window()");
 
@@ -251,10 +253,10 @@ Window<kVk>::Window(
 		myViewBuffers[i] = Buffer<kVk>(
 			InternalGetDevice(),
 			BufferCreateDesc<kVk>{
-				SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
-				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				"ViewBuffer"});
+				.size = SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
+				.usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				.memoryFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				.name = "ViewBuffer"});
 	}
 
 	InternalInitializeViews();
@@ -265,6 +267,7 @@ Window<kVk>::Window(
 template <>
 Window<kVk>::Window(Window&& other) noexcept
 	: Swapchain(std::forward<Window>(other))
+	, myWindow(std::exchange(other.myWindow, {}))
 	, myConfig(std::exchange(other.myConfig, {}))
 	, myState(std::exchange(other.myState, {}))
 	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
@@ -283,6 +286,7 @@ template <>
 Window<kVk>& Window<kVk>::operator=(Window&& other) noexcept
 {
 	Swapchain::operator=(std::forward<Window>(other));
+	myWindow = std::exchange(other.myWindow, {});
 	myConfig = std::exchange(other.myConfig, {});
 	myState = std::exchange(other.myState, {});
 	myViewBuffers = std::exchange(other.myViewBuffers, {});
@@ -296,6 +300,7 @@ template <>
 void Window<kVk>::Swap(Window& other) noexcept
 {
 	Swapchain::Swap(other);
+	std::swap(myWindow, other.myWindow);
 	std::swap(myConfig, other.myConfig);
 	std::swap(myState, other.myState);
 	std::swap(myViewBuffers, other.myViewBuffers);

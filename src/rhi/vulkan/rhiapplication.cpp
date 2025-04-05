@@ -398,6 +398,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	*/
 
 	auto resourcePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]);
+	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	if (BeginMainMenuBar())
 	{
@@ -474,7 +475,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<kVk> splitScreenGrid = rhi.windows.at(GetCurrentWindow()).GetConfig().splitScreenGrid;
+				Extent2d<kVk> splitScreenGrid = window.GetConfig().splitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -511,7 +512,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 				ImGui::EndMenu();
 
 				if (anyChanged)
-					rhi.windows.at(GetCurrentWindow()).OnResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
+					window.OnResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
 			}
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
@@ -738,7 +739,7 @@ bool RHIApplication::Main()
 	ZoneScopedN("RHIApplication::Main");
 
 	auto& rhi = GetRHI<kVk>();
-	auto& window = rhi.windows.at(GetCurrentWindow());
+	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
@@ -756,7 +757,7 @@ void RHIApplication::OnInputStateChanged(const InputState& input)
 	ZoneScopedN("RHIApplication::OnInputStateChanged");
 
 	auto& rhi = GetRHI<kVk>();
-	auto& window = rhi.windows.at(GetCurrentWindow());
+	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto& io = ImGui::GetIO();
 
 	if (io.WantSaveIniSettings)
@@ -786,7 +787,7 @@ void RHIApplication::Draw()
 
 	auto& instance = *rhi.instance;
 	auto& device = *rhi.device;
-	auto& window = rhi.windows.at(GetCurrentWindow());
+	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
 	{
@@ -1199,6 +1200,7 @@ RHIApplication::RHIApplication(
 	using namespace rhiapplication;
 	
 	auto& rhi = GetRHI<kVk>();
+	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	std::vector<TaskHandle> timelineCallbacks;
 
@@ -1252,7 +1254,7 @@ RHIApplication::RHIApplication(
 		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
 		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfosWriteScope->front();
 		
-		IMGUIInit(rhi.windows.at(GetCurrentWindow()), rhi, graphicsQueue);
+		IMGUIInit(window, rhi, graphicsQueue);
 
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -1345,7 +1347,7 @@ RHIApplication::RHIApplication(
 	{
 		rhi.pipeline->SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{rhi.windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
@@ -1389,7 +1391,7 @@ RHIApplication::RHIApplication(
 	{
 		rhi.pipeline->SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{rhi.windows.at(GetCurrentWindow()).GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
@@ -1409,14 +1411,14 @@ RHIApplication::RHIApplication(
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 				i);
 		}
-		for (size_t i = 0; i < rhi.windows.at(GetCurrentWindow()).GetAttachments().size(); i++)
+		for (size_t i = 0; i < window.GetAttachments().size(); i++)
 		{
 			rhi.pipeline->SetDescriptorData(
 				"gRWTextures",
 				DescriptorImageInfo<kVk>{
 					{},
-					rhi.windows.at(GetCurrentWindow()).GetAttachments()[i],
-					rhi.windows.at(GetCurrentWindow()).GetLayout(i)},
+					window.GetAttachments()[i],
+					window.GetLayout(i)},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				i);
 		}
@@ -1470,7 +1472,7 @@ void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 
 	rhi.device->WaitIdle();
 
-	rhi.windows.at(window).OnResizeFramebuffer(width, height);
+	rhi.GetWindow(window).OnResizeFramebuffer(width, height);
 
 	detail::ConstructWindowDependentObjects(rhi);
 }
@@ -1481,5 +1483,5 @@ WindowState* RHIApplication::GetWindowState(WindowHandle window)
 
 	auto& rhi = GetRHI<kVk>();
 
-	return &rhi.windows.at(window).GetState();
+	return &rhi.GetWindow(window).GetState();
 }

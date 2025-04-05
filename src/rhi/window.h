@@ -46,6 +46,7 @@ public:
 	constexpr Window() noexcept = default;
 	Window(
 		const std::shared_ptr<Device<G>>& device,
+		WindowHandle&& window, // window class takes ownership of window handle
 		SurfaceHandle<G>&& surface, // swapchain base class takes ownership of surface
 		ConfigFile&& config,
 		WindowState&& state);
@@ -53,6 +54,7 @@ public:
 	~Window();
 
 	[[maybe_unused]] Window& operator=(Window&& other) noexcept;
+	[[nodiscard]] operator auto() const noexcept { return myWindow; }
 
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
@@ -82,8 +84,9 @@ private:
 		const RenderingInfo<G>& renderInfo);
 
 	file::Object<WindowConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
+	WindowHandle myWindow{};
 	WindowState myState{};
-	std::unique_ptr<Buffer<G>[]> myViewBuffers; // cbuffer data for all views
+	std::vector<Buffer<G>> myViewBuffers; // cbuffer data for all views
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 	ConcurrentAccess<std::vector<Camera>> myCameras;
 	std::optional<size_t> myActiveCamera;

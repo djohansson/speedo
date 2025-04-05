@@ -261,12 +261,14 @@ void CreateQueues(RHI<kVk>& rhi)
 
 Window<kVk> CreateRHIWindow(
 	const std::shared_ptr<Device<kVk>>& device,
+	WindowHandle&& window,
 	SurfaceHandle<kVk>&& surface,
 	typename Window<kVk>::ConfigFile&& windowConfig,
 	WindowState&& windowState)
 {
 	return {
 		device,
+		std::forward<WindowHandle>(window),
 		std::forward<SurfaceHandle<kVk>>(surface),
 		std::forward<Window<kVk>::ConfigFile>(windowConfig),
 		std::forward<WindowState>(windowState)};
@@ -298,7 +300,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::ConstructWindowDependentObjects");
 	
-	auto& window = rhi.windows.at(GetCurrentWindow());
+	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto frameCount = window.GetFrames().size();
 	rhi.renderImageSets.reserve(frameCount);
 	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
@@ -342,7 +344,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
-		for (auto& frame : rhi.windows.at(GetCurrentWindow()).GetFrames())
+		for (auto& frame : rhi.GetWindow(GetCurrentWindow()).GetFrames())
 		{
 			frame.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			frame.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
@@ -389,7 +391,7 @@ template <>
 	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
 	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
 
-	auto* windowHandle = createWindowFunc(&windowState);
+	auto windowHandle = createWindowFunc(&windowState);
 
 	auto instance = CreateInstance(name);
 	auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
@@ -403,9 +405,13 @@ template <>
 	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
 	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
-	auto [windowIt, windowEmplaceResult] = rhi.windows.emplace(
-		windowHandle,
-		CreateRHIWindow(rhi.device, std::move(surface), std::move(windowConfig), std::move(windowState)));
+	rhi.windows.emplace_back(
+		CreateRHIWindow(
+			rhi.device,
+			std::move(windowHandle),
+			std::move(surface),
+			std::move(windowConfig),
+			std::move(windowState)));
 
 	SetWindows(&windowHandle, 1);
 	SetCurrentWindow(windowHandle);

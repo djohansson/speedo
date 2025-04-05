@@ -668,12 +668,12 @@ VkRenderPass CreateRenderPass(
 }
 
 // todo: use callback
-VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view)
+VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, WindowHandle handle)
 {
 	VkSurfaceKHR surface;
 	VK_ENSURE(glfwCreateWindowSurface(
 		instance,
-		reinterpret_cast<GLFWwindow*>(view),
+		reinterpret_cast<GLFWwindow*>(handle),
 		hostAllocator,
 		&surface));
 
