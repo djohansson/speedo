@@ -156,6 +156,16 @@ QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent()
 	return presentInfo;
 }
 
+static PFN_vkWaitForPresentKHR gVkWaitForPresentKHR = nullptr;
+
+template <>
+void Swapchain<kVk>::WaitPresent(uint64_t presentId) const
+{
+	ZoneScopedN("Swapchain::WaitPresent");
+
+	VK_ENSURE(gVkWaitForPresentKHR(*InternalGetDevice(), mySwapchain, presentId, UINT64_MAX));
+}
+
 template <>
 void Swapchain<kVk>::InternalCreateSwapchain(
 	const SwapchainConfiguration<kVk>& config, SwapchainHandle<kVk> previous)
@@ -262,6 +272,13 @@ Swapchain<kVk>::Swapchain(
 	ZoneScopedN("Swapchain()");
 
 	InternalCreateSwapchain(config, previous);
+
+	if (gVkWaitForPresentKHR == nullptr)
+	{
+		gVkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(
+			vkGetInstanceProcAddr(*InternalGetDevice()->GetInstance(),"vkWaitForPresentKHR"));
+		ENSURE(gVkWaitForPresentKHR != nullptr);
+	}
 }
 
 template <>

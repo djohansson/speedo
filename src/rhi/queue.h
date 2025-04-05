@@ -22,16 +22,16 @@ struct QueueDeviceSyncInfo
 	std::vector<uint64_t> waitSemaphoreValues;
 	std::vector<SemaphoreHandle<G>> signalSemaphores;
 	std::vector<uint64_t> signalSemaphoreValues;
-	// these will be called after the queue has finished executing the command buffers on the device,
-	// through manually calling the SubmitCallbacks method from the host.
+	// These will be passed on and stored internally in the queue to be called after the queue has finished executing the command buffers on the device.
+	// They will then be called and deleted through manually calling the Queue::SubmitCallbacks from the host.
 	std::vector<TaskHandle> callbacks;
 };
 
 template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
-	std::vector<FenceHandle<G>> waitFences;
-	std::vector<SemaphoreHandle<G>> waitSemaphores;
+	std::vector<uint64_t> waitPresentIds;
+	std::vector<TaskHandle> waitPresentCallbacks;
 	uint64_t maxTimelineValue = 0ULL;
 };
 
@@ -45,12 +45,10 @@ struct QueueSubmitInfo : QueueDeviceSyncInfo<G>
 template <GraphicsApi G>
 struct QueuePresentInfo
 {
+	std::vector<SemaphoreHandle<G>> waitSemaphores;
 	std::vector<SwapchainHandle<G>> swapchains;
 	std::vector<uint32_t> imageIndices;
 	std::vector<Result<G>> results;
-	// these will be called after the queue has finished executing the command buffers on the device,
-	// through manually calling the SubmitCallbacks method from the host.
-	std::vector<TaskHandle> callbacks;
 
 	QueuePresentInfo<G>& operator|=(QueuePresentInfo<G>&& other);
 	friend QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& rhs);
@@ -126,7 +124,7 @@ public:
 
 	template <typename T, typename... Ts>
 	void EnqueuePresent(T&& first, Ts&&... rest);
-	[[maybe_unused]] QueueHostSyncInfo<G> Present(std::span<const SemaphoreHandle<kVk>> waitSemaphores);
+	[[maybe_unused]] QueueHostSyncInfo<G> Present();
 
 	void Execute(uint8_t level, uint64_t timelineValue);
 

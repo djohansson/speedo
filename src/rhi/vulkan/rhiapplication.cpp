@@ -805,8 +805,7 @@ void RHIApplication::Draw()
 		auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
 		auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
 		for (auto& [computeQueue, computeSubmit] : *computeQueueInfosWriteScope)	
-			//computeQueue.SubmitCallbacks(GetExecutor(), computeSemaphore.GetValue());
-			computeQueue.CallCallbacks(GetExecutor(), computeSemaphore.GetValue());
+			computeQueue.SubmitCallbacks(GetExecutor(), computeSemaphore.GetValue());
 	}
 
 	{
@@ -831,7 +830,16 @@ void RHIApplication::Draw()
 		ZoneScopedN("RHIApplication::Draw::waitCompute");
 
 		computeQueue.WaitIdle();
+		
+		for (auto presentId : computeSubmit.waitPresentIds)
+			window.WaitPresent(presentId);
+
 		computeQueue.GetPool().Reset();
+
+		GetExecutor().Submit(computeSubmit.waitPresentCallbacks);
+
+		computeSubmit.waitPresentIds.clear();
+		computeSubmit.waitPresentCallbacks.clear();
 	}
 
 	if (flipSuccess)
@@ -1177,18 +1185,10 @@ void RHIApplication::Draw()
 		graphicsSubmit = graphicsQueue.Submit();
 
 		// todo: put compute on separate thread
-
-		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
-		auto presentInfo = window.PreparePresent();
-		presentInfo.callbacks.emplace_back(
-			CreateTask(
-				[&computeQueue, graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]
-				{
-					computeQueue.WaitIdle();
-					//vkWaitForPresentKHR();
-				}).handle);
-		computeQueue.EnqueuePresent(std::move(presentInfo));
-		computeSubmit = computeQueue.Present({graphicsDoneSemaphoreHandle});
+		computeQueue.EnqueuePresent(window.PreparePresent());
+		computeSubmit = computeQueue.Present();
+		computeSubmit.waitPresentCallbacks.emplace_back(
+			CreateTask([graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]{}).handle);
 	}
 }
 

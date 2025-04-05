@@ -1,6 +1,10 @@
 template <GraphicsApi G>
 QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other)
 {
+	waitSemaphores.insert(
+		waitSemaphores.end(),
+		std::make_move_iterator(other.waitSemaphores.begin()),
+		std::make_move_iterator(other.waitSemaphores.end()));
 	swapchains.insert(
 		swapchains.end(),
 		std::make_move_iterator(other.swapchains.begin()),
@@ -13,10 +17,6 @@ QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other
 		results.end(),
 		std::make_move_iterator(other.results.begin()),
 		std::make_move_iterator(other.results.end()));
-	callbacks.insert(
-		callbacks.end(),
-		std::make_move_iterator(other.callbacks.begin()),
-		std::make_move_iterator(other.callbacks.end()));
 	
 	return *this;
 }

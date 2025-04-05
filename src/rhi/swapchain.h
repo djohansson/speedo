@@ -89,6 +89,7 @@ public:
 	
 	[[nodiscard]] FlipResult<G> Flip();
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
+	void WaitPresent(uint64_t presentId) const;
 
 	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }

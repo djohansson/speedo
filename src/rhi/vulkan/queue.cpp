@@ -284,22 +284,30 @@ void Queue<kVk>::WaitIdle() const
 }
 
 template <>
-QueueHostSyncInfo<kVk> Queue<kVk>::Present(std::span<const SemaphoreHandle<kVk>> waitSemaphores)
+QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::present");
 
+	static uint64_t gPresentId = 0ULL;
+	std::vector<uint64_t> presentIds(myPendingPresent.swapchains.size());
+	for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
+		presentIds[i] = gPresentId++;
+
+	PresentId<kVk> presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+	presentId.swapchainCount = myPendingPresent.swapchains.size();
+	presentId.pPresentIds = presentIds.data();
+
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.waitSemaphoreCount = waitSemaphores.size();
-	presentInfo.pWaitSemaphores = waitSemaphores.data();
+	presentInfo.pNext = &presentId;
+	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
+	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentInfo.pSwapchains = myPendingPresent.swapchains.data();
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
 	presentInfo.pResults = myPendingPresent.results.data();
 
 	QueueHostSyncInfo<kVk> result;
-	result.waitSemaphores.assign(waitSemaphores.begin(), waitSemaphores.end());
-
-	myTimelineCallbacks.enqueue(std::make_tuple(myPendingPresent.callbacks, 0));
+	result.waitPresentIds = std::move(presentIds);
 
 	CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
 
