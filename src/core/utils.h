@@ -127,6 +127,9 @@ template <
 	typename KeyEqualTo = std::equal_to<>>
 using UnorderedSet = ankerl::unordered_dense::set<Key, KeyHash, KeyEqualTo>;
 
+template <typename T, typename Handle>
+using HandleSetType = UnorderedSet<T, HandleHash<T, Handle>>;
+
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
 using ProducerToken = moodycamel::ProducerToken;
