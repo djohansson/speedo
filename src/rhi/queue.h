@@ -31,7 +31,6 @@ template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
 	std::vector<uint64_t> waitPresentIds;
-	std::vector<TaskHandle> waitPresentCallbacks;
 	uint64_t maxTimelineValue = 0ULL;
 };
 

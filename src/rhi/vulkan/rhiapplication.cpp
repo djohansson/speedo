@@ -830,16 +830,7 @@ void RHIApplication::Draw()
 		ZoneScopedN("RHIApplication::Draw::waitCompute");
 
 		computeQueue.WaitIdle();
-		
-		for (auto presentId : computeSubmit.waitPresentIds)
-			window.WaitPresent(presentId);
-
 		computeQueue.GetPool().Reset();
-
-		GetExecutor().Submit(computeSubmit.waitPresentCallbacks);
-
-		computeSubmit.waitPresentIds.clear();
-		computeSubmit.waitPresentCallbacks.clear();
 	}
 
 	if (flipSuccess)
@@ -1184,11 +1175,20 @@ void RHIApplication::Draw()
 
 		graphicsSubmit = graphicsQueue.Submit();
 
-		// todo: put compute on separate thread
 		computeQueue.EnqueuePresent(window.PreparePresent());
 		computeSubmit = computeQueue.Present();
-		computeSubmit.waitPresentCallbacks.emplace_back(
-			CreateTask([graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]{}).handle);
+
+		auto [waitPresentTask, waitPresentFuture] = CreateTask(
+			[&window,
+			graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore)),
+			waitPresentIds = std::move(computeSubmit.waitPresentIds)]
+			{
+				for (auto presentId : waitPresentIds)
+					window.WaitPresent(presentId);
+
+			});
+
+		GetExecutor().Submit(std::span(&waitPresentTask, 1));
 	}
 }
 
