@@ -25,6 +25,9 @@ public:
 	template <typename R>
 	[[maybe_unused]] std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
+	// help out processing the thread pools ready queue one task at a time
+	void JoinOne();
+
 	// blocking call in current thread. dependency chain(s) will be executed asynchrounously in thread pool
 	template <typename... Params>
 	void Call(TaskHandle handle, Params&&... params) { InternalCall(handle, params...); }

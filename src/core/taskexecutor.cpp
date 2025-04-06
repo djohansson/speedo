@@ -172,6 +172,18 @@ void TaskExecutor::InternalPurgeDeletionQueue()
 	myDeletionQueue.enqueue_bulk(nextDeletionQueue.begin(), nextDeletionQueue.size());
 }
 
+void TaskExecutor::JoinOne()
+{
+	ZoneScopedN("TaskExecutor::JoinOne");
+
+	TaskHandle handle;
+	if (myReadyQueue.try_dequeue(handle))
+	{
+		InternalCall(handle);
+		InternalPurgeDeletionQueue();
+	}
+}
+
 void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 {
 	using namespace taskexecutor;
