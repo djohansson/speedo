@@ -89,7 +89,7 @@ public:
 	
 	[[nodiscard]] FlipResult<G> Flip();
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
-	void WaitPresent(uint64_t presentId) const;
+	bool WaitPresent(uint64_t presentId, uint64_t timeout = UINT64_MAX) const;
 
 	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }

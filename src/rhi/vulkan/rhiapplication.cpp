@@ -1180,12 +1180,13 @@ void RHIApplication::Draw()
 
 		auto [waitPresentTask, waitPresentFuture] = CreateTask(
 			[&window,
+			&executor = GetExecutor(),
 			graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore)),
 			waitPresentIds = std::move(computeSubmit.waitPresentIds)]
 			{
 				for (auto presentId : waitPresentIds)
-					window.WaitPresent(presentId);
-
+					while (!window.WaitPresent(presentId, 0ULL))
+						executor.JoinOne();
 			});
 
 		GetExecutor().Submit(std::span(&waitPresentTask, 1));
