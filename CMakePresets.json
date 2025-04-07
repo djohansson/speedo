@@ -51,14 +51,12 @@
 		{
 			"name": "x64-windows-clang-debug",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "Debug",
-			"verbose": true
+			"configuration": "Debug"
 		},
 		{
 			"name": "x64-windows-clang-release",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "Release",
-			"verbose": true
+			"configuration": "Release"
 		},
 		{
 			"name": "x64-windows-clang-profile",
@@ -68,14 +66,12 @@
 		{
 			"name": "arm64-osx-clang-debug",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "Debug",
-			"verbose": true
+			"configuration": "Debug"
 		},
 		{
 			"name": "arm64-osx-clang-release",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "Release",
-			"verbose": true
+			"configuration": "Release"
 		},
 		{
 			"name": "arm64-osx-clang-profile",
