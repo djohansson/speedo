@@ -54,7 +54,6 @@ target_compile_definitions(
 	PUBLIC
 		SPEEDO_PROFILING_LEVEL=$<IF:$<CONFIG:Release>,0,1>
 		SPEEDO_USE_MIMALLOC
-	PRIVATE
 		UUID_SYSTEM_GENERATOR
 )
 target_include_directories(
@@ -65,7 +64,7 @@ target_include_directories(
 )
 target_link_libraries(
 	core
-	PRIVATE
+	PUBLIC
 		SHA-Intrinsics
 		cpptrace::cpptrace
 		stduuid
@@ -90,7 +89,7 @@ target_include_directories(
 )
 target_link_libraries(
 	gfx
-	PRIVATE
+	PUBLIC
 		core
 		xxHash::xxhash
 		imgui::imgui
@@ -111,8 +110,6 @@ target_compile_definitions(
 	rhi
 	PUBLIC
 		SPEEDO_GRAPHICS_VALIDATION_LEVEL=$<IF:$<CONFIG:Debug>,1,0>
-	PRIVATE
-		UUID_SYSTEM_GENERATOR
 )
 target_include_directories(
 	rhi
@@ -122,8 +119,10 @@ target_include_directories(
 )
 target_link_libraries(
 	rhi
-	PRIVATE
+	PUBLIC
 		core
+		nfd::nfd
+		slang::slang
 		xxHash::xxhash
 		Vulkan::Vulkan
 )
@@ -146,8 +145,7 @@ target_compile_features(
 )
 target_compile_definitions(
 	serverlib
-	PRIVATE
-		UUID_SYSTEM_GENERATOR
+	PUBLIC
 		ZMQ_BUILD_DRAFT_API
 )
 target_include_directories(
@@ -158,10 +156,8 @@ target_include_directories(
 )
 target_link_libraries(
 	serverlib
-	PRIVATE
-		cpptrace::cpptrace
-		stduuid
-		Tracy::TracyClient
+	PUBLIC
+		core
 		cppzmq
 )
 
@@ -181,12 +177,6 @@ target_compile_features(
 	PUBLIC
 		cxx_std_26
 )
-target_compile_definitions(
-	clientlib
-	PRIVATE
-		UUID_SYSTEM_GENERATOR
-		ZMQ_BUILD_DRAFT_API
-)
 target_include_directories(
 	clientlib
 	PUBLIC
@@ -196,7 +186,6 @@ target_include_directories(
 target_link_libraries(
 	clientlib
 	PRIVATE
-		cppzmq
 		serverlib
 )
 
@@ -220,9 +209,8 @@ target_link_libraries(
 	server
 	PRIVATE
 		mimalloc
-		core
-		serverlib
 		cargs
+		serverlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 
@@ -246,14 +234,11 @@ target_link_libraries(
 	client
 	PRIVATE
 		mimalloc
-		core
+		cargs
+		glfw
 		gfx
 		rhi
 		clientlib
-		cargs
-		glfw
-		slang::slang
-		nfd::nfd
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
 
