@@ -689,18 +689,18 @@ VkResult CheckFlipOrPresentResult(VkResult result)
 	case VK_TIMEOUT:
 	case VK_NOT_READY:
 	case VK_SUBOPTIMAL_KHR:
-		std::println("warning: flip/present returned {}", string_VkResult(result));
+		std::println(stderr, "Warning: flip/present returned {}", string_VkResult(result));
 		break;
-	case VK_ERROR_OUT_OF_HOST_MEMORY:
-	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-	case VK_ERROR_DEVICE_LOST:
 	case VK_ERROR_OUT_OF_DATE_KHR:
 	case VK_ERROR_SURFACE_LOST_KHR:
 	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
-		std::println("error: flip/present returned {}", string_VkResult(result));
+		ASSERTF(false, "Error: flip/present returned {}", string_VkResult(result));
 		break;
+	case VK_ERROR_OUT_OF_HOST_MEMORY:
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
+	case VK_ERROR_DEVICE_LOST:	
 	default:
-		ENSUREF(false, "Invalid error code.");
+		ENSUREF(false, "Error: flip/present returned fatal error code: {}", string_VkResult(result));
 	}
 
 	return result;

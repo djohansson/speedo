@@ -2,6 +2,7 @@
 
 #include "command.h"
 #include "device.h"
+#include "fence.h"
 #include "semaphore.h"
 #include "types.h"
 
@@ -30,7 +31,8 @@ struct QueueDeviceSyncInfo
 template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
-	std::vector<uint64_t> waitPresentIds;
+	Fence<G> fence;
+	std::vector<uint64_t> presentIds;
 	uint64_t maxTimelineValue = 0ULL;
 };
 
