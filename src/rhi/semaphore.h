@@ -26,6 +26,7 @@ public:
 	~Semaphore();
 
 	[[nodiscard]] Semaphore& operator=(Semaphore&& other) noexcept;
+	[[nodiscard]] operator bool() const noexcept { return mySemaphore != nullptr; }
 	[[nodiscard]] operator auto() const noexcept { return mySemaphore; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Semaphore& rhs) noexcept;

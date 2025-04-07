@@ -22,7 +22,8 @@ public:
 	~Fence();
 
 	[[maybe_unused]] Fence& operator=(Fence&& other) noexcept;
-	operator auto() const noexcept { return myFence; }
+	[[nodiscard]] operator bool() const noexcept { return myFence != nullptr; }
+	[[nodiscard]] operator auto() const noexcept { return myFence; }
 
 	void Swap(Fence& rhs) noexcept;
 	friend void Swap(Fence& lhs, Fence& rhs) noexcept { lhs.Swap(rhs); }
