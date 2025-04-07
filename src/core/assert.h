@@ -38,14 +38,14 @@
 #	define ENSURE(A) \
 		if (!(A)) \
 		{ \
-			LOG_ERROR("Check failed: {}", #A); \
+			LOG_ERROR("Ensure failed: {}", #A); \
 			TRAP(); \
 		}
 #else
 #	define ENSURE(A) \
 		if (!(A)) \
 		{ \
-			LOG_ERROR("Check failed: %s", #A); \
+			LOG_ERROR("Ensure failed: %s", #A); \
 			TRAP(); \
 		}
 #endif
