@@ -198,12 +198,12 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 			InternalProcessReadyQueue();
 }
 
-void TaskExecutor::InternalSubmit(std::span<TaskHandle> handles)
+void TaskExecutor::InternalSubmit(std::span<const TaskHandle> handles)
 {
 	ENSURE(myReadyQueue.enqueue_bulk(handles.data(), handles.size()));
 }
 
-void TaskExecutor::Submit(std::span<TaskHandle> handles, bool wakeThreads)
+void TaskExecutor::Submit(std::span<const TaskHandle> handles, bool wakeThreads)
 {
 	ZoneScopedN("TaskExecutor::Submit");
 
