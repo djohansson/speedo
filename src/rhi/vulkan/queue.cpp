@@ -28,29 +28,6 @@ bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
 }
 
 template <>
-bool Queue<kVk>::CallCallbacks(TaskExecutor& executor, uint64_t timelineValue)
-{
-	ZoneScopedN("Queue::SubmitCallbacks");
-
-	TimelineCallbackData callbackData;
-	while (myTimelineCallbacks.try_dequeue(callbackData))
-	{
-		auto& [callbackVector, commandBufferTimelineValue] = callbackData;
-
-		if (commandBufferTimelineValue > timelineValue)
-		{
-			myTimelineCallbacks.enqueue(std::move(callbackData));
-			return false;
-		}
-
-		for (auto callback : callbackVector)
-			executor.Call(callback);
-	}
-
-	return true;
-}
-
-template <>
 Queue<kVk>::Queue(
 	const std::shared_ptr<Device<kVk>>& device,
 	CommandPoolCreateDesc<kVk>&& commandPoolDesc,

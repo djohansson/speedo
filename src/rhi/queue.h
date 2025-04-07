@@ -129,8 +129,7 @@ public:
 
 	void WaitIdle() const;
 	
-	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue);
-	bool CallCallbacks(TaskExecutor& executor, uint64_t timelineValue);
+	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue) const;
 
 	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
