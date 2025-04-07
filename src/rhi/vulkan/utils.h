@@ -9,6 +9,7 @@
 #include <vk_mem_alloc.h>
 #endif
 
+#include <core/assert.h>
 #include <core/utils.h>
 #include <rhi/types.h>
 
@@ -16,22 +17,15 @@
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #ifdef __cplusplus
-#	define VK_ENSURE(A) \
-	if (!(A == VK_SUCCESS)) \
-	{ \
-		LOG_ERROR("{} failed with {}", #A, string_VkResult(A)); \
-		TRAP(); \
-	}
+#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "{} failed with {}", #A, string_VkResult(A))
+#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "{} failed with {}", #A, string_VkResult(A))
 #else
-#	define VK_ENSURE(A) \
-	if (!(A == VK_SUCCESS)) \
-	{ \
-		LOG_ERROR("%s failed with %s", #A, string_VkResult(A)); \
-		TRAP(); \
-	}
+#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "%s failed with %s", #A, string_VkResult(A))
+#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "%s failed with %s", #A, string_VkResult(A))
 #endif
 #else
 #	define VK_ENSURE(expr) static_cast<void>(expr);
+#	define VK_ASSERT(expr) static_cast<void>(expr);
 #endif
 
 void InitDeviceExtensions(VkDevice device);
