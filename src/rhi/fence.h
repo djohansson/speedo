@@ -28,8 +28,8 @@ public:
 	void Swap(Fence& rhs) noexcept;
 	friend void Swap(Fence& lhs, Fence& rhs) noexcept { lhs.Swap(rhs); }
 
-	bool Wait(uint64_t timeout = ~0ULL) const;
-	static void Wait(DeviceHandle<G> device, std::span<const FenceHandle<G>> fences, bool waitAll = true, uint64_t timeout = ~0ULL);
+	[[maybe_unused]] bool Wait(uint64_t timeout = ~0ULL) const;
+	[[maybe_unused]] static bool Wait(DeviceHandle<G> device, std::span<const FenceHandle<G>> fences, bool waitAll = true, uint64_t timeout = ~0ULL);
 
 private:
 	Fence(const std::shared_ptr<Device<G>>& device, FenceHandle<G>&& fence);

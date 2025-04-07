@@ -36,7 +36,7 @@ public:
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	[[maybe_unused]] bool Wait(uint64_t timelineValue = 0, uint64_t timeout = ~0ULL) const;
-	static void Wait(
+	[[maybe_unused]] static bool Wait(
 		DeviceHandle<G> device,
 		std::span<const SemaphoreHandle<G>> semaphores,
 		std::span<const uint64_t> semaphoreValues,

@@ -77,7 +77,7 @@ void Semaphore<kVk>::Swap(Semaphore& rhs) noexcept
 template <>
 uint64_t Semaphore<kVk>::GetValue() const
 {
-	ZoneScopedN("Semaphore::getValue");
+	ZoneScopedN("Semaphore::GetValue");
 
 	uint64_t value;
 	VK_ENSURE(vkGetSemaphoreCounterValue(*InternalGetDevice(), mySemaphore, &value));
@@ -88,7 +88,7 @@ uint64_t Semaphore<kVk>::GetValue() const
 template <>
 bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 {
-	ZoneScopedN("Semaphore::wait");
+	ZoneScopedN("Semaphore::Wait");
 
 	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
 	waitInfo.flags = {};
@@ -107,13 +107,13 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 }
 
 template <>
-void Semaphore<kVk>::Wait(
+bool Semaphore<kVk>::Wait(
 	DeviceHandle<kVk> device,
 	std::span<const SemaphoreHandle<kVk>> semaphores,
 	std::span<const uint64_t> semaphoreValues,
 	uint64_t timeout)
 {
-	ZoneScopedN("Semaphore::wait");
+	ZoneScopedN("Semaphore::Wait");
 
 	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
 	waitInfo.flags = {};
