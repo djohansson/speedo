@@ -7,7 +7,8 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
-				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
+				"CMAKE_CONFIGURATION_TYPES": "Debug;Profile;Release",
+				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";Profile;Release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
@@ -28,7 +29,8 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
-				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
+				"CMAKE_CONFIGURATION_TYPES": "Debug;Profile;Release",
+				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";Profile;Release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
@@ -49,33 +51,35 @@
 		{
 			"name": "x64-windows-clang-debug",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "debug"
+			"configuration": "Debug",
+			"verbose": true
 		},
 		{
 			"name": "x64-windows-clang-release",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "release"
+			"configuration": "Release",
+			"verbose": true
 		},
 		{
 			"name": "x64-windows-clang-profile",
-			"configurePreset": "x64-windows-clang",
-			"configuration": "profile",
+			"configuration": "Profile",
 			"inherits": "x64-windows-clang-release"
 		},
 		{
 			"name": "arm64-osx-clang-debug",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "debug"
+			"configuration": "Debug",
+			"verbose": true
 		},
 		{
 			"name": "arm64-osx-clang-release",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "release"
+			"configuration": "Release",
+			"verbose": true
 		},
 		{
 			"name": "arm64-osx-clang-profile",
-			"configurePreset": "arm64-osx-clang",
-			"configuration": "profile",
+			"configuration": "Profile",
 			"inherits": "arm64-osx-clang-release"
 		}
 	]
