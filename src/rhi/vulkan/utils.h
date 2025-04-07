@@ -17,15 +17,21 @@
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #ifdef __cplusplus
-#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "{} failed with {}", #A, string_VkResult(A))
-#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "{} failed with {}", #A, string_VkResult(A))
+#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "{} failed with return code {}", #A, string_VkResult(A))
+#	define VK_ENSURE_RESULT(A, C) ENSUREF((A == C), "{} failed with return code {}", #A, string_VkResult(A))
+#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "{} failed with return code {}", #A, string_VkResult(A))
+#	define VK_ASSERT_OTHER(A, C) ASSERTF((A == C), "{} failed with return code {}", #A, string_VkResult(A))
 #else
-#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "%s failed with %s", #A, string_VkResult(A))
-#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "%s failed with %s", #A, string_VkResult(A))
+#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "%s failed with return code %s", #A, string_VkResult(A))
+#	define VK_ENSURE_RESULT(A, C) ENSUREF((A == C), "%s failed with return code %s", #A, string_VkResult(A))
+#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "%s failed with return code %s", #A, string_VkResult(A))
+#	define VK_ASSERT_OTHER(A, C) ASSERTF((A == C), "%s failed with return code %s", #A, string_VkResult(A))
 #endif
 #else
-#	define VK_ENSURE(expr) static_cast<void>(expr);
-#	define VK_ASSERT(expr) static_cast<void>(expr);
+#	define VK_ENSURE(A) static_cast<void>(A);
+#	define VK_ENSURE_RESULT(A, C) static_cast<void>(A);
+#	define VK_ASSERT(A) static_cast<void>(A);
+#	define VK_ASSERT_OTHER(A, C) static_cast<void>(A);
 #endif
 
 void InitDeviceExtensions(VkDevice device);

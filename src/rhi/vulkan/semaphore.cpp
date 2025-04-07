@@ -98,12 +98,12 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 		waitInfo.pValues = &timelineValue;
 
 	auto result = vkWaitSemaphores(*InternalGetDevice(), &waitInfo, timeout);
-	if (result == VK_TIMEOUT)
-		return false;
+	if (result == VK_SUCCESS)
+		return true;
 
-	VK_ENSURE(result);
+	VK_ENSURE_RESULT(result, VK_TIMEOUT);
 
-	return true;
+	return false;
 }
 
 template <>
@@ -121,6 +121,12 @@ void Semaphore<kVk>::Wait(
 	waitInfo.pSemaphores = semaphores.data();
 	waitInfo.pValues = semaphoreValues.data();
 
-	VK_ENSURE(vkWaitSemaphores(device, &waitInfo, timeout));
+	auto result = vkWaitSemaphores(device, &waitInfo, timeout);
+	if (result == VK_SUCCESS)
+		return true;
+
+	VK_ENSURE_RESULT(result, VK_TIMEOUT);
+
+	return false;
 }
 

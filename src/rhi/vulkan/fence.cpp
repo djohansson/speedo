@@ -66,7 +66,7 @@ bool Fence<kVk>::Wait(uint64_t timeout) const
 	if (result == VK_SUCCESS)
 		return true;
 
-	ENSURE(result == VK_TIMEOUT);
+	VK_ENSURE_RESULT(result, VK_TIMEOUT);
 
 	return false;
 }
