@@ -6,7 +6,7 @@
 #include <tracy/TracyVulkan.hpp>
 
 template <>
-bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
+bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue) const
 {
 	ZoneScopedN("Queue::SubmitCallbacks");
 
@@ -190,7 +190,7 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 template <>
 QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 {
-	ZoneScopedN("Queue::submit");
+	ZoneScopedN("Queue::Submit");
 
 	if (myPendingSubmits.empty())
 		return {};
@@ -240,11 +240,13 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueHostSyncInfo<kVk> syncInfo{.maxTimelineValue = maxTimelineValue};
+	QueueHostSyncInfo<kVk> syncInfo{
+		.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{}},
+		.maxTimelineValue = maxTimelineValue};
 	{
-		ZoneScopedN("Queue::submit::vkQueueSubmit");
+		ZoneScopedN("Queue::Submit::vkQueueSubmit");
 
-		VK_ENSURE(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, VK_NULL_HANDLE));
+		VK_ENSURE(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, syncInfo.fence));
 	}
 
 	myPendingSubmits.clear();
@@ -255,7 +257,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 template <>
 void Queue<kVk>::WaitIdle() const
 {
-	ZoneScopedN("Queue::waitIdle");
+	ZoneScopedN("Queue::WaitIdle");
 
 	VK_ENSURE(vkQueueWaitIdle(myQueue));
 }
@@ -263,7 +265,7 @@ void Queue<kVk>::WaitIdle() const
 template <>
 QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 {
-	ZoneScopedN("Queue::present");
+	ZoneScopedN("Queue::Present");
 
 	static uint64_t gPresentId = 0ULL;
 	std::vector<uint64_t> presentIds(myPendingPresent.swapchains.size());
@@ -283,10 +285,12 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
 	presentInfo.pResults = myPendingPresent.results.data();
 
-	QueueHostSyncInfo<kVk> result;
-	result.waitPresentIds = std::move(presentIds);
+	QueueHostSyncInfo<kVk> result{.presentIds = std::move(presentIds)};
+	{
+		ZoneScopedN("Queue::Present::vkQueuePresentKHR");
 
-	CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
+		CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
+	}
 
 	myPendingPresent = {};
 
@@ -296,7 +300,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 template <>
 QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo)
 {
-	ZoneScopedN("Queue::prepareSubmit");
+	ZoneScopedN("Queue::PrepareSubmit");
 
 	myPool.InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 

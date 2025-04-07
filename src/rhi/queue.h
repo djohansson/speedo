@@ -159,7 +159,7 @@ private:
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
 	using TimelineCallbackData = std::tuple<std::vector<TaskHandle>, uint64_t>;
-	ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
+	mutable ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 	void* myProfilingContext = nullptr;
