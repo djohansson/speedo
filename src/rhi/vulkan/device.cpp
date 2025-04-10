@@ -12,14 +12,6 @@
 #include <shared_mutex>
 #include <utility>
 
-namespace device
-{
-
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-static PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
-#endif
-
-}
 
 template <>
 void Device<kVk>::WaitIdle() const
@@ -65,7 +57,7 @@ void Device<kVk>::AddOwnedObjectHandle(
 		{
 			ZoneScopedN("Device::AddOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
 
-			VK_ENSURE(device::gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
+			VK_ENSURE(gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
 		}
 
 		myObjectTypeToCountMap[objectType]++;
@@ -214,19 +206,16 @@ Device<kVk>::Device(
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 
 	std::vector<const char*> requiredDeviceExtensions = {
-		// must be sorted lexicographically for std::includes to work!
 		VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
 		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
 #if defined(__OSX__)
 		VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
 #endif
-		VK_KHR_PRESENT_ID_EXTENSION_NAME,
-		VK_KHR_PRESENT_WAIT_EXTENSION_NAME,
-		//VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
+	// must be sorted lexicographically for std::includes to work!
 	ASSERT(std::includes(
 		deviceExtensions.begin(),
 		deviceExtensions.end(),
@@ -234,24 +223,33 @@ Device<kVk>::Device(
 		requiredDeviceExtensions.end(),
 		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
 
+	std::vector<const char*> desiredDeviceExtensions = requiredDeviceExtensions;
+
+	std::vector<const char*> presentWaitExtensions = {
+		//VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
+		VK_KHR_PRESENT_ID_EXTENSION_NAME,
+		VK_KHR_PRESENT_WAIT_EXTENSION_NAME};
+
+	if (std::includes(
+		deviceExtensions.begin(),
+		deviceExtensions.end(),
+		presentWaitExtensions.begin(),
+		presentWaitExtensions.end(),
+		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }))
+	{
+		desiredDeviceExtensions.append_range(presentWaitExtensions);
+	}
+
 	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
 	deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
-	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtensions.size());
-	deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtensions.data();
+	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(desiredDeviceExtensions.size());
+	deviceCreateInfo.ppEnabledExtensionNames = desiredDeviceExtensions.data();
 
 	VK_ENSURE(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
 
 	InitDeviceExtensions(myDevice);
-
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	{
-		device::gVkSetDebugUtilsObjectNameExt = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
-			vkGetDeviceProcAddr(myDevice, "vkSetDebugUtilsObjectNameEXT"));
-		ASSERT(device::gVkSetDebugUtilsObjectNameExt != nullptr);
-	}
-#endif
 
 	// AddOwnedObjectHandle(
 	//     GetUuid(),
@@ -321,16 +319,6 @@ Device<kVk>::Device(
 
 	myAllocator = [this]
 	{
-		auto vkGetBufferMemoryRequirements2KHR =
-			reinterpret_cast<PFN_vkGetBufferMemoryRequirements2KHR>(
-				vkGetInstanceProcAddr(*GetInstance(), "vkGetBufferMemoryRequirements2KHR"));
-		ASSERT(vkGetBufferMemoryRequirements2KHR != nullptr);
-
-		auto vkGetImageMemoryRequirements2KHR =
-			reinterpret_cast<PFN_vkGetImageMemoryRequirements2KHR>(
-				vkGetInstanceProcAddr(*GetInstance(), "vkGetImageMemoryRequirements2KHR"));
-		ASSERT(vkGetImageMemoryRequirements2KHR != nullptr);
-
 		VmaVulkanFunctions functions{};
 		functions.vkGetPhysicalDeviceProperties = vkGetPhysicalDeviceProperties;
 		functions.vkGetPhysicalDeviceMemoryProperties = vkGetPhysicalDeviceMemoryProperties;
@@ -348,8 +336,8 @@ Device<kVk>::Device(
 		functions.vkDestroyBuffer = vkDestroyBuffer;
 		functions.vkCreateImage = vkCreateImage;
 		functions.vkDestroyImage = vkDestroyImage;
-		functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2KHR;
-		functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2KHR;
+		functions.vkGetBufferMemoryRequirements2KHR = gVkGetBufferMemoryRequirements2KHR;
+		functions.vkGetImageMemoryRequirements2KHR = gVkGetImageMemoryRequirements2KHR;
 
 		VmaAllocator allocator;
 		VmaAllocatorCreateInfo allocatorInfo{};

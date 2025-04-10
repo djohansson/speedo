@@ -15,7 +15,9 @@
 namespace instance
 {
 
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 static VkDebugUtilsMessengerEXT gDebugUtilsMessenger{};
+#endif
 
 SurfaceCapabilities<kVk>
 GetSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface)
@@ -31,9 +33,6 @@ void GetPhysicalDeviceInfo2(
 	InstanceHandle<kVk> instance,
 	PhysicalDeviceHandle<kVk> device)
 {
-	auto vkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
-		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
-
 	// deviceInfo.deviceFeatures13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
 	// deviceInfo.deviceFeatures13Ex.pNext = &deviceInfo.deviceFeatures12Ex;
 	// deviceInfo.deviceFeatures13Ex.inlineUniformBlock = VK_TRUE;
@@ -43,35 +42,30 @@ void GetPhysicalDeviceInfo2(
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
 		.pNext = nullptr,
-		.inlineUniformBlock = VK_TRUE,
 	};
 
 	static VkPhysicalDeviceDynamicRenderingFeaturesKHR gDynamicRenderingFeature
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
 		.pNext = &gInlineUniformBlockFeature,
-		.dynamicRendering = VK_TRUE,
 	};
 
 	static VkPhysicalDeviceSynchronization2FeaturesKHR gSynchronization2Feature
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
 		.pNext = &gDynamicRenderingFeature,
-		.synchronization2 = VK_TRUE,
 	};
 
 	static VkPhysicalDevicePresentIdFeaturesKHR gPresentIdFeature
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
 		.pNext = &gSynchronization2Feature,
-		.presentId = VK_TRUE,
 	};
 
 	static VkPhysicalDevicePresentWaitFeaturesKHR gPresentWaitFeature
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
 		.pNext = &gPresentIdFeature,
-		.presentWait = VK_TRUE,
 	};
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
@@ -82,10 +76,7 @@ void GetPhysicalDeviceInfo2(
 	// deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures13Ex;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures12Ex;
 	
-	vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
-
-	auto vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
-		vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
+	gVkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
 	// deviceInfo.deviceProperties13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
 	// deviceInfo.deviceProperties13Ex.pNext = &deviceInfo.deviceProperties12Ex;
@@ -97,7 +88,7 @@ void GetPhysicalDeviceInfo2(
 	// deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties13Ex;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
 
-	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+	gVkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 
 	uint32_t queueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
@@ -451,6 +442,8 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 
 	VK_ENSURE(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
 
+	InitInstanceExtensions(myInstance);
+
 	uint32_t physicalDeviceCount = 0;
 	VK_ENSURE(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
 	ASSERTF(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
@@ -467,13 +460,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		auto vkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
-			vkGetInstanceProcAddr(
-				myInstance,
-				"vkCreateDebugUtilsMessengerEXT"));
-		ASSERT(vkCreateDebugUtilsMessengerEXT != nullptr);
-
-		VK_ENSURE(vkCreateDebugUtilsMessengerEXT(
+		VK_ENSURE(gVkCreateDebugUtilsMessengerEXT(
 			myInstance,
 			&gDebugUtilsMessengerCallbackCreateInfo,
 			&myHostAllocationCallbacks,
@@ -490,13 +477,7 @@ Instance<kVk>::~Instance()
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		auto vkDestroyDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
-			vkGetInstanceProcAddr(
-				myInstance,
-				"vkDestroyDebugUtilsMessengerEXT"));
-		ASSERT(vkDestroyDebugUtilsMessengerEXT != nullptr);
-
-		vkDestroyDebugUtilsMessengerEXT(
+		gVkDestroyDebugUtilsMessengerEXT(
 			myInstance, gDebugUtilsMessenger, &GetHostAllocationCallbacks());
 	}
 

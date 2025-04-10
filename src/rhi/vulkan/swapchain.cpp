@@ -156,12 +156,12 @@ QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent()
 	return presentInfo;
 }
 
-static PFN_vkWaitForPresentKHR gVkWaitForPresentKHR = nullptr;
-
 template <>
 bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 {
 	ZoneScopedN("Swapchain::WaitPresent");
+
+	ENSURE(gVkWaitForPresentKHR != nullptr);
 
 	auto result = gVkWaitForPresentKHR(*InternalGetDevice(), mySwapchain, presentId, timeout);
 	
@@ -279,13 +279,6 @@ Swapchain<kVk>::Swapchain(
 	ZoneScopedN("Swapchain()");
 
 	InternalCreateSwapchain(config, previous);
-
-	if (gVkWaitForPresentKHR == nullptr)
-	{
-		gVkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(
-			vkGetInstanceProcAddr(*InternalGetDevice()->GetInstance(),"vkWaitForPresentKHR"));
-		ENSURE(gVkWaitForPresentKHR != nullptr);
-	}
 }
 
 template <>

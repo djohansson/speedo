@@ -34,6 +34,22 @@
 #	define VK_ASSERT_OTHER(A, C) static_cast<void>(A);
 #endif
 
+extern PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2;
+extern PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2;
+extern PFN_vkWaitForPresentKHR gVkWaitForPresentKHR;
+extern PFN_vkGetBufferMemoryRequirements2KHR gVkGetBufferMemoryRequirements2KHR;
+extern PFN_vkGetImageMemoryRequirements2KHR gVkGetImageMemoryRequirements2KHR;
+extern PFN_vkCmdBeginRenderingKHR gVkCmdBeginRenderingKHR;
+extern PFN_vkCmdEndRenderingKHR gVkCmdEndRenderingKHR;
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+extern PFN_vkCreateDebugUtilsMessengerEXT gVkCreateDebugUtilsMessengerEXT;
+extern PFN_vkDestroyDebugUtilsMessengerEXT gVkDestroyDebugUtilsMessengerEXT;
+extern PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt;
+#endif
+extern PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR;
+extern PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR;
+
+void InitInstanceExtensions(VkInstance instance);
 void InitDeviceExtensions(VkDevice device);
 
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);

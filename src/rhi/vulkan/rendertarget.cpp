@@ -566,12 +566,6 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 
 	if (desc.useDynamicRendering)
 	{
-		static auto vkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
-			vkGetInstanceProcAddr(
-				*InternalGetDevice()->GetInstance(),
-				"vkCmdBeginRenderingKHR"));
-		ASSERT(vkCmdBeginRenderingKHR != nullptr);
-
 		myRenderTargetBeginInfo = DynamicRenderingInfo<kVk>
 		{
 			.renderInfo = RenderingInfo<kVk>
@@ -601,7 +595,7 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 			}
 		};
 
-		vkCmdBeginRenderingKHR(cmd, &std::get<DynamicRenderingInfo<kVk>>(myRenderTargetBeginInfo.value()).renderInfo);
+		gVkCmdBeginRenderingKHR(cmd, &std::get<DynamicRenderingInfo<kVk>>(myRenderTargetBeginInfo.value()).renderInfo);
 	}
 	else
 	{
@@ -627,22 +621,16 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 template <>
 void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
+	ZoneScopedN("RenderTarget::End");
+
 	ASSERT(myRenderTargetBeginInfo.has_value());
 
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
-		static auto vkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
-				vkGetInstanceProcAddr(
-					*InternalGetDevice()->GetInstance(),
-					"vkCmdEndRenderingKHR"));
-		ASSERT(vkCmdEndRenderingKHR != nullptr);
-
-		vkCmdEndRenderingKHR(cmd);
+		gVkCmdEndRenderingKHR(cmd);
 	}
 	else
 	{
-		ZoneScopedN("RenderTarget::end");
-
 		vkCmdEndRenderPass(cmd);
 	}
 

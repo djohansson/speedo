@@ -133,8 +133,6 @@ std::expected<Record, std::error_code> SavePipelineCache(
 	return SaveBinary<true>(cacheFilePath, saveCacheOp);
 }
 
-static PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
-
 } // namespace pipeline
 
 template <>
@@ -743,7 +741,7 @@ void Pipeline<kVk>::InternalPushDescriptorSet(
 {
 	ZoneScopedN("Pipeline::InternalPushDescriptorSet");
 
-	pipeline::gVkCmdPushDescriptorSetWithTemplateKHR(
+	gVkCmdPushDescriptorSetWithTemplateKHR(
 		cmd, setTemplate, layout, setTemplate.GetDesc().set, bindingsData.data());
 }
 
@@ -912,11 +910,6 @@ Pipeline<kVk>::Pipeline(
 		  }(device))
 	, myCache(pipeline::LoadPipelineCache(myConfig.cachePath, device))
 {
-	if (pipeline::gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
-	pipeline::gVkCmdPushDescriptorSetWithTemplateKHR =
-		reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
-			vkGetDeviceProcAddr(*InternalGetDevice(), "vkCmdPushDescriptorSetWithTemplateKHR"));
-
 	InternalResetGraphicsState();
 	InternalResetComputeState();
 

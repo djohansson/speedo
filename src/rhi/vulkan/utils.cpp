@@ -24,15 +24,111 @@
 
 #include <print>
 
-static PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
+PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2{};
+PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2{};
+PFN_vkWaitForPresentKHR gVkWaitForPresentKHR{};
+PFN_vkGetBufferMemoryRequirements2KHR gVkGetBufferMemoryRequirements2KHR{};
+PFN_vkGetImageMemoryRequirements2KHR gVkGetImageMemoryRequirements2KHR{};
+PFN_vkCmdBeginRenderingKHR gVkCmdBeginRenderingKHR{};
+PFN_vkCmdEndRenderingKHR gVkCmdEndRenderingKHR{};
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+PFN_vkCreateDebugUtilsMessengerEXT gVkCreateDebugUtilsMessengerEXT{};
+PFN_vkDestroyDebugUtilsMessengerEXT gVkDestroyDebugUtilsMessengerEXT{};
+PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
+#endif
+
+PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
+PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
+
+void InitInstanceExtensions(VkInstance instance)
+{
+	if (gVkGetPhysicalDeviceFeatures2 == nullptr)
+		gVkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+			vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
+	
+	ENSURE(gVkGetPhysicalDeviceFeatures2 != nullptr);
+
+	if (gVkGetPhysicalDeviceProperties2 == nullptr)
+		gVkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+			vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
+
+	ENSURE(gVkGetPhysicalDeviceProperties2 != nullptr);
+
+	if (gVkWaitForPresentKHR == nullptr)
+		gVkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(
+			vkGetInstanceProcAddr(instance,"vkWaitForPresentKHR"));
+	
+	//ENSURE(gVkWaitForPresentKHR != nullptr);
+
+	if (gVkGetBufferMemoryRequirements2KHR == nullptr)
+		gVkGetBufferMemoryRequirements2KHR = reinterpret_cast<PFN_vkGetBufferMemoryRequirements2KHR>(
+			vkGetInstanceProcAddr(instance, "vkGetBufferMemoryRequirements2KHR"));
+	
+	ENSURE(gVkGetBufferMemoryRequirements2KHR != nullptr);
+
+	if (gVkGetImageMemoryRequirements2KHR == nullptr)
+		gVkGetImageMemoryRequirements2KHR = reinterpret_cast<PFN_vkGetImageMemoryRequirements2KHR>(
+			vkGetInstanceProcAddr(instance, "vkGetImageMemoryRequirements2KHR"));
+
+	ENSURE(gVkGetImageMemoryRequirements2KHR != nullptr);
+
+	if (gVkCmdBeginRenderingKHR == nullptr)
+		gVkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
+			vkGetInstanceProcAddr(instance,	"vkCmdBeginRenderingKHR"));
+
+	ENSURE(gVkCmdBeginRenderingKHR != nullptr);
+
+	if (gVkCmdEndRenderingKHR == nullptr)
+		gVkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
+			vkGetInstanceProcAddr(instance,"vkCmdEndRenderingKHR"));
+
+	ENSURE(gVkCmdEndRenderingKHR != nullptr);
+
+	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	{
+		if (gVkCreateDebugUtilsMessengerEXT == nullptr)
+			gVkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
+				vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
+		
+		ENSURE(gVkCreateDebugUtilsMessengerEXT != nullptr);
+
+		if (gVkDestroyDebugUtilsMessengerEXT == nullptr)
+			gVkDestroyDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
+				vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT"));
+		
+		ENSURE(gVkDestroyDebugUtilsMessengerEXT != nullptr);
+
+		if (gVkSetDebugUtilsObjectNameExt == nullptr)
+			gVkSetDebugUtilsObjectNameExt = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+				vkGetInstanceProcAddr(instance, "vkSetDebugUtilsObjectNameEXT"));
+		
+		ENSURE(gVkSetDebugUtilsObjectNameExt != nullptr);
+	}
+}
 
 void InitDeviceExtensions(VkDevice device)
 {
 	if (gVkCmdPipelineBarrier2KHR == nullptr)
 		gVkCmdPipelineBarrier2KHR = reinterpret_cast<PFN_vkCmdPipelineBarrier2KHR>(
 			vkGetDeviceProcAddr(device, "vkCmdPipelineBarrier2KHR"));
+	
+	ENSURE(gVkCmdPipelineBarrier2KHR != nullptr);
 
-	ASSERT(gVkCmdPipelineBarrier2KHR != nullptr);
+	if (gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
+		gVkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
+			vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetWithTemplateKHR"));
+
+	ENSURE(gVkCmdPushDescriptorSetWithTemplateKHR != nullptr);
+
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	{
+		if (gVkSetDebugUtilsObjectNameExt == nullptr)
+			gVkSetDebugUtilsObjectNameExt = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+				vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
+		
+		ENSURE(gVkSetDebugUtilsObjectNameExt != nullptr);
+	}
+#endif
 }
 
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor)
