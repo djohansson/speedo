@@ -1158,11 +1158,12 @@ void RHIApplication::Draw()
 		SemaphoreHandle<kVk> acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
 		graphicsCallbacks.emplace_back(
 			CreateTask(
-				[fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
+				[&executor = GetExecutor(),
+				 fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
 				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore))]
 				 {
-					ENSURE(fence);
-					fence->Wait();
+					while (!fence->Wait(0ULL))
+						executor.JoinOne();
 				 }).handle);
 
 		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
