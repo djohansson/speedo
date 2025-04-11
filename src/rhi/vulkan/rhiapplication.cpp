@@ -589,7 +589,7 @@ static void IMGUIInit(
 	IMGUI_CHECKVERSION();
 	CreateContext();
 	auto& io = GetIO();
-	io.IniFilename = NULL;
+	io.IniFilename = nullptr;
 
 	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
@@ -849,8 +849,6 @@ void RHIApplication::Draw()
 		if (graphicsSubmit.fence)
 		{
 			ZoneScopedN("RHIApplication::Draw::waitGraphics");
-	
-			ENSURE(graphicsSubmit.fence);
 	
 			while (!graphicsSubmit.fence.Wait(0ULL))
 				GetExecutor().JoinOne();

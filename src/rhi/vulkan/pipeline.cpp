@@ -301,14 +301,14 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 					DescriptorUpdateTemplate<kVk>{
 						InternalGetDevice(),
 						DescriptorUpdateTemplateCreateDesc<kVk>{
-							((setLayout.GetDesc().flags &
+							.templateType = ((setLayout.GetDesc().flags &
 							VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 								? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
 								: VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
-							static_cast<VkDescriptorSetLayout>(setLayout),
-							myBindPoint,
-							static_cast<VkPipelineLayout>(layout),
-							set}},
+							.descriptorSetLayout = static_cast<VkDescriptorSetLayout>(setLayout),
+							.pipelineBindPoint = myBindPoint,
+							.pipelineLayout = static_cast<VkPipelineLayout>(layout),
+							.set = set}},
 					((setLayout.GetDesc().flags &
 					VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 						? std::nullopt
@@ -341,20 +341,20 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 	myGraphicsState.shaderStageFlags = {};
 
 	myGraphicsState.vertexInput = {
-		VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		0,
-		nullptr,
-		0,
-		nullptr};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.vertexBindingDescriptionCount = 0,
+		.pVertexBindingDescriptions = nullptr,
+		.vertexAttributeDescriptionCount = 0,
+		.pVertexAttributeDescriptions = nullptr};
 
 	myGraphicsState.inputAssembly = {
-		VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-		VK_FALSE};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+		.primitiveRestartEnable = VK_FALSE};
 
 	myGraphicsState.viewports.clear();
 	myGraphicsState.viewports.emplace_back(Viewport<kVk>{0.0F, 0.0F, 0, 0, 0.0F, 1.0F});
@@ -363,53 +363,53 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 	myGraphicsState.scissorRects.emplace_back(Rect2D<kVk>{{0, 0}, {0, 0}});
 
 	myGraphicsState.viewport = {
-		VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		static_cast<uint32_t>(myGraphicsState.viewports.size()),
-		myGraphicsState.viewports.data(),
-		static_cast<uint32_t>(myGraphicsState.scissorRects.size()),
-		myGraphicsState.scissorRects.data()};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.viewportCount = static_cast<uint32_t>(myGraphicsState.viewports.size()),
+		.pViewports = myGraphicsState.viewports.data(),
+		.scissorCount = static_cast<uint32_t>(myGraphicsState.scissorRects.size()),
+		.pScissors = myGraphicsState.scissorRects.data()};
 
 	myGraphicsState.rasterization = {
-		VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		VK_FALSE,
-		VK_FALSE,
-		VK_POLYGON_MODE_FILL,
-		VK_CULL_MODE_BACK_BIT,
-		VK_FRONT_FACE_COUNTER_CLOCKWISE,
-		VK_FALSE,
-		0.0F,
-		0.0F,
-		0.0F,
-		1.0F};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.depthClampEnable = VK_FALSE,
+		.rasterizerDiscardEnable = VK_FALSE,
+		.polygonMode = VK_POLYGON_MODE_FILL,
+		.cullMode = VK_CULL_MODE_BACK_BIT,
+		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.depthBiasEnable = VK_FALSE,
+		.depthBiasConstantFactor = 0.0F,
+		.depthBiasClamp = 0.0F,
+		.depthBiasSlopeFactor = 0.0F,
+		.lineWidth = 1.0F};
 
 	myGraphicsState.multisample = {
-		VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		VK_SAMPLE_COUNT_1_BIT,
-		VK_FALSE,
-		1.0F,
-		nullptr,
-		VK_FALSE,
-		VK_FALSE};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
+		.sampleShadingEnable = VK_FALSE,
+		.minSampleShading = 1.0F,
+		.pSampleMask = nullptr,
+		.alphaToCoverageEnable = VK_FALSE,
+		.alphaToOneEnable = VK_FALSE};
 
 	myGraphicsState.depthStencil = {
-		VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		VK_TRUE,
-		VK_TRUE,
-		VK_COMPARE_OP_LESS,
-		VK_FALSE,
-		VK_FALSE,
-		{},
-		{},
-		0.0F,
-		1.0F};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.depthTestEnable = VK_TRUE,
+		.depthWriteEnable = VK_TRUE,
+		.depthCompareOp = VK_COMPARE_OP_LESS,
+		.depthBoundsTestEnable = VK_FALSE,
+		.stencilTestEnable = VK_FALSE,
+		.front = {},
+		.back = {},
+		.minDepthBounds = 0.0F,
+		.maxDepthBounds = 1.0F};
 
 	myGraphicsState.colorBlendAttachments.clear();
 	myGraphicsState.colorBlendAttachments.emplace_back(PipelineColorBlendAttachmentState<kVk>{
@@ -424,25 +424,25 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 			VK_COLOR_COMPONENT_A_BIT});
 
 	myGraphicsState.colorBlend = {
-		VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		VK_FALSE,
-		VK_LOGIC_OP_COPY,
-		static_cast<uint32_t>(myGraphicsState.colorBlendAttachments.size()),
-		myGraphicsState.colorBlendAttachments.data(),
-		{0.0F, 0.0F, 0.0F, 0.0F}};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.logicOpEnable = VK_FALSE,
+		.logicOp = VK_LOGIC_OP_COPY,
+		.attachmentCount = static_cast<uint32_t>(myGraphicsState.colorBlendAttachments.size()),
+		.pAttachments = myGraphicsState.colorBlendAttachments.data(),
+		.blendConstants = {0.0F, 0.0F, 0.0F, 0.0F}};
 
 	myGraphicsState.dynamicStateDescs.clear();
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_SCISSOR);
 
 	myGraphicsState.dynamicState = {
-		VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		nullptr,
-		0,
-		static_cast<uint32_t>(myGraphicsState.dynamicStateDescs.size()),
-		myGraphicsState.dynamicStateDescs.data()};
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.dynamicStateCount = static_cast<uint32_t>(myGraphicsState.dynamicStateDescs.size()),
+		.pDynamicStates = myGraphicsState.dynamicStateDescs.data()};
 }
 
 template <>
@@ -662,13 +662,13 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.back().GetEntryPoint();
 			ENSURE(shaderStage == VK_SHADER_STAGE_COMPUTE_BIT);
 			myComputeState.shaderStage = {
-				VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-				nullptr,
-				0,
-				VK_SHADER_STAGE_COMPUTE_BIT,
-				shaderModules.back(),
-				entryPointName.c_str(),
-				nullptr};
+				.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = 0,
+				.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+				.module = shaderModules.back(),
+				.pName = entryPointName.c_str(),
+				.pSpecializationInfo = nullptr};
 			myComputeState.launchParameters = launchParams.value_or(ComputeLaunchParameters{});
 		}
 		break;
@@ -687,8 +687,8 @@ void Pipeline<kVk>::SetRenderTarget(RenderTarget<kVk>& renderTarget)
 
 	myGraphicsState.viewports[0].width = static_cast<float>(extent.width);
 	myGraphicsState.viewports[0].height = static_cast<float>(extent.height);
-	myGraphicsState.scissorRects[0].offset = {0, 0};
-	myGraphicsState.scissorRects[0].extent = {extent.width, extent.height};
+	myGraphicsState.scissorRects[0].offset = {.x = 0, .y = 0};
+	myGraphicsState.scissorRects[0].extent = {.width = extent.width, .height = extent.height};
 	myGraphicsState.dynamicRendering = renderTarget.GetPipelineRenderingCreateInfo() ? &renderTarget.GetPipelineRenderingCreateInfo().value() : nullptr;
 
 	myRenderTarget = static_cast<RenderTargetPassHandle<kVk>>(renderTarget);
@@ -875,20 +875,20 @@ Pipeline<kVk>::Pipeline(
 		  {
 			  static constexpr uint32_t kDescBaseCount = 1024;
 			  static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
-				  {VK_DESCRIPTOR_TYPE_SAMPLER, kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
-				  {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				   kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
-				  {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-				   kDescBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-				   kDescBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, kDescBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, kDescBaseCount},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, kDescBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kDescBaseCount},
-				  {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, kDescBaseCount},
-				  {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, kDescBaseCount},
-				  {VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, kDescBaseCount}});
+				  {.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount=kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+				  {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				   .descriptorCount=kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+				  {.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				   .descriptorCount=kDescBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
+				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				   .descriptorCount=kDescBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
+				  {.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount=kDescBaseCount},
+				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount=kDescBaseCount},
+				  {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount=kDescBaseCount},
+				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount=kDescBaseCount},
+				  {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount=kDescBaseCount},
+				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount=kDescBaseCount},
+				  {.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount=kDescBaseCount}});
 
 			  VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
 				  VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
