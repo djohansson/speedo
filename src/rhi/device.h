@@ -49,7 +49,7 @@ public:
 
 	[[nodiscard]] operator auto() const noexcept { return myDevice; }//NOLINT(google-explicit-constructor)
 
-	[[nodiscard]] auto GetInstance() const noexcept { return myInstance; } // todo: make global?
+	[[nodiscard]] const auto& GetInstance() const noexcept { return myInstance; } // todo: make global?
 	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
 	[[nodiscard]] auto GetPhysicalDevice() const noexcept
 	{
