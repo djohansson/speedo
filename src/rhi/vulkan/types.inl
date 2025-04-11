@@ -1,13 +1,16 @@
-#include <type_traits>
-#include <variant>
-
 #include <vulkan/vulkan.h>
-#include <vulkan/vulkan_beta.h>
+#include <vulkan/vk_enum_string_helper.h>
 
 #if defined(__WINDOWS__)
 #include <vma/vk_mem_alloc.h>
-#else
+#include <vulkan/vulkan_win32.h>
+#elif defined(__LINUX__)
 #include <vk_mem_alloc.h>
+#include <vulkan/vulkan_wayland.h>
+#elif defined(__OSX__)
+#include <vk_mem_alloc.h>
+#include <vulkan/vulkan_beta.h>
+#include <vulkan/vulkan_metal.h>
 #endif
 template <GraphicsApi G>
 using AllocationCallbacks = std::conditional_t<G == kVk, VkAllocationCallbacks, std::nullptr_t>;

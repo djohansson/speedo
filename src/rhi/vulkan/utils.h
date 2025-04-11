@@ -1,14 +1,5 @@
 #pragma once
 
-#include <vulkan/vulkan.h>
-#include <vulkan/vk_enum_string_helper.h>
-
-#if defined(__WINDOWS__)
-#include <vma/vk_mem_alloc.h>
-#else
-#include <vk_mem_alloc.h>
-#endif
-
 #include <core/assert.h>
 #include <core/utils.h>
 #include <rhi/types.h>
@@ -55,15 +46,18 @@ void InitDeviceExtensions(VkDevice device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkInstance device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkPhysicalDevice device);
 
+[[nodiscard]] uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);
+[[nodiscard]] uint32_t GetFormatSize(VkFormat format);
 
-bool HasColorComponent(VkFormat format);
-bool HasStencilComponent(VkFormat format);
-bool HasDepthComponent(VkFormat format);
+[[nodiscard]] bool HasColorComponent(VkFormat format);
+[[nodiscard]] bool HasStencilComponent(VkFormat format);
+[[nodiscard]] bool HasDepthComponent(VkFormat format);
 
-uint32_t
+[[nodiscard]] uint32_t
 FindMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
-VkFormat FindSupportedFormat(
+[[nodiscard]] VkFormat
+FindSupportedFormat(
 	VkPhysicalDevice device,
 	std::span<const VkFormat> candidates,
 	VkImageTiling tiling,
@@ -72,14 +66,14 @@ VkFormat FindSupportedFormat(
 void CopyBuffer(
 	VkCommandBuffer commandBuffer, VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
+[[nodiscard]] std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VmaAllocator allocator,
 	VkDeviceSize size,
 	VkBufferUsageFlags usage,
 	VkMemoryPropertyFlags flags,
 	const char* debugName);
 
-std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
+[[nodiscard]] std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VkCommandBuffer commandBuffer,
 	VmaAllocator allocator,
 	VkBuffer stagingBuffer,
@@ -88,7 +82,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VkMemoryPropertyFlags memoryFlags,
 	const char* debugName);
 
-std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
+[[nodiscard]] std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
 	VmaAllocator allocator,
 	const void* srcData,
 	size_t srcDataSize,
@@ -113,7 +107,7 @@ void CopyBufferToImage(
 	const uint32_t* mipOffsets,
 	uint32_t mipOffsetsStride);
 
-std::tuple<VkImage, VmaAllocation> CreateImage2D(
+[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VmaAllocator allocator,
 	uint32_t width,
 	uint32_t height,
@@ -125,7 +119,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	const char* debugName,
 	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
-std::tuple<VkImage, VmaAllocation> CreateImage2D(
+[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkCommandBuffer commandBuffer,
 	VmaAllocator allocator,
 	VkBuffer stagingBuffer,
@@ -142,7 +136,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	const char* debugName,
 	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
-VkImageView CreateImageView2D(
+[[nodiscard]] VkImageView CreateImageView2D(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocationCallbacks,
 	VkImageViewCreateFlags flags,
@@ -151,7 +145,7 @@ VkImageView CreateImageView2D(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels);
 
-VkFramebuffer CreateFramebuffer(
+[[nodiscard]] VkFramebuffer CreateFramebuffer(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	VkRenderPass renderPass,
@@ -161,14 +155,14 @@ VkFramebuffer CreateFramebuffer(
 	uint32_t height,
 	uint32_t layers);
 
-VkRenderPass CreateRenderPass(
+[[nodiscard]] VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	std::span<const VkAttachmentDescription2> attachments,
 	std::span<const VkSubpassDescription2> subpasses,
 	std::span<const VkSubpassDependency2> subpassDependencies);
 
-VkRenderPass CreateRenderPass(
+[[nodiscard]] VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	VkPipelineBindPoint bindPoint,
@@ -183,6 +177,6 @@ VkRenderPass CreateRenderPass(
 	VkImageLayout depthInitialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 	VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
-VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
+[[nodiscard]] VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
 
 VkResult CheckFlipOrPresentResult(VkResult result);
