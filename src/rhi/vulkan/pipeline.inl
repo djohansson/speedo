@@ -1,5 +1,3 @@
-#include <mutex>
-
 #include <xxhash.h>
 
 template <>
@@ -49,7 +47,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		std::get<T>(bindingsData[offset]) = std::forward<T>(data);
 	}
 
-	setState = DescriptorSetStatus::kDirty;
+	setState.store(DescriptorSetStatus::kDirty, std::memory_order_release);
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
@@ -144,7 +142,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		}
 	}
 
-	setState = DescriptorSetStatus::kDirty;
+	setState.store(DescriptorSetStatus::kDirty, std::memory_order_release);
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
@@ -243,7 +241,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		}
 	}
 
-	setState = DescriptorSetStatus::kDirty;
+	setState.store(DescriptorSetStatus::kDirty, std::memory_order_release);
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }

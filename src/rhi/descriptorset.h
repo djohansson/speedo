@@ -4,6 +4,7 @@
 #include "sampler.h"
 #include "types.h"
 
+#include <core/copyableatomic.h>
 #include <core/upgradablesharedmutex.h>
 
 #include <array>
@@ -200,7 +201,7 @@ enum class DescriptorSetStatus : uint8_t
 template <GraphicsApi G>
 using DescriptorSetState = std::tuple<
 	UpgradableSharedMutex,
-	DescriptorSetStatus,
+	CopyableAtomic<DescriptorSetStatus>,
 	BindingsMap<G>,
 	BindingsData<G>,
 	DescriptorUpdateTemplate<G>,

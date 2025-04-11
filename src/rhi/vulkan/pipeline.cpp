@@ -1,6 +1,5 @@
 #include "../pipeline.h"
 #include "../shader.h"
-#include "../rhiapplication.h"
 
 #include "../shaders/capi.h"
 
@@ -816,26 +815,25 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(setLayout);
 
-	mutex.lock_upgrade();
-
-	if (setState == DescriptorSetStatus::kDirty && setOptionalArrayList)
-	{
-		mutex.unlock_upgrade_and_lock();
-
-		InternalUpdateDescriptorSet(
-			setLayout, bindingsData, setTemplate, setOptionalArrayList.value());
-
-		setState = DescriptorSetStatus::kReady;
-
-		mutex.unlock_and_lock_shared();
-	}
-	else [[likely]]
-	{
-		mutex.unlock_upgrade_and_lock_shared();
-	}
-
 	if (setOptionalArrayList)
 	{
+		mutex.lock_upgrade();
+
+		auto dirtyState = DescriptorSetStatus::kDirty;
+		if (setState.compare_exchange_weak(dirtyState, DescriptorSetStatus::kReady, std::memory_order_acq_rel))
+		{
+			mutex.unlock_upgrade_and_lock();
+
+			InternalUpdateDescriptorSet(
+				setLayout, bindingsData, setTemplate, setOptionalArrayList.value());
+
+			mutex.unlock_and_lock_shared();
+		}
+		else [[likely]]
+		{
+			mutex.unlock_upgrade_and_lock_shared();
+		}
+
 		auto& setArrayList = setOptionalArrayList.value();
 		ASSERT(!setArrayList.empty());
 		auto& [setArray, setIndex] = setArrayList.front();
@@ -851,6 +849,8 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	}
 	else
 	{
+		mutex.lock_shared();
+
 		InternalPushDescriptorSet(
 			cmd,
 			static_cast<PipelineLayoutHandle<kVk>>(layout),
