@@ -847,7 +847,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 			set,
 			bufferOffset);
 	}
-	else
+	else if (gVkCmdPushDescriptorSetWithTemplateKHR != nullptr)
 	{
 		mutex.lock_shared();
 
@@ -856,6 +856,10 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 			static_cast<PipelineLayoutHandle<kVk>>(layout),
 			bindingsData,
 			setTemplate);
+	}
+	else 
+	{
+		ENSUREF(false, "Push descriptor set not supported");
 	}
 
 	mutex.unlock_shared();

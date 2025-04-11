@@ -1180,17 +1180,20 @@ void RHIApplication::Draw()
 		computeQueue.EnqueuePresent(window.PreparePresent());
 		computeSubmit = computeQueue.Present();
 
-		auto [waitPresentTask, waitPresentFuture] = CreateTask(
-			[&window, &executor = GetExecutor(),
-			graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore)),
-			presentIds = std::move(computeSubmit.presentIds)]
-			{
-				for (auto presentId : presentIds)
-					while (!window.WaitPresent(presentId, 0ULL))
-						executor.JoinOne();
-			});
-
-		GetExecutor().Submit(std::span(&waitPresentTask, 1));
+		if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
+		{
+			auto [waitPresentTask, waitPresentFuture] = CreateTask(
+				[&window, &executor = GetExecutor(),
+				graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore)),
+				presentIds = std::move(computeSubmit.presentIds)]
+				{
+					for (auto presentId : presentIds)
+						while (!window.WaitPresent(presentId, 0ULL))
+							executor.JoinOne();
+				});
+	
+			GetExecutor().Submit(std::span(&waitPresentTask, 1));
+		}
 	}
 
 	GetExecutor().Submit(timelineCallbackTasks);

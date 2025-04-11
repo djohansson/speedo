@@ -22,6 +22,9 @@
 #	include <GLFW/glfw3native.h>
 #endif
 
+#include <algorithm>
+#include <cstdint>
+#include <iostream>
 #include <print>
 
 PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2{};
@@ -58,7 +61,7 @@ void InitInstanceExtensions(VkInstance instance)
 		gVkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(
 			vkGetInstanceProcAddr(instance,"vkWaitForPresentKHR"));
 	
-	//ENSURE(gVkWaitForPresentKHR != nullptr);
+	ENSURE(gVkWaitForPresentKHR != nullptr);
 
 	if (gVkGetBufferMemoryRequirements2KHR == nullptr)
 		gVkGetBufferMemoryRequirements2KHR = reinterpret_cast<PFN_vkGetBufferMemoryRequirements2KHR>(
@@ -129,6 +132,88 @@ void InitDeviceExtensions(VkDevice device)
 		ENSURE(gVkSetDebugUtilsObjectNameExt != nullptr);
 	}
 #endif
+}
+
+bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
+{
+	static bool gDeviceExtensionsInitialized = false;
+	static UnorderedMap<VkPhysicalDevice, std::vector<VkExtensionProperties>> gDeviceExtensions;
+	if (!gDeviceExtensionsInitialized)
+	{
+		gDeviceExtensionsInitialized = true;
+
+		uint32_t deviceExtensionCount = 0;
+		vkEnumerateDeviceExtensionProperties(device, nullptr, &deviceExtensionCount, nullptr);
+
+		gDeviceExtensions[device].resize(deviceExtensionCount);
+		vkEnumerateDeviceExtensionProperties(
+			device, nullptr, &deviceExtensionCount, gDeviceExtensions[device].data());
+
+		// must be sorted lexicographically for std::includes to work!
+		std::sort(
+			gDeviceExtensions[device].begin(),
+			gDeviceExtensions[device].end(),
+			[](const VkExtensionProperties& lhs, const VkExtensionProperties& rhs) { return strcmp(lhs.extensionName, rhs.extensionName) < 0; });
+
+		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+		{
+			std::cout << gDeviceExtensions[device].size() << " vulkan device extension(s) found:" << '\n';
+			std::for_each(
+				gDeviceExtensions[device].begin(),
+				gDeviceExtensions[device].end(),
+				[](const VkExtensionProperties& instanceExtension) {
+					std::cout << instanceExtension.extensionName << '\n';
+				});
+		}
+	}
+
+	return std::find_if(
+		gDeviceExtensions[device].begin(),
+		gDeviceExtensions[device].end(),
+		[extensionName](const VkExtensionProperties& extension) {
+			return strcmp(extension.extensionName, extensionName) == 0;
+		}) != gDeviceExtensions[device].end();
+}
+
+bool SupportsExtension(const char* extensionName, VkInstance instance)
+{
+	static bool gInstanceExtensionsInitialized = false;
+	static UnorderedMap<VkInstance, std::vector<VkExtensionProperties>> gInstanceExtensions;
+	if (!gInstanceExtensionsInitialized)
+	{
+		gInstanceExtensionsInitialized = true;
+		
+		uint32_t instanceExtensionCount = 0;
+		vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
+
+		gInstanceExtensions[instance].resize(instanceExtensionCount);
+		vkEnumerateInstanceExtensionProperties(
+			nullptr, &instanceExtensionCount, gInstanceExtensions[instance].data());
+
+		// must be sorted lexicographically for std::includes to work!
+		std::sort(
+			gInstanceExtensions[instance].begin(),
+			gInstanceExtensions[instance].end(),
+			[](const VkExtensionProperties& lhs, const VkExtensionProperties& rhs) { return strcmp(lhs.extensionName, rhs.extensionName) < 0; });
+
+		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+		{
+			std::cout << gInstanceExtensions[instance].size() << " vulkan instance extension(s) found:" << '\n';
+			std::for_each(
+				gInstanceExtensions[instance].begin(),
+				gInstanceExtensions[instance].end(),
+				[](const VkExtensionProperties& instanceExtension) {
+					std::cout << instanceExtension.extensionName << '\n';
+				});
+		}
+	}
+
+	return std::find_if(
+		gInstanceExtensions[instance].begin(),
+		gInstanceExtensions[instance].end(),
+		[extensionName](const VkExtensionProperties& extension) {
+			return strcmp(extension.extensionName, extensionName) == 0;
+		}) != gInstanceExtensions[instance].end();
 }
 
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor)

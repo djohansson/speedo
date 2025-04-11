@@ -277,7 +277,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	presentId.pPresentIds = presentIds.data();
 
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.pNext = &presentId;
+	presentInfo.pNext = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance()) ? &presentId : nullptr;
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();

@@ -3,6 +3,7 @@
 
 #include "utils.h"
 
+#include <vector>
 #include <xxhash.h>
 
 #include <algorithm>
@@ -179,33 +180,7 @@ Device<kVk>::Device(
 			queuePriorities.data()});
 	}
 
-	uint32_t deviceExtensionCount;
-	vkEnumerateDeviceExtensionProperties(
-		GetPhysicalDevice(), nullptr, &deviceExtensionCount, nullptr);
-
-	std::vector<VkExtensionProperties> availableDeviceExtensions(deviceExtensionCount);
-	vkEnumerateDeviceExtensionProperties(
-		GetPhysicalDevice(), nullptr, &deviceExtensionCount, availableDeviceExtensions.data());
-
-	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << deviceExtensionCount << " vulkan device extension(s) found:" << '\n';
-
-	std::vector<const char*> deviceExtensions;
-	deviceExtensions.reserve(deviceExtensionCount);
-	for (uint32_t i = 0UL; i < deviceExtensionCount; i++)
-	{
-		deviceExtensions.push_back(availableDeviceExtensions[i].extensionName);
-
-		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-			std::cout << deviceExtensions.back() << '\n';
-	}
-
-	std::sort(
-		deviceExtensions.begin(),
-		deviceExtensions.end(),
-		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
-
-	std::vector<const char*> requiredDeviceExtensions = {
+	std::vector<const char*> requiredExtensions = {
 		VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
 		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
 #if defined(__OSX__)
@@ -215,37 +190,26 @@ Device<kVk>::Device(
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
 		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
-	// must be sorted lexicographically for std::includes to work!
-	ASSERT(std::includes(
-		deviceExtensions.begin(),
-		deviceExtensions.end(),
-		requiredDeviceExtensions.begin(),
-		requiredDeviceExtensions.end(),
-		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }));
+	for (const char* extensionName : requiredExtensions)
+		ENSUREF(SupportsExtension(extensionName, GetPhysicalDevice()), "Vulkan device extension not supported: {}", extensionName);
 
-	std::vector<const char*> desiredDeviceExtensions = requiredDeviceExtensions;
+	std::vector<const char*> desiredExtensions = requiredExtensions;
 
-	std::vector<const char*> presentWaitExtensions = {
-		//VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME,
-		VK_KHR_PRESENT_ID_EXTENSION_NAME,
-		VK_KHR_PRESENT_WAIT_EXTENSION_NAME};
+	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 
-	if (std::includes(
-		deviceExtensions.begin(),
-		deviceExtensions.end(),
-		presentWaitExtensions.begin(),
-		presentWaitExtensions.end(),
-		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }))
-	{
-		desiredDeviceExtensions.append_range(presentWaitExtensions);
-	}
+	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
 
+	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.push_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+	
 	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
 	deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
-	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(desiredDeviceExtensions.size());
-	deviceCreateInfo.ppEnabledExtensionNames = desiredDeviceExtensions.data();
+	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(desiredExtensions.size());
+	deviceCreateInfo.ppEnabledExtensionNames = desiredExtensions.data();
 
 	VK_ENSURE(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
 

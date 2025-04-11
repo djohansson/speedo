@@ -52,8 +52,9 @@ extern PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemp
 void InitInstanceExtensions(VkInstance instance);
 void InitDeviceExtensions(VkDevice device);
 
-uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);
-uint32_t GetFormatSize(VkFormat format);
+[[nodiscard]] bool SupportsExtension(const char* extensionName, VkInstance device);
+[[nodiscard]] bool SupportsExtension(const char* extensionName, VkPhysicalDevice device);
+
 
 bool HasColorComponent(VkFormat format);
 bool HasStencilComponent(VkFormat format);

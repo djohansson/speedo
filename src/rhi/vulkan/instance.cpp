@@ -2,9 +2,9 @@
 
 #include "utils.h"
 
+#include <core/assert.h>
 #include <core/profiling.h>
 
-#include <algorithm>
 #include <vector>
 #include <iostream>
 
@@ -33,11 +33,6 @@ void GetPhysicalDeviceInfo2(
 	InstanceHandle<kVk> instance,
 	PhysicalDeviceHandle<kVk> device)
 {
-	// deviceInfo.deviceFeatures13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-	// deviceInfo.deviceFeatures13Ex.pNext = &deviceInfo.deviceFeatures12Ex;
-	// deviceInfo.deviceFeatures13Ex.inlineUniformBlock = VK_TRUE;
-	// deviceInfo.deviceFeatures13Ex.dynamicRendering = VK_TRUE;
-
 	static VkPhysicalDeviceInlineUniformBlockFeaturesEXT gInlineUniformBlockFeature
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
@@ -70,22 +65,22 @@ void GetPhysicalDeviceInfo2(
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 	deviceInfo.deviceFeatures12Ex.pNext = &gPresentWaitFeature;
-	deviceInfo.deviceFeatures12Ex.timelineSemaphore = VK_TRUE;
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	// deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures13Ex;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures12Ex;
 	
 	gVkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
-	// deviceInfo.deviceProperties13Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
-	// deviceInfo.deviceProperties13Ex.pNext = &deviceInfo.deviceProperties12Ex;
+	static VkPhysicalDevicePushDescriptorPropertiesKHR gPushDescriptorProperties
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
+		.pNext = nullptr,
+	};
 
 	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-	deviceInfo.deviceProperties12Ex.pNext = nullptr;
+	deviceInfo.deviceProperties12Ex.pNext = &gPushDescriptorProperties;
 	
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-	// deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties13Ex;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
 
 	gVkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
@@ -312,42 +307,18 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		}
 	}
 
-	uint32_t instanceExtensionCount;
-	vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
-
-	std::vector<VkExtensionProperties> availableInstanceExtensions(instanceExtensionCount);
-	vkEnumerateInstanceExtensionProperties(
-		nullptr, &instanceExtensionCount, availableInstanceExtensions.data());
-
-	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << instanceExtensionCount << " vulkan instance extension(s) found:" << '\n';
-
-	std::vector<const char*> instanceExtensions(instanceExtensionCount);
-	for (uint32_t i = 0; i < instanceExtensionCount; i++)
-	{
-		instanceExtensions[i] = availableInstanceExtensions[i].extensionName;
-		
-		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-			std::cout << instanceExtensions[i] << '\n';
-	}
-
-	// must be sorted lexicographically for std::includes to work!
-	std::sort(
-		instanceExtensions.begin(),
-		instanceExtensions.end(),
-		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
-
+	// must be sorted lexicographically for std::includes to work! std::sort( instanceExtensions.begin(), instanceExtensions.end(), [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 	std::vector<const char*> requiredExtensions = {
-#if defined(__OSX__)
-		"VK_EXT_metal_surface",
-		"VK_KHR_get_physical_device_properties2",
-		"VK_KHR_portability_enumeration",
-#elif defined(__WINDOWS__)
-			"VK_KHR_win32_surface",
-#elif defined(__LINUX__)
-			"VK_KHR_wayland_surface",
-#endif
-		"VK_KHR_surface"
+	#if defined(__OSX__)
+		VK_EXT_METAL_SURFACE_EXTENSION_NAME,
+		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
+	#elif defined(__WINDOWS__)
+		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+	#elif defined(__LINUX__)
+		VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+	#endif
+		VK_KHR_SURFACE_EXTENSION_NAME
 	};
 	std::vector<const char*> requiredLayers = {};
 
@@ -355,7 +326,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		requiredExtensions.emplace_back("VK_EXT_debug_utils");
+		requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
 		static constexpr std::string_view kValidationLayerName = "VK_LAYER_KHRONOS_validation";
 
@@ -415,20 +386,8 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		info.pNext = &layerSettingsCreateInfo;
 	}
 
-	// must be sorted lexicographically for std::includes to work!
-	std::sort(
-		requiredExtensions.begin(),
-		requiredExtensions.end(),
-		[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
-
-	ASSERTF(
-		std::includes(
-			instanceExtensions.begin(),
-			instanceExtensions.end(),
-			requiredExtensions.begin(),
-			requiredExtensions.end(),
-			[](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; }),
-		"Can't find required Vulkan extensions.");
+	for (const char* extensionName : requiredExtensions)
+		ENSUREF(SupportsExtension(extensionName, myInstance), "Vulkan instance extension not supported: {}", extensionName);
 
 	info.pApplicationInfo = &myConfig.appInfo;
 	info.enabledLayerCount = static_cast<uint32_t>(requiredLayers.size());
