@@ -320,6 +320,9 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 	state->xscale = xscale;
 	state->yscale = yscale;
 
+	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
+	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
 	return window;
 }
 
@@ -465,14 +468,11 @@ int main(int argc, char* argv[], char* envp[])
 			xscale, yscale);
 	}
 
-	// todo: enable raw mouse input
-	// if (!glfwRawMouseMotionSupported())
-	// {
-	// 	fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
-	// 	return 1;
-	// }
-	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-	// glfwSetInputMode(g_window.handle, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+	if (!glfwRawMouseMotionSupported())
+	{
+		fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
+		return 1;
+	}
 
 	ClientCreate(OnCreateWindow, &gPaths);
 
