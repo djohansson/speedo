@@ -2,6 +2,7 @@
 #include "../rhiapplication.h"
 #include "utils.h"
 
+#include <core/task.h>
 #include <gfx/scene.h>
 
 #include <imgui.h>
@@ -10,6 +11,7 @@
 #include <imgui_stdlib.h>
 
 #include <gfx/imgui_extra.h>
+
 #include <memory>
 
 //#include <imnodes.h>
@@ -789,8 +791,8 @@ void RHIApplication::Draw()
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
-	std::vector<TaskHandle> timelineCallbackTasks;
-	timelineCallbackTasks.emplace_back(CreateTask([&rhi, &executor = GetExecutor()]
+	std::vector<TaskHandle> frameTasks;
+	frameTasks.emplace_back(CreateTask([&rhi, &executor = GetExecutor()]
 		{
 			const auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
 			auto transferQueueInfosReadScope = ConcurrentReadScope(transferQueueInfos);
@@ -816,14 +818,8 @@ void RHIApplication::Draw()
 
 		computeQueue.GetPool().Reset();
 	}
-	else
-	{
-		ZoneScopedN("RHIApplication::Draw::waitComputeIdle");
 
-		computeQueue.WaitIdle();
-	}
-
-	timelineCallbackTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore] {
+	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore] {
 		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
 
 	if (flipSuccess)
@@ -843,18 +839,18 @@ void RHIApplication::Draw()
 		auto& [lastGraphicsQueue, lastGraphicsSubmit] = (*graphicsQueueInfosWriteScope)[lastQueueIndex];
 		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[gGraphicsQueueIndex];
 
-		timelineCallbackTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue, &graphicsSemaphore]
+		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue, &graphicsSemaphore]
 			{ graphicsQueue.SubmitCallbacks(executor, graphicsSemaphore.GetValue()); }).handle);
 
-		if (graphicsSubmit.fence)
 		{
 			ZoneScopedN("RHIApplication::Draw::waitGraphics");
-	
-			while (!graphicsSubmit.fence.Wait(0ULL))
-				GetExecutor().JoinOne();
-	
-			graphicsQueue.GetPool().Reset();
+
+			if (graphicsSubmit.fence)
+				while (!graphicsSubmit.fence.Wait(0ULL))
+					GetExecutor().JoinOne();
 		}
+
+		graphicsQueue.GetPool().Reset();
 
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
@@ -1160,6 +1156,8 @@ void RHIApplication::Draw()
 				 fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
 				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore))]
 				 {
+					ZoneScopedN("RHIApplication::Draw::waitAcquireNextImage");
+
 					while (!fence->Wait(0ULL))
 						executor.JoinOne();
 				 }).handle);
@@ -1178,23 +1176,30 @@ void RHIApplication::Draw()
 		computeQueue.EnqueuePresent(window.PreparePresent());
 		computeSubmit = computeQueue.Present();
 
+		auto [graphicsDoneTask, graphicsDoneFuture] = CreateTask(
+			[&window, &executor = GetExecutor(), &device = *rhi.device, &computeQueue, &computeSubmit,
+			graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]
+			{
+				ZoneScopedN("RHIApplication::Draw::waitCompute");
+			
+				while (!computeSubmit.fence.Wait(0ULL))
+					executor.JoinOne();
+			});
+
+		frameTasks.emplace_back(graphicsDoneTask);
+
+		/* todo
 		if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
 		{
-			auto [waitPresentTask, waitPresentFuture] = CreateTask(
-				[&window, &executor = GetExecutor(),
-				graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore)),
-				presentIds = std::move(computeSubmit.presentIds)]
-				{
-					for (auto presentId : presentIds)
-						while (!window.WaitPresent(presentId, 0ULL))
-							executor.JoinOne();
-				});
-	
-			GetExecutor().Submit(std::span(&waitPresentTask, 1));
-		}
+			for (auto presentId : computeSubmit.presentIds)
+				while (!window.WaitPresent(presentId, 0ULL))
+					executor.JoinOne();
+
+			computeSubmit.presentIds.clear();
+		}*/
 	}
 
-	GetExecutor().Submit(timelineCallbackTasks);
+	GetExecutor().Submit(frameTasks);
 }
 
 RHIApplication::RHIApplication(
