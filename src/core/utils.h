@@ -4,6 +4,7 @@
 #include "std_extra.h"
 
 #include <algorithm>
+#include <flat_map>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -135,73 +136,7 @@ using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
 using ProducerToken = moodycamel::ProducerToken;
 using ConsumerToken = moodycamel::ConsumerToken;
 
-template <typename Key, typename T, typename ContainerT = std::vector<std::pair<Key, T>>>
-class FlatMap : public ContainerT
-{
-public:
-	using container_type = ContainerT;
-	using key_type = Key;
-	using mapped_type = T;
-	using value_type = typename container_type::value_type;
-	using iterator = typename container_type::iterator;
-	using container_type::begin;
-	using container_type::empty;
-	using container_type::end;
-
-	template <typename... Args>
-	std::pair<iterator, bool> emplace(const Key& key, Args&&... args)//NOLINT(readability-identifier-naming)
-	{
-		auto elementIt = std::lower_bound(
-			begin(),
-			end(),
-			key,
-			[](const value_type& lhs, const key_type& rhs) { return lhs.first < rhs; });
-
-		std::pair<iterator, bool> result(elementIt, false);
-		if (elementIt == end() || key != elementIt->first)
-			result = std::make_pair(
-				container_type::emplace(elementIt, key, std::forward<Args>(args)...), true);
-
-		return result;
-	}
-};
-
-template <typename Key, typename ContainerT = std::vector<Key>>
-class FlatSet : public ContainerT
-{
-public:
-	using container_type = ContainerT;
-	using key_type = Key;
-	using value_type = typename container_type::value_type;
-	using iterator = typename container_type::iterator;
-	using container_type::begin;
-	using container_type::empty;
-	using container_type::end;
-
-	template <typename... Args>
-	std::pair<iterator, bool> emplace(Args&&... args)//NOLINT(readability-identifier-naming)
-	{
-		auto key = Key(std::forward<Args>(args)...);
-		auto elementIt = std::lower_bound(
-			begin(), end(), key, [](const value_type& lhs, const value_type& rhs) { return lhs < rhs; });
-
-		std::pair<iterator, bool> result(elementIt, false);
-		if (elementIt == end() || key != *elementIt)
-			result = std::make_pair(container_type::insert(elementIt, std::move(key)), true);
-
-		return result;
-	}
-
-	[[nodiscard]] iterator find(const Key& key)//NOLINT(readability-identifier-naming)
-	{
-		auto elementIt = std::lower_bound(
-			begin(), end(), key, [](const value_type& lhs, const Key& rhs) { return lhs < rhs; });
-
-		return elementIt;
-	}
-};
-
-template <typename T, typename ContainerT = FlatMap<T, T>>
+template <typename T, typename ContainerT = std::flat_map<T, T>>
 class RangeSet : public ContainerT
 {
 public:
@@ -218,13 +153,6 @@ public:
 	{
 		ASSERT(range.first < range.second);
 
-		if constexpr (std::is_same_v<container_type, FlatMap<T, T>>)
-		{
-			auto currentCapacity = this->capacity();
-			if (currentCapacity == this->size())
-				this->reserve(currentCapacity + 1);
-		}
-
 		auto [low, high] = range;
 
 		auto afterIt = std::upper_bound(
@@ -237,7 +165,7 @@ public:
 		if (isBegin || prevIt->second < low)
 		{
 			insertRangeIt = container_type::insert(afterIt, std::forward<value_type>(range));
-			if constexpr (std::is_same_v<container_type, FlatMap<T, T>>)
+			if constexpr (std::is_same_v<container_type, std::flat_map<T, T>>)
 				afterIt = std::next(insertRangeIt); // since insert will have invalidated afterIt
 		}
 		else

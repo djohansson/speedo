@@ -8,6 +8,7 @@
 #include <core/upgradablesharedmutex.h>
 
 #include <array>
+#include <flat_map>
 #include <list>
 #include <memory>
 #include <optional>
@@ -74,7 +75,7 @@ private:
 };
 
 template <GraphicsApi G>
-using DescriptorSetLayoutFlatMap = FlatMap<uint32_t, DescriptorSetLayout<G>>;
+using DescriptorSetLayoutFlatMap = std::flat_map<uint32_t, DescriptorSetLayout<G>>;
 
 template <GraphicsApi G>
 struct DescriptorSetArrayCreateDesc
@@ -187,7 +188,7 @@ using BindingValue = std::tuple<
 	RangeSet<uint32_t>>; // array ranges
 
 template <GraphicsApi G>
-using BindingsMap = FlatMap<uint32_t, BindingValue<G>>;
+using BindingsMap = std::flat_map<uint32_t, BindingValue<G>>;
 
 template <GraphicsApi G>
 using BindingsData = std::vector<BindingVariant<G>>;

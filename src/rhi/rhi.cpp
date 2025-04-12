@@ -1,10 +1,14 @@
 #include "capi.h"
 #include "rhiapplication.h"
 
+#include <algorithm>
+#include <optional>
+#include <vector>
+
 namespace rhi
 {
 
-static FlatSet<WindowHandle> gWindows{};
+static std::vector<WindowHandle> gWindows{};
 static std::optional<WindowHandle> gCurrentWindow{};
 
 std::unique_ptr<RHIBase> CreateRHI(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc)
@@ -58,16 +62,16 @@ void SetWindows(WindowHandle* windows, size_t count)
 	gWindows.clear();
 
 	for (size_t i = 0; i < count; ++i)
-		gWindows.emplace(windows[i]);
+		gWindows.emplace_back(windows[i]);
 }
 
 void SetCurrentWindow(WindowHandle window)
 {
 	using namespace rhi;
 
-	ASSERT(gWindows.find(window) != gWindows.end());
+	ASSERT(std::find_if(gWindows.begin(), gWindows.end(), [window](WindowHandle handle) { return handle == window; }) != gWindows.end());
 
-	if (!gCurrentWindow.has_value() || gCurrentWindow != window)
+	if (!gCurrentWindow.has_value())
 		gCurrentWindow = window;
 }
 
