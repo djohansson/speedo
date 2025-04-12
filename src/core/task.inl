@@ -62,7 +62,9 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 	 	static_cast<ArgsTuple*>(static_cast<void*>(myArgsMemory.data())),//NOLINT(bugprone-casting-through-void)
 	 	std::forward<Args>(args)...);
 
-	static_assert(sizeof(Task) == kExpectedTaskSize);
+	static_assert(sizeof(Task) == kTaskSize);
+	static_assert(kTaskSize >= std_extra::hardware_destructive_interference_size);
+	static_assert(kTaskSize % std_extra::hardware_destructive_interference_size == 0);
 }
 
 template <typename... Params>

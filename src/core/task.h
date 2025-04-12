@@ -19,7 +19,9 @@
 template <typename T>
 struct TaskCreateInfo;
 
-class alignas (std_extra::hardware_destructive_interference_size) Task final
+static constexpr size_t kTaskSize = 256;
+
+class alignas (kTaskSize) Task final
 {
 	template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
@@ -57,21 +59,20 @@ private:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
-	static constexpr size_t kMaxCallableSizeBytes = 48;
-	static constexpr size_t kMaxArgsSizeBytes = 32;
-	static constexpr size_t kExpectedTaskSize = 128;
+	static constexpr size_t kMaxCallableSizeBytes = ((kTaskSize == 256) ? 128 : ((kTaskSize == 128) ? 48 : 0));
+	static constexpr size_t kMaxArgsSizeBytes = ((kTaskSize == 256) ? 80 : ((kTaskSize == 128) ? 32 : 0));
 
 	alignas(16) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
 	alignas(16) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
 
 #if defined(__cpp_lib_function_ref) && __cpp_lib_function_ref >= 202306L
-	std::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	std::function_ref<void(void*, void*)> myDeleteFcn;
+	alignas(8) std::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	alignas(8) std::function_ref<void(void*, void*)> myDeleteFcn;
 #else
-	tl::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	tl::function_ref<void(void*, void*)> myDeleteFcn;
+	alignas(8) tl::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	alignas(8) tl::function_ref<void(void*, void*)> myDeleteFcn;
 #endif
-	std::shared_ptr<struct TaskState> myState;
+	alignas(8) std::shared_ptr<struct TaskState> myState;
 };
 
 static constexpr std::size_t kTaskPoolSize = (1 << 10); // todo: make this configurable
