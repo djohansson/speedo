@@ -40,7 +40,8 @@ void GetPhysicalDeviceInfo2(
 		VkPhysicalDeviceDynamicRenderingFeaturesKHR,
 		VkPhysicalDeviceSynchronization2FeaturesKHR,
 		VkPhysicalDevicePresentIdFeaturesKHR,
-		VkPhysicalDevicePresentWaitFeaturesKHR>;
+		VkPhysicalDevicePresentWaitFeaturesKHR,
+		VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT>;
 	static std::vector<PhysicalDeviceFeatures> gPhysicalDeviceFeatures;
 	gPhysicalDeviceFeatures.clear();
 	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
@@ -61,6 +62,12 @@ void GetPhysicalDeviceInfo2(
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
 		.pNext = nullptr,
 		.synchronization2 = VK_TRUE,
+	});
+	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT,
+		.pNext = nullptr,
+		.swapchainMaintenance1 = VK_TRUE,
 	});
 	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device))
 	{
