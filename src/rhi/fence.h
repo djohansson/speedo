@@ -25,6 +25,8 @@ public:
 	[[nodiscard]] operator bool() const noexcept { return myFence != nullptr; }
 	[[nodiscard]] operator auto() const noexcept { return myFence; }
 
+	[[nodiscard]] const auto& GetHandle() const noexcept { return myFence; }
+
 	void Swap(Fence& rhs) noexcept;
 	friend void Swap(Fence& lhs, Fence& rhs) noexcept { lhs.Swap(rhs); }
 
