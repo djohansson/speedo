@@ -360,7 +360,9 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	#elif defined(__LINUX__)
 		VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
 	#endif
-		VK_KHR_SURFACE_EXTENSION_NAME
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
+		VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
 	};
 	std::vector<const char*> requiredLayers = {};
 
