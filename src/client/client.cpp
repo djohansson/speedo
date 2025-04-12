@@ -11,13 +11,10 @@
 #include <array>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <system_error>
 
 #include <GLFW/glfw3.h>
-
-#include <imgui.h>
 
 namespace client
 {
@@ -186,44 +183,64 @@ void Client::Tick()
 			input.mouse.position[0] = static_cast<float>(mouse.xpos);
 			input.mouse.position[1] = static_cast<float>(mouse.ypos);
 			input.mouse.insideWindow = mouse.insideWindow;
-
-			io.AddMousePosEvent(input.mouse.position[0], input.mouse.position[1]);
 		}
 
 		if ((mouse.flags & MouseEvent::kButton) != 0)
 		{
 			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
 			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);
+			bool middlePressed = (mouse.button == GLFW_MOUSE_BUTTON_MIDDLE && mouse.action == GLFW_PRESS);
 			bool leftReleased = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_RELEASE);
 			bool rightReleased = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_RELEASE);
+			bool middleReleased = (mouse.button == GLFW_MOUSE_BUTTON_MIDDLE && mouse.action == GLFW_RELEASE);
 
 			if (leftPressed)
 			{
+				ASSERT(!leftReleased);
+
 				input.mouse.leftDown = true;
-				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, true);
+				input.mouse.leftLastPressPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastPressPosition[1] = input.mouse.position[1];
 			}
-			else if (rightPressed)
+			if (leftReleased)
 			{
-				input.mouse.rightDown = true;
-				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, true);
-			}
-			else if (leftReleased)
-			{
+				ASSERT(!leftPressed);
+
 				input.mouse.leftDown = false;
-				input.mouse.leftLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.leftLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, false);
+				input.mouse.leftLastPressPosition[0] = input.mouse.position[0];
+				input.mouse.leftLastPressPosition[1] = input.mouse.position[1];
 			}
-			else if (rightReleased)
+			if (rightPressed)
 			{
+				ASSERT(!rightReleased);
+
+				input.mouse.rightDown = true;
+				input.mouse.rightLastPressPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastPressPosition[1] = input.mouse.position[1];
+			}
+			if (rightReleased)
+			{
+				ASSERT(!rightPressed);
+
 				input.mouse.rightDown = false;
-				input.mouse.rightLastEventPosition[0] = input.mouse.position[0];
-				input.mouse.rightLastEventPosition[1] = input.mouse.position[1];
-				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
+				input.mouse.rightLastPressPosition[0] = input.mouse.position[0];
+				input.mouse.rightLastPressPosition[1] = input.mouse.position[1];
+			}
+			if (middlePressed)
+			{
+				ASSERT(!middleReleased);
+
+				input.mouse.middleDown = true;
+				input.mouse.middleLastPressPosition[0] = input.mouse.position[0];
+				input.mouse.middleLastPressPosition[1] = input.mouse.position[1];
+			}
+			if (middleReleased)
+			{
+				ASSERT(!middlePressed);
+
+				input.mouse.middleDown = false;
+				input.mouse.middleLastPressPosition[0] = input.mouse.position[0];
+				input.mouse.middleLastPressPosition[1] = input.mouse.position[1];
 			}
 		}
 
@@ -295,9 +312,9 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
-	// initial Tick call required to initialize data structures in imgui (and potentially others)
+	// initial OnInputStateChanged call required to initialize data structures in imgui (and potentially others)
 	// since RHIApplication draw thread/tasks can launch before next Tick is called
-	Tick();
+	RHIApplication::OnInputStateChanged(myInput);
 }
 
 bool ClientMain()
