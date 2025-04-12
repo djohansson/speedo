@@ -571,11 +571,11 @@ void IMGUIDrawFunction(
 
 	using namespace ImGui;
 
-	ImDrawData drawData;
-	while (gIMGUIDrawData.try_dequeue(drawData));
+	static ImDrawData gDrawData;
+	while (gIMGUIDrawData.try_dequeue(gDrawData));
 
 	ImGui_ImplVulkan_NewFrame();
-	ImGui_ImplVulkan_RenderDrawData(&drawData, cmd, /*callbacks,*/ pipeline);
+	ImGui_ImplVulkan_RenderDrawData(&gDrawData, cmd, /*callbacks,*/ pipeline);
 }
 
 static void IMGUIInit(
