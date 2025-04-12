@@ -172,6 +172,8 @@ void Client::Tick()
 	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
 	auto& input = myInput;
+	input.dt = dt;
+	input.mouse.lastPosition = input.mouse.position;
 	
 	unsigned eventsProcessed = 0;
 
@@ -258,7 +260,7 @@ void Client::Tick()
 		eventsProcessed++;
 	}
 
-	if (eventsProcessed > 0)
+	if (eventsProcessed > 0 || input.keyboard.keysDown.any())
 		RHIApplication::OnInputStateChanged(input);
 }
 

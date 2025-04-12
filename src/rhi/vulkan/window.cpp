@@ -177,9 +177,9 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 			auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
 			auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
-			constexpr auto kMoveSpeed = 0.00000000002F;
+			constexpr auto kMoveSpeed = 0.000000005F;
 
-			view.GetDesc().position += (dz * forward + dx * strafe) * kMoveSpeed;
+			view.GetDesc().position += input.dt * (dz * forward + dx * strafe) * kMoveSpeed;
 
 			// std::cout << *myActiveCamera << ":pos:[" << view.GetDesc().position.x << ", " <<
 			//     view.GetDesc().position.y << ", " << view.GetDesc().position.z << "]" << '\n';
@@ -187,14 +187,16 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 			doUpdateViewMatrix = true;
 		}
 
-		if (input.mouse.leftDown)
+		if (input.mouse.leftDown && input.mouse.position != input.mouse.lastPosition)
 		{
-			constexpr auto kRotSpeed = 0.0000000001F;
+			constexpr auto kRotSpeed = 5.0F;
 
 			const float windowWidth = view.GetDesc().viewport.width / myConfig.contentScale.x;
 			const float windowHeight = view.GetDesc().viewport.height / myConfig.contentScale.y;
-			const float cx = std::fmod(input.mouse.leftLastPressPosition[0], windowWidth);
-			const float cy = std::fmod(input.mouse.leftLastPressPosition[1], windowHeight);
+			// const float cx = std::fmod(input.mouse.leftLastPressPosition[0], windowWidth);
+			// const float cy = std::fmod(input.mouse.leftLastPressPosition[1], windowHeight);
+			const float cx = std::fmod(input.mouse.lastPosition[0], windowWidth);
+			const float cy = std::fmod(input.mouse.lastPosition[1], windowHeight);
 			const float px = std::fmod(input.mouse.position[0], windowWidth);
 			const float py = std::fmod(input.mouse.position[1], windowHeight);
 
@@ -204,7 +206,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 
 			//std::cout << "dM[0]:" << dM[0] << ", dM[1]:" << dM[1] << '\n';
 
-			view.GetDesc().cameraRotation +=
+			view.GetDesc().cameraRotation -= //input.dt *
 				glm::vec3(dM[1] / windowHeight, dM[0] / windowWidth, 0.0F) * kRotSpeed;
 
 			// std::cout << *myActiveCamera << ":rot:[" << view.GetDesc().cameraRotation.x << ", " <<

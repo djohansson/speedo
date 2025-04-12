@@ -7,6 +7,7 @@
 
 struct InputState
 {
+	float dt = 0.0F;
 	struct Keyboard
 	{
 		static constexpr size_t kKeyCount = 512;
@@ -15,6 +16,7 @@ struct InputState
 	struct Mouse
 	{
 		glm::vec2 position;
+		glm::vec2 lastPosition;
 		glm::vec2 leftLastPressPosition;
 		glm::vec2 rightLastPressPosition;
 		glm::vec2 middleLastPressPosition;
