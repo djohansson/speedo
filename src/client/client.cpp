@@ -169,7 +169,11 @@ void Client::OnMouse(const MouseEvent& mouse)
 
 void Client::Tick()
 {
-	auto& io = ImGui::GetIO();
+	myTimestamps[1] = myTimestamps[0];
+	myTimestamps[0] = std::chrono::high_resolution_clock::now();
+
+	float dt = (myTimestamps[1] - myTimestamps[0]).count();
+
 	auto& input = myInput;
 
 	MouseEvent mouse;
@@ -283,6 +287,8 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gTickTaskState = kTaskStateRunning;
 	gDrawTask = CreateTask(client::Draw);
 	gDrawTaskState = kTaskStateRunning;
+
+	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
 	// initial Tick call required to initialize data structures in imgui (and potentially others)
 	// since RHIApplication draw thread/tasks can launch before next Tick is called

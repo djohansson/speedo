@@ -32,4 +32,5 @@ private:
 	ConcurrentQueue<MouseEvent> myMouseQueue;
 	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 	InputState myInput{};
+	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 };
