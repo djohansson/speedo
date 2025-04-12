@@ -430,6 +430,12 @@ int main(int argc, char* argv[], char* envp[])
 		return 1;
 	}
 
+	// if (!glfwRawMouseMotionSupported())
+	// {
+	// 	fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
+	// 	return 1;
+	// }
+
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
 	ASSERT(monitors != NULL);
@@ -468,12 +474,6 @@ int main(int argc, char* argv[], char* envp[])
 			physicalWidth, physicalHeight,
 			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
 			xscale, yscale);
-	}
-
-	if (!glfwRawMouseMotionSupported())
-	{
-		fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
-		return 1;
 	}
 
 	ClientCreate(OnCreateWindow, &gPaths);
