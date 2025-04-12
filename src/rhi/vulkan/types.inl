@@ -358,6 +358,9 @@ template <GraphicsApi G>
 using PresentInfo = std::conditional_t<G == kVk, VkPresentInfoKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
+using PresentFenceInfo = std::conditional_t<G == kVk, VkSwapchainPresentFenceInfoEXT, std::nullptr_t>;
+
+template <GraphicsApi G>
 using PresentId = std::conditional_t<G == kVk, VkPresentIdKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
