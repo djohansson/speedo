@@ -1,8 +1,9 @@
 #pragma once
 
-#include <array>
 #include <bitset>
 #include <cstdint>
+
+#include <glm/glm.hpp>
 
 struct InputState
 {
@@ -13,12 +14,13 @@ struct InputState
 	} keyboard{};
 	struct Mouse
 	{
-		static constexpr size_t kHistorySize = 2;
-		std::array<float, kHistorySize> position;
-		std::array<float, kHistorySize> leftLastEventPosition;
-		std::array<float, kHistorySize> rightLastEventPosition;
+		glm::vec2 position;
+		glm::vec2 leftLastPressPosition;
+		glm::vec2 rightLastPressPosition;
+		glm::vec2 middleLastPressPosition;
 		uint8_t insideWindow : 1;
 		uint8_t leftDown : 1;
 		uint8_t rightDown : 1;
+		uint8_t middleDown : 1;
 	} mouse{};
 };
