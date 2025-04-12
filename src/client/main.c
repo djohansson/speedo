@@ -295,6 +295,26 @@ static void OnWindowSizeChanged(GLFWwindow* window, int width, int height)
 	ASSERT(window != NULL);
 }
 
+static void SetWindowCallbacks(GLFWwindow* window)
+{
+	ASSERT(window != NULL);
+
+	glfwSetCursorEnterCallback(window, OnMouseEnter);
+	glfwSetMouseButtonCallback(window, OnMouseButton);
+	glfwSetCursorPosCallback(window, OnMouseCursorPos);
+	glfwSetScrollCallback(window, OnScroll);
+	glfwSetKeyCallback(window, OnKey);
+	glfwSetDropCallback(window, OnDrop);
+	glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
+	glfwSetWindowFocusCallback(window, OnWindowFocusChanged);
+	glfwSetWindowRefreshCallback(window, OnWindowRefreshChanged);
+	glfwSetWindowContentScaleCallback(window, OnWindowContentScaleChanged);
+	glfwSetWindowIconifyCallback(window, OnWindowIconifyChanged);
+	glfwSetWindowMaximizeCallback(window, OnWindowMaximizeChanged);
+	glfwSetWindowSizeCallback(window, OnWindowSizeChanged);
+	glfwSetWindowTitle(window, GetApplicationName());
+}
+
 static WindowHandle OnCreateWindow(struct WindowState* state)
 {
 	ASSERT(state);
@@ -321,29 +341,11 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 	state->yscale = yscale;
 
 	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+	//glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
+	SetWindowCallbacks(window);
 
 	return window;
-}
-
-static void SetWindowCallbacks(GLFWwindow* window)
-{
-	ASSERT(window != NULL);
-
-	glfwSetCursorEnterCallback(window, OnMouseEnter);
-	glfwSetMouseButtonCallback(window, OnMouseButton);
-	glfwSetCursorPosCallback(window, OnMouseCursorPos);
-	glfwSetScrollCallback(window, OnScroll);
-	glfwSetKeyCallback(window, OnKey);
-	glfwSetDropCallback(window, OnDrop);
-	glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-	glfwSetWindowFocusCallback(window, OnWindowFocusChanged);
-	glfwSetWindowRefreshCallback(window, OnWindowRefreshChanged);
-	glfwSetWindowContentScaleCallback(window, OnWindowContentScaleChanged);
-	glfwSetWindowIconifyCallback(window, OnWindowIconifyChanged);
-	glfwSetWindowMaximizeCallback(window, OnWindowMaximizeChanged);
-	glfwSetWindowSizeCallback(window, OnWindowSizeChanged);
-	glfwSetWindowTitle(window, GetApplicationName());
 }
 
 static void* GlfwAllocate(size_t size, void* user)
@@ -478,13 +480,8 @@ int main(int argc, char* argv[], char* envp[])
 
 	glfwSetMonitorCallback(OnMonitorChanged);
 
-	WindowHandle window = GetCurrentWindow();
-	ASSERT(window != kInvalidWindowHandle);
-
-	SetWindowCallbacks(window);
-
 	do { glfwWaitEvents();
-	} while (!(bool)glfwWindowShouldClose(window) && ClientMain() && !gIsInterrupted);
+	} while (!(bool)glfwWindowShouldClose(GetCurrentWindow()) && ClientMain() && !gIsInterrupted);
 
 	size_t windowCount;
 	WindowHandle* windows = GetWindows(&windowCount);
