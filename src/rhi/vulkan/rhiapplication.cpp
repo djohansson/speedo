@@ -550,18 +550,6 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	}
 }
 
-void IMGUIDeleteBuffer(VkDevice device, VkBuffer buffer, VkDeviceMemory memory, const VkAllocationCallbacks* allocator, void* userData)
-{
-	auto& callbacks = *static_cast<std::vector<TaskHandle>*>(userData);
-
-	auto [deleteBufferTask, deleteBufferFuture] = CreateTask([device, buffer, memory, allocator] {
-		vkDestroyBuffer(device, buffer, allocator);
-		vkFreeMemory(device, memory, allocator);
-	});
-
-	callbacks.push_back(deleteBufferTask);
-}
-
 void IMGUIDrawFunction(
 	CommandBufferHandle<kVk> cmd,
 	std::vector<TaskHandle>& /*callbacks*/,
