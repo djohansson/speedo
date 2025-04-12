@@ -349,11 +349,10 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		}
 	}
 
-	// must be sorted lexicographically for std::includes to work! std::sort( instanceExtensions.begin(), instanceExtensions.end(), [](const char* lhs, const char* rhs) { return strcmp(lhs, rhs) < 0; });
 	std::vector<const char*> requiredExtensions = {
+		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 	#if defined(__OSX__)
 		VK_EXT_METAL_SURFACE_EXTENSION_NAME,
-		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
 	#elif defined(__WINDOWS__)
 		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
