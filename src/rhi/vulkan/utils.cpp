@@ -87,7 +87,8 @@ void InitInstanceExtensions(VkInstance instance)
 
 	ENSURE(gVkCmdEndRenderingKHR != nullptr);
 
-	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	//if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (gVkCreateDebugUtilsMessengerEXT == nullptr)
 			gVkCreateDebugUtilsMessengerEXT = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
@@ -107,6 +108,7 @@ void InitInstanceExtensions(VkInstance instance)
 		
 		ENSURE(gVkSetDebugUtilsObjectNameExt != nullptr);
 	}
+#endif
 }
 
 void InitDeviceExtensions(VkDevice device)

@@ -467,7 +467,8 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		GetPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice);
 	}
 
-	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	//if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		VK_ENSURE(gVkCreateDebugUtilsMessengerEXT(
 			myInstance,
@@ -475,6 +476,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 			&myHostAllocationCallbacks,
 			&gDebugUtilsMessenger));
 	}
+#endif
 }
 
 template <>
@@ -484,11 +486,13 @@ Instance<kVk>::~Instance()
 
 	ZoneScopedN("~Instance()");
 
-	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	//if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		gVkDestroyDebugUtilsMessengerEXT(
 			myInstance, gDebugUtilsMessenger, &GetHostAllocationCallbacks());
 	}
+#endif
 
 	vkDestroyInstance(myInstance, &myHostAllocationCallbacks);
 }
