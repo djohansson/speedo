@@ -5,7 +5,9 @@
 #include <core/assert.h>
 #include <core/profiling.h>
 
+#include <cstddef>
 #include <vector>
+#include <variant>
 #include <iostream>
 
 #if defined(SPEEDO_USE_MIMALLOC)
@@ -33,52 +35,92 @@ void GetPhysicalDeviceInfo2(
 	InstanceHandle<kVk> instance,
 	PhysicalDeviceHandle<kVk> device)
 {
-	static VkPhysicalDeviceInlineUniformBlockFeaturesEXT gInlineUniformBlockFeature
+	using PhysicalDeviceFeatures = std::variant<
+		VkPhysicalDeviceInlineUniformBlockFeaturesEXT,
+		VkPhysicalDeviceDynamicRenderingFeaturesKHR,
+		VkPhysicalDeviceSynchronization2FeaturesKHR,
+		VkPhysicalDevicePresentIdFeaturesKHR,
+		VkPhysicalDevicePresentWaitFeaturesKHR>;
+	static std::vector<PhysicalDeviceFeatures> gPhysicalDeviceFeatures;
+	gPhysicalDeviceFeatures.clear();
+	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
 		.pNext = nullptr,
-	};
-
-	static VkPhysicalDeviceDynamicRenderingFeaturesKHR gDynamicRenderingFeature
+		.inlineUniformBlock = VK_TRUE,
+		.descriptorBindingInlineUniformBlockUpdateAfterBind = VK_TRUE,
+	});
+	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceDynamicRenderingFeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
-		.pNext = &gInlineUniformBlockFeature,
-	};
-
-	static VkPhysicalDeviceSynchronization2FeaturesKHR gSynchronization2Feature
+		.pNext = nullptr,
+		.dynamicRendering = VK_TRUE,
+	});
+	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceSynchronization2FeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
-		.pNext = &gDynamicRenderingFeature,
-	};
-
-	static VkPhysicalDevicePresentIdFeaturesKHR gPresentIdFeature
+		.pNext = nullptr,
+		.synchronization2 = VK_TRUE,
+	});
+	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device))
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
-		.pNext = &gSynchronization2Feature,
-	};
+		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDevicePresentIdFeaturesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
+			.pNext = nullptr,
+			.presentId = VK_TRUE,
+		});
+		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDevicePresentWaitFeaturesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
+			.pNext = nullptr,
+			.presentWait = VK_TRUE,
+		});
+	}
 
-	static VkPhysicalDevicePresentWaitFeaturesKHR gPresentWaitFeature
+	for (unsigned variantIt = 1; variantIt < gPhysicalDeviceFeatures.size(); variantIt++)
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
-		.pNext = &gPresentIdFeature,
-	};
+		auto& prevFeatureVariant = gPhysicalDeviceFeatures[variantIt - 1];
+		auto& featureVariant = gPhysicalDeviceFeatures[variantIt];
+		std::visit(Overloaded{
+			[&prevFeatureVariant](auto& feature)
+			{
+				feature.pNext = &prevFeatureVariant;
+			},
+		}, featureVariant);
+	}
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeatures12Ex.pNext = &gPresentWaitFeature;
+	deviceInfo.deviceFeatures12Ex.pNext = &gPhysicalDeviceFeatures.back();
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures12Ex;
 	
 	gVkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
-	static VkPhysicalDevicePushDescriptorPropertiesKHR gPushDescriptorProperties
+	using PhysicalDeviceProperties = std::variant<VkPhysicalDevicePushDescriptorPropertiesKHR>;
+	static std::vector<PhysicalDeviceProperties> gPhysicalDeviceProperties;
+	gPhysicalDeviceProperties.clear();
+	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, device))
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
-		.pNext = nullptr,
-	};
+		gPhysicalDeviceProperties.emplace_back(VkPhysicalDevicePushDescriptorPropertiesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
+			.pNext = nullptr,
+		});
+	}
+
+	for (unsigned variantIt = 1; variantIt < gPhysicalDeviceProperties.size(); variantIt++)
+	{
+		auto& prevPropertyVariant = gPhysicalDeviceProperties[variantIt - 1];
+		auto& propertyVariant = gPhysicalDeviceProperties[variantIt];
+		std::visit(Overloaded{
+			[&prevPropertyVariant](auto& property) { property.pNext = &prevPropertyVariant; },
+		}, propertyVariant);
+	}
 
 	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-	deviceInfo.deviceProperties12Ex.pNext = &gPushDescriptorProperties;
+	deviceInfo.deviceProperties12Ex.pNext = &gPhysicalDeviceProperties.back();
 	
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
