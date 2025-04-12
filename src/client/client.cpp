@@ -175,6 +175,8 @@ void Client::Tick()
 	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
 	auto& input = myInput;
+	
+	unsigned eventsProcessed = 0;
 
 	MouseEvent mouse;
 	while (myMouseQueue.try_dequeue(mouse))
@@ -224,6 +226,8 @@ void Client::Tick()
 				io.AddMouseButtonEvent(GLFW_MOUSE_BUTTON_RIGHT, false);
 			}
 		}
+
+		eventsProcessed++;
 	}
 
 	KeyboardEvent keyboard;
@@ -234,10 +238,11 @@ void Client::Tick()
 		else if (keyboard.action == GLFW_RELEASE)
 			input.keyboard.keysDown[keyboard.key] = false;
 
-		//io.AddKeyEvent(static_cast<ImGuiKey>(keyboard.key), static_cast<ImGuiKey>(keyboard.action));
+		eventsProcessed++;
 	}
 
-	RHIApplication::OnInputStateChanged(input);
+	if (eventsProcessed > 0)
+		RHIApplication::OnInputStateChanged(input);
 }
 
 bool Client::Main()
