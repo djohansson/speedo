@@ -149,7 +149,6 @@ bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 		vkEnumerateDeviceExtensionProperties(
 			device, nullptr, &deviceExtensionCount, gDeviceExtensions[device].data());
 
-		// must be sorted lexicographically for std::includes to work!
 		std::sort(
 			gDeviceExtensions[device].begin(),
 			gDeviceExtensions[device].end(),
@@ -159,19 +158,18 @@ bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 		{
 			std::cout << gDeviceExtensions[device].size() << " vulkan device extension(s) found:" << '\n';
 			std::for_each(
-				gDeviceExtensions[device].begin(),
-				gDeviceExtensions[device].end(),
+				gDeviceExtensions[device].cbegin(),
+				gDeviceExtensions[device].cend(),
 				[](const VkExtensionProperties& instanceExtension) {
 					std::cout << instanceExtension.extensionName << '\n';
 				});
 		}
 	}
 
-	return std::find_if(
-		gDeviceExtensions[device].begin(),
-		gDeviceExtensions[device].end(),
-		[extensionName](const VkExtensionProperties& extension) {
-			return strcmp(extension.extensionName, extensionName) == 0;
+	return std::find_if(gDeviceExtensions[device].cbegin(), gDeviceExtensions[device].cend(),
+		[extensionName](const auto& extension)
+		{
+			return strcmp(extensionName, extension.extensionName) == 0;
 		}) != gDeviceExtensions[device].end();
 }
 
@@ -190,7 +188,6 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 		vkEnumerateInstanceExtensionProperties(
 			nullptr, &instanceExtensionCount, gInstanceExtensions[instance].data());
 
-		// must be sorted lexicographically for std::includes to work!
 		std::sort(
 			gInstanceExtensions[instance].begin(),
 			gInstanceExtensions[instance].end(),
@@ -200,19 +197,18 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 		{
 			std::cout << gInstanceExtensions[instance].size() << " vulkan instance extension(s) found:" << '\n';
 			std::for_each(
-				gInstanceExtensions[instance].begin(),
-				gInstanceExtensions[instance].end(),
+				gInstanceExtensions[instance].cbegin(),
+				gInstanceExtensions[instance].cend(),
 				[](const VkExtensionProperties& instanceExtension) {
 					std::cout << instanceExtension.extensionName << '\n';
 				});
 		}
 	}
 
-	return std::find_if(
-		gInstanceExtensions[instance].begin(),
-		gInstanceExtensions[instance].end(),
-		[extensionName](const VkExtensionProperties& extension) {
-			return strcmp(extension.extensionName, extensionName) == 0;
+	return std::find_if(gInstanceExtensions[instance].cbegin(), gInstanceExtensions[instance].cend(),
+		[extensionName](const auto& extension)
+		{
+			return strcmp(extensionName, extension.extensionName) == 0;
 		}) != gInstanceExtensions[instance].end();
 }
 
