@@ -2,6 +2,7 @@
 #include <vulkan/vk_enum_string_helper.h>
 
 #if defined(__WINDOWS__)
+#include <windows.h>
 #include <vma/vk_mem_alloc.h>
 #include <vulkan/vulkan_win32.h>
 #elif defined(__LINUX__)
