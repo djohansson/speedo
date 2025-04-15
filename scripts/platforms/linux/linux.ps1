@@ -19,5 +19,7 @@ Install-AptPackage libglu1-mesa-dev
 Install-AptPackage libwayland-dev
 Install-AptPackage xorg-dev
 
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName VCPKG_FORCE_SYSTEM_BINARIES -NotePropertyValue 1 | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue $(which pwsh) | Out-Null
+
+$env:VCPKG_FORCE_SYSTEM_BINARIES = "1"
+
