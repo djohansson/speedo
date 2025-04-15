@@ -8,18 +8,22 @@
 template <typename T, typename MutexT>
 class ConcurrentAccess;
 
-template <typename T, typename MutexT>
+template <typename T, typename MutexT = UpgradableSharedMutex>
 class ConcurrentReadScope
 {
 public:
+	explicit ConcurrentReadScope() = delete;
 	explicit ConcurrentReadScope(MutexT& mutex, const T& data) noexcept
 		: myMutex(mutex)
 		, myData(data)
 	{
 		myMutex.lock_shared();
 	}
-	ConcurrentReadScope(const ConcurrentAccess<T, MutexT>& access) noexcept
+	explicit ConcurrentReadScope(const ConcurrentAccess<T, MutexT>& access) noexcept
 		: ConcurrentReadScope(access.myMutex, access.myData) {}
+	ConcurrentReadScope(ConcurrentReadScope&& other) noexcept = default;
+	ConcurrentReadScope(const ConcurrentReadScope&) = delete;
+	ConcurrentReadScope& operator=(const ConcurrentReadScope&) = delete;
 	~ConcurrentReadScope() noexcept
 	{
 		myMutex.unlock_shared();
@@ -41,26 +45,26 @@ public:
 	const auto& Get() const noexcept { return myData; }
 
 private:
-	ConcurrentReadScope() = delete;
-	ConcurrentReadScope(const ConcurrentReadScope&) = delete;
-	ConcurrentReadScope& operator=(const ConcurrentReadScope&) = delete;
-
 	MutexT& myMutex;
 	const T& myData;
 };
 
-template <typename T, typename MutexT>
+template <typename T, typename MutexT = UpgradableSharedMutex>
 class ConcurrentWriteScope
 {
 public:
+	explicit ConcurrentWriteScope() noexcept = delete;
 	explicit ConcurrentWriteScope(MutexT& mutex, T& data) noexcept
 		: myMutex(mutex)
 		, myData(data)
 	{
 		myMutex.lock();
 	}
-	ConcurrentWriteScope(ConcurrentAccess<T, MutexT>& access) noexcept
+	explicit ConcurrentWriteScope(ConcurrentAccess<T, MutexT>& access) noexcept
 		: ConcurrentWriteScope(access.myMutex, access.myData) {}
+	ConcurrentWriteScope(ConcurrentWriteScope&& other) noexcept = default;
+	ConcurrentWriteScope(const ConcurrentWriteScope&) = delete;
+	ConcurrentWriteScope& operator=(const ConcurrentWriteScope&) = delete;
 	~ConcurrentWriteScope() noexcept
 	{
 		myMutex.unlock();
@@ -88,10 +92,6 @@ public:
 	auto& Get() noexcept { return myData; }
 	
 private:
-	ConcurrentWriteScope() = delete;
-	ConcurrentWriteScope(const ConcurrentWriteScope&) = delete;
-	ConcurrentWriteScope& operator=(const ConcurrentWriteScope&) = delete;
-	
 	MutexT& myMutex;
 	T& myData;
 };
@@ -103,22 +103,12 @@ public:
 	using value_t = T;
 	using mutex_t = MutexT;
 
-	ConcurrentAccess() noexcept {}
-	ConcurrentAccess(T&& data) noexcept : myData(std::forward<T>(data)) {}
-	ConcurrentAccess(ConcurrentAccess&& other) noexcept
-		: myMutex(std::exchange(other.myMutex, {}))
-		, myData(std::exchange(other.myData, {})) {}
-	~ConcurrentAccess() noexcept = default;
-
-	[[maybe_unused]] ConcurrentAccess& operator=(ConcurrentAccess&& other) noexcept
-	{
-		if (this != &other)
-		{
-			myMutex = std::exchange(other.myMutex, {});
-			myData = std::exchange(other.myData, {});
-		}
-		return *this;
-	}
+	ConcurrentAccess() noexcept = default;
+	explicit ConcurrentAccess(T&& data) noexcept : myData(std::forward<T>(data)) {}
+	ConcurrentAccess(ConcurrentAccess&& other) noexcept = default;
+	ConcurrentAccess(const ConcurrentAccess&) = delete;
+	ConcurrentAccess& operator=(ConcurrentAccess&& other) noexcept = default;
+	ConcurrentAccess& operator=(const ConcurrentAccess&) = delete;	
 
 	void Swap(ConcurrentAccess& rhs) noexcept
 	{
@@ -128,12 +118,8 @@ public:
 	friend void Swap(ConcurrentAccess& lhs, ConcurrentAccess& rhs) noexcept { lhs.Swap(rhs); }
 
 private:
-	ConcurrentAccess(const ConcurrentAccess&) = delete;
-	ConcurrentAccess& operator=(const ConcurrentAccess&) = delete;
-
 	friend class ConcurrentReadScope<T, MutexT>;
 	friend class ConcurrentWriteScope<T, MutexT>;
-
 	mutable MutexT myMutex{};
 	T myData{};
 };

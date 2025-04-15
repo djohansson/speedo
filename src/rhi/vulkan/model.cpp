@@ -438,9 +438,8 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 	ENSURE(app);
 	auto& rhi = app->GetRHI<kVk>();
 	
-	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
-	auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
-	auto& [transferQueue, transferSubmit] = transferQueueInfosWriteScope->front();
+	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
+	auto& [transferQueue, transferSubmit] = transfer->queues.Get();
 
 	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto model = Model<kVk>(
@@ -459,11 +458,11 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 	timelineCallbacks.emplace_back(oldModelDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		.waitSemaphores = {transferSemaphore},
+		.waitSemaphores = {transfer->semaphore},
 		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
 		.waitSemaphoreValues = {transferSubmit.maxTimelineValue},
-		.signalSemaphores = {transferSemaphore},
-		.signalSemaphoreValues = {++transferSemaphoreValue},
+		.signalSemaphores = {transfer->semaphore},
+		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(timelineCallbacks)});
 
 	transferSubmit = transferQueue.Submit();

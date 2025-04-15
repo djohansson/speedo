@@ -7,10 +7,10 @@
 #include "types.h"
 
 #include <core/task.h>
+#include <core/circularcontainer.h>
 #include <core/concurrentaccess.h>
 
 #include <cstdint>
-#include <deque>
 #include <memory>
 //#include <source_location>
 #include <vector>
@@ -172,7 +172,15 @@ template <GraphicsApi G>
 using QueueContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
 
 template <GraphicsApi G>
-using QueueTimelineContext = std::tuple<Semaphore<G>, CopyableAtomic<uint64_t>, ConcurrentAccess<std::vector<QueueContext<G>>>>;
+struct QueueTimelineContextData
+{
+	Semaphore<G> semaphore;
+	CopyableAtomic<uint64_t> timeline;
+	CircularContainer<QueueContext<G>> queues;
+};
+
+template <GraphicsApi G>
+using QueueTimelineContext = ConcurrentAccess<QueueTimelineContextData<G>>;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag) \

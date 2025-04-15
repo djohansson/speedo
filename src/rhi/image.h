@@ -128,10 +128,6 @@ namespace image
 {
 
 template <GraphicsApi G>
-[[nodiscard]] std::pair<Image<G>, ImageView<G>> LoadImage(
-	std::string_view filePath,
-	std::atomic_uint8_t& progress,
-	std::shared_ptr<Image<G>> oldImage = nullptr,
-	std::shared_ptr<ImageView<G>> oldImageView = nullptr);
+[[nodiscard]] std::pair<Image<G>, ImageView<G>> LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);
 
 } // namespace image

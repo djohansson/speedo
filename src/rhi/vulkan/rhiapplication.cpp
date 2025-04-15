@@ -439,21 +439,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, 
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-						ENSURE(app);
-						auto& pipeline = app->GetRHI<kVk>().pipeline;
-						ENSURE(pipeline);
-						auto& resources = pipeline->GetResources();
-						auto [newImage, newImageView] = image::LoadImage(
-							filePath,
-							progressOut,
-							std::atomic_load(&resources.image),
-							std::atomic_load(&resources.imageView));
-						std::atomic_store(
-							&resources.image,
-							std::make_shared<::Image<kVk>>(std::move(newImage))); // todo: move Image into rhi namespace
-						std::atomic_store(
-							&resources.imageView,
-							std::make_shared<ImageView<kVk>>(std::move(newImageView)));
+						auto [newImage, newImageView] = image::LoadImage<kVk>(filePath, progressOut);
 					});
 			}
 			// if (MenuItem("Open Scene..."))
@@ -782,20 +768,15 @@ void RHIApplication::Draw()
 	std::vector<TaskHandle> frameTasks;
 	frameTasks.emplace_back(CreateTask([&rhi, &executor = GetExecutor()]
 		{
-			const auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
-			auto transferQueueInfosReadScope = ConcurrentReadScope(transferQueueInfos);
-			for (const auto& [transferQueue, transferSubmit] : *transferQueueInfosReadScope)	
-				transferQueue.SubmitCallbacks(executor, transferSemaphore.GetValue());
+			auto transfer = ConcurrentReadScope(rhi.queues[kQueueTypeTransfer]);
+			for (const auto& [transferQueue, transferSubmit] : transfer->queues)	
+				transferQueue.SubmitCallbacks(executor, transfer->semaphore.GetValue());
 		}).handle);
 
 	auto [acquireNextImageFence, acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
 
-	static uint8_t gComputeQueueIndex = 0;
-
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
-	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
-	gComputeQueueIndex = (gComputeQueueIndex + 1) % computeQueueInfosWriteScope->size();
-	auto& [computeQueue, computeSubmit] = (*computeQueueInfosWriteScope)[gComputeQueueIndex];
+	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
+	auto& [computeQueue, computeSubmit] = compute->queues.FetchAdd();
 
 	if (computeSubmit.fence)
 	{
@@ -807,7 +788,7 @@ void RHIApplication::Draw()
 		computeQueue.GetPool().Reset();
 	}
 
-	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore] {
+	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
 		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
 
 	if (flipSuccess)
@@ -817,17 +798,12 @@ void RHIApplication::Draw()
 		auto& lastFrame = window.GetFrames()[lastFrameIndex];
 		auto& newFrame = window.GetFrames()[newFrameIndex];
 
-		static uint8_t gGraphicsQueueIndex = 0;
+		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
 
-		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
-		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
+		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphics->queues.FetchAdd();
+		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
 
-		auto lastQueueIndex = gGraphicsQueueIndex;
-		gGraphicsQueueIndex = (gGraphicsQueueIndex + 1) % graphicsQueueInfosWriteScope->size();
-		auto& [lastGraphicsQueue, lastGraphicsSubmit] = (*graphicsQueueInfosWriteScope)[lastQueueIndex];
-		auto& [graphicsQueue, graphicsSubmit] = (*graphicsQueueInfosWriteScope)[gGraphicsQueueIndex];
-
-		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue, &graphicsSemaphore]
+		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue, &graphicsSemaphore = graphics->semaphore]
 			{ graphicsQueue.SubmitCallbacks(executor, graphicsSemaphore.GetValue()); }).handle);
 
 		{
@@ -845,7 +821,7 @@ void RHIApplication::Draw()
 		{
 			ZoneScopedN("RHIApplication::Draw::drawCall");
 
-			GetExecutor().Call(drawCall);
+			GetExecutor().Call(drawCall, &graphics.Get());
 		}
 
 		window.UpdateViewBuffer(); // todo: move to drawCall
@@ -1055,7 +1031,7 @@ void RHIApplication::Draw()
 			}
 
 			for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
-				graphicsQueue.Execute(threadIt, graphicsSemaphoreValue);
+				graphicsQueue.Execute(threadIt, graphics->timeline);
 
 			renderImageSet.End(cmd);
 		}
@@ -1152,11 +1128,11 @@ void RHIApplication::Draw()
 
 		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.device, SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			.waitSemaphores = {graphicsSemaphore, acquireNextImageSemaphoreHandle},
+			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
 			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_NONE},
 			.waitSemaphoreValues = {lastGraphicsSubmit.maxTimelineValue, 1},
-			.signalSemaphores = {graphicsSemaphore, graphicsDoneSemaphore},
-			.signalSemaphoreValues = {++graphicsSemaphoreValue, 1},
+			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphore},
+			.signalSemaphoreValues = {++graphics->timeline, 1},
 			.callbacks = std::move(graphicsCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
@@ -1248,9 +1224,8 @@ RHIApplication::RHIApplication(
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
-		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
-		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfosWriteScope->front();
+		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
+		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
 		
 		IMGUIInit(window, rhi, graphicsQueue);
 
@@ -1307,8 +1282,8 @@ RHIApplication::RHIApplication(
 			.waitSemaphores = {},
 			.waitDstStageMasks = {},
 			.waitSemaphoreValues = {},
-			.signalSemaphores = {graphicsSemaphore},
-			.signalSemaphoreValues = {++graphicsSemaphoreValue},
+			.signalSemaphores = {graphics->semaphore},
+			.signalSemaphoreValues = {++graphics->timeline},
 			.callbacks = std::move(timelineCallbacks)});
 
 		graphicsSubmit = graphicsQueue.Submit();
@@ -1433,19 +1408,16 @@ RHIApplication::~RHIApplication() noexcept(false)
 	
 	rhi.device->WaitIdle();
 
-	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
-	auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-	for (auto& [graphicsQueue, graphicsSubmit] : *graphicsQueueInfosWriteScope)	
+	auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
+	for (auto& [graphicsQueue, graphicsSubmit] : graphics->queues)	
 		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSubmit.maxTimelineValue);
 
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = rhi.queues[kQueueTypeCompute];
-	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
-	for (auto& [computeQueue, computeSubmit] : *computeQueueInfosWriteScope)	
+	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
+	for (auto& [computeQueue, computeSubmit] : compute->queues)	
 		computeQueue.SubmitCallbacks(GetExecutor(), computeSubmit.maxTimelineValue);
 
-	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = rhi.queues[kQueueTypeTransfer];
-	auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
-	for (auto& [transferQueue, transferSubmit] : *transferQueueInfosWriteScope)	
+	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
+	for (auto& [transferQueue, transferSubmit] : transfer->queues)	
 		transferQueue.SubmitCallbacks(GetExecutor(), transferSubmit.maxTimelineValue);
 
 	ShutdownImgui();

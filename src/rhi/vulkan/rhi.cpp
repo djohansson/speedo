@@ -170,29 +170,38 @@ void CreateQueues(RHI<kVk>& rhi)
 	static constexpr unsigned minComputeQueueCount = 1;
 	static constexpr unsigned minTransferQueueCount = 1;
 
-	auto [graphicsQueuesIt, graphicsQueuesWasInserted] = queues.emplace(
+	queues.emplace(
 		kQueueTypeGraphics,
-		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
+		QueueTimelineContext<kVk>{
+			{
+				.semaphore = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+				.timeline = {},
+				.queues = CircularContainer<QueueContext<kVk>>{}}});
 
-	auto [computeQueuesIt, computeQueuesWasInserted] = queues.emplace(
+	queues.emplace(
 		kQueueTypeCompute,
-		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
+		QueueTimelineContext<kVk>{
+			{
+				.semaphore = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+				.timeline = {},
+				.queues = CircularContainer<QueueContext<kVk>>{}}});
 
-	auto [transferQueuesIt, transferQueuesWasInserted] = queues.emplace(
+	queues.emplace(
 		kQueueTypeTransfer,
-		std::make_tuple(Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{VK_SEMAPHORE_TYPE_TIMELINE}}, 0U, ConcurrentAccess<std::vector<QueueContext<kVk>>>{}));
+		QueueTimelineContext<kVk>{
+			{
+				.semaphore = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+				.timeline = {},
+				.queues = CircularContainer<QueueContext<kVk>>{}}});
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
 		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
-	auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = queues[kQueueTypeGraphics];
-	auto& [computeSemaphore, computeSemaphoreValue, computeQueueInfos] = queues[kQueueTypeCompute];
-	auto& [transferSemaphore, transferSemaphoreValue, transferQueueInfos] = queues[kQueueTypeTransfer];
-	auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-	auto computeQueueInfosWriteScope = ConcurrentWriteScope(computeQueueInfos);
-	auto transferQueueInfosWriteScope = ConcurrentWriteScope(transferQueueInfos);
+	auto graphics = ConcurrentWriteScope(queues[kQueueTypeGraphics]);
+	auto compute = ConcurrentWriteScope(queues[kQueueTypeCompute]);
+	auto transfer = ConcurrentWriteScope(queues[kQueueTypeTransfer]);
 	
 	const auto& queueFamilies = rhi.device->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
@@ -205,7 +214,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = graphicsQueueInfosWriteScope->emplace_back();
+				auto& [queue, syncInfo] = graphics->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 1, .supportsProfiling = 1},
@@ -216,7 +225,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = computeQueueInfosWriteScope->emplace_back();
+				auto& [queue, syncInfo] = compute->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 0, .supportsProfiling = 1},
@@ -227,7 +236,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = transferQueueInfosWriteScope->emplace_back();
+				auto& [queue, syncInfo] = transfer->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
 					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 0, .supportsProfiling = 0},
@@ -236,26 +245,26 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 	}
 
-	ENSUREF(!graphicsQueueInfosWriteScope->empty(), "Failed to find a suitable graphics queue!");
+	ENSUREF(!graphics->queues.empty(), "Failed to find a suitable graphics queue!");
 
-	if (computeQueueInfosWriteScope->empty())
+	if (compute->queues.empty())
 	{
-		ENSUREF(graphicsQueueInfosWriteScope->size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
+		ENSUREF(graphics->queues.size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
 
-		computeQueueInfosWriteScope->emplace_back(std::make_pair(
-			std::move(graphicsQueueInfosWriteScope->back().first),
+		compute->queues.emplace_back(std::make_pair(
+			std::move(graphics->queues.back().first),
 			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfosWriteScope->pop_back();
+			graphics->queues.pop_back();
 	}
 
-	if (transferQueueInfosWriteScope->empty())
+	if (transfer->queues.empty())
 	{
-		ENSUREF(graphicsQueueInfosWriteScope->size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
+		ENSUREF(graphics->queues.size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
 
-		transferQueueInfosWriteScope->emplace_back(std::make_pair(
-			std::move(graphicsQueueInfosWriteScope->back().first),
+		transfer->queues.emplace_back(std::make_pair(
+			std::move(graphics->queues.back().first),
 			QueueHostSyncInfo<kVk>{}));
-		graphicsQueueInfosWriteScope->pop_back();
+		graphics->queues.pop_back();
 	}
 }
 
@@ -338,9 +347,8 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 	}
 
 	{
-		auto& [graphicsSemaphore, graphicsSemaphoreValue, graphicsQueueInfos] = rhi.queues[kQueueTypeGraphics];
-		auto graphicsQueueInfosWriteScope = ConcurrentWriteScope(graphicsQueueInfos);
-		auto& [graphicsQueue, graphicsSubmit] = graphicsQueueInfosWriteScope->front();
+		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
+		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.front();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -367,8 +375,8 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 			.waitSemaphores = {},
 			.waitDstStageMasks = {},
 			.waitSemaphoreValues = {},
-			.signalSemaphores = {graphicsSemaphore},
-			.signalSemaphoreValues = {++graphicsSemaphoreValue}});
+			.signalSemaphores = {graphics->semaphore},
+			.signalSemaphoreValues = {++graphics->timeline}});
 
 		graphicsSubmit = graphicsQueue.Submit();
 	}
