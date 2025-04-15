@@ -340,8 +340,10 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 	state->xscale = xscale;
 	state->yscale = yscale;
 
-	//glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-	//glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+	if (glfwRawMouseMotionSupported())
+	 	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+
+	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
 
 	SetWindowCallbacks(window);
 
@@ -418,33 +420,12 @@ int main(int argc, char* argv[], char* envp[])
 	GLFWallocator allocator = { .allocate = GlfwAllocate, .reallocate = GlfwReallocate, .deallocate = GlfwDeallocate };
 	glfwInitAllocator(&allocator);
 	
-	if (!glfwInit())
-	{
-		fprintf(stderr, "GLFW: Failed to initialize.\n");
-		return EXIT_FAILURE;
-	}
-
-	if (!glfwVulkanSupported())
-	{
-		fprintf(stderr, "GLFW: Vulkan not supported.\n");
-		return 1;
-	}
-
-	// if (!glfwRawMouseMotionSupported())
-	// {
-	// 	fprintf(stderr, "GLFW: Raw mouse motion not supported.\n");
-	// 	return 1;
-	// }
-
+	ENSUREF(glfwInit(), "GLFW: Failed to initialize.\n");
+	ENSUREF(glfwVulkanSupported(), "GLFW: Vulkan not supported.\n");
+	
 	int monitorCount;
 	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-	ASSERT(monitors != NULL);
-	if (monitorCount <= 0)
-	{
-		fprintf(stderr, "GLFW: No monitor connected?\n");
-		return EXIT_FAILURE;
-	}
-
+	ENSUREF(monitors != NULL && monitorCount > 0, "GLFW: No monitor connected?\n");
 	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
 	{
 		GLFWmonitor* monitor = monitors[monitorIt];
