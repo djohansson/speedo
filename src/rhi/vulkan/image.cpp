@@ -633,10 +633,12 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::
 		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
 
 		auto cmd = graphicsQueue.GetPool().Commands();
+		{
+			GPU_SCOPE(cmd, graphicsQueue, Transition);
 
-		GPU_SCOPE(cmd, graphicsQueue, Transition);
-
-		image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		}
+		cmd.End();
 
 		auto& pipeline = rhi.pipeline;
 		ENSURE(pipeline);
@@ -660,8 +662,6 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::
 		std::vector<TaskHandle> transitionTimelineCallbacks;
 		transitionTimelineCallbacks.emplace_back(setDescriptorTask);
 		transitionTimelineCallbacks.emplace_back(oldImageDestroyTask);
-
-		cmd.End();
 		
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {transferSemaphore},
