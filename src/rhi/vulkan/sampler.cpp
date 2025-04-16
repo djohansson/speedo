@@ -42,8 +42,9 @@ SamplerVector<kVk>::SamplerVector(
 template <>
 SamplerVector<kVk>::SamplerVector(SamplerVector&& other) noexcept
 	: DeviceObject(std::forward<SamplerVector>(other))
-	, mySamplers(std::exchange(other.mySamplers, {}))
-{}
+{
+	std::swap(mySamplers, other.mySamplers);
+}
 
 template <>
 SamplerVector<kVk>::~SamplerVector()
@@ -59,7 +60,7 @@ template <>
 SamplerVector<kVk>& SamplerVector<kVk>::operator=(SamplerVector&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<SamplerVector>(other));
-	mySamplers = std::exchange(other.mySamplers, {});
+	std::swap(mySamplers, other.mySamplers);
 	return *this;
 }
 

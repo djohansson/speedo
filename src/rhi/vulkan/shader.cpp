@@ -356,9 +356,10 @@ ShaderModule<kVk>::ShaderModule(const std::shared_ptr<Device<kVk>>& device, cons
 template <>
 ShaderModule<kVk>::ShaderModule(ShaderModule&& other) noexcept
 	: DeviceObject(std::forward<ShaderModule>(other))
-	, myShaderModule(std::exchange(other.myShaderModule, {}))
 	, myEntryPoint(std::exchange(other.myEntryPoint, {}))
-{}
+{
+	std::swap(myShaderModule, other.myShaderModule);
+}
 
 template <>
 ShaderModule<kVk>::~ShaderModule()
@@ -374,7 +375,7 @@ template <>
 ShaderModule<kVk>& ShaderModule<kVk>::operator=(ShaderModule&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<ShaderModule>(other));
-	myShaderModule = std::exchange(other.myShaderModule, {});
+	std::swap(myShaderModule, other.myShaderModule);
 	myEntryPoint = std::exchange(other.myEntryPoint, {});
 	return *this;
 }

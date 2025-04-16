@@ -140,7 +140,7 @@ PipelineLayout<kVk>& PipelineLayout<kVk>::operator=(PipelineLayout<kVk>&& other)
 	DeviceObject::operator=(std::forward<PipelineLayout<kVk>>(other));
 	myShaderModules = std::exchange(other.myShaderModules, {});
 	myDescriptorSetLayouts = std::exchange(other.myDescriptorSetLayouts, {});
-	myLayout = std::exchange(other.myLayout, {});
+	std::swap(myLayout, other.myLayout);
 	return *this;
 }
 
@@ -149,8 +149,9 @@ PipelineLayout<kVk>::PipelineLayout(PipelineLayout<kVk>&& other) noexcept
 	: DeviceObject(std::forward<PipelineLayout<kVk>>(other))
 	, myShaderModules(std::exchange(other.myShaderModules, {}))
 	, myDescriptorSetLayouts(std::exchange(other.myDescriptorSetLayouts, {}))
-	, myLayout(std::exchange(other.myLayout, {}))
-{}
+{
+	std::swap(myLayout, other.myLayout);
+}
 
 template <>
 PipelineLayout<kVk>::PipelineLayout(

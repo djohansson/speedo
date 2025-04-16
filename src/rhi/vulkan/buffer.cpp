@@ -7,9 +7,10 @@
 template <>
 Buffer<kVk>::Buffer(Buffer&& other) noexcept
 	: DeviceObject(std::forward<Buffer>(other))
-	, myBuffer(std::exchange(other.myBuffer, {}))
 	, myDesc(std::exchange(other.myDesc, {}))
-{}
+{
+	std::swap(myBuffer, other.myBuffer);
+}
 
 template <>
 Buffer<kVk>::Buffer(
@@ -104,7 +105,7 @@ template <>
 Buffer<kVk>& Buffer<kVk>::operator=(Buffer&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<Buffer>(other));
-	myBuffer = std::exchange(other.myBuffer, {});
+	std::swap(myBuffer, other.myBuffer);
 	myDesc = std::exchange(other.myDesc, {});
 	return *this;
 }
@@ -120,8 +121,9 @@ void Buffer<kVk>::Swap(Buffer& rhs) noexcept
 template <>
 BufferView<kVk>::BufferView(BufferView&& other) noexcept
 	: DeviceObject(std::forward<BufferView>(other))
-	, myView(std::exchange(other.myView, {}))
-{}
+{
+	std::swap(myView, other.myView);
+}
 
 template <>
 BufferView<kVk>::BufferView(
@@ -172,7 +174,7 @@ template <>
 BufferView<kVk>& BufferView<kVk>::operator=(BufferView&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<BufferView>(other));
-	myView = std::exchange(other.myView, {});
+	std::swap(myView, other.myView);
 	return *this;
 }
 

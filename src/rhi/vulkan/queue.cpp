@@ -102,10 +102,11 @@ Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
 	, myPool(std::exchange(other.myPool, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
+{
 #if (SPEEDO_PROFILING_LEVEL > 0)
-	, myProfilingContext(std::exchange(other.myProfilingContext, {}))
+	std::swap(myProfilingContext, other.myProfilingContext);
 #endif
-{}
+}
 
 template <>
 Queue<kVk>::~Queue()
@@ -135,7 +136,7 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 	decltype(other.myTimelineCallbacks) tmp;
 	std::swap(other.myTimelineCallbacks, tmp);
 #if (SPEEDO_PROFILING_LEVEL > 0)
-	myProfilingContext = std::exchange(other.myProfilingContext, {});
+	std::swap(myProfilingContext, other.myProfilingContext);
 #endif
 	return *this;
 }

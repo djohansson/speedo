@@ -340,10 +340,11 @@ Device<kVk>::~Device()
 
 template <>
 DeviceObject<kVk>::DeviceObject(DeviceObject&& other) noexcept
-	: myDevice(std::exchange(other.myDevice, {}))
-	, myDesc(std::exchange(other.myDesc, {}))
-	, myUuid(std::exchange(other.myUuid, {}))
-{}
+	: myDesc(std::exchange(other.myDesc, {}))
+{
+	std::swap(myDevice, other.myDevice);
+	std::swap(myUuid, other.myUuid);
+}
 
 template <>
 DeviceObject<kVk>::DeviceObject(
@@ -389,9 +390,9 @@ DeviceObject<kVk>::~DeviceObject()
 template <>
 DeviceObject<kVk>& DeviceObject<kVk>::operator=(DeviceObject&& other) noexcept
 {
-	myDevice = std::exchange(other.myDevice, {});
+	std::swap(myDevice, other.myDevice);
 	myDesc = std::exchange(other.myDesc, {});
-	myUuid = std::exchange(other.myUuid, {});
+	std::swap(myUuid, other.myUuid);
 	return *this;
 }
 

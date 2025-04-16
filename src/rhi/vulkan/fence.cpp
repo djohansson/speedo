@@ -33,8 +33,9 @@ Fence<kVk>::Fence(
 template <>
 Fence<kVk>::Fence(Fence<kVk>&& other) noexcept
 	: DeviceObject(std::forward<Fence<kVk>>(other))
-	, myFence(std::exchange(other.myFence, {}))
-{}
+{
+	std::swap(myFence, other.myFence);
+}
 
 template <>
 Fence<kVk>::~Fence()
@@ -47,7 +48,7 @@ template <>
 Fence<kVk>& Fence<kVk>::operator=(Fence<kVk>&& other) noexcept
 {
 	DeviceObject<kVk>::operator=(std::forward<Fence<kVk>>(other));
-	myFence = std::exchange(other.myFence, {});
+	std::swap(myFence, other.myFence);
 	return *this;
 }
 

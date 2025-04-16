@@ -44,9 +44,10 @@ Semaphore<kVk>::Semaphore(
 template <>
 Semaphore<kVk>::Semaphore(Semaphore<kVk>&& other) noexcept
 	: DeviceObject(std::forward<Semaphore<kVk>>(other))
-	, mySemaphore(std::exchange(other.mySemaphore, {}))
 	, myDesc(std::exchange(other.myDesc, {}))
-{}
+{
+	std::swap(mySemaphore, other.mySemaphore);
+}
 
 template <>
 Semaphore<kVk>::~Semaphore()
@@ -62,7 +63,7 @@ template <>
 Semaphore<kVk>& Semaphore<kVk>::operator=(Semaphore<kVk>&& other) noexcept
 {
 	DeviceObject<kVk>::operator=(std::forward<Semaphore<kVk>>(other));
-	mySemaphore = std::exchange(other.mySemaphore, {});
+	std::swap(mySemaphore, other.mySemaphore);
 	myDesc = std::exchange(other.myDesc, {});
 	return *this;
 }

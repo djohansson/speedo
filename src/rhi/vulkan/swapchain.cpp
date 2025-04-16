@@ -260,11 +260,12 @@ template <>
 Swapchain<kVk>::Swapchain(Swapchain&& other) noexcept
 	: DeviceObject(std::forward<Swapchain>(other))
 	, myDesc(other.myDesc)
-	, mySurface(std::exchange(other.mySurface, {}))
-	, mySwapchain(std::exchange(other.mySwapchain, {}))
 	, myFrames(std::exchange(other.myFrames, {}))
 	, myFrameIndex(std::exchange(other.myFrameIndex, {}))
-{}
+{
+	std::swap(mySurface, other.mySurface);
+	std::swap(mySwapchain, other.mySwapchain);
+}
 
 template <>
 Swapchain<kVk>::Swapchain(
@@ -307,8 +308,8 @@ Swapchain<kVk>& Swapchain<kVk>::operator=(Swapchain&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<Swapchain>(other));
 	myDesc = std::exchange(other.myDesc, {});
-	mySurface = std::exchange(other.mySurface, {});
-	mySwapchain = std::exchange(other.mySwapchain, {});
+	std::swap(mySurface, other.mySurface);
+	std::swap(mySwapchain, other.mySwapchain);
 	myFrames = std::exchange(other.myFrames, {});
 	myFrameIndex = std::exchange(other.myFrameIndex, {});
 	return *this;

@@ -8,8 +8,9 @@ template <>
 DescriptorSetLayout<kVk>::DescriptorSetLayout(DescriptorSetLayout&& other) noexcept
 	: DeviceObject(std::forward<DescriptorSetLayout>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
-	, myLayout(std::exchange(other.myLayout, {}))
-{}
+{
+	std::swap(myLayout, other.myLayout);
+}
 
 template <>
 DescriptorSetLayout<kVk>::DescriptorSetLayout(
@@ -96,7 +97,7 @@ DescriptorSetLayout<kVk>& DescriptorSetLayout<kVk>::operator=(DescriptorSetLayou
 {
 	DeviceObject::operator=(std::forward<DescriptorSetLayout>(other));
 	myDesc = std::exchange(other.myDesc, {});
-	myLayout = std::exchange(other.myLayout, {});
+	std::swap(myLayout, other.myLayout);
 	return *this;
 }
 
@@ -128,8 +129,9 @@ template <>
 DescriptorSetArray<kVk>::DescriptorSetArray(DescriptorSetArray&& other) noexcept
 	: DeviceObject(std::forward<DescriptorSetArray>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
-	, myDescriptorSets(std::exchange(other.myDescriptorSets, {}))
-{}
+{
+	std::swap(myDescriptorSets, other.myDescriptorSets);
+}
 
 template <>
 DescriptorSetArray<kVk>::DescriptorSetArray(
@@ -168,7 +170,7 @@ DescriptorSetArray<kVk>& DescriptorSetArray<kVk>::operator=(DescriptorSetArray&&
 {
 	DeviceObject::operator=(std::forward<DescriptorSetArray>(other));
 	myDesc = std::exchange(other.myDesc, {});
-	myDescriptorSets = std::exchange(other.myDescriptorSets, {});
+	std::swap(myDescriptorSets, other.myDescriptorSets);
 	return *this;
 }
 
@@ -225,8 +227,9 @@ template <>
 DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(DescriptorUpdateTemplate&& other) noexcept
 	: DeviceObject(std::forward<DescriptorUpdateTemplate>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
-	, myHandle(std::exchange(other.myHandle, {}))
-{}
+{
+	std::swap(myHandle, other.myHandle);
+}
 
 template <>
 DescriptorUpdateTemplate<kVk>::DescriptorUpdateTemplate(
@@ -265,7 +268,7 @@ DescriptorUpdateTemplate<kVk>::operator=(DescriptorUpdateTemplate&& other) noexc
 {
 	DeviceObject::operator=(std::forward<DescriptorUpdateTemplate>(other));
 	myDesc = std::exchange(other.myDesc, {});
-	myHandle = std::exchange(other.myHandle, {});
+	std::swap(myHandle, other.myHandle);
 	return *this;
 }
 

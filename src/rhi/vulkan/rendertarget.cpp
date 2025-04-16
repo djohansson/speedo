@@ -656,13 +656,14 @@ RenderTarget<kVk>::RenderTarget(
 template <>
 RenderTarget<kVk>::RenderTarget(RenderTarget&& other) noexcept
 	: DeviceObject(std::forward<RenderTarget>(other))
-	, myAttachments(std::exchange(other.myAttachments, {}))
 	, myAttachmentDescs(std::exchange(other.myAttachmentDescs, {}))
 	, myAttachmentsReferences(std::exchange(other.myAttachmentsReferences, {}))
 	, mySubPassDescs(std::exchange(other.mySubPassDescs, {}))
 	, mySubPassDependencies(std::exchange(other.mySubPassDependencies, {}))
-	, myCache(std::exchange(other.myCache, {}))
-{}
+{
+	std::swap(myAttachments, other.myAttachments);
+	std::swap(myCache, other.myCache);
+}
 
 template <>
 RenderTarget<kVk>::~RenderTarget()
@@ -696,12 +697,12 @@ RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 	ASSERT(!myRenderTargetBeginInfo.has_value());
 
 	DeviceObject::operator=(std::forward<RenderTarget>(other));
-	myAttachments = std::exchange(other.myAttachments, {});
+	std::swap(myAttachments, other.myAttachments);
 	myAttachmentDescs = std::exchange(other.myAttachmentDescs, {});
 	myAttachmentsReferences = std::exchange(other.myAttachmentsReferences, {});
 	mySubPassDescs = std::exchange(other.mySubPassDescs, {});
 	mySubPassDependencies = std::exchange(other.mySubPassDependencies, {});
-	myCache = std::exchange(other.myCache, {});
+	std::swap(myCache, other.myCache);
 	return *this;
 }
 

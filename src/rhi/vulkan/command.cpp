@@ -61,9 +61,10 @@ template <>
 CommandBufferArray<kVk>::CommandBufferArray(CommandBufferArray&& other) noexcept
 	: DeviceObject(std::forward<CommandBufferArray>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
-	, myArray(std::exchange(other.myArray, {}))
 	, myBits(other.myBits)
-{}
+{
+	std::swap(myArray, other.myArray);
+}
 
 template <>
 CommandBufferArray<kVk>::~CommandBufferArray()
@@ -84,7 +85,7 @@ CommandBufferArray<kVk>& CommandBufferArray<kVk>::operator=(CommandBufferArray&&
 {
 	DeviceObject::operator=(std::forward<CommandBufferArray>(other));
 	myDesc = std::exchange(other.myDesc, {});
-	myArray = std::exchange(other.myArray, {});
+	std::swap(myArray, other.myArray);
 	myBits = other.myBits;
 	return *this;
 }
@@ -194,12 +195,13 @@ template <>
 CommandPool<kVk>::CommandPool(CommandPool&& other) noexcept
 	: DeviceObject(std::forward<CommandPool>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
-	, myPool(std::exchange(other.myPool, {}))
 	, myPendingCommands(std::exchange(other.myPendingCommands, {}))
 	, mySubmittedCommands(std::exchange(other.mySubmittedCommands, {}))
 	, myFreeCommands(std::exchange(other.myFreeCommands, {}))
 	, myRecordingCommands(std::exchange(other.myRecordingCommands, {}))
-{}
+{
+	std::swap(myPool, other.myPool);
+}
 
 template <>
 CommandPool<kVk>::~CommandPool()
@@ -221,7 +223,7 @@ CommandPool<kVk>& CommandPool<kVk>::operator=(CommandPool&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<CommandPool>(other));
 	myDesc = std::exchange(other.myDesc, {});
-	myPool = std::exchange(other.myPool, {});
+	std::swap(myPool, other.myPool);
 	myPendingCommands = std::exchange(other.myPendingCommands, {});
 	mySubmittedCommands = std::exchange(other.mySubmittedCommands, {});
 	myFreeCommands = std::exchange(other.myFreeCommands, {});

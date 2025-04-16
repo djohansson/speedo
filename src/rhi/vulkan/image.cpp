@@ -429,9 +429,10 @@ void Image<kVk>::Clear(
 template <>
 Image<kVk>::Image(Image&& other) noexcept
 	: DeviceObject(std::forward<Image>(other))
-	, myImage(std::exchange(other.myImage, {}))
 	, myDesc(std::exchange(other.myDesc, {}))
-{}
+{
+	std::swap(myImage, other.myImage);
+}
 
 template <>
 Image<kVk>::Image(
@@ -524,7 +525,7 @@ template <>
 Image<kVk>& Image<kVk>::operator=(Image<kVk>&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<Image>(other));
-	myImage = std::exchange(other.myImage, {});
+	std::swap(myImage, other.myImage);
 	myDesc = std::exchange(other.myDesc, {});
 	return *this;
 }
@@ -532,8 +533,9 @@ Image<kVk>& Image<kVk>::operator=(Image<kVk>&& other) noexcept
 template <>
 ImageView<kVk>::ImageView(ImageView&& other) noexcept
 	: DeviceObject(std::forward<ImageView>(other))
-	, myView(std::exchange(other.myView, {}))
-{}
+{
+	std::swap(myView, other.myView);
+}
 
 template <>
 ImageView<kVk>::ImageView(const std::shared_ptr<Device<kVk>>& device, ImageViewHandle<kVk>&& view)
@@ -573,7 +575,7 @@ template <>
 ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
 {
 	DeviceObject::operator=(std::forward<ImageView>(other));
-	myView = std::exchange(other.myView, {});
+	std::swap(myView, other.myView);
 	return *this;
 }
 
