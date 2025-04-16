@@ -868,9 +868,9 @@ VkResult CheckFlipOrPresentResult(VkResult result)
 	case VK_TIMEOUT:
 	case VK_NOT_READY:
 	case VK_SUBOPTIMAL_KHR:
+	case VK_ERROR_OUT_OF_DATE_KHR:
 		std::println(stderr, "Warning: flip/present returned {}", string_VkResult(result));
 		break;
-	case VK_ERROR_OUT_OF_DATE_KHR:
 	case VK_ERROR_SURFACE_LOST_KHR:
 	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
 		ASSERTF(false, "Error: flip/present returned {}", string_VkResult(result));
