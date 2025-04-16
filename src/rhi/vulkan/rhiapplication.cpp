@@ -12,6 +12,7 @@
 
 #include <gfx/imgui_extra.h>
 
+#include <algorithm>
 #include <memory>
 
 //#include <imnodes.h>
@@ -1137,7 +1138,9 @@ void RHIApplication::Draw()
 
 		graphicsSubmit = graphicsQueue.Submit();
 
-		computeQueue.EnqueuePresent(window.PreparePresent());
+		auto presentInfo = window.PreparePresent();
+		presentInfo.waitSemaphores = {graphicsDoneSemaphore};
+		computeQueue.EnqueuePresent(std::move(presentInfo));
 		computeSubmit = computeQueue.Present();
 
 		auto [graphicsDoneTask, graphicsDoneFuture] = CreateTask(
