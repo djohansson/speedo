@@ -268,21 +268,6 @@ void CreateQueues(RHI<kVk>& rhi)
 	}
 }
 
-Window<kVk> CreateRHIWindow(
-	const std::shared_ptr<Device<kVk>>& device,
-	WindowHandle&& window,
-	SurfaceHandle<kVk>&& surface,
-	typename Window<kVk>::ConfigFile&& windowConfig,
-	WindowState&& windowState)
-{
-	return {
-		device,
-		std::forward<WindowHandle>(window),
-		std::forward<SurfaceHandle<kVk>>(surface),
-		std::forward<Window<kVk>::ConfigFile>(windowConfig),
-		std::forward<WindowState>(windowState)};
-}
-
 std::unique_ptr<Pipeline<kVk>> CreatePipeline(const std::shared_ptr<Device<kVk>>& device)
 {
 	return std::make_unique<Pipeline<kVk>>(
@@ -352,7 +337,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
-		for (auto& frame : rhi.GetWindow(GetCurrentWindow()).GetFrames())
+		for (auto& frame : window.GetFrames())
 		{
 			frame.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			frame.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
@@ -413,8 +398,8 @@ template <>
 	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
 	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
-	rhi.windows.emplace_back(
-		CreateRHIWindow(
+	rhi.windows.emplace(
+		std::make_unique<Window<kVk>>(
 			rhi.device,
 			std::move(windowHandle),
 			std::move(surface),

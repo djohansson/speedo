@@ -39,6 +39,21 @@ struct HandleHash : ankerl::unordered_dense::hash<Handle>
 };
 
 template <typename T, typename Handle>
+struct HandleHash<std::unique_ptr<T>, Handle> : ankerl::unordered_dense::hash<Handle>
+{
+	[[nodiscard]] size_t operator()(const std::unique_ptr<T>& ptr) const
+	{
+		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(*ptr));
+	}
+	[[nodiscard]] size_t operator()(const Handle& handle) const
+	{
+		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
+	}
+
+	using is_transparent = std::true_type;
+};
+
+template <typename T, typename Handle>
 struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Handle>
 {
 	[[nodiscard]] size_t operator()(const std::shared_ptr<T>& ptr) const
@@ -53,35 +68,67 @@ struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Ha
 	using is_transparent = std::true_type;
 };
 
-template <typename T = void>
-struct SharedPtrEqualTo : std::equal_to<T>
+template <typename T, typename Handle>
+struct HandleEqualTo : std::equal_to<T>
+{
+	[[nodiscard]] constexpr bool operator()(const T& lhs, const T& rhs) const
+	{
+		return static_cast<Handle>(lhs) == static_cast<Handle>(rhs);
+	}
+
+	[[nodiscard]] constexpr bool operator()(Handle lhs, const T& rhs) const
+	{
+		return lhs == static_cast<Handle>(rhs);
+	}
+
+	[[nodiscard]] constexpr bool operator()(const T& lhs, Handle rhs) const
+	{
+		return static_cast<Handle>(lhs) == rhs;
+	}
+
+	using is_transparent = std::true_type;
+};
+
+template <typename T, typename Handle>
+struct HandleEqualTo<std::unique_ptr<T>, Handle> : std::equal_to<T>
+{
+	[[nodiscard]] constexpr bool operator()(const std::unique_ptr<T>& lhs, const std::unique_ptr<T>& rhs) const
+	{
+		return static_cast<Handle>(*lhs) == static_cast<Handle>(*rhs);
+	}
+
+	[[nodiscard]] constexpr bool operator()(Handle lhs, const std::unique_ptr<T>& rhs) const
+	{
+		return lhs == static_cast<Handle>(*rhs);
+	}
+
+	[[nodiscard]] constexpr bool operator()(const std::unique_ptr<T>& lhs, Handle rhs) const
+	{
+		return static_cast<Handle>(*lhs) == rhs;
+	}
+
+	using is_transparent = std::true_type;
+};
+
+template <typename T, typename Handle>
+struct HandleEqualTo<std::shared_ptr<T>, Handle> : std::equal_to<T>
 {
 	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<T>& lhs, const std::shared_ptr<T>& rhs) const
 	{
-		return *lhs == *rhs;
-	}
-};
-
-template <>
-struct SharedPtrEqualTo<void> : std::equal_to<void>
-{
-	template <typename U, typename V>
-	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<U>& lhs, const std::shared_ptr<V>& rhs) const
-	{
-		return *lhs == *rhs;
-	}
-	template <typename U, typename V>
-	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<U>& lhs, const V& rhs) const
-	{
-		return *lhs == rhs;
-	}
-	template <typename U, typename V>
-	[[nodiscard]] constexpr bool operator()(const U& lhs, const std::shared_ptr<V>& rhs) const
-	{
-		return lhs == *rhs;
+		return static_cast<Handle>(*lhs) == static_cast<Handle>(*rhs);
 	}
 
-	using is_transparent = int;
+	[[nodiscard]] constexpr bool operator()(Handle lhs, const std::shared_ptr<T>& rhs) const
+	{
+		return lhs == static_cast<Handle>(*rhs);
+	}
+
+	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<T>& lhs, Handle rhs) const
+	{
+		return static_cast<Handle>(*lhs) == rhs;
+	}
+
+	using is_transparent = std::true_type;
 };
 
 template <typename T>
@@ -122,14 +169,12 @@ template <
 	typename KeyHash = ankerl::unordered_dense::hash<Key>,
 	typename KeyEqualTo = std::equal_to<>>
 using UnorderedMap = ankerl::unordered_dense::map<Key, Value, KeyHash, KeyEqualTo>;
+
 template <
 	typename Key,
 	typename KeyHash = ankerl::unordered_dense::hash<Key>,
 	typename KeyEqualTo = std::equal_to<>>
 using UnorderedSet = ankerl::unordered_dense::set<Key, KeyHash, KeyEqualTo>;
-
-template <typename T, typename Handle>
-using HandleSetType = UnorderedSet<T, HandleHash<T, Handle>>;
 
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;

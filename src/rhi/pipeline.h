@@ -94,7 +94,10 @@ class Pipeline : public DeviceObject<G>
 		CopyableAtomic<PipelineHandle<G>>,
 		IdentityHash<uint64_t>>;
 
-	using PipelineLayoutSetType = HandleSetType<PipelineLayout<G>, PipelineLayoutHandle<G>>;
+	using PipelineLayoutSetType = UnorderedSet<
+		PipelineLayout<G>,
+		HandleHash<PipelineLayout<G>, PipelineLayoutHandle<G>>,
+		HandleEqualTo<PipelineLayout<G>, PipelineLayoutHandle<G>>>;
 
 	using DescriptorMapType = UnorderedMap<
 		DescriptorSetLayoutHandle<G>, // todo: monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.

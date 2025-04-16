@@ -39,15 +39,13 @@ struct RHI : public RHIBase
 	std::unique_ptr<Pipeline<G>> pipeline;
 	CreateWindowFunc createWindowFunc;
 
-	template <typename Handle = WindowHandle>
-	Window<G>& GetWindow(Handle handle)
-	{
-		return *std::find_if(windows.begin(), windows.end(),
-			[handle](const auto& window) { return static_cast<Handle>(window) == handle; });
-	}
+	auto& GetWindow(WindowHandle handle) const { return *windows.find(handle)->get(); }
 
 	UnorderedMap<QueueType, QueueTimelineContext<G>> queues;
-	std::vector<Window<G>> windows;
+	UnorderedSet<
+		std::unique_ptr<Window<G>>,
+		HandleHash<std::unique_ptr<Window<G>>, WindowHandle>,
+		HandleEqualTo<std::unique_ptr<Window<G>>, WindowHandle>> windows;
 
 	// temp until we have a proper resource manager
 	UnorderedMap<std::string, PipelineLayoutHandle<G>> pipelineLayouts;
