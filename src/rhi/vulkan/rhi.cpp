@@ -363,7 +363,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 			.signalSemaphores = {graphics->semaphore},
 			.signalSemaphoreValues = {++graphics->timeline}});
 
-		graphicsSubmit = graphicsQueue.Submit();
+		graphicsSubmit |= graphicsQueue.Submit();
 	}
 }
 

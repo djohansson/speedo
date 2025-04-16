@@ -465,7 +465,7 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(timelineCallbacks)});
 
-	transferSubmit = transferQueue.Submit();
+	transferSubmit |= transferQueue.Submit();
 
 	return model;
 }

@@ -779,14 +779,13 @@ void RHIApplication::Draw()
 	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
 	auto& [computeQueue, computeSubmit] = compute->queues.FetchAdd();
 
-	if (computeSubmit.fence)
+	if (!computeSubmit.fences.empty())
 	{
 		ZoneScopedN("RHIApplication::Draw::waitCompute");
 
-		while (!computeSubmit.fence.Wait(0ULL))
-			GetExecutor().JoinOne();
-
-		computeQueue.GetPool().Reset();
+		for (auto& fence : computeSubmit.fences)
+			while (!fence.Wait(0ULL))
+				GetExecutor().JoinOne();
 	}
 
 	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
@@ -807,11 +806,12 @@ void RHIApplication::Draw()
 		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue, &graphicsSemaphore = graphics->semaphore]
 			{ graphicsQueue.SubmitCallbacks(executor, graphicsSemaphore.GetValue()); }).handle);
 
+		if (!graphicsSubmit.fences.empty())
 		{
 			ZoneScopedN("RHIApplication::Draw::waitGraphics");
 
-			if (graphicsSubmit.fence)
-				while (!graphicsSubmit.fence.Wait(0ULL))
+			for (auto& fence : graphicsSubmit.fences)
+				while (!fence.Wait(0ULL))
 					GetExecutor().JoinOne();
 		}
 
@@ -1136,12 +1136,12 @@ void RHIApplication::Draw()
 			.signalSemaphoreValues = {++graphics->timeline, 1},
 			.callbacks = std::move(graphicsCallbacks)});
 
-		graphicsSubmit = graphicsQueue.Submit();
+		graphicsSubmit |= graphicsQueue.Submit();
 
 		auto presentInfo = window.PreparePresent();
 		presentInfo.waitSemaphores = {graphicsDoneSemaphore};
 		computeQueue.EnqueuePresent(std::move(presentInfo));
-		computeSubmit = computeQueue.Present();
+		computeSubmit |= computeQueue.Present();
 
 		auto [graphicsDoneTask, graphicsDoneFuture] = CreateTask(
 			[&window, &executor = GetExecutor(), &device = *rhi.device, &computeQueue, &computeSubmit,
@@ -1149,8 +1149,12 @@ void RHIApplication::Draw()
 			{
 				ZoneScopedN("RHIApplication::Draw::waitCompute");
 			
-				while (!computeSubmit.fence.Wait(0ULL))
-					executor.JoinOne();
+				if (!computeSubmit.fences.empty())
+				{
+					for (auto& fence : computeSubmit.fences)
+						while (!fence.Wait(0ULL))
+							executor.JoinOne();
+				}
 			});
 
 		frameTasks.emplace_back(graphicsDoneTask);
@@ -1289,7 +1293,7 @@ RHIApplication::RHIApplication(
 			.signalSemaphoreValues = {++graphics->timeline},
 			.callbacks = std::move(timelineCallbacks)});
 
-		graphicsSubmit = graphicsQueue.Submit();
+		graphicsSubmit |= graphicsQueue.Submit();
 	}
 
 	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";

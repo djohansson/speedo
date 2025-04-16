@@ -241,18 +241,19 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 		submitInfo.pCommandBuffers = pendingSubmit.commandBuffers.data();
 	}
 
-	QueueHostSyncInfo<kVk> syncInfo{
-		.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{"submitFence"}},
-		.maxTimelineValue = maxTimelineValue};
+	QueueHostSyncInfo<kVk> result;
+	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
+	result.maxTimelineValue = maxTimelineValue;
+	
 	{
 		ZoneScopedN("Queue::Submit::vkQueueSubmit");
 
-		VK_ENSURE(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, syncInfo.fence));
+		VK_ENSURE(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back()));
 	}
 
 	myPendingSubmits.clear();
 
-	return syncInfo;
+	return result;
 }
 
 template <>
@@ -273,12 +274,14 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
 		presentIds[i] = gPresentId++;
 
-	QueueHostSyncInfo<kVk> result{.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{"presentFence"}}, .presentIds = std::move(presentIds)};
+	QueueHostSyncInfo<kVk> result;
+	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
+	result.presentIds = std::move(presentIds);
 
 	PresentFenceInfo<kVk> presentFenceInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
 	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
-	presentFenceInfo.pFences = &result.fence.GetHandle();
+	presentFenceInfo.pFences = &result.fences.back().GetHandle();
 
 	PresentId<kVk> presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
 	presentId.pNext = &presentFenceInfo;
@@ -294,13 +297,20 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
 	presentInfo.pResults = myPendingPresent.results.data();
 
+	Result<kVk> queuePresentResult{};
 	{
 		ZoneScopedN("Queue::Present::vkQueuePresentKHR");
 
-		CheckFlipOrPresentResult(vkQueuePresentKHR(myQueue, &presentInfo));
+		queuePresentResult = vkQueuePresentKHR(myQueue, &presentInfo);
 	}
 
 	myPendingPresent = {};
+
+	if (CheckFlipOrPresentResult(queuePresentResult) != VK_SUCCESS)
+	{
+		result.fences.back().Wait();
+		return {};
+	}
 
 	return result;
 }

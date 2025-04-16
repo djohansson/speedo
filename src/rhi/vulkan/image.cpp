@@ -620,7 +620,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::
 		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(transferTimelineCallbacks)});
 
-	transferSubmit = transferQueue.Submit();
+	transferSubmit |= transferQueue.Submit();
 
 	///////////
 
@@ -673,7 +673,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::
 			.signalSemaphoreValues = {++graphics->timeline},
 			.callbacks = std::move(transitionTimelineCallbacks)});
 
-		graphicsSubmit = graphicsQueue.Submit();
+		graphicsSubmit |= graphicsQueue.Submit();
 
 		std::atomic_store(
 			&resources.image,

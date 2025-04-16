@@ -31,9 +31,11 @@ struct QueueDeviceSyncInfo
 template <GraphicsApi G>
 struct QueueHostSyncInfo
 {
-	Fence<G> fence;
+	std::vector<Fence<G>> fences;
 	std::vector<uint64_t> presentIds;
 	uint64_t maxTimelineValue = 0ULL;
+
+	QueueHostSyncInfo<G>& operator|=(QueueHostSyncInfo<G>&& other);
 };
 
 template <GraphicsApi G>
