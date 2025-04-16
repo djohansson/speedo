@@ -127,7 +127,7 @@ void GetPhysicalDeviceInfo2(
 	}
 
 	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-	deviceInfo.deviceProperties12Ex.pNext = &gPhysicalDeviceProperties.back();
+	deviceInfo.deviceProperties12Ex.pNext = gPhysicalDeviceProperties.empty() ? nullptr : &gPhysicalDeviceProperties.back();
 	
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
