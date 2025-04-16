@@ -115,7 +115,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 
 	auto lastFrameIndex = myFrameIndex;
 	
-	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{});
+	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{"acquireNextImageFence"});
 	Semaphore<kVk> semaphore(InternalGetDevice(), SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
 
 	auto frameIndex = myFrameIndex.load();

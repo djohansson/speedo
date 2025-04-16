@@ -370,7 +370,7 @@ DeviceObject<kVk>::DeviceObject(
 				GetUuid(),
 				objectType,
 				objectHandles[objectIt],
-				std::format("{}{}", GetName(), objectIt));
+				std::format("{}{}", GetName(), device->GetTypeCount(objectType)));
 	}
 #endif
 }

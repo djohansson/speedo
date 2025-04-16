@@ -241,7 +241,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	}
 
 	QueueHostSyncInfo<kVk> syncInfo{
-		.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{}},
+		.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{"submitFence"}},
 		.maxTimelineValue = maxTimelineValue};
 	{
 		ZoneScopedN("Queue::Submit::vkQueueSubmit");
@@ -272,7 +272,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
 		presentIds[i] = gPresentId++;
 
-	QueueHostSyncInfo<kVk> result{.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{}}, .presentIds = std::move(presentIds)};
+	QueueHostSyncInfo<kVk> result{.fence = Fence<kVk>{InternalGetDevice(), FenceCreateDesc<kVk>{"presentFence"}}, .presentIds = std::move(presentIds)};
 
 	PresentFenceInfo<kVk> presentFenceInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays

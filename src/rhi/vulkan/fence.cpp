@@ -4,10 +4,11 @@
 template <>
 Fence<kVk>::Fence(
 	const std::shared_ptr<Device<kVk>>& device,
-	FenceHandle<kVk>&& fence)
+	FenceHandle<kVk>&& fence,
+	FenceCreateDesc<kVk>&& desc)
 	: DeviceObject(
 		  device,
-		  {"_Fence"},
+		  [&desc]{ return DeviceObjectCreateDesc{ desc.name.data() }; }(),
 		  1,
 		  VK_OBJECT_TYPE_FENCE,
 		  reinterpret_cast<uint64_t*>(&fence),
@@ -26,7 +27,7 @@ Fence<kVk>::Fence(
 		createInfo.flags = desc.flags;
 		VK_ENSURE(vkCreateFence(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &fence));
 		return fence;
-	}())
+	}(), std::forward<FenceCreateDesc<kVk>>(desc))
 {}
 
 template <>

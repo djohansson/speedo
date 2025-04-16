@@ -9,6 +9,7 @@
 template <GraphicsApi G>
 struct FenceCreateDesc
 {
+	std::string_view name;
 	uint32_t flags = 0;
 };
 
@@ -34,7 +35,7 @@ public:
 	[[maybe_unused]] static bool Wait(DeviceHandle<G> device, std::span<const FenceHandle<G>> fences, bool waitAll = true, uint64_t timeout = ~0ULL);
 
 private:
-	Fence(const std::shared_ptr<Device<G>>& device, FenceHandle<G>&& fence);
+	Fence(const std::shared_ptr<Device<G>>& device, FenceHandle<G>&& fence, FenceCreateDesc<G>&& desc);
 	
 	FenceHandle<G> myFence{};
 };
