@@ -787,6 +787,8 @@ void RHIApplication::Draw()
 			while (!fence.Wait(0ULL))
 				GetExecutor().JoinOne();
 	}
+	computeQueue.GetPool().Reset();
+	computeSubmit = {};
 
 	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
 		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
@@ -814,8 +816,8 @@ void RHIApplication::Draw()
 				while (!fence.Wait(0ULL))
 					GetExecutor().JoinOne();
 		}
-
 		graphicsQueue.GetPool().Reset();
+		graphicsSubmit = {};
 
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
@@ -1142,22 +1144,7 @@ void RHIApplication::Draw()
 		presentInfo.waitSemaphores = {graphicsDoneSemaphore};
 		computeQueue.EnqueuePresent(std::move(presentInfo));
 		computeSubmit |= computeQueue.Present();
-
-		auto [graphicsDoneTask, graphicsDoneFuture] = CreateTask(
-			[&window, &executor = GetExecutor(), &device = *rhi.device, &computeQueue, &computeSubmit,
-			graphicsDoneSemaphore = std::make_unique<Semaphore<kVk>>(std::move(graphicsDoneSemaphore))]
-			{
-				ZoneScopedN("RHIApplication::Draw::waitCompute");
-			
-				if (!computeSubmit.fences.empty())
-				{
-					for (auto& fence : computeSubmit.fences)
-						while (!fence.Wait(0ULL))
-							executor.JoinOne();
-				}
-			});
-
-		frameTasks.emplace_back(graphicsDoneTask);
+		computeSubmit.retiredSemaphores.emplace_back(std::move(graphicsDoneSemaphore));
 
 		/* todo
 		if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))

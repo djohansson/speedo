@@ -22,22 +22,6 @@ void Queue<kVk>::EnqueuePresent(T&& first, Ts&&... rest)
 		EnqueuePresent(std::forward<Ts>(rest)...);
 }
 
-template <GraphicsApi G>
-QueueHostSyncInfo<G>& QueueHostSyncInfo<G>::operator|=(QueueHostSyncInfo<G>&& other)
-{
-	fences.insert(
-		fences.end(),
-		std::make_move_iterator(other.fences.begin()),
-		std::make_move_iterator(other.fences.end()));
-	presentIds.insert(
-		presentIds.end(),
-		std::make_move_iterator(other.presentIds.begin()),
-		std::make_move_iterator(other.presentIds.end()));
-	maxTimelineValue = std::max(maxTimelineValue, other.maxTimelineValue);
-	
-	return *this;
-}
-
 #if (SPEEDO_PROFILING_LEVEL > 0)
 template <>
 template <SourceLocationData Location>

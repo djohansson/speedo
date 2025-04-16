@@ -1,4 +1,30 @@
 template <GraphicsApi G>
+QueueHostSyncInfo<G>& QueueHostSyncInfo<G>::operator|=(QueueHostSyncInfo<G>&& other)
+{
+	fences.insert(
+		fences.end(),
+		std::make_move_iterator(other.fences.begin()),
+		std::make_move_iterator(other.fences.end()));
+	presentIds.insert(
+		presentIds.end(),
+		std::make_move_iterator(other.presentIds.begin()),
+		std::make_move_iterator(other.presentIds.end()));
+	retiredSemaphores.insert(
+		retiredSemaphores.end(),
+		std::make_move_iterator(other.retiredSemaphores.begin()),
+		std::make_move_iterator(other.retiredSemaphores.end()));
+	maxTimelineValue = std::max(maxTimelineValue, other.maxTimelineValue);
+	
+	return *this;
+}
+
+template <GraphicsApi G>
+QueueHostSyncInfo<G> operator|(QueueHostSyncInfo<G>&& lhs, QueueHostSyncInfo<G>&& rhs)
+{
+	return std::forward<QueueHostSyncInfo<G>>(lhs |= std::forward<QueueHostSyncInfo<G>>(rhs));
+}
+
+template <GraphicsApi G>
 QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other)
 {
 	waitSemaphores.insert(
