@@ -84,6 +84,12 @@ TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 	{
 		auto& task = *core::detail::InternalHandleToPtr(handle);
 
+		// std::construct_at(
+		// 	&task,
+		// 	std::forward<F>(callable),
+		// 	ParamsTuple{},
+		// 	std::forward<Args>(args)...);
+
 		new (&task) Task(
 			std::forward<F>(callable),
 			ParamsTuple{},

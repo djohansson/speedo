@@ -19,9 +19,7 @@
 template <typename T>
 struct TaskCreateInfo;
 
-static constexpr size_t kTaskSize = 256;
-
-class alignas (kTaskSize) Task final
+class alignas (std::hardware_constructive_interference_size) Task final
 {
 	template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
@@ -59,6 +57,7 @@ private:
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
+	static constexpr size_t kTaskSize = 256;
 	static constexpr size_t kMaxCallableSizeBytes = ((kTaskSize == 256) ? 128 : ((kTaskSize == 128) ? 48 : 0));
 	static constexpr size_t kMaxArgsSizeBytes = ((kTaskSize == 256) ? 80 : ((kTaskSize == 128) ? 32 : 0));
 
@@ -86,7 +85,7 @@ struct TaskState
 	alignas(kAligmnent) uint16_t latch{1U};
 	[[nodiscard]] auto Latch() noexcept { return std::atomic_ref(latch); }
 #else
-	static constexpr auto kAligmnent = std_extra::hardware_constructive_interference_size;
+	static constexpr auto kAligmnent = std_extra::hardware_destructive_interference_size;
 	alignas(kAligmnent) CopyableAtomic<uint16_t> latch{1U};
 	[[nodiscard]] auto& Latch() noexcept { return latch; }
 #endif
