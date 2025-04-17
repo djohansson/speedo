@@ -20,10 +20,10 @@ Install-AptPackage libwayland-dev
 Install-AptPackage xorg-dev
 Install-AptPackage libxkbcommon-dev
 
-sudo snap install snapd
-sudo snap install cmake
+sudo snap refresh snapd
+sudo snap refresh cmake --classic --channel=3.31/stable
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue $(which pwsh) | Out-Null
 
 $env:VCPKG_FORCE_SYSTEM_BINARIES = "1"
-
+#todo: add --x-abi-tools-use-exact-version?
