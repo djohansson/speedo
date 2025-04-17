@@ -28,7 +28,7 @@ project(speedo LANGUAGES C CXX VERSION ${SPEEDO_VERSION_STRING})
 find_package(Vulkan REQUIRED)
 find_package(cpptrace CONFIG REQUIRED)
 find_package(stduuid CONFIG REQUIRED)
-find_package(xxhash CONFIG REQUIRED)
+find_package(xxHash CONFIG REQUIRED)
 find_package(SHA-Intrinsics CONFIG REQUIRED)
 find_package(Tracy CONFIG REQUIRED)
 find_package(cppzmq CONFIG REQUIRED)
@@ -36,7 +36,7 @@ find_package(imgui CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)
 find_package(slang CONFIG REQUIRED)
-find_package(cargs CONFIG REQUIRED)
+find_package(Cargs CONFIG REQUIRED)
 find_package(mimalloc CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
 
@@ -68,6 +68,7 @@ target_link_libraries(
 		SHA-Intrinsics
 		cpptrace::cpptrace
 		stduuid
+		$<$<PLATFORM_ID:Linux>:uuid>
 		Tracy::TracyClient
 )
 
