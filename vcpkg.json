@@ -1,5 +1,6 @@
 {
   "name": "speedo",
+  "version": "0.0.1",
   "features": {
     "toolchain": {
       "description": "LLVM Toolchain",
