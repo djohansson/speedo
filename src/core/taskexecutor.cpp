@@ -78,6 +78,13 @@ void SetThreadName(std::jthread& thread, const char* threadName)
 
 #endif
 
+enum TaskExecutorState : uint8_t
+{
+	kTaskExecutorInitializing = 0,
+	kTaskExecutorRunning = 1,
+};
+static std::atomic<TaskExecutorState> gTaskExecutorState = kTaskExecutorInitializing;
+
 }
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
@@ -92,6 +99,8 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
 		myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt));
+
+	gTaskExecutorState.store(kTaskExecutorRunning, std::memory_order_release);
 }
 
 TaskExecutor::~TaskExecutor()
@@ -187,6 +196,8 @@ void TaskExecutor::JoinOne()
 void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 {
 	using namespace taskexecutor;
+
+	gTaskExecutorState.wait(kTaskExecutorInitializing, std::memory_order_acquire);
 	
 	SetThreadName(myThreads[threadIndex], std::format("TaskThread {}", threadIndex).c_str());
 			
