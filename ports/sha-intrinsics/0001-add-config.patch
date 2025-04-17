@@ -51,7 +51,7 @@ index 70ca307..a19e4bf 100644
 +include(CMakePackageConfigHelpers)
 +configure_package_config_file(
 +	${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
-+	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
++	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
 +	INSTALL_DESTINATION lib/cmake/${PROJECT_NAME})
 +write_basic_package_version_file(
 +	"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-version.cmake"
@@ -62,7 +62,7 @@ index 70ca307..a19e4bf 100644
 -	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 -	PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 +	FILES
-+		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-config.cmake"
++		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake"
 +		"${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}-version.cmake"
 +		"${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSHAIntrinsics.cmake"
 +	DESTINATION lib/cmake/${PROJECT_NAME})
