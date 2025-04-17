@@ -7,8 +7,8 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
-				"CMAKE_CONFIGURATION_TYPES": "Debug;Profile;Release",
-				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";Profile;Release",
+				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
+				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
@@ -29,8 +29,8 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
 			"cacheVariables": {
-				"CMAKE_CONFIGURATION_TYPES": "Debug;Profile;Release",
-				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";Profile;Release",
+				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
+				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
 				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
 				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
@@ -45,38 +45,75 @@
 				"lhs": "${hostSystemName}",
 				"rhs": "Darwin"
 			}
+		},
+		{
+			"name": "arm64-linux-clang",
+			"generator": "Ninja Multi-Config",
+			"binaryDir": "${sourceDir}/build/${presetName}",
+			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
+			"cacheVariables": {
+				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
+				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
+				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
+				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
+				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
+			},
+			"environment": {
+				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-linux-release",
+				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/arm64-linux-release/tools/llvm"
+			},
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Linux"
+			}
 		}
 	],
 	"buildPresets": [
 		{
 			"name": "x64-windows-clang-debug",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "Debug"
+			"configuration": "debug"
 		},
 		{
 			"name": "x64-windows-clang-release",
 			"configurePreset": "x64-windows-clang",
-			"configuration": "Release"
+			"configuration": "release"
 		},
 		{
 			"name": "x64-windows-clang-profile",
-			"configuration": "Profile",
+			"configuration": "profile",
 			"inherits": "x64-windows-clang-release"
 		},
 		{
 			"name": "arm64-osx-clang-debug",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "Debug"
+			"configuration": "debug"
 		},
 		{
 			"name": "arm64-osx-clang-release",
 			"configurePreset": "arm64-osx-clang",
-			"configuration": "Release"
+			"configuration": "release"
 		},
 		{
 			"name": "arm64-osx-clang-profile",
-			"configuration": "Profile",
+			"configuration": "profile",
 			"inherits": "arm64-osx-clang-release"
+		},
+		{
+			"name": "arm64-linux-clang-debug",
+			"configurePreset": "arm64-linux-clang",
+			"configuration": "debug"
+		},
+		{
+			"name": "arm64-linux-clang-release",
+			"configurePreset": "arm64-linux-clang",
+			"configuration": "release"
+		},
+		{
+			"name": "arm64-linux-clang-profile",
+			"configuration": "profile",
+			"inherits": "arm64-linux-clang-release"
 		}
 	]
 }
