@@ -47,6 +47,48 @@
 			}
 		},
 		{
+			"name": "(lldb arm64-linux) debug/server",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build/arm64-linux-clang/debug/server",
+			"args": ["-u", "${userHome}/.speedo"],
+			"cwd": "${workspaceFolder}",
+			"terminal": "console",
+			"env": {
+				"MIMALLOC_SHOW_STATS": "1",
+				"MIMALLOC_VERBOSE": "1",
+				"MIMALLOC_SHOW_ERRORS": "1",
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:LD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/debug/lib:${workspaceFolder}/build/toolchain/arm64-linux-release/lib"
+			}
+		},
+		{
+			"name": "(lldb arm64-linux) profile/server",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build/arm64-linux-clang/profile/server",
+			"args": ["-u", "${userHome}/.speedo"],
+			"cwd": "${workspaceFolder}",
+			"terminal": "console",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:LD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib:${workspaceFolder}/build/toolchain/arm64-linux-release/lib"
+			}
+		},
+		{
+			"name": "(lldb arm64-linux) release/server",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${workspaceFolder}/build/arm64-linux-clang/release/server",
+			"args": ["-u", "${userHome}/.speedo"],
+			"cwd": "${workspaceFolder}",
+			"terminal": "console",
+			"env": {
+				"PATH": "${env:PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/bin",
+				"LD_LIBRARY_PATH": "${env:LD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-linux-clang/lib:${workspaceFolder}/build/toolchain/arm64-linux-release/lib"
+			}
+		},
+		{
 			"name": "(lldb arm64-osx) debug/client",
 			"type": "lldb",
 			"request": "launch",
