@@ -46,8 +46,6 @@ $TargetTriplet = "$Arch-$OS-clang"
 
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
-#todo: add --x-abi-tools-use-exact-version?
-#$env:VCPKG_FORCE_SYSTEM_BINARIES = "1"
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
 
 $toolchainPath = "$PSScriptRoot/build/toolchain/$SystemTriplet"
