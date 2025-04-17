@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.29.1)
+cmake_minimum_required(VERSION 3.25.1)
 
 include_guard()
 
@@ -124,10 +124,13 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO on windows
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
+	set(CXX_DEFINES "${CXX_DEFINES} -isystem ${LLVM_PATH}/include/aarch64-unknown-linux-gnu/c++/v1")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-lc++ -lc++abi")
-	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version")
-	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+	set(LINK_FLAGS "${LINK_FLAGS} -L${LLVM_PATH}/lib/aarch64-unknown-linux-gnu -Wl,-rpath,${LLVM_PATH}/lib/aarch64-unknown-linux-gnu -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version")
+	# LLVMgold.so: error loading plugin: /home/danjo/Repos/speedo/build/toolchain/arm64-linux-release/tools/llvm/../lib/LLVMgold.so: cannot open shared object file: No such file or directory
+	#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+	set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")

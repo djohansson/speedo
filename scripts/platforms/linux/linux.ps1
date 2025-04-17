@@ -18,6 +18,7 @@ Install-AptPackage libxcursor-dev
 Install-AptPackage libglu1-mesa-dev
 Install-AptPackage libwayland-dev
 Install-AptPackage xorg-dev
+Install-AptPackage libxkbcommon-dev
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName POWERSHELL_PATH -NotePropertyValue $(which pwsh) | Out-Null
 
