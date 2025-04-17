@@ -12,3 +12,4 @@ build*/*
 .env*
 .clang-format-files
 compile_commands.json
+CMakeUserPresets.json
