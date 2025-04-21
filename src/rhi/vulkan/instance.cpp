@@ -356,6 +356,8 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		}
 	}
 
+	std::cout.flush();
+
 	std::vector<const char*> requiredExtensions = {
 		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 	#if defined(__OSX__)
