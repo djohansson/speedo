@@ -227,7 +227,8 @@
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"},
+				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -257,7 +258,8 @@
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"},
+				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
