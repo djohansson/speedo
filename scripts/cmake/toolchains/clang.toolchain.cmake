@@ -2,8 +2,6 @@ cmake_minimum_required(VERSION 3.25.1)
 
 include_guard()
 
-set(CMAKE_VERBOSE_MAKEFILE ON)
-
 # todo: import LLVMConfig.cmake
 set(LLVM_PATH $ENV{LLVM_PATH} CACHE PATH "LLVM root path")
 set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM tools path")
