@@ -52,7 +52,7 @@ target_compile_features(
 target_compile_definitions(
 	core
 	PUBLIC
-		SPEEDO_PROFILING_LEVEL=$<IF:$<CONFIG:Release>,0,1>
+		SPEEDO_PROFILING_LEVEL=$<IF:$<CONFIG:release>,0,1>
 		SPEEDO_USE_MIMALLOC
 		UUID_SYSTEM_GENERATOR
 )
@@ -110,7 +110,7 @@ target_compile_features(
 target_compile_definitions(
 	rhi
 	PUBLIC
-		SPEEDO_GRAPHICS_VALIDATION_LEVEL=$<IF:$<CONFIG:Debug>,1,0>
+		SPEEDO_GRAPHICS_VALIDATION_LEVEL=$<IF:$<CONFIG:debug>,1,0>
 )
 target_include_directories(
 	rhi
