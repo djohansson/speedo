@@ -119,7 +119,8 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -loldnames")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-llibc++ -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /DEBUG -Xlinker /GUARD:CF")
-	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vulkan loader fails to link with LTO on windows
+	# vulkan loader fails to link with LTO on windows
+	#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
 	set(CXX_DEFINES "${CXX_DEFINES} -isystem ${LLVM_PATH}/include/aarch64-unknown-linux-gnu/c++/v1")
