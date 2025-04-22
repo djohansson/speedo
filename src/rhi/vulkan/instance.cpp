@@ -384,30 +384,30 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 
 		requiredLayers.emplace_back(kValidationLayerName.data());
 
-		const VkBool32 settingValidateCore = VK_TRUE;
-		const VkBool32 settingValidateSync = VK_FALSE;
-		const VkBool32 settingThreadSafety = VK_TRUE;
+		static constexpr VkBool32 kSettingValidateCore = VK_TRUE;
+		static constexpr VkBool32 kSettingValidateSync = VK_FALSE;
+		static constexpr VkBool32 kSettingThreadSafety = VK_TRUE;
 		static constexpr std::array<const char*, 1> kSettingDebugAction = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
 		static constexpr std::array<const char*, 4> kSettingReportFlags = {"info", "warn", "perf", "error"};
-		const VkBool32 settingEnableMessageLimit = VK_TRUE;
-		const int32_t settingDuplicateMessageLimit = 3;
+		static constexpr VkBool32 kSettingEnableMessageLimit = VK_TRUE;
+		static constexpr int32_t kSsettingDuplicateMessageLimit = 3;
 
-		const std::array<VkLayerSettingEXT, 7> settings = {{
+		static std::array<VkLayerSettingEXT, 7> gSettings = {{
 			{.pLayerName = kValidationLayerName.data(),
 			 .pSettingName = "validate_core",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
-			 .pValues = &settingValidateCore},
+			 .pValues = &kSettingValidateCore},
 			{.pLayerName = kValidationLayerName.data(),
 			 .pSettingName = "validate_sync",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
-			 .pValues = &settingValidateSync},
+			 .pValues = &kSettingValidateSync},
 			{.pLayerName = kValidationLayerName.data(),
 			 .pSettingName = "thread_safety",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
-			 .pValues = &settingThreadSafety},
+			 .pValues = &kSettingThreadSafety},
 			{.pLayerName = kValidationLayerName.data(),
 			 .pSettingName = "debug_action",
 			 .type = VK_LAYER_SETTING_TYPE_STRING_EXT,
@@ -422,20 +422,20 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 			 .pSettingName = "enable_message_limit",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
-			 .pValues = &settingEnableMessageLimit},
+			 .pValues = &kSettingEnableMessageLimit},
 			{.pLayerName = kValidationLayerName.data(),
 			 .pSettingName = "duplicate_message_limit",
 			 .type = VK_LAYER_SETTING_TYPE_UINT32_EXT,
 			 .valueCount = 1,
-			 .pValues = &settingDuplicateMessageLimit}}};
+			 .pValues = &kSsettingDuplicateMessageLimit}}};
 
-		const VkLayerSettingsCreateInfoEXT layerSettingsCreateInfo = {
+		static VkLayerSettingsCreateInfoEXT gLayerSettingsCreateInfo = {
 			VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
 			&gDebugUtilsMessengerCallbackCreateInfo,
-			settings.size(),
-			settings.data()};
+			gSettings.size(),
+			gSettings.data()};
 
-		info.pNext = &layerSettingsCreateInfo;
+		info.pNext = &gLayerSettingsCreateInfo;
 	}
 
 	for (const char* extensionName : requiredExtensions)
