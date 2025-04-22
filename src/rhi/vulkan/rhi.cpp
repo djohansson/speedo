@@ -90,7 +90,12 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	const auto& swapchainInfo =
 		device.GetInstance()->GetSwapchainInfo(device.GetPhysicalDevice(), surface);
 
-	SwapchainConfiguration<kVk> config{swapchainInfo.capabilities.currentExtent};
+	SwapchainConfiguration<kVk> config{
+		.extent = swapchainInfo.capabilities.currentExtent,
+		.surfaceFormat = {VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
+		.imageCount = static_cast<uint8_t>(swapchainInfo.capabilities.minImageCount),
+		.useDynamicRendering = true};
 
 	constexpr Format<kVk> kRequestSurfaceImageFormat[]{
 		VK_FORMAT_B8G8R8A8_UNORM,
@@ -100,17 +105,16 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	constexpr ColorSpace<kVk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 	constexpr PresentMode<kVk> kRequestPresentMode[]{
 		VK_PRESENT_MODE_MAILBOX_KHR,
-		VK_PRESENT_MODE_FIFO_RELAXED_KHR,
-		VK_PRESENT_MODE_FIFO_KHR,
-		VK_PRESENT_MODE_IMMEDIATE_KHR};
+		VK_PRESENT_MODE_FIFO_RELAXED_KHR};
 
 	// Request several formats, the first found will be used
 	// If none of the requested image formats could be found, use the first available
+	auto formatIt = swapchainInfo.formats.begin();
 	for (auto requestIt : kRequestSurfaceImageFormat)
 	{
 		SurfaceFormat<kVk> requestedFormat{requestIt, kRequestSurfaceColorSpace};
 
-		auto formatIt = std::find_if(
+		formatIt = std::find_if(
 			swapchainInfo.formats.begin(),
 			swapchainInfo.formats.end(),
 			[&requestedFormat](VkSurfaceFormatKHR format)
@@ -120,11 +124,9 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 			});
 
 		if (formatIt != swapchainInfo.formats.end())
-		{
-			config.surfaceFormat = *formatIt;
 			break;
-		}
 	}
+	config.surfaceFormat = *formatIt;
 
 	// Request a certain mode and confirm that it is available. If not use
 	// VK_PRESENT_MODE_FIFO_KHR which is mandatory
@@ -136,17 +138,6 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 		if (modeIt != swapchainInfo.presentModes.end())
 		{
 			config.presentMode = *modeIt;
-
-			switch (config.presentMode)
-			{
-			case VK_PRESENT_MODE_MAILBOX_KHR:
-				config.imageCount = 3;
-				break;
-			default:
-				config.imageCount = 2;
-				break;
-			}
-
 			break;
 		}
 	}
@@ -398,6 +389,9 @@ template <>
 	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
 	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
+	if (windowConfig.swapchainConfig.extent.width == 0xFFFFFFFF || windowConfig.swapchainConfig.extent.height == 0xFFFFFFFF)
+		windowConfig.swapchainConfig.extent = {windowState.width, windowState.height};
+	
 	rhi.windows.emplace(
 		std::make_unique<Window<kVk>>(
 			rhi.device,
