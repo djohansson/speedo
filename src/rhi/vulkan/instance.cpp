@@ -44,44 +44,37 @@ void GetPhysicalDeviceInfo2(
 		VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT>;
 	static std::vector<PhysicalDeviceFeatures> gPhysicalDeviceFeatures;
 	gPhysicalDeviceFeatures.clear();
-	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
-	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
-		.pNext = nullptr,
-		.inlineUniformBlock = VK_TRUE,
-		.descriptorBindingInlineUniformBlockUpdateAfterBind = VK_TRUE,
-	});
 	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceDynamicRenderingFeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
-		.pNext = nullptr,
-		.dynamicRendering = VK_TRUE,
 	});
 	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceSynchronization2FeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
-		.pNext = nullptr,
-		.synchronization2 = VK_TRUE,
 	});
 	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT,
-		.pNext = nullptr,
-		.swapchainMaintenance1 = VK_TRUE,
 	});
-	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device))
+	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, device))
+	{
+		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
+		});
+	}
+	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, device))
 	{
 		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDevicePresentIdFeaturesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
-			.pNext = nullptr,
-			.presentId = VK_TRUE,
 		});
+	}
+	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device))
+	{
 		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDevicePresentWaitFeaturesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
-			.pNext = nullptr,
-			.presentWait = VK_TRUE,
 		});
 	}
 
@@ -113,7 +106,6 @@ void GetPhysicalDeviceInfo2(
 		gPhysicalDeviceProperties.emplace_back(VkPhysicalDevicePushDescriptorPropertiesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
-			.pNext = nullptr,
 		});
 	}
 

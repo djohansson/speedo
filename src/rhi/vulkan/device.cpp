@@ -181,7 +181,6 @@ Device<kVk>::Device(
 	}
 
 	std::vector<const char*> requiredExtensions = {
-		VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME,
 		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
 #if defined(__OSX__)
 		VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
@@ -195,6 +194,9 @@ Device<kVk>::Device(
 		ENSUREF(SupportsExtension(extensionName, GetPhysicalDevice()), "Vulkan device extension not supported: {}", extensionName);
 
 	std::vector<const char*> desiredExtensions = requiredExtensions;
+
+	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.push_back(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, GetPhysicalDevice()))
 		desiredExtensions.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
