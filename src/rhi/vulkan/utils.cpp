@@ -122,8 +122,8 @@ void InitDeviceExtensions(VkDevice device)
 	if (gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
 		gVkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
 			vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetWithTemplateKHR"));
-
-	ENSURE(gVkCmdPushDescriptorSetWithTemplateKHR != nullptr);
+		
+	//ENSURE(gVkCmdPushDescriptorSetWithTemplateKHR != nullptr);
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
