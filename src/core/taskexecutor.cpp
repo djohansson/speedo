@@ -102,6 +102,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 		myThreads.emplace_back(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt);
 
 	gTaskExecutorState.store(kTaskExecutorRunning, std::memory_order_release);
+	gTaskExecutorState.notify_all();
 }
 
 TaskExecutor::~TaskExecutor()
