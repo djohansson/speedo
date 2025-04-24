@@ -33,8 +33,8 @@ void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<n
 		std::move(openFileFuture),
 		loadOp);
 
-	AddDependency(openFileTask, loadTask);
 	rhi.mainCalls.enqueue(openFileTask);
+	rhi.mainCalls.enqueue(loadTask);
 }
 
 } // namespace rhiapplication
