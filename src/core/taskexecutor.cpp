@@ -99,7 +99,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 	myThreads.reserve(threadCount);
 
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::jthread(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt));
+		myThreads.emplace_back(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt);
 
 	gTaskExecutorState.store(kTaskExecutorRunning, std::memory_order_release);
 }
