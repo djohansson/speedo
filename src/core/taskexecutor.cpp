@@ -1,6 +1,7 @@
 #include "taskexecutor.h"
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
 
+#include <atomic>
 #include <format>
 #include <iostream>
 #include <shared_mutex>
@@ -124,7 +125,7 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 	ASSERT(task);
 	auto& state = *std::atomic_load(&task.InternalState());
 	
-	if (state.Latch().load(std::memory_order_relaxed) == 0)
+	if (std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 0)
 	{
 		std::destroy_at(&task);
 		core::detail::InternalFree(handle);
@@ -146,9 +147,10 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 		Task& adjacent = *core::detail::InternalHandleToPtr(adjacentHandle);
 		ASSERT(adjacent);
 		auto& adjacentState = *std::atomic_load(&adjacent.InternalState());
-		ASSERTF(adjacentState.Latch(), "Latch needs to have been constructed!");
+		auto adjacentLatch = std::atomic_ref(adjacentState.latch);
+		ASSERTF(adjacentLatch, "Latch needs to have been constructed!");
 
-		if (adjacentState.Latch().fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
+		if (adjacentLatch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 			Submit({&adjacentHandle, 1}, !adjacentState.continuation);
 	}
 }
@@ -160,6 +162,7 @@ void TaskExecutor::InternalProcessReadyQueue()
 	TaskHandle handle;
 	while (myReadyQueue.try_dequeue(handle))
 	{
+		std::atomic_ref(myReadyQueueSize).fetch_sub(1, std::memory_order_acq_rel);
 		InternalCall(handle);
 		InternalPurgeDeletionQueue();
 	}
@@ -188,6 +191,7 @@ void TaskExecutor::JoinOne()
 	TaskHandle handle;
 	if (myReadyQueue.try_dequeue(handle))
 	{
+		std::atomic_ref(myReadyQueueSize).fetch_sub(1, std::memory_order_acq_rel);
 		InternalCall(handle);
 		InternalPurgeDeletionQueue();
 	}
@@ -205,13 +209,15 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 	auto stopToken = myStopSource.get_token();
 
 	while (!stopToken.stop_requested())
-		if (myCV.wait(lock, stopToken, [this]{ return myReadyQueue.size_approx() > 0; }))
+		if (myCV.wait(lock, stopToken,
+			[this]{ return std::atomic_ref(myReadyQueueSize).load(std::memory_order_acquire) > 0; }))
 			InternalProcessReadyQueue();
 }
 
 void TaskExecutor::InternalSubmit(std::span<const TaskHandle> handles)
 {
 	ENSURE(myReadyQueue.enqueue_bulk(handles.data(), handles.size()));
+	std::atomic_ref(myReadyQueueSize).fetch_add(handles.size(), std::memory_order_release);
 }
 
 void TaskExecutor::Submit(std::span<const TaskHandle> handles, bool wakeThreads)

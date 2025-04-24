@@ -5,6 +5,7 @@
 
 #include "utils.h"
 
+#include <atomic>
 #include <format>
 #include <print>
 
@@ -541,8 +542,9 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
 	auto [keyValIt, insertResult] =
-		myPipelineMap.insert({InternalCalculateHashKey(), CopyableAtomic<PipelineHandle<kVk>>{}});
-	auto& [key, pipelineHandleAtomic] = *keyValIt;
+		myPipelineMap.insert({InternalCalculateHashKey(), PipelineHandle<kVk>{}});
+	auto& [key, pipelineHandle] = *keyValIt;
+	auto pipelineHandleAtomic = std::atomic_ref(pipelineHandle);
 
 	if (insertResult)
 	{
@@ -813,15 +815,14 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 	const auto& setLayout = layout.GetDescriptorSetLayout(set);
-	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
-		myDescriptorMap.at(setLayout);
-
+	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+	
 	if (setOptionalArrayList)
 	{
 		mutex.lock_upgrade();
 
 		auto dirtyState = DescriptorSetStatus::kDirty;
-		if (setState.compare_exchange_weak(dirtyState, DescriptorSetStatus::kReady, std::memory_order_acq_rel))
+		if (std::atomic_ref(setState).compare_exchange_weak(dirtyState, DescriptorSetStatus::kReady, std::memory_order_acq_rel))
 		{
 			mutex.unlock_upgrade_and_lock();
 

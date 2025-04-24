@@ -91,7 +91,7 @@ class Pipeline : public DeviceObject<G>
 {
 	using PipelineMapType = UnorderedMap<
 		uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
-		CopyableAtomic<PipelineHandle<G>>,
+		PipelineHandle<G>,
 		IdentityHash<uint64_t>>;
 
 	using PipelineLayoutSetType = UnorderedSet<

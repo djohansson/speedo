@@ -179,7 +179,7 @@ template <GraphicsApi G>
 struct QueueTimelineContextData
 {
 	Semaphore<G> semaphore;
-	CopyableAtomic<uint64_t> timeline;
+	uint64_t timeline;
 	CircularContainer<QueueContext<G>> queues;
 };
 

@@ -1,16 +1,11 @@
 #pragma once
 
-#include "capi.h"
 #include "std_extra.h"
-#include "upgradablesharedmutex.h"
 #include "utils.h"
 
-#include <functional>
 #include <memory>
-#include <optional>
 #include <tuple>
 #include <type_traits>
-#include <vector>
 
 #if !defined(__cpp_lib_function_ref) || __cpp_lib_function_ref < 202306L
 #include <tl/function_ref.hpp>
@@ -80,15 +75,8 @@ using TaskHandle = MinSizeIndex<kTaskPoolSize>;
 struct TaskState
 {
 	std::array<TaskHandle, 128> adjacencies;
-#if 0 && defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806
 	static constexpr auto kAligmnent = std::atomic_ref<uint16_t>::required_alignment;
 	alignas(kAligmnent) uint16_t latch{1U};
-	[[nodiscard]] auto Latch() noexcept { return std::atomic_ref(latch); }
-#else
-	static constexpr auto kAligmnent = std_extra::hardware_destructive_interference_size;
-	alignas(kAligmnent) CopyableAtomic<uint16_t> latch{1U};
-	[[nodiscard]] auto& Latch() noexcept { return latch; }
-#endif
 	uint8_t adjacenciesCount : 7;
 	uint8_t continuation : 1;
 };

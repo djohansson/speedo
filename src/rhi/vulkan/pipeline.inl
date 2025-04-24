@@ -47,7 +47,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		std::get<T>(bindingsData[offset]) = std::forward<T>(data);
 	}
 
-	setState.store(DescriptorSetStatus::kDirty, std::memory_order_release);
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
@@ -142,7 +142,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		}
 	}
 
-	setState.store(DescriptorSetStatus::kDirty, std::memory_order_release);
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }
@@ -241,7 +241,7 @@ void Pipeline<kVk>::SetDescriptorData(
 		}
 	}
 
-	setState.store(DescriptorSetStatus::kDirty, std::memory_order_release);
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
 
 	InternalUpdateDescriptorSetTemplate(bindingsMap, setTemplate);
 }

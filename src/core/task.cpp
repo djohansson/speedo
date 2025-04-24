@@ -76,7 +76,7 @@ void Task::AddDependency(Task& other, bool isContinuation) noexcept
 	TaskState& bState = *other.InternalState();
 
 	aState.adjacencies[aState.adjacenciesCount++] = core::detail::InternalPtrToHandle(&other);
-	bState.Latch().fetch_add(1, std::memory_order_relaxed);
+	std::atomic_ref(bState.latch).fetch_add(1, std::memory_order_relaxed);
 	bState.continuation = isContinuation;
 }
 

@@ -1,5 +1,7 @@
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
 
+#include <atomic>
+
 namespace core
 {
 namespace detail
@@ -26,10 +28,11 @@ static void InternalInvoke(void* callablePtr, const void* argsPtr, void* statePt
 	else
 		state.value = std::apply(callable, std::tuple_cat(args, params));
 
-	auto counter = state.Latch().fetch_sub(1, std::memory_order_release) - 1;
+	auto latch = std::atomic_ref(state.latch);
+	auto counter = latch.fetch_sub(1, std::memory_order_release) - 1;
 	ASSERTF(counter == 0, "Latch counter should be zero!");
 
-	state.Latch().notify_all();
+	latch.notify_all();
 }
 
 template <typename C, typename ArgsTuple>

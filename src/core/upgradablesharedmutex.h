@@ -1,9 +1,6 @@
 #pragma once
 
-#include "copyableatomic.h"
-#include "std_extra.h"
-
-#include <new>
+#include <atomic>
 #include <tuple>
 
 //NOLINTBEGIN(readability-identifier-naming)
@@ -18,15 +15,9 @@ class UpgradableSharedMutex final
 		Writer = 1,
 		Empty = 0
 	};
-#if 0 && defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806
 	static constexpr uint32_t kAligmnent = std::atomic_ref<value_t>::required_alignment;
 	alignas(kAligmnent) value_t myBits = 0;
 	[[nodiscard]] std::atomic_ref<value_t> InternalAtomicRef() noexcept { return std::atomic_ref(myBits); }
-#else
-	static constexpr uint32_t kAligmnent = std_extra::hardware_constructive_interference_size;
-	alignas(kAligmnent) CopyableAtomic<value_t> myAtomic;
-	[[nodiscard]] CopyableAtomic<value_t>& InternalAtomicRef() noexcept { return myAtomic; }
-#endif
 
 	template <typename Func>
 	void InternalAquireLock(Func lockFn) noexcept;

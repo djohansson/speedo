@@ -6,8 +6,6 @@
 #include "rendertarget.h"
 #include "types.h"
 
-#include <core/copyableatomic.h>
-
 #include <memory>
 
 template <GraphicsApi G>
@@ -103,5 +101,5 @@ private:
 	SurfaceHandle<G> mySurface{};
 	SwapchainHandle<G> mySwapchain{};
 	std::vector<Frame<G>> myFrames;
-	CopyableAtomic<uint32_t> myFrameIndex{};
+	uint32_t myFrameIndex{};
 };

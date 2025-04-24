@@ -63,7 +63,9 @@ bool Future<T>::IsReady() const noexcept
 {
 	ASSERTF(Valid(), "Future is not valid!");
 
-	return std::atomic_load(&InternalState())->Latch().load(std::memory_order_relaxed) == 0;
+	auto& state = *std::atomic_load(&InternalState());
+
+	return std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 0;
 }
 
 template <typename T>
@@ -79,6 +81,7 @@ void Future<T>::Wait() const
 
 	auto& state = *std::atomic_load(&InternalState());
 
-	while (auto current = state.Latch().load(std::memory_order_relaxed))
-		state.Latch().wait(current, std::memory_order_acquire);
+	auto latch = std::atomic_ref(state.latch);
+	while (auto current = latch.load(std::memory_order_relaxed))
+		latch.wait(current, std::memory_order_acquire);
 }

@@ -9,8 +9,10 @@ void UpgradableSharedMutex::unlock() noexcept
 {
 	static_assert(Reader > Writer + Upgraded, "wrong bits!");
 
-	InternalAtomicRef().fetch_and(~(Writer | Upgraded), std::memory_order_release);
-	InternalAtomicRef().notify_all();
+	auto atomic = InternalAtomicRef();
+
+	atomic.fetch_and(~(Writer | Upgraded), std::memory_order_release);
+	atomic.notify_all();
 }
 
 void UpgradableSharedMutex::lock_shared() noexcept
@@ -20,13 +22,17 @@ void UpgradableSharedMutex::lock_shared() noexcept
 
 void UpgradableSharedMutex::unlock_shared() noexcept
 {
-	InternalAtomicRef().fetch_add(-Reader, std::memory_order_release);
-	InternalAtomicRef().notify_all();
+	auto atomic = InternalAtomicRef();
+
+	atomic.fetch_add(-Reader, std::memory_order_release);
+	atomic.notify_all();
 }
 
 void UpgradableSharedMutex::unlock_and_lock_shared() noexcept
 {
-	InternalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
+	auto atomic = InternalAtomicRef();
+
+	atomic.fetch_add(Reader, std::memory_order_acquire);
 
 	unlock();
 }
@@ -38,8 +44,10 @@ void UpgradableSharedMutex::lock_upgrade() noexcept
 
 void UpgradableSharedMutex::unlock_upgrade() noexcept
 {
-	InternalAtomicRef().fetch_add(-Upgraded, std::memory_order_acq_rel);
-	InternalAtomicRef().notify_all();
+	auto atomic = InternalAtomicRef();
+
+	atomic.fetch_add(-Upgraded, std::memory_order_acq_rel);
+	atomic.notify_all();
 }
 
 void UpgradableSharedMutex::unlock_upgrade_and_lock() noexcept
@@ -50,29 +58,34 @@ void UpgradableSharedMutex::unlock_upgrade_and_lock() noexcept
 
 void UpgradableSharedMutex::unlock_upgrade_and_lock_shared() noexcept
 {
-	InternalAtomicRef().fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
-	InternalAtomicRef().notify_all();
+	auto atomic = InternalAtomicRef();
+
+	atomic.fetch_add(Reader - Upgraded, std::memory_order_acq_rel);
+	atomic.notify_all();
 }
 
 void UpgradableSharedMutex::unlock_and_lock_upgrade() noexcept
 {
+	auto atomic = InternalAtomicRef();
+
 	// need to do it in two steps here -- as the Upgraded bit might be OR-ed at
 	// the same time when other threads are trying do try_lock_upgrade().
-
-	InternalAtomicRef().fetch_or(Upgraded, std::memory_order_acquire);
-	InternalAtomicRef().fetch_add(-Writer, std::memory_order_release);
-	InternalAtomicRef().notify_all();
+	atomic.fetch_or(Upgraded, std::memory_order_acquire);
+	atomic.fetch_add(-Writer, std::memory_order_release);
+	atomic.notify_all();
 }
 
 std::tuple<bool, typename UpgradableSharedMutex::value_t>
 UpgradableSharedMutex::InternalTryLockShared() noexcept
 {
+	auto atomic = InternalAtomicRef();
+
 	// fetch_add is considerably (100%) faster than compare_exchange,
 	// so here we are optimizing for the common (lock success) case.
-	value_t value = InternalAtomicRef().fetch_add(Reader, std::memory_order_acquire);
+	value_t value = atomic.fetch_add(Reader, std::memory_order_acquire);
 	if ((value & (Writer | Upgraded)) != 0U)
 	{
-		value = InternalAtomicRef().fetch_add(-Reader, std::memory_order_release);
+		value = atomic.fetch_add(-Reader, std::memory_order_release);
 		return std::make_tuple(false, value);
 	}
 	return std::make_tuple(true, value);

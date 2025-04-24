@@ -1,18 +1,16 @@
 #pragma once
 
 #include "task.h"
+#include "upgradablesharedmutex.h"
 #include "utils.h"
 
-#include <atomic>
 #include <condition_variable>
-#include <functional>
-#include <memory>
+#include <cstdint>
 #include <optional>
 #include <vector>
 #include <span>
 #include <stop_token>
 #include <thread>
-#include <tuple>
 
 class TaskExecutor
 {
@@ -59,6 +57,7 @@ private:
 	UpgradableSharedMutex myMutex;
 	std::condition_variable_any myCV;
 	ConcurrentQueue<TaskHandle> myReadyQueue;
+	uint64_t myReadyQueueSize = 0;
 	ConcurrentQueue<TaskHandle> myDeletionQueue;
 };
 
