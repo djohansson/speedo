@@ -779,19 +779,37 @@ void RHIApplication::Draw()
 	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
 	auto& [computeQueue, computeSubmit] = compute->queues.FetchAdd();
 
-	if (!computeSubmit.fences.empty())
+	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
+		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
+
+	// if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
+	// {
+	// 	ZoneScopedN("RHIApplication::Draw::waitPresent");
+
+	// 	for (auto presentId : computeSubmit.presentIds)
+	// 		while (!window.WaitPresent(presentId, 0ULL))
+	// 			GetExecutor().JoinOne();
+	// }
+	// else
 	{
 		ZoneScopedN("RHIApplication::Draw::waitCompute");
 
 		for (auto& fence : computeSubmit.fences)
 			while (!fence.Wait(0ULL))
 				GetExecutor().JoinOne();
-	}
-	computeQueue.GetPool().Reset();
-	computeSubmit = {};
 
-	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
-		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
+		{
+			ZoneScopedN("RHIApplication::Draw::waitCompute::fairyDust");
+
+			using namespace std::chrono_literals;
+			auto start = std::chrono::high_resolution_clock::now();
+			std::chrono::microseconds delay = 200us;
+			auto end = start + delay;
+			do { std::this_thread::yield();	} while (std::chrono::high_resolution_clock::now() < end);
+		}
+	}
+	computeQueue.GetPool().Reset();	
+	computeSubmit = {};
 
 	if (flipSuccess)
 	{
@@ -1145,16 +1163,6 @@ void RHIApplication::Draw()
 		computeQueue.EnqueuePresent(std::move(presentInfo));
 		computeSubmit |= computeQueue.Present();
 		computeSubmit.retiredSemaphores.emplace_back(std::move(graphicsDoneSemaphore));
-
-		/* todo
-		if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
-		{
-			for (auto presentId : computeSubmit.presentIds)
-				while (!window.WaitPresent(presentId, 0ULL))
-					executor.JoinOne();
-
-			computeSubmit.presentIds.clear();
-		}*/
 	}
 
 	GetExecutor().Submit(frameTasks);
