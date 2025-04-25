@@ -140,11 +140,9 @@ public:
 	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
 	template <SourceLocationData Location>
 	inline std::shared_ptr<void> GpuScope(CommandBufferHandle<G> cmd);
 	void GpuScopeCollect(CommandBufferHandle<G> cmd);
-#endif
 
 private:
 	Queue(
@@ -153,10 +151,7 @@ private:
 		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
 
 	[[nodiscard]] QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
-
-#if (SPEEDO_PROFILING_LEVEL > 0)
 	[[nodiscard]] std::shared_ptr<void> InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
-#endif
 
 	QueueCreateDesc<G> myDesc{};
 	QueueHandle<G> myQueue{};

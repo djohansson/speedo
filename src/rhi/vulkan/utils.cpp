@@ -39,7 +39,8 @@ PFN_vkCreateDebugUtilsMessengerEXT gVkCreateDebugUtilsMessengerEXT{};
 PFN_vkDestroyDebugUtilsMessengerEXT gVkDestroyDebugUtilsMessengerEXT{};
 PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
 #endif
-
+PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV{};
+PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV{};
 PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
@@ -134,6 +135,18 @@ void InitDeviceExtensions(VkDevice device)
 		ENSURE(gVkSetDebugUtilsObjectNameExt != nullptr);
 	}
 #endif
+
+	if (gVkCmdSetCheckpointNV == nullptr)
+		gVkCmdSetCheckpointNV = reinterpret_cast<PFN_vkCmdSetCheckpointNV>(
+			vkGetDeviceProcAddr(device, "vkCmdSetCheckpointNV"));
+
+	//ENSURE(gVkCmdSetCheckpointNV != nullptr);
+
+	if (gVkGetQueueCheckpointData2NV == nullptr)
+		gVkGetQueueCheckpointData2NV = reinterpret_cast<PFN_vkGetQueueCheckpointData2NV>(
+			vkGetDeviceProcAddr(device, "vkGetQueueCheckpointData2NV"));
+
+	//ENSURE(gVkGetQueueCheckpointData2NV != nullptr);
 }
 
 bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)

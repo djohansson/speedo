@@ -205,7 +205,9 @@ Device<kVk>::Device(
 		desiredExtensions.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetPhysicalDevice()))
-		desiredExtensions.push_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+
+	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
 	
 	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;

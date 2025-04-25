@@ -156,12 +156,13 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 #endif
 }
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
 template <>
 void Queue<kVk>::GpuScopeCollect(CommandBufferHandle<kVk> cmd)
 {
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	if (myProfilingContext != nullptr)
 		TracyVkCollect(static_cast<TracyVkCtx>(myProfilingContext), cmd);
+#endif
 }
 
 template <>
@@ -175,6 +176,10 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 	// static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
 	// static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
 
+	if (gVkCmdSetCheckpointNV != nullptr)
+		gVkCmdSetCheckpointNV(cmd, srcLoc.name);
+
+#if (SPEEDO_PROFILING_LEVEL > 0)
 	if (myProfilingContext != nullptr)
 	{
 		return std::make_shared<tracy::VkCtxScope>(
@@ -183,10 +188,10 @@ Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationD
 			cmd,
 			true);
 	}
+#endif
 
 	return {};
 }
-#endif
 
 template <>
 QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
@@ -245,11 +250,29 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
 	result.maxTimelineValue = maxTimelineValue;
 	
+	Result<kVk> submitResult;
 	{
 		ZoneScopedN("Queue::Submit::vkQueueSubmit");
 
-		VK_ENSURE(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back()));
+		submitResult = vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back());
 	}
+	if (submitResult == VK_ERROR_DEVICE_LOST)
+	{
+		std::println(stderr, "vkQueueSubmit failed with VK_ERROR_DEVICE_LOST");
+		if (gVkGetQueueCheckpointData2NV != nullptr)
+		{
+			static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
+			uint32_t checkpointDataCount;
+			gVkGetQueueCheckpointData2NV(myQueue, &checkpointDataCount, nullptr);
+			std::println(stderr, "GPU marker count: {}", checkpointDataCount);
+			gCheckpointData.resize(checkpointDataCount);
+			gVkGetQueueCheckpointData2NV(myQueue, &checkpointDataCount, gCheckpointData.data());
+			for (const auto& checkpoint : gCheckpointData)
+				std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
+		}
+		TRAP();
+	}		
+	VK_ENSURE(submitResult);
 
 	myPendingSubmits.clear();
 

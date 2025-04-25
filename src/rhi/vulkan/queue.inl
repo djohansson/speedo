@@ -22,11 +22,9 @@ void Queue<kVk>::EnqueuePresent(T&& first, Ts&&... rest)
 		EnqueuePresent(std::forward<Ts>(rest)...);
 }
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
 template <>
 template <SourceLocationData Location>
 std::shared_ptr<void> Queue<kVk>::GpuScope(CommandBufferHandle<kVk> cmd)
 {
 	return InternalGpuScope(cmd, Location);
 }
-#endif
