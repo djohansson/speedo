@@ -196,15 +196,16 @@ Device<kVk>::Device(
 	std::vector<const char*> desiredExtensions = requiredExtensions;
 
 	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, GetPhysicalDevice()))
-		desiredExtensions.push_back(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
+		desiredExtensions.emplace_back(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, GetPhysicalDevice()))
-		desiredExtensions.push_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
+		desiredExtensions.emplace_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetPhysicalDevice()))
-		desiredExtensions.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+		desiredExtensions.emplace_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.emplace_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetPhysicalDevice()))
 		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
