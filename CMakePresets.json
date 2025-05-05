@@ -2,6 +2,13 @@
 	"version": 8,
 	"configurePresets": [
 		{
+			"name": "ninja-multi-vcpkg",
+			"generator": "Ninja Multi-Config",
+			"description": "Configure with vcpkg toolchain and generate Ninja project files for all configurations",
+			"binaryDir": "${sourceDir}/builds/${presetName}",
+			"toolchainFile": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+		},
+		{
 			"name": "x64-windows-clang",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build/${presetName}",
@@ -71,6 +78,26 @@
 	],
 	"buildPresets": [
 		{
+			"name": "ninja-vcpkg-debug",
+			"configurePreset": "ninja-multi-vcpkg",
+			"configuration": "debug"
+		},
+		{
+			"name": "ninja-vcpkg-release",
+			"configurePreset": "ninja-multi-vcpkg",
+			"configuration": "release"
+		},
+		{
+			"name": "ninja-vcpkg-profile",
+			"inherits": "ninja-vcpkg-release",
+			"configuration": "profile"
+		},
+		{
+			"name": "ninja-vcpkg",
+			"configurePreset": "ninja-multi-vcpkg",
+			"hidden": true
+		},
+		{
 			"name": "x64-windows-clang-debug",
 			"configurePreset": "x64-windows-clang",
 			"configuration": "debug"
@@ -82,8 +109,8 @@
 		},
 		{
 			"name": "x64-windows-clang-profile",
-			"configuration": "profile",
-			"inherits": "x64-windows-clang-release"
+			"inherits": "x64-windows-clang-release",
+			"configuration": "profile"
 		},
 		{
 			"name": "arm64-osx-clang-debug",
@@ -97,8 +124,8 @@
 		},
 		{
 			"name": "arm64-osx-clang-profile",
-			"configuration": "profile",
-			"inherits": "arm64-osx-clang-release"
+			"inherits": "arm64-osx-clang-release",
+			"configuration": "profile"
 		},
 		{
 			"name": "arm64-linux-clang-debug",
@@ -112,8 +139,8 @@
 		},
 		{
 			"name": "arm64-linux-clang-profile",
-			"configuration": "profile",
-			"inherits": "arm64-linux-clang-release"
+			"inherits": "arm64-linux-clang-release",
+			"configuration": "profile"
 		}
 	]
 }

@@ -1,0 +1,39 @@
+name: Setup build environment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-vcpkg:
+    #runs-on: ['self-hosted', 'Linux', 'X64']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Setup anew (or from cache) vcpkg (and does not build any package)
+        uses: lukka/run-vcpkg@v11.5
+        with:
+          #vcpkgDirectory:
+          runVcpkgInstall: true
+          vcpkgGitCommitId: ce613c41372b23b1f51333815feb3edd87ef8a8b
+          #vcpkgGitURL:
+          #doNotUpdateVcpkg:
+          #doNotCache:
+          vcpkgJsonGlob: '**/vcpkg.json'
+          vcpkgJsonIgnores: "['**/vcpkg/**', '**/ports/**', '**/oldports/**']"
+          #vcpkgConfigurationJsonGlob: '**/vcpkg-configuration.json'
+          #binaryCachePath:
+          runVcpkgFormatString: "['install', '--x-install-root=${{github.workspace}}/build/toolchain', '--x-feature=toolchain', '--no-print-usage', '--triplet=$[env.VCPKG_DEFAULT_TRIPLET]-release']"
+          #useShell:
+          #logCollectionRegExps:
+      - name: Run CMake consuming CMakePreset.json and run vcpkg to build packages
+        uses: lukka/run-cmake@v10
+        with:
+          # cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
+          # workflowPreset: 'workflow-name'
+          configurePreset: 'ninja-multi-vcpkg'
+          configurePresetAdditionalArgs: "['-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${{github.workspace}}/scripts/cmake/toolchains/clang.toolchain.cmake']"
+          buildPreset: 'ninja-vcpkg'
+          #buildPresetAdditionalArgs: "['--config release']"
+          #testPreset: 'ninja-multi-vcpkg'
+          #testPresetAdditionalArgs: "['--config release']"
