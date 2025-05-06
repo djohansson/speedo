@@ -782,15 +782,6 @@ void RHIApplication::Draw()
 	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
 		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
 
-	// if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
-	// {
-	// 	ZoneScopedN("RHIApplication::Draw::waitPresent");
-
-	// 	for (auto presentId : computeSubmit.presentIds)
-	// 		while (!window.WaitPresent(presentId, 0ULL))
-	// 			GetExecutor().JoinOne();
-	// }
-	// else
 	{
 		ZoneScopedN("RHIApplication::Draw::waitCompute");
 
@@ -798,12 +789,21 @@ void RHIApplication::Draw()
 			while (!fence.Wait(0ULL))
 				GetExecutor().JoinOne();
 
+		// if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
+		// {
+		// 	ZoneScopedN("RHIApplication::Draw::waitCompute::waitPresent");
+	
+		// 	for (auto presentId : computeSubmit.presentIds)
+		// 		while (!window.WaitPresent(presentId, 0ULL))
+		// 			GetExecutor().JoinOne();
+		// }
+		// else
 		{
 			ZoneScopedN("RHIApplication::Draw::waitCompute::fairyDust");
 
 			using namespace std::chrono_literals;
 			auto start = std::chrono::high_resolution_clock::now();
-			std::chrono::microseconds delay = 200us;
+			std::chrono::microseconds delay = 1000us;
 			auto end = start + delay;
 			do { std::this_thread::yield();	} while (std::chrono::high_resolution_clock::now() < end);
 		}
