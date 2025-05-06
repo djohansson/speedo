@@ -1221,7 +1221,7 @@ RHIApplication::RHIApplication(
 	//
 
 	// initialize stuff on graphics queue
-	constexpr uint32_t kTextureId = 1;
+	constexpr uint32_t kTextureId = 15;
 	constexpr uint32_t kSamplerId = 2;
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);

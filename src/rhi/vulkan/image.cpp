@@ -652,7 +652,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::
 				"gTextures",
 				DescriptorImageInfo<kVk>{{}, imageView,	imageLayout},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-				1);
+				15);
 		});
 
 		// a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
