@@ -138,6 +138,11 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 		if (modeIt != swapchainInfo.presentModes.end())
 		{
 			config.presentMode = *modeIt;
+			if (config.presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
+			{
+				ENSURE(swapchainInfo.capabilities.maxImageCount >= 3);
+				config.imageCount = 3;
+			}
 			break;
 		}
 	}
