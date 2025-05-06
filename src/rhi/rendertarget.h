@@ -90,9 +90,9 @@ public:
 
 	[[nodiscard]] operator auto() { return InternalGetValues(); };//NOLINT(google-explicit-constructor)
 
-	std::span<const ImageViewHandle<G>> GetAttachments() const final { return myAttachments; }
-	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final { return myAttachmentDescs; }
-	const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final { return myPipelineRenderingCreateInfo; }
+	[[nodiscard]] std::span<const ImageViewHandle<G>> GetAttachments() const final { return myAttachments; }
+	[[nodiscard]] std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final { return myAttachmentDescs; }
+	[[nodiscard]] const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final { return myPipelineRenderingCreateInfo; }
 
 	const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
 	void ClearAll(
