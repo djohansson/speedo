@@ -2,7 +2,6 @@
 
 #include "descriptorset.h"
 #include "device.h"
-#include "sampler.h"
 #include "types.h"
 
 #include <core/utils.h>
