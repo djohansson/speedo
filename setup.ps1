@@ -44,19 +44,6 @@ else
 	$SystemTriplet = "$Arch-$OS-release"
 }
 
-$TargetTriplet = "$Arch-$OS-clang"
-
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
-
-Initialize-SystemEnv
-Initialize-VcpkgEnv
-
-$env:LLVM_ROOT = "$PSScriptRoot/build/toolchain/$SystemTriplet"
-
-Write-Host "Installing packages for $TargetTriplet using manifest..."
-
-Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/packages --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
-
-Initialize-VcpkgToolsEnv
