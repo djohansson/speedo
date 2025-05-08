@@ -32,7 +32,7 @@ jobs:
           # cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
           # workflowPreset: 'workflow-name'
           configurePreset: 'ninja-multi-vcpkg'
-          configurePresetAdditionalArgs: "['-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${{github.workspace}}/scripts/cmake/toolchains/clang.toolchain.cmake']"
+          #configurePresetAdditionalArgs: "['-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=${{github.workspace}}/scripts/cmake/toolchains/clang.toolchain.cmake']"
           buildPreset: 'ninja-vcpkg'
           #buildPresetAdditionalArgs: "['--config release']"
           #testPreset: 'ninja-multi-vcpkg'
