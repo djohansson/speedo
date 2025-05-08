@@ -15,12 +15,11 @@
 			"cacheVariables": {
 				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
 				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
-				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}-clang",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+				"VCPKG_MANIFEST_FEATURES": "client;server",
 				"VCPKG_TARGET_TRIPLET": "${presetName}-clang",
 				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/scripts/cmake/triplets",
-				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
-				"VCPKG_INSTALL_OPTIONS": "--x-install-root=${sourceDir}/build/packages --x-feature=client --x-feature=server"
+				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake"
 			},
 			"warnings": {
 				"dev": false
