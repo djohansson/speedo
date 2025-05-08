@@ -2,9 +2,14 @@ cmake_minimum_required(VERSION 3.25.1)
 
 include_guard()
 
-# todo: import LLVMConfig.cmake
-set(LLVM_PATH $ENV{LLVM_PATH} CACHE PATH "LLVM root path")
-set(LLVM_TOOLS_PATH $ENV{LLVM_TOOLS_PATH} CACHE PATH "LLVM tools path")
+set(LLVM_ROOT $ENV{LLVM_ROOT} CACHE PATH "LLVM root path")
+
+message(STATUS "LLVM_ROOT: ${LLVM_ROOT}")
+
+find_package(LLVM REQUIRED)
+
+message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
+message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 # todo: cross-compiling support. this is currently not used.
 set(TARGET_ARCHITECTURE $ENV{TARGET_ARCHITECTURE} CACHE PATH "Target architecture")
@@ -30,9 +35,9 @@ else()
 	set(CMAKE_EXECUTABLE_SUFFIX "")
 endif()
 
-set(CMAKE_AR ${LLVM_TOOLS_PATH}/llvm-ar${CMAKE_EXECUTABLE_SUFFIX})
+set(CMAKE_AR ${LLVM_TOOLS_BINARY_DIR}/llvm-ar${CMAKE_EXECUTABLE_SUFFIX})
 
-set(CMAKE_C_COMPILER ${LLVM_TOOLS_PATH}/clang${CMAKE_EXECUTABLE_SUFFIX})
+set(CMAKE_C_COMPILER ${LLVM_TOOLS_BINARY_DIR}/clang${CMAKE_EXECUTABLE_SUFFIX})
 execute_process(COMMAND ${CMAKE_C_COMPILER} --version OUTPUT_VARIABLE ClangVersionOutput)
 string(REGEX MATCH "^clang version ([0-9]+\.[0-9]+\.[0-9]+).*$" Unused "${ClangVersionOutput}")
 set(CMAKE_C_COMPILER_ID "Clang")
@@ -45,7 +50,7 @@ set(CMAKE_C_STANDARD_COMPUTED_DEFAULT 23)
 set(CMAKE_C_EXTENSIONS_COMPUTED_DEFAULT FALSE)
 #set(CMAKE_C_COMPILER_WORKS TRUE)
 
-set(CMAKE_CXX_COMPILER ${LLVM_TOOLS_PATH}/clang++${CMAKE_EXECUTABLE_SUFFIX})
+set(CMAKE_CXX_COMPILER ${LLVM_TOOLS_BINARY_DIR}/clang++${CMAKE_EXECUTABLE_SUFFIX})
 execute_process(COMMAND ${CMAKE_CXX_COMPILER} --version OUTPUT_VARIABLE ClangVersionOutput)
 string(REGEX MATCH "^clang version ([0-9]+\.[0-9]+\.[0-9]+).*$" Unused "${ClangVersionOutput}")
 set(CMAKE_CXX_COMPILER_ID "Clang")
@@ -59,7 +64,7 @@ set(CMAKE_CXX_EXTENSIONS_COMPUTED_DEFAULT FALSE)
 #set(CMAKE_CXX_COMPILER_WORKS TRUE)
 
 # don't use CMAKE_LINKER, its apparently an "implementation detail" in wonderful CMakeland
-#set(CMAKE_LINKER ${LLVM_TOOLS_PATH}/lld${CMAKE_EXECUTABLE_SUFFIX})
+#set(CMAKE_LINKER ${LLVM_TOOLS_BINARY_DIR}/lld${CMAKE_EXECUTABLE_SUFFIX})
 
 set(CMAKE_C11_STANDARD_COMPILE_OPTION "-std=c11")
 set(CMAKE_C17_STANDARD_COMPILE_OPTION "-std=c17")
@@ -77,7 +82,7 @@ set(CMAKE_C_USING_LINKER_MODE FLAG)
 set(CMAKE_CXX_USING_LINKER_LLD "-fuse-ld=lld")
 set(CMAKE_CXX_USING_LINKER_MODE FLAG)
 
-set(CMAKE_RC_COMPILER ${LLVM_TOOLS_PATH}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
+set(CMAKE_RC_COMPILER ${LLVM_TOOLS_BINARY_DIR}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 
 set(COMPILE_FLAGS "-g")
 set(COMPILE_FLAGS_DEBUG "-Og -fno-omit-frame-pointer -fno-inline-functions")
@@ -85,12 +90,12 @@ set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
-set(CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_PATH}/include/c++/v1 -fexperimental-library")
+set(CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_ROOT}/include/c++/v1 -fexperimental-library")
 set(CXX_FLAGS_DEBUG "")
 set(CXX_FLAGS_RELEASE "")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-ms-compatibility")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-rtti -fno-exceptions")
-set(LINK_FLAGS "-L${LLVM_PATH}/lib") #set(LINK_FLAGS "${LINK_FLAGS} -nodefaultlibs")
+set(LINK_FLAGS "-L${LLVM_ROOT}/lib") #set(LINK_FLAGS "${LINK_FLAGS} -nodefaultlibs")
 set(LINK_FLAGS_DEBUG "")
 set(LINK_FLAGS_RELEASE "")
 
@@ -123,10 +128,10 @@ if(CMAKE_SYSTEM_NAME MATCHES "Windows")
 	#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE")
-	set(CXX_DEFINES "${CXX_DEFINES} -isystem ${LLVM_PATH}/include/aarch64-unknown-linux-gnu/c++/v1")
+	set(CXX_DEFINES "${CXX_DEFINES} -isystem ${LLVM_ROOT}/include/aarch64-unknown-linux-gnu/c++/v1")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-lc++ -lc++abi")
-	set(LINK_FLAGS "${LINK_FLAGS} -L${LLVM_PATH}/lib/aarch64-unknown-linux-gnu -Wl,-rpath,${LLVM_PATH}/lib/aarch64-unknown-linux-gnu -Wl,-rpath,${LLVM_PATH}/lib -Wl,--undefined-version")
+	set(LINK_FLAGS "${LINK_FLAGS} -L${LLVM_ROOT}/lib/aarch64-unknown-linux-gnu -Wl,-rpath,${LLVM_ROOT}/lib/aarch64-unknown-linux-gnu -Wl,-rpath,${LLVM_ROOT}/lib -Wl,--undefined-version")
 	# LLVMgold.so: error loading plugin: /home/danjo/Repos/speedo/build/toolchain/arm64-linux-release/tools/llvm/../lib/LLVMgold.so: cannot open shared object file: No such file or directory
 	#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 	set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
@@ -134,7 +139,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Darwin")
 	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lc -lpthread")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-lc++ -lc++abi")
-	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_PATH}/lib")
+	set(LINK_FLAGS "${LINK_FLAGS} -Wl,-rpath,${LLVM_ROOT}/lib")
 	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 endif()
 
