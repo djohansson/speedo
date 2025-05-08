@@ -6,7 +6,11 @@
 			"generator": "Ninja Multi-Config",
 			"description": "Configure with vcpkg toolchain and generate Ninja project files for all configurations",
 			"binaryDir": "${sourceDir}/builds/${presetName}",
-			"toolchainFile": "${sourceDir}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+			"toolchainFile": "$penv{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+			"environment": {
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/${presetName}",
+				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake"
+			}
 		},
 		{
 			"name": "x64-windows-clang",
@@ -21,8 +25,7 @@
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
 			},
 			"environment": {
-				"LLVM_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release/tools/llvm"
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-windows-clangcl-release"
 			},
 			"condition": {
 				"type": "equals",
@@ -44,8 +47,7 @@
 				"CMAKE_OSX_SYSROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
 			},
 			"environment": {
-				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-osx-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/arm64-osx-release/tools/llvm"
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/arm64-osx-release"
 			},
 			"condition": {
 				"type": "equals",
@@ -66,8 +68,7 @@
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
 			},
 			"environment": {
-				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-linux-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/arm64-linux-release/tools/llvm"
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/arm64-linux-release"
 			},
 			"condition": {
 				"type": "equals",

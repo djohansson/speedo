@@ -29,6 +29,8 @@ else
 	exit
 }
 
+$global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
+
 $VcpkgRoot = Initialize-Vcpkg
 $Arch = Get-NativeArchitecture
 $OS = Get-NativeOS
@@ -48,15 +50,10 @@ Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
 Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
 
-$toolchainPath = "$PSScriptRoot/build/toolchain/$SystemTriplet"
-$llvmToolsPath = "$toolchainPath/tools/llvm"
-
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue $toolchainPath | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_TOOLS_PATH -NotePropertyValue $llvmToolsPath | Out-Null
-$global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
-
 Initialize-SystemEnv
 Initialize-VcpkgEnv
+
+$env:LLVM_ROOT = "$PSScriptRoot/build/toolchain/$SystemTriplet"
 
 Write-Host "Installing packages for $TargetTriplet using manifest..."
 
