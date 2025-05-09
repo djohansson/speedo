@@ -10,7 +10,7 @@
 			"installDir": "${sourceDir}/build/install/${presetName}-clang",
 			"environment": {
 				"LLVM_ROOT": "${sourceDir}/build/toolchain/${presetName}-release",
-				"VCPKG_ROOT": "~/.vcpkg"
+				"VCPKG_ROOT": "${sourceDir}/vcpkg"
 			},
 			"cacheVariables": {
 				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",

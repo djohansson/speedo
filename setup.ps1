@@ -1,6 +1,5 @@
 . $PSScriptRoot/scripts/env.ps1
 . $PSScriptRoot/scripts/platform.ps1
-. $PSScriptRoot/scripts/vcpkg.ps1
 
 $global:myEnv = New-Object -TypeName PSObject
 
@@ -31,7 +30,6 @@ else
 
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
-$VcpkgRoot = Initialize-Vcpkg
 $Arch = Get-NativeArchitecture
 $OS = Get-NativeOS
 
@@ -44,6 +42,13 @@ else
 	$SystemTriplet = "$Arch-$OS-release"
 }
 
+if ($IsWindows) {
+	Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
+}
+else {
+	Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+}
+
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
-Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
+Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
