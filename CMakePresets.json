@@ -17,6 +17,7 @@
 				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
 				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
 				"VCPKG_MANIFEST_FEATURES": "client;server",
+				"VCPKG_INSTALLED_DIR": "${sourceDir}/build/packages",
 				"VCPKG_TARGET_TRIPLET": "${presetName}-clang",
 				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/scripts/cmake/triplets",
 				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake"
