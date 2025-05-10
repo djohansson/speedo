@@ -36,12 +36,18 @@ $OS = Get-NativeOS
 if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 {
 	$SystemTriplet = "$Arch-$OS-clangcl-release"
-	Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.exe))
+	{
+		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
+	}
 }
 else
 {
 	$SystemTriplet = "$Arch-$OS-release"
-	Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.))
+	{
+		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+	}
 }
 
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
