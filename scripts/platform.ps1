@@ -3,7 +3,7 @@ function Get-NativeArchitecture
 	$Arch = ""
 	$ArchInfo = ""
 
-	if ($IsWindows)
+	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 	{
 		$ArchInfo = $Env:PROCESSOR_ARCHITECTURE
 	}
@@ -38,7 +38,7 @@ function Get-NativeOS
 {
 	$OS = ""
 
-	if ($IsWindows)
+	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 	{
 		$OS = "windows"
 	}

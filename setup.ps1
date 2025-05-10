@@ -33,19 +33,14 @@ $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 $Arch = Get-NativeArchitecture
 $OS = Get-NativeOS
 
-if ($IsWindows)
+if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 {
 	$SystemTriplet = "$Arch-$OS-clangcl-release"
+	Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
 }
 else
 {
 	$SystemTriplet = "$Arch-$OS-release"
-}
-
-if ($IsWindows) {
-	Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
-}
-else {
 	Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
 }
 

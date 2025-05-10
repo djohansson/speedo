@@ -34,7 +34,7 @@ function Add-EnvDylibPath
 		Write-Warning "Path does not exist: $path"
 	}
 
-	if ($IsWindows)
+	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 	{
 		Add-EnvPath $path $scope
 	}
@@ -99,7 +99,7 @@ function Initialize-VcpkgEnv
 {
 	$packageRoot = "$PSScriptRoot/../build/packages/$env:TARGET_TRIPLET"
 	
-	if ($IsWindows)
+	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 	{
 		Add-EnvDylibPath "$packageRoot/bin"
 		Add-EnvDylibPath "$packageRoot/debug/bin"
@@ -117,11 +117,11 @@ function Initialize-SystemEnv
 	$env:TARGET_ARCHITECTURE = Get-NativeArchitecture
 	$env:TARGET_OS = Get-NativeOS
 	$env:TARGET_TRIPLET = Get-TargetTriplet
-	$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
+	#$env:CONSOLE_DEVICE = if ($IsWindows) { '\\.\CON' } else { '/dev/tty'}
 
 	#Write-Host "Adding toolchain dylib/dll/so:s..."
 	$toolchainRoot = "$PSScriptRoot/../build/toolchain/$env:TARGET_ARCHITECTURE-$env:TARGET_OS-release"
-	if ($IsWindows)
+	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 	{
 		$dynlibPath = "$toolchainRoot/bin"
 	}
