@@ -1,0 +1,27 @@
+name: Setup build environment
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-vcpkg:
+    #runs-on: ['self-hosted', 'Linux', 'X64']
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: lukka/get-cmake@latest
+      - name: Setup anew (or from cache) vcpkg and build LLVM toolchain
+        uses: lukka/run-vcpkg@v11.5
+        with:
+          runVcpkgInstall: true
+          vcpkgJsonGlob: '**/vcpkg.json'
+          vcpkgJsonIgnores: "['**/vcpkg/**', '**/ports/**', '**/oldports/**']"
+          #binaryCachePath:
+          runVcpkgFormatString: "['install', '--x-install-root=${{github.workspace}}/build/toolchain', '--x-feature=toolchain', '--no-print-usage', '--triplet=$[env.VCPKG_DEFAULT_TRIPLET]-release']"
+      - name: Run CMake consuming CMakePreset.json and run vcpkg to build packages
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: 'x64-linux'
+          buildPreset: 'x64-linux-debug'

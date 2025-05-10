@@ -2,20 +2,36 @@
 	"version": 8,
 	"configurePresets": [
 		{
-			"name": "x64-windows-clang",
+			"name": "ninja-multi-vcpkg",
 			"generator": "Ninja Multi-Config",
-			"binaryDir": "${sourceDir}/build/${presetName}",
-			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
+			"description": "Configure with vcpkg toolchain and generate Ninja project files for all configurations",
+			"binaryDir": "${sourceDir}/build/${presetName}-clang",
+			"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+			"installDir": "${sourceDir}/build/install/${presetName}-clang",
+			"environment": {
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/${presetName}-release",
+				"VCPKG_ROOT": "${sourceDir}/vcpkg"
+			},
 			"cacheVariables": {
 				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
 				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
-				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
-				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
-				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
+				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+				"VCPKG_MANIFEST_FEATURES": "client;server",
+				"VCPKG_INSTALLED_DIR": "${sourceDir}/build/packages",
+				"VCPKG_TARGET_TRIPLET": "${presetName}-clang",
+				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/scripts/cmake/triplets",
+				"VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake"
 			},
+			"warnings": {
+				"dev": false
+			},
+			"hidden": true
+		},
+		{
+			"name": "x64-windows",
+			"inherits": "ninja-multi-vcpkg",
 			"environment": {
-				"LLVM_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/x64-windows-clangcl-release/tools/llvm"
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-windows-clangcl-release"
 			},
 			"condition": {
 				"type": "equals",
@@ -24,21 +40,11 @@
 			}
 		},
 		{
-			"name": "arm64-osx-clang",
-			"generator": "Ninja Multi-Config",
-			"binaryDir": "${sourceDir}/build/${presetName}",
-			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
+			"name": "arm64-osx",
+			"inherits": "ninja-multi-vcpkg",
 			"cacheVariables": {
-				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
-				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
-				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
-				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
-				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES",
+				"CMAKE_APPLE_SILICON_PROCESSOR": "arm64",
 				"CMAKE_OSX_SYSROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"
-			},
-			"environment": {
-				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-osx-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/arm64-osx-release/tools/llvm"
 			},
 			"condition": {
 				"type": "equals",
@@ -47,20 +53,19 @@
 			}
 		},
 		{
-			"name": "arm64-linux-clang",
-			"generator": "Ninja Multi-Config",
-			"binaryDir": "${sourceDir}/build/${presetName}",
-			"toolchainFile": "${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake",
-			"cacheVariables": {
-				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
-				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
-				"CMAKE_INSTALL_PREFIX": "${sourceDir}/build/install/${presetName}",
-				"CMAKE_PREFIX_PATH": "${sourceDir}/build/packages/${presetName}",
-				"CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
-			},
+			"name": "arm64-linux",
+			"inherits": "ninja-multi-vcpkg",
+			"condition": {
+				"type": "equals",
+				"lhs": "${hostSystemName}",
+				"rhs": "Linux"
+			}
+		},
+		{
+			"name": "x64-linux",
+			"inherits": "ninja-multi-vcpkg",
 			"environment": {
-				"LLVM_PATH": "${sourceDir}/build/toolchain/arm64-linux-release",
-				"LLVM_TOOLS_PATH": "${sourceDir}/build/toolchain/arm64-linux-release/tools/llvm"
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-linux-release"
 			},
 			"condition": {
 				"type": "equals",
@@ -71,49 +76,84 @@
 	],
 	"buildPresets": [
 		{
-			"name": "x64-windows-clang-debug",
-			"configurePreset": "x64-windows-clang",
+			"name": "x64-windows",
+			"configurePreset": "x64-windows",
+			"hidden": true
+		},
+		{
+			"name": "x64-windows-debug",
+			"configurePreset": "x64-windows",
 			"configuration": "debug"
 		},
 		{
-			"name": "x64-windows-clang-release",
-			"configurePreset": "x64-windows-clang",
+			"name": "x64-windows-release",
+			"configurePreset": "x64-windows",
 			"configuration": "release"
 		},
 		{
-			"name": "x64-windows-clang-profile",
-			"configuration": "profile",
-			"inherits": "x64-windows-clang-release"
+			"name": "x64-windows-profile",
+			"inherits": "x64-windows-release",
+			"configuration": "profile"
 		},
 		{
-			"name": "arm64-osx-clang-debug",
-			"configurePreset": "arm64-osx-clang",
+			"name": "arm64-osx",
+			"configurePreset": "arm64-osx",
+			"hidden": true
+		},
+		{
+			"name": "arm64-osx-debug",
+			"configurePreset": "arm64-osx",
 			"configuration": "debug"
 		},
 		{
-			"name": "arm64-osx-clang-release",
-			"configurePreset": "arm64-osx-clang",
+			"name": "arm64-osx-release",
+			"configurePreset": "arm64-osx",
 			"configuration": "release"
 		},
 		{
-			"name": "arm64-osx-clang-profile",
-			"configuration": "profile",
-			"inherits": "arm64-osx-clang-release"
+			"name": "arm64-osx-profile",
+			"inherits": "arm64-osx-release",
+			"configuration": "profile"
 		},
 		{
-			"name": "arm64-linux-clang-debug",
-			"configurePreset": "arm64-linux-clang",
+			"name": "arm64-linux",
+			"configurePreset": "arm64-linux",
+			"hidden": true
+		},
+		{
+			"name": "arm64-linux-debug",
+			"configurePreset": "arm64-linux",
 			"configuration": "debug"
 		},
 		{
-			"name": "arm64-linux-clang-release",
-			"configurePreset": "arm64-linux-clang",
+			"name": "arm64-linux-release",
+			"configurePreset": "arm64-linux",
 			"configuration": "release"
 		},
 		{
-			"name": "arm64-linux-clang-profile",
-			"configuration": "profile",
-			"inherits": "arm64-linux-clang-release"
+			"name": "arm64-linux-profile",
+			"inherits": "arm64-linux-release",
+			"configuration": "profile"
+		},
+		{
+			"name": "x64-linux",
+			"configurePreset": "x64-linux",
+			"hidden": true
+		},
+		{
+			"name": "x64-linux-debug",
+			"configurePreset": "x64-linux",
+			"configuration": "debug"
+		},
+		{
+			"name": "x64-linux-release",
+			"configurePreset": "x64-linux",
+			"configuration": "release"
+		},
+		{
+			"name": "x64-linux-profile",
+			"inherits": "x64-linux-release",
+			"configuration": "profile"
 		}
 	]
 }

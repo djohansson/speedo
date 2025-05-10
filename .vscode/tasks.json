@@ -4,7 +4,7 @@
 		{
 			"label": "export-vk-driver-path",
 			"type": "shell",
-			"command": "printf 'VK_DRIVER_FILES=%s%s' $(brew --prefix molten-vk) '/share/vulkan/icd.d/MoltenVK_icd.json' > ${userHome}/.speedo/.env",
+			"command": "pwsh -c '& { if (-not (Test-Path ${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path ${userHome}/.speedo | Out-Null }; \"VK_DRIVER_FILES=$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json\" > ${userHome}/.speedo/.env }' 2>&1",
 			"group": "none"
 		},
 		{

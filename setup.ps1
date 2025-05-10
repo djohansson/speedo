@@ -1,6 +1,5 @@
 . $PSScriptRoot/scripts/env.ps1
 . $PSScriptRoot/scripts/platform.ps1
-. $PSScriptRoot/scripts/vcpkg.ps1
 
 $global:myEnv = New-Object -TypeName PSObject
 
@@ -29,7 +28,8 @@ else
 	exit
 }
 
-$VcpkgRoot = Initialize-Vcpkg
+$global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
+
 $Arch = Get-NativeArchitecture
 $OS = Get-NativeOS
 
@@ -42,24 +42,13 @@ else
 	$SystemTriplet = "$Arch-$OS-release"
 }
 
-$TargetTriplet = "$Arch-$OS-clang"
+if ($IsWindows) {
+	Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
+}
+else {
+	Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+}
 
 Write-Host "Installing toolchain for $SystemTriplet using manifest..."
 
-Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
-
-$toolchainPath = "$PSScriptRoot/build/toolchain/$SystemTriplet"
-$llvmToolsPath = "$toolchainPath/tools/llvm"
-
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_PATH -NotePropertyValue $toolchainPath | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName LLVM_TOOLS_PATH -NotePropertyValue $llvmToolsPath | Out-Null
-$global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
-
-Initialize-SystemEnv
-Initialize-VcpkgEnv
-
-Write-Host "Installing packages for $TargetTriplet using manifest..."
-
-Invoke-Expression("$VcpkgRoot/vcpkg install --x-install-root=$PSScriptRoot/build/packages --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $TargetTriplet --x-feature=client --x-feature=server --no-print-usage")
-
-Initialize-VcpkgToolsEnv
+Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --no-print-usage")
