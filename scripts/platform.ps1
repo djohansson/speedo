@@ -5,7 +5,8 @@ function Get-NativeArchitecture
 
 	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 	{
-		$Env:PROCESSOR_ARCHITECTURE = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
+		$ArchInfo = [Environment]::GetEnvironmentVariable("PROCESSOR_ARCHITECTURE", "Machine")
+		$Env:PROCESSOR_ARCHITECTURE = $ArchInfo
 	}
 	elseif ($IsMacOS)
 	{
