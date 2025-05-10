@@ -10,7 +10,7 @@ if (Test-Path $myEnvFile)
 	$global:myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json
 }
 
-if ($IsWindows)
+if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
 {
 	& $PSScriptRoot/scripts/platforms/windows/windows.ps1
 }
