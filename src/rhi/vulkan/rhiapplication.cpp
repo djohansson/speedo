@@ -1055,49 +1055,68 @@ void RHIApplication::Draw()
 
 			renderImageSet.End(cmd);
 		}
-		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, computeMain);
-
-		// 	renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
-		// 	renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
-		// 	renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-		// 	renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
-		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
-
-		// 	window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
-		// 	window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-		// 	window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-
-		// 	pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
-		// 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-		// 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
-		// 	pipeline.BindPipelineAuto(cmd);
-
-		// 	PushConstants pushConstants{.frameIndex = newFrameIndex};
-
-		// 	vkCmdPushConstants(
-		// 		cmd,
-		// 		pipeline.GetLayout(),
-		// 		VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-		// 		0,
-		// 		sizeof(pushConstants),
-		// 		&pushConstants);
-
-		// 	vkCmdDispatch(cmd, 16U, 8U, 1U);
-		// }
 		{
-			GPU_SCOPE(cmd, graphicsQueue, copy);
+			GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
-			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-			window.Copy(
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, 0);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_LOAD, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
+
+			window.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
+			window.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			window.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+
+			pipeline.BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+			rhi.pipeline->SetDescriptorData(
+				"gTextures",
+				DescriptorImageInfo<kVk>{
+					{},
+					renderImageSet.GetAttachments()[0],
+					renderImageSet.GetLayout(0)},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				newFrameIndex);
+
+			rhi.pipeline->SetDescriptorData(
+				"gRWTextures",
+				DescriptorImageInfo<kVk>{
+					{},
+					window.GetAttachments()[0],
+					window.GetLayout(0)},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				newFrameIndex);
+
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+			pipeline.BindPipelineAuto(cmd);
+
+			PushConstants pushConstants{.frameIndex = newFrameIndex};
+
+			vkCmdPushConstants(
 				cmd,
-				renderImageSet,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+				pipeline.GetLayout(),
+				VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
 				0,
-				{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-				0);
+				sizeof(pushConstants),
+				&pushConstants);
+
+			vkCmdDispatch(cmd, 16U, 8U, 1U);
 		}
+		// {
+		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
+
+		// 	renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+		// 	window.Copy(
+		// 		cmd,
+		// 		renderImageSet,
+		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		0,
+		// 		{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+		// 		0);
+		// }
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
 
@@ -1371,32 +1390,6 @@ RHIApplication::RHIApplication(
 	}
 
 	rhi.pipeline->BindLayoutAuto(rhi.pipelineLayouts.at("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
-
-	for (auto& renderImageSet : rhi.renderImageSets)
-	{
-		for (size_t i = 0; i < renderImageSet.GetAttachments().size(); i++)
-		{
-			rhi.pipeline->SetDescriptorData(
-				"gTextures",
-				DescriptorImageInfo<kVk>{
-					{},
-					renderImageSet.GetAttachments()[i],
-					renderImageSet.GetLayout(i)},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-				i);
-		}
-		for (size_t i = 0; i < window.GetAttachments().size(); i++)
-		{
-			rhi.pipeline->SetDescriptorData(
-				"gRWTextures",
-				DescriptorImageInfo<kVk>{
-					{},
-					window.GetAttachments()[i],
-					window.GetLayout(i)},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-				i);
-		}
-	}
 }
 
 RHIApplication::~RHIApplication() noexcept(false)
