@@ -439,7 +439,6 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 
 				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, 
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 						auto [newImage, newImageView] = image::LoadImage<kVk>(filePath, progressOut);
 					});
 			}
