@@ -16,7 +16,7 @@ index c372733..1b263d6 100644
      SOVERSION "${LZ4_VERSION_MAJOR}"
      VERSION "${LZ4_VERSION_STRING}")
 -  if(MSVC)
-+  if(WIN32 AND (${CMAKE_C_COMPILER_ID} MATCHES "(MSVC|Clang)"))
++  if(WIN32)
      target_compile_definitions(lz4_shared PRIVATE
        LZ4_DLL_EXPORT=1)
    endif()
@@ -25,7 +25,7 @@ index c372733..1b263d6 100644
  if(BUILD_STATIC_LIBS)
    set(STATIC_LIB_NAME lz4)
 -  if (MSVC AND BUILD_SHARED_LIBS)
-+  if (WIN32 AND (${CMAKE_C_COMPILER_ID} MATCHES "(MSVC|Clang)") AND BUILD_SHARED_LIBS)
++  if (WIN32 AND AND BUILD_SHARED_LIBS)
      set(STATIC_LIB_NAME lz4_static)
    endif()
    add_library(lz4_static STATIC ${LZ4_SOURCES})
