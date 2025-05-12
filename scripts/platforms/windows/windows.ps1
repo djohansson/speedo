@@ -18,6 +18,30 @@ if (-not ($pwshCmd))
 	$pwshCmd = Get-Command "pwsh" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"7.0.0.0")
 }
 
+$ninjaCmd = Get-Command "ninja" -All -ErrorAction SilentlyContinue
+if (-not ($ninjaCmd))
+{ 
+	Write-Host "Installing Ninja..."
+
+	Install-WinGetPackage -Mode Silent -Id Ninja-build.Ninja | Out-Null
+
+	$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
+
+	$ninjaCmd = Get-Command "ninja" -All -ErrorAction SilentlyContinue
+}
+
+$cmakeCmd = Get-Command "cmake" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.31.6.0")
+if (-not ($cmakeCmd))
+{ 
+	Write-Host "Installing Cmake..."
+
+	Install-WinGetPackage -Mode Silent -Id Kitware.CMake | Out-Null
+
+	$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") 
+
+	$cmakeCmd = Get-Command "cmake" -All -ErrorAction SilentlyContinue | Where-Object Version -GE ([System.Version]"3.31.6.0")
+}
+
 $VSSetupInstance = Get-VSSetupInstance | Select-VSSetupInstance -Product * -Require "Microsoft.VisualStudio.Workload.VCTools","Microsoft.VisualStudio.Component.VC.ATL","Microsoft.VisualStudio.Component.VC.Llvm.Clang","Microsoft.VisualStudio.Component.Windows11SDK.22621"
 if (-not ($VSSetupInstance))
 {
