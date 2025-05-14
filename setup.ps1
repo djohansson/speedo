@@ -44,7 +44,7 @@ if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
 else
 {
 	$SystemTriplet = "$Arch-$OS-release"
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.))
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
 	{
 		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
 	}
