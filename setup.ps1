@@ -30,12 +30,8 @@ else
 
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
-$Arch = Get-NativeArchitecture
-$OS = Get-NativeOS
-
 if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
 {
-	$SystemTriplet = "$Arch-$OS-clangcl-release"
 	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.exe))
 	{
 		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
@@ -43,13 +39,18 @@ if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
 }
 else
 {
-	$SystemTriplet = "$Arch-$OS-release"
 	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
 	{
 		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
 	}
 }
 
-Write-Host "Installing toolchain for $SystemTriplet using manifest..."
+Initialize-SystemEnv
 
-Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $SystemTriplet --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
+# compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler
+# use release configuration for the toolchain, as debug builds of the toolchain are not needed.
+$HostTriplet = $(Get-HostArchitecture) + '-' + $(Get-HostOS) + '-' + 'release'
+
+Write-Host "Building toolchain using $HostTriplet..."
+
+Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $HostTriplet --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")

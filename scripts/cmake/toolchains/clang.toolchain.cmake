@@ -12,7 +12,7 @@ message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
 # todo: cross-compiling support. this is currently not used.
-set(TARGET_ARCHITECTURE $ENV{TARGET_ARCHITECTURE} CACHE PATH "Target architecture")
+#set(TARGET_ARCHITECTURE $ENV{TARGET_ARCHITECTURE} CACHE PATH "Target architecture")
 #
 
 if(NOT (DEFINED ${CMAKE_CROSSCOMPILING} AND ${CMAKE_CROSSCOMPILING}))

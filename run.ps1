@@ -5,7 +5,7 @@ param([string[]]$Programs, [string]$Config='release')
 Initialize-SystemEnv
 Initialize-VcpkgEnv
 
-$env:VK_LAYER_PATH = $PSScriptRoot + '/build/packages/' + $env:TARGET_TRIPLET + '/share/vulkan/explicit_layer.d'
+$env:VK_LAYER_PATH = $PSScriptRoot + '/build/packages/' + $(Get-HostTriplet) + '/share/vulkan/explicit_layer.d'
 if ($IsMacOS)
 {
 	$env:VK_DRIVER_FILES = $(brew --prefix molten-vk) + '/share/vulkan/icd.d/MoltenVK_icd.json'
@@ -13,7 +13,7 @@ if ($IsMacOS)
 
 foreach ($program in $Programs)
 {
-	$programPath = $PSScriptRoot + '/build/' + $env:TARGET_TRIPLET + '/' + $config + '/' + $program
+	$programPath = $PSScriptRoot + '/build/' + $(Get-HostTriplet) + '/' + $config + '/' + $program
 	if (-not (Test-Path $programPath))
 	{
 		Write-Host "Program $program not found at $programPath"

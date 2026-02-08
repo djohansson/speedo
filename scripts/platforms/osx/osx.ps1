@@ -15,4 +15,4 @@ Install-HomebrewPackage patchelf
 Install-HomebrewPackage molten-vk
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName MACOS_SDK_PATH -NotePropertyValue $(xcrun --show-sdk-path) | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName APPLE_SILICON_PROCESSOR -NotePropertyValue $(Get-NativeArchitecture) | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName APPLE_SILICON_PROCESSOR -NotePropertyValue $(Get-HostArchitecture) | Out-Null

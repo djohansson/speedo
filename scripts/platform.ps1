@@ -1,4 +1,4 @@
-function Get-NativeArchitecture
+function Get-HostArchitecture
 {
 	$Arch = ""
 	$ArchInfo = ""
@@ -35,7 +35,7 @@ function Get-NativeArchitecture
 	return $Arch
 }
 
-function Get-NativeOS
+function Get-HostOS
 {
 	$OS = ""
 
@@ -59,11 +59,33 @@ function Get-NativeOS
 	return $OS
 }
 
-function Get-TargetTriplet
+function Get-HostCompiler
 {
-	$Arch = Get-NativeArchitecture
-	$OS = Get-NativeOS
-	$Compiler = "clang"
+	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
+	{
+		$Compiler = "clangcl"
+	}
+	elseif ($IsMacOS)
+	{
+		$Compiler = "AppleClang"
+	}
+	elseif ($IsLinux)
+	{
+		$Compiler = "gcc"
+	}
+	else
+	{
+		Write-Error "Unsupported Operating System" # please implement me
+	}
+
+	return $Compiler
+}
+
+function Get-HostTriplet
+{
+	$Arch = Get-HostArchitecture
+	$OS = Get-HostOS
+	$Compiler = Get-HostCompiler
 
 	return "$Arch-$OS-$Compiler"
 }
