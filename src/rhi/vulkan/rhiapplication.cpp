@@ -942,9 +942,9 @@ void RHIApplication::Draw()
 							ZoneScopedN("bindState");
 
 							// bind vertex inputs
-							BufferHandle<kVk> vbs[] = {model.GetVertexBuffer()};
-							DeviceSize<kVk> offsets[] = {0};
-							vkCmdBindVertexBuffers(cmd, 0, 1, vbs, offsets);
+							std::array<BufferHandle<kVk>, 1> vbs = {model.GetVertexBuffer()};
+							std::array<DeviceSize<kVk>, 1> offsets = {0};
+							vkCmdBindVertexBuffers(cmd, 0, 1, vbs.data(), offsets.data());
 							vkCmdBindIndexBuffer(cmd, model.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
 							// bind descriptor sets
