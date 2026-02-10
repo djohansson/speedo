@@ -84,13 +84,16 @@ set(CMAKE_CXX_USING_LINKER_MODE FLAG)
 
 set(CMAKE_RC_COMPILER ${LLVM_TOOLS_BINARY_DIR}/llvm-rc${CMAKE_EXECUTABLE_SUFFIX})
 
+set(CXX_CONSTEXPR_DEPTH 256)
+set(CXX_CONSTEXPR_STEPS 1000000)
+
 set(COMPILE_FLAGS "-g")
 set(COMPILE_FLAGS_DEBUG "-Og -fno-omit-frame-pointer -fno-inline-functions")
 set(COMPILE_FLAGS_RELEASE "-O3 -ffast-math")
 set(C_FLAGS "") #set(C_FLAGS "-nostdlibinc") # todo: use llvm libc headers
 set(C_FLAGS_DEBUG "")
 set(C_FLAGS_RELEASE "")
-set(CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_ROOT}/include/c++/v1 -fexperimental-library")
+set(CXX_FLAGS "-nostdinc++ -nostdlib++ -isystem ${LLVM_ROOT}/include/c++/v1 -fexperimental-library -fconstexpr-depth=${CXX_CONSTEXPR_DEPTH} -fconstexpr-steps=${CXX_CONSTEXPR_STEPS}") # todo: use llvm libc++ headers
 set(CXX_FLAGS_DEBUG "")
 set(CXX_FLAGS_RELEASE "")
 #set(CXX_FLAGS "${CXX_FLAGS} -fno-ms-compatibility")
@@ -102,7 +105,7 @@ set(LINK_FLAGS_RELEASE "")
 set(C_DEFINES "")
 set(C_DEFINES_DEBUG "-D_DEBUG")
 set(C_DEFINES_RELEASE "-DNDEBUG")
-set(CXX_DEFINES "")
+set(CXX_DEFINES "-DCXX_CONSTEXPR_DEPTH=${CXX_CONSTEXPR_DEPTH} -DCXX_CONSTEXPR_STEPS=${CXX_CONSTEXPR_STEPS}")
 set(CXX_DEFINES_DEBUG "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG")
 set(CXX_DEFINES_RELEASE "-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE")
 

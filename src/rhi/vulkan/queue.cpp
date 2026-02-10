@@ -157,7 +157,7 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 }
 
 template <>
-void Queue<kVk>::GpuScopeCollect(CommandBufferHandle<kVk> cmd)
+void Queue<kVk>::CollectGpuScope(CommandBufferHandle<kVk> cmd)
 {
 #if (SPEEDO_PROFILING_LEVEL > 0)
 	if (myProfilingContext != nullptr)

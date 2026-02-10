@@ -3,12 +3,14 @@
 #include "command.h"
 #include "device.h"
 #include "fence.h"
+#include "rhi/capi.h"
 #include "semaphore.h"
 #include "types.h"
 
 #include <core/task.h>
 #include <core/circularcontainer.h>
 #include <core/concurrentaccess.h>
+#include <core/std_extra.h>
 
 #include <cstdint>
 #include <memory>
@@ -94,15 +96,6 @@ struct QueueCreateDesc
 	uint32_t queueFamilyIndex = 0UL;
 };
 
-struct SourceLocationData
-{
-	const char* name = nullptr;
-	const char* function = nullptr;
-	const char* file = nullptr;
-	uint32_t line = 0UL;
-	uint32_t color = 0UL;
-};
-
 template <GraphicsApi G>
 class Queue final : public DeviceObject<G>
 {
@@ -141,8 +134,8 @@ public:
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
 
 	template <SourceLocationData Location>
-	inline std::shared_ptr<void> GpuScope(CommandBufferHandle<G> cmd);
-	void GpuScopeCollect(CommandBufferHandle<G> cmd);
+	inline std::shared_ptr<void> CreateGpuScope(CommandBufferHandle<G> cmd);
+	void CollectGpuScope(CommandBufferHandle<G> cmd);
 
 private:
 	Queue(
@@ -182,13 +175,8 @@ template <GraphicsApi G>
 using QueueTimelineContext = ConcurrentAccess<QueueTimelineContextData<G>>;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-#	define GPU_SCOPE(cmd, queue, tag) \
-		auto tag##__scope = (queue).GpuScope<SourceLocationData{ \
-					.name = std_extra::make_string_literal<#tag>().data(), \
-					.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(), \
-					.file = std_extra::make_string_literal<__FILE__>().data(), \
-					.line = __LINE__}>(cmd)
-#	define GPU_SCOPE_COLLECT(cmd, queue) (queue).GpuScopeCollect(cmd)
+#	define GPU_SCOPE(cmd, queue, tag) auto tag##__scope = (queue).CreateGpuScope<SOURCE_LOCATION_DATA(tag)>(cmd)
+#	define GPU_SCOPE_COLLECT(cmd, queue) (queue).CollectGpuScope(cmd)
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}
 #	define GPU_SCOPE_COLLECT(cmd, queue) {}

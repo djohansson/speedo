@@ -850,6 +850,8 @@ void RHIApplication::Draw()
 
 		auto cmd = graphicsQueue.GetPool().Commands();
 
+		//NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
+
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
 		{
@@ -1151,6 +1153,8 @@ void RHIApplication::Draw()
 		}
 
 		cmd.End();
+
+		//NOLINTEND(bugprone-suspicious-stringview-data-usage)
 
 		SemaphoreHandle<kVk> acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
 		graphicsCallbacks.emplace_back(

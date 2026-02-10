@@ -39,6 +39,15 @@ struct WindowState
 	uint32_t fullscreenEnabled : 1;
 };
 
+struct SourceLocationData
+{
+	const char* name;
+	const char* function;
+	const char* file;
+	uint32_t line;
+	uint32_t color;
+};
+
 typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(modernize-use-using)
 static const WindowHandle kInvalidWindowHandle = NULL;//NOLINT(modernize-use-nullptr)
 

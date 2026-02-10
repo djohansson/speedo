@@ -24,7 +24,7 @@ void Queue<kVk>::EnqueuePresent(T&& first, Ts&&... rest)
 
 template <>
 template <SourceLocationData Location>
-std::shared_ptr<void> Queue<kVk>::GpuScope(CommandBufferHandle<kVk> cmd)
+std::shared_ptr<void> Queue<kVk>::CreateGpuScope(CommandBufferHandle<kVk> cmd)
 {
 	return InternalGpuScope(cmd, Location);
 }
