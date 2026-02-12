@@ -32,7 +32,7 @@
 			"name": "x64-windows-clang",
 			"inherits": "ninja-multi-vcpkg",
 			"environment": {
-				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-windows-clangcl-release"
+				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-windows-release"
 			},
 			"condition": {
 				"type": "equals",
