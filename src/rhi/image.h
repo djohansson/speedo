@@ -119,7 +119,8 @@ public:
 private:
 	ImageView( // uses provided image view
 		const std::shared_ptr<Device<G>>& device,
-		ImageViewHandle<G>&& view);
+		ImageViewHandle<G>&& view,
+		std::optional<std::string_view> name = std::nullopt);
 
 	ImageViewHandle<G> myView{};
 };

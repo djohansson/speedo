@@ -538,10 +538,14 @@ ImageView<kVk>::ImageView(ImageView&& other) noexcept
 }
 
 template <>
-ImageView<kVk>::ImageView(const std::shared_ptr<Device<kVk>>& device, ImageViewHandle<kVk>&& view)
+ImageView<kVk>::ImageView(
+	const std::shared_ptr<Device<kVk>>& device,
+	ImageViewHandle<kVk>&& view,
+	std::optional<std::string_view> name)
 	: DeviceObject(
 		  device,
-		  {"_View"},
+		  DeviceObjectCreateDesc{.name = std::string(
+			name.value_or(std::format("{}_View", reinterpret_cast<uint64_t>(view))))},
 		  1,
 		  VK_OBJECT_TYPE_IMAGE_VIEW,
 		  reinterpret_cast<uint64_t*>(&view),
@@ -561,7 +565,8 @@ ImageView<kVk>::ImageView(
 			  image,
 			  (format == VK_FORMAT_UNDEFINED ? image.GetDesc().format : format),
 			  aspectFlags,
-			  image.GetDesc().mipLevels.size()))
+			  image.GetDesc().mipLevels.size()),
+		  std::format("{}_View", image.GetName()))
 {}
 
 template <>
@@ -636,7 +641,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::
 
 		auto cmd = graphicsQueue.GetPool().Commands();
 		{
-			GPU_SCOPE(cmd, graphicsQueue, Transition);
+			GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
 			image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 		}
