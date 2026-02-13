@@ -166,7 +166,12 @@ function Initialize-VcpkgToolsEnv
 	)
 	if (-not $TargetTriplet)
 	{
-		$TargetTriplet = Get-HostTriplet
+		$TargetTriplet = Get-TargetTriplet
+		Write-Host "Target triplet not specified, using default: $TargetTriplet"
+	}
+	else
+	{
+		Write-Host "Using target triplet: $TargetTriplet"
 	}
 
 	foreach($toolsPath in Get-ChildItem -Path $PSScriptRoot/../build/packages/$TargetTriplet/tools -Directory -ErrorAction SilentlyContinue)

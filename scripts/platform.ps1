@@ -89,3 +89,13 @@ function Get-HostTriplet
 
 	return "$Arch-$OS-$Compiler"
 }
+
+function Get-TargetTriplet
+{
+	# todo: add support for cross-compilation by allowing the user to specify a target triplet via an environment variable or command-line argument
+	$Arch = Get-HostArchitecture
+	$OS = Get-HostOS
+	$Compiler = "clang" # for now, we assume that the target compiler is clang for all platforms, but this may need to be adjusted in the future
+
+	return "$Arch-$OS-$Compiler"
+}
