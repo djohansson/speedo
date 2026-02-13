@@ -134,7 +134,7 @@ public:
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
 
 	template <SourceLocationData Location>
-	inline std::shared_ptr<void> CreateGpuScope(CommandBufferHandle<G> cmd);
+	[[nodiscard]] std::shared_ptr<void> CreateGpuScope(CommandBufferHandle<G> cmd);
 	void CollectGpuScope(CommandBufferHandle<G> cmd);
 
 private:

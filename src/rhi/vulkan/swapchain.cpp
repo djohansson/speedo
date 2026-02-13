@@ -139,7 +139,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 		.acquireNextImageSemaphore = std::move(semaphore),
 		.lastFrameIndex = lastFrameIndex,
 		.newFrameIndex = myFrameIndex,
-		.succeess = flipResult == VK_SUCCESS};
+		.success = flipResult == VK_SUCCESS};
 }
 
 template <>

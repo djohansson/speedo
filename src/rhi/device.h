@@ -109,7 +109,7 @@ class DeviceObject : public IResource
 {
 public:
 	DeviceObject(const DeviceObject&) = delete;
-	virtual ~DeviceObject();
+	~DeviceObject() override;
 
 	[[nodiscard]] const uuids::uuid& GetUuid() const noexcept final { return myUuid; }
 

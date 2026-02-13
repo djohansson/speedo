@@ -39,7 +39,7 @@ struct RHI : public RHIBase
 	std::unique_ptr<Pipeline<G>> pipeline;
 	CreateWindowFunc createWindowFunc;
 
-	auto& GetWindow(WindowHandle handle) const { return *windows.find(handle)->get(); }
+	[[nodiscard]] auto& GetWindow(WindowHandle handle) const { return *windows.find(handle)->get(); }
 
 	UnorderedMap<QueueType, QueueTimelineContext<G>> queues;
 	UnorderedSet<

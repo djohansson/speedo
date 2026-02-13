@@ -58,7 +58,7 @@ public:
 		SlangMatrixLayoutMode matrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
 		std::vector<std::pair<std::string, std::string>> preprocessorDefinitions = { {"SHADERTYPES_H_GPU_TARGET", "true"} };
 
-		std::string ToString() const;
+		[[nodiscard]] std::string ToString() const;
 	};
 
 	using DownstreamCompiler =
@@ -94,8 +94,8 @@ public:
 	ShaderModule(ShaderModule&& other) noexcept;
 	~ShaderModule() override;
 
-	ShaderModule& operator=(ShaderModule&& other) noexcept;
-	operator auto() const noexcept { return myShaderModule; }//NOLINT(google-explicit-constructor)
+	[[maybe_unused]] ShaderModule& operator=(ShaderModule&& other) noexcept;
+	[[nodiscard]] operator auto() const noexcept { return myShaderModule; }//NOLINT(google-explicit-constructor)
 
 	void Swap(ShaderModule& rhs) noexcept;
 	friend void Swap(ShaderModule& lhs, ShaderModule& rhs) noexcept { lhs.Swap(rhs); }

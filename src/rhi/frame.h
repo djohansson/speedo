@@ -22,7 +22,6 @@ public:
 	constexpr Frame() noexcept = default;
 	Frame(const std::shared_ptr<Device<G>>& device, FrameCreateDesc<G>&& desc);
 	Frame(Frame<G>&& other) noexcept;
-	~Frame() = default;
 
 	[[maybe_unused]] Frame& operator=(Frame&& other) noexcept;
 

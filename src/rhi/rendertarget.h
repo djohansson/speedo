@@ -41,11 +41,12 @@ struct IRenderTarget
 
 	// TODO(djohansson): make these two a single scoped call
 	[[maybe_unused]] virtual const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
+	virtual void End(CommandBufferHandle<G> cmd) = 0;
+	//
+
 	virtual void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const = 0;
-	virtual void End(CommandBufferHandle<G> cmd) = 0;
-	//
 
 	virtual void Blit(
 		CommandBufferHandle<G> cmd,
@@ -75,8 +76,8 @@ struct IRenderTarget
 		ImageAspectFlags<G> aspectFlags,
 		uint32_t index) = 0;
 
-	virtual void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp = {}) = 0;
-	virtual void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp = {}) = 0;
+	virtual void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp = {}) = 0; //NOLINT(google-default-arguments)
+	virtual void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp = {}) = 0; //NOLINT(google-default-arguments)
 };
 
 template <GraphicsApi G>
@@ -94,11 +95,14 @@ public:
 	[[nodiscard]] std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final { return myAttachmentDescs; }
 	[[nodiscard]] const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final { return myPipelineRenderingCreateInfo; }
 
-	const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	// TODO(djohansson): make these two a single scoped call
+	[[maybe_unused]] const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	void End(CommandBufferHandle<G> cmd) override;
+	//
+
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const final;
-	void End(CommandBufferHandle<G> cmd) override;
 
 	void Blit(
 		CommandBufferHandle<G> cmd,

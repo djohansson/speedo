@@ -32,7 +32,7 @@ public:
 	Application& operator=(Application&&) noexcept = delete;
 
 	template <typename T, typename... Args>
-	static std::shared_ptr<T> Create(Args&&... args);
+	[[nodiscard]] static std::shared_ptr<T> Create(Args&&... args);
 
 	[[nodiscard]] auto& GetName() noexcept { return myName; }
 	[[nodiscard]] const auto& GetName() const noexcept { return myName; }

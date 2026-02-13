@@ -21,7 +21,7 @@ class RHIApplication : public Application
 public:
 	~RHIApplication() noexcept(false) override;
 	
-	virtual bool Main();
+	[[nodiscard]] virtual bool Main();
 
 	void OnResizeFramebuffer(WindowHandle window, int width, int height);
 	void OnInputStateChanged(const InputState& input);
@@ -39,11 +39,11 @@ public:
 	template <GraphicsApi G>
 	[[nodiscard]] const RHI<G>& GetRHI() const noexcept;
 
-	static UpgradableSharedMutex gDrawMutex;
-	static std::atomic_uint8_t gProgress;
-	static std::atomic_bool gShowProgress;
-	static bool gShowAbout;
-	static bool gShowDemoWindow;
+	static UpgradableSharedMutex gDrawMutex; //NOLINT(readability-identifier-naming)
+	static std::atomic_uint8_t gProgress; //NOLINT(readability-identifier-naming)
+	static std::atomic_bool gShowProgress; //NOLINT(readability-identifier-naming)
+	static bool gShowAbout; //NOLINT(readability-identifier-naming)
+	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
 
 protected:
 	explicit RHIApplication() = default;

@@ -25,7 +25,7 @@ struct FlipResult
 	Semaphore<G> acquireNextImageSemaphore;
 	uint32_t lastFrameIndex = 0;
 	uint32_t newFrameIndex = 0;
-	bool succeess = false;
+	bool success = false;
 };
 
 template <GraphicsApi G>
@@ -42,22 +42,25 @@ public:
 	~Swapchain();
 
 	[[maybe_unused]] Swapchain& operator=(Swapchain&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return mySwapchain; }
+	[[nodiscard]] operator auto() const noexcept { return mySwapchain; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Swapchain& rhs) noexcept;
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
-	const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
-	std::span<const ImageViewHandle<G>> GetAttachments() const final;
-	std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final;
-	ImageLayout<G> GetLayout(uint32_t index) const final;
-	const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final;
+	[[nodiscard]] const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
+	[[nodiscard]] std::span<const ImageViewHandle<G>> GetAttachments() const final;
+	[[nodiscard]] std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final;
+	[[nodiscard]] ImageLayout<G> GetLayout(uint32_t index) const final;
+	[[nodiscard]] const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final;
 
-	const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	// TODO(djohansson): make these two a single scoped call
+	[[maybe_unused]] const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	void End(CommandBufferHandle<G> cmd) final;
+	//
+
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
 		std::span<const ClearValue<G>> values) const final;
-	void End(CommandBufferHandle<G> cmd) final;
 
 	void Blit(
 		CommandBufferHandle<G> cmd,
@@ -87,7 +90,7 @@ public:
 	
 	[[nodiscard]] FlipResult<G> Flip();
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
-	bool WaitPresent(uint64_t presentId, uint64_t timeout = UINT64_MAX) const;
+	[[maybe_unused]] bool WaitPresent(uint64_t presentId, uint64_t timeout = UINT64_MAX) const; //NOLINT(modernize-use-nodiscard)
 
 	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }

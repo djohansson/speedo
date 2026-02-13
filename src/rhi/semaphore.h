@@ -23,10 +23,10 @@ public:
 		const std::shared_ptr<Device<G>>& device,
 		SemaphoreCreateDesc<G>&& desc);
 	Semaphore(Semaphore<G>&& other) noexcept;
-	~Semaphore();
+	~Semaphore() override;
 
 	[[nodiscard]] Semaphore& operator=(Semaphore&& other) noexcept;
-	[[nodiscard]] operator bool() const noexcept { return mySemaphore != nullptr; }
+	[[nodiscard]] operator bool() const noexcept { return mySemaphore != nullptr; }//NOLINT(google-explicit-constructor)
 	[[nodiscard]] operator auto() const noexcept { return mySemaphore; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Semaphore& rhs) noexcept;
@@ -35,7 +35,7 @@ public:
 	[[nodiscard]] uint64_t GetValue() const;
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
-	[[maybe_unused]] bool Wait(uint64_t timelineValue = 0, uint64_t timeout = ~0ULL) const;
+	[[maybe_unused]] bool Wait(uint64_t timelineValue = 0, uint64_t timeout = ~0ULL) const; //NOLINT(modernize-use-nodiscard)
 	[[maybe_unused]] static bool Wait(
 		DeviceHandle<G> device,
 		std::span<const SemaphoreHandle<G>> semaphores,

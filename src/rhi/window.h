@@ -51,10 +51,10 @@ public:
 		ConfigFile&& config,
 		WindowState&& state);
 	Window(Window&& other) noexcept;
-	~Window();
+	~Window() override;
 
 	[[maybe_unused]] Window& operator=(Window&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return myWindow; }
+	[[nodiscard]] operator auto() const noexcept { return myWindow; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
@@ -68,7 +68,7 @@ public:
 	[[nodiscard]] const auto& GetState() const noexcept { return myState; }
 
 	void OnInputStateChanged(const InputState& input);
-	void OnResizeFramebuffer(int w, int h);
+	void OnResizeFramebuffer(int width, int height);
 	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
 	void UpdateViewBuffer() const { InternalUpdateViewBuffer(); }
@@ -94,6 +94,6 @@ private:
 namespace window
 {
 
-std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList);
+[[nodiscard]] std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList);
 
 } // namespace window
