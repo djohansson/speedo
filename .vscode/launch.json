@@ -196,7 +196,7 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/debug/bin;${workspaceFolder}/build/toolchain/x64-windows-clangcl-release/bin"},
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/debug/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"},
 				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build/packages/x64-windows-clang/debug/bin"}
 			],
 			"symbolOptions": {
@@ -227,7 +227,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-clangcl-release/bin"},
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"},
 				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
@@ -258,7 +258,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "internalConsole",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-clangcl-release/bin"},
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"},
 				{ "name": "VK_LAYER_PATH", "value": "${workspaceFolder}/build/packages/x64-windows-clang/bin"}
 			],
 			"symbolOptions": {
@@ -292,7 +292,7 @@
 				{ "name": "MIMALLOC_SHOW_STATS", "value": "1" },
 				{ "name": "MIMALLOC_VERBOSE", "value": "1" },
 				{ "name": "MIMALLOC_SHOW_ERRORS", "value": "1" },
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/debug/bin;${workspaceFolder}/build/toolchain/x64-windows-clangcl-release/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/debug/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -322,7 +322,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-clangcl-release/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
@@ -352,7 +352,7 @@
 			"cwd": "${workspaceFolder}",
 			"console": "integratedTerminal",
 			"environment": [
-				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-clangcl-release/bin"}
+				{ "name": "PATH", "value": "${env:PATH};${workspaceFolder}/build/packages/x64-windows-clang/bin;${workspaceFolder}/build/toolchain/x64-windows-release/bin"}
 			],
 			"symbolOptions": {
 				"searchPaths": [],
