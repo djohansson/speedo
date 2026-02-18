@@ -1,13 +1,15 @@
 {
   "name": "shader-slang",
-  "version": "2025.3",
+  "version": "2025.12",
   "description": "Slang is a shading language that makes it easier to build and maintain large shader codebases in a modular and extensible fashion, while also maintaining the highest possible performance on modern GPUs and graphics APIs. Slang is based on years of collaboration between researchers at NVIDIA, Carnegie Mellon University, and Stanford.",
   "homepage": "https://github.com/djohansson/slang",
   "license": "MIT",
   "supports": "((x86 & windows) | (x64 & (windows | linux | osx)) | (arm64 & (linux | osx))) & !uwp & !static",
   "dependencies": [
     "miniz",
+    "lua",
     "lz4",
+    "stb",
     "unordered-dense",
     {
       "name": "glslang",
