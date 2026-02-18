@@ -1,0 +1,160 @@
+From 6399f1b824358b077855906e6752dd06a0c4b19c Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Wed, 18 Feb 2026 17:34:16 +0100
+Subject: [PATCH 3/3] change WIN32 define to _WIN32
+
+---
+ layers/external/xxhash.h                          | 4 ++--
+ layers/layer_options.cpp                          | 8 ++++----
+ layers/utils/math_utils.h                         | 4 ++--
+ layers/vk_layer_config.cpp                        | 2 +-
+ layers/vulkan/generated/vk_function_pointers.cpp  | 2 +-
+ scripts/generators/function_pointers_generator.py | 2 +-
+ tests/unit/instanceless.cpp                       | 2 +-
+ tests/unit/layer_settings.cpp                     | 2 +-
+ 8 files changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/layers/external/xxhash.h b/layers/external/xxhash.h
+index 76a5ec3..0f78c16 100644
+--- a/layers/external/xxhash.h
++++ b/layers/external/xxhash.h
+@@ -373,7 +373,7 @@ extern "C" {
+ 
+ /*! @brief Marks a global symbol. */
+ #if !defined(XXH_INLINE_ALL) && !defined(XXH_PRIVATE_API)
+-#  if defined(WIN32) && defined(_MSC_VER) && (defined(XXH_IMPORT) || defined(XXH_EXPORT))
++#  if defined(_WIN32) && defined(_MSC_VER) && (defined(XXH_IMPORT) || defined(XXH_EXPORT))
+ #    ifdef XXH_EXPORT
+ #      define XXH_PUBLIC_API __declspec(dllexport)
+ #    elif XXH_IMPORT
+@@ -449,7 +449,7 @@ extern "C" {
+ 
+ /* specific declaration modes for Windows */
+ #if !defined(XXH_INLINE_ALL) && !defined(XXH_PRIVATE_API)
+-#  if defined(WIN32) && defined(_MSC_VER) && (defined(XXH_IMPORT) || defined(XXH_EXPORT))
++#  if defined(_WIN32) && defined(_MSC_VER) && (defined(XXH_IMPORT) || defined(XXH_EXPORT))
+ #    ifdef XXH_EXPORT
+ #      define XXH_PUBLIC_API __declspec(dllexport)
+ #    elif XXH_IMPORT
+diff --git a/layers/layer_options.cpp b/layers/layer_options.cpp
+index 9a7fcbe..0b59194 100644
+--- a/layers/layer_options.cpp
++++ b/layers/layer_options.cpp
+@@ -605,10 +605,10 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings *settings_data, VkuL
+ 
+     // Default
+     std::vector<std::string> debug_actions_list = {"VK_DBG_LAYER_ACTION_DEFAULT", "VK_DBG_LAYER_ACTION_LOG_MSG"};
+-#ifdef WIN32
++#ifdef _WIN32
+     // For Windows, enable message logging AND OutputDebugStringA
+     debug_actions_list.push_back("VK_DBG_LAYER_ACTION_DEBUG_OUTPUT");
+-#endif  // WIN32
++#endif  // _WIN32
+ 
+     if (vkuHasLayerSetting(layer_setting_set, VK_LAYER_DEBUG_ACTION)) {
+         vkuGetLayerSettingValues(layer_setting_set, VK_LAYER_DEBUG_ACTION, debug_actions_list);
+@@ -798,12 +798,12 @@ void ProcessConfigAndEnvSettings(ConfigAndEnvSettings *settings_data) {
+     dbg_create_info.pUserData = (void *)log_output;
+     LayerCreateMessengerCallback(settings_data->debug_report, true, &dbg_create_info, &messenger);
+ 
+-#ifdef WIN32
++#ifdef _WIN32
+     messenger = VK_NULL_HANDLE;
+     dbg_create_info.pfnUserCallback = MessengerWin32DebugOutputMsg;
+     dbg_create_info.pUserData = nullptr;
+     LayerCreateMessengerCallback(settings_data->debug_report, true, &dbg_create_info, &messenger);
+-#endif  // WIN32
++#endif  // _WIN32
+ 
+     return;
+ #else
+diff --git a/layers/utils/math_utils.h b/layers/utils/math_utils.h
+index fe0d5e1..8be7c81 100644
+--- a/layers/utils/math_utils.h
++++ b/layers/utils/math_utils.h
+@@ -24,7 +24,7 @@
+ #include <limits>
+ #include <type_traits>
+ 
+-#ifdef WIN32
++#ifdef _WIN32
+ #include <intrin.h>  // For __lzcnt()
+ #else
+ #include <strings.h>  // For ffs()
+@@ -70,7 +70,7 @@ constexpr bool IsSingleBitSet(T flags) {
+ }
+ 
+ static inline int u_ffs(int val) {
+-#ifdef WIN32
++#ifdef _WIN32
+     unsigned long bit_pos = 0;
+     if (_BitScanForward(&bit_pos, val) != 0) {
+         bit_pos += 1;
+diff --git a/layers/vk_layer_config.cpp b/layers/vk_layer_config.cpp
+index 41ed6f6..fc24e52 100644
+--- a/layers/vk_layer_config.cpp
++++ b/layers/vk_layer_config.cpp
+@@ -99,7 +99,7 @@ void SetEnvironment(const char *variable, const char *value) {
+ #endif
+ }
+ 
+-#if defined(WIN32)
++#if defined(_WIN32)
+ // Check for admin rights
+ static inline bool IsHighIntegrity() {
+     HANDLE process_token;
+diff --git a/layers/vulkan/generated/vk_function_pointers.cpp b/layers/vulkan/generated/vk_function_pointers.cpp
+index 6ab265a..bcdccf0 100644
+--- a/layers/vulkan/generated/vk_function_pointers.cpp
++++ b/layers/vulkan/generated/vk_function_pointers.cpp
+@@ -896,7 +896,7 @@ PFN_vkCmdDrawMeshTasksIndirectCountEXT CmdDrawMeshTasksIndirectCountEXT;
+ 
+ void InitCore(const char *api_name) {
+ 
+-#if defined(WIN32)
++#if defined(_WIN32)
+     std::string filename = std::string(api_name) + "-1.dll";
+     auto lib_handle = open_library(filename.c_str());
+ #elif(__APPLE__)
+diff --git a/scripts/generators/function_pointers_generator.py b/scripts/generators/function_pointers_generator.py
+index 64d280d..0a83cdd 100644
+--- a/scripts/generators/function_pointers_generator.py
++++ b/scripts/generators/function_pointers_generator.py
+@@ -160,7 +160,7 @@ namespace vk {
+         out.append('''
+ void InitCore(const char *api_name) {
+ 
+-#if defined(WIN32)
++#if defined(_WIN32)
+     std::string filename = std::string(api_name) + "-1.dll";
+     auto lib_handle = open_library(filename.c_str());
+ #elif(__APPLE__)
+diff --git a/tests/unit/instanceless.cpp b/tests/unit/instanceless.cpp
+index c4eedb7..30e65a6 100644
+--- a/tests/unit/instanceless.cpp
++++ b/tests/unit/instanceless.cpp
+@@ -223,7 +223,7 @@ void VKAPI_PTR DummyFree(void*, void* pMemory) {
+ // allocated during vkCreateInstance lives in a different 'heap'. Trying to free it from the application with the
+ // DummyFree callbacks will crash the application. The goal of this change is to enable Leak Sanitizer to run on
+ // CI runs in linux, so leaking memory in the windows tests is okay.
+-#if !defined(WIN32)
++#if !defined(_WIN32)
+     std::free(pMemory);
+ #endif
+ }
+diff --git a/tests/unit/layer_settings.cpp b/tests/unit/layer_settings.cpp
+index 5495a05..11cfe0d 100644
+--- a/tests/unit/layer_settings.cpp
++++ b/tests/unit/layer_settings.cpp
+@@ -452,7 +452,7 @@ TEST_F(NegativeLayerSettings, ReportFlags3) {
+     Monitor().VerifyFound();
+ }
+ 
+-#ifndef WIN32
++#ifndef _WIN32
+ TEST_F(NegativeLayerSettings, LogFilename) {
+     const char *path[] = {"/fake/path"};
+     const VkLayerSettingEXT setting = {OBJECT_LAYER_NAME, "log_filename", VK_LAYER_SETTING_TYPE_STRING_EXT, 1, path};
+-- 
+2.52.0.windows.1
+
