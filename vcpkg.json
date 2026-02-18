@@ -40,23 +40,10 @@
         },
         "cargs",
         "concurrentqueue",
-        {
-          "name": "cppzmq",
-          "features": [
-            "draft"
-          ]
-        },
+        "cppzmq",
         "cpptrace",
         "glaze",
-        {
-          "name": "mimalloc",
-          "features": [
-            "c",
-            "override",
-            "optarch",
-            "asm"
-          ]
-        },
+        "mimalloc",
         "mio",
         "picosha2",
         "sha-intrinsics",
@@ -123,5 +110,5 @@
       ]
     }
   },
-  "builtin-baseline": "ce613c41372b23b1f51333815feb3edd87ef8a8b"
+  "builtin-baseline": "66c0373dc7fca549e5803087b9487edfe3aca0a1"
 }
