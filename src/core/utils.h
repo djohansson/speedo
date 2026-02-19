@@ -11,7 +11,7 @@
 
 #include <ankerl/unordered_dense.h>
 
-#include <concurrentqueue/concurrentqueue.h>
+#include <concurrentqueue/moodycamel/concurrentqueue.h>
 
 template <std::size_t N>
 struct MinSizeIndex
