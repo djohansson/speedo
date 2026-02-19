@@ -85,9 +85,8 @@ function Get-HostTriplet
 {
 	$Arch = Get-HostArchitecture
 	$OS = Get-HostOS
-	$Compiler = Get-HostCompiler
 
-	return "$Arch-$OS-$Compiler"
+	return "$Arch-$OS-release"
 }
 
 function Get-TargetTriplet

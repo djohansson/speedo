@@ -46,7 +46,7 @@ else
 # Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
 # Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg') | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue $($(Get-HostArchitecture) + '-' + $(Get-HostOS) + '-' + 'release') | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue Get-HostTriplet | Out-Null
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Initialize-HostUserEnv

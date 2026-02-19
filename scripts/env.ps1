@@ -25,11 +25,11 @@ function Add-EnvPath
 
 	if ("" -eq $env:PATH -or $null -eq $env:PATH)
 	{
-		Set-EnvVariable("PATH", $Path, $Scope)
+		Set-EnvVariable -Key "PATH" -Value $Path -Scope $Scope
 	}
 	else
 	{
-		Set-EnvVariable("PATH", $env:PATH + [IO.Path]::PathSeparator + $Path, $Scope)
+		Set-EnvVariable -Key "PATH" -Value $($env:PATH + [IO.Path]::PathSeparator + $Path) -Scope $Scope
 	}
 }
 
