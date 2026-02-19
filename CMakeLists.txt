@@ -214,6 +214,11 @@ target_link_libraries(
 		serverlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
+add_custom_command(
+	TARGET server POST_BUILD
+	COMMAND mimalloc/minject -f -i "$<$<CONFIG:debug>:--postfix==secure-debug>" "$<TARGET_FILE:server>"
+	VERBATIM
+)
 
 ###############################################################################
 
@@ -241,6 +246,11 @@ target_link_libraries(
 		rhi
 		clientlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
+)
+add_custom_command(
+	TARGET client POST_BUILD
+	COMMAND mimalloc/minject -f -i "$<$<CONFIG:debug>:--postfix==secure-debug>" "$<TARGET_FILE:client>"
+	VERBATIM
 )
 
 ###############################################################################

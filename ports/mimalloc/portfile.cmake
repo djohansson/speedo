@@ -11,8 +11,13 @@ vcpkg_from_github(
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
         override    MI_OVERRIDE
+)
+
+vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS_DEBUG
+    FEATURES
         secure      MI_SECURE
 )
+
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" MI_BUILD_STATIC)
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" MI_BUILD_SHARED)
 
@@ -27,6 +32,7 @@ vcpkg_cmake_configure(
         -DMI_BUILD_SHARED=${MI_BUILD_SHARED}
         -DMI_INSTALL_TOPLEVEL=ON
     OPTIONS_DEBUG
+        ${FEATURE_OPTIONS_DEBUG}
         -DMI_DEBUG_FULL=ON
     OPTIONS_RELEASE
         -DMI_DEBUG_FULL=OFF
@@ -35,6 +41,22 @@ vcpkg_cmake_configure(
 vcpkg_cmake_install()
 
 vcpkg_copy_pdbs()
+
+if(VCPKG_TARGET_IS_WINDOWS)
+    if(VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")
+        vcpkg_copy_tools(
+            TOOL_NAMES minject
+            SEARCH_DIR ${SOURCE_PATH}/bin
+            AUTO_CLEAN
+        )
+    elseif(VCPKG_TARGET_ARCHITECTURE STREQUAL "x86")
+        vcpkg_copy_tools(
+            TOOL_NAMES minject32
+            SEARCH_DIR ${SOURCE_PATH}/bin
+            AUTO_CLEAN
+        )
+    endif()
+endif()
 
 file(COPY
     "${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake"

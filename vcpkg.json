@@ -41,7 +41,13 @@
         "cppzmq",
         "cpptrace",
         "glaze",
-        "mimalloc",
+        {
+          "name": "mimalloc",
+          "features": [
+            "override",
+            "secure"
+          ]
+        },
         "mio",
         "picosha2",
         "sha-intrinsics",
