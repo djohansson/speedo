@@ -19,7 +19,7 @@ set(SPEEDO_VERSION_PATCH ${CMAKE_MATCH_1})
 
 set(SPEEDO_VERSION_STRING "${SPEEDO_VERSION_MAJOR}.${SPEEDO_VERSION_MINOR}.${SPEEDO_VERSION_PATCH}")
 
-message("VERSION ${SPEEDO_VERSION_STRING}")
+message("SPEEDO - VERSION ${SPEEDO_VERSION_STRING}")
 
 ###############################################################################
 
@@ -159,7 +159,7 @@ target_link_libraries(
 	serverlib
 	PUBLIC
 		core
-		cppzmq
+		cppzmq-static
 )
 
 ###############################################################################
@@ -187,7 +187,7 @@ target_include_directories(
 target_link_libraries(
 	clientlib
 	PRIVATE
-		serverlib
+		serverlib # todo: redesign so that we can remove this (quite unsafe) dependency
 )
 
 ###############################################################################
@@ -209,7 +209,7 @@ target_include_directories(
 target_link_libraries(
 	server
 	PRIVATE
-		mimalloc
+		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
 		cargs
 		serverlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
@@ -234,7 +234,7 @@ target_include_directories(
 target_link_libraries(
 	client
 	PRIVATE
-		mimalloc
+		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
 		cargs
 		glfw
 		gfx
