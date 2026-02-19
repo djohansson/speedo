@@ -8,9 +8,6 @@
 			"binaryDir": "${sourceDir}/build/${presetName}",
 			"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
 			"installDir": "${sourceDir}/build/install/${presetName}",
-			"environment": {
-				"VCPKG_ROOT": "${sourceDir}/vcpkg"
-			},
 			"cacheVariables": {
 				"CMAKE_CONFIGURATION_TYPES": "debug;profile;release",
 				"CMAKE_MAP_IMPORTED_CONFIG_PROFILE": ";profile;release",
@@ -33,7 +30,7 @@
 			"inherits": "ninja-multi-vcpkg",
 			"environment": {
 				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-windows-release",
-				"PATH": "$env{LLVM_ROOT}/bin${pathListSep}$penv{PATH}"
+				"PATH": "$env{LLVM_ROOT}/bin${pathListSep}$env{LLVM_ROOT}/tools/llvm${pathListSep}$env{WINDOWS_SDK}/bin/$env{WINDOWS_SDK_VERSION}/x64${pathListSep}$penv{PATH}"
 			},
 			"condition": {
 				"type": "equals",

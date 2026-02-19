@@ -1,5 +1,16 @@
 . $PSScriptRoot/platform.ps1
 
+function Set-EnvVariable
+{
+	param(
+		[Parameter(Mandatory = $True)] [string] $Key,
+		[Parameter(Mandatory = $True)] [string] $Value,
+		[Parameter(Mandatory = $False)] [EnvironmentVariableTarget] $Scope = [EnvironmentVariableTarget]::Process
+	)
+
+	[Environment]::SetEnvironmentVariable($Key, $Value, $Scope)
+}
+
 function Add-EnvPath
 {
 	param(
@@ -14,11 +25,11 @@ function Add-EnvPath
 
 	if ("" -eq $env:PATH -or $null -eq $env:PATH)
 	{
-		[Environment]::SetEnvironmentVariable("PATH", $Path, $Scope)
+		Set-EnvVariable("PATH", $Path, $Scope)
 	}
 	else
 	{
-		[Environment]::SetEnvironmentVariable("PATH", $env:PATH + [IO.Path]::PathSeparator + $Path, $Scope)
+		Set-EnvVariable("PATH", $env:PATH + [IO.Path]::PathSeparator + $Path, $Scope)
 	}
 }
 
@@ -84,7 +95,7 @@ function Read-EnvFile
 
 	foreach($property in $localEnv.psobject.properties)
 	{
-		[Environment]::SetEnvironmentVariable($property.Name, $property.Value, $Scope)
+		Set-EnvVariable $property.Name $property.Value $Scope
 
 		#Write-Host $property.Name "=" $property.Value
 	}
@@ -119,10 +130,10 @@ function Initialize-VcpkgEnv
 	}
 }
 
-function Initialize-SystemEnv
+function Initialize-HostUserEnv
 {
 	#Write-Host "Setting system environment variables from env.json"
-	Read-EnvFile "$PSScriptRoot/../.env.json"
+	Read-EnvFile "$PSScriptRoot/../.env.json" User
 }
 
 function Initialize-ToolchainEnv
@@ -152,11 +163,15 @@ function Initialize-ToolchainEnv
 	{
 		$dynlibPath = "$toolchainRoot/lib"
 	}
+	$toolsPath = "$toolchainRoot/tools/llvm"
+	#Write-Host "Adding $dynlibPath"
 	if (Test-Path $dynlibPath)
 	{
 		#Write-Host "Adding $dynlibPath"
 		Add-EnvDylibPath $dynlibPath
 	}
+	#Write-Host "Adding $toolsPath"
+	Add-EnvPath $toolsPath
 }
 
 function Initialize-VcpkgToolsEnv

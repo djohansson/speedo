@@ -13,14 +13,29 @@ if (Test-Path $myEnvFile)
 if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
 {
 	& $PSScriptRoot/scripts/platforms/windows/windows.ps1
+
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.exe))
+	{
+		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
+	}
 }
 elseif ($IsMacOS)
 {
 	& $PSScriptRoot/scripts/platforms/osx/osx.ps1
+
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
+	{
+		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+	}
 }
 elseif ($IsLinux)
 {
 	& $PSScriptRoot/scripts/platforms/linux/linux.ps1
+
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
+	{
+		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+	}
 }
 else
 {
@@ -28,29 +43,12 @@ else
 	exit
 }
 
+# Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
+# Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg') | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue $($(Get-HostArchitecture) + '-' + $(Get-HostOS) + '-' + 'release') | Out-Null
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
-if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
-{
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.exe))
-	{
-		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
-	}
-}
-else
-{
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
-	{
-		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
-	}
-}
+Initialize-HostUserEnv
 
-Initialize-SystemEnv
-
-# compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler
-# use release configuration for the toolchain, as debug builds of the toolchain are not needed.
-$HostTriplet = $(Get-HostArchitecture) + '-' + $(Get-HostOS) + '-' + 'release'
-
-Write-Host "Building toolchain using $HostTriplet..."
-
-Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $HostTriplet --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
+Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
