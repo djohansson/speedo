@@ -1,5 +1,5 @@
-. $PSScriptRoot/../../winget.ps1
-. $PSScriptRoot/../../vs.ps1
+. $PSScriptRoot/winget.ps1
+. $PSScriptRoot/vs.ps1
 
 Write-Host "Installing Windows dependencies..."
 

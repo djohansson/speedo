@@ -1,4 +1,4 @@
-. $PSScriptRoot/../../apt.ps1
+. $PSScriptRoot/apt.ps1
 
 Write-Host "Installing Linux dependencies..."
 

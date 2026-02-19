@@ -1,4 +1,4 @@
-. $PSScriptRoot/../../homebrew.ps1
+. $PSScriptRoot/homebrew.ps1
 . $PSScriptRoot/../../platform.ps1
 
 Write-Host "Installing MacOS dependencies..."
