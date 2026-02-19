@@ -20,9 +20,7 @@
         {
           "name": "llvm",
           "default-features": false,
-          "features": [
-            "libcxxabi"
-          ],
+          "features": [ "libcxxabi" ],
           "platform": "!windows"
         }
       ]
@@ -52,8 +50,7 @@
         "tracy",
         "unordered-dense",
         "xxhash",
-        "zpp-bits",
-        "zeromq"
+        "zpp-bits"
       ]
     },
     "client": {
@@ -69,9 +66,7 @@
         {
           "name": "glfw3",
           "default-features": false,
-          "features": [
-            "wayland"
-          ],
+          "features": [ "wayland" ],
           "platform": "linux"
         },
         "glm",
@@ -88,9 +83,7 @@
         "tinyobjloader",
         {
           "name": "tracy",
-          "features": [
-            "gui-tools"
-          ]
+          "features": [ "gui-tools" ]
         },
         "vulkan",
         "vulkan-headers",
