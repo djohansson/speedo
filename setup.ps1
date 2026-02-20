@@ -45,10 +45,12 @@ else
 
 # Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
 # Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg') | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue Get-HostTriplet | Out-Null
+$env:VCPKG_ROOT = $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg')
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $env:VCPKG_ROOT | Out-Null
+$env:VCPKG_HOST_TRIPLET = $(Get-HostTriplet)
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue $env:VCPKG_HOST_TRIPLET | Out-Null
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Initialize-HostUserEnv
 
-Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
+Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --vcpkg-root $env:VCPKG_ROOT --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
