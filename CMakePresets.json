@@ -20,6 +20,9 @@
 				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/scripts/cmake/triplets",
 				"VCPKG_VERBOSE": "YES"
 			},
+			"environment": {
+				"TOOLS_ROOT": "${sourceDir}/build/packages/${presetName}/tools"
+			},
 			"warnings": {
 				"dev": false
 			},
@@ -30,7 +33,7 @@
 			"inherits": "ninja-multi-vcpkg",
 			"environment": {
 				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-windows-release",
-				"PATH": "${sourceDir}/build/packages/${presetName}/tools${pathListSep}$env{LLVM_ROOT}/bin${pathListSep}$env{LLVM_ROOT}/tools/llvm${pathListSep}$env{WINDOWS_SDK}/bin/$env{WINDOWS_SDK_VERSION}/x64${pathListSep}$penv{PATH}"
+				"PATH": "$env{LLVM_ROOT}/bin${pathListSep}$env{LLVM_ROOT}/tools/llvm${pathListSep}$env{WINDOWS_SDK}/bin/$env{WINDOWS_SDK_VERSION}/x64${pathListSep}$penv{PATH}"
 			},
 			"condition": {
 				"type": "equals",
@@ -43,8 +46,7 @@
 			"inherits": "ninja-multi-vcpkg",
 			"environment": {
 				"LLVM_ROOT": "${sourceDir}/build/toolchain/arm64-osx-release",
-				"DYLD_LIBRARY_PATH": "$env{LLVM_ROOT}/lib${pathListSep}$penv{DYLD_LIBRARY_PATH}",
-				"PATH": "${sourceDir}/build/packages/${presetName}/tools${pathListSep}"
+				"DYLD_LIBRARY_PATH": "$env{LLVM_ROOT}/lib${pathListSep}$penv{DYLD_LIBRARY_PATH}"
 			},
 			"cacheVariables": {
 				"CMAKE_APPLE_SILICON_PROCESSOR": "arm64",
@@ -61,8 +63,7 @@
 			"inherits": "ninja-multi-vcpkg",
 			"environment": {
 				"LLVM_ROOT": "${sourceDir}/build/toolchain/arm64-linux-release",
-				"LD_LIBRARY_PATH": "$env{LLVM_ROOT}/lib${pathListSep}$penv{LD_LIBRARY_PATH}",
-				"PATH": "${sourceDir}/build/packages/${presetName}/tools${pathListSep}"
+				"LD_LIBRARY_PATH": "$env{LLVM_ROOT}/lib${pathListSep}$penv{LD_LIBRARY_PATH}"
 			},
 			"condition": {
 				"type": "equals",
@@ -75,8 +76,7 @@
 			"inherits": "ninja-multi-vcpkg",
 			"environment": {
 				"LLVM_ROOT": "${sourceDir}/build/toolchain/x64-linux-release",
-				"LD_LIBRARY_PATH": "$env{LLVM_ROOT}/lib${pathListSep}$penv{LD_LIBRARY_PATH}",
-				"PATH": "${sourceDir}/build/packages/${presetName}/tools${pathListSep}"
+				"LD_LIBRARY_PATH": "$env{LLVM_ROOT}/lib${pathListSep}$penv{LD_LIBRARY_PATH}"
 			},
 			"condition": {
 				"type": "equals",
