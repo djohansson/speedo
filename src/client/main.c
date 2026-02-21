@@ -53,9 +53,15 @@ static void OnSignal(int signal)
 {
 	switch (signal)
 	{	
-//	case SIGINT:
-	case SIGTERM:
+	case SIGINT:
 		gIsInterrupted = true;
+		return;
+	case SIGTERM:
+		LOG_ERROR("Program terminated.");
+		return;
+	case SIGABRT:
+	case SIGABRT_COMPAT:
+		LOG_ERROR("Program aborted.");
 		return;
 	default:
 		break;
