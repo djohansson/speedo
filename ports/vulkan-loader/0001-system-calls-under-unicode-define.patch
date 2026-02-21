@@ -1,0 +1,44 @@
+From f6a99a39123e2d9c7ae8f31823706d2e580f1043 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Sat, 21 Feb 2026 16:20:24 +0100
+Subject: [PATCH 1/1] system calls under unicode define
+
+---
+ loader/loader_windows.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/loader/loader_windows.c b/loader/loader_windows.c
+index a3d5d5d..7043e74 100644
+--- a/loader/loader_windows.c
++++ b/loader/loader_windows.c
+@@ -71,15 +71,15 @@ void windows_initialization(void) {
+     HMODULE module_handle = NULL;
+ 
+     // Get a module handle to a static function inside of this source
+-    if (GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)&function_for_finding_the_current_module, &module_handle) != 0 &&
+-        GetModuleFileName(module_handle, dll_location, sizeof(dll_location)) != 0) {
++        GetModuleFileNameA(module_handle, dll_location, sizeof(dll_location)) != 0) {
+         loader_log(NULL, VULKAN_LOADER_INFO_BIT, 0, "Using Vulkan Loader %s", dll_location);
+     }
+ 
+     // This is needed to ensure that newer APIs are available right away
+     // and not after the first call that has been statically linked
+-    LoadLibraryEx("gdi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
++    LoadLibraryExA("gdi32.dll", NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+ 
+     wchar_t systemPath[MAX_PATH] = L"";
+     GetSystemDirectoryW(systemPath, MAX_PATH);
+@@ -585,7 +585,7 @@ VkResult windows_read_manifest_from_d3d_adapters(const struct loader_instance *i
+     char *json_path = NULL;
+     size_t json_path_size = 0;
+ 
+-    HMODULE gdi32_dll = GetModuleHandle("gdi32.dll");
++    HMODULE gdi32_dll = GetModuleHandleA("gdi32.dll");
+     if (gdi32_dll == NULL) {
+         result = VK_ERROR_INCOMPATIBLE_DRIVER;
+         goto out;
+-- 
+2.52.0.windows.1
+
