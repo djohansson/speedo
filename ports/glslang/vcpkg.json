@@ -18,7 +18,12 @@
     "opt": {
       "description": "Build with spirv-opt capability",
       "dependencies": [
-        "spirv-tools"
+         {
+          "name": "spirv-tools",
+          "features": [
+            "tools"
+          ]
+        }
       ]
     },
     "rtti": {

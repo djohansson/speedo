@@ -18,7 +18,12 @@
       ]
     },
     "spirv-headers",
-    "spirv-tools",
+    {
+      "name": "spirv-tools",
+      "features": [
+        "tools"
+      ]
+    },
     {
       "name": "vcpkg-cmake",
       "host": true
