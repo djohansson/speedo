@@ -23,15 +23,21 @@
 #endif
 
 #define CLEAN_ERRNO() (errno == 0 ? "NULL" : strerror(errno))
+#define CONCAT_IMPL(x, y) x##y
+#define CONCAT(x, y) CONCAT_IMPL(x, y)
+#define COUNTED_VAR_DECLARE(x) CONCAT(x, __COUNTER__)
 
 #ifdef __cplusplus
-#	define LOG_ERROR(M, ...) \
-	std::println(stderr, "{}:{} (errno: {})\n{}\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), cpptrace::generate_trace().to_string() __VA_OPT__(,) __VA_ARGS__)
+#	define LOG_ERROR_IMPL(M, C, ...) \
+	auto C{cpptrace::generate_trace().to_string()}; \
+	std::println(stderr, "{}:{} (errno: {})\n{}\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), C __VA_OPT__(,) __VA_ARGS__)
+#	define LOG_ERROR(M, ...) LOG_ERROR_IMPL(M, COUNTED_VAR_DECLARE(__trace__) __VA_OPT__(,) __VA_ARGS__)
 #else
-#	define LOG_ERROR(M, ...) \
+#	define LOG_ERROR_IMPL(M, C, ...) \
 	fprintf(stderr, "%s:%d (errno: %s)\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO() __VA_OPT__(,) __VA_ARGS__); \
-	ctrace_stacktrace trace = ctrace_generate_trace(0, 64); \
-	ctrace_print_stacktrace(&trace, stderr, 1)
+	ctrace_stacktrace C = ctrace_generate_trace(0, 64); \
+	ctrace_print_stacktrace(&C, stderr, 1)
+#	define LOG_ERROR(M, ...) LOG_ERROR_IMPL(M, COUNTED_VAR_DECLARE(__trace__) __VA_OPT__(,) __VA_ARGS__)
 #endif
 
 #ifdef __cplusplus
