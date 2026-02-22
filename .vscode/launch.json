@@ -96,7 +96,7 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
-			"preLaunchTask": "export-vk-driver-path",
+			"preLaunchTask": "export-molten-vk-driver-path",
 			"envFile": "${userHome}/.speedo/.env",
 			"env": {
 				"MIMALLOC_SHOW_STATS": "1",
@@ -117,7 +117,7 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
-			"preLaunchTask": "export-vk-driver-path",
+			"preLaunchTask": "export-molten-vk-driver-path",
 			"envFile": "${userHome}/.speedo/.env",
 			"env": {
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
@@ -133,7 +133,7 @@
 			"args": ["-u", "${userHome}/.speedo"],
 			"cwd": "${workspaceFolder}",
 			"terminal": "console",
-			"preLaunchTask": "export-vk-driver-path",
+			"preLaunchTask": "export-molten-vk-driver-path",
 			"envFile": "${userHome}/.speedo/.env",
 			"env": {
 				"DYLD_LIBRARY_PATH": "${env:DYLD_LIBRARY_PATH}:${workspaceFolder}/build/packages/arm64-osx-clang/lib",
