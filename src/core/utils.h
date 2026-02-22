@@ -7,7 +7,6 @@
 #include <flat_map>
 #include <functional>
 #include <memory>
-#include <vector>
 
 #include <ankerl/unordered_dense.h>
 
