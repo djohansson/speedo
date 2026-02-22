@@ -60,7 +60,6 @@ static void OnSignal(int signal)
 		LOG_ERROR("Program terminated.");
 		return;
 	case SIGABRT:
-	case SIGABRT_COMPAT:
 		LOG_ERROR("Program aborted.");
 		return;
 	default:
