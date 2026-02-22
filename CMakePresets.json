@@ -21,6 +21,7 @@
 				"VCPKG_VERBOSE": "YES"
 			},
 			"environment": {
+				"VCPKG_ROOT": "${sourceDir}/vcpkg",
 				"TOOLS_ROOT": "${sourceDir}/build/packages/${presetName}/tools"
 			},
 			"warnings": {
