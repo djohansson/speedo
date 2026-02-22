@@ -458,6 +458,7 @@ void SetDefaultAccessAndStageMasks(VkImageLayout layout, VkAccessFlags2KHR& outA
 			VK_ACCESS_2_HOST_READ_BIT |
 			VK_ACCESS_2_HOST_WRITE_BIT;
 		outStageMask =
+			VK_PIPELINE_STAGE_2_HOST_BIT |
 			VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
 			VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 		break;
