@@ -15,7 +15,7 @@ index d65de61..7cbb79a 100644
      target_sources(vvl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
      target_compile_options(vvl PRIVATE -Wa,-mbig-obj)
      set_target_properties(vvl PROPERTIES PREFIX "") # remove the prefix "lib" so the manifest json "library_path" matches
-+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND CMAKE_SYSTEM_NAME MATCHES "Windows")
 +    target_link_options(vvl PRIVATE -Wl,/DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
  elseif(APPLE)
  
