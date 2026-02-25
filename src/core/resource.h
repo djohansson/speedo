@@ -11,7 +11,7 @@ struct IResource
 	[[nodiscard]] virtual const uuids::uuid& GetUuid() const noexcept = 0;
 };
 
-struct ResourceHash : ankerl::unordered_dense::hash<uuids::uuid>
+struct ResourceHash : Hash<uuids::uuid>
 {
 	[[nodiscard]] size_t operator()(const IResource& obj) const noexcept;
 	

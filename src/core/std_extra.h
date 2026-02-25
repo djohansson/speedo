@@ -13,6 +13,9 @@
 namespace std_extra
 {
 
+template<class... Ts>
+struct overloaded : Ts... { using Ts::operator()...; };
+
 template <std::size_t N>
 using min_unsigned_t = std::tuple_element_t<
 	std::bit_width(N) / 8,

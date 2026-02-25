@@ -4,13 +4,27 @@
 #include "std_extra.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <flat_map>
 #include <functional>
 #include <memory>
+#include <type_traits>
 
+#if defined(USE_STD_UNORDERED_CONTAINERS) && USE_STD_UNORDERED_CONTAINERS
+#include <unordered_map>
+#include <unordered_set>
+#else
 #include <ankerl/unordered_dense.h>
+#endif
 
 #include <concurrentqueue/moodycamel/concurrentqueue.h>
+
+template <typename T>
+#if defined(USE_STD_UNORDERED_CONTAINERS) && USE_STD_UNORDERED_CONTAINERS
+using Hash = std::hash<T>;
+#else
+using Hash = ankerl::unordered_dense::hash<T>;
+#endif
 
 template <std::size_t N>
 struct MinSizeIndex
@@ -23,45 +37,45 @@ struct MinSizeIndex
 };
 
 template <typename T, typename Handle>
-struct HandleHash : ankerl::unordered_dense::hash<Handle>
+struct HandleHash : Hash<Handle>
 {
 	[[nodiscard]] size_t operator()(const T& obj) const
 	{
-		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(obj));
+		return Hash<Handle>::operator()(static_cast<Handle>(obj));
 	}
 	[[nodiscard]] size_t operator()(const Handle& handle) const
 	{
-		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
+		return Hash<Handle>::operator()(handle);
 	}
 
 	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
-struct HandleHash<std::unique_ptr<T>, Handle> : ankerl::unordered_dense::hash<Handle>
+struct HandleHash<std::unique_ptr<T>, Handle> : Hash<Handle>
 {
 	[[nodiscard]] size_t operator()(const std::unique_ptr<T>& ptr) const
 	{
-		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(*ptr));
+		return Hash<Handle>::operator()(static_cast<Handle>(*ptr));
 	}
 	[[nodiscard]] size_t operator()(const Handle& handle) const
 	{
-		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
+		return Hash<Handle>::operator()(handle);
 	}
 
 	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
-struct HandleHash<std::shared_ptr<T>, Handle> : ankerl::unordered_dense::hash<Handle>
+struct HandleHash<std::shared_ptr<T>, Handle> : Hash<Handle>
 {
 	[[nodiscard]] size_t operator()(const std::shared_ptr<T>& ptr) const
 	{
-		return ankerl::unordered_dense::hash<Handle>::operator()(static_cast<Handle>(*ptr));
+		return Hash<Handle>::operator()(static_cast<Handle>(*ptr));
 	}
 	[[nodiscard]] size_t operator()(const Handle& handle) const
 	{
-		return ankerl::unordered_dense::hash<Handle>::operator()(handle);
+		return Hash<Handle>::operator()(handle);
 	}
 
 	using is_transparent = std::true_type;
@@ -130,6 +144,52 @@ struct HandleEqualTo<std::shared_ptr<T>, Handle> : std::equal_to<T>
 	using is_transparent = std::true_type;
 };
 
+template <typename T, typename TypeInfo, uint32_t Offset = 0>
+struct IntrusiveTypeInfoHash : Hash<TypeInfo>
+{
+	[[nodiscard]] size_t operator()(const T& obj) const
+	{
+		const void* typePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&obj) + Offset);
+		const TypeInfo& type = *static_cast<const TypeInfo*>(typePtr);
+		return Hash<TypeInfo>::operator()(type);
+	}
+	[[nodiscard]] size_t operator()(const TypeInfo& type) const
+	{
+		return Hash<TypeInfo>::operator()(type);
+	}
+
+	using is_transparent = std::true_type;
+};
+
+template <typename T, typename TypeInfo, uint32_t Offset = 0>
+struct IntrusiveTypeInfoEqualTo : std::equal_to<T>
+{
+	[[nodiscard]] constexpr bool operator()(const T& lhs, const T& rhs) const
+	{
+		const void* lhsTypePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&lhs) + Offset);
+		const TypeInfo& lhsType = *static_cast<const TypeInfo*>(lhsTypePtr);
+		const void* rhsTypePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&rhs) + Offset);
+		const TypeInfo& rhsType = *static_cast<const TypeInfo*>(rhsTypePtr);
+		return lhsType == rhsType;
+	}
+
+	[[nodiscard]] constexpr bool operator()(TypeInfo lhs, const T& rhs) const
+	{
+		const void* rhsTypePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&rhs) + Offset);
+		const TypeInfo& rhsType = *static_cast<const TypeInfo*>(rhsTypePtr);
+		return lhs == rhsType;
+	}
+
+	[[nodiscard]] constexpr bool operator()(const T& lhs, TypeInfo rhs) const
+	{
+		const void* lhsTypePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&lhs) + Offset);
+		const TypeInfo& lhsType = *static_cast<const TypeInfo*>(lhsTypePtr);
+		return lhsType == rhs;
+	}
+
+	using is_transparent = std::true_type;
+};
+
 template <typename T>
 struct IdentityHash
 {
@@ -165,15 +225,23 @@ public:
 template <
 	typename Key,
 	typename Value,
-	typename KeyHash = ankerl::unordered_dense::hash<Key>,
+	typename KeyHash = Hash<Key>,
 	typename KeyEqualTo = std::equal_to<>>
+#if defined(USE_STD_UNORDERED_CONTAINERS) && USE_STD_UNORDERED_CONTAINERS
+using UnorderedMap = std::unordered_map<Key, Value, KeyHash, KeyEqualTo>;
+#else
 using UnorderedMap = ankerl::unordered_dense::map<Key, Value, KeyHash, KeyEqualTo>;
+#endif
 
 template <
 	typename Key,
-	typename KeyHash = ankerl::unordered_dense::hash<Key>,
+	typename KeyHash = Hash<Key>,
 	typename KeyEqualTo = std::equal_to<>>
+#if defined(USE_STD_UNORDERED_CONTAINERS) && USE_STD_UNORDERED_CONTAINERS
+using UnorderedSet = std::unordered_set<Key, KeyHash, KeyEqualTo>;
+#else
 using UnorderedSet = ankerl::unordered_dense::set<Key, KeyHash, KeyEqualTo>;
+#endif
 
 template <typename T>
 using ConcurrentQueue = moodycamel::ConcurrentQueue<T>;
@@ -230,6 +298,3 @@ public:
 		return std::make_pair(insertRangeIt, true);
 	}
 };
-
-template<class... Ts>
-struct Overloaded : Ts... { using Ts::operator()...; };

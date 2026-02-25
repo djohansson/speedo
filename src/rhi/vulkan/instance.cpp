@@ -113,7 +113,7 @@ void GetPhysicalDeviceInfo2(
 	{
 		auto& prevPropertyVariant = gPhysicalDeviceProperties[variantIt - 1];
 		auto& propertyVariant = gPhysicalDeviceProperties[variantIt];
-		std::visit(Overloaded{
+		std::visit(std_extra::overloaded{
 			[&prevPropertyVariant](auto& property) { property.pNext = &prevPropertyVariant; },
 		}, propertyVariant);
 	}
