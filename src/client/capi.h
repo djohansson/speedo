@@ -1,7 +1,7 @@
 #pragma once
 
 #if defined(__WINDOWS__) && defined(CLIENT_DYNAMIC_LINKING)
-#	if defined(CLIENT_DLL_EXPORT) && (CLIENT_DLL_EXPORT==1)
+#	if defined(CLIENT_DLL_EXPORT)
 #		define CLIENT_API __declspec(dllexport)
 #	else
 #		define CLIENT_API __declspec(dllimport)

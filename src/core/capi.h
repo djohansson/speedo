@@ -1,7 +1,7 @@
 #pragma once
 
 #if defined(__WINDOWS__) && defined(CORE_DYNAMIC_LINKING)
-#	if defined(CORE_DLL_EXPORT) && (CORE_DLL_EXPORT==1)
+#	if defined(CORE_DLL_EXPORT)
 #		define CORE_API __declspec(dllexport)
 #	else
 #		define CORE_API __declspec(dllimport)

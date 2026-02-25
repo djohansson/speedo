@@ -1,7 +1,7 @@
 #pragma once
 
 #if defined(__WINDOWS__) && defined(RHI_DYNAMIC_LINKING)
-#	if defined(RHI_DLL_EXPORT) && (RHI_DLL_EXPORT==1)
+#	if defined(RHI_DLL_EXPORT)
 #		define RHI_API __declspec(dllexport)
 #	else
 #		define RHI_API __declspec(dllimport)
