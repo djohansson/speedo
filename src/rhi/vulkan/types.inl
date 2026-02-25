@@ -13,6 +13,10 @@
 #include <vulkan/vulkan_beta.h>
 #include <vulkan/vulkan_metal.h>
 #endif
+
+template <GraphicsApi G>
+using StructureType = std::conditional_t<G == kVk, VkStructureType, std::nullptr_t>;
+
 template <GraphicsApi G>
 using AllocationCallbacks = std::conditional_t<G == kVk, VkAllocationCallbacks, std::nullptr_t>;
 
@@ -166,6 +170,30 @@ using PhysicalDeviceInlineUniformBlockFeatures =
 template <GraphicsApi G>
 using PhysicalDeviceInlineUniformBlockProperties =
 	std::conditional_t<G == kVk, VkPhysicalDeviceInlineUniformBlockProperties, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceDynamicRenderingFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDeviceDynamicRenderingFeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceSynchronization2Features =
+	std::conditional_t<G == kVk, VkPhysicalDeviceSynchronization2FeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDevicePresentIdFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDevicePresentIdFeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDevicePresentWaitFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDevicePresentWaitFeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceSwapchainMaintenance1Features =
+	std::conditional_t<G == kVk, VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR, std::nullptr_t>;
+
+	template <GraphicsApi G>
+using PhysicalDevicePushDescriptorProperties = 
+	std::conditional_t<G == kVk, VkPhysicalDevicePushDescriptorPropertiesKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
 using QueueHandle = std::conditional_t<G == kVk, VkQueue, std::nullptr_t>;
@@ -359,7 +387,7 @@ template <GraphicsApi G>
 using PresentInfo = std::conditional_t<G == kVk, VkPresentInfoKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
-using PresentFenceInfo = std::conditional_t<G == kVk, VkSwapchainPresentFenceInfoEXT, std::nullptr_t>;
+using PresentFenceInfo = std::conditional_t<G == kVk, VkSwapchainPresentFenceInfoKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PresentId = std::conditional_t<G == kVk, VkPresentIdKHR, std::nullptr_t>;

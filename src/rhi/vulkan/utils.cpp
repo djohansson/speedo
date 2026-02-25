@@ -227,6 +227,13 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 		}) != gInstanceExtensions[instance].end();
 }
 
+template<>
+bool SupportsFeature<VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR>(
+	const VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR& feature)
+{
+	return static_cast<bool>(feature.swapchainMaintenance1);
+}
+
 uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor)
 {
 	outDivisor = 1;

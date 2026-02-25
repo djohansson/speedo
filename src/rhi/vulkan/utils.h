@@ -48,6 +48,9 @@ void InitDeviceExtensions(VkDevice device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkInstance device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkPhysicalDevice device);
 
+template<typename T>
+[[nodiscard]] bool SupportsFeature(const T& feature);
+
 [[nodiscard]] uint32_t GetFormatSize(VkFormat format, uint32_t& outDivisor);
 [[nodiscard]] uint32_t GetFormatSize(VkFormat format);
 

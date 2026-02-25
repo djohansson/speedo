@@ -188,7 +188,6 @@ Device<kVk>::Device(
 		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME,
 		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
 	for (const char* extensionName : requiredExtensions)
@@ -210,6 +209,9 @@ Device<kVk>::Device(
 
 	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetPhysicalDevice()))
 		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+
+	if (SupportsFeature(std::get<PhysicalDeviceSwapchainMaintenance1Features<kVk>>(*physicalDeviceInfo.deviceFeatureParams.find(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR))))
+		desiredExtensions.emplace_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
 	
 	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;

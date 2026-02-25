@@ -6,6 +6,7 @@
 
 #include <string>
 #include <tuple>
+#include <variant>
 #include <vector>
 
 template <GraphicsApi G>
@@ -37,14 +38,41 @@ struct SwapchainInfo
 };
 
 template <GraphicsApi G>
+using PhysicalDeviceFeatureParams = std::variant<
+	PhysicalDeviceInlineUniformBlockFeatures<G>,
+	PhysicalDeviceDynamicRenderingFeatures<G>,
+	PhysicalDeviceSynchronization2Features<G>,
+	PhysicalDevicePresentIdFeatures<G>,
+	PhysicalDevicePresentWaitFeatures<G>,
+	PhysicalDeviceSwapchainMaintenance1Features<G>>;
+
+template <GraphicsApi G>
+using PhysicalDevicePropertyParams = std::variant<PhysicalDevicePushDescriptorProperties<G>>;
+
+template <GraphicsApi G>
+using PhysicalDeviceFeatureParamsSet = UnorderedSet<
+	PhysicalDeviceFeatureParams<G>,
+	IntrusiveTypeInfoHash<PhysicalDeviceFeatureParams<G>, StructureType<G>>,
+	IntrusiveTypeInfoEqualTo<PhysicalDeviceFeatureParams<G>, StructureType<G>>>;
+
+	
+template <GraphicsApi G>
+using PhysicalDevicePropertyParamsSet = UnorderedSet<
+	PhysicalDevicePropertyParams<G>,
+	IntrusiveTypeInfoHash<PhysicalDevicePropertyParams<G>, StructureType<G>>,
+	IntrusiveTypeInfoEqualTo<PhysicalDevicePropertyParams<G>, StructureType<G>>>;
+
+template <GraphicsApi G>
 struct PhysicalDeviceInfo
 {
-	PhysicalDeviceProperties<G> deviceProperties{};
-	PhysicalDeviceProperties12Ex<G> deviceProperties12Ex{};
-	// PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
 	PhysicalDeviceFeatures<G> deviceFeatures{};
 	PhysicalDeviceFeatures12Ex<G> deviceFeatures12Ex{};
 	// PhysicalDeviceFeatures13Ex<G> deviceFeatures13Ex{};
+	PhysicalDeviceFeatureParamsSet<G> deviceFeatureParams;
+	PhysicalDeviceProperties<G> deviceProperties{};
+	PhysicalDeviceProperties12Ex<G> deviceProperties12Ex{};
+	// PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
+	PhysicalDevicePropertyParamsSet<G> devicePropertyParams;
 	std::vector<QueueFamilyProperties<G>> queueFamilyProperties;
 };
 

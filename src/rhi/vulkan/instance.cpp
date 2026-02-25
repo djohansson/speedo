@@ -4,11 +4,14 @@
 
 #include <core/assert.h>
 #include <core/profiling.h>
+#include <core/utils.h>
 
+#include <algorithm>
 #include <cstddef>
+#include <iostream>
 #include <vector>
 #include <variant>
-#include <iostream>
+#include <type_traits>
 
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
@@ -30,96 +33,90 @@ GetSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surf
 	return capabilities;
 }
 
+template <typename VariantContainerType>
+void* GetPNextChain(const VariantContainerType& objects)
+{
+	auto nextObjectIt = objects.cbegin();
+	const auto objectEndIt = objects.cend();
+	std::ranges::for_each(objects,
+		[&nextObjectIt, &objectEndIt](auto& objectVariant)
+		{
+			using VariantType = std::decay_t<decltype(objectVariant)>;
+			std::visit(std_extra::overloaded{
+				[&nextObjectIt, &objectEndIt](auto& object)
+				{
+					if (++nextObjectIt == objectEndIt) [[unlikely]]
+						object.pNext = nullptr;
+					else [[likely]]
+						object.pNext = const_cast<void*>(static_cast<const void*>(&(*(nextObjectIt))));
+				},
+			}, const_cast<VariantType&>(objectVariant));
+		});
+
+	return const_cast<void*>(static_cast<const void*>(&(*objects.begin())));
+};
+
 void GetPhysicalDeviceInfo2(
 	PhysicalDeviceInfo<kVk>& deviceInfo,
 	InstanceHandle<kVk> instance,
 	PhysicalDeviceHandle<kVk> device)
 {
-	using PhysicalDeviceFeatures = std::variant<
-		VkPhysicalDeviceInlineUniformBlockFeaturesEXT,
-		VkPhysicalDeviceDynamicRenderingFeaturesKHR,
-		VkPhysicalDeviceSynchronization2FeaturesKHR,
-		VkPhysicalDevicePresentIdFeaturesKHR,
-		VkPhysicalDevicePresentWaitFeaturesKHR,
-		VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT>;
-	static std::vector<PhysicalDeviceFeatures> gPhysicalDeviceFeatures;
-	gPhysicalDeviceFeatures.clear();
-	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceDynamicRenderingFeaturesKHR
+	auto& deviceFeatureParams = deviceInfo.deviceFeatureParams;
+	deviceFeatureParams.clear();
+	deviceFeatureParams.emplace(VkPhysicalDeviceDynamicRenderingFeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
 	});
-	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceSynchronization2FeaturesKHR
+	deviceFeatureParams.emplace(VkPhysicalDeviceSynchronization2FeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
 	});
-	gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT
+	deviceFeatureParams.emplace(VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT,
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
 	});
 	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, device))
 	{
-		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
+		deviceFeatureParams.emplace(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
 		});
 	}
 	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, device))
 	{
-		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDevicePresentIdFeaturesKHR
+		deviceFeatureParams.emplace(VkPhysicalDevicePresentIdFeaturesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR,
 		});
 	}
 	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device))
 	{
-		gPhysicalDeviceFeatures.emplace_back(VkPhysicalDevicePresentWaitFeaturesKHR
+		deviceFeatureParams.emplace(VkPhysicalDevicePresentWaitFeaturesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
 		});
 	}
-
-	for (unsigned variantIt = 1; variantIt < gPhysicalDeviceFeatures.size(); variantIt++)
-	{
-		auto& prevFeatureVariant = gPhysicalDeviceFeatures[variantIt - 1];
-		auto& featureVariant = gPhysicalDeviceFeatures[variantIt];
-		std::visit(Overloaded{
-			[&prevFeatureVariant](auto& feature)
-			{
-				feature.pNext = &prevFeatureVariant;
-			},
-		}, featureVariant);
-	}
 	
 	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeatures12Ex.pNext = &gPhysicalDeviceFeatures.back();
+	deviceInfo.deviceFeatures12Ex.pNext = GetPNextChain(deviceFeatureParams);
 
 	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures12Ex;
 	
 	gVkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
-	using PhysicalDeviceProperties = std::variant<VkPhysicalDevicePushDescriptorPropertiesKHR>;
-	static std::vector<PhysicalDeviceProperties> gPhysicalDeviceProperties;
-	gPhysicalDeviceProperties.clear();
+	auto& devicePropertyParams = deviceInfo.devicePropertyParams;
+	devicePropertyParams.clear();
 	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, device))
 	{
-		gPhysicalDeviceProperties.emplace_back(VkPhysicalDevicePushDescriptorPropertiesKHR
+		devicePropertyParams.emplace(VkPhysicalDevicePushDescriptorPropertiesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
 		});
 	}
 
-	for (unsigned variantIt = 1; variantIt < gPhysicalDeviceProperties.size(); variantIt++)
-	{
-		auto& prevPropertyVariant = gPhysicalDeviceProperties[variantIt - 1];
-		auto& propertyVariant = gPhysicalDeviceProperties[variantIt];
-		std::visit(std_extra::overloaded{
-			[&prevPropertyVariant](auto& property) { property.pNext = &prevPropertyVariant; },
-		}, propertyVariant);
-	}
-
 	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-	deviceInfo.deviceProperties12Ex.pNext = gPhysicalDeviceProperties.empty() ? nullptr : &gPhysicalDeviceProperties.back();
+	deviceInfo.deviceProperties12Ex.pNext = GetPNextChain(devicePropertyParams);
 	
 	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
