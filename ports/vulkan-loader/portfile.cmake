@@ -9,6 +9,7 @@ vcpkg_from_github(
     PATCHES
         link-directfb.patch
         0001-system-calls-under-unicode-define.patch
+        0002-UNICODE-fixes.patch
 )
 
 vcpkg_find_acquire_program(PYTHON3)

@@ -1,0 +1,101 @@
+From 1bce37534988ca38080f372b284ddfb3d6f101d9 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Sat, 28 Feb 2026 15:51:04 +0100
+Subject: [PATCH 1/1] UNICODE fixes
+
+---
+ loader/loader_windows.c | 16 ++++++++--------
+ loader/log.c            |  6 +++---
+ 2 files changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/loader/loader_windows.c b/loader/loader_windows.c
+index 7043e74..c7dc62f 100644
+--- a/loader/loader_windows.c
++++ b/loader/loader_windows.c
+@@ -189,7 +189,7 @@ bool windows_get_device_registry_entry(const struct loader_instance *inst, char
+     }
+ 
+     // query value
+-    LSTATUS ret = RegQueryValueEx(hkrKey, value_name, NULL, NULL, NULL, &requiredSize);
++    LSTATUS ret = RegQueryValueExA(hkrKey, value_name, NULL, NULL, NULL, &requiredSize);
+ 
+     if (ret != ERROR_SUCCESS) {
+         if (ret == ERROR_FILE_NOT_FOUND) {
+@@ -210,7 +210,7 @@ bool windows_get_device_registry_entry(const struct loader_instance *inst, char
+         goto out;
+     }
+ 
+-    ret = RegQueryValueEx(hkrKey, value_name, NULL, &data_type, (BYTE *)manifest_path, &requiredSize);
++    ret = RegQueryValueExA(hkrKey, value_name, NULL, &data_type, (BYTE *)manifest_path, &requiredSize);
+ 
+     if (ret != ERROR_SUCCESS) {
+         loader_log(inst, VULKAN_LOADER_ERROR_BIT | VULKAN_LOADER_DRIVER_BIT, 0,
+@@ -429,10 +429,10 @@ VkResult windows_get_registry_files(const struct loader_instance *inst, char *lo
+     while (*loc) {
+         next = loader_get_next_path(loc);
+         access_flags = KEY_QUERY_VALUE;
+-        rtn_value = RegOpenKeyEx(hive, loc, 0, access_flags, &key);
++        rtn_value = RegOpenKeyExA(hive, loc, 0, access_flags, &key);
+         if (ERROR_SUCCESS == rtn_value) {
+             for (DWORD idx = 0;
+-                 (rtn_value = RegEnumValue(key, idx++, name, &name_size, NULL, NULL, (LPBYTE)&value, &value_size)) == ERROR_SUCCESS;
++                 (rtn_value = RegEnumValueA(key, idx++, name, &name_size, NULL, NULL, (LPBYTE)&value, &value_size)) == ERROR_SUCCESS;
+                  name_size = sizeof(name), value_size = sizeof(value)) {
+                 if (value_size == sizeof(value) && value == 0) {
+                     if (NULL == *reg_data) {
+@@ -686,7 +686,7 @@ VkResult windows_read_manifest_from_d3d_adapters(const struct loader_instance *i
+ 
+             // Add the string to the output list
+             result = VK_SUCCESS;
+-            windows_add_json_entry(inst, reg_data, reg_data_size, (LPCTSTR)L"EnumAdapters", REG_SZ, json_path,
++            windows_add_json_entry(inst, reg_data, reg_data_size, (LPCSTR)"EnumAdapters", REG_SZ, json_path,
+                                    (DWORD)strlen(json_path) + 1, &result);
+             if (result != VK_SUCCESS) {
+                 goto out;
+@@ -1180,7 +1180,7 @@ VkResult get_settings_path_if_exists_in_registry_key(const struct loader_instanc
+     for (DWORD idx = 0; rtn_value == ERROR_SUCCESS; idx++) {
+         DWORD value = 0;
+         DWORD value_size = sizeof(value);
+-        rtn_value = RegEnumValue(key, idx, name, &name_size, NULL, NULL, (LPBYTE)&value, &value_size);
++        rtn_value = RegEnumValueA(key, idx, name, &name_size, NULL, NULL, (LPBYTE)&value, &value_size);
+ 
+         if (ERROR_SUCCESS != rtn_value) {
+             break;
+@@ -1229,7 +1229,7 @@ VkResult windows_get_loader_settings_file_path(const struct loader_instance *ins
+     // Otherwise check in HKEY_LOCAL_MACHINE.
+ 
+     if (!is_high_integrity()) {
+-        rtn_value = RegOpenKeyEx(HKEY_CURRENT_USER, VK_SETTINGS_INFO_REGISTRY_LOC, 0, access_flags, &key);
++        rtn_value = RegOpenKeyExA(HKEY_CURRENT_USER, VK_SETTINGS_INFO_REGISTRY_LOC, 0, access_flags, &key);
+         if (ERROR_SUCCESS == rtn_value) {
+             result = get_settings_path_if_exists_in_registry_key(inst, out_path, key);
+ 
+@@ -1242,7 +1242,7 @@ VkResult windows_get_loader_settings_file_path(const struct loader_instance *ins
+         }
+     }
+ 
+-    rtn_value = RegOpenKeyEx(HKEY_LOCAL_MACHINE, VK_SETTINGS_INFO_REGISTRY_LOC, 0, access_flags, &key);
++    rtn_value = RegOpenKeyExA(HKEY_LOCAL_MACHINE, VK_SETTINGS_INFO_REGISTRY_LOC, 0, access_flags, &key);
+     if (ERROR_SUCCESS != rtn_value) {
+         result = VK_ERROR_FEATURE_NOT_PRESENT;
+         goto out;
+diff --git a/loader/log.c b/loader/log.c
+index 78589a4..ea336c3 100644
+--- a/loader/log.c
++++ b/loader/log.c
+@@ -264,9 +264,9 @@ void DECORATE_PRINTF(4, 5)
+     fputs(msg, stderr);
+     fputc('\n', stderr);
+ #if defined(WIN32)
+-    OutputDebugString(cmd_line_msg);
+-    OutputDebugString(msg);
+-    OutputDebugString("\n");
++    OutputDebugStringA(cmd_line_msg);
++    OutputDebugStringA(msg);
++    OutputDebugStringA("\n");
+ #endif
+ }
+ 
+-- 
+2.52.0.windows.1
+
