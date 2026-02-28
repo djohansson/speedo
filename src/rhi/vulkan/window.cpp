@@ -220,6 +220,13 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 			cameras.Get()[*myActiveCamera].UpdateViewMatrix();
 		}
 	}
+
+	if (auto app = static_pointer_cast<RHIApplication>(Application::Get().lock()); app)
+	{
+		auto [updateViewBufferTask, updateViewBufferFuture] = CreateTask(
+			[this]() { UpdateViewBuffer(); });
+		app->GetRHI().drawCalls.enqueue(updateViewBufferTask);
+	}
 }
 
 template <>

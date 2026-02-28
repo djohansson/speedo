@@ -843,8 +843,6 @@ void RHIApplication::Draw()
 
 			GetExecutor().Call(drawCall, &graphics.Get());
 		}
-
-		window.UpdateViewBuffer(); // todo: move to drawCall
 		
 		auto& renderImageSet = rhi.renderImageSets[newFrameIndex];
 
