@@ -4,13 +4,10 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO llvm/llvm-project
     REF "llvmorg-${VERSION}"
-    SHA512 02d4c7d938f25b003d76e8b06d0813d25160223f15c3a37cdae5d340e54459c865d687cc6f2831c4ba6276fe1610da9797ed8da4cdc1eda0a53f3ed7eb983452
+    SHA512 a98a090915d6b0e1aeee2f9684a3106e06811e3122d4d8891fe51b093e95f9b36987916b0b29b501b5bf0af98187f354b8707268614e9ed67cb782c2707a8156
     HEAD_REF main
     PATCHES
-         0001-fix-install-package-dir.patch
-         0002-fix-tools-install-dir.patch
-         0003-fix-llvm-config.patch
-         0004-disable-libomp-aliases.patch
+        0001-fix-tools-install-dir-and-llvm-config.patch
 )
 
 vcpkg_check_features(
@@ -367,6 +364,8 @@ set(empty_dirs)
 if("clang-tools-extra" IN_LIST FEATURES)
     list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/clang-tidy/plugin")
     list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/clang-tidy/misc/ConfusableTable")
+    list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/clang-tidy/cert")
+    list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/include/clang-tidy/zircon")
 endif()
 if("pstl" IN_LIST FEATURES)
     list(APPEND empty_dirs "${CURRENT_PACKAGES_DIR}/lib/cmake")

@@ -130,6 +130,7 @@ target_compile_definitions(
 	rhi
 	PUBLIC
 		SPEEDO_GRAPHICS_VALIDATION_LEVEL=$<IF:$<CONFIG:debug>,1,0>
+		GLM_FORCE_XYZW_ONLY
 )
 target_include_directories(
 	rhi

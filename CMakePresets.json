@@ -15,6 +15,7 @@
 				"VCPKG_MANIFEST_DIR": "${sourceDir}",
 				"VCPKG_MANIFEST_FEATURES": "client;server",
 				"VCPKG_INSTALLED_DIR": "${sourceDir}/build/packages",
+				"VCPKG_HOST_TRIPLET": "${presetName}",
 				"VCPKG_TARGET_TRIPLET": "${presetName}",
 				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/scripts/cmake/triplets",
 				"VCPKG_VERBOSE": "ON"
@@ -84,14 +85,6 @@
 				"lhs": "${hostSystemName}",
 				"rhs": "Linux"
 			}
-		},
-		{
-			"name": "Generate Compile Commands",
-			"description": "",
-			"displayName": "",
-			"inherits": [
-				"x64-windows-clang"
-			]
 		}
 	],
 	"buildPresets": [
