@@ -28,10 +28,10 @@
 #define COUNTED_VAR_DECLARE(x) CONCAT(x, __COUNTER__)
 
 #ifdef __cplusplus
-#	define LOG_ERROR_IMPL(M, C, ...) \
-	auto C{cpptrace::generate_trace().to_string()}; \
-	std::println(stderr, "{}:{} (errno: {})\n{}\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO(), C __VA_OPT__(,) __VA_ARGS__)
-#	define LOG_ERROR(M, ...) LOG_ERROR_IMPL(M, COUNTED_VAR_DECLARE(__trace__) __VA_OPT__(,) __VA_ARGS__)
+#	define LOG_ERROR_IMPL(M, ...) \
+	std::println(stderr, "{}:{} (errno: {})\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO() __VA_OPT__(,) __VA_ARGS__); \
+	std::println(stderr, "{}", cpptrace::generate_trace().to_string())
+#	define LOG_ERROR(M, ...) LOG_ERROR_IMPL(M __VA_OPT__(,) __VA_ARGS__)
 #else
 #	define LOG_ERROR_IMPL(M, C, ...) \
 	fprintf(stderr, "%s:%d (errno: %s)\n" M "\n", __FILE__, __LINE__, CLEAN_ERRNO() __VA_OPT__(,) __VA_ARGS__); \
