@@ -1,8 +1,8 @@
 vcpkg_from_github(
 	OUT_SOURCE_PATH SOURCE_PATH
 	REPO djohansson/slang
-	REF 6f6d4b27e1a7362139db195c7b1e2e3207766dcd
-	SHA512 39ff36b48d3fe660f61327f9353c8cfcc38fdae84260f5079b854ddd30dc2906e87d826bdc9c380bcf4efd62c1bd106509c52b771966db1561d96fcac3bc425e
+	REF f13429f894868f604a2612f756ca8806b81ee46f
+	SHA512 5cfd1fe437f70a471b980648c57afc5125606a700fcb909d1d14dffbb3de3de0158a050ad7ca28c098b5f1e6b00ea5ef64c163d3b993c75c0ae8e59d9f781800
 	HEAD_REF vcpkg-integration
 )
 
@@ -34,9 +34,7 @@ vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 
 vcpkg_fixup_pkgconfig()
-vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH cmake)
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH lib/cmake/slang)
 
 set(TOOLS slangc slangd slangi)
 vcpkg_copy_tools(TOOL_NAMES ${TOOLS} AUTO_CLEAN)
