@@ -1,8 +1,5 @@
 #include "../command.h"
-
 #include "utils.h"
-
-#include <format>
 
 namespace commandbufferarray
 {

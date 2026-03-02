@@ -1,5 +1,5 @@
 #include "../image.h"
-#include "../rhiapplication.h"
+#include "../rhi.h"
 #include "../shaders/capi.h"
 #include "utils.h"
 
@@ -7,14 +7,8 @@
 #include <core/math.h>
 #include <core/std_extra.h>
 
-#include <cstdint>
 #include <execution>
-#include <iostream>
-#include <numeric>
-#include <string>
 #include <string_view>
-#include <thread>
-#include <tuple>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -595,13 +589,14 @@ namespace image
 {
 
 template <>
-std::pair<Image<kVk>, ImageView<kVk>> LoadImage(std::string_view filePath, std::atomic_uint8_t& progressOut)
+std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
+	RHIBase& rhiBase,
+	std::string_view filePath,
+	std::atomic_uint8_t& progressOut)
 {
 	ZoneScopedN("image::LoadImage");
 
-	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-	ENSURE(app);
-	auto& rhi = app->GetRHI<kVk>();
+	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
 	auto& pipeline = rhi.pipeline;
 	ENSURE(pipeline);
 

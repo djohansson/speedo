@@ -419,11 +419,12 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 						ENSURE(app);
-						auto& pipeline = app->GetRHI<kVk>().pipeline;
+						auto& rhi = app->GetRHI<kVk>();
+						auto& pipeline = rhi.pipeline;
 						ENSURE(pipeline);
 						auto& resources = pipeline->GetResources();
 						
-						auto model = std::make_shared<Model<kVk>>(model::LoadModel(filePath, progressOut, std::atomic_load(&resources.model)));
+						auto model = std::make_shared<Model<kVk>>(model::LoadModel(rhi, filePath, progressOut, std::atomic_load(&resources.model)));
 
 						pipeline->SetVertexInputState(*model);
 						pipeline->SetDescriptorData(
@@ -442,7 +443,10 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 
 				OpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto [newImage, newImageView] = image::LoadImage<kVk>(filePath, progressOut);
+						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						ENSURE(app);
+						auto& rhi = app->GetRHI<kVk>();
+						auto [newImage, newImageView] = image::LoadImage<kVk>(rhi, filePath, progressOut);
 					});
 			}
 			// if (MenuItem("Open Scene..."))

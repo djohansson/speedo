@@ -1,17 +1,12 @@
 #include "../instance.h"
-
 #include "utils.h"
 
 #include <core/assert.h>
 #include <core/profiling.h>
 #include <core/utils.h>
 
-#include <algorithm>
 #include <cstddef>
 #include <iostream>
-#include <vector>
-#include <variant>
-#include <type_traits>
 
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
@@ -359,7 +354,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	#endif
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
-		VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
+	//	VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
 	};
 	std::vector<const char*> requiredLayers = {};
 

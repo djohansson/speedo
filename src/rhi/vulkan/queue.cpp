@@ -1,5 +1,4 @@
 #include "../queue.h"
-#include "../fence.h"
 #include "utils.h"
 
 #include <tracy/TracyC.h>

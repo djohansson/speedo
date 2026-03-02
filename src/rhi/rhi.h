@@ -19,16 +19,6 @@
 #include <tuple>
 #include <string_view>
 
-struct RHIBase
-{
-	virtual ~RHIBase() = default;
-	[[nodiscard]] virtual GraphicsApi GetApi() const = 0;
-
-	// todo: move these elsewhere?
-	ConcurrentQueue<TaskHandle> mainCalls; // queue with tasks that will be called once on main thread
-	ConcurrentQueue<TaskHandle> drawCalls; // queue with tasks that will be called once on draw thread/task
-};
-
 template <GraphicsApi G>
 struct RHI : public RHIBase
 {

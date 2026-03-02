@@ -2,6 +2,7 @@
 
 #include "device.h"
 #include "queue.h"
+#include "rhibase.h"
 
 #include <filesystem>
 #include <memory>
@@ -129,6 +130,9 @@ namespace image
 {
 
 template <GraphicsApi G>
-[[nodiscard]] std::pair<Image<G>, ImageView<G>> LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);
+[[nodiscard]] std::pair<Image<G>, ImageView<G>> LoadImage(
+	RHIBase& rhiBase,
+	std::string_view filePath,
+	std::atomic_uint8_t& progress);
 
 } // namespace image

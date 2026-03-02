@@ -2,6 +2,7 @@
 
 #include "buffer.h"
 #include "device.h"
+#include "rhibase.h"
 
 #include <gfx/bounds.h>
 #include <gfx/vertex.h>
@@ -65,6 +66,10 @@ namespace model
 {
 
 template <GraphicsApi G>
-[[nodiscard]] Model<G> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, std::shared_ptr<Model<G>> oldModel = nullptr);
+[[nodiscard]] Model<G> LoadModel(
+	RHIBase& rhiBase,
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	std::shared_ptr<Model<G>> oldModel = nullptr);
 
 } // namespace model

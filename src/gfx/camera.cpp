@@ -2,7 +2,6 @@
 
 #include <core/assert.h>
 
-
 void Camera::UpdateViewMatrix()
 {
 	auto rotx = glm::rotate(glm::mat4(1.0), myDesc.cameraRotation.x, glm::vec3(-1, 0, 0));

@@ -1,17 +1,12 @@
 #include "../device.h"
-
 #include "utils.h"
 
 #include <algorithm>
-#include <format>
 #include <list>
 #include <iostream>
-#include <shared_mutex>
-#include <utility>
 #include <vector>
 
 #include <xxhash.h>
-
 
 template <>
 void Device<kVk>::WaitIdle() const
@@ -209,8 +204,8 @@ Device<kVk>::Device(
 	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetPhysicalDevice()))
 		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
 
-	if (SupportsFeature(std::get<PhysicalDeviceSwapchainMaintenance1Features<kVk>>(*physicalDeviceInfo.deviceFeatureParams.find(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR))))
-		desiredExtensions.emplace_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+	// if (SupportsFeature(std::get<PhysicalDeviceSwapchainMaintenance1Features<kVk>>(*physicalDeviceInfo.deviceFeatureParams.find(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR))))
+	// 	desiredExtensions.emplace_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
 	
 	VkDeviceCreateInfo deviceCreateInfo{.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;

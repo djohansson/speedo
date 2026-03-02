@@ -2,8 +2,6 @@
 #include "assert.h"//NOLINT(modernize-deprecated-headers)
 
 #include <atomic>
-#include <format>
-#include <iostream>
 #include <shared_mutex>
 
 // #if !defined(__cpp_lib_atomic_shared_ptr) || __cpp_lib_atomic_shared_ptr < 201711L

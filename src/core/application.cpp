@@ -1,8 +1,6 @@
 #include "application.h"
 #include <core/assert.h>
 
-#include <iostream>
-
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc-new-delete.h>
 #endif

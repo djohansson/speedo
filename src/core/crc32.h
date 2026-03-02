@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <cstdint>
 #include <array>
 

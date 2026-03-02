@@ -1,5 +1,5 @@
 #include "../model.h"
-#include "../rhiapplication.h"
+#include "../rhi.h"
 #include "../shaders/capi.h"
 #include "utils.h"
 
@@ -8,14 +8,8 @@
 #include <gfx/bounds.h>
 #include <gfx/vertex.h>
 
-#include <algorithm>
-#include <array>
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <tuple>
-#include <utility>
-#include <vector>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
@@ -430,14 +424,16 @@ namespace model
 {
 
 template <>
-Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, std::shared_ptr<Model<kVk>> oldModel)
+Model<kVk> LoadModel(
+	RHIBase& rhiBase,
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	std::shared_ptr<Model<kVk>> oldModel)
 {
 	ZoneScopedN("model::LoadModel");
 
-	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-	ENSURE(app);
-	auto& rhi = app->GetRHI<kVk>();
-	
+	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
+
 	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
 	auto& [transferQueue, transferSubmit] = transfer->queues.Get();
 
@@ -448,8 +444,7 @@ Model<kVk> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress, s
 		transferQueue.GetPool().Commands(),
 		filePath,
 		progress);
-
- 	// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
+// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
 	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([model = std::move(oldModel)] {});
 
 	std::vector<TaskHandle> timelineCallbacks;

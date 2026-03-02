@@ -1,8 +1,6 @@
 #include "task.h"
 #include "memorypool.h"
 
-#include <mutex>
-
 namespace core
 {
 namespace detail

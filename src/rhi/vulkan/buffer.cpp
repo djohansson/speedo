@@ -1,8 +1,5 @@
 #include "../buffer.h"
-
 #include "utils.h"
-
-#include <format>
 
 template <>
 Buffer<kVk>::Buffer(Buffer&& other) noexcept

@@ -1,9 +1,7 @@
 #include "../rendertarget.h"
-
 #include "utils.h"
 
 #include <cstdint>
-#include <format>
 #include <memory>
 
 #include <xxhash.h>

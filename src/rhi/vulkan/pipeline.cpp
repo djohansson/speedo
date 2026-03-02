@@ -1,13 +1,6 @@
 #include "../pipeline.h"
-#include "../shader.h"
-
 #include "../shaders/capi.h"
-
 #include "utils.h"
-
-#include <atomic>
-#include <format>
-#include <print>
 
 #pragma pack(push, 1)
 template <>
