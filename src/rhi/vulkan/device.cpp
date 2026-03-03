@@ -1,10 +1,6 @@
 #include "../device.h"
-#include "../rhiapplication.h"
 
 #include "utils.h"
-
-#include <vector>
-#include <xxhash.h>
 
 #include <algorithm>
 #include <format>
@@ -12,6 +8,9 @@
 #include <iostream>
 #include <shared_mutex>
 #include <utility>
+#include <vector>
+
+#include <xxhash.h>
 
 
 template <>
@@ -49,10 +48,10 @@ void Device<kVk>::AddOwnedObjectHandle(
 		auto& objectInfos = myOwnerToDeviceObjectInfoMap[ownerIdHash];
 
 		auto& objectInfo = objectInfos.emplace_back(ObjectNameInfo{
-			{VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
-			 nullptr,
-			 objectType,
-			 objectHandle}, std::forward<std::string>(objectName)});
+			{.sType=VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+			 .pNext=nullptr,
+			 .objectType=objectType,
+			 .objectHandle=objectHandle}, std::forward<std::string>(objectName)});
 		objectInfo.pObjectName = objectInfo.name.c_str();
 
 		{
@@ -164,7 +163,7 @@ Device<kVk>::Device(
 		auto& queuePriorities = queuePriorityList.emplace_back();
 		const auto& queueFamilyProperty = physicalDeviceInfo.queueFamilyProperties[queueFamilyIt];
 		queuePriorities.resize(queueFamilyProperty.queueCount);
-		std::fill(queuePriorities.begin(), queuePriorities.end(), 1.0F);
+		std::ranges::fill(queuePriorities, 1.0F);
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << "Queue Family " << queueFamilyIt << 
@@ -172,12 +171,12 @@ Device<kVk>::Device(
 				", queueCount: " << queueFamilyProperty.queueCount << '\n';
 
 		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
-			VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-			nullptr,
-			0, //VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT,
-			queueFamilyIt,
-			static_cast<uint32_t>(queuePriorities.size()),
-			queuePriorities.data()});
+			.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+			.pNext=nullptr,
+			.flags=0, //VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT,
+			.queueFamilyIndex=queueFamilyIt,
+			.queueCount=static_cast<uint32_t>(queuePriorities.size()),
+			.pQueuePriorities=queuePriorities.data()});
 	}
 
 	std::vector<const char*> requiredExtensions = {
@@ -213,7 +212,7 @@ Device<kVk>::Device(
 	if (SupportsFeature(std::get<PhysicalDeviceSwapchainMaintenance1Features<kVk>>(*physicalDeviceInfo.deviceFeatureParams.find(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR))))
 		desiredExtensions.emplace_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
 	
-	VkDeviceCreateInfo deviceCreateInfo{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+	VkDeviceCreateInfo deviceCreateInfo{.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
 	deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
 	deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
@@ -338,7 +337,7 @@ Device<kVk>::~Device()
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1U);
-		std::cout << allocatorStatsJSON << std::endl;
+		std::cout << allocatorStatsJSON << '\n';
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
 

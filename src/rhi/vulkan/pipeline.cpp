@@ -66,7 +66,7 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 	if (auto fileInfo = GetRecord<false>(cacheFilePath); fileInfo)
 		fileInfo = LoadBinary<false>(cacheFilePath, loadCacheOp);
 
-	VkPipelineCacheCreateInfo createInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+	VkPipelineCacheCreateInfo createInfo{.sType=VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
 	createInfo.initialDataSize = cacheData.size();
 	createInfo.pInitialData =
 		(static_cast<unsigned int>(!cacheData.empty()) != 0U) ? cacheData.data() : nullptr;
@@ -189,7 +189,7 @@ PipelineLayout<kVk>::PipelineLayout(
 				  descriptorset::GetPushConstantRanges<kVk>(descriptorSetLayouts);
 
 			  VkPipelineLayoutCreateInfo pipelineLayoutInfo{
-				  VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+				  .sType=VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
 			  pipelineLayoutInfo.setLayoutCount = handles.size();
 			  pipelineLayoutInfo.pSetLayouts = handles.data();
 			  pipelineLayoutInfo.pushConstantRangeCount = pushConstantRanges.size();
@@ -263,7 +263,7 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 
 	auto layoutIt = InternalGetLayout();
 	ENSURE(layoutIt != myLayouts.end());
-	auto layoutHandle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
+	auto* layoutHandle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
 	//result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
 	ASSERT(result != XXH_ERROR);
@@ -325,12 +325,12 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 			{
 				auto& setArrayList = setOptionalArrayList.value();
 
-				setArrayList.emplace_front(std::make_tuple(
+				setArrayList.emplace_front(
 					DescriptorSetArray<kVk>(
 						InternalGetDevice(),
 						setLayout,
 						DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
-					0));
+					0);
 			}
 		}
 	}
@@ -359,10 +359,10 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.primitiveRestartEnable = VK_FALSE};
 
 	myGraphicsState.viewports.clear();
-	myGraphicsState.viewports.emplace_back(Viewport<kVk>{0.0F, 0.0F, 0, 0, 0.0F, 1.0F});
+	myGraphicsState.viewports.emplace_back(Viewport<kVk>{.x=0.0F, .y=0.0F, .width=0, .height=0, .minDepth=0.0F, .maxDepth=1.0F});
 
 	myGraphicsState.scissorRects.clear();
-	myGraphicsState.scissorRects.emplace_back(Rect2D<kVk>{{0, 0}, {0, 0}});
+	myGraphicsState.scissorRects.emplace_back(Rect2D<kVk>{.offset={.x=0, .y=0}, .extent={.width=0, .height=0}});
 
 	myGraphicsState.viewport = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -415,14 +415,14 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 
 	myGraphicsState.colorBlendAttachments.clear();
 	myGraphicsState.colorBlendAttachments.emplace_back(PipelineColorBlendAttachmentState<kVk>{
-		VK_FALSE,
-		VK_BLEND_FACTOR_ONE,
-		VK_BLEND_FACTOR_ZERO,
-		VK_BLEND_OP_ADD,
-		VK_BLEND_FACTOR_ONE,
-		VK_BLEND_FACTOR_ZERO,
-		VK_BLEND_OP_ADD,
-		VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+		.blendEnable = VK_FALSE,
+		.srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+		.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.colorBlendOp = VK_BLEND_OP_ADD,
+		.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.alphaBlendOp = VK_BLEND_OP_ADD,
+		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
 			VK_COLOR_COMPONENT_A_BIT});
 
 	myGraphicsState.colorBlend = {
@@ -468,7 +468,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 
-	VkGraphicsPipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+	VkGraphicsPipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
 	pipelineInfo.pNext = myGraphicsState.dynamicRendering;
 	pipelineInfo.flags = 0;
 	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
@@ -518,7 +518,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	ENSURE(layoutIt != myLayouts.end());
 	const auto& layout = *layoutIt;
 
-	VkComputePipelineCreateInfo pipelineInfo{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, nullptr, 0};
+	VkComputePipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext=nullptr, .flags=0};
 	pipelineInfo.stage = myComputeState.shaderStage;
 	pipelineInfo.layout = layout;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
@@ -586,7 +586,7 @@ void Pipeline<kVk>::BindPipeline(
 template <>
 PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd)
 {
-	auto handle = InternalGetPipeline();
+	auto* handle = InternalGetPipeline();
 
 	BindPipeline(cmd, myBindPoint, handle);
 	
@@ -647,13 +647,13 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 			if ((shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS) != 0)
 			{
 				myGraphicsState.shaderStages.emplace_back(PipelineShaderStageCreateInfo<kVk>{
-					VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-					nullptr,
-					0,
-					shaderStage,
-					shader,
-					entryPointName.c_str(),
-					nullptr});
+					.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+					.pNext=nullptr,
+					.flags=0,
+					.stage=shaderStage,
+					.module=shader,
+					.pName=entryPointName.c_str(),
+					.pSpecializationInfo=nullptr});
 
 				myGraphicsState.shaderStageFlags |= shaderStage;
 			}
@@ -767,12 +767,12 @@ void Pipeline<kVk>::InternalUpdateDescriptorSetTemplate(
 			auto rangeCount = high - low;
 
 			entries.emplace_back(DescriptorUpdateTemplateEntry<kVk>{
-				index,
-				low,
-				rangeCount,
-				type,
-				(offset + rangeOffset) * sizeof(BindingVariant<kVk>),
-				sizeof(BindingVariant<kVk>)});
+				.dstBinding=index,
+				.dstArrayElement=low,
+				.descriptorCount=rangeCount,
+				.descriptorType=type,
+				.offset=(offset + rangeOffset) * sizeof(BindingVariant<kVk>),
+				.stride=sizeof(BindingVariant<kVk>)});
 
 			rangeOffset += rangeCount;
 		}
@@ -893,10 +893,10 @@ Pipeline<kVk>::Pipeline(
 				  {.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount=kDescBaseCount}});
 
 			  VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
-				  VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
+				  .sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
 			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = kDescBaseCount;
 
-			  VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+			  VkDescriptorPoolCreateInfo poolInfo{.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 			  poolInfo.pNext = &inlineUniformBlockInfo;
 			  poolInfo.poolSizeCount = std::size(kPoolSizes);
 			  poolInfo.pPoolSizes = kPoolSizes.data();

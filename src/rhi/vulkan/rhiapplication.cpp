@@ -13,6 +13,7 @@
 #include <gfx/imgui_extra.h>
 
 #include <algorithm>
+#include <array>
 #include <memory>
 
 //#include <imnodes.h>
@@ -179,15 +180,17 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 		End();
 	}
 
-	if (bool b = RHIApplication::gShowProgress.load(std::memory_order_relaxed) &&
+	if (bool loading = RHIApplication::gShowProgress.load(std::memory_order_relaxed) &&
 				 Begin(
 					 "Loading",
-					 &b,
+					 &loading,
 					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
 						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
 	{
-		SetWindowSize(ImVec2(160, 0));
-		ProgressBar((1.F / 255) * RHIApplication::gProgress);
+		constexpr uint8_t kProgressMax = 255;
+		constexpr float kProgressWindowWidth = 160.0F;
+		SetWindowSize(ImVec2(kProgressWindowWidth, 0));
+		ProgressBar((1.F / kProgressMax) * static_cast<float>(RHIApplication::gProgress));
 		End();
 	}
 
@@ -409,10 +412,10 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				static const std::vector<nfdu8filteritem_t> filterList ={
+				static const std::vector<nfdu8filteritem_t> kFilterList ={
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
-				OpenFileDialogueAsync((resourcePath / "models").string(), filterList,
+				OpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 						ENSURE(app);
@@ -425,7 +428,7 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 						pipeline->SetVertexInputState(*model);
 						pipeline->SetDescriptorData(
 							"gVertexBuffer",
-							DescriptorBufferInfo<kVk>{model->GetVertexBuffer(), 0, VK_WHOLE_SIZE},
+							DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
 							DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 						std::atomic_store(&resources.model, model);
@@ -433,11 +436,11 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 			}
 			if (MenuItem("Open Image..."))
 			{
-				static const std::vector<nfdu8filteritem_t> filterList = {
+				static const std::vector<nfdu8filteritem_t> kFilterList = {
 					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
-				OpenFileDialogueAsync((resourcePath / "images").string(), filterList, 
+				OpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto [newImage, newImageView] = image::LoadImage<kVk>(filePath, progressOut);
 					});
@@ -528,10 +531,10 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 	Render();
 
 	ImDrawData drawData;
-	static imgui_extra::ImDrawDataSnapshot snapshot;
-	if (auto data = GetDrawData())
+	static imgui_extra::ImDrawDataSnapshot gSnapshot;
+	if (auto *data = GetDrawData())
 	{
-		snapshot.SnapUsingSwap(data, &drawData, GetTime());
+		gSnapshot.SnapUsingSwap(data, &drawData, GetTime());
 		gIMGUIDrawData.enqueue(std::move(drawData));
 	}
 }
@@ -564,13 +567,13 @@ static void IMGUIInit(
 
 	IMGUI_CHECKVERSION();
 	CreateContext();
-	auto& io = GetIO();
-	io.IniFilename = nullptr;
+	auto& imguiIO = GetIO();
+	imguiIO.IniFilename = nullptr;
 
-	//io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	//io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-	//io.FontGlobalScale = 1.0f;
-	//io.FontAllowUserScaling = true;
+	//imguiIO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	//imguiIO.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+	//imguiIO.FontGlobalScale = 1.0f;
+	//imguiIO.FontAllowUserScaling = true;
 	// auto& platformIo = ImGui::GetPlatformIO();
 	// platformIo.Platform_CreateVkSurface =
 	// 	(decltype(platformIo.Platform_CreateVkSurface))vkGetInstanceProcAddr(*rhi.instance, "vkCreateWin32SurfaceKHR");
@@ -590,7 +593,7 @@ static void IMGUIInit(
 	float dpiScaleY = window.GetConfig().contentScale.y;
 #endif
 
-	io.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
+	imguiIO.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
 	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
 
@@ -600,32 +603,33 @@ static void IMGUIInit(
 	config.RasterizerDensity = std::max(window.GetConfig().contentScale.x, window.GetConfig().contentScale.y);
 	config.PixelSnapH = false;
 
-	io.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
+	imguiIO.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
 	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]));
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
-	constexpr const char* kFonts[]{
+	constexpr std::array<const char*, 6> kFonts{{
 		"Cousine-Regular.ttf",
 		"DroidSans.ttf",
 		"Karla-Regular.ttf",
 		"ProggyClean.ttf",
 		"ProggyTiny.ttf",
 		"Roboto-Medium.ttf",
-	};
+	}};
 
+	constexpr float kDefaultFontSize = 16.0F;
 	ImFont* defaultFont = nullptr;
 	for (const auto* font : kFonts)
 	{
 		fontPath.replace_filename(font);
-		defaultFont = io.Fonts->AddFontFromFileTTF(
-			fontPath.generic_string().c_str(), 16.0F * std::max(dpiScaleX, dpiScaleY), &config);
+		defaultFont = imguiIO.Fonts->AddFontFromFileTTF(
+			fontPath.generic_string().c_str(), kDefaultFontSize * std::max(dpiScaleX, dpiScaleY), &config);
 	}
 
 	// Setup style
 	StyleColorsClassic();
-	io.FontDefault = defaultFont;
+	imguiIO.FontDefault = defaultFont;
 
 	// Setup Vulkan binding
 	ImGui_ImplVulkan_InitInfo initInfo{};
@@ -734,17 +738,17 @@ void RHIApplication::OnInputStateChanged(const InputState& input)
 
 	auto& rhi = GetRHI<kVk>();
 	auto& window = rhi.GetWindow(GetCurrentWindow());
-	auto& io = ImGui::GetIO();
+	auto& imguiIO = ImGui::GetIO();
 
-	if (io.WantSaveIniSettings)
+	if (imguiIO.WantSaveIniSettings)
 	{
 		size_t iniStringSize;
 		const char* iniString = ImGui::SaveIniSettingsToMemory(&iniStringSize);
 		window.GetConfig().imguiIniSettings.assign(iniString, iniStringSize);
-		io.WantSaveIniSettings = false;
+		imguiIO.WantSaveIniSettings = false;
 	}
 
-	if (!io.WantCaptureMouse && !io.WantCaptureKeyboard)
+	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
 		window.OnInputStateChanged(input);
 
 	IMGUIPrepareDrawFunction(rhi, GetExecutor());
@@ -778,7 +782,7 @@ void RHIApplication::Draw()
 	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
 	auto& [computeQueue, computeSubmit] = compute->queues.FetchAdd();
 
-	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue, &computeSemaphore = compute->semaphore] {
+	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue = computeQueue, &computeSemaphore = compute->semaphore] {
 		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
 
 	{
@@ -799,11 +803,11 @@ void RHIApplication::Draw()
 		// else
 		{
 			ZoneScopedN("RHIApplication::Draw::waitCompute::fairyDust");
-
+	
 			using namespace std::chrono_literals;
+			constexpr std::chrono::microseconds kFairyDustDelay = 1000us;
 			auto start = std::chrono::high_resolution_clock::now();
-			std::chrono::microseconds delay = 1000us;
-			auto end = start + delay;
+			auto end = start + kFairyDustDelay;
 			do { std::this_thread::yield();	} while (std::chrono::high_resolution_clock::now() < end);
 		}
 	}
@@ -822,7 +826,7 @@ void RHIApplication::Draw()
 		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphics->queues.FetchAdd();
 		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
 
-		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue, &graphicsSemaphore = graphics->semaphore]
+		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue = graphicsQueue, &graphicsSemaphore = graphics->semaphore]
 			{ graphicsQueue.SubmitCallbacks(executor, graphicsSemaphore.GetValue()); }).handle);
 
 		if (!graphicsSubmit.fences.empty())
@@ -881,7 +885,8 @@ void RHIApplication::Draw()
 
 				drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
 
-				std::array<uint32_t, 128> seq;
+				constexpr uint32_t kMaxDrawThreads = 128;
+				std::array<uint32_t, kMaxDrawThreads> seq;
 				std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
 				std::for_each_n(
 					seq.begin(),
@@ -901,11 +906,13 @@ void RHIApplication::Draw()
 						if (drawIt >= drawCount)
 							return;
 
+						constexpr uint32_t kDefaultModelInstanceId = 666;
+
 						auto zoneNameStr = std::format("Window::drawPartition thread:{}", threadIt);
 
 						ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
-						CommandBufferInheritanceInfo<kVk> inheritInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+						CommandBufferInheritanceInfo<kVk> inheritInfo{.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
 						CommandBufferAccessScopeDesc<kVk> beginInfo{};
 						beginInfo.pInheritanceInfo = &inheritInfo;
 						beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -914,25 +921,25 @@ void RHIApplication::Draw()
 						beginInfo.flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
 						//
 
-						uint32_t dx = 0;
-						uint32_t dy = 0;
-
+						uint32_t deltaX = 0;
+						uint32_t deltaY = 0;
+	
 						if (const auto* dynamicRenderingInfo = std::get_if<DynamicRenderingInfo<kVk>>(&renderTargetInfo))
 						{
 							inheritInfo.pNext = &dynamicRenderingInfo->inheritanceInfo;
-
-							dx = dynamicRenderingInfo->renderInfo.renderArea.extent.width / desc.splitScreenGrid.width;
-							dy = dynamicRenderingInfo->renderInfo.renderArea.extent.height / desc.splitScreenGrid.height;
+	
+							deltaX = dynamicRenderingInfo->renderInfo.renderArea.extent.width / desc.splitScreenGrid.width;
+							deltaY = dynamicRenderingInfo->renderInfo.renderArea.extent.height / desc.splitScreenGrid.height;
 						} 
 						else if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderTargetInfo))
 						{
 							inheritInfo.renderPass = renderPassBeginInfo->renderPass;
 							inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
-
-							dx = renderPassBeginInfo->renderArea.extent.width / desc.splitScreenGrid.width;
-							dy = renderPassBeginInfo->renderArea.extent.height / desc.splitScreenGrid.height;
+	
+							deltaX = renderPassBeginInfo->renderArea.extent.width / desc.splitScreenGrid.width;
+							deltaY = renderPassBeginInfo->renderArea.extent.height / desc.splitScreenGrid.height;
 						}
-
+	
 						auto cmd = queue.GetPool().Commands(beginInfo);
 
 						auto& model = *std::atomic_load(&pipeline.GetResources().model);
@@ -963,29 +970,29 @@ void RHIApplication::Draw()
 
 						PushConstants pushConstants{.frameIndex = frameIndex};
 
-						ASSERT(dx > 0);
-						ASSERT(dy > 0);
+						ASSERT(deltaX > 0);
+						ASSERT(deltaY > 0);
 
 						while (drawIt < drawCount)
 						{
-							auto drawView = [&pushConstants, &pipeline, &model, &cmd, &dx, &dy, &desc](uint16_t viewIt)
+							auto drawView = [&pushConstants, &pipeline, &model, &cmd, &deltaX, &deltaY, &desc](uint16_t viewIt)
 							{
 								ZoneScopedN("drawView");
 
-								uint32_t i = viewIt % desc.splitScreenGrid.width;
-								uint32_t j = viewIt / desc.splitScreenGrid.width;
+								uint32_t col = viewIt % desc.splitScreenGrid.width;
+								uint32_t row = viewIt / desc.splitScreenGrid.width;
 
 								auto setViewportAndScissor = [](VkCommandBuffer cmd,
-																int32_t x,
-																int32_t y,
+																int32_t posX,
+																int32_t posY,
 																uint32_t width,
 																uint32_t height)
 								{
 									ZoneScopedN("setViewportAndScissor");
 
 									VkViewport viewport{};
-									viewport.x = static_cast<float>(x);
-									viewport.y = static_cast<float>(y);
+									viewport.x = static_cast<float>(posX);
+									viewport.y = static_cast<float>(posY);
 									viewport.width = static_cast<float>(width);
 									viewport.height = static_cast<float>(height);
 									viewport.minDepth = 0.0F;
@@ -995,14 +1002,19 @@ void RHIApplication::Draw()
 									ASSERT(height > 0);
 
 									VkRect2D scissor{};
-									scissor.offset = {.x = x, .y = y};
+									scissor.offset = {.x = posX, .y = posY};
 									scissor.extent = {.width = width, .height = height};
 
 									vkCmdSetViewport(cmd, 0, 1, &viewport);
 									vkCmdSetScissor(cmd, 0, 1, &scissor);
 								};
-
-								setViewportAndScissor(cmd, i * dx, j * dy, dx, dy);
+	
+								setViewportAndScissor(
+									cmd,
+									static_cast<int32_t>(col * deltaX),
+									static_cast<int32_t>(row * deltaY),
+									deltaX,
+									deltaY);
 
 								uint16_t viewIndex = viewIt;
 								uint16_t materialIndex = 0U;
@@ -1034,7 +1046,7 @@ void RHIApplication::Draw()
 											1,
 											0,
 											0,
-											666);
+											kDefaultModelInstanceId);
 									}
 								};
 
@@ -1074,18 +1086,18 @@ void RHIApplication::Draw()
 			rhi.pipeline->SetDescriptorData(
 				"gTextures",
 				DescriptorImageInfo<kVk>{
-					{},
-					renderImageSet.GetAttachments()[0],
-					renderImageSet.GetLayout(0)},
+					.sampler={},
+					.imageView=renderImageSet.GetAttachments()[0],
+					.imageLayout=renderImageSet.GetLayout(0)},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 				newFrameIndex);
 
 			rhi.pipeline->SetDescriptorData(
 				"gRWTextures",
 				DescriptorImageInfo<kVk>{
-					{},
-					window.GetAttachments()[0],
-					window.GetLayout(0)},
+					.sampler={},
+					.imageView=window.GetAttachments()[0],
+					.imageLayout=window.GetLayout(0)},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				newFrameIndex);
 
@@ -1103,7 +1115,10 @@ void RHIApplication::Draw()
 				sizeof(pushConstants),
 				&pushConstants);
 
-			vkCmdDispatch(cmd, 16U, 8U, 1U);
+			constexpr uint32_t kComputeDispatchGroupsX = 16U;
+			constexpr uint32_t kComputeDispatchGroupsY = 8U;
+			constexpr uint32_t kComputeDispatchGroupsZ = 1U;
+			vkCmdDispatch(cmd, kComputeDispatchGroupsX, kComputeDispatchGroupsY, kComputeDispatchGroupsZ);
 		}
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
@@ -1201,10 +1216,13 @@ RHIApplication::RHIApplication(
 	std::vector<TaskHandle> timelineCallbacks;
 
 	// todo: create some resource global storage
+	constexpr uint32_t kBlackTextureWidth = 4;
+	constexpr uint32_t kBlackTextureHeight = 4;
+	constexpr uint32_t kBlackTextureSize = kBlackTextureWidth * kBlackTextureHeight * 4;
 	rhi.pipeline->GetResources().black = std::make_shared<Image<kVk>>(
 		rhi.device,
 		ImageCreateDesc<kVk>{
-			.mipLevels = {ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{4, 4}, .size = 16 * 4, .offset = 0}},
+			.mipLevels = {ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
 			.format = VK_FORMAT_R8G8B8A8_UNORM,
 			.tiling = VK_IMAGE_TILING_LINEAR,
 			.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -1217,25 +1235,27 @@ RHIApplication::RHIApplication(
 		rhi.device, *rhi.pipeline->GetResources().black, VK_IMAGE_ASPECT_COLOR_BIT);
 
 	std::vector<SamplerCreateInfo<kVk>> samplerCreateInfos;
+	constexpr float kDefaultSamplerMaxAnisotropy = 16.0F;
+	constexpr float kDefaultSamplerMaxLod = 1000.0F;
 	samplerCreateInfos.emplace_back(SamplerCreateInfo<kVk>{
-		VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-		nullptr,
-		0U,
-		VK_FILTER_LINEAR,
-		VK_FILTER_LINEAR,
-		VK_SAMPLER_MIPMAP_MODE_LINEAR,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		VK_SAMPLER_ADDRESS_MODE_REPEAT,
-		0.0F,
-		VK_TRUE,
-		16.F,
-		VK_FALSE,
-		VK_COMPARE_OP_ALWAYS,
-		0.0F,
-		1000.0F,
-		VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-		VK_FALSE});
+		.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0U,
+		.magFilter = VK_FILTER_LINEAR,
+		.minFilter = VK_FILTER_LINEAR,
+		.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+		.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+		.mipLodBias = 0.0F,
+		.anisotropyEnable = VK_TRUE,
+		.maxAnisotropy = kDefaultSamplerMaxAnisotropy,
+		.compareEnable = VK_FALSE,
+		.compareOp = VK_COMPARE_OP_ALWAYS,
+		.minLod = 0.0F,
+		.maxLod = kDefaultSamplerMaxLod,
+		.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+		.unnormalizedCoordinates = VK_FALSE});
 	rhi.pipeline->GetResources().samplers =
 		std::make_shared<SamplerVector<kVk>>(rhi.device, std::move(samplerCreateInfos));
 	//
@@ -1257,7 +1277,7 @@ RHIApplication::RHIApplication(
 		rhi.pipeline->GetResources().black->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
 		rhi.pipeline->GetResources().black->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-		auto materialData = std::make_unique<MaterialData[]>(SHADER_TYPES_MATERIAL_COUNT);
+		std::vector<MaterialData> materialData(SHADER_TYPES_MATERIAL_COUNT);
 		materialData[0].color[0] = 1.0;
 		materialData[0].color[1] = 0.0;
 		materialData[0].color[2] = 0.0;
@@ -1275,15 +1295,17 @@ RHIApplication::RHIApplication(
 				.usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				.memoryFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 				.name = "Materials"},
-			materialData.get());
+			materialData.data());
 		timelineCallbacks.emplace_back(materialTransfersDone.handle);
 
-		auto modelInstances = std::make_unique<ModelInstance[]>(SHADER_TYPES_MODEL_INSTANCE_COUNT);
+		constexpr uint32_t kDefaultModelInstanceId = 666;
+		constexpr uint32_t kMatrix4x4ElementCount = 16;
+		std::vector<ModelInstance> modelInstances(SHADER_TYPES_MODEL_INSTANCE_COUNT);
 		static const auto kIdentityMatrix = glm::mat4x4(1.0);
-		std::copy_n(&kIdentityMatrix[0][0], 16, &modelInstances[666].modelTransform[0][0]);
-		auto modelTransform = glm::make_mat4(&modelInstances[666].modelTransform[0][0]);
+		std::copy_n(&kIdentityMatrix[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].modelTransform[0][0]);
+		auto modelTransform = glm::make_mat4(&modelInstances[kDefaultModelInstanceId].modelTransform[0][0]);
 		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
-		std::copy_n(&inverseTransposeModelTransform[0][0], 16, &modelInstances[666].inverseTransposeModelTransform[0][0]);
+		std::copy_n(&inverseTransposeModelTransform[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].inverseTransposeModelTransform[0][0]);
 
 		TaskCreateInfo<void> modelTransfersDone;
 		rhi.modelInstances = std::make_unique<Buffer<kVk>>(
@@ -1295,7 +1317,7 @@ RHIApplication::RHIApplication(
 				.usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				.memoryFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
 				.name = "ModelInstances"},
-			modelInstances.get());
+			modelInstances.data());
 		timelineCallbacks.emplace_back(modelTransfersDone.handle);
 
 		cmd.End();
@@ -1335,14 +1357,14 @@ RHIApplication::RHIApplication(
 
 	rhi.pipeline->SetDescriptorData(
 		"gModelInstances",
-		DescriptorBufferInfo<kVk>{*rhi.modelInstances, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *rhi.modelInstances, .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		rhi.pipeline->SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{.buffer = window.GetViewBuffer(i), .offset = 0, .range = VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
@@ -1368,17 +1390,17 @@ RHIApplication::RHIApplication(
 
 	rhi.pipeline->SetDescriptorData(
 		"gMaterialData",
-		DescriptorBufferInfo<kVk>{*rhi.materials, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *rhi.materials, .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
 	rhi.pipeline->SetDescriptorData(
 		"gModelInstances",
-		DescriptorBufferInfo<kVk>{*rhi.modelInstances, 0, VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *rhi.modelInstances, .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	rhi.pipeline->SetDescriptorData(
 		"gSamplers",
-		DescriptorImageInfo<kVk>{(*rhi.pipeline->GetResources().samplers)[0]},
+		DescriptorImageInfo<kVk>{.sampler=(*rhi.pipeline->GetResources().samplers)[0]},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
 		kSamplerId);
 
@@ -1386,7 +1408,7 @@ RHIApplication::RHIApplication(
 	{
 		rhi.pipeline->SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{window.GetViewBuffer(i), 0, VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{.buffer = window.GetViewBuffer(i), .offset = 0, .range = VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
