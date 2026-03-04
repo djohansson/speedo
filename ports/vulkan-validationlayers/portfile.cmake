@@ -9,8 +9,8 @@ vcpkg_from_github(
     PATCHES
         disable_vendored_phmap.diff
         0001-properly-set-exports-on-windows-with-clang-compiler.patch
-        # 0002-fix-implicit-ANSI-code-under-UNICODE-define.patch
-        # 0003-change-WIN32-define-to-_WIN32.patch
+        0002-Win32-UNICODE-fixes.patch
+        0003-replace-deprecated-WIN32-define-with-_WIN32.patch
 )
 
 file(REMOVE_RECURSE "${SOURCE_PATH}/layers/external/parallel_hashmap") # ensure that we use vcpkg's parallel-hashmap instead of upstream's vendored copy

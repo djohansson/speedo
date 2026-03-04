@@ -1,0 +1,34 @@
+From 4b8f80a0f92eac04687612eeaf4e7b17a2c92b4c Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Wed, 4 Mar 2026 21:23:20 +0100
+Subject: [PATCH 3/3] replace deprecated WIN32 define with _WIN32
+
+---
+ layers/utils/math_utils.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/layers/utils/math_utils.h b/layers/utils/math_utils.h
+index 80fe2f4..d424f7b 100644
+--- a/layers/utils/math_utils.h
++++ b/layers/utils/math_utils.h
+@@ -25,7 +25,7 @@
+ #include <limits>
+ #include <type_traits>
+ 
+-#ifdef WIN32
++#ifdef _WIN32
+ #include <intrin.h>  // For __lzcnt()
+ #else
+ #include <strings.h>  // For ffs()
+@@ -71,7 +71,7 @@ constexpr bool IsSingleBitSet(T flags) {
+ }
+ 
+ static inline int u_ffs(int val) {
+-#ifdef WIN32
++#ifdef _WIN32
+     unsigned long bit_pos = 0;
+     if (_BitScanForward(&bit_pos, val) != 0) {
+         bit_pos += 1;
+-- 
+2.52.0.windows.1
+

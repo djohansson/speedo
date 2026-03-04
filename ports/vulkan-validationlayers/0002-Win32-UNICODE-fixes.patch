@@ -1,23 +1,22 @@
-From a56b4e4c8786793b7abf61f5aed87a35fdaa3725 Mon Sep 17 00:00:00 2001
+From 3211e3d6dfe485e92c2b506211053c96196c44c6 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
-Date: Wed, 18 Feb 2026 15:17:23 +0100
-Subject: [PATCH 2/2] fix implicit ANSI code under UNICODE define
+Date: Wed, 4 Mar 2026 21:22:13 +0100
+Subject: [PATCH 2/3] Win32 UNICODE fixes
 
 ---
  layers/chassis/dispatch_object_manual.cpp         | 2 +-
- layers/error_message/logging.cpp                  | 2 +-
- layers/layer_options.cpp                          | 4 ++--
+ layers/layer_options.cpp                          | 2 +-
  layers/sync/sync_validation.cpp                   | 2 +-
  layers/vk_layer_config.cpp                        | 6 +++---
  layers/vulkan/generated/vk_function_pointers.cpp  | 4 ++--
  scripts/generators/function_pointers_generator.py | 4 ++--
- 7 files changed, 12 insertions(+), 12 deletions(-)
+ 6 files changed, 10 insertions(+), 10 deletions(-)
 
 diff --git a/layers/chassis/dispatch_object_manual.cpp b/layers/chassis/dispatch_object_manual.cpp
-index 1bd8c47..29956f8 100644
+index 6244425..ffa9eee 100644
 --- a/layers/chassis/dispatch_object_manual.cpp
 +++ b/layers/chassis/dispatch_object_manual.cpp
-@@ -581,7 +581,7 @@ static Device *GetDeviceFromKey(void *key) {
+@@ -644,7 +644,7 @@ static Device *GetDeviceFromKey(void *key) {
              "destroyed prior to atexit()\n\n";
          printf("%s", error);
  #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -26,33 +25,11 @@ index 1bd8c47..29956f8 100644
  #endif
          // last_device is later dereferenced and the user **will** crash soon. We purposefully crash here to ensure that the warning
          // is printed (and a stacktrace points them here first).
-diff --git a/layers/error_message/logging.cpp b/layers/error_message/logging.cpp
-index 7129db7..a111c1a 100644
---- a/layers/error_message/logging.cpp
-+++ b/layers/error_message/logging.cpp
-@@ -813,7 +813,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL MessengerWin32DebugOutputMsg(VkDebugUtilsMessageS
-     [[maybe_unused]] const char *cstr = msg_buffer_str.c_str();
- 
- #ifdef VK_USE_PLATFORM_WIN32_KHR
--    OutputDebugString(cstr);
-+    OutputDebugStringA(cstr);
- #endif
- 
-     return false;
 diff --git a/layers/layer_options.cpp b/layers/layer_options.cpp
-index ba92b6a..9a7fcbe 100644
+index ee7ad17..875c0e6 100644
 --- a/layers/layer_options.cpp
 +++ b/layers/layer_options.cpp
-@@ -606,7 +606,7 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings *settings_data, VkuL
-     // Default
-     std::vector<std::string> debug_actions_list = {"VK_DBG_LAYER_ACTION_DEFAULT", "VK_DBG_LAYER_ACTION_LOG_MSG"};
- #ifdef WIN32
--    // For Windows, enable message logging AND OutputDebugString
-+    // For Windows, enable message logging AND OutputDebugStringA
-     debug_actions_list.push_back("VK_DBG_LAYER_ACTION_DEBUG_OUTPUT");
- #endif  // WIN32
- 
-@@ -732,7 +732,7 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings *settings_data, VkuL
+@@ -751,7 +751,7 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings *settings_data, VkuL
              const char *cstr = tmp.c_str();
              printf("%s", cstr);
  #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -62,10 +39,10 @@ index ba92b6a..9a7fcbe 100644
  #ifdef VK_USE_PLATFORM_ANDROID_KHR
              __android_log_print(ANDROID_LOG_INFO, "VALIDATION", "%s", cstr);
 diff --git a/layers/sync/sync_validation.cpp b/layers/sync/sync_validation.cpp
-index 000347e..878c7e0 100644
+index 5e64da8..cd4a4d7 100644
 --- a/layers/sync/sync_validation.cpp
 +++ b/layers/sync/sync_validation.cpp
-@@ -61,7 +61,7 @@ void SyncValidator::DebugCapture() {
+@@ -63,7 +63,7 @@ void SyncValidator::DebugCapture() {
          const std::string report = stats.CreateReport();
          std::cout << report;
  #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -103,7 +80,7 @@ index 795f307..41ed6f6 100644
      (void)variable;
      (void)value;
 diff --git a/layers/vulkan/generated/vk_function_pointers.cpp b/layers/vulkan/generated/vk_function_pointers.cpp
-index cc03c4b..6ab265a 100644
+index 26518aa..aad8b2b 100644
 --- a/layers/vulkan/generated/vk_function_pointers.cpp
 +++ b/layers/vulkan/generated/vk_function_pointers.cpp
 @@ -36,10 +36,10 @@
@@ -120,10 +97,10 @@ index cc03c4b..6ab265a 100644
      return lib_handle;
  }
 diff --git a/scripts/generators/function_pointers_generator.py b/scripts/generators/function_pointers_generator.py
-index 31d75a5..64d280d 100644
+index 98e5478..999c185 100644
 --- a/scripts/generators/function_pointers_generator.py
 +++ b/scripts/generators/function_pointers_generator.py
-@@ -110,10 +110,10 @@ void ResetAllExtensions();
+@@ -113,10 +113,10 @@ void ResetAllExtensions();
  typedef HMODULE dl_handle;
  static dl_handle open_library(const char *lib_path) {
      // Try loading the library the original way first.
