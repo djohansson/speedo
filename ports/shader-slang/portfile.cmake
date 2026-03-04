@@ -1,8 +1,8 @@
 vcpkg_from_github(
 	OUT_SOURCE_PATH SOURCE_PATH
 	REPO djohansson/slang
-	REF f13429f894868f604a2612f756ca8806b81ee46f
-	SHA512 5cfd1fe437f70a471b980648c57afc5125606a700fcb909d1d14dffbb3de3de0158a050ad7ca28c098b5f1e6b00ea5ef64c163d3b993c75c0ae8e59d9f781800
+	REF 4776662b449fcda0b68dbe3371afd44758daa19d
+	SHA512 b377b73a97b3250e8873dd7e8a6818060dc761828c04240f273e75c832978ab7fa3f64a4eb87e092dfdf5ae41445831d9550cfb40261edbe5deff6c15361d46c
 	HEAD_REF vcpkg-integration
 )
 
@@ -10,6 +10,7 @@ vcpkg_cmake_configure(
 	SOURCE_PATH "${SOURCE_PATH}"
 	OPTIONS
 		-DSLANG_VERSION_FULL=${VERSION}
+		-DSLANG_VERSION_NUMERIC=${VERSION}
 		-DSLANG_SLANG_LLVM_FLAVOR=DISABLE
 		-DSLANG_ENABLE_GFX=OFF
 		-DSLANG_ENABLE_DXIL=OFF
@@ -27,14 +28,13 @@ vcpkg_cmake_configure(
 		-DSLANG_USE_SYSTEM_GLSLANG=ON
 		-DSLANG_USE_SYSTEM_LUA=ON
 		-DSLANG_USE_SYSTEM_STB=ON
-		-DSLANG_SPIRV_HEADERS_INCLUDE_DIR=${CURRENT_INSTALLED_DIR}/include
 )
 
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 
 vcpkg_fixup_pkgconfig()
-vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH lib/cmake/slang)
+vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH cmake)
 
 set(TOOLS slangc slangd slangi)
 vcpkg_copy_tools(TOOL_NAMES ${TOOLS} AUTO_CLEAN)
