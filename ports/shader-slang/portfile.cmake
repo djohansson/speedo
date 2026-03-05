@@ -34,7 +34,14 @@ vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 
 vcpkg_fixup_pkgconfig()
-vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH cmake)
+if (VCPKG_TARGET_IS_WINDOWS)
+	vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH cmake)
+else()
+	vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH lib/cmake/slang)
+endif()
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
 set(TOOLS slangc slangd slangi)
 vcpkg_copy_tools(TOOL_NAMES ${TOOLS} AUTO_CLEAN)
