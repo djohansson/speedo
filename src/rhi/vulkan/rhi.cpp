@@ -162,33 +162,25 @@ void CreateQueues(RHI<kVk>& rhi)
 	if (kUsePoolReset)
 		cmdPoolCreateFlags |= VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 
-	static constexpr unsigned minGraphicsQueueCount = 2;
-	static constexpr unsigned minComputeQueueCount = 1;
-	static constexpr unsigned minTransferQueueCount = 1;
-
 	queues.emplace(
 		kQueueTypeGraphics,
-		QueueTimelineContext<kVk>{
-			{
-				.semaphore = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
-				.timeline = {},
-				.queues = CircularContainer<QueueContext<kVk>>{}}});
-
+		std::make_shared<QueueTimelineContextData<kVk>>(
+			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+			uint64_t{},
+			CircularContainer<QueueContext<kVk>>{}));
 	queues.emplace(
 		kQueueTypeCompute,
-		QueueTimelineContext<kVk>{
-			{
-				.semaphore = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
-				.timeline = {},
-				.queues = CircularContainer<QueueContext<kVk>>{}}});
+		std::make_shared<QueueTimelineContextData<kVk>>(
+			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+			uint64_t{},
+			CircularContainer<QueueContext<kVk>>{}));
 
 	queues.emplace(
 		kQueueTypeTransfer,
-		QueueTimelineContext<kVk>{
-			{
-				.semaphore = Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
-				.timeline = {},
-				.queues = CircularContainer<QueueContext<kVk>>{}}});
+		std::make_shared<QueueTimelineContextData<kVk>>(
+			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+			uint64_t{},
+			CircularContainer<QueueContext<kVk>>{}));
 
 	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
@@ -213,7 +205,11 @@ void CreateQueues(RHI<kVk>& rhi)
 				auto& [queue, syncInfo] = graphics->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 1, .supportsProfiling = 1},
+					CommandPoolCreateDesc<kVk>{
+						.flags = cmdPoolCreateFlags,
+						.queueFamilyIndex = queueFamilyIt,
+						.levelCount = 1,
+						.supportsProfiling = queueFamily.timestampValidBits > 0},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
@@ -224,7 +220,11 @@ void CreateQueues(RHI<kVk>& rhi)
 				auto& [queue, syncInfo] = compute->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 0, .supportsProfiling = 1},
+					CommandPoolCreateDesc<kVk>{
+						.flags = cmdPoolCreateFlags,
+						.queueFamilyIndex = queueFamilyIt,
+						.levelCount = 0,
+						.supportsProfiling = queueFamily.timestampValidBits > 0},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
@@ -235,7 +235,11 @@ void CreateQueues(RHI<kVk>& rhi)
 				auto& [queue, syncInfo] = transfer->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{.flags = cmdPoolCreateFlags, .queueFamilyIndex = queueFamilyIt, .levelCount = 0, .supportsProfiling = 0},
+					CommandPoolCreateDesc<kVk>{
+						.flags = cmdPoolCreateFlags,
+						.queueFamilyIndex = queueFamilyIt,
+						.levelCount = 0,
+						.supportsProfiling = queueFamily.timestampValidBits > 0},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
@@ -245,22 +249,18 @@ void CreateQueues(RHI<kVk>& rhi)
 
 	if (compute->queues.empty())
 	{
-		ENSUREF(graphics->queues.size() >= (minComputeQueueCount + minGraphicsQueueCount), "Failed to find a suitable compute queue!");
-
-		compute->queues.emplace_back(std::make_pair(
-			std::move(graphics->queues.back().first),
-			QueueHostSyncInfo<kVk>{}));
-			graphics->queues.pop_back();
+		// Alias compute to graphics queue if no dedicated compute queue is found.
+		// This is valid as long as the graphics queue family supports compute operations, which is guaranteed by the Vulkan spec.
+		ENSUREF(graphics->queues.size() > 0, "Failed to find a suitable compute queue!");
+		queues[kQueueTypeCompute].UnsafeGetData() = queues[kQueueTypeGraphics].UnsafeGetData();
 	}
 
 	if (transfer->queues.empty())
 	{
-		ENSUREF(graphics->queues.size() >= (minTransferQueueCount + minGraphicsQueueCount), "Failed to find a suitable transfer queue!");
-
-		transfer->queues.emplace_back(std::make_pair(
-			std::move(graphics->queues.back().first),
-			QueueHostSyncInfo<kVk>{}));
-		graphics->queues.pop_back();
+		// Alias transfer to graphics queue if no dedicated transfer queue is found.
+		// This is valid as long as the graphics queue family supports transfer operations, which is guaranteed by the Vulkan spec.
+		ENSUREF(graphics->queues.size() > 0, "Failed to find a suitable transfer queue!");
+		queues[kQueueTypeTransfer].UnsafeGetData() = queues[kQueueTypeGraphics].UnsafeGetData();
 	}
 }
 

@@ -172,7 +172,7 @@ struct QueueTimelineContextData
 };
 
 template <GraphicsApi G>
-using QueueTimelineContext = ConcurrentAccess<QueueTimelineContextData<G>>;
+using QueueTimelineContext = ConcurrentAccess<std::shared_ptr<QueueTimelineContextData<G>>>;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag) auto tag##__scope = (queue).CreateGpuScope<SOURCE_LOCATION_DATA(tag)>(cmd)

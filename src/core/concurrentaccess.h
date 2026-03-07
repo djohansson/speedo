@@ -117,6 +117,8 @@ public:
 	}
 	friend void Swap(ConcurrentAccess& lhs, ConcurrentAccess& rhs) noexcept { lhs.Swap(rhs); }
 
+	auto& UnsafeGetData() noexcept { return myData; }
+
 private:
 	friend class ConcurrentReadScope<T, MutexT>;
 	friend class ConcurrentWriteScope<T, MutexT>;

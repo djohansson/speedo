@@ -8,6 +8,7 @@
 #include <core/utils.h>
 
 #include <atomic>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -31,6 +32,8 @@ struct QueueFamilyDesc
 {
 	uint32_t queueCount = 0UL;
 	uint32_t flags = 0UL;
+	uint32_t timestampValidBits = 0UL;
+	Extent3d<G> minImageTransferGranularity{};
 };
 
 template <GraphicsApi G>

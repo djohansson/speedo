@@ -163,7 +163,11 @@ Device<kVk>::Device(
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::cout << "Queue Family " << queueFamilyIt << 
 				", queueFlags: " << queueFamilyProperty.queueFlags <<
-				", queueCount: " << queueFamilyProperty.queueCount << '\n';
+				", queueCount: " << queueFamilyProperty.queueCount <<
+				", timestampValidBits: " << queueFamilyProperty.timestampValidBits <<
+				", minImageTransferGranularity: " << queueFamilyProperty.minImageTransferGranularity.width <<
+				"x" << queueFamilyProperty.minImageTransferGranularity.height <<
+				"x" << queueFamilyProperty.minImageTransferGranularity.depth << '\n';
 
 		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
 			.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -176,9 +180,6 @@ Device<kVk>::Device(
 
 	std::vector<const char*> requiredExtensions = {
 		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
-#if defined(__OSX__)
-		VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME,
-#endif
 		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -188,6 +189,11 @@ Device<kVk>::Device(
 		ENSUREF(SupportsExtension(extensionName, GetPhysicalDevice()), "Vulkan device extension not supported: {}", extensionName);
 
 	std::vector<const char*> desiredExtensions = requiredExtensions;
+
+#if defined(__OSX__)
+	if (SupportsExtension(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, GetPhysicalDevice()))
+		desiredExtensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+#endif
 
 	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, GetPhysicalDevice()))
 		desiredExtensions.emplace_back(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
@@ -270,6 +276,8 @@ Device<kVk>::Device(
 		auto& queueFamilyDesc = myQueueFamilyDescs[queueFamilyIt];
 		queueFamilyDesc.queueCount = queueFamilyProperty.queueCount;
 		queueFamilyDesc.flags = queueFamilyProperty.queueFlags;
+		queueFamilyDesc.timestampValidBits = queueFamilyProperty.timestampValidBits;
+		queueFamilyDesc.minImageTransferGranularity = queueFamilyProperty.minImageTransferGranularity;
 	}
 
 	// // merge queue families if they have the same flags.
