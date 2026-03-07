@@ -10,6 +10,7 @@ Install-HomebrewPackage pkg-config
 Install-HomebrewPackage libxinerama
 Install-HomebrewPackage libxxf86vm
 Install-HomebrewPackage libxcursor
+Install-HomebrewPackage mesa
 Install-HomebrewPackage mesa-glu
 Install-HomebrewPackage patchelf
 Install-HomebrewPackage molten-vk

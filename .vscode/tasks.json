@@ -8,6 +8,12 @@
 			"group": "none"
 		},
 		{
+			"label": "export-kosmickrisp-driver-path",
+			"type": "shell",
+			"command": "pwsh -c '& { if (-not (Test-Path ${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path ${userHome}/.speedo | Out-Null }; \"VK_DRIVER_FILES=$(brew --prefix mesa)/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json\" > ${userHome}/.speedo/.env }' 2>&1",
+			"group": "none"
+		},
+		{
 			"label": "Clang-Format (All)",
 			"type": "shell",
 			"command": "pwsh -c '& {. ${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; (Get-ChildItem -Path ${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath ${workspaceFolder}/build/staging/$(Get-HostTriplet)/.clang-format-files -Force; & \"$Env:LLVM_TOOLS_PATH/clang-format\" -i -style=file -files ${workspaceFolder}/build/staging/$(Get-HostTriplet)/.clang-format-files } 2>&1'",
