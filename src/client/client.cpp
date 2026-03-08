@@ -328,7 +328,7 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	using namespace client;
 	using namespace file;
 
-	ASSERT(paths != nullptr);
+	ENSURE(paths != nullptr);
 
 	auto root = GetCanonicalPath(nullptr, "./");
 
@@ -352,7 +352,7 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 		}},
 		createWindowFunc);
 
-	ASSERT(appPtr.Get());
+	ENSURE(appPtr.Get());
 
 	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
 	appPtr->GetExecutor().Submit(handles);
@@ -372,7 +372,7 @@ void ClientDestroy()
 
 	auto appPtr = ConcurrentWriteScope(gClientApplication);
 
-	ASSERT(appPtr.Get());
+	ENSURE(appPtr.Get());
 	ASSERT(appPtr.Get().use_count() == 1);
 	
 	appPtr.Get().reset();

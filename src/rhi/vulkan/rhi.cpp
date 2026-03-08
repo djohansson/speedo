@@ -252,7 +252,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		// Alias compute to graphics queue if no dedicated compute queue is found.
 		// This is valid as long as the graphics queue family supports compute operations, which is guaranteed by the Vulkan spec.
 		ENSUREF(graphics->queues.size() > 0, "Failed to find a suitable compute queue!");
-		queues[kQueueTypeCompute].UnsafeGetData() = queues[kQueueTypeGraphics].UnsafeGetData();
+		compute.Get() = graphics.Get();
 	}
 
 	if (transfer->queues.empty())
@@ -260,7 +260,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		// Alias transfer to graphics queue if no dedicated transfer queue is found.
 		// This is valid as long as the graphics queue family supports transfer operations, which is guaranteed by the Vulkan spec.
 		ENSUREF(graphics->queues.size() > 0, "Failed to find a suitable transfer queue!");
-		queues[kQueueTypeTransfer].UnsafeGetData() = queues[kQueueTypeGraphics].UnsafeGetData();
+		transfer.Get() = graphics.Get();
 	}
 }
 

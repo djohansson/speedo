@@ -1,7 +1,8 @@
 #include "../device.h"
 #include "utils.h"
 
-#include <algorithm>
+#include <core/std_extra.h>
+
 #include <list>
 #include <iostream>
 #include <vector>
@@ -13,7 +14,7 @@ void Device<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");
 
-	VK_ENSURE(vkDeviceWaitIdle(myDevice));
+	VK_CHECK(vkDeviceWaitIdle(myDevice));
 }
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
@@ -52,7 +53,7 @@ void Device<kVk>::AddOwnedObjectHandle(
 		{
 			ZoneScopedN("Device::AddOwnedObjectHandle::vkSetDebugUtilsObjectNameEXT");
 
-			VK_ENSURE(gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
+			VK_CHECK(gVkSetDebugUtilsObjectNameExt(myDevice, &objectInfo));
 		}
 
 		myObjectTypeToCountMap[objectType]++;
@@ -129,6 +130,23 @@ uint32_t Device<kVk>::GetTypeCount(ObjectType<kVk> type)
 	return myObjectTypeToCountMap[type];
 }
 #endif // SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0
+
+template <>
+bool Device<kVk>::SupportsFeature(StructureType<kVk> feature) const
+{
+	const auto& physicalDeviceInfo = GetPhysicalDeviceInfo();
+	const auto& featureIt = physicalDeviceInfo.deviceFeatureParams.find(feature);
+	bool supported = false;
+	if (featureIt != physicalDeviceInfo.deviceFeatureParams.end())
+		std::visit(
+			std_extra::overloaded
+			{
+				[&supported](const auto& featureVariant) {},
+				[&supported](const SwapchainMaintenance1Features<kVk>& featureVariant) { supported = featureVariant.swapchainMaintenance1; }
+			},
+			*featureIt);
+	return supported;
+}
 
 template <>
 Device<kVk>::Device(
@@ -209,9 +227,6 @@ Device<kVk>::Device(
 
 	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetPhysicalDevice()))
 		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
-
-	// if (SupportsFeature(std::get<PhysicalDeviceSwapchainMaintenance1Features<kVk>>(*physicalDeviceInfo.deviceFeatureParams.find(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR))))
-	// 	desiredExtensions.emplace_back(VK_KHR_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
 	
 	VkDeviceCreateInfo deviceCreateInfo{.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
@@ -220,7 +235,7 @@ Device<kVk>::Device(
 	deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(desiredExtensions.size());
 	deviceCreateInfo.ppEnabledExtensionNames = desiredExtensions.data();
 
-	VK_ENSURE(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
+	VK_CHECK(vkCreateDevice(GetPhysicalDevice(), &deviceCreateInfo, &myInstance->GetHostAllocationCallbacks(), &myDevice));
 
 	InitDeviceExtensions(myDevice);
 

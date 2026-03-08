@@ -154,7 +154,7 @@ BufferView<kVk>::BufferView(
 				viewInfo.range = range;
 
 				VkBufferView outBufferView;
-				VK_ENSURE(vkCreateBufferView(*device, &viewInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outBufferView));
+				VK_CHECK(vkCreateBufferView(*device, &viewInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outBufferView));
 
 				return outBufferView;
 		  }())

@@ -92,7 +92,7 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 
 	ZoneScopedN("TaskExecutor()");
 
-	ASSERTF(threadCount > 0, "Thread count must be nonzero");
+	ENSUREF(threadCount > 0, "Thread count must be nonzero");
 
 	myThreads.reserve(threadCount);
 
@@ -121,7 +121,7 @@ bool TaskExecutor::InternalTryDelete(TaskHandle handle)
 	ZoneScopedN("TaskExecutor::InternalTryDelete");
 
 	Task& task = *core::detail::InternalHandleToPtr(handle);
-	ASSERT(task);
+	ENSURE(task);
 	auto& state = *std::atomic_load(&task.InternalState());
 	
 	if (std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 0)
@@ -144,10 +144,10 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 	{
 		TaskHandle adjacentHandle = state.adjacencies[adjIt];
 		Task& adjacent = *core::detail::InternalHandleToPtr(adjacentHandle);
-		ASSERT(adjacent);
+		ENSURE(adjacent);
 		auto& adjacentState = *std::atomic_load(&adjacent.InternalState());
 		auto adjacentLatch = std::atomic_ref(adjacentState.latch);
-		ASSERTF(adjacentLatch, "Latch needs to have been constructed!");
+		ENSUREF(adjacentLatch, "Latch needs to have been constructed!");
 
 		if (adjacentLatch.fetch_sub(1, std::memory_order_relaxed) - 1 == 1)
 			Submit({&adjacentHandle, 1}, !adjacentState.continuation);

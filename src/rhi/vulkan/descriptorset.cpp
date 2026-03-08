@@ -52,7 +52,7 @@ DescriptorSetLayout<kVk>::DescriptorSetLayout(
 
 			  auto& bindingFlags = desc.bindingFlags;
 
-			  ASSERT(bindings.size() == bindingFlags.size());
+			  ENSURE(bindings.size() == bindingFlags.size());
 
 			  VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo{
 				  VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
@@ -67,7 +67,7 @@ DescriptorSetLayout<kVk>::DescriptorSetLayout(
 			  layoutInfo.pBindings = bindings.data();
 
 			  VkDescriptorSetLayout layout;
-			  VK_ENSURE(vkCreateDescriptorSetLayout(
+			  VK_CHECK(vkCreateDescriptorSetLayout(
 				  *device,
 				  &layoutInfo,
 				  &device->GetInstance()->GetHostAllocationCallbacks(),
@@ -151,7 +151,7 @@ DescriptorSetArray<kVk>::DescriptorSetArray(
 			  allocInfo.descriptorPool = desc.pool;
 			  allocInfo.descriptorSetCount = layouts.size();
 			  allocInfo.pSetLayouts = layouts.data();
-			  VK_ENSURE(vkAllocateDescriptorSets(*device, &allocInfo, sets.data()));
+			  VK_CHECK(vkAllocateDescriptorSets(*device, &allocInfo, sets.data()));
 
 			  return sets;
 		  }())

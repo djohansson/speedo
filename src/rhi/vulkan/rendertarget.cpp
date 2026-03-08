@@ -61,7 +61,7 @@ void RenderTarget<kVk>::InternalInitializeAttachments(const RenderTargetCreateDe
 		attachmentRef.aspectMask = aspectMask;
 	}
 
-	ASSERT(attachmentIt == myAttachmentsReferences.size());
+	ENSURE(attachmentIt == myAttachmentsReferences.size());
 }
 
 template <>
@@ -135,40 +135,40 @@ RenderTarget<kVk>::InternalCalculateHashKey(const RenderTargetCreateDesc<kVk>& d
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(gThreadXxhState.get());
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
 		gThreadXxhState.get(),
 		myAttachments.data(),
 		myAttachments.size() * sizeof(myAttachments.front()));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
 		gThreadXxhState.get(),
 		myAttachmentDescs.data(),
 		myAttachmentDescs.size() * sizeof(myAttachmentDescs.front()));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
 		gThreadXxhState.get(),
 		myAttachmentsReferences.data(),
 		myAttachmentsReferences.size() * sizeof(myAttachmentsReferences.front()));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
 		gThreadXxhState.get(),
 		mySubPassDescs.data(),
 		mySubPassDescs.size() * sizeof(mySubPassDescs.front()));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(
 		gThreadXxhState.get(),
 		mySubPassDependencies.data(),
 		mySubPassDependencies.size() * sizeof(mySubPassDependencies.front()));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(gThreadXxhState.get(), &desc.extent, sizeof(desc.extent));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	return XXH3_64bits_digest(gThreadXxhState.get());
 }
@@ -558,7 +558,7 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 {
 	ZoneScopedN("RenderTarget::Begin");
 
-	ASSERT(!myRenderTargetBeginInfo.has_value());
+	ENSURE(!myRenderTargetBeginInfo.has_value());
 
 	const auto& desc = GetRenderTargetDesc();
 
@@ -621,7 +621,7 @@ void RenderTarget<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
 	ZoneScopedN("RenderTarget::End");
 
-	ASSERT(myRenderTargetBeginInfo.has_value());
+	ENSURE(myRenderTargetBeginInfo.has_value());
 
 	if (GetRenderTargetDesc().useDynamicRendering)
 	{
@@ -668,7 +668,7 @@ RenderTarget<kVk>::~RenderTarget()
 {
 	ZoneScopedN("~RenderTarget()");
 
-	ASSERT(!myRenderTargetBeginInfo.has_value());
+	ENSURE(!myRenderTargetBeginInfo.has_value());
 
 	for (const auto& entry : myCache)
 	{
@@ -692,7 +692,7 @@ RenderTarget<kVk>::~RenderTarget()
 template <>
 RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 {
-	ASSERT(!myRenderTargetBeginInfo.has_value());
+	ENSURE(!myRenderTargetBeginInfo.has_value());
 
 	DeviceObject::operator=(std::forward<RenderTarget>(other));
 	std::swap(myAttachments, other.myAttachments);
@@ -707,7 +707,7 @@ RenderTarget<kVk>& RenderTarget<kVk>::operator=(RenderTarget&& other) noexcept
 template <>
 void RenderTarget<kVk>::Swap(RenderTarget& rhs) noexcept
 {
-	ASSERT(!myRenderTargetBeginInfo.has_value());
+	ENSURE(!myRenderTargetBeginInfo.has_value());
 
 	DeviceObject::Swap(rhs);
 	std::swap(myAttachments, rhs.myAttachments);

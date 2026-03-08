@@ -166,7 +166,7 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 	if (result == VK_TIMEOUT)
 		return false;
 
-	VK_ENSURE(result);
+	VK_CHECK(result);
 
 	return true;
 }
@@ -194,7 +194,7 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 	info.clipped = VK_TRUE;
 	info.oldSwapchain = previous;
 
-	VK_ENSURE(vkCreateSwapchainKHR(
+	VK_CHECK(vkCreateSwapchainKHR(
 		device,
 		&info,
 		&device.GetInstance()->GetHostAllocationCallbacks(),
@@ -222,16 +222,16 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 
 	uint32_t frameCount = config.imageCount;
 
-	ASSERT(frameCount);
+	ENSURE(frameCount);
 
 	uint32_t imageCount;
-	VK_ENSURE(vkGetSwapchainImagesKHR(
+	VK_CHECK(vkGetSwapchainImagesKHR(
 		device, mySwapchain, &imageCount, nullptr));
 
-	ASSERT(imageCount == frameCount);
+	ENSURE(imageCount == frameCount);
 
 	std::vector<ImageHandle<kVk>> colorImages(imageCount);
-	VK_ENSURE(vkGetSwapchainImagesKHR(
+	VK_CHECK(vkGetSwapchainImagesKHR(
 		device, mySwapchain, &imageCount, colorImages.data()));
 
 	myFrames.clear();

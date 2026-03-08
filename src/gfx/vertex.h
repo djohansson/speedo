@@ -1,6 +1,7 @@
 // TODO(djohansson): remove vertex.h/inl/cpp
 #pragma once
 
+#include <core/assert.h>
 #include <core/utils.h>
 
 #include <stack>

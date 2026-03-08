@@ -65,7 +65,7 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 		(static_cast<unsigned int>(!cacheData.empty()) != 0U) ? cacheData.data() : nullptr;
 
 	PipelineCacheHandle<kVk> cache;
-	VK_ENSURE(vkCreatePipelineCache(
+	VK_CHECK(vkCreatePipelineCache(
 		*device,
 		&createInfo,
 		&device->GetInstance()->GetHostAllocationCallbacks(),
@@ -79,11 +79,11 @@ GetPipelineCacheData(DeviceHandle<kVk> device, PipelineCacheHandle<kVk> pipeline
 {
 	std::vector<char> cacheData;
 	size_t cacheDataSize = 0;
-	VK_ENSURE(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
+	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
 	if (cacheDataSize != 0U)
 	{
 		cacheData.resize(cacheDataSize);
-		VK_ENSURE(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
+		VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, cacheData.data()));
 	}
 
 	return cacheData;
@@ -189,7 +189,7 @@ PipelineLayout<kVk>::PipelineLayout(
 			  pipelineLayoutInfo.pPushConstantRanges = pushConstantRanges.data();
 
 			  VkPipelineLayout layout;
-			  VK_ENSURE(vkCreatePipelineLayout(
+			  VK_CHECK(vkCreatePipelineLayout(
 				  *device,
 				  &pipelineLayoutInfo,
 				  &device->GetInstance()->GetHostAllocationCallbacks(),
@@ -249,17 +249,17 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 		XXH3_createState(), XXH3_freeState};
 
 	auto result = XXH3_64bits_reset(gThreadXxhState.get());
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	result = XXH3_64bits_update(gThreadXxhState.get(), &myBindPoint, sizeof(myBindPoint));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	auto layoutIt = InternalGetLayout();
 	ENSURE(layoutIt != myLayouts.end());
 	auto* layoutHandle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
 	//result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
-	ASSERT(result != XXH_ERROR);
+	ENSURE(result != XXH_ERROR);
 
 	// todo: hash more releveant state for the current bind point... framebuffer, model, etc.
 
@@ -309,8 +309,8 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 						? std::nullopt
 						: std::make_optional(DescriptorSetArrayList<kVk>{})));
 			auto& [insertIt, insertResult] = insertResultPair;
-			ASSERT(insertResult);
-			ASSERT(insertIt != myDescriptorMap.end());
+			ENSURE(insertResult);
+			ENSURE(insertIt != myDescriptorMap.end());
 			auto& [bindingIndex, bindingTuple] = *insertIt;
 			auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = bindingTuple;
 
@@ -481,7 +481,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
-	VK_ENSURE(vkCreateGraphicsPipelines(
+	VK_CHECK(vkCreateGraphicsPipelines(
 		*InternalGetDevice(),
 		myCache,
 		1,
@@ -518,7 +518,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	pipelineInfo.basePipelineIndex = -1;
 
 	VkPipeline pipelineHandle;
-	VK_ENSURE(vkCreateComputePipelines(
+	VK_CHECK(vkCreateComputePipelines(
 		*InternalGetDevice(),
 		myCache,
 		1,
@@ -625,7 +625,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 	const auto& layout = *myCurrentLayoutIt;
 	const auto& shaderModules = layout.GetShaderModules();
 
-	ASSERT(!shaderModules.empty());
+	ENSURE(!shaderModules.empty());
 
 	switch (myBindPoint)
 	{
@@ -715,7 +715,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 
 	auto& [setArray, setIndex] = setArrayList.front();
 	++setIndex;
-	ASSERT(setIndex < setArray.Capacity());
+	ENSURE(setIndex < setArray.Capacity());
 	auto* setHandle = setArray[setIndex];
 
 	{
@@ -830,7 +830,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 		}
 
 		auto& setArrayList = setOptionalArrayList.value();
-		ASSERT(!setArrayList.empty());
+		ENSURE(!setArrayList.empty());
 		auto& [setArray, setIndex] = setArrayList.front();
 		auto* handle = setArray[setIndex];
 
@@ -868,7 +868,7 @@ Pipeline<kVk>::Pipeline(
 	, myDescriptorPool(
 		  [](const std::shared_ptr<Device<kVk>>& device)
 		  {
-			  static constexpr uint32_t kDescBaseCount = 1024;
+			  static constexpr uint32_t kDescBaseCount = 4096;
 			  static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
 				  {.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount=kDescBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
 				  {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -899,7 +899,7 @@ Pipeline<kVk>::Pipeline(
 			  // VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 
 			  VkDescriptorPool outDescriptorPool;
-			  VK_ENSURE(vkCreateDescriptorPool(
+			  VK_CHECK(vkCreateDescriptorPool(
 				  *device,
 				  &poolInfo,
 				  &device->GetInstance()->GetHostAllocationCallbacks(),

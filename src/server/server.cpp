@@ -130,7 +130,7 @@ void ServerCreate(const PathConfig* paths)
 	using namespace server;
 	using namespace file;
 
-	ASSERT(paths != nullptr);
+	ENSURE(paths != nullptr);
 
 	auto root = GetCanonicalPath(nullptr, "./");
 
@@ -159,7 +159,7 @@ void ServerCreate(const PathConfig* paths)
 			{"UserProfilePath", userPath.value()}
 		}});
 
-	ASSERT(appPtr.Get());
+	ENSURE(appPtr.Get());
 
 	appPtr->GetExecutor().Submit({&gRpcTask.handle, 1});
 }
@@ -173,7 +173,7 @@ void ServerDestroy()
 
 	auto appPtrWriteScope = ConcurrentWriteScope(gServerApplication);
 
-	ASSERT(appPtrWriteScope.Get());
+	ENSURE(appPtrWriteScope.Get());
 	ASSERT(appPtrWriteScope.Get().use_count() == 1);
 	
 	appPtrWriteScope.Get().reset();

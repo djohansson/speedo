@@ -19,7 +19,7 @@ static void InternalInvoke(void* callablePtr, const void* argsPtr, void* statePt
 	const auto& args = *static_cast<const ArgsTuple*>(argsPtr);
 	const auto& params = *static_cast<const ParamsTuple*>(paramsPtr);
 
-	ASSERTF(statePtr, "Task::operator() called without any return state!");
+	ENSUREF(statePtr, "Task::operator() called without any return state!");
 
 	auto& state = *static_cast<typename Future<R>::FutureState*>(statePtr);
 
@@ -30,7 +30,7 @@ static void InternalInvoke(void* callablePtr, const void* argsPtr, void* statePt
 
 	auto latch = std::atomic_ref(state.latch);
 	auto counter = latch.fetch_sub(1, std::memory_order_release) - 1;
-	ASSERTF(counter == 0, "Latch counter should be zero!");
+	ENSUREF(counter == 0, "Latch counter should be zero!");
 
 	latch.notify_all();
 }
@@ -73,7 +73,7 @@ constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcep
 template <typename... Params>
 inline constexpr void Task::operator()(Params&&... params)
 {
-	ASSERT(*this);
+	ENSURE(*this);
 
 	auto taskParams = std::make_tuple(std::forward<Params>(params)...);
 	myInvokeFcn(myCallableMemory.data(), myArgsMemory.data(), std::atomic_load(&InternalState()).get(), &taskParams);

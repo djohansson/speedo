@@ -25,7 +25,7 @@ Fence<kVk>::Fence(
 		FenceHandle<kVk> fence;
 		VkFenceCreateInfo createInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 		createInfo.flags = desc.flags;
-		VK_ENSURE(vkCreateFence(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &fence));
+		VK_CHECK(vkCreateFence(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &fence));
 		return fence;
 	}(), std::forward<FenceCreateDesc<kVk>>(desc))
 {}
@@ -68,7 +68,7 @@ bool Fence<kVk>::Wait(uint64_t timeout) const
 	if (result == VK_SUCCESS)
 		return true;
 
-	VK_ENSURE_RESULT(result, VK_TIMEOUT);
+	VK_CHECK_RESULT(result, VK_TIMEOUT);
 
 	return false;
 }
@@ -86,7 +86,7 @@ bool Fence<kVk>::Wait(
 	if (result == VK_SUCCESS)
 		return true;
 
-	VK_ENSURE_RESULT(result, VK_TIMEOUT);
+	VK_CHECK_RESULT(result, VK_TIMEOUT);
 
 	return false;
 }

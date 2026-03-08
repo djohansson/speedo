@@ -252,25 +252,8 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	{
 		ZoneScopedN("Queue::Submit::vkQueueSubmit");
 
-		submitResult = vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back());
+		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back()));
 	}
-	if (submitResult == VK_ERROR_DEVICE_LOST)
-	{
-		std::println(stderr, "vkQueueSubmit failed with VK_ERROR_DEVICE_LOST");
-		if (gVkGetQueueCheckpointData2NV != nullptr)
-		{
-			static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
-			uint32_t checkpointDataCount;
-			gVkGetQueueCheckpointData2NV(myQueue, &checkpointDataCount, nullptr);
-			std::println(stderr, "GPU marker count: {}", checkpointDataCount);
-			gCheckpointData.resize(checkpointDataCount);
-			gVkGetQueueCheckpointData2NV(myQueue, &checkpointDataCount, gCheckpointData.data());
-			for (const auto& checkpoint : gCheckpointData)
-				std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
-		}
-		TRAP();
-	}		
-	VK_ENSURE(submitResult);
 
 	myPendingSubmits.clear();
 
@@ -282,7 +265,7 @@ void Queue<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Queue::WaitIdle");
 
-	VK_ENSURE(vkQueueWaitIdle(myQueue));
+	VK_CHECK(vkQueueWaitIdle(myQueue));
 }
 
 template <>
@@ -304,13 +287,23 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentFenceInfo.pFences = &result.fences.back().GetHandle();
 
+	void* presentFenceInfoPtr = 
+		InternalGetDevice()->SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR) ?
+			reinterpret_cast<void*>(&presentFenceInfo) :
+			nullptr;
+
 	PresentId<kVk> presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
-	presentId.pNext = &presentFenceInfo;
+	presentId.pNext = presentFenceInfoPtr;
 	presentId.swapchainCount = myPendingPresent.swapchains.size();
 	presentId.pPresentIds = result.presentIds.data();
 
+	void* presentIdPtr = 
+		SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance()) ?
+			reinterpret_cast<void*>(&presentId) :
+			nullptr;
+
 	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.pNext = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance()) ? reinterpret_cast<void*>(&presentId) : reinterpret_cast<void*>(&presentFenceInfo);
+	presentInfo.pNext = presentIdPtr ? presentIdPtr : presentFenceInfoPtr;
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
@@ -353,7 +346,7 @@ QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
 	{
-		ASSERT(!cmdArray.RecordingFlags());
+		ENSURE(!cmdArray.RecordingFlags());
 		auto cmdCount = cmdArray.Head();
 		std::copy_n(cmdArray.Data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
 	}

@@ -10,13 +10,13 @@ void* VertexAllocator::Allocate(size_t count)
 
 void VertexAllocator::Free(void* ptr, size_t count)
 {
-	ASSERT(ptr != nullptr);
+	ENSURE(ptr != nullptr);
 
 	auto* first = myData.data();
 	auto* last = first + myData.size();
 
 	auto bytes = count * Stride();
-	ASSERT(bytes > 0);
+	ENSURE(bytes > 0);
 
 	auto* next = static_cast<char*>(ptr) + bytes;
 

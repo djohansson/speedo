@@ -184,12 +184,7 @@ VkBool32 DebugUtilsMessengerCallback(
 		std::cerr << ": ";
 	}
 
-	if (pCallbackData->pMessageIdName != nullptr)
-		std::cerr << pCallbackData->pMessageIdName << ": ";
-
-	std::cerr << pCallbackData->pMessage << '\n';
-
-	ASSERT(messageSeverity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT);
+	CHECKF(messageSeverity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT, "Vulkan validation error: {}: {}", pCallbackData->pMessageIdName, pCallbackData->pMessage);
 
 	return VK_FALSE;
 }
@@ -220,7 +215,7 @@ InstanceConfiguration<kVk>::InstanceConfiguration(std::string&& applicationName,
 		VK_MAKE_VERSION(1, 0, 0),
 		nullptr,
 		VK_MAKE_VERSION(1, 0, 0),
-		VK_API_VERSION_1_2}
+		VK_API_VERSION_1_3}
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();
@@ -324,7 +319,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	}
 
 	uint32_t instanceLayerCount;
-	VK_ENSURE(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
+	VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
 	
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		std::cout << instanceLayerCount << " vulkan layer(s) found:" << '\n';
@@ -332,7 +327,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	if (instanceLayerCount > 0)
 	{
 		std::vector<VkLayerProperties> instanceLayers(instanceLayerCount);
-		VK_ENSURE(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data()));
+		VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, instanceLayers.data()));
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
 			for (uint32_t i = 0; i < instanceLayerCount; ++i)
@@ -354,7 +349,6 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	#endif
 		VK_KHR_SURFACE_EXTENSION_NAME,
 		VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME,
-	//	VK_KHR_SURFACE_MAINTENANCE_1_EXTENSION_NAME,
 	};
 	std::vector<const char*> requiredLayers = {};
 
@@ -435,16 +429,16 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	info.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
 
-	VK_ENSURE(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
+	VK_CHECK(vkCreateInstance(&info, &myHostAllocationCallbacks, &myInstance));
 
 	InitInstanceExtensions(myInstance);
 
 	uint32_t physicalDeviceCount = 0;
-	VK_ENSURE(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
-	ASSERTF(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
+	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
+	ENSUREF(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
 	
 	myPhysicalDevices.resize(physicalDeviceCount);
-	VK_ENSURE(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
+	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, myPhysicalDevices.data()));
 
 	for (auto* physicalDevice : myPhysicalDevices)
 	{
@@ -456,7 +450,7 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	//if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		VK_ENSURE(gVkCreateDebugUtilsMessengerEXT(
+		VK_CHECK(gVkCreateDebugUtilsMessengerEXT(
 			myInstance,
 			&gDebugUtilsMessengerCallbackCreateInfo,
 			&myHostAllocationCallbacks,

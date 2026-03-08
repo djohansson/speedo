@@ -110,7 +110,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		progressOut = 64;
 
 		void* data;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
 		auto result = inStream(std::span(static_cast<stbi_uc*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
 		if (failure(result))
@@ -136,7 +136,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			size += mipLevel.size;
 
 		void* data;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
 		auto result = outStream(std::span(static_cast<const stbi_uc*>(data), size));
 		vmaUnmapMemory(device->GetAllocator(), memoryHandle);
 		if (failure(result))
@@ -196,7 +196,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			desc.name.data());
 
 		void* stagingBuffer;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
 
 		auto compressBlocks = [](const stbi_uc* src,
 								 unsigned char* dst,

@@ -61,7 +61,7 @@ typename Future<T>::value_t Future<T>::Get()
 template <typename T>
 bool Future<T>::IsReady() const noexcept
 {
-	ASSERTF(Valid(), "Future is not valid!");
+	ENSUREF(Valid(), "Future is not valid!");
 
 	auto& state = *std::atomic_load(&InternalState());
 
@@ -77,7 +77,7 @@ bool Future<T>::Valid() const noexcept
 template <typename T>
 void Future<T>::Wait() const
 {
-	ASSERTF(Valid(), "Future is not valid!");
+	ENSUREF(Valid(), "Future is not valid!");
 
 	auto& state = *std::atomic_load(&InternalState());
 

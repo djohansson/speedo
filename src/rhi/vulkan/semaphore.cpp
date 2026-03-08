@@ -32,7 +32,7 @@ Semaphore<kVk>::Semaphore(
 		createInfo.pNext = &typeCreateInfo;
 		createInfo.flags = desc.flags;
 
-		VK_ENSURE(vkCreateSemaphore(
+		VK_CHECK(vkCreateSemaphore(
 			*device,
 			&createInfo,
 			&device->GetInstance()->GetHostAllocationCallbacks(),
@@ -81,7 +81,7 @@ uint64_t Semaphore<kVk>::GetValue() const
 	ZoneScopedN("Semaphore::GetValue");
 
 	uint64_t value;
-	VK_ENSURE(vkGetSemaphoreCounterValue(*InternalGetDevice(), mySemaphore, &value));
+	VK_CHECK(vkGetSemaphoreCounterValue(*InternalGetDevice(), mySemaphore, &value));
 
 	return value;
 }
@@ -102,7 +102,7 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	if (result == VK_SUCCESS)
 		return true;
 
-	VK_ENSURE_RESULT(result, VK_TIMEOUT);
+	VK_CHECK_RESULT(result, VK_TIMEOUT);
 
 	return false;
 }
@@ -126,7 +126,7 @@ bool Semaphore<kVk>::Wait(
 	if (result == VK_SUCCESS)
 		return true;
 
-	VK_ENSURE_RESULT(result, VK_TIMEOUT);
+	VK_CHECK_RESULT(result, VK_TIMEOUT);
 
 	return false;
 }

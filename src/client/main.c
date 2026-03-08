@@ -62,6 +62,9 @@ static void OnSignal(int signal)
 	case SIGABRT:
 		LOG_ERROR("Program aborted.");
 		return;
+	case SIGTRAP:
+		LOG_ERROR("Program hit a debug trap.");
+		return;
 	default:
 		break;
 	}
@@ -75,14 +78,14 @@ static void OnSignal(int signal)
 
 static void OnError(int error, const char* description)
 {
-	ASSERT(description != NULL);
+	ENSURE(description != NULL);
 
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
 static void OnMouseEnter(GLFWwindow* window, int entered)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	if (entered)
 		SetCurrentWindow(window);
@@ -95,7 +98,7 @@ static void OnMouseEnter(GLFWwindow* window, int entered)
 
 static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	gMouse.button = button;
 	gMouse.action = action;
@@ -107,7 +110,7 @@ static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
 
 static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	gMouse.xpos = xpos;
 	gMouse.ypos = ypos;
@@ -118,7 +121,7 @@ static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	gMouse.xoffset = xoffset;
 	gMouse.yoffset = yoffset;
@@ -129,11 +132,11 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 
 static void OnWindowFullscreenChanged(GLFWwindow* window)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	struct WindowState* windowState = GetWindowState(window);
 
-	ASSERT(windowState != NULL);
+	ENSURE(windowState != NULL);
 
 	GLFWmonitor* windowMonitor = glfwGetWindowMonitor(window);
 
@@ -159,7 +162,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 		{
 			const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
 
-			ASSERT(mode != NULL);
+			ENSURE(mode != NULL);
 
 			windowState->x = 0;
 			windowState->y = 0;
@@ -183,7 +186,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 
 static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	static bool gFullscreenChangeTriggered = false;
 	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
@@ -210,7 +213,7 @@ static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mod
 
 static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 {
-	ASSERT(monitor != NULL);
+	ENSURE(monitor != NULL);
 
 	/*
 	if (event == GLFW_CONNECTED)
@@ -226,12 +229,12 @@ static void OnMonitorChanged(GLFWmonitor* monitor, int event)
 
 static void OnDrop(GLFWwindow* window, int count, const char** paths)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 }
 
 static void OnFramebufferResize(GLFWwindow* window, int width, int height)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 	ASSERT(width > 0);
 	ASSERT(height > 0);
 
@@ -240,13 +243,13 @@ static void OnFramebufferResize(GLFWwindow* window, int width, int height)
 
 static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 	ASSERT(xscale > 0);
 	ASSERT(yscale > 0);
 
 	struct WindowState* windowState = GetWindowState(window);
 
-	ASSERT(windowState != NULL);
+	ENSURE(windowState != NULL);
 
 	windowState->xscale = xscale;
 	windowState->yscale = yscale;
@@ -255,17 +258,17 @@ static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float 
 
 static void OnWindowFocusChanged(GLFWwindow* window, int focused)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 }
 
 static void OnWindowRefreshChanged(GLFWwindow* window)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 }
 
 static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	/*
 	if (iconified)
@@ -281,7 +284,7 @@ static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
 
 static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	/*
 	if (maximized)
@@ -297,12 +300,12 @@ static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
 
 static void OnWindowSizeChanged(GLFWwindow* window, int width, int height)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 }
 
 static void SetWindowCallbacks(GLFWwindow* window)
 {
-	ASSERT(window != NULL);
+	ENSURE(window != NULL);
 
 	glfwSetCursorEnterCallback(window, OnMouseEnter);
 	glfwSetMouseButtonCallback(window, OnMouseButton);
@@ -322,7 +325,7 @@ static void SetWindowCallbacks(GLFWwindow* window)
 
 static WindowHandle OnCreateWindow(struct WindowState* state)
 {
-	ASSERT(state);
+	ENSURE(state != NULL);
 
 	// todo: fullscreen on create
 
@@ -336,7 +339,7 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 		NULL,
 		NULL);
 
-	ASSERT(window);
+	ENSURE(window != NULL);
 
 	float xscale;
 	float yscale;
@@ -394,9 +397,10 @@ int main(int argc, char* argv[], char* envp[])
 	signal(SIGABRT, OnSignal);
 	signal(SIGFPE, OnSignal);
 	signal(SIGSEGV, OnSignal);
+	signal(SIGTRAP, OnSignal);
 
-	ASSERT(argv != NULL);
-	ASSERT(envp != NULL);
+	ENSURE(argv != NULL);
+	ENSURE(envp != NULL);
 
 	cag_option_context cagContext;
 	cag_option_init(&cagContext, gCmdArgs, CAG_ARRAY_SIZE(gCmdArgs), argc, argv);
@@ -434,10 +438,10 @@ int main(int argc, char* argv[], char* envp[])
 	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
 	{
 		GLFWmonitor* monitor = monitors[monitorIt];
-		ASSERT(monitor != NULL);
+		ENSURE(monitor != NULL);
 
 		const char* name = glfwGetMonitorName(monitor);
-		ASSERT(name != NULL);
+		ENSURE(name != NULL);
 
 		int monitorx;
 		int monitory;
@@ -448,7 +452,7 @@ int main(int argc, char* argv[], char* envp[])
 		glfwGetMonitorPhysicalSize(monitor, &physicalWidth, &physicalHeight);
 		
 		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-		ASSERT(mode != NULL);
+		ENSURE(mode != NULL);
 
 		float xscale;
 		float yscale;

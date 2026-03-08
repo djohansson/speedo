@@ -15,14 +15,14 @@ void Pipeline<kVk>::SetDescriptorData(
 	auto [bindingIt, emplaceResult] =
 		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-	ASSERT(bindingIt != bindingsMap.end());
+	ENSURE(bindingIt != bindingsMap.end());
 
 	auto& [offset, count, type, ranges] = bindingIt->second;
 
 	if (emplaceResult)
 	{
-		ASSERT(count == 0);
-		ASSERT(ranges.empty());
+		ENSURE(count == 0);
+		ENSURE(ranges.empty());
 
 		count = 1;
 		ranges.insert({0U, 1U});
@@ -42,7 +42,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	}
 	else
 	{
-		ASSERT(count == 1);
+		ENSURE(count == 1);
 
 		std::get<T>(bindingsData[offset]) = std::forward<T>(data);
 	}
@@ -77,21 +77,21 @@ void Pipeline<kVk>::SetDescriptorData(
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] =
 		myDescriptorMap.at(layout);
 
-	ASSERT(data.size() <= descriptorCount);
+	ENSURE(data.size() <= descriptorCount);
 
 	auto lock = std::lock_guard(mutex);
 
 	auto [bindingIt, emplaceResult] =
 		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-	ASSERT(bindingIt != bindingsMap.end());
+	ENSURE(bindingIt != bindingsMap.end());
 
 	auto& [offset, count, type, ranges] = bindingIt->second;
 
 	if (emplaceResult)
 	{
-		ASSERT(count == 0);
-		ASSERT(ranges.empty());
+		ENSURE(count == 0);
+		ENSURE(ranges.empty());
 
 		count = data.size();
 		ranges.insert({0U, count});
@@ -111,7 +111,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	}
 	else
 	{
-		ASSERT(count > 0);
+		ENSURE(count > 0);
 
 		if (count == data.size())
 		{
@@ -178,14 +178,14 @@ void Pipeline<kVk>::SetDescriptorData(
 	auto [bindingIt, emplaceResult] =
 		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
 
-	ASSERT(bindingIt != bindingsMap.end());
+	ENSURE(bindingIt != bindingsMap.end());
 
 	auto& [offset, count, type, ranges] = bindingIt->second;
 
 	if (emplaceResult)
 	{
-		ASSERT(count == 0);
-		ASSERT(ranges.empty());
+		ENSURE(count == 0);
+		ENSURE(ranges.empty());
 
 		count = 1;
 		ranges.insert({index, index + 1});
@@ -205,7 +205,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	}
 	else
 	{
-		ASSERT(count > 0);
+		ENSURE(count > 0);
 
 		auto rangeIt = ranges.begin();
 		uint32_t indexOffset = 0;

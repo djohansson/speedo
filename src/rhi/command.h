@@ -53,7 +53,7 @@ public:
 	[[nodiscard]] uint8_t Head() const { return myBits.head; }
 	[[nodiscard]] const CommandBufferHandle<G>* Data() const
 	{
-		ASSERT(!RecordingFlags());
+		ENSURE(!RecordingFlags());
 		return myArray.data();
 	}
 

@@ -37,7 +37,7 @@ void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
 	Task& task = *core::detail::InternalHandleToPtr(handle);
 	auto& state = *std::atomic_load(&task.InternalState());
 	
-	ASSERT(std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 1);
+	ENSURE(std::atomic_ref(state.latch).load(std::memory_order_relaxed) == 1);
 
 	task(params...);
 	InternalScheduleAdjacent(task);

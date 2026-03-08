@@ -118,7 +118,7 @@ void AddBinding(
 	std::string_view name,
 	std::map<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts)
 {
-	ASSERT(typeLayout);
+	ENSURE(typeLayout != nullptr);
 
 	auto& layout = layouts[bindingSpace];
 
@@ -192,27 +192,27 @@ uint32_t CreateLayoutBindings<kVk>(
 	const unsigned* parentSpace,
 	const char* parentName)
 {
-	ASSERT(parameter);
+	ENSURE(parameter != nullptr);
 	auto space = parameter->getBindingSpace();
 	auto index = parameter->getBindingIndex();
 	auto name = std::string(parameter->getName());
 	auto stage = parameter->getStage();
 	auto categoryCount = parameter->getCategoryCount();
 	auto* typeLayout = parameter->getTypeLayout();
-	ASSERT(typeLayout);
+	ENSURE(typeLayout != nullptr);
 	auto arrayElementCount = typeLayout->getElementCount();
 	auto fieldCount = typeLayout->getFieldCount();
 	auto* elementTypeLayout = typeLayout->getElementTypeLayout();
-	//ASSERT(elementTypeLayout);
+	//ENSURE(elementTypeLayout != nullptr);
 	auto elementFieldCount =
 		(elementTypeLayout != nullptr) ? elementTypeLayout->getFieldCount() : 0;
 
 	auto category = parameter->getCategory();
 	const auto* typeName = typeLayout->getName();
-	ASSERT(typeName);
+	ENSURE(typeName != nullptr);
 	auto kind = typeLayout->getKind();
 	auto* type = typeLayout->getType();
-	ASSERT(type);
+	ENSURE(type != nullptr);
 	auto userAttributeCount = type->getUserAttributeCount();
 	auto elementKind = (elementTypeLayout != nullptr) ? elementTypeLayout->getKind()
 													  : slang::TypeReflection::Kind::None;
@@ -282,10 +282,10 @@ uint32_t CreateLayoutBindings<kVk>(
 		auto* elementField = (elementTypeLayout != nullptr)
 								 ? elementTypeLayout->getFieldByIndex(elementFieldIndex)
 								 : nullptr;
-		//ASSERT(elementField);
+		//ENSURE(elementField != nullptr);
 		auto* elementFieldType =
 			(elementField != nullptr) ? elementField->getTypeLayout() : nullptr;
-		//ASSERT(elementFieldType);
+		//ENSURE(elementFieldType != nullptr);
 		auto count = (elementFieldType != nullptr) && elementFieldType->isArray()
 						 ? elementFieldType->getFieldCount()
 						 : 1;
@@ -347,7 +347,7 @@ ShaderModule<kVk>::ShaderModule(const std::shared_ptr<Device<kVk>>& device, cons
 			  info.pCode = codePtr;
 
 			  VkShaderModule vkShaderModule;
-			  VK_ENSURE(vkCreateShaderModule(*device, &info, &device->GetInstance()->GetHostAllocationCallbacks(), &vkShaderModule));
+			  VK_CHECK(vkCreateShaderModule(*device, &info, &device->GetInstance()->GetHostAllocationCallbacks(), &vkShaderModule));
 			  return vkShaderModule;
 		  }(reinterpret_cast<const uint32_t*>(std::get<0>(shader).data()), std::get<0>(shader).size()),
 		  std::get<1>(shader))

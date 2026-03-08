@@ -1,7 +1,7 @@
 #pragma once
 
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
-#include "std_extra.h"
+#include <core/assert.h>//NOLINT(modernize-deprecated-headers)
+#include <core/std_extra.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -263,7 +263,7 @@ public:
 
 	auto insert(value_type&& range)//NOLINT(readability-identifier-naming)
 	{
-		ASSERT(range.first < range.second);
+		ENSURE(range.first < range.second);
 
 		auto [low, high] = range;
 

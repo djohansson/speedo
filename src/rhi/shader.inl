@@ -71,7 +71,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 			}
 
 			std::cout << "Set intermediate path: " << path << '\n';
-			ASSERT(std::filesystem::is_directory(path));
+			ENSURE(std::filesystem::is_directory(path));
 			spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + "/").c_str());
 		}
 
@@ -82,7 +82,7 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 			auto path = std::filesystem::canonical(includePath);
 
 			std::cout << "Add include search path: " << path << '\n';
-			ASSERT(std::filesystem::is_directory(path));
+			ENSURE(std::filesystem::is_directory(path));
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
 

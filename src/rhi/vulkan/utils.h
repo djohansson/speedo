@@ -1,28 +1,27 @@
 #pragma once
 
-#include <core/assert.h>
 #include <core/utils.h>
 #include <rhi/types.h>
 
 #include <span>
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-#ifdef __cplusplus
-#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "{} failed with return code {}", #A, string_VkResult(A))
-#	define VK_ENSURE_RESULT(A, C) ENSUREF((A == C), "{} failed with return code {}", #A, string_VkResult(A))
-#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "{} failed with return code {}", #A, string_VkResult(A))
-#	define VK_ASSERT_OTHER(A, C) ASSERTF((A == C), "{} failed with return code {}", #A, string_VkResult(A))
+// todo: move checking to deviceobject to be able to pass on context/objects to callbacks more elegantly
+void OnCheckFailedDefault(VkResult result, int numargs, ...);
+#define VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, FailCallback, ...) do \
+{ \
+	VkResult __result = (Expression); \
+	if (__result != ExpectedResult) \
+		FailCallback(__result, NUMARGS(__VA_ARGS__) __VA_OPT__(,) __VA_ARGS__); \
+} while(false)
+#define VK_CHECK_RESULT(Expression, ExpectedResult, ...) \
+	VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, OnCheckFailedDefault __VA_OPT__(,) __VA_ARGS__)
+#define VK_CHECK(Expression, ...) \
+	VK_CHECK_RESULT_IMPL(Expression, VK_SUCCESS, OnCheckFailedDefault __VA_OPT__(,) __VA_ARGS__)
 #else
-#	define VK_ENSURE(A) ENSUREF((A == VK_SUCCESS), "%s failed with return code %s", #A, string_VkResult(A))
-#	define VK_ENSURE_RESULT(A, C) ENSUREF((A == C), "%s failed with return code %s", #A, string_VkResult(A))
-#	define VK_ASSERT(A) ASSERTF((A == VK_SUCCESS), "%s failed with return code %s", #A, string_VkResult(A))
-#	define VK_ASSERT_OTHER(A, C) ASSERTF((A == C), "%s failed with return code %s", #A, string_VkResult(A))
-#endif
-#else
-#	define VK_ENSURE(A) static_cast<void>(A);
-#	define VK_ENSURE_RESULT(A, C) static_cast<void>(A);
-#	define VK_ASSERT(A) static_cast<void>(A);
-#	define VK_ASSERT_OTHER(A, C) static_cast<void>(A);
+#define VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, FailCallback, ...) static_cast<void>(Expression)
+#define VK_CHECK_RESULT(Expression, ExpectedResult, ...) VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, 0)
+#define VK_CHECK(Expression, ...) VK_CHECK_RESULT_IMPL(Expression, VK_SUCCESS, OnCheckFailedDefault)
 #endif
 
 extern PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2;

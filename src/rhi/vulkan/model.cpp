@@ -116,7 +116,7 @@ Load(
 			ibName.data());
 
 		void* ibData;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
 		auto ibResult = inStream(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
 		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 		if (failure(ibResult))
@@ -135,7 +135,7 @@ Load(
 			vbName.data());
 
 		void* vbData;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
 		auto vbResult = inStream(
 			std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
@@ -160,14 +160,14 @@ Load(
 			return std::make_error_code(result);
 
 		void* ibData;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), ibMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), ibMemHandle, &ibData));
 		auto ibResult = out(std::span(static_cast<const char*>(ibData), desc.indexCount * sizeof(uint32_t)));
 		vmaUnmapMemory(device->GetAllocator(), ibMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
 
 		void* vbData;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
 		auto vbResult = out(std::span(
 			static_cast<const char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device->GetAllocator(), vbMemHandle);
@@ -316,7 +316,7 @@ Load(
 			ibName.data());
 
 		void* ibData;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
 		memcpy(ibData, indices.data(), desc.indexCount * sizeof(uint32_t));
 		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
 
@@ -333,7 +333,7 @@ Load(
 			vbName.data());
 
 		void* vbData;
-		VK_ENSURE(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
 		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
 		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
 
@@ -437,13 +437,17 @@ Model<kVk> LoadModel(
 	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
 	auto& [transferQueue, transferSubmit] = transfer->queues.Get();
 
+	auto cmd = transferQueue.GetPool().Commands();
+
 	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto model = Model<kVk>(
 		rhi.device,
 		transfersDone,
-		transferQueue.GetPool().Commands(),
+		cmd,
 		filePath,
 		progress);
+	cmd.End();
+
 // a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
 	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([model = std::move(oldModel)] {});
 

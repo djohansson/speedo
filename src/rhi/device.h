@@ -67,6 +67,8 @@ public:
 
 	[[nodiscard]] auto GetAllocator() const noexcept { return myAllocator; }
 
+	[[nodiscard]] bool SupportsFeature(StructureType<G> feature) const;
+
 	void WaitIdle() const;
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)

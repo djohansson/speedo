@@ -105,6 +105,9 @@ template <GraphicsApi G>
 using SwapchainHandle = std::conditional_t<G == kVk, VkSwapchainKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
+using SwapchainMaintenance1Features = std::conditional_t<G == kVk, VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
 using FramebufferHandle = std::conditional_t<G == kVk, VkFramebuffer, std::nullptr_t>;
 
 template <GraphicsApi G>

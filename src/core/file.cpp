@@ -56,7 +56,7 @@ GetTimeStamp(const std::filesystem::path& filePath) noexcept
 std::expected<std::filesystem::path, std::error_code>
 GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfMissing) noexcept
 {
-	ASSERT(defaultPathStr != nullptr);
+	ENSURE(defaultPathStr != nullptr);
 
 	std::error_code error;
 

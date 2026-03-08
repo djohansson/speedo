@@ -25,7 +25,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <iostream>
-#include <print>
 
 PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2{};
 PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2{};
@@ -43,6 +42,37 @@ PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV{};
 PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV{};
 PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
+
+#if (SPEEDO_PROFILING_LEVEL > 0)
+void OnCheckFailedDefault(VkResult result, int numargs, ...)
+{
+	LOG_ERROR("Vulkan error: {}", string_VkResult(result));
+	switch (result)
+	{
+	case VK_ERROR_DEVICE_LOST:
+		if (gVkGetQueueCheckpointData2NV != nullptr)
+		{
+			VkQueue queue = VK_NULL_HANDLE;
+			va_list ap;
+			va_start(ap, numargs);
+			while (numargs--)
+				queue = va_arg(ap, VkQueue);
+			va_end(ap);
+			static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
+			uint32_t checkpointDataCount;
+			gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, nullptr);
+			std::println(stderr, "GPU marker count: {}", checkpointDataCount);
+			gCheckpointData.resize(checkpointDataCount);
+			gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, gCheckpointData.data());
+			for (const auto& checkpoint : gCheckpointData)
+				std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
+		}
+		TRAP();
+	default:
+		break;
+	}
+}
+#endif
 
 void InitInstanceExtensions(VkInstance instance)
 {
@@ -228,8 +258,8 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 }
 
 template<>
-bool SupportsFeature<VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR>(
-	const VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR& feature)
+bool SupportsFeature<SwapchainMaintenance1Features<kVk>>(
+	const SwapchainMaintenance1Features<kVk>& feature)
 {
 	return static_cast<bool>(feature.swapchainMaintenance1);
 }
@@ -383,7 +413,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 
 	VkBuffer outBuffer;
 	VmaAllocation outBufferMemory;
-	VK_ENSURE(
+	VK_CHECK(
 		vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
 
 	return std::make_tuple(outBuffer, outBufferMemory);
@@ -398,7 +428,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VkMemoryPropertyFlags memoryFlags,
 	const char* debugName)
 {
-	ASSERT(bufferSize > 0);
+	ENSURE(bufferSize > 0);
 
 	VkBuffer outBuffer;
 	VmaAllocation outBufferMemory;
@@ -436,7 +466,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
 	auto& [bufferHandle, memoryHandle] = bufferData;
 
 	void* data;
-	VK_ENSURE(vmaMapMemory(allocator, memoryHandle, &data));
+	VK_CHECK(vmaMapMemory(allocator, memoryHandle, &data));
 	memcpy(data, srcData, srcDataSize);
 	vmaUnmapMemory(allocator, memoryHandle);
 
@@ -656,7 +686,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkImage outImage;
 	VmaAllocation outImageMemory;
 	VmaAllocationInfo outAllocInfo;
-	VK_ENSURE(vmaCreateImage(
+	VK_CHECK(vmaCreateImage(
 		allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
 	return std::make_tuple(outImage, outImageMemory);
@@ -679,7 +709,11 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	const char* debugName,
 	VkImageLayout initialLayout)
 {
-	ASSERT(stagingBuffer);
+	ENSURE(stagingBuffer != VK_NULL_HANDLE);
+	ASSERT(width > 0);
+	ASSERT(height > 0);
+	ASSERT(mipLevels > 0);
+	ENSURE(mipOffsets != nullptr);
 
 	auto result = CreateImage2D(
 		allocator,
@@ -742,7 +776,7 @@ VkImageView CreateImageView2D(
 	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 
 	VkImageView outImageView;
-	VK_ENSURE(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
+	VK_CHECK(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
 
 	return outImageView;
 }
@@ -766,7 +800,7 @@ VkFramebuffer CreateFramebuffer(
 	info.layers = layers;
 
 	VkFramebuffer outFramebuffer;
-	VK_ENSURE(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
+	VK_CHECK(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
 
 	return outFramebuffer;
 }
@@ -787,7 +821,7 @@ VkRenderPass CreateRenderPass(
 	renderInfo.pDependencies = subpassDependencies.data();
 
 	VkRenderPass outRenderPass;
-	VK_ENSURE(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
+	VK_CHECK(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
 
 	return outRenderPass;
 }
@@ -871,7 +905,7 @@ VkRenderPass CreateRenderPass(
 VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, WindowHandle handle)
 {
 	VkSurfaceKHR surface;
-	VK_ENSURE(glfwCreateWindowSurface(
+	VK_CHECK(glfwCreateWindowSurface(
 		instance,
 		reinterpret_cast<GLFWwindow*>(handle),
 		hostAllocator,
@@ -900,7 +934,7 @@ VkResult CheckFlipOrPresentResult(VkResult result)
 	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
 	case VK_ERROR_DEVICE_LOST:	
 	default:
-		ENSUREF(false, "Error: flip/present returned fatal error code: {}", string_VkResult(result));
+		ASSERTF(false, "Error: flip/present returned fatal error code: {}", string_VkResult(result));
 	}
 
 	return result;

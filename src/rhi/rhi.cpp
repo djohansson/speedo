@@ -69,7 +69,7 @@ void SetCurrentWindow(WindowHandle window)
 {
 	using namespace rhi;
 
-	ASSERT(std::find_if(gWindows.begin(), gWindows.end(), [window](WindowHandle handle) { return handle == window; }) != gWindows.end());
+	ENSURE(std::find_if(gWindows.begin(), gWindows.end(), [window](WindowHandle handle) { return handle == window; }) != gWindows.end());
 
 	if (!gCurrentWindow.has_value())
 		gCurrentWindow = window;

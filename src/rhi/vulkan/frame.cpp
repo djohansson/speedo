@@ -83,7 +83,7 @@ void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 {
 	ZoneScopedN("Frame::TransitionColor");
 
-	ASSERT(index == 0);
+	ENSURE(index == 0);
 
 	if (GetLayout(index) != layout)
 	{

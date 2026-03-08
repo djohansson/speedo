@@ -24,11 +24,12 @@ void Window<kVk>::InternalUpdateViewBuffer() const
 
 	auto* bufferMemory = myViewBuffers[GetCurrentFrameIndex()].GetMemory();
 	void* data;
-	VK_ENSURE(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
+	VK_CHECK(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
+	ENSURE(data != nullptr);
 
 	auto* viewDataPtr = static_cast<ViewData*>(data);
 	auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
-	ASSERT(viewCount <= SHADER_TYPES_VIEW_COUNT);
+	ENSURE(viewCount <= SHADER_TYPES_VIEW_COUNT);
 	auto cameras = ConcurrentReadScope(myCameras);
 	for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 	{

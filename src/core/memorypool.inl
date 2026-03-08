@@ -10,7 +10,7 @@ constexpr MemoryPool<T, N>::MemoryPool() noexcept
 	for (auto& entry : myEntries)
 		entry.index = myAvailable++;
 
-	ASSERT(myAvailable == Capacity());
+	ENSURE(myAvailable == Capacity());
 
 	std::make_heap(myEntries.begin(), myEntries.end());
 }
@@ -20,8 +20,8 @@ MemoryPool<T, N>::Handle MemoryPool<T, N>::Allocate() noexcept
 {
 	std::unique_lock lock(myMutex);
 
-	ASSERT(myAvailable > 0);
-	ASSERT(myAvailable <= Capacity());
+	ENSURE(myAvailable > 0);
+	ENSURE(myAvailable <= Capacity());
 
 	if (myAvailable == 0 || myAvailable > Capacity())
 		return Handle{};
@@ -32,7 +32,7 @@ MemoryPool<T, N>::Handle MemoryPool<T, N>::Allocate() noexcept
 
 	--myAvailable;
 
-	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
+	ENSURE(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 
 	return handle;
 }
@@ -42,11 +42,8 @@ void MemoryPool<T, N>::Free(Handle handle) noexcept
 {
 	std::unique_lock lock(myMutex);
 
-	ASSERT(!!handle);
-	ASSERT(myAvailable < Capacity());
-
-	if (!handle || myAvailable >= Capacity())
-		return;
+	ENSURE(!!handle);
+	ENSURE(myAvailable < Capacity());
 
 	myEntries[myAvailable].index = handle.value;
 
@@ -54,16 +51,13 @@ void MemoryPool<T, N>::Free(Handle handle) noexcept
 
 	std::push_heap(myEntries.begin(), myEntries.begin() + myAvailable);
 
-	ASSERT(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
+	ENSURE(std::is_heap(myEntries.begin(), myEntries.begin() + myAvailable));
 }
 
 template <typename T, std::size_t N>
 constexpr T* MemoryPool<T, N>::GetPointer(Handle handle) noexcept
 {
-	ASSERT(!!handle);
-
-	if (!handle)
-		return nullptr;
+	ENSURE(!!handle);
 
 	return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]);
 }
@@ -71,10 +65,7 @@ constexpr T* MemoryPool<T, N>::GetPointer(Handle handle) noexcept
 template <typename T, std::size_t N>
 constexpr MemoryPool<T, N>::Handle MemoryPool<T, N>::GetHandle(const T* ptr) noexcept
 {
-	ASSERT(ptr != nullptr);
-	
-	if (!ptr)
-		return Handle{};
+	ENSURE(ptr != nullptr);
 
 	return Handle{static_cast<std_extra::min_unsigned_t<N>>(ptr - reinterpret_cast<const T*>(myPool.data()))};
 }

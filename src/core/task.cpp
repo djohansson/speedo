@@ -10,24 +10,24 @@ static MemoryPool<Task, kTaskPoolSize> gTaskPool;
 
 Task* InternalHandleToPtr(TaskHandle handle) noexcept
 {
-	ASSERT(!!handle);
-	ASSERT(handle.value < kTaskPoolSize);
+	ENSURE(!!handle);
+	ENSURE(handle.value < kTaskPoolSize);
 	
 	Task* ptr = gTaskPool.GetPointer(handle);
 
-	ASSERT(ptr != nullptr);
+	ENSURE(ptr != nullptr);
 	
 	return ptr;
 }
 
 TaskHandle InternalPtrToHandle(Task* ptr) noexcept
 {
-	ASSERT(ptr != nullptr);
+	ENSURE(ptr != nullptr);
 
 	auto handle = gTaskPool.GetHandle(ptr);
 
-	ASSERT(!!handle);
-	ASSERT(handle.value < kTaskPoolSize);
+	ENSURE(!!handle);
+	ENSURE(handle.value < kTaskPoolSize);
 
 	return handle;
 }
@@ -36,15 +36,15 @@ TaskHandle InternalAllocate() noexcept
 {
 	TaskHandle handle = gTaskPool.Allocate();
 
-	ASSERT(!!handle);
+	ENSURE(!!handle);
 
 	return handle;
 }
 
 void InternalFree(TaskHandle handle) noexcept
 {
-	ASSERT(!!handle);
-	ASSERT(handle.value < kTaskPoolSize);
+	ENSURE(!!handle);
+	ENSURE(handle.value < kTaskPoolSize);
 
 	gTaskPool.Free(handle);
 }
@@ -66,9 +66,9 @@ Task::operator bool() const noexcept
 
 void Task::AddDependency(Task& other, bool isContinuation) noexcept
 {
-	ASSERT(*this);
-	ASSERT(other);
-	ASSERT(this != &other);
+	ENSURE(*this);
+	ENSURE(other);
+	ENSURE(this != &other);
 
 	TaskState& aState = *InternalState();
 	TaskState& bState = *other.InternalState();
@@ -80,9 +80,9 @@ void Task::AddDependency(Task& other, bool isContinuation) noexcept
 
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation) noexcept
 {
-	ASSERT(!!aTaskHandle);
-	ASSERT(!!bTaskHandle);
-	ASSERT(aTaskHandle != bTaskHandle);
+	ENSURE(!!aTaskHandle);
+	ENSURE(!!bTaskHandle);
+	ENSURE(aTaskHandle != bTaskHandle);
 
 	Task& aTask = *core::detail::InternalHandleToPtr(aTaskHandle);
 	Task& bTask = *core::detail::InternalHandleToPtr(bTaskHandle);

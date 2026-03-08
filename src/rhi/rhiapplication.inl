@@ -18,8 +18,8 @@ void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<n
 		{
 			ZoneScopedN("RHIApplication::draw::loadTask");
 
-			ASSERT(openFileFuture.Valid());
-			ASSERT(openFileFuture.IsReady());
+			ENSURE(openFileFuture.Valid());
+			ENSURE(openFileFuture.IsReady());
 
 			auto [openFileResult, openFilePath] = openFileFuture.Get();
 			if (openFileResult)

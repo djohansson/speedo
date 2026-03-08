@@ -6,7 +6,7 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const std::vector<std::sh
 {
 	RenderTargetCreateDesc<G> outDesc{};
 
-	ASSERTF(images.size(), "colorImages cannot be empty");
+	ENSUREF(images.size(), "colorImages cannot be empty");
 
 	auto firstImageExtent = images.front()->GetDesc().mipLevels[0].extent;
 
@@ -18,10 +18,10 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const std::vector<std::sh
 
 	for (const auto& image : images)
 	{
-		ASSERTF(
+		ENSUREF(
 			outDesc.extent.width == image->GetDesc().mipLevels[0].extent.width,
 			"all images needs to have same width");
-		ASSERTF(
+		ENSUREF(
 			outDesc.extent.height == image->GetDesc().mipLevels[0].extent.height,
 			"all images needs to have same height");
 

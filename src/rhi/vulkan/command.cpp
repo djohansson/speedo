@@ -18,7 +18,7 @@ CreateArray(const std::shared_ptr<Device<kVk>>& device, const CommandBufferArray
 		cmdInfo.commandPool = desc.pool;
 		cmdInfo.level = desc.level == 0 ? VK_COMMAND_BUFFER_LEVEL_PRIMARY : VK_COMMAND_BUFFER_LEVEL_SECONDARY;
 		cmdInfo.commandBufferCount = CommandBufferArray<kVk>::Capacity();
-		VK_ENSURE(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
+		VK_CHECK(vkAllocateCommandBuffers(*device, &cmdInfo, outArray.data()));
 	}
 
 	return outArray;
@@ -101,8 +101,8 @@ void CommandBufferArray<kVk>::Reset()
 {
 	ZoneScopedN("CommandBufferArray::reset");
 
-	ASSERT(!RecordingFlags());
-	ASSERT(Head() < kCommandBufferCount);
+	ENSURE(!RecordingFlags());
+	ENSURE(Head() < kCommandBufferCount);
 
 	if (GetDesc().useBufferReset)
 	{
@@ -110,7 +110,7 @@ void CommandBufferArray<kVk>::Reset()
 		{
 			ZoneScopedN("CommandBufferArray::reset::vkResetCommandBuffer");
 
-			VK_ENSURE(
+			VK_CHECK(
 				vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
 		}
 	}
@@ -123,10 +123,10 @@ uint8_t CommandBufferArray<kVk>::Begin(const CommandBufferBeginInfo<kVk>& beginI
 {
 	ZoneScopedN("CommandBufferArray::begin");
 
-	ASSERT(!Recording(myBits.head));
-	ASSERT(!Full());
+	ENSURE(!Recording(myBits.head));
+	ENSURE(!Full());
 
-	VK_ENSURE(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
+	VK_CHECK(vkBeginCommandBuffer(myArray[myBits.head], &beginInfo));
 
 	myBits.recordingFlags |= (1 << myBits.head);
 
@@ -138,11 +138,11 @@ void CommandBufferArray<kVk>::End(uint8_t index)
 {
 	ZoneScopedN("CommandBufferArray::end");
 
-	ASSERT(Recording(index));
+	ENSURE(Recording(index));
 
 	myBits.recordingFlags &= ~(1 << index);
 
-	VK_ENSURE(vkEndCommandBuffer(myArray[index]));
+	VK_CHECK(vkEndCommandBuffer(myArray[index]));
 }
 
 template <>
@@ -178,7 +178,7 @@ CommandPool<kVk>::CommandPool(
 					cmdPoolInfo.queueFamilyIndex = desc.queueFamilyIndex;
 
 					VkCommandPool outPool;
-					VK_ENSURE(vkCreateCommandPool(
+					VK_CHECK(vkCreateCommandPool(
 						*device,
 						&cmdPoolInfo,
 						&device->GetInstance()->GetHostAllocationCallbacks(),
@@ -249,7 +249,7 @@ void CommandPool<kVk>::Reset()
 	{
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
-		VK_ENSURE(vkResetCommandPool(
+		VK_CHECK(vkResetCommandPool(
 			*InternalGetDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
 	}
 
@@ -361,7 +361,7 @@ bool CommandBufferAccessScopeDesc<kVk>::operator==(const CommandBufferAccessScop
 		result = other.flags == flags && other.level == level && scopedBeginEnd == other.scopedBeginEnd;
 		if (result && level == VK_COMMAND_BUFFER_LEVEL_SECONDARY)
 		{
-			ASSERT(pInheritanceInfo);
+			ENSURE(pInheritanceInfo != nullptr);
 			result &=
 				other.pInheritanceInfo->renderPass == pInheritanceInfo->renderPass &&
 				other.pInheritanceInfo->subpass == pInheritanceInfo->subpass &&

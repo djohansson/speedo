@@ -21,7 +21,7 @@ ShaderLoader::ShaderLoader(
 		auto path = std::filesystem::canonical(compilerPath.value());
 		
 		std::cout << "Set downstream compiler path: " << path << '\n';
-		ASSERT(std::filesystem::is_directory(path));
+		ENSURE(std::filesystem::is_directory(path));
 
 		myCompilerSession->setDownstreamCompilerPath(compilerId, path.generic_string().c_str());
 	}
