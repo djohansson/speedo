@@ -37,7 +37,7 @@ public:
 	Swapchain(
 		const std::shared_ptr<Device<G>>& device,
 		const SwapchainConfiguration<G>& config,
-		SurfaceHandle<G>&& surface, // takes ownership
+		SurfaceHandle<G> surface, // takes ownership
 		SwapchainHandle<G> previous);
 	~Swapchain();
 

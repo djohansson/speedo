@@ -236,17 +236,17 @@ void Window<kVk>::OnInputStateChanged(const InputState& input)
 template <>
 Window<kVk>::Window(
 	const std::shared_ptr<Device<kVk>>& device,
-	WindowHandle&& window,
-	SurfaceHandle<kVk>&& surface,
+	WindowHandle window,
+	SurfaceHandle<kVk> surface,
 	ConfigFile&& config,
 	WindowState&& state)
 	: Swapchain(
 		device,
 		config.swapchainConfig,
-		std::forward<SurfaceHandle<kVk>>(surface), VK_NULL_HANDLE)
-	, myWindow(std::forward<WindowHandle>(window))
-	, myConfig(std::forward<ConfigFile>(config))
-	, myState(std::forward<WindowState>(state))
+		surface, VK_NULL_HANDLE)
+	, myWindow(window)
+	, myConfig(std::move(config))
+	, myState(std::move(state))
 	, myViewBuffers(SHADER_TYPES_FRAME_COUNT)
 {
 	ZoneScopedN("Window()");

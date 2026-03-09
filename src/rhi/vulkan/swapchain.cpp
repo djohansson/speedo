@@ -269,11 +269,11 @@ template <>
 Swapchain<kVk>::Swapchain(
 	const std::shared_ptr<Device<kVk>>& device,
 	const SwapchainConfiguration<kVk>& config,
-	SurfaceHandle<kVk>&& surface,
+	SurfaceHandle<kVk> surface,
 	SwapchainHandle<kVk> previous)
 	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
 	, myDesc{.extent = config.extent} // more?
-	, mySurface(std::forward<SurfaceHandle<kVk>>(surface))
+	, mySurface(surface)
 {
 	ZoneScopedN("Swapchain()");
 

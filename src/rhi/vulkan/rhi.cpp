@@ -5,6 +5,7 @@
 #include <core/assert.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -54,12 +55,11 @@ uint32_t DetectSuitableGraphicsDevice(Instance<kVk>& instance, SurfaceHandle<kVk
 		}
 	}
 
-	std::sort(
-		graphicsDeviceCandidates.begin(),
-		graphicsDeviceCandidates.end(),
+	std::ranges::sort(
+		graphicsDeviceCandidates,
 		[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
 		{
-			constexpr uint32_t kDeviceTypePriority[]{
+			constexpr std::array<uint32_t, 6> kDeviceTypePriority{
 				4,		   //VK_PHYSICAL_DEVICE_TYPE_OTHER = 0,
 				1,		   //VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU = 1,
 				0,		   //VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU = 2,
@@ -92,18 +92,18 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 
 	SwapchainConfiguration<kVk> config{
 		.extent = swapchainInfo.capabilities.currentExtent,
-		.surfaceFormat = {VK_FORMAT_UNDEFINED, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
+		.surfaceFormat = {.format=VK_FORMAT_UNDEFINED, .colorSpace=VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
 		.presentMode = VK_PRESENT_MODE_FIFO_KHR,
 		.imageCount = static_cast<uint8_t>(swapchainInfo.capabilities.minImageCount),
 		.useDynamicRendering = true};
 
-	constexpr Format<kVk> kRequestSurfaceImageFormat[]{
+	constexpr std::array<Format<kVk>, 4> kRequestSurfaceImageFormat{
 		VK_FORMAT_B8G8R8A8_UNORM,
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_B8G8R8_UNORM,
 		VK_FORMAT_R8G8B8_UNORM};
 	constexpr ColorSpace<kVk> kRequestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-	constexpr PresentMode<kVk> kRequestPresentMode[]{
+	constexpr std::array<PresentMode<kVk>, 2> kRequestPresentMode{
 		VK_PRESENT_MODE_MAILBOX_KHR,
 		VK_PRESENT_MODE_FIFO_RELAXED_KHR};
 
@@ -112,11 +112,10 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	auto formatIt = swapchainInfo.formats.begin();
 	for (auto requestIt : kRequestSurfaceImageFormat)
 	{
-		SurfaceFormat<kVk> requestedFormat{requestIt, kRequestSurfaceColorSpace};
+		SurfaceFormat<kVk> requestedFormat{.format=requestIt, .colorSpace=kRequestSurfaceColorSpace};
 
-		formatIt = std::find_if(
-			swapchainInfo.formats.begin(),
-			swapchainInfo.formats.end(),
+		formatIt = std::ranges::find_if(
+			swapchainInfo.formats,
 			[&requestedFormat](VkSurfaceFormatKHR format)
 			{
 				return requestedFormat.format == format.format &&
@@ -132,8 +131,8 @@ SwapchainConfiguration<kVk> DetectSuitableSwapchain(Device<kVk>& device, Surface
 	// VK_PRESENT_MODE_FIFO_KHR which is mandatory
 	for (auto requestIt : kRequestPresentMode)
 	{
-		auto modeIt = std::find(
-			swapchainInfo.presentModes.begin(), swapchainInfo.presentModes.end(), requestIt);
+		auto modeIt = std::ranges::find(
+			swapchainInfo.presentModes, requestIt);
 
 		if (modeIt != swapchainInfo.presentModes.end())
 		{
@@ -182,7 +181,7 @@ void CreateQueues(RHI<kVk>& rhi)
 			uint64_t{},
 			CircularContainer<QueueContext<kVk>>{}));
 
-	auto IsDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
+	auto isDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
 		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
@@ -198,7 +197,7 @@ void CreateQueues(RHI<kVk>& rhi)
 
 		auto queueCount = queueFamily.queueCount;
 
-		if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
+		if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
@@ -215,7 +214,7 @@ void CreateQueues(RHI<kVk>& rhi)
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
-		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
+		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
@@ -232,7 +231,7 @@ void CreateQueues(RHI<kVk>& rhi)
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
-		else if (IsDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
+		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
 		{
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
@@ -288,7 +287,7 @@ std::shared_ptr<Device<kVk>> CreateDevice(
 
 std::shared_ptr<Instance<kVk>> CreateInstance(std::string_view name)
 {
-	return std::make_shared<Instance<kVk>>(InstanceConfiguration<kVk>{name.data(), "speedo"});
+	return std::make_shared<Instance<kVk>>(InstanceConfiguration<kVk>{std::string(name), "speedo"});
 }
 
 template <>
@@ -346,14 +345,14 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 			frame.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 		}
 
-		for (auto& rt : rhi.renderImageSets)
+		for (auto& renderImageSet : rhi.renderImageSets)
 		{
-			rt.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
-			rt.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, rt.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
-			rt.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-			rt.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, rt.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
-			rt.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
-			rt.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, rt.GetAttachments().size() - 1);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
+			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
+			renderImageSet.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_STORE_OP_STORE);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
+			renderImageSet.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, renderImageSet.GetAttachments().size() - 1);
 		}
 
 		cmd.End();
@@ -383,13 +382,13 @@ template <>
 		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.json"};
 
 	WindowState windowState{};
-	windowState.width = windowConfig.swapchainConfig.extent.width / windowConfig.contentScale.x;
-	windowState.height = windowConfig.swapchainConfig.extent.height / windowConfig.contentScale.y;
+	windowState.width = static_cast<uint32_t>(static_cast<float>(windowConfig.swapchainConfig.extent.width) / windowConfig.contentScale.x);
+	windowState.height = static_cast<uint32_t>(static_cast<float>(windowConfig.swapchainConfig.extent.height) / windowConfig.contentScale.y);
 
-	auto windowHandle = createWindowFunc(&windowState);
+	auto* windowHandle = createWindowFunc(&windowState);
 
 	auto instance = CreateInstance(name);
-	auto surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
+	auto* surface = CreateSurface(*instance, &instance->GetHostAllocationCallbacks(), windowHandle);
 	auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
 	auto pipeline = CreatePipeline(device);
 	
@@ -400,14 +399,14 @@ template <>
 	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
 	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
-	if (windowConfig.swapchainConfig.extent.width == 0xFFFFFFFF || windowConfig.swapchainConfig.extent.height == 0xFFFFFFFF)
-		windowConfig.swapchainConfig.extent = {windowState.width, windowState.height};
+	if (windowConfig.swapchainConfig.extent.width == ~0U || windowConfig.swapchainConfig.extent.height == ~0U)
+		windowConfig.swapchainConfig.extent = {.width = windowState.width, .height = windowState.height};
 	
 	rhi.windows.emplace(
 		std::make_unique<Window<kVk>>(
 			rhi.device,
-			std::move(windowHandle),
-			std::move(surface),
+			windowHandle,
+			surface,
 			std::move(windowConfig),
 			std::move(windowState)));
 

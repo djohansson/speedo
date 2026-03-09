@@ -46,8 +46,8 @@ public:
 	constexpr Window() noexcept = default;
 	Window(
 		const std::shared_ptr<Device<G>>& device,
-		WindowHandle&& window, // window class takes ownership of window handle
-		SurfaceHandle<G>&& surface, // swapchain base class takes ownership of surface
+		WindowHandle window, // window class takes ownership of window handle
+		SurfaceHandle<G> surface, // swapchain base class takes ownership of surface
 		ConfigFile&& config,
 		WindowState&& state);
 	Window(Window&& other) noexcept;
