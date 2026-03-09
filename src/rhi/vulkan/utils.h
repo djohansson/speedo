@@ -7,12 +7,12 @@
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 // todo: move checking to deviceobject to be able to pass on context/objects to callbacks more elegantly
-void OnCheckFailedDefault(VkResult result, int numargs, ...);
+void OnCheckFailedDefault(VkResult result, int argumentCount, ...);
 #define VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, FailCallback, ...) do \
 { \
 	VkResult __result = (Expression); \
 	if (__result != ExpectedResult) \
-		FailCallback(__result, NUMARGS(__VA_ARGS__) __VA_OPT__(,) __VA_ARGS__); \
+		FailCallback(__result, SIZEOF__VA_ARGS__(__VA_ARGS__) __VA_OPT__(,) __VA_ARGS__); \
 } while(false)
 #define VK_CHECK_RESULT(Expression, ExpectedResult, ...) \
 	VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, OnCheckFailedDefault __VA_OPT__(,) __VA_ARGS__)

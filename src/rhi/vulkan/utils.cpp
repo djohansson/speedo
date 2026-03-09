@@ -44,7 +44,7 @@ PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-void OnCheckFailedDefault(VkResult result, int numargs, ...)
+void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 {
 	LOG_ERROR("Vulkan error: {}", string_VkResult(result));
 	switch (result)
@@ -53,11 +53,11 @@ void OnCheckFailedDefault(VkResult result, int numargs, ...)
 		if (gVkGetQueueCheckpointData2NV != nullptr)
 		{
 			VkQueue queue = VK_NULL_HANDLE;
-			va_list ap;
-			va_start(ap, numargs);
-			while (numargs--)
-				queue = va_arg(ap, VkQueue);
-			va_end(ap);
+			va_list argList;
+			va_start(argList, argumentCount);
+			while ((argumentCount--) != 0)
+				queue = va_arg(argList, VkQueue);
+			va_end(argList);
 			static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
 			uint32_t checkpointDataCount;
 			gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, nullptr);
