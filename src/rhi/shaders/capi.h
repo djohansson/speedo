@@ -106,6 +106,8 @@ struct PushConstants
 	// per view
 	// per material
 	alignas(4) UINT(viewAndMaterialId);
+	// per draw
+	alignas(4) UINT(modelInstanceId);
 };
 
 #ifdef __cplusplus

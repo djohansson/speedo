@@ -910,8 +910,6 @@ void RHIApplication::Draw()
 						if (drawIt >= drawCount)
 							return;
 
-						constexpr uint32_t kDefaultModelInstanceId = 666;
-
 						auto zoneNameStr = std::format("Window::drawPartition thread:{}", threadIt);
 
 						ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
@@ -1021,9 +1019,11 @@ void RHIApplication::Draw()
 									deltaY);
 
 								uint16_t viewIndex = viewIt;
-								uint16_t materialIndex = 0U;
+								constexpr uint32_t kMaterialIndex = 0U;
+								constexpr uint32_t kDefaultModelInstanceId = 666;
 
-								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | materialIndex;
+								pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | kMaterialIndex;
+								pushConstants.modelInstanceId = kDefaultModelInstanceId;
 
 								auto drawModel = [&pushConstants, &pipeline, &model](VkCommandBuffer cmd)
 								{
@@ -1050,7 +1050,7 @@ void RHIApplication::Draw()
 											1,
 											0,
 											0,
-											kDefaultModelInstanceId);
+											0);
 									}
 								};
 

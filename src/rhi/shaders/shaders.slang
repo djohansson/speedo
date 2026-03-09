@@ -83,14 +83,15 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	VertexZPrepassOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+    uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+    uint modelInstanceId = gPushConstants.modelInstanceId;
 	
 	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 
 	ViewData view = gViewData[frameIndex][viewId];
 
-	VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
-	ModelInstance i = gModelInstances[input.instanceId];
+    VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
+    ModelInstance i = gModelInstances[modelInstanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
 	
@@ -105,14 +106,15 @@ VertexOutput VertexMain(InputStream input)
 	VertexOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+    uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+    uint modelInstanceId = gPushConstants.modelInstanceId;
 
 	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 
 	ViewData view = gViewData[frameIndex][viewId];
 
-	VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
-	ModelInstance i = gModelInstances[input.instanceId];
+    VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
+    ModelInstance i = gModelInstances[modelInstanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
 	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
