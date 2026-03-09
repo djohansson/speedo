@@ -205,11 +205,13 @@ void CreateQueues(RHI<kVk>& rhi)
 				auto& [queue, syncInfo] = graphics->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{
+					CommandPoolCreateDesc<kVk>
+					{
 						.flags = cmdPoolCreateFlags,
 						.queueFamilyIndex = queueFamilyIt,
 						.levelCount = 1,
-						.supportsProfiling = queueFamily.timestampValidBits > 0},
+						.supportsProfiling = static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
+					},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
@@ -220,11 +222,13 @@ void CreateQueues(RHI<kVk>& rhi)
 				auto& [queue, syncInfo] = compute->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{
+					CommandPoolCreateDesc<kVk>
+					{
 						.flags = cmdPoolCreateFlags,
 						.queueFamilyIndex = queueFamilyIt,
 						.levelCount = 0,
-						.supportsProfiling = queueFamily.timestampValidBits > 0},
+						.supportsProfiling = static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
+					},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
@@ -235,11 +239,13 @@ void CreateQueues(RHI<kVk>& rhi)
 				auto& [queue, syncInfo] = transfer->queues.emplace_back();
 				queue = Queue<kVk>(
 					rhi.device,
-					CommandPoolCreateDesc<kVk>{
+					CommandPoolCreateDesc<kVk>
+					{
 						.flags = cmdPoolCreateFlags,
 						.queueFamilyIndex = queueFamilyIt,
 						.levelCount = 0,
-						.supportsProfiling = queueFamily.timestampValidBits > 0},
+						.supportsProfiling = VK_FALSE // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
+					},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
