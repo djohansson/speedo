@@ -61,9 +61,6 @@ static void OnSignal(int signal)
 	case SIGABRT:
 		LOG_ERROR("Program aborted.");
 		return;
-	case SIGTRAP:
-		LOG_ERROR("Program hit a debug trap.");
-		return;
 	default:
 		break;
 	}
@@ -131,7 +128,6 @@ int main(int argc, char* argv[], char* envp[])
 	signal(SIGABRT, OnSignal);
 	signal(SIGFPE, OnSignal);
 	signal(SIGSEGV, OnSignal);
-	signal(SIGTRAP, OnSignal);
 
 	ENSURE(argv != NULL);
 	ENSURE(envp != NULL);
