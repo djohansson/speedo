@@ -44,6 +44,7 @@ using PhysicalDeviceFeatureParams = std::variant<
 	PhysicalDeviceSynchronization2Features<G>,
 	PhysicalDevicePresentIdFeatures<G>,
 	PhysicalDevicePresentWaitFeatures<G>,
+	PhysicalDeviceMultiviewFeatures<G>,
 	PhysicalDeviceSwapchainMaintenance1Features<G>>;
 
 template <GraphicsApi G>

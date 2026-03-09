@@ -191,6 +191,10 @@ using PhysicalDevicePresentWaitFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDevicePresentWaitFeaturesKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
+using PhysicalDeviceMultiviewFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDeviceMultiviewFeatures, std::nullptr_t>;
+
+template <GraphicsApi G>
 using PhysicalDeviceSwapchainMaintenance1Features =
 	std::conditional_t<G == kVk, VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR, std::nullptr_t>;
 

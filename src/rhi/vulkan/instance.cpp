@@ -60,13 +60,17 @@ void GetPhysicalDeviceInfo2(
 {
 	auto& deviceFeatureParams = deviceInfo.deviceFeatureParams;
 	deviceFeatureParams.clear();
-	deviceFeatureParams.emplace(VkPhysicalDeviceDynamicRenderingFeaturesKHR
+	deviceFeatureParams.emplace(VkPhysicalDeviceDynamicRenderingFeatures
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR,
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
 	});
-	deviceFeatureParams.emplace(VkPhysicalDeviceSynchronization2FeaturesKHR
+	deviceFeatureParams.emplace(VkPhysicalDeviceSynchronization2Features
 	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
+	});
+	deviceFeatureParams.emplace(VkPhysicalDeviceMultiviewFeatures
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,
 	});
 	deviceFeatureParams.emplace(VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR
 	{
