@@ -7,6 +7,8 @@
 
 #include <cstddef>
 #include <iostream>
+#include <ostream>
+#include <print>
 
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
@@ -174,33 +176,41 @@ VkBool32 DebugUtilsMessengerCallback(
 	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
 	void* pUserData)
 {
-	for (uint32_t objectIt = 0; objectIt < pCallbackData->objectCount; objectIt++)
+	if (pCallbackData->pMessageIdName != nullptr)
+		std::print(std::cout, "{}: ", pCallbackData->pMessageIdName);
+	if (pCallbackData->pMessage != nullptr)
+		std::println(std::cout, "{}\n", pCallbackData->pMessage);
+
+	std::flush(std::cout);
+
+	// VK_DEBUG_UTILS_MESSAGE_SEVERITY flags are erroneously defined in hex instead of binary, so we cant and them together and check for combinations in any meaningful way.
+	if (std::is_debugger_present())
 	{
-		std::cerr << "Object " << objectIt;
-
-		if (pCallbackData->pObjects[objectIt].pObjectName != nullptr)
-			std::cerr << ", \"" << pCallbackData->pObjects[objectIt].pObjectName << "\"";
-
-		std::cerr << ": ";
+		static std::vector<VkFlags> gBreakOnSeverityCategory = {VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT};
+		for (const auto& category : gBreakOnSeverityCategory)
+		{
+			if ((messageSeverity & category) != 0U)
+			{
+				DEBUGTRAP();
+			}
+		}
 	}
-
-	CHECKF(messageSeverity <= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT, "Vulkan validation error: {}: {}", pCallbackData->pMessageIdName, pCallbackData->pMessage);
 
 	return VK_FALSE;
 }
 
 VkDebugUtilsMessengerCreateInfoEXT gDebugUtilsMessengerCallbackCreateInfo{
-	VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
-	nullptr,
-	0,
-	VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+	.sType=VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
+	.pNext=nullptr,
+	.flags=0,
+	.messageSeverity=VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
 		VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
 		VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
 		VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT,
-	VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+	.messageType=VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
 		VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
-	DebugUtilsMessengerCallback,
-	nullptr};
+	.pfnUserCallback=DebugUtilsMessengerCallback,
+	.pUserData=nullptr};
 
 } // namespace instance
 
@@ -209,13 +219,13 @@ InstanceConfiguration<kVk>::InstanceConfiguration(std::string&& applicationName,
 	: applicationName(std::forward<std::string>(applicationName))
 	, engineName(std::forward<std::string>(engineName))
 	, appInfo{
-		VK_STRUCTURE_TYPE_APPLICATION_INFO,
-		nullptr,
-		nullptr,
-		VK_MAKE_VERSION(1, 0, 0),
-		nullptr,
-		VK_MAKE_VERSION(1, 0, 0),
-		VK_API_VERSION_1_3}
+		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+		.pNext = nullptr,
+		.pApplicationName = nullptr,
+		.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+		.pEngineName = nullptr,
+		.engineVersion = VK_MAKE_VERSION(1, 0, 0),
+		.apiVersion = VK_API_VERSION_1_3}
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();
@@ -255,49 +265,49 @@ template <>
 Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 : myConfig(std::forward<InstanceConfiguration<kVk>>(defaultConfig))
 , myHostAllocationCallbacks{
-	nullptr,
+	.pUserData = nullptr,
 #if defined(SPEEDO_USE_MIMALLOC)
-	[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return mi_malloc_aligned(size, alignment);
 	},
-	[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return mi_realloc_aligned(pOriginal, size, alignment);
 	},
-	[](void* /*pUserData*/, void* pMemory)
+	.pfnFree = [](void* /*pUserData*/, void* pMemory)
 	{
 		mi_free(pMemory);
 	},
 #elif defined(__WINDOWS__)
-	[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return _aligned_malloc(size, alignment);
 	},
-	[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return _aligned_realloc(pOriginal, size, alignment);
 	},
-	[](void* /*pUserData*/, void* pMemory)
+	.pfnFree = [](void* /*pUserData*/, void* pMemory)
 	{
 		_aligned_free(pMemory);
 	},
 #else
-[](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return std::aligned_alloc(alignment, size);
 	},
-	[](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
 		return std::realloc(pOriginal, size);
 	},
-	[](void* /*pUserData*/, void* pMemory)
+	.pfnFree = [](void* /*pUserData*/, void* pMemory)
 	{
 		std::free(pMemory);
 	},
 #endif
-	nullptr,
-	nullptr}
+	.pfnInternalAllocation = nullptr,
+	.pfnInternalFree = nullptr}
 {
 	using namespace instance;
 
@@ -352,15 +362,15 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 	};
 	std::vector<const char*> requiredLayers = {};
 
-	VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+	VkInstanceCreateInfo info{.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
-		static constexpr std::string_view kValidationLayerName = "VK_LAYER_KHRONOS_validation";
+		static constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
 
-		requiredLayers.emplace_back(kValidationLayerName.data());
+		requiredLayers.emplace_back(kValidationLayerName);
 
 		static constexpr VkBool32 kSettingValidateCore = VK_TRUE;
 		static constexpr VkBool32 kSettingValidateSync = VK_FALSE;
@@ -369,51 +379,52 @@ Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
 		static constexpr std::array<const char*, 4> kSettingReportFlags = {"info", "warn", "perf", "error"};
 		static constexpr VkBool32 kSettingEnableMessageLimit = VK_TRUE;
 		static constexpr int32_t kSsettingDuplicateMessageLimit = 3;
+		static constexpr size_t kLayerSettingCount = 7;
 
-		static std::array<VkLayerSettingEXT, 7> gSettings = {{
-			{.pLayerName = kValidationLayerName.data(),
+		static constexpr std::array<VkLayerSettingEXT, kLayerSettingCount> kSettings = {{
+			{.pLayerName = kValidationLayerName,
 			 .pSettingName = "validate_core",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
 			 .pValues = &kSettingValidateCore},
-			{.pLayerName = kValidationLayerName.data(),
+			{.pLayerName = kValidationLayerName,
 			 .pSettingName = "validate_sync",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
 			 .pValues = &kSettingValidateSync},
-			{.pLayerName = kValidationLayerName.data(),
+			{.pLayerName = kValidationLayerName,
 			 .pSettingName = "thread_safety",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
 			 .pValues = &kSettingThreadSafety},
-			{.pLayerName = kValidationLayerName.data(),
+			{.pLayerName = kValidationLayerName,
 			 .pSettingName = "debug_action",
 			 .type = VK_LAYER_SETTING_TYPE_STRING_EXT,
 			 .valueCount = kSettingDebugAction.size(),
 			 .pValues = kSettingDebugAction.data()},//NOLINT(bugprone-multi-level-implicit-pointer-conversion)
-			{.pLayerName = kValidationLayerName.data(),
+			{.pLayerName = kValidationLayerName,
 			 .pSettingName = "report_flags",
 			 .type = VK_LAYER_SETTING_TYPE_STRING_EXT,
 			 .valueCount = kSettingReportFlags.size(),
 			 .pValues = kSettingReportFlags.data()},//NOLINT(bugprone-multi-level-implicit-pointer-conversion)
-			{.pLayerName=kValidationLayerName.data(),
+			{.pLayerName=kValidationLayerName,
 			 .pSettingName = "enable_message_limit",
 			 .type = VK_LAYER_SETTING_TYPE_BOOL32_EXT,
 			 .valueCount = 1,
 			 .pValues = &kSettingEnableMessageLimit},
-			{.pLayerName = kValidationLayerName.data(),
+			{.pLayerName = kValidationLayerName,
 			 .pSettingName = "duplicate_message_limit",
 			 .type = VK_LAYER_SETTING_TYPE_UINT32_EXT,
 			 .valueCount = 1,
 			 .pValues = &kSsettingDuplicateMessageLimit}}};
 
-		static VkLayerSettingsCreateInfoEXT gLayerSettingsCreateInfo = {
-			VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
-			&gDebugUtilsMessengerCallbackCreateInfo,
-			gSettings.size(),
-			gSettings.data()};
+		static constexpr VkLayerSettingsCreateInfoEXT kLayerSettingsCreateInfo = {
+			.sType=VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,
+			.pNext=&gDebugUtilsMessengerCallbackCreateInfo,
+			.settingCount=static_cast<uint32_t>(kSettings.size()),
+			.pSettings=kSettings.data()};
 
-		info.pNext = &gLayerSettingsCreateInfo;
+		info.pNext = &kLayerSettingsCreateInfo;
 	}
 
 	for (const char* extensionName : requiredExtensions)
