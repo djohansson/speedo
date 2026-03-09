@@ -84,14 +84,14 @@ void RenderTarget<kVk>::InternalInitializeDefaultRenderPass(
 
 	if (hasDepth && hasStencil)
 	{
-		VkSubpassDescription2 colorAndDepth{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
+		VkSubpassDescription2 colorAndDepth{.sType=VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
 		colorAndDepth.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		colorAndDepth.colorAttachmentCount = myAttachmentsReferences.size() - 1;
 		colorAndDepth.pColorAttachments = myAttachmentsReferences.data();
 		colorAndDepth.pDepthStencilAttachment = &myAttachmentsReferences.back();
 		AddSubpassDescription(std::move(colorAndDepth));
 
-		VkSubpassDependency2 dep1{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
+		VkSubpassDependency2 dep1{.sType=VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
 		dep1.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dep1.dstSubpass = subPassIt;
 		dep1.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
@@ -106,14 +106,14 @@ void RenderTarget<kVk>::InternalInitializeDefaultRenderPass(
 	}
 	else
 	{
-		VkSubpassDescription2 color{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
+		VkSubpassDescription2 color{.sType=VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
 		color.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 		color.colorAttachmentCount = myAttachmentsReferences.size();
 		color.pColorAttachments = myAttachmentsReferences.data();
 		color.pDepthStencilAttachment = nullptr;
 		AddSubpassDescription(std::move(color));
 
-		VkSubpassDependency2 dep0{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
+		VkSubpassDependency2 dep0{.sType=VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
 		dep0.srcSubpass = VK_SUBPASS_EXTERNAL;
 		dep0.dstSubpass = subPassIt;
 		dep0.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -449,7 +449,7 @@ void RenderTarget<kVk>::ClearAll(
 
 	uint32_t attachmentIt = 0UL;
 	VkClearRect rect{
-		{{0, 0}, GetRenderTargetDesc().extent}, 0, GetRenderTargetDesc().layerCount};
+		.rect = {.offset = {.x = 0, .y = 0}, .extent=GetRenderTargetDesc().extent}, .baseArrayLayer = 0, .layerCount=GetRenderTargetDesc().layerCount};
 	
 	std::vector<VkClearAttachment> clearAttachments(GetRenderTargetDesc().images.size());
 	for (auto& attachment : clearAttachments)
@@ -495,7 +495,13 @@ void RenderTarget<kVk>::Clear(
 
 	Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, index);
 
-	VkImageSubresourceRange range{aspectFlags, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+	VkImageSubresourceRange range{
+		.aspectMask = aspectFlags,
+		.baseMipLevel = 0,
+		.levelCount = VK_REMAINING_MIP_LEVELS,
+		.baseArrayLayer = 0,
+		.layerCount = VK_REMAINING_ARRAY_LAYERS
+	};
 
 	if (HasColorComponent(GetRenderTargetDesc().imageFormats[index]))
 	{
@@ -576,8 +582,8 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 			{
 				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
 				.pNext = nullptr,
-				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u,
-				.renderArea = {0, 0, desc.extent.width, desc.extent.height},
+				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0U,
+				.renderArea = {.offset = {.x = 0, .y = 0}, .extent = {.width = desc.extent.width, .height = desc.extent.height}},
 				.layerCount = 1,
 				.viewMask = 0,
 				.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentInfos.size()),
@@ -589,7 +595,7 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 			{
 				.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO_KHR,
 				.pNext = nullptr,
-				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u,
+				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0U,
 				.viewMask = 0,
 				.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentFormats.size()),
 				.pColorAttachmentFormats = myColorAttachmentFormats.data(),
@@ -608,13 +614,13 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<kVk>::Begin(CommandBufferHandle<k
 		const auto& [renderPass, frameBuffer] = InternalGetValues();
 
 		myRenderTargetBeginInfo = RenderPassBeginInfo<kVk>{
-			VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-			nullptr,
-			renderPass,
-			frameBuffer,
-			{{0, 0}, {desc.extent.width, desc.extent.height}},
-			static_cast<uint32_t>(desc.clearValues.size()),
-			desc.clearValues.data()};
+			.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
+			.pNext = nullptr,
+			.renderPass = renderPass,
+			.framebuffer = frameBuffer,
+			.renderArea = {.offset = {.x = 0, .y = 0}, .extent = {.width = desc.extent.width, .height = desc.extent.height}},
+			.clearValueCount = static_cast<uint32_t>(desc.clearValues.size()),
+			.pClearValues = desc.clearValues.data()};
 
 		vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderTargetBeginInfo.value()), contents);
 	}

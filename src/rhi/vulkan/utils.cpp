@@ -587,7 +587,7 @@ void TransitionImageLayout(
 	uint32_t mipLevels,
 	VkImageAspectFlags aspectFlags)
 {
-	VkImageMemoryBarrier2KHR imageBarrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+	VkImageMemoryBarrier2KHR imageBarrier{.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
 
 	SetDefaultAccessAndStageMasks(oldLayout, imageBarrier.srcAccessMask, imageBarrier.srcStageMask);
 	SetDefaultAccessAndStageMasks(newLayout, imageBarrier.dstAccessMask, imageBarrier.dstStageMask);
@@ -603,7 +603,7 @@ void TransitionImageLayout(
 	imageBarrier.subresourceRange.baseArrayLayer = 0UL;
 	imageBarrier.subresourceRange.layerCount = 1;
 
-	VkDependencyInfoKHR dependencyInfo{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+	VkDependencyInfoKHR dependencyInfo{.sType=VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
 	dependencyInfo.imageMemoryBarrierCount = 1;
 	dependencyInfo.pImageMemoryBarriers = &imageBarrier;
 
@@ -659,7 +659,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	const char* debugName,
 	VkImageLayout initialLayout)
 {
-	VkImageCreateInfo imageInfo{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+	VkImageCreateInfo imageInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
 	imageInfo.extent.width = width;
 	imageInfo.extent.height = height;
@@ -760,7 +760,7 @@ VkImageView CreateImageView2D(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels)
 {
-	VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+	VkImageViewCreateInfo viewInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
 	viewInfo.image = image;
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;

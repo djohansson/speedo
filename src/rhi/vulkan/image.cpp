@@ -181,7 +181,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			if (!hasAlpha)
 				mipSize >>= 1;
 
-			desc.mipLevels[mipIt].extent = {mipWidth, mipHeight};
+			desc.mipLevels[mipIt].extent = {.width = mipWidth, .height = mipHeight};
 			desc.mipLevels[mipIt].size = mipSize;
 			desc.mipLevels[mipIt].offset = mipOffset;
 
@@ -214,14 +214,14 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			{
 				for (size_t rowIt = 0; rowIt < 4; rowIt++)
 				{
-					std::copy(src, src + stride * 4, &dst[rowIt * 16]);
+					std::copy(src, src + (stride * 4), &dst[rowIt * 16]);
 					src += width * stride;
 				}
 			};
 
 			std::atomic_uint32_t blockAtomic = 0;
 			std::vector<uint32_t> threadIds(threadCount);
-			std::iota(threadIds.begin(), threadIds.end(), 0);
+			std::ranges::iota(threadIds, 0);
 			std::for_each_n(
 				std::execution::par,
 				threadIds.begin(),
@@ -235,7 +235,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 						auto blockColIt = blockIt % blockColCount;
 						auto rowIt = blockRowIt << 2;
 						auto colIt = blockColIt << 2;
-						auto srcOffset = (rowIt * extent.width + colIt) * 4;
+						auto srcOffset = ((rowIt * extent.width) + colIt) * 4;
 						auto dstOffset = blockIt * compressedBlockSize;
 
 						std::array<stbi_uc, 64> block;
@@ -280,7 +280,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			if (threadRowCount > 4)
 			{
 				std::vector<size_t> threadIds(threadCount);
-				std::iota(threadIds.begin(), threadIds.end(), 0);
+				std::ranges::iota(threadIds, 0);
 				std::for_each_n(
 					std::execution::par,
 					threadIds.begin(),
@@ -292,12 +292,12 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 						auto threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
 
 						stbir_resize_uint8_linear(
-							src + threadId * threadRowCount * previousExtent.width * 4,
+							src + (threadId * threadRowCount * previousExtent.width * 4),
 							static_cast<int>(previousExtent.width),
 							static_cast<int>(threadRowCount + threadRowCountRest),
 							static_cast<int>(previousExtent.width * 4),
 							mipBuffers[currentBuffer].data() +
-								threadId * (threadRowCount >> 1) * currentExtent.width * 4,
+								(threadId * (threadRowCount >> 1) * currentExtent.width * 4),
 							static_cast<int>(currentExtent.width),
 							static_cast<int>(((threadRowCount + threadRowCountRest) >> 1)),
 							static_cast<int>(currentExtent.width * 4),
@@ -338,7 +338,8 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		return {};
 	};
 
-	std::string params, paramsHash;
+	std::string params;
+	std::string paramsHash;
 	params.append("stb_image-2.26|stb_image_resize-0.96|stb_dxt-1.10"); // todo: read version from stb headers
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
@@ -346,7 +347,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
 	auto loadResult = file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
 
-	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image.");
+	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image."); //NOLINT(readability-simplify-boolean-expr)
 
 	return initialData;
 }
@@ -392,9 +393,13 @@ void Image<kVk>::Clear(
 	ZoneScopedN("Image::clear");
 
 	static const VkImageSubresourceRange kDefaultRange{
-		GetAspectFlags(), 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+		.aspectMask = GetAspectFlags(),
+		.baseMipLevel = 0,
+		.levelCount = VK_REMAINING_MIP_LEVELS,
+		.baseArrayLayer = 0,
+		.layerCount = VK_REMAINING_ARRAY_LAYERS};
 
-	if (GetAspectFlags() & VK_IMAGE_ASPECT_COLOR_BIT)
+	if ((GetAspectFlags() & VK_IMAGE_ASPECT_COLOR_BIT) != 0U)
 	{
 		vkCmdClearColorImage(
 			cmd,
@@ -404,7 +409,7 @@ void Image<kVk>::Clear(
 			1,
 			range ? &range.value() : &kDefaultRange);
 	}
-	else if (GetAspectFlags() & VK_IMAGE_ASPECT_DEPTH_BIT || GetAspectFlags() & VK_IMAGE_ASPECT_STENCIL_BIT)
+	else if (((GetAspectFlags() & VK_IMAGE_ASPECT_DEPTH_BIT) != 0U) || ((GetAspectFlags() & VK_IMAGE_ASPECT_STENCIL_BIT) != 0U))
 	{
 		vkCmdClearDepthStencilImage(
 			cmd,
@@ -648,11 +653,12 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 
 		auto [setDescriptorTask, setDescriptorFuture] = CreateTask([&pipeline, imageView = static_cast<ImageViewHandle<kVk>>(*imageView), imageLayout = image->GetLayout()]()
 		{
+			constexpr uint32_t kDefaultTextureBinding = 15;
 			pipeline->SetDescriptorData(
 				"gTextures",
-				DescriptorImageInfo<kVk>{{}, imageView,	imageLayout},
+				DescriptorImageInfo<kVk>{.sampler={}, .imageView=imageView,	.imageLayout=imageLayout},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-				15);
+				kDefaultTextureBinding);
 		});
 
 		// a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
