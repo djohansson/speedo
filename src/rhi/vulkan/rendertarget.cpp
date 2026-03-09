@@ -256,7 +256,13 @@ void RenderTarget<kVk>::InternalUpdateAttachments(const RenderTargetCreateDesc<k
 				aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
 
 			// todo: investigate if we need to push this on the timeline
+			// todo: store a pool of these to aviud recreating them every time
 			attachmentRef.aspectMask = aspectMask;
+			if (myAttachments[attachmentIt] != VK_NULL_HANDLE)
+				vkDestroyImageView(
+			*InternalGetDevice(),
+			myAttachments[attachmentIt],
+			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
 			myAttachments[attachmentIt] = CreateImageView2D(
 				*InternalGetDevice(),
 				&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),

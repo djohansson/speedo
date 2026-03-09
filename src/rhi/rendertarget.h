@@ -160,7 +160,7 @@ private:
 	[[maybe_unused]] const RenderTargetPassHandle<G>& InternalUpdateMap(const RenderTargetCreateDesc<G>& desc);
 	[[nodiscard]] const RenderTargetPassHandle<G>& InternalGetValues();
 
-	std::vector<ImageViewHandle<G>> myAttachments;
+	std::vector<ImageViewHandle<G>> myAttachments; // todo: store a pool of ImageView<G> instead of raw handles to avoid creating/destroying them every frame
 	std::vector<AttachmentDescription<G>> myAttachmentDescs;
 	std::vector<AttachmentReference<G>> myAttachmentsReferences;
 	std::vector<SubpassDescription<G>> mySubPassDescs;
