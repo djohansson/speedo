@@ -41,8 +41,8 @@ void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
 
 	using namespace ImGui;
 
+	ImGui_ImplVulkan_NewFrame(); // calls ImGui_ImplVulkan_CreateFontsTexture
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
-
 	NewFrame();
 
 	// todo: move elsewhere
@@ -555,7 +555,6 @@ void IMGUIDrawFunction(
 	static ImDrawData gDrawData;
 	while (gIMGUIDrawData.try_dequeue(gDrawData));
 
-	ImGui_ImplVulkan_NewFrame();
 	ImGui_ImplVulkan_RenderDrawData(&gDrawData, cmd, /*callbacks,*/ pipeline);
 }
 
@@ -663,9 +662,6 @@ static void IMGUIInit(
 	ImGui_ImplVulkan_Init(&initInfo);
 	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
 
-	// Upload Fonts
-	ImGui_ImplVulkan_CreateFontsTexture();
-
 	// IMNODES_NAMESPACE::CreateContext();
 	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
 	//	myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
@@ -676,8 +672,6 @@ static void ShutdownImgui()
 	// size_t count;
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
 	// IMNODES_NAMESPACE::DestroyContext();
-
-	ImGui_ImplVulkan_DestroyFontsTexture();
 
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
