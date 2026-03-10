@@ -7,7 +7,7 @@ $myEnvFile = "$PSScriptRoot/.env.json"
 
 if (Test-Path $myEnvFile)
 {
-	$global:myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json
+	$global:myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json -AsHashtable
 }
 
 if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
@@ -43,14 +43,185 @@ else
 	exit
 }
 
-# Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
-# Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
-$env:VCPKG_ROOT = $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg')
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $env:VCPKG_ROOT | Out-Null
-$env:VCPKG_HOST_TRIPLET = $(Get-HostTriplet)
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue $env:VCPKG_HOST_TRIPLET | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg') | Out-Null
+$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue $(Get-HostTriplet) | Out-Null
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
-Initialize-HostUserEnv
+Read-EnvFile "$PSScriptRoot/.env.json"
+
+$CMakePresets = [ordered] @{
+	version = 8
+	configurePresets = @(
+		[ordered] @{
+			name = 'ninja-multi-vcpkg'
+			generator = 'Ninja Multi-Config'
+			description = 'Configure with vcpkg toolchain and generate Ninja project files for all configurations'
+			binaryDir = '${sourceDir}/build/staging/${presetName}'
+			toolchainFile = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+			installDir = '${sourceDir}/build/install/${presetName}'
+			cacheVariables = [ordered] @{
+				CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
+				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
+				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
+				VCPKG_MANIFEST_DIR = '${sourceDir}'
+				VCPKG_MANIFEST_FEATURES = 'client;server'
+				VCPKG_INSTALLED_DIR = '${sourceDir}/build/packages';
+				VCPKG_HOST_TRIPLET = '${presetName}'
+				VCPKG_TARGET_TRIPLET = '${presetName}'
+				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
+				VCPKG_VERBOSE = 'ON'
+			}
+			environment = [ordered] @{
+					CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
+					TOOLS_ROOT = '${sourceDir}/build/packages/${presetName}/tools'
+					VCPKG_ROOT = "$env:VCPKG_ROOT"
+			}
+			warnings = [ordered] @{
+				dev = $false
+			}
+			hidden = $true
+		}
+		[ordered] @{
+			name = 'x64-windows-clang'
+			inherits = 'ninja-multi-vcpkg'
+			environment = [ordered] @{
+				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-windows-release'
+				PATH = "`$env:LLVM_ROOT/bin;`$env:LLVM_ROOT/tools/llvm;$env:WINDOWS_SDK/bin/$env:WINDOWS_SDK_VERSION/x64;`$penv:PATH"
+			}
+			condition = [ordered] @{
+				type = 'equals'
+				lhs = '${hostSystemName}'
+				rhs = 'Windows'
+			}
+		}
+		[ordered] @{
+			name = 'arm64-osx-clang'
+			inherits = 'ninja-multi-vcpkg'
+			environment = [ordered] @{
+				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-osx-release'
+				DYLD_LIBRARY_PATH = "`$env:LLVM_ROOT/lib:`$penv:DYLD_LIBRARY_PATH"
+			}
+			cacheVariables = [ordered] @{
+				CMAKE_APPLE_SILICON_PROCESSOR = 'arm64'
+				CMAKE_OSX_SYSROOT = '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
+			}
+			condition = [ordered] @{
+				type = 'equals'
+				lhs = '${hostSystemName}'
+				rhs = 'Darwin'
+			}
+		}
+		[ordered] @{
+			name = 'arm64-linux-clang'
+			inherits = 'ninja-multi-vcpkg'
+			environment = [ordered] @{
+				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-linux-release'
+				LD_LIBRARY_PATH = "`$env:LLVM_ROOT/lib:`$penv:LD_LIBRARY_PATH"
+			}
+			condition = [ordered] @{
+				type = 'equals'
+				lhs = '${hostSystemName}'
+				rhs = 'Linux'
+			}
+		}
+		[ordered] @{
+			name = 'x64-linux-clang'
+			inherits = 'ninja-multi-vcpkg'
+			environment = [ordered] @{
+				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-linux-release'
+				LD_LIBRARY_PATH = "`$env:LLVM_ROOT/lib:`$penv:LD_LIBRARY_PATH"
+			}
+			condition = [ordered] @{
+				type = 'equals'
+				lhs = '${hostSystemName}'
+				rhs = 'Linux'
+			}
+		}
+	)
+	buildPresets = @(
+		[ordered] @{
+			name = 'x64-windows'
+			configurePreset = 'x64-windows-clang'
+			hidden = $true
+		}
+		[ordered] @{
+			name = 'x64-windows-debug'
+			configurePreset = 'x64-windows-clang'
+			configuration = 'debug'
+		}
+		[ordered] @{
+			name = 'x64-windows-release'
+			configurePreset = 'x64-windows-clang'
+			configuration = 'release'
+		}
+		[ordered] @{
+			name = 'x64-windows-profile'
+			inherits = 'x64-windows-release'
+			configuration = 'profile'
+		}
+		[ordered] @{
+			name = 'arm64-osx'
+			configurePreset = 'arm64-osx-clang'
+			hidden = $true
+		}
+		[ordered] @{
+			name = 'arm64-osx-debug'
+			configurePreset = 'arm64-osx-clang'
+			configuration = 'debug'
+		}
+		[ordered] @{
+			name = 'arm64-osx-release'
+			configurePreset = 'arm64-osx-clang'
+			configuration = 'release'
+		}
+		[ordered] @{
+			name = 'arm64-osx-profile'
+			inherits = 'arm64-osx-release'
+			configuration = 'profile'
+		}
+		[ordered] @{
+			name = 'arm64-linux'
+			configurePreset = 'arm64-linux-clang'
+			hidden = $true
+		}
+		[ordered] @{
+			name = 'arm64-linux-debug'
+			configurePreset = 'arm64-linux-clang'
+			configuration = 'debug'
+		}
+		[ordered] @{
+			name = 'arm64-linux-release'
+			configurePreset = 'arm64-linux-clang'
+			configuration = 'release'
+		}
+		[ordered] @{
+			name = 'arm64-linux-profile'
+			inherits = 'arm64-linux-release'
+			configuration = 'profile'
+		}
+		[ordered] @{
+			name = 'x64-linux'
+			configurePreset = 'x64-linux-clang'
+			hidden = $true
+		}
+		[ordered] @{
+			name = 'x64-linux-debug'
+			configurePreset = 'x64-linux-clang'
+			configuration = 'debug'
+		}
+		[ordered] @{
+			name = 'x64-linux-release'
+			configurePreset = 'x64-linux-clang'
+			configuration = 'release'
+		}
+		[ordered] @{
+			name = 'x64-linux-profile'
+			inherits = 'x64-linux-release'
+			configuration = 'profile'
+		}
+	)
+}
+
+$CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 
 Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --vcpkg-root $env:VCPKG_ROOT --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")

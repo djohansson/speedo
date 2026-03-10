@@ -85,7 +85,8 @@ function Get-HostTriplet
 {
 	$Arch = Get-HostArchitecture
 	$OS = Get-HostOS
-
+	# Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
+	# Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
 	return "$Arch-$OS-release"
 }
 

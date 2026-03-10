@@ -130,12 +130,6 @@ function Initialize-VcpkgEnv
 	}
 }
 
-function Initialize-HostUserEnv
-{
-	#Write-Host "Setting system environment variables from env.json"
-	Read-EnvFile "$PSScriptRoot/../.env.json" User
-}
-
 function Initialize-ToolchainEnv
 {
 	param(
