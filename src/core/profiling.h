@@ -27,7 +27,7 @@ namespace std
 {
 	inline bool is_debugger_present() noexcept //NOLINT(readability-identifier-naming)
 	{
-		return ::isatty(STDERR_FILENO) && ::getenv("SPEEDO_DEBUG");
+		return false;
 	}
 }
 #endif
