@@ -72,9 +72,9 @@ $CMakePresets = [ordered] @{
 				VCPKG_VERBOSE = 'ON'
 			}
 			environment = [ordered] @{
-					CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
-					TOOLS_ROOT = '${sourceDir}/build/packages/${presetName}/tools'
-					VCPKG_ROOT = "$env:VCPKG_ROOT"
+				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
+				TOOLS_ROOT = '${sourceDir}/build/packages/${presetName}/tools'
+				VCPKG_ROOT = "$env:VCPKG_ROOT"
 			}
 			warnings = [ordered] @{
 				dev = $false
@@ -87,6 +87,8 @@ $CMakePresets = [ordered] @{
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-windows-release'
 				PATH = "`$env:LLVM_ROOT/bin;`$env:LLVM_ROOT/tools/llvm;$env:WINDOWS_SDK/bin/$env:WINDOWS_SDK_VERSION/x64;`$penv:PATH"
+				VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
+				VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
 			}
 			condition = [ordered] @{
 				type = 'equals'
