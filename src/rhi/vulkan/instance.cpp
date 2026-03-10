@@ -183,7 +183,7 @@ VkBool32 DebugUtilsMessengerCallback(
 	if (pCallbackData->pMessageIdName != nullptr)
 		std::print(std::cout, "{}: ", pCallbackData->pMessageIdName);
 	if (pCallbackData->pMessage != nullptr)
-		std::println(std::cout, "{}\n", pCallbackData->pMessage);
+		std::println(std::cout, "{}", pCallbackData->pMessage);
 
 	std::flush(std::cout);
 
@@ -229,7 +229,7 @@ InstanceConfiguration<kVk>::InstanceConfiguration(std::string&& applicationName,
 		.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
 		.pEngineName = nullptr,
 		.engineVersion = VK_MAKE_VERSION(1, 0, 0),
-		.apiVersion = VK_API_VERSION_1_3}
+		.apiVersion = VK_API_VERSION_1_2}
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();

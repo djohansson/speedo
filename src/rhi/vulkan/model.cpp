@@ -448,7 +448,7 @@ Model<kVk> LoadModel(
 		progress);
 	cmd.End();
 
-// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
+	// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
 	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([model = std::move(oldModel)] {});
 
 	std::vector<TaskHandle> timelineCallbacks;
