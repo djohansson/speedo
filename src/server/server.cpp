@@ -183,5 +183,5 @@ bool ServerExitRequested()
 {
 	using namespace server;
 
-	return !ConcurrentReadScope(gServerApplication)->IsExitRequested();
+	return ConcurrentReadScope(gServerApplication)->IsExitRequested();
 }

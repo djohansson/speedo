@@ -158,7 +158,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	fprintf(stdout, "Press Ctrl-C to quit\n");
 
-	while (ServerExitRequested() && !gIsInterrupted)
+	while (!ServerExitRequested() && !gIsInterrupted)
 	{
 		_Sleep(&(struct timespec){.tv_nsec=100000000}, NULL);
 	};
