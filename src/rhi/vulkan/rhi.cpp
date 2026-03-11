@@ -262,10 +262,10 @@ void CreateQueues(RHI<kVk>& rhi)
 
 	if (transfer->queues.empty())
 	{
-		// Alias transfer to graphics queue if no dedicated transfer queue is found.
-		// This is valid as long as the graphics queue family supports transfer operations, which is guaranteed by the Vulkan spec.
-		ENSUREF(graphics->queues.size() > 0, "Failed to find a suitable transfer queue!");
-		transfer.Get() = graphics.Get();
+		// Alias transfer to compute queue if no dedicated transfer queue is found.
+		// This is valid as long as the compute queue family supports transfer operations, which is guaranteed by the Vulkan spec.
+		ENSUREF(compute->queues.size() > 0, "Failed to find a suitable transfer queue!");
+		transfer.Get() = compute.Get();
 	}
 }
 
