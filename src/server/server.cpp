@@ -133,21 +133,12 @@ void ServerCreate(const PathConfig* paths)
 	ENSURE(paths != nullptr);
 
 	auto root = GetCanonicalPath(nullptr, "./");
-
-	if (!root)
-	{
-		std::cerr << "Failed to get root path" << '\n';
-		return;
-	}
-
 	auto resourcePath = GetCanonicalPath(paths->resourcePath, (root.value() / "resources").string().c_str());
 	auto userPath = GetCanonicalPath(paths->userProfilePath, (root.value() / ".speedo").string().c_str(), true);
 
-	if (!resourcePath || !userPath)
-	{
-		std::cerr << "Failed to get resource or user path" << '\n';
-		return;
-	}
+	ENSURE(root);
+	ENSURE(resourcePath);
+	ENSURE(userPath);
 
 	auto appPtr = ConcurrentWriteScope(gServerApplication);
 

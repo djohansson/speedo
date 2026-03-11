@@ -331,7 +331,6 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	ENSURE(paths != nullptr);
 
 	auto root = GetCanonicalPath(nullptr, "./");
-
 	auto resourcePath = GetCanonicalPath(paths->resourcePath, (root.value() / "resources").string().c_str());
 	auto userPath = GetCanonicalPath(paths->userProfilePath, (root.value() / ".speedo").string().c_str(), true);
 
