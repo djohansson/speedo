@@ -245,7 +245,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	}
 
 	QueueHostSyncInfo<kVk> result;
-	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
+	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "submitFence"});
 	result.maxTimelineValue = maxTimelineValue;
 	
 	Result<kVk> submitResult;
