@@ -273,6 +273,8 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::Present");
 
+	bool supportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
+
 	static uint64_t gPresentId = 0ULL;
 	std::vector<uint64_t> presentIds(myPendingPresent.swapchains.size());
 	for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
@@ -280,7 +282,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 
 	QueueHostSyncInfo<kVk> result;
 	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
-	result.presentIds = std::move(presentIds);
+	result.presentIds = supportsPresentId ? std::move(presentIds) : std::vector<uint64_t>{};
 
 	PresentFenceInfo<kVk> presentFenceInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
@@ -295,10 +297,10 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	PresentId<kVk> presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
 	presentId.pNext = presentFenceInfoPtr;
 	presentId.swapchainCount = myPendingPresent.swapchains.size();
-	presentId.pPresentIds = result.presentIds.data();
+	presentId.pPresentIds = supportsPresentId ? result.presentIds.data() : nullptr;
 
 	void* presentIdPtr = 
-		SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance()) ?
+		supportsPresentId ?
 			reinterpret_cast<void*>(&presentId) :
 			nullptr;
 
