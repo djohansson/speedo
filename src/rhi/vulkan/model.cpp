@@ -435,7 +435,9 @@ Model<kVk> LoadModel(
 	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
 
 	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
-	auto& [transferQueue, transferSubmit] = transfer->queues.Get();
+	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
+
+	transferSubmits.emplace_back();
 
 	auto cmd = transferQueue.GetPool().Commands();
 
@@ -459,12 +461,12 @@ Model<kVk> LoadModel(
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		.waitSemaphores = {transfer->semaphore},
 		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
-		.waitSemaphoreValues = {transferSubmit.maxTimelineValue},
+		.waitSemaphoreValues = {transferSubmits.back().maxTimelineValue},
 		.signalSemaphores = {transfer->semaphore},
 		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(timelineCallbacks)});
 
-	transferSubmit |= transferQueue.Submit();
+	transferSubmits.back() |= transferQueue.Submit();
 
 	return model;
 }

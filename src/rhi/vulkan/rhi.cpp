@@ -166,19 +166,21 @@ void CreateQueues(RHI<kVk>& rhi)
 		std::make_shared<QueueTimelineContextData<kVk>>(
 			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
+			uint32_t{},
 			CircularContainer<QueueContext<kVk>>{}));
 	queues.emplace(
 		kQueueTypeCompute,
 		std::make_shared<QueueTimelineContextData<kVk>>(
 			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
+			uint32_t{},
 			CircularContainer<QueueContext<kVk>>{}));
-
 	queues.emplace(
 		kQueueTypeTransfer,
 		std::make_shared<QueueTimelineContextData<kVk>>(
 			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
+			uint32_t{},
 			CircularContainer<QueueContext<kVk>>{}));
 
 	auto isDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
@@ -199,6 +201,7 @@ void CreateQueues(RHI<kVk>& rhi)
 
 		if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
 		{
+			graphics->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
 				auto& [queue, syncInfo] = graphics->queues.emplace_back();
@@ -216,6 +219,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
 		{
+			compute->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
 				auto& [queue, syncInfo] = compute->queues.emplace_back();
@@ -233,6 +237,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
 		{
+			transfer->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
 				auto& [queue, syncInfo] = transfer->queues.emplace_back();
@@ -334,7 +339,9 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 
 	{
 		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
-		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.front();
+		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.front();
+
+		graphicsSubmits.emplace_back();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -364,7 +371,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 			.signalSemaphores = {graphics->semaphore},
 			.signalSemaphoreValues = {++graphics->timeline}});
 
-		graphicsSubmit |= graphicsQueue.Submit();
+		graphicsSubmits.back() |= graphicsQueue.Submit();
 	}
 }
 

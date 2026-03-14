@@ -760,6 +760,7 @@ void RHIApplication::Draw()
 	ZoneScopedN("RHIApplication::Draw");
 
 	std::unique_lock lock(gDrawMutex);
+	std::vector<TaskHandle> frameTasks;
 
 	auto& rhi = GetRHI<kVk>();
 	auto& instance = *rhi.instance;
@@ -767,77 +768,135 @@ void RHIApplication::Draw()
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto& pipeline = *rhi.pipeline;
 
-	std::vector<TaskHandle> frameTasks;
-	frameTasks.emplace_back(CreateTask([&rhi, &executor = GetExecutor()]
-		{
-			auto transfer = ConcurrentReadScope(rhi.queues[kQueueTypeTransfer]);
-			for (const auto& [transferQueue, transferSubmit] : transfer->queues)	
-				transferQueue.SubmitCallbacks(executor, transfer->semaphore.GetValue());
-		}).handle);
-
 	auto [acquireNextImageFence, acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
 
-	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
-	auto& [computeQueue, computeSubmit] = compute->queues.FetchAdd();
+	bool dedicatedTransfer = ConcurrentReadScope(rhi.queues[kQueueTypeTransfer])->queueFamilyIndex != 
+		ConcurrentReadScope(rhi.queues[kQueueTypeCompute])->queueFamilyIndex;
 
-	frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue = computeQueue, &computeSemaphore = compute->semaphore] {
-		computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
+	bool dedicatedCompute = ConcurrentReadScope(rhi.queues[kQueueTypeCompute])->queueFamilyIndex != 
+		ConcurrentReadScope(rhi.queues[kQueueTypeGraphics])->queueFamilyIndex;
 
 	{
-		ZoneScopedN("RHIApplication::Draw::waitCompute");
-
-		for (auto& fence : computeSubmit.fences)
-			while (!fence.Wait(0ULL))
-				GetExecutor().JoinOne();
-
-		// if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
-		// {
-		// 	ZoneScopedN("RHIApplication::Draw::waitCompute::waitPresent");
-	
-		// 	for (auto presentId : computeSubmit.presentIds)
-		// 		while (!window.WaitPresent(presentId, 0ULL))
-		// 			GetExecutor().JoinOne();
-		// }
-		// else
-		{
-			ZoneScopedN("RHIApplication::Draw::waitCompute::fairyDust");
-	
-			using namespace std::chrono_literals;
-			constexpr std::chrono::microseconds kFairyDustDelay = 1000us;
-			auto start = std::chrono::high_resolution_clock::now();
-			auto end = start + kFairyDustDelay;
-			do { std::this_thread::yield();	} while (std::chrono::high_resolution_clock::now() < end);
-		}
-	}
-	computeQueue.GetPool().Reset();	
-	computeSubmit = {};
-
-	if (flipSuccess)
-	{
-		ZoneScopedN("RHIApplication::Draw::submit");
-
-		auto& lastFrame = window.GetFrames()[lastFrameIndex];
-		auto& newFrame = window.GetFrames()[newFrameIndex];
-
 		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
-
-		auto& [lastGraphicsQueue, lastGraphicsSubmit] = graphics->queues.FetchAdd();
-		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
+		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 
 		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &graphicsQueue = graphicsQueue, &graphicsSemaphore = graphics->semaphore]
 			{ graphicsQueue.SubmitCallbacks(executor, graphicsSemaphore.GetValue()); }).handle);
 
-		if (!graphicsSubmit.fences.empty())
+		for (auto submitIt = graphicsSubmits.begin(); submitIt != graphicsSubmits.end();)
 		{
-			ZoneScopedN("RHIApplication::Draw::waitGraphics");
+			if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
+			{
+				for (auto it = submitIt->presentIds.begin(); it != submitIt->presentIds.end();)
+				{
+					if (window.WaitPresent(*it, 0ULL))
+						it = submitIt->presentIds.erase(it);
+					else
+						++it;
+				}
+			}
+			for (auto it = submitIt->fences.begin(); it != submitIt->fences.end();)
+			{
+				if (it->Wait(0ULL))
+					it = submitIt->fences.erase(it);
+				else
+					++it;
+			}
 
-			for (auto& fence : graphicsSubmit.fences)
-				while (!fence.Wait(0ULL))
-					GetExecutor().JoinOne();
+			if (submitIt->fences.empty() && submitIt->presentIds.empty())
+				submitIt = graphicsSubmits.erase(submitIt);
+			else
+				++submitIt;
 		}
-		graphicsQueue.GetPool().Reset();
-		graphicsSubmit = {};
 
+		graphicsSubmits.emplace_back();
+	}
+
+	if (dedicatedCompute)
+	{
+		auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
+		auto& [computeQueue, computeSubmits] = compute->queues.Get();
+
+		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &computeQueue = computeQueue, &computeSemaphore = compute->semaphore]
+			{ computeQueue.SubmitCallbacks(executor, computeSemaphore.GetValue()); }).handle);
+
+		for (auto submitIt = computeSubmits.begin(); submitIt != computeSubmits.end();)
+		{
+			if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
+			{
+				for (auto it = submitIt->presentIds.begin(); it != submitIt->presentIds.end();)
+				{
+					if (window.WaitPresent(*it, 0ULL))
+						it = submitIt->presentIds.erase(it);
+					else
+						++it;
+				}
+			}
+			for (auto it = submitIt->fences.begin(); it != submitIt->fences.end();)
+			{
+				if (it->Wait(0ULL))
+					it = submitIt->fences.erase(it);
+				else
+					++it;
+			}
+
+			if (submitIt->fences.empty() && submitIt->presentIds.empty())
+				submitIt = computeSubmits.erase(submitIt);
+			else
+				++submitIt;
+		}
+
+		computeSubmits.emplace_back();
+	}
+
+	if (dedicatedTransfer)
+	{
+		auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
+		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
+
+		frameTasks.emplace_back(CreateTask([&executor = GetExecutor(), &transferQueue = transferQueue, &transferSemaphore = transfer->semaphore]
+			{ transferQueue.SubmitCallbacks(executor, transferSemaphore.GetValue()); }).handle);
+
+		for (auto submitIt = transferSubmits.begin(); submitIt != transferSubmits.end();)
+		{
+			if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
+			{
+				for (auto it = submitIt->presentIds.begin(); it != submitIt->presentIds.end();)
+				{
+					if (window.WaitPresent(*it, 0ULL))
+						it = submitIt->presentIds.erase(it);
+					else
+						++it;
+				}
+			}
+			for (auto it = submitIt->fences.begin(); it != submitIt->fences.end();)
+			{
+				if (it->Wait(0ULL))
+					it = submitIt->fences.erase(it);
+				else
+					++it;
+			}
+
+			if (submitIt->fences.empty() && submitIt->presentIds.empty())
+				submitIt = transferSubmits.erase(submitIt);
+			else
+				++submitIt;
+		}
+
+		transferSubmits.emplace_back();
+	}
+
+	if (flipSuccess)
+	{
+		auto& lastFrame = window.GetFrames()[lastFrameIndex];
+		auto& newFrame = window.GetFrames()[newFrameIndex];
+
+		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
+		
+		auto& [lastGraphicsQueue, lastGraphicsSubmits] = graphics->queues.FetchAdd();
+		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
+		auto& [computeQueue, computeSubmits] = dedicatedCompute ? ConcurrentWriteScope(rhi.queues[kQueueTypeCompute])->queues.Get() : graphics->queues.Get();
+		
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
 		{
@@ -851,6 +910,8 @@ void RHIApplication::Draw()
 		auto cmd = graphicsQueue.GetPool().Commands();
 
 		//NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
+
+		ZoneScopedN("RHIApplication::Draw::submit");
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
@@ -1175,7 +1236,6 @@ void RHIApplication::Draw()
 				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore))]
 				 {
 					ZoneScopedN("RHIApplication::Draw::waitAcquireNextImage");
-
 					while (!fence->Wait(0ULL))
 						executor.JoinOne();
 				 }).handle);
@@ -1184,18 +1244,18 @@ void RHIApplication::Draw()
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
 			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_NONE},
-			.waitSemaphoreValues = {lastGraphicsSubmit.maxTimelineValue, 1},
+			.waitSemaphoreValues = {lastGraphicsSubmits.back().maxTimelineValue, 1},
 			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphore},
 			.signalSemaphoreValues = {++graphics->timeline, 1},
 			.callbacks = std::move(graphicsCallbacks)});
 
-		graphicsSubmit |= graphicsQueue.Submit();
+		graphicsSubmits.back() |= graphicsQueue.Submit();
 
 		auto presentInfo = window.PreparePresent();
 		presentInfo.waitSemaphores = {graphicsDoneSemaphore};
 		computeQueue.EnqueuePresent(std::move(presentInfo));
-		computeSubmit |= computeQueue.Present();
-		computeSubmit.retiredSemaphores.emplace_back(std::move(graphicsDoneSemaphore));
+		computeSubmits.back() |= computeQueue.Present();
+		computeSubmits.back().retiredSemaphores.emplace_back(std::move(graphicsDoneSemaphore));
 	}
 
 	GetExecutor().Submit(frameTasks);
@@ -1265,7 +1325,9 @@ RHIApplication::RHIApplication(
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
 		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
-		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
+		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
+
+		graphicsSubmits.emplace_back();
 		
 		IMGUIInit(window, rhi, graphicsQueue);
 
@@ -1328,7 +1390,7 @@ RHIApplication::RHIApplication(
 			.signalSemaphoreValues = {++graphics->timeline},
 			.callbacks = std::move(timelineCallbacks)});
 
-		graphicsSubmit |= graphicsQueue.Submit();
+		graphicsSubmits.back() |= graphicsQueue.Submit();
 	}
 
 	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
@@ -1425,16 +1487,19 @@ RHIApplication::~RHIApplication() noexcept(false)
 	rhi.device->WaitIdle();
 
 	auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
-	for (auto& [graphicsQueue, graphicsSubmit] : graphics->queues)	
-		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSubmit.maxTimelineValue);
+	for (auto& [graphicsQueue, graphicsSubmits] : graphics->queues)	
+		for (auto& submit : graphicsSubmits)
+			graphicsQueue.SubmitCallbacks(GetExecutor(), submit.maxTimelineValue);
 
 	auto compute = ConcurrentWriteScope(rhi.queues[kQueueTypeCompute]);
-	for (auto& [computeQueue, computeSubmit] : compute->queues)	
-		computeQueue.SubmitCallbacks(GetExecutor(), computeSubmit.maxTimelineValue);
+	for (auto& [computeQueue, computeSubmits] : compute->queues)	
+		for (auto& submit : computeSubmits)
+			computeQueue.SubmitCallbacks(GetExecutor(), submit.maxTimelineValue);
 
 	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
-	for (auto& [transferQueue, transferSubmit] : transfer->queues)	
-		transferQueue.SubmitCallbacks(GetExecutor(), transferSubmit.maxTimelineValue);
+	for (auto& [transferQueue, transferSubmits] : transfer->queues)	
+		for (auto& submit : transferSubmits)
+			transferQueue.SubmitCallbacks(GetExecutor(), submit.maxTimelineValue);
 
 	ShutdownImgui();
 }

@@ -606,7 +606,9 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	ENSURE(pipeline);
 
 	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
-	auto& [transferQueue, transferSubmit] = transfer->queues.Get();
+	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
+
+	transferSubmits.emplace_back();
 
 	TaskCreateInfo<void> transferDone;
 	std::pair<Image<kVk>, ImageView<kVk>> result;
@@ -625,7 +627,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(transferTimelineCallbacks)});
 
-	transferSubmit |= transferQueue.Submit();
+	transferSubmits.back() |= transferQueue.Submit();
 
 	///////////
 
@@ -633,11 +635,11 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	[&rhi,
 		image = std::make_unique<Image<kVk>>(std::move(image)),
 		imageView = std::make_unique<ImageView<kVk>>(std::move(imageView)),
-		&transferSemaphore = transfer->semaphore, &transferSubmit](QueueTimelineContextData<kVk>* graphics)
+		&transferSemaphore = transfer->semaphore, &transferSubmits](QueueTimelineContextData<kVk>* graphics)
 	{
 		ZoneScopedN("image::LoadImage::transitionTask");
 
-		auto& [graphicsQueue, graphicsSubmit] = graphics->queues.Get();
+		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 
 		auto cmd = graphicsQueue.GetPool().Commands();
 		{
@@ -674,12 +676,12 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {transferSemaphore},
 			.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
-			.waitSemaphoreValues = {transferSubmit.maxTimelineValue},
+			.waitSemaphoreValues = {transferSubmits.back().maxTimelineValue},
 			.signalSemaphores = {graphics->semaphore},
 			.signalSemaphoreValues = {++graphics->timeline},
 			.callbacks = std::move(transitionTimelineCallbacks)});
 
-		graphicsSubmit |= graphicsQueue.Submit();
+		graphicsSubmits.back() |= graphicsQueue.Submit();
 
 		std::atomic_store(
 			&resources.image,

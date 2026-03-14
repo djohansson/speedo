@@ -161,13 +161,14 @@ private:
 };
 
 template <GraphicsApi G>
-using QueueContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
+using QueueContext = std::pair<Queue<G>, std::vector<QueueHostSyncInfo<G>>>;
 
 template <GraphicsApi G>
 struct QueueTimelineContextData
 {
 	Semaphore<G> semaphore;
-	uint64_t timeline;
+	uint64_t timeline = 0ULL;
+	uint32_t queueFamilyIndex = 0UL;
 	CircularContainer<QueueContext<G>> queues;
 };
 
