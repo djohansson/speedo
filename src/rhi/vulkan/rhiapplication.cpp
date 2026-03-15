@@ -12,6 +12,9 @@
 
 #include <gfx/imgui_extra.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <algorithm>
 #include <array>
 #include <memory>
