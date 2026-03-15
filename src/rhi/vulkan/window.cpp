@@ -12,7 +12,7 @@
 #include <string_view>
 
 template <>
-void Window<kVk>::InternalUpdateViewBuffer() const
+void Window<kVk>::InternalUpdateViewBuffer()
 {
 	ZoneScopedN("Window::InternalUpdateViewBuffer");
 
