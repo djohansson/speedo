@@ -4,9 +4,23 @@
 #include <vector>
 
 template <typename T, typename ContainerT = std::vector<T>>
-class CircularContainer : public ContainerT
+class CircularContainer : private ContainerT
 {
 public:
+
+	explicit CircularContainer() noexcept = default;
+	explicit CircularContainer(size_t capacity) noexcept : ContainerT(capacity) {}
+
+	using ContainerT::begin;
+	using ContainerT::end;
+	using ContainerT::cbegin;
+	using ContainerT::cend;
+	using ContainerT::resize;
+
+	[[nodiscard]] size_t Capacity() const noexcept { return ContainerT::size(); }
+	[[nodiscard]] size_t Head() const noexcept { return std::atomic_ref(myHead).load(std::memory_order_relaxed); }
+	[[nodiscard]] bool Empty() const noexcept { return ContainerT::empty(); }
+
 	[[nodiscard]] T& Get() { return ContainerT::at(std::atomic_ref(myHead).load(std::memory_order_relaxed)); }
 	[[nodiscard]] const T& Get() const { return ContainerT::at(std::atomic_ref(myHead).load(std::memory_order_relaxed)); }
 
