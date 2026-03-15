@@ -16,12 +16,6 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming)
-[[nodiscard]] zpp::bits::members<std_extra::member_count<ModelCreateDesc<kVk>>()> serialize(const ModelCreateDesc<kVk>&);
-[[nodiscard]] zpp::bits::members<std_extra::member_count<Bounds3f>()> serialize(const Bounds3f&);
-//NOLINTEND(readability-identifier-naming)
-
-
 namespace model::detail
 {
 
@@ -434,16 +428,14 @@ Model<kVk> LoadModel(
 
 	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
 
-	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
+	auto transfer = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeTransfer]);
 	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
-
-	transferSubmits.emplace_back();
 
 	auto cmd = transferQueue.GetPool().Commands();
 
 	std::array<TaskCreateInfo<void>, 2> transfersDone;
 	auto model = Model<kVk>(
-		rhi.device,
+		rhi.GetDevice(),
 		transfersDone,
 		cmd,
 		filePath,
@@ -461,12 +453,12 @@ Model<kVk> LoadModel(
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		.waitSemaphores = {transfer->semaphore},
 		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
-		.waitSemaphoreValues = {transferSubmits.back().maxTimelineValue},
+		.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
 		.signalSemaphores = {transfer->semaphore},
 		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(timelineCallbacks)});
 
-	transferSubmits.back() |= transferQueue.Submit();
+	transferSubmits |= transferQueue.Submit();
 
 	return model;
 }

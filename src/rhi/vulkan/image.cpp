@@ -21,10 +21,6 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming)
-[[nodiscard]] zpp::bits::members<std_extra::member_count<ImageCreateDesc<kVk>>()> serialize(const ImageCreateDesc<kVk>&);
-//NOLINTEND(readability-identifier-naming)
-
 namespace image
 {
 
@@ -602,19 +598,17 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	ZoneScopedN("image::LoadImage");
 
 	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
-	auto& pipeline = rhi.pipeline;
+	auto& pipeline = rhi.GetPipeline();
 	ENSURE(pipeline);
 
-	auto transfer = ConcurrentWriteScope(rhi.queues[kQueueTypeTransfer]);
+	auto transfer = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeTransfer]);
 	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
-
-	transferSubmits.emplace_back();
 
 	TaskCreateInfo<void> transferDone;
 	std::pair<Image<kVk>, ImageView<kVk>> result;
 	auto& [image, imageView] = result;
-	image = Image<kVk>(rhi.device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
-	imageView = ImageView<kVk>(rhi.device, result.first, VK_IMAGE_ASPECT_COLOR_BIT);
+	image = Image<kVk>(rhi.GetDevice(), transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
+	imageView = ImageView<kVk>(rhi.GetDevice(), result.first, VK_IMAGE_ASPECT_COLOR_BIT);
 	
 	std::vector<TaskHandle> transferTimelineCallbacks;
 	transferTimelineCallbacks.emplace_back(transferDone.handle);
@@ -627,7 +621,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		.signalSemaphoreValues = {++transfer->timeline},
 		.callbacks = std::move(transferTimelineCallbacks)});
 
-	transferSubmits.back() |= transferQueue.Submit();
+	transferSubmits |= transferQueue.Submit();
 
 	///////////
 
@@ -638,7 +632,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		&transferSemaphore = transfer->semaphore, &transferSubmits](QueueTimelineContextData<kVk>* graphics)
 	{
 		ZoneScopedN("image::LoadImage::transitionTask");
-
+		ENSURE(graphics);
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 
 		auto cmd = graphicsQueue.GetPool().Commands();
@@ -649,7 +643,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		}
 		cmd.End();
 
-		auto& pipeline = rhi.pipeline;
+		auto& pipeline = rhi.GetPipeline();
 		ENSURE(pipeline);
 		auto& resources = pipeline->GetResources();
 
@@ -672,16 +666,16 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		std::vector<TaskHandle> transitionTimelineCallbacks;
 		transitionTimelineCallbacks.emplace_back(setDescriptorTask);
 		transitionTimelineCallbacks.emplace_back(oldImageDestroyTask);
-		
+
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {transferSemaphore},
 			.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
-			.waitSemaphoreValues = {transferSubmits.back().maxTimelineValue},
+			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
 			.signalSemaphores = {graphics->semaphore},
 			.signalSemaphoreValues = {++graphics->timeline},
 			.callbacks = std::move(transitionTimelineCallbacks)});
 
-		graphicsSubmits.back() |= graphicsQueue.Submit();
+		graphicsSubmits |= graphicsQueue.Submit();
 
 		std::atomic_store(
 			&resources.image,

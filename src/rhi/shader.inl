@@ -3,11 +3,6 @@
 
 #include <zpp_bits.h>
 
-//NOLINTBEGIN(readability-identifier-naming)
-template <GraphicsApi G>
-[[nodiscard]] zpp::bits::members<std_extra::member_count<DescriptorSetLayoutCreateDesc<G>>()> serialize(const DescriptorSetLayoutCreateDesc<G>&);
-//NOLINTEND(readability-identifier-naming)
-
 namespace shader
 {
 
