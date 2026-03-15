@@ -163,8 +163,10 @@ void Client::OnMouse(const MouseEvent& mouse)
 
 void Client::Tick()
 {
+	auto start = std::chrono::high_resolution_clock::now();
+
 	myTimestamps[1] = myTimestamps[0];
-	myTimestamps[0] = std::chrono::high_resolution_clock::now();
+	myTimestamps[0] = start;
 
 	float dt = (myTimestamps[1] - myTimestamps[0]).count();
 
@@ -259,6 +261,10 @@ void Client::Tick()
 
 	if (eventsProcessed > 0 || input.keyboard.keysDown.any())
 		RHIApplication::OnInputStateChanged(input);
+
+	using namespace std::chrono_literals;
+	std::chrono::microseconds delay = 1000us;
+	std::this_thread::sleep_until(start + delay);
 }
 
 bool Client::Main()
