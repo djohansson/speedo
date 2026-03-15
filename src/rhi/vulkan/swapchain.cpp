@@ -118,13 +118,15 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{"acquireNextImageFence"});
 	Semaphore<kVk> semaphore(InternalGetDevice(), SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
 
-	auto flipResult = CheckFlipOrPresentResult(vkAcquireNextImageKHR(
+	auto flipResult = vkAcquireNextImageKHR(
 		*InternalGetDevice(),
 		mySwapchain,
 		UINT64_MAX,
 		semaphore,
 		fence,
-		&myFrameIndex));
+		&myFrameIndex);
+
+	VK_CHECK(flipResult);
 
 	auto& lastFrame = myFrames[lastFrameIndex];
 	auto& newFrame = myFrames[myFrameIndex];

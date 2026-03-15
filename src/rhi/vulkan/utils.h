@@ -182,5 +182,3 @@ void CopyBufferToImage(
 	VkImageLayout depthFinalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
 [[nodiscard]] VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, void* view);
-
-VkResult CheckFlipOrPresentResult(VkResult result);

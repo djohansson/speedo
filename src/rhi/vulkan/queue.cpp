@@ -274,24 +274,31 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::Present");
 
+	bool supportsPresentFence = InternalGetDevice()->SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR);
 	bool supportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
 
 	static uint64_t gPresentId = 0ULL;
-	std::vector<uint64_t> presentIds(myPendingPresent.swapchains.size());
-	for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
-		presentIds[i] = gPresentId++;
+	std::vector<uint64_t> presentIds;
+	if (supportsPresentId)
+	{
+		presentIds.resize(myPendingPresent.swapchains.size());
+		for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
+			presentIds[i] = gPresentId++;
+	}
 
 	QueueHostSyncInfo<kVk> result;
-	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
-	result.presentIds = supportsPresentId ? std::move(presentIds) : std::vector<uint64_t>{};
+	if (supportsPresentFence)
+		result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
+	if (supportsPresentId)
+		result.presentIds = std::move(presentIds);
 
 	PresentFenceInfo<kVk> presentFenceInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
 	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
-	presentFenceInfo.pFences = &result.fences.back().GetHandle();
+	presentFenceInfo.pFences = supportsPresentFence ? &result.fences.front().GetHandle() : nullptr;
 
 	void* presentFenceInfoPtr = 
-		InternalGetDevice()->SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR) ?
+		supportsPresentFence ?
 			reinterpret_cast<void*>(&presentFenceInfo) :
 			nullptr;
 
@@ -314,20 +321,12 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	presentInfo.pImageIndices = myPendingPresent.imageIndices.data();
 	presentInfo.pResults = myPendingPresent.results.data();
 
-	Result<kVk> queuePresentResult{};
 	{
 		ZoneScopedN("Queue::Present::vkQueuePresentKHR");
-
-		queuePresentResult = vkQueuePresentKHR(myQueue, &presentInfo);
+		VK_CHECK(vkQueuePresentKHR(myQueue, &presentInfo));
 	}
 
 	myPendingPresent = {};
-
-	if (CheckFlipOrPresentResult(queuePresentResult) != VK_SUCCESS)
-	{
-		result.fences.back().Wait();
-		return {};
-	}
 
 	return result;
 }

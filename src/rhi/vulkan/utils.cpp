@@ -67,8 +67,17 @@ void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 			for (const auto& checkpoint : gCheckpointData)
 				std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
 		}
+	case VK_ERROR_OUT_OF_HOST_MEMORY:
+	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
 		TRAP();
+	case VK_ERROR_SURFACE_LOST_KHR:
+	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
+	case VK_TIMEOUT:
+	case VK_NOT_READY:
+	case VK_SUBOPTIMAL_KHR:
+	case VK_ERROR_OUT_OF_DATE_KHR:
 	default:
+		std::println(stderr, "Warning: flip/present returned {}", string_VkResult(result));
 		break;
 	}
 }
@@ -912,30 +921,4 @@ VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hos
 		&surface));
 
 	return surface;
-}
-
-VkResult CheckFlipOrPresentResult(VkResult result)
-{
-	switch (result)
-	{
-	case VK_SUCCESS:
-		break;
-	case VK_TIMEOUT:
-	case VK_NOT_READY:
-	case VK_SUBOPTIMAL_KHR:
-	case VK_ERROR_OUT_OF_DATE_KHR:
-		std::println(stderr, "Warning: flip/present returned {}", string_VkResult(result));
-		break;
-	case VK_ERROR_SURFACE_LOST_KHR:
-	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
-		ASSERTF(false, "Error: flip/present returned {}", string_VkResult(result));
-		break;
-	case VK_ERROR_OUT_OF_HOST_MEMORY:
-	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-	case VK_ERROR_DEVICE_LOST:	
-	default:
-		ASSERTF(false, "Error: flip/present returned fatal error code: {}", string_VkResult(result));
-	}
-
-	return result;
 }
