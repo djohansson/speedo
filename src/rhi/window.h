@@ -13,7 +13,6 @@
 #include <core/concurrentaccess.h>
 #include <core/utils.h>
 
-#include <gfx/glm_extra.h>
 #include <gfx/camera.h>
 
 #include <array>

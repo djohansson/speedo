@@ -1,11 +1,11 @@
 #pragma once
 
-#include "glm_extra.h"
-
 #include <algorithm>
 #include <array>
 #include <limits>
 #include <tuple>
+
+#include <glm/glm.hpp>
 
 template <typename T, size_t N>
 struct Bounds
