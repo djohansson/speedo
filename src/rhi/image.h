@@ -28,7 +28,7 @@ struct ImageCreateDesc
 	Flags<G> memoryFlags{};
 	ImageAspectFlags<G> imageAspectFlags{};
 	ImageLayout<G> initialLayout{};
-	std::string_view name; // initially points to an arbitrary string, but is replaced with a string_view to a string stored DeviceObject during construction of Image.
+	std::string name;
 };
 
 template <GraphicsApi G>

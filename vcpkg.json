@@ -40,7 +40,6 @@
         "concurrentqueue",
         "cppzmq",
         "cpptrace",
-        "glaze",
         {
           "name": "mimalloc",
           "features": [

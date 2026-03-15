@@ -3,8 +3,6 @@
 
 #include <array>
 #include <iostream>
-
-#include <glaze/glaze.hpp>
 #include <utility>
 
 #include <picosha2.h>
@@ -35,11 +33,11 @@ struct AssetManifest
 	file::Record cacheFileInfo;
 };
 
-using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::string_view)>;
+using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::span<const std::byte>)>;
 
 template <bool Sha256ChecksumEnable>
 std::expected<AssetManifest, AssetManifestError>
-LoadJSONAssetManifest(std::string_view buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn)
+LoadAssetManifest(std::span<const std::byte> buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn)
 {
 	ZoneScoped;
 
@@ -99,7 +97,7 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;
-		mio::mmap_source file;
+		mio::basic_mmap_source<uint8_t> file;
 		std::error_code error;
 		file.map(filePath.string(), error);
 		if (error)
@@ -113,22 +111,19 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 }
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept
+std::expected<T, std::error_code> LoadObject(std::span<const std::byte> buffer) noexcept
 {
-	auto obj = glz::read_json<T>(buffer);
+	zpp::bits::in inStream(buffer);
+	T object;
 
-	if (!obj)
-	{
-		std::cerr << "JSON parse error: " << glz::format_error(obj.error(), buffer) << std::endl;
+	if (auto result = inStream(object); failure(result))
+		return std::unexpected(std::make_error_code(result));
 
-		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-	}
-
-	return obj.value();
+	return object;
 };
 
 template <typename T>
-std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath)
+std::expected<T, std::error_code> LoadObject(const std::filesystem::path& filePath)
 {
 	std::error_code error;
 	auto fileStatus = std::filesystem::status(filePath, error);
@@ -139,19 +134,18 @@ std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& fi
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
-	auto file = mio::mmap_source();
+	auto file = mio::basic_mmap_source<std::byte>();
 	file.map(filePath.string(), error);
-
 	if (error)
 		return std::unexpected(error);
 
-	return LoadJSONObject<T>(std::string_view(file.cbegin(), file.cend()));
+	return LoadObject<T>(std::span<const std::byte>(file.data(), file.size()));
 }
 
 template <typename T>
-std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath)
+std::expected<void, std::error_code> SaveObject(const T& object, const std::string& filePath)
 {
-	auto file = mio_extra::ResizeableMemoryMapSink();
+	auto file = mio_extra::resizeable_mmap_sink<std::byte>();
 	std::error_code error;
 
 	file.map(filePath, error);
@@ -159,47 +153,17 @@ std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::
 	if (error)
 		return std::unexpected(error);
 
-	if (auto result = glz::write<glz::opts{.prettify = true}>(object, file); result.ec != glz::error_code::none)
-		return std::unexpected(std::make_error_code(std::errc::io_error));
+	auto outStream = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
+
+	if (auto result = outStream(object); failure(result))
+		return std::unexpected(std::make_error_code(result));
 	
-	file.truncate(file.Size(), error);
+	file.truncate(outStream.position(), error);
 
 	if (error)
 		return std::unexpected(error);
 
 	return {};
-}
-
-template <typename T>
-std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath)
-{
-	std::error_code error;
-	auto fileStatus = std::filesystem::status(filePath, error);
-
-	if (error)
-		return std::unexpected(error);
-
-	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
-		return std::unexpected(error);
-
-	auto file = mio::mmap_source();
-	file.map(filePath.string(), error);
-
-	if (error)
-		return std::unexpected(error);
-
-	auto inStream = zpp::bits::in(file);
-
-	T object;
-	auto result = inStream(object);
-
-	if (result.failure())
-		return std::unexpected(result.error().code);
-
-	if (inStream.position() != file.size())
-		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
-
-	return object;
 }
 
 template <bool Sha256ChecksumEnable>
@@ -211,7 +175,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 
 	if (fileInfo)
 	{
-		auto file = mio::mmap_source();
+		auto file = mio::basic_mmap_source<std::byte>();
 		std::error_code error;
 		file.map(fileInfo->path, error);
 		if (error)
@@ -237,18 +201,18 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 	// intended scope - file needs to be closed before we call GetRecord (due to internal call to std::filesystem::file_size)
 	{
 		std::error_code error;
-		auto file = mio_extra::ResizeableMemoryMapSink();
+		auto file = mio_extra::resizeable_mmap_sink<std::byte>();
 		file.map(filePath.string(), error);
 
 		if (error)
 			return std::unexpected(error);
 
-		auto out = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
+		auto outStream = zpp::bits::out(file, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 
-		if (error = saveOp(out); error)
+		if (error = saveOp(outStream); error)
 			return std::unexpected(error);
 
-		file.truncate(out.position(), error);
+		file.truncate(outStream.position(), error);
 
 		if (error)
 			return std::unexpected(error);
@@ -260,7 +224,7 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
 Object<T, Mode, SaveOnDestruct>::Object(
 	const std::filesystem::path& filePath, T&& defaultObject)
-	: T(LoadJSONObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
+	: T(LoadObject<T>(filePath).value_or(std::forward<T>(defaultObject)))
 	, myInfo{filePath.string()}
 {}
 
@@ -297,13 +261,13 @@ void Object<T, Mode, SaveOnDestruct>::Swap(Object& rhs) noexcept
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
 void Object<T, Mode, SaveOnDestruct>::Reload()
 {
-	static_cast<T&>(*this) = LoadJSONObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
+	static_cast<T&>(*this) = LoadObject<T>(myInfo.path).value_or(std::move(static_cast<T&>(*this)));
 }
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
 std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrite, void> Object<T, Mode, SaveOnDestruct>::Save() const
 {
-	auto result = SaveJSONObject(static_cast<const T&>(*this), myInfo.path);
+	auto result = SaveObject(static_cast<const T&>(*this), myInfo.path);
 	ASSERT(result);
 }
 

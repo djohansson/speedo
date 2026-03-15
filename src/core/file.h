@@ -61,8 +61,8 @@ private:
 	Record myInfo;
 };
 
-using InputSerializer = zpp::bits::in<mio::mmap_source>;
-using OutputSerializer = zpp::bits::out<mio_extra::ResizeableMemoryMapSink, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
+using InputSerializer = zpp::bits::in<mio::basic_mmap_source<std::byte>>;
+using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink<std::byte>, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
 
 using LoadFn = std::function<std::error_code(InputSerializer&)>;
 using SaveFn = std::function<std::error_code(OutputSerializer&)>;
@@ -84,16 +84,13 @@ template <bool Sha256ChecksumEnable>
 [[nodiscard]] std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp);
 
 template <typename T>
-[[nodiscard]] std::expected<T, std::error_code> LoadBinaryObject(const std::filesystem::path& filePath);
+[[nodiscard]] std::expected<T, std::error_code> LoadObject(std::span<std::byte> buffer) noexcept;
 
 template <typename T>
-[[nodiscard]] std::expected<T, std::error_code> LoadJSONObject(std::string_view buffer) noexcept;
+[[nodiscard]] std::expected<T, std::error_code> LoadObject(const std::filesystem::path& filePath);
 
 template <typename T>
-[[nodiscard]] std::expected<T, std::error_code> LoadJSONObject(const std::filesystem::path& filePath);
-
-template <typename T>
-[[nodiscard]] std::expected<void, std::error_code> SaveJSONObject(const T& object, const std::string& filePath);
+[[nodiscard]] std::expected<void, std::error_code> SaveObject(const T& object, const std::string& filePath);
 
 [[nodiscard]] std::expected<Record, std::error_code> LoadAsset(
 	const std::filesystem::path& filePath,

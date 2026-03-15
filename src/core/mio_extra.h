@@ -12,30 +12,31 @@
 namespace mio_extra
 {
 
-class ResizeableMemoryMapSink : public mio::mmap_sink
+template <typename ByteT = std::byte>
+class resizeable_mmap_sink : public mio::basic_mmap_sink<ByteT>
 {
 public:
-	constexpr ResizeableMemoryMapSink() noexcept = default;
+	constexpr resizeable_mmap_sink() noexcept = default;
 #ifdef __cpp_exceptions
-	explicit ResizeableMemoryMapSink(
+	explicit resizeable_mmap_sink(
 		const std::string& path,
-		const size_type offset = 0,
-		const size_type length = mio::map_entire_file)
-		: mio::mmap_sink(path, offset, length)
+		const typename mio::basic_mmap_sink<ByteT>::size_type offset = 0,
+		const typename mio::basic_mmap_sink<ByteT>::size_type length = mio::map_entire_file)
+		: mio::basic_mmap_sink<ByteT>(path, offset, length)
 	{}
 #endif
-	ResizeableMemoryMapSink(const ResizeableMemoryMapSink&) = delete;
-	ResizeableMemoryMapSink(ResizeableMemoryMapSink&&) noexcept = default;
+	resizeable_mmap_sink(const resizeable_mmap_sink&) = delete;
+	resizeable_mmap_sink(resizeable_mmap_sink&&) noexcept = default;
 
-	ResizeableMemoryMapSink& operator=(const ResizeableMemoryMapSink&) = delete;
-	[[maybe_unused]] ResizeableMemoryMapSink& operator=(ResizeableMemoryMapSink&&) noexcept = default;
+	resizeable_mmap_sink& operator=(const resizeable_mmap_sink&) = delete;
+	[[maybe_unused]] resizeable_mmap_sink& operator=(resizeable_mmap_sink&&) noexcept = default;
 
-	[[maybe_unused]] std::expected<void, std::error_code> resize(size_t size)//NOLINT(readability-identifier-naming)
+	[[maybe_unused]] std::expected<void, std::error_code> resize(size_t size, size_t offset = 0)//NOLINT(readability-identifier-naming)
 	{
 		mySize = size;
 		
 		std::error_code error;
-		mio::mmap_sink::remap(0, size, error);
+		mio::basic_mmap_sink<ByteT>::remap(offset, size, error);
 		
 		if (error)
 			return std::unexpected(error);

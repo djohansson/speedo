@@ -101,7 +101,7 @@ std::expected<Record, std::error_code> LoadAsset(
 	if (error)
 		return std::unexpected(error);
 
-	manifestPath /= parameterHash + ".json";
+	manifestPath /= parameterHash + ".manifest.bin";
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
@@ -123,7 +123,7 @@ std::expected<Record, std::error_code> LoadAsset(
 		if (error)
 			return std::unexpected(error);
 
-		auto manifestFile = mio_extra::ResizeableMemoryMapSink();
+		auto manifestFile = mio_extra::resizeable_mmap_sink<std::byte>();
 		manifestFile.map(manifestPath.string(), error);
 
 		if (error)
@@ -139,10 +139,12 @@ std::expected<Record, std::error_code> LoadAsset(
 
 		AssetManifest manifest{asset.value(), cache.value()};
 
-		if (auto result = glz::write<glz::opts{.prettify = true}>(manifest, manifestFile); result.ec != glz::error_code::none)
-			return std::unexpected(std::make_error_code(std::errc::io_error));
+		auto outStream = zpp::bits::out(manifestFile, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 
-		manifestFile.truncate(manifestFile.Size(), error);
+		if (auto result = outStream(manifest); failure(result))
+			return std::unexpected(std::make_error_code(result));
+
+		manifestFile.truncate(outStream.position(), error);
 
 		if (error)
 			return std::unexpected(error);
@@ -154,17 +156,17 @@ std::expected<Record, std::error_code> LoadAsset(
 
 	if (std::filesystem::exists(manifestStatus) && std::filesystem::is_regular_file(manifestStatus))
 	{
-		ZoneScopedN("LoadAsset::LoadJSONAssetManifest");
+		ZoneScopedN("LoadAsset::LoadAssetManifest");
 
-		auto manifestFile = mio::mmap_source();
+		auto manifestFile = mio::basic_mmap_source<std::byte>();
 		manifestFile.map(manifestPath.string(), error);
 
 		if (error)
 			return std::unexpected(error);
 
-		manifest = LoadJSONAssetManifest<false>(
-			std::string_view(manifestFile.cbegin(), manifestFile.cend()),
-			[](std::string_view buffer) { return LoadJSONObject<AssetManifest>(buffer); });
+		manifest = LoadAssetManifest<false>(
+			std::span<const std::byte>(manifestFile.data(), manifestFile.size()),
+			[](std::span<const std::byte> buffer) { return LoadObject<AssetManifest>(buffer); });
 	}
 	else
 	{

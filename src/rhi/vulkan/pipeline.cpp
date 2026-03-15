@@ -74,10 +74,10 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 	return cache;
 }
 
-std::vector<char>
+std::vector<std::byte>
 GetPipelineCacheData(DeviceHandle<kVk> device, PipelineCacheHandle<kVk> pipelineCache)
 {
-	std::vector<char> cacheData;
+	std::vector<std::byte> cacheData;
 	size_t cacheDataSize = 0;
 	VK_CHECK(vkGetPipelineCacheData(device, pipelineCache, &cacheDataSize, nullptr));
 	if (cacheDataSize != 0U)
@@ -864,7 +864,7 @@ template <>
 Pipeline<kVk>::Pipeline(
 	const std::shared_ptr<Device<kVk>>& device, PipelineConfiguration<kVk>&& defaultConfig)
 	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
-	, myConfig{std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.json", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
+	, myConfig{std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.bin", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
 	, myDescriptorPool(
 		  [](const std::shared_ptr<Device<kVk>>& device)
 		  {

@@ -386,7 +386,7 @@ template <>
 	auto& rhi = *rhiPtr;
 	
 	Window<kVk>::ConfigFile windowConfig{
-		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.json"};
+		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.bin"};
 
 	WindowState windowState{};
 	windowState.width = static_cast<uint32_t>(static_cast<float>(windowConfig.swapchainConfig.extent.width) / windowConfig.contentScale.x);
