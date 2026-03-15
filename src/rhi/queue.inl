@@ -53,4 +53,17 @@ QueuePresentInfo<G> operator|(QueuePresentInfo<G>&& lhs, QueuePresentInfo<G>&& r
 	return std::forward<QueuePresentInfo<G>>(lhs |= std::forward<QueuePresentInfo<G>>(rhs));
 }
 
+template <GraphicsApi G>
+void Queue<G>::SwapAndResetPool()
+{
+	ENSURE(myPendingSubmits.empty());
+	ENSURE(myPendingPresent.waitSemaphores.empty());
+	ENSURE(myPendingPresent.swapchains.empty());
+	ENSURE(myPendingPresent.imageIndices.empty());
+	ENSURE(myPendingPresent.results.empty());
+
+	myPools[0].Swap(myPools[1]);
+	myPools[0].Reset();
+}
+
 #include "vulkan/queue.inl"

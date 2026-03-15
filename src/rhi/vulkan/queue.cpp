@@ -40,7 +40,8 @@ Queue<kVk>::Queue(
 		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<QueueCreateDesc<kVk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
-	, myPool(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc))
+	, myPools({CommandPool<kVk>(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc)),
+			   CommandPool<kVk>(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc))})
 {
 	using namespace tracy;
 
@@ -64,12 +65,12 @@ Queue<kVk>::Queue(
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-	if (myPool.GetDesc().supportsProfiling)
+	if (commandPoolDesc.supportsProfiling)
 		myProfilingContext = CreateVkContext(
 			device->GetPhysicalDevice(),
 			*device,
 			myQueue,
-			myPool.Commands(CommandBufferAccessScopeDesc<kVk>(false)),
+			GetPool().Commands(CommandBufferAccessScopeDesc<kVk>(false)),
 			nullptr,
 			nullptr);
 #endif
@@ -98,7 +99,7 @@ Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
 	: DeviceObject(std::forward<Queue<kVk>>(other))
 	, myDesc(std::exchange(other.myDesc, {}))
 	, myQueue(std::exchange(other.myQueue, {}))
-	, myPool(std::exchange(other.myPool, {}))
+	, myPools(std::exchange(other.myPools, {}))
 	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
 	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
 {
@@ -128,7 +129,7 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 	DeviceObject::operator=(std::forward<Queue<kVk>>(other));
 	myDesc = std::exchange(other.myDesc, {});
 	myQueue = std::exchange(other.myQueue, {});
-	myPool = std::exchange(other.myPool, {});
+	myPools = std::exchange(other.myPools, {});
 	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
 	myScratchMemory = std::exchange(other.myScratchMemory, {});
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
@@ -146,7 +147,7 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 	DeviceObject::Swap(other);
 	std::swap(myDesc, other.myDesc);
 	std::swap(myQueue, other.myQueue);
-	std::swap(myPool, other.myPool);
+	std::swap(myPools, other.myPools);
 	std::swap(myPendingSubmits, other.myPendingSubmits);
 	std::swap(myScratchMemory, other.myScratchMemory);
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
@@ -336,9 +337,9 @@ QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&
 {
 	ZoneScopedN("Queue::PrepareSubmit");
 
-	myPool.InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	GetPool().InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
-	auto& pendingCommands = myPool.InternalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
+	auto& pendingCommands = GetPool().InternalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
 	if (pendingCommands.empty())
 		return {};
@@ -358,7 +359,7 @@ QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&
 
 	submitInfo.timelineValue = *maxSignalValue;
 
-	myPool.InternalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
+	GetPool().InternalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
 	
 	return submitInfo;
 }
@@ -368,12 +369,12 @@ void Queue<kVk>::Execute(uint8_t level, uint64_t timelineValue)
 {
 	ZoneScopedN("Queue::Execute");
 
-	myPool.InternalEndCommands(level);
+	GetPool().InternalEndCommands(level);
 
-	auto& pendingCommands = myPool.InternalGetPendingCommands()[level];
+	auto& pendingCommands = GetPool().InternalGetPendingCommands()[level];
 
 	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
-		vkCmdExecuteCommands(myPool.Commands(), cmdArray.Head(), cmdArray.Data());
+		vkCmdExecuteCommands(GetPool().Commands(), cmdArray.Head(), cmdArray.Data());
 
-	myPool.InternalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
+	GetPool().InternalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
 }

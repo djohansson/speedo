@@ -17,8 +17,9 @@ template <GraphicsApi G>
 struct CommandBufferArrayCreateDesc
 {
 	CommandPoolHandle<G> pool{};
-	uint8_t level = 0; // 0: primary, >= 1: secondary
-	bool useBufferReset = false;
+	uint8_t level : 6; // 0: primary, >= 1: secondary
+	uint8_t useResetCommandBuffers : 1;
+	uint8_t useReleaseResourcesOnReset : 1;
 };
 
 template <GraphicsApi G>
@@ -91,8 +92,8 @@ struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
 	[[nodiscard]] bool operator==(const CommandBufferAccessScopeDesc<G>& other) const noexcept;
 
 	CommandBufferInheritanceInfo<kVk> inheritance{};
-	uint8_t level = 0; // 0: primary, >= 1: secondary
-	bool scopedBeginEnd = true;
+	uint8_t level : 6; // 0: primary, >= 1: secondary
+	uint8_t scopedBeginEnd : 1;
 };
 
 template <GraphicsApi G>

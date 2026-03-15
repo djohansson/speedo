@@ -1,16 +1,12 @@
 #include "../rhi.h"
-
 #include "utils.h"
 
 #include <core/assert.h>
 
-#include <algorithm>
-#include <array>
 #include <cstdint>
 #include <iostream>
 #include <memory>
 #include <tuple>
-#include <utility>
 #include <vector>
 
 namespace rhi
@@ -153,7 +149,7 @@ void CreateQueues(RHI<kVk>& rhi)
 {
 	ZoneScopedN("rhiapplication::createQueues");
 
-	auto& queues = rhi.queues;
+	auto& queues = rhi.GetQueues();
 
 	VkCommandPoolCreateFlags cmdPoolCreateFlags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
@@ -164,21 +160,21 @@ void CreateQueues(RHI<kVk>& rhi)
 	queues.emplace(
 		kQueueTypeGraphics,
 		std::make_shared<QueueTimelineContextData<kVk>>(
-			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+			Semaphore<kVk>{rhi.GetDevice(), SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
 			uint32_t{},
 			CircularContainer<QueueContext<kVk>>{}));
 	queues.emplace(
 		kQueueTypeCompute,
 		std::make_shared<QueueTimelineContextData<kVk>>(
-			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+			Semaphore<kVk>{rhi.GetDevice(), SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
 			uint32_t{},
 			CircularContainer<QueueContext<kVk>>{}));
 	queues.emplace(
 		kQueueTypeTransfer,
 		std::make_shared<QueueTimelineContextData<kVk>>(
-			Semaphore<kVk>{rhi.device, SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
+			Semaphore<kVk>{rhi.GetDevice(), SemaphoreCreateDesc<kVk>{.type=VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
 			uint32_t{},
 			CircularContainer<QueueContext<kVk>>{}));
@@ -192,7 +188,7 @@ void CreateQueues(RHI<kVk>& rhi)
 	auto compute = ConcurrentWriteScope(queues[kQueueTypeCompute]);
 	auto transfer = ConcurrentWriteScope(queues[kQueueTypeTransfer]);
 	
-	const auto& queueFamilies = rhi.device->GetQueueFamilies();
+	const auto& queueFamilies = rhi.GetDevice()->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
 	{
 		const auto& queueFamily = queueFamilies[queueFamilyIt];
@@ -201,12 +197,13 @@ void CreateQueues(RHI<kVk>& rhi)
 
 		if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
 		{
+			graphics->queues.resize(queueCount);
 			graphics->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = graphics->queues.emplace_back();
+				auto& [queue, syncInfo] = graphics->queues.Get();
 				queue = Queue<kVk>(
-					rhi.device,
+					rhi.GetDevice(),
 					CommandPoolCreateDesc<kVk>
 					{
 						.flags = cmdPoolCreateFlags,
@@ -219,12 +216,13 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
 		{
+			compute->queues.resize(queueCount);
 			compute->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = compute->queues.emplace_back();
+				auto& [queue, syncInfo] = compute->queues.Get();
 				queue = Queue<kVk>(
-					rhi.device,
+					rhi.GetDevice(),
 					CommandPoolCreateDesc<kVk>
 					{
 						.flags = cmdPoolCreateFlags,
@@ -237,12 +235,13 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
 		{
+			transfer->queues.resize(queueCount);
 			transfer->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = transfer->queues.emplace_back();
+				auto& [queue, syncInfo] = transfer->queues.Get();
 				queue = Queue<kVk>(
-					rhi.device,
+					rhi.GetDevice(),
 					CommandPoolCreateDesc<kVk>
 					{
 						.flags = cmdPoolCreateFlags,
@@ -255,21 +254,21 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 	}
 
-	ENSUREF(!graphics->queues.empty(), "Failed to find a suitable graphics queue!");
+	ENSUREF(!graphics->queues.Empty(), "Failed to find a suitable graphics queue!");
 
-	if (compute->queues.empty())
+	if (compute->queues.Empty())
 	{
 		// Alias compute to graphics queue if no dedicated compute queue is found.
 		// This is valid as long as the graphics queue family supports compute operations, which is guaranteed by the Vulkan spec.
-		ENSUREF(graphics->queues.size() > 0, "Failed to find a suitable compute queue!");
+		ENSUREF(!graphics->queues.Empty(), "Failed to find a suitable compute queue!");
 		compute.Get() = graphics.Get();
 	}
 
-	if (transfer->queues.empty())
+	if (transfer->queues.Empty())
 	{
 		// Alias transfer to compute queue if no dedicated transfer queue is found.
 		// This is valid as long as the compute queue family supports transfer operations, which is guaranteed by the Vulkan spec.
-		ENSUREF(compute->queues.size() > 0, "Failed to find a suitable transfer queue!");
+		ENSUREF(!compute->queues.Empty(), "Failed to find a suitable transfer queue!");
 		transfer.Get() = compute.Get();
 	}
 }
@@ -302,11 +301,11 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 	
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto frameCount = window.GetFrames().size();
-	rhi.renderImageSets.reserve(frameCount);
+	rhi.GetResources().renderImageSets.reserve(frameCount);
 	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
 	{
 		auto colorImage = std::make_shared<Image<kVk>>(
-			rhi.device,
+			rhi.GetDevice(),
 			ImageCreateDesc<kVk>{
 				.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
 				.format = window.GetConfig().swapchainConfig.surfaceFormat.format,
@@ -318,11 +317,11 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 				.name = "Main RT Color"});
 
 		auto depthStencilImage = std::make_shared<Image<kVk>>(
-			rhi.device,
+			rhi.GetDevice(),
 			ImageCreateDesc<kVk>{
 				.mipLevels = {{.extent = window.GetConfig().swapchainConfig.extent}},
 				.format = FindSupportedFormat(
-					rhi.device->GetPhysicalDevice(),
+					rhi.GetDevice()->GetPhysicalDevice(),
 					{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
 					VK_IMAGE_TILING_OPTIMAL,
 					VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT |
@@ -334,14 +333,12 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 				.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
 				.name = "Main RT DepthStencil"});
 
-		rhi.renderImageSets.emplace_back(rhi.device, std::vector{colorImage, depthStencilImage});
+		rhi.GetResources().renderImageSets.emplace_back(rhi.GetDevice(), std::vector{colorImage, depthStencilImage});
 	}
 
 	{
-		auto graphics = ConcurrentWriteScope(rhi.queues[kQueueTypeGraphics]);
-		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.front();
-
-		graphicsSubmits.emplace_back();
+		auto graphics = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeGraphics]);
+		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -352,7 +349,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 			frame.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 		}
 
-		for (auto& renderImageSet : rhi.renderImageSets)
+		for (auto& renderImageSet : rhi.GetResources().renderImageSets)
 		{
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			renderImageSet.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, renderImageSet.GetAttachments().size() - 1, VK_ATTACHMENT_LOAD_OP_CLEAR);
@@ -371,19 +368,20 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 			.signalSemaphores = {graphics->semaphore},
 			.signalSemaphoreValues = {++graphics->timeline}});
 
-		graphicsSubmits.back() |= graphicsQueue.Submit();
+		graphicsSubmits |= graphicsQueue.Submit();
 	}
 }
 
 } // namespace detail
 
-template <>
-[[nodiscard]] std::unique_ptr<RHIBase> CreateRHI<kVk>(std::string_view name, CreateWindowFunc createWindowFunc)
-{
-	using namespace detail;
+} // namespace rhi
 
-	auto rhiPtr = std::make_unique<RHI<kVk>>();
-	auto& rhi = *rhiPtr;
+template <>
+RHI<kVk>::RHI(std::string_view name, CreateWindowFunc createWindowFunc)
+{
+	using namespace rhi::detail;
+
+	auto& rhi = *this;
 	
 	Window<kVk>::ConfigFile windowConfig{
 		std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "window.bin"};
@@ -399,19 +397,19 @@ template <>
 	auto device = CreateDevice(instance, DetectSuitableGraphicsDevice(*instance, surface));
 	auto pipeline = CreatePipeline(device);
 	
-	rhi.instance = std::move(instance);
-	rhi.device = std::move(device);
-	rhi.pipeline = std::move(pipeline);
+	myInstance = std::move(instance);
+	myDevice = std::move(device);
+	myPipeline = std::move(pipeline);
 
-	windowConfig.swapchainConfig = DetectSuitableSwapchain(*rhi.device, surface);
+	windowConfig.swapchainConfig = DetectSuitableSwapchain(*myDevice, surface);
 	windowConfig.contentScale = {windowState.xscale, windowState.yscale};
 
 	if (windowConfig.swapchainConfig.extent.width == ~0U || windowConfig.swapchainConfig.extent.height == ~0U)
 		windowConfig.swapchainConfig.extent = {.width = windowState.width, .height = windowState.height};
 	
-	rhi.windows.emplace(
+	myWindows.emplace(
 		std::make_unique<Window<kVk>>(
-			rhi.device,
+			myDevice,
 			windowHandle,
 			surface,
 			std::move(windowConfig),
@@ -420,11 +418,6 @@ template <>
 	SetWindows(&windowHandle, 1);
 	SetCurrentWindow(windowHandle);
 
-	CreateQueues(rhi);
-
-	ConstructWindowDependentObjects(rhi);
-
-	return rhiPtr;
+	CreateQueues(*this);
+	ConstructWindowDependentObjects(*this);
 }
-
-} // namespace rhi

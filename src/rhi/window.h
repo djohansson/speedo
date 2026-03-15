@@ -60,7 +60,7 @@ public:
 
 	[[nodiscard]] auto& GetConfig() noexcept { return myConfig; }
 	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
-	[[nodiscard]] auto GetCameras() const noexcept { return ConcurrentReadScope(myCameras); }
+	[[nodiscard]] auto GetCameras() noexcept { return ConcurrentReadScope(myCameras); }
 	[[nodiscard]] const auto& GetActiveViewIndex() const noexcept { return myActiveCamera; }
 	[[nodiscard]] const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 	[[nodiscard]] auto& GetState() noexcept { return myState; }
@@ -70,10 +70,10 @@ public:
 	void OnResizeFramebuffer(int width, int height);
 	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height);
 
-	void UpdateViewBuffer() const { InternalUpdateViewBuffer(); }
+	void UpdateViewBuffer() { InternalUpdateViewBuffer(); }
 
 private:
-	void InternalUpdateViewBuffer() const;
+	void InternalUpdateViewBuffer();
 	void InternalInitializeViews();
 	void InternalUpdateViews(const InputState& input);
 

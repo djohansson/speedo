@@ -130,8 +130,10 @@ public:
 	
 	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue) const;
 
-	[[nodiscard]] auto& GetPool() noexcept { return myPool; }
-	[[nodiscard]] const auto& GetPool() const noexcept { return myPool; }
+	[[nodiscard]] auto& GetPool() noexcept { return myPools[0]; }
+	[[nodiscard]] const auto& GetPool() const noexcept { return myPools[0]; }
+
+	void SwapAndResetPool();
 
 	template <SourceLocationData Location>
 	[[nodiscard]] std::shared_ptr<void> CreateGpuScope(CommandBufferHandle<G> cmd);
@@ -148,7 +150,7 @@ private:
 
 	QueueCreateDesc<G> myDesc{};
 	QueueHandle<G> myQueue{};
-	CommandPool<G> myPool;
+	std::array<CommandPool<G>, 2> myPools;
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
@@ -161,7 +163,7 @@ private:
 };
 
 template <GraphicsApi G>
-using QueueContext = std::pair<Queue<G>, std::vector<QueueHostSyncInfo<G>>>;
+using QueueContext = std::pair<Queue<G>, QueueHostSyncInfo<G>>;
 
 template <GraphicsApi G>
 struct QueueTimelineContextData
@@ -176,7 +178,7 @@ template <GraphicsApi G>
 using QueueTimelineContext = ConcurrentAccess<std::shared_ptr<QueueTimelineContextData<G>>>;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-#	define GPU_SCOPE(cmd, queue, tag) auto tag##__scope = (queue).CreateGpuScope<SOURCE_LOCATION_DATA(tag)>(cmd)
+#	define GPU_SCOPE(cmd, queue, tag) auto COUNTED_VAR_DECLARE(tag) = (queue).CreateGpuScope<SOURCE_LOCATION_DATA(tag)>(cmd)
 #	define GPU_SCOPE_COLLECT(cmd, queue) (queue).CollectGpuScope(cmd)
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}

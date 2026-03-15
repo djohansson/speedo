@@ -104,14 +104,15 @@ void CommandBufferArray<kVk>::Reset()
 	ENSURE(!RecordingFlags());
 	ENSURE(Head() < kCommandBufferCount);
 
-	if (GetDesc().useBufferReset)
+	if (myDesc.useResetCommandBuffers)
 	{
 		for (uint32_t i = 0UL; i < Head(); i++)
 		{
 			ZoneScopedN("CommandBufferArray::reset::vkResetCommandBuffer");
 
 			VK_CHECK(
-				vkResetCommandBuffer(myArray[i], VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT));
+				vkResetCommandBuffer(myArray[i], 
+					myDesc.useReleaseResourcesOnReset ? VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT : 0));
 		}
 	}
 
@@ -245,12 +246,16 @@ void CommandPool<kVk>::Reset()
 {
 	ZoneScopedN("CommandPool::reset");
 
+	constexpr bool kUseReleaseResources = true;
+
 	if ((myDesc.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) != 0U)
 	{
 		ZoneScopedN("CommandPool::reset::vkResetCommandPool");
 
 		VK_CHECK(vkResetCommandPool(
-			*InternalGetDevice(), myPool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT));
+			*InternalGetDevice(),
+			myPool,
+			kUseReleaseResources ? VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT : 0));
 	}
 
 	for (uint32_t levelIt = 0UL; levelIt < mySubmittedCommands.size(); levelIt++)
@@ -289,7 +294,11 @@ void CommandPool<kVk>::InternalEnqueueOnePending(uint8_t level)
 
 		myPendingCommands[level].emplace_back(std::make_tuple(
 			CommandBufferArray<kVk>(
-				InternalGetDevice(), CommandBufferArrayCreateDesc<kVk>{*this, level}),
+				InternalGetDevice(), CommandBufferArrayCreateDesc<kVk>{
+					*this,
+					level,
+					static_cast<uint8_t>(myDesc.flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) == 0U,
+					true}),
 			0));
 	}
 }

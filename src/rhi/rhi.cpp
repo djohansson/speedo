@@ -11,19 +11,6 @@ namespace rhi
 static std::vector<WindowHandle> gWindows{};
 static std::optional<WindowHandle> gCurrentWindow{};
 
-std::unique_ptr<RHIBase> CreateRHI(GraphicsApi api, std::string_view name, CreateWindowFunc createWindowFunc)
-{	
-	switch (api)
-	{
-	case kVk:
-		return CreateRHI<kVk>(name, createWindowFunc);
-	default:
-		ENSUREF(false, "Invalid Graphics API");
-	}
-
-	return {};
-}
-
 }
 
 void ResizeFramebuffer(WindowHandle window, int width, int height)
