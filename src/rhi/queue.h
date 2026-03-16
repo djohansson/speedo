@@ -103,7 +103,7 @@ public:
 	constexpr Queue() noexcept = default;
 	Queue(
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolCreateDesc<G>&& commandPoolDesc,
+		const CommandPoolCreateDesc<G>& commandPoolDesc,
 		QueueCreateDesc<G>&& queueDesc);
 	Queue(Queue<G>&& other) noexcept;
 	~Queue() override;
@@ -142,7 +142,7 @@ public:
 private:
 	Queue(
 		const std::shared_ptr<Device<G>>& device,
-		CommandPoolCreateDesc<G>&& commandPoolDesc,
+		const CommandPoolCreateDesc<G>& commandPoolDesc,
 		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
 
 	[[nodiscard]] QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);

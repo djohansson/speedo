@@ -29,7 +29,7 @@ bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
 template <>
 Queue<kVk>::Queue(
 	const std::shared_ptr<Device<kVk>>& device,
-	CommandPoolCreateDesc<kVk>&& commandPoolDesc,
+	const CommandPoolCreateDesc<kVk>& commandPoolDesc,
 	std::tuple<QueueCreateDesc<kVk>, QueueHandle<kVk>>&& descAndHandle)
 	: DeviceObject(
 		  device,
@@ -40,8 +40,8 @@ Queue<kVk>::Queue(
 		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<QueueCreateDesc<kVk>>(std::get<0>(descAndHandle)))
 	, myQueue(std::get<1>(descAndHandle))
-	, myPools({CommandPool<kVk>(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc)),
-			   CommandPool<kVk>(device, std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc))})
+	, myPools({CommandPool<kVk>(device, CommandPoolCreateDesc<kVk>{commandPoolDesc}),
+			   CommandPool<kVk>(device, CommandPoolCreateDesc<kVk>{commandPoolDesc})})
 {
 	using namespace tracy;
 
@@ -79,11 +79,11 @@ Queue<kVk>::Queue(
 template <>
 Queue<kVk>::Queue(
 	const std::shared_ptr<Device<kVk>>& device,
-	CommandPoolCreateDesc<kVk>&& commandPoolDesc,
+	const CommandPoolCreateDesc<kVk>& commandPoolDesc,
 	QueueCreateDesc<kVk>&& queueDesc)
 	: Queue(
 		device,
-		std::forward<CommandPoolCreateDesc<kVk>>(commandPoolDesc),
+		commandPoolDesc,
 		std::make_tuple(
 			std::forward<QueueCreateDesc<kVk>>(queueDesc),
 			[&device, &queueDesc]
