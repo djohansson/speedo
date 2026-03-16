@@ -58,14 +58,18 @@ void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 			while ((argumentCount--) != 0)
 				queue = va_arg(argList, VkQueue);
 			va_end(argList);
-			static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
-			uint32_t checkpointDataCount;
-			gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, nullptr);
-			std::println(stderr, "GPU marker count: {}", checkpointDataCount);
-			gCheckpointData.resize(checkpointDataCount);
-			gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, gCheckpointData.data());
-			for (const auto& checkpoint : gCheckpointData)
-				std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
+
+			if (queue != VK_NULL_HANDLE)
+			{
+				static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
+				uint32_t checkpointDataCount;
+				gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, nullptr);
+				std::println(stderr, "GPU marker count: {}", checkpointDataCount);
+				gCheckpointData.resize(checkpointDataCount);
+				gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, gCheckpointData.data());
+				for (const auto& checkpoint : gCheckpointData)
+					std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
+			}
 		}
 	case VK_ERROR_OUT_OF_HOST_MEMORY:
 	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
@@ -77,7 +81,6 @@ void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 	case VK_SUBOPTIMAL_KHR:
 	case VK_ERROR_OUT_OF_DATE_KHR:
 	default:
-		std::println(stderr, "Warning: flip/present returned {}", string_VkResult(result));
 		break;
 	}
 }
