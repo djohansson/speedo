@@ -65,7 +65,6 @@
           "name": "speedo",
           "features": [ "common" ]
         },
-        "ade",
         "cgltf",
         "glfw3",
         {
