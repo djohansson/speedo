@@ -61,18 +61,18 @@ $CMakePresets = [ordered] @{
 			installDir = '${sourceDir}/build/install/${presetName}'
 			cacheVariables = [ordered] @{
 				CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
+				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
 				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
 				VCPKG_MANIFEST_DIR = '${sourceDir}'
 				VCPKG_MANIFEST_FEATURES = 'client;server'
-				VCPKG_INSTALLED_DIR = '${sourceDir}/build/packages';
+				VCPKG_INSTALLED_DIR = '${sourceDir}/build/packages'
 				VCPKG_HOST_TRIPLET = '${presetName}'
 				VCPKG_TARGET_TRIPLET = '${presetName}'
 				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
 				VCPKG_VERBOSE = 'ON'
 			}
 			environment = [ordered] @{
-				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
 				TOOLS_ROOT = '${sourceDir}/build/packages/${presetName}/tools'
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
 			}
