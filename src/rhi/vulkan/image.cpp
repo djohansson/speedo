@@ -601,7 +601,7 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	auto& pipeline = rhi.GetPipeline();
 	ENSURE(pipeline);
 
-	auto transfer = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeTransfer]);
+	auto transfer = rhi.GetQueues()[kQueueTypeTransfer].Write();
 	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
 	TaskCreateInfo<void> transferDone;

@@ -184,9 +184,9 @@ void CreateQueues(RHI<kVk>& rhi)
 		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
-	auto graphics = ConcurrentWriteScope(queues[kQueueTypeGraphics]);
-	auto compute = ConcurrentWriteScope(queues[kQueueTypeCompute]);
-	auto transfer = ConcurrentWriteScope(queues[kQueueTypeTransfer]);
+	auto graphics = queues[kQueueTypeGraphics].Write();
+	auto compute = queues[kQueueTypeCompute].Write();
+	auto transfer = queues[kQueueTypeTransfer].Write();
 	
 	const auto& queueFamilies = rhi.GetDevice()->GetQueueFamilies();
 	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
@@ -337,7 +337,7 @@ void ConstructWindowDependentObjects(RHI<kVk>& rhi)
 	}
 
 	{
-		auto graphics = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeGraphics]);
+		auto graphics = rhi.GetQueues()[kQueueTypeGraphics].Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();

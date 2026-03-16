@@ -108,7 +108,7 @@ static void Tick()
 		return;
 	}
 
-	ConcurrentReadScope(gClientApplication)->Tick();
+	gClientApplication.Read()->Tick();
 
 	auto tickTask = CreateTask(Tick);
 	AddDependency(gTickTask.handle, tickTask.handle, true);
@@ -126,7 +126,7 @@ static void Draw()
 		return;
 	}
 
-	ConcurrentReadScope(gClientApplication)->Draw();
+	gClientApplication.Read()->Draw();
 
 	auto drawTask = CreateTask(Draw);
 	AddDependency(gDrawTask.handle, drawTask.handle, true);
@@ -326,7 +326,7 @@ bool ClientMain()
 {	
 	using namespace client;
 
-	return ConcurrentReadScope(gClientApplication)->Main();
+	return gClientApplication.Read()->Main();
 }
 
 void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
@@ -344,7 +344,7 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	ENSURE(resourcePath);
 	ENSURE(userPath);
 
-	auto appPtr = ConcurrentWriteScope(gClientApplication);
+	auto appPtr = gClientApplication.Write();
 
 	appPtr = Application::Create<Client>(
 		"client",
@@ -373,7 +373,7 @@ void ClientDestroy()
 	gTickTaskState.wait(kTaskStateShuttingDown);
 	gDrawTaskState.wait(kTaskStateShuttingDown);
 
-	auto appPtr = ConcurrentWriteScope(gClientApplication);
+	auto appPtr = gClientApplication.Write();
 
 	ENSURE(appPtr.Get());
 	ASSERT(appPtr.Get().use_count() == 1);

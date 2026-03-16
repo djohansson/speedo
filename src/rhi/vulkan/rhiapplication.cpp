@@ -997,11 +997,11 @@ void RHIApplication::Draw()
 
 	auto [acquireNextImageFence, acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = window.Flip();
 
-	bool dedicatedTransfer = ConcurrentReadScope(rhi.GetQueues()[kQueueTypeTransfer])->queueFamilyIndex != 
-		ConcurrentReadScope(rhi.GetQueues()[kQueueTypeCompute])->queueFamilyIndex;
+	bool dedicatedTransfer = rhi.GetQueues()[kQueueTypeTransfer].Read()->queueFamilyIndex != 
+		rhi.GetQueues()[kQueueTypeCompute].Read()->queueFamilyIndex;
 
-	bool dedicatedCompute = ConcurrentReadScope(rhi.GetQueues()[kQueueTypeCompute])->queueFamilyIndex != 
-		ConcurrentReadScope(rhi.GetQueues()[kQueueTypeGraphics])->queueFamilyIndex;
+	bool dedicatedCompute = rhi.GetQueues()[kQueueTypeCompute].Read()->queueFamilyIndex != 
+		rhi.GetQueues()[kQueueTypeGraphics].Read()->queueFamilyIndex;
 
 	auto Cleanup = [&rhi, &window](auto& queueContext)
 	{
@@ -1039,13 +1039,13 @@ void RHIApplication::Draw()
 		auto& lastFrame = window.GetFrames()[lastFrameIndex];
 		auto& newFrame = window.GetFrames()[newFrameIndex];
 
-		auto graphics = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeGraphics]);
+		auto graphics = rhi.GetQueues()[kQueueTypeGraphics].Write();
 		auto& lastGraphicsContext = graphics->queues.FetchAdd();
 		auto& [lastGraphicsQueue, lastGraphicsSubmits] = lastGraphicsContext;
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		auto& graphicsContext = graphics->queues.Get();
 		auto& [computeQueue, computeSubmits] = dedicatedCompute ?
-			ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeCompute])->queues.Get() :
+			rhi.GetQueues()[kQueueTypeCompute].Write()->queues.Get() :
 			graphicsContext;
 
 		frameTasks.emplace_back(
@@ -1281,7 +1281,7 @@ RHIApplication::RHIApplication(
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
-		auto graphics = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeGraphics]);
+		auto graphics = rhi.GetQueues()[kQueueTypeGraphics].Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		
 		IMGUIInit(window, rhi, graphicsQueue);
@@ -1441,15 +1441,15 @@ RHIApplication::~RHIApplication() noexcept(false)
 	
 	rhi.GetDevice()->WaitIdle();
 
-	auto graphics = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeGraphics]);
+	auto graphics = rhi.GetQueues()[kQueueTypeGraphics].Write();
 	for (auto& [graphicsQueue, graphicsSubmits] : graphics->queues)	
 		graphicsQueue.SubmitCallbacks(GetExecutor(), graphicsSubmits.maxTimelineValue);
 
-	auto compute = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeCompute]);
+	auto compute = rhi.GetQueues()[kQueueTypeCompute].Write();
 	for (auto& [computeQueue, computeSubmits] : compute->queues)	
 		computeQueue.SubmitCallbacks(GetExecutor(), computeSubmits.maxTimelineValue);
 
-	auto transfer = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeTransfer]);
+	auto transfer = rhi.GetQueues()[kQueueTypeTransfer].Write();
 	for (auto& [transferQueue, transferSubmits] : transfer->queues)	
 		transferQueue.SubmitCallbacks(GetExecutor(), transferSubmits.maxTimelineValue);
 
