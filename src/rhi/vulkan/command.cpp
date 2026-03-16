@@ -159,11 +159,14 @@ CommandPool<kVk>::CommandPool(
 		  uuids::uuid_system_generator{}())
 	, myDesc(std::forward<CommandPoolCreateDesc<kVk>>(std::get<0>(descAndData)))
 	, myPool(std::forward<CommandPoolHandle<kVk>>(std::get<1>(descAndData)))
-	, myPendingCommands(myDesc.levelCount + 1)
-	, mySubmittedCommands(myDesc.levelCount + 1)
-	, myFreeCommands(myDesc.levelCount + 1)
-	, myRecordingCommands(myDesc.levelCount + 1)
-{}
+	, myPendingCommands(myDesc.levelCount)
+	, mySubmittedCommands(myDesc.levelCount)
+	, myFreeCommands(myDesc.levelCount)
+	, myRecordingCommands(myDesc.levelCount)
+{
+	ASSERT(myDesc.levelCount > 0);
+	ASSERT(myPool != VK_NULL_HANDLE);
+}
 
 template <>
 CommandPool<kVk>::CommandPool(
@@ -204,12 +207,7 @@ CommandPool<kVk>::CommandPool(CommandPool&& other) noexcept
 template <>
 CommandPool<kVk>::~CommandPool()
 {
-	myPendingCommands.clear();
-	mySubmittedCommands.clear();
-	myFreeCommands.clear();
-	myRecordingCommands.clear();
-
-	if (myPool != nullptr)
+	if (myPool != VK_NULL_HANDLE)
 		vkDestroyCommandPool(
 			*InternalGetDevice(),
 			myPool,

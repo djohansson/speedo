@@ -201,7 +201,26 @@ void CreateQueues(RHI<kVk>& rhi)
 			graphics->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = graphics->queues.Get();
+				auto& [queue, syncInfo] = graphics->queues.FetchAdd();
+				queue = Queue<kVk>(
+					rhi.GetDevice(),
+					CommandPoolCreateDesc<kVk>
+					{
+						.flags = cmdPoolCreateFlags,
+						.queueFamilyIndex = queueFamilyIt,
+						.levelCount = 4,
+						.supportsProfiling = static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
+					},
+					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
+			}
+		}
+		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
+		{
+			compute->queues.resize(queueCount);
+			compute->queueFamilyIndex = queueFamilyIt;
+			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+			{
+				auto& [queue, syncInfo] = compute->queues.FetchAdd();
 				queue = Queue<kVk>(
 					rhi.GetDevice(),
 					CommandPoolCreateDesc<kVk>
@@ -214,39 +233,20 @@ void CreateQueues(RHI<kVk>& rhi)
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
 			}
 		}
-		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
-		{
-			compute->queues.resize(queueCount);
-			compute->queueFamilyIndex = queueFamilyIt;
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-			{
-				auto& [queue, syncInfo] = compute->queues.Get();
-				queue = Queue<kVk>(
-					rhi.GetDevice(),
-					CommandPoolCreateDesc<kVk>
-					{
-						.flags = cmdPoolCreateFlags,
-						.queueFamilyIndex = queueFamilyIt,
-						.levelCount = 0,
-						.supportsProfiling = static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
-					},
-					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
-			}
-		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
 		{
 			transfer->queues.resize(queueCount);
 			transfer->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
-				auto& [queue, syncInfo] = transfer->queues.Get();
+				auto& [queue, syncInfo] = transfer->queues.FetchAdd();
 				queue = Queue<kVk>(
 					rhi.GetDevice(),
 					CommandPoolCreateDesc<kVk>
 					{
 						.flags = cmdPoolCreateFlags,
 						.queueFamilyIndex = queueFamilyIt,
-						.levelCount = 0,
+						.levelCount = 1,
 						.supportsProfiling = VK_FALSE // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
 					},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
