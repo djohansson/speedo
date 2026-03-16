@@ -27,7 +27,7 @@ void Window<kVk>::InternalUpdateViewBuffer()
 		auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
 		ENSURE(viewCount <= SHADER_TYPES_VIEW_COUNT);
 		constexpr size_t kMatrixElementCount = 16;
-		auto cameras = ConcurrentReadScope(myCameras);
+		auto cameras = myCameras.Read();
 		for (uint32_t viewIt = 0UL; viewIt < viewCount; viewIt++)
 		{
 			auto mvp = cameras.Get()[viewIt].GetProjectionMatrix() * cameras.Get()[viewIt].GetViewMatrix();
@@ -59,7 +59,7 @@ void Window<kVk>::InternalUpdateViewBuffer()
 template <>
 void Window<kVk>::InternalInitializeViews()
 {
-	auto cameras = ConcurrentWriteScope(myCameras);
+	auto cameras = myCameras.Write();
 
 	cameras.Get().resize(static_cast<size_t>(myConfig.splitScreenGrid.width) * static_cast<size_t>(myConfig.splitScreenGrid.height));
 
@@ -116,7 +116,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 {
 	ZoneScopedN("Window::InternalUpdateViews");
 
-	auto cameras = ConcurrentWriteScope(myCameras);
+	auto cameras = myCameras.Write();
 
 	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{

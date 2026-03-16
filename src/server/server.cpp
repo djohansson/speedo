@@ -140,7 +140,7 @@ void ServerCreate(const PathConfig* paths)
 	ENSURE(resourcePath);
 	ENSURE(userPath);
 
-	auto appPtr = ConcurrentWriteScope(gServerApplication);
+	auto appPtr = gServerApplication.Write();
 
 	appPtr = Application::Create<Server>(
 		"server",
@@ -162,7 +162,7 @@ void ServerDestroy()
 	gRpcTaskState = kTaskStateShuttingDown;
 	gRpcTaskState.wait(kTaskStateShuttingDown);
 
-	auto appPtrWriteScope = ConcurrentWriteScope(gServerApplication);
+	auto appPtrWriteScope = gServerApplication.Write();
 
 	ENSURE(appPtrWriteScope.Get());
 	ASSERT(appPtrWriteScope.Get().use_count() == 1);
@@ -174,5 +174,5 @@ bool ServerExitRequested()
 {
 	using namespace server;
 
-	return ConcurrentReadScope(gServerApplication)->IsExitRequested();
+	return gServerApplication.Read()->IsExitRequested();
 }

@@ -428,7 +428,7 @@ Model<kVk> LoadModel(
 
 	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
 
-	auto transfer = ConcurrentWriteScope(rhi.GetQueues()[kQueueTypeTransfer]);
+	auto transfer = rhi.GetQueues()[kQueueTypeTransfer].Write();
 	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
 	auto cmd = transferQueue.GetPool().Commands();
