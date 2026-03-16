@@ -28,20 +28,7 @@ set(TOOLS_ROOT $ENV{TOOLS_ROOT})
 ###############################################################################
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	#set(CACHE BOOL IS_32_BIT $<IF<$<STRING:MATCH,${CMAKE_SYSTEM_PROCESSOR},^$>:TRUE,FALSE>)
-	#string(REGEX MATCH "^(x86|i[3456]86)$" _ ${CMAKE_SYSTEM_PROCESSOR})
-	#string(REGEX MATCH "^(x86_64|x64|amd64|AMD64)$" _ ${CMAKE_SYSTEM_PROCESSOR})
-	#set(IS_32_BIT $<$<BOOL:${CMAKE_MATCH_1}>:1>)
-	#set(BOOL IS_32_BIT ${CMAKE_MATCH_1})
-	#set(BOOL IS_32_BIT FALSE)
-	#set(MINJECT_EXECUTABLE $<IF:${IS_32_BIT},"${TOOLS_ROOT}/mimalloc/minject32.exe","${TOOLS_ROOT}/mimalloc/minject.exe">)
 	set(MINJECT_EXECUTABLE ${TOOLS_ROOT}/mimalloc/minject.exe)
-	#message("CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
-	#message("CMAKE_MATCH_1: ${CMAKE_MATCH_1}")
-	#message("MATCH_LENGTH: ${MATCH_LENGTH}")
-	#message("IS_32_BIT: ${IS_32_BIT}")
-	#message("TOOLS_ROOT: ${TOOLS_ROOT}")
-	#message("MINJECT_EXECUTABLE: ${MINJECT_EXECUTABLE}")
 endif()
 
 ###############################################################################
