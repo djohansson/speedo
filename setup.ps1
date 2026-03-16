@@ -86,7 +86,7 @@ $CMakePresets = [ordered] @{
 			inherits = 'ninja-multi-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-windows-release'
-				PATH = "`$env:LLVM_ROOT/bin;`$env:LLVM_ROOT/tools/llvm;$env:WINDOWS_SDK/bin/$env:WINDOWS_SDK_VERSION/x64;`$penv:PATH"
+				PATH = "`${penv:PATH};`${env:LLVM_ROOT}/bin;`${env:LLVM_ROOT}/tools/llvm;$env:WINDOWS_SDK/bin/$env:WINDOWS_SDK_VERSION/x64"
 				VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
 				VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
 			}
@@ -101,7 +101,7 @@ $CMakePresets = [ordered] @{
 			inherits = 'ninja-multi-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-osx-release'
-				DYLD_LIBRARY_PATH = "`$env:LLVM_ROOT/lib:`$penv:DYLD_LIBRARY_PATH"
+				DYLD_LIBRARY_PATH = "`${penv:DYLD_LIBRARY_PATH}:`${env:LLVM_ROOT}/lib"
 			}
 			cacheVariables = [ordered] @{
 				CMAKE_APPLE_SILICON_PROCESSOR = 'arm64'
@@ -118,7 +118,7 @@ $CMakePresets = [ordered] @{
 			inherits = 'ninja-multi-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-linux-release'
-				LD_LIBRARY_PATH = "`$env:LLVM_ROOT/lib:`$penv:LD_LIBRARY_PATH"
+				LD_LIBRARY_PATH = "`${penv:LD_LIBRARY_PATH}:`${env:LLVM_ROOT}/lib"
 			}
 			condition = [ordered] @{
 				type = 'equals'
@@ -131,7 +131,7 @@ $CMakePresets = [ordered] @{
 			inherits = 'ninja-multi-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-linux-release'
-				LD_LIBRARY_PATH = "`$env:LLVM_ROOT/lib:`$penv:LD_LIBRARY_PATH"
+				LD_LIBRARY_PATH = "`${penv:LD_LIBRARY_PATH}:`${env:LLVM_ROOT}/lib"
 			}
 			condition = [ordered] @{
 				type = 'equals'
