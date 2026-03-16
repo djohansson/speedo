@@ -223,7 +223,17 @@ $CMakePresets = [ordered] @{
 		}
 	)
 }
-
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 
-Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --vcpkg-root $env:VCPKG_ROOT --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
+$VSCodeSettings = [ordered] @{
+	'clangd.path' = '${workspaceFolder}/build/toolchain/x64-windows-release/tools/llvm/clangd.exe'
+	'clangd.arguments' = @(
+		'-log=verbose',
+		'-pretty',
+		'--background-index',
+		'--compile-commands-dir=${workspaceFolder}/build/staging/x64-windows-clang'
+	)
+}
+$VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
+
+#Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --vcpkg-root $env:VCPKG_ROOT --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
