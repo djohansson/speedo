@@ -4,15 +4,20 @@ cmake_minimum_required(VERSION 3.25.1)
 
 include_guard()
 
-#message(STATUS "LLVM_ROOT: $ENV{LLVM_ROOT}")
-#message(STATUS "PATH: $ENV{PATH}")
-
 set(LLVM_ROOT $ENV{LLVM_ROOT} CACHE PATH "LLVM root path")
+set(LLVM_TOOLS_BINARY_DIR ${LLVM_ROOT}/tools/llvm CACHE PATH "LLVM tools binary directory")
 
-find_package(LLVM CONFIG REQUIRED)
+message(STATUS "LLVM_ROOT: ${LLVM_ROOT}")
+message(STATUS "LLVM_TOOLS_BINARY_DIR: ${LLVM_TOOLS_BINARY_DIR}")
+message(STATUS "PATH: $ENV{PATH}")
 
-message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION} in ${LLVM_ROOT}")
-message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
+# find_program(
+# 	FASTBUILD_PATH
+# 	NAMES fastbuild fbuild FBuild FBuild.exe
+# 	PATH_SUFFIXES fastbuild
+# )
+
+#message(STATUS "FASTBUILD_PATH: ${FASTBUILD_PATH}")
 
 # todo: cross-compiling support. this is currently not used.
 #set(TARGET_ARCHITECTURE $ENV{TARGET_ARCHITECTURE} CACHE PATH "Target architecture")
@@ -87,6 +92,7 @@ set(CMAKE_OBJDUMP ${LLVM_TOOLS_BINARY_DIR}/llvm-objdump${CMAKE_EXECUTABLE_SUFFIX
 set(CMAKE_RANLIB ${LLVM_TOOLS_BINARY_DIR}/llvm-ranlib${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to ranlib")
 # don't use CMAKE_LINKER, its apparently an "implementation detail" in the horrors of CMake
 #set(CMAKE_LINKER ${LLVM_TOOLS_BINARY_DIR}/lld${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to linker")
+#set(CMAKE_MAKE_PROGRAM ${FASTBUILD_PATH} CACHE FILEPATH "Path to build tool")
 
 set(CMAKE_LINKER_TYPE LLD CACHE INTERNAL "")
 set(CMAKE_C_USING_LINKER_LLD "-fuse-ld=lld" CACHE INTERNAL "")
