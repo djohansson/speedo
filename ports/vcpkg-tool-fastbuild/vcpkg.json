@@ -1,0 +1,7 @@
+{
+  "name": "vcpkg-tool-fastbuild",
+  "version": "1.19.0",
+  "description": "FASTBuild build system",
+  "homepage": "https://github.com/fastbuild/fastbuild",
+  "supports": "native"
+}
