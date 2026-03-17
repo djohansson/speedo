@@ -81,21 +81,20 @@ function Get-HostCompiler
 	return $Compiler
 }
 
+function Get-HostTuplet
+{
+	return "$(Get-HostArchitecture)-$(Get-HostOS)"
+}
+
 function Get-HostTriplet
 {
-	$Arch = Get-HostArchitecture
-	$OS = Get-HostOS
 	# Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
 	# Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
-	return "$Arch-$OS-release"
+	return "$(Get-HostTuplet)-release"
 }
 
 function Get-TargetTriplet
 {
-	# todo: add support for cross-compilation by allowing the user to specify a target triplet via an environment variable or command-line argument
-	$Arch = Get-HostArchitecture
-	$OS = Get-HostOS
-	$Compiler = "clang" # for now, we assume that the target compiler is clang for all platforms, but this may need to be adjusted in the future
-
-	return "$Arch-$OS-$Compiler"
+	# for now, we assume that the target compiler is clang for all platforms, but this may need to be adjusted in the future
+	return "$(Get-HostTuplet)-clang"
 }

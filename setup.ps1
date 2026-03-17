@@ -53,9 +53,9 @@ $CMakePresets = [ordered] @{
 	version = 8
 	configurePresets = @(
 		[ordered] @{
-			name = 'ninja-multi-vcpkg'
-			generator = 'Ninja Multi-Config'
-			description = 'Configure with vcpkg toolchain and generate Ninja project files for all configurations'
+			name = 'fastbuild-vcpkg'
+			generator = 'FASTBuild'
+			description = 'Configure with vcpkg toolchain and generate FASTBuild project files for all configurations'
 			binaryDir = '${sourceDir}/build/staging/${presetName}'
 			toolchainFile = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 			installDir = '${sourceDir}/build/install/${presetName}'
@@ -63,6 +63,9 @@ $CMakePresets = [ordered] @{
 				CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
+				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
+				CMAKE_FASTBUILD_USE_LIGHTCACHE = 'ON'
+				CMAKE_FASTBUILD_USE_RELATIVE_PATHS = 'ON'
 				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
 				VCPKG_MANIFEST_DIR = '${sourceDir}'
 				VCPKG_MANIFEST_FEATURES = 'client;server'
@@ -75,6 +78,9 @@ $CMakePresets = [ordered] @{
 			environment = [ordered] @{
 				TOOLS_ROOT = '${sourceDir}/build/packages/${presetName}/tools'
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
+				FASTBUILD_BROKERAGE_PATH = "$env:FASTBUILD_BROKERAGE_PATH"
+				FASTBUILD_CACHE_PATH = "$env:FASTBUILD_CACHE_PATH"
+				FASTBUILD_CACHE_MODE = "$env:FASTBUILD_CACHE_MODE"
 			}
 			warnings = [ordered] @{
 				dev = $false
@@ -83,10 +89,10 @@ $CMakePresets = [ordered] @{
 		}
 		[ordered] @{
 			name = 'x64-windows-clang'
-			inherits = 'ninja-multi-vcpkg'
+			inherits = 'fastbuild-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-windows-release'
-				PATH = "`${penv:PATH};`${env:LLVM_ROOT}/bin;`${env:LLVM_ROOT}/tools/llvm;$env:WINDOWS_SDK/bin/$env:WINDOWS_SDK_VERSION/x64"
+				PATH = "`$penv{PATH};`$env{LLVM_ROOT}/bin;`$env{LLVM_ROOT}/tools/llvm;$env:WINDOWS_SDK/bin/$env:WINDOWS_SDK_VERSION/x64"
 				VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
 				VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
 			}
@@ -98,10 +104,10 @@ $CMakePresets = [ordered] @{
 		}
 		[ordered] @{
 			name = 'arm64-osx-clang'
-			inherits = 'ninja-multi-vcpkg'
+			inherits = 'fastbuild-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-osx-release'
-				DYLD_LIBRARY_PATH = "`${penv:DYLD_LIBRARY_PATH}:`${env:LLVM_ROOT}/lib"
+				DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 			}
 			cacheVariables = [ordered] @{
 				CMAKE_APPLE_SILICON_PROCESSOR = 'arm64'
@@ -115,10 +121,10 @@ $CMakePresets = [ordered] @{
 		}
 		[ordered] @{
 			name = 'arm64-linux-clang'
-			inherits = 'ninja-multi-vcpkg'
+			inherits = 'fastbuild-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-linux-release'
-				LD_LIBRARY_PATH = "`${penv:LD_LIBRARY_PATH}:`${env:LLVM_ROOT}/lib"
+				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 			}
 			condition = [ordered] @{
 				type = 'equals'
@@ -128,10 +134,10 @@ $CMakePresets = [ordered] @{
 		}
 		[ordered] @{
 			name = 'x64-linux-clang'
-			inherits = 'ninja-multi-vcpkg'
+			inherits = 'fastbuild-vcpkg'
 			environment = [ordered] @{
 				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-linux-release'
-				LD_LIBRARY_PATH = "`${penv:LD_LIBRARY_PATH}:`${env:LLVM_ROOT}/lib"
+				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 			}
 			condition = [ordered] @{
 				type = 'equals'

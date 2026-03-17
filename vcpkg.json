@@ -1,6 +1,24 @@
 {
   "name": "speedo",
   "version": "0.0.1",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-get-vars",
+      "host": true
+    },
+    {
+      "name": "vcpkg-tool-fastbuild",
+      "host": true
+    }
+  ],
   "features": {
     "toolchain": {
       "description": "LLVM Toolchain",
@@ -28,14 +46,6 @@
     "common": {
       "description": "Common Dependencies for both Client and Server",
       "dependencies": [
-        {
-          "name": "vcpkg-cmake",
-          "host": true
-        },
-        {
-          "name": "vcpkg-tool-ninja",
-          "host": true
-        },
         "cargs",
         "concurrentqueue",
         "cppzmq",
