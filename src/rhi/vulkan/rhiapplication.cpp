@@ -1003,50 +1003,14 @@ void RHIApplication::Draw()
 	bool dedicatedCompute = rhi.GetQueues()[kQueueTypeCompute].Read()->queueFamilyIndex != 
 		rhi.GetQueues()[kQueueTypeGraphics].Read()->queueFamilyIndex;
 
-	auto Cleanup = [&rhi, &window](auto& queueContext)
-	{
-		auto& device = *rhi.GetDevice();
-		auto& [queue, submits] = queueContext;
-		if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, device.GetPhysicalDevice()))
-		{
-			for (auto it = submits.presentIds.begin(); it != submits.presentIds.end();)
-			{
-				if (window.WaitPresent(*it, 0ULL))
-					it = submits.presentIds.erase(it);
-				else
-					++it;
-			}
-		}
-		for (auto it = submits.fences.begin(); it != submits.fences.end();)
-		{
-			if (it->Wait(0ULL))
-				it = submits.fences.erase(it);
-			else
-				++it;
-		}
-
-		if (submits.fences.empty() && submits.presentIds.empty())
-			submits = {};
-	};
-
-	// if (dedicatedCompute)
-	// 	cleanup(kQueueTypeCompute);
-	// if (dedicatedTransfer)
-	// 	cleanup(kQueueTypeTransfer);
-
 	if (flipSuccess)
 	{
 		auto& lastFrame = window.GetFrames()[lastFrameIndex];
 		auto& newFrame = window.GetFrames()[newFrameIndex];
 
 		auto graphics = rhi.GetQueues()[kQueueTypeGraphics].Write();
-		auto& lastGraphicsContext = graphics->queues.FetchAdd();
-		auto& [lastGraphicsQueue, lastGraphicsSubmits] = lastGraphicsContext;
+		auto& [lastGraphicsQueue, lastGraphicsSubmits] = graphics->queues.FetchAdd();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
-		auto& graphicsContext = graphics->queues.Get();
-		auto& [computeQueue, computeSubmits] = dedicatedCompute ?
-			rhi.GetQueues()[kQueueTypeCompute].Write()->queues.Get() :
-			graphicsContext;
 
 		frameTasks.emplace_back(
 			CreateTask([&executor, &queue = graphicsQueue, &semaphore = graphics->semaphore]
@@ -1054,9 +1018,9 @@ void RHIApplication::Draw()
 
 		for (auto& fence : graphicsSubmits.fences)
 			fence.Wait();
-		
+
+		graphicsSubmits = {};
 		graphicsQueue.SwapAndResetPool();
-		Cleanup(graphicsContext);
 		
 		TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
@@ -1182,37 +1146,63 @@ void RHIApplication::Draw()
 		}
 
 		cmd.End();
-
 		//NOLINTEND(bugprone-suspicious-stringview-data-usage)
 
+		auto presentInfo = window.PreparePresent();
+
 		SemaphoreHandle<kVk> acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
+		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.GetDevice(), SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
+		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
 		graphicsCallbacks.emplace_back(
 			CreateTask(
 				[&executor = GetExecutor(),
 				 fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
-				 acquireNextImageSemaphore = std::make_unique<Semaphore<kVk>>(std::move(acquireNextImageSemaphore))]
+				 acquireNextImageSemaphore = std::move(acquireNextImageSemaphore)]
 				 {
 					ZoneScopedN("RHIApplication::Draw::waitAcquireNextImage");
 					while (!fence->Wait(0ULL))
 						executor.JoinOne();
 				 }).handle);
+		graphicsCallbacks.emplace_back(
+			CreateTask(
+				[&window, presentIds = std::move(presentInfo.presentIds),
+				 graphicsDoneSemaphore = std::move(graphicsDoneSemaphore)]
+				 {
+					for (auto presentId : presentIds)
+						window.WaitPresent(presentId);
+				 }).handle);
 
-		auto graphicsDoneSemaphore = Semaphore<kVk>(rhi.GetDevice(), SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
 			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_NONE},
 			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue, 1},
-			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphore},
+			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphoreHandle},
 			.signalSemaphoreValues = {++graphics->timeline, 1},
 			.callbacks = std::move(graphicsCallbacks)});
 
 		graphicsSubmits |= graphicsQueue.Submit();
 
-		auto presentInfo = window.PreparePresent();
-		presentInfo.waitSemaphores = {graphicsDoneSemaphore};
-		computeQueue.EnqueuePresent(std::move(presentInfo));
-		computeSubmits |= computeQueue.Present();
-		computeSubmits.retiredSemaphores.emplace_back(std::move(graphicsDoneSemaphore));
+		presentInfo.waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
+
+		if (dedicatedCompute)
+		{
+			auto compute = rhi.GetQueues()[kQueueTypeCompute].Write();
+			auto& [computeQueue, computeSubmits] = compute->queues.FetchAdd();
+
+			for (auto& fence : computeSubmits.fences)
+				fence.Wait();
+
+			computeSubmits = {};
+			computeQueue.SwapAndResetPool();
+
+			computeQueue.EnqueuePresent(std::move(presentInfo));
+			computeSubmits |= computeQueue.Present();
+		}
+		else
+		{
+			graphicsQueue.EnqueuePresent(std::move(presentInfo));
+			graphicsSubmits |= graphicsQueue.Present();
+		}
 	}
 
 	GetExecutor().Submit(frameTasks);

@@ -153,6 +153,15 @@ QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent()
 	
 	presentInfo.swapchains.push_back(mySwapchain);
 
+	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
+	static uint64_t gPresentId = 0ULL;
+	if (gSupportsPresentId)
+	{
+		presentInfo.presentIds.resize(presentInfo.swapchains.size());
+		for (size_t i = 0; i < presentInfo.swapchains.size(); ++i)
+			presentInfo.presentIds[i] = gPresentId++;
+	}
+
 	return presentInfo;
 }
 

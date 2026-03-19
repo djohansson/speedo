@@ -5,14 +5,6 @@ QueueHostSyncInfo<G>& QueueHostSyncInfo<G>::operator|=(QueueHostSyncInfo<G>&& ot
 		fences.end(),
 		std::make_move_iterator(other.fences.begin()),
 		std::make_move_iterator(other.fences.end()));
-	presentIds.insert(
-		presentIds.end(),
-		std::make_move_iterator(other.presentIds.begin()),
-		std::make_move_iterator(other.presentIds.end()));
-	retiredSemaphores.insert(
-		retiredSemaphores.end(),
-		std::make_move_iterator(other.retiredSemaphores.begin()),
-		std::make_move_iterator(other.retiredSemaphores.end()));
 	maxTimelineValue = std::max(maxTimelineValue, other.maxTimelineValue);
 	
 	return *this;
@@ -43,6 +35,10 @@ QueuePresentInfo<G>& QueuePresentInfo<G>::operator|=(QueuePresentInfo<G>&& other
 		results.end(),
 		std::make_move_iterator(other.results.begin()),
 		std::make_move_iterator(other.results.end()));
+	presentIds.insert(
+		presentIds.end(),
+		std::make_move_iterator(other.presentIds.begin()),
+		std::make_move_iterator(other.presentIds.end()));
 	
 	return *this;
 }

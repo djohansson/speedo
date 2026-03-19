@@ -276,41 +276,32 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::Present");
 
-	bool supportsPresentFence = InternalGetDevice()->SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR);
-	bool supportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
-
-	static uint64_t gPresentId = 0ULL;
-	std::vector<uint64_t> presentIds;
-	if (supportsPresentId)
-	{
-		presentIds.resize(myPendingPresent.swapchains.size());
-		for (size_t i = 0; i < myPendingPresent.swapchains.size(); ++i)
-			presentIds[i] = gPresentId++;
-	}
+	static bool gSupportsPresentFence = InternalGetDevice()->SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR);
+	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
 
 	QueueHostSyncInfo<kVk> result;
-	if (supportsPresentFence)
+	if (gSupportsPresentFence)
 		result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
-	if (supportsPresentId)
-		result.presentIds = std::move(presentIds);
 
-	PresentFenceInfo<kVk> presentFenceInfo{.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+	ENSURE(!gSupportsPresentId || myPendingPresent.presentIds.size() == myPendingPresent.swapchains.size());
+
+	PresentFenceInfo<kVk> presentFenceInfo{.sType=.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
 	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
-	presentFenceInfo.pFences = supportsPresentFence ? &result.fences.front().GetHandle() : nullptr;
+	presentFenceInfo.pFences = gSupportsPresentFence ? &result.fences.front().GetHandle() : nullptr;
 
 	void* presentFenceInfoPtr = 
-		supportsPresentFence ?
+		gSupportsPresentFence ?
 			reinterpret_cast<void*>(&presentFenceInfo) :
 			nullptr;
 
 	PresentId<kVk> presentId{.sType=VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
 	presentId.pNext = presentFenceInfoPtr;
 	presentId.swapchainCount = myPendingPresent.swapchains.size();
-	presentId.pPresentIds = supportsPresentId ? result.presentIds.data() : nullptr;
+	presentId.pPresentIds = gSupportsPresentId ? myPendingPresent.presentIds.data() : nullptr;
 
 	void* presentIdPtr = 
-		supportsPresentId ?
+		gSupportsPresentId ?
 			reinterpret_cast<void*>(&presentId) :
 			nullptr;
 
