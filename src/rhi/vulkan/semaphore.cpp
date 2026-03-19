@@ -23,12 +23,12 @@ Semaphore<kVk>::Semaphore(
 	SemaphoreCreateDesc<kVk>&& desc)
 	: Semaphore(device, [&device, &desc]
 	{
-		VkSemaphoreTypeCreateInfo typeCreateInfo{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+		VkSemaphoreTypeCreateInfo typeCreateInfo{.sType=VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
 		typeCreateInfo.semaphoreType = desc.type;
 		typeCreateInfo.initialValue = 0ULL;
 
 		SemaphoreHandle<kVk> handle;
-		VkSemaphoreCreateInfo createInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+		VkSemaphoreCreateInfo createInfo{.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
 		createInfo.pNext = &typeCreateInfo;
 		createInfo.flags = desc.flags;
 
@@ -91,7 +91,7 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 {
 	ZoneScopedN("Semaphore::Wait");
 
-	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+	VkSemaphoreWaitInfo waitInfo{.sType=VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
 	waitInfo.flags = {};
 	waitInfo.semaphoreCount = 1;
 	waitInfo.pSemaphores = &mySemaphore;
@@ -116,7 +116,7 @@ bool Semaphore<kVk>::Wait(
 {
 	ZoneScopedN("Semaphore::Wait");
 
-	VkSemaphoreWaitInfo waitInfo{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+	VkSemaphoreWaitInfo waitInfo{.sType=VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
 	waitInfo.flags = {};
 	waitInfo.semaphoreCount = semaphores.size();
 	waitInfo.pSemaphores = semaphores.data();
