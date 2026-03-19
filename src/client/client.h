@@ -29,8 +29,8 @@ private:
 	zmq::socket_t mySocket;
 	zmq::active_poller_t myPoller;
 
-	ConcurrentQueue<MouseEvent> myMouseQueue;
-	ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
+	mutable ConcurrentQueue<MouseEvent> myMouseQueue;
+	mutable ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 	InputState myInput{};
 	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
 };

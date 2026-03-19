@@ -56,9 +56,9 @@ private:
 	std::stop_source myStopSource;
 	UpgradableSharedMutex myMutex;
 	std::condition_variable_any myCV;
-	ConcurrentQueue<TaskHandle> myReadyQueue;
+	mutable ConcurrentQueue<TaskHandle> myReadyQueue;
 	uint64_t myReadyQueueSize = 0;
-	ConcurrentQueue<TaskHandle> myDeletionQueue;
+	mutable ConcurrentQueue<TaskHandle> myDeletionQueue;
 };
 
 #include "taskexecutor.inl"
