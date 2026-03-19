@@ -1,21 +1,23 @@
 #pragma once
 
 #include <atomic>
+#include <utility>
 #include <vector>
 
 template <typename T, typename ContainerT = std::vector<T>>
 class CircularContainer : private ContainerT
 {
 public:
-
 	explicit CircularContainer() noexcept = default;
-	explicit CircularContainer(size_t capacity) noexcept : ContainerT(capacity) {}
+	explicit CircularContainer(ContainerT&& other) noexcept : ContainerT(std::forward<ContainerT>(other)) {}
+	CircularContainer(const CircularContainer&) = delete;
+	CircularContainer(CircularContainer&& other) noexcept = default;
+	~CircularContainer() = default;
 
-	using ContainerT::begin;
-	using ContainerT::end;
-	using ContainerT::cbegin;
-	using ContainerT::cend;
-	using ContainerT::resize;
+	[[maybe_unused]] CircularContainer& operator=(const CircularContainer&) = delete;
+	[[maybe_unused]] CircularContainer& operator=(CircularContainer&&) noexcept = default;
+	[[maybe_unused]] CircularContainer& operator=(const ContainerT& other) = delete;
+	[[maybe_unused]] CircularContainer& operator=(ContainerT&& other) noexcept { ContainerT::operator=(std::forward<ContainerT>(other)); return *this; }
 
 	[[nodiscard]] size_t Capacity() const noexcept { return ContainerT::size(); }
 	[[nodiscard]] size_t Head() const noexcept { return std::atomic_ref(myHead).load(std::memory_order_relaxed); }
@@ -35,6 +37,11 @@ public:
 		
 		return ContainerT::at(index);
 	}
+
+	using ContainerT::begin;
+	using ContainerT::end;
+	using ContainerT::cbegin;
+	using ContainerT::cend;
 
 private:
 	size_t myHead{};

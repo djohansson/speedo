@@ -197,7 +197,7 @@ void CreateQueues(RHI<kVk>& rhi)
 
 		if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
 		{
-			graphics->queues.resize(queueCount);
+			graphics->queues = std::vector<QueueContext<kVk>>(queueCount);
 			graphics->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
@@ -216,7 +216,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
 		{
-			compute->queues.resize(queueCount);
+			compute->queues = std::vector<QueueContext<kVk>>(queueCount);
 			compute->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
@@ -235,7 +235,7 @@ void CreateQueues(RHI<kVk>& rhi)
 		}
 		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
 		{
-			transfer->queues.resize(queueCount);
+			transfer->queues = std::vector<QueueContext<kVk>>(queueCount);
 			transfer->queueFamilyIndex = queueFamilyIt;
 			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
 			{
