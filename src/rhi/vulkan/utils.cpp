@@ -23,6 +23,7 @@
 #endif
 
 #include <algorithm>
+#include <cstdarg>
 #include <cstdint>
 #include <iostream>
 
@@ -44,7 +45,7 @@ PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
+void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)
 {
 	LOG_ERROR("Vulkan error: {}", string_VkResult(result));
 	switch (result)
@@ -52,12 +53,16 @@ void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 	case VK_ERROR_DEVICE_LOST:
 		if (gVkGetQueueCheckpointData2NV != nullptr)
 		{
-			VkQueue queue = VK_NULL_HANDLE;
-			va_list argList;
-			va_start(argList, argumentCount);
-			while ((argumentCount--) != 0)
-				queue = va_arg(argList, VkQueue);
-			va_end(argList);
+			if (count != 1) [[unlikely]]
+			{
+				LOG_ERROR("Expected 1 queue for checkpoint retrieval, got {}", count);
+				return;
+			}
+			
+			va_list args;
+			va_start(args, count);
+			VkQueue queue = va_arg(args, VkQueue);
+			va_end(args);
 
 			if (queue != VK_NULL_HANDLE)
 			{
@@ -66,6 +71,7 @@ void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 				gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, nullptr);
 				std::println(stderr, "GPU marker count: {}", checkpointDataCount);
 				gCheckpointData.resize(checkpointDataCount);
+				std::ranges::fill(gCheckpointData, VkCheckpointData2NV{.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_2_NV});
 				gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, gCheckpointData.data());
 				for (const auto& checkpoint : gCheckpointData)
 					std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
@@ -81,6 +87,7 @@ void OnCheckFailedDefault(VkResult result, int argumentCount, ...)
 	case VK_SUBOPTIMAL_KHR:
 	case VK_ERROR_OUT_OF_DATE_KHR:
 	default:
+		DEBUGTRAP();
 		break;
 	}
 }

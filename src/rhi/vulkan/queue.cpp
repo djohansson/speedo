@@ -253,7 +253,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	{
 		ZoneScopedN("Queue::Submit::vkQueueSubmit");
 
-		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back()));
+		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back()), reinterpret_cast<uintptr_t>(myQueue));
 	}
 
 	myPendingSubmits.clear();
@@ -266,7 +266,7 @@ void Queue<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Queue::WaitIdle");
 
-	VK_CHECK(vkQueueWaitIdle(myQueue));
+	VK_CHECK(vkQueueWaitIdle(myQueue), reinterpret_cast<uintptr_t>(myQueue));
 }
 
 template <>
@@ -323,7 +323,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 
 	{
 		ZoneScopedN("Queue::Present::vkQueuePresentKHR");
-		VK_CHECK(vkQueuePresentKHR(myQueue, &presentInfo));
+		VK_CHECK(vkQueuePresentKHR(myQueue, &presentInfo), reinterpret_cast<uintptr_t>(myQueue));
 	}
 
 	myPendingPresent = {};
