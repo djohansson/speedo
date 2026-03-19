@@ -208,7 +208,7 @@ void CreateQueues(RHI<kVk>& rhi)
 					{
 						.flags = cmdPoolCreateFlags,
 						.queueFamilyIndex = queueFamilyIt,
-						.levelCount = 4,
+						.levelCount = 15,
 						.supportsProfiling = static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
 					},
 					QueueCreateDesc<kVk>{.queueIndex = queueIt, .queueFamilyIndex = queueFamilyIt});
