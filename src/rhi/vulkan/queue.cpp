@@ -285,7 +285,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 
 	ENSURE(!gSupportsPresentId || myPendingPresent.presentIds.size() == myPendingPresent.swapchains.size());
 
-	PresentFenceInfo<kVk> presentFenceInfo{.sType=.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+	PresentFenceInfo<kVk> presentFenceInfo{.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
 	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentFenceInfo.pFences = gSupportsPresentFence ? &result.fences.front().GetHandle() : nullptr;
