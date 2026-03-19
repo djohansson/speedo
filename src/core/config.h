@@ -29,4 +29,4 @@
 #define CONCAT_IMPL(x, y) x##y
 #define CONCAT(x, y) CONCAT_IMPL(x, y)
 #define COUNTED_VAR_DECLARE(x) CONCAT(x, __COUNTER__)
-#define SIZEOF__VA_ARGS__(...)  (sizeof((int[]){__VA_ARGS__})/sizeof(int)) //NOLINT(modernize-avoid-c-arrays)
+#define SIZEOF__VA_ARGS__(...)  (sizeof((uintptr_t[]){__VA_ARGS__})/sizeof(uintptr_t)) //NOLINT(modernize-avoid-c-arrays)
