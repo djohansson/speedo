@@ -371,8 +371,8 @@ FindMemoryType(VkPhysicalDevice device, uint32_t typeFilter, VkMemoryPropertyFla
 	vkGetPhysicalDeviceMemoryProperties(device, &memProperties);
 
 	for (uint32_t i = 0UL; i < memProperties.memoryTypeCount; i++)
-		if (((typeFilter & (1 << i)) != 0u) &&
-			((memProperties.memoryTypes[i].propertyFlags & properties) != 0u))
+		if (((typeFilter & (1 << i)) != 0U) &&
+			((memProperties.memoryTypes[i].propertyFlags & properties) != 0U))
 			return i;
 
 	return 0;
@@ -416,7 +416,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VkMemoryPropertyFlags flags,
 	const char* debugName)
 {
-	VkBufferCreateInfo bufferInfo{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+	VkBufferCreateInfo bufferInfo{.sType=VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
 	bufferInfo.size = size;
 	bufferInfo.usage = usage;
 	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -428,12 +428,11 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 						  : VMA_MEMORY_USAGE_UNKNOWN;
 	allocInfo.requiredFlags = flags;
 	allocInfo.memoryTypeBits = 0UL; // memRequirements.memoryTypeBits;
-	allocInfo.pUserData = (void*)debugName;
+	allocInfo.pUserData = const_cast<void*>(reinterpret_cast<const void*>(debugName));
 
 	VkBuffer outBuffer;
 	VmaAllocation outBufferMemory;
-	VK_CHECK(
-		vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
+	VK_CHECK(vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
 
 	return std::make_tuple(outBuffer, outBufferMemory);
 }
@@ -700,13 +699,12 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 						  : VMA_MEMORY_USAGE_UNKNOWN;
 	allocInfo.requiredFlags = memoryFlags;
 	allocInfo.memoryTypeBits = 0UL; // memRequirements.memoryTypeBits;
-	allocInfo.pUserData = (void*)debugName;
+	allocInfo.pUserData = const_cast<void*>(reinterpret_cast<const void*>(debugName));
 
 	VkImage outImage;
 	VmaAllocation outImageMemory;
 	VmaAllocationInfo outAllocInfo;
-	VK_CHECK(vmaCreateImage(
-		allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
+	VK_CHECK(vmaCreateImage(allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
 	return std::make_tuple(outImage, outImageMemory);
 }
@@ -873,17 +871,17 @@ VkRenderPass CreateRenderPass(
 	colorAttachment.initialLayout = colorInitialLayout;
 	colorAttachment.finalLayout = colorFinalLayout;
 
-	VkAttachmentReference2 colorAttachmentRef{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
+	VkAttachmentReference2 colorAttachmentRef{.sType=VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
 	colorAttachmentRef.attachment = 0UL;
 	colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 	colorAttachmentRef.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
-	VkSubpassDescription2 subpass{VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
+	VkSubpassDescription2 subpass{.sType=VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2};
 	subpass.pipelineBindPoint = bindPoint;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorAttachmentRef;
 
-	VkAttachmentReference2 depthAttachmentRef{VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
+	VkAttachmentReference2 depthAttachmentRef{.sType=VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2};
 	if (depthFormat != VK_FORMAT_UNDEFINED)
 	{
 		VkAttachmentDescription2& depthAttachment = attachments.emplace_back();
@@ -904,7 +902,7 @@ VkRenderPass CreateRenderPass(
 		subpass.pDepthStencilAttachment = &depthAttachmentRef;
 	}
 
-	VkSubpassDependency2 dependency{VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
+	VkSubpassDependency2 dependency{.sType=VK_STRUCTURE_TYPE_SUBPASS_DEPENDENCY_2};
 	dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
 	dependency.dstSubpass = 0UL;
 	dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

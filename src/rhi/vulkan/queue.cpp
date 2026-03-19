@@ -1,6 +1,8 @@
 #include "../queue.h"
 #include "utils.h"
 
+#include <ranges>
+
 #include <tracy/TracyC.h>
 #include <tracy/TracyVulkan.hpp>
 
@@ -292,7 +294,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 	if (supportsPresentId)
 		result.presentIds = std::move(presentIds);
 
-	PresentFenceInfo<kVk> presentFenceInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+	PresentFenceInfo<kVk> presentFenceInfo{.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
 	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
 	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
 	presentFenceInfo.pFences = supportsPresentFence ? &result.fences.front().GetHandle() : nullptr;
@@ -302,7 +304,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 			reinterpret_cast<void*>(&presentFenceInfo) :
 			nullptr;
 
-	PresentId<kVk> presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+	PresentId<kVk> presentId{.sType=VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
 	presentId.pNext = presentFenceInfoPtr;
 	presentId.swapchainCount = myPendingPresent.swapchains.size();
 	presentId.pPresentIds = supportsPresentId ? result.presentIds.data() : nullptr;
@@ -312,8 +314,8 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 			reinterpret_cast<void*>(&presentId) :
 			nullptr;
 
-	PresentInfo<kVk> presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
-	presentInfo.pNext = presentIdPtr ? presentIdPtr : presentFenceInfoPtr;
+	PresentInfo<kVk> presentInfo{.sType=VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+	presentInfo.pNext = (presentIdPtr != nullptr) ? presentIdPtr : presentFenceInfoPtr;
 	presentInfo.waitSemaphoreCount = myPendingPresent.waitSemaphores.size();
 	presentInfo.pWaitSemaphores = myPendingPresent.waitSemaphores.data();
 	presentInfo.swapchainCount = myPendingPresent.swapchains.size();
@@ -353,8 +355,8 @@ QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&
 		std::copy_n(cmdArray.Data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
 	}
 
-	const auto [minSignalValue, maxSignalValue] = std::minmax_element(
-		submitInfo.signalSemaphoreValues.begin(), submitInfo.signalSemaphoreValues.end());
+	const auto [minSignalValue, maxSignalValue] = std::ranges::minmax_element(
+		submitInfo.signalSemaphoreValues);
 
 	submitInfo.timelineValue = *maxSignalValue;
 

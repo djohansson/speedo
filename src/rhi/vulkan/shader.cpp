@@ -342,7 +342,7 @@ ShaderModule<kVk>::ShaderModule(const std::shared_ptr<Device<kVk>>& device, cons
 		  [&device]
 		  (const auto& codePtr, size_t codeSize)
 		  {
-			  VkShaderModuleCreateInfo info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+			  VkShaderModuleCreateInfo info{.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
 			  info.codeSize = codeSize;
 			  info.pCode = codePtr;
 
