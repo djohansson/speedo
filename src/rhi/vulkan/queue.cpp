@@ -12,18 +12,18 @@ bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
 	ZoneScopedN("Queue::SubmitCallbacks");
 
 	TimelineCallbackData callbackData;
+	std::vector<TimelineCallbackData> waitingCallbacks;
 	while (myTimelineCallbacks.try_dequeue(callbackData))
 	{
-		auto& [callbackVector, commandBufferTimelineValue] = callbackData;
+		auto& [callbackVector, callbackTimelineValue] = callbackData;
 
-		if (commandBufferTimelineValue > timelineValue)
-		{
-			myTimelineCallbacks.enqueue(std::move(callbackData));
-			return false;
-		}
-
-		executor.Submit(std::span(callbackVector.data(), callbackVector.size()));
+		if (timelineValue <= callbackTimelineValue)
+			waitingCallbacks.emplace_back(std::move(callbackData));
+		else
+			executor.Submit(std::span(callbackVector.data(), callbackVector.size()));
 	}
+
+	myTimelineCallbacks.enqueue_bulk(waitingCallbacks.data(), waitingCallbacks.size());
 
 	return true;
 }
