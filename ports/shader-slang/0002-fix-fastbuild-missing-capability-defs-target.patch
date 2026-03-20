@@ -1,0 +1,32 @@
+diff --git a/source/slang/CMakeLists.txt b/source/slang/CMakeLists.txt
+index ff8a7cb0..48449290 100644
+--- a/source/slang/CMakeLists.txt
++++ b/source/slang/CMakeLists.txt
+@@ -82,6 +82,11 @@ set(SLANG_CAPABILITY_GENERATED_SOURCE
+     ${SLANG_CAPABILITY_GENERATED_HEADERS}
+     "${SLANG_CAPABILITY_OUTPUT_DIR}/slang-lookup-capability-defs.cpp"
+ )
++
++# FASTBuild does not materialize header-only OBJECT targets as concrete build nodes.
++# Add a tiny generated source so slang-capability-defs always has a real compile unit.
++set(SLANG_CAPABILITY_DEFS_DUMMY_SOURCE "${SLANG_CAPABILITY_OUTPUT_DIR}/slang-capability-defs-dummy.cpp")
++file(WRITE "${SLANG_CAPABILITY_DEFS_DUMMY_SOURCE}" "// Intentionally empty translation unit for build graph stability.\n")
+ add_custom_command(
+     OUTPUT ${SLANG_CAPABILITY_GENERATED_SOURCE}
+     COMMAND ${CMAKE_COMMAND} -E make_directory ${SLANG_CAPABILITY_OUTPUT_DIR}
+@@ -98,7 +103,9 @@ slang_add_target(
+     OBJECT
+     EXPORT_MACRO_PREFIX SLANG
+     USE_EXTRA_WARNINGS
+-    EXPLICIT_SOURCE ${SLANG_CAPABILITY_GENERATED_HEADERS}
++    EXPLICIT_SOURCE
++        ${SLANG_CAPABILITY_DEFS_DUMMY_SOURCE}
++        ${SLANG_CAPABILITY_GENERATED_HEADERS}
+     EXPORT_TYPE_AS ${SLANG_LIB_TYPE}
+     LINK_WITH_PRIVATE core
+     INCLUDE_DIRECTORIES_PUBLIC
+@@ -425,3 +432,4 @@ if(UNIX AND SLANG_LIB_TYPE STREQUAL "SHARED")
+ 
+     message(STATUS "Unix backward compatibility symlink (libslang -> libslang-compiler) will be created during build and installation")
+ endif()
++

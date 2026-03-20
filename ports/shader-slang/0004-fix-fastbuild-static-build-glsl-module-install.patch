@@ -1,0 +1,24 @@
+diff --git a/source/slang-glsl-module/CMakeLists.txt b/source/slang-glsl-module/CMakeLists.txt
+--- a/source/slang-glsl-module/CMakeLists.txt
++++ b/source/slang-glsl-module/CMakeLists.txt
+@@ -10,6 +10,11 @@
+ # CMake doesn't allow creating an implicit dependency across directory scopes,
+ # see https://cmake.org/cmake/help/v3.31/prop_sf/GENERATED.html. Because of
+ # this we add the explicit REQUIRES
++set(_slang_glsl_module_install_arg)
++if(SLANG_LIB_TYPE STREQUAL "SHARED")
++    set(_slang_glsl_module_install_arg INSTALL)
++endif()
++
+ slang_add_target(
+     .
+     MODULE
+@@ -28,7 +33,7 @@ slang_add_target(
+     INCLUDE_DIRECTORIES_PRIVATE
+         ${glsl_module_generated_header_dir}
+         ${CMAKE_CURRENT_BINARY_DIR}/../slang/slang-version-header
+-    INSTALL
++    ${_slang_glsl_module_install_arg}
+ )
+ set_target_properties(
+     slang-glsl-module

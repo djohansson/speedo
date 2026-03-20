@@ -1,0 +1,48 @@
+diff --git a/source/slang/CMakeLists.txt b/source/slang/CMakeLists.txt
+index ff8a7cb0..d503742d 100644
+--- a/source/slang/CMakeLists.txt
++++ b/source/slang/CMakeLists.txt
+@@ -93,6 +93,15 @@ add_custom_command(
+     DEPENDS ${SLANG_CAPABILITY_SOURCE} slang-capability-generator
+     COMMAND_EXPAND_LISTS
+ )
++
++# Expose capability generation as an explicit target so we can force order for
++# translation units that include slang-capability.h.
++add_custom_target(
++    slang-capability-generated-files
++    DEPENDS ${SLANG_CAPABILITY_GENERATED_SOURCE}
++)
++set_target_properties(slang-capability-generated-files PROPERTIES FOLDER generated)
++
+ slang_add_target(
+     slang-capability-defs
+     OBJECT
+@@ -117,6 +126,9 @@ slang_add_target(
+     EXCLUDE_FROM_ALL
+     FOLDER generated
+ )
++
++add_dependencies(slang-capability-defs slang-capability-generated-files)
++add_dependencies(slang-capability-lookup slang-capability-generated-files)
+ 
+ #
+ # generated lookup tables
+@@ -341,6 +353,17 @@ else()
+         NO_SOURCE
+     )
+ endif()
++
++# This must be declared after slang-common-objects/slang have been created.
++# Otherwise the dependency does not get attached and FastBuild can compile
++# slang-rich-diagnostics.cpp before capability headers exist.
++if(TARGET slang-common-objects)
++    add_dependencies(slang-common-objects slang-capability-generated-files slang-capability-generator)
++endif()
++
++if(TARGET slang)
++    add_dependencies(slang slang-capability-generated-files)
++endif()
+ 
+ set_target_properties(slang PROPERTIES
+     VERSION "0.${SLANG_VERSION_NUMERIC}"
