@@ -8,6 +8,7 @@ vcpkg_from_github(
     HEAD_REF main
     PATCHES
         0001-fix-tools-install-dir-and-llvm-config.patch
+        0002-fix-fastbuild-hmaptool-install-target.patch
 )
 
 vcpkg_check_features(

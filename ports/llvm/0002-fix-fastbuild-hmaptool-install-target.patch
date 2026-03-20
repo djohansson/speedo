@@ -1,0 +1,15 @@
+diff --git a/clang/utils/hmaptool/CMakeLists.txt b/clang/utils/hmaptool/CMakeLists.txt
+index b6f2f0f95f85..3b2c120f8c97 100644
+--- a/clang/utils/hmaptool/CMakeLists.txt
++++ b/clang/utils/hmaptool/CMakeLists.txt
+@@ -1,9 +1,7 @@
+ install(PROGRAMS hmaptool DESTINATION "${CLANG_TOOLS_INSTALL_DIR}" COMPONENT hmaptool)
+-add_custom_target(hmaptool ALL DEPENDS "hmaptool")
+-set_target_properties(hmaptool PROPERTIES FOLDER "Clang/Utils")
+ 
+ if(NOT LLVM_ENABLE_IDE)
+   add_llvm_install_targets("install-hmaptool"
+-                           DEPENDS hmaptool
++                           DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/hmaptool"
+                            COMPONENT hmaptool)
+ endif()
