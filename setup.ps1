@@ -65,8 +65,8 @@ $CMakePresets = [ordered] @{
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
 				CMAKE_FASTBUILD_VERBOSE_GENERATOR = 'ON'
-				CMAKE_FASTBUILD_TRACK_BYPRODUCTS_AS_OUTPUTS = 'ON'
-				CMAKE_FASTBUILD_CLANG_REWRITE_INCLUDES = 'ON'
+				CMAKE_FASTBUILD_TRACK_BYPRODUCTS_AS_OUTPUTS = 'OFF'
+				CMAKE_FASTBUILD_CLANG_REWRITE_INCLUDES = 'OFF'
 				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE = 'ON'
 				CMAKE_FASTBUILD_USE_RELATIVE_PATHS = 'ON'
@@ -243,6 +243,7 @@ $VSCodeSettings = [ordered] @{
 		'--background-index',
 		'--compile-commands-dir=${workspaceFolder}/build/staging/x64-windows-clang'
 	)
+	'cmake.cmakePath' = '${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-windows/cmake-4.2.3-windows-x86_64/bin/cmake.exe'
 }
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
 
