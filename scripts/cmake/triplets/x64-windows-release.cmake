@@ -15,7 +15,7 @@ set(
 )
 set(
 	VCPKG_CMAKE_CONFIGURE_OPTIONS
-		#-DCMAKE_GENERATOR=FASTBuild 
+		-DCMAKE_GENERATOR=FASTBuild
 		#-DCMAKE_GENERATOR_TOOLSET=ClangCL -- only works with Visual Studio Generators
 		-DCMAKE_C_COMPILER=clang-cl
 		-DCMAKE_CXX_COMPILER=clang-cl
