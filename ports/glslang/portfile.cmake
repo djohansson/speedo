@@ -29,6 +29,7 @@ vcpkg_cmake_configure(
     OPTIONS
         -DBUILD_EXTERNAL=OFF
         -DGLSLANG_TESTS=OFF
+        -DENABLE_PCH=OFF
         ${FEATURE_OPTIONS}
 )
 
