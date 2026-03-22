@@ -124,6 +124,18 @@ function(vcpkg_cmake_configure)
             "../../${TARGET_TRIPLET}-dbg/build.ninja" ALIAS "dbg-ninja.log"
         )
         set(log_args "build.ninja")
+    elseif(generator STREQUAL "FASTBuild")
+        vcpkg_find_acquire_program(FASTBUILD)
+        vcpkg_list(APPEND arg_OPTIONS "-DCMAKE_MAKE_PROGRAM=${FASTBUILD}")
+        # If we use FASTBuild, it must be on PATH for CMake's ExternalProject,
+        # cf. https://gitlab.kitware.com/cmake/cmake/-/issues/23355.
+        get_filename_component(fastbuild_path "${FASTBUILD}" DIRECTORY)
+        vcpkg_add_to_path("${fastbuild_path}")
+        set(parallel_log_args
+            "../build.fastbuild" ALIAS "rel-fastbuild.log"
+            "../../${TARGET_TRIPLET}-dbg/build.fastbuild" ALIAS "dbg-fastbuild.log"
+        )
+        set(log_args "build.fastbuild")
     endif()
 
     set(build_dir_release "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel")
