@@ -69,12 +69,30 @@ function(vcpkg_cmake_configure)
         endif()
     endif()
 
-    set(ninja_host ON) # Ninja availability
-    if(host_architecture STREQUAL "x86" OR DEFINED ENV{VCPKG_FORCE_SYSTEM_BINARIES})
+    set(ninja_host OFF) # Ninja availability
+    set(fastbuild_host OFF) # FASTBuild availability
+
+    if (arg_PREFER_NINJA)
+        set(ninja_host ON)
+    else()
+        set(fastbuild_host ON)
+    endif()
+
+    if(ninja_host AND host_architecture STREQUAL "x86" OR DEFINED ENV{VCPKG_FORCE_SYSTEM_BINARIES})
         # Prebuilt ninja binaries are only provided for x64 hosts
         find_program(NINJA NAMES ninja ninja-build)
         if(NOT NINJA)
             set(ninja_host OFF)
+            set(arg_DISABLE_PARALLEL_CONFIGURE ON)
+            set(arg_WINDOWS_USE_MSBUILD ON)
+        endif()
+    endif()
+
+    if(fastbuild_host AND host_architecture STREQUAL "x86" OR DEFINED ENV{VCPKG_FORCE_SYSTEM_BINARIES})
+        # Prebuilt ninja binaries are only provided for x64 hosts
+        find_program(FASTBUILD NAMES fbuild FBuild FBuild.exe)
+        if(NOT FASTBUILD)
+            set(fastbuild_host OFF)
             set(arg_DISABLE_PARALLEL_CONFIGURE ON)
             set(arg_WINDOWS_USE_MSBUILD ON)
         endif()
@@ -97,6 +115,8 @@ function(vcpkg_cmake_configure)
         set(generator "${arg_GENERATOR}")
     elseif(ninja_host)
         set(generator "Ninja")
+    elseif(fastbuild_host)
+        set(generator "FASTBuild")
     elseif(NOT VCPKG_HOST_IS_WINDOWS)
         set(generator "Unix Makefiles")
     endif()
