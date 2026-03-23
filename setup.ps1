@@ -44,7 +44,6 @@ else
 }
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg') | Out-Null
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_HOST_TRIPLET" -NotePropertyValue $(Get-HostTriplet) | Out-Null
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Read-EnvFile "$PSScriptRoot/.env.json"
