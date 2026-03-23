@@ -10,6 +10,7 @@ vcpkg_from_github(
         0001-msvc-flags.patch
         0002-clang-NO_CHARCONV.patch
         0003-compile-with-cxx17.patch
+        0004-fix-clang-windows-manifest-link.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS

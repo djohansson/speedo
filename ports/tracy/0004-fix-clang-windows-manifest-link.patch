@@ -1,0 +1,28 @@
+From 4ed2d4f871d8cb93e460c34d2aa21df145be50ba Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Mon, 23 Mar 2026 19:10:00 +0100
+Subject: [PATCH] profiler: avoid manifest source with clang on windows
+
+---
+ profiler/CMakeLists.txt | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/profiler/CMakeLists.txt b/profiler/CMakeLists.txt
+index 2f66eb6..598369d 100644
+--- a/profiler/CMakeLists.txt
++++ b/profiler/CMakeLists.txt
+@@ -157,7 +157,11 @@ if(WIN32)
+     set(PROFILER_FILES ${PROFILER_FILES}
+-        win32/Tracy.manifest
+         win32/Tracy.rc
+     )
++    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
++        set(PROFILER_FILES ${PROFILER_FILES}
++            win32/Tracy.manifest
++        )
++    endif()
+     add_executable(${PROJECT_NAME} WIN32 ${PROFILER_FILES} ${COMMON_FILES} ${SERVER_FILES})
+     set_property(DIRECTORY ${CMAKE_CURRENT_LIST_DIR} PROPERTY VS_STARTUP_PROJECT ${PROJECT_NAME})
+ else()
+-- 
+2.50.0.windows.1
