@@ -72,7 +72,6 @@ $CMakePresets = [ordered] @{
 			}
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
-				VCPKG_KEEP_ENV_VARS = 'FASTBUILD_TEMP_PATH;FASTBUILD_BROKERAGE_PATH;FASTBUILD_WORKERS;FASTBUILD_CACHE_PATH;FASTBUILD_CACHE_PATH_MOUNT_POINT;FASTBUILD_CACHE_MODE'
 				FASTBUILD_TEMP_PATH = '${sourceDir}/build/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
 				FASTBUILD_BROKERAGE_PATH = "`$penv{FASTBUILD_BROKERAGE_PATH}"
 				FASTBUILD_WORKERS = "`$penv{FASTBUILD_WORKERS}"
@@ -98,6 +97,7 @@ $CMakePresets = [ordered] @{
 				VCPKG_INSTALLED_DIR = "`${sourceDir}/build/install"
 				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions --debug --no-print-usage'
 				VCPKG_DISABLE_COMPILER_TRACKING = 'ON'
+				#VCPKG_KEEP_ENV_VARS = '' # dont use: https://github.com/microsoft/vcpkg/discussions/42064
 			}
 			environment = [ordered] @{
 				LLVM_ROOT = "`${sourceDir}/build/install/$(Get-HostTriplet)"
