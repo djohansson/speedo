@@ -18,8 +18,8 @@ function(vcpkg_cmake_build)
         vcpkg_list(SET parallel_param "-j${VCPKG_CONCURRENCY}")
         vcpkg_list(SET no_parallel_param "-j1")
     elseif("${Z_VCPKG_CMAKE_GENERATOR}" STREQUAL "FASTBuild")
-        vcpkg_list(SET build_param "-verbose")
-        vcpkg_list(SET no_parallel_param "-j1")
+        vcpkg_list(SET build_param -dist)
+        vcpkg_list(SET no_parallel_param -j1)
     elseif("${Z_VCPKG_CMAKE_GENERATOR}" MATCHES "^Visual Studio")
         vcpkg_list(SET build_param
             "/p:VCPkgLocalAppDataDisabled=true"
