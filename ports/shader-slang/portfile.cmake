@@ -44,9 +44,9 @@ vcpkg_copy_pdbs()
 
 vcpkg_fixup_pkgconfig()
 if (VCPKG_TARGET_IS_WINDOWS)
-	vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH cmake)
+	vcpkg_cmake_config_fixup(PACKAGE_NAME shader-slang CONFIG_PATH cmake)
 else()
-	vcpkg_cmake_config_fixup(PACKAGE_NAME slang CONFIG_PATH lib/cmake/slang)
+	vcpkg_cmake_config_fixup(PACKAGE_NAME shader-slang CONFIG_PATH lib/cmake/shader-slang)
 endif()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
