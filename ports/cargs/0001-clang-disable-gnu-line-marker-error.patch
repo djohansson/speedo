@@ -1,0 +1,23 @@
+From 56337efc1819a54f89de4cf16ddf0e9ea2e673db Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Mon, 23 Mar 2026 19:30:00 +0100
+Subject: [PATCH] clang: ignore gnu line marker warning under -Werror
+
+---
+ cmake/EnableWarnings.cmake | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/cmake/EnableWarnings.cmake b/cmake/EnableWarnings.cmake
+index 9fe5f00..d710895 100644
+--- a/cmake/EnableWarnings.cmake
++++ b/cmake/EnableWarnings.cmake
+@@ -10,6 +10,7 @@ function(enable_warnings target)
+     target_compile_options(${target} PRIVATE -Wall)
+     target_compile_options(${target} PRIVATE -Wextra)
+     target_compile_options(${target} PRIVATE -Wpedantic)
++    target_compile_options(${target} PRIVATE -Wno-gnu-line-marker)
+     target_compile_options(${target} PRIVATE -Wno-gnu-zero-variadic-macro-arguments)
+   elseif("${CMAKE_C_COMPILER_ID}" STREQUAL "GNU")
+     target_compile_options(${target} PRIVATE -Wall)
+-- 
+2.50.0.windows.1
