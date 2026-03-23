@@ -94,7 +94,7 @@ $CMakePresets = [ordered] @{
 				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
 				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
 				VCPKG_INSTALLED_DIR = "`${sourceDir}/build/install"
-				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions --debug --no-print-usage'
+				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--debug;--no-print-usage'
 				VCPKG_DISABLE_COMPILER_TRACKING = 'ON'
 				#VCPKG_KEEP_ENV_VARS = '' # dont use: https://github.com/microsoft/vcpkg/discussions/42064
 			}
