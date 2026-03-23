@@ -67,11 +67,11 @@ function Get-HostCompiler
 	}
 	elseif ($IsMacOS)
 	{
-		$Compiler = "AppleClang"
+		$Compiler = "release" # use default native compiler
 	}
 	elseif ($IsLinux)
 	{
-		$Compiler = "gcc"
+		$Compiler = "release" # use default native compiler
 	}
 	else
 	{
