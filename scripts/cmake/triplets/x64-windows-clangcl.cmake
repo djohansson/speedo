@@ -15,3 +15,4 @@ set(
 		FASTBUILD_CACHE_MODE
 )
 set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXX_ENABLE_STATIC=ON)
+set(VCPKG_DISABLE_COMPILER_TRACKING ON) # Cmake compiler detection detects our locally compiled clang-cl if present. we dont want that, so we disable compiler tracking for this triplet. 
