@@ -17,32 +17,28 @@
     {
       "name": "vcpkg-tool-fastbuild",
       "host": true
+    },
+    {
+      "name": "llvm",
+      "default-features": false,
+      "features": [
+        "clang",
+        "clang-tools-extra",
+        "default-targets",
+        "libcxx",
+        "lld"
+      ],
+      "host": true
+    },
+    {
+      "name": "llvm",
+      "default-features": false,
+      "features": [ "libcxxabi" ],
+      "platform": "!windows",
+      "host": true
     }
   ],
   "features": {
-    "toolchain": {
-      "description": "LLVM Toolchain",
-      "dependencies": [
-        {
-          "name": "llvm",
-          "default-features": false,
-          "features": [
-            "clang",
-            "clang-tools-extra",
-            "compiler-rt",
-            "default-targets",
-            "libcxx",
-            "lld"
-          ]
-        },
-        {
-          "name": "llvm",
-          "default-features": false,
-          "features": [ "libcxxabi" ],
-          "platform": "!windows"
-        }
-      ]
-    },
     "common": {
       "description": "Common Dependencies for both Client and Server",
       "dependencies": [
@@ -73,6 +69,7 @@
       "dependencies": [
         {
           "name": "speedo",
+          "default-features": false,
           "features": [ "common" ]
         },
         "cgltf",
@@ -112,10 +109,15 @@
       "dependencies": [
         {
           "name": "speedo",
+          "default-features": false,
           "features": [ "common" ]
         }
       ]
     }
   },
+  "default-features": [
+    "client",
+    "server"
+  ],
   "builtin-baseline": "62159a45e18f3a9ac0548628dcaf74fcb60c6ff9"
 }

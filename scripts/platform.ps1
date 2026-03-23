@@ -88,13 +88,15 @@ function Get-HostTuplet
 
 function Get-HostTriplet
 {
-	# Compiler is left out when targeting the host system, as vcpkg will automatically select the correct compiler.
-	# Use release configuration for the toolchain, as debug builds of the toolchain are slow to build and not needed.
-	return "$(Get-HostTuplet)-release"
+	return "$(Get-HostTuplet)-$(Get-HostCompiler)"
+}
+
+function Get-TargetTuplet
+{
+	return "$(Get-HostTuplet)"
 }
 
 function Get-TargetTriplet
 {
-	# for now, we assume that the target compiler is clang for all platforms, but this may need to be adjusted in the future
-	return "$(Get-HostTuplet)-clang"
+	return "$(Get-TargetTuplet)-clang"
 }

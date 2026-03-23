@@ -53,36 +53,27 @@ $CMakePresets = [ordered] @{
 	version = 8
 	configurePresets = @(
 		[ordered] @{
-			name = 'fastbuild-vcpkg'
+			name = 'vcpkg'
+			hidden = $true
 			generator = 'FASTBuild'
-			description = 'Configure with vcpkg toolchain and generate FASTBuild project files for all configurations'
-			binaryDir = '${sourceDir}/build/staging/${presetName}'
+			description = 'Configure with vcpkg toolchain and generate project files for all configurations'
 			toolchainFile = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-			installDir = '${sourceDir}/build/install/${presetName}'
 			cacheVariables = [ordered] @{
-				CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
-				CMAKE_GENERATOR = 'FASTBuild'
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
-				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
 				CMAKE_FASTBUILD_VERBOSE_GENERATOR = 'ON'
 				CMAKE_FASTBUILD_TRACK_BYPRODUCTS_AS_OUTPUTS = 'OFF'
-				CMAKE_FASTBUILD_CLANG_REWRITE_INCLUDES = 'OFF' # disabled due to  issues with some c-libraries, cargs for example.
+				CMAKE_FASTBUILD_CLANG_REWRITE_INCLUDES = 'OFF' # disabled due to issues with some c-libraries, cargs for example.
 				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE = 'ON'
 				CMAKE_FASTBUILD_USE_RELATIVE_PATHS = 'ON'
-				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
-				VCPKG_MANIFEST_DIR = '${sourceDir}'
-				VCPKG_MANIFEST_FEATURES = 'client;server'
-				VCPKG_INSTALLED_DIR = '${sourceDir}/build/packages'
-				VCPKG_HOST_TRIPLET = '${presetName}'
-				VCPKG_TARGET_TRIPLET = '${presetName}'
 				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
+				VCPKG_MANIFEST_DIR = '${sourceDir}'
 				VCPKG_VERBOSE = 'ON'
 			}
 			environment = [ordered] @{
-				TOOLS_ROOT = '${sourceDir}/build/packages/${presetName}/tools'
-				VCPKG_ROOT = "`$penv{VCPKG_ROOT}"
-				FASTBUILD_TEMP_PATH = "${sourceDir}/build/temp" # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
+				VCPKG_ROOT = "$env:VCPKG_ROOT"
+				VCPKG_KEEP_ENV_VARS = 'FASTBUILD_TEMP_PATH;FASTBUILD_BROKERAGE_PATH;FASTBUILD_WORKERS;FASTBUILD_CACHE_PATH;FASTBUILD_CACHE_PATH_MOUNT_POINT;FASTBUILD_CACHE_MODE'
+				FASTBUILD_TEMP_PATH = '${sourceDir}/build/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
 				FASTBUILD_BROKERAGE_PATH = "`$penv{FASTBUILD_BROKERAGE_PATH}"
 				FASTBUILD_WORKERS = "`$penv{FASTBUILD_WORKERS}"
 				FASTBUILD_CACHE_PATH = "`$penv{FASTBUILD_CACHE_PATH}"
@@ -92,16 +83,44 @@ $CMakePresets = [ordered] @{
 			warnings = [ordered] @{
 				dev = $false
 			}
-			hidden = $true
 		}
 		[ordered] @{
-			name = 'x64-windows-clang'
-			inherits = 'fastbuild-vcpkg'
+			name = 'build'
+			hidden = $true
+			inherits = 'vcpkg'
+			binaryDir = "`${sourceDir}/build/cmake"
+			installDir = "`${sourceDir}/build/install"
+			cacheVariables = [ordered] @{
+				CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
+				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
+				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
+				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
+				VCPKG_INSTALLED_DIR = "`${sourceDir}/build/install"
+			}
 			environment = [ordered] @{
-				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-windows-release'
-				PATH = "`$penv{PATH};`$env{LLVM_ROOT}/bin;`$env{LLVM_ROOT}/tools/llvm;`$env{WINDOWS_SDK}/bin/`$env{WINDOWS_SDK_VERSION}/x64"
-				VISUAL_STUDIO_PATH = "`$penv{VISUAL_STUDIO_PATH}"
-				VISUAL_STUDIO_VCTOOLS_VERSION = "`$penv{VISUAL_STUDIO_VCTOOLS_VERSION}"
+				LLVM_ROOT = "`${sourceDir}/build/install/$(Get-HostTriplet)"
+				LLVM_TOOLS_BINARY_DIR = "`${sourceDir}/build/install/$(Get-HostTriplet)/tools/llvm"
+			}
+		}
+	)
+	buildPresets = @()
+}
+
+if ($IsWindows)
+{
+	$VSPath = $env:VISUAL_STUDIO_PATH
+	$VSPath = $VSPath -replace '\\', '/'
+	$CMakePresets.configurePresets += @(
+		[ordered] @{
+			name = "build-$(Get-TargetTuplet)"
+			inherits = 'build'
+			cacheVariables = [ordered] @{
+				VCPKG_VISUAL_STUDIO_PATH = "$VSPath"
+			}
+			environment = [ordered] @{
+				PATH = "`$penv{PATH};`$env{WINDOWS_SDK}/bin/`$env{WINDOWS_SDK_VERSION}/$(Get-HostArchitecture)"
+				# LLVM_ROOT = "$VSPath/VC/Tools/Llvm/$(Get-HostArchitecture)/lib/clang/19"
+				# LLVM_TOOLS_BINARY_DIR = "$VSPath/VC/Tools/Llvm/$(Get-HostArchitecture)/bin"
 			}
 			condition = [ordered] @{
 				type = 'equals'
@@ -109,16 +128,23 @@ $CMakePresets = [ordered] @{
 				rhs = 'Windows'
 			}
 		}
+	)
+}
+elseif ($IsMacOS)
+{
+	$CMakePresets.configurePresets += @(
 		[ordered] @{
-			name = 'arm64-osx-clang'
-			inherits = 'fastbuild-vcpkg'
-			environment = [ordered] @{
-				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-osx-release'
-				DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
-			}
+			name = "build-$(Get-TargetTuplet)"
+			inherits = 'build'
 			cacheVariables = [ordered] @{
-				CMAKE_APPLE_SILICON_PROCESSOR = 'arm64'
-				CMAKE_OSX_SYSROOT = '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'
+				CMAKE_APPLE_SILICON_PROCESSOR = "$(Get-HostArchitecture)"
+				CMAKE_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
+				VCPKG_OSX_ARCHITECTURES = "$(Get-HostArchitecture)"
+				VCPKG_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
+				VCPKG_FIXUP_ELF_RPATH = 'ON'
+			}
+			environment = [ordered] @{
+				DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 			}
 			condition = [ordered] @{
 				type = 'equals'
@@ -126,128 +152,60 @@ $CMakePresets = [ordered] @{
 				rhs = 'Darwin'
 			}
 		}
-		[ordered] @{
-			name = 'arm64-linux-clang'
-			inherits = 'fastbuild-vcpkg'
-			environment = [ordered] @{
-				LLVM_ROOT = '${sourceDir}/build/toolchain/arm64-linux-release'
-				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
-			}
-			condition = [ordered] @{
-				type = 'equals'
-				lhs = '${hostSystemName}'
-				rhs = 'Linux'
-			}
-		}
-		[ordered] @{
-			name = 'x64-linux-clang'
-			inherits = 'fastbuild-vcpkg'
-			environment = [ordered] @{
-				LLVM_ROOT = '${sourceDir}/build/toolchain/x64-linux-release'
-				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
-			}
-			condition = [ordered] @{
-				type = 'equals'
-				lhs = '${hostSystemName}'
-				rhs = 'Linux'
-			}
-		}
 	)
-	buildPresets = @(
+}
+elseif ($IsLinux)
+{
+	$CMakePresets.configurePresets += @(
 		[ordered] @{
-			name = 'x64-windows'
-			configurePreset = 'x64-windows-clang'
-			hidden = $true
-		}
-		[ordered] @{
-			name = 'x64-windows-debug'
-			configurePreset = 'x64-windows-clang'
-			configuration = 'debug'
-		}
-		[ordered] @{
-			name = 'x64-windows-release'
-			configurePreset = 'x64-windows-clang'
-			configuration = 'release'
-		}
-		[ordered] @{
-			name = 'x64-windows-profile'
-			inherits = 'x64-windows-release'
-			configuration = 'profile'
-		}
-		[ordered] @{
-			name = 'arm64-osx'
-			configurePreset = 'arm64-osx-clang'
-			hidden = $true
-		}
-		[ordered] @{
-			name = 'arm64-osx-debug'
-			configurePreset = 'arm64-osx-clang'
-			configuration = 'debug'
-		}
-		[ordered] @{
-			name = 'arm64-osx-release'
-			configurePreset = 'arm64-osx-clang'
-			configuration = 'release'
-		}
-		[ordered] @{
-			name = 'arm64-osx-profile'
-			inherits = 'arm64-osx-release'
-			configuration = 'profile'
-		}
-		[ordered] @{
-			name = 'arm64-linux'
-			configurePreset = 'arm64-linux-clang'
-			hidden = $true
-		}
-		[ordered] @{
-			name = 'arm64-linux-debug'
-			configurePreset = 'arm64-linux-clang'
-			configuration = 'debug'
-		}
-		[ordered] @{
-			name = 'arm64-linux-release'
-			configurePreset = 'arm64-linux-clang'
-			configuration = 'release'
-		}
-		[ordered] @{
-			name = 'arm64-linux-profile'
-			inherits = 'arm64-linux-release'
-			configuration = 'profile'
-		}
-		[ordered] @{
-			name = 'x64-linux'
-			configurePreset = 'x64-linux-clang'
-			hidden = $true
-		}
-		[ordered] @{
-			name = 'x64-linux-debug'
-			configurePreset = 'x64-linux-clang'
-			configuration = 'debug'
-		}
-		[ordered] @{
-			name = 'x64-linux-release'
-			configurePreset = 'x64-linux-clang'
-			configuration = 'release'
-		}
-		[ordered] @{
-			name = 'x64-linux-profile'
-			inherits = 'x64-linux-release'
-			configuration = 'profile'
+			name = "build-$(Get-TargetTuplet)"
+			inherits = 'build'
+			environment = [ordered] @{
+				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
+			}
+			condition = [ordered] @{
+				type = 'equals'
+				lhs = '${hostSystemName}'
+				rhs = 'Linux'
+			}
 		}
 	)
 }
+
+$CMakePresets.buildPresets += @(
+	[ordered] @{
+		name = "build-$(Get-TargetTuplet)"
+		hidden = $true
+		configurePreset = "build-$(Get-TargetTuplet)"
+	}
+	[ordered] @{
+		name = "$(Get-TargetTuplet)-debug"
+		inherits = "build-$(Get-TargetTuplet)"
+		configuration = 'debug'
+	}
+	[ordered] @{
+		name = "$(Get-TargetTuplet)-release"
+		inherits = "build-$(Get-TargetTuplet)"
+		configuration = 'release'
+	}
+	[ordered] @{
+		name = "$(Get-TargetTuplet)-profile"
+		inherits = "$(Get-TargetTuplet)-release"
+		configuration = 'profile'
+	}
+)
+
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 
 $VSCodeSettings = [ordered] @{
-	'clangd.path' = '${workspaceFolder}/build/toolchain/x64-windows-release/tools/llvm/clangd.exe'
+	'clangd.path' = "`${workspaceFolder}/build/host-toolchain-install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
 	'clangd.arguments' = @(
 		'-log=verbose',
 		'-pretty',
 		'--background-index',
-		'--compile-commands-dir=${workspaceFolder}/build/staging/x64-windows-clang'
+		"--compile-commands-dir=`${workspaceFolder}/build/target-toolchain-install/$(Get-TargetTuplet)-debug"
 	)
-	'cmake.cmakePath' = '${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-windows/cmake-4.2.3-windows-x86_64/bin/cmake.exe'
+	'cmake.cmakePath' = "`${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-$(Get-HostOS)/cmake-4.2.3-$($IsWindows ? 'windows-x86_64' : ($IsMacOS ? 'macos-arm64' : "linux-$(Get-HostArchitecture)"))/bin/cmake$($IsWindows ? '.exe' : '')"
 }
-$VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
 
-Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install --vcpkg-root $env:VCPKG_ROOT --x-install-root=$PSScriptRoot/build/toolchain --overlay-triplets=$PSScriptRoot/scripts/cmake/triplets --triplet $Env:VCPKG_HOST_TRIPLET --x-feature=toolchain --x-abi-tools-use-exact-versions --no-print-usage")
+$VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force

@@ -23,13 +23,16 @@ message("SPEEDO - VERSION ${SPEEDO_VERSION_STRING}")
 
 ###############################################################################
 
-set(TOOLS_ROOT $ENV{TOOLS_ROOT})
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	set(MINJECT_EXECUTABLE minject.exe)
+endif()
 
 ###############################################################################
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	set(MINJECT_EXECUTABLE ${TOOLS_ROOT}/mimalloc/minject.exe)
-endif()
+# option(BUILD_DEPENDENCIES "Build dependencies" ON)
+# if(BUILD_DEPENDENCIES)
+#   list(APPEND VCPKG_MANIFEST_FEATURES client server)
+# endif()
 
 ###############################################################################
 

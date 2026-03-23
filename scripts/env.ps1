@@ -141,7 +141,6 @@ function Initialize-ToolchainEnv
 	}
 
 	$toolchainRoot = "$PSScriptRoot/../build/toolchain/$TargetTriplet"
-	$Env:LLVM_ROOT = $toolchainRoot
 
 	#Write-Host "Adding toolchain dylib/dll/so:s..."
 	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 
@@ -153,7 +152,6 @@ function Initialize-ToolchainEnv
 		$dynlibPath = "$toolchainRoot/lib"
 	}
 	$toolsPath = "$toolchainRoot/tools/llvm"
-	$Env:LLVM_TOOLS_PATH = $toolchainRoot
 	
 	#Write-Host "Adding $dynlibPath"
 	if (Test-Path $dynlibPath)
