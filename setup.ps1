@@ -96,6 +96,8 @@ $CMakePresets = [ordered] @{
 				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
 				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
 				VCPKG_INSTALLED_DIR = "`${sourceDir}/build/install"
+				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions --debug --no-print-usage'
+				VCPKG_DISABLE_COMPILER_TRACKING = 'ON'
 			}
 			environment = [ordered] @{
 				LLVM_ROOT = "`${sourceDir}/build/install/$(Get-HostTriplet)"
@@ -209,3 +211,19 @@ $VSCodeSettings = [ordered] @{
 }
 
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
+
+$env:LLVM_ROOT = "$PSScriptRoot/build/install/$(Get-HostTriplet)"
+$env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/build/install/$(Get-HostTriplet)/tools/llvm"
+
+$VcpkgOptions = @(
+	"--vcpkg-root $env:VCPKG_ROOT"
+	"--x-install-root=$PSScriptRoot/build/install"
+	"--overlay-triplets=$PSScriptRoot/scripts/cmake/triplets"
+	"--host-triplet $(Get-HostTriplet)"
+	"--triplet=$(Get-TargetTriplet)"
+	"--x-abi-tools-use-exact-versions"
+	"--debug"
+	"--no-print-usage"
+) -join ' '
+
+Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install $VcpkgOptions")
