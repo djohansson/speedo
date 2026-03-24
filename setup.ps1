@@ -59,14 +59,16 @@ $CMakePresets = [ordered] @{
 			toolchainFile = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 			cacheVariables = [ordered] @{
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
-				CMAKE_FASTBUILD_VERBOSE_GENERATOR = 'ON'
-				CMAKE_FASTBUILD_ALLOW_RESPONSE_FILES = 'ON'
+				#CMAKE_FASTBUILD_VERBOSE_GENERATOR = 'ON' # docs say this var exists, but we get unused variable warnings with it defined.
+				#CMAKE_FASTBUILD_ALLOW_RESPONSE_FILES = 'ON' # docs say this var exists, but we get unused variable warnings with it defined.
 				CMAKE_FASTBUILD_FORCE_RESPONSE_FILE = 'OFF'
-				CMAKE_FASTBUILD_TRACK_BYPRODUCTS_AS_OUTPUTS = 'OFF'
+				#CMAKE_FASTBUILD_TRACK_BYPRODUCTS_AS_OUTPUTS = 'OFF' # docs say this var exists, but we get unused variable warnings with it defined.
 				CMAKE_FASTBUILD_CLANG_REWRITE_INCLUDES = 'OFF' # disabled due to issues with some c-libraries, cargs for example.
 				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE = 'ON'
 				CMAKE_FASTBUILD_USE_RELATIVE_PATHS = 'ON'
+				#CMAKE_TOOLCHAIN_FILE = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" # should be redundant with toolchainFile
+				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake' # needs to be duplicated here to be work in the vscode cmake extension
 				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
 				VCPKG_MANIFEST_DIR = '${sourceDir}'
 				VCPKG_VERBOSE = 'ON'
@@ -85,19 +87,19 @@ $CMakePresets = [ordered] @{
 			}
 		}
 		[ordered] @{
-			name = 'build'
+			name = 'llvm-build'
 			hidden = $true
 			inherits = 'vcpkg'
-			binaryDir = "`${sourceDir}/build/cmake"
+			binaryDir = "`${sourceDir}/build"
 			installDir = "`${sourceDir}/build/install"
 			cacheVariables = [ordered] @{
-				CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
-				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
+				#CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
+				#CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
 				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
 				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
 				VCPKG_INSTALLED_DIR = "`${sourceDir}/build/install"
-				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage'
-				VCPKG_DISABLE_COMPILER_TRACKING = 'ON'
+				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage' #;--debug'
+				#VCPKG_DISABLE_COMPILER_TRACKING = 'ON' # set in triplet
 				#VCPKG_KEEP_ENV_VARS = '' # dont use: https://github.com/microsoft/vcpkg/discussions/42064
 			}
 			environment = [ordered] @{
@@ -113,13 +115,10 @@ if ($IsWindows)
 {
 	$CMakePresets.configurePresets += @(
 		[ordered] @{
-			name = "build-$(Get-TargetTuplet)"
-			inherits = 'build'
-			cacheVariables = [ordered] @{
-				VCPKG_VISUAL_STUDIO_PATH = "$VSPath"
-			}
+			name = "llvm-build-$(Get-TargetTuplet)"
+			inherits = 'llvm-build'
 			environment = [ordered] @{
-				PATH = "`$penv{PATH};`$env{LLVM_ROOT}/bin"
+				PATH = "`$env{LLVM_ROOT}/bin`;`${sourceDir}/build/install/$(Get-TargetTriplet)/tools/mimalloc"
 				VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
 				VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
 				WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
@@ -137,8 +136,8 @@ elseif ($IsMacOS)
 {
 	$CMakePresets.configurePresets += @(
 		[ordered] @{
-			name = "build-$(Get-TargetTuplet)"
-			inherits = 'build'
+			name = "llvm-build-$(Get-TargetTuplet)"
+			inherits = 'llvm-build'
 			cacheVariables = [ordered] @{
 				CMAKE_APPLE_SILICON_PROCESSOR = "$(Get-HostArchitecture)"
 				CMAKE_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
@@ -161,8 +160,8 @@ elseif ($IsLinux)
 {
 	$CMakePresets.configurePresets += @(
 		[ordered] @{
-			name = "build-$(Get-TargetTuplet)"
-			inherits = 'build'
+			name = "llvm-build-$(Get-TargetTuplet)"
+			inherits = 'llvm-build'
 			environment = [ordered] @{
 				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 			}
@@ -177,18 +176,18 @@ elseif ($IsLinux)
 
 $CMakePresets.buildPresets += @(
 	[ordered] @{
-		name = "build-$(Get-TargetTuplet)"
+		name = "llvm-build-$(Get-TargetTuplet)"
 		hidden = $true
-		configurePreset = "build-$(Get-TargetTuplet)"
+		configurePreset = "llvm-build-$(Get-TargetTuplet)"
 	}
 	[ordered] @{
 		name = "$(Get-TargetTuplet)-debug"
-		inherits = "build-$(Get-TargetTuplet)"
+		inherits = "llvm-build-$(Get-TargetTuplet)"
 		configuration = 'debug'
 	}
 	[ordered] @{
 		name = "$(Get-TargetTuplet)-release"
-		inherits = "build-$(Get-TargetTuplet)"
+		inherits = "llvm-build-$(Get-TargetTuplet)"
 		configuration = 'release'
 	}
 	[ordered] @{
