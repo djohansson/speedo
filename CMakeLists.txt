@@ -23,12 +23,6 @@ message("SPEEDO - VERSION ${SPEEDO_VERSION_STRING}")
 
 ###############################################################################
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	set(MINJECT_EXECUTABLE minject.exe)
-endif()
-
-###############################################################################
-
 # option(BUILD_DEPENDENCIES "Build dependencies" ON)
 # if(BUILD_DEPENDENCIES)
 #   list(APPEND VCPKG_MANIFEST_FEATURES client server)
@@ -52,6 +46,10 @@ find_package(slang CONFIG REQUIRED)
 find_package(Cargs CONFIG REQUIRED)
 find_package(mimalloc CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
+
+if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
+	find_program(MINJECT NAMES minject.exe minject32.exe HINTS ENV PATH REQUIRED)
+endif()
 
 ###############################################################################
 
@@ -228,10 +226,10 @@ target_link_libraries(
 		serverlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
 	add_custom_command(
 		TARGET server POST_BUILD
-		COMMAND ${MINJECT_EXECUTABLE} -v -f -i $<$<CONFIG:debug>:--postfix=secure-debug> $<TARGET_FILE:server>
+		COMMAND ${MINJECT} -v -f -i $<$<CONFIG:debug>:--postfix=secure-debug> $<TARGET_FILE:server>
 		COMMAND_EXPAND_LISTS
 		VERBATIM
 	)
@@ -264,10 +262,10 @@ target_link_libraries(
 		clientlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
 	add_custom_command(
 		TARGET client POST_BUILD
-		COMMAND ${MINJECT_EXECUTABLE} -v -f -i $<$<CONFIG:debug>:--postfix=secure-debug> $<TARGET_FILE:client>
+		COMMAND ${MINJECT} -v -f -i $<$<CONFIG:debug>:--postfix=secure-debug> $<TARGET_FILE:client>
 		COMMAND_EXPAND_LISTS
 		VERBATIM
 	)
