@@ -1,8 +1,8 @@
 vcpkg_from_github(
 	OUT_SOURCE_PATH SOURCE_PATH
 	REPO djohansson/slang
-	REF fda9068177d1386c079498ceea342af20190cc12
-	SHA512 c819c8ec0824df38bb8953208435313b233b833774611e0d22b8267558d4c0b76236b1b9efcaf339756355e1c503be246b35671b69f25e7837a14414b1cc5985
+	REF fdfc25ca9b55e7f98074210974cf1c2d43da302b
+	SHA512 a78ca2d5598c968d2a3173aab28d3c5528d6b9e90416029869eea508654adc72eeeff3d845c618e45be3d002a1020be626356306a5031421e2df6662e83fb2bf
 	# PATCHES
 	# 	0001-fix-fastbuild-duplicate-neural-shader-targets.patch
 	# 	0002-fix-fastbuild-missing-capability-defs-target.patch
