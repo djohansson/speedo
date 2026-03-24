@@ -109,8 +109,6 @@ $CMakePresets = [ordered] @{
 
 if ($IsWindows)
 {
-	$VSPath = $env:VISUAL_STUDIO_PATH
-	$VSPath = $VSPath -replace '\\', '/'
 	$CMakePresets.configurePresets += @(
 		[ordered] @{
 			name = "build-$(Get-TargetTuplet)"
@@ -119,7 +117,11 @@ if ($IsWindows)
 				VCPKG_VISUAL_STUDIO_PATH = "$VSPath"
 			}
 			environment = [ordered] @{
-				PATH = "`$penv{PATH};`$env{WINDOWS_SDK}/bin/`$env{WINDOWS_SDK_VERSION}/$(Get-HostArchitecture)"
+				PATH = "`$penv{PATH};`$env{LLVM_ROOT}/bin"
+				VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
+				VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
+				WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
+				WINDOWS_SDK_VERSION = "$env:WINDOWS_SDK_VERSION"
 			}
 			condition = [ordered] @{
 				type = 'equals'
