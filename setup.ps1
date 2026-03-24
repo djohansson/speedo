@@ -201,12 +201,12 @@ $CMakePresets.buildPresets += @(
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 
 $VSCodeSettings = [ordered] @{
-	'clangd.path' = "`${workspaceFolder}/build/host-toolchain-install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
+	'clangd.path' = "`${workspaceFolder}/build/install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
 	'clangd.arguments' = @(
 		'-log=verbose',
 		'-pretty',
 		'--background-index',
-		"--compile-commands-dir=`${workspaceFolder}/build/target-toolchain-install/$(Get-TargetTuplet)-debug"
+		"--compile-commands-dir=`${workspaceFolder}/build/install/$(Get-TargetTuplet)-debug"
 	)
 	'cmake.cmakePath' = "`${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-$(Get-HostOS)/cmake-4.2.3-$($IsWindows ? 'windows-x86_64' : ($IsMacOS ? 'macos-arm64' : "linux-$(Get-HostArchitecture)"))/bin/cmake$($IsWindows ? '.exe' : '')"
 }
