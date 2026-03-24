@@ -289,6 +289,7 @@ public:
 };
 #endif // #if __cpp_lib_flat_map >= 202207L
 #if __cpp_lib_flat_set >= 202207L
+template <typename T>
 using FlatSet = std::flat_set<T, T>;
 #else
 template <typename Key, typename ContainerT = std::vector<Key>>
@@ -344,12 +345,14 @@ public:
 	{
 		ENSURE(range.first < range.second);
 
+	#if __cpp_lib_flat_set < 202207L
 		if constexpr (std::is_same_v<container_type, FlatMap<T, T>>)
 		{
 			auto currentCapacity = this->capacity();
 			if (currentCapacity == this->size())
 				this->reserve(currentCapacity + 1);
 		}
+	#endif
 
 		auto [low, high] = range;
 
