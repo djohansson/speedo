@@ -5,39 +5,26 @@ include_guard()
 message(STATUS "HOST_TRIPLET: ${HOST_TRIPLET}")
 message(STATUS "TARGET_TRIPLET: ${TARGET_TRIPLET}")
 
-if(HOST_TRIPLET AND TARGET_TRIPLET)
+if (DEFINED ENV{LLVM_ROOT} AND DEFINED ENV{LLVM_TOOLS_BINARY_DIR})
+	set(LLVM_ROOT $ENV{LLVM_ROOT} CACHE PATH "LLVM root path" FORCE)
+	set(LLVM_TOOLS_BINARY_DIR $ENV{LLVM_TOOLS_BINARY_DIR} CACHE PATH "LLVM tools binary directory" FORCE)
+	message(STATUS "LLVM_ROOT (env): ${LLVM_ROOT}")
+	message(STATUS "LLVM_TOOLS_BINARY_DIR (env): ${LLVM_TOOLS_BINARY_DIR}")
+elseif(DEFINED HOST_TRIPLET AND DEFINED TARGET_TRIPLET)
 	if (HOST_TRIPLET STREQUAL TARGET_TRIPLET)
 		set(LLVM_ROOT ${CURRENT_INSTALLED_DIR} CACHE PATH "LLVM root path" FORCE)
 		set(LLVM_TOOLS_BINARY_DIR ${CURRENT_INSTALLED_DIR}/tools/llvm CACHE PATH "LLVM tools binary directory" FORCE)
-
-		message(STATUS "LLVM_ROOT (host-compile): ${LLVM_ROOT}")
-		message(STATUS "LLVM_TOOLS_BINARY_DIR (host-compile): ${LLVM_TOOLS_BINARY_DIR}")
+		message(STATUS "LLVM_ROOT (host=target): ${LLVM_ROOT}")
+		message(STATUS "LLVM_TOOLS_BINARY_DIR (host=target): ${LLVM_TOOLS_BINARY_DIR}")
 	else()
 		set(LLVM_ROOT ${CURRENT_HOST_INSTALLED_DIR} CACHE PATH "LLVM root path" FORCE)
 		set(LLVM_TOOLS_BINARY_DIR ${CURRENT_HOST_INSTALLED_DIR}/tools/llvm CACHE PATH "LLVM tools binary directory" FORCE)
-
 		message(STATUS "LLVM_ROOT (cross-compile): ${LLVM_ROOT}")
 		message(STATUS "LLVM_TOOLS_BINARY_DIR (cross-compile): ${LLVM_TOOLS_BINARY_DIR}")
 	endif()
 else()
-	set(LLVM_ROOT $ENV{LLVM_ROOT} CACHE PATH "LLVM root path" FORCE)
-	set(LLVM_TOOLS_BINARY_DIR $ENV{LLVM_TOOLS_BINARY_DIR} CACHE PATH "LLVM tools binary directory" FORCE)
-	
-	message(STATUS "LLVM_ROOT: ${LLVM_ROOT}")
-	message(STATUS "LLVM_TOOLS_BINARY_DIR: ${LLVM_TOOLS_BINARY_DIR}")
+	message(FATAL_ERROR "LLVM_ROOT and LLVM_TOOLS_BINARY_DIR cannot be determined.")
 endif()
-
-if(NOT LLVM_ROOT)
-	message(FATAL_ERROR "LLVM_ROOT is empty.")
-endif()
-
-# find_program(
-# 	FASTBUILD_PATH
-# 	NAMES fastbuild fbuild FBuild FBuild.exe
-# 	PATH_SUFFIXES fastbuild
-# )
-
-#message(STATUS "FASTBUILD_PATH: ${FASTBUILD_PATH}")
 
 # todo: cross-compiling support. this is currently not used.
 #set(TARGET_ARCHITECTURE $ENV{TARGET_ARCHITECTURE} CACHE PATH "Target architecture")
@@ -112,7 +99,6 @@ set(CMAKE_OBJDUMP ${LLVM_TOOLS_BINARY_DIR}/llvm-objdump${CMAKE_EXECUTABLE_SUFFIX
 set(CMAKE_RANLIB ${LLVM_TOOLS_BINARY_DIR}/llvm-ranlib${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to ranlib")
 # don't use CMAKE_LINKER, its apparently an "implementation detail" in the horrors of CMake
 #set(CMAKE_LINKER ${LLVM_TOOLS_BINARY_DIR}/lld${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to linker")
-#set(CMAKE_MAKE_PROGRAM ${FASTBUILD_PATH} CACHE FILEPATH "Path to build tool")
 
 set(CMAKE_LINKER_TYPE LLD CACHE INTERNAL "")
 set(CMAKE_C_USING_LINKER_LLD "-fuse-ld=lld" CACHE INTERNAL "")
