@@ -3,8 +3,6 @@ set(VCPKG_TARGET_ARCHITECTURE x64)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE dynamic)
 
-set(VCPKG_BUILD_TYPE release)
-
 set(
 	VCPKG_ENV_PASSTHROUGH_UNTRACKED
 		FASTBUILD_TEMP_PATH
@@ -14,6 +12,17 @@ set(
 		FASTBUILD_CACHE_PATH_MOUNT_POINT
 		FASTBUILD_CACHE_MODE
 )
+
 set(VCPKG_VISUAL_STUDIO_PATH "$ENV{VISUAL_STUDIO_PATH}")
-set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DCMAKE_C_COMPILER=clang-cl -DCMAKE_CXX_COMPILER=clang-cl -DLIBCXX_ENABLE_SHARED=OFF -DLIBCXX_ENABLE_STATIC=ON)
-set(VCPKG_DISABLE_COMPILER_TRACKING ON) # Cmake compiler detection detects our locally compiled clang-cl if present. we dont want that, so we disable compiler tracking for this triplet. 
+set(VCPKG_BUILD_TYPE release)
+set(VCPKG_DISABLE_COMPILER_TRACKING ON) # Cmake compiler detection detects our locally compiled clang-cl if present. we dont want that, so we disable compiler tracking for this triplet.
+set(
+	VCPKG_CMAKE_CONFIGURE_OPTIONS_RELEASE
+		-DCMAKE_C_COMPILER=clang-cl
+		-DCMAKE_CXX_COMPILER=clang-cl
+		-DLIBCXX_ENABLE_SHARED=OFF
+		-DLIBCXX_ENABLE_STATIC=ON
+)
+set(VCPKG_C_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3 /clang:-ftlo=thin")
+set(VCPKG_CXX_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3 /clang:-ftlo=thin")
+set(VCPKG_LINKER_FLAGS_RELEASE "/GUARD:CF")
