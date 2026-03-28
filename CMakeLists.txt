@@ -272,3 +272,21 @@ if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_
 endif()
 
 ###############################################################################
+
+install(
+	TARGETS
+		core
+		gfx
+		rhi
+		serverlib
+		clientlib
+		server
+		client
+	EXPORT speedoTargets
+	RUNTIME DESTINATION bin
+	LIBRARY DESTINATION lib
+	ARCHIVE DESTINATION lib
+	INCLUDES DESTINATION include/speedo
+)
+
+###############################################################################

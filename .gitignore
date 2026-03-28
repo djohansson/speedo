@@ -1,6 +1,7 @@
 .speedo/*
 .vs/*
-build*/*
+build/*
+install/*
 .vscode/settings.json
 
 *.fdb

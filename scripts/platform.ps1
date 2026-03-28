@@ -91,12 +91,27 @@ function Get-HostTriplet
 	return "$(Get-HostTuplet)-$(Get-HostCompiler)"
 }
 
+function Get-TargetArchitecture
+{
+	return "$(Get-HostArchitecture)"
+}
+
+function Get-TargetOS
+{
+	return "$(Get-HostOS)"
+}
+
+function Get-TargetCompiler
+{
+	return "clang"
+}
+
 function Get-TargetTuplet
 {
-	return "$(Get-HostTuplet)"
+	return "$(Get-TargetArchitecture)-$(Get-TargetOS)"
 }
 
 function Get-TargetTriplet
 {
-	return "$(Get-TargetTuplet)-clang"
+	return "$(Get-TargetTuplet)-$(Get-TargetCompiler)"
 }

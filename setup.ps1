@@ -48,6 +48,8 @@ $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 
 Read-EnvFile "$PSScriptRoot/.env.json"
 
+$Configurations = @('debug', 'release', 'profile')
+
 $CMakePresets = [ordered] @{
 	version = 8
 	configurePresets = @(
@@ -59,6 +61,7 @@ $CMakePresets = [ordered] @{
 			toolchainFile = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 			cacheVariables = [ordered] @{
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
+				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = 'profile;release'
 				#CMAKE_FASTBUILD_VERBOSE_GENERATOR = 'ON' # docs say this var exists, but we get unused variable warnings with it defined.
 				#CMAKE_FASTBUILD_ALLOW_RESPONSE_FILES = 'ON' # docs say this var exists, but we get unused variable warnings with it defined.
 				CMAKE_FASTBUILD_FORCE_RESPONSE_FILE = 'OFF'
@@ -75,7 +78,7 @@ $CMakePresets = [ordered] @{
 			}
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
-				FASTBUILD_TEMP_PATH = '${sourceDir}/build/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
+				FASTBUILD_TEMP_PATH = '${sourceDir}/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
 				FASTBUILD_BROKERAGE_PATH = "`$penv{FASTBUILD_BROKERAGE_PATH}"
 				FASTBUILD_WORKERS = "`$penv{FASTBUILD_WORKERS}"
 				FASTBUILD_CACHE_PATH = "`$penv{FASTBUILD_CACHE_PATH}"
@@ -90,21 +93,16 @@ $CMakePresets = [ordered] @{
 			name = 'llvm-build'
 			hidden = $true
 			inherits = 'vcpkg'
-			binaryDir = "`${sourceDir}/build"
-			installDir = "`${sourceDir}/build/install"
+			binaryDir = "`${sourceDir}/build/`${presetName}"
+			installDir = "`${sourceDir}/install/$(Get-TargetTriplet)"
 			cacheVariables = [ordered] @{
-				#CMAKE_CONFIGURATION_TYPES = 'debug;profile;release'
-				#CMAKE_MAP_IMPORTED_CONFIG_PROFILE = ';profile;release'
 				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
 				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
-				VCPKG_INSTALLED_DIR = "`${sourceDir}/build/install"
 				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage' #;--debug'
-				#VCPKG_DISABLE_COMPILER_TRACKING = 'ON' # set in triplet
-				#VCPKG_KEEP_ENV_VARS = '' # dont use: https://github.com/microsoft/vcpkg/discussions/42064
 			}
 			environment = [ordered] @{
-				LLVM_ROOT = "`${sourceDir}/build/install/$(Get-HostTriplet)"
-				LLVM_TOOLS_BINARY_DIR = "`${sourceDir}/build/install/$(Get-HostTriplet)/tools/llvm"
+				LLVM_ROOT = "`${sourceDir}/install/$(Get-HostTriplet)"
+				LLVM_TOOLS_BINARY_DIR = "`${sourceDir}/install/$(Get-HostTriplet)/tools/llvm"
 			}
 		}
 	)
@@ -113,111 +111,108 @@ $CMakePresets = [ordered] @{
 
 if ($IsWindows)
 {
-	$CMakePresets.configurePresets += @(
-		[ordered] @{
-			name = "llvm-build-$(Get-TargetTuplet)"
-			inherits = 'llvm-build'
-			environment = [ordered] @{
-				PATH = "`$env{LLVM_ROOT}/bin`;`${sourceDir}/build/install/$(Get-TargetTriplet)/tools/mimalloc"
-				VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
-				VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
-				WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
-				WINDOWS_SDK_VERSION = "$env:WINDOWS_SDK_VERSION"
+	foreach ($config in $Configurations)
+	{
+		$CMakePresets.configurePresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-$config"
+				inherits = 'llvm-build'
+				environment = [ordered] @{
+					PATH = "`$env{LLVM_ROOT}/bin`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc"
+					VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
+					VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
+					WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
+					WINDOWS_SDK_VERSION = "$env:WINDOWS_SDK_VERSION"
+				}
+				condition = [ordered] @{
+					type = 'equals'
+					lhs = '${hostSystemName}'
+					rhs = 'Windows'
+				}
 			}
-			condition = [ordered] @{
-				type = 'equals'
-				lhs = '${hostSystemName}'
-				rhs = 'Windows'
-			}
-		}
-	)
+		)
+	}
 }
 elseif ($IsMacOS)
 {
-	$CMakePresets.configurePresets += @(
-		[ordered] @{
-			name = "llvm-build-$(Get-TargetTuplet)"
-			inherits = 'llvm-build'
-			cacheVariables = [ordered] @{
-				CMAKE_APPLE_SILICON_PROCESSOR = "$(Get-HostArchitecture)"
-				CMAKE_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
-				VCPKG_OSX_ARCHITECTURES = "$(Get-HostArchitecture)"
-				VCPKG_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
-				VCPKG_FIXUP_ELF_RPATH = 'ON'
+	foreach ($config in $Configurations)
+	{
+		$CMakePresets.configurePresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-$config"
+				inherits = 'llvm-build'
+				cacheVariables = [ordered] @{
+					CMAKE_APPLE_SILICON_PROCESSOR = "$(Get-TargetArchitecture)"
+					CMAKE_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
+					VCPKG_OSX_ARCHITECTURES = "$(Get-TargetArchitecture)"
+					VCPKG_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
+					VCPKG_FIXUP_ELF_RPATH = 'ON'
+				}
+				environment = [ordered] @{
+					DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
+				}
+				condition = [ordered] @{
+					type = 'equals'
+					lhs = '${hostSystemName}'
+					rhs = 'Darwin'
+				}
 			}
-			environment = [ordered] @{
-				DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
-			}
-			condition = [ordered] @{
-				type = 'equals'
-				lhs = '${hostSystemName}'
-				rhs = 'Darwin'
-			}
-		}
-	)
+		)
+	}
 }
 elseif ($IsLinux)
 {
-	$CMakePresets.configurePresets += @(
+	foreach ($config in $Configurations)
+	{
+		$CMakePresets.configurePresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-$config"
+				inherits = 'llvm-build'
+				environment = [ordered] @{
+					LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
+				}
+				condition = [ordered] @{
+					type = 'equals'
+					lhs = '${hostSystemName}'
+					rhs = 'Linux'
+				}
+			}
+		)
+	}
+}
+
+foreach ($config in $Configurations)
+{
+	$CMakePresets.buildPresets += @(
 		[ordered] @{
-			name = "llvm-build-$(Get-TargetTuplet)"
-			inherits = 'llvm-build'
-			environment = [ordered] @{
-				LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
-			}
-			condition = [ordered] @{
-				type = 'equals'
-				lhs = '${hostSystemName}'
-				rhs = 'Linux'
-			}
+			name = "$(Get-TargetTriplet)-$config"
+			configurePreset = "$(Get-TargetTriplet)-$config"
+			configuration = $config
 		}
 	)
 }
-
-$CMakePresets.buildPresets += @(
-	[ordered] @{
-		name = "llvm-build-$(Get-TargetTuplet)"
-		hidden = $true
-		configurePreset = "llvm-build-$(Get-TargetTuplet)"
-	}
-	[ordered] @{
-		name = "$(Get-TargetTuplet)-debug"
-		inherits = "llvm-build-$(Get-TargetTuplet)"
-		configuration = 'debug'
-	}
-	[ordered] @{
-		name = "$(Get-TargetTuplet)-release"
-		inherits = "llvm-build-$(Get-TargetTuplet)"
-		configuration = 'release'
-	}
-	[ordered] @{
-		name = "$(Get-TargetTuplet)-profile"
-		inherits = "$(Get-TargetTuplet)-release"
-		configuration = 'profile'
-	}
-)
 
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 
 $VSCodeSettings = [ordered] @{
-	'clangd.path' = "`${workspaceFolder}/build/install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
+	'clangd.path' = "`${workspaceFolder}/install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
 	'clangd.arguments' = @(
 		'-log=verbose',
 		'-pretty',
 		'--background-index',
-		"--compile-commands-dir=`${workspaceFolder}/build/install/$(Get-TargetTuplet)-debug"
+		"--compile-commands-dir=`${workspaceFolder}/install/$(Get-TargetTriplet)-debug"
 	)
 	'cmake.cmakePath' = "`${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-$(Get-HostOS)/cmake-4.2.3-$($IsWindows ? 'windows-x86_64' : ($IsMacOS ? 'macos-arm64' : "linux-$(Get-HostArchitecture)"))/bin/cmake$($IsWindows ? '.exe' : '')"
 }
 
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
 
-$env:LLVM_ROOT = "$PSScriptRoot/build/install/$(Get-HostTriplet)"
-$env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/build/install/$(Get-HostTriplet)/tools/llvm"
+$env:LLVM_ROOT = "$PSScriptRoot/install/$(Get-HostTriplet)"
+$env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/install/$(Get-HostTriplet)/tools/llvm"
 
 $VcpkgOptions = @(
 	"--vcpkg-root $env:VCPKG_ROOT"
-	"--x-install-root=$PSScriptRoot/build/install"
+	"--x-install-root=$PSScriptRoot/install"
 	"--overlay-triplets=$PSScriptRoot/scripts/cmake/triplets"
 	"--host-triplet $(Get-HostTriplet)"
 	"--triplet=$(Get-TargetTriplet)"
