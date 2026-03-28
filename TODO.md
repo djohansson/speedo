@@ -10,6 +10,12 @@
 * todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
 * todo: what if the thread pool could monitor Host+Device visible memory heap using atomic_wait? then we could trigger callbacks on GPU completion events with minimum latency.
 * todo: remove all use of preprocessor macros, and replace with constexpr functions so that we can migrate to using modules.
+* todo: add CI using github agent vm running on TrueNAS
+* todo: set up binary cache using some sort of artifact store. possibly running on local TrueNAS with proper auth/exposure. Or on my Backblaze account.
+* todo: FIX GPU HANG
+* todo: move launch & tasks jsons under .vscode into setup.ps1
+* todo: enable ubsan, asan & tsan on supported platforms
+* todo: add ConcurrencyGroup:s to cmake:s fastbuild integration to work around issues with lld-link eating way too much memory during LTO
 
 * in progress: streamlined project setup process on all platforms.
 * in progress: make RHIApplication & Window class graphics independent (if possible)
@@ -33,6 +39,7 @@
 * done: switch from ms-gltf to cgltf
 * done: clean up (concurrency-)utils.h and split it into multiple files. a lot of the things in there can likely be removed once support emerges in std (flat containers etc)
 * done: ditch Fastbuild and add CMakeLists.txt build method and reuse the same toolchain as vcpkg packages uses.
+* done: removed glaze
 
 * cut: dynamic mesh layout, depending on input data structure. (use GLTF instead)
 * cut: refactor GraphicsContext into separate class
