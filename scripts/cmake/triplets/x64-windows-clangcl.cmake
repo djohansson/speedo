@@ -23,6 +23,6 @@ set(
 		-DLIBCXX_ENABLE_SHARED=OFF
 		-DLIBCXX_ENABLE_STATIC=ON
 )
-set(VCPKG_C_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3 /clang:-ftlo=thin")
-set(VCPKG_CXX_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3 /clang:-ftlo=thin")
+set(VCPKG_C_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
+set(VCPKG_CXX_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
 set(VCPKG_LINKER_FLAGS_RELEASE "/GUARD:CF")
