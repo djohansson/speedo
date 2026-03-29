@@ -3,7 +3,6 @@
 #include "buffer.h"
 #include "command.h"
 #include "device.h"
-#include "image.h"
 #include "pipeline.h"
 #include "swapchain.h"
 
@@ -15,13 +14,9 @@
 
 #include <gfx/camera.h>
 
-#include <array>
-#include <bitset>
-#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include <nfd.h> // todo: move to implementation
