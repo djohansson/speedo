@@ -133,14 +133,14 @@ function Initialize-VcpkgEnv
 function Initialize-ToolchainEnv
 {
 	param(
-		[Parameter(Mandatory = $False)] [string] $TargetTriplet
+		[Parameter(Mandatory = $False)] [string] $HostTriplet
 	)
-	if (-not $TargetTriplet)
+	if (-not $HostTriplet)
 	{
-		$TargetTriplet = Get-HostTriplet
+		$HostTriplet = Get-HostTriplet
 	}
 
-	$toolchainRoot = "$PSScriptRoot/../build/toolchain/$TargetTriplet"
+	$toolchainRoot = "$PSScriptRoot/../install/$HostTriplet"
 
 	#Write-Host "Adding toolchain dylib/dll/so:s..."
 	if (!(Test-Path Variable:\IsWindows) -or $IsWindows) 

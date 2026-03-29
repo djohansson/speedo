@@ -313,13 +313,13 @@ foreach ($Config in $Configurations)
 		[ordered] @{
 			label = "Clang-Format ($Config)"
 			type = "shell"
-			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; (Get-ChildItem -Path `${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files -Force; & `$env:LLVM_TOOLS_PATH/clang-format -i -style=file -files `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files } 2>&1'"
+			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; (Get-ChildItem -Path `${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files -Force; & clang-format -i -style=file -files `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files } 2>&1'"
 			group = "none"
 		},
 		[ordered] @{
 			label = "Clang-Tidy ($Config)"
 			type = "shell"
-			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; & `$env:LLVM_TOOLS_PATH/clang-tidy --fix --format-style=file -p `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/compile_commands.json } 2>&1'"
+			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; & clang-tidy --fix --format-style=file -p `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/compile_commands.json } 2>&1'"
 			group = "none"
 		}
 	)
