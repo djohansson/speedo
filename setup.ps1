@@ -71,7 +71,6 @@ $CMakePresets = [ordered] @{
 				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE = 'ON'
 				CMAKE_FASTBUILD_USE_RELATIVE_PATHS = 'ON'
-				#CMAKE_TOOLCHAIN_FILE = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" # should be redundant with toolchainFile
 				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake' # needs to be duplicated here to be work in the vscode cmake extension
 				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
 				VCPKG_MANIFEST_DIR = '${sourceDir}'
