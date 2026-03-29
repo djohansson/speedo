@@ -283,9 +283,9 @@ install(
 		server
 		client
 	EXPORT speedoTargets
-	RUNTIME DESTINATION bin
-	LIBRARY DESTINATION lib
-	ARCHIVE DESTINATION lib
+	RUNTIME DESTINATION $<IF:$<CONFIG:debug>,debug/bin,bin>
+	LIBRARY DESTINATION $<IF:$<CONFIG:debug>,debug/lib,lib>
+	ARCHIVE DESTINATION $<IF:$<CONFIG:debug>,debug/lib,lib>
 	INCLUDES DESTINATION include/speedo
 )
 

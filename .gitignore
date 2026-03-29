@@ -3,6 +3,7 @@
 build/*
 install/*
 .vscode/settings.json
+.vscode/launch.json
 
 *.fdb
 *.log

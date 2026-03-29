@@ -49,6 +49,7 @@ $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
 Read-EnvFile "$PSScriptRoot/.env.json"
 
 $Configurations = @('debug', 'release', 'profile')
+$Targets = @('client', 'server')
 
 $CMakePresets = [ordered] @{
 	version = 8
@@ -94,7 +95,7 @@ $CMakePresets = [ordered] @{
 			hidden = $true
 			inherits = 'vcpkg'
 			binaryDir = "`${sourceDir}/build/`${presetName}"
-			installDir = "`${sourceDir}/install/$(Get-TargetTriplet)"
+			installDir = "`${sourceDir}/install/`${presetName}"
 			cacheVariables = [ordered] @{
 				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
 				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
@@ -109,13 +110,19 @@ $CMakePresets = [ordered] @{
 	buildPresets = @()
 }
 
+$VSCodeLaunchConfiguration = [ordered] @{
+	'version' = '0.2.1'
+	'configurations' = @()
+	'compounds' = @()
+}
+
 if ($IsWindows)
 {
-	foreach ($config in $Configurations)
+	foreach ($Config in $Configurations)
 	{
 		$CMakePresets.configurePresets += @(
 			[ordered] @{
-				name = "$(Get-TargetTriplet)-$config"
+				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
 				environment = [ordered] @{
 					PATH = "`$env{LLVM_ROOT}/bin`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc"
@@ -131,15 +138,46 @@ if ($IsWindows)
 				}
 			}
 		)
+
+		foreach ($Target in $Targets)
+		{
+			$VSCodeLaunchConfiguration.configurations += @(
+				[ordered] @{
+					name = "($(Get-TargetTriplet)) $Config/$Target"
+					type = "cppvsdbg"
+					request = "launch"
+					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target.exe"
+					args = @("-u `${userHome}/.speedo")
+					cwd = "`${workspaceFolder}"
+					console = "internalConsole"
+					environment = @(
+						@{ "name" = "MIMALLOC_SHOW_STATS"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
+						@{ "name" = "MIMALLOC_VERBOSE"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
+						@{ "name" = "MIMALLOC_SHOW_ERRORS"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
+						@{ "name" = "PATH"; "value" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/bin' : 'bin')" },
+						@{ "name" = "VK_LAYER_PATH"; "value" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/bin' : 'bin')" }
+					)
+					symbolOptions = @{
+						searchPaths = @()
+						searchMicrosoftSymbolServer = $true
+						cachePath = "${env:TEMP}/symbolcache"
+						moduleFilter = @{
+							mode = "loadAllButExcluded"
+							excludedModules = @()
+						}
+					}
+				}
+			)
+		}
 	}
 }
 elseif ($IsMacOS)
 {
-	foreach ($config in $Configurations)
+	foreach ($Config in $Configurations)
 	{
 		$CMakePresets.configurePresets += @(
 			[ordered] @{
-				name = "$(Get-TargetTriplet)-$config"
+				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
 				cacheVariables = [ordered] @{
 					CMAKE_APPLE_SILICON_PROCESSOR = "$(Get-TargetArchitecture)"
@@ -158,15 +196,42 @@ elseif ($IsMacOS)
 				}
 			}
 		)
+
+		foreach ($Target in $Targets)
+		{
+			$VSCodeLaunchConfiguration.configurations += @(
+				[ordered] @{
+					name = "($(Get-TargetTriplet)) $Config/$Target"
+					type = "lldb"
+					request = "launch"
+					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target"
+					args = @("-u `${userHome}/.speedo")
+					cwd = "`${workspaceFolder}"
+					terminal = "console"
+					preLaunchTask = "export-kosmickrisp-driver-path"
+					envFile = "`${userHome}/.speedo/.env"
+					env = @{
+						"MIMALLOC_SHOW_STATS" = "$($Config -eq 'debug' ? '1' : '0')"
+						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
+						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
+						"DYLD_LIBRARY_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
+						"DYLD_INSERT_LIBRARIES" = "libmimalloc-secure$($Config -eq 'debug' ? '-debug' : '') .dylib"
+						"DYLD_PRINT_LIBRARIES" = "$($Config -eq 'debug' ? '1' : '0')"
+						"TSAN_OPTIONS" = "suppressions=`${workspaceFolder}/tsan-suppressions.txt"
+						"VK_LAYER_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
+					}
+				}
+			)
+		}
 	}
 }
 elseif ($IsLinux)
 {
-	foreach ($config in $Configurations)
+	foreach ($Config in $Configurations)
 	{
 		$CMakePresets.configurePresets += @(
 			[ordered] @{
-				name = "$(Get-TargetTriplet)-$config"
+				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
 				environment = [ordered] @{
 					LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
@@ -178,21 +243,53 @@ elseif ($IsLinux)
 				}
 			}
 		)
+
+		foreach ($Target in $Targets)
+		{
+			$VSCodeLaunchConfiguration.configurations += @(
+				[ordered] @{
+					name = "($(Get-TargetTriplet)) $Config/$Target"
+					type = "lldb"
+					request = "launch"
+					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target"
+					args = @("-u `${userHome}/.speedo")
+					cwd = "`${workspaceFolder}"
+					terminal = "console"
+					envFile = "`${userHome}/.speedo/.env"
+					env = @{
+						"MIMALLOC_SHOW_STATS" = "$($Config -eq 'debug' ? '1' : '0')"
+						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
+						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
+						"LD_LIBRARY_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
+						"VK_LAYER_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
+					}
+				}
+			)
+		}
 	}
 }
 
-foreach ($config in $Configurations)
+foreach ($Config in $Configurations)
 {
 	$CMakePresets.buildPresets += @(
 		[ordered] @{
-			name = "$(Get-TargetTriplet)-$config"
-			configurePreset = "$(Get-TargetTriplet)-$config"
-			configuration = $config
+			name = "$(Get-TargetTriplet)-$Config"
+			configurePreset = "$(Get-TargetTriplet)-$Config"
+			configuration = $Config
+		}
+	)
+
+	$VSCodeLaunchConfiguration.compounds += @(
+		[ordered] @{
+			name = "($(Get-TargetTriplet)) $Config all"
+			configurations = @(
+				"($(Get-TargetTriplet)) $Config/client",
+				"($(Get-TargetTriplet)) $Config/server"
+			)
+			stopAll = $true
 		}
 	)
 }
-
-$CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 
 $VSCodeSettings = [ordered] @{
 	'clangd.path' = "`${workspaceFolder}/install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
@@ -205,6 +302,8 @@ $VSCodeSettings = [ordered] @{
 	'cmake.cmakePath' = "`${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-$(Get-HostOS)/cmake-4.2.3-$($IsWindows ? 'windows-x86_64' : ($IsMacOS ? 'macos-arm64' : "linux-$(Get-HostArchitecture)"))/bin/cmake$($IsWindows ? '.exe' : '')"
 }
 
+$CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
+$VSCodeLaunchConfiguration | ConvertTo-Json -Depth 5 | Out-File "$PSScriptRoot/.vscode/launch.json" -Force
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
 
 $env:LLVM_ROOT = "$PSScriptRoot/install/$(Get-HostTriplet)"
