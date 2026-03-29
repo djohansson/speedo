@@ -115,6 +115,11 @@ $VSCodeLaunchConfiguration = [ordered] @{
 	'compounds' = @()
 }
 
+$VSCodeTasks = @{
+	version = '2.0.0'
+	tasks = @()
+}
+
 if ($IsWindows)
 {
 	foreach ($Config in $Configurations)
@@ -223,6 +228,21 @@ elseif ($IsMacOS)
 			)
 		}
 	}
+
+	$VSCodeTasks.tasks += @(
+		[ordered] @{
+			label = "export-molten-vk-driver-path"
+			type = "shell"
+			command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json`" > `${userHome}/.speedo/.env }' 2>&1"
+			group = "none"
+		},
+		[ordered] @{
+			label = "export-kosmickrisp-driver-path"
+			type = "shell"
+			command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix mesa)/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`" > `${userHome}/.speedo/.env }' 2>&1"
+			group = "none"
+		}
+	)
 }
 elseif ($IsLinux)
 {
@@ -288,7 +308,40 @@ foreach ($Config in $Configurations)
 			stopAll = $true
 		}
 	)
+
+	$VSCodeTasks.tasks += @(
+		[ordered] @{
+			label = "Clang-Format ($Config)"
+			type = "shell"
+			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; (Get-ChildItem -Path `${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files -Force; & `$env:LLVM_TOOLS_PATH/clang-format -i -style=file -files `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files } 2>&1'"
+			group = "none"
+		},
+		[ordered] @{
+			label = "Clang-Tidy ($Config)"
+			type = "shell"
+			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; & `$env:LLVM_TOOLS_PATH/clang-tidy --fix --format-style=file -p `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/compile_commands.json } 2>&1'"
+			group = "none"
+		}
+	)
 }
+
+# $VSCodeTasks.tasks += @(
+# 	[ordered] @{
+# 		type = "cmake"
+# 		label = "CMake: build (All)"
+# 		command = "build"
+# 		targets = @(
+# 			"all"
+# 		)
+# 		preset = '${command:cmake.activeBuildPresetName}'
+# 		group = @{
+# 			kind = "build"
+# 			isDefault = $true
+# 		}
+# 		problemMatcher = @()
+# 		detail = "CMake template build task"
+# 	}
+# )
 
 $VSCodeSettings = [ordered] @{
 	'clangd.path' = "`${workspaceFolder}/install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
@@ -304,6 +357,7 @@ $VSCodeSettings = [ordered] @{
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 $VSCodeLaunchConfiguration | ConvertTo-Json -Depth 5 | Out-File "$PSScriptRoot/.vscode/launch.json" -Force
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
+$VSCodeTasks | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/tasks.json" -Force
 
 $env:LLVM_ROOT = "$PSScriptRoot/install/$(Get-HostTriplet)"
 $env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/install/$(Get-HostTriplet)/tools/llvm"

@@ -1,9 +1,10 @@
 .speedo/*
 .vs/*
+.vscode/*
+.env*
+
 build/*
 install/*
-.vscode/settings.json
-.vscode/launch.json
 
 *.fdb
 *.log
@@ -11,7 +12,4 @@ install/*
 *.DS_Store
 *.cap
 
-.env*
-.clang-format-files
-compile_commands.json
 CMakeUserPresets.json
