@@ -313,35 +313,27 @@ foreach ($Config in $Configurations)
 		[ordered] @{
 			label = "Clang-Format ($Config)"
 			type = "shell"
-			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; (Get-ChildItem -Path `${workspaceFolder}/src -Include *.h,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files -Force; & clang-format -i -style=file -files `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files } 2>&1'"
+			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; (Get-ChildItem -Path `${workspaceFolder}/src -Include *.h,*.inl,*.c,*.cpp -Recurs -File).FullName | Out-File -FilePath `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files -Force; & `$env:LLVM_TOOLS_BINARY_DIR/clang-format -i -style=file -files `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/.clang-format-files } 2>&1'"
 			group = "none"
+			options = @{
+				env = @{
+					LLVM_TOOLS_BINARY_DIR = "`${workspaceFolder}/install/$(Get-HostTriplet)/tools/llvm"
+				}
+			}
 		},
 		[ordered] @{
 			label = "Clang-Tidy ($Config)"
 			type = "shell"
-			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; & clang-tidy --fix --format-style=file -p `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/compile_commands.json } 2>&1'"
+			command = "pwsh -c '& {. `${workspaceFolder}/scripts/env.ps1; Initialize-ToolchainEnv; & python `$env:LLVM_TOOLS_BINARY_DIR/run-clang-tidy -config-file=`${workspaceFolder}/src/.clang-tidy -fix -format -style=file -p `${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/ } 2>&1'"
 			group = "none"
+			options = @{
+				env = @{
+					LLVM_TOOLS_BINARY_DIR = "`${workspaceFolder}/install/$(Get-HostTriplet)/tools/llvm"
+				}
+			}
 		}
 	)
 }
-
-# $VSCodeTasks.tasks += @(
-# 	[ordered] @{
-# 		type = "cmake"
-# 		label = "CMake: build (All)"
-# 		command = "build"
-# 		targets = @(
-# 			"all"
-# 		)
-# 		preset = '${command:cmake.activeBuildPresetName}'
-# 		group = @{
-# 			kind = "build"
-# 			isDefault = $true
-# 		}
-# 		problemMatcher = @()
-# 		detail = "CMake template build task"
-# 	}
-# )
 
 $VSCodeSettings = [ordered] @{
 	'clangd.path' = "`${workspaceFolder}/install/$(Get-HostTriplet)/tools/llvm/clangd$($IsWindows ? '.exe' : '')"
@@ -357,7 +349,7 @@ $VSCodeSettings = [ordered] @{
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
 $VSCodeLaunchConfiguration | ConvertTo-Json -Depth 5 | Out-File "$PSScriptRoot/.vscode/launch.json" -Force
 $VSCodeSettings | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/settings.json" -Force
-$VSCodeTasks | ConvertTo-Json -Depth 2 | Out-File "$PSScriptRoot/.vscode/tasks.json" -Force
+$VSCodeTasks | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/.vscode/tasks.json" -Force
 
 $env:LLVM_ROOT = "$PSScriptRoot/install/$(Get-HostTriplet)"
 $env:LLVM_TOOLS_BINARY_DIR = "$PSScriptRoot/install/$(Get-HostTriplet)/tools/llvm"
