@@ -4,7 +4,7 @@
 namespace crc32
 {
 
-static constexpr std::array<uint32_t, 256> gCrcTable = {{
+static constexpr std::array<uint32_t, 256> kCrcTable = {{
 	0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f, 0xe963a535, 0x9e6495a3,
 	0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988, 0x09b64c2b, 0x7eb17cbd, 0xe7b82d07, 0x90bf1d91,
 	0x1db71064, 0x6ab020f2, 0xf3b97148, 0x84be41de, 0x1adad47d, 0x6ddde4eb, 0xf4d4b551, 0x83d385c7,
@@ -39,7 +39,7 @@ static constexpr std::array<uint32_t, 256> gCrcTable = {{
 	0xb3667a2e, 0xc4614ab8, 0x5d681b02, 0x2a6f2b94, 0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d}};
 
 template <size_t Idx>
-consteval uint32_t crc32(const char* str)
+consteval uint32_t Crc32(const char* str)
 {
 #if defined(CXX_CONSTEXPR_DEPTH)
 	static_assert(Idx <= CXX_CONSTEXPR_DEPTH, "String too long for crc32 constexpr function");
@@ -47,12 +47,12 @@ consteval uint32_t crc32(const char* str)
 #if defined(CXX_CONSTEXPR_STEPS)
 	static_assert(Idx <= CXX_CONSTEXPR_STEPS, "String too long for crc32 constexpr function");
 #endif
-	return (crc32<Idx - 1>(str) >> 8) ^ gCrcTable[(crc32<Idx - 1>(str) ^ str[Idx]) & 0x000000FF];
+	return (Crc32<Idx - 1>(str) >> 8) ^ kCrcTable[(Crc32<Idx - 1>(str) ^ str[Idx]) & 0x000000FF];
 }
 
 // This is the stop-recursion function
 template <>
-consteval uint32_t crc32<static_cast<size_t>(-1)>(const char* str)
+consteval uint32_t Crc32<static_cast<size_t>(-1)>(const char* str)
 {
 	return 0xFFFFFFFF;
 }
@@ -60,4 +60,4 @@ consteval uint32_t crc32<static_cast<size_t>(-1)>(const char* str)
 } // namespace crc32
 
 // This don't take into account the nul char
-#define COMPILE_TIME_CRC32_STR(x) (crc32::crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF)
+#define COMPILE_TIME_CRC32_STR(x) (crc32::Crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF)

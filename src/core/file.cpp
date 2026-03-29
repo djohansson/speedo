@@ -40,9 +40,9 @@ GetTimeStamp(const std::filesystem::path& filePath) noexcept
 	static constexpr size_t kBufferSize = 80;
 	std::array<char, kBufferSize> buffer;
 
-	auto time = std::localtime(&timestamp);
+	auto* time = std::localtime(&timestamp);
 
-	if (!time)
+	if (time == nullptr)
 		return std::unexpected(std::make_error_code(std::errc::invalid_argument));
 
 	auto timeStrSize = std::strftime(buffer.data(), buffer.size(), "%c", time);
@@ -137,7 +137,7 @@ std::expected<Record, std::error_code> LoadAsset(
 		if (!cache)
 			return std::unexpected(cache.error());
 
-		AssetManifest manifest{asset.value(), cache.value()};
+		AssetManifest manifest{.assetFileInfo = asset.value(), .cacheFileInfo=cache.value()};
 
 		auto outStream = zpp::bits::out(manifestFile, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 
