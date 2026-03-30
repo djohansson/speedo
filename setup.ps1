@@ -325,7 +325,6 @@ $VSCodeSettings = [ordered] @{
 		'--background-index',
 		"--compile-commands-dir=`${workspaceFolder}/install/$(Get-TargetTriplet)-debug"
 	)
-	'cmake.cmakePath' = "`${workspaceFolder}/vcpkg/downloads/tools/cmake-4.2.3-$(Get-HostOS)/cmake-4.2.3-$($IsWindows ? 'windows-x86_64' : ($IsMacOS ? 'macos-arm64' : "linux-$(Get-HostArchitecture)"))/bin/cmake$($IsWindows ? '.exe' : '')"
 }
 
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force

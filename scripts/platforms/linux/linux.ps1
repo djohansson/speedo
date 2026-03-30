@@ -17,6 +17,7 @@ Install-AptPackage libglu1-mesa-dev
 Install-AptPackage libwayland-dev
 Install-AptPackage xorg-dev
 Install-AptPackage libxkbcommon-dev
+Install-AptPackage cmake
 
-$env:VCPKG_FORCE_SYSTEM_BINARIES = "1"
+#$env:VCPKG_FORCE_SYSTEM_BINARIES = "1"
 #todo: add --x-abi-tools-use-exact-version?

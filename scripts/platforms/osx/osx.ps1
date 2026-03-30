@@ -14,6 +14,7 @@ Install-HomebrewPackage mesa
 Install-HomebrewPackage mesa-glu
 Install-HomebrewPackage patchelf
 Install-HomebrewPackage molten-vk
+Install-HomebrewPackage cmake
 
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName MACOS_SDK_PATH -NotePropertyValue $(xcrun --show-sdk-path) | Out-Null
 $global:myEnv | Add-Member -Force -PassThru -NotePropertyName APPLE_SILICON_PROCESSOR -NotePropertyValue $(Get-HostArchitecture) | Out-Null
