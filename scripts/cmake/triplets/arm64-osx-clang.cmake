@@ -4,6 +4,12 @@ set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
 set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE dynamic)
 
+# these cant be set in CMakePresets for some reason
+set(VCPKG_OSX_ARCHITECTURES arm64)
+set(VCPKG_OSX_SYSROOT $ENV{MACOS_SDK_PATH})
+set(VCPKG_FIXUP_ELF_RPATH ON)
+#
+
 set(
 	VCPKG_ENV_PASSTHROUGH_UNTRACKED
 		LLVM_ROOT

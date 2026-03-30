@@ -183,13 +183,6 @@ elseif ($IsMacOS)
 			[ordered] @{
 				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
-				cacheVariables = [ordered] @{
-					CMAKE_APPLE_SILICON_PROCESSOR = "$(Get-TargetArchitecture)"
-					CMAKE_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
-					VCPKG_OSX_ARCHITECTURES = "$(Get-TargetArchitecture)"
-					VCPKG_OSX_SYSROOT = "$env:MACOS_SDK_PATH"
-					VCPKG_FIXUP_ELF_RPATH = 'ON'
-				}
 				environment = [ordered] @{
 					DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 				}
