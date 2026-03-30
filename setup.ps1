@@ -57,13 +57,23 @@ $CMakePresets = [ordered] @{
 		[ordered] @{
 			name = 'vcpkg'
 			hidden = $true
-			generator = 'FASTBuild'
-			description = 'Configure with vcpkg toolchain and generate project files for all configurations'
+			description = 'Configure with vcpkg and generate project files for all configurations'
 			toolchainFile = "$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 			cacheVariables = [ordered] @{
-				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake' # needs to be duplicated here to be work in the vscode cmake extension
+				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
+				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
+				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage' #;--debug'
+				VCPKG_INSTALLED_DIR = "`${sourceDir}/install" # reminder: installDir (cmake), VCPKG_INSTALLED_DIR (vcpkg, same as --x-install-root)
 				VCPKG_OVERLAY_TRIPLETS = '${sourceDir}/scripts/cmake/triplets'
 				VCPKG_MANIFEST_DIR = '${sourceDir}'
+				# needs to be duplicated here to be work in the vscode cmake extension
+				VCPKG_DISABLE_COMPILER_TRACKING = 'ON' # This target is not compiled yet when vcpkg wants to calculate the compiler hash.
+				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
+				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = 'profile;release'
+				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
+				CMAKE_FASTBUILD_USE_LIGHTCACHE='ON'
+				CMAKE_FASTBUILD_USE_RELATIVE_PATHS='ON'
+				#
 			}
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
@@ -82,12 +92,13 @@ $CMakePresets = [ordered] @{
 			name = 'llvm-build'
 			hidden = $true
 			inherits = 'vcpkg'
+			generator = 'FASTBuild'
 			binaryDir = "`${sourceDir}/build/`${presetName}"
-			installDir = "`${sourceDir}/install/`${presetName}"
+			installDir = "`${sourceDir}/install/$(Get-TargetTriplet)"
 			cacheVariables = [ordered] @{
-				VCPKG_HOST_TRIPLET = "$(Get-HostTriplet)"
-				VCPKG_TARGET_TRIPLET = "$(Get-TargetTriplet)"
-				VCPKG_INSTALL_OPTIONS = '--x-abi-tools-use-exact-versions;--no-print-usage' #;--debug'
+				# needs to be duplicated here to be work in the vscode cmake extension
+				VCPKG_CHAINLOAD_TOOLCHAIN_FILE = '${sourceDir}/scripts/cmake/toolchains/clang.toolchain.cmake'
+				#
 			}
 			environment = [ordered] @{
 				LLVM_ROOT = "`${sourceDir}/install/$(Get-HostTriplet)"
@@ -172,8 +183,17 @@ elseif ($IsMacOS)
 			[ordered] @{
 				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
+				cacheVariables = [ordered] @{
+					# needs to be duplicated here to be work in the vscode cmake extension
+					VCPKG_OSX_SYSROOT = "$env:SDKROOT"
+					VCPKG_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
+					VCPKG_FIXUP_ELF_RPATH = 'ON'
+					#
+				}
 				environment = [ordered] @{
-					DYLD_LIBRARY_PATH = "`$penv{DYLD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
+					SDKROOT = "$(xcrun --sdk macosx --show-sdk-path)"
+					CMAKE_APPLE_SILICON_PROCESSOR = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
+					CMAKE_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
 				}
 				condition = [ordered] @{
 					type = 'equals'
@@ -323,7 +343,7 @@ $VSCodeSettings = [ordered] @{
 		'-log=verbose',
 		'-pretty',
 		'--background-index',
-		"--compile-commands-dir=`${workspaceFolder}/install/$(Get-TargetTriplet)-debug"
+		"--compile-commands-dir=`${workspaceFolder}/build/$(Get-TargetTriplet)-debug"
 	)
 }
 
