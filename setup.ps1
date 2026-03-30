@@ -78,11 +78,10 @@ $CMakePresets = [ordered] @{
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
 				FASTBUILD_TEMP_PATH = '${sourceDir}/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
-				FASTBUILD_BROKERAGE_PATH = "`$penv{FASTBUILD_BROKERAGE_PATH}"
-				FASTBUILD_WORKERS = "`$penv{FASTBUILD_WORKERS}"
-				FASTBUILD_CACHE_PATH = "`$penv{FASTBUILD_CACHE_PATH}"
-				FASTBUILD_CACHE_PATH_MOUNT_POINT = "`$penv{FASTBUILD_CACHE_PATH_MOUNT_POINT}"
-				FASTBUILD_CACHE_MODE = "`$penv{FASTBUILD_CACHE_MODE}"
+				FASTBUILD_BROKERAGE_PATH = "$env:FASTBUILD_BROKERAGE_PATH" ?? "$env:USERPROFILE/.fastbuild/brokerage" 
+				FASTBUILD_CACHE_PATH = "$env:FASTBUILD_CACHE_PATH" ?? "$env:USERPROFILE/.fastbuild/cache"
+				FASTBUILD_CACHE_PATH_MOUNT_POINT = "$env:FASTBUILD_CACHE_PATH_MOUNT_POINT" ?? "false"
+				FASTBUILD_CACHE_MODE = "$env:FASTBUILD_CACHE_MODE" ?? "rw"
 			}
 			warnings = [ordered] @{
 				dev = $false
@@ -192,8 +191,8 @@ elseif ($IsMacOS)
 				}
 				environment = [ordered] @{
 					SDKROOT = "$(xcrun --sdk macosx --show-sdk-path)"
-					CMAKE_APPLE_SILICON_PROCESSOR = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
-					CMAKE_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
+					CMAKE_APPLE_SILICON_PROCESSOR = "$env:CMAKE_APPLE_SILICON_PROCESSOR" ?? 'arm64'
+					CMAKE_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR" ?? 'arm64'
 				}
 				condition = [ordered] @{
 					type = 'equals'
@@ -221,7 +220,7 @@ elseif ($IsMacOS)
 						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
 						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
 						"DYLD_LIBRARY_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
-						"DYLD_INSERT_LIBRARIES" = "libmimalloc-secure$($Config -eq 'debug' ? '-debug' : '') .dylib"
+						"DYLD_INSERT_LIBRARIES" = "libmimalloc-secure$($Config -eq 'debug' ? '-debug' : '').dylib"
 						"DYLD_PRINT_LIBRARIES" = "$($Config -eq 'debug' ? '1' : '0')"
 						"TSAN_OPTIONS" = "suppressions=`${workspaceFolder}/tsan-suppressions.txt"
 						"VK_LAYER_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
