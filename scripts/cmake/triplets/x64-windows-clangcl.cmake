@@ -22,6 +22,9 @@ set(
 		-DCMAKE_CXX_COMPILER=clang-cl
 		-DLIBCXX_ENABLE_SHARED=OFF
 		-DLIBCXX_ENABLE_STATIC=ON
+		-DCMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS=ON
+		-DCMAKE_FASTBUILD_USE_LIGHTCACHE=ON
+		-DCMAKE_FASTBUILD_USE_RELATIVE_PATHS=ON
 )
 set(VCPKG_C_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
 set(VCPKG_CXX_FLAGS_RELEASE "/guard:cf /clang:-arch=x86-64-v3 /clang:-mtune=generic /clang:-O3") #/clang:-flto=thin
