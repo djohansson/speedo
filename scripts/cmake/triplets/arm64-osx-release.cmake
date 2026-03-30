@@ -1,0 +1,11 @@
+set(VCPKG_TARGET_ARCHITECTURE arm64)
+set(VCPKG_CMAKE_SYSTEM_NAME Darwin)
+
+set(VCPKG_CRT_LINKAGE dynamic)
+set(VCPKG_LIBRARY_LINKAGE dynamic)
+
+set(VCPKG_BUILD_TYPE release)
+set(VCPKG_DISABLE_COMPILER_TRACKING ON)
+
+set(VCPKG_C_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
+set(VCPKG_CXX_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
