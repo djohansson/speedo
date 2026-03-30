@@ -220,7 +220,7 @@ elseif ($IsMacOS)
 						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
 						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
 						"DYLD_LIBRARY_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
-						"DYLD_INSERT_LIBRARIES" = "libmimalloc-secure$($Config -eq 'debug' ? '-debug' : '').dylib"
+						#"DYLD_INSERT_LIBRARIES" = "libmimalloc$($Config -eq 'debug' ? '-secure-debug' : '').dylib"
 						"DYLD_PRINT_LIBRARIES" = "$($Config -eq 'debug' ? '1' : '0')"
 						"TSAN_OPTIONS" = "suppressions=`${workspaceFolder}/tsan-suppressions.txt"
 						"VK_LAYER_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
