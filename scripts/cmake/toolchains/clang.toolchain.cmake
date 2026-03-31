@@ -135,6 +135,9 @@ elseif (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
 	set(COMPILE_FLAGS "${COMPILE_FLAGS} -march=x86-64-v3 -mtune=generic")
 endif()
 
+set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+
 if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 	set(C_DEFINES "${C_DEFINES} -D__WINDOWS__ -D_WIN32 -D_WIN64 -DUNICODE -D_UNICODE -D_CRT_DECLARE_NONSTDC_NAMES -D_CRT_STDIO_ISO_WIDE_SPECIFIERS -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX")
 	set(CXX_DEFINES "${CXX_DEFINES} -D_LIBCXX_ABI_FORCE_MICROSOFT")
@@ -142,7 +145,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 	set(CMAKE_C_STANDARD_LIBRARIES_INIT "-lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 -loldnames")
 	set(CMAKE_CXX_STANDARD_LIBRARIES_INIT "-llibc++ -lmsvcprt") # remove msvcprt when this has been merged: https://github.com/llvm/llvm-project/pull/94977
 	set(LINK_FLAGS "${LINK_FLAGS} -Xlinker /DEBUG -Xlinker /GUARD:CF")
-	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+	set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE FALSE) # vvl fails to compile with LTO on Windows. observed by others as well: https://github.com/llvm/llvm-project/issues/134725
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	set(C_DEFINES "${C_DEFINES} -D__LINUX__ -D__linux__ -D_GNU_SOURCE -pthread")
 	set(CXX_DEFINES "${CXX_DEFINES} -isystem \"${LLVM_ROOT}/include/aarch64-unknown-linux-gnu/c++/v1\"")
@@ -161,9 +164,6 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 	set(CMAKE_USE_PTHREADS_INIT 1 CACHE INTERNAL "" FORCE)
 	set(THREADS_PREFER_PTHREAD_FLAG OFF CACHE BOOL "" FORCE)
 endif()
-
-set(CMAKE_POSITION_INDEPENDENT_CODE TRUE)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
 
 # todo: remove this when CMake supports it
 set(CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT}" CACHE STRING "C standard libs" FORCE)
