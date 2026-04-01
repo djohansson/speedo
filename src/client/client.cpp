@@ -262,6 +262,8 @@ void Client::Tick()
 	if (eventsProcessed > 0 || input.keyboard.keysDown.any())
 		RHIApplication::OnInputStateChanged(input);
 
+	RHIApplication::PrepareDraw();
+
 	using namespace std::chrono_literals;
 	static constexpr std::chrono::microseconds kTickMinTime = 1000us;
 	std::this_thread::sleep_until(start + kTickMinTime);

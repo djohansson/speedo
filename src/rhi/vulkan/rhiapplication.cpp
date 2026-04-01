@@ -38,527 +38,18 @@ namespace rhiapplication
 
 static ConcurrentQueue<ImDrawData> gIMGUIDrawData;
 
-void IMGUIPrepareDrawFunction(RHI<kVk>& rhi, TaskExecutor& executor)
-{
-	ZoneScopedN("RHIApplication::IMGUIPrepareDraw");
-
-	using namespace ImGui;
-
-	ImGui_ImplVulkan_NewFrame(); // calls ImGui_ImplVulkan_CreateFontsTexture
-	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
-	NewFrame();
-
-	// todo: move elsewhere
-	/*auto editableTextField = [](int id,
-								const char* label,
-								std::string& str,
-								float maxTextWidth,
-								std::optional<int>& selected)
-	{
-		auto textSize =
-			std::max(maxTextWidth, CalcTextSize(str.c_str(), str.c_str() + str.size()).x);
-
-		PushItemWidth(textSize);
-		//PushClipRect(textSize);
-
-		if (id == selected.value_or(0))
-		{
-			if (IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !IsMouseClicked(0))
-			{
-				PushAllowKeyboardFocus(true);
-				SetKeyboardFocusHere();
-
-				if (InputText(
-						label,
-						&str,
-						ImGuiInputTextFlags_EnterReturnsTrue |
-							ImGuiInputTextFlags_CallbackAlways,
-						[](ImGuiInputTextCallbackData* data)
-						{
-							//PopClipRect();
-							PopItemWidth();
-
-							auto textSize = std::max(
-								*static_cast<float*>(data->UserData),
-								CalcTextSize(data->Buf, data->Buf + data->BufTextLen).x);
-
-							PushItemWidth(textSize);
-							//PushClipRect(textSize);
-
-							data->SelectionStart = data->SelectionEnd;
-
-							return 0;
-						},
-						&maxTextWidth))
-				{
-					if (str.empty())
-						str = "Empty";
-
-					selected.reset();
-				}
-
-				PopAllowKeyboardFocus();
-			}
-			else
-			{
-				if (str.empty())
-					str = "Empty";
-
-				selected.reset();
-			}
-		}
-		else
-		{
-			TextUnformatted(str.c_str(), str.c_str() + str.size());
-		}
-
-		//PopClipRect();
-		PopItemWidth();
-
-		return std::max(maxTextWidth, CalcTextSize(str.c_str(), str.c_str() + str.size()).x);
-	};
-	*/
-
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	static bool gShowStatistics = false;
-	{
-		if (gShowStatistics)
-		{
-			if (Begin("Statistics", &gShowStatistics))
-			{
-				Text("Unknowns: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_UNKNOWN));
-				Text("Instances: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_INSTANCE));
-				Text(
-					"Physical Devices: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
-				Text("Devices: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DEVICE));
-				Text("Queues: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_QUEUE));
-				Text("Semaphores: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
-				Text(
-					"Command Buffers: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
-				Text("Fences: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_FENCE));
-				Text("Device Memory: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DEVICE_MEMORY));
-				Text("Buffers: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_BUFFER));
-				Text("Images: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_IMAGE));
-				Text("Events: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_EVENT));
-				Text("Query Pools: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_QUERY_POOL));
-				Text("Buffer Views: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
-				Text("Image Views: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
-				Text(
-					"Shader Modules: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
-				Text(
-					"Pipeline Caches: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
-				Text(
-					"Pipeline Layouts: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
-				Text("Render Passes: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
-				Text("Pipelines: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PIPELINE));
-				Text(
-					"Descriptor Set Layouts: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
-				Text("Samplers: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SAMPLER));
-				Text(
-					"Descriptor Pools: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
-				Text(
-					"Descriptor Sets: %u",
-					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
-				Text("Framebuffers: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
-				Text("Command Pools: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
-				Text("Surfaces: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
-				Text("Swapchains: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
-			}
-			End();
-		}
-	}
-#endif
-
-	if (RHIApplication::gShowDemoWindow)
-		ShowDemoWindow(&RHIApplication::gShowDemoWindow);
-
-	if (RHIApplication::gShowAbout && Begin("About client", &RHIApplication::gShowAbout))
-	{
-		End();
-	}
-
-	if (bool loading = RHIApplication::gShowProgress.load(std::memory_order_relaxed) &&
-				 Begin(
-					 "Loading",
-					 &loading,
-					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
-						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
-	{
-		constexpr uint8_t kProgressMax = 255;
-		constexpr float kProgressWindowWidth = 160.0F;
-		SetWindowSize(ImVec2(kProgressWindowWidth, 0));
-		ProgressBar((1.F / kProgressMax) * static_cast<float>(RHIApplication::gProgress));
-		End();
-	}
-
-	/*static bool showNodeEditor = false;
-	if (showNodeEditor)
-	{
-		ImGui::SetNextWindowSize(ImVec2(800, 450), ImGuiCond_FirstUseEver);
-
-		if (Begin("Node Editor Window", &showNodeEditor)) {}
-
-		//PushAllowKeyboardFocus(false);
-
-		IMNODES_NAMESPACE::BeginNodeEditor();
-
-		for (const auto& node : myNodeGraph.nodes)
-		{
-			char buffer[64];
-
-			IMNODES_NAMESPACE::BeginNode(node->Id());
-
-			// title bar
-			std::format_to_n(buffer, std::size(buffer), "##node{0}", 4, node->Id());
-
-			IMNODES_NAMESPACE::BeginNodeTitleBar();
-
-			float titleBarTextWidth =
-				editableTextField(node->Id(), buffer, node->GetName(), 160.0f, node->Selected());
-
-			IMNODES_NAMESPACE::EndNodeTitleBar();
-
-			if (IsItemClicked() && IsMouseDoubleClicked(0))
-				node->Selected() = std::make_optional(node->Id());
-
-			// attributes
-			if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
-			{
-				auto rowCount = std::max(
-					inOutNode->InputAttributes().size(), inOutNode->OutputAttributes().size());
-
-				for (uint32_t rowIt = 0ul; rowIt < rowCount; rowIt++)
-				{
-					float inputTextWidth = 0.0f;
-					bool hasInputPin = rowIt < inOutNode->InputAttributes().size();
-					if (hasInputPin)
-					{
-						auto& inputAttribute = inOutNode->InputAttributes()[rowIt];
-						std::format_to_n(buffer, std::size(buffer), "##inputattribute{0}", 4, inputAttribute.id);
-
-						IMNODES_NAMESPACE::BeginInputAttribute(inputAttribute.id);
-
-						inputTextWidth = editableTextField(
-							inputAttribute.id,
-							buffer,
-							inputAttribute.name,
-							80.0f,
-							node->Selected());
-
-						IMNODES_NAMESPACE::EndInputAttribute();
-
-						if (IsItemClicked() && IsMouseDoubleClicked(0))
-							node->Selected() = std::make_optional(inputAttribute.id);
-					}
-
-					if (rowIt < inOutNode->OutputAttributes().size())
-					{
-						auto& outputAttribute = inOutNode->OutputAttributes()[rowIt];
-						std::format_to_n(buffer, std::size(buffer), "##outputattribute{0}", 4, outputAttribute.id);
-
-						if (hasInputPin)
-							SameLine();
-
-						IMNODES_NAMESPACE::BeginOutputAttribute(outputAttribute.id);
-
-						float outputTextWidth =
-							CalcTextSize(
-								outputAttribute.name.c_str(),
-								outputAttribute.name.c_str() + outputAttribute.name.size())
-								.x;
-
-						if (hasInputPin)
-							Indent(
-								std::max(titleBarTextWidth, inputTextWidth + outputTextWidth) -
-								outputTextWidth);
-						else
-							Indent(
-								std::max(titleBarTextWidth, outputTextWidth + 80.0f) -
-								outputTextWidth);
-
-						editableTextField(
-							outputAttribute.id,
-							buffer,
-							outputAttribute.name,
-							80.0f,
-							node->Selected());
-
-						IMNODES_NAMESPACE::EndOutputAttribute();
-
-						if (IsItemClicked() && IsMouseDoubleClicked(0))
-							node->Selected() = std::make_optional(outputAttribute.id);
-					}
-				}
-			}
-
-			if (BeginPopupContextItem())
-			{
-				if (Selectable("Add Input"))
-				{
-					if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
-					{
-						std::format_to_n(
-							buffer,
-							std::size(buffer),
-							"In {0}",
-							static_cast<unsigned>(inOutNode->InputAttributes().size()));
-						inOutNode->InputAttributes().emplace_back(
-							Attribute{++myNodeGraph.uniqueId, buffer});
-					}
-				}
-				if (Selectable("Add Output"))
-				{
-					if (auto inOutNode = std::dynamic_pointer_cast<InputOutputNode>(node))
-					{
-						std::format_to_n(
-							buffer,
-							std::size(buffer),
-							"Out {0}",
-							static_cast<unsigned>(inOutNode->OutputAttributes().size()));
-						inOutNode->OutputAttributes().emplace_back(
-							Attribute{++myNodeGraph.uniqueId, buffer});
-					}
-				}
-				EndPopup();
-			}
-
-			IMNODES_NAMESPACE::EndNode();
-		}
-
-		for (int linkIt = 0; linkIt < myNodeGraph.links.size(); linkIt++)
-			IMNODES_NAMESPACE::Link(
-				linkIt, myNodeGraph.links[linkIt].fromId, myNodeGraph.links[linkIt].toId);
-
-		IMNODES_NAMESPACE::EndNodeEditor();
-
-		//if (ImGui::IsWindowHovered() || ImGui::IsWindowFocused())
-		{
-			//if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Tab)))
-			{
-				if (BeginPopupContextWindow("Node Editor Context Menu"))
-				{
-					ImVec2 clickPos = GetMousePosOnOpeningCurrentPopup();
-
-					enum class NodeType
-					{
-						SlangShaderNode
-					};
-					constexpr std::tuple<NodeType, std::string_view> menuItems[]{
-						{NodeType::SlangShaderNode, "Slang Shader"}};
-
-					for (const auto& menuItem : menuItems)
-					{
-						const auto& [itemType, itemName] = menuItem;
-
-						if (Selectable(itemName.data()))
-						{
-							int id = ++myNodeGraph.uniqueId;
-							IMNODES_NAMESPACE::SetNodeScreenSpacePos(id, clickPos);
-							myNodeGraph.nodes.emplace_back(
-								[&menuItem, &id]() -> std::shared_ptr<INode>
-								{
-									const auto& [itemType, itemName] = menuItem;
-
-									switch (itemType)
-									{
-									case NodeType::SlangShaderNode:
-										return std::make_shared<SlangShaderNode>(
-											SlangShaderNode(id, std::string(itemName.data()), {}));
-									default:
-										ASSERT(false);
-										break;
-									}
-									return {};
-								}());
-						}
-					}
-
-					EndPopup();
-				}
-			}
-		}
-
-		//PopAllowKeyboardFocus();
-
-		End(); //Node Editor Window
-
-		{
-			int startAttr, endAttr;
-			if (IMNODES_NAMESPACE::IsLinkCreated(&startAttr, &endAttr))
-				myNodeGraph.links.emplace_back(Link{startAttr, endAttr});
-		}
-
-		// {
-		//     const int selectedNodeCount = IMNODES_NAMESPACE::NumSelectedNodes();
-		//     if (selectedNodeCount > 0)
-		//     {
-		//         std::vector<int> selectedNodes;
-		//         selectedNodes.resize(selectedNodeCount);
-		//         IMNODES_NAMESPACE::GetSelectedNodes(selectedNodes.data());
-		//     }
-		// }
-	}
-	*/
-
-	auto resourcePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]);
-	auto& window = rhi.GetWindow(GetCurrentWindow());
-
-	if (BeginMainMenuBar())
-	{
-		if (BeginMenu("File"))
-		{
-			if (MenuItem("Open OBJ..."))
-			{
-				static const std::vector<nfdu8filteritem_t> kFilterList ={
-					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
-				};
-				OpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
-					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-						ENSURE(app);
-						auto& rhi = app->GetRHI<kVk>();
-						auto& pipeline = rhi.GetPipeline();
-						ENSURE(pipeline);
-						auto& resources = pipeline->GetResources();
-						
-						auto model = std::make_shared<Model<kVk>>(model::LoadModel(rhi, filePath, progressOut, std::atomic_load(&resources.model)));
-
-						pipeline->SetVertexInputState(*model);
-						pipeline->SetDescriptorData(
-							"gVertexBuffer",
-							DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
-							DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-
-						std::atomic_store(&resources.model, model);
-					});
-			}
-			if (MenuItem("Open Image..."))
-			{
-				static const std::vector<nfdu8filteritem_t> kFilterList = {
-					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
-				};
-
-				OpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
-					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
-						ENSURE(app);
-						auto& rhi = app->GetRHI<kVk>();
-						auto [newImage, newImageView] = image::LoadImage<kVk>(rhi, filePath, progressOut);
-					});
-			}
-			// if (MenuItem("Open Scene..."))
-			// {
-			// 	static const std::vector<nfdu8filteritem_t> filterList = {
-			// 		nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
-			// 	};
-
-			// 	OpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, 
-			// 		[&scene = Scene{}](std::string_view filePath, std::atomic_uint8_t& progress){ scene::LoadScene(scene, filePath, progress); });
-			// }
-			Separator();
-			if (MenuItem("Exit", "CTRL+Q"))
-				Application::Get().lock()->RequestExit();
-
-			ImGui::EndMenu();
-		}
-		if (BeginMenu("View"))
-		{
-			// if (MenuItem("Node Editor..."))
-			// 	showNodeEditor = !showNodeEditor;
-			if (BeginMenu("Layout"))
-			{
-				Extent2d<kVk> splitScreenGrid = window.GetConfig().splitScreenGrid;
-
-				//static bool hasChanged = 
-				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
-				bool selected1x2 = splitScreenGrid.width == 1 && splitScreenGrid.height == 2;
-				bool selected2x1 = splitScreenGrid.width == 2 && splitScreenGrid.height == 1;
-				bool selected2x2 = splitScreenGrid.width == 2 && splitScreenGrid.height == 2;
-				bool anyChanged = false;
-
-				if (MenuItem("1x1", "Ctrl+1", &selected1x1) && selected1x1)
-				{
-					splitScreenGrid.width = 1;
-					splitScreenGrid.height = 1;
-					anyChanged = true;
-				}
-				else if (MenuItem("1x2", "Ctrl+2", &selected1x2) && selected1x2)
-				{
-					splitScreenGrid.width = 1;
-					splitScreenGrid.height = 2;
-					anyChanged = true;
-				}
-				else if (MenuItem("2x1", "Ctrl+3", &selected2x1) && selected2x1)
-				{
-					splitScreenGrid.width = 2;
-					splitScreenGrid.height = 1;
-					anyChanged = true;
-				}
-				else if (MenuItem("2x2", "Ctrl+4", &selected2x2) && selected2x2)
-				{
-					splitScreenGrid.width = 2;
-					splitScreenGrid.height = 2;
-					anyChanged = true;
-				}
-
-				ImGui::EndMenu();
-
-				if (anyChanged)
-					window.OnResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
-			}
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-			{
-				if (MenuItem("Statistics..."))
-					gShowStatistics = !gShowStatistics;
-			}
-#endif
-			ImGui::EndMenu();
-		}
-		if (BeginMenu("About"))
-		{
-			if (MenuItem("Show IMGUI Demo..."))
-				RHIApplication::gShowDemoWindow = !RHIApplication::gShowDemoWindow;
-			Separator();
-			if (MenuItem("About client..."))
-				RHIApplication::gShowAbout = !RHIApplication::gShowAbout;
-			ImGui::EndMenu();
-		}
-
-		EndMainMenuBar();
-	}
-
-	EndFrame();
-	//UpdatePlatformWindows();
-	Render();
-
-	ImDrawData drawData;
-	static imgui_extra::ImDrawDataSnapshot gSnapshot;
-	if (auto *data = GetDrawData())
-	{
-		gSnapshot.SnapUsingSwap(data, &drawData, GetTime());
-		gIMGUIDrawData.enqueue(std::move(drawData));
-	}
-}
-
 void IMGUIDrawFunction(
 	CommandBufferHandle<kVk> cmd,
-	std::vector<TaskHandle>& /*callbacks*/,
 	PipelineHandle<kVk> pipeline = nullptr)
 {
 	ZoneScopedN("RHIApplication::IMGUIDraw");
 
 	using namespace ImGui;
 
-	static ImDrawData gDrawData;
+	static ImDrawData gDrawData{};
 	while (gIMGUIDrawData.try_dequeue(gDrawData));
 
-	ImGui_ImplVulkan_RenderDrawData(&gDrawData, cmd, /*callbacks,*/ pipeline);
+	ImGui_ImplVulkan_RenderDrawData(&gDrawData, cmd, pipeline);
 }
 
 static void IMGUIInit(
@@ -939,6 +430,242 @@ static void DrawMainPass(
 
 } // namespace rhiapplication
 
+void RHIApplication::PrepareDraw()
+{
+	ZoneScopedN("RHIApplication::PrepareDraw");
+
+	using namespace rhiapplication;
+	using namespace ImGui;
+
+	auto& rhi = GetRHI<kVk>();
+
+	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
+	ImGui_ImplVulkan_NewFrame(); // calls ImGui_ImplVulkan_CreateFontsTexture
+	NewFrame();
+
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	static bool gShowStatistics = false;
+	{
+		if (gShowStatistics)
+		{
+			if (Begin("Statistics", &gShowStatistics))
+			{
+				Text("Unknowns: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_UNKNOWN));
+				Text("Instances: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_INSTANCE));
+				Text(
+					"Physical Devices: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
+				Text("Devices: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DEVICE));
+				Text("Queues: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_QUEUE));
+				Text("Semaphores: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SEMAPHORE));
+				Text(
+					"Command Buffers: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_COMMAND_BUFFER));
+				Text("Fences: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_FENCE));
+				Text("Device Memory: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DEVICE_MEMORY));
+				Text("Buffers: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_BUFFER));
+				Text("Images: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_IMAGE));
+				Text("Events: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_EVENT));
+				Text("Query Pools: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_QUERY_POOL));
+				Text("Buffer Views: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_BUFFER_VIEW));
+				Text("Image Views: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_IMAGE_VIEW));
+				Text(
+					"Shader Modules: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SHADER_MODULE));
+				Text(
+					"Pipeline Caches: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PIPELINE_CACHE));
+				Text(
+					"Pipeline Layouts: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PIPELINE_LAYOUT));
+				Text("Render Passes: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_RENDER_PASS));
+				Text("Pipelines: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_PIPELINE));
+				Text(
+					"Descriptor Set Layouts: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT));
+				Text("Samplers: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SAMPLER));
+				Text(
+					"Descriptor Pools: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
+				Text(
+					"Descriptor Sets: %u",
+					rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_DESCRIPTOR_SET));
+				Text("Framebuffers: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_FRAMEBUFFER));
+				Text("Command Pools: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_COMMAND_POOL));
+				Text("Surfaces: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SURFACE_KHR));
+				Text("Swapchains: %u", rhi.GetDevice()->GetTypeCount(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
+			}
+			End();
+		}
+	}
+#endif
+
+	if (gShowDemoWindow)
+		ShowDemoWindow(&gShowDemoWindow);
+
+	if (gShowAbout && Begin("About client", &gShowAbout))
+	{
+		End();
+	}
+
+	if (bool loading = gShowProgress.load(std::memory_order_relaxed) &&
+				 Begin(
+					 "Loading",
+					 &loading,
+					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
+						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
+	{
+		constexpr uint8_t kProgressMax = 255;
+		constexpr float kProgressWindowWidth = 160.0F;
+		SetWindowSize(ImVec2(kProgressWindowWidth, 0));
+		ProgressBar((1.F / kProgressMax) * static_cast<float>(gProgress));
+		End();
+	}
+
+	auto resourcePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]);
+	auto& window = rhi.GetWindow(GetCurrentWindow());
+
+	if (BeginMainMenuBar())
+	{
+		if (BeginMenu("File"))
+		{
+			if (MenuItem("Open OBJ..."))
+			{
+				static const std::vector<nfdu8filteritem_t> kFilterList ={
+					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
+				};
+				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
+					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
+						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						ENSURE(app);
+						auto& rhi = app->GetRHI<kVk>();
+						auto& pipeline = rhi.GetPipeline();
+						ENSURE(pipeline);
+						auto& resources = pipeline->GetResources();
+						
+						auto model = std::make_shared<Model<kVk>>(model::LoadModel(rhi, filePath, progressOut, std::atomic_load(&resources.model)));
+
+						pipeline->SetVertexInputState(*model);
+						pipeline->SetDescriptorData(
+							"gVertexBuffer",
+							DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
+							DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+
+						std::atomic_store(&resources.model, model);
+					});
+			}
+			if (MenuItem("Open Image..."))
+			{
+				static const std::vector<nfdu8filteritem_t> kFilterList = {
+					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
+				};
+
+				InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
+					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
+						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						ENSURE(app);
+						auto& rhi = app->GetRHI<kVk>();
+						auto [newImage, newImageView] = image::LoadImage<kVk>(rhi, filePath, progressOut);
+					});
+			}
+			// if (MenuItem("Open Scene..."))
+			// {
+			// 	static const std::vector<nfdu8filteritem_t> filterList = {
+			// 		nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
+			// 	};
+
+			// 	InternalOpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, 
+			// 		[&scene = Scene{}](std::string_view filePath, std::atomic_uint8_t& progress){ scene::LoadScene(scene, filePath, progress); });
+			// }
+			Separator();
+			if (MenuItem("Exit", "CTRL+Q"))
+				Application::Get().lock()->RequestExit();
+
+			ImGui::EndMenu();
+		}
+		if (BeginMenu("View"))
+		{
+			// if (MenuItem("Node Editor..."))
+			// 	showNodeEditor = !showNodeEditor;
+			if (BeginMenu("Layout"))
+			{
+				Extent2d<kVk> splitScreenGrid = window.GetConfig().splitScreenGrid;
+
+				//static bool hasChanged = 
+				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
+				bool selected1x2 = splitScreenGrid.width == 1 && splitScreenGrid.height == 2;
+				bool selected2x1 = splitScreenGrid.width == 2 && splitScreenGrid.height == 1;
+				bool selected2x2 = splitScreenGrid.width == 2 && splitScreenGrid.height == 2;
+				bool anyChanged = false;
+
+				if (MenuItem("1x1", "Ctrl+1", &selected1x1) && selected1x1)
+				{
+					splitScreenGrid.width = 1;
+					splitScreenGrid.height = 1;
+					anyChanged = true;
+				}
+				else if (MenuItem("1x2", "Ctrl+2", &selected1x2) && selected1x2)
+				{
+					splitScreenGrid.width = 1;
+					splitScreenGrid.height = 2;
+					anyChanged = true;
+				}
+				else if (MenuItem("2x1", "Ctrl+3", &selected2x1) && selected2x1)
+				{
+					splitScreenGrid.width = 2;
+					splitScreenGrid.height = 1;
+					anyChanged = true;
+				}
+				else if (MenuItem("2x2", "Ctrl+4", &selected2x2) && selected2x2)
+				{
+					splitScreenGrid.width = 2;
+					splitScreenGrid.height = 2;
+					anyChanged = true;
+				}
+
+				ImGui::EndMenu();
+
+				if (anyChanged)
+					window.OnResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
+			}
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+			{
+				if (MenuItem("Statistics..."))
+					gShowStatistics = !gShowStatistics;
+			}
+#endif
+			ImGui::EndMenu();
+		}
+		if (BeginMenu("About"))
+		{
+			if (MenuItem("Show IMGUI Demo..."))
+				gShowDemoWindow = !gShowDemoWindow;
+			Separator();
+			if (MenuItem("About client..."))
+				gShowAbout = !gShowAbout;
+			ImGui::EndMenu();
+		}
+
+		EndMainMenuBar();
+	}
+
+	// unfortunately, we need to lock here to prevent imgui from modifying internal data structures under our feet in the draw thread.
+	// this was not needed before, but with the recent rewrites to imgui textures,
+	// we get races with imgui setting completion codes for texture uploads in the render thread which are also read and modified here.
+	// so we need to lock :(
+	{
+		std::unique_lock lock(gDrawMutex);
+		Render();
+	}
+
+	static ImDrawData gDrawData{};
+	static imgui_extra::ImDrawDataSnapshot gSnapshot;
+	if (auto *data = GetDrawData())
+	{
+		gSnapshot.SnapUsingSwap(data, &gDrawData, GetTime());
+		gIMGUIDrawData.enqueue(std::move(gDrawData));
+	}
+}
+
 bool RHIApplication::Main()
 {
 	using namespace rhiapplication;
@@ -977,8 +704,6 @@ void RHIApplication::OnInputStateChanged(const InputState& input)
 
 	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
 		window.OnInputStateChanged(input);
-
-	IMGUIPrepareDrawFunction(rhi, GetExecutor());
 }
 
 void RHIApplication::Draw()
@@ -1139,7 +864,7 @@ void RHIApplication::Draw()
 			rhi.GetPipeline()->SetRenderTarget(newFrame);
 			
 			window.Begin(cmd, VK_SUBPASS_CONTENTS_INLINE);
-			IMGUIDrawFunction(cmd, graphicsCallbacks);
+			IMGUIDrawFunction(cmd);
 			window.End(cmd);
 		}
 		{

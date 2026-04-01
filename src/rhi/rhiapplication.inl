@@ -1,8 +1,5 @@
-namespace rhiapplication
-{
-
 template <typename LoadOp>
-void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
+void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
 {
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
 	ENSURE(app);
@@ -24,10 +21,10 @@ void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<n
 			auto [openFileResult, openFilePath] = openFileFuture.Get();
 			if (openFileResult)
 			{
-				RHIApplication::gProgress = 0;
-				RHIApplication::gShowProgress = true;
-				loadOp(openFilePath, RHIApplication::gProgress);
-				RHIApplication::gShowProgress = false;
+				gProgress = 0;
+				gShowProgress = true;
+				loadOp(openFilePath, gProgress);
+				gShowProgress = false;
 			}
 		},
 		std::move(openFileFuture),
@@ -36,5 +33,3 @@ void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<n
 	rhi.mainCalls.enqueue(openFileTask);
 	rhi.mainCalls.enqueue(loadTask);
 }
-
-} // namespace rhiapplication

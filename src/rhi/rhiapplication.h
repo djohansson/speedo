@@ -26,6 +26,12 @@ public:
 	void OnResizeFramebuffer(WindowHandle window, int width, int height);
 	void OnInputStateChanged(const InputState& input);
 	
+	// call as soon as you want the application to redraw itself, e.g. after changing the scene or camera
+	// typically called from the ticking function, but can be called from anywhere (e.g. from a file dialogue callback after loading a new scene)
+	void PrepareDraw();
+
+	// will redraw the application as soon as possible. typically this should not be called directly, 
+	// but rather PrepareDraw should be called to schedule a draw, and then the application will call Draw at the appropriate time.
 	void Draw();
 
 	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
@@ -39,12 +45,6 @@ public:
 	template <GraphicsApi G>
 	[[nodiscard]] const RHI<G>& GetRHI() const noexcept;
 
-	static UpgradableSharedMutex gDrawMutex; //NOLINT(readability-identifier-naming)
-	static std::atomic_uint8_t gProgress; //NOLINT(readability-identifier-naming)
-	static std::atomic_bool gShowProgress; //NOLINT(readability-identifier-naming)
-	static bool gShowAbout; //NOLINT(readability-identifier-naming)
-	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
-
 protected:
 	explicit RHIApplication() = default;
 	RHIApplication(
@@ -53,15 +53,18 @@ protected:
 		CreateWindowFunc createWindowFunc);
 
 private:
+	template <typename LoadOp>
+	void InternalOpenFileDialogueAsync(
+		std::string&& resourcePathString,
+		const std::vector<nfdu8filteritem_t>& filterList,
+		LoadOp loadOp);
+	
 	std::unique_ptr<RHIBase> myRHI;
+	static UpgradableSharedMutex gDrawMutex; //NOLINT(readability-identifier-naming)
+	static std::atomic_uint8_t gProgress; //NOLINT(readability-identifier-naming)
+	static std::atomic_bool gShowProgress; //NOLINT(readability-identifier-naming)
+	static bool gShowAbout; //NOLINT(readability-identifier-naming)
+	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
 };
-
-namespace rhiapplication
-{
-
-template <typename LoadOp>
-void OpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp);
-
-} // namespace rhiapplication
 
 #include "rhiapplication.inl"
