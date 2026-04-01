@@ -653,6 +653,7 @@ static void IMGUIInit(
 	initInfo.ImageCount = window.GetConfig().swapchainConfig.imageCount;
 	initInfo.Allocator = &rhi.GetInstance()->GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
+	initInfo.MinAllocationSize = 64 * 1024;
 	initInfo.UseDynamicRendering = window.GetConfig().swapchainConfig.useDynamicRendering;
 	initInfo.PipelineInfoMain.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : static_cast<RenderTargetPassHandle<kVk>>(window.GetFrames()[0]).first;
 	initInfo.PipelineInfoMain.Subpass = 0;
