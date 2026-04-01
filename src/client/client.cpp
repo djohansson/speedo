@@ -263,8 +263,8 @@ void Client::Tick()
 		RHIApplication::OnInputStateChanged(input);
 
 	using namespace std::chrono_literals;
-	std::chrono::microseconds delay = 1000us;
-	std::this_thread::sleep_until(start + delay);
+	static constexpr std::chrono::microseconds kTickMinTime = 1000us;
+	std::this_thread::sleep_until(start + kTickMinTime);
 }
 
 bool Client::Main()
