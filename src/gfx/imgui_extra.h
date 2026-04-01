@@ -15,20 +15,21 @@ struct ImDrawDataSnapshotEntry
 	double LastUsedTime = 0.0;
 };
 
-struct ImDrawDataSnapshot
+class ImDrawDataSnapshot
 {
-	ImPool<ImDrawDataSnapshotEntry>* Cache;
-	float MemoryCompactTimer = 20.0f;
-
+public:
 	ImDrawDataSnapshot();
 	~ImDrawDataSnapshot();
 
 	void Clear();
-	void SnapUsingSwap(ImDrawData* src, ImDrawData* dst, double current_time); 
+	void SnapUsingSwap(ImDrawData* src, ImDrawData* dst, double currentTime); 
 
-	// Internals
-	ImGuiID GetDrawListID(ImDrawList* src_list);
-	ImDrawDataSnapshotEntry* GetOrAddEntry(ImDrawList* src_list);
+private:
+	static ImGuiID InternalGetDrawListID(ImDrawList* srcList);
+	ImDrawDataSnapshotEntry* InternalGetOrAddEntry(ImDrawList* srcList);
+
+	ImPool<ImDrawDataSnapshotEntry>* myCache;
+	float myMemoryCompactTimer = 20.0F; //NOLINT(readability-magic-numbers)
 };
 
 } // namespace imgui_extra
