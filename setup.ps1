@@ -72,7 +72,6 @@ $CMakePresets = [ordered] @{
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = 'profile;release'
 				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE='ON'
-				CMAKE_FASTBUILD_USE_RELATIVE_PATHS='ON'
 				#
 			}
 			environment = [ordered] @{

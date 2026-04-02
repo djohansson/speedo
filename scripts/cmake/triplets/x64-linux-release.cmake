@@ -10,7 +10,6 @@ set(
 	VCPKG_CMAKE_CONFIGURE_OPTIONS_RELEASE
 		-DCMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS=ON
 		-DCMAKE_FASTBUILD_USE_LIGHTCACHE=ON
-		-DCMAKE_FASTBUILD_USE_RELATIVE_PATHS=ON
 )
 set(VCPKG_C_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
 set(VCPKG_CXX_FLAGS_RELEASE "-O3 -flto=thin -Wno-gnu-line-marker -Wno-missing-format-attribute")
