@@ -1,5 +1,6 @@
 #include "../rhi.h"
 #include "../rhiapplication.h"
+#include "rhi/capi.h"
 #include "utils.h"
 
 #include <core/task.h>
@@ -157,7 +158,7 @@ static void IMGUIInit(
 		.pColorAttachmentFormats = &window.GetConfig().swapchainConfig.surfaceFormat.format,
 	};
 	ImGui_ImplVulkan_Init(&initInfo);
-	ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetCurrentWindow()), true);
+	ImGui_ImplGlfw_InitForVulkan(reinterpret_cast<GLFWwindow*>(GetCurrentWindow()), true);
 
 	// IMNODES_NAMESPACE::CreateContext();
 	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
@@ -673,7 +674,6 @@ bool RHIApplication::Main()
 	ZoneScopedN("RHIApplication::Main");
 
 	auto& rhi = GetRHI<kVk>();
-	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
@@ -1194,9 +1194,15 @@ void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 
 WindowState* RHIApplication::GetWindowState(WindowHandle window)
 {
-	using namespace rhiapplication;
+	return &GetRHI<kVk>().GetWindow(window).GetState();
+}
 
-	auto& rhi = GetRHI<kVk>();
+uint32_t RHIApplication::GetWindowCount() const noexcept
+{
+	return GetRHI<kVk>().GetWindows().size();
+}
 
-	return &rhi.GetWindow(window).GetState();
+WindowHandle RHIApplication::GetWindow(uint32_t index) const noexcept
+{
+	return *std::next(GetRHI<kVk>().GetWindows().begin(), index);
 }

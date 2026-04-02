@@ -22,7 +22,7 @@ extern "C"
 #endif
 
 CLIENT_API void ClientCreate(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
-CLIENT_API void ClientDestroy(void);
+CLIENT_API void ClientDestroy(DestroyWindowFunc destroyWindowFunc);
 CLIENT_API bool ClientMain();
 
 #ifdef __cplusplus

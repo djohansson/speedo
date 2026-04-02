@@ -13,7 +13,7 @@ OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filter
 	args.filterList = filterList.data();
 	args.filterCount = filterList.size();
 	args.defaultPath = resourcePathString.c_str();
-	NFD_GetNativeWindowFromGLFWWindow(static_cast<GLFWwindow*>(GetCurrentWindow()), &args.parentWindow);
+	NFD_GetNativeWindowFromGLFWWindow(reinterpret_cast<GLFWwindow*>(GetCurrentWindow()), &args.parentWindow); // NOLINT(performance-no-int-to-ptr)
 
 	if (NFD_OpenDialogU8_With(&openFilePath, &args) == NFD_OKAY)
 	{

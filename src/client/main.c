@@ -85,7 +85,7 @@ static void OnMouseEnter(GLFWwindow* window, int entered)
 	ENSURE(window != NULL);
 
 	if (entered)
-		SetCurrentWindow(window);
+		SetCurrentWindow((WindowHandle)window);
 
 	gMouse.insideWindow = entered;
 	gMouse.flags = kWindow;
@@ -131,7 +131,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 {
 	ENSURE(window != NULL);
 
-	struct WindowState* windowState = GetWindowState(window);
+	struct WindowState* windowState = GetWindowState((WindowHandle)window);
 
 	ENSURE(windowState != NULL);
 
@@ -235,7 +235,7 @@ static void OnFramebufferResize(GLFWwindow* window, int width, int height)
 	ASSERT(width > 0);
 	ASSERT(height > 0);
 
-	ResizeFramebuffer(window, width, height);
+	ResizeFramebuffer((WindowHandle)window, width, height);
 }
 
 static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
@@ -244,7 +244,7 @@ static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float 
 	ASSERT(xscale > 0);
 	ASSERT(yscale > 0);
 
-	struct WindowState* windowState = GetWindowState(window);
+	struct WindowState* windowState = GetWindowState((WindowHandle)window);
 
 	ENSURE(windowState != NULL);
 
@@ -320,9 +320,9 @@ static void SetWindowCallbacks(GLFWwindow* window)
 	glfwSetWindowTitle(window, GetApplicationName());
 }
 
-static WindowHandle OnCreateWindow(struct WindowState* state)
+static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 {
-	ENSURE(state != NULL);
+	ENSURE(inOutState != NULL);
 
 	// todo: fullscreen on create
 
@@ -330,8 +330,8 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 	glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
 	GLFWwindow* window  = glfwCreateWindow(
-		(int)state->width,
-		(int)state->height,
+		(int)inOutState->width,
+		(int)inOutState->height,
 		"",
 		NULL,
 		NULL);
@@ -342,8 +342,8 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 	float yscale;
 	glfwGetWindowContentScale(window, &xscale, &yscale);
 
-	state->xscale = xscale;
-	state->yscale = yscale;
+	inOutState->xscale = xscale;
+	inOutState->yscale = yscale;
 
 	if (glfwRawMouseMotionSupported())
 	 	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
@@ -352,7 +352,14 @@ static WindowHandle OnCreateWindow(struct WindowState* state)
 
 	SetWindowCallbacks(window);
 
-	return window;
+	return (WindowHandle)window;
+}
+
+static void OnDestroyWindow(WindowHandle window)
+{
+	ENSURE(window != kInvalidWindowHandle);
+
+	glfwDestroyWindow((GLFWwindow*)window);
 }
 
 static void* GlfwAllocate(size_t size, void* user)
@@ -461,21 +468,14 @@ int main(int argc, char* argv[], char* envp[])
 			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
 			xscale, yscale);
 	}
-
-	ClientCreate(OnCreateWindow, &gPaths);
-
+	
 	glfwSetMonitorCallback(OnMonitorChanged);
 
-	do { glfwWaitEvents();
-	} while (!(bool)glfwWindowShouldClose(GetCurrentWindow()) && ClientMain() && !gIsInterrupted);
-
-	size_t windowCount;
-	WindowHandle* windows = GetWindows(&windowCount);
-	for (size_t i = 0; i < windowCount; ++i)
-		glfwDestroyWindow(windows[i]);
-
-	ClientDestroy();
-
+	ClientCreate(OnCreateWindow, &gPaths);
+	do { glfwWaitEvents(); }
+	while (!(bool)glfwWindowShouldClose((GLFWwindow*)GetCurrentWindow()) && ClientMain() && !gIsInterrupted);//NOLINT(performance-no-int-to-ptr)
+	ClientDestroy(OnDestroyWindow);
+	
 	glfwTerminate();
 
 	return EXIT_SUCCESS;

@@ -25,7 +25,7 @@ enum GraphicsApi : uint8_t
 	kVk = 0,
 };
 
-typedef void* WindowHandle;//NOLINT(modernize-use-using)
+typedef uintptr_t WindowHandle;//NOLINT(modernize-use-using)
 struct WindowState
 {
 	float xscale;	 // content x scale factor
@@ -49,11 +49,10 @@ struct SourceLocationData
 };
 
 typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(modernize-use-using)
-static const WindowHandle kInvalidWindowHandle = NULL;//NOLINT(modernize-use-nullptr)
+typedef void (*DestroyWindowFunc)(WindowHandle window);//NOLINT(modernize-use-using)
+static const WindowHandle kInvalidWindowHandle = 0;//NOLINT(modernize-use-nullptr)
 
 RHI_API void ResizeFramebuffer(WindowHandle window, int width, int height);
-RHI_API WindowHandle* GetWindows(size_t* count);
-RHI_API void SetWindows(WindowHandle* windows, size_t count);
 RHI_API WindowHandle GetCurrentWindow(void);
 RHI_API void SetCurrentWindow(WindowHandle window);
 RHI_API struct WindowState* GetWindowState(WindowHandle window);

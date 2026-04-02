@@ -12,6 +12,7 @@
 #	include <sdkddkver.h>
 #endif
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -35,6 +36,8 @@ public:
 	void Draw();
 
 	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
+	[[nodiscard]] uint32_t GetWindowCount() const noexcept;
+	[[nodiscard]] WindowHandle GetWindow(uint32_t index) const noexcept;
 
 	[[nodiscard]] RHIBase& GetRHI() noexcept { return *myRHI; }
 	[[nodiscard]] const RHIBase& GetRHI() const noexcept { return *myRHI; }

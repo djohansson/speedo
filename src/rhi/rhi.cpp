@@ -1,14 +1,11 @@
 #include "capi.h"
 #include "rhiapplication.h"
 
-#include <algorithm>
 #include <optional>
-#include <vector>
 
 namespace rhi
 {
 
-static std::vector<WindowHandle> gWindows{};
 static std::optional<WindowHandle> gCurrentWindow{};
 
 }
@@ -25,38 +22,12 @@ WindowHandle GetCurrentWindow(void)
 {
 	using namespace rhi;
 
-	return gCurrentWindow.value_or(nullptr);
-}
-
-WindowHandle* GetWindows(size_t* count)
-{
-	using namespace rhi;
-
-	if (gWindows.empty())
-	{
-		*count = 0;
-		return nullptr;
-	}
-
-	*count = gWindows.size();
-	return gWindows.data();
-}
-
-void SetWindows(WindowHandle* windows, size_t count)
-{
-	using namespace rhi;
-
-	gWindows.clear();
-
-	for (size_t i = 0; i < count; ++i)
-		gWindows.emplace_back(windows[i]);
+	return gCurrentWindow.value_or(kInvalidWindowHandle);
 }
 
 void SetCurrentWindow(WindowHandle window)
 {
 	using namespace rhi;
-
-	ENSURE(std::find_if(gWindows.begin(), gWindows.end(), [window](WindowHandle handle) { return handle == window; }) != gWindows.end());
 
 	if (!gCurrentWindow.has_value())
 		gCurrentWindow = window;

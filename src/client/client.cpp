@@ -9,6 +9,7 @@
 #include <server/rpc/rpc.h>
 
 #include <array>
+#include <cstdint>
 #include <iostream>
 
 #include <GLFW/glfw3.h>
@@ -363,7 +364,7 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	appPtr->GetExecutor().Submit(handles);
 }
 
-void ClientDestroy()
+void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 {
 	using namespace client;
 
@@ -379,6 +380,9 @@ void ClientDestroy()
 
 	ENSURE(appPtr.Get());
 	ASSERT(appPtr.Get().use_count() == 1);
+
+	for (uint32_t windowIt = 0; windowIt < appPtr->GetWindowCount(); windowIt++)
+		destroyWindowFunc(windowIt);
 	
 	appPtr.Get().reset();
 }

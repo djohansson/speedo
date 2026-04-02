@@ -28,9 +28,10 @@ public:
 	RHI(const RHI&) = delete;
 	RHI(RHI&& other) noexcept = delete;
 
-	[[nodiscard]] GraphicsApi GetApi() const final { return G; }
-	[[nodiscard]] auto& GetWindows() { return myWindows; }
-	[[nodiscard]] auto& GetWindow(WindowHandle handle) const { return *myWindows.find(handle)->get(); }
+	[[nodiscard]] auto& GetWindows() noexcept { return myWindows; }
+	[[nodiscard]] const auto& GetWindows() const noexcept { return myWindows; }
+	[[nodiscard]] Window<G>& GetWindow(WindowHandle handle) { return const_cast<Window<G>&>(*myWindows.find(handle)); }
+	[[nodiscard]] const Window<G>& GetWindow(WindowHandle handle) const { return *myWindows.find(handle); }
 	[[nodiscard]] auto& GetPipelineLayout(const std::string& name) const { return myPipelineLayouts.at(name); }
 	[[nodiscard]] auto& GetPipelineLayouts() { return myPipelineLayouts; }
 	[[nodiscard]] auto& GetPipeline() { return myPipeline; }
@@ -46,10 +47,7 @@ private:
 	CreateWindowFunc myCreateWindowFunc;
 
 	UnorderedMap<QueueType, QueueTimelineContext<G>> myQueues;
-	UnorderedSet<
-		std::unique_ptr<Window<G>>,
-		HandleHash<std::unique_ptr<Window<G>>, WindowHandle>,
-		HandleEqualTo<std::unique_ptr<Window<G>>, WindowHandle>> myWindows;
+	std::flat_set<Window<G>, HandleCompareLess<Window<G>, WindowHandle>> myWindows;
 
 	// temp until we have a proper resource manager
 	UnorderedMap<std::string, PipelineLayoutHandle<G>> myPipelineLayouts;
