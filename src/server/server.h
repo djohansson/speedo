@@ -7,14 +7,12 @@
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
-class Server : public Application
+class Server final : public Application
 {	
 public:
-	~Server() noexcept(false) override;
-
-protected:
 	explicit Server() = default;
 	Server(std::string_view name, Environment&& env);
+	~Server() noexcept(false) final;
 
 private:
 	zmq::context_t myContext;

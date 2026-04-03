@@ -8,8 +8,6 @@
 #include <memory>
 #include <string>
 #include <string_view>
-#include <thread>
-#include <type_traits>
 #include <variant>
 
 struct Environment
@@ -31,9 +29,6 @@ public:
 	Application& operator=(const Application&) = delete;
 	Application& operator=(Application&&) noexcept = delete;
 
-	template <typename T, typename... Args>
-	[[nodiscard]] static std::shared_ptr<T> Create(Args&&... args);
-
 	[[nodiscard]] auto& GetName() noexcept { return myName; }
 	[[nodiscard]] const auto& GetName() const noexcept { return myName; }
 
@@ -42,8 +37,6 @@ public:
 
 	[[nodiscard]] auto& GetExecutor() noexcept { return *myExecutor; }
 	[[nodiscard]] const auto& GetExecutor() const noexcept { return *myExecutor; }
-
-	[[nodiscard]] static auto& Get() noexcept { return gApplication; }
 
 	void RequestExit() noexcept { myExitRequested = true; }
 	[[nodiscard]] bool IsExitRequested() const noexcept { return myExitRequested; }
@@ -58,5 +51,3 @@ private:
 	std::unique_ptr<TaskExecutor> myExecutor;
 	std::atomic_bool myExitRequested = false;
 };
-
-#include "application.inl"

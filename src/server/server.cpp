@@ -9,6 +9,7 @@
 
 #include <array>
 #include <iostream>
+#include <memory>
 
 namespace server
 {
@@ -141,16 +142,13 @@ void ServerCreate(const PathConfig* paths)
 	ENSURE(userPath);
 
 	auto appPtr = gServerApplication.Write();
-
-	appPtr = Application::Create<Server>(
+	appPtr = std::make_shared<Server>(
 		"server",
 		Environment{{
 			{"RootPath", root.value()},
 			{"ResourcePath", resourcePath.value()},
 			{"UserProfilePath", userPath.value()}
-		}});
-
-	ENSURE(appPtr.Get());
+	}});
 
 	appPtr->GetExecutor().Submit({&gRpcTask.handle, 1});
 }

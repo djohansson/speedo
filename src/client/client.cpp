@@ -11,6 +11,7 @@
 #include <array>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 
 #include <GLFW/glfw3.h>
 
@@ -287,8 +288,8 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 {
 	using namespace core;
 
-	AddMouseHandler(std::dynamic_pointer_cast<MouseEventHandler>(Application::Get().lock()));
-	AddKeyboardHandler(std::dynamic_pointer_cast<KeyboardEventHandler>(Application::Get().lock()));
+	AddMouseHandler(std::dynamic_pointer_cast<MouseEventHandler>(gApplication.lock()));
+	AddKeyboardHandler(std::dynamic_pointer_cast<KeyboardEventHandler>(gApplication.lock()));
 
 	// auto toString = [](zmq::event_flags ef) -> std::string {
 	// 	std::string result;
@@ -348,8 +349,7 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	ENSURE(userPath);
 
 	auto appPtr = gClientApplication.Write();
-
-	appPtr = Application::Create<Client>(
+	appPtr.Get() = std::make_shared<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root.value()},
@@ -357,8 +357,6 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 			{"UserProfilePath", userPath.value()}
 		}},
 		createWindowFunc);
-
-	ENSURE(appPtr.Get());
 
 	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
 	appPtr->GetExecutor().Submit(handles);

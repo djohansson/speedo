@@ -9,20 +9,18 @@
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
-class Client : public RHIApplication, public KeyboardEventHandler, public MouseEventHandler
+class Client final : public RHIApplication, public KeyboardEventHandler, public MouseEventHandler
 {	
 public:
-	~Client() noexcept(false) override;
-
-	void OnKeyboard(const KeyboardEvent& keyboard) override;
-	void OnMouse(const MouseEvent& mouse) override;
-	bool Main() override;
-
-	void Tick();
-
-protected:
 	explicit Client() = default;
 	Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc);
+	~Client() noexcept(false) final;
+
+	void OnKeyboard(const KeyboardEvent& keyboard) final;
+	void OnMouse(const MouseEvent& mouse) final;
+	bool Main() final;
+
+	void Tick();
 
 private:
 	zmq::context_t myContext;

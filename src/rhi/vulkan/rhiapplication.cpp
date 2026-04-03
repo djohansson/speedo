@@ -103,7 +103,7 @@ static void IMGUIInit(
 
 	imguiIO.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]));
+	std::filesystem::path fontPath(std::get<std::filesystem::path>(gApplication.lock()->GetEnv().variables["ResourcePath"]));
 	fontPath /= "fonts";
 	fontPath /= "foo";
 
@@ -522,7 +522,7 @@ void RHIApplication::PrepareDraw()
 		End();
 	}
 
-	auto resourcePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["ResourcePath"]);
+	auto resourcePath = std::get<std::filesystem::path>(gApplication.lock()->GetEnv().variables["ResourcePath"]);
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	if (BeginMainMenuBar())
@@ -536,7 +536,7 @@ void RHIApplication::PrepareDraw()
 				};
 				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						auto app = std::static_pointer_cast<RHIApplication>(gApplication.lock());
 						ENSURE(app);
 						auto& rhi = app->GetRHI<kVk>();
 						auto& pipeline = rhi.GetPipeline();
@@ -562,7 +562,7 @@ void RHIApplication::PrepareDraw()
 
 				InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
 					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+						auto app = std::static_pointer_cast<RHIApplication>(gApplication.lock());
 						ENSURE(app);
 						auto& rhi = app->GetRHI<kVk>();
 						auto [newImage, newImageView] = image::LoadImage<kVk>(rhi, filePath, progressOut);
@@ -579,7 +579,7 @@ void RHIApplication::PrepareDraw()
 			// }
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
-				Application::Get().lock()->RequestExit();
+				gApplication.lock()->RequestExit();
 
 			ImGui::EndMenu();
 		}
@@ -1066,8 +1066,8 @@ RHIApplication::RHIApplication(
 		graphicsSubmits |= graphicsQueue.Submit();
 	}
 
-	auto shaderIncludePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
-	auto shaderIntermediatePath = std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
+	auto shaderIncludePath = std::get<std::filesystem::path>(gApplication.lock()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIntermediatePath = std::get<std::filesystem::path>(gApplication.lock()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
 

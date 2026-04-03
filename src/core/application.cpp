@@ -13,7 +13,7 @@ Application::Application(std::string_view name, Environment&& env)
 , myEnvironment(std::forward<Environment>(env))
 , myExecutor(std::make_unique<TaskExecutor>(std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 2)))
 {
-	ENSUREF(gApplication.use_count() == 1, "There can only be one application at a time");
+	ENSUREF(gApplication.use_count() == 0, "There can only be one application at a time");
 	std::set_terminate([]()
 	{
 		LOG_ERROR("Terminate handled called\n");
@@ -40,7 +40,7 @@ Application::Application(std::string_view name, Environment&& env)
 
 const char* GetApplicationName(void)
 {
-	if (auto app = Application::Get().lock(); app)
+	if (auto app = gApplication.lock(); app)
 		return app->GetName().data();
 
 	return nullptr;

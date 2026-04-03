@@ -222,7 +222,7 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 		}
 	}
 
-	if (auto app = static_pointer_cast<RHIApplication>(Application::Get().lock()); app)
+	if (auto app = static_pointer_cast<RHIApplication>(gApplication.lock()); app)
 	{
 		auto [updateViewBufferTask, updateViewBufferFuture] = CreateTask(
 			[this]() { UpdateViewBuffer(); });

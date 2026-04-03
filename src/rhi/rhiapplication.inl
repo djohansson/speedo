@@ -1,7 +1,7 @@
 template <typename LoadOp>
 void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
 {
-	auto app = std::static_pointer_cast<RHIApplication>(Application::Get().lock());
+	auto app = std::static_pointer_cast<RHIApplication>(gApplication.lock());
 	ENSURE(app);
 	auto& rhi = app->GetRHI();
 	
