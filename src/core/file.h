@@ -36,6 +36,8 @@ class Object : public T
 	// todo: implement mechanism to update contents if an external process has changed the file.
 	// todo: construct or cast directly on mapped memory.
 	// todo: parameter to chose format (binary/json/whatever)
+	// todo: retire this class and remake it as taking a std::span instead of a filename
+	//       this way we can create an API that tracks changes to data, and only wries to the backing store when changes have been made.
 
 public:
 
