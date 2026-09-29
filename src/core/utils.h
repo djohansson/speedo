@@ -20,6 +20,9 @@
 
 #include <concurrentqueue/moodycamel/concurrentqueue.h>
 
+namespace core
+{
+
 template <typename T>
 #if defined(USE_STD_UNORDERED_CONTAINERS) && USE_STD_UNORDERED_CONTAINERS
 using Hash = std::hash<T>;
@@ -40,6 +43,8 @@ struct MinSizeIndex
 template <typename T, typename Handle>
 struct HandleHash : Hash<Handle>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] size_t operator()(const T& obj) const
 	{
 		return Hash<Handle>::operator()(static_cast<Handle>(obj));
@@ -48,13 +53,13 @@ struct HandleHash : Hash<Handle>
 	{
 		return Hash<Handle>::operator()(handle);
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
 struct HandleHash<std::unique_ptr<T>, Handle> : Hash<Handle>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] size_t operator()(const std::unique_ptr<T>& ptr) const
 	{
 		return Hash<Handle>::operator()(static_cast<Handle>(*ptr));
@@ -63,13 +68,13 @@ struct HandleHash<std::unique_ptr<T>, Handle> : Hash<Handle>
 	{
 		return Hash<Handle>::operator()(handle);
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
 struct HandleHash<std::shared_ptr<T>, Handle> : Hash<Handle>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] size_t operator()(const std::shared_ptr<T>& ptr) const
 	{
 		return Hash<Handle>::operator()(static_cast<Handle>(*ptr));
@@ -78,13 +83,13 @@ struct HandleHash<std::shared_ptr<T>, Handle> : Hash<Handle>
 	{
 		return Hash<Handle>::operator()(handle);
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
-struct HandleEqualTo : std::equal_to<T>
+struct HandleCompareEqualTo : std::equal_to<T>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] constexpr bool operator()(const T& lhs, const T& rhs) const
 	{
 		return static_cast<Handle>(lhs) == static_cast<Handle>(rhs);
@@ -99,13 +104,13 @@ struct HandleEqualTo : std::equal_to<T>
 	{
 		return static_cast<Handle>(lhs) == rhs;
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
-struct HandleEqualTo<std::unique_ptr<T>, Handle> : std::equal_to<T>
+struct HandleCompareEqualTo<std::unique_ptr<T>, Handle> : std::equal_to<T>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] constexpr bool operator()(const std::unique_ptr<T>& lhs, const std::unique_ptr<T>& rhs) const
 	{
 		return static_cast<Handle>(*lhs) == static_cast<Handle>(*rhs);
@@ -120,13 +125,13 @@ struct HandleEqualTo<std::unique_ptr<T>, Handle> : std::equal_to<T>
 	{
 		return static_cast<Handle>(*lhs) == rhs;
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
-struct HandleEqualTo<std::shared_ptr<T>, Handle> : std::equal_to<T>
+struct HandleCompareEqualTo<std::shared_ptr<T>, Handle> : std::equal_to<T>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] constexpr bool operator()(const std::shared_ptr<T>& lhs, const std::shared_ptr<T>& rhs) const
 	{
 		return static_cast<Handle>(*lhs) == static_cast<Handle>(*rhs);
@@ -141,8 +146,6 @@ struct HandleEqualTo<std::shared_ptr<T>, Handle> : std::equal_to<T>
 	{
 		return static_cast<Handle>(*lhs) == rhs;
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename Handle>
@@ -169,6 +172,8 @@ struct HandleCompareLess
 template <typename T, typename TypeInfo, uint32_t Offset = 0>
 struct IntrusiveTypeInfoHash : Hash<TypeInfo>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] size_t operator()(const T& obj) const
 	{
 		const void* typePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&obj) + Offset);
@@ -179,13 +184,13 @@ struct IntrusiveTypeInfoHash : Hash<TypeInfo>
 	{
 		return Hash<TypeInfo>::operator()(type);
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T, typename TypeInfo, uint32_t Offset = 0>
 struct IntrusiveTypeInfoEqualTo : std::equal_to<T>
 {
+	using is_transparent = std::true_type;
+
 	[[nodiscard]] constexpr bool operator()(const T& lhs, const T& rhs) const
 	{
 		const void* lhsTypePtr = static_cast<const void*>(reinterpret_cast<const std::byte*>(&lhs) + Offset);
@@ -208,8 +213,6 @@ struct IntrusiveTypeInfoEqualTo : std::equal_to<T>
 		const TypeInfo& lhsType = *static_cast<const TypeInfo*>(lhsTypePtr);
 		return lhsType == rhs;
 	}
-
-	using is_transparent = std::true_type;
 };
 
 template <typename T>
@@ -320,3 +323,5 @@ public:
 		return std::make_pair(insertRangeIt, true);
 	}
 };
+
+} // namespace core

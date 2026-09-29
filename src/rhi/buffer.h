@@ -1,86 +1,117 @@
 #pragma once
 
-#include "device.h"
+#include <rhi/deviceobject.h>
 
-#include <memory>
+#include <core/task.h>
+
 #include <string_view>
 #include <tuple>
 
+namespace rhi
+{
+
 template <GraphicsApi G>
-struct BufferCreateDesc
+class Buffer;
+
+template <GraphicsApi G>
+class BufferView;
+
+template <GraphicsApi G>
+struct BufferCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	DeviceSize<G> size{};
 	Flags<G> usageFlags{};
 	Flags<G> memoryFlags{};
-	std::string_view name; // initially points to an arbitrary string, but will be replaced with a string_view to a string stored DeviceObject during construction of Buffer.
 };
 
 template <GraphicsApi G>
-class Buffer : public DeviceObject<G>
+struct ObjectTraits<Buffer<G>>
 {
+	using CreateDescType = BufferCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class Buffer final : public DeviceObject<Buffer<G>>
+{
+public:
+	using SuperType = DeviceObject<Buffer<G>>;
+	using CreateDescType = ObjectTraits<Buffer<G>>::CreateDescType;
 	using ValueType = std::tuple<BufferHandle<G>, AllocationHandle<G>>;
 
-public:
 	constexpr Buffer() noexcept = default;
 	Buffer(Buffer&& other) noexcept;
-	Buffer( // creates uninitialized buffer
-		const std::shared_ptr<Device<G>>& device,
-		BufferCreateDesc<G>&& desc);
+	explicit Buffer( // creates uninitialized buffer
+		CreateDescType&& desc);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
-		const std::shared_ptr<Device<G>>& device,
-		TaskCreateInfo<void>& timelineCallbackOut,
+		CreateDescType&& desc,
+		const void* initialData,
 		CommandBufferHandle<G> cmd,
-		BufferCreateDesc<G>&& desc,
-		const void* initialData);
+		core::TaskCreateInfo<void>& timelineCallbackOut);
 	Buffer( // takes ownership of provided buffer handle and allocation
-		const std::shared_ptr<Device<G>>& device,
-		ValueType&& buffer,
-		BufferCreateDesc<G>&& desc);
+		CreateDescType&& desc,
+		ValueType&& buffer);
 	Buffer( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
-		const std::shared_ptr<Device<G>>& device,
-		TaskCreateInfo<void>& timelineCallbackOut,
+		CreateDescType&& desc,
+		std::tuple<BufferHandle<G>, AllocationHandle<G>>&& initialData,
 		CommandBufferHandle<G> cmd,
-		std::tuple<BufferHandle<G>, AllocationHandle<G>, BufferCreateDesc<G>>&& initialData);
-	~Buffer() override;
+		core::TaskCreateInfo<void>& timelineCallbackOut);
+	~Buffer();
 
 	[[maybe_unused]] Buffer& operator=(Buffer&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return std::get<0>(myBuffer); }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] operator auto() const noexcept { return GetBuffer(); }//NOLINT(google-explicit-constructor)
 
 	void Swap(Buffer& rhs) noexcept;
 	friend void Swap(Buffer& lhs, Buffer& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+	[[nodiscard]] const auto& GetBuffer() const noexcept { return std::get<0>(myBuffer); }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
 
 private:
 	ValueType myBuffer{};
-	BufferCreateDesc<G> myDesc{};
 };
 
 template <GraphicsApi G>
-class BufferView : public DeviceObject<G>
+struct BufferViewCreateDesc final : DeviceObjectCreateDesc<G>
+{
+	Format<G> format{};
+	DeviceSize<G> offset{};
+	DeviceSize<G> range{};
+};
+
+template <GraphicsApi G>
+struct ObjectTraits<BufferView<G>>
+{
+	using CreateDescType = BufferViewCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class BufferView final : public DeviceObject<BufferView<G>>
 {
 public:
+	using SuperType = DeviceObject<BufferView<G>>;
+	using CreateDescType = ObjectTraits<BufferView<G>>::CreateDescType;
+
 	constexpr BufferView() noexcept = default;
 	BufferView(BufferView&& other) noexcept;
 	BufferView( // creates a view from buffer
-		const std::shared_ptr<Device<G>>& device,
-		const Buffer<G>& buffer,
-		Format<G> format,
-		DeviceSize<G> offset,
-		DeviceSize<G> range);
+		CreateDescType&& desc,
+		const Buffer<G>& buffer);
 	~BufferView();
 
 	[[maybe_unused]] BufferView& operator=(BufferView&& other) noexcept;
-	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] operator auto() const noexcept { return GetView(); }//NOLINT(google-explicit-constructor)
+
+	[[nodiscard]] const auto& GetView() const noexcept { return myView; }
 
 	void Swap(BufferView& rhs) noexcept;
 	friend void Swap(BufferView& lhs, BufferView& rhs) noexcept { lhs.Swap(rhs); }
 
 private:
-	BufferView( // uses provided image view
-		const std::shared_ptr<Device<G>>& device,
+	explicit BufferView( // uses provided image view
+		CreateDescType&& desc,
 		BufferViewHandle<G>&& view);
 
 	BufferViewHandle<G> myView{};
 };
+
+} // namespace rhi

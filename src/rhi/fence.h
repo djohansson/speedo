@@ -1,26 +1,39 @@
 #pragma once
 
-#include "device.h"
-#include "types.h"
+#include <rhi/deviceobject.h>
+#include <rhi/types.h>
 
-#include <memory>
 #include <span>
 
-template <GraphicsApi G>
-struct FenceCreateDesc
+namespace rhi
 {
-	std::string_view name;
+
+template <GraphicsApi G>
+class Fence;
+
+template <GraphicsApi G>
+struct FenceCreateDesc final : DeviceObjectCreateDesc<G>
+{
 	uint32_t flags = 0;
 };
 
 template <GraphicsApi G>
-class Fence : public DeviceObject<G>
+struct ObjectTraits<Fence<G>>
+{
+	using CreateDescType = FenceCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class Fence final : public DeviceObject<Fence<G>>
 {
 public:
+	using SuperType = DeviceObject<Fence<G>>;
+	using CreateDescType = ObjectTraits<Fence<G>>::CreateDescType;
+
 	constexpr Fence() noexcept = default;
-	Fence(const std::shared_ptr<Device<G>>& device, FenceCreateDesc<G>&& desc);
+	explicit Fence(CreateDescType&& desc);
 	Fence(Fence<G>&& other) noexcept;
-	~Fence() override;
+	~Fence();
 
 	[[maybe_unused]] Fence& operator=(Fence&& other) noexcept;
 	[[nodiscard]] operator bool() const noexcept { return myFence != nullptr; } //NOLINT(google-explicit-constructor)
@@ -35,7 +48,9 @@ public:
 	[[maybe_unused]] static bool Wait(DeviceHandle<G> device, std::span<const FenceHandle<G>> fences, bool waitAll = true, uint64_t timeout = ~0ULL);
 
 private:
-	Fence(const std::shared_ptr<Device<G>>& device, FenceHandle<G>&& fence, FenceCreateDesc<G>&& desc);
+	Fence(CreateDescType&& desc, FenceHandle<G>&& fence);
 	
 	FenceHandle<G> myFence{};
 };
+
+} // namespace rhi

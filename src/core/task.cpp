@@ -3,6 +3,7 @@
 
 namespace core
 {
+
 namespace detail
 {
 
@@ -51,8 +52,6 @@ void InternalFree(TaskHandle handle) noexcept
 
 } // namespace detail
 
-} // namespace core
-
 Task::~Task() noexcept
 {
 	myDeleteFcn(myCallableMemory.data(), myArgsMemory.data());
@@ -90,3 +89,4 @@ void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContin
 	aTask.AddDependency(bTask, isContinuation);
 }
 
+} // namespace core

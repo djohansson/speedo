@@ -1,8 +1,11 @@
 #pragma once
 
-#include "inputoutputnode.h"
+#include <core/nodes/inputoutputnode.h>
 
 #include <filesystem>
+
+namespace core
+{
 
 class SlangShaderNode final : public InputOutputNode
 {
@@ -24,3 +27,5 @@ public:
 private:
 	std::filesystem::path myPath;
 };
+
+} // namespace core

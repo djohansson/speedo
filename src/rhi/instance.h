@@ -1,31 +1,28 @@
 #pragma once
 
-#include "types.h"
-
 #include <core/utils.h>
+
+#include <rhi/capi.h>
+#include <rhi/types.h>
 
 #include <string>
 #include <tuple>
 #include <variant>
 #include <vector>
 
+namespace rhi
+{
+
 template <GraphicsApi G>
-struct InstanceConfiguration
+struct InstanceCreateDesc
 {
 	std::string applicationName;
 	std::string engineName;
 	ApplicationInfo<G> appInfo{};
 
-	InstanceConfiguration() = default;
-	InstanceConfiguration(std::string&& applicationName, std::string&& engineName);
-	InstanceConfiguration(InstanceConfiguration&& other) noexcept
-		: applicationName(std::forward<std::string>(other.applicationName))
-		, engineName(std::forward<std::string>(other.engineName))
-		, appInfo(std::forward<ApplicationInfo<G>>(other.appInfo))
-	{
-		appInfo.pApplicationName = applicationName.c_str();
-		appInfo.pEngineName = engineName.c_str();
-	}
+	InstanceCreateDesc() = default;
+	InstanceCreateDesc(std::string&& applicationName, std::string&& engineName) noexcept;
+	InstanceCreateDesc(InstanceCreateDesc&& other) noexcept;
 };
 
 template <GraphicsApi G>
@@ -51,17 +48,16 @@ template <GraphicsApi G>
 using PhysicalDevicePropertyParams = std::variant<PhysicalDevicePushDescriptorProperties<G>>;
 
 template <GraphicsApi G>
-using PhysicalDeviceFeatureParamsSet = UnorderedSet<
+using PhysicalDeviceFeatureParamsSet = core::UnorderedSet<
 	PhysicalDeviceFeatureParams<G>,
-	IntrusiveTypeInfoHash<PhysicalDeviceFeatureParams<G>, StructureType<G>>,
-	IntrusiveTypeInfoEqualTo<PhysicalDeviceFeatureParams<G>, StructureType<G>>>;
+	core::IntrusiveTypeInfoHash<PhysicalDeviceFeatureParams<G>, StructureType<G>>,
+	core::IntrusiveTypeInfoEqualTo<PhysicalDeviceFeatureParams<G>, StructureType<G>>>;
 
-	
 template <GraphicsApi G>
-using PhysicalDevicePropertyParamsSet = UnorderedSet<
+using PhysicalDevicePropertyParamsSet = core::UnorderedSet<
 	PhysicalDevicePropertyParams<G>,
-	IntrusiveTypeInfoHash<PhysicalDevicePropertyParams<G>, StructureType<G>>,
-	IntrusiveTypeInfoEqualTo<PhysicalDevicePropertyParams<G>, StructureType<G>>>;
+	core::IntrusiveTypeInfoHash<PhysicalDevicePropertyParams<G>, StructureType<G>>,
+	core::IntrusiveTypeInfoEqualTo<PhysicalDevicePropertyParams<G>, StructureType<G>>>;
 
 template <GraphicsApi G>
 struct PhysicalDeviceInfo
@@ -81,21 +77,19 @@ template <GraphicsApi G>
 class Instance final
 {
 public:
-	explicit Instance(InstanceConfiguration<G>&& defaultConfig = {});
+	constexpr Instance() = default;
+	explicit Instance(InstanceCreateDesc<G>&& desc);
 	Instance(const Instance&) = delete;
-	Instance(Instance&& other) noexcept = delete;
+	Instance(Instance&& other) noexcept = default;
 	~Instance();
 
 	[[nodiscard]] Instance& operator=(const Instance&) = delete;
-	[[nodiscard]] Instance& operator=(Instance&& other) noexcept = delete;
+	[[nodiscard]] Instance& operator=(Instance&& other) noexcept = default;
 
 	[[nodiscard]] operator auto() const noexcept { return myInstance; }//NOLINT(google-explicit-constructor)
 
 	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
-	[[nodiscard]] const auto& GetHostAllocationCallbacks() const noexcept
-	{
-		return myHostAllocationCallbacks;
-	}
+	[[nodiscard]] const auto& GetHostAllocationCallbacks() const noexcept {	return myHostAllocationCallbacks; }
 	[[nodiscard]] const auto& GetPhysicalDevices() const noexcept { return myPhysicalDevices; }
 	[[nodiscard]] const auto& GetPhysicalDeviceInfo(PhysicalDeviceHandle<G> device) const { return *myPhysicalDeviceInfos.at(device);	}
 
@@ -104,11 +98,13 @@ public:
 	void UpdateSurfaceCapabilities(PhysicalDeviceHandle<kVk> device, SurfaceHandle<kVk> surface);
 
 private:
-	InstanceConfiguration<G> myConfig{};
+	InstanceCreateDesc<G> myConfig{};
 	InstanceHandle<G> myInstance{};
 	AllocationCallbacks<G> myHostAllocationCallbacks{};
 	std::vector<PhysicalDeviceHandle<G>> myPhysicalDevices;
-	UnorderedMap<PhysicalDeviceHandle<G>, std::unique_ptr<PhysicalDeviceInfo<G>>> myPhysicalDeviceInfos;
-	UnorderedMap<std::tuple<PhysicalDeviceHandle<G>, SurfaceHandle<G>>, SwapchainInfo<G>, TupleHash>
+	core::UnorderedMap<PhysicalDeviceHandle<G>, std::unique_ptr<PhysicalDeviceInfo<G>>> myPhysicalDeviceInfos;
+	core::UnorderedMap<std::tuple<PhysicalDeviceHandle<G>, SurfaceHandle<G>>, SwapchainInfo<G>, core::TupleHash>
 		myPhysicalDeviceSwapchainInfos;
 };
+
+} // namespace rhi

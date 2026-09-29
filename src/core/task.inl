@@ -1,9 +1,10 @@
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
+#include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
 #include <atomic>
 
 namespace core
 {
+
 namespace detail
 {
 
@@ -43,8 +44,6 @@ static void InternalDelete(void* callablePtr, void* argsPtr)
 }
 
 } // namespace detail
-
-} // namespace core
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
@@ -106,3 +105,5 @@ TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 
 	return {};
 }
+
+} // namespace core

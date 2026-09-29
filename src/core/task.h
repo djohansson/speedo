@@ -11,6 +11,9 @@
 #include <tl/function_ref.hpp>
 #endif
 
+namespace core
+{
+
 template <typename T>
 struct TaskCreateInfo;
 
@@ -129,6 +132,8 @@ requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>
 
 // b will start after a has finished
 void AddDependency(TaskHandle aTaskHandle, TaskHandle bTaskHandle, bool isContinuation = false) noexcept;
+
+} // namespace core
 
 #include "task.inl"
 #include "future.inl"

@@ -7,6 +7,9 @@
 
 #include <cstdint>
 
+namespace gfx
+{
+
 enum class ViewType : uint8_t
 {
 	Perspective
@@ -73,5 +76,7 @@ private:
 	glm::mat4 myProjectionMatrix = glm::mat4(1.0f);
 	CameraCreateDesc myDesc{};
 };
+
+} // namespace gfx
 
 #include "camera.inl"

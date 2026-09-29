@@ -1,3 +1,6 @@
+namespace core
+{
+
 template <typename Func>
 void UpgradableSharedMutex::InternalAquireLock(Func lockFn) noexcept
 {
@@ -21,3 +24,5 @@ UpgradableSharedMutex::InternalTryLock() noexcept
 	success = atomic.compare_exchange_weak(value, Writer, std::memory_order_acq_rel);
 	return result;
 }
+
+} // namespace core

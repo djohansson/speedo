@@ -5,6 +5,9 @@
 
 //NOLINTBEGIN(readability-identifier-naming)
 
+namespace core
+{
+
 class UpgradableSharedMutex final
 {
 	using value_t = uint8_t;
@@ -68,6 +71,8 @@ public:
 	// try to acquire an upgradable lock.
 	[[nodiscard]] bool try_lock_upgrade() noexcept;
 };
+
+} // namespace core
 
 #include "upgradablesharedmutex.inl"
 

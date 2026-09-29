@@ -1,3 +1,6 @@
+namespace rhi
+{
+
 template <GraphicsApi G>
 CommandBufferAccessScope<G>
 CommandPool<G>::Commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
@@ -19,7 +22,7 @@ void CommandPool<G>::InternalEndCommands(uint8_t level)
 
 template <GraphicsApi G>
 CommandBufferAccessScope<G>::CommandBufferAccessScope(
-	CommandBufferArray<G>* array, const CommandBufferAccessScopeDesc<G>& beginInfo)
+	const CommandBufferAccessScopeDesc<G>& beginInfo, CommandBufferArray<G>* array)
 	: myDesc(beginInfo)
 	, myRefCount(std::make_shared<uint32_t>(1))
 	, myArray(array)
@@ -27,7 +30,7 @@ CommandBufferAccessScope<G>::CommandBufferAccessScope(
 {}
 
 template <GraphicsApi G>
-CommandBufferAccessScope<G>::CommandBufferAccessScope(const CommandBufferAccessScope& other)
+CommandBufferAccessScope<G>::CommandBufferAccessScope(const CommandBufferAccessScope& other) noexcept
 	: myDesc(other.myDesc)
 	, myRefCount(other.myRefCount)
 	, myArray(other.myArray)
@@ -53,9 +56,12 @@ CommandBufferAccessScope<G>::~CommandBufferAccessScope()
 }
 
 template <GraphicsApi G>
-CommandBufferAccessScope<G>& CommandBufferAccessScope<G>::operator=(CommandBufferAccessScope other)
+CommandBufferAccessScope<G>& CommandBufferAccessScope<G>::operator=(CommandBufferAccessScope&& other) noexcept
 {
-	Swap(other);
+	myDesc = std::exchange(other.myDesc, {});
+	myRefCount = std::exchange(other.myRefCount, {});
+	myArray = std::exchange(other.myArray, {});
+	myIndex = std::exchange(other.myIndex, {});
 	return *this;
 }
 
@@ -67,3 +73,5 @@ void CommandBufferAccessScope<G>::Swap(CommandBufferAccessScope& rhs) noexcept
 	std::swap(myArray, rhs.myArray);
 	std::swap(myIndex, rhs.myIndex);
 }
+
+} // namespace rhi

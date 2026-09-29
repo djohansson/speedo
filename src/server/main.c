@@ -1,9 +1,10 @@
-#include "capi.h"
-
 #include <core/assert.h>
+
+#include <server/capi.h>
 
 #include <errno.h>
 #include <signal.h> 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,30 +47,34 @@ static struct cag_option gCmdArgs[] =
 	}
 };
 static struct PathConfig gPaths = { NULL, NULL };
-static volatile bool gIsInterrupted = false;
+static atomic_bool gIsInterrupted = false;
 
-static void OnSignal(int signal)
+static void OnSignal(int sig)
 {
-	switch (signal)
+	switch (sig)
 	{	
 	case SIGINT:
-		gIsInterrupted = true;
+		atomic_store(&gIsInterrupted, true); // the main loop polls this, so no wakeup is needed
 		return;
 	case SIGTERM:
 		LOG_ERROR("Program terminated.");
-		return;
+		break;
 	case SIGABRT:
 		LOG_ERROR("Program aborted.");
-		return;
+		break;
 	default:
+#if defined(__WINDOWS__)
+		LOG_ERROR("Unhandled signal\n");
+#else
+		LOG_ERROR("Unhandled signal: %s\n", strsignal(sig));
+#endif
 		break;
 	}
 
-#if defined(__WINDOWS__)
-	LOG_ERROR("Unhandled signal\n");
-#else
-	LOG_ERROR("Unhandled signal: %s\n", strsignal(signal));
-#endif
+	// re-raise with the default action, so the process actually terminates. returning from e.g. SIGSEGV would
+	// re-execute the faulting instruction and loop in this handler forever.
+	signal(sig, SIG_DFL);
+	raise(sig);
 }
 
 static int _Sleep(const struct timespec* duration, struct timespec* remaining)
@@ -158,7 +163,7 @@ int main(int argc, char* argv[], char* envp[])
 
 	fprintf(stdout, "Press Ctrl-C to quit\n");
 
-	while (!ServerExitRequested() && !gIsInterrupted)
+	while (!ServerExitRequested() && !atomic_load(&gIsInterrupted))
 	{
 		_Sleep(&(struct timespec){.tv_nsec=100000000}, NULL);
 	};

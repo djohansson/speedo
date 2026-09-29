@@ -1,12 +1,13 @@
 #pragma once
 
-#include "descriptorset.h"
-#include "device.h"
-#include "types.h"
+#include <rhi/descriptorset.h>
+#include <rhi/deviceobject.h>
+#include <rhi/types.h>
 
 #include <core/utils.h>
 
-#include <map>
+#include <filesystem>
+#include <optional>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -20,6 +21,9 @@
 #undef Bool
 #endif
 #include <slang.h>
+
+namespace rhi
+{
 
 using ShaderBinary = std::vector<char>;
 
@@ -39,7 +43,7 @@ template <GraphicsApi G>
 struct ShaderSet
 {
 	std::vector<Shader<G>> shaders;
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>> layouts;
+	core::UnorderedMap<uint32_t, DescriptorSetLayoutCreateDesc<G>> layouts;
 };
 
 // todo: make into an interface and move slang implementation to a separate file
@@ -86,13 +90,31 @@ private:
 };
 
 template <GraphicsApi G>
-class ShaderModule final : public DeviceObject<G>
+class ShaderModule;
+
+template <GraphicsApi G>
+struct ShaderModuleCreateDesc final : DeviceObjectCreateDesc<G>
+{
+	Shader<G> shader;
+};
+
+template <GraphicsApi G>
+struct ObjectTraits<ShaderModule<G>>
+{
+	using CreateDescType = ShaderModuleCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class ShaderModule final : public DeviceObject<ShaderModule<G>>
 {
 public:
+	using SuperType = DeviceObject<ShaderModule<G>>;
+	using CreateDescType = ObjectTraits<ShaderModule<G>>::CreateDescType;
+
 	constexpr ShaderModule() noexcept = default;
-	ShaderModule(const std::shared_ptr<Device<G>>& device, const Shader<G>& shader);
+	explicit ShaderModule(CreateDescType&& desc);
 	ShaderModule(ShaderModule&& other) noexcept;
-	~ShaderModule() override;
+	~ShaderModule();
 
 	[[maybe_unused]] ShaderModule& operator=(ShaderModule&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myShaderModule; }//NOLINT(google-explicit-constructor)
@@ -104,12 +126,14 @@ public:
 
 private:
 	ShaderModule( // takes ownership of provided handle
-		const std::shared_ptr<Device<G>>& device,
+		CreateDescType&& desc,
 		ShaderModuleHandle<G>&& shaderModule,
 		const EntryPoint<G>& entryPoint);
 
 	ShaderModuleHandle<G> myShaderModule{};
 	EntryPoint<G> myEntryPoint{};
 };
+
+} // namespace rhi
 
 #include "shader.inl"

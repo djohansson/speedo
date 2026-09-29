@@ -1,6 +1,9 @@
-#include "shader.h"
+#include <rhi/shader.h>
 
 #include <iostream>
+
+namespace rhi
+{
 
 ShaderLoader::ShaderLoader(
 	std::vector<std::filesystem::path>&& includePaths,
@@ -45,3 +48,5 @@ std::string ShaderLoader::SlangConfiguration::ToString() const
 		static_cast<SlangDebugInfoFormatIntegral>(debugInfoFormat),
 		static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode));
 }
+
+} // namespace rhi

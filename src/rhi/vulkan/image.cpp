@@ -1,7 +1,8 @@
-#include "../image.h"
-#include "../rhi.h"
-#include "../shaders/capi.h"
-#include "utils.h"
+#include <rhi/device.h>
+#include <rhi/image.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/shaders/capi.h>
+#include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
 #include <core/math.h>
@@ -9,6 +10,7 @@
 
 #include <execution>
 #include <string_view>
+#include <tuple>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -20,6 +22,14 @@
 #include <stb_image_resize2.h>
 
 #include <zpp_bits.h>
+
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(Image<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Image<kVk>);
+IMPLEMENT_OBJECT_GETINSTANCE(ImageView<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(ImageView<kVk>);
 
 namespace image
 {
@@ -39,8 +49,8 @@ CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<kVk>& desc)
 		desc.tiling,
 		desc.usageFlags,
 		desc.memoryFlags,
-		desc.name.data(),
-		desc.initialLayout);
+		nullptr,
+		desc.layout);
 }
 
 std::tuple<VkImage, VmaAllocation> CreateImage2D(
@@ -60,14 +70,14 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		desc.usageFlags,
 		desc.memoryFlags,
 		desc.imageAspectFlags,
-		desc.name.data(),
-		desc.initialLayout);
+		nullptr,
+		desc.layout);
 }
 
 //NOLINTBEGIN(readability-magic-numbers)
 std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
-	const std::filesystem::path& imageFile,
-	const std::shared_ptr<Device<kVk>>& device,
+	std::string_view imageFile,
+	Device<kVk>& device,
 	std::atomic_uint8_t& progressOut)
 {
 	ZoneScopedN("image::load");
@@ -87,28 +97,26 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
-		thread_local static std::string name; // need to stay alive until the image object is fully constructed
-		name = imageFile.filename().string().append(" loadBin staging");
-		
-		desc.name = name;
+		desc.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(
+			std::string(imageFile).append(" loadBin staging"));
 
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
 			size += mipLevel.size;
 
 		auto [locBufferHandle, locMemoryHandle] = CreateBuffer(
-			device->GetAllocator(),
+			device.GetAllocator(),
 			size,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			desc.name.data());
+			nullptr);
 
 		progressOut = 64;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), locMemoryHandle, &data));
 		auto result = inStream(std::span(static_cast<stbi_uc*>(data), size));
-		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
+		vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
 
@@ -132,9 +140,9 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			size += mipLevel.size;
 
 		void* data;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), memoryHandle, &data));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), memoryHandle, &data));
 		auto result = outStream(std::span(static_cast<const stbi_uc*>(data), size));
-		vmaUnmapMemory(device->GetAllocator(), memoryHandle);
+		vmaUnmapMemory(device.GetAllocator(), memoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
 
@@ -152,17 +160,15 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		int width;
 		int height;
 		int channelCount;
-		stbi_uc* stbiImageData = stbi_load(imageFile.string().c_str(), &width, &height, &channelCount, STBI_rgb_alpha);
+		stbi_uc* stbiImageData = stbi_load(imageFile.data(), &width, &height, &channelCount, STBI_rgb_alpha);
 
 		uint32_t mipCount =
 			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 		bool hasAlpha = channelCount == 4;
 		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
-		thread_local static std::string name; // need to stay alive until the image object is fully constructed
-		name = imageFile.filename().string().append("loadImage staging");
-
-		desc.name = name;
+		desc.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(
+			std::string(imageFile).append("loadImage staging"));
 		desc.mipLevels.resize(mipCount);
 		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
 		desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -172,7 +178,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		{
 			uint32_t mipWidth = width >> mipIt;
 			uint32_t mipHeight = height >> mipIt;
-			auto mipSize = RoundUp(mipWidth, 4) * RoundUp(mipHeight, 4);
+			auto mipSize = core::RoundUp(mipWidth, 4) * core::RoundUp(mipHeight, 4);
 
 			if (!hasAlpha)
 				mipSize >>= 1;
@@ -185,14 +191,14 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		}
 
 		auto [locBufferHandle, locMemoryHandle] = CreateBuffer(
-			device->GetAllocator(),
+			device.GetAllocator(),
 			mipOffset,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			desc.name.data());
+			nullptr);
 
 		void* stagingBuffer;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locMemoryHandle, &stagingBuffer));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), locMemoryHandle, &stagingBuffer));
 
 		auto compressBlocks = [](const stbi_uc* src,
 								 unsigned char* dst,
@@ -325,7 +331,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 			progressOut += dprogress;
 		}
 
-		vmaUnmapMemory(device->GetAllocator(), locMemoryHandle);
+		vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
 		stbi_image_free(stbiImageData);
 
 		bufferHandle = locBufferHandle;
@@ -337,11 +343,12 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::string params;
 	std::string paramsHash;
 	params.append("stb_image-2.26|stb_image_resize-0.96|stb_dxt-1.10"); // todo: read version from stb headers
+	params.append("|cache-v2"); // bump when the serialized ImageCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
+	auto loadResult = core::file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
 
 	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image."); //NOLINT(readability-simplify-boolean-expr)
 
@@ -360,21 +367,21 @@ void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 
 	if (aspectFlags == VK_IMAGE_ASPECT_NONE)
 	{
-		if (HasColorComponent(myDesc.format))
+		if (HasColorComponent(GetDesc().format))
 			aspectFlags |= VK_IMAGE_ASPECT_COLOR_BIT;
 		else
 		{
-			if (HasDepthComponent(myDesc.format))
+			if (HasDepthComponent(GetDesc().format))
 				aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-			if (HasStencilComponent(myDesc.format))
+			if (HasStencilComponent(GetDesc().format))
 				aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
 		}
 	}
 
-	if (GetLayout() != layout || GetAspectFlags() != aspectFlags)
+	if (GetDesc().layout != layout || GetDesc().imageAspectFlags != aspectFlags)
 	{
 		TransitionImageLayout(
-			cmd, *this, myDesc.format, GetLayout(), layout, myDesc.mipLevels.size(), aspectFlags);
+			cmd, *this, GetDesc().format, GetDesc().layout, layout, GetDesc().mipLevels.size(), aspectFlags);
 		InternalSetImageLayout(layout);
 		InternalSetAspectFlags(aspectFlags);
 	}
@@ -389,28 +396,28 @@ void Image<kVk>::Clear(
 	ZoneScopedN("Image::clear");
 
 	static const VkImageSubresourceRange kDefaultRange{
-		.aspectMask = GetAspectFlags(),
+		.aspectMask = GetDesc().imageAspectFlags,
 		.baseMipLevel = 0,
 		.levelCount = VK_REMAINING_MIP_LEVELS,
 		.baseArrayLayer = 0,
 		.layerCount = VK_REMAINING_ARRAY_LAYERS};
 
-	if ((GetAspectFlags() & VK_IMAGE_ASPECT_COLOR_BIT) != 0U)
+	if ((GetDesc().imageAspectFlags & VK_IMAGE_ASPECT_COLOR_BIT) != 0U)
 	{
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			GetLayout(),
+			GetDesc().layout,
 			&value.color,
 			1,
 			range ? &range.value() : &kDefaultRange);
 	}
-	else if (((GetAspectFlags() & VK_IMAGE_ASPECT_DEPTH_BIT) != 0U) || ((GetAspectFlags() & VK_IMAGE_ASPECT_STENCIL_BIT) != 0U))
+	else if (((GetDesc().imageAspectFlags & VK_IMAGE_ASPECT_DEPTH_BIT) != 0U) || ((GetDesc().imageAspectFlags & VK_IMAGE_ASPECT_STENCIL_BIT) != 0U))
 	{
 		vkCmdClearDepthStencilImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			GetLayout(),
+			GetDesc().layout,
 			&value.depthStencil,
 			1,
 			range ? &range.value() : &kDefaultRange);
@@ -422,195 +429,200 @@ void Image<kVk>::Clear(
 }
 
 template <>
+void Image<kVk>::Swap(Image& rhs) noexcept
+{
+	DeviceObject<Image<kVk>>::Swap(rhs);
+	std::swap(myImage, rhs.myImage);
+}
+
+template <>
 Image<kVk>::Image(Image&& other) noexcept
-	: DeviceObject(std::forward<Image>(other))
-	, myDesc(std::exchange(other.myDesc, {}))
 {
-	std::swap(myImage, other.myImage);
+	Swap(other);
 }
 
 template <>
-Image<kVk>::Image(
-	const std::shared_ptr<Device<kVk>>& device, ValueType&& data, ImageCreateDesc<kVk>&& desc)
-	: DeviceObject(
-		device,
-		[&desc]{ return DeviceObjectCreateDesc{ desc.name.data() }; }(),
-		1,
-		VK_OBJECT_TYPE_IMAGE,
-		reinterpret_cast<uint64_t*>(&std::get<0>(data)),
-		uuids::uuid_system_generator{}())
+Image<kVk>::Image(CreateDescType&& desc, ValueType&& data)
+	: DeviceObject<Image<kVk>>(std::forward<CreateDescType>(desc))
 	, myImage(std::forward<ValueType>(data))
-	, myDesc(std::forward<ImageCreateDesc<kVk>>(desc))
-{
-	// Update the name to point to the DeviceObject's name.
-	myDesc.name = GetName();
-}
+{}
 
 template <>
-Image<kVk>::Image(const std::shared_ptr<Device<kVk>>& device, ImageCreateDesc<kVk>&& desc)
+Image<kVk>::Image(CreateDescType&& desc)
 	: Image(
-		device,
-		std::tuple_cat(
-			image::detail::CreateImage2D(device->GetAllocator(), desc),
-			std::make_tuple(desc.initialLayout),
-			std::make_tuple(desc.imageAspectFlags)),
-		std::forward<ImageCreateDesc<kVk>>(desc))
+		std::forward<CreateDescType>(desc),
+		image::detail::CreateImage2D(GetDevice(desc.device).GetAllocator(), desc))
 {}
 
 template <>
 Image<kVk>::Image(
-	const std::shared_ptr<Device<kVk>>& device,
+	CreateDescType&& desc,
 	CommandBufferHandle<kVk> cmd,
-	TaskCreateInfo<void>& timlineCallbackOut,
-	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>>&& initialData)
+	core::TaskCreateInfo<void>& timlineCallbackOut,
+	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>>&& initialData)
 	: Image(
-		device,
-		std::tuple_cat(
-			[&cmd, &device, &initialData]{
-				return image::detail::CreateImage2D(cmd, device->GetAllocator(), std::get<0>(initialData), std::get<2>(initialData));
-			}(),
-			std::make_tuple(std::get<2>(initialData).initialLayout),
-			std::make_tuple(std::get<2>(initialData).imageAspectFlags)),
-		std::forward<ImageCreateDesc<kVk>>(std::get<2>(initialData)))
+		std::forward<CreateDescType>(desc),
+		image::detail::CreateImage2D(
+			cmd,
+			GetDevice(desc.device).GetAllocator(),
+			std::get<0>(initialData),
+			desc))
 {
-	timlineCallbackOut = CreateTask(
-		[allocator = device->GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
+	timlineCallbackOut = core::CreateTask(
+		[allocator = GetDevice(desc.device).GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
 			vmaDestroyBuffer(allocator, buffer, memory); });
 }
 
 template <>
 Image<kVk>::Image(
-	const std::shared_ptr<Device<kVk>>& device,
 	CommandBufferHandle<kVk> cmd,
-	ImageCreateDesc<kVk>&& desc,
-	const void* initialData,
-	size_t initialDataSize,
-	TaskCreateInfo<void>& timlineCallbackOut)
+	core::TaskCreateInfo<void>& timlineCallbackOut,
+	std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, CreateDescType>&& initialDataAndDesc)
 	: Image(
-		device,
+		std::forward<CreateDescType>(std::get<2>(initialDataAndDesc)),
 		cmd,
 		timlineCallbackOut,
-		std::tuple_cat(
-			CreateStagingBuffer(
-				device->GetAllocator(),
-				initialData,
-				initialDataSize,
-				desc.name.data()),
-			std::make_tuple(std::forward<ImageCreateDesc<kVk>>(desc))))
+		std::make_tuple(std::get<0>(initialDataAndDesc), std::get<1>(initialDataAndDesc)))
 {}
 
 template <>
 Image<kVk>::Image(
-	const std::shared_ptr<Device<kVk>>& device,
+	CreateDescType&& desc,
 	CommandBufferHandle<kVk> cmd,
-	const std::filesystem::path& imageFile,
+	const void* initialData,
+	size_t initialDataSize,
+	core::TaskCreateInfo<void>& timlineCallbackOut)
+	: Image(
+		std::forward<CreateDescType>(desc),
+		cmd,
+		timlineCallbackOut,
+		CreateStagingBuffer(
+			GetDevice(desc.device).GetAllocator(),
+			initialData,
+			initialDataSize,
+			nullptr))
+{}
+
+template <>
+Image<kVk>::Image(
+	DeviceHandle<kVk> device,
+	CommandBufferHandle<kVk> cmd,
+	std::string_view imageFile,
 	std::atomic_uint8_t& progressOut,
-	TaskCreateInfo<void>& timlineCallbackOut)
-	: Image(device, cmd, timlineCallbackOut, image::detail::Load(imageFile, device, progressOut))
+	core::TaskCreateInfo<void>& timlineCallbackOut)
+	: Image(
+		cmd,
+		timlineCallbackOut,
+		image::detail::Load(
+			imageFile,
+			GetDevice(device),
+			progressOut))
 {}
 
 template <>
 Image<kVk>::~Image()
 {
-	if (ImageHandle<kVk> image = *this)
-		vmaDestroyImage(InternalGetDevice()->GetAllocator(), image, GetMemory());
+	if (IsValid())
+		vmaDestroyImage(
+			GetDevice().GetAllocator(),
+			std::get<0>(myImage),
+			std::get<1>(myImage));
 }
 
 template <>
 Image<kVk>& Image<kVk>::operator=(Image<kVk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<Image>(other));
-	std::swap(myImage, other.myImage);
-	myDesc = std::exchange(other.myDesc, {});
-	return *this;
-}
-
-template <>
-ImageView<kVk>::ImageView(ImageView&& other) noexcept
-	: DeviceObject(std::forward<ImageView>(other))
-{
-	std::swap(myView, other.myView);
-}
-
-template <>
-ImageView<kVk>::ImageView(
-	const std::shared_ptr<Device<kVk>>& device,
-	ImageViewHandle<kVk>&& view,
-	std::optional<std::string_view> name)
-	: DeviceObject(
-		  device,
-		  DeviceObjectCreateDesc{.name = std::string(
-			name.value_or(std::format("{}_View", reinterpret_cast<uint64_t>(view))))},
-		  1,
-		  VK_OBJECT_TYPE_IMAGE_VIEW,
-		  reinterpret_cast<uint64_t*>(&view),
-		  uuids::uuid_system_generator{}())
-	, myView(std::forward<ImageViewHandle<kVk>>(view))
-{}
-
-template <>
-ImageView<kVk>::ImageView(
-	const std::shared_ptr<Device<kVk>>& device, const Image<kVk>& image, Flags<kVk> aspectFlags, Format<kVk> format)
-	: ImageView<kVk>(
-		  device,
-		  CreateImageView2D(
-			  *device,
-			  &device->GetInstance()->GetHostAllocationCallbacks(),
-			  0, // "reserved for future use"
-			  image,
-			  (format == VK_FORMAT_UNDEFINED ? image.GetDesc().format : format),
-			  aspectFlags,
-			  image.GetDesc().mipLevels.size()),
-		  std::format("{}_View", image.GetName()))
-{}
-
-template <>
-ImageView<kVk>::~ImageView()
-{
-	if (auto* view = static_cast<ImageViewHandle<kVk>>(*this))
-		vkDestroyImageView(*InternalGetDevice(), view, &InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
-}
-
-template <>
-ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
-{
-	DeviceObject::operator=(std::forward<ImageView>(other));
-	std::swap(myView, other.myView);
+	Swap(other);
 	return *this;
 }
 
 template <>
 void ImageView<kVk>::Swap(ImageView& rhs) noexcept
 {
-	DeviceObject::Swap(rhs);
+	DeviceObject<ImageView<kVk>>::Swap(rhs);
 	std::swap(myView, rhs.myView);
 }
 
-namespace image
+template <>
+ImageView<kVk>::ImageView(ImageView&& other) noexcept
 {
+	Swap(other);
+}
 
 template <>
-std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
-	RHIBase& rhiBase,
-	std::string_view filePath,
-	std::atomic_uint8_t& progressOut)
+ImageView<kVk>::ImageView(
+	CreateDescType&& desc,
+	ImageViewHandle<kVk>&& view)
+	: DeviceObject<ImageView<kVk>>(std::forward<CreateDescType>(desc))
+	, myView(std::forward<ImageViewHandle<kVk>>(view))
+{}
+
+template <>
+ImageView<kVk>::ImageView(
+	CreateDescType&& desc)
+	: ImageView<kVk>(
+		std::forward<CreateDescType>(desc),
+		CreateImageView2D(
+			desc.device,
+			&GetInstance().GetHostAllocationCallbacks(),
+			0, // "reserved for future use"
+			desc.image,
+			desc.format,
+			desc.aspectFlags,
+			1))
+{}
+
+template <>
+ImageView<kVk>::~ImageView()
 {
-	ZoneScopedN("image::LoadImage");
+	if (IsValid())
+		vkDestroyImageView(
+			GetDevice(),
+			myView,
+			&GetInstance().GetHostAllocationCallbacks());
+}
 
-	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
-	auto& pipeline = rhi.GetPipeline();
-	ENSURE(pipeline);
+template <>
+ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
+{
+	Swap(other);
+	return *this;
+}
 
-	auto transfer = rhi.GetQueues()[kQueueTypeTransfer].Write();
+template <>
+std::tuple<ImageHandle<kVk>, ImageViewHandle<kVk>, core::Future<void>, core::Future<core::Future<void>>>
+Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath, std::atomic_uint8_t& progressOut)
+{
+	using namespace core;
+
+	ZoneScopedN("Image::LoadImage");
+
+	auto app = std::static_pointer_cast<RHIApplication>(Application::Get());
+	ENSURE(app);
+	auto& rhi = app->GetRHI<kVk>();
+	auto& device = rhi.GetDevice(deviceHandle);
+	auto& pipeline = device.GetPipeline();
+	
+	auto transfer = device.GetQueues()[kQueueTypeTransfer].Write();
 	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
-	TaskCreateInfo<void> transferDone;
-	std::pair<Image<kVk>, ImageView<kVk>> result;
-	auto& [image, imageView] = result;
-	image = Image<kVk>(rhi.GetDevice(), transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
-	imageView = ImageView<kVk>(rhi.GetDevice(), result.first, VK_IMAGE_ASPECT_COLOR_BIT);
+	core::TaskCreateInfo<void> transferDone;
+	auto image = Image<kVk>(device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
+	auto imageView = ImageView<kVk>(
+		ImageViewCreateDesc<kVk>{
+			device.CreateDeviceObjectCreateDesc(filePath),
+			image,
+			image.GetDesc().format,
+			VK_IMAGE_ASPECT_COLOR_BIT});
 	
-	std::vector<TaskHandle> transferTimelineCallbacks;
+	std::tuple<ImageHandle<kVk>, ImageViewHandle<kVk>, core::Future<void>, core::Future<core::Future<void>>> result = 
+		std::make_tuple(
+			static_cast<ImageHandle<kVk>>(image),
+			static_cast<ImageViewHandle<kVk>>(imageView),
+			transferDone.future,
+			core::Future<core::Future<void>>{});
+
+	std::vector<core::TaskHandle> transferTimelineCallbacks;
 	transferTimelineCallbacks.emplace_back(transferDone.handle);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
@@ -625,11 +637,12 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 
 	///////////
 
-	auto [transitionTask, transitionFuture] = CreateTask<QueueTimelineContextData<kVk>*>(
+	auto [transitionTask, transitionFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>( 
 	[&rhi,
 		image = std::make_unique<Image<kVk>>(std::move(image)),
 		imageView = std::make_unique<ImageView<kVk>>(std::move(imageView)),
-		&transferSemaphore = transfer->semaphore, &transferSubmits](QueueTimelineContextData<kVk>* graphics)
+		&transferSemaphore = transfer->semaphore,
+		&transferSubmits](QueueTimelineContextData<kVk>* graphics)
 	{
 		ZoneScopedN("image::LoadImage::transitionTask");
 		ENSURE(graphics);
@@ -643,29 +656,27 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 		}
 		cmd.End();
 
-		auto& pipeline = rhi.GetPipeline();
-		ENSURE(pipeline);
-		auto& resources = pipeline->GetResources();
+		auto& device = rhi.GetPrimaryDevice();
+		auto& pipeline = device.GetPipeline();
 
-		auto [setDescriptorTask, setDescriptorFuture] = CreateTask([&pipeline, imageView = static_cast<ImageViewHandle<kVk>>(*imageView), imageLayout = image->GetLayout()]()
+		auto [setDescriptorTask, setDescriptorFuture] = core::CreateTask([&pipeline, imageView = static_cast<ImageViewHandle<kVk>>(*imageView), imageLayout = image->GetDesc().layout]()
 		{
 			constexpr uint32_t kDefaultTextureBinding = 15;
-			pipeline->SetDescriptorData(
+			pipeline.SetDescriptorData(
 				"gTextures",
-				DescriptorImageInfo<kVk>{.sampler={}, .imageView=imageView,	.imageLayout=imageLayout},
+				DescriptorImageInfo<kVk>{.sampler = {}, .imageView = imageView, .imageLayout = imageLayout},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 				kDefaultTextureBinding);
 		});
 
-		// a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
-		auto [oldImageDestroyTask, oldImageDestroyFuture] = CreateTask(
-		[
-			oldImage = std::atomic_load(&resources.image),
-			oldImageView = std::atomic_load(&resources.imageView)] {});
+		// // a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
+		// auto [oldImageDestroyTask, oldImageDestroyFuture] = core::CreateTask(
+		// 	[oldImage = std::atomic(resources.image),
+		// 	oldImageView = std::atomic(resources.imageView)]{});
 
-		std::vector<TaskHandle> transitionTimelineCallbacks;
+		std::vector<core::TaskHandle> transitionTimelineCallbacks;
 		transitionTimelineCallbacks.emplace_back(setDescriptorTask);
-		transitionTimelineCallbacks.emplace_back(oldImageDestroyTask);
+		// transitionTimelineCallbacks.emplace_back(oldImageDestroyTask);
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {transferSemaphore},
@@ -677,13 +688,16 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 
 		graphicsSubmits |= graphicsQueue.Submit();
 
-		std::atomic_store(
-			&resources.image,
-			std::make_shared<Image<kVk>>(std::move(*image))); // todo: move Image into rhi namespace
-		std::atomic_store(
-			&resources.imageView,
-			std::make_shared<ImageView<kVk>>(std::move(*imageView)));
+		// std::atomic_store(
+		// 	&resources.image,
+		// 	std::make_shared<Image<kVk>>(std::move(*image)));
+		// std::atomic_store(
+		// 	&resources.imageView,
+		// 	std::make_shared<ImageView<kVk>>(std::move(*imageView)));
+
+		return setDescriptorFuture;
 	});
+	std::get<3>(result) = std::move(transitionFuture);
 
 	rhi.drawCalls.enqueue(transitionTask);
 
@@ -692,4 +706,4 @@ std::pair<Image<kVk>, ImageView<kVk>> LoadImage(
 	return result;
 }
 
-} // namespace image
+} // namespace rhi

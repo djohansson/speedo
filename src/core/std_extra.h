@@ -1,6 +1,6 @@
 #pragma once
 
-#include "crc32.h"
+#include <core/crc32.h>
 
 #include <algorithm>
 #include <bit>
@@ -8,6 +8,9 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+
+namespace core
+{
 
 //NOLINTBEGIN(readability-identifier-naming)
 namespace std_extra
@@ -84,14 +87,6 @@ template <string_literal S>
 	return S.value;
 }
 
-#define SOURCE_LOCATION_DATA(tag) \
-	SourceLocationData{ \
-		.name = std_extra::make_string_literal<__func__>().data(), \
-		.function = std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(), \
-		.file = std_extra::make_string_literal<__FILE__>().data(), \
-		.line = __LINE__, \
-		.color = 0xFF000000 | (COMPILE_TIME_CRC32_STR(#tag) & 0x00FFFFFF) }
-
 template<typename... Tuples>
 using tuple_cat_t = decltype(std::tuple_cat(std::declval<Tuples>()...));
 
@@ -158,5 +153,15 @@ consteval auto member_count()
 }
 
 } // namespace std_extra
+
+} // namespace core
+
+#define SOURCE_LOCATION_DATA(tag) \
+	SourceLocationData{ \
+		.name = core::std_extra::make_string_literal<__func__>().data(), \
+		.function = core::std_extra::make_string_literal<__PRETTY_FUNCTION__>().data(), \
+		.file = core::std_extra::make_string_literal<__FILE__>().data(), \
+		.line = __LINE__, \
+		.color = 0xFF000000 | (CORE_COMPILE_TIME_CRC32_STR(#tag) & 0x00FFFFFF) }
 
 //NOLINTEND(readability-identifier-naming)

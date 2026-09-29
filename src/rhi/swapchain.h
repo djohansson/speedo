@@ -1,22 +1,19 @@
 #pragma once
 
-#include "device.h"
-#include "frame.h"
-#include "queue.h"
-#include "rendertarget.h"
-#include "types.h"
+#include <rhi/deviceobject.h>
+#include <rhi/frame.h>
+#include <rhi/queue.h>
+#include <rhi/rendertarget.h>
+#include <rhi/types.h>
 
-#include <memory>
+#include <span>
+#include <vector>
+
+namespace rhi
+{
 
 template <GraphicsApi G>
-struct SwapchainConfiguration
-{
-	Extent2d<G> extent{1280, 720};
-	SurfaceFormat<G> surfaceFormat{};
-	PresentMode<G> presentMode{};
-	uint8_t imageCount{};
-	bool useDynamicRendering = true;
-};
+class Swapchain;
 
 template <GraphicsApi G>
 struct FlipResult
@@ -29,16 +26,29 @@ struct FlipResult
 };
 
 template <GraphicsApi G>
-class Swapchain : public IRenderTarget<G>, public DeviceObject<G>
+struct SwapchainCreateDesc : RenderTargetCreateDesc<G>
+{
+	SurfaceHandle<G> surface{};
+	SurfaceFormat<G> surfaceFormat{};
+	PresentMode<G> presentMode{};
+};
+
+template <GraphicsApi G>
+struct ObjectTraits<Swapchain<G>>
+{
+	using CreateDescType = SwapchainCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class Swapchain : public IRenderTarget<G>, public DeviceObject<Swapchain<G>>
 {
 public:
+	using SuperType = DeviceObject<Swapchain<G>>;
+	using CreateDescType = ObjectTraits<Swapchain<G>>::CreateDescType;
+
 	constexpr Swapchain() noexcept = default;
 	Swapchain(Swapchain&& other) noexcept;
-	Swapchain(
-		const std::shared_ptr<Device<G>>& device,
-		const SwapchainConfiguration<G>& config,
-		SurfaceHandle<G> surface, // takes ownership
-		SwapchainHandle<G> previous);
+	explicit Swapchain(CreateDescType&& desc);
 	~Swapchain();
 
 	[[maybe_unused]] Swapchain& operator=(Swapchain&& other) noexcept;
@@ -47,7 +57,9 @@ public:
 	void Swap(Swapchain& rhs) noexcept;
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] const RenderTargetCreateDesc<G>& GetRenderTargetDesc() const final;
+	[[nodiscard]] RenderTargetPassHandle<G> GetHandle() final;
+	[[nodiscard]] Extent2d<G> GetExtent() const final;
+	[[nodiscard]] std::span<const ImageHandle<G>> GetImages() const final;
 	[[nodiscard]] std::span<const ImageViewHandle<G>> GetAttachments() const final;
 	[[nodiscard]] std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final;
 	[[nodiscard]] ImageLayout<G> GetLayout(uint32_t index) const final;
@@ -96,13 +108,13 @@ public:
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }
 	[[nodiscard]] auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
-protected:
-	void InternalCreateSwapchain(const SwapchainConfiguration<G>& config, SwapchainHandle<G> previous);
+	void CreateSwapchain();
 
 private:
-	RenderTargetCreateDesc<G> myDesc{};
 	SurfaceHandle<G> mySurface{};
 	SwapchainHandle<G> mySwapchain{};
 	std::vector<Frame<G>> myFrames;
 	uint32_t myFrameIndex{};
 };
+
+} // namespace rhi

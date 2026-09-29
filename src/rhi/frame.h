@@ -1,26 +1,44 @@
 #pragma once
 
-#include "fence.h"
-#include "queue.h"
-#include "rendertarget.h"
-#include "types.h"
+#include <rhi/queue.h>
+#include <rhi/rendertarget.h>
+#include <rhi/types.h>
 
-#include <memory>
+#include <cstdint>
+
+namespace rhi
+{
 
 template <GraphicsApi G>
-struct FrameCreateDesc : RenderTargetCreateDesc<G>
+class Frame;
+
+template <GraphicsApi G>
+struct FrameCreateDesc final : RenderTargetCreateDesc<G>
 {
 	uint32_t index = 0;
 };
 
 template <GraphicsApi G>
-class Frame final : public RenderTargetImpl<FrameCreateDesc<G>, G>
+struct ObjectTraits<RenderTarget<Frame<G>, G>>
 {
-	using BaseType = RenderTargetImpl<FrameCreateDesc<G>, G>;
+	using CreateDescType = RenderTargetCreateDesc<G>;
+};
 
+template <GraphicsApi G>
+struct ObjectTraits<Frame<G>>
+{
+	using CreateDescType = FrameCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class Frame final : public RenderTarget<Frame<G>, G> // todo: second G is redundant, can be obtained from ObjectTraits<Frame<G>>::CreateDescType::GetApi()
+{
 public:
+	using SuperType = RenderTarget<Frame<G>, G>;
+	using CreateDescType = ObjectTraits<Frame<G>>::CreateDescType;
+
 	constexpr Frame() noexcept = default;
-	Frame(const std::shared_ptr<Device<G>>& device, FrameCreateDesc<G>&& desc);
+	explicit Frame(CreateDescType&& desc);
 	Frame(Frame<G>&& other) noexcept;
 
 	[[maybe_unused]] Frame& operator=(Frame&& other) noexcept;
@@ -37,5 +55,7 @@ public:
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
 
 private:
-	ImageLayout<G> myImageLayout{};
+	ImageLayout<G> myImageLayout{}; // replace with layout in desc?
 };
+
+} // namespace rhi

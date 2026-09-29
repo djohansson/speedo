@@ -1,8 +1,16 @@
-#include "../swapchain.h"
-
-#include "utils.h"
+#include <rhi/capi.h>
+#include <rhi/device.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/swapchain.h>
+#include <rhi/vulkan/utils.h>
 
 #include <format>
+
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(Swapchain<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Swapchain<kVk>);
 
 template <>
 const RenderTargetBeginInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
@@ -17,9 +25,21 @@ void Swapchain<kVk>::End(CommandBufferHandle<kVk> cmd)
 }
 
 template <>
-const RenderTargetCreateDesc<kVk>& Swapchain<kVk>::GetRenderTargetDesc() const
+RenderTargetPassHandle<kVk> Swapchain<kVk>::GetHandle()
 {
-	return myDesc;
+	return myFrames[myFrameIndex].GetHandle();
+}
+	
+template <>
+Extent2d<kVk> Swapchain<kVk>::GetExtent() const
+{
+	return myFrames[myFrameIndex].GetExtent();
+}
+
+template <>
+std::span<const ImageHandle<kVk>> Swapchain<kVk>::GetImages() const
+{
+	return myFrames[myFrameIndex].GetImages();
 }
 
 template <>
@@ -115,11 +135,11 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 
 	auto lastFrameIndex = myFrameIndex;
 	
-	Fence<kVk> fence(InternalGetDevice(), FenceCreateDesc<kVk>{"acquireNextImageFence"});
-	Semaphore<kVk> semaphore(InternalGetDevice(), SemaphoreCreateDesc<kVk>{.type = VK_SEMAPHORE_TYPE_BINARY});
+	Fence<kVk> fence(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageFence")});
+	Semaphore<kVk> semaphore(SemaphoreCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageSemaphore"), VK_SEMAPHORE_TYPE_BINARY});
 
 	auto flipResult = vkAcquireNextImageKHR(
-		*InternalGetDevice(),
+		GetDevice(),
 		mySwapchain,
 		UINT64_MAX,
 		semaphore,
@@ -153,7 +173,7 @@ QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent()
 	
 	presentInfo.swapchains.push_back(mySwapchain);
 
-	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
+	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetInstance());
 	static uint64_t gPresentId = 0ULL;
 	if (gSupportsPresentId)
 	{
@@ -172,7 +192,7 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 
 	ENSURE(gVkWaitForPresentKHR != nullptr);
 
-	auto result = gVkWaitForPresentKHR(*InternalGetDevice(), mySwapchain, presentId, timeout);
+	auto result = gVkWaitForPresentKHR(GetDevice(), mySwapchain, presentId, timeout);
 	
 	if (result == VK_TIMEOUT)
 		return false;
@@ -183,55 +203,55 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 }
 
 template <>
-void Swapchain<kVk>::InternalCreateSwapchain(
-	const SwapchainConfiguration<kVk>& config, SwapchainHandle<kVk> previous)
+void Swapchain<kVk>::CreateSwapchain()
 {
-	ZoneScopedN("Swapchain::InternalCreateSwapchain");
+	ZoneScopedN("Swapchain::CreateSwapchain");
 
-	auto& device = *InternalGetDevice();
+	auto& device = GetDevice();
+	auto previous = static_cast<SwapchainHandle<kVk>>(mySwapchain);
 
-	VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+	VkSwapchainCreateInfoKHR info{.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
-	info.minImageCount = config.imageCount;
-	info.imageFormat = config.surfaceFormat.format;
-	info.imageColorSpace = config.surfaceFormat.colorSpace;
-	info.imageExtent = config.extent;
+	info.minImageCount = GetDesc().images.size();
+	info.imageFormat = GetDesc().surfaceFormat.format;
+	info.imageColorSpace = GetDesc().surfaceFormat.colorSpace;
+	info.imageExtent = GetDesc().extent;
 	info.imageArrayLayers = 1;
 	info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-	info.presentMode = config.presentMode;
+	info.presentMode = GetDesc().presentMode;
 	info.clipped = VK_TRUE;
 	info.oldSwapchain = previous;
 
 	VK_CHECK(vkCreateSwapchainKHR(
 		device,
 		&info,
-		&device.GetInstance()->GetHostAllocationCallbacks(),
+		&GetInstance().GetHostAllocationCallbacks(),
 		&mySwapchain));
 
-	if (previous != nullptr)
+	if (previous != VK_NULL_HANDLE)
 	{
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		device.EraseOwnedObjectHandle(GetUuid(), reinterpret_cast<uint64_t>(previous));
+		EraseOwnedObjectHandle<kVk>(GetDesc().uuid, reinterpret_cast<uint64_t>(previous));
 #endif
-
 		vkDestroySwapchainKHR(
 			device,
 			previous,
-			&device.GetInstance()->GetHostAllocationCallbacks());
+			&GetInstance().GetHostAllocationCallbacks());
 	}
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	device.AddOwnedObjectHandle(
-		GetUuid(),
+	AddOwnedObjectHandle<kVk>(
+		device,
+		GetDesc().uuid,
 		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
 		reinterpret_cast<uint64_t>(mySwapchain),
-		std::format("{}_Swapchain", GetName()));
+		std::format("{}_Swapchain", uuids::to_string(GetDesc().uuid)));
 #endif
 
-	uint32_t frameCount = config.imageCount;
+	uint32_t frameCount = GetDesc().images.size();
 
 	ENSURE(frameCount);
 
@@ -250,45 +270,53 @@ void Swapchain<kVk>::InternalCreateSwapchain(
 
 	for (uint32_t frameIt = 0UL; frameIt < frameCount; frameIt++)
 		myFrames.emplace_back(
-			InternalGetDevice(),
-			FrameCreateDesc<kVk>{
-				{.extent = config.extent,
-				 .imageFormats = {config.surfaceFormat.format},
-				 .imageLayouts = {VK_IMAGE_LAYOUT_UNDEFINED},
-				 .imageAspectFlags = {VK_IMAGE_ASPECT_COLOR_BIT},
-				 .images = {colorImages[frameIt]},
-				 .clearValues = {ClearValue<kVk>{}},
-				 .layerCount = 1,
-				 .useDynamicRendering = config.useDynamicRendering},
-				frameIt});
+			FrameCreateDesc<kVk>
+			{
+				RenderTargetCreateDesc<kVk>
+				{
+					SuperType::CreateDeviceObjectCreateDesc(std::format("Frame{}", frameIt)),
+					GetDesc().extent,
+				 	{GetDesc().surfaceFormat.format},
+					{VK_IMAGE_LAYOUT_UNDEFINED},
+					{VK_IMAGE_ASPECT_COLOR_BIT},
+					{colorImages[frameIt]},
+					{ClearValue<kVk>{}},
+					1,
+					GetDesc().useDynamicRendering
+				},
+				frameIt
+			});
+
+	GetInstance().UpdateSurfaceCapabilities(GetDevice().GetPhysicalDevice(), GetSurface());
+	InternalGetDesc().extent = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface()).capabilities.currentExtent;
 
 	myFrameIndex = frameCount - 1;
 }
 
 template <>
-Swapchain<kVk>::Swapchain(Swapchain&& other) noexcept
-	: DeviceObject(std::forward<Swapchain>(other))
-	, myDesc(other.myDesc)
-	, myFrames(std::exchange(other.myFrames, {}))
-	, myFrameIndex(std::exchange(other.myFrameIndex, {}))
+void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 {
-	std::swap(mySurface, other.mySurface);
-	std::swap(mySwapchain, other.mySwapchain);
+	DeviceObject<Swapchain<kVk>>::Swap(rhs);
+	std::swap(mySurface, rhs.mySurface);
+	std::swap(mySwapchain, rhs.mySwapchain);
+	std::swap(myFrames, rhs.myFrames);
+	std::swap(myFrameIndex, rhs.myFrameIndex);
 }
 
 template <>
-Swapchain<kVk>::Swapchain(
-	const std::shared_ptr<Device<kVk>>& device,
-	const SwapchainConfiguration<kVk>& config,
-	SurfaceHandle<kVk> surface,
-	SwapchainHandle<kVk> previous)
-	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
-	, myDesc{.extent = config.extent} // more?
-	, mySurface(surface)
+Swapchain<kVk>::Swapchain(Swapchain&& other) noexcept
+{
+	Swap(other);
+}
+
+template <>
+Swapchain<kVk>::Swapchain(Swapchain<kVk>::CreateDescType&& desc)
+	: DeviceObject<Swapchain<kVk>>(std::forward<Swapchain<kVk>::CreateDescType>(desc))
+	, mySurface(GetDesc().surface)
 {
 	ZoneScopedN("Swapchain()");
 
-	InternalCreateSwapchain(config, previous);
+	CreateSwapchain();
 }
 
 template <>
@@ -296,41 +324,27 @@ Swapchain<kVk>::~Swapchain()
 {
 	ZoneScopedN("~Swapchain()");
 
-	if (auto device = InternalGetDevice())
+	if (IsValid())
 	{
 		if (mySwapchain != nullptr)
 			vkDestroySwapchainKHR(
-				*device,
+				GetDevice(),
 				mySwapchain,
-				&device->GetInstance()->GetHostAllocationCallbacks());
+				&GetInstance().GetHostAllocationCallbacks());
 
 		if (mySurface != nullptr)
 			vkDestroySurfaceKHR(
-				*device->GetInstance(),
+				GetInstance(),
 				mySurface,
-				&device->GetInstance()->GetHostAllocationCallbacks());
+				&GetInstance().GetHostAllocationCallbacks());
 	}
 }
 
 template <>
 Swapchain<kVk>& Swapchain<kVk>::operator=(Swapchain&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<Swapchain>(other));
-	myDesc = std::exchange(other.myDesc, {});
-	std::swap(mySurface, other.mySurface);
-	std::swap(mySwapchain, other.mySwapchain);
-	myFrames = std::exchange(other.myFrames, {});
-	myFrameIndex = std::exchange(other.myFrameIndex, {});
+	Swap(other);
 	return *this;
 }
 
-template <>
-void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
-{
-	DeviceObject::Swap(rhs);
-	std::swap(myDesc, rhs.myDesc);
-	std::swap(mySurface, rhs.mySurface);
-	std::swap(mySwapchain, rhs.mySwapchain);
-	std::swap(myFrames, rhs.myFrames);
-	std::swap(myFrameIndex, rhs.myFrameIndex);
-}
+} // namespace rhi

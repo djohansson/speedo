@@ -1,7 +1,8 @@
-#include "../model.h"
-#include "../rhi.h"
-#include "../shaders/capi.h"
-#include "utils.h"
+#include <rhi/model.h>
+#include <rhi/rhi.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/shaders/capi.h>
+#include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
 #include <core/std_extra.h>
@@ -10,19 +11,26 @@
 
 #include <cstdint>
 #include <memory>
+#include <tuple>
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
 
 #include <zpp_bits.h>
 
-namespace model::detail
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(Model<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Model<kVk>);
+
+namespace model
 {
 
 std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 	const std::vector<VertexInputAttributeDescription<kVk>>& attributes)
 {
-	using AttributeMap = std::map<uint32_t, std::tuple<VkFormat, uint32_t>>;
+	using AttributeMap = core::UnorderedMap<uint32_t, std::tuple<Format<kVk>, uint32_t>>;
 
 	AttributeMap attributeMap;
 
@@ -60,7 +68,7 @@ std::vector<VkVertexInputBindingDescription> CalculateInputBindingDescriptions(
 
 	// ASSERT(VK_VERTEX_INPUT_RATE_VERTEX); // todo: please implement me
 
-	return {VertexInputBindingDescription<kVk>{0U, stride, VK_VERTEX_INPUT_RATE_VERTEX}};
+	return {VertexInputBindingDescription<kVk>{.binding = 0U, .stride = stride, .inputRate = VK_VERTEX_INPUT_RATE_VERTEX}};
 }
 
 //NOLINTBEGIN(readability-magic-numbers)
@@ -71,113 +79,118 @@ std::tuple<
 	AllocationHandle<kVk>,
 	ModelCreateDesc<kVk>>
 Load(
-	const std::filesystem::path& modelFile,
-	const std::shared_ptr<Device<kVk>>& device,
-	std::atomic_uint8_t& progress)
+	ModelCreateDesc<kVk>&& desc,
+	std::string_view modelFile,
+	std::atomic_uint8_t& progressOut)
 {
 	ZoneScopedN("model::load");
 
-	std::tuple<
+	auto app = std::static_pointer_cast<RHIApplication>(core::Application::Get());
+	ENSURE(app);
+	auto& rhi = app->GetRHI<kVk>();
+	auto& device = rhi.GetDevice(desc.device);
+
+	auto initialData = std::tuple<
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
-		ModelCreateDesc<kVk>> initialData;
+		ModelCreateDesc<kVk>>{{}, {}, {}, {}, std::forward<ModelCreateDesc<kVk>>(desc)};
 
-	auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
+	auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, modelDesc] = initialData;
 
-	auto loadBin = [&modelFile, &initialData, &device, &progress](auto& inStream) -> std::error_code
+	auto loadBin = [&modelFile, &initialData, &device, &progressOut](auto& inStream) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
-		progress = 32;
+		progressOut = 32;
 
-		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
+		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, modelDesc] = initialData;
 		
-		if (auto result = inStream(desc); failure(result))
+		if (auto result = inStream(modelDesc); failure(result))
 			return std::make_error_code(result);
 
 		std::string ibName;
 		std::string vbName;
-		ibName = modelFile.filename().string().append("_staging_ib");
-		vbName = modelFile.filename().string().append("_staging_vb");
+		ibName = std::string(modelFile).append("_staging_ib");
+		vbName = std::string(modelFile).append("_staging_vb");
 		
 		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
-			device->GetAllocator(),
-			desc.indexCount * sizeof(uint32_t),
+			device.GetAllocator(),
+			modelDesc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			ibName.data());
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
-		auto ibResult = inStream(std::span(static_cast<char*>(ibData), desc.indexCount * sizeof(uint32_t)));
-		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), locIbMemHandle, &ibData));
+		auto ibResult = inStream(std::span(static_cast<char*>(ibData), modelDesc.indexCount * sizeof(uint32_t)));
+		vmaUnmapMemory(device.GetAllocator(), locIbMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
 
 		ibHandle = locIbHandle;
 		ibMemHandle = locIbMemHandle;
 
-		progress = 128;
+		progressOut = 128;
 
 		auto [locVbHandle, locVbMemHandle] = CreateBuffer(
-			device->GetAllocator(),
-			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
+			device.GetAllocator(),
+			modelDesc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			vbName.data());
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), locVbMemHandle, &vbData));
 		auto vbResult = inStream(
-			std::span(static_cast<char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
-		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
+			std::span(static_cast<char*>(vbData), modelDesc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
+		vmaUnmapMemory(device.GetAllocator(), locVbMemHandle);
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
 
 		vbHandle = locVbHandle;
 		vbMemHandle = locVbMemHandle;
 
-		progress = 255;
+		progressOut = 255;
 
 		return {};
 	};
 
-	auto saveBin = [&initialData, &device, &progress](auto& out) -> std::error_code
+	auto saveBin = [&initialData, &device, &progressOut](auto& out) -> std::error_code
 	{
 		ZoneScopedN("model::saveBin");
 
-		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
+		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, modelDesc] = initialData;
 		
-		if (auto result = out(desc); failure(result))
+		if (auto result = out(modelDesc); failure(result))
 			return std::make_error_code(result);
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), ibMemHandle, &ibData));
-		auto ibResult = out(std::span(static_cast<const char*>(ibData), desc.indexCount * sizeof(uint32_t)));
-		vmaUnmapMemory(device->GetAllocator(), ibMemHandle);
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), ibMemHandle, &ibData));
+		auto ibResult = out(std::span(static_cast<const char*>(ibData), modelDesc.indexCount * sizeof(uint32_t)));
+		vmaUnmapMemory(device.GetAllocator(), ibMemHandle);
 		if (failure(ibResult))
 			return std::make_error_code(ibResult);
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), vbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), vbMemHandle, &vbData));
 		auto vbResult = out(std::span(
-			static_cast<const char*>(vbData), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
-		vmaUnmapMemory(device->GetAllocator(), vbMemHandle);
+			static_cast<const char*>(vbData), modelDesc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
+		vmaUnmapMemory(device.GetAllocator(), vbMemHandle);
 		if (failure(vbResult))
 			return std::make_error_code(vbResult);
 
-		progress = 255;
+		progressOut = 255;
 
 		return {};
 	};
 
-	auto loadOBJ = [&modelFile, &initialData, &device, &progress](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&modelFile, &initialData, &device, &progressOut](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
-		progress = 32;
+		progressOut = 32;
 
 		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
 
@@ -187,9 +200,9 @@ Load(
 		std::vector<material_t> materials;
 		std::string warn;
 		std::string err;
-		ENSUREF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.string().c_str()), "%s", err)
+		ENSUREF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.data()), "%s", err)
 
-		progress = 64;
+		progressOut = 64;
 
 		uint32_t indexCount = 0;
 		for (const auto& shape : shapes)
@@ -198,40 +211,40 @@ Load(
 		if (!attrib.vertices.empty())
 		{
 			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				static_cast<uint32_t>(desc.attributes.size()),
-				0,
-				VK_FORMAT_R32G32B32_SFLOAT,
-				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, position))});
+				.location = static_cast<uint32_t>(desc.attributes.size()),
+				.binding = 0,
+				.format = VK_FORMAT_R32G32B32_SFLOAT,
+				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, position))});
 		}
 
 		if (!attrib.normals.empty())
 		{
 			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				static_cast<uint32_t>(desc.attributes.size()),
-				0,
-				VK_FORMAT_R32G32B32_SFLOAT,
-				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, normal))});
+				.location = static_cast<uint32_t>(desc.attributes.size()),
+				.binding = 0,
+				.format = VK_FORMAT_R32G32B32_SFLOAT,
+				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, normal))});
 		}
 
 		if (!attrib.texcoords.empty())
 		{
 			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				static_cast<uint32_t>(desc.attributes.size()),
-				0,
-				VK_FORMAT_R32G32B32A32_SFLOAT,
-				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, texCoord01))});
+				.location = static_cast<uint32_t>(desc.attributes.size()),
+				.binding = 0,
+				.format = VK_FORMAT_R32G32B32A32_SFLOAT,
+				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, texCoord01))});
 		}
 
 		if (!attrib.colors.empty())
 		{
 			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				static_cast<uint32_t>(desc.attributes.size()),
-				0,
-				VK_FORMAT_R32G32B32A32_SFLOAT,
-				static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, color))});
+				.location = static_cast<uint32_t>(desc.attributes.size()),
+				.binding = 0,
+				.format = VK_FORMAT_R32G32B32A32_SFLOAT,
+				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, color))});
 		}
 
-		UnorderedMap<uint64_t, uint32_t> uniqueVertices;
+		core::UnorderedMap<uint64_t, uint32_t> uniqueVertices;
 
 		VertexAllocator vertices;
 		vertices.SetStride(sizeof(VertexP3fN3fT014fC4f));
@@ -292,49 +305,49 @@ Load(
 			}
 		}
 
-		progress = 128;
+		progressOut = 128;
 
 		std::string ibName;
 		std::string vbName;
-		ibName = modelFile.filename().string().append("_staging_ib");
-		vbName = modelFile.filename().string().append("_staging_vb");
+		ibName = std::string(modelFile).append("_staging_ib");
+		vbName = std::string(modelFile).append("_staging_vb");
 
 		desc.indexCount = indices.size();
 		desc.vertexCount = vertices.Size();
 
 		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
-			device->GetAllocator(),
+			device.GetAllocator(),
 			desc.indexCount * sizeof(uint32_t),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			ibName.data());
 
 		void* ibData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locIbMemHandle, &ibData));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), locIbMemHandle, &ibData));
 		memcpy(ibData, indices.data(), desc.indexCount * sizeof(uint32_t));
-		vmaUnmapMemory(device->GetAllocator(), locIbMemHandle);
+		vmaUnmapMemory(device.GetAllocator(), locIbMemHandle);
 
 		ibHandle = locIbHandle;
 		ibMemHandle = locIbMemHandle;
 
-		progress = 192;
+		progressOut = 192;
 
 		auto [locVbHandle, locVbMemHandle] = CreateBuffer(
-			device->GetAllocator(),
+			device.GetAllocator(),
 			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			vbName.data());
 
 		void* vbData;
-		VK_CHECK(vmaMapMemory(device->GetAllocator(), locVbMemHandle, &vbData));
+		VK_CHECK(vmaMapMemory(device.GetAllocator(), locVbMemHandle, &vbData));
 		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
-		vmaUnmapMemory(device->GetAllocator(), locVbMemHandle);
+		vmaUnmapMemory(device.GetAllocator(), locVbMemHandle);
 
 		vbHandle = locVbHandle;
 		vbMemHandle = locVbMemHandle;
 
-		progress = 224;
+		progressOut = 224;
 
 		return {};
 	};
@@ -342,113 +355,107 @@ Load(
 	std::string params;
 	std::string paramsHash;
 	params.append("tinyobjloader-2.0.15"); // todo: read version from tinyobjloader.h
+	params.append("|cache-v2"); // bump when the serialized ModelCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash);
+	auto loadResult = core::file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash);
 
-	ENSUREF(loadResult && vbHandle != nullptr && ibHandle != nullptr, "Failed to load model.");
+	ENSUREF(loadResult && vbHandle && ibHandle, "Failed to load model.");
 
 	return initialData;
 }
 //NOLINTEND(readability-magic-numbers)
 
-} // namespace model::detail
+} // namespace model
+
+template <>
+void Model<kVk>::Swap(Model& rhs) noexcept
+{
+	DeviceObject<Model<kVk>>::Swap(rhs);
+	std::swap(myIndexBuffer, rhs.myIndexBuffer);
+	std::swap(myVertexBuffer, rhs.myVertexBuffer);
+	std::swap(myBindings, rhs.myBindings);
+}
 
 template <>
 Model<kVk>::Model(
-	const std::shared_ptr<Device<kVk>>& device,
-	std::array<TaskCreateInfo<void>, 2>& timelineCallbacksOut,
-	CommandBufferHandle<kVk> cmd,
 	std::tuple<
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
-		ModelCreateDesc<kVk>>&& initialData)
-	: myIndexBuffer(
-		  device,
-		  timelineCallbacksOut[0],
-		  cmd,
-		  std::make_tuple(
-			  std::get<0>(initialData),
-			  std::get<1>(initialData),
-			  BufferCreateDesc<kVk>{
-				  .size = std::get<4>(initialData).indexCount * sizeof(uint32_t),
-				  .usageFlags = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				  .memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				  .name = "IndexBuffer"}))
+		CreateDescType>&& initialDataAndDesc,
+	CommandBufferHandle<kVk> cmd,
+	std::array<core::TaskCreateInfo<void>, 2>& timelineCallbacksOut)
+	: DeviceObject<Model<kVk>>(std::forward<CreateDescType>(std::get<4>(initialDataAndDesc)))
+	, myIndexBuffer(
+		BufferCreateDesc<kVk>{
+			SuperType::CreateDeviceObjectCreateDesc("IndexBuffer"),
+			GetDesc().indexCount * sizeof(uint32_t),
+			VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+		std::make_tuple(
+			std::get<0>(initialDataAndDesc),
+			std::get<1>(initialDataAndDesc)),
+		cmd,
+		timelineCallbacksOut[0])
 	, myVertexBuffer(
-		  device,
-		  timelineCallbacksOut[1],
-		  cmd,
-		  std::make_tuple(
-			  std::get<2>(initialData),
-			  std::get<3>(initialData),
-			  BufferCreateDesc<kVk>{
-				  .size = std::get<4>(initialData).vertexCount * sizeof(VertexP3fN3fT014fC4f),
-				  .usageFlags = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				  .memoryFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				  .name = "VertexBuffer"}))
-	, myBindings(model::detail::CalculateInputBindingDescriptions(std::get<4>(initialData).attributes))
-	, myDesc(std::forward<ModelCreateDesc<kVk>>(std::get<4>(initialData)))
+		BufferCreateDesc<kVk>{
+			SuperType::CreateDeviceObjectCreateDesc("VertexBuffer"),
+			GetDesc().vertexCount * sizeof(VertexP3fN3fT014fC4f),
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+		std::make_tuple(
+			std::get<2>(initialDataAndDesc),
+			std::get<3>(initialDataAndDesc)),
+		cmd,
+		timelineCallbacksOut[1])
+	, myBindings(model::CalculateInputBindingDescriptions(GetDesc().attributes))
 {}
 
 template <>
 Model<kVk>::Model(
-	const std::shared_ptr<Device<kVk>>& device,
-	std::array<TaskCreateInfo<void>, 2>& timelineCallbacksOut,
+	CreateDescType&& desc,
+	std::string_view modelFile,
 	CommandBufferHandle<kVk> cmd,
-	const std::filesystem::path& modelFile,
-	std::atomic_uint8_t& progress)
-	: Model(device, timelineCallbacksOut, cmd, model::detail::Load(modelFile, device, progress))
+	std::array<core::TaskCreateInfo<void>, 2>& timelineCallbacksOut,
+	std::atomic_uint8_t& progressOut)
+	: Model(
+		model::Load(std::forward<CreateDescType>(desc), modelFile, progressOut),
+		cmd,
+		timelineCallbacksOut)
 {}
 
 template <>
-void Model<kVk>::Swap(Model& rhs) noexcept
+std::tuple<BufferHandle<kVk>, BufferHandle<kVk>, core::Future<core::Future<void>>>
+Model<kVk>::LoadModel(std::string_view filePath, std::atomic_uint8_t& progressOut)
 {
-	std::swap(myIndexBuffer, rhs.myIndexBuffer);
-	std::swap(myVertexBuffer, rhs.myVertexBuffer);
-	std::swap(myBindings, rhs.myBindings);
-	std::swap(myDesc, rhs.myDesc);
-}
+	ZoneScopedN("Model::LoadModel");
 
-namespace model
-{
+	auto app = std::static_pointer_cast<RHIApplication>(core::Application::Get());
+	ENSURE(app);
+	auto& rhi = app->GetRHI<kVk>();
+	auto& device = rhi.GetPrimaryDevice();
 
-template <>
-Model<kVk> LoadModel(
-	RHIBase& rhiBase,
-	std::string_view filePath,
-	std::atomic_uint8_t& progress,
-	std::shared_ptr<Model<kVk>> oldModel)
-{
-	ZoneScopedN("model::LoadModel");
-
-	auto& rhi = static_cast<RHI<kVk>&>(rhiBase);
-
-	auto transfer = rhi.GetQueues()[kQueueTypeTransfer].Write();
+	auto transfer = device.GetQueues()[kQueueTypeTransfer].Write();
 	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
 	auto cmd = transferQueue.GetPool().Commands();
 
-	std::array<TaskCreateInfo<void>, 2> transfersDone;
+	std::array<core::TaskCreateInfo<void>, 2> transfersDone;
 	auto model = Model<kVk>(
-		rhi.GetDevice(),
-		transfersDone,
-		cmd,
+		ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)},
 		filePath,
-		progress);
+		cmd,
+		transfersDone,
+		progressOut);
 	cmd.End();
 
-	// a bit cryptic, but it's just a task that holds on to the old model in its capture group until task is destroyed
-	auto [oldModelDestroyTask, oldModelDestroyFuture] = CreateTask([model = std::move(oldModel)] {});
-
-	std::vector<TaskHandle> timelineCallbacks;
+	std::vector<core::TaskHandle> timelineCallbacks;
 	timelineCallbacks.emplace_back(transfersDone[0].handle);
 	timelineCallbacks.emplace_back(transfersDone[1].handle);
-	timelineCallbacks.emplace_back(oldModelDestroyTask);
 
 	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 		.waitSemaphores = {transfer->semaphore},
@@ -460,7 +467,35 @@ Model<kVk> LoadModel(
 
 	transferSubmits |= transferQueue.Submit();
 
-	return model;
+	///////////
+
+	auto [transitionTask, transitionFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>( 
+	[&rhi,
+		model = std::make_shared<Model<kVk>>(std::move(model)),
+		&transferSemaphore = transfer->semaphore,
+		&transferSubmits](QueueTimelineContextData<kVk>* graphics)
+	{
+		auto& device = rhi.GetPrimaryDevice();
+		auto& pipeline = device.GetPipeline();
+		
+		auto [setVertexInputTask, setVertexInputFuture] = core::CreateTask([&pipeline, model = std::move(model)]()
+		{
+			pipeline.SetVertexInputState(*model);
+			pipeline.SetDescriptorData(
+				"gVertexBuffer",
+				DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+
+			//auto oldModel = resources.model.exchange(std::move(*model));
+		});
+
+		return setVertexInputFuture;
+	});
+
+	return std::make_tuple(
+		static_cast<BufferHandle<kVk>>(model.GetVertexBuffer()),
+		static_cast<BufferHandle<kVk>>(model.GetIndexBuffer()),
+		std::move(transitionFuture));
 }
 
-} // namespace model
+} // namespace rhi

@@ -1,7 +1,12 @@
-template <typename LoadOp>
-void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
+namespace rhi
 {
-	auto app = std::static_pointer_cast<RHIApplication>(gApplication.lock());
+
+template <typename LoadOp>
+auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
+{
+	using namespace core;
+	
+	auto app = std::static_pointer_cast<RHIApplication>(Application::Get());
 	ENSURE(app);
 	auto& rhi = app->GetRHI();
 	
@@ -11,7 +16,7 @@ void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 		filterList);
 
 	auto [loadTask, loadFuture] = CreateTask(
-		[](auto openFileFuture, auto loadOp)
+		[](auto openFileFuture, auto loadOp) -> std::invoke_result_t<LoadOp, const std::string&, std::atomic_uint8_t&>
 		{
 			ZoneScopedN("RHIApplication::draw::loadTask");
 
@@ -23,13 +28,19 @@ void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 			{
 				gProgress = 0;
 				gShowProgress = true;
-				loadOp(openFilePath, gProgress);
+				auto result = loadOp(openFilePath, gProgress);
 				gShowProgress = false;
+				return result;
 			}
+			return {};
 		},
 		std::move(openFileFuture),
 		loadOp);
 
 	rhi.mainCalls.enqueue(openFileTask);
 	rhi.mainCalls.enqueue(loadTask);
+
+	return loadFuture;
 }
+
+} // namespace rhi

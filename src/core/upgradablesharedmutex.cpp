@@ -1,4 +1,7 @@
-#include "upgradablesharedmutex.h"
+#include <core/upgradablesharedmutex.h>
+
+namespace core
+{
 
 void UpgradableSharedMutex::lock() noexcept
 {
@@ -117,3 +120,5 @@ bool UpgradableSharedMutex::try_lock_upgrade() noexcept
 {
 	return std::get<0>(InternalTryLockUpgrade());
 }
+
+} // namespace core

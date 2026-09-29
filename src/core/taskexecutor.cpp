@@ -1,5 +1,5 @@
-#include "taskexecutor.h"
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
+#include <core/taskexecutor.h>
+#include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
 #include <atomic>
 #include <shared_mutex>
@@ -13,8 +13,13 @@
 #else
 #	include <pthread.h>
 #endif
-namespace taskexecutor
+
+namespace core
 {
+
+namespace detail
+{
+
 #ifdef _WIN32
 
 const DWORD MS_VC_EXCEPTION = 0x406D1388;
@@ -84,11 +89,11 @@ enum TaskExecutorState : uint8_t
 };
 static std::atomic<TaskExecutorState> gTaskExecutorState = kTaskExecutorInitializing;
 
-}
+} // namespace detail
 
 TaskExecutor::TaskExecutor(uint32_t threadCount)
 {
-	using namespace taskexecutor;
+	using namespace detail;
 
 	ZoneScopedN("TaskExecutor()");
 
@@ -154,51 +159,72 @@ void TaskExecutor::InternalScheduleAdjacent(Task& task)
 	}
 }
 
-void TaskExecutor::InternalProcessReadyQueue()
+bool TaskExecutor::InternalTryCallOne()
 {
-	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
+	// count the task as active *before* dequeuing it, so that JoinAll never observes
+	// an empty ready queue and zero active tasks while a dequeued task has yet to run.
+	auto activeTaskCount = std::atomic_ref(myActiveTaskCount);
+	activeTaskCount.fetch_add(1, std::memory_order_acq_rel);
 
 	TaskHandle handle;
-	while (myReadyQueue.try_dequeue(handle))
+	bool dequeued = myReadyQueue.try_dequeue(handle);
+	if (dequeued)
 	{
 		std::atomic_ref(myReadyQueueSize).fetch_sub(1, std::memory_order_acq_rel);
 		InternalCall(handle);
 		InternalPurgeDeletionQueue();
 	}
+
+	activeTaskCount.fetch_sub(1, std::memory_order_acq_rel);
+
+	return dequeued;
+}
+
+void TaskExecutor::InternalProcessReadyQueue()
+{
+	ZoneScopedN("TaskExecutor::InternalProcessReadyQueue");
+
+	while (InternalTryCallOne());
 }
 
 void TaskExecutor::InternalPurgeDeletionQueue()
 {
 	ZoneScopedN("TaskExecutor::InternalPurgeDeletionQueue");
 
-	static thread_local std::vector<TaskHandle> nextDeletionQueue;
-	nextDeletionQueue.reserve(std::max(myDeletionQueue.size_approx(), nextDeletionQueue.size()));
-	nextDeletionQueue.clear();
+	static thread_local std::vector<TaskHandle> gNextDeletionQueue;
+	gNextDeletionQueue.reserve(std::max(myDeletionQueue.size_approx(), gNextDeletionQueue.size()));
+	gNextDeletionQueue.clear();
 
 	TaskHandle handle;
 	while (myDeletionQueue.try_dequeue(handle))
 		if (!InternalTryDelete(handle))
-			nextDeletionQueue.emplace_back(handle);
+			gNextDeletionQueue.emplace_back(handle);
 
-	myDeletionQueue.enqueue_bulk(nextDeletionQueue.begin(), nextDeletionQueue.size());
+	myDeletionQueue.enqueue_bulk(gNextDeletionQueue.begin(), gNextDeletionQueue.size());
 }
 
 void TaskExecutor::JoinOne()
 {
 	ZoneScopedN("TaskExecutor::JoinOne");
 
-	TaskHandle handle;
-	if (myReadyQueue.try_dequeue(handle))
-	{
-		std::atomic_ref(myReadyQueueSize).fetch_sub(1, std::memory_order_acq_rel);
-		InternalCall(handle);
-		InternalPurgeDeletionQueue();
-	}
+	InternalTryCallOne();
+}
+
+void TaskExecutor::JoinAll()
+{
+	ZoneScopedN("TaskExecutor::JoinAll");
+
+	while (std::atomic_ref(myReadyQueueSize).load(std::memory_order_acquire) > 0 ||
+		   std::atomic_ref(myActiveTaskCount).load(std::memory_order_acquire) > 0)
+		if (!InternalTryCallOne())
+			std::this_thread::yield(); // remaining work is executing on other threads
+
+	InternalPurgeDeletionQueue();
 }
 
 void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 {
-	using namespace taskexecutor;
+	using namespace detail;
 
 	gTaskExecutorState.wait(kTaskExecutorInitializing, std::memory_order_acquire);
 	
@@ -229,7 +255,9 @@ void TaskExecutor::Submit(std::span<const TaskHandle> handles, bool wakeThreads)
 	{
 		if (count >= myThreads.size())
 			myCV.notify_all();
-		else while (count--)
+		else while (count-- > 0)
 			myCV.notify_one();
 	}
 }
+
+} // namespace core

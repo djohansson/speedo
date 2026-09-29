@@ -1,10 +1,12 @@
-#include "application.h"
-
+#include <core/application.h>
 #include <core/assert.h>
 
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc-new-delete.h>
 #endif
+
+namespace core
+{
 
 std::weak_ptr<Application> gApplication;
 
@@ -13,7 +15,6 @@ Application::Application(std::string_view name, Environment&& env)
 , myEnvironment(std::forward<Environment>(env))
 , myExecutor(std::make_unique<TaskExecutor>(std::max(1, static_cast<int>(std::thread::hardware_concurrency()) - 2)))
 {
-	ENSUREF(gApplication.use_count() == 0, "There can only be one application at a time");
 	std::set_terminate([]()
 	{
 		LOG_ERROR("Terminate handled called\n");
@@ -38,12 +39,12 @@ Application::Application(std::string_view name, Environment&& env)
 	});
 }
 
-const char* GetApplicationName(void)
+} // namespace core
+
+extern "C" const char* GetApplicationName(void)
 {
-	if (auto app = gApplication.lock(); app)
+	if (auto app = core::Application::Get(); app)
 		return app->GetName().data();
 
-	return nullptr;
+	return "";
 }
-
-

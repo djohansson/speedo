@@ -1,10 +1,13 @@
 #pragma once
 
-#include "nodes/nodecommon.h"
+#include <core/nodes/nodecommon.h>
 
 #include <memory>
 #include <string>
 #include <vector>
+
+namespace core
+{
 
 struct NodeGraph
 {
@@ -14,3 +17,4 @@ struct NodeGraph
 	int uniqueId = 0;
 };
 
+} // namespace core

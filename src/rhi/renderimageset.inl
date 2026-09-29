@@ -1,35 +1,45 @@
+namespace rhi
+{
+
 namespace renderimageset
 {
 
-template <GraphicsApi G>
-RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const std::vector<std::shared_ptr<Image<G>>>& images)
+template <GraphicsApi G, typename... Images>
+RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
 {
 	RenderTargetCreateDesc<G> outDesc{};
 
-	ENSUREF(images.size(), "colorImages cannot be empty");
+	auto imageCount = sizeof...(images);
 
-	auto firstImageExtent = images.front()->GetDesc().mipLevels[0].extent;
+	ENSUREF(imageCount, "colorImages cannot be empty");
 
-	outDesc.extent = {firstImageExtent.width, firstImageExtent.height};
-	outDesc.imageFormats.reserve(images.size());
-	outDesc.imageLayouts.reserve(images.size());
-	outDesc.imageAspectFlags.reserve(images.size());
-	outDesc.images.reserve(images.size());
+	outDesc.imageFormats.reserve(imageCount);
+	outDesc.imageLayouts.reserve(imageCount);
+	outDesc.imageAspectFlags.reserve(imageCount);
+	outDesc.images.reserve(imageCount);
 
-	for (const auto& image : images)
+	([&](size_t index)
 	{
+		const auto& image = images;
+		auto extent = image.GetDesc().mipLevels[0].extent;
+
+		// the render target lives on the same instance/device as its images
+		outDesc.instance = image.GetDesc().instance;
+		outDesc.device = image.GetDesc().device;
+
 		ENSUREF(
-			outDesc.extent.width == image->GetDesc().mipLevels[0].extent.width,
+			(outDesc.extent.width == 0 || outDesc.extent.width == extent.width),
 			"all images needs to have same width");
 		ENSUREF(
-			outDesc.extent.height == image->GetDesc().mipLevels[0].extent.height,
+			(outDesc.extent.height == 0 || outDesc.extent.height == extent.height),
 			"all images needs to have same height");
-
-		outDesc.imageFormats.emplace_back(image->GetDesc().format);
-		outDesc.imageLayouts.emplace_back(image->GetLayout());
-		outDesc.imageAspectFlags.emplace_back(image->GetAspectFlags());
-		outDesc.images.emplace_back(*image);
-	}
+		
+		outDesc.extent = extent;
+		outDesc.imageFormats.emplace_back(image.GetDesc().format);
+		outDesc.imageLayouts.emplace_back(image.GetDesc().layout);
+		outDesc.imageAspectFlags.emplace_back(image.GetDesc().imageAspectFlags);
+		outDesc.images.emplace_back(image);
+	} (0), ...);
 
 	// todo: configure
 	outDesc.layerCount = 1;
@@ -41,19 +51,21 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const std::vector<std::sh
 } // namespace renderimageset
 
 template <GraphicsApi G>
-RenderImageSet<G>::RenderImageSet(
-	const std::shared_ptr<Device<G>>& device,
-	std::vector<std::shared_ptr<Image<G>>>&& images)
-	: BaseType(
-		  device,
-		  renderimageset::CreateRenderTargetCreateDesc<G>(images))
-	, myImages(std::forward<std::vector<std::shared_ptr<Image<G>>>>(images))
-{}
+template <typename... Images>
+RenderImageSet<G>::RenderImageSet(Images&&... images)
+	: SuperType(renderimageset::CreateRenderTargetCreateDesc<G>(images...)) // reads the images before they are moved below
+	, myImages(std::make_shared<Image<G>[sizeof...(images)]>()) //NOLINT(modernize-avoid-c-arrays)
+	, myImageCount(sizeof...(images))
+{
+	size_t index = 0;
+	((myImages.get()[index++] = std::forward<Images>(images)), ...); //NOLINT(modernize-avoid-c-arrays)
+}
 
 template <GraphicsApi G>
 RenderImageSet<G>::RenderImageSet(RenderImageSet&& other) noexcept
-	: BaseType(std::forward<RenderImageSet>(other))
+	: SuperType(std::forward<RenderImageSet>(other))
 	, myImages(std::exchange(other.myImages, {}))
+	, myImageCount(std::exchange(other.myImageCount, {}))
 {}
 
 template <GraphicsApi G>
@@ -63,39 +75,48 @@ RenderImageSet<G>::~RenderImageSet()
 template <GraphicsApi G>
 RenderImageSet<G>& RenderImageSet<G>::operator=(RenderImageSet&& other) noexcept
 {
-	BaseType::operator=(std::forward<RenderImageSet>(other));
+	SuperType::operator=(std::forward<RenderImageSet>(other));
 	myImages = std::exchange(other.myImages, {});
+	myImageCount = std::exchange(other.myImageCount, {});
 	return *this;
 }
 
 template <GraphicsApi G>
 void RenderImageSet<G>::Swap(RenderImageSet& rhs) noexcept
 {
-	BaseType::Swap(rhs);
+	SuperType::Swap(rhs);
 	std::swap(myImages, rhs.myImages);
+	std::swap(myImageCount, rhs.myImageCount);
 }
 
 template <GraphicsApi G>
 ImageLayout<G> RenderImageSet<G>::GetLayout(uint32_t index) const
 {
-	return myImages[index]->GetLayout();
+	auto& image = myImages.get()[index];
+	return image.GetDesc().layout;
 }
 
 template <GraphicsApi G>
 void RenderImageSet<G>::End(CommandBufferHandle<G> cmd)
 {
-	RenderTarget<G>::End(cmd);
+	SuperType::End(cmd);
 
-	for (uint32_t imageIt = 0ul; imageIt < myImages.size(); imageIt++)
-		myImages[imageIt]->InternalSetImageLayout(this->GetAttachmentDescs()[imageIt].finalLayout);
+	for (uint32_t imageIt = 0ul; imageIt < GetImageCount(); imageIt++)
+	{
+		auto& image = myImages.get()[imageIt];
+		image.InternalSetImageLayout(this->GetAttachmentDescs()[imageIt].finalLayout);
+	}
 }
 
 template <GraphicsApi G>
 void RenderImageSet<G>::Transition(
 	CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index)
 {
-	myImages[index]->Transition(cmd, layout, aspectFlags);
-	// todo: clean up this below
-	this->myDesc.imageAspectFlags[index] = aspectFlags;
-	this->InternalUpdateAttachments(this->GetRenderTargetDesc());
+	auto& image = myImages.get()[index];
+	image.Transition(cmd, layout, aspectFlags);
+	
+	this->InternalGetDesc().imageAspectFlags[index] = aspectFlags;
+	this->InternalUpdateAttachments();
 }
+
+} // namespace rhi

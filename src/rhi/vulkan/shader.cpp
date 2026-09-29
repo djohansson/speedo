@@ -1,10 +1,18 @@
-#include "../shader.h"
-
-#include "utils.h"
+#include <rhi/shader.h>
+#include <rhi/device.h>
+#include <rhi/instance.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/vulkan/utils.h>
 
 #include <iostream>
 
 #include <xxhash.h>
+
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(ShaderModule<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(ShaderModule<kVk>);
 
 namespace shader
 {
@@ -116,7 +124,7 @@ void AddBinding(
 	size_t sizeBytes,
 	SlangStage stage,
 	std::string_view name,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts)
+	core::UnorderedMap<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts)
 {
 	ENSURE(typeLayout != nullptr);
 
@@ -188,7 +196,7 @@ template <>
 uint32_t CreateLayoutBindings<kVk>(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts,
+	core::UnorderedMap<uint32_t, DescriptorSetLayoutCreateDesc<kVk>>& layouts,
 	const unsigned* parentSpace,
 	const char* parentName)
 {
@@ -320,45 +328,45 @@ uint32_t CreateLayoutBindings<kVk>(
 } // namespace shader
 
 template <>
+void ShaderModule<kVk>::Swap(ShaderModule& rhs) noexcept
+{
+	SuperType::Swap(rhs);
+	std::swap(myShaderModule, rhs.myShaderModule);
+	std::swap(myEntryPoint, rhs.myEntryPoint);
+}
+
+template <>
 ShaderModule<kVk>::ShaderModule(
-	const std::shared_ptr<Device<kVk>>& device,
+	CreateDescType&& desc,
 	ShaderModuleHandle<kVk>&& shaderModule,
 	const EntryPoint<kVk>& entryPoint)
-	: DeviceObject(
-		  device,
-		  {std::get<0>(entryPoint)},
-		  1,
-		  VK_OBJECT_TYPE_SHADER_MODULE,
-		  reinterpret_cast<uint64_t*>(&shaderModule),
-		  uuids::uuid_system_generator{}())
+	: SuperType(std::forward<CreateDescType>(desc))
 	, myShaderModule(std::forward<ShaderModuleHandle<kVk>>(shaderModule))
 	, myEntryPoint(entryPoint)
 {}
 
 template <>
-ShaderModule<kVk>::ShaderModule(const std::shared_ptr<Device<kVk>>& device, const Shader<kVk>& shader)
+ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 	: ShaderModule<kVk>(
-		  device,
-		  [&device]
-		  (const auto& codePtr, size_t codeSize)
-		  {
-			  VkShaderModuleCreateInfo info{.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-			  info.codeSize = codeSize;
-			  info.pCode = codePtr;
+		std::forward<CreateDescType>(desc),
+		// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
+		[this, &desc](const auto& codePtr, size_t codeSize)
+		{
+			VkShaderModuleCreateInfo info{.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+			info.codeSize = codeSize;
+			info.pCode = codePtr;
 
-			  VkShaderModule vkShaderModule;
-			  VK_CHECK(vkCreateShaderModule(*device, &info, &device->GetInstance()->GetHostAllocationCallbacks(), &vkShaderModule));
-			  return vkShaderModule;
-		  }(reinterpret_cast<const uint32_t*>(std::get<0>(shader).data()), std::get<0>(shader).size()),
-		  std::get<1>(shader))
+			VkShaderModule vkShaderModule;
+			VK_CHECK(vkCreateShaderModule(desc.device, &info, &GetInstance().GetHostAllocationCallbacks(), &vkShaderModule));
+			return vkShaderModule;
+		}(reinterpret_cast<const uint32_t*>(std::get<0>(desc.shader).data()), std::get<0>(desc.shader).size()),
+		EntryPoint<kVk>{std::get<1>(desc.shader)}) // copy, since desc is moved into the base before myEntryPoint is initialized
 {}
 
 template <>
 ShaderModule<kVk>::ShaderModule(ShaderModule&& other) noexcept
-	: DeviceObject(std::forward<ShaderModule>(other))
-	, myEntryPoint(std::exchange(other.myEntryPoint, {}))
 {
-	std::swap(myShaderModule, other.myShaderModule);
+	Swap(other);
 }
 
 template <>
@@ -366,24 +374,16 @@ ShaderModule<kVk>::~ShaderModule()
 {
 	if (myShaderModule != nullptr)
 		vkDestroyShaderModule(
-			*InternalGetDevice(),
+			GetDevice(),
 			myShaderModule,
-			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>
 ShaderModule<kVk>& ShaderModule<kVk>::operator=(ShaderModule&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<ShaderModule>(other));
-	std::swap(myShaderModule, other.myShaderModule);
-	myEntryPoint = std::exchange(other.myEntryPoint, {});
+	Swap(other);
 	return *this;
 }
 
-template <>
-void ShaderModule<kVk>::Swap(ShaderModule& rhs) noexcept
-{
-	DeviceObject::Swap(rhs);
-	std::swap(myShaderModule, rhs.myShaderModule);
-	std::swap(myEntryPoint, rhs.myEntryPoint);
-}
+} // namespace rhi

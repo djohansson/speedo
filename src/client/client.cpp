@@ -1,22 +1,28 @@
-#include "capi.h"
-#include "client.h"
-
 #include <core/assert.h>
 #include <core/eventhandlers.h>
 #include <core/file.h>
 #include <core/concurrentaccess.h>
 #include <core/upgradablesharedmutex.h>
+
+#include <client/capi.h>
+#include <client/client.h>
+
 #include <server/rpc/rpc.h>
 
 #include <array>
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 #include <GLFW/glfw3.h>
 
 namespace client
 {
+
+using namespace core;
+using namespace core::file;
+using namespace rhi;
 
 static TaskCreateInfo<void> gRpcTask, gTickTask, gDrawTask;
 static ConcurrentAccess<std::shared_ptr<Client>> gClientApplication;
@@ -31,6 +37,25 @@ static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
 static std::atomic<TaskState> gTickTaskState = kTaskStateNone;
 static std::atomic<TaskState> gDrawTaskState = kTaskStateNone;
 
+// marks a task chain as finished (for whatever reason), releasing a pending wait in StopTask
+static void SetTaskDone(std::atomic<TaskState>& state)
+{
+	state = kTaskStateDone;
+	state.notify_one();
+}
+
+// requests a task chain to stop. returns true if it was running, i.e. if WaitTaskStopped needs to be called.
+// (exchange rather than store, so a chain that already ended, e.g. on an error, isn't waited on forever)
+[[nodiscard]] static bool RequestTaskStop(std::atomic<TaskState>& state)
+{
+	return state.exchange(kTaskStateShuttingDown) == kTaskStateRunning;
+}
+
+static void WaitTaskStopped(std::atomic<TaskState>& state)
+{
+	state.wait(kTaskStateShuttingDown);
+}
+
 static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 {
 	ZoneScopedN("client::Rpc");
@@ -40,8 +65,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	if (gRpcTaskState == kTaskStateShuttingDown)
 	{
-		gRpcTaskState = kTaskStateDone;
-		gRpcTaskState.notify_one();
+		SetTaskDone(gRpcTaskState);
 		return;
 	}
 
@@ -74,6 +98,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				{
 					std::cerr << "client.response() returned error code: "
 								<< std::make_error_code(responseResult.error()).message() << '\n';
+					SetTaskDone(gRpcTaskState);
 					return;
 				}
 				
@@ -82,14 +107,14 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 			else
 			{
 				std::cerr << "socket.recv() failed" << '\n';
+				SetTaskDone(gRpcTaskState);
 				return;
 			}
 		}
 
 		if (gRpcTaskState == kTaskStateShuttingDown)
 		{
-			gRpcTaskState = kTaskStateDone;
-			gRpcTaskState.notify_one();
+			SetTaskDone(gRpcTaskState);
 			return;
 		}
 	}
@@ -105,8 +130,7 @@ static void Tick()
 
 	if (gTickTaskState == kTaskStateShuttingDown)
 	{
-		gTickTaskState = kTaskStateDone;
-		gTickTaskState.notify_one();
+		SetTaskDone(gTickTaskState);
 		return;
 	}
 
@@ -123,8 +147,7 @@ static void Draw()
 
 	if (gDrawTaskState == kTaskStateShuttingDown)
 	{
-		gDrawTaskState = kTaskStateDone;
-		gDrawTaskState.notify_one();
+		SetTaskDone(gDrawTaskState);
 		return;
 	}
 
@@ -135,9 +158,7 @@ static void Draw()
 	gDrawTask = drawTask;
 }
 
-} // namespace client
-
-Client::~Client() noexcept(false)
+Client::~Client()
 {
 	ZoneScopedN("Client::~Client");
 
@@ -286,10 +307,8 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 , myContext(1)
 , mySocket(myContext, zmq::socket_type::req)
 {
-	using namespace core;
-
-	AddMouseHandler(std::dynamic_pointer_cast<MouseEventHandler>(gApplication.lock()));
-	AddKeyboardHandler(std::dynamic_pointer_cast<KeyboardEventHandler>(gApplication.lock()));
+	AddMouseHandler(std::dynamic_pointer_cast<MouseEventHandler>(Application::Get()));
+	AddKeyboardHandler(std::dynamic_pointer_cast<KeyboardEventHandler>(Application::Get()));
 
 	// auto toString = [](zmq::event_flags ef) -> std::string {
 	// 	std::string result;
@@ -310,8 +329,6 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	using namespace client;
-
 	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;
 	gTickTask = CreateTask(client::Tick);
@@ -326,8 +343,10 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	RHIApplication::OnInputStateChanged(myInput);
 }
 
+} // namespace client
+
 bool ClientMain()
-{	
+{
 	using namespace client;
 
 	return gClientApplication.Read()->Main();
@@ -336,7 +355,6 @@ bool ClientMain()
 void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 {
 	using namespace client;
-	using namespace file;
 
 	ENSURE(paths != nullptr);
 
@@ -348,39 +366,50 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 	ENSURE(resourcePath);
 	ENSURE(userPath);
 
-	auto appPtr = gClientApplication.Write();
-	appPtr.Get() = std::make_shared<Client>(
+	auto& appPtrRef = gClientApplication.Write().Get();
+	appPtrRef = CreateApplication<Client>(
 		"client",
 		Environment{{
 			{"RootPath", root.value()},
 			{"ResourcePath", resourcePath.value()},
-			{"UserProfilePath", userPath.value()}
-		}},
+			{"UserProfilePath", userPath.value()},
+		},},
 		createWindowFunc);
 
 	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
-	appPtr->GetExecutor().Submit(handles);
+	appPtrRef->GetExecutor().Submit(handles);
 }
 
 void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 {
 	using namespace client;
 
-	gRpcTaskState = kTaskStateShuttingDown;
-	gTickTaskState = kTaskStateShuttingDown;
-	gDrawTaskState = kTaskStateShuttingDown;
+	// request all chains to stop first, so they wind down concurrently
+	bool rpcRunning = RequestTaskStop(gRpcTaskState);
+	bool tickRunning = RequestTaskStop(gTickTaskState);
+	bool drawRunning = RequestTaskStop(gDrawTaskState);
 
-	gRpcTaskState.wait(kTaskStateShuttingDown);
-	gTickTaskState.wait(kTaskStateShuttingDown);
-	gDrawTaskState.wait(kTaskStateShuttingDown);
+	if (rpcRunning)
+		WaitTaskStopped(gRpcTaskState);
+	if (tickRunning)
+		WaitTaskStopped(gTickTaskState);
+	if (drawRunning)
+		WaitTaskStopped(gDrawTaskState);
 
-	auto appPtr = gClientApplication.Write();
+	auto& appPtrRef = gClientApplication.Write().Get();
 
-	ENSURE(appPtr.Get());
-	ASSERT(appPtr.Get().use_count() == 1);
+	ENSURE(appPtrRef);
+	ASSERT(appPtrRef.use_count() == 1);
 
-	for (uint32_t windowIt = 0; windowIt < appPtr->GetWindowCount(); windowIt++)
-		destroyWindowFunc(windowIt);
-	
-	appPtr.Get().reset();
+	// the app owns the vulkan surfaces/swapchains of these windows, so destroy it before the native windows
+	std::vector<WindowHandle> windows;
+	windows.reserve(appPtrRef->GetWindowCount());
+	for (uint32_t windowIt = 0; windowIt < appPtrRef->GetWindowCount(); windowIt++)
+		windows.emplace_back(appPtrRef->GetWindow(windowIt));
+
+	appPtrRef->Shutdown();
+	appPtrRef.reset();
+
+	for (auto window : windows)
+		destroyWindowFunc(window);
 }

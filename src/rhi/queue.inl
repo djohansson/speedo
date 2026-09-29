@@ -1,3 +1,6 @@
+namespace rhi
+{
+
 template <GraphicsApi G>
 QueueHostSyncInfo<G>& QueueHostSyncInfo<G>::operator|=(QueueHostSyncInfo<G>&& other)
 {
@@ -61,5 +64,7 @@ void Queue<G>::SwapAndResetPool()
 	myPools[0].Swap(myPools[1]);
 	myPools[0].Reset();
 }
+
+} // namespace rhi
 
 #include "vulkan/queue.inl"

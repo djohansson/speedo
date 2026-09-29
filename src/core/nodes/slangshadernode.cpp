@@ -1,4 +1,7 @@
-#include "slangshadernode.h"
+#include <core/nodes/slangshadernode.h>
+
+namespace core
+{
 
 SlangShaderNode::SlangShaderNode(int id, std::string&& name, std::filesystem::path&& path)
 : InputOutputNode(id, std::forward<std::string>(name))
@@ -8,11 +11,13 @@ SlangShaderNode::SlangShaderNode(int id, std::string&& name, std::filesystem::pa
 
 void SlangShaderNode::Swap(SlangShaderNode& rhs) noexcept
 {
-    InputOutputNode::Swap(rhs);
-    std::swap(myPath, rhs.myPath);
+	InputOutputNode::Swap(rhs);
+	std::swap(myPath, rhs.myPath);
 }
 
 std::filesystem::path& SlangShaderNode::Path()
 {
-    return myPath;
+	return myPath;
 }
+
+} // namespace core

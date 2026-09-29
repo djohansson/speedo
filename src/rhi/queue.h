@@ -1,21 +1,34 @@
 #pragma once
 
-#include "command.h"
-#include "device.h"
-#include "fence.h"
-#include "rhi/capi.h"
-#include "semaphore.h"
-#include "types.h"
+#include <rhi/command.h>
+#include <rhi/object.h>
+#include <rhi/fence.h>
+#include <rhi/capi.h>
+#include <rhi/semaphore.h>
+#include <rhi/types.h>
 
-#include <core/task.h>
+#include <core/taskexecutor.h>
 #include <core/circularcontainer.h>
 #include <core/concurrentaccess.h>
 #include <core/std_extra.h>
+#include <core/upgradablesharedmutex.h>
 
 #include <cstdint>
 #include <memory>
 //#include <source_location>
 #include <vector>
+
+namespace rhi
+{
+
+template <GraphicsApi G>
+struct QueueFamilyDesc
+{
+	uint32_t queueCount = 0UL;
+	uint32_t flags = 0UL;
+	uint32_t timestampValidBits = 0UL;
+	Extent3d<G> minImageTransferGranularity{};
+};
 
 template <GraphicsApi G>
 struct QueueDeviceSyncInfo
@@ -27,7 +40,7 @@ struct QueueDeviceSyncInfo
 	std::vector<uint64_t> signalSemaphoreValues;
 	// These will be passed on and stored internally in the queue to be called after the queue has finished executing the command buffers on the device.
 	// They will then be called and deleted through manually calling the Queue::SubmitCallbacks from the host.
-	std::vector<TaskHandle> callbacks;
+	std::vector<core::TaskHandle> callbacks;
 };
 
 template <GraphicsApi G>
@@ -89,31 +102,40 @@ enum QueueFamilyFlagBits : uint8_t
 };
 
 template <GraphicsApi G>
-struct QueueCreateDesc
+struct QueueCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	uint32_t queueIndex = 0UL;
-	uint32_t queueFamilyIndex = 0UL;
+	uint32_t queueFamilyIndex : 27;
+	uint32_t levelCount : 4;
+	uint32_t supportsProfiling : 1;
 };
 
 template <GraphicsApi G>
-class Queue final : public DeviceObject<G>
+class Queue;
+
+template <GraphicsApi G>
+struct ObjectTraits<Queue<G>>
+{
+	using CreateDescType = QueueCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class Queue final : public DeviceObject<Queue<G>>
 {
 public:
+	using SuperType = DeviceObject<Queue<G>>;
+	using CreateDescType = ObjectTraits<Queue<G>>::CreateDescType;
+
 	constexpr Queue() noexcept = default;
-	Queue(
-		const std::shared_ptr<Device<G>>& device,
-		const CommandPoolCreateDesc<G>& commandPoolDesc,
-		QueueCreateDesc<G>&& queueDesc);
+	explicit Queue(CreateDescType&& queueDesc);
 	Queue(Queue<G>&& other) noexcept;
-	~Queue() override;
+	~Queue();
 
 	[[maybe_unused]] Queue& operator=(Queue&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myQueue; }//NOLINT(google-explicit-constructor)
 
 	void Swap(Queue& rhs) noexcept;
 	friend void Swap(Queue& lhs, Queue& rhs) noexcept { lhs.Swap(rhs); }
-
-	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	template <typename T, typename... Ts>
 	void EnqueueSubmit(T&& first, Ts&&... rest);
@@ -127,7 +149,7 @@ public:
 
 	void WaitIdle() const;
 	
-	bool SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue) const;
+	bool SubmitCallbacks(core::TaskExecutor& executor, uint64_t timelineValue) const;
 
 	[[nodiscard]] auto& GetPool() noexcept { return myPools[0]; }
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPools[0]; }
@@ -140,21 +162,19 @@ public:
 
 private:
 	Queue(
-		const std::shared_ptr<Device<G>>& device,
-		const CommandPoolCreateDesc<G>& commandPoolDesc,
-		std::tuple<QueueCreateDesc<G>, QueueHandle<G>>&& descAndHandle);
+		CreateDescType&& queueDesc,
+		QueueHandle<G>&& handle);
 
 	[[nodiscard]] QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 	[[nodiscard]] std::shared_ptr<void> InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 
-	QueueCreateDesc<G> myDesc{};
 	QueueHandle<G> myQueue{};
 	std::array<CommandPool<G>, 2> myPools;
 	std::vector<QueueSubmitInfo<G>> myPendingSubmits;
 	QueuePresentInfo<G> myPendingPresent{};
 	std::vector<char> myScratchMemory;
-	using TimelineCallbackData = std::tuple<std::vector<TaskHandle>, uint64_t>;
-	mutable ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
+	using TimelineCallbackData = std::tuple<std::vector<core::TaskHandle>, uint64_t>;
+	mutable core::ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 	void* myProfilingContext = nullptr;
@@ -170,11 +190,11 @@ struct QueueTimelineContextData
 	Semaphore<G> semaphore;
 	uint64_t timeline = 0ULL;
 	uint32_t queueFamilyIndex = 0UL;
-	CircularContainer<QueueContext<G>> queues;
+	core::CircularContainer<QueueContext<G>> queues;
 };
 
 template <GraphicsApi G>
-using QueueTimelineContext = ConcurrentAccess<std::shared_ptr<QueueTimelineContextData<G>>>;
+using QueueTimelineContext = core::ConcurrentAccess<std::shared_ptr<QueueTimelineContextData<G>>>;
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag) auto COUNTED_VAR_DECLARE(tag) = (queue).CreateGpuScope<SOURCE_LOCATION_DATA(tag)>(cmd)
@@ -183,5 +203,7 @@ using QueueTimelineContext = ConcurrentAccess<std::shared_ptr<QueueTimelineConte
 #	define GPU_SCOPE(cmd, queue, tag) {}
 #	define GPU_SCOPE_COLLECT(cmd, queue) {}
 #endif
+
+} // namespace rhi
 
 #include "queue.inl"

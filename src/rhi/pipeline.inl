@@ -1,3 +1,6 @@
+namespace rhi
+{
+
 template <GraphicsApi G>
 const DescriptorSetLayout<G>& PipelineLayout<G>::GetDescriptorSetLayout(uint32_t set) const noexcept
 {
@@ -13,5 +16,7 @@ const DescriptorSetLayout<G>& PipelineLayout<G>::GetDescriptorSetLayout(uint32_t
 
 	return setLayout;
 }
+
+} // namespace rhi
 
 #include "vulkan/pipeline.inl"

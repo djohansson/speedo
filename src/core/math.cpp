@@ -1,4 +1,7 @@
-#include "math.h"//NOLINT(modernize-deprecated-headers)
+#include <core/math.h>//NOLINT(modernize-deprecated-headers)
+
+namespace core
+{
 
 uint32_t RoundUp(uint32_t numToRound, uint32_t multiple)
 {
@@ -11,3 +14,5 @@ uint32_t RoundUp(uint32_t numToRound, uint32_t multiple)
 
 	return numToRound + multiple - remainder;
 }
+
+} // namespace core

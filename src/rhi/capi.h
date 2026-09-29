@@ -22,7 +22,7 @@ extern "C"
 
 enum GraphicsApi : uint8_t
 {
-	kVk = 0,
+	kVk = 0
 };
 
 typedef uintptr_t WindowHandle;//NOLINT(modernize-use-using)

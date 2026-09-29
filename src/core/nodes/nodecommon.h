@@ -5,22 +5,27 @@
 #include <optional>
 #include <string>
 
+namespace core
+{
+
 struct INode
 {
-    virtual ~INode() {};
-    virtual int& Id() = 0;
-    virtual std::optional<int>& Selected() = 0;
-    virtual std::string& GetName() = 0;
+	virtual ~INode() {};
+	virtual int& Id() = 0;
+	virtual std::optional<int>& Selected() = 0;
+	virtual std::string& GetName() = 0;
 };
 
 struct Attribute
 {
-    int id = 0;
-    std::string name;
+	int id = 0;
+	std::string name;
 };
 
 struct Link
 {
-    int fromId = 0;
-    int toId = 0;
+	int fromId = 0;
+	int toId = 0;
 };
+
+} // namespace core

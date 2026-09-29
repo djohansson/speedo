@@ -1,4 +1,7 @@
-#include "assert.h"//NOLINT(modernize-deprecated-headers)
+#include <core/assert.h>//NOLINT(modernize-deprecated-headers)
+
+namespace core
+{
 
 template <typename T>
 Future<T>::Future(std::shared_ptr<FutureState>&& state) noexcept
@@ -85,3 +88,5 @@ void Future<T>::Wait() const
 	while (auto current = latch.load(std::memory_order_relaxed))
 		latch.wait(current, std::memory_order_acquire);
 }
+
+} // namespace core

@@ -1,6 +1,9 @@
 #include <cstdint>
 #include <array>
 
+namespace core
+{
+
 namespace crc32
 {
 
@@ -59,5 +62,7 @@ consteval uint32_t Crc32<static_cast<size_t>(-1)>(const char* str)
 
 } // namespace crc32
 
+} // namespace core
+
 // This don't take into account the nul char
-#define COMPILE_TIME_CRC32_STR(x) (crc32::Crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF)
+#define CORE_COMPILE_TIME_CRC32_STR(x) (core::crc32::Crc32<sizeof(x) - 2>(x) ^ 0xFFFFFFFF)

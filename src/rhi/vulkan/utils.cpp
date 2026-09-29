@@ -45,7 +45,7 @@ PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)
+void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)//NOLINT(modernize-avoid-variadic-functions)
 {
 	LOG_ERROR("Vulkan error: {}", string_VkResult(result));
 	switch (result)
@@ -201,7 +201,8 @@ void InitDeviceExtensions(VkDevice device)
 bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 {
 	static bool gDeviceExtensionsInitialized = false;
-	static UnorderedMap<VkPhysicalDevice, std::vector<VkExtensionProperties>> gDeviceExtensions;
+	static core::UnorderedMap<VkPhysicalDevice, std::vector<VkExtensionProperties>> gDeviceExtensions;
+	auto& deviceExtensions = gDeviceExtensions[device];
 	if (!gDeviceExtensionsInitialized)
 	{
 		gDeviceExtensionsInitialized = true;
@@ -209,38 +210,37 @@ bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 		uint32_t deviceExtensionCount = 0;
 		vkEnumerateDeviceExtensionProperties(device, nullptr, &deviceExtensionCount, nullptr);
 
-		gDeviceExtensions[device].resize(deviceExtensionCount);
+		deviceExtensions.resize(deviceExtensionCount);
 		vkEnumerateDeviceExtensionProperties(
-			device, nullptr, &deviceExtensionCount, gDeviceExtensions[device].data());
+			device, nullptr, &deviceExtensionCount, deviceExtensions.data());
 
-		std::sort(
-			gDeviceExtensions[device].begin(),
-			gDeviceExtensions[device].end(),
+		std::ranges::sort(
+			deviceExtensions,
 			[](const VkExtensionProperties& lhs, const VkExtensionProperties& rhs) { return strcmp(lhs.extensionName, rhs.extensionName) < 0; });
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
-			std::cout << gDeviceExtensions[device].size() << " vulkan device extension(s) found:" << '\n';
-			std::for_each(
-				gDeviceExtensions[device].cbegin(),
-				gDeviceExtensions[device].cend(),
+			std::cout << deviceExtensions.size() << " vulkan device extension(s) found:" << '\n';
+			std::ranges::for_each(
+				deviceExtensions,
 				[](const VkExtensionProperties& instanceExtension) {
 					std::cout << instanceExtension.extensionName << '\n';
 				});
 		}
 	}
 
-	return std::find_if(gDeviceExtensions[device].cbegin(), gDeviceExtensions[device].cend(),
+	return std::ranges::find_if(deviceExtensions,
 		[extensionName](const auto& extension)
 		{
 			return strcmp(extensionName, extension.extensionName) == 0;
-		}) != gDeviceExtensions[device].end();
+		}) != std::ranges::end(deviceExtensions);
 }
 
 bool SupportsExtension(const char* extensionName, VkInstance instance)
 {
 	static bool gInstanceExtensionsInitialized = false;
-	static UnorderedMap<VkInstance, std::vector<VkExtensionProperties>> gInstanceExtensions;
+	static core::UnorderedMap<VkInstance, std::vector<VkExtensionProperties>> gInstanceExtensions;
+	auto& instanceExtensions = gInstanceExtensions[instance];
 	if (!gInstanceExtensionsInitialized)
 	{
 		gInstanceExtensionsInitialized = true;
@@ -248,32 +248,30 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 		uint32_t instanceExtensionCount = 0;
 		vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr);
 
-		gInstanceExtensions[instance].resize(instanceExtensionCount);
+		instanceExtensions.resize(instanceExtensionCount);
 		vkEnumerateInstanceExtensionProperties(
-			nullptr, &instanceExtensionCount, gInstanceExtensions[instance].data());
+			nullptr, &instanceExtensionCount, instanceExtensions.data());
 
-		std::sort(
-			gInstanceExtensions[instance].begin(),
-			gInstanceExtensions[instance].end(),
+		std::ranges::sort(
+			instanceExtensions,
 			[](const VkExtensionProperties& lhs, const VkExtensionProperties& rhs) { return strcmp(lhs.extensionName, rhs.extensionName) < 0; });
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
-			std::cout << gInstanceExtensions[instance].size() << " vulkan instance extension(s) found:" << '\n';
-			std::for_each(
-				gInstanceExtensions[instance].cbegin(),
-				gInstanceExtensions[instance].cend(),
+			std::cout << instanceExtensions.size() << " vulkan instance extension(s) found:" << '\n';
+			std::ranges::for_each(
+				instanceExtensions,
 				[](const VkExtensionProperties& instanceExtension) {
 					std::cout << instanceExtension.extensionName << '\n';
 				});
 		}
 	}
 
-	return std::find_if(gInstanceExtensions[instance].cbegin(), gInstanceExtensions[instance].cend(),
+	return std::ranges::find_if(instanceExtensions,
 		[extensionName](const auto& extension)
 		{
 			return strcmp(extensionName, extension.extensionName) == 0;
-		}) != gInstanceExtensions[instance].end();
+		}) != std::ranges::end(instanceExtensions);
 }
 
 template<>
@@ -914,8 +912,8 @@ VkRenderPass CreateRenderPass(
 		device,
 		hostAllocator,
 		attachments,
-		{subpass},
-		{dependency});
+		std::array{subpass},
+		std::array{dependency});
 }
 
 // todo: use callback

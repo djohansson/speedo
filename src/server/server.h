@@ -7,15 +7,19 @@
 #include <zmq.hpp>
 #include <zmq_addon.hpp>
 
-class Server final : public Application
+namespace server
+{
+
+class Server final : public core::Application
 {	
 public:
-	explicit Server() = default;
-	Server(std::string_view name, Environment&& env);
-	~Server() noexcept(false) final;
+	Server(std::string_view name, core::Environment&& env);
+	~Server() final;
 
 private:
 	zmq::context_t myContext;
 	zmq::socket_t mySocket;
 	zmq::active_poller_t myPoller;
 };
+
+} // namespace server

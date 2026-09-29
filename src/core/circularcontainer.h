@@ -4,6 +4,9 @@
 #include <utility>
 #include <vector>
 
+namespace core
+{
+
 template <typename T, typename ContainerT = std::vector<T>>
 class CircularContainer : private ContainerT
 {
@@ -46,3 +49,5 @@ public:
 private:
 	size_t myHead{};
 };
+
+} // namespace core

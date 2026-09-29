@@ -3,6 +3,9 @@
 
 #include <zpp_bits.h>
 
+namespace rhi
+{
+
 namespace shader
 {
 
@@ -17,7 +20,7 @@ template <GraphicsApi G>
 uint32_t CreateLayoutBindings(
 	slang::VariableLayoutReflection* parameter,
 	const std::vector<uint32_t>& genericParameterIndices,
-	std::map<uint32_t, DescriptorSetLayoutCreateDesc<G>>& layouts,
+	core::UnorderedMap<uint32_t, DescriptorSetLayoutCreateDesc<G>>& layouts,
 	const unsigned* parentSpace = nullptr,
 	const char* parentName = nullptr);
 
@@ -194,14 +197,17 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 
 	std::string params, paramsHash;
 	params.append("slang-0.9.3"); // todo: read version from slang header
+	params.append("|cache-v2"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
+	auto loadResult = core::file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
 
 	ENSUREF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 
 	return shaderSet;
 }
+
+} // namespace rhi

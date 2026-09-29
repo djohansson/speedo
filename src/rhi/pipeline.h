@@ -1,36 +1,53 @@
 #pragma once
 
-#include "descriptorset.h"
-#include "device.h"
-#include "image.h"
-#include "model.h"
-#include "queue.h"
-#include "rendertarget.h"
-#include "shader.h"
-#include "types.h"
-
-#include <core/file.h>
 #include <core/utils.h>
 
-#include <memory>
+#include <rhi/descriptorset.h>
+#include <rhi/deviceobject.h>
+#include <rhi/rendertarget.h>
+#include <rhi/model.h>
+#include <rhi/shader.h>
+#include <rhi/types.h>
+
 #include <optional>
 #include <string>
+
+namespace rhi
+{
 
 template <GraphicsApi G>
 class Pipeline;
 
 template <GraphicsApi G>
-class PipelineLayout final : public DeviceObject<G>
+class PipelineLayout;
+
+template <GraphicsApi G>
+struct PipelineLayoutCreateDesc final : DeviceObjectCreateDesc<G>
+{
+	std::string cachePath;
+};
+
+template <GraphicsApi G>
+struct ObjectTraits<PipelineLayout<G>>
+{
+	using CreateDescType = PipelineLayoutCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class PipelineLayout final : public DeviceObject<PipelineLayout<G>>
 {
 public:
+	using SuperType = DeviceObject<PipelineLayout<G>>;
+	using CreateDescType = ObjectTraits<PipelineLayout<G>>::CreateDescType;
+
 	constexpr PipelineLayout() noexcept = default;
-	PipelineLayout(PipelineLayout<G>&& other) noexcept;
-	~PipelineLayout() override;
+	PipelineLayout(PipelineLayout&& other) noexcept;
+	~PipelineLayout();
 
 	[[maybe_unused]] PipelineLayout& operator=(PipelineLayout&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myLayout; }//NOLINT(google-explicit-constructor)
-	[[nodiscard]] bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other; }
-	[[nodiscard]] bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other; }
+	[[nodiscard]] bool operator==(const PipelineLayout& other) const noexcept { return myLayout == other.myLayout; }
+	[[nodiscard]] bool operator<(const PipelineLayout& other) const noexcept { return myLayout < other.myLayout; }
 
 	void Swap(PipelineLayout& rhs) noexcept;
 	friend void Swap(PipelineLayout& lhs, PipelineLayout& rhs) noexcept { lhs.Swap(rhs); }
@@ -41,14 +58,15 @@ public:
 
 private:
 	friend Pipeline<G>;
-	PipelineLayout(
-		const std::shared_ptr<Device<G>>& device, const ShaderSet<G>& shaderSet);
+	explicit PipelineLayout(
+		CreateDescType&& desc,
+		const ShaderSet<G>& shaderSet);
 	PipelineLayout( // takes ownership over provided handles
-		const std::shared_ptr<Device<G>>& device,
+		CreateDescType&& desc,
 		std::vector<ShaderModule<G>>&& shaderModules,
 		DescriptorSetLayoutFlatMap<G>&& descriptorSetLayouts);
 	PipelineLayout( // takes ownership over provided handles
-		const std::shared_ptr<Device<G>>& device,
+		CreateDescType&& desc,
 		std::vector<ShaderModule<G>>&& shaderModules,
 		DescriptorSetLayoutFlatMap<G>&& descriptorSetLayouts,
 		PipelineLayoutHandle<G>&& layout);
@@ -59,26 +77,19 @@ private:
 };
 
 template <GraphicsApi G>
-struct PipelineResourceView
-{
-	// begin temp
-	std::shared_ptr<Model<G>> model;
-	std::shared_ptr<Image<G>> black;
-	std::shared_ptr<ImageView<G>> blackImageView;
-	std::shared_ptr<Image<G>> image;
-	std::shared_ptr<ImageView<G>> imageView;
-	std::shared_ptr<SamplerVector<G>> samplers;
-	// end temp
-};
-
-template <GraphicsApi G>
 struct PipelineCacheHeader
 {};
 
 template <GraphicsApi G>
-struct PipelineConfiguration
+struct PipelineCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	std::string cachePath;
+};
+
+template <GraphicsApi G>
+struct ObjectTraits<Pipeline<G>>
+{
+	using CreateDescType = PipelineCreateDesc<G>;
 };
 
 // todo: create single-thread / multi-thread interface:
@@ -87,29 +98,36 @@ struct PipelineConfiguration
 //         * pipeline map/cache shared across thread instances
 //         * descriptor data shared across thread instances (if possible. avoids excessive copying...)
 template <GraphicsApi G>
-class Pipeline : public DeviceObject<G>
+class Pipeline final : public DeviceObject<Pipeline<G>>
 {
-	using PipelineMapType = UnorderedMap<
+	using PipelineMapType = core::UnorderedMap<
 		uint64_t, // pipeline object key (pipeline layout + gfx/compute/raytrace state)
 		PipelineHandle<G>,
-		IdentityHash<uint64_t>>;
+		core::IdentityHash<uint64_t>>;
 
-	using PipelineLayoutSetType = UnorderedSet<
+	using PipelineLayoutSetType = core::UnorderedSet<
 		PipelineLayout<G>,
-		HandleHash<PipelineLayout<G>, PipelineLayoutHandle<G>>,
-		HandleEqualTo<PipelineLayout<G>, PipelineLayoutHandle<G>>>;
+		core::HandleHash<PipelineLayout<G>, PipelineLayoutHandle<G>>,
+		core::HandleCompareEqualTo<PipelineLayout<G>, PipelineLayoutHandle<G>>>;
 
-	using DescriptorMapType = UnorderedMap<
+	using DescriptorMapType = core::UnorderedMap<
 		DescriptorSetLayoutHandle<G>, // todo: monitor mem usage, and find good strategy for recycling memory and to what level we should cache this data after being consumed.
 		DescriptorSetState<G>>;
 
 public:
-	explicit Pipeline(
-		const std::shared_ptr<Device<G>>& device,
-		PipelineConfiguration<G>&& defaultConfig = {});
-	~Pipeline() override;
+	using SuperType = DeviceObject<Pipeline<G>>;
+	using CreateDescType = ObjectTraits<Pipeline<G>>::CreateDescType;
 
-	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
+	constexpr Pipeline() noexcept = default;
+	explicit Pipeline(CreateDescType&& desc);
+	Pipeline(Pipeline&& other) noexcept;
+	~Pipeline();
+
+	[[maybe_unused]] Pipeline& operator=(Pipeline&& other) noexcept;
+
+	void Swap(Pipeline& rhs) noexcept;
+	friend void Swap(Pipeline& lhs, Pipeline& rhs) noexcept { lhs.Swap(rhs); }
+
 	[[nodiscard]] auto GetCache() const noexcept { return myCache; }
 	[[nodiscard]] auto GetDescriptorPool() const noexcept { return myDescriptorPool; }
 	[[nodiscard]] auto GetBindPoint() const noexcept { return myBindPoint; }
@@ -174,10 +192,8 @@ public:
 		uint32_t set,
 		uint32_t index);	
 
-	void SetRenderTarget(RenderTarget<G>& renderTarget);
+	void SetRenderTarget(IRenderTarget<G>& renderTarget);
 	void SetVertexInputState(const Model<G>& model);
-	[[nodiscard]] auto& GetResources() noexcept { return myResources; }
-	[[nodiscard]] const auto& GetResources() const noexcept { return myResources; }
 	//
 
 	// "auto" api end	
@@ -213,8 +229,6 @@ private:
 	[[nodiscard]] PipelineHandle<G> InternalGetPipeline();
 	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
 
-	file::Object<PipelineConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
-
 	DescriptorMapType myDescriptorMap;
 	
 	// todo: should be handled differently to cater for multithread and explicit binds.
@@ -227,9 +241,7 @@ private:
 	// auto api shared state
 	PipelineBindPoint<G> myBindPoint{};
 	RenderTargetPassHandle<G> myRenderTarget;
-	PipelineResourceView<G> myResources;
-	PipelineLayoutSetType myLayouts;
-	//UnorderedSet<RenderTarget<G>> renderTargets;
+	PipelineLayoutSetType myPipelineLayouts;
 	typename PipelineLayoutSetType::iterator myCurrentLayoutIt{};
 	// end auto api shared state
 
@@ -249,7 +261,7 @@ private:
 		PipelineColorBlendStateCreateInfo<G> colorBlend{};
 		std::vector<DynamicState<G>> dynamicStateDescs;
 		PipelineDynamicStateCreateInfo<G> dynamicState{};
-		const PipelineRenderingCreateInfo<G>* dynamicRendering{};
+		std::optional<PipelineRenderingCreateInfo<G>> dynamicRendering{};
 	} myGraphicsState{};
 
 	struct ComputeState
@@ -263,5 +275,7 @@ private:
 		// todo:
 	} myRayTracingState{};
 };
+
+} // namespace rhi
 
 #include "pipeline.inl"

@@ -1,9 +1,12 @@
 #pragma once
 
-#include "std_extra.h"
-#include "upgradablesharedmutex.h"
+#include <core/std_extra.h>
+#include <core/upgradablesharedmutex.h>
 
 #include <utility>
+
+namespace core
+{
 
 template <typename T, typename MutexT>
 class ConcurrentAccess;
@@ -114,4 +117,4 @@ private:
 	T myData{};
 };
 
-
+} // namespace core

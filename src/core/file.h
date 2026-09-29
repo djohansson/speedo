@@ -1,7 +1,7 @@
 #pragma once
 
-#include "utils.h"
-#include "mio_extra.h"
+#include <core/utils.h>
+#include <core/mio_extra.h>
 
 #include <expected>
 #include <filesystem>
@@ -11,6 +11,9 @@
 #include <variant>
 
 #include <zpp_bits.h>
+
+namespace core
+{
 
 namespace file
 {
@@ -102,5 +105,7 @@ template <typename T>
 	const std::string& parameterHash);
 
 } // namespace file
+
+} // namespace core
 
 #include "file.inl"

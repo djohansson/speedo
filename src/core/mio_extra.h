@@ -9,6 +9,9 @@
 
 //NOLINTBEGIN(readability-identifier-naming)
 
+namespace core
+{
+
 namespace mio_extra
 {
 
@@ -51,5 +54,7 @@ private:
 };
 
 } // namespace mio_extra
+
+} // namespace core
 
 //NOLINTEND(readability-identifier-naming)

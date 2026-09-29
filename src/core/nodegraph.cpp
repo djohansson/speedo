@@ -1,1 +1,1 @@
-#include "nodegraph.h"
+#include <core/nodegraph.h>

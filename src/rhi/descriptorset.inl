@@ -1,3 +1,6 @@
+namespace rhi
+{
+
 namespace descriptorset
 {
 
@@ -36,4 +39,7 @@ GetPushConstantRanges(const DescriptorSetLayoutFlatMap<G>& layouts)
 
 } // namespace descriptorset
 
-#include "vulkan/descriptorset.inl"
+} // namespace rhi
+
+// global scope: found via ADL on the (global) Vulkan structs they serialize
+#include <rhi/vulkan/descriptorset.inl>

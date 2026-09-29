@@ -1,38 +1,43 @@
-#include "../sampler.h"
+#include <rhi/sampler.h>
+#include <rhi/device.h>
+#include <rhi/instance.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/vulkan/utils.h>
 
-#include "utils.h"
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(SamplerVector<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(SamplerVector<kVk>);
 
 template <>
 SamplerVector<kVk>::SamplerVector(
-	const std::shared_ptr<Device<kVk>>& device,
+	CreateDescType&& desc,
 	std::vector<SamplerHandle<kVk>>&& samplers)
-	: DeviceObject(
-		  device,
-		  {"_Sampler"},
-		  samplers.size(),
-		  VK_OBJECT_TYPE_SAMPLER,
-		  reinterpret_cast<uint64_t*>(samplers.data()),
-		  uuids::uuid_system_generator{}())
+	: DeviceObject<SamplerVector<kVk>>(std::forward<CreateDescType>(desc))
 	, mySamplers(std::forward<std::vector<SamplerHandle<kVk>>>(samplers))
 {}
 
 template <>
-SamplerVector<kVk>::SamplerVector(
-	const std::shared_ptr<Device<kVk>>& device,
-	const std::vector<SamplerCreateInfo<kVk>>& createInfos)
+SamplerVector<kVk>::SamplerVector(CreateDescType&& desc)
 	: SamplerVector<kVk>(
-		device,
-		[&device, &createInfos]
+		std::forward<CreateDescType>(desc),
+		// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
+		[this, &desc]
 		{
 			std::vector<SamplerHandle<kVk>> outSamplers;
-			outSamplers.reserve(createInfos.size());
+			outSamplers.reserve(desc.createInfos.size());
 
-			for (const auto& createInfo : createInfos)
+			for (const auto& createInfo : desc.createInfos)
 			{
 				SamplerHandle<kVk> outSampler;
-				VK_CHECK(vkCreateSampler(*device, &createInfo, &device->GetInstance()->GetHostAllocationCallbacks(), &outSampler));
+				VK_CHECK(vkCreateSampler(
+					desc.device,
+					&createInfo,
+					&GetInstance().GetHostAllocationCallbacks(),
+					&outSampler));
 
-				outSamplers.emplace_back(std::move(outSampler));
+				outSamplers.emplace_back(outSampler);
 			}
 
 			return outSamplers;
@@ -40,10 +45,17 @@ SamplerVector<kVk>::SamplerVector(
 {}
 
 template <>
-SamplerVector<kVk>::SamplerVector(SamplerVector&& other) noexcept
-	: DeviceObject(std::forward<SamplerVector>(other))
+void SamplerVector<kVk>::Swap(SamplerVector& rhs) noexcept
 {
-	std::swap(mySamplers, other.mySamplers);
+	DeviceObject<SamplerVector<kVk>>::Swap(rhs);
+	std::swap(mySamplers, rhs.mySamplers);
+}
+
+
+template <>
+SamplerVector<kVk>::SamplerVector(SamplerVector&& other) noexcept
+{
+	Swap(other);
 }
 
 template <>
@@ -51,22 +63,16 @@ SamplerVector<kVk>::~SamplerVector()
 {
 	for (auto* sampler : mySamplers)
 		vkDestroySampler(
-			*InternalGetDevice(),
+			GetDevice(),
 			sampler,
-			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>
 SamplerVector<kVk>& SamplerVector<kVk>::operator=(SamplerVector&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<SamplerVector>(other));
-	std::swap(mySamplers, other.mySamplers);
+	Swap(other);
 	return *this;
 }
 
-template <>
-void SamplerVector<kVk>::Swap(SamplerVector& rhs) noexcept
-{
-	DeviceObject::Swap(rhs);
-	std::swap(mySamplers, rhs.mySamplers);
-}
+} // namespace rhi

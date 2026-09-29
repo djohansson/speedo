@@ -1,5 +1,5 @@
-#include "../instance.h"
-#include "utils.h"
+#include <rhi/instance.h>
+#include <rhi/vulkan/utils.h>
 
 #include <core/assert.h>
 #include <core/profiling.h>
@@ -13,6 +13,9 @@
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
 #endif
+
+namespace rhi
+{
 
 namespace instance
 {
@@ -39,7 +42,7 @@ void* GetPNextChain(const VariantContainerType& objects)
 		[&nextObjectIt, &objectEndIt](auto& objectVariant)
 		{
 			using VariantType = std::decay_t<decltype(objectVariant)>;
-			std::visit(std_extra::overloaded{
+			std::visit(core::std_extra::overloaded{
 				[&nextObjectIt, &objectEndIt](auto& object)
 				{
 					if (++nextObjectIt == objectEndIt) [[unlikely]]
@@ -219,7 +222,7 @@ VkDebugUtilsMessengerCreateInfoEXT gDebugUtilsMessengerCallbackCreateInfo{
 } // namespace instance
 
 template <>
-InstanceConfiguration<kVk>::InstanceConfiguration(std::string&& applicationName, std::string&& engineName)
+InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::string&& engineName) noexcept
 	: applicationName(std::forward<std::string>(applicationName))
 	, engineName(std::forward<std::string>(engineName))
 	, appInfo{
@@ -233,6 +236,16 @@ InstanceConfiguration<kVk>::InstanceConfiguration(std::string&& applicationName,
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();
+}
+
+template <>
+InstanceCreateDesc<kVk>::InstanceCreateDesc(InstanceCreateDesc&& other) noexcept
+	: applicationName(std::forward<std::string>(other.applicationName))
+	, engineName(std::forward<std::string>(other.engineName))
+	, appInfo(std::forward<ApplicationInfo<kVk>>(other.appInfo))
+{
+	appInfo.pApplicationName = applicationName.c_str();
+	appInfo.pEngineName = engineName.c_str();
 }
 
 template <>
@@ -266,8 +279,8 @@ Instance<kVk>::GetSwapchainInfo(PhysicalDeviceHandle<kVk> device, SurfaceHandle<
 }
 
 template <>
-Instance<kVk>::Instance(InstanceConfiguration<kVk>&& defaultConfig)
-: myConfig(std::forward<InstanceConfiguration<kVk>>(defaultConfig))
+Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
+: myConfig(std::forward<InstanceCreateDesc<kVk>>(desc))
 , myHostAllocationCallbacks{
 	.pUserData = nullptr,
 #if defined(SPEEDO_USE_MIMALLOC)
@@ -491,3 +504,5 @@ Instance<kVk>::~Instance()
 
 	vkDestroyInstance(myInstance, &myHostAllocationCallbacks);
 }
+
+} // namespace rhi

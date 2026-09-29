@@ -5,6 +5,9 @@
 
 #include <glm/glm.hpp>
 
+namespace core
+{
+
 struct InputState
 {
 	float dt = 0.0F;
@@ -26,3 +29,5 @@ struct InputState
 		uint8_t middleDown : 1;
 	} mouse{};
 };
+
+} // namespace core

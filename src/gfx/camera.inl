@@ -1,3 +1,6 @@
+namespace gfx
+{
+
 template <FrustumPlane Plane>
 glm::vec4 Camera::GetFrustumPlane() const noexcept
 {
@@ -18,3 +21,5 @@ glm::vec4 Camera::GetFrustumPlane() const noexcept
 
 	return result;
 }
+
+} // namespace gfx

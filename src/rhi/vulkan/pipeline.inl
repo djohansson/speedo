@@ -1,4 +1,5 @@
-#include <xxhash.h>
+namespace rhi
+{
 
 template <>
 template <typename T>
@@ -13,7 +14,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	auto lock = std::lock_guard(mutex);
 
 	auto [bindingIt, emplaceResult] =
-		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
+		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, core::RangeSet<uint32_t>{}));
 
 	ENSURE(bindingIt != bindingsMap.end());
 
@@ -58,7 +59,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set)
 {
 	auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
@@ -82,7 +83,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	auto lock = std::lock_guard(mutex);
 
 	auto [bindingIt, emplaceResult] =
-		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
+		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, core::RangeSet<uint32_t>{}));
 
 	ENSURE(bindingIt != bindingsMap.end());
 
@@ -153,7 +154,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, const std::vector<T>& data, uint32_t set)
 {
 	auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
@@ -176,7 +177,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	auto lock = std::lock_guard(mutex);
 
 	auto [bindingIt, emplaceResult] =
-		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, RangeSet<uint32_t>{}));
+		bindingsMap.emplace(binding, std::make_tuple(0, 0, descriptorType, core::RangeSet<uint32_t>{}));
 
 	ENSURE(bindingIt != bindingsMap.end());
 
@@ -252,10 +253,12 @@ void Pipeline<kVk>::SetDescriptorData(
 	std::string_view shaderVariableName, T&& data, uint32_t set, uint32_t index)
 {
 	auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
 		std::forward<T>(data),
 		index);
 }
+
+} // namespace rhi

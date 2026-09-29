@@ -1,151 +1,130 @@
 #pragma once
 
-#include "instance.h"
-#include "types.h"
-
-#include <core/file.h>
-#include <core/resource.h>
 #include <core/utils.h>
+#include <rhi/object.h>
+#include <rhi/instance.h>
+#include <rhi/queue.h>
+#include <rhi/pipeline.h>
 
-#include <atomic>
-#include <cstdint>
-#include <functional>
+#include <uuid.h>
+
+#include <cstddef>
 #include <memory>
-#include <optional>
-#include <shared_mutex>
-#include <string>
-#include <string_view>
+#include <utility>
 #include <vector>
 
-#include <stduuid/uuid.h>
+namespace rhi
+{
 
 template <GraphicsApi G>
-struct DeviceConfiguration
-{
-	[[nodiscard]] consteval std::string_view GetName() const { return "device"; }
+class Device;
 
-	uint32_t physicalDeviceIndex = 0UL; // todo: replace with deviceID
+template <GraphicsApi G>
+struct DeviceCreateDesc final : ObjectCreateDesc<G>
+{
+	//uint64_t vendorAndDeviceId = 0ULL; // deviceID & (vendorID << 32)
+	PhysicalDeviceHandle<G> physicalDevice{};
 };
 
 template <GraphicsApi G>
-struct QueueFamilyDesc
+struct ObjectTraits<Device<G>>
 {
-	uint32_t queueCount = 0UL;
-	uint32_t flags = 0UL;
-	uint32_t timestampValidBits = 0UL;
-	Extent3d<G> minImageTransferGranularity{};
+	using CreateDescType = DeviceCreateDesc<G>;
 };
 
 template <GraphicsApi G>
-class Device final
+class Device final : public Object<Device<G>>
 {
+	using PipelineLayoutHandleMapType = core::UnorderedMap<size_t, PipelineLayoutHandle<G>>;
+	using ResourceMapType = core::UnorderedMap<uuids::uuid, std::shared_ptr<IObject>>;
+
 public:
-	explicit Device(
-		const std::shared_ptr<Instance<G>>& instance,
-		DeviceConfiguration<G>&& defaultConfig = {});
+	using SuperType = Object<Device<G>>;
+	using CreateDescType = ObjectTraits<Device<G>>::CreateDescType;
+	
+	constexpr Device() noexcept = default;
+	explicit Device(CreateDescType&& desc, const Instance<G>& instance);
 	Device(const Device&) = delete;
-	Device(Device&& other) noexcept = delete;
+	Device(Device&& other) noexcept;
 	~Device();
 
 	[[nodiscard]] Device& operator=(const Device&) = delete;
-	[[nodiscard]] Device& operator=(Device&& other) noexcept = delete;
+	[[nodiscard]] Device& operator=(Device&& other) noexcept;
+
+	void Swap(Device& other) noexcept;
+	friend void Swap(Device& lhs, Device& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] operator auto() const noexcept { return myDevice; }//NOLINT(google-explicit-constructor)
 
-	[[nodiscard]] const auto& GetInstance() const noexcept { return myInstance; } // todo: make global?
-	[[nodiscard]] const auto& GetConfig() const noexcept { return myConfig; }
-	[[nodiscard]] auto GetPhysicalDevice() const noexcept
-	{
-		return myInstance->GetPhysicalDevices()[myPhysicalDeviceIndex];
-	}
-	[[nodiscard]] const auto& GetPhysicalDeviceInfo() const noexcept
-	{
-		return myInstance->GetPhysicalDeviceInfo(GetPhysicalDevice());
-	}
-
-	[[nodiscard]] const auto& GetQueueFamilies() const noexcept { return myQueueFamilyDescs; }
-
 	[[nodiscard]] auto GetAllocator() const noexcept { return myAllocator; }
 
-	[[nodiscard]] bool SupportsFeature(StructureType<G> feature) const;
+	[[nodiscard]] PhysicalDeviceHandle<G> GetPhysicalDevice() const noexcept { return SuperType::GetDesc().physicalDevice; }
+
+	[[nodiscard]] const auto& GetQueueFamilies() const noexcept { return myQueueFamilyDescs; }
+	
+	[[nodiscard]] auto& GetQueues() noexcept { return myQueues; }
+	[[nodiscard]] const auto& GetQueues() const noexcept { return myQueues; }
+
+	[[nodiscard]] auto GetPipelineLayoutHandle(size_t nameHash) const { return myPipelineLayoutHandles.at(nameHash); }
+	[[nodiscard]] auto GetPipelineLayoutHandle(std::string_view name) const { return myPipelineLayoutHandles.at(std::hash<std::string_view>{}(name)); }
+	[[nodiscard]] auto& GetPipelineLayoutHandles() noexcept { return myPipelineLayoutHandles; }
+	[[nodiscard]] const auto& GetPipelineLayoutHandles() const noexcept { return myPipelineLayoutHandles; }
+	
+	[[nodiscard]] auto& GetPipeline() noexcept { return myPipeline; }
+	[[nodiscard]] const auto& GetPipeline() const noexcept { return myPipeline; }
+
+	[[nodiscard]] bool HasResource(const uuids::uuid& uuid) const { return myResources.contains(uuid); }
+	[[nodiscard]] bool HasResource(std::string_view name) const { return myResources.contains(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name)); }
+	template <typename T>
+	[[nodiscard]] auto GetResource(const uuids::uuid& uuid) const { return static_pointer_cast<T>(myResources.at(uuid)); }
+	template <typename T>
+	[[nodiscard]] auto GetResource(std::string_view name) const { return static_pointer_cast<T>(myResources.at(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name))); }
+	template <class T, class... Args>
+	[[nodiscard]] auto CreateResource(uuids::uuid&& uuid, Args&&... args)
+	{
+		auto resource = std::make_shared<T>(std::forward<Args>(args)...);
+		auto [it, inserted] = myResources.emplace(std::forward<uuids::uuid>(uuid), resource);
+		return std::make_tuple(it->first, resource, inserted);
+	}
+	template <class T, class... Args>
+	[[nodiscard]] auto CreateResource(std::string_view name, Args&&... args)
+	{
+		return CreateResource<T>(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name), std::forward<Args>(args)...);
+	}
+	template <typename T>
+	[[maybe_unused]] auto ExtractResource(const uuids::uuid& uuid) { return static_pointer_cast<T>(myResources.extract(uuid)); }
+	void EraseResource(const uuids::uuid& uuid) { myResources.erase(uuid); }
+
+	[[nodiscard]] DeviceObjectCreateDesc<G> CreateDeviceObjectCreateDesc(std::string_view name = {}) const noexcept
+	{
+		return DeviceObjectCreateDesc<G>{
+			ObjectCreateDesc<G>{
+				.instance = SuperType::GetDesc().instance,
+				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+			},
+			myDevice
+		};
+	}
+
+	[[nodiscard]] bool SupportsFeature(StructureType<G> feature, const Instance<G>& instance) const;
 
 	void WaitIdle() const;
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	void AddOwnedObjectHandle(
-		const uuids::uuid& ownerId,
-		ObjectType<G> objectType,
-		uint64_t objectHandle,
-		std::string&& objectName);
-	void EraseOwnedObjectHandle(const uuids::uuid& ownerId, uint64_t objectHandle);
-	void ClearOwnedObjectHandles(const uuids::uuid& ownerId);
-	[[nodiscard]] uint32_t GetTypeCount(ObjectType<G> type);
-#endif
-
 private:
-	std::shared_ptr<Instance<G>> myInstance;
-	file::Object<DeviceConfiguration<G>, file::AccessMode::kReadWrite, true> myConfig;
+	// queues and pipeline are created by RHI once the device is registered in RHI::myDevices,
+	// since DeviceObject<T>::GetDevice() resolves devices through RHIApplication::GetRHI<G>().
+	template <GraphicsApi> friend class RHI;
+
+	void InternalCreateQueues();
+	void InternalCreatePipeline();
+
 	DeviceHandle<G> myDevice{};
-	uint32_t myPhysicalDeviceIndex = 0UL;
-	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
 	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)
-
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	struct ObjectNameInfo : ObjectInfo<G>
-	{
-		std::string name;
-	};
-	using ObjectInfos = std::vector<ObjectNameInfo>;
-
-	// protects myOwnerToDeviceObjectInfoMap & myObjectTypeToCountMap
-	std::shared_mutex myObjectMutex;
-	UnorderedMap<uint64_t, ObjectInfos, IdentityHash<uint64_t>> myOwnerToDeviceObjectInfoMap;
-	UnorderedMap<ObjectType<G>, uint32_t> myObjectTypeToCountMap;
-#endif
+	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
+	core::UnorderedMap<QueueType, QueueTimelineContext<G>> myQueues;
+	Pipeline<G> myPipeline;
+	PipelineLayoutHandleMapType myPipelineLayoutHandles;
+	ResourceMapType myResources;
 };
 
-struct DeviceObjectCreateDesc
-{
-	std::string name;
-};
-
-template <GraphicsApi G>
-class DeviceObject : public IResource
-{
-public:
-	DeviceObject(const DeviceObject&) = delete;
-	~DeviceObject() override;
-
-	[[nodiscard]] const uuids::uuid& GetUuid() const noexcept final { return myUuid; }
-
-	[[nodiscard]] DeviceObject& operator=(const DeviceObject&) = delete;
-
-	void Swap(DeviceObject& rhs) noexcept;
-
-	[[nodiscard]] std::string_view GetName() const noexcept { return myDesc.name; }
-	[[nodiscard]] bool IsValid() const noexcept { return !myUuid.is_nil(); }
-
-protected:
-	constexpr DeviceObject() noexcept = default;
-	DeviceObject(DeviceObject<G>&& other) noexcept;
-	DeviceObject( // no object names are set
-		const std::shared_ptr<Device<G>>& device,
-		DeviceObjectCreateDesc&& desc,
-		uuids::uuid&& uuid);
-	DeviceObject( // uses desc.name and one objectType for all objectHandles
-		const std::shared_ptr<Device<G>>& device,
-		DeviceObjectCreateDesc&& desc,
-		uint32_t objectCount,
-		ObjectType<G> objectType,
-		const uint64_t* objectHandles,
-		uuids::uuid&& uuid);
-
-	[[maybe_unused]] DeviceObject& operator=(DeviceObject&& other) noexcept;
-
-	[[nodiscard]] const auto& InternalGetDevice() const noexcept { return myDevice; }
-
-private:
-	std::shared_ptr<Device<G>> myDevice;
-	DeviceObjectCreateDesc myDesc{};
-	uuids::uuid myUuid;
-};
+} // namespace rhi

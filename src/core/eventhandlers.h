@@ -1,8 +1,11 @@
 #pragma once
 
-#include "capi.h"
+#include <core/capi.h>
 
 #include <memory>
+
+namespace core
+{
 
 class MouseEventHandler
 {
@@ -15,9 +18,6 @@ class KeyboardEventHandler
 public:
 	virtual void OnKeyboard(const KeyboardEvent& keyboard) = 0;
 };
-
-namespace core
-{
 
 void AddMouseHandler(const std::shared_ptr<MouseEventHandler>& handler);
 void AddKeyboardHandler(const std::shared_ptr<KeyboardEventHandler>& handler);

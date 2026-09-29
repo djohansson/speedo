@@ -1,13 +1,20 @@
-#include "../queue.h"
-#include "utils.h"
-
-#include <ranges>
+#include <rhi/queue.h>
+#include <rhi/device.h>
+#include <rhi/instance.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/vulkan/utils.h>
 
 #include <tracy/TracyC.h>
 #include <tracy/TracyVulkan.hpp>
 
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(Queue<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Queue<kVk>);
+
 template <>
-bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue) const
+bool Queue<kVk>::SubmitCallbacks(core::TaskExecutor& executor, uint64_t timelineValue) const
 {
 	ZoneScopedN("Queue::SubmitCallbacks");
 
@@ -30,20 +37,34 @@ bool Queue<kVk>::SubmitCallbacks(TaskExecutor& executor, uint64_t timelineValue)
 
 template <>
 Queue<kVk>::Queue(
-	const std::shared_ptr<Device<kVk>>& device,
-	const CommandPoolCreateDesc<kVk>& commandPoolDesc,
-	std::tuple<QueueCreateDesc<kVk>, QueueHandle<kVk>>&& descAndHandle)
-	: DeviceObject(
-		  device,
-		  {"_Queue"},
-		  1,
-		  VK_OBJECT_TYPE_QUEUE,
-		  reinterpret_cast<uint64_t*>(&std::get<1>(descAndHandle)),
-		  uuids::uuid_system_generator{}())
-	, myDesc(std::forward<QueueCreateDesc<kVk>>(std::get<0>(descAndHandle)))
-	, myQueue(std::get<1>(descAndHandle))
-	, myPools({CommandPool<kVk>(device, CommandPoolCreateDesc<kVk>{commandPoolDesc}),
-			   CommandPool<kVk>(device, CommandPoolCreateDesc<kVk>{commandPoolDesc})})
+	CreateDescType&& desc,
+	QueueHandle<kVk>&& handle)
+	: DeviceObject<Queue<kVk>>(std::forward<CreateDescType>(desc))
+	, myQueue(std::forward<QueueHandle<kVk>>(handle))
+	, myPools(
+		{
+			CommandPool<kVk>(
+				CommandPoolCreateDesc<kVk>
+				{
+					SuperType::CreateDeviceObjectCreateDesc("CommandPool 0"),
+					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT|VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+					GetDesc().queueFamilyIndex,
+					GetDesc().levelCount,
+					GetDesc().supportsProfiling
+				}
+			),
+			CommandPool<kVk>(
+				CommandPoolCreateDesc<kVk>
+				{
+					SuperType::CreateDeviceObjectCreateDesc("CommandPool 1"),
+					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT|VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+					GetDesc().queueFamilyIndex,
+					GetDesc().levelCount,
+					GetDesc().supportsProfiling
+				}
+			)
+		}
+	)
 {
 	using namespace tracy;
 
@@ -67,10 +88,10 @@ Queue<kVk>::Queue(
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
-	if (commandPoolDesc.supportsProfiling)
+	if (GetDesc().supportsProfiling)
 		myProfilingContext = CreateVkContext(
-			device->GetPhysicalDevice(),
-			*device,
+			GetDevice().GetPhysicalDevice(),
+			GetDevice(),
 			myQueue,
 			GetPool().Commands(CommandBufferAccessScopeDesc<kVk>(false)),
 			nullptr,
@@ -79,35 +100,40 @@ Queue<kVk>::Queue(
 }
 
 template <>
-Queue<kVk>::Queue(
-	const std::shared_ptr<Device<kVk>>& device,
-	const CommandPoolCreateDesc<kVk>& commandPoolDesc,
-	QueueCreateDesc<kVk>&& queueDesc)
+Queue<kVk>::Queue(QueueCreateDesc<kVk>&& queueDesc)
 	: Queue(
-		device,
-		commandPoolDesc,
-		std::make_tuple(
-			std::forward<QueueCreateDesc<kVk>>(queueDesc),
-			[&device, &queueDesc]
-			{
-				QueueHandle<kVk> queue;
-				vkGetDeviceQueue(*device, queueDesc.queueFamilyIndex, queueDesc.queueIndex, &queue);
-				return queue;
-			}()))
+		std::forward<QueueCreateDesc<kVk>>(queueDesc),
+		// read from queueDesc, not GetDesc(): this runs before the delegated constructor has initialized the base
+		[&queueDesc]
+		{
+			QueueHandle<kVk> queue;
+			vkGetDeviceQueue(
+				queueDesc.device,
+				queueDesc.queueFamilyIndex,
+				queueDesc.queueIndex,
+				&queue);
+			return queue;
+		}())
 {}
 
 template <>
-Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
-	: DeviceObject(std::forward<Queue<kVk>>(other))
-	, myDesc(std::exchange(other.myDesc, {}))
-	, myQueue(std::exchange(other.myQueue, {}))
-	, myPools(std::exchange(other.myPools, {}))
-	, myPendingSubmits(std::exchange(other.myPendingSubmits, {}))
-	, myScratchMemory(std::exchange(other.myScratchMemory, {}))
+void Queue<kVk>::Swap(Queue& other) noexcept
 {
+	DeviceObject<Queue<kVk>>::Swap(other);
+	std::swap(myQueue, other.myQueue);
+	std::swap(myPools, other.myPools);
+	std::swap(myPendingSubmits, other.myPendingSubmits);
+	std::swap(myScratchMemory, other.myScratchMemory);
+	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 #if (SPEEDO_PROFILING_LEVEL > 0)
 	std::swap(myProfilingContext, other.myProfilingContext);
 #endif
+}
+
+template <>
+Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
+{
+	Swap(other);
 }
 
 template <>
@@ -128,34 +154,8 @@ Queue<kVk>::~Queue()
 template <>
 Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<Queue<kVk>>(other));
-	myDesc = std::exchange(other.myDesc, {});
-	myQueue = std::exchange(other.myQueue, {});
-	myPools = std::exchange(other.myPools, {});
-	myPendingSubmits = std::exchange(other.myPendingSubmits, {});
-	myScratchMemory = std::exchange(other.myScratchMemory, {});
-	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
-	decltype(other.myTimelineCallbacks) tmp;
-	std::swap(other.myTimelineCallbacks, tmp);
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	std::swap(myProfilingContext, other.myProfilingContext);
-#endif
+	Swap(other);
 	return *this;
-}
-
-template <>
-void Queue<kVk>::Swap(Queue& other) noexcept
-{
-	DeviceObject::Swap(other);
-	std::swap(myDesc, other.myDesc);
-	std::swap(myQueue, other.myQueue);
-	std::swap(myPools, other.myPools);
-	std::swap(myPendingSubmits, other.myPendingSubmits);
-	std::swap(myScratchMemory, other.myScratchMemory);
-	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	std::swap(myProfilingContext, other.myProfilingContext);
-#endif
 }
 
 template <>
@@ -248,14 +248,19 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	}
 
 	QueueHostSyncInfo<kVk> result;
-	result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "submitFence"});
+	result.fences.emplace_back(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("submitFence")});
 	result.maxTimelineValue = maxTimelineValue;
 	
 	Result<kVk> submitResult;
 	{
 		ZoneScopedN("Queue::Submit::vkQueueSubmit");
 
-		VK_CHECK(vkQueueSubmit(myQueue, myPendingSubmits.size(), submitBegin, result.fences.back()), reinterpret_cast<uintptr_t>(myQueue));
+		VK_CHECK(vkQueueSubmit(
+			myQueue,
+			myPendingSubmits.size(),
+			submitBegin,
+			result.fences.back()),
+			reinterpret_cast<uintptr_t>(myQueue));
 	}
 
 	myPendingSubmits.clear();
@@ -276,12 +281,12 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 {
 	ZoneScopedN("Queue::Present");
 
-	static bool gSupportsPresentFence = InternalGetDevice()->SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR);
-	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, *InternalGetDevice()->GetInstance());
+	static bool gSupportsPresentFence = GetDevice().SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR, GetInstance());
+	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetInstance());
 
 	QueueHostSyncInfo<kVk> result;
 	if (gSupportsPresentFence)
-		result.fences.emplace_back(InternalGetDevice(), FenceCreateDesc<kVk>{.name = "presentFence"});
+		result.fences.emplace_back(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("presentFence")});
 
 	ENSURE(!gSupportsPresentId || myPendingPresent.presentIds.size() == myPendingPresent.swapchains.size());
 
@@ -370,3 +375,5 @@ void Queue<kVk>::Execute(uint8_t level, uint64_t timelineValue)
 
 	GetPool().InternalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
 }
+
+} // namespace rhi

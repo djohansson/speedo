@@ -1,5 +1,5 @@
-#include "application.h"
-#include "profiling.h"
+#include <core/application.h>
+#include <core/profiling.h>
 
 #include <array>
 #include <iostream>
@@ -7,7 +7,10 @@
 
 #include <picosha2.h>
 
-#include <stduuid/uuid.h>
+#include <uuid.h>
+
+namespace core
+{
 
 namespace file
 {
@@ -229,8 +232,7 @@ Object<T, Mode, SaveOnDestruct>::Object(
 {}
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
-Object<T, Mode, SaveOnDestruct>::Object(
-	Object&& other) noexcept
+Object<T, Mode, SaveOnDestruct>::Object(Object&& other) noexcept
 	: T(std::forward<Object>(other))
 	, myInfo(std::exchange(other.myInfo, {}))
 {}
@@ -244,18 +246,18 @@ Object<T, Mode, SaveOnDestruct>::~Object()
 }
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
-Object<T, Mode, SaveOnDestruct>&
-Object<T, Mode, SaveOnDestruct>::operator=(Object&& other) noexcept
-{
-	myInfo = std::exchange(other.myInfo, {});
-	return *this;
-}
-
-template <typename T, AccessMode Mode, bool SaveOnDestruct>
 void Object<T, Mode, SaveOnDestruct>::Swap(Object& rhs) noexcept
 {
 	std::swap<T>(*this, rhs);
 	std::swap(myInfo, rhs.myInfo);
+}
+
+template <typename T, AccessMode Mode, bool SaveOnDestruct>
+Object<T, Mode, SaveOnDestruct>&
+Object<T, Mode, SaveOnDestruct>::operator=(Object&& other) noexcept
+{
+	Swap(other);
+	return *this;
 }
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>
@@ -272,3 +274,5 @@ std::enable_if_t<Object<T, Mode, SaveOnDestruct>::kMode == AccessMode::kReadWrit
 }
 
 } // namespace file
+
+} // namespace core

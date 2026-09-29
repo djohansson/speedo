@@ -1,4 +1,7 @@
-#include "inputoutputnode.h"
+#include <core/nodes/inputoutputnode.h>
+
+namespace core
+{
 
 InputOutputNode::InputOutputNode(int id, std::string&& name)
 : myId(id)
@@ -8,31 +11,33 @@ InputOutputNode::InputOutputNode(int id, std::string&& name)
 
 void InputOutputNode::Swap(InputOutputNode& rhs) noexcept
 {
-    std::swap(myId, rhs.myId);
-    std::swap(myName, rhs.myName);
+	std::swap(myId, rhs.myId);
+	std::swap(myName, rhs.myName);
 }
 
 int& InputOutputNode::Id()
 {
-    return myId;
+	return myId;
 }
 
 std::optional<int>& InputOutputNode::Selected()
 {
-    return mySelected;
+	return mySelected;
 }
 
 std::string& InputOutputNode::GetName()
 {
-    return myName;
+	return myName;
 }
 
 std::vector<Attribute>& InputOutputNode::InputAttributes()
 {
-    return myInputAttributes;
+	return myInputAttributes;
 }
 
 std::vector<Attribute>& InputOutputNode::OutputAttributes()
 {
-    return myOutputAttributes;
+	return myOutputAttributes;
 }
+
+} // namespace core

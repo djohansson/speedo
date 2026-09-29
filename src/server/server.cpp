@@ -1,11 +1,11 @@
-#include "capi.h"
-#include "server.h"
-#include "rpc/rpc.h"
-
 #include <core/application.h>
 #include <core/assert.h>
 #include <core/file.h>
 #include <core/concurrentaccess.h>
+
+#include <server/capi.h>
+#include <server/server.h>
+#include <server/rpc/rpc.h>
 
 #include <array>
 #include <iostream>
@@ -13,6 +13,9 @@
 
 namespace server
 {
+
+using namespace core;
+using namespace core::file;
 
 static TaskCreateInfo<void> gRpcTask{};
 static ConcurrentAccess<std::shared_ptr<Server>> gServerApplication;
@@ -24,6 +27,25 @@ enum TaskState : uint8_t
 	kTaskStateDone = 3
 };
 static std::atomic<TaskState> gRpcTaskState = kTaskStateNone;
+
+// marks a task chain as finished (for whatever reason), releasing a pending wait in StopTask
+static void SetTaskDone(std::atomic<TaskState>& state)
+{
+	state = kTaskStateDone;
+	state.notify_one();
+}
+
+// requests a task chain to stop. returns true if it was running, i.e. if WaitTaskStopped needs to be called.
+// (exchange rather than store, so a chain that already ended, e.g. on an error, isn't waited on forever)
+[[nodiscard]] static bool RequestTaskStop(std::atomic<TaskState>& state)
+{
+	return state.exchange(kTaskStateShuttingDown) == kTaskStateRunning;
+}
+
+static void WaitTaskStopped(std::atomic<TaskState>& state)
+{
+	state.wait(kTaskStateShuttingDown);
+}
 
 std::string Say(const std::string& str)
 {
@@ -44,8 +66,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 	if (gRpcTaskState == kTaskStateShuttingDown)
 	{
-		gRpcTaskState = kTaskStateDone;
-		gRpcTaskState.notify_one();
+		SetTaskDone(gRpcTaskState);
 		return;
 	}
 
@@ -69,6 +90,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		{
 			std::cerr << "server.serve() returned error code: "
 						<< std::make_error_code(result).message() << '\n';
+			SetTaskDone(gRpcTaskState);
 			return;
 		}
 		
@@ -81,6 +103,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 		if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
 		{
 			std::cerr << "socket.send() failed" << '\n';
+			SetTaskDone(gRpcTaskState);
 			return;
 		}
 	}
@@ -90,9 +113,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	gRpcTask = rpcTask;
 }
 
-} // namespace server
-
-Server::~Server() noexcept(false)
+Server::~Server()
 {
 	ZoneScopedN("Server::~Server");
 
@@ -109,7 +130,6 @@ Server::Server(std::string_view name, Environment&& env)
 , myContext(1)
 , mySocket(myContext, zmq::socket_type::rep)
 {
-	using namespace server;
 	using namespace std::literals;
 
 	constexpr std::string_view kCxServerAddress = "tcp://*:5555"sv;
@@ -126,10 +146,11 @@ Server::Server(std::string_view name, Environment&& env)
 	gRpcTaskState = kTaskStateRunning;
 }
 
+} // namespace server
+
 void ServerCreate(const PathConfig* paths)
 {
 	using namespace server;
-	using namespace file;
 
 	ENSURE(paths != nullptr);
 
@@ -141,30 +162,33 @@ void ServerCreate(const PathConfig* paths)
 	ENSURE(resourcePath);
 	ENSURE(userPath);
 
-	auto appPtr = gServerApplication.Write();
-	appPtr = std::make_shared<Server>(
+	auto& appPtrRef = gServerApplication.Write().Get();
+	appPtrRef = CreateApplication<Server>(
 		"server",
 		Environment{{
 			{"RootPath", root.value()},
 			{"ResourcePath", resourcePath.value()},
-			{"UserProfilePath", userPath.value()}
-	}});
+			{"UserProfilePath", userPath.value()},
+		},});
 
-	appPtr->GetExecutor().Submit({&gRpcTask.handle, 1});
+	appPtrRef->GetExecutor().Submit({&gRpcTask.handle, 1});
 }
 
 void ServerDestroy()
 {
 	using namespace server;
 
-	gRpcTaskState = kTaskStateShuttingDown;
-	gRpcTaskState.wait(kTaskStateShuttingDown);
+	if (RequestTaskStop(gRpcTaskState))
+		WaitTaskStopped(gRpcTaskState);
 
 	auto appPtrWriteScope = gServerApplication.Write();
 
 	ENSURE(appPtrWriteScope.Get());
 	ASSERT(appPtrWriteScope.Get().use_count() == 1);
-	
+
+	// finish any in-flight tasks while the application is still registered in gApplication
+	appPtrWriteScope.Get()->GetExecutor().JoinAll();
+
 	appPtrWriteScope.Get().reset();
 }
 

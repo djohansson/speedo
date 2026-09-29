@@ -1,78 +1,76 @@
-#include "../semaphore.h"
-#include "utils.h"
+#include <rhi/semaphore.h>
+#include <rhi/device.h>
+#include <rhi/instance.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/vulkan/utils.h>
+
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(Semaphore<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Semaphore<kVk>);
 
 template <>
 Semaphore<kVk>::Semaphore(
-	const std::shared_ptr<Device<kVk>>& device,
-	SemaphoreHandle<kVk>&& handle,
-	SemaphoreCreateDesc<kVk>&& desc)
-	: DeviceObject(
-		  device,
-		  {"_Semaphore"},
-		  1,
-		  VK_OBJECT_TYPE_SEMAPHORE,
-		  reinterpret_cast<uint64_t*>(&handle),
-		  uuids::uuid_system_generator{}())
+	CreateDescType&& desc,
+	SemaphoreHandle<kVk>&& handle)
+	: DeviceObject<Semaphore<kVk>>(std::forward<CreateDescType>(desc))
 	, mySemaphore(std::forward<SemaphoreHandle<kVk>>(handle))
-	, myDesc(std::forward<SemaphoreCreateDesc<kVk>>(desc))
 {}
 
 template <>
-Semaphore<kVk>::Semaphore(
-	const std::shared_ptr<Device<kVk>>& device,
-	SemaphoreCreateDesc<kVk>&& desc)
-	: Semaphore(device, [&device, &desc]
-	{
-		VkSemaphoreTypeCreateInfo typeCreateInfo{.sType=VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-		typeCreateInfo.semaphoreType = desc.type;
-		typeCreateInfo.initialValue = 0ULL;
+Semaphore<kVk>::Semaphore(CreateDescType&& desc)
+	: Semaphore(
+		std::forward<CreateDescType>(desc),
+		[this, &desc]
+		{
+			VkSemaphoreTypeCreateInfo typeCreateInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+			typeCreateInfo.semaphoreType = desc.type;
+			typeCreateInfo.initialValue = 0ULL;
 
-		SemaphoreHandle<kVk> handle;
-		VkSemaphoreCreateInfo createInfo{.sType=VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-		createInfo.pNext = &typeCreateInfo;
-		createInfo.flags = desc.flags;
+			SemaphoreHandle<kVk> handle;
+			VkSemaphoreCreateInfo createInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+			createInfo.pNext = &typeCreateInfo;
+			createInfo.flags = desc.flags;
 
-		VK_CHECK(vkCreateSemaphore(
-			*device,
-			&createInfo,
-			&device->GetInstance()->GetHostAllocationCallbacks(),
-			&handle));
-		return handle;
-	}(), std::forward<SemaphoreCreateDesc<kVk>>(desc))
+			VK_CHECK(vkCreateSemaphore(
+				desc.device,
+				&createInfo,
+				&GetInstance().GetHostAllocationCallbacks(),
+				&handle));
+
+			return handle;
+		}())
 {}
+
+template <>
+void Semaphore<kVk>::Swap(Semaphore& rhs) noexcept
+{
+	DeviceObject<Semaphore<kVk>>::Swap(rhs);
+	std::swap(mySemaphore, rhs.mySemaphore);
+}
 
 template <>
 Semaphore<kVk>::Semaphore(Semaphore<kVk>&& other) noexcept
-	: DeviceObject(std::forward<Semaphore<kVk>>(other))
-	, myDesc(std::exchange(other.myDesc, {}))
 {
-	std::swap(mySemaphore, other.mySemaphore);
+	Swap(other);
 }
 
 template <>
 Semaphore<kVk>::~Semaphore()
 {
-	if (mySemaphore != nullptr)
+	if (IsValid())
 		vkDestroySemaphore(
-			*InternalGetDevice(),
+			GetDevice(),
 			mySemaphore,
-			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>
 Semaphore<kVk>& Semaphore<kVk>::operator=(Semaphore<kVk>&& other) noexcept
 {
-	DeviceObject<kVk>::operator=(std::forward<Semaphore<kVk>>(other));
-	std::swap(mySemaphore, other.mySemaphore);
-	myDesc = std::exchange(other.myDesc, {});
+	Swap(other);
 	return *this;
-}
-
-template <>
-void Semaphore<kVk>::Swap(Semaphore& rhs) noexcept
-{
-	DeviceObject<kVk>::Swap(rhs);
-	std::swap(mySemaphore, rhs.mySemaphore);
 }
 
 template <>
@@ -81,7 +79,7 @@ uint64_t Semaphore<kVk>::GetValue() const
 	ZoneScopedN("Semaphore::GetValue");
 
 	uint64_t value;
-	VK_CHECK(vkGetSemaphoreCounterValue(*InternalGetDevice(), mySemaphore, &value));
+	VK_CHECK(vkGetSemaphoreCounterValue(GetDevice(), mySemaphore, &value));
 
 	return value;
 }
@@ -98,7 +96,7 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	if (GetDesc().type == VK_SEMAPHORE_TYPE_TIMELINE)
 		waitInfo.pValues = &timelineValue;
 
-	auto result = vkWaitSemaphores(*InternalGetDevice(), &waitInfo, timeout);
+	auto result = vkWaitSemaphores(GetDevice(), &waitInfo, timeout);
 	if (result == VK_SUCCESS)
 		return true;
 
@@ -131,3 +129,4 @@ bool Semaphore<kVk>::Wait(
 	return false;
 }
 
+} // namespace rhi

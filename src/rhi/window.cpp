@@ -2,6 +2,9 @@
 
 #include <nfd_glfw3.h>
 
+namespace rhi
+{
+
 namespace window
 {
 
@@ -27,3 +30,5 @@ OpenFileDialogue(std::string&& resourcePathString, const std::vector<nfdu8filter
 }
 
 } // namespace window
+
+} // namespace rhi

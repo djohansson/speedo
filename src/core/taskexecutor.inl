@@ -1,6 +1,9 @@
-#include "profiling.h"
+#include <core/profiling.h>
 
 #include <atomic>
+
+namespace core
+{
 
 template <typename R>
 std::optional<typename Future<R>::value_t> TaskExecutor::Join(Future<R>&& future)
@@ -18,13 +21,7 @@ std::optional<typename Future<R>::value_t> TaskExecutor::InternalProcessReadyQue
 	if (!future.Valid())
 		return std::nullopt;
 
-	TaskHandle handle;
-	while (!future.IsReady() && myReadyQueue.try_dequeue(handle))
-	{
-		std::atomic_ref(myReadyQueueSize).fetch_sub(1, std::memory_order_acq_rel);
-		InternalCall(handle);
-		InternalPurgeDeletionQueue();
-	}
+	while (!future.IsReady() && InternalTryCallOne());
 
 	return std::make_optional(future.Get());
 }
@@ -43,3 +40,5 @@ void TaskExecutor::InternalCall(TaskHandle handle, Params&&... params)
 	InternalScheduleAdjacent(task);
 	myDeletionQueue.enqueue(handle);
 }
+
+} // namespace core

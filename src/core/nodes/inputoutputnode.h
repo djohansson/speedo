@@ -1,6 +1,9 @@
 #pragma once
 
-#include "nodecommon.h"
+#include <core/nodes/nodecommon.h>
+
+namespace core
+{
 
 class InputOutputNode : public INode
 {
@@ -31,3 +34,5 @@ private:
 	std::vector<Attribute> myInputAttributes;
 	std::vector<Attribute> myOutputAttributes;
 };
+
+} // namespace core

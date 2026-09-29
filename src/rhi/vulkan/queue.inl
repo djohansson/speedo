@@ -1,3 +1,6 @@
+namespace rhi
+{
+
 template <>
 template <typename T, typename... Ts>
 void Queue<kVk>::EnqueueSubmit(T&& first, Ts&&... rest)
@@ -28,3 +31,5 @@ std::shared_ptr<void> Queue<kVk>::CreateGpuScope(CommandBufferHandle<kVk> cmd)
 {
 	return InternalGpuScope(cmd, Location);
 }
+
+} // namespace rhi

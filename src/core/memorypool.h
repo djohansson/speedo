@@ -1,12 +1,14 @@
 #pragma once
 
-#include "std_extra.h"
-#include "upgradablesharedmutex.h"
-#include "utils.h"
+#include <core/std_extra.h>
+#include <core/upgradablesharedmutex.h>
+#include <core/utils.h>
 
-#include <algorithm>
 #include <array>
-#include <cstdint>
+#include <atomic>
+
+namespace core
+{
 
 template <typename T, std::size_t N>
 class MemoryPool final
@@ -44,7 +46,9 @@ private:
 	alignas(T) std::array<std::byte, N * sizeof(T)> myPool;
 	std::array<Entry, N> myEntries;
 	UpgradableSharedMutex myMutex;
-	std_extra::min_unsigned_t<N> myAvailable{0};
+	std::atomic<std_extra::min_unsigned_t<N>> myAvailable{0};
 };
+
+} // namespace core
 
 #include "memorypool.inl"

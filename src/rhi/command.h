@@ -1,20 +1,27 @@
 #pragma once
 
-#include "device.h"
-#include "types.h"
+#include <rhi/deviceobject.h>
+#include <rhi/types.h>
 
 #include <array>
-#include <functional>
 #include <list>
 #include <memory>
 #include <optional>
-#include <utility>
+
+namespace rhi
+{
 
 template <GraphicsApi G>
 class Queue;
 
 template <GraphicsApi G>
-struct CommandBufferArrayCreateDesc
+class CommandBufferArray;
+
+template <GraphicsApi G>
+class CommandPool;
+
+template <GraphicsApi G>
+struct CommandBufferArrayCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	CommandPoolHandle<G> pool{};
 	uint8_t level : 6; // 0: primary, >= 1: secondary
@@ -23,18 +30,25 @@ struct CommandBufferArrayCreateDesc
 };
 
 template <GraphicsApi G>
-class CommandBufferArray final : public DeviceObject<G>
+struct ObjectTraits<CommandBufferArray<G>>
+{
+	using CreateDescType = CommandBufferArrayCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class CommandBufferArray final : public DeviceObject<CommandBufferArray<G>>
 {
 	static constexpr uint32_t kHeadBitCount = 2;
 	static constexpr size_t kCommandBufferCount = (1 << kHeadBitCount);
 
 public:
+	using SuperType = DeviceObject<CommandBufferArray<G>>;
+	using CreateDescType = ObjectTraits<CommandBufferArray<G>>::CreateDescType;
+
 	constexpr CommandBufferArray() noexcept = default;
-	CommandBufferArray(
-		const std::shared_ptr<Device<G>>& device,
-		CommandBufferArrayCreateDesc<G>&& desc);
+	explicit CommandBufferArray(CreateDescType&& desc);
 	CommandBufferArray(CommandBufferArray&& other) noexcept;
-	~CommandBufferArray() override;
+	~CommandBufferArray();
 
 	[[maybe_unused]] CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
 	[[nodiscard]] CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
@@ -42,38 +56,33 @@ public:
 	void Swap(CommandBufferArray& rhs) noexcept;
 	friend void Swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
-
-	[[nodiscard]] static constexpr auto Capacity() { return kCommandBufferCount; }
+	[[nodiscard]] static consteval auto Capacity() { return kCommandBufferCount; }
 
 	[[nodiscard]] uint8_t Begin(const CommandBufferBeginInfo<G>& beginInfo);
 	void End(uint8_t index);
 
 	void Reset();
 
-	[[nodiscard]] uint8_t Head() const { return myBits.head; }
-	[[nodiscard]] const CommandBufferHandle<G>* Data() const
+	[[nodiscard]] uint8_t Head() const noexcept { return myBits.head; }
+	[[nodiscard]] const CommandBufferHandle<G>* Data() const noexcept
 	{
 		ENSURE(!RecordingFlags());
 		return myArray.data();
 	}
 
-	[[nodiscard]] bool Recording(uint8_t index) const
+	[[nodiscard]] bool Recording(uint8_t index) const noexcept
 	{
 		return myBits.recordingFlags & (1 << index);
 	}
 	[[nodiscard]] uint8_t RecordingFlags() const noexcept { return myBits.recordingFlags; }
 
-	[[nodiscard]] bool Full() const { return (Head() + 1) >= Capacity(); }
+	[[nodiscard]] bool Full() const noexcept { return (Head() + 1) >= Capacity(); }
 
 private:
-	CommandBufferArray(
-		const std::shared_ptr<Device<G>>& device,
-		std::tuple<
-			CommandBufferArrayCreateDesc<G>,
-			std::array<CommandBufferHandle<G>, kCommandBufferCount>>&& descAndData);
+	explicit CommandBufferArray(
+		CreateDescType&& desc,
+		std::array<CommandBufferHandle<G>, kCommandBufferCount>&& array);
 
-	CommandBufferArrayCreateDesc<G> myDesc{};
 	std::array<CommandBufferHandle<G>, kCommandBufferCount> myArray{};
 	struct Bits
 	{
@@ -100,14 +109,17 @@ template <GraphicsApi G>
 class CommandBufferAccessScope final
 {
 public:
+	using CreateDescType = CommandBufferAccessScopeDesc<G>;
+
 	constexpr CommandBufferAccessScope() noexcept = default;
 	CommandBufferAccessScope(
-		CommandBufferArray<G>* array, const CommandBufferAccessScopeDesc<G>& beginInfo);
-	CommandBufferAccessScope(const CommandBufferAccessScope& other);
+		const CreateDescType& beginInfo,
+		CommandBufferArray<G>* array);
+	CommandBufferAccessScope(const CommandBufferAccessScope& other) noexcept;
 	CommandBufferAccessScope(CommandBufferAccessScope&& other) noexcept;
 	~CommandBufferAccessScope();
 
-	[[maybe_unused]] CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G> other);
+	[[maybe_unused]] CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G>&& other) noexcept;
 	[[nodiscard]] operator auto() const { return (*myArray)[myIndex]; }//NOLINT(google-explicit-constructor)
 
 	void Swap(CommandBufferAccessScope<G>& rhs) noexcept;
@@ -134,7 +146,7 @@ template <GraphicsApi G>
 using CommandBufferListType = std::list<std::tuple<CommandBufferArray<G>, uint64_t>>;
 
 template <GraphicsApi G>
-struct CommandPoolCreateDesc
+struct CommandPoolCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	CommandPoolCreateFlags<G> flags{};
 	uint32_t queueFamilyIndex : 27;
@@ -143,20 +155,25 @@ struct CommandPoolCreateDesc
 };
 
 template <GraphicsApi G>
-class CommandPool : public DeviceObject<G>
+struct ObjectTraits<CommandPool<G>>
+{
+	using CreateDescType = CommandPoolCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class CommandPool final : public DeviceObject<CommandPool<G>>
 {
 public:
+	using SuperType = DeviceObject<CommandPool<G>>;
+	using CreateDescType = ObjectTraits<CommandPool<G>>::CreateDescType;
+
 	constexpr CommandPool() noexcept = default;
-	CommandPool(
-		const std::shared_ptr<Device<G>>& device,
-		CommandPoolCreateDesc<G>&& desc);
+	explicit CommandPool(CreateDescType&& desc);
 	CommandPool(CommandPool&& other) noexcept;
-	~CommandPool() override;
+	~CommandPool();
 
 	[[maybe_unused]] CommandPool& operator=(CommandPool&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myPool; }//NOLINT(google-explicit-constructor)
-
-	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	void Swap(CommandPool& rhs) noexcept;
 	friend void Swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.Swap(rhs); }
@@ -167,10 +184,9 @@ public:
 
 private:
 	friend class Queue<G>;
-
 	CommandPool(
-		const std::shared_ptr<Device<G>>& device,
-		std::tuple<CommandPoolCreateDesc<G>, CommandPoolHandle<G>>&& descAndData);
+		CreateDescType&& desc,
+		CommandPoolHandle<G>&& pool);
 
 	[[nodiscard]] CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
 	void InternalEndCommands(uint8_t level);
@@ -189,12 +205,13 @@ private:
 		return mySubmittedCommands;
 	}
 
-	CommandPoolCreateDesc<G> myDesc{};
 	CommandPoolHandle<G> myPool{};
 	std::vector<CommandBufferListType<G>> myPendingCommands;
 	std::vector<CommandBufferListType<G>> mySubmittedCommands;
 	std::vector<CommandBufferListType<G>> myFreeCommands;
 	std::vector<std::optional<CommandBufferAccessScope<G>>> myRecordingCommands;
 };
+
+} // namespace rhi
 
 #include "command.inl"

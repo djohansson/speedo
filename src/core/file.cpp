@@ -1,7 +1,10 @@
-#include "file.h"
+#include <core/file.h>
 
 #include <ctime>
 #include <chrono>
+
+namespace core
+{
 
 namespace file
 {
@@ -89,8 +92,8 @@ std::expected<Record, std::error_code> LoadAsset(
 	
 	ZoneScoped;
 
-	auto rootPath = std::get<std::filesystem::path>(gApplication.lock()->GetEnv().variables["RootPath"]);
-	auto cacheDir = std::get<std::filesystem::path>(gApplication.lock()->GetEnv().variables["UserProfilePath"]);
+	auto rootPath = std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["RootPath"]);
+	auto cacheDir = std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["UserProfilePath"]);
 	auto cacheDirStatus = std::filesystem::status(cacheDir);
 	if (!std::filesystem::exists(cacheDirStatus) ||
 		!std::filesystem::is_directory(cacheDirStatus))
@@ -202,3 +205,5 @@ std::expected<Record, std::error_code> LoadAsset(
 }
 
 } // namespace file
+
+} // namespace core

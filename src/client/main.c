@@ -1,10 +1,12 @@
-#include "capi.h"
-
 #include <core/assert.h>
 #include <core/capi.h>
+
+#include <client/capi.h>
+
 #include <rhi/capi.h>
 
 #include <signal.h> 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +21,10 @@
 #endif
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
+#endif
+#if !defined(__WINDOWS__)
+#	include <pthread.h>
+#	include <unistd.h>
 #endif
 
 static struct cag_option gCmdArgs[] =
@@ -47,30 +53,75 @@ static struct cag_option gCmdArgs[] =
 static struct MouseEvent gMouse;
 static struct KeyboardEvent gKeyboard;
 static struct PathConfig gPaths;
-static volatile bool gIsInterrupted = false;
+static atomic_bool gIsInterrupted = false;
+static atomic_bool gIsGlfwInitialized = false;
 
-static void OnSignal(int signal)
+static void OnInterrupt(void)
 {
-	switch (signal)
+	atomic_store(&gIsInterrupted, true);
+
+	// the main loop sleeps in glfwWaitEvents() until the next window event, so wake it up
+	if (atomic_load(&gIsGlfwInitialized))
+		glfwPostEmptyEvent();
+}
+
+#ifndef __WINDOWS__
+// glfwPostEmptyEvent() is not async-signal-safe, so the SIGINT handler only writes to a pipe (which is),
+// and this thread forwards the wakeup to glfw from a regular thread context (self-pipe trick).
+static int gInterruptPipe[2] = {-1, -1};
+
+static void* InterruptThreadMain(void* arg)
+{
+	(void)arg;
+
+	char byte;
+	while (read(gInterruptPipe[0], &byte, 1) == 1)
+		OnInterrupt();
+
+	return NULL;
+}
+
+static void StartInterruptThread(void)
+{
+	ENSURE(pipe(gInterruptPipe) == 0);
+
+	pthread_t thread;
+	ENSURE(pthread_create(&thread, NULL, InterruptThreadMain, NULL) == 0);
+	ENSURE(pthread_detach(thread) == 0);
+}
+#endif
+
+static void OnSignal(int sig)
+{
+	switch (sig)
 	{	
 	case SIGINT:
-		gIsInterrupted = true;
+#if defined(__WINDOWS__)
+		OnInterrupt(); // runs on a separate thread on windows, so calling into glfw is fine
+#else
+		atomic_store(&gIsInterrupted, true);
+		(void)!write(gInterruptPipe[1], "", 1);
+#endif
 		return;
 	case SIGTERM:
 		LOG_ERROR("Program terminated.");
-		return;
+		break;
 	case SIGABRT:
 		LOG_ERROR("Program aborted.");
-		return;
+		break;
 	default:
+#if defined(__WINDOWS__)
+		LOG_ERROR("Unhandled signal\n");
+#else
+		LOG_ERROR("Unhandled signal: %s\n", strsignal(sig));
+#endif
 		break;
 	}
 
-#if defined(__WINDOWS__)
-	LOG_ERROR("Unhandled signal\n");
-#else
-	LOG_ERROR("Unhandled signal: %s\n", strsignal(signal));
-#endif
+	// re-raise with the default action, so the process actually terminates. returning from e.g. SIGSEGV would
+	// re-execute the faulting instruction and loop in this handler forever.
+	signal(sig, SIG_DFL);
+	raise(sig);
 }
 
 static void OnError(int error, const char* description)
@@ -323,6 +374,8 @@ static void SetWindowCallbacks(GLFWwindow* window)
 static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 {
 	ENSURE(inOutState != NULL);
+	ENSURE(inOutState->width > 0);
+	ENSURE(inOutState->height > 0);
 
 	// todo: fullscreen on create
 
@@ -338,12 +391,7 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 
 	ENSURE(window != NULL);
 
-	float xscale;
-	float yscale;
-	glfwGetWindowContentScale(window, &xscale, &yscale);
-
-	inOutState->xscale = xscale;
-	inOutState->yscale = yscale;
+	glfwGetWindowContentScale(window, &inOutState->xscale, &inOutState->yscale);
 
 	if (glfwRawMouseMotionSupported())
 	 	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
@@ -395,6 +443,9 @@ int main(int argc, char* argv[], char* envp[])
 	mi_version(); // if not called first thing in main(), malloc will not be redirected correctly on windows
 #endif
 
+#if !defined(__WINDOWS__)
+	StartInterruptThread();
+#endif
 	signal(SIGINT, OnSignal);
 	signal(SIGTERM, OnSignal);
 	signal(SIGILL, OnSignal);
@@ -433,6 +484,7 @@ int main(int argc, char* argv[], char* envp[])
 	glfwInitAllocator(&allocator);
 	
 	ENSUREF(glfwInit(), "GLFW: Failed to initialize.\n");
+	atomic_store(&gIsGlfwInitialized, true);
 	ENSUREF(glfwVulkanSupported(), "GLFW: Vulkan not supported.\n");
 	
 	int monitorCount;
@@ -473,9 +525,10 @@ int main(int argc, char* argv[], char* envp[])
 
 	ClientCreate(OnCreateWindow, &gPaths);
 	do { glfwWaitEvents(); }
-	while (!(bool)glfwWindowShouldClose((GLFWwindow*)GetCurrentWindow()) && ClientMain() && !gIsInterrupted);//NOLINT(performance-no-int-to-ptr)
+	while (!(bool)glfwWindowShouldClose((GLFWwindow*)GetCurrentWindow()) && ClientMain() && !atomic_load(&gIsInterrupted));//NOLINT(performance-no-int-to-ptr)
 	ClientDestroy(OnDestroyWindow);
 	
+	atomic_store(&gIsGlfwInitialized, false);
 	glfwTerminate();
 
 	return EXIT_SUCCESS;

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "task.h"
-#include "upgradablesharedmutex.h"
-#include "utils.h"
+#include <core/task.h>
+#include <core/upgradablesharedmutex.h>
+#include <core/utils.h>
 
 #include <condition_variable>
 #include <cstdint>
@@ -11,6 +11,9 @@
 #include <span>
 #include <stop_token>
 #include <thread>
+
+namespace core
+{
 
 class TaskExecutor
 {
@@ -25,6 +28,10 @@ public:
 
 	// help out processing the thread pools ready queue one task at a time
 	void JoinOne();
+
+	// help out processing the thread pools ready queue until it is empty and no task is executing on any thread
+	// (including tasks submitted by other tasks while waiting). must not be called from within a task.
+	void JoinAll();
 
 	// blocking call in current thread. dependency chain(s) will be executed asynchrounously in thread pool
 	template <typename... Params>
@@ -44,6 +51,9 @@ private:
 
 	void InternalScheduleAdjacent(Task& task);
 
+	// dequeues and executes a single ready task, if any. returns false if the ready queue was empty.
+	bool InternalTryCallOne();
+
 	void InternalProcessReadyQueue();
 	template <typename R>
 	[[nodiscard]] std::optional<typename Future<R>::value_t> InternalProcessReadyQueue(Future<R>&& future);
@@ -58,7 +68,10 @@ private:
 	std::condition_variable_any myCV;
 	mutable ConcurrentQueue<TaskHandle> myReadyQueue;
 	uint64_t myReadyQueueSize = 0;
+	uint64_t myActiveTaskCount = 0; // tasks dequeued (or about to be) and not yet finished, see InternalTryCallOne
 	mutable ConcurrentQueue<TaskHandle> myDeletionQueue;
 };
+
+} // namespace core
 
 #include "taskexecutor.inl"

@@ -1,6 +1,16 @@
-#include "../pipeline.h"
-#include "../shaders/capi.h"
-#include "utils.h"
+#include <rhi/pipeline.h>
+#include <rhi/shaders/capi.h>
+#include <rhi/rhi.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/vulkan/utils.h>
+
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(PipelineLayout<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(PipelineLayout<kVk>);
+IMPLEMENT_OBJECT_GETINSTANCE(Pipeline<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Pipeline<kVk>);
 
 #pragma pack(push, 1)
 template <>
@@ -17,7 +27,7 @@ struct PipelineCacheHeader<kVk>
 namespace pipeline
 {
 
-using namespace file;
+using namespace core::file;
 
 bool IsCacheValid(
 	const PipelineCacheHeader<kVk>& header,
@@ -34,12 +44,11 @@ bool IsCacheValid(
 			std::size(header.pipelineCacheUUID)) == 0);
 }
 
-PipelineCacheHandle<kVk> LoadPipelineCache(
-	const std::filesystem::path& cacheFilePath, const std::shared_ptr<Device<kVk>>& device)
+PipelineCacheHandle<kVk> LoadPipelineCache(const std::filesystem::path& cacheFilePath, Device<kVk>& device, const Instance<kVk>& instance)
 {
 	std::vector<char> cacheData;
 
-	auto loadCacheOp = [&device, &cacheData](auto& inStream) -> std::error_code
+	auto loadCacheOp = [&instance, &device, &cacheData](auto& inStream) -> std::error_code
 	{
 		if (auto result = inStream(cacheData); failure(result))
 			return std::make_error_code(result);
@@ -47,7 +56,7 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 		const auto* header = reinterpret_cast<const PipelineCacheHeader<kVk>*>(cacheData.data());
 
 		if (cacheData.empty() ||
-			!IsCacheValid(*header, device->GetPhysicalDeviceInfo().deviceProperties))
+			!IsCacheValid(*header, instance.GetPhysicalDeviceInfo(device.GetPhysicalDevice()).deviceProperties))
 		{
 			std::cerr << "Invalid pipeline cache, creating new." << '\n';
 			cacheData.clear();
@@ -66,9 +75,9 @@ PipelineCacheHandle<kVk> LoadPipelineCache(
 
 	PipelineCacheHandle<kVk> cache;
 	VK_CHECK(vkCreatePipelineCache(
-		*device,
+		device,
 		&createInfo,
-		&device->GetInstance()->GetHostAllocationCallbacks(),
+		&instance.GetHostAllocationCallbacks(),
 		&cache));
 
 	return cache;
@@ -129,37 +138,34 @@ std::expected<Record, std::error_code> SavePipelineCache(
 } // namespace pipeline
 
 template <>
+void PipelineLayout<kVk>::Swap(PipelineLayout& rhs) noexcept
+{
+	DeviceObject<PipelineLayout<kVk>>::Swap(rhs);
+	std::swap(myShaderModules, rhs.myShaderModules);
+	std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
+	std::swap(myLayout, rhs.myLayout);
+}
+
+template <>
 PipelineLayout<kVk>& PipelineLayout<kVk>::operator=(PipelineLayout<kVk>&& other) noexcept
 {
-	DeviceObject::operator=(std::forward<PipelineLayout<kVk>>(other));
-	myShaderModules = std::exchange(other.myShaderModules, {});
-	myDescriptorSetLayouts = std::exchange(other.myDescriptorSetLayouts, {});
-	std::swap(myLayout, other.myLayout);
+	Swap(other);
 	return *this;
 }
 
 template <>
 PipelineLayout<kVk>::PipelineLayout(PipelineLayout<kVk>&& other) noexcept
-	: DeviceObject(std::forward<PipelineLayout<kVk>>(other))
-	, myShaderModules(std::exchange(other.myShaderModules, {}))
-	, myDescriptorSetLayouts(std::exchange(other.myDescriptorSetLayouts, {}))
 {
-	std::swap(myLayout, other.myLayout);
+	Swap(other);
 }
 
 template <>
 PipelineLayout<kVk>::PipelineLayout(
-	const std::shared_ptr<Device<kVk>>& device,
+	CreateDescType&& desc,
 	std::vector<ShaderModule<kVk>>&& shaderModules,
 	DescriptorSetLayoutFlatMap<kVk>&& descriptorSetLayouts,
 	PipelineLayoutHandle<kVk>&& layout)
-	: DeviceObject(
-		  device,
-		  {"_PipelineLayout"},
-		  1,
-		  VK_OBJECT_TYPE_PIPELINE_LAYOUT,
-		  reinterpret_cast<uint64_t*>(&layout),
-		  uuids::uuid_system_generator{}())
+	: DeviceObject<PipelineLayout<kVk>>(std::forward<CreateDescType>(desc))
 	, myShaderModules(std::exchange(shaderModules, {}))
 	, myDescriptorSetLayouts(std::exchange(descriptorSetLayouts, {}))
 	, myLayout(std::forward<PipelineLayoutHandle<kVk>>(layout))
@@ -167,14 +173,15 @@ PipelineLayout<kVk>::PipelineLayout(
 
 template <>
 PipelineLayout<kVk>::PipelineLayout(
-	const std::shared_ptr<Device<kVk>>& device,
+	CreateDescType&& desc,
 	std::vector<ShaderModule<kVk>>&& shaderModules,
 	DescriptorSetLayoutFlatMap<kVk>&& descriptorSetLayouts)
 	: PipelineLayout(
-		  device,
+		  std::forward<CreateDescType>(desc),
 		  std::forward<std::vector<ShaderModule<kVk>>>(shaderModules),
 		  std::forward<DescriptorSetLayoutFlatMap<kVk>>(descriptorSetLayouts),
-		  [&descriptorSetLayouts, &device]
+		  // read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
+		  [&descriptorSetLayouts, &desc, this]
 		  {
 			  // todo: rewrite flatmap so that keys and vals are stored as separate arrays so that we dont have to make this conversion
 			  auto handles = descriptorset::GetDescriptorSetLayoutHandles<kVk>(descriptorSetLayouts);
@@ -190,9 +197,9 @@ PipelineLayout<kVk>::PipelineLayout(
 
 			  VkPipelineLayout layout;
 			  VK_CHECK(vkCreatePipelineLayout(
-				  *device,
+				  desc.device,
 				  &pipelineLayoutInfo,
-				  &device->GetInstance()->GetHostAllocationCallbacks(),
+				  &GetInstance().GetHostAllocationCallbacks(),
 				  &layout));
 
 			  return layout;
@@ -201,43 +208,47 @@ PipelineLayout<kVk>::PipelineLayout(
 
 template <>
 PipelineLayout<kVk>::PipelineLayout(
-	const std::shared_ptr<Device<kVk>>& device, const ShaderSet<kVk>& shaderSet)
+	CreateDescType&& desc,
+	const ShaderSet<kVk>& shaderSet)
 	: PipelineLayout(
-		  device,
-		  [&shaderSet, &device]
-		  {
-			  std::vector<ShaderModule<kVk>> shaderModules;
-			  shaderModules.reserve(shaderSet.shaders.size());
-			  for (const auto& shader : shaderSet.shaders)
-				  shaderModules.emplace_back(device, shader);
-			  return shaderModules;
-		  }(),
-		  [&shaderSet, &device]
-		  {
-			  DescriptorSetLayoutFlatMap<kVk> map;
-			  for (auto [set, layout] : shaderSet.layouts)
-				  map.emplace(set, DescriptorSetLayout<kVk>(device, std::move(layout)));
-			  return map;
-		  }())
+		std::forward<CreateDescType>(desc),
+		// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
+		[&shaderSet, &desc, this]
+		{
+			std::vector<ShaderModule<kVk>> shaderModules;
+			shaderModules.reserve(shaderSet.shaders.size());
+			for (auto shader : shaderSet.shaders)
+				shaderModules.emplace_back(
+					ShaderModuleCreateDesc<kVk>{
+						SuperType::CreateDeviceObjectCreateDesc("ShaderModule", desc.device),
+						shader,
+					});
+
+			return shaderModules;
+		}(),
+		[&shaderSet, &desc]
+		{
+			DescriptorSetLayoutFlatMap<kVk> map;
+			for (auto [set, layout] : shaderSet.layouts)
+			{
+				// runtime handles are not part of the serialized shader set, so take them from the owning layout
+				layout.instance = desc.instance;
+				layout.device = desc.device;
+				map.emplace(set, DescriptorSetLayout<kVk>(std::move(layout)));
+			}
+
+			return map;
+		}())
 {}
 
 template <>
 PipelineLayout<kVk>::~PipelineLayout()
 {
-	if (myLayout != nullptr)
+	if (IsValid())
 		vkDestroyPipelineLayout(
-			*InternalGetDevice(),
+			GetDevice(),
 			myLayout,
-			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
-}
-
-template <>
-void PipelineLayout<kVk>::Swap(PipelineLayout& rhs) noexcept
-{
-	DeviceObject::Swap(rhs);
-	std::swap(myShaderModules, rhs.myShaderModules);
-	std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
-	std::swap(myLayout, rhs.myLayout);
+			&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>
@@ -255,7 +266,7 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 	ENSURE(result != XXH_ERROR);
 
 	auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	auto* layoutHandle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
 	//result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
@@ -277,7 +288,7 @@ template <>
 void Pipeline<kVk>::InternalPrepareDescriptorSets()
 {
 	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	const auto& layout = *layoutIt;
 
 	for (const auto& [set, setLayout] : layout.GetDescriptorSetLayouts())
@@ -289,21 +300,20 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 			auto insertResultPair = myDescriptorMap.emplace(
 				setLayoutHandle,
 				std::make_tuple(
-					UpgradableSharedMutex{},
+					core::UpgradableSharedMutex{},
 					DescriptorSetStatus::kReady,
 					BindingsMap<kVk>{},
 					BindingsData<kVk>{},
 					DescriptorUpdateTemplate<kVk>{
-						InternalGetDevice(),
 						DescriptorUpdateTemplateCreateDesc<kVk>{
-							.templateType = ((setLayout.GetDesc().flags &
-							VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
+							GetDevice().CreateDeviceObjectCreateDesc("DescriptorUpdateTemplate"),
+							((setLayout.GetDesc().flags & VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 								? VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_PUSH_DESCRIPTORS_KHR
 								: VK_DESCRIPTOR_UPDATE_TEMPLATE_TYPE_DESCRIPTOR_SET,
-							.descriptorSetLayout = static_cast<VkDescriptorSetLayout>(setLayout),
-							.pipelineBindPoint = myBindPoint,
-							.pipelineLayout = static_cast<VkPipelineLayout>(layout),
-							.set = set}},
+							static_cast<VkDescriptorSetLayout>(setLayout),
+							myBindPoint,
+							static_cast<VkPipelineLayout>(layout),
+							set}},
 					((setLayout.GetDesc().flags &
 					VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 						? std::nullopt
@@ -320,9 +330,11 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 
 				setArrayList.emplace_front(
 					DescriptorSetArray<kVk>(
-						InternalGetDevice(),
-						setLayout,
-						DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
+						DescriptorSetArrayCreateDesc<kVk>{
+							GetDevice().CreateDeviceObjectCreateDesc("DescriptorSetArray"),
+							myDescriptorPool
+						},
+						setLayout),
 					0);
 			}
 		}
@@ -449,7 +461,7 @@ void Pipeline<kVk>::InternalResetComputeState()
 template <>
 void Pipeline<kVk>::InternalResetDescriptorPool()
 {
-	vkResetDescriptorPool(*InternalGetDevice(), myDescriptorPool, 0);
+	vkResetDescriptorPool(GetDevice(), myDescriptorPool, 0);
 }
 
 template <>
@@ -458,11 +470,11 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
 	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	const auto& layout = *layoutIt;
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-	pipelineInfo.pNext = myGraphicsState.dynamicRendering;
+	pipelineInfo.pNext = myGraphicsState.dynamicRendering.has_value() ? &myGraphicsState.dynamicRendering.value() : nullptr;
 	pipelineInfo.flags = 0;
 	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
 	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
@@ -482,17 +494,18 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 
 	VkPipeline pipelineHandle;
 	VK_CHECK(vkCreateGraphicsPipelines(
-		*InternalGetDevice(),
+		GetDevice(),
 		myCache,
 		1,
 		&pipelineInfo,
-		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		InternalGetDevice()->AddOwnedObjectHandle(
-			GetUuid(),
+		AddOwnedObjectHandle<kVk>(
+			GetDevice(),
+			GetDesc().uuid,
 			VK_OBJECT_TYPE_PIPELINE,
 			reinterpret_cast<uint64_t>(pipelineHandle),
 			std::format("{}_Pipeline_{}", GetName(), hashKey));
@@ -508,7 +521,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	ZoneScopedN("Pipeline::InternalCreateComputePipeline");
 
 	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	const auto& layout = *layoutIt;
 
 	VkComputePipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext=nullptr, .flags=0};
@@ -519,11 +532,11 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 
 	VkPipeline pipelineHandle;
 	VK_CHECK(vkCreateComputePipelines(
-		*InternalGetDevice(),
+		GetDevice(),
 		myCache,
 		1,
 		&pipelineInfo,
-		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks(),
+		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
   
 	return pipelineHandle;
@@ -602,7 +615,7 @@ PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayout() const noexcept
 {
 	const auto layoutIt = InternalGetLayout();
 	
-	if (layoutIt == myLayouts.end())
+	if (layoutIt == myPipelineLayouts.end())
 		return VK_NULL_HANDLE;
 
 	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
@@ -611,7 +624,12 @@ PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayout() const noexcept
 template <>
 PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shaderSet)
 {
-	const auto& [layoutIt, wasInserted] = myLayouts.emplace(PipelineLayout<kVk>(InternalGetDevice(), shaderSet));
+	const auto& [layoutIt, wasInserted] = myPipelineLayouts.emplace(
+		PipelineLayout<kVk>(
+			PipelineLayoutCreateDesc<kVk>{
+				SuperType::CreateDeviceObjectCreateDesc("PipelineLayout"),
+			},
+			shaderSet));
 
 	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
 }
@@ -620,8 +638,8 @@ template <>
 void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, PipelineBindPoint<kVk> bindPoint)
 {
 	myBindPoint = bindPoint;
-	myCurrentLayoutIt = myLayouts.find(layoutHandle);
-	ENSURE(myCurrentLayoutIt != myLayouts.end());
+	myCurrentLayoutIt = myPipelineLayouts.find(layoutHandle);
+	ENSURE(myCurrentLayoutIt != myPipelineLayouts.end());
 	const auto& layout = *myCurrentLayoutIt;
 	const auto& shaderModules = layout.GetShaderModules();
 
@@ -677,17 +695,17 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 }
 
 template <>
-void Pipeline<kVk>::SetRenderTarget(RenderTarget<kVk>& renderTarget)
+void Pipeline<kVk>::SetRenderTarget(IRenderTarget<kVk>& renderTarget)
 {
-	auto extent = renderTarget.GetRenderTargetDesc().extent;
+	auto extent = renderTarget.GetExtent();
 
 	myGraphicsState.viewports[0].width = static_cast<float>(extent.width);
 	myGraphicsState.viewports[0].height = static_cast<float>(extent.height);
 	myGraphicsState.scissorRects[0].offset = {.x = 0, .y = 0};
 	myGraphicsState.scissorRects[0].extent = {.width = extent.width, .height = extent.height};
-	myGraphicsState.dynamicRendering = renderTarget.GetPipelineRenderingCreateInfo() ? &renderTarget.GetPipelineRenderingCreateInfo().value() : nullptr;
-
-	myRenderTarget = static_cast<RenderTargetPassHandle<kVk>>(renderTarget);
+	myGraphicsState.dynamicRendering = renderTarget.GetPipelineRenderingCreateInfo();
+	
+	myRenderTarget = renderTarget.GetHandle();
 }
 
 template <>
@@ -709,7 +727,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 	{
 		setArrayList.emplace_front(std::make_tuple(
 			DescriptorSetArray<kVk>(
-				InternalGetDevice(), setLayout, DescriptorSetArrayCreateDesc<kVk>{myDescriptorPool}),
+				DescriptorSetArrayCreateDesc<kVk>{GetDevice().CreateDeviceObjectCreateDesc("DescriptorSetArray"), myDescriptorPool}, setLayout),
 			~0));
 	}
 
@@ -723,7 +741,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 			"Pipeline::InternalUpdateDescriptorSet::vkUpdateDescriptorSetWithTemplate");
 
 		vkUpdateDescriptorSetWithTemplate(
-			*InternalGetDevice(), setHandle, setTemplate, bindingsData.data());
+			GetDevice(), setHandle, setTemplate, bindingsData.data());
 	}
 }
 
@@ -805,7 +823,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 	ZoneScopedN("Pipeline::BindDescriptorSetAuto");
 
 	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myLayouts.end());
+	ENSURE(layoutIt != myPipelineLayouts.end());
 	const auto& layout = *layoutIt;
 	const auto& setLayout = layout.GetDescriptorSetLayout(set);
 	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
@@ -861,70 +879,70 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 }
 
 template <>
-Pipeline<kVk>::Pipeline(
-	const std::shared_ptr<Device<kVk>>& device, PipelineConfiguration<kVk>&& defaultConfig)
-	: DeviceObject(device, {}, uuids::uuid_system_generator{}())
-	, myConfig{std::get<std::filesystem::path>(Application::Get().lock()->GetEnv().variables["UserProfilePath"]) / "pipeline.bin", std::forward<PipelineConfiguration<kVk>>(defaultConfig)}
+Pipeline<kVk>::Pipeline(CreateDescType&& desc)
+	: DeviceObject(std::forward<CreateDescType>(desc))
 	, myDescriptorPool(
-		  [](const std::shared_ptr<Device<kVk>>& device)
-		  {
-			  static constexpr uint32_t kGlobalResourceBaseCount = 128;
-			  static constexpr uint32_t kBufferBaseCount = kGlobalResourceBaseCount*1024;
-			  //static constexpr uint32_t kMaxSets = 128;
-			  static constexpr uint32_t kMaxSets = 16*1024;
-			  
-			  static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
-				  {.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount=kGlobalResourceBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
-				  {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				   .descriptorCount=kGlobalResourceBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
-				  {.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-				   .descriptorCount=kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
-				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-				   .descriptorCount=kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
-				  {.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount=kBufferBaseCount},
-				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount=kBufferBaseCount},
-				  {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount=kBufferBaseCount},
-				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount=kBufferBaseCount},
-				  {.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount=kBufferBaseCount},
-				  {.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount=kBufferBaseCount},
-				  {.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount=kBufferBaseCount}});
+		[this]
+		{
+			static constexpr uint32_t kGlobalResourceBaseCount = 128;
+			static constexpr uint32_t kBufferBaseCount = kGlobalResourceBaseCount*1024;
+			//static constexpr uint32_t kMaxSets = 128;
+			static constexpr uint32_t kMaxSets = 16*1024;
+			
+			static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
+				{.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount=kGlobalResourceBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+				{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+				.descriptorCount=kGlobalResourceBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
+				{.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+				.descriptorCount=kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
+				{.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+				.descriptorCount=kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
+				{.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount=kBufferBaseCount},
+				{.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount=kBufferBaseCount},
+				{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount=kBufferBaseCount},
+				{.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount=kBufferBaseCount},
+				{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount=kBufferBaseCount},
+				{.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount=kBufferBaseCount},
+				{.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount=kBufferBaseCount}});
 
-			  VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
-				  .sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
-			  inlineUniformBlockInfo.maxInlineUniformBlockBindings = kBufferBaseCount;
+			VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
+				.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
+			inlineUniformBlockInfo.maxInlineUniformBlockBindings = kBufferBaseCount;
 
-			  VkDescriptorPoolCreateInfo poolInfo{.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-			  poolInfo.pNext = &inlineUniformBlockInfo;
-			  poolInfo.poolSizeCount = std::size(kPoolSizes);
-			  poolInfo.pPoolSizes = kPoolSizes.data();
-			  poolInfo.maxSets = kMaxSets * std::size(kPoolSizes);
-			  poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-			  // VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
-			  // VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
+			VkDescriptorPoolCreateInfo poolInfo{.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+			poolInfo.pNext = &inlineUniformBlockInfo;
+			poolInfo.poolSizeCount = std::size(kPoolSizes);
+			poolInfo.pPoolSizes = kPoolSizes.data();
+			poolInfo.maxSets = kMaxSets * std::size(kPoolSizes);
+			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
+			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT
 
-			  VkDescriptorPool outDescriptorPool;
-			  VK_CHECK(vkCreateDescriptorPool(
-				  *device,
-				  &poolInfo,
-				  &device->GetInstance()->GetHostAllocationCallbacks(),
-				  &outDescriptorPool));
+			VkDescriptorPool outDescriptorPool;
+			VK_CHECK(vkCreateDescriptorPool(
+				GetDevice(),
+				&poolInfo,
+				&GetInstance().GetHostAllocationCallbacks(),
+				&outDescriptorPool));
 
-			  return outDescriptorPool;
-		  }(device))
-	, myCache(pipeline::LoadPipelineCache(myConfig.cachePath, device))
+			return outDescriptorPool;
+		}())
+	, myCache(pipeline::LoadPipelineCache(GetDesc().cachePath, GetDevice(), GetInstance()))
 {
 	InternalResetGraphicsState();
 	InternalResetComputeState();
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	device->AddOwnedObjectHandle(
-		GetUuid(),
+	AddOwnedObjectHandle<kVk>(
+		GetDevice(),
+		GetDesc().uuid,
 		VK_OBJECT_TYPE_PIPELINE_CACHE,
 		reinterpret_cast<uint64_t>(myCache),
-		std::format("{}_PipelineCache", GetName()));
+		std::format("PipelineCache"));
 
-	device->AddOwnedObjectHandle(
-		GetUuid(),
+	AddOwnedObjectHandle<kVk>(
+		GetDevice(),
+		GetDesc().uuid,
 		VK_OBJECT_TYPE_DESCRIPTOR_POOL,
 		reinterpret_cast<uint64_t>(myDescriptorPool),
 		"Device_DescriptorPool");
@@ -932,12 +950,45 @@ Pipeline<kVk>::Pipeline(
 }
 
 template <>
+void Pipeline<kVk>::Swap(Pipeline& rhs) noexcept
+{
+	DeviceObject<Pipeline<kVk>>::Swap(rhs);
+	std::swap(myDescriptorMap, rhs.myDescriptorMap);
+	std::swap(myDescriptorPool, rhs.myDescriptorPool);
+	std::swap(myPipelineMap, rhs.myPipelineMap);
+	std::swap(myCache, rhs.myCache);
+	std::swap(myBindPoint, rhs.myBindPoint);
+	std::swap(myRenderTarget, rhs.myRenderTarget);
+	std::swap(myPipelineLayouts, rhs.myPipelineLayouts);
+	std::swap(myCurrentLayoutIt, rhs.myCurrentLayoutIt);
+	std::swap(myGraphicsState, rhs.myGraphicsState);
+	std::swap(myComputeState, rhs.myComputeState);
+	std::swap(myRayTracingState, rhs.myRayTracingState);
+}
+
+template <>
+Pipeline<kVk>::Pipeline(Pipeline&& other) noexcept
+{
+	Swap(other);
+}
+
+template <>
+Pipeline<kVk>& Pipeline<kVk>::operator=(Pipeline<kVk>&& other) noexcept
+{
+	Swap(other);
+	return *this;
+}
+
+template <>
 Pipeline<kVk>::~Pipeline()
 {
+	if (!IsValid())
+		return;
+
 	if (auto fileInfo = pipeline::SavePipelineCache(
-			myConfig.cachePath,
-			*InternalGetDevice(),
-			InternalGetDevice()->GetPhysicalDeviceInfo().deviceProperties,
+			GetDesc().cachePath,
+			GetDevice(),
+			GetInstance().GetPhysicalDeviceInfo(GetDevice().GetPhysicalDevice()).deviceProperties,
 			myCache);
 		fileInfo)
 	{
@@ -950,18 +1001,22 @@ Pipeline<kVk>::~Pipeline()
 
 	for (const auto& pipelineIt : myPipelineMap)
 		vkDestroyPipeline(
-			*InternalGetDevice(),
+			GetDevice(),
 			pipelineIt.second,
-			&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
+			&GetInstance().GetHostAllocationCallbacks());
 
 	vkDestroyPipelineCache(
-		*InternalGetDevice(),
+		GetDevice(),
 		myCache,
-		&InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		&GetInstance().GetHostAllocationCallbacks());
 
-	myResources = {};
 	myDescriptorMap.clear();
 
 	if (myDescriptorPool != nullptr)
-		vkDestroyDescriptorPool(*InternalGetDevice(), myDescriptorPool, &InternalGetDevice()->GetInstance()->GetHostAllocationCallbacks());
+		vkDestroyDescriptorPool(
+			GetDevice(),
+			myDescriptorPool,
+			&GetInstance().GetHostAllocationCallbacks());
 }
+
+} // namespace rhi

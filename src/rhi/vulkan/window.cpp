@@ -1,8 +1,8 @@
-#include "../window.h"
-#include "../rhiapplication.h"
-#include "../shaders/capi.h"
+#include <rhi/window.h>
+#include <rhi/rhiapplication.h>
+#include <rhi/shaders/capi.h>
 
-#include "utils.h"
+#include <rhi/vulkan/utils.h>
 
 #include <GLFW/glfw3.h>
 
@@ -11,20 +11,26 @@
 #include <cmath>
 #include <string_view>
 
+namespace rhi
+{
+
+IMPLEMENT_OBJECT_GETINSTANCE(Window<kVk>);
+IMPLEMENT_DEVICEOBJECT_GETDEVICE(Window<kVk>);
+
 template <>
 void Window<kVk>::InternalUpdateViewBuffer()
 {
 	ZoneScopedN("Window::InternalUpdateViewBuffer");
 
-	for (const auto& frame : GetFrames())
+	for (const auto& frame : mySwapchain.GetFrames())
 	{
 		auto* bufferMemory = myViewBuffers[frame.GetDesc().index].GetMemory();
 		void* data;
-		VK_CHECK(vmaMapMemory(InternalGetDevice()->GetAllocator(), bufferMemory, &data));
+		VK_CHECK(vmaMapMemory(GetDevice().GetAllocator(), bufferMemory, &data));
 		ENSURE(data != nullptr);
 
 		auto* viewDataPtr = static_cast<ViewData*>(data);
-		auto viewCount = (myConfig.splitScreenGrid.width * myConfig.splitScreenGrid.height);
+		auto viewCount = (GetDesc().splitScreenGrid.width * GetDesc().splitScreenGrid.height);
 		ENSURE(viewCount <= SHADER_TYPES_VIEW_COUNT);
 		constexpr size_t kMatrixElementCount = 16;
 		auto cameras = myCameras.Read();
@@ -47,12 +53,12 @@ void Window<kVk>::InternalUpdateViewBuffer()
 		}
 
 		vmaFlushAllocation(
-			InternalGetDevice()->GetAllocator(),
+			GetDevice().GetAllocator(),
 			bufferMemory,
 			0,
 			viewCount * sizeof(ViewData));
 
-		vmaUnmapMemory(InternalGetDevice()->GetAllocator(), bufferMemory);
+		vmaUnmapMemory(GetDevice().GetAllocator(), bufferMemory);
 	}
 }
 
@@ -61,15 +67,15 @@ void Window<kVk>::InternalInitializeViews()
 {
 	auto cameras = myCameras.Write();
 
-	cameras.Get().resize(static_cast<size_t>(myConfig.splitScreenGrid.width) * static_cast<size_t>(myConfig.splitScreenGrid.height));
+	cameras.Get().resize(static_cast<size_t>(GetDesc().splitScreenGrid.width) * static_cast<size_t>(GetDesc().splitScreenGrid.height));
 
-	unsigned width = myConfig.swapchainConfig.extent.width / myConfig.splitScreenGrid.width;
-	unsigned height = myConfig.swapchainConfig.extent.height / myConfig.splitScreenGrid.height;
+	unsigned width = GetSwapchain().GetDesc().extent.width / GetDesc().splitScreenGrid.width;
+	unsigned height = GetSwapchain().GetDesc().extent.height / GetDesc().splitScreenGrid.height;
 
-	for (unsigned j = 0; j < myConfig.splitScreenGrid.height; j++)
-		for (unsigned i = 0; i < myConfig.splitScreenGrid.width; i++)
+	for (unsigned j = 0; j < GetDesc().splitScreenGrid.height; j++)
+		for (unsigned i = 0; i < GetDesc().splitScreenGrid.width; i++)
 		{
-			auto& cam = cameras.Get()[(j * myConfig.splitScreenGrid.width) + i];
+			auto& cam = cameras.Get()[(j * GetDesc().splitScreenGrid.width) + i];
 			cam.GetDesc().viewport.x = i * width;
 			cam.GetDesc().viewport.y = j * height;
 			cam.GetDesc().viewport.width = width;
@@ -83,36 +89,26 @@ void Window<kVk>::OnResizeFramebuffer(int width, int height)
 {
 	ASSERT(width > 0);
 	ASSERT(height > 0);
+	ASSERT(GetDesc().contentScale.x == myState.xscale);
+	ASSERT(GetDesc().contentScale.y == myState.yscale);
 
-	auto& device = *InternalGetDevice();
-	auto& instance = *device.GetInstance();
-	auto* surface = GetSurface();
-	auto* physicalDevice = device.GetPhysicalDevice();
+	mySwapchain.CreateSwapchain();
 
-	instance.UpdateSurfaceCapabilities(physicalDevice, surface);
+	myState.width = static_cast<uint32_t>(static_cast<float>(mySwapchain.GetDesc().extent.width) / myState.xscale);
+	myState.height = static_cast<uint32_t>(static_cast<float>(mySwapchain.GetDesc().extent.height) / myState.yscale);
 
-	myConfig.swapchainConfig.extent = instance.GetSwapchainInfo(physicalDevice, surface).capabilities.currentExtent;
-
-	ASSERT(myConfig.contentScale.x == myState.xscale);
-	ASSERT(myConfig.contentScale.y == myState.yscale);
-
-	myState.width = static_cast<uint32_t>(static_cast<float>(myConfig.swapchainConfig.extent.width) / myState.xscale);
-	myState.height = static_cast<uint32_t>(static_cast<float>(myConfig.swapchainConfig.extent.height) / myState.yscale);
-
-	InternalCreateSwapchain(myConfig.swapchainConfig, *static_cast<Swapchain<kVk>*>(this));
 	InternalInitializeViews();
 }
 
 template <>
 void Window<kVk>::OnResizeSplitScreenGrid(uint32_t width, uint32_t height)
 {
-	myConfig.splitScreenGrid = Extent2d<kVk>{.width=width, .height=height};
-
+	InternalGetDesc().splitScreenGrid = Extent2d<kVk>{.width = width, .height = height};
 	InternalInitializeViews();
 }
 
 template <>
-void Window<kVk>::InternalUpdateViews(const InputState& input)
+void Window<kVk>::InternalUpdateViews(const core::InputState& input)
 {
 	ZoneScopedN("Window::InternalUpdateViews");
 
@@ -121,11 +117,11 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{
 		// todo: generic view index calculation
-		auto viewIdx = static_cast<size_t>(static_cast<float>(myConfig.splitScreenGrid.width) * input.mouse.position[0] /
-			(static_cast<float>(myConfig.swapchainConfig.extent.width) / myConfig.contentScale.x));
-		auto viewIdy = static_cast<size_t>(static_cast<float>(myConfig.splitScreenGrid.height) * input.mouse.position[1] /
-			(static_cast<float>(myConfig.swapchainConfig.extent.height) / myConfig.contentScale.y));
-		myActiveCamera = std::min((viewIdy * myConfig.splitScreenGrid.width) + viewIdx, cameras.Get().size() - 1);
+		auto viewIdx = static_cast<size_t>(static_cast<float>(GetDesc().splitScreenGrid.width) * input.mouse.position[0] /
+			(static_cast<float>(mySwapchain.GetDesc().extent.width) / GetDesc().contentScale.x));
+		auto viewIdy = static_cast<size_t>(static_cast<float>(GetDesc().splitScreenGrid.height) * input.mouse.position[1] /
+			(static_cast<float>(mySwapchain.GetDesc().extent.height) / GetDesc().contentScale.y));
+		myActiveCamera = std::min((viewIdy * GetDesc().splitScreenGrid.width) + viewIdx, cameras.Get().size() - 1);
 
 		//std::cout << *myActiveCamera << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
 	}
@@ -192,8 +188,8 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 		{
 			constexpr auto kRotSpeed = 5.0F;
 
-			const float windowWidth = static_cast<float>(view.GetDesc().viewport.width) / static_cast<float>(myConfig.contentScale.x);
-			const float windowHeight = static_cast<float>(view.GetDesc().viewport.height) / static_cast<float>(myConfig.contentScale.y);
+			const float windowWidth = static_cast<float>(view.GetDesc().viewport.width) / static_cast<float>(GetDesc().contentScale.x);
+			const float windowHeight = static_cast<float>(view.GetDesc().viewport.height) / static_cast<float>(GetDesc().contentScale.y);
 			// const float cx = std::fmod(input.mouse.leftLastPressPosition[0], windowWidth);
 			// const float cy = std::fmod(input.mouse.leftLastPressPosition[1], windowHeight);
 			const float cursorX = std::fmod(input.mouse.lastPosition[0], windowWidth);
@@ -222,34 +218,28 @@ void Window<kVk>::InternalUpdateViews(const InputState& input)
 		}
 	}
 
-	if (auto app = static_pointer_cast<RHIApplication>(gApplication.lock()); app)
+	if (auto app = static_pointer_cast<RHIApplication>(core::Application::Get()); app)
 	{
-		auto [updateViewBufferTask, updateViewBufferFuture] = CreateTask(
+		auto [updateViewBufferTask, updateViewBufferFuture] = core::CreateTask(
 			[this]() { UpdateViewBuffer(); });
-		app->GetRHI().drawCalls.enqueue(updateViewBufferTask);
+		app->GetRHI<kVk>().drawCalls.enqueue(updateViewBufferTask);
 	}
 }
 
 template <>
-void Window<kVk>::OnInputStateChanged(const InputState& input)
+void Window<kVk>::OnInputStateChanged(const core::InputState& input)
 {
 	InternalUpdateViews(input);
 }
 
 template <>
 Window<kVk>::Window(
-	const std::shared_ptr<Device<kVk>>& device,
-	WindowHandle window,
-	SurfaceHandle<kVk> surface,
-	ConfigFile&& config,
+	WindowCreateDesc<kVk>&& desc,
+	SwapchainCreateDesc<kVk>&& swapchainDesc,
 	WindowState&& state)
-	: Swapchain(
-		device,
-		config.swapchainConfig,
-		surface, VK_NULL_HANDLE)
-	, myWindow(window)
-	, myConfig(std::move(config))
-	, myState(std::move(state))
+	: DeviceObject(std::forward<WindowCreateDesc<kVk>>(desc))
+	, myState(std::forward<WindowState>(state))
+	, mySwapchain(std::forward<SwapchainCreateDesc<kVk>>(swapchainDesc))
 	, myViewBuffers(SHADER_TYPES_FRAME_COUNT)
 {
 	ZoneScopedN("Window()");
@@ -257,12 +247,11 @@ Window<kVk>::Window(
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		myViewBuffers[i] = Buffer<kVk>(
-			InternalGetDevice(),
 			BufferCreateDesc<kVk>{
-				.size = SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
-				.usageFlags = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				.memoryFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-				.name = "ViewBuffer"});
+				SuperType::CreateDeviceObjectCreateDesc(std::format("Window{}ViewBuffer{}", GetDesc().window, i)),
+				SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
 	}
 
 	InternalInitializeViews();
@@ -270,10 +259,9 @@ Window<kVk>::Window(
 
 template <>
 Window<kVk>::Window(Window&& other) noexcept
-	: Swapchain(std::forward<Window>(other))
-	, myWindow(std::exchange(other.myWindow, {}))
-	, myConfig(std::exchange(other.myConfig, {}))
+	: DeviceObject(std::move(other))
 	, myState(std::exchange(other.myState, {}))
+	, mySwapchain(std::exchange(other.mySwapchain, {}))
 	, myViewBuffers(std::exchange(other.myViewBuffers, {}))
 	, myCameras(std::exchange(other.myCameras, {}))
 	, myActiveCamera(std::exchange(other.myActiveCamera, {}))
@@ -286,26 +274,21 @@ Window<kVk>::~Window()
 }
 
 template <>
-Window<kVk>& Window<kVk>::operator=(Window&& other) noexcept
-{
-	Swapchain::operator=(std::forward<Window>(other));
-	myWindow = std::exchange(other.myWindow, {});
-	myConfig = std::exchange(other.myConfig, {});
-	myState = std::exchange(other.myState, {});
-	myViewBuffers = std::exchange(other.myViewBuffers, {});
-	myCameras = std::exchange(other.myCameras, {});
-	myActiveCamera = std::exchange(other.myActiveCamera, {});
-	return *this;
-}
-
-template <>
 void Window<kVk>::Swap(Window& other) noexcept
 {
-	Swapchain::Swap(other);
-	std::swap(myWindow, other.myWindow);
-	std::swap(myConfig, other.myConfig);
+	DeviceObject::Swap(other);
 	std::swap(myState, other.myState);
+	std::swap(mySwapchain, other.mySwapchain);
 	std::swap(myViewBuffers, other.myViewBuffers);
 	std::swap(myCameras, other.myCameras);
 	std::swap(myActiveCamera, other.myActiveCamera);
 }
+
+template <>
+Window<kVk>& Window<kVk>::operator=(Window&& other) noexcept
+{
+	Swap(other);
+	return *this;
+}
+
+} // namespace rhi

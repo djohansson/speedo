@@ -1,6 +1,9 @@
-#include "camera.h"
+#include <gfx/camera.h>
 
 #include <core/assert.h>
+
+namespace gfx
+{
 
 void Camera::UpdateViewMatrix()
 {
@@ -47,3 +50,5 @@ void Camera::UpdateProjectionMatrix()
 		break;
 	}
 }
+
+} // namespace gfx

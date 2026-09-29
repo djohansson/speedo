@@ -1,29 +1,40 @@
 #pragma once
 
-#include "device.h"
-#include "types.h"
+#include <rhi/deviceobject.h>
+#include <rhi/types.h>
 
-#include <memory>
 #include <span>
-#include <utility>
+
+namespace rhi
+{
 
 template <GraphicsApi G>
-struct SemaphoreCreateDesc
+class Semaphore;
+
+template <GraphicsApi G>
+struct SemaphoreCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	SemaphoreType<G> type{};
 	uint32_t flags = 0UL;
 };
 
 template <GraphicsApi G>
-class Semaphore : public DeviceObject<G>
+struct ObjectTraits<Semaphore<G>>
+{
+	using CreateDescType = SemaphoreCreateDesc<G>;
+};
+
+template <GraphicsApi G>
+class Semaphore final : public DeviceObject<Semaphore<G>>
 {
 public:
+	using SuperType = DeviceObject<Semaphore<G>>;
+	using CreateDescType = ObjectTraits<Semaphore<G>>::CreateDescType;
+	
 	constexpr Semaphore() noexcept = default;
-	Semaphore(
-		const std::shared_ptr<Device<G>>& device,
-		SemaphoreCreateDesc<G>&& desc);
+	explicit Semaphore(CreateDescType&& desc);
 	Semaphore(Semaphore<G>&& other) noexcept;
-	~Semaphore() override;
+	~Semaphore();
 
 	[[nodiscard]] Semaphore& operator=(Semaphore&& other) noexcept;
 	[[nodiscard]] operator bool() const noexcept { return mySemaphore != nullptr; }//NOLINT(google-explicit-constructor)
@@ -33,7 +44,6 @@ public:
 	friend void Swap(Semaphore& lhs, Semaphore& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] uint64_t GetValue() const;
-	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	[[maybe_unused]] bool Wait(uint64_t timelineValue = 0, uint64_t timeout = ~0ULL) const; //NOLINT(modernize-use-nodiscard)
 	[[maybe_unused]] static bool Wait(
@@ -44,10 +54,10 @@ public:
 
 private:
 	Semaphore(
-		const std::shared_ptr<Device<G>>& device,
-		SemaphoreHandle<G>&& handle,
-		SemaphoreCreateDesc<G>&& desc);
+		CreateDescType&& desc,
+		SemaphoreHandle<G>&& handle);
 	
 	SemaphoreHandle<G> mySemaphore{};
-	SemaphoreCreateDesc<G> myDesc{};
 };
+
+} // namespace rhi
