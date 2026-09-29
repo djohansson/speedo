@@ -183,3 +183,115 @@ one of these maps directly (e.g. via `.emplace(...)`), hash the string first; pa
 raw string literal compiles a `pair<size_t, T>` construction attempt that only fails at
 template-instantiation depth deep inside `<vector>`/`<unordered_dense.h>`, far from the
 actual mistake.
+
+## Always configure via `cmake --preset <name>`, never a hand-reconstructed command
+
+`setup.ps1` generates `CMakeUserPresets.json` with the `LLVM_ROOT`/`LLVM_TOOLS_BINARY_DIR`/`PATH`
+(and Visual Studio path) environment that `scripts/cmake/toolchains/clang.toolchain.cmake` and
+`CMakeLists.txt`'s `find_program(MINJECT ...)` depend on. Copy-pasting the raw
+`cmake -D... -S ... -B ...` invocation out of a VS Code CMake Tools log and re-running it by hand
+skips that environment and fails in several different, confusing ways (empty `LLVM_ROOT` inside the
+toolchain, `minject.exe` not found, etc.). Use `cmake --preset <name> -S <root>` instead — it's not
+just shorter, the raw command is missing required state.
+
+## FASTBuild: PCH can race with sibling objects in the same `ObjectList`
+
+When an `ObjectList()` both builds a precompiled header (`.PCHInputFile`/`.PCHOutputFile`/
+`.PCHOptions`) and compiles other files that consume it via `/Yu`, FASTBuild does not reliably
+finish the PCH before starting sibling `/Yu` compiles in the same list, despite that ordering being
+the documented point of the feature. Symptom: the `/Yc` PCH compile itself reports success (fast,
+~1s) but is truncated/corrupt by the time a sibling object reads it:
+```
+error: input is not a PCH file: '....pch'
+fatal error: file '....pch' is not a valid precompiled PCH file: file too small to contain AST file magic
+```
+Confirmed this is *not* caching (reproduces identically with the local buildtree and the remote
+`FASTBUILD_CACHE_PATH` fully wiped), *not* `CMAKE_FASTBUILD_USE_LIGHTCACHE` (reproduces with it OFF),
+and *not* distributed builds (FASTBuild's job-slot count matches the local logical core count exactly
+— no remote workers involved). Hit building the `llvm` port itself with FASTBuild 1.19 + clang-cl.
+Don't re-derive any of the above when this recurs — just disable PCH for the affected port via
+`-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` in its `vcpkg_cmake_configure()` `OPTIONS` (see
+`ports/llvm/portfile.cmake`). Slower compile, but avoids the race.
+
+## libc++ migration: MSVC STL "leaks" `<cstdlib>`/`<cmath>`/etc., libc++ doesn't
+
+`scripts/cmake/toolchains/clang.toolchain.cmake` builds the `x64-windows-clang` triplet against
+LLVM's own `libc++` (`-nostdinc++ -isystem .../include/c++/v1`) instead of MSVC's STL. MSVC's STL
+headers transitively pull in a lot (`<string>`/`<windows.h>` commonly drag in `<cstdlib>`, `<cmath>`,
+etc.), so third-party code that never explicitly included what it uses compiles fine under MSVC STL
+and fails under libc++ with things like:
+```
+error: no member named 'abort' in namespace 'std'; did you mean simply 'abort'?
+error: use of undeclared identifier 'getenv'; did you mean '_wgetenv'?
+error: no member named 'pow' in namespace 'std'; did you mean simply 'pow'?
+```
+This is expected fallout of the libc++ switch, not a sign anything else is broken — and it will keep
+surfacing as untouched ports get exercised for the first time under this triplet. Fix by adding the
+missing `#include` via a patch on the specific port (see `ports/tracy/0005-*`/`0006-*`). If the port
+isn't already a local overlay, copy its `portfile.cmake`/`vcpkg.json` from
+`%LOCALAPPDATA%\vcpkg\registries\git-trees\<commit>\` into a new `ports/<name>/` overlay dir and add
+the patch there (see `ports/parallel-hashmap/`). The same class of bug can also hit our own code that
+happened to rely on the same MSVC-STL leakage (see `src/rhi/vulkan/device.cpp`'s
+`std::filesystem::path` → `std::string` conversion, which relied on an implicit conversion libc++
+correctly rejects since `path::string_type` is `wstring` on Windows — fix with an explicit `.string()`
+call, not a cast).
+
+## `clang.toolchain.cmake`: variables from `vcpkg.cmake` aren't available yet when chainloaded
+
+`VCPKG_CHAINLOAD_TOOLCHAIN_FILE` is `include()`d by `vcpkg.cmake` (`vcpkg/scripts/buildsystems/
+vcpkg.cmake:208`) *before* it sets `CURRENT_INSTALLED_DIR`/`CURRENT_HOST_INSTALLED_DIR`/triplet info
+(set later, ~line 233+). Code in `clang.toolchain.cmake` that reads those variables only works via a
+path that doesn't need them — e.g. the `DEFINED ENV{LLVM_ROOT}` branch, which is always taken in the
+real dev workflow because presets set that env var (see above). The `else()`/`elseif()` fallback
+branches that read `CURRENT_INSTALLED_DIR` directly are effectively cold-configure-only code that a
+normal, preset-driven, warm-cache workflow never exercises, so bugs in them go unnoticed for a long
+time. Two found this way: `elseif(DEFINED CMAKE_CROSSCOMPILING AND ${CMAKE_CROSSCOMPILING})` breaks
+when `CMAKE_CROSSCOMPILING` isn't defined yet (the empty expansion leaves `AND` with no right-hand
+side) — use plain `elseif(CMAKE_CROSSCOMPILING)`. And `CMAKE_C_COMPILER`/`CMAKE_CXX_COMPILER` were
+`set(... CACHE FILEPATH ...)` *without* `FORCE`, so once a bad value got cached (e.g. from hitting the
+bug above on a cold configure), it stuck across every subsequent reconfigure of that build dir even
+after the underlying cause was fixed — pair `CACHE` sets in this file with `FORCE`, like
+`LLVM_ROOT`/`LLVM_TOOLS_BINARY_DIR` already do just above.
+
+## Stale `build/<preset>/vcpkg_installed` shadows the real `install/` dir
+
+Some `build/<preset>` directories carry their own `vcpkg_installed/` subfolder (left over from before
+`VCPKG_INSTALLED_DIR` was pointed at the shared `install/` dir project-wide) that takes include-path
+precedence over the correct shared copy. The symptom looks like a real source/API mismatch (e.g.
+imgui symbols "not found" that plainly exist in the installed headers) but is actually just two
+different vcpkg install trees on the same include path. Check
+`build/<preset>/vcpkg_installed/<triplet>/share/<pkg>/*.list` for a suspiciously old version before
+assuming a real API break; fix is deleting the stale `build/<preset>` directory and reconfiguring
+(via `cmake --preset`, see above).
+
+## CMake `IMPORTED_LOCATION` vs `CMAKE_MAP_IMPORTED_CONFIG_<custom config>`
+
+For imported targets that only set a generic, unsuffixed `IMPORTED_LOCATION` (e.g. `Vulkan::Vulkan`
+from CMake's builtin `FindVulkan.cmake`, unlike vcpkg's own `CONFIG` packages which set
+`IMPORTED_LOCATION_RELEASE`/`_DEBUG`), a `CMAKE_MAP_IMPORTED_CONFIG_<CONFIG>` mapping for a custom
+config name (we have `profile`, mapped to `release`) does not fall back to that generic property —
+`<Target>-NOTFOUND` at link time for the custom config specifically, even though the exact same code
+links fine for `debug`/`release` (neither needs a mapping, so they use the generic property
+directly). Fix at the call site, not in the shared `FindVulkan.cmake`: after
+`find_package(Vulkan REQUIRED)`, explicitly
+`set_property(TARGET Vulkan::Vulkan PROPERTY IMPORTED_LOCATION_RELEASE "${Vulkan_LIBRARIES}")`
+(see `CMakeLists.txt`).
+
+## CMake presets: setting `"PATH"` in `environment` replaces it, doesn't extend it
+
+Unlike other env vars, a preset `environment` entry named `PATH` is **not** merged with the
+inherited process `PATH` unless you explicitly append `$penv{PATH}` yourself — `"PATH": "foo"` sets
+the child process's `PATH` to exactly `foo`, dropping `C:\Windows\System32` and everything else.
+`setup.ps1` (which generates `CMakeUserPresets.json`) got this right for the Linux `LD_LIBRARY_PATH`
+entry (`` `$penv{LD_LIBRARY_PATH}: ``) but missed it for Windows `PATH`, so every build silently ran
+with a `PATH` containing only the LLVM/mimalloc tool dirs. Symptom was easy to misdiagnose as harmless
+because the overall build still reported success: `applocal.ps1` (vcpkg's app-local DLL deployment,
+invoked post-link via a generated `.bat` calling bare `powershell.exe`) failed with `'powershell.exe'
+is not recognized...`, and FASTBuild treated that failure as non-fatal. Once `powershell.exe` was
+findable again, the *next* layer of the same bug showed up: `applocal.ps1` itself needs
+`dumpbin`/`llvm-objdump`/`objdump` on `PATH` to inspect DLL imports, and `llvm-objdump.exe` lives
+under `LLVM_TOOLS_BINARY_DIR` (`.../tools/llvm`), not `LLVM_ROOT/bin` — so it also needs to be added
+explicitly, it's not implied by `LLVM_ROOT/bin` already being present. Both gaps are fixed in
+`setup.ps1`'s `PATH` construction now; if a build "succeeds" but the built `.exe` is missing
+sibling DLLs (`vulkan-1.dll`, `cpptrace.dll`, etc. next to it in the build dir), check the build log
+for swallowed `applocal.ps1` errors before assuming the DLLs were never needed.
