@@ -10,6 +10,7 @@ function Install-HomebrewPackage
 	else
 	{
 		brew install $packageName
+		if ($LASTEXITCODE -ne 0) { throw "brew install $packageName failed with exit code $LASTEXITCODE" }
 		Write-Host " success."
 	}
 }

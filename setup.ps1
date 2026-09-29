@@ -1,13 +1,26 @@
+# Make Write-Error and cmdlet errors fatal (exit code 1). Native commands don't throw on non-zero exit codes
+# (some, like `brew list` and `xcode-select --install`, are expected to fail), so check $LASTEXITCODE explicitly.
+$ErrorActionPreference = 'Stop'
+
 . $PSScriptRoot/scripts/env.ps1
 . $PSScriptRoot/scripts/platform.ps1
 
-$global:myEnv = New-Object -TypeName PSObject
+# always a hashtable, assign with $global:myEnv['KEY'] = ... (Add-Member on a hashtable is not serialized by ConvertTo-Json)
+$global:myEnv = [ordered]@{}
 
 $myEnvFile = "$PSScriptRoot/.env.json"
 
 if (Test-Path $myEnvFile)
 {
 	$global:myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json -AsHashtable
+}
+
+# values that, when changed by an OS/SDK/toolchain update, invalidate existing CMake build directories
+$PlatformStateKeys = @('SDKROOT', 'MACOS_BUILD_VERSION', 'WINDOWS_SDK_VERSION', 'VISUAL_STUDIO_VCTOOLS_VERSION')
+$PreviousPlatformState = @{}
+foreach ($Key in $PlatformStateKeys)
+{
+	$PreviousPlatformState[$Key] = $global:myEnv[$Key]
 }
 
 if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
@@ -17,6 +30,7 @@ if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
 	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.exe))
 	{
 		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
+		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.bat failed with exit code $LASTEXITCODE" }
 	}
 }
 elseif ($IsMacOS)
@@ -26,6 +40,7 @@ elseif ($IsMacOS)
 	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
 	{
 		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.sh failed with exit code $LASTEXITCODE" }
 	}
 }
 elseif ($IsLinux)
@@ -35,16 +50,32 @@ elseif ($IsLinux)
 	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
 	{
 		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
+		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.sh failed with exit code $LASTEXITCODE" }
 	}
 }
 else
 {
 	Write-Error "Unsupported Operating System" # please implement me
-	exit
 }
 
-$global:myEnv | Add-Member -Force -PassThru -NotePropertyName "VCPKG_ROOT" -NotePropertyValue $("$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg') | Out-Null
+$global:myEnv['VCPKG_ROOT'] = "$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg'
 $global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
+
+$ChangedPlatformState = $PlatformStateKeys | Where-Object {
+	$PreviousPlatformState[$_] -and ($PreviousPlatformState[$_] -ne $global:myEnv[$_])
+}
+if ($ChangedPlatformState)
+{
+	foreach ($Key in $ChangedPlatformState)
+	{
+		Write-Host "Platform change detected: $Key '$($PreviousPlatformState[$Key])' -> '$($global:myEnv[$Key])'"
+	}
+	Write-Host "Clearing CMake caches so compilers and SDK are re-detected..."
+	foreach ($BuildDir in Get-ChildItem -Path "$PSScriptRoot/build" -Directory -ErrorAction SilentlyContinue)
+	{
+		Remove-Item -Path "$BuildDir/CMakeCache.txt", "$BuildDir/CMakeFiles" -Recurse -Force -ErrorAction SilentlyContinue
+	}
+}
 
 Read-EnvFile "$PSScriptRoot/.env.json"
 
@@ -70,17 +101,17 @@ $CMakePresets = [ordered] @{
 				VCPKG_DISABLE_COMPILER_TRACKING = 'ON' # This target is not compiled yet when vcpkg wants to calculate the compiler hash.
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = 'profile;release'
-				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
+				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'OFF'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE='ON'
 				#
 			}
 			environment = [ordered] @{
 				VCPKG_ROOT = "$env:VCPKG_ROOT"
 				FASTBUILD_TEMP_PATH = '${sourceDir}/temp' # dont use user/machine specific temp paths, keep it local to the source tree to not mess with other builds on the same machine and to be able to easily clean it up.
-				FASTBUILD_BROKERAGE_PATH = "$env:FASTBUILD_BROKERAGE_PATH" ?? "$env:USERPROFILE/.fastbuild/brokerage" 
-				FASTBUILD_CACHE_PATH = "$env:FASTBUILD_CACHE_PATH" ?? "$env:USERPROFILE/.fastbuild/cache"
-				FASTBUILD_CACHE_PATH_MOUNT_POINT = "$env:FASTBUILD_CACHE_PATH_MOUNT_POINT" ?? "false"
-				FASTBUILD_CACHE_MODE = "$env:FASTBUILD_CACHE_MODE" ?? "rw"
+				FASTBUILD_BROKERAGE_PATH = $env:FASTBUILD_BROKERAGE_PATH ?? "$HOME/.fastbuild/brokerage"
+				FASTBUILD_CACHE_PATH = $env:FASTBUILD_CACHE_PATH ?? "$HOME/.fastbuild/cache"
+				FASTBUILD_CACHE_PATH_MOUNT_POINT = $env:FASTBUILD_CACHE_PATH_MOUNT_POINT ?? "false"
+				FASTBUILD_CACHE_MODE = $env:FASTBUILD_CACHE_MODE ?? "rw"
 			}
 			warnings = [ordered] @{
 				dev = $false
@@ -126,8 +157,11 @@ if ($IsWindows)
 			[ordered] @{
 				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
+				cacheVariables = [ordered] @{
+					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
+				}
 				environment = [ordered] @{
-					PATH = "`$env{LLVM_ROOT}/bin`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc"
+					PATH ="`$env{LLVM_ROOT}/bin`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc"
 					VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
 					VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
 					WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
@@ -182,6 +216,7 @@ elseif ($IsMacOS)
 				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
 				cacheVariables = [ordered] @{
+					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
 					# needs to be duplicated here to be work in the vscode cmake extension
 					VCPKG_OSX_SYSROOT = "$env:SDKROOT"
 					VCPKG_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
@@ -189,9 +224,9 @@ elseif ($IsMacOS)
 					#
 				}
 				environment = [ordered] @{
-					SDKROOT = "$(xcrun --sdk macosx --show-sdk-path)"
-					CMAKE_APPLE_SILICON_PROCESSOR = "$env:CMAKE_APPLE_SILICON_PROCESSOR" ?? 'arm64'
-					CMAKE_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR" ?? 'arm64'
+					SDKROOT = "$env:SDKROOT"
+					CMAKE_APPLE_SILICON_PROCESSOR = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
+					CMAKE_OSX_ARCHITECTURES = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
 				}
 				condition = [ordered] @{
 					type = 'equals'
@@ -252,6 +287,9 @@ elseif ($IsLinux)
 			[ordered] @{
 				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
+				cacheVariables = [ordered] @{
+					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
+				}
 				environment = [ordered] @{
 					LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
 				}
@@ -364,3 +402,8 @@ $VcpkgOptions = @(
 ) -join ' '
 
 Invoke-Expression("$PSScriptRoot/vcpkg/vcpkg install $VcpkgOptions")
+if ($LASTEXITCODE -ne 0)
+{
+	Write-Host "vcpkg install failed with exit code $LASTEXITCODE"
+	exit $LASTEXITCODE
+}

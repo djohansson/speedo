@@ -23,6 +23,26 @@ message("SPEEDO - VERSION ${SPEEDO_VERSION_STRING}")
 
 ###############################################################################
 
+# SDKROOT is baked into CMakeUserPresets.json by setup.ps1. Fail before vcpkg install runs if the
+# installed macOS SDK has changed since then (e.g. after an OS or Command Line Tools update).
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND DEFINED ENV{SDKROOT})
+	execute_process(
+		COMMAND xcrun --sdk macosx --show-sdk-path
+		OUTPUT_VARIABLE SPEEDO_CURRENT_SDKROOT
+		OUTPUT_STRIP_TRAILING_WHITESPACE)
+	file(REAL_PATH "${SPEEDO_CURRENT_SDKROOT}" SPEEDO_CURRENT_SDKROOT)
+	file(REAL_PATH "$ENV{SDKROOT}" SPEEDO_CONFIGURED_SDKROOT)
+	if(NOT SPEEDO_CURRENT_SDKROOT STREQUAL SPEEDO_CONFIGURED_SDKROOT)
+		message(FATAL_ERROR
+			"macOS SDK has changed since setup.ps1 was last run:\n"
+			"  configured: ${SPEEDO_CONFIGURED_SDKROOT}\n"
+			"  installed:  ${SPEEDO_CURRENT_SDKROOT}\n"
+			"Run `pwsh ./setup.ps1` to regenerate presets and clear stale build caches.")
+	endif()
+endif()
+
+###############################################################################
+
 # option(BUILD_DEPENDENCIES "Build dependencies" ON)
 # if(BUILD_DEPENDENCIES)
 #   list(APPEND VCPKG_MANIFEST_FEATURES client server)
@@ -31,6 +51,15 @@ message("SPEEDO - VERSION ${SPEEDO_VERSION_STRING}")
 ###############################################################################
 
 project(speedo LANGUAGES C CXX VERSION ${SPEEDO_VERSION_STRING})
+
+# use -std=c++26 / -std=c23 rather than the gnu++26 / gnu23 dialects
+set(CMAKE_C_EXTENSIONS OFF)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# the toolchain's debug flags use -Og (shared with vcpkg dependencies via the triplets' chainload toolchain);
+# fully disable optimizations for our own targets so they are easier to step through in the debugger.
+# appended after CMAKE_<LANG>_FLAGS_DEBUG, so this -O0 wins over the toolchain's -Og.
+add_compile_options($<$<CONFIG:debug>:-O0>)
 
 find_package(Vulkan REQUIRED)
 find_package(cpptrace CONFIG REQUIRED)

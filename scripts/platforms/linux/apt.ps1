@@ -10,6 +10,7 @@ function Install-AptPackage
 	else
 	{
 		sudo apt -y install $packageName
+		if ($LASTEXITCODE -ne 0) { throw "apt install $packageName failed with exit code $LASTEXITCODE" }
 		Write-Host "$packageName is installed."
 	}
 }

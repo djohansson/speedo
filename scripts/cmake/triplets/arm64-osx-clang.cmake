@@ -10,11 +10,16 @@ set(VCPKG_OSX_ARCHITECTURES "$ENV{CMAKE_APPLE_SILICON_PROCESSOR}")
 set(VCPKG_FIXUP_ELF_RPATH ON)
 set(VCPKG_CHAINLOAD_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/../toolchains/clang.toolchain.cmake)
 set(VCPKG_DISABLE_COMPILER_TRACKING ON) # This target is not compiled yet when vcpkg wants to calculate the compiler hash.
+# libc++ 23 dropped many transitive includes; keep them for third-party ports that rely on them (e.g. tbb's missing <algorithm>).
+# Only effective for ports built as C++23 or older.
+set(VCPKG_CXX_FLAGS "-D_LIBCPP_KEEP_TRANSITIVE_INCLUDES_LLVM23")
+set(VCPKG_C_FLAGS "") # vcpkg_cmake_configure requires both to be defined
 #
 
+# tracked: SDKROOT is the resolved, versioned SDK path (see osx.ps1), so an SDK update changes package ABI hashes and triggers rebuilds
+set(VCPKG_ENV_PASSTHROUGH SDKROOT)
 set(
 	VCPKG_ENV_PASSTHROUGH_UNTRACKED
-		SDKROOT
 		CMAKE_APPLE_SILICON_PROCESSOR
 		LLVM_ROOT
 		LLVM_TOOLS_BINARY_DIR
