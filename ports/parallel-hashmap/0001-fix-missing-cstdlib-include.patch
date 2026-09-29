@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 00:00:00 +0200
+Subject: [PATCH] fix missing cstdlib include
+
+phmap_base.h calls std::abort() (via PHMAP_THROW_IMPL/PHMAP_THROW_IMPL_MSG
+when exceptions are disabled) without including <cstdlib>, relying on it
+being pulled in transitively (e.g. via MSVC STL's <string>/<memory>).
+Building against libc++ instead of MSVC STL no longer pulls it in
+transitively, so std::abort is undeclared:
+  error: no member named 'abort' in namespace 'std'; did you mean simply 'abort'?
+---
+ parallel_hashmap/phmap_base.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/parallel_hashmap/phmap_base.h b/parallel_hashmap/phmap_base.h
+index 0000000..0000000 100644
+--- a/parallel_hashmap/phmap_base.h
++++ b/parallel_hashmap/phmap_base.h
+@@ -36,6 +36,7 @@
+
+ #include <algorithm>
+ #include <cassert>
++#include <cstdlib>
+ #include <cstddef>
+ #include <initializer_list>
+ #include <iterator>
+--
+2.47.0.windows.1
+
