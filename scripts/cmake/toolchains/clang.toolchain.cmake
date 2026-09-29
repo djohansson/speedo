@@ -7,7 +7,7 @@ if (DEFINED ENV{LLVM_ROOT} AND DEFINED ENV{LLVM_TOOLS_BINARY_DIR})
 	set(LLVM_TOOLS_BINARY_DIR $ENV{LLVM_TOOLS_BINARY_DIR} CACHE PATH "LLVM tools binary directory" FORCE)
 	message(STATUS "LLVM_ROOT (env): ${LLVM_ROOT}")
 	message(STATUS "LLVM_TOOLS_BINARY_DIR (env): ${LLVM_TOOLS_BINARY_DIR}")
-elseif(DEFINED CMAKE_CROSSCOMPILING AND ${CMAKE_CROSSCOMPILING})
+elseif(CMAKE_CROSSCOMPILING)
 	set(LLVM_ROOT ${CURRENT_HOST_INSTALLED_DIR} CACHE PATH "LLVM root path" FORCE)
 	set(LLVM_TOOLS_BINARY_DIR ${CURRENT_HOST_INSTALLED_DIR}/tools/llvm CACHE PATH "LLVM tools binary directory" FORCE)
 	message(STATUS "LLVM_ROOT (cross-compile): ${LLVM_ROOT}")
@@ -49,8 +49,8 @@ endif()
 
 # Let CMake identify the compiler itself: this file is included by vcpkg.cmake before
 # `vcpkg install` runs, so clang may not exist yet (e.g. when the llvm host port is rebuilt).
-set(CMAKE_C_COMPILER ${LLVM_TOOLS_BINARY_DIR}/clang${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to c compiler")
-set(CMAKE_CXX_COMPILER ${LLVM_TOOLS_BINARY_DIR}/clang++${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to c++ compiler")
+set(CMAKE_C_COMPILER ${LLVM_TOOLS_BINARY_DIR}/clang${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to c compiler" FORCE)
+set(CMAKE_CXX_COMPILER ${LLVM_TOOLS_BINARY_DIR}/clang++${CMAKE_EXECUTABLE_SUFFIX} CACHE FILEPATH "Path to c++ compiler" FORCE)
 
 set(CMAKE_C11_STANDARD_COMPILE_OPTION "-std=c11")
 set(CMAKE_C17_STANDARD_COMPILE_OPTION "-std=c17")
