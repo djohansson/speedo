@@ -299,6 +299,11 @@ vcpkg_cmake_configure(
         -DLLVM_BUILD_BENCHMARKS=OFF
         # Force TableGen to be built with optimization. This will significantly improve build time.
         -DLLVM_OPTIMIZED_TABLEGEN=ON
+        # PCH + FASTBuild's ObjectList compiles LLVMSupport's PCH and its sibling
+        # objects racily under clang-cl, corrupting cmake_pch.cxx.pch
+        # ("not a valid precompiled PCH file: file too small to contain AST file
+        # magic"). Disabling PCH avoids the race; only costs build time.
+        -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
         -DPACKAGE_VERSION=${VERSION}
         # Limit the maximum number of concurrent link jobs to 1. This should fix low amount of memory issue for link.
         -DLLVM_PARALLEL_LINK_JOBS=1
