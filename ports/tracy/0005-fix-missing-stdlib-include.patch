@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 00:00:00 +0200
+Subject: [PATCH 5/5] fix missing stdlib.h include
+
+TracyStorage.cpp calls getenv() without including <stdlib.h>, relying on
+it being pulled in transitively (e.g. via <windows.h> or MSVC STL's
+<string>). Building against libc++ instead of MSVC STL no longer pulls
+it in transitively, so getenv is undeclared:
+  error: use of undeclared identifier 'getenv'; did you mean '_wgetenv'?
+---
+ profiler/src/profiler/TracyStorage.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/profiler/src/profiler/TracyStorage.cpp b/profiler/src/profiler/TracyStorage.cpp
+index 0000000..0000000 100644
+--- a/profiler/src/profiler/TracyStorage.cpp
++++ b/profiler/src/profiler/TracyStorage.cpp
+@@ -3,6 +3,7 @@
+ #endif
+ #include <assert.h>
+ #include <inttypes.h>
++#include <stdlib.h>
+ #include <string>
+ #include <string.h>
+
+--
+2.47.0.windows.1
+

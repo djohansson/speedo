@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 00:00:00 +0200
+Subject: [PATCH 6/6] fix missing cmath include
+
+TracyView_Timeline.cpp calls std::pow() without including <cmath>,
+relying on it being pulled in transitively (e.g. via MSVC STL's
+<algorithm>). Building against libc++ instead of MSVC STL no longer
+pulls it in transitively, so std::pow is undeclared:
+  error: no member named 'pow' in namespace 'std'; did you mean simply 'pow'?
+---
+ profiler/src/profiler/TracyView_Timeline.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/profiler/src/profiler/TracyView_Timeline.cpp b/profiler/src/profiler/TracyView_Timeline.cpp
+index 0000000..0000000 100644
+--- a/profiler/src/profiler/TracyView_Timeline.cpp
++++ b/profiler/src/profiler/TracyView_Timeline.cpp
+@@ -1,4 +1,5 @@
+ #include <algorithm>
++#include <cmath>
+
+ #include "TracyImGui.hpp"
+ #include "TracyMouse.hpp"
+--
+2.47.0.windows.1
+

@@ -11,6 +11,8 @@ vcpkg_from_github(
         0002-clang-NO_CHARCONV.patch
         0003-compile-with-cxx17.patch
         0004-fix-clang-windows-manifest-link.patch
+        0005-fix-missing-stdlib-include.patch
+        0006-fix-missing-cmath-include.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
