@@ -4,11 +4,12 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO llvm/llvm-project
     REF "llvmorg-${VERSION}"
-    SHA512 a6a3912ff49facd30bb4ad622105c45dc346059a1d372b8c2796845a7e2c8f9924cbeaad40422460cdadff1c67b132c0d1324ea429baf6d4ce58813d9f0b2857
+    SHA512 1e4bac47c51577988ec83ce94e866effa7be88a394831f9efb8e9f2050276faa6bd4f586a32da18eb1f56ef89d2fc041674b3259ef5343c53a1eedb0bab59ebb
     HEAD_REF main
     PATCHES
         0001-fix-tools-install-dir-and-llvm-config.patch
         0002-fix-fastbuild-hmaptool-install-target.patch
+        0003-backport-lld-arm64e-x1-support.patch # llvm/llvm-project#222721, needed for macOS 27 SDK .tbd files
 )
 
 vcpkg_check_features(

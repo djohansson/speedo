@@ -1,5 +1,5 @@
 diff --git a/clang/cmake/modules/AddClang.cmake b/clang/cmake/modules/AddClang.cmake
-index 4059fc3e9..80208fe6a 100644
+index e2112d7..632464b 100644
 --- a/clang/cmake/modules/AddClang.cmake
 +++ b/clang/cmake/modules/AddClang.cmake
 @@ -136,7 +136,7 @@ macro(add_clang_library name)
@@ -26,10 +26,10 @@ index 4059fc3e9..80208fe6a 100644
  
        if(NOT LLVM_ENABLE_IDE)
 diff --git a/clang/tools/c-index-test/CMakeLists.txt b/clang/tools/c-index-test/CMakeLists.txt
-index 41e80e66f..08c8ec104 100644
+index 5608f7b..b23af41 100644
 --- a/clang/tools/c-index-test/CMakeLists.txt
 +++ b/clang/tools/c-index-test/CMakeLists.txt
-@@ -49,7 +49,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
+@@ -56,7 +56,7 @@ if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
      set_property(TARGET c-index-test APPEND PROPERTY INSTALL_RPATH
         "@executable_path/../../lib")
    else()
@@ -39,7 +39,7 @@ index 41e80e66f..08c8ec104 100644
  
    install(TARGETS c-index-test
 diff --git a/clang/tools/clang-format/CMakeLists.txt b/clang/tools/clang-format/CMakeLists.txt
-index 1c61a3c8f..41f019c1f 100644
+index 1c61a3c..41f019c 100644
 --- a/clang/tools/clang-format/CMakeLists.txt
 +++ b/clang/tools/clang-format/CMakeLists.txt
 @@ -36,11 +36,11 @@ install(FILES clang-format.py
@@ -57,7 +57,7 @@ index 1c61a3c8f..41f019c1f 100644
      COMPONENT clang-format)
  endif()
 diff --git a/clang/tools/scan-build-py/CMakeLists.txt b/clang/tools/scan-build-py/CMakeLists.txt
-index 84087a9fd..7aae014bf 100644
+index 84087a9..7aae014 100644
 --- a/clang/tools/scan-build-py/CMakeLists.txt
 +++ b/clang/tools/scan-build-py/CMakeLists.txt
 @@ -46,7 +46,7 @@ if(CLANG_INSTALL_SCANBUILDPY)
@@ -79,7 +79,7 @@ index 84087a9fd..7aae014bf 100644
        list(APPEND Depends ${CMAKE_BINARY_DIR}/bin/${BinFile})
      endif()
 diff --git a/clang/tools/scan-build/CMakeLists.txt b/clang/tools/scan-build/CMakeLists.txt
-index ef687b0e9..47f31efc9 100644
+index ef687b0..47f31ef 100644
 --- a/clang/tools/scan-build/CMakeLists.txt
 +++ b/clang/tools/scan-build/CMakeLists.txt
 @@ -47,7 +47,7 @@ if(CLANG_INSTALL_SCANBUILD)
@@ -92,7 +92,7 @@ index ef687b0e9..47f31efc9 100644
    endforeach()
  
 diff --git a/clang/tools/scan-view/CMakeLists.txt b/clang/tools/scan-view/CMakeLists.txt
-index 07aec76ee..55a945bb2 100644
+index 07aec76..55a945b 100644
 --- a/clang/tools/scan-view/CMakeLists.txt
 +++ b/clang/tools/scan-view/CMakeLists.txt
 @@ -20,7 +20,7 @@ if(CLANG_INSTALL_SCANVIEW)
@@ -105,7 +105,7 @@ index 07aec76ee..55a945bb2 100644
    endforeach()
  
 diff --git a/bolt/cmake/modules/AddBOLT.cmake b/bolt/cmake/modules/AddBOLT.cmake
-index c7ac662c6..f5a7e7c01 100644
+index c7ac662..f5a7e7c 100644
 --- a/bolt/cmake/modules/AddBOLT.cmake
 +++ b/bolt/cmake/modules/AddBOLT.cmake
 @@ -16,7 +16,7 @@ macro(add_bolt_tool name)
@@ -118,7 +118,7 @@ index c7ac662c6..f5a7e7c01 100644
  
      if(NOT LLVM_ENABLE_IDE)
 diff --git a/clang-tools-extra/clang-tidy/tool/CMakeLists.txt b/clang-tools-extra/clang-tidy/tool/CMakeLists.txt
-index 0d4501d1e..a6ff0261f 100644
+index 0d4501d..a6ff026 100644
 --- a/clang-tools-extra/clang-tidy/tool/CMakeLists.txt
 +++ b/clang-tools-extra/clang-tidy/tool/CMakeLists.txt
 @@ -66,6 +66,6 @@ install(PROGRAMS clang-tidy-diff.py
@@ -130,7 +130,7 @@ index 0d4501d1e..a6ff0261f 100644
    COMPONENT clang-tidy
    RENAME run-clang-tidy)
 diff --git a/clang-tools-extra/modularize/CMakeLists.txt b/clang-tools-extra/modularize/CMakeLists.txt
-index a775b790a..46100131a 100644
+index a775b79..4610013 100644
 --- a/clang-tools-extra/modularize/CMakeLists.txt
 +++ b/clang-tools-extra/modularize/CMakeLists.txt
 @@ -28,5 +28,5 @@ clang_target_link_libraries(modularize
@@ -141,10 +141,10 @@ index a775b790a..46100131a 100644
 +        RUNTIME DESTINATION "${CLANG_TOOLS_INSTALL_DIR}"
          COMPONENT clang-extras)
 diff --git a/compiler-rt/cmake/base-config-ix.cmake b/compiler-rt/cmake/base-config-ix.cmake
-index 37dfa5534..7b96debf9 100644
+index 1b66dec..16d4c0c 100644
 --- a/compiler-rt/cmake/base-config-ix.cmake
 +++ b/compiler-rt/cmake/base-config-ix.cmake
-@@ -116,7 +116,7 @@ else(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
+@@ -136,7 +136,7 @@ else(LLVM_ENABLE_PER_TARGET_RUNTIME_DIR AND NOT APPLE)
    set(COMPILER_RT_INSTALL_LIBRARY_DIR "${default_install_path}" CACHE PATH
      "Path where built compiler-rt libraries should be installed.")
  endif()
@@ -154,7 +154,7 @@ index 37dfa5534..7b96debf9 100644
    "Path where built compiler-rt executables should be installed.")
  extend_path(default_install_path "${COMPILER_RT_INSTALL_PATH}" "${CMAKE_INSTALL_INCLUDEDIR}")
 diff --git a/flang/cmake/modules/AddFlang.cmake b/flang/cmake/modules/AddFlang.cmake
-index ca233103c..1c3375f78 100644
+index ca23310..1c3375f 100644
 --- a/flang/cmake/modules/AddFlang.cmake
 +++ b/flang/cmake/modules/AddFlang.cmake
 @@ -83,7 +83,7 @@ function(add_flang_library name)
@@ -176,7 +176,7 @@ index ca233103c..1c3375f78 100644
  
      if(NOT LLVM_ENABLE_IDE)
 diff --git a/flang/tools/flang-driver/CMakeLists.txt b/flang/tools/flang-driver/CMakeLists.txt
-index 4dfc0d40c..07ab271d2 100644
+index d11e7f5..63e9c2d 100644
 --- a/flang/tools/flang-driver/CMakeLists.txt
 +++ b/flang/tools/flang-driver/CMakeLists.txt
 @@ -44,7 +44,7 @@ if(FLANG_PLUGIN_SUPPORT)
@@ -189,7 +189,7 @@ index 4dfc0d40c..07ab271d2 100644
  # Keep "flang-new" as a symlink for backwards compatiblity. Remove once "flang"
  # is a widely adopted name.
 diff --git a/lld/cmake/modules/AddLLD.cmake b/lld/cmake/modules/AddLLD.cmake
-index 37f73afa9..30be20f36 100644
+index 37f73af..30be20f 100644
 --- a/lld/cmake/modules/AddLLD.cmake
 +++ b/lld/cmake/modules/AddLLD.cmake
 @@ -19,7 +19,7 @@ macro(add_lld_library name)
@@ -216,10 +216,10 @@ index 37f73afa9..30be20f36 100644
  
        if(NOT CMAKE_CONFIGURATION_TYPES)
 diff --git a/lldb/cmake/modules/AddLLDB.cmake b/lldb/cmake/modules/AddLLDB.cmake
-index 6493df27f..ade9163ea 100644
+index b6ad8d4..1c7efb7 100644
 --- a/lldb/cmake/modules/AddLLDB.cmake
 +++ b/lldb/cmake/modules/AddLLDB.cmake
-@@ -112,7 +112,7 @@ function(add_lldb_library name)
+@@ -335,7 +335,7 @@ function(add_lldb_library name)
      endif()
      # RUNTIME is relevant for DLL platforms, FRAMEWORK for macOS
      install(TARGETS ${name} COMPONENT ${name}
@@ -229,7 +229,7 @@ index 6493df27f..ade9163ea 100644
        ARCHIVE DESTINATION ${install_dest}
        FRAMEWORK DESTINATION ${install_dest})
 diff --git a/llvm/tools/llvm-config/llvm-config.cpp b/llvm/tools/llvm-config/llvm-config.cpp
-index 24ea26441..3bc4a31ad 100644
+index 76aa9f8..32d9c83 100644
 --- a/llvm/tools/llvm-config/llvm-config.cpp
 +++ b/llvm/tools/llvm-config/llvm-config.cpp
 @@ -305,7 +305,7 @@ int main(int argc, char **argv) {
@@ -242,10 +242,10 @@ index 24ea26441..3bc4a31ad 100644
    // Check to see if we are inside a development tree by comparing to possible
    // locations (prefix style or CMake style).
 diff --git a/mlir/cmake/modules/AddMLIR.cmake b/mlir/cmake/modules/AddMLIR.cmake
-index 6589458ab..0fbaaf2d2 100644
+index d3f534a..57b2dcb 100644
 --- a/mlir/cmake/modules/AddMLIR.cmake
 +++ b/mlir/cmake/modules/AddMLIR.cmake
-@@ -640,7 +640,7 @@ function(add_mlir_library_install name)
+@@ -631,7 +631,7 @@ function(add_mlir_library_install name)
        ${export_to_mlirtargets}
        LIBRARY DESTINATION lib${LLVM_LIBDIR_SUFFIX}
        ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX}
@@ -255,13 +255,13 @@ index 6589458ab..0fbaaf2d2 100644
        #   objects-${CMAKE_BUILD_TYPE}/obj.LibName
        # and put object files there.
 diff --git a/openmp/libompd/src/CMakeLists.txt b/openmp/libompd/src/CMakeLists.txt
-index ba228d518..e7457c7e5 100644
+index 78eed8f..24d6eac 100644
 --- a/openmp/libompd/src/CMakeLists.txt
 +++ b/openmp/libompd/src/CMakeLists.txt
-@@ -48,4 +48,4 @@ include_directories (
+@@ -50,5 +50,5 @@ include_directories (
  INSTALL( TARGETS ompd
          LIBRARY DESTINATION ${OPENMP_INSTALL_LIBDIR}
          ARCHIVE DESTINATION ${OPENMP_INSTALL_LIBDIR}
--        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}" )
-+        RUNTIME DESTINATION "${OPENMP_TOOLS_INSTALL_DIR}" )
--- 
+-        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
++        RUNTIME DESTINATION "${OPENMP_TOOLS_INSTALL_DIR}"
+         COMPONENT openmp)
