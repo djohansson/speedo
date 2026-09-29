@@ -161,7 +161,7 @@ if ($IsWindows)
 					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
 				}
 				environment = [ordered] @{
-					PATH ="`$env{LLVM_ROOT}/bin`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc"
+					PATH ="`$env{LLVM_ROOT}/bin`;`$env{LLVM_TOOLS_BINARY_DIR}`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc`;`$penv{PATH}"
 					VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
 					VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
 					WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
