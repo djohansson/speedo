@@ -62,6 +62,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options($<$<CONFIG:debug>:-O0>)
 
 find_package(Vulkan REQUIRED)
+if(TARGET Vulkan::Vulkan)
+	# FindVulkan.cmake only sets a generic IMPORTED_LOCATION, which CMake's config-mapping
+	# lookup (CMAKE_MAP_IMPORTED_CONFIG_PROFILE -> release) does not fall back to, leaving
+	# Vulkan::Vulkan as -NOTFOUND for the profile config.
+	set_property(TARGET Vulkan::Vulkan PROPERTY IMPORTED_LOCATION_RELEASE "${Vulkan_LIBRARIES}")
+endif()
 find_package(cpptrace CONFIG REQUIRED)
 find_package(stduuid CONFIG REQUIRED)
 find_package(xxHash CONFIG REQUIRED)
