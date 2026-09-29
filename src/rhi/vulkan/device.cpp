@@ -49,118 +49,122 @@ void Device<kVk>::InternalCreateQueues()
 
 	queues.emplace(
 		kQueueTypeGraphics,
-		std::make_shared<QueueTimelineContextData<kVk>>(
+		std::make_shared<QueueTimelineContext<kVk>>(std::make_shared<QueueTimelineContextData<kVk>>(
 			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Graphics Queue Timeline Semaphore")), VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
 			uint32_t{},
-			core::CircularContainer<QueueContext<kVk>>{}));
+			core::CircularContainer<QueueContext<kVk>>{})));
 	queues.emplace(
 		kQueueTypeCompute,
-		std::make_shared<QueueTimelineContextData<kVk>>(
+		std::make_shared<QueueTimelineContext<kVk>>(std::make_shared<QueueTimelineContextData<kVk>>(
 			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Compute Queue Timeline Semaphore")), VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
 			uint32_t{},
-			core::CircularContainer<QueueContext<kVk>>{}));
+			core::CircularContainer<QueueContext<kVk>>{})));
 	queues.emplace(
 		kQueueTypeTransfer,
-		std::make_shared<QueueTimelineContextData<kVk>>(
+		std::make_shared<QueueTimelineContext<kVk>>(std::make_shared<QueueTimelineContextData<kVk>>(
 			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Transfer Queue Timeline Semaphore")), VK_SEMAPHORE_TYPE_TIMELINE}},
 			uint64_t{},
 			uint32_t{},
-			core::CircularContainer<QueueContext<kVk>>{}));
+			core::CircularContainer<QueueContext<kVk>>{})));
 
 	auto isDedicatedQueueFamily = [](const QueueFamilyDesc<kVk>& queueFamily, VkQueueFlagBits type)
 	{
 		return (queueFamily.flags & type) && (queueFamily.flags >= type) && (queueFamily.queueCount > 0);
 	};
 
-	auto graphics = queues[kQueueTypeGraphics].Write();
-	auto compute = queues[kQueueTypeCompute].Write();
-	auto transfer = queues[kQueueTypeTransfer].Write();
+	bool hasDedicatedCompute = false;
+	bool hasDedicatedTransfer = false;
+	{
+		auto graphics = queues[kQueueTypeGraphics]->Write();
+		auto compute = queues[kQueueTypeCompute]->Write();
+		auto transfer = queues[kQueueTypeTransfer]->Write();
 	
-	const auto& queueFamilies = GetQueueFamilies();
-	for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
-	{
-		const auto& queueFamily = queueFamilies[queueFamilyIt];
-
-		auto queueCount = queueFamily.queueCount;
-
-		if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
+		const auto& queueFamilies = GetQueueFamilies();
+		for (unsigned queueFamilyIt = 0; queueFamilyIt < queueFamilies.size(); queueFamilyIt++)
 		{
-			graphics->queues = std::vector<QueueContext<kVk>>(queueCount);
-			graphics->queueFamilyIndex = queueFamilyIt;
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+			const auto& queueFamily = queueFamilies[queueFamilyIt];
+
+			auto queueCount = queueFamily.queueCount;
+
+			if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_GRAPHICS_BIT))
 			{
-				auto& [queue, syncInfo] = graphics->queues.FetchAdd();
-				queue = Queue<kVk>(
-					QueueCreateDesc<kVk>
-					{
-						CreateDeviceObjectCreateDesc(std::format("Graphics Queue {}", queueIt)),
-						queueIt,
-						queueFamilyIt,
-						15,
-						static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
-					}
-				);
+				graphics->queues = std::vector<QueueContext<kVk>>(queueCount);
+				graphics->queueFamilyIndex = queueFamilyIt;
+				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+				{
+					auto& [queue, syncInfo] = graphics->queues.FetchAdd();
+					queue = Queue<kVk>(
+						QueueCreateDesc<kVk>
+						{
+							CreateDeviceObjectCreateDesc(std::format("Graphics Queue {}", queueIt)),
+							queueIt,
+							queueFamilyIt,
+							15,
+							static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
+						}
+					);
+				}
+			}
+			else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
+			{
+				compute->queues = std::vector<QueueContext<kVk>>(queueCount);
+				compute->queueFamilyIndex = queueFamilyIt;
+				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+				{
+					auto& [queue, syncInfo] = compute->queues.FetchAdd();
+					queue = Queue<kVk>(
+						QueueCreateDesc<kVk>
+						{
+							CreateDeviceObjectCreateDesc(std::format("Compute Queue {}", queueIt)),
+							queueIt,
+							queueFamilyIt,
+							1,
+							static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
+						}
+					);
+				}
+			}
+			else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
+			{
+				transfer->queues = std::vector<QueueContext<kVk>>(queueCount);
+				transfer->queueFamilyIndex = queueFamilyIt;
+				for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
+				{
+					auto& [queue, syncInfo] = transfer->queues.FetchAdd();
+					queue = Queue<kVk>(
+						QueueCreateDesc<kVk>
+						{
+							CreateDeviceObjectCreateDesc(std::format("Transfer Queue {}", queueIt)),
+							queueIt,
+							queueFamilyIt,
+							1,
+							VK_FALSE // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
+						}
+					);
+				}
 			}
 		}
-		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_COMPUTE_BIT))
-		{
-			compute->queues = std::vector<QueueContext<kVk>>(queueCount);
-			compute->queueFamilyIndex = queueFamilyIt;
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-			{
-				auto& [queue, syncInfo] = compute->queues.FetchAdd();
-				queue = Queue<kVk>(
-					QueueCreateDesc<kVk>
-					{
-						CreateDeviceObjectCreateDesc(std::format("Compute Queue {}", queueIt)),
-						queueIt,
-						queueFamilyIt,
-						1,
-						static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
-					}
-				);
-			}
-		}
-		else if (isDedicatedQueueFamily(queueFamily, VK_QUEUE_TRANSFER_BIT))
-		{
-			transfer->queues = std::vector<QueueContext<kVk>>(queueCount);
-			transfer->queueFamilyIndex = queueFamilyIt;
-			for (unsigned queueIt = 0; queueIt < queueCount; queueIt++)
-			{
-				auto& [queue, syncInfo] = transfer->queues.FetchAdd();
-				queue = Queue<kVk>(
-					QueueCreateDesc<kVk>
-					{
-						CreateDeviceObjectCreateDesc(std::format("Transfer Queue {}", queueIt)),
-						queueIt,
-						queueFamilyIt,
-						1,
-						VK_FALSE // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
-					}
-				);
-			}
-		}
+
+		ENSUREF(!graphics->queues.Empty(), "Failed to find a suitable graphics queue!");
+
+		hasDedicatedCompute = !compute->queues.Empty();
+		hasDedicatedTransfer = !transfer->queues.Empty();
 	}
 
-	ENSUREF(!graphics->queues.Empty(), "Failed to find a suitable graphics queue!");
+	// alias queue types without a dedicated queue to another type. the whole ConcurrentAccess is shared (not just its
+	// data), so that locking any alias locks the same mutex. done after the write scopes above have been released.
 
-	if (compute->queues.Empty())
-	{
-		// Alias compute to graphics queue if no dedicated compute queue is found.
-		// This is valid as long as the graphics queue family supports compute operations, which is guaranteed by the Vulkan spec.
-		ENSUREF(!graphics->queues.Empty(), "Failed to find a suitable compute queue!");
-		compute.Get() = graphics.Get();
-	}
+	// Alias compute to graphics queue if no dedicated compute queue is found.
+	// This is valid as long as the graphics queue family supports compute operations, which is guaranteed by the Vulkan spec.
+	if (!hasDedicatedCompute)
+		queues[kQueueTypeCompute] = queues[kQueueTypeGraphics];
 
-	if (transfer->queues.Empty())
-	{
-		// Alias transfer to compute queue if no dedicated transfer queue is found.
-		// This is valid as long as the compute queue family supports transfer operations, which is guaranteed by the Vulkan spec.
-		ENSUREF(!compute->queues.Empty(), "Failed to find a suitable transfer queue!");
-		transfer.Get() = compute.Get();
-	}
+	// Alias transfer to compute queue if no dedicated transfer queue is found.
+	// This is valid as long as the compute queue family supports transfer operations, which is guaranteed by the Vulkan spec.
+	if (!hasDedicatedTransfer)
+		queues[kQueueTypeTransfer] = queues[kQueueTypeCompute];
 }
 
 template <>

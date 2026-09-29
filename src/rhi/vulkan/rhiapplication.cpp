@@ -208,6 +208,111 @@ static void ShutdownImgui()
 	ImGui::DestroyContext();
 }
 
+// material 0 samples this slot of gTextures, which "Open Image..." replaces
+static constexpr uint32_t kMaterialTextureId = 15;
+
+// hands `resource` to a graphics queue submission that waits for all graphics work submitted so far, and releases it
+// from that submission's timeline callback, i.e. once the gpu can no longer be using it. call on the draw thread.
+static void RetireAfterGraphicsWork(QueueTimelineContextData<kVk>& graphics, std::shared_ptr<void> resource)
+{
+	if (!resource)
+		return;
+
+	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+
+	auto cmd = graphicsQueue.GetPool().Commands();
+	cmd.End();
+
+	std::vector<core::TaskHandle> callbacks;
+	callbacks.emplace_back(core::CreateTask([resource = std::move(resource)] {}).handle);
+
+	graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		.waitSemaphores = {graphics.semaphore},
+		.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+		.waitSemaphoreValues = {graphics.timeline},
+		.signalSemaphores = {graphics.semaphore},
+		.signalSemaphoreValues = {++graphics.timeline},
+		.callbacks = std::move(callbacks)});
+
+	graphicsSubmits |= graphicsQueue.Submit();
+}
+
+// makes an uploaded model the one being drawn, retiring the previous one. call on the draw thread.
+static void InstallModel(RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics, const std::shared_ptr<Model<kVk>>& model)
+{
+	ZoneScopedN("RHIApplication::InstallModel");
+
+	auto& device = rhi.GetPrimaryDevice();
+	auto& pipeline = device.GetPipeline();
+
+	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
+	pipeline.SetVertexInputState(*model);
+	pipeline.SetDescriptorData(
+		"gVertexBuffer",
+		DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+
+	gModelUuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}("LoadedModel");
+	RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelUuid, model));
+}
+
+// makes an uploaded image the texture sampled by material 0, retiring the previous one. call on the draw thread.
+static void InstallImage(
+	RHI<kVk>& rhi,
+	QueueTimelineContextData<kVk>& graphics,
+	const std::shared_ptr<Image<kVk>>& image,
+	const std::shared_ptr<ImageView<kVk>>& imageView)
+{
+	ZoneScopedN("RHIApplication::InstallImage");
+
+	// transition to a shader readable layout on the graphics queue first, and only point gTextures at the new view
+	// once that has executed: the transition's timeline callback hands the rest back to the draw thread.
+	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+
+	auto cmd = graphicsQueue.GetPool().Commands();
+	{
+		GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
+
+		image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	}
+	cmd.End();
+
+	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, image, imageView]
+	{
+		auto [bindTask, bindFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+			[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics)
+			{
+				auto& device = rhi.GetPrimaryDevice();
+				auto& pipeline = device.GetPipeline();
+
+				pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
+				pipeline.SetDescriptorData(
+					"gTextures",
+					DescriptorImageInfo<kVk>{.sampler = {}, .imageView = *imageView, .imageLayout = image->GetDesc().layout},
+					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+					kMaterialTextureId);
+
+				auto nameUuid = [](std::string_view name) { return uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name); };
+				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(nameUuid("LoadedImage"), image));
+				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(nameUuid("LoadedImageView"), imageView));
+			});
+		rhi.drawCalls.enqueue(bindTask);
+	});
+
+	std::vector<core::TaskHandle> callbacks;
+	callbacks.emplace_back(transitionDoneTask);
+
+	graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		.waitSemaphores = {graphics.semaphore},
+		.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+		.waitSemaphoreValues = {graphics.timeline},
+		.signalSemaphores = {graphics.semaphore},
+		.signalSemaphoreValues = {++graphics.timeline},
+		.callbacks = std::move(callbacks)});
+
+	graphicsSubmits |= graphicsQueue.Submit();
+}
+
 static void DrawMainPass(
 	RHI<kVk>& rhi,
 	Window<kVk>& window,
@@ -511,7 +616,7 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 	}
 
 	{
-		auto graphics = device.GetQueues()[kQueueTypeGraphics].Write();
+		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
@@ -629,6 +734,41 @@ void RHIApplication::PrepareDraw()
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
+	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images to
+	// load at startup, through the same load + install path as the "File" menu.
+	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
+	{
+		gAutoLoadDone = true;
+
+		const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL");
+		const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE");
+		if (autoLoadModel || autoLoadImage)
+		{
+			auto [autoLoadTask, autoLoadFuture] = core::CreateTask(
+				[&rhi, &device, resourcePath,
+				 modelFile = std::string(autoLoadModel ? autoLoadModel : ""),
+				 imageFile = std::string(autoLoadImage ? autoLoadImage : "")]
+				{
+					if (!modelFile.empty())
+					{
+						auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress);
+						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
+						rhi.drawCalls.enqueue(installTask);
+					}
+					if (!imageFile.empty())
+					{
+						auto [image, imageView] = Image<kVk>::LoadImage(device, (resourcePath / "images" / imageFile).string(), gProgress);
+						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+							[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
+						rhi.drawCalls.enqueue(installTask);
+					}
+				});
+			rhi.mainCalls.enqueue(autoLoadTask);
+		}
+	}
+
+
 	if (BeginMainMenuBar())
 	{
 		if (BeginMenu("File"))
@@ -639,9 +779,12 @@ void RHIApplication::PrepareDraw()
 					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
 				};
 				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
-					[](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto [vbHandle, ibHandle, transitionFuture] = Model<kVk>::LoadModel(filePath, progressOut);
-						return transitionFuture;
+					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut){
+						auto model = Model<kVk>::LoadModel(filePath, progressOut);
+						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
+						rhi.drawCalls.enqueue(installTask);
+						return installFuture;
 					});
 			}
 			if (MenuItem("Open Image..."))
@@ -651,9 +794,12 @@ void RHIApplication::PrepareDraw()
 				};
 
 				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
-					[&device](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto [imageHandle, imageViewHandle, transferFuture, transitionFuture] = Image<kVk>::LoadImage(device, filePath, progressOut);
-						return transitionFuture;
+					[&rhi, &device](std::string_view filePath, std::atomic_uint8_t& progressOut){
+						auto [image, imageView] = Image<kVk>::LoadImage(device, filePath, progressOut);
+						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+							[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
+						rhi.drawCalls.enqueue(installTask);
+						return installFuture;
 					});
 			}
 			// if (MenuItem("Open Scene..."))
@@ -828,18 +974,17 @@ void RHIApplication::Draw()
 
 	auto [acquireNextImageFence, acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
 
-	bool dedicatedTransfer = device.GetQueues().at(kQueueTypeTransfer).Read()->queueFamilyIndex != 
-		device.GetQueues().at(kQueueTypeCompute).Read()->queueFamilyIndex;
-
-	bool dedicatedCompute = device.GetQueues().at(kQueueTypeCompute).Read()->queueFamilyIndex != 
-		device.GetQueues().at(kQueueTypeGraphics).Read()->queueFamilyIndex;
+	// one lock at a time: queue types may alias the same context (and mutex), see Device::GetQueue
+	auto queueFamilyIndex = [&device](QueueType type) { return device.GetQueue(type).Read()->queueFamilyIndex; };
+	bool dedicatedTransfer = queueFamilyIndex(kQueueTypeTransfer) != queueFamilyIndex(kQueueTypeCompute);
+	bool dedicatedCompute = queueFamilyIndex(kQueueTypeCompute) != queueFamilyIndex(kQueueTypeGraphics);
 
 	if (flipSuccess)
 	{
 		auto& lastFrame = swapchain.GetFrames()[lastFrameIndex];
 		auto& newFrame = swapchain.GetFrames()[newFrameIndex];
 
-		auto graphics = device.GetQueues().at(kQueueTypeGraphics).Write();
+		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [lastGraphicsQueue, lastGraphicsSubmits] = graphics->queues.FetchAdd();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 
@@ -1021,7 +1166,7 @@ void RHIApplication::Draw()
 
 		if (dedicatedCompute)
 		{
-			auto compute = device.GetQueues().at(kQueueTypeCompute).Write();
+			auto compute = device.GetQueue(kQueueTypeCompute).Write();
 			auto& [computeQueue, computeSubmits] = compute->queues.FetchAdd();
 
 			for (auto& fence : computeSubmits.fences)
@@ -1124,12 +1269,12 @@ RHIApplication::RHIApplication(
 	gSamplersUuid = samplersUuid;
 
 	// initialize stuff on graphics queue
-	constexpr uint32_t kTextureId = 15;
+	constexpr uint32_t kTextureId = kMaterialTextureId;
 	constexpr uint32_t kSamplerId = 2;
 	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
 	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
-		auto graphics = device.GetQueues()[kQueueTypeGraphics].Write();
+		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		
 		IMGUIInit(window, rhi, pipeline, graphicsQueue, graphics->queues.Capacity(), myImGuiIniSettings);
@@ -1310,20 +1455,22 @@ void RHIApplication::Shutdown()
 
 	// all gpu work has completed, so every pending timeline callback is due (they own per-frame fences/semaphores etc).
 	// queue locks are released before joining, since callbacks may access the queues themselves.
+	// each distinct queue context once, locking one at a time: queue types may alias the same context (and mutex).
 	{
 		constexpr auto kAllTimelineValues = std::numeric_limits<uint64_t>::max();
 
-		auto graphics = device.GetQueues()[kQueueTypeGraphics].Write();
-		for (auto& [graphicsQueue, graphicsSubmits] : graphics->queues)
-			graphicsQueue.SubmitCallbacks(executor, kAllTimelineValues);
+		std::vector<QueueTimelineContext<kVk>*> visited;
+		for (auto type : {kQueueTypeGraphics, kQueueTypeCompute, kQueueTypeTransfer})
+		{
+			auto* context = &device.GetQueue(type);
+			if (std::ranges::contains(visited, context))
+				continue;
+			visited.emplace_back(context);
 
-		auto compute = device.GetQueues()[kQueueTypeCompute].Write();
-		for (auto& [computeQueue, computeSubmits] : compute->queues)
-			computeQueue.SubmitCallbacks(executor, kAllTimelineValues);
-
-		auto transfer = device.GetQueues()[kQueueTypeTransfer].Write();
-		for (auto& [transferQueue, transferSubmits] : transfer->queues)
-			transferQueue.SubmitCallbacks(executor, kAllTimelineValues);
+			auto queues = context->Write();
+			for (auto& [queue, submits] : queues->queues)
+				queue.SubmitCallbacks(executor, kAllTimelineValues);
+		}
 	}
 	executor.JoinAll();
 

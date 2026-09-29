@@ -64,6 +64,9 @@ public:
 	
 	[[nodiscard]] auto& GetQueues() noexcept { return myQueues; }
 	[[nodiscard]] const auto& GetQueues() const noexcept { return myQueues; }
+	// note: queue types without a dedicated queue alias another type's context (see InternalCreateQueues), so never
+	// hold locks on more than one queue type at once unless you know they are distinct, or it will self-deadlock.
+	[[nodiscard]] QueueTimelineContext<G>& GetQueue(QueueType type) const { return *myQueues.at(type); }
 
 	[[nodiscard]] auto GetPipelineLayoutHandle(size_t nameHash) const { return myPipelineLayoutHandles.at(nameHash); }
 	[[nodiscard]] auto GetPipelineLayoutHandle(std::string_view name) const { return myPipelineLayoutHandles.at(std::hash<std::string_view>{}(name)); }
@@ -90,6 +93,12 @@ public:
 	[[nodiscard]] auto CreateResource(std::string_view name, Args&&... args)
 	{
 		return CreateResource<T>(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name), std::forward<Args>(args)...);
+	}
+	// inserts or replaces a resource. returns the previous one (if any), so the caller can defer its destruction
+	// until the gpu is no longer using it.
+	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& uuid, std::shared_ptr<IObject> resource)
+	{
+		return std::exchange(myResources[uuid], std::move(resource));
 	}
 	template <typename T>
 	[[maybe_unused]] auto ExtractResource(const uuids::uuid& uuid) { return static_pointer_cast<T>(myResources.extract(uuid)); }
@@ -121,7 +130,8 @@ private:
 	DeviceHandle<G> myDevice{};
 	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)
 	std::vector<QueueFamilyDesc<G>> myQueueFamilyDescs;
-	core::UnorderedMap<QueueType, QueueTimelineContext<G>> myQueues;
+	// shared_ptr so that aliased queue types share the same ConcurrentAccess (and thus the same mutex), not just the data
+	core::UnorderedMap<QueueType, std::shared_ptr<QueueTimelineContext<G>>> myQueues;
 	Pipeline<G> myPipeline;
 	PipelineLayoutHandleMapType myPipelineLayoutHandles;
 	ResourceMapType myResources;

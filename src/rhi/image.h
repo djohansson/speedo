@@ -3,6 +3,7 @@
 #include <core/task.h>
 #include <rhi/deviceobject.h>
 
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <tuple>
@@ -50,6 +51,9 @@ template <GraphicsApi G>
 class Image;
 
 template <GraphicsApi G>
+class ImageView;
+
+template <GraphicsApi G>
 struct ObjectTraits<Image<G>>
 {
 	using CreateDescType = ImageCreateDesc<G>;
@@ -95,8 +99,10 @@ public:
 		const std::optional<ImageSubresourceRange<G>>& range = std::nullopt);
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags = {});
 
+	// loads and uploads an image (plus a view of it). returns once the upload has completed; the image is left in the
+	// layout of the upload, so the caller must transition it before sampling from it.
 	[[nodiscard]]
-	static std::tuple<ImageHandle<G>, ImageViewHandle<G>, core::Future<void>, core::Future<core::Future<void>>> // fix this mess
+	static std::tuple<std::shared_ptr<Image<G>>, std::shared_ptr<ImageView<G>>>
 	LoadImage(DeviceHandle<G> deviceHandle, std::string_view imageFile, std::atomic_uint8_t& progress);
 
 private:

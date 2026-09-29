@@ -429,8 +429,7 @@ Model<kVk>::Model(
 {}
 
 template <>
-std::tuple<BufferHandle<kVk>, BufferHandle<kVk>, core::Future<core::Future<void>>>
-Model<kVk>::LoadModel(std::string_view filePath, std::atomic_uint8_t& progressOut)
+std::shared_ptr<Model<kVk>> Model<kVk>::LoadModel(std::string_view filePath, std::atomic_uint8_t& progressOut)
 {
 	ZoneScopedN("Model::LoadModel");
 
@@ -439,63 +438,46 @@ Model<kVk>::LoadModel(std::string_view filePath, std::atomic_uint8_t& progressOu
 	auto& rhi = app->GetRHI<kVk>();
 	auto& device = rhi.GetPrimaryDevice();
 
-	auto transfer = device.GetQueues()[kQueueTypeTransfer].Write();
-	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
-
-	auto cmd = transferQueue.GetPool().Commands();
-
-	std::array<core::TaskCreateInfo<void>, 2> transfersDone;
-	auto model = Model<kVk>(
-		ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)},
-		filePath,
-		cmd,
-		transfersDone,
-		progressOut);
-	cmd.End();
-
-	std::vector<core::TaskHandle> timelineCallbacks;
-	timelineCallbacks.emplace_back(transfersDone[0].handle);
-	timelineCallbacks.emplace_back(transfersDone[1].handle);
-
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		.waitSemaphores = {transfer->semaphore},
-		.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
-		.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
-		.signalSemaphores = {transfer->semaphore},
-		.signalSemaphoreValues = {++transfer->timeline},
-		.callbacks = std::move(timelineCallbacks)});
-
-	transferSubmits |= transferQueue.Submit();
-
-	///////////
-
-	auto [transitionTask, transitionFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>( 
-	[&rhi,
-		model = std::make_shared<Model<kVk>>(std::move(model)),
-		&transferSemaphore = transfer->semaphore,
-		&transferSubmits](QueueTimelineContextData<kVk>* graphics)
+	std::shared_ptr<Model<kVk>> model;
+	const Semaphore<kVk>* transferSemaphore = nullptr;
+	uint64_t transferTimelineValue = 0;
 	{
-		auto& device = rhi.GetPrimaryDevice();
-		auto& pipeline = device.GetPipeline();
-		
-		auto [setVertexInputTask, setVertexInputFuture] = core::CreateTask([&pipeline, model = std::move(model)]()
-		{
-			pipeline.SetVertexInputState(*model);
-			pipeline.SetDescriptorData(
-				"gVertexBuffer",
-				DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
+		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
-			//auto oldModel = resources.model.exchange(std::move(*model));
-		});
+		auto cmd = transferQueue.GetPool().Commands();
 
-		return setVertexInputFuture;
-	});
+		std::array<core::TaskCreateInfo<void>, 2> transfersDone;
+		model = std::make_shared<Model<kVk>>(
+			ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)},
+			filePath,
+			cmd,
+			transfersDone,
+			progressOut);
+		cmd.End();
 
-	return std::make_tuple(
-		static_cast<BufferHandle<kVk>>(model.GetVertexBuffer()),
-		static_cast<BufferHandle<kVk>>(model.GetIndexBuffer()),
-		std::move(transitionFuture));
+		std::vector<core::TaskHandle> timelineCallbacks;
+		timelineCallbacks.emplace_back(transfersDone[0].handle);
+		timelineCallbacks.emplace_back(transfersDone[1].handle);
+
+		transferTimelineValue = ++transfer->timeline;
+		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+			.waitSemaphores = {transfer->semaphore},
+			.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
+			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
+			.signalSemaphores = {transfer->semaphore},
+			.signalSemaphoreValues = {transferTimelineValue},
+			.callbacks = std::move(timelineCallbacks)});
+
+		transferSubmits |= transferQueue.Submit();
+
+		transferSemaphore = &transfer->semaphore;
+	}
+
+	// wait for the upload outside the queue lock, so the model is ready for use by the caller
+	transferSemaphore->Wait(transferTimelineValue);
+
+	return model;
 }
 
 } // namespace rhi

@@ -81,6 +81,14 @@ since it does not depend on object state. Don't pass references *into* `desc` ei
 field bound to a `const&` parameter): `desc` is moved into the base before the target's
 members are initialized, so pass a copy.
 
+Serialized create-descs arrive *without* runtime handles: `ObjectCreateDesc`/`DeviceObjectCreateDesc`
+deliberately serialize only `uuid`, never `instance`/`device`. Any code that builds a desc from a
+file or cache (shader reflection, `image::detail::Load`, ...) must fill in `instance`/`device`
+before the desc is used to construct an object, or `GetDevice()` trips the assert below. Also, a
+derived desc with extra fields needs its own `serialize()` (see `ImageCreateDesc`): otherwise it
+inherits the base one and silently serializes only the `uuid`. When a serialized layout changes,
+bump the `cache-vN` tag in that loader's params hash so stale caches are rebuilt rather than misread.
+
 Related: `DeviceObject<T>::GetDevice()` resolves through
 `RHIApplication::GetRHI<G>().GetDevice(handle)`, which only finds devices already stored in
 `RHI::myDevices`. That's why `Device` creates its queues and pipeline from the `RHI`
@@ -121,6 +129,50 @@ Related gotchas hit while getting shutdown right:
   `exchange`, so an already-ended chain isn't waited on forever).
 - The signal handlers re-raise fatal signals with `SIG_DFL`; returning from e.g. SIGSEGV re-runs
   the faulting instruction and loops in the handler forever, which looks like a hang.
+
+## Queues: aliased queue types share one lock
+
+When a device has no dedicated compute/transfer queue family (e.g. KosmicKrisp/MoltenVK, one
+family), `Device::InternalCreateQueues` aliases those queue types to the graphics queue by sharing
+the same `std::shared_ptr<QueueTimelineContext>` (the `ConcurrentAccess`, i.e. data *and* mutex).
+Consequences:
+
+- Access queues through `Device::GetQueue(type)`. Code that "locks the transfer queue" may really be
+  locking the graphics queue, which `Draw()` holds for the whole frame — that serialization is the
+  point (before, aliases had separate mutexes and the loader and `Draw()` raced on the same command
+  pool).
+- **Never hold locks on two queue types at once** unless you know they are distinct (e.g. the
+  compute lock inside `Draw()` is only taken when `dedicatedCompute`): `UpgradableSharedMutex` is
+  not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
+  visiting all queue types dedupe by context (see `RHIApplication::Shutdown()`).
+
+## Descriptor sets: redundant updates consume the pool
+
+Binding a descriptor set that is marked dirty (`BindDescriptorSetAuto` → `InternalUpdateDescriptorSet`)
+takes a fresh set from the current `DescriptorSetArray` (16 sets), allocating a new array when it is
+full; old arrays are never recycled. So `SetDescriptorData` skips writes whose value is unchanged
+(`pipeline::SameBinding`, compared per field since the Vulkan structs have padding) — otherwise
+per-frame re-writes of the same data (as the compute pass does) exhaust the pool within seconds
+(`VK_ERROR_OUT_OF_POOL_MEMORY`). Genuine changes (loads, resizes) still leak a little until sets are
+recycled once the gpu is done with them.
+
+Loaded resources (models/images from the File menu or `SPEEDO_AUTOLOAD_MODEL`/`SPEEDO_AUTOLOAD_IMAGE`)
+are installed on the draw thread via `rhi.drawCalls`, stored with `Device::ReplaceResource`, and the
+previous resource is freed via `RetireAfterGraphicsWork` once all in-flight graphics work is done.
+
+## Gotcha: `core::CreateTask` stores lvalue arguments by reference
+
+`CreateTask(callable, args...)` keeps `args` in a `std::tuple<Args...>` with `Args` deduced as
+forwarding references, so an **lvalue argument is stored as a reference**, not copied. The task
+usually runs later, so passing a local or a function parameter as an lvalue leaves a dangling
+reference (typically read back as mimalloc's freed-memory pattern `0xdfdf...`). Pass arguments that
+must outlive the call as rvalues — `std::move(x)` or an explicit copy like `std::vector(x)` — as
+`RHIApplication::InternalOpenFileDialogueAsync` does. Only pass lvalues when the reference is
+intended and the referee outlives the task (e.g. the `Rpc` tasks' socket/poller, which are members
+of the client/server object).
+
+This is easy to miss with lambdas: a captureless lambda passed by reference happens to work (there's
+nothing to read), but it breaks as soon as a capture is added.
 
 ## `size_t`-keyed maps expecting hashed names
 

@@ -7,6 +7,7 @@
 #include <gfx/vertex.h>
 
 #include <array>
+#include <memory>
 #include <tuple>
 #include <vector>
 
@@ -70,8 +71,8 @@ public:
 	[[nodiscard]] const auto& GetIndexBuffer() const noexcept { return myIndexBuffer; }
 	[[nodiscard]] const auto& GetVertexBuffer() const noexcept { return myVertexBuffer; }
 
-	[[nodiscard]] static std::tuple<BufferHandle<G>, BufferHandle<G>, core::Future<core::Future<void>>>
-	LoadModel(std::string_view filePath, std::atomic_uint8_t& progress);
+	// loads and uploads a model on the primary device. returns once the upload has completed.
+	[[nodiscard]] static std::shared_ptr<Model<G>> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress);
 
 private:
 	Model(

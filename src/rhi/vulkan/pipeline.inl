@@ -1,6 +1,36 @@
 namespace rhi
 {
 
+namespace pipeline
+{
+
+// used to skip redundant descriptor updates: every update marks the descriptor set dirty, and binding a dirty set
+// consumes a fresh descriptor set from the pool. compared per field, since the vulkan structs have padding.
+[[nodiscard]] inline bool SameBindingValue(const DescriptorBufferInfo<kVk>& lhs, const DescriptorBufferInfo<kVk>& rhs) noexcept
+{
+	return lhs.buffer == rhs.buffer && lhs.offset == rhs.offset && lhs.range == rhs.range;
+}
+
+[[nodiscard]] inline bool SameBindingValue(const DescriptorImageInfo<kVk>& lhs, const DescriptorImageInfo<kVk>& rhs) noexcept
+{
+	return lhs.sampler == rhs.sampler && lhs.imageView == rhs.imageView && lhs.imageLayout == rhs.imageLayout;
+}
+
+template <typename T>
+[[nodiscard]] bool SameBindingValue(const T& lhs, const T& rhs) noexcept // handles, inline uniform blocks
+{
+	return lhs == rhs;
+}
+
+template <typename T>
+[[nodiscard]] bool SameBinding(const BindingVariant<kVk>& existing, const T& data) noexcept
+{
+	const auto* current = std::get_if<std::remove_cvref_t<T>>(&existing);
+	return current != nullptr && SameBindingValue(*current, data);
+}
+
+} // namespace pipeline
+
 template <>
 template <typename T>
 void Pipeline<kVk>::SetDescriptorData(
@@ -44,6 +74,9 @@ void Pipeline<kVk>::SetDescriptorData(
 	else
 	{
 		ENSURE(count == 1);
+
+		if (pipeline::SameBinding(bindingsData[offset], data))
+			return;
 
 		std::get<T>(bindingsData[offset]) = std::forward<T>(data);
 	}
@@ -116,6 +149,10 @@ void Pipeline<kVk>::SetDescriptorData(
 
 		if (count == data.size())
 		{
+			if (std::equal(data.begin(), data.end(), bindingsData.begin() + offset,
+					[](const T& value, const BindingVariant<kVk>& existing) { return pipeline::SameBinding(existing, value); }))
+				return;
+
 			std::copy(data.begin(), data.end(), bindingsData.begin() + offset);
 		}
 		else
@@ -225,6 +262,9 @@ void Pipeline<kVk>::SetDescriptorData(
 
 		if (rangeIt != ranges.end())
 		{
+			if (pipeline::SameBinding(bindingsData[offset + indexOffset], data))
+				return;
+
 			std::get<T>(bindingsData[offset + indexOffset]) = std::forward<T>(data);
 		}
 		else

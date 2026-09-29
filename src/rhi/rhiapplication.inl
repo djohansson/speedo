@@ -13,7 +13,7 @@ auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 	auto [openFileTask, openFileFuture] = CreateTask(
 		window::OpenFileDialogue,
 		std::move(resourcePathString),
-		filterList);
+		std::vector(filterList)); // by value, see loadOp below
 
 	auto [loadTask, loadFuture] = CreateTask(
 		[](auto openFileFuture, auto loadOp) -> std::invoke_result_t<LoadOp, const std::string&, std::atomic_uint8_t&>
@@ -35,7 +35,7 @@ auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 			return {};
 		},
 		std::move(openFileFuture),
-		loadOp);
+		std::move(loadOp)); // by value: CreateTask stores lvalue arguments by reference, and loadOp dies when we return
 
 	rhi.mainCalls.enqueue(openFileTask);
 	rhi.mainCalls.enqueue(loadTask);

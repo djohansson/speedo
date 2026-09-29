@@ -352,6 +352,10 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image."); //NOLINT(readability-simplify-boolean-expr)
 
+	// runtime handles are not part of the serialized desc (and the loaders don't set them), so fill them in here
+	desc.instance = device.GetDesc().instance;
+	desc.device = device;
+
 	return initialData;
 }
 //NOLINTEND(readability-magic-numbers)
@@ -469,7 +473,7 @@ Image<kVk>::Image(
 			desc))
 {
 	timlineCallbackOut = core::CreateTask(
-		[allocator = GetDevice(desc.device).GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
+		[allocator = GetDevice().GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
 			vmaDestroyBuffer(allocator, buffer, memory); });
 }
 
@@ -590,7 +594,7 @@ ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
 }
 
 template <>
-std::tuple<ImageHandle<kVk>, ImageViewHandle<kVk>, core::Future<void>, core::Future<core::Future<void>>>
+std::tuple<std::shared_ptr<Image<kVk>>, std::shared_ptr<ImageView<kVk>>>
 Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath, std::atomic_uint8_t& progressOut)
 {
 	using namespace core;
@@ -601,109 +605,46 @@ Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath,
 	ENSURE(app);
 	auto& rhi = app->GetRHI<kVk>();
 	auto& device = rhi.GetDevice(deviceHandle);
-	auto& pipeline = device.GetPipeline();
-	
-	auto transfer = device.GetQueues()[kQueueTypeTransfer].Write();
-	auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
-	core::TaskCreateInfo<void> transferDone;
-	auto image = Image<kVk>(device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
-	auto imageView = ImageView<kVk>(
-		ImageViewCreateDesc<kVk>{
-			device.CreateDeviceObjectCreateDesc(filePath),
-			image,
-			image.GetDesc().format,
-			VK_IMAGE_ASPECT_COLOR_BIT});
-	
-	std::tuple<ImageHandle<kVk>, ImageViewHandle<kVk>, core::Future<void>, core::Future<core::Future<void>>> result = 
-		std::make_tuple(
-			static_cast<ImageHandle<kVk>>(image),
-			static_cast<ImageViewHandle<kVk>>(imageView),
-			transferDone.future,
-			core::Future<core::Future<void>>{});
-
-	std::vector<core::TaskHandle> transferTimelineCallbacks;
-	transferTimelineCallbacks.emplace_back(transferDone.handle);
-
-	transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-		.waitSemaphores = {},
-		.waitDstStageMasks = {},
-		.waitSemaphoreValues = {},
-		.signalSemaphores = {transfer->semaphore},
-		.signalSemaphoreValues = {++transfer->timeline},
-		.callbacks = std::move(transferTimelineCallbacks)});
-
-	transferSubmits |= transferQueue.Submit();
-
-	///////////
-
-	auto [transitionTask, transitionFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>( 
-	[&rhi,
-		image = std::make_unique<Image<kVk>>(std::move(image)),
-		imageView = std::make_unique<ImageView<kVk>>(std::move(imageView)),
-		&transferSemaphore = transfer->semaphore,
-		&transferSubmits](QueueTimelineContextData<kVk>* graphics)
+	std::shared_ptr<Image<kVk>> image;
+	std::shared_ptr<ImageView<kVk>> imageView;
+	const Semaphore<kVk>* transferSemaphore = nullptr;
+	uint64_t transferTimelineValue = 0;
 	{
-		ZoneScopedN("image::LoadImage::transitionTask");
-		ENSURE(graphics);
-		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
+		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
+		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
-		auto cmd = graphicsQueue.GetPool().Commands();
-		{
-			GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
+		core::TaskCreateInfo<void> transferDone;
+		image = std::make_shared<Image<kVk>>(device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
+		imageView = std::make_shared<ImageView<kVk>>(
+			ImageViewCreateDesc<kVk>{
+				device.CreateDeviceObjectCreateDesc(filePath),
+				*image,
+				image->GetDesc().format,
+				VK_IMAGE_ASPECT_COLOR_BIT});
 
-			image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-		}
-		cmd.End();
+		std::vector<core::TaskHandle> transferTimelineCallbacks;
+		transferTimelineCallbacks.emplace_back(transferDone.handle);
 
-		auto& device = rhi.GetPrimaryDevice();
-		auto& pipeline = device.GetPipeline();
+		transferTimelineValue = ++transfer->timeline;
+		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+			.waitSemaphores = {},
+			.waitDstStageMasks = {},
+			.waitSemaphoreValues = {},
+			.signalSemaphores = {transfer->semaphore},
+			.signalSemaphoreValues = {transferTimelineValue},
+			.callbacks = std::move(transferTimelineCallbacks)});
 
-		auto [setDescriptorTask, setDescriptorFuture] = core::CreateTask([&pipeline, imageView = static_cast<ImageViewHandle<kVk>>(*imageView), imageLayout = image->GetDesc().layout]()
-		{
-			constexpr uint32_t kDefaultTextureBinding = 15;
-			pipeline.SetDescriptorData(
-				"gTextures",
-				DescriptorImageInfo<kVk>{.sampler = {}, .imageView = imageView, .imageLayout = imageLayout},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-				kDefaultTextureBinding);
-		});
+		transferSubmits |= transferQueue.Submit();
 
-		// // a bit cryptic, but it's just a task that holds on to the old image&view in its capture group until task is destroyed
-		// auto [oldImageDestroyTask, oldImageDestroyFuture] = core::CreateTask(
-		// 	[oldImage = std::atomic(resources.image),
-		// 	oldImageView = std::atomic(resources.imageView)]{});
+		transferSemaphore = &transfer->semaphore;
+	}
 
-		std::vector<core::TaskHandle> transitionTimelineCallbacks;
-		transitionTimelineCallbacks.emplace_back(setDescriptorTask);
-		// transitionTimelineCallbacks.emplace_back(oldImageDestroyTask);
+	// wait for the upload outside the queue lock. the caller is responsible for transitioning the image
+	// to a shader readable layout (on a graphics queue) before using it.
+	transferSemaphore->Wait(transferTimelineValue);
 
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
-			.waitSemaphores = {transferSemaphore},
-			.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
-			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
-			.signalSemaphores = {graphics->semaphore},
-			.signalSemaphoreValues = {++graphics->timeline},
-			.callbacks = std::move(transitionTimelineCallbacks)});
-
-		graphicsSubmits |= graphicsQueue.Submit();
-
-		// std::atomic_store(
-		// 	&resources.image,
-		// 	std::make_shared<Image<kVk>>(std::move(*image)));
-		// std::atomic_store(
-		// 	&resources.imageView,
-		// 	std::make_shared<ImageView<kVk>>(std::move(*imageView)));
-
-		return setDescriptorFuture;
-	});
-	std::get<3>(result) = std::move(transitionFuture);
-
-	rhi.drawCalls.enqueue(transitionTask);
-
-	///////////
-
-	return result;
+	return std::make_tuple(std::move(image), std::move(imageView));
 }
 
 } // namespace rhi
