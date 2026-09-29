@@ -200,13 +200,11 @@ void InitDeviceExtensions(VkDevice device)
 
 bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 {
-	static bool gDeviceExtensionsInitialized = false;
 	static core::UnorderedMap<VkPhysicalDevice, std::vector<VkExtensionProperties>> gDeviceExtensions;
-	auto& deviceExtensions = gDeviceExtensions[device];
-	if (!gDeviceExtensionsInitialized)
+	auto [deviceExtensionsIt, inserted] = gDeviceExtensions.try_emplace(device);
+	auto& deviceExtensions = deviceExtensionsIt->second;
+	if (inserted)
 	{
-		gDeviceExtensionsInitialized = true;
-
 		uint32_t deviceExtensionCount = 0;
 		vkEnumerateDeviceExtensionProperties(device, nullptr, &deviceExtensionCount, nullptr);
 
