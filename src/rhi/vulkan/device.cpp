@@ -175,7 +175,7 @@ void Device<kVk>::InternalCreatePipeline()
 	myPipeline = Pipeline<kVk>(
 		PipelineCreateDesc<kVk>{
 			CreateDeviceObjectCreateDesc("Pipeline"),
-			std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache"
+			(std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
 		});
 }
 
