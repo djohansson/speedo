@@ -388,6 +388,7 @@ $VSCodeSettings = [ordered] @{
 		'--background-index',
 		"--compile-commands-dir=`${workspaceFolder}/build/$(Get-TargetTriplet)-debug"
 	)
+	'dotnet.defaultSolution' = 'disable'
 }
 
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
