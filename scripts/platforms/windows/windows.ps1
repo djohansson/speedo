@@ -41,7 +41,7 @@ $winSDKManifest = [xml](Get-Content -Path "$winSDKRoot\SDKManifest.xml")
 $platformIndentityStr = $winSDKManifest.FileList.PlatformIdentity
 $windowsSdkVersion = $platformIndentityStr.SubString($platformIndentityStr.LastIndexOf("Version=") + 8)
 
-$global:myEnv['WINDOWS_SDK'] = $winSDKRoot
-$global:myEnv['WINDOWS_SDK_VERSION'] = $windowsSdkVersion
-$global:myEnv['VISUAL_STUDIO_PATH'] = $VSInstance.installationPath
-$global:myEnv['VISUAL_STUDIO_VCTOOLS_VERSION'] = (Get-Content -Path ($VSInstance.installationPath + "\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"))
+$global:Env['WINDOWS_SDK'] = $winSDKRoot
+$global:Env['WINDOWS_SDK_VERSION'] = $windowsSdkVersion
+$global:Env['VISUAL_STUDIO_PATH'] = $VSInstance.installationPath
+$global:Env['VISUAL_STUDIO_VCTOOLS_VERSION'] = (Get-Content -Path ($VSInstance.installationPath + "\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"))

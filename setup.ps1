@@ -12,14 +12,12 @@ if ($PSVersionTable.PSVersion -lt [System.Version]"7.5")
 . $PSScriptRoot/scripts/env.ps1
 . $PSScriptRoot/scripts/platform.ps1
 
-# always a hashtable, assign with $global:myEnv['KEY'] = ... (Add-Member on a hashtable is not serialized by ConvertTo-Json)
-$global:myEnv = [ordered]@{}
-
-$myEnvFile = "$PSScriptRoot/.env.json"
-
-if (Test-Path $myEnvFile)
+$EnvFile = "$PSScriptRoot/.env.json"
+# always a hashtable, assign with $global:Env['KEY'] = ... (Add-Member on a hashtable is not serialized by ConvertTo-Json)
+$global:Env = [ordered]@{}
+if (Test-Path $EnvFile)
 {
-	$global:myEnv = Get-Content -Path $myEnvFile -Raw | ConvertFrom-Json -AsHashtable
+	$global:Env = Get-Content -Path $EnvFile -Raw | ConvertFrom-Json -AsHashtable
 }
 
 # values that, when changed by an OS/SDK/toolchain update, invalidate existing CMake build directories
@@ -27,37 +25,23 @@ $PlatformStateKeys = @('SDKROOT', 'MACOS_BUILD_VERSION', 'WINDOWS_SDK_VERSION', 
 $PreviousPlatformState = @{}
 foreach ($Key in $PlatformStateKeys)
 {
-	$PreviousPlatformState[$Key] = $global:myEnv[$Key]
+	$PreviousPlatformState[$Key] = $global:Env[$Key]
 }
 
-if (!(Test-Path Variable:\IsWindows) -or $IsWindows)
-{
-	& $PSScriptRoot/scripts/platforms/windows/windows.ps1
+$PlatformIndex = (!(Test-Path Variable:\IsWindows) -or $IsWindows) ? 0 : $IsMacOS ? 1 : $IsLinux ? 2 : -1
+$Platforms = @('windows', 'osx', 'linux')
 
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg.exe))
-	{
-		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg.bat")
-		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.bat failed with exit code $LASTEXITCODE" }
-	}
-}
-elseif ($IsMacOS)
+if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $Platforms.Length)
 {
-	& $PSScriptRoot/scripts/platforms/osx/osx.ps1
+	$exeSuffix = $IsWindows ? '.exe' : ''
+	$scriptSuffix = $IsWindows ? '.bat' : '.sh'
+	$Platform = $Platforms[$PlatformIndex]
+	& $PSScriptRoot/scripts/platforms/$Platform/$Platform.ps1
 
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
+	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg$exeSuffix))
 	{
-		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
-		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.sh failed with exit code $LASTEXITCODE" }
-	}
-}
-elseif ($IsLinux)
-{
-	& $PSScriptRoot/scripts/platforms/linux/linux.ps1
-
-	if (!(Test-Path $PSScriptRoot/vcpkg/vcpkg))
-	{
-		Invoke-Expression("sh $PSScriptRoot/vcpkg/bootstrap-vcpkg.sh")
-		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg.sh failed with exit code $LASTEXITCODE" }
+		Invoke-Expression("$PSScriptRoot/vcpkg/bootstrap-vcpkg$scriptSuffix")
+		if ($LASTEXITCODE -ne 0) { throw "bootstrap-vcpkg$scriptSuffix failed with exit code $LASTEXITCODE" }
 	}
 }
 else
@@ -65,17 +49,17 @@ else
 	Write-Error "Unsupported Operating System" # please implement me
 }
 
-$global:myEnv['VCPKG_ROOT'] = "$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg'
-$global:myEnv | ConvertTo-Json | Out-File $myEnvFile -Force
+$global:Env['VCPKG_ROOT'] = "$PSScriptRoot" + [IO.Path]::DirectorySeparatorChar + 'vcpkg'
+$global:Env | ConvertTo-Json | Out-File $EnvFile -Force
 
 $ChangedPlatformState = $PlatformStateKeys | Where-Object {
-	$PreviousPlatformState[$_] -and ($PreviousPlatformState[$_] -ne $global:myEnv[$_])
+	$PreviousPlatformState[$_] -and ($PreviousPlatformState[$_] -ne $global:Env[$_])
 }
 if ($ChangedPlatformState)
 {
 	foreach ($Key in $ChangedPlatformState)
 	{
-		Write-Host "Platform change detected: $Key '$($PreviousPlatformState[$Key])' -> '$($global:myEnv[$Key])'"
+		Write-Host "Platform change detected: $Key '$($PreviousPlatformState[$Key])' -> '$($global:Env[$Key])'"
 	}
 	Write-Host "Clearing CMake caches so compilers and SDK are re-detected..."
 	foreach ($BuildDir in Get-ChildItem -Path "$PSScriptRoot/build" -Directory -ErrorAction SilentlyContinue)
@@ -84,7 +68,7 @@ if ($ChangedPlatformState)
 	}
 }
 
-Read-EnvFile "$PSScriptRoot/.env.json"
+Read-EnvFile $EnvFile
 
 $Configurations = @('debug', 'release', 'profile')
 $Targets = @('client', 'server')
@@ -108,7 +92,7 @@ $CMakePresets = [ordered] @{
 				VCPKG_DISABLE_COMPILER_TRACKING = 'ON' # This target is not compiled yet when vcpkg wants to calculate the compiler hash.
 				CMAKE_EXPORT_COMPILE_COMMANDS = 'ON'
 				CMAKE_MAP_IMPORTED_CONFIG_PROFILE = 'profile;release'
-				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'OFF'
+				CMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS = 'ON'
 				CMAKE_FASTBUILD_USE_LIGHTCACHE='ON'
 				#
 			}
@@ -194,6 +178,8 @@ if ($IsWindows)
 					cwd = "`${workspaceFolder}"
 					console = "internalConsole"
 					environment = @(
+						@{ "name" = "SPEEDO_AUTOLOAD_MODEL"; "value" = "gallery.obj" },
+						@{ "name" = "SPEEDO_AUTOLOAD_IMAGE"; "value" = "gallery.jpg" },
 						@{ "name" = "MIMALLOC_SHOW_STATS"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
 						@{ "name" = "MIMALLOC_VERBOSE"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
 						@{ "name" = "MIMALLOC_SHOW_ERRORS"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
@@ -257,6 +243,8 @@ elseif ($IsMacOS)
 					preLaunchTask = "export-kosmickrisp-driver-path"
 					envFile = "`${userHome}/.speedo/.env"
 					env = @{
+						"SPEEDO_AUTOLOAD_MODEL" = "gallery.obj"
+						"SPEEDO_AUTOLOAD_IMAGE" = "gallery.jpg"
 						"MIMALLOC_SHOW_STATS" = "$($Config -eq 'debug' ? '1' : '0')"
 						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
 						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
@@ -321,6 +309,8 @@ elseif ($IsLinux)
 					terminal = "console"
 					envFile = "`${userHome}/.speedo/.env"
 					env = @{
+						"SPEEDO_AUTOLOAD_MODEL" = "gallery.obj"
+						"SPEEDO_AUTOLOAD_IMAGE" = "gallery.jpg"
 						"MIMALLOC_SHOW_STATS" = "$($Config -eq 'debug' ? '1' : '0')"
 						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
 						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"

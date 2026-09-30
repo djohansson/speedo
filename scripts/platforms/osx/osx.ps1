@@ -22,6 +22,6 @@ if ($LASTEXITCODE -ne 0 -or -not $sdkPath)
 {
 	throw "Could not find the macOS SDK (xcrun exit code $LASTEXITCODE). Are the Xcode Command Line Tools installed? Try 'xcode-select --install'."
 }
-$global:myEnv['SDKROOT'] = $(realpath $sdkPath)
-$global:myEnv['MACOS_BUILD_VERSION'] = $(sw_vers -buildVersion)
-$global:myEnv['CMAKE_APPLE_SILICON_PROCESSOR'] = $(Get-HostArchitecture)
+$global:Env['SDKROOT'] = $(realpath $sdkPath)
+$global:Env['MACOS_BUILD_VERSION'] = $(sw_vers -buildVersion)
+$global:Env['CMAKE_APPLE_SILICON_PROCESSOR'] = $(Get-HostArchitecture)
