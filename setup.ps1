@@ -176,6 +176,11 @@ $PlatformSettings = @(
 				}
 			}
 		}
+		ProfilerLaunchOptions = [ordered] @{
+			environment = @(
+				@{ "name" = "PATH"; "value" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/bin" }
+			)
+		}
 		Tasks = @()
 	}
 	@{ # osx
@@ -212,6 +217,7 @@ $PlatformSettings = @(
 				env = $LaunchEnvironment
 			}
 		}
+		ProfilerLaunchOptions = [ordered] @{}
 		Tasks = @(
 			[ordered] @{
 				label = "export-molten-vk-driver-path"
@@ -249,6 +255,7 @@ $PlatformSettings = @(
 				env = $LaunchEnvironment
 			}
 		}
+		ProfilerLaunchOptions = [ordered] @{}
 		Tasks = @()
 	}
 )
@@ -303,6 +310,18 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 		}
 	}
 
+	# tracy[gui-tools] only installs a release build of the profiler, shared by all configurations
+	$VSCodeLaunchConfiguration.configurations += @(
+		[ordered] @{
+			name = "($(Get-TargetTriplet)) tracy-profiler"
+			type = $Settings.Debugger
+			request = "launch"
+			program = "`${workspaceFolder}/install/$(Get-TargetTriplet)/tools/tracy/tracy-profiler$exeSuffix"
+			cwd = "`${workspaceFolder}"
+		}
+	)
+	foreach ($Entry in $Settings.ProfilerLaunchOptions.GetEnumerator()) { $VSCodeLaunchConfiguration.configurations[-1][$Entry.Key] = $Entry.Value }
+
 	$VSCodeTasks.tasks += $Settings.Tasks
 }
 
@@ -321,7 +340,8 @@ foreach ($Config in $Configurations)
 			name = "($(Get-TargetTriplet)) $Config all"
 			configurations = @(
 				"($(Get-TargetTriplet)) $Config/client",
-				"($(Get-TargetTriplet)) $Config/server"
+				"($(Get-TargetTriplet)) $Config/server",
+				"($(Get-TargetTriplet)) tracy-profiler"
 			)
 			stopAll = $true
 		}
