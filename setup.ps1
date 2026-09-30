@@ -140,187 +140,170 @@ $VSCodeTasks = @{
 	tasks = @()
 }
 
-if ($IsWindows)
+# per-platform settings, indexed by $PlatformIndex (same order as $Platforms)
+$PlatformSettings = @(
+	@{ # windows
+		HostSystemName = 'Windows'
+		PresetCacheVariables = [ordered] @{}
+		PresetEnvironment = [ordered] @{
+			PATH ="`$env{LLVM_ROOT}/bin`;`$env{LLVM_TOOLS_BINARY_DIR}`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc`;`$penv{PATH}"
+			VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
+			VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
+			WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
+			WINDOWS_SDK_VERSION = "$env:WINDOWS_SDK_VERSION"
+		}
+		Debugger = 'cppvsdbg'
+		LaunchEnvironment = {
+			param($Config)
+			[ordered] @{
+				PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/bin' : 'bin')"
+				VK_LAYER_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/bin' : 'bin')"
+			}
+		}
+		LaunchOptions = {
+			param($LaunchEnvironment)
+			[ordered] @{
+				console = "internalConsole"
+				environment = @($LaunchEnvironment.GetEnumerator() | ForEach-Object { @{ "name" = $_.Key; "value" = $_.Value } })
+				symbolOptions = @{
+					searchPaths = @()
+					searchMicrosoftSymbolServer = $true
+					cachePath = "${env:TEMP}/symbolcache"
+					moduleFilter = @{
+						mode = "loadAllButExcluded"
+						excludedModules = @()
+					}
+				}
+			}
+		}
+		Tasks = @()
+	}
+	@{ # osx
+		HostSystemName = 'Darwin'
+		PresetCacheVariables = [ordered] @{
+			# needs to be duplicated here to be work in the vscode cmake extension
+			VCPKG_OSX_SYSROOT = "$env:SDKROOT"
+			VCPKG_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
+			VCPKG_FIXUP_ELF_RPATH = 'ON'
+			#
+		}
+		PresetEnvironment = [ordered] @{
+			SDKROOT = "$env:SDKROOT"
+			CMAKE_APPLE_SILICON_PROCESSOR = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
+			CMAKE_OSX_ARCHITECTURES = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
+		}
+		Debugger = 'lldb'
+		LaunchEnvironment = {
+			param($Config)
+			[ordered] @{
+				DYLD_LIBRARY_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
+				#DYLD_INSERT_LIBRARIES = "libmimalloc$($Config -eq 'debug' ? '-secure-debug' : '').dylib"
+				DYLD_PRINT_LIBRARIES = "$($Config -eq 'debug' ? '1' : '0')"
+				TSAN_OPTIONS = "suppressions=`${workspaceFolder}/tsan-suppressions.txt"
+				VK_LAYER_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
+			}
+		}
+		LaunchOptions = {
+			param($LaunchEnvironment)
+			[ordered] @{
+				terminal = "console"
+				preLaunchTask = "export-kosmickrisp-driver-path"
+				envFile = "`${userHome}/.speedo/.env"
+				env = $LaunchEnvironment
+			}
+		}
+		Tasks = @(
+			[ordered] @{
+				label = "export-molten-vk-driver-path"
+				type = "shell"
+				command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json`" > `${userHome}/.speedo/.env }' 2>&1"
+				group = "none"
+			},
+			[ordered] @{
+				label = "export-kosmickrisp-driver-path"
+				type = "shell"
+				command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix mesa)/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`" > `${userHome}/.speedo/.env }' 2>&1"
+				group = "none"
+			}
+		)
+	}
+	@{ # linux
+		HostSystemName = 'Linux'
+		PresetCacheVariables = [ordered] @{}
+		PresetEnvironment = [ordered] @{
+			LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
+		}
+		Debugger = 'lldb'
+		LaunchEnvironment = {
+			param($Config)
+			[ordered] @{
+				LD_LIBRARY_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
+				VK_LAYER_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
+			}
+		}
+		LaunchOptions = {
+			param($LaunchEnvironment)
+			[ordered] @{
+				terminal = "console"
+				envFile = "`${userHome}/.speedo/.env"
+				env = $LaunchEnvironment
+			}
+		}
+		Tasks = @()
+	}
+)
+
+if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 {
+	$Settings = $PlatformSettings[$PlatformIndex]
+
 	foreach ($Config in $Configurations)
 	{
+		$CacheVariables = [ordered] @{
+			CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
+		}
+		foreach ($Entry in $Settings.PresetCacheVariables.GetEnumerator()) { $CacheVariables[$Entry.Key] = $Entry.Value }
+
 		$CMakePresets.configurePresets += @(
 			[ordered] @{
 				name = "$(Get-TargetTriplet)-$Config"
 				inherits = 'llvm-build'
-				cacheVariables = [ordered] @{
-					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
-				}
-				environment = [ordered] @{
-					PATH ="`$env{LLVM_ROOT}/bin`;`$env{LLVM_TOOLS_BINARY_DIR}`;`${sourceDir}/install/$(Get-TargetTriplet)/tools/mimalloc`;`$penv{PATH}"
-					VISUAL_STUDIO_PATH = "$env:VISUAL_STUDIO_PATH"
-					VISUAL_STUDIO_VCTOOLS_VERSION = "$env:VISUAL_STUDIO_VCTOOLS_VERSION"
-					WINDOWS_SDK_PATH = "$env:WINDOWS_SDK"
-					WINDOWS_SDK_VERSION = "$env:WINDOWS_SDK_VERSION"
-				}
+				cacheVariables = $CacheVariables
+				environment = $Settings.PresetEnvironment
 				condition = [ordered] @{
 					type = 'equals'
 					lhs = '${hostSystemName}'
-					rhs = 'Windows'
+					rhs = $Settings.HostSystemName
 				}
 			}
 		)
 
+		$LaunchEnvironment = [ordered] @{
+			SPEEDO_AUTOLOAD_MODEL = "gallery.obj"
+			SPEEDO_AUTOLOAD_IMAGE = "gallery.jpg"
+			MIMALLOC_SHOW_STATS = "$($Config -eq 'debug' ? '1' : '0')"
+			MIMALLOC_VERBOSE = "$($Config -eq 'debug' ? '1' : '0')"
+			MIMALLOC_SHOW_ERRORS = "$($Config -eq 'debug' ? '1' : '0')"
+		}
+		foreach ($Entry in (& $Settings.LaunchEnvironment $Config).GetEnumerator()) { $LaunchEnvironment[$Entry.Key] = $Entry.Value }
+
 		foreach ($Target in $Targets)
 		{
-			$VSCodeLaunchConfiguration.configurations += @(
-				[ordered] @{
-					name = "($(Get-TargetTriplet)) $Config/$Target"
-					type = "cppvsdbg"
-					request = "launch"
-					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target.exe"
-					args = @("-u `${userHome}/.speedo")
-					cwd = "`${workspaceFolder}"
-					console = "internalConsole"
-					environment = @(
-						@{ "name" = "SPEEDO_AUTOLOAD_MODEL"; "value" = "gallery.obj" },
-						@{ "name" = "SPEEDO_AUTOLOAD_IMAGE"; "value" = "gallery.jpg" },
-						@{ "name" = "MIMALLOC_SHOW_STATS"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
-						@{ "name" = "MIMALLOC_VERBOSE"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
-						@{ "name" = "MIMALLOC_SHOW_ERRORS"; "value" = "$($Config -eq 'debug' ? '1' : '0')" },
-						@{ "name" = "PATH"; "value" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/bin' : 'bin')" },
-						@{ "name" = "VK_LAYER_PATH"; "value" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/bin' : 'bin')" }
-					)
-					symbolOptions = @{
-						searchPaths = @()
-						searchMicrosoftSymbolServer = $true
-						cachePath = "${env:TEMP}/symbolcache"
-						moduleFilter = @{
-							mode = "loadAllButExcluded"
-							excludedModules = @()
-						}
-					}
-				}
-			)
-		}
-	}
-}
-elseif ($IsMacOS)
-{
-	foreach ($Config in $Configurations)
-	{
-		$CMakePresets.configurePresets += @(
-			[ordered] @{
-				name = "$(Get-TargetTriplet)-$Config"
-				inherits = 'llvm-build'
-				cacheVariables = [ordered] @{
-					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
-					# needs to be duplicated here to be work in the vscode cmake extension
-					VCPKG_OSX_SYSROOT = "$env:SDKROOT"
-					VCPKG_OSX_ARCHITECTURES = "$env:CMAKE_APPLE_SILICON_PROCESSOR"
-					VCPKG_FIXUP_ELF_RPATH = 'ON'
-					#
-				}
-				environment = [ordered] @{
-					SDKROOT = "$env:SDKROOT"
-					CMAKE_APPLE_SILICON_PROCESSOR = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
-					CMAKE_OSX_ARCHITECTURES = $env:CMAKE_APPLE_SILICON_PROCESSOR ?? 'arm64'
-				}
-				condition = [ordered] @{
-					type = 'equals'
-					lhs = '${hostSystemName}'
-					rhs = 'Darwin'
-				}
+			$LaunchConfiguration = [ordered] @{
+				name = "($(Get-TargetTriplet)) $Config/$Target"
+				type = $Settings.Debugger
+				request = "launch"
+				program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target$exeSuffix"
+				args = @("-u `${userHome}/.speedo")
+				cwd = "`${workspaceFolder}"
 			}
-		)
+			foreach ($Entry in (& $Settings.LaunchOptions $LaunchEnvironment).GetEnumerator()) { $LaunchConfiguration[$Entry.Key] = $Entry.Value }
 
-		foreach ($Target in $Targets)
-		{
-			$VSCodeLaunchConfiguration.configurations += @(
-				[ordered] @{
-					name = "($(Get-TargetTriplet)) $Config/$Target"
-					type = "lldb"
-					request = "launch"
-					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target"
-					args = @("-u `${userHome}/.speedo")
-					cwd = "`${workspaceFolder}"
-					terminal = "console"
-					preLaunchTask = "export-kosmickrisp-driver-path"
-					envFile = "`${userHome}/.speedo/.env"
-					env = @{
-						"SPEEDO_AUTOLOAD_MODEL" = "gallery.obj"
-						"SPEEDO_AUTOLOAD_IMAGE" = "gallery.jpg"
-						"MIMALLOC_SHOW_STATS" = "$($Config -eq 'debug' ? '1' : '0')"
-						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
-						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
-						"DYLD_LIBRARY_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
-						#"DYLD_INSERT_LIBRARIES" = "libmimalloc$($Config -eq 'debug' ? '-secure-debug' : '').dylib"
-						"DYLD_PRINT_LIBRARIES" = "$($Config -eq 'debug' ? '1' : '0')"
-						"TSAN_OPTIONS" = "suppressions=`${workspaceFolder}/tsan-suppressions.txt"
-						"VK_LAYER_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
-					}
-				}
-			)
+			$VSCodeLaunchConfiguration.configurations += @($LaunchConfiguration)
 		}
 	}
 
-	$VSCodeTasks.tasks += @(
-		[ordered] @{
-			label = "export-molten-vk-driver-path"
-			type = "shell"
-			command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json`" > `${userHome}/.speedo/.env }' 2>&1"
-			group = "none"
-		},
-		[ordered] @{
-			label = "export-kosmickrisp-driver-path"
-			type = "shell"
-			command = "pwsh -c '& { if (-not (Test-Path `${userHome}/.speedo)) { New-Item -Force -ItemType Directory -Path `${userHome}/.speedo | Out-Null }; `"VK_DRIVER_FILES=`$(brew --prefix mesa)/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`" > `${userHome}/.speedo/.env }' 2>&1"
-			group = "none"
-		}
-	)
-}
-elseif ($IsLinux)
-{
-	foreach ($Config in $Configurations)
-	{
-		$CMakePresets.configurePresets += @(
-			[ordered] @{
-				name = "$(Get-TargetTriplet)-$Config"
-				inherits = 'llvm-build'
-				cacheVariables = [ordered] @{
-					CMAKE_BUILD_TYPE = $Config # FASTBuild is a single-config generator
-				}
-				environment = [ordered] @{
-					LD_LIBRARY_PATH = "`$penv{LD_LIBRARY_PATH}:`$env{LLVM_ROOT}/lib"
-				}
-				condition = [ordered] @{
-					type = 'equals'
-					lhs = '${hostSystemName}'
-					rhs = 'Linux'
-				}
-			}
-		)
-
-		foreach ($Target in $Targets)
-		{
-			$VSCodeLaunchConfiguration.configurations += @(
-				[ordered] @{
-					name = "($(Get-TargetTriplet)) $Config/$Target"
-					type = "lldb"
-					request = "launch"
-					program = "`${workspaceFolder}/build/$(Get-TargetTriplet)-$Config/$Target"
-					args = @("-u `${userHome}/.speedo")
-					cwd = "`${workspaceFolder}"
-					terminal = "console"
-					envFile = "`${userHome}/.speedo/.env"
-					env = @{
-						"SPEEDO_AUTOLOAD_MODEL" = "gallery.obj"
-						"SPEEDO_AUTOLOAD_IMAGE" = "gallery.jpg"
-						"MIMALLOC_SHOW_STATS" = "$($Config -eq 'debug' ? '1' : '0')"
-						"MIMALLOC_VERBOSE" = "$($Config -eq 'debug' ? '1' : '0')"
-						"MIMALLOC_SHOW_ERRORS" = "$($Config -eq 'debug' ? '1' : '0')"
-						"LD_LIBRARY_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
-						"VK_LAYER_PATH" = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
-					}
-				}
-			)
-		}
-	}
+	$VSCodeTasks.tasks += $Settings.Tasks
 }
 
 foreach ($Config in $Configurations)
