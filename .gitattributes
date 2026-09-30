@@ -1,0 +1,5 @@
+# cmd.exe misparses batch files with LF line endings, regardless of the cloning machine's core.autocrlf
+*.bat text eol=crlf
+
+# bash fails on CRLF line endings (e.g. running a Windows checkout from WSL)
+*.sh text eol=lf

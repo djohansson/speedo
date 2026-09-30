@@ -194,6 +194,16 @@ skips that environment and fails in several different, confusing ways (empty `LL
 toolchain, `minject.exe` not found, etc.). Use `cmake --preset <name> -S <root>` instead — it's not
 just shorter, the raw command is missing required state.
 
+## `setup.ps1` on Windows: no PowerShell Gallery modules
+
+The Windows setup uses the `winget` CLI and `vswhere.exe` (fixed path under
+`${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer`) rather than the
+`Microsoft.WinGet.Client`/`VSSetup` modules. `-Scope CurrentUser` modules live in
+`Documents\PowerShell\Modules`, which OneDrive often redirects; cloud-only files there are skipped
+by module auto-loading, so `Get-InstalledModule` says installed while the cmdlet is "not
+recognized". Don't reintroduce modules; also avoid hardcoded install roots (the Windows SDK root
+comes from the `KitsRoot10` registry value).
+
 ## FASTBuild: PCH can race with sibling objects in the same `ObjectList`
 
 When an `ObjectList()` both builds a precompiled header (`.PCHInputFile`/`.PCHOutputFile`/

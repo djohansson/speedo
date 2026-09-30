@@ -2,6 +2,13 @@
 # (some, like `brew list` and `xcode-select --install`, are expected to fail), so check $LASTEXITCODE explicitly.
 $ErrorActionPreference = 'Stop'
 
+# the setup_<platform> bootstrappers install/upgrade PowerShell before running this script; fail when launched directly on an older one
+if ($PSVersionTable.PSVersion -lt [System.Version]"7.5")
+{
+	$Bootstrapper = $IsWindows ? "setup_windows.bat" : ($IsMacOS ? "setup_osx.sh" : "setup_linux.sh")
+	Write-Error "PowerShell $($PSVersionTable.PSVersion) is older than the required 7.5. Run $Bootstrapper instead, which upgrades it and then runs setup."
+}
+
 . $PSScriptRoot/scripts/env.ps1
 . $PSScriptRoot/scripts/platform.ps1
 
