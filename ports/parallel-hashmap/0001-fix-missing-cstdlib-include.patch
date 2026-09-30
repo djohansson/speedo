@@ -18,13 +18,13 @@ index 0000000..0000000 100644
 --- a/parallel_hashmap/phmap_base.h
 +++ b/parallel_hashmap/phmap_base.h
 @@ -36,6 +36,7 @@
-
+ 
  #include <algorithm>
  #include <cassert>
 +#include <cstdlib>
  #include <cstddef>
  #include <initializer_list>
  #include <iterator>
---
+-- 
 2.47.0.windows.1
 

@@ -240,7 +240,10 @@ surfacing as untouched ports get exercised for the first time under this triplet
 missing `#include` via a patch on the specific port (see `ports/tracy/0005-*`/`0006-*`). If the port
 isn't already a local overlay, copy its `portfile.cmake`/`vcpkg.json` from
 `%LOCALAPPDATA%\vcpkg\registries\git-trees\<commit>\` into a new `ports/<name>/` overlay dir and add
-the patch there (see `ports/parallel-hashmap/`). The same class of bug can also hit our own code that
+the patch there (see `ports/parallel-hashmap/`). Generate patches with `git diff`/`git format-patch`
+rather than by hand: an unchanged blank line inside a hunk must be a single space, not an empty line.
+An empty one only works while the file has LF endings; with CRLF it is `"\r"` and `git apply` fails
+with `corrupt patch at <file>:<line>` (`.gitattributes` now pins `*.patch` to LF as a backstop). The same class of bug can also hit our own code that
 happened to rely on the same MSVC-STL leakage (see `src/rhi/vulkan/device.cpp`'s
 `std::filesystem::path` → `std::string` conversion, which relied on an implicit conversion libc++
 correctly rejects since `path::string_type` is `wstring` on Windows — fix with an explicit `.string()`

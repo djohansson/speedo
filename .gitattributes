@@ -3,3 +3,6 @@
 
 # bash fails on CRLF line endings (e.g. running a Windows checkout from WSL)
 *.sh text eol=lf
+
+# a hand-written patch whose blank context line is empty instead of " " only applies with LF: with CRLF that line is "\r" and git reports "corrupt patch"
+*.patch text eol=lf

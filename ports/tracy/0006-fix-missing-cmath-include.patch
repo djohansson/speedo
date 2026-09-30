@@ -19,9 +19,9 @@ index 0000000..0000000 100644
 @@ -1,4 +1,5 @@
  #include <algorithm>
 +#include <cmath>
-
+ 
  #include "TracyImGui.hpp"
  #include "TracyMouse.hpp"
---
+-- 
 2.47.0.windows.1
 
