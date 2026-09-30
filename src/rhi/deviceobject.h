@@ -56,8 +56,8 @@ public:
 	{
 		return DeviceObjectCreateDesc<GetApi()>{
 			ObjectCreateDesc<GetApi()>{
-				.instance = SuperType::GetInstance(),
 				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+				.instance = SuperType::GetInstance(),
 			},
 			GetDevice(deviceHandle)
 		};

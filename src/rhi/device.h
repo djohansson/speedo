@@ -108,8 +108,8 @@ public:
 	{
 		return DeviceObjectCreateDesc<G>{
 			ObjectCreateDesc<G>{
-				.instance = SuperType::GetDesc().instance,
 				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+				.instance = SuperType::GetDesc().instance,
 			},
 			myDevice
 		};

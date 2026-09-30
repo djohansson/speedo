@@ -61,7 +61,13 @@ public:
 	[[nodiscard]] auto& GetPrimaryDevice() noexcept { return myDevices.front(); }
 	[[nodiscard]] const auto& GetPrimaryDevice() const noexcept { return myDevices.front(); }
 
-	[[nodiscard]] DeviceObjectCreateDesc<G> CreatePrimaryDeviceObjectCreateDesc(std::string_view name = {}) const noexcept { return DeviceObjectCreateDesc<G>{ ObjectCreateDesc<G>{ .instance = GetInstance(), .uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name) }, GetPrimaryDevice() }; }
+	[[nodiscard]] DeviceObjectCreateDesc<G> CreatePrimaryDeviceObjectCreateDesc(std::string_view name = {}) const noexcept
+	{
+		return DeviceObjectCreateDesc<G>{
+			ObjectCreateDesc<G>{
+				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+				.instance = GetInstance(),
+			}, GetPrimaryDevice() }; }
 	
 private:
 	Instance<G> myInstance;
