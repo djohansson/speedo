@@ -19,12 +19,20 @@
 #	define GLFW_EXPOSE_NATIVE_WIN32
 #	include <GLFW/glfw3native.h>
 #endif
+#if defined(__APPLE__)
+#	define GLFW_EXPOSE_NATIVE_COCOA
+#	include <GLFW/glfw3native.h>
+#endif
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
 #endif
 #if !defined(__WINDOWS__)
 #	include <pthread.h>
 #	include <unistd.h>
+#endif
+#if defined(__APPLE__)
+#	include <objc/message.h>
+#	include <objc/runtime.h>
 #endif
 
 static struct cag_option gCmdArgs[] =
@@ -187,6 +195,41 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 	UpdateMouse(&gMouse);
 }
 
+#if defined(__APPLE__)
+// exclusive fullscreen (glfwSetWindowMonitor) lets macOS scan the swapchain images out directly, which flickers
+// (frames shown out of order) with the vulkan driver even though the rendered frames are correct. a borderless window
+// covering the monitor, with the menu bar and dock hidden, stays composited and doesn't.
+static void SetMacPresentationOptions(unsigned long options)
+{
+	id app = ((id (*)(Class, SEL))objc_msgSend)(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
+	((void (*)(id, SEL, unsigned long))objc_msgSend)(app, sel_registerName("setPresentationOptions:"), options);
+}
+
+enum
+{
+	kMacPresentationDefault = 0,
+	kMacPresentationHideDock = 1UL << 1, // NSApplicationPresentationHideDock
+	kMacPresentationHideMenuBar = 1UL << 3, // NSApplicationPresentationHideMenuBar
+};
+
+// native fullscreen (the green title bar button) moves the window to its own space and scans it out directly too,
+// with the same flicker. opting out turns the button into zoom. glfw resets the collection behavior in places
+// (e.g. when leaving glfwSetWindowMonitor), so this is reapplied after those.
+static void DisableMacNativeFullscreen(GLFWwindow* window)
+{
+	enum
+	{
+		kCollectionBehaviorFullScreenPrimary = 1UL << 7, // NSWindowCollectionBehaviorFullScreenPrimary
+		kCollectionBehaviorFullScreenNone = 1UL << 9, // NSWindowCollectionBehaviorFullScreenNone
+	};
+
+	id nsWindow = glfwGetCocoaWindow(window);
+	unsigned long behavior = ((unsigned long (*)(id, SEL))objc_msgSend)(nsWindow, sel_registerName("collectionBehavior"));
+	behavior = (behavior & ~(unsigned long)kCollectionBehaviorFullScreenPrimary) | kCollectionBehaviorFullScreenNone;
+	((void (*)(id, SEL, unsigned long))objc_msgSend)(nsWindow, sel_registerName("setCollectionBehavior:"), behavior);
+}
+#endif
+
 static void OnWindowFullscreenChanged(GLFWwindow* window)
 {
 	ENSURE(window != NULL);
@@ -201,10 +244,18 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 	static int gWindowedWidth = 0;
 	static int gWindowedHeight = 0;
 
-	GLFWmonitor* windowMonitor = glfwGetWindowMonitor(window);
+#if defined(__APPLE__)
+	bool isFullscreen = windowState->fullscreenEnabled; // the borderless window has no monitor
+#else
+	bool isFullscreen = glfwGetWindowMonitor(window) != NULL;
+#endif
 
-	if (windowMonitor)
+	if (isFullscreen)
 	{
+#if defined(__APPLE__)
+		SetMacPresentationOptions(kMacPresentationDefault);
+		glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
+#endif
 		glfwSetWindowMonitor(
 			window,
 			NULL,
@@ -213,6 +264,9 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 			gWindowedWidth,
 			gWindowedHeight,
 			GLFW_DONT_CARE);
+#if defined(__APPLE__)
+		DisableMacNativeFullscreen(window);
+#endif
 		
 		windowState->fullscreenRefresh = 0;
 		windowState->fullscreenEnabled = false;
@@ -235,6 +289,15 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 			windowState->width = mode->width;
 			windowState->height = mode->height;
 
+#if defined(__APPLE__)
+			int monitorX, monitorY;
+			glfwGetMonitorPos(primaryMonitor, &monitorX, &monitorY);
+
+			SetMacPresentationOptions(kMacPresentationHideDock | kMacPresentationHideMenuBar);
+			glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+			glfwSetWindowPos(window, monitorX, monitorY);
+			glfwSetWindowSize(window, mode->width, mode->height);
+#else
 			glfwSetWindowMonitor(
 				window,
 				primaryMonitor,
@@ -243,6 +306,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 				(int)windowState->width,
 				(int)windowState->height,
 				mode->refreshRate); // not 0: glfw picks the mode closest to the requested rate, i.e. the lowest one
+#endif
 
 			windowState->fullscreenRefresh = mode->refreshRate;
 			windowState->fullscreenEnabled = true;
@@ -407,6 +471,10 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 		NULL);
 
 	ENSURE(window != NULL);
+
+#if defined(__APPLE__)
+	DisableMacNativeFullscreen(window);
+#endif
 
 	glfwGetWindowContentScale(window, &inOutState->xscale, &inOutState->yscale);
 
