@@ -136,33 +136,14 @@ void Window<kVk>::InternalUpdateViews(const core::InputState& input)
 	{
 		//std::cout << "window.myActiveCamera read/consume" << '\n';
 
-		float deltaX = 0.F;
-		float deltaZ = 0.F;
-
-		// todo: make a bitset iterator, and use a range based for loop here, use <bit> for __cpp_lib_bitops
-		for (unsigned key = 0; key < input.keyboard.keysDown.size(); key++)
+		// look up the movement keys directly, rather than scanning every key; opposite keys cancel out
+		const auto& keysDown = input.keyboard.keysDown;
+		auto axis = [&keysDown](int negativeKey, int positiveKey)
 		{
-			if (input.keyboard.keysDown[key])
-			{
-				switch (key)
-				{
-				case GLFW_KEY_W:
-					deltaZ = -1;
-					break;
-				case GLFW_KEY_S:
-					deltaZ = 1;
-					break;
-				case GLFW_KEY_A:
-					deltaX = -1;
-					break;
-				case GLFW_KEY_D:
-					deltaX = 1;
-					break;
-				default:
-					break;
-				}
-			}
-		}
+			return static_cast<float>(keysDown[positiveKey]) - static_cast<float>(keysDown[negativeKey]);
+		};
+		const float deltaX = axis(GLFW_KEY_A, GLFW_KEY_D);
+		const float deltaZ = axis(GLFW_KEY_W, GLFW_KEY_S);
 
 		auto& view = cameras.Get()[*myActiveCamera];
 
