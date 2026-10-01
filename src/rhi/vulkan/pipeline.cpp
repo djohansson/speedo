@@ -143,6 +143,7 @@ void PipelineLayout<kVk>::Swap(PipelineLayout& rhs) noexcept
 	DeviceObject<PipelineLayout<kVk>>::Swap(rhs);
 	std::swap(myShaderModules, rhs.myShaderModules);
 	std::swap(myDescriptorSetLayouts, rhs.myDescriptorSetLayouts);
+	std::swap(myPushConstantRanges, rhs.myPushConstantRanges);
 	std::swap(myLayout, rhs.myLayout);
 }
 
@@ -168,6 +169,7 @@ PipelineLayout<kVk>::PipelineLayout(
 	: DeviceObject<PipelineLayout<kVk>>(std::forward<CreateDescType>(desc))
 	, myShaderModules(std::exchange(shaderModules, {}))
 	, myDescriptorSetLayouts(std::exchange(descriptorSetLayouts, {}))
+	, myPushConstantRanges(descriptorset::GetPushConstantRanges<kVk>(myDescriptorSetLayouts))
 	, myLayout(std::forward<PipelineLayoutHandle<kVk>>(layout))
 {}
 
@@ -619,6 +621,24 @@ PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayout() const noexcept
 		return VK_NULL_HANDLE;
 
 	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
+}
+
+template <>
+void Pipeline<kVk>::PushConstants(CommandBufferHandle<kVk> cmd, std::span<const std::byte> data, uint32_t offset) const
+{
+	const auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+
+	// vkCmdPushConstants requires the stage flags of every range that overlaps the pushed bytes, and only those
+	const auto size = static_cast<uint32_t>(data.size());
+	ShaderStageFlags<kVk> stageFlags = 0;
+	for (const auto& range : layoutIt->GetPushConstantRanges())
+		if (range.offset < offset + size && offset < range.offset + range.size)
+			stageFlags |= range.stageFlags;
+
+	ENSUREF(stageFlags != 0, "No push constant range in the current layout covers the pushed data.");
+
+	vkCmdPushConstants(cmd, *layoutIt, stageFlags, offset, size, data.data());
 }
 
 template <>

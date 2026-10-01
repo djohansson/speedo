@@ -10,6 +10,7 @@
 #include <rhi/types.h>
 
 #include <optional>
+#include <span>
 #include <string>
 
 namespace rhi
@@ -55,6 +56,7 @@ public:
 	[[nodiscard]] const auto& GetShaderModules() const noexcept { return myShaderModules; }
 	[[nodiscard]] const auto& GetDescriptorSetLayouts() const noexcept { return myDescriptorSetLayouts; }
 	[[nodiscard]] const DescriptorSetLayout<G>& GetDescriptorSetLayout(uint32_t set) const noexcept;
+	[[nodiscard]] const auto& GetPushConstantRanges() const noexcept { return myPushConstantRanges; }
 
 private:
 	friend Pipeline<G>;
@@ -73,6 +75,7 @@ private:
 
 	std::vector<ShaderModule<G>> myShaderModules;
 	DescriptorSetLayoutFlatMap<G> myDescriptorSetLayouts;
+	std::vector<PushConstantRange<G>> myPushConstantRanges; // from myDescriptorSetLayouts, as the layout was created with
 	PipelineLayoutHandle<G> myLayout{};
 };
 
@@ -132,6 +135,9 @@ public:
 	[[nodiscard]] auto GetDescriptorPool() const noexcept { return myDescriptorPool; }
 	[[nodiscard]] auto GetBindPoint() const noexcept { return myBindPoint; }
 	[[nodiscard]] PipelineLayoutHandle<G> GetLayout() const noexcept;
+
+	// pushes data at offset into the current layout, with the stage flags of the push constant ranges it overlaps
+	void PushConstants(CommandBufferHandle<G> cmd, std::span<const std::byte> data, uint32_t offset = 0) const;
 
 	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
 

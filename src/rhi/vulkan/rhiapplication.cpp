@@ -499,13 +499,7 @@ static void DrawMainPass(
 							{
 								ZoneScopedN("drawModel::vkCmdPushConstants");
 
-								vkCmdPushConstants(
-									cmd,
-									pipeline.GetLayout(),
-									VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-									0,
-									sizeof(pushConstants),
-									&pushConstants);
+								pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 							}
 
 							{
@@ -1123,13 +1117,7 @@ bool RHIApplication::Draw()
 
 			PushConstants pushConstants{.frameIndex = newFrameIndex};
 
-			vkCmdPushConstants(
-				cmd,
-				pipeline.GetLayout(),
-				VK_SHADER_STAGE_ALL, // todo: input active shader stages + ranges from pipeline
-				0,
-				sizeof(pushConstants),
-				&pushConstants);
+			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
 			// cover the whole swapchain image: ComputeMain has 16x16 threads per group, each copying a 16x16 pixel bucket
 			constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
