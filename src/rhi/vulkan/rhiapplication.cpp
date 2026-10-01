@@ -822,8 +822,8 @@ void RHIApplication::PrepareDraw()
 		{
 			if (MenuItem("Open OBJ..."))
 			{
-				static const std::vector<nfdu8filteritem_t> kFilterList ={
-					nfdu8filteritem_t{.name = "Wavefront OBJ", .spec = "obj"}
+				static const std::vector<window::FileFilter> kFilterList ={
+					window::FileFilter{.name = "Wavefront OBJ", .spec = "obj"}
 				};
 				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut){
@@ -836,8 +836,8 @@ void RHIApplication::PrepareDraw()
 			}
 			if (MenuItem("Open Image..."))
 			{
-				static const std::vector<nfdu8filteritem_t> kFilterList = {
-					nfdu8filteritem_t{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
+				static const std::vector<window::FileFilter> kFilterList = {
+					window::FileFilter{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
 				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
@@ -851,8 +851,8 @@ void RHIApplication::PrepareDraw()
 			}
 			// if (MenuItem("Open Scene..."))
 			// {
-			// 	static const std::vector<nfdu8filteritem_t> filterList = {
-			// 		nfdu8filteritem_t{.name = "Scene files", .spec = "gltf,glb"}
+			// 	static const std::vector<window::FileFilter> filterList = {
+			// 		window::FileFilter{.name = "Scene files", .spec = "gltf,glb"}
 			// 	};
 
 			// 	InternalOpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, 

@@ -2,7 +2,7 @@ namespace rhi
 {
 
 template <typename LoadOp>
-auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<nfdu8filteritem_t>& filterList, LoadOp loadOp)
+auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<window::FileFilter>& filterList, LoadOp loadOp)
 {
 	using namespace core;
 	

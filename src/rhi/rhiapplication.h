@@ -67,7 +67,7 @@ private:
 	template <typename LoadOp>
 	[[maybe_unused]] auto InternalOpenFileDialogueAsync(
 		std::string&& resourcePathString,
-		const std::vector<nfdu8filteritem_t>& filterList,
+		const std::vector<window::FileFilter>& filterList,
 		LoadOp loadOp);
 	
 	std::unique_ptr<RHIBase> myRHI;
