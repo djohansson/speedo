@@ -1265,7 +1265,6 @@ RHIApplication::RHIApplication(
 
 	std::vector<core::TaskHandle> timelineCallbacks;
 
-	// todo: create some resource global storage
 	constexpr uint32_t kBlackTextureWidth = 4;
 	constexpr uint32_t kBlackTextureHeight = 4;
 	constexpr uint32_t kBlackTextureSize = kBlackTextureWidth * kBlackTextureHeight * 4;

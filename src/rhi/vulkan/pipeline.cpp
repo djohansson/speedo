@@ -490,7 +490,10 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
 	pipelineInfo.renderPass = std::get<0>(myRenderTarget);
-	pipelineInfo.subpass = 0; // TODO(djohansson): loop through all subpasses?
+	// render targets create exactly one subpass per render pass (and ignore it with dynamic rendering). a pipeline is
+	// only compatible with the subpass it was created for, so multi-subpass passes would need the current subpass
+	// index tracked in the graphics state and included in the pipeline hash, rather than a loop here.
+	pipelineInfo.subpass = 0;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
 

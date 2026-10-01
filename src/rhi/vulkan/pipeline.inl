@@ -164,7 +164,7 @@ void Pipeline<kVk>::SetDescriptorData(
 			if (count < data.size())
 				bindingsData.insert(
 					bindingsData.begin() + offset + minCount, data.begin() + minCount, data.end());
-			else // todo: should we bother with erase?
+			else // must erase: bindingsData is packed, each binding's offset is the prefix sum of the counts before it
 				bindingsData.erase(
 					bindingsData.begin() + offset + minCount,
 					bindingsData.begin() + offset + count);
