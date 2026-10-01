@@ -6,9 +6,12 @@
 #include <core/utils.h>
 
 #include <cstddef>
+#include <cstdlib>
 #include <iostream>
 #include <ostream>
 #include <print>
+#include <string_view>
+#include <vector>
 
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
@@ -190,10 +193,27 @@ VkBool32 DebugUtilsMessengerCallback(
 
 	std::flush(std::cout);
 
+	// SPEEDO_VALIDATION_BREAK selects the message severities that break into an attached debugger:
+	// "off" (the default, or "0") never breaks, "error" breaks on errors, "warning" on errors and warnings.
 	// VK_DEBUG_UTILS_MESSAGE_SEVERITY flags are erroneously defined in hex instead of binary, so we cant and them together and check for combinations in any meaningful way.
-	if (std::is_debugger_present())
+	static const std::vector<VkFlags> gBreakOnSeverityCategory = []
 	{
-		static std::vector<VkFlags> gBreakOnSeverityCategory = {VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT};
+		std::vector<VkFlags> categories;
+		if (const char* breakSetting = std::getenv("SPEEDO_VALIDATION_BREAK"))
+		{
+			std::string_view setting(breakSetting);
+			if (setting == "warning")
+				categories = {VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT, VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT};
+			else if (setting == "error")
+				categories = {VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT};
+			else if (setting != "off" && setting != "0")
+				std::println(std::cerr, "Unknown SPEEDO_VALIDATION_BREAK value '{}', expected off, error or warning", setting);
+		}
+		return categories;
+	}();
+
+	if (!gBreakOnSeverityCategory.empty() && std::is_debugger_present())
+	{
 		for (const auto& category : gBreakOnSeverityCategory)
 		{
 			if ((messageSeverity & category) != 0U)
