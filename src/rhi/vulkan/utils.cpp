@@ -519,7 +519,8 @@ void SetDefaultAccessAndStageMasks(VkImageLayout layout, VkAccessFlags2KHR& outA
 		break;
 	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
 		outAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-		outStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+		// depth/stencil is accessed (and cleared by loadOp) in both fragment test stages, not only the late one
+		outStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
 		break;
 	case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
 		outAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
@@ -605,6 +606,11 @@ void TransitionImageLayout(
 
 	SetDefaultAccessAndStageMasks(oldLayout, imageBarrier.srcAccessMask, imageBarrier.srcStageMask);
 	SetDefaultAccessAndStageMasks(newLayout, imageBarrier.dstAccessMask, imageBarrier.dstStageMask);
+
+	// an image from the presentation engine (or a freshly created swapchain) is only available once the acquire
+	// semaphore wait is done: the transition must chain after that wait, which a NONE source stage does not
+	if (oldLayout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR || oldLayout == VK_IMAGE_LAYOUT_UNDEFINED)
+		imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
 	imageBarrier.oldLayout = oldLayout;
 	imageBarrier.newLayout = newLayout;

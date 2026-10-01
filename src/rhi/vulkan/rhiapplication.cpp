@@ -1201,7 +1201,9 @@ bool RHIApplication::Draw()
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
 			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
-			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_NONE},
+			// the acquired image may still be in use by the presentation engine until the acquire semaphore signals:
+			// nothing may touch it before that (VK_PIPELINE_STAGE_NONE waited for nothing, which flickered in fullscreen)
+			.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
 			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue, 1},
 			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphoreHandle},
 			.signalSemaphoreValues = {++graphics->timeline, 1},
