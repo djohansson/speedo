@@ -321,7 +321,10 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 
 	{
 		ZoneScopedN("Queue::Present::vkQueuePresentKHR");
-		VK_CHECK(vkQueuePresentKHR(myQueue, &presentInfo), reinterpret_cast<uintptr_t>(myQueue));
+		// out of date / suboptimal are expected while resizing: the swapchain is recreated by OnResizeFramebuffer
+		auto presentResult = vkQueuePresentKHR(myQueue, &presentInfo);
+		if (presentResult != VK_SUBOPTIMAL_KHR && presentResult != VK_ERROR_OUT_OF_DATE_KHR)
+			VK_CHECK(presentResult, reinterpret_cast<uintptr_t>(myQueue));
 	}
 
 	myPendingPresent = {};

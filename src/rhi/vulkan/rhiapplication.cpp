@@ -650,6 +650,35 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 
 		graphicsSubmits |= graphicsQueue.Submit();
 	}
+
+	// Draw only writes the current frame's element of these arrays, but a dirty set is updated as a whole: after a
+	// resize the other frames' elements would still reference the destroyed views. so write all of them up front,
+	// with the layouts Draw uses (so Draw's own writes are skipped as unchanged).
+	auto& pipeline = device.GetPipeline();
+	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_COMPUTE);
+	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
+	{
+		auto& renderImageSet = *device.GetResource<RenderImageSet<kVk>>(gRenderImageSetUuids[frameIt]);
+		auto& frame = window.GetSwapchain().GetFrames()[frameIt];
+
+		pipeline.SetDescriptorData(
+			"gTextures",
+			DescriptorImageInfo<kVk>{
+				.sampler={},
+				.imageView=renderImageSet.GetAttachments()[0],
+				.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			frameIt);
+
+		pipeline.SetDescriptorData(
+			"gRWTextures",
+			DescriptorImageInfo<kVk>{
+				.sampler={},
+				.imageView=frame.GetAttachments()[0],
+				.imageLayout=VK_IMAGE_LAYOUT_GENERAL},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+			frameIt);
+	}
 }
 
 } // namespace rhiapplication
@@ -972,7 +1001,7 @@ void RHIApplication::Draw()
 	auto& pipeline = rhi.GetPrimaryDevice().GetPipeline();
 	auto& executor = GetExecutor();
 
-	auto [acquireNextImageFence, acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
+	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
 
 	// one lock at a time: queue types may alias the same context (and mutex), see Device::GetQueue
 	auto queueFamilyIndex = [&device](QueueType type) { return device.GetQueue(type).Read()->queueFamilyIndex; };
@@ -1133,16 +1162,11 @@ void RHIApplication::Draw()
 				VK_SEMAPHORE_TYPE_BINARY
 			});
 		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
+		// keeps the semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by the
+		// swapchain instead, see Swapchain::myAcquireFences
 		graphicsCallbacks.emplace_back(
 			core::CreateTask(
-				[&executor = GetExecutor(),
-				 fence = std::make_unique<Fence<kVk>>(std::move(acquireNextImageFence)),
-				 acquireNextImageSemaphore = std::move(acquireNextImageSemaphore)]
-				 {
-					ZoneScopedN("RHIApplication::Draw::waitAcquireNextImage");
-					while (!fence->Wait(0ULL))
-						executor.JoinOne();
-				 }).handle);
+				[acquireNextImageSemaphore = std::move(acquireNextImageSemaphore)] {}).handle);
 		graphicsCallbacks.emplace_back(
 			core::CreateTask(
 				[&swapchain, presentIds = std::move(presentInfo.presentIds),

@@ -4,7 +4,9 @@
 #include <rhi/swapchain.h>
 #include <rhi/vulkan/utils.h>
 
+#include <algorithm>
 #include <format>
+#include <limits>
 
 namespace rhi
 {
@@ -134,7 +136,10 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	ZoneScoped;
 
 	auto lastFrameIndex = myFrameIndex;
-	
+
+	// drop acquire fences that have signaled since, so the list stays short
+	std::erase_if(myAcquireFences, [](const Fence<kVk>& acquireFence) { return acquireFence.Wait(0ULL); });
+
 	Fence<kVk> fence(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageFence")});
 	Semaphore<kVk> semaphore(SemaphoreCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageSemaphore"), VK_SEMAPHORE_TYPE_BINARY});
 
@@ -146,22 +151,26 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 		fence,
 		&myFrameIndex);
 
-	VK_CHECK(flipResult);
-
-	auto& lastFrame = myFrames[lastFrameIndex];
-	auto& newFrame = myFrames[myFrameIndex];
+	// suboptimal still acquires an image (and signals the fence and semaphore). out of date is expected while
+	// resizing: the swapchain is recreated by OnResizeFramebuffer, until then frames are skipped.
+	bool success = flipResult == VK_SUCCESS || flipResult == VK_SUBOPTIMAL_KHR;
+	if (success)
+		myAcquireFences.emplace_back(std::move(fence));
+	else if (flipResult == VK_ERROR_OUT_OF_DATE_KHR)
+		myFrameIndex = lastFrameIndex; // image index is undefined on failure
+	else
+		VK_CHECK(flipResult);
 
 	auto zoneNameStr =
-		std::format("Swapchain::flip frame:{}", flipResult == VK_SUCCESS ? myFrameIndex : ~0U);
+		std::format("Swapchain::flip frame:{}", success ? myFrameIndex : ~0U);
 
 	ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
 
 	return FlipResult<kVk>{
-		.acquireNextImageFence = std::move(fence),
 		.acquireNextImageSemaphore = std::move(semaphore),
 		.lastFrameIndex = lastFrameIndex,
 		.newFrameIndex = myFrameIndex,
-		.success = flipResult == VK_SUCCESS};
+		.success = success};
 }
 
 template <>
@@ -197,6 +206,10 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 	if (result == VK_TIMEOUT)
 		return false;
 
+	// the present was dropped, or the swapchain recreated, while resizing: nothing left to wait for
+	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+		return true;
+
 	VK_CHECK(result);
 
 	return true;
@@ -209,6 +222,13 @@ void Swapchain<kVk>::CreateSwapchain()
 
 	auto& device = GetDevice();
 	auto previous = static_cast<SwapchainHandle<kVk>>(mySwapchain);
+
+	// the surface size has changed when we get here from a resize, so query it before creating the swapchain.
+	// a currentExtent of 0xFFFFFFFF means the surface size is determined by the swapchain: keep the current extent.
+	GetInstance().UpdateSurfaceCapabilities(device.GetPhysicalDevice(), GetSurface());
+	const auto& capabilities = GetInstance().GetSwapchainInfo(device.GetPhysicalDevice(), GetSurface()).capabilities;
+	if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
+		InternalGetDesc().extent = capabilities.currentExtent;
 
 	VkSwapchainCreateInfoKHR info{.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
@@ -233,6 +253,11 @@ void Swapchain<kVk>::CreateSwapchain()
 
 	if (previous != VK_NULL_HANDLE)
 	{
+		// acquire fences reference the previous swapchain, so they must be waited on before it is destroyed
+		for (const auto& acquireFence : myAcquireFences)
+			acquireFence.Wait();
+		myAcquireFences.clear();
+
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		EraseOwnedObjectHandle<kVk>(GetDesc().uuid, reinterpret_cast<uint64_t>(previous));
 #endif
@@ -287,9 +312,6 @@ void Swapchain<kVk>::CreateSwapchain()
 				frameIt
 			});
 
-	GetInstance().UpdateSurfaceCapabilities(GetDevice().GetPhysicalDevice(), GetSurface());
-	InternalGetDesc().extent = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface()).capabilities.currentExtent;
-
 	myFrameIndex = frameCount - 1;
 }
 
@@ -301,6 +323,7 @@ void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 	std::swap(mySwapchain, rhs.mySwapchain);
 	std::swap(myFrames, rhs.myFrames);
 	std::swap(myFrameIndex, rhs.myFrameIndex);
+	std::swap(myAcquireFences, rhs.myAcquireFences);
 }
 
 template <>
@@ -326,6 +349,10 @@ Swapchain<kVk>::~Swapchain()
 
 	if (IsValid())
 	{
+		for (const auto& acquireFence : myAcquireFences)
+			acquireFence.Wait();
+		myAcquireFences.clear();
+
 		if (mySwapchain != nullptr)
 			vkDestroySwapchainKHR(
 				GetDevice(),

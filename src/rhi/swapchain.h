@@ -18,7 +18,6 @@ class Swapchain;
 template <GraphicsApi G>
 struct FlipResult
 {
-	Fence<G> acquireNextImageFence;
 	Semaphore<G> acquireNextImageSemaphore;
 	uint32_t lastFrameIndex = 0;
 	uint32_t newFrameIndex = 0;
@@ -115,6 +114,9 @@ private:
 	SwapchainHandle<G> mySwapchain{};
 	std::vector<Frame<G>> myFrames;
 	uint32_t myFrameIndex{};
+	// fences of vkAcquireNextImageKHR calls on mySwapchain that may not have been waited on yet. owned here, not by
+	// the frame, so they can be waited on before mySwapchain is destroyed (on resize): waiting on them afterwards is invalid.
+	std::vector<Fence<G>> myAcquireFences;
 };
 
 } // namespace rhi
