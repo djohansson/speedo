@@ -168,6 +168,9 @@ static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 
 	gMouse.xpos = windowWidth > 0 ? xpos * framebufferWidth / windowWidth : xpos;
 	gMouse.ypos = windowHeight > 0 ? ypos * framebufferHeight / windowHeight : ypos;
+	// the enter callback only fires on transitions: a cursor that is already over the window when it opens never
+	// "enters" it, which left insideWindow false (and the camera inactive) until the cursor left and came back
+	gMouse.insideWindow = glfwGetWindowAttrib(window, GLFW_HOVERED);
 	gMouse.flags = kPosition;
 
 	UpdateMouse(&gMouse);
