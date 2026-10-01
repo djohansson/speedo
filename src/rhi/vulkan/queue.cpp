@@ -284,16 +284,28 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(Result<kVk>* presentResult)
 	static bool gSupportsPresentFence = GetDevice().SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR, GetInstance());
 	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetInstance());
 
-	QueueHostSyncInfo<kVk> result;
-	if (gSupportsPresentFence)
-		result.fences.emplace_back(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("presentFence")});
+	const auto swapchainCount = static_cast<uint32_t>(myPendingPresent.swapchains.size());
+	ENSURE(swapchainCount > 0);
+	ENSURE(myPendingPresent.imageIndices.size() == swapchainCount);
+	ENSURE(!gSupportsPresentId || myPendingPresent.presentIds.size() == swapchainCount);
 
-	ENSURE(!gSupportsPresentId || myPendingPresent.presentIds.size() == myPendingPresent.swapchains.size());
+	// one present fence per swapchain (VkSwapchainPresentFenceInfoEXT takes an array matching pSwapchains)
+	QueueHostSyncInfo<kVk> result;
+	std::vector<FenceHandle<kVk>> presentFences;
+	if (gSupportsPresentFence)
+	{
+		result.fences.reserve(swapchainCount);
+		presentFences.reserve(swapchainCount);
+		for (uint32_t swapchainIt = 0; swapchainIt < swapchainCount; swapchainIt++)
+		{
+			auto& fence = result.fences.emplace_back(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("presentFence")});
+			presentFences.push_back(fence.GetHandle());
+		}
+	}
 
 	PresentFenceInfo<kVk> presentFenceInfo{.sType=VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
-	ENSURE(myPendingPresent.swapchains.size() == 1); // todo: support multiple swapchains, implement Fence arrays
-	presentFenceInfo.swapchainCount = myPendingPresent.swapchains.size();
-	presentFenceInfo.pFences = gSupportsPresentFence ? &result.fences.front().GetHandle() : nullptr;
+	presentFenceInfo.swapchainCount = swapchainCount;
+	presentFenceInfo.pFences = presentFences.data();
 
 	void* presentFenceInfoPtr = 
 		gSupportsPresentFence ?
