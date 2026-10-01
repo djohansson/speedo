@@ -7,11 +7,6 @@
 #include <core/capi.h>
 #include <core/inputstate.h>
 
-// todo: move to Config.h
-#if defined(__WINDOWS__)
-#	include <sdkddkver.h>
-#endif
-
 #include <cstdint>
 #include <memory>
 #include <string>
