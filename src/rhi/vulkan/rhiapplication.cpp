@@ -615,11 +615,12 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 		
 		auto cmd = graphicsQueue.GetPool().Commands();
 
+		// no layout transitions for the swapchain images here: they may only be used once acquired. Draw transitions
+		// each acquired image from its tracked layout (UNDEFINED for a new swapchain).
 		for (auto& frame : window.GetSwapchain().GetFrames())
 		{
 			frame.SetLoadOp(VK_ATTACHMENT_LOAD_OP_CLEAR, 0);
 			frame.SetStoreOp(VK_ATTACHMENT_STORE_OP_STORE, 0);
-			frame.Transition(cmd, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_ASPECT_COLOR_BIT, 0);
 		}
 
 		for (const auto& renderImageSetGuid : std::span(gRenderImageSetUuids).first(frameCount))
