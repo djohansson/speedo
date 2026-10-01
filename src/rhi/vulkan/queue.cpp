@@ -277,7 +277,7 @@ void Queue<kVk>::WaitIdle() const
 }
 
 template <>
-QueueHostSyncInfo<kVk> Queue<kVk>::Present()
+QueueHostSyncInfo<kVk> Queue<kVk>::Present(Result<kVk>* presentResult)
 {
 	ZoneScopedN("Queue::Present");
 
@@ -321,10 +321,12 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present()
 
 	{
 		ZoneScopedN("Queue::Present::vkQueuePresentKHR");
-		// out of date / suboptimal are expected while resizing: the swapchain is recreated by OnResizeFramebuffer
-		auto presentResult = vkQueuePresentKHR(myQueue, &presentInfo);
-		if (presentResult != VK_SUBOPTIMAL_KHR && presentResult != VK_ERROR_OUT_OF_DATE_KHR)
-			VK_CHECK(presentResult, reinterpret_cast<uintptr_t>(myQueue));
+		// out of date / suboptimal are expected while resizing: reported through result, so the swapchain can be recreated
+		auto vkResult = vkQueuePresentKHR(myQueue, &presentInfo);
+		if (vkResult != VK_SUBOPTIMAL_KHR && vkResult != VK_ERROR_OUT_OF_DATE_KHR)
+			VK_CHECK(vkResult, reinterpret_cast<uintptr_t>(myQueue));
+		if (presentResult != nullptr)
+			*presentResult = vkResult;
 	}
 
 	myPendingPresent = {};

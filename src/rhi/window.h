@@ -64,6 +64,9 @@ public:
 	[[nodiscard]] const auto& GetSwapchain() const noexcept { return mySwapchain; }
 	[[nodiscard]] auto& GetState() noexcept { return myState; }
 	[[nodiscard]] const auto& GetState() const noexcept { return myState; }
+	// true while the framebuffer has no area (minimized): there is nothing to draw to
+	[[nodiscard]] bool IsMinimized() const noexcept { return myMinimized; }
+	void SetMinimized(bool minimized) noexcept { myMinimized = minimized; }
 
 	void OnInputStateChanged(const core::InputState& input);
 	void OnResizeFramebuffer(int width, int height);
@@ -86,6 +89,7 @@ private:
 	std::vector<Buffer<G>> myViewBuffers; // cbuffer data for all views
 	core::ConcurrentAccess<std::vector<gfx::Camera>> myCameras;
 	std::optional<size_t> myActiveCamera;
+	bool myMinimized{};
 };
 
 namespace window

@@ -36,7 +36,8 @@ public:
 
 	// will redraw the application as soon as possible. typically this should not be called directly, 
 	// but rather PrepareDraw should be called to schedule a draw, and then the application will call Draw at the appropriate time.
-	void Draw();
+	// returns false if no frame was presented (e.g. minimized window), so the caller can back off
+	[[nodiscard]] bool Draw();
 
 	// waits for all in-flight work and destroys the rhi. must be called while the application is still registered
 	// in core::gApplication (i.e. before the last shared_ptr to it is released), since device objects resolve their

@@ -143,7 +143,8 @@ public:
 
 	template <typename T, typename... Ts>
 	void EnqueuePresent(T&& first, Ts&&... rest);
-	[[maybe_unused]] QueueHostSyncInfo<G> Present();
+	// presentResult (optional) receives the vkQueuePresentKHR result, e.g. to recreate an out of date swapchain
+	[[maybe_unused]] QueueHostSyncInfo<G> Present(Result<G>* presentResult = nullptr);
 
 	void Execute(uint8_t level, uint64_t timelineValue);
 

@@ -282,6 +282,7 @@ void Window<kVk>::Swap(Window& other) noexcept
 	std::swap(myViewBuffers, other.myViewBuffers);
 	std::swap(myCameras, other.myCameras);
 	std::swap(myActiveCamera, other.myActiveCamera);
+	std::swap(myMinimized, other.myMinimized);
 }
 
 template <>

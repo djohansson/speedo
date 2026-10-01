@@ -131,6 +131,13 @@ void Swapchain<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index, 
 }
 
 template <>
+void Swapchain<kVk>::OnPresentResult(Result<kVk> result) noexcept
+{
+	if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR)
+		myNeedsRecreate = true;
+}
+
+template <>
 FlipResult<kVk> Swapchain<kVk>::Flip()
 {
 	ZoneScoped;
@@ -152,8 +159,9 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 		&myFrameIndex);
 
 	// suboptimal still acquires an image (and signals the fence and semaphore). out of date is expected while
-	// resizing: the swapchain is recreated by OnResizeFramebuffer, until then frames are skipped.
+	// resizing: the frame is skipped, and the swapchain recreated before the next one (see NeedsRecreate).
 	bool success = flipResult == VK_SUCCESS || flipResult == VK_SUBOPTIMAL_KHR;
+	OnPresentResult(flipResult);
 	if (success)
 		myAcquireFences.emplace_back(std::move(fence));
 	else if (flipResult == VK_ERROR_OUT_OF_DATE_KHR)
@@ -313,6 +321,7 @@ void Swapchain<kVk>::CreateSwapchain()
 			});
 
 	myFrameIndex = frameCount - 1;
+	myNeedsRecreate = false;
 }
 
 template <>
@@ -324,6 +333,7 @@ void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 	std::swap(myFrames, rhs.myFrames);
 	std::swap(myFrameIndex, rhs.myFrameIndex);
 	std::swap(myAcquireFences, rhs.myAcquireFences);
+	std::swap(myNeedsRecreate, rhs.myNeedsRecreate);
 }
 
 template <>

@@ -10,9 +10,11 @@
 #include <server/rpc/rpc.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <GLFW/glfw3.h>
@@ -151,7 +153,9 @@ static void Draw()
 		return;
 	}
 
-	gClientApplication.Read()->Draw();
+	// nothing was presented (e.g. minimized): back off instead of spinning the draw chain
+	if (!gClientApplication.Read()->Draw())
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
 	auto drawTask = CreateTask(Draw);
 	AddDependency(gDrawTask.handle, drawTask.handle, true);

@@ -681,6 +681,30 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 	}
 }
 
+// recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
+// returns false if the surface has no area (minimized), in which case nothing is recreated.
+bool RecreateWindowDependentObjects(RHI<kVk>& rhi, Window<kVk>& window)
+{
+	ZoneScopedN("RecreateWindowDependentObjects");
+
+	auto& instance = rhi.GetInstance();
+	auto& device = rhi.GetPrimaryDevice();
+	auto& swapchain = window.GetSwapchain();
+
+	instance.UpdateSurfaceCapabilities(device.GetPhysicalDevice(), swapchain.GetSurface());
+	auto extent = instance.GetSwapchainInfo(device.GetPhysicalDevice(), swapchain.GetSurface()).capabilities.currentExtent;
+	if (extent.width == std::numeric_limits<uint32_t>::max()) // surface size is determined by the swapchain
+		extent = swapchain.GetDesc().extent;
+	if (extent.width == 0 || extent.height == 0)
+		return false;
+
+	device.WaitIdle();
+	window.OnResizeFramebuffer(static_cast<int>(extent.width), static_cast<int>(extent.height));
+	CreateWindowDependentObjects(rhi);
+
+	return true;
+}
+
 } // namespace rhiapplication
 
 void RHIApplication::PrepareDraw()
@@ -983,7 +1007,7 @@ void RHIApplication::OnInputStateChanged(const core::InputState& input)
 		window.OnInputStateChanged(input);
 }
 
-void RHIApplication::Draw()
+bool RHIApplication::Draw()
 {
 	using namespace rhiapplication;
 
@@ -1000,6 +1024,13 @@ void RHIApplication::Draw()
 	auto& swapchain = window.GetSwapchain();
 	auto& pipeline = rhi.GetPrimaryDevice().GetPipeline();
 	auto& executor = GetExecutor();
+
+	if (window.IsMinimized())
+		return false;
+
+	// e.g. a fullscreen switch can leave the swapchain at the previous size without a matching resize event
+	if (swapchain.NeedsRecreate() && !RecreateWindowDependentObjects(rhi, window))
+		return false;
 
 	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
 
@@ -1100,10 +1131,14 @@ void RHIApplication::Draw()
 				sizeof(pushConstants),
 				&pushConstants);
 
-			constexpr uint32_t kComputeDispatchGroupsX = 16U;
-			constexpr uint32_t kComputeDispatchGroupsY = 8U;
-			constexpr uint32_t kComputeDispatchGroupsZ = 1U;
-			vkCmdDispatch(cmd, kComputeDispatchGroupsX, kComputeDispatchGroupsY, kComputeDispatchGroupsZ);
+			// cover the whole swapchain image: ComputeMain has 16x16 threads per group, each copying a 16x16 pixel bucket
+			constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
+			auto dstExtent = swapchain.GetExtent();
+			vkCmdDispatch(
+				cmd,
+				(dstExtent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
+				(dstExtent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
+				1U);
 		}
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
@@ -1200,16 +1235,22 @@ void RHIApplication::Draw()
 			computeQueue.SwapAndResetPool();
 
 			computeQueue.EnqueuePresent(std::move(presentInfo));
-			computeSubmits |= computeQueue.Present();
+			Result<kVk> presentResult = VK_SUCCESS;
+			computeSubmits |= computeQueue.Present(&presentResult);
+			swapchain.OnPresentResult(presentResult);
 		}
 		else
 		{
 			graphicsQueue.EnqueuePresent(std::move(presentInfo));
-			graphicsSubmits |= graphicsQueue.Present();
+			Result<kVk> presentResult = VK_SUCCESS;
+			graphicsSubmits |= graphicsQueue.Present(&presentResult);
+			swapchain.OnPresentResult(presentResult);
 		}
 	}
 
 	GetExecutor().Submit(frameTasks);
+
+	return flipSuccess;
 }
 
 RHIApplication::RHIApplication(
@@ -1515,9 +1556,15 @@ void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 	ZoneScopedN("RHIApplication::OnResizeFramebuffer");
 
 	auto& rhi = GetRHI<kVk>();
-	rhi.GetPrimaryDevice().WaitIdle();
-	rhi.GetWindow(window).OnResizeFramebuffer(width, height);
-	CreateWindowDependentObjects(rhi);
+	auto& rhiWindow = rhi.GetWindow(window);
+
+	// minimizing reports 0x0: keep the swapchain, and have Draw skip frames until the window is restored
+	rhiWindow.SetMinimized(width <= 0 || height <= 0);
+	if (rhiWindow.IsMinimized())
+		return;
+
+	// the swapchain is sized after the surface (which already has this size) rather than width/height
+	RecreateWindowDependentObjects(rhi, rhiWindow);
 }
 
 WindowState* RHIApplication::GetWindowState(WindowHandle window)

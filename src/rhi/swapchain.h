@@ -109,6 +109,11 @@ public:
 
 	void CreateSwapchain();
 
+	// set when an acquire or present reports the swapchain out of date or suboptimal (e.g. after a fullscreen switch,
+	// which doesn't always come with a framebuffer resize event of the final size). cleared by CreateSwapchain.
+	void OnPresentResult(Result<G> result) noexcept;
+	[[nodiscard]] bool NeedsRecreate() const noexcept { return myNeedsRecreate; }
+
 private:
 	SurfaceHandle<G> mySurface{};
 	SwapchainHandle<G> mySwapchain{};
@@ -117,6 +122,7 @@ private:
 	// fences of vkAcquireNextImageKHR calls on mySwapchain that may not have been waited on yet. owned here, not by
 	// the frame, so they can be waited on before mySwapchain is destroyed (on resize): waiting on them afterwards is invalid.
 	std::vector<Fence<G>> myAcquireFences;
+	bool myNeedsRecreate{};
 };
 
 } // namespace rhi

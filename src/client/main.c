@@ -186,6 +186,12 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 
 	ENSURE(windowState != NULL);
 
+	// windowed placement to restore when leaving fullscreen (windowState holds the fullscreen size by then)
+	static int gWindowedX = 0;
+	static int gWindowedY = 0;
+	static int gWindowedWidth = 0;
+	static int gWindowedHeight = 0;
+
 	GLFWmonitor* windowMonitor = glfwGetWindowMonitor(window);
 
 	if (windowMonitor)
@@ -193,11 +199,11 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 		glfwSetWindowMonitor(
 			window,
 			NULL,
-			(int)windowState->x,
-			(int)windowState->y,
-			(int)windowState->width,
-			(int)windowState->height,
-			0);
+			gWindowedX,
+			gWindowedY,
+			gWindowedWidth,
+			gWindowedHeight,
+			GLFW_DONT_CARE);
 		
 		windowState->fullscreenRefresh = 0;
 		windowState->fullscreenEnabled = false;
@@ -212,6 +218,9 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 
 			ENSURE(mode != NULL);
 
+			glfwGetWindowPos(window, &gWindowedX, &gWindowedY);
+			glfwGetWindowSize(window, &gWindowedWidth, &gWindowedHeight);
+
 			windowState->x = 0;
 			windowState->y = 0;
 			windowState->width = mode->width;
@@ -224,7 +233,7 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 				(int)windowState->y,
 				(int)windowState->width,
 				(int)windowState->height,
-				(int)windowState->fullscreenRefresh);
+				mode->refreshRate); // not 0: glfw picks the mode closest to the requested rate, i.e. the lowest one
 
 			windowState->fullscreenRefresh = mode->refreshRate;
 			windowState->fullscreenEnabled = true;
@@ -283,9 +292,8 @@ static void OnDrop(GLFWwindow* window, int count, const char** paths)
 static void OnFramebufferResize(GLFWwindow* window, int width, int height)
 {
 	ENSURE(window != NULL);
-	ASSERT(width > 0);
-	ASSERT(height > 0);
 
+	// 0x0 while minimized, which the rhi handles by skipping frames until the window is restored
 	ResizeFramebuffer((WindowHandle)window, width, height);
 }
 
