@@ -32,8 +32,8 @@ struct ObjectCreateDesc
 struct IObject
 {
 	virtual ~IObject() = 0;
-	[[nodiscard]] virtual bool IsValid() const noexcept = 0;
 	[[nodiscard]] virtual const uuids::uuid& GetUuid() const noexcept = 0;
+	[[nodiscard]] virtual bool IsValid() const noexcept = 0;
 };
 
 template <typename DerivedType>
@@ -42,8 +42,8 @@ class Object : public IObject
 public:
 	// IObject
 	~Object() override;
-	[[nodiscard]] bool IsValid() const noexcept override { return !!GetDesc().instance; }
 	[[nodiscard]] const uuids::uuid& GetUuid() const noexcept final { return myDesc.uuid; }
+	[[nodiscard]] bool IsValid() const noexcept override { return GetUuid() != uuids::uuid{}; }
 
 	// Object
 	using SuperType = IObject;
