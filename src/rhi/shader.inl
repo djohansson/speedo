@@ -200,7 +200,8 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 	};
 
 	std::string params, paramsHash;
-	params.append("slang-0.9.3"); // todo: read version from slang header
+	params.append("slang-");
+	params.append(spGetBuildTagString()); // the loaded slang library's version, so upgrading it recompiles
 	params.append("|cache-v2"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;
