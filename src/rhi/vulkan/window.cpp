@@ -8,7 +8,6 @@
 
 #include <imgui.h>
 
-#include <cmath>
 #include <string_view>
 
 namespace rhi
@@ -114,13 +113,14 @@ void Window<kVk>::InternalUpdateViews(const core::InputState& input)
 
 	auto cameras = myCameras.Write();
 
+	// mouse positions are in framebuffer pixels (converted by the client), like the swapchain extent and viewports
 	if (input.mouse.insideWindow && !input.mouse.leftDown)
 	{
 		// todo: generic view index calculation
 		auto viewIdx = static_cast<size_t>(static_cast<float>(GetDesc().splitScreenGrid.width) * input.mouse.position[0] /
-			(static_cast<float>(mySwapchain.GetDesc().extent.width) / GetDesc().contentScale.x));
+			static_cast<float>(mySwapchain.GetDesc().extent.width));
 		auto viewIdy = static_cast<size_t>(static_cast<float>(GetDesc().splitScreenGrid.height) * input.mouse.position[1] /
-			(static_cast<float>(mySwapchain.GetDesc().extent.height) / GetDesc().contentScale.y));
+			static_cast<float>(mySwapchain.GetDesc().extent.height));
 		myActiveCamera = std::min((viewIdy * GetDesc().splitScreenGrid.width) + viewIdx, cameras.Get().size() - 1);
 
 		//std::cout << *myActiveCamera << ":[" << input.mouse.position[0] << ", " << input.mouse.position[1] << "]" << '\n';
@@ -188,18 +188,14 @@ void Window<kVk>::InternalUpdateViews(const core::InputState& input)
 		{
 			constexpr auto kRotSpeed = 5.0F;
 
-			const float windowWidth = static_cast<float>(view.GetDesc().viewport.width) / static_cast<float>(GetDesc().contentScale.x);
-			const float windowHeight = static_cast<float>(view.GetDesc().viewport.height) / static_cast<float>(GetDesc().contentScale.y);
-			// const float cx = std::fmod(input.mouse.leftLastPressPosition[0], windowWidth);
-			// const float cy = std::fmod(input.mouse.leftLastPressPosition[1], windowHeight);
-			const float cursorX = std::fmod(input.mouse.lastPosition[0], windowWidth);
-			const float cursorY = std::fmod(input.mouse.lastPosition[1], windowHeight);
-			const float pointerX = std::fmod(input.mouse.position[0], windowWidth);
-			const float pointerY = std::fmod(input.mouse.position[1], windowHeight);
-
-			//std::cout << "cx:" << cx << ", cy:" << cy << '\n';
-
-			float deltaMouse[2] = {cursorX - pointerX, cursorY - pointerY};
+			const float windowWidth = static_cast<float>(view.GetDesc().viewport.width);
+			const float windowHeight = static_cast<float>(view.GetDesc().viewport.height);
+			// the raw cursor movement: wrapping the positions into the view (fmod) made the delta jump by a whole view
+			// size whenever the cursor crossed the window edge (or a split screen view boundary) while dragging
+			float deltaMouse[2] = {
+				input.mouse.lastPosition[0] - input.mouse.position[0],
+				input.mouse.lastPosition[1] - input.mouse.position[1],
+			};
 
 			//std::cout << "dM[0]:" << dM[0] << ", dM[1]:" << dM[1] << '\n';
 

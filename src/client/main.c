@@ -160,8 +160,14 @@ static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
 {
 	ENSURE(window != NULL);
 
-	gMouse.xpos = xpos;
-	gMouse.ypos = ypos;
+	// glfw reports the cursor in screen coordinates, the renderer works in framebuffer pixels. their ratio is not the
+	// content (dpi) scale: on windows and x11 the two coordinate spaces are the same, on macos/wayland they differ.
+	int windowWidth, windowHeight, framebufferWidth, framebufferHeight;
+	glfwGetWindowSize(window, &windowWidth, &windowHeight);
+	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
+
+	gMouse.xpos = windowWidth > 0 ? xpos * framebufferWidth / windowWidth : xpos;
+	gMouse.ypos = windowHeight > 0 ? ypos * framebufferHeight / windowHeight : ypos;
 	gMouse.flags = kPosition;
 
 	UpdateMouse(&gMouse);
