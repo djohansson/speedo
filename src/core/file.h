@@ -9,6 +9,7 @@
 #include <string>
 #include <system_error>
 #include <variant>
+#include <vector>
 
 #include <zpp_bits.h>
 
@@ -71,6 +72,9 @@ using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink<std::byt
 
 using LoadFn = std::function<std::error_code(InputSerializer&)>;
 using SaveFn = std::function<std::error_code(OutputSerializer&)>;
+// files the source file pulled in while loading (e.g. shader includes/imports). called after a successful source load;
+// their records are kept in the manifest, so that changing any of them invalidates the cache as well.
+using DependenciesFn = std::function<std::vector<std::filesystem::path>()>;
 
 [[nodiscard]] std::expected<std::string, std::error_code> GetTimeStamp(const std::filesystem::path& filePath) noexcept;
 
@@ -102,7 +106,8 @@ template <typename T>
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,
 	const SaveFn& SaveBinaryCacheFn,
-	const std::string& parameterHash);
+	const std::string& parameterHash,
+	const DependenciesFn& dependenciesFn = {});
 
 } // namespace file
 

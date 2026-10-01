@@ -20,6 +20,7 @@ const char* ToString(AssetManifestErrorCode code) noexcept
 	case AssetManifestErrorCode::kInvalidLocation: return "InvalidLocation";
 	case AssetManifestErrorCode::kInvalidSourceFile: return "InvalidSourceFile";
 	case AssetManifestErrorCode::kInvalidCacheFile: return "InvalidCacheFile";
+	case AssetManifestErrorCode::kInvalidDependencyFile: return "InvalidDependencyFile";
 	}
 
 	return "Unknown";
@@ -86,7 +87,8 @@ std::expected<Record, std::error_code> LoadAsset(
 	const LoadFn& loadSourceFileFn,
 	const LoadFn& loadBinaryCacheFn,
 	const SaveFn& saveBinaryCacheFn,
-	const std::string& parameterHash)
+	const std::string& parameterHash,
+	const DependenciesFn& dependenciesFn)
 {
 	using namespace detail;
 	
@@ -108,7 +110,7 @@ std::expected<Record, std::error_code> LoadAsset(
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
-	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn]() -> std::expected<AssetManifest, std::error_code>
+	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn, &dependenciesFn]() -> std::expected<AssetManifest, std::error_code>
 	{
 		ZoneScopedN("LoadAsset::importSourceFile");
 
@@ -141,6 +143,18 @@ std::expected<Record, std::error_code> LoadAsset(
 			return std::unexpected(cache.error());
 
 		AssetManifest manifest{.assetFileInfo = asset.value(), .cacheFileInfo=cache.value()};
+
+		if (dependenciesFn)
+		{
+			for (const auto& dependencyPath : dependenciesFn())
+			{
+				// a dependency that can't be read can't be checked either, so it is left out rather than failing the load
+				if (auto dependency = GetRecord<true>(dependencyPath); dependency)
+					manifest.dependencyFileInfos.emplace_back(std::move(dependency.value()));
+				else
+					std::cerr << "Failed to record asset dependency: " << dependencyPath << '\n';
+			}
+		}
 
 		auto outStream = zpp::bits::out(manifestFile, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 

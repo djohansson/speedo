@@ -47,10 +47,13 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 		return {};
 	};
 
+	std::vector<std::filesystem::path> dependencies;
+
 	auto loadSlang = [slangSession = myCompilerSession.get(),
 					  &intermediatePath = myIntermediatePath,
 					  &includePaths = myIncludePaths,
 					  &shaderSet,
+					  &dependencies,
 					  &file,
 					  &config](auto& /*todo: use me: in*/) -> std::error_code
 	{
@@ -125,7 +128,8 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 		for (int dep = 0; dep < depCount; dep++)
 		{
 			char const* depPath = spGetDependencyFilePath(slangRequest, dep);
-			// ... todo: add dependencies for recompile & hot reload
+			// recorded in the asset manifest, so editing an included/imported file recompiles. todo: hot reload
+			dependencies.emplace_back(depPath);
 			std::cout << "File include/import: " << depPath << '\n';
 		}
 
@@ -203,7 +207,8 @@ ShaderSet<G> ShaderLoader::Load(const std::filesystem::path& file, const SlangCo
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = core::file::LoadAsset(file, loadSlang, loadBin, saveBin, paramsHash);
+	auto loadResult = core::file::LoadAsset(
+		file, loadSlang, loadBin, saveBin, paramsHash, [&dependencies] { return dependencies; });
 
 	ENSUREF(loadResult && !shaderSet.shaders.empty(), "Failed to load shaders.");
 

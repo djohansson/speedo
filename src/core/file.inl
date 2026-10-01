@@ -24,6 +24,7 @@ enum class AssetManifestErrorCode : uint8_t
 	kInvalidLocation,
 	kInvalidSourceFile,
 	kInvalidCacheFile,
+	kInvalidDependencyFile,
 };
 
 const char* ToString(AssetManifestErrorCode code) noexcept;
@@ -34,6 +35,7 @@ struct AssetManifest
 {
 	file::Record assetFileInfo;
 	file::Record cacheFileInfo;
+	std::vector<file::Record> dependencyFileInfos;
 };
 
 using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::span<const std::byte>)>;
@@ -64,6 +66,17 @@ LoadAssetManifest(std::span<const std::byte> buffer, const LoadAssetManifestInfo
 		(cacheFileInfo->timeStamp.compare(manifestInfo->cacheFileInfo.timeStamp)) != 0 ||
 		(Sha256ChecksumEnable ? (cacheFileInfo->sha2 != manifestInfo->cacheFileInfo.sha2) : false))
 		return std::unexpected(AssetManifestErrorCode::kInvalidCacheFile);
+
+	for (const auto& dependency : manifestInfo->dependencyFileInfos)
+	{
+		auto dependencyFileInfo = GetRecord<Sha256ChecksumEnable>(dependency.path);
+
+		if (!dependencyFileInfo ||
+			(dependencyFileInfo->size != dependency.size) ||
+			(dependencyFileInfo->timeStamp.compare(dependency.timeStamp)) != 0 ||
+			(Sha256ChecksumEnable ? (dependencyFileInfo->sha2 != dependency.sha2) : false))
+			return std::unexpected(AssetManifestErrorCode::kInvalidDependencyFile);
+	}
 
 	return manifestInfo.value();
 }
