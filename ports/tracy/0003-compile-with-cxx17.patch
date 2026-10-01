@@ -1,33 +1,25 @@
-From f4d9a6066b9673787849e2d34a77d07c69b2ef02 Mon Sep 17 00:00:00 2001
+From 780f131a5f8b8e669cd790495562659a929b9d50 Mon Sep 17 00:00:00 2001
 From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
-Date: Sun, 9 Mar 2025 17:16:38 +0100
-Subject: [PATCH] compile with cxx17
+Date: Thu, 1 Oct 2026 20:30:15 +0200
+Subject: [PATCH 4/7] compile with cxx17
 
 ---
- CMakeLists.txt | 3 ++-
- 1 file changed, 2 insertions(+), 1 deletion(-)
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 365724a..1853f2c 100644
+index d3be163..4a8ef00 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -19,6 +19,8 @@ find_package(Threads REQUIRED)
- 
- set(TRACY_PUBLIC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/public)
- 
-+set(CMAKE_CXX_STANDARD 17)
-+
- if(TRACY_STATIC)
- 	set(TRACY_VISIBILITY "STATIC")
- else()
-@@ -26,7 +28,6 @@ else()
+@@ -46,7 +46,7 @@ else()
  endif()
  
  add_library(TracyClient ${TRACY_VISIBILITY} "${TRACY_PUBLIC_DIR}/TracyClient.cpp")
 -target_compile_features(TracyClient PUBLIC cxx_std_11)
++target_compile_features(TracyClient PUBLIC cxx_std_17)
+ set_target_properties(TracyClient PROPERTIES INTERPROCEDURAL_OPTIMIZATION ${LTO_SUPPORTED})
  target_include_directories(TracyClient SYSTEM PUBLIC
      $<BUILD_INTERFACE:${TRACY_PUBLIC_DIR}>
-     $<INSTALL_INTERFACE:include>)
 -- 
-2.48.1.windows.1
+2.54.0 (Apple Git-157)
 

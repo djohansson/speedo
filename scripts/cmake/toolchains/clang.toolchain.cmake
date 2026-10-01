@@ -131,7 +131,7 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	set(LINK_FLAGS "${LINK_FLAGS} -L\"${LLVM_ROOT}/lib/aarch64-unknown-linux-gnu\" -Wl,-rpath,\"${LLVM_ROOT}/lib/aarch64-unknown-linux-gnu\" -Wl,-rpath,\"${LLVM_ROOT}/lib\" -Wl,--undefined-version")
 	set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__ -D_GNU_SOURCE")
+	set(C_DEFINES "${C_DEFINES} -D__APPLE__ -D__OSX__")
 	# clang 23 emits objc_msgSendClass$ stubs that ld64.lld cannot synthesize yet (llvm/llvm-project#203385).
 	# clang's built-in LLD detection does not disable them for compile-only invocations, so do it explicitly;
 	# the no-unused-arguments bracket avoids warnings for C/C++ sources.
@@ -153,6 +153,8 @@ endif()
 set(CMAKE_C_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT}" CACHE STRING "C standard libs" FORCE)
 set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_C_STANDARD_LIBRARIES_INIT} ${CMAKE_CXX_STANDARD_LIBRARIES_INIT}" CACHE STRING "CXX standard libs" FORCE)
 #
+
+set(CMAKE_USER_MAKE_RULES_OVERRIDE "${CMAKE_CURRENT_LIST_DIR}/clang.rules-override.cmake")
 
 # VCPKG_C(XX)_FLAGS come from the triplet during vcpkg port builds and are empty otherwise
 set(CMAKE_C_FLAGS_INIT "${COMPILE_FLAGS} ${C_DEFINES} ${C_FLAGS} ${VCPKG_C_FLAGS}")

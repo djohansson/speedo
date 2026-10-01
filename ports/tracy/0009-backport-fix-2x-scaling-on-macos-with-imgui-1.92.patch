@@ -1,0 +1,32 @@
+From a8e8296eebc1d061e54cf07d1c0603ad041e188e Mon Sep 17 00:00:00 2001
+From: David Kern <david@mju.io>
+Date: Thu, 15 Jan 2026 17:01:40 -0800
+Subject: [PATCH 1/2] fix: 2x scaling on macos with ImGui 1.92
+
+---
+ profiler/src/main.cpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/profiler/src/main.cpp b/profiler/src/main.cpp
+index 7159ca31..72dd6c0c 100644
+--- a/profiler/src/main.cpp
++++ b/profiler/src/main.cpp
+@@ -164,12 +164,12 @@ static void SetupDPIScale()
+     dpiFirstSetup = false;
+     dpiChanged = 2;
+ 
+-    LoadFonts( scale );
+-
+ #ifdef __APPLE__
+-    scale = 1.0f;
++    scale = tracy::s_config.userScale;
+ #endif
+ 
++    LoadFonts( scale );
++
+     auto& style = ImGui::GetStyle();
+     style = ImGuiStyle();
+     ImGui::StyleColorsDark();
+-- 
+2.54.0 (Apple Git-157)
+

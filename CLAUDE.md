@@ -308,3 +308,34 @@ explicitly, it's not implied by `LLVM_ROOT/bin` already being present. Both gaps
 `setup.ps1`'s `PATH` construction now; if a build "succeeds" but the built `.exe` is missing
 sibling DLLs (`vulkan-1.dll`, `cpptrace.dll`, etc. next to it in the build dir), check the build log
 for swallowed `applocal.ps1` errors before assuming the DLLs were never needed.
+
+## vcpkg: overlay ports, per-port triplet options, and the fork registry
+
+The registry in `vcpkg-configuration.json` is the `djohansson/vcpkg` fork (upstream release + the FASTBuild
+commits). Its `"reference"` must name the fork branch the `baseline` commit lives on: without it vcpkg reads the
+versions database from the fork's default branch and fails with `no version database entry for <port> at <ver>`.
+Keep `builtin-baseline` in `vcpkg.json`, the registry `baseline`, and the `vcpkg` submodule on the same commit.
+
+Prefer upstream ports over overlays in `ports/`. When an overlay only adds CMake options, put them in the
+triplets instead (`if(PORT STREQUAL "<port>") list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS ...)`, see the end of
+`scripts/cmake/triplets/*-clang.cmake`); request port features from `vcpkg.json` instead of overlaying the
+consumer (e.g. `zeromq[draft]`). Editing a triplet or `clang.toolchain.cmake` changes the ABI hash of every
+target package, so expect a full rebuild. Files they merely `include()` (e.g. `clang.rules-override.cmake`) are
+*not* hashed: changing one does not rebuild anything, so bump something tracked if packages must be rebuilt.
+
+Toolchain-level fixes that removed the need for port patches:
+
+- FASTBuild preprocesses with `-frewrite-includes`, emitting GNU line markers that fail under a project's
+  `-Wpedantic -Werror` (`-Wgnu-line-marker`). A flag in `CMAKE_<LANG>_FLAGS` doesn't help (target options come
+  later and `-Wpedantic` re-enables it), so `clang.rules-override.cmake` appends `-Wno-gnu-line-marker` at the
+  end of the compile rule.
+- `_GNU_SOURCE` is not defined on Darwin: it is a glibc macro and only makes third-party code pick GNU
+  variants of APIs, e.g. openssl's `strerror_r` (`incompatible integer to pointer conversion`).
+- mimalloc is built with `MI_USE_CXX=OFF`: as C++ it links the static libc++/libc++abi into its dylib and
+  exports them. Note that this generally applies to every C++ dylib here (zmq, cpptrace, TracyClient, slang, ...),
+  since the host LLVM only ships static `libc++.a`/`libc++abi.a`.
+
+FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a directory as a custom command
+`OUTPUT` fails with `File missing despite success`, and custom commands that `DEPENDS` on a *target* name are not
+ordered after it, so depend on the produced file (e.g. an `ExternalProject` `INSTALL_BYPRODUCTS`). ld64.lld does not
+add `libobjc` implicitly the way Apple's linker does (`undefined symbol: objc_msgSend`, see `ports/tracy/0008-*`).

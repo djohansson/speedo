@@ -1,0 +1,42 @@
+From 6bdf5ace103af816b7eab9a7701c341fd1961bcb Mon Sep 17 00:00:00 2001
+From: DaniPopes <57450786+DaniPopes@users.noreply.github.com>
+Date: Tue, 10 Feb 2026 16:33:02 -0500
+Subject: [PATCH 2/2] fix: UI zoom scale not applying on macOS
+
+On macOS with Retina displays, dpiScale is 2.0 but gets overridden to
+userScale alone under __APPLE__. The early-return check compared
+prevScale against the pre-override value (dpiScale * userScale), which
+for 50% zoom evaluates to 2.0 * 0.5 = 1.0, matching the previous
+prevScale of 1.0 and causing an early return before the scale change
+could take effect. Moving the __APPLE__ override before the early-return
+check ensures the comparison uses the actual effective scale.
+---
+ profiler/src/main.cpp | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/profiler/src/main.cpp b/profiler/src/main.cpp
+index 72dd6c0c..7af23243 100644
+--- a/profiler/src/main.cpp
++++ b/profiler/src/main.cpp
+@@ -160,14 +160,14 @@ static void SetupDPIScale()
+ {
+     auto scale = dpiScale * tracy::s_config.userScale;
+ 
+-    if( !dpiFirstSetup && prevScale == scale ) return;
+-    dpiFirstSetup = false;
+-    dpiChanged = 2;
+-
+ #ifdef __APPLE__
+     scale = tracy::s_config.userScale;
+ #endif
+ 
++    if( !dpiFirstSetup && prevScale == scale ) return;
++    dpiFirstSetup = false;
++    dpiChanged = 2;
++
+     LoadFonts( scale );
+ 
+     auto& style = ImGui::GetStyle();
+-- 
+2.54.0 (Apple Git-157)
+

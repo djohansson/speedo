@@ -2,8 +2,9 @@
   "registries": [
     {
       "kind": "git",
-      "baseline": "7ad10a09b5e7634336478cd4d08a7e187945aa17",
+      "baseline": "79b003ccb34d00e2e03869b57b581f4d3031f770",
       "repository": "https://github.com/djohansson/vcpkg",
+      "reference": "fastbuild-2026.07.29",
       "packages": [
         "*"
       ]

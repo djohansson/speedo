@@ -40,3 +40,18 @@ set(
 		-DCMAKE_FASTBUILD_USE_LIGHTCACHE=ON
 )
 #
+
+# per-port options, so that the upstream ports can be used without an overlay
+if(PORT STREQUAL "capstone")
+	# capstone builds a universal (x86_64 + arm64) binary on macOS by default, and -march=native only works for the host arch
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DCAPSTONE_BUILD_MACOS_THIN=ON)
+endif()
+if(PORT STREQUAL "spirv-tools")
+	# we override the global allocator with mimalloc ourselves
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DSPIRV_TOOLS_USE_MIMALLOC=OFF)
+endif()
+if(PORT STREQUAL "mimalloc")
+	# as C++, mimalloc statically links its own copy of libc++/libc++abi into the shared library and exports it
+	# (__cxa_throw, operator new, ...), giving the process two C++ runtimes ("mi_free: invalid pointer")
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DMI_USE_CXX=OFF)
+endif()

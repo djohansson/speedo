@@ -4,19 +4,20 @@ Date: Wed, 4 Mar 2026 21:22:13 +0100
 Subject: [PATCH 2/3] Win32 UNICODE fixes
 
 ---
- layers/chassis/dispatch_object_manual.cpp         | 2 +-
- layers/layer_options.cpp                          | 2 +-
- layers/sync/sync_validation.cpp                   | 2 +-
- layers/vk_layer_config.cpp                        | 6 +++---
- layers/vulkan/generated/vk_function_pointers.cpp  | 4 ++--
- scripts/generators/function_pointers_generator.py | 4 ++--
- 6 files changed, 10 insertions(+), 10 deletions(-)
+
+  layers/chassis/dispatch_object_manual.cpp         | 2 +-
+  layers/layer_options.cpp                          | 2 +-
+  layers/sync/sync_validation.cpp                   | 2 +-
+  layers/vk_layer_config.cpp                        | 6 +++---
+  layers/vulkan/generated/vk_function_pointers.cpp  | 4 ++--
+  scripts/generators/function_pointers_generator.py | 4 ++--
+  6 files changed, 10 insertions(+), 10 deletions(-)
 
 diff --git a/layers/chassis/dispatch_object_manual.cpp b/layers/chassis/dispatch_object_manual.cpp
-index 6244425..ffa9eee 100644
+index 4c6d4b2..e222cd8 100644
 --- a/layers/chassis/dispatch_object_manual.cpp
 +++ b/layers/chassis/dispatch_object_manual.cpp
-@@ -644,7 +644,7 @@ static Device *GetDeviceFromKey(void *key) {
+@@ -647,7 +647,7 @@ static DispatchDevice* GetDeviceFromKey(void* key) {
              "destroyed prior to atexit()\n\n";
          printf("%s", error);
  #ifdef VK_USE_PLATFORM_WIN32_KHR
@@ -26,11 +27,11 @@ index 6244425..ffa9eee 100644
          // last_device is later dereferenced and the user **will** crash soon. We purposefully crash here to ensure that the warning
          // is printed (and a stacktrace points them here first).
 diff --git a/layers/layer_options.cpp b/layers/layer_options.cpp
-index ee7ad17..875c0e6 100644
+index dcee607..a048545 100644
 --- a/layers/layer_options.cpp
 +++ b/layers/layer_options.cpp
-@@ -751,7 +751,7 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings *settings_data, VkuL
-             const char *cstr = tmp.c_str();
+@@ -823,7 +823,7 @@ static void ProcessDebugReportSettings(ConfigAndEnvSettings* settings_data, VkuL
+             const char* cstr = tmp.c_str();
              printf("%s", cstr);
  #ifdef VK_USE_PLATFORM_WIN32_KHR
 -            OutputDebugString(cstr);
@@ -39,7 +40,7 @@ index ee7ad17..875c0e6 100644
  #ifdef VK_USE_PLATFORM_ANDROID_KHR
              __android_log_print(ANDROID_LOG_INFO, "VALIDATION", "%s", cstr);
 diff --git a/layers/sync/sync_validation.cpp b/layers/sync/sync_validation.cpp
-index 5e64da8..cd4a4d7 100644
+index 7fc1c8f..1832a52 100644
 --- a/layers/sync/sync_validation.cpp
 +++ b/layers/sync/sync_validation.cpp
 @@ -63,7 +63,7 @@ void SyncValidator::DebugCapture() {
@@ -52,11 +53,11 @@ index 5e64da8..cd4a4d7 100644
      }
  }
 diff --git a/layers/vk_layer_config.cpp b/layers/vk_layer_config.cpp
-index 795f307..41ed6f6 100644
+index be385c1..4e55635 100644
 --- a/layers/vk_layer_config.cpp
 +++ b/layers/vk_layer_config.cpp
-@@ -54,12 +54,12 @@ std::string GetEnvironment(const char *variable) {
-     const char *output = getenv(variable);
+@@ -54,12 +54,12 @@ std::string GetEnvironment(const char* variable) {
+     const char* output = getenv(variable);
      return output == NULL ? "" : output;
  #elif defined(_WIN32)
 -    int size = GetEnvironmentVariable(variable, NULL, 0);
@@ -64,13 +65,13 @@ index 795f307..41ed6f6 100644
      if (size == 0) {
          return "";
      }
-     char *buffer = new char[size];
+     char* buffer = new char[size];
 -    GetEnvironmentVariable(variable, buffer, size);
 +    GetEnvironmentVariableA(variable, buffer, size);
      std::string output = buffer;
      delete[] buffer;
      return output;
-@@ -91,7 +91,7 @@ void SetEnvironment(const char *variable, const char *value) {
+@@ -91,7 +91,7 @@ void SetEnvironment(const char* variable, const char* value) {
  #if !defined(__ANDROID__) && !defined(_WIN32)
      setenv(variable, value, 1);
  #elif defined(_WIN32)
@@ -80,7 +81,7 @@ index 795f307..41ed6f6 100644
      (void)variable;
      (void)value;
 diff --git a/layers/vulkan/generated/vk_function_pointers.cpp b/layers/vulkan/generated/vk_function_pointers.cpp
-index 26518aa..aad8b2b 100644
+index 9877a1b..a67117a 100644
 --- a/layers/vulkan/generated/vk_function_pointers.cpp
 +++ b/layers/vulkan/generated/vk_function_pointers.cpp
 @@ -36,10 +36,10 @@
@@ -114,5 +115,4 @@ index 98e5478..999c185 100644
      return lib_handle;
  }
 -- 
-2.52.0.windows.1
-
+2.52.0

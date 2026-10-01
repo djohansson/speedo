@@ -27,3 +27,14 @@ set(
 		-DCMAKE_FASTBUILD_USE_DETERMINISTIC_PATHS=ON
 		-DCMAKE_FASTBUILD_USE_LIGHTCACHE=ON
 )
+
+# per-port options, so that the upstream ports can be used without an overlay
+if(PORT STREQUAL "spirv-tools")
+	# we override the global allocator with mimalloc ourselves
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DSPIRV_TOOLS_USE_MIMALLOC=OFF)
+endif()
+if(PORT STREQUAL "mimalloc")
+	# as C++, mimalloc statically links its own copy of libc++/libc++abi into the shared library and exports it
+	# (__cxa_throw, operator new, ...), giving the process two C++ runtimes ("mi_free: invalid pointer")
+	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DMI_USE_CXX=OFF)
+endif()

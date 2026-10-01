@@ -1,4 +1,4 @@
 [submodule "vcpkg"]
 	path = vcpkg
 	url = https://github.com/djohansson/vcpkg.git
-	branch = fastbuild-1.19
+	branch = fastbuild-2026.07.29

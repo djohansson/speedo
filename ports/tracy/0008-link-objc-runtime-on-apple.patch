@@ -1,0 +1,28 @@
+From 5f53bf2630d761328f59ae5038bcd1d74dae2c10 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Thu, 1 Oct 2026 20:42:48 +0200
+Subject: [PATCH] profiler: link the Objective-C runtime on Apple
+
+BackendGlfw.cpp uses objc_msgSend/objc_getClass/sel_getUid directly; linkers that do not add libobjc implicitly (e.g. ld64.lld) fail with undefined symbols.
+---
+ profiler/CMakeLists.txt | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/profiler/CMakeLists.txt b/profiler/CMakeLists.txt
+index 4ab7d87..fcf0e7a 100644
+--- a/profiler/CMakeLists.txt
++++ b/profiler/CMakeLists.txt
+@@ -250,6 +250,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
+     nlohmann_json::nlohmann_json
+     md4c::md4c
+ )
++if(APPLE)
++    # BackendGlfw.cpp calls the Objective-C runtime directly (objc_msgSend, sel_getUid, ...)
++    target_link_libraries(${PROJECT_NAME} PRIVATE objc)
++endif()
+ target_include_directories(${PROJECT_NAME} PRIVATE
+     ${tidy_SOURCE_DIR}/include
+ )
+-- 
+2.54.0 (Apple Git-157)
+
