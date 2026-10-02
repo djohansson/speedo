@@ -416,7 +416,9 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 		static constexpr std::array<const char*, 4> kSettingReportFlags = {"info", "warn", "perf", "error"};
 		static constexpr VkBool32 kSettingEnableMessageLimit = VK_TRUE;
 		static constexpr int32_t kSsettingDuplicateMessageLimit = 3;
-		static constexpr size_t kLayerSettingCount = 7;
+		// messages that are expected and not actionable
+		static constexpr std::array<const char*, 1> kSettingMessageIdFilter = {"WARNING-CreateInstance-debug-warning"};
+		static constexpr size_t kLayerSettingCount = 8;
 
 		static constexpr std::array<VkLayerSettingEXT, kLayerSettingCount> kSettings = {{
 			{.pLayerName = kValidationLayerName,
@@ -453,7 +455,12 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 			 .pSettingName = "duplicate_message_limit",
 			 .type = VK_LAYER_SETTING_TYPE_UINT32_EXT,
 			 .valueCount = 1,
-			 .pValues = &kSsettingDuplicateMessageLimit}}};
+			 .pValues = &kSsettingDuplicateMessageLimit},
+			{.pLayerName = kValidationLayerName,
+			 .pSettingName = "message_id_filter",
+			 .type = VK_LAYER_SETTING_TYPE_STRING_EXT,
+			 .valueCount = kSettingMessageIdFilter.size(),
+			 .pValues = kSettingMessageIdFilter.data()}}};//NOLINT(bugprone-multi-level-implicit-pointer-conversion)
 
 		static constexpr VkLayerSettingsCreateInfoEXT kLayerSettingsCreateInfo = {
 			.sType=VK_STRUCTURE_TYPE_LAYER_SETTINGS_CREATE_INFO_EXT,

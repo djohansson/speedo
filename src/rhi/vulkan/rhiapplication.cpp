@@ -246,7 +246,6 @@ static void InstallModel(RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics,
 	auto& pipeline = device.GetPipeline();
 
 	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
-	pipeline.SetVertexInputState(*model);
 	pipeline.SetDescriptorData(
 		"gVertexBuffer",
 		DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
@@ -417,10 +416,7 @@ static void DrawMainPass(
 				{
 					ZoneScopedN("bindState");
 
-					// bind vertex inputs
-					std::array<BufferHandle<kVk>, 1> vbs = {model.GetVertexBuffer()};
-					std::array<DeviceSize<kVk>, 1> offsets = {0};
-					vkCmdBindVertexBuffers(cmd, 0, 1, vbs.data(), offsets.data());
+					// vertices are pulled from gVertexBuffer by SV_VertexID, so there is no vertex input state to bind
 					vkCmdBindIndexBuffer(cmd, model.GetIndexBuffer(), 0, VK_INDEX_TYPE_UINT32);
 
 					// bind descriptor sets
