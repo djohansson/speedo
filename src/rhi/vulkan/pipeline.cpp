@@ -4,6 +4,8 @@
 #include <rhi/rhiapplication.h>
 #include <rhi/vulkan/utils.h>
 
+#include <format>
+
 namespace rhi
 {
 
@@ -236,6 +238,9 @@ PipelineLayout<kVk>::PipelineLayout(
 				// runtime handles are not part of the serialized shader set, so take them from the owning layout
 				layout.instance = desc.instance;
 				layout.device = desc.device;
+				// neither is a uuid (reflection default-constructs the desc), which is what makes an object valid
+				// (see Object::IsValid): without one ~DescriptorSetLayout skips destroying it
+				layout.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(std::format("DescriptorSetLayout {}", set));
 				map.emplace(set, DescriptorSetLayout<kVk>(std::move(layout)));
 			}
 

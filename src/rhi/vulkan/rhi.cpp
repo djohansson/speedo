@@ -6,6 +6,7 @@
 #include <core/assert.h>
 
 #include <cstdint>
+#include <format>
 #include <iostream>
 #include <tuple>
 #include <vector>
@@ -84,7 +85,10 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 	for (const auto& [physicalDeviceIt, queueFamilyIt] : graphicsDeviceCandidates)
 		devices.emplace_back(
 			DeviceCreateDesc<kVk>{
-				ObjectCreateDesc<kVk>{.instance = instance},
+				// a uuid is what makes an object valid (see Object::IsValid): without one ~Device skips destroying it
+				ObjectCreateDesc<kVk>{
+					.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(std::format("Device {}", physicalDeviceIt)),
+					.instance = instance},
 				physicalDevices[physicalDeviceIt],
 			},
 			instance);
