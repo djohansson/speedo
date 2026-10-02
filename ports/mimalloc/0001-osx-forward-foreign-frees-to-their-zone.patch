@@ -1,0 +1,47 @@
+diff --git a/src/alloc-override.c b/src/alloc-override.c
+index 93d066d..355a776 100644
+--- a/src/alloc-override.c
++++ b/src/alloc-override.c
+@@ -58,6 +58,28 @@ typedef void* mi_nothrow_t;
+     return mi_usable_size(p);
+   }
+ 
++  #ifdef MI_OSX_ZONE
++  #include <malloc/malloc.h>
++  // Overriding the default zone does not catch every allocation: e.g. dyld allocates the thread-local
++  // variable blocks of an image with `malloc_type_malloc` (served by the system zone) and registers plain
++  // `free` as their pthread key destructor. That includes mimalloc's own thread locals, so every exiting
++  // thread frees a block that is not ours. Forward such pointers to their owning zone. (Calls from within
++  // this image are not interposed, so `malloc_zone_from_ptr`/`malloc_zone_free` are the system ones.)
++  mi_decl_externc void mi_free_checked(void* p) {
++    if mi_likely(p == NULL || mi_is_in_heap_region(p)) {
++      mi_free(p);
++      return;
++    }
++    malloc_zone_t* zone = malloc_zone_from_ptr(p);
++    if (zone != NULL) {
++      malloc_zone_free(zone, p);
++    }
++    else {
++      mi_free(p);  // not from any zone: let mimalloc report it
++    }
++  }
++  #endif
++
+   // use interposing so `DYLD_INSERT_LIBRARIES` works without `DYLD_FORCE_FLAT_NAMESPACE=1`
+   // See: <https://books.google.com/books?id=K8vUkpOXhN4C&pg=PA73>
+   struct mi_interpose_s {
+@@ -82,9 +104,10 @@ typedef void* mi_nothrow_t;
+     MI_INTERPOSE_FUN(malloc_size,mi_malloc_size_checked),
+     MI_INTERPOSE_MI(malloc_good_size),
+     #ifdef MI_OSX_ZONE
+-    // we interpose malloc_default_zone in alloc-override-osx.c so we can use mi_free safely
+-    MI_INTERPOSE_MI(free),
+-    MI_INTERPOSE_FUN(vfree,mi_free),
++    // we interpose malloc_default_zone in alloc-override-osx.c, but not every allocation goes through it
++    // (see mi_free_checked above)
++    MI_INTERPOSE_FUN(free,mi_free_checked),
++    MI_INTERPOSE_FUN(vfree,mi_free_checked),
+     #else
+     // sometimes code allocates from default zone but deallocates using plain free :-( (like NxHashResizeToCapacity <https://github.com/nneonneo/osx-10.9-opensource/blob/master/objc4-551.1/runtime/hashtable2.mm>)
+     MI_INTERPOSE_FUN(free,mi_cfree), // use safe free that checks if pointers are from us
