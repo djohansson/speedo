@@ -194,6 +194,14 @@ skips that environment and fails in several different, confusing ways (empty `LL
 toolchain, `minject.exe` not found, etc.). Use `cmake --preset <name> -S <root>` instead — it's not
 just shorter, the raw command is missing required state.
 
+The same applies to a bare `cmake --build build/<preset>` from a shell when that dir needs to regenerate (e.g.
+after `vcpkg.json`/`ports/` changed, or after *another* preset ran a vcpkg install into the shared `install/`
+dir). The auto re-run of CMake doesn't have the preset environment, so vcpkg computes different ABIs, removes
+the installed packages from the shared `install/` tree, and then fails rebuilding them (`Apple-clang.cmake`
+case warning, glfw3 configure error). Every build dir then misses its dylibs (`Library not loaded:
+@rpath/libcargs.dylib`). Recover with `cmake --preset <name>`, which restores the packages from the binary
+cache. From a shell, always run `cmake --preset <name>` right before building that preset.
+
 ## `setup.ps1` on Windows: no PowerShell Gallery modules
 
 The Windows setup uses the `winget` CLI and `vswhere.exe` (fixed path under
@@ -339,3 +347,10 @@ FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a 
 `OUTPUT` fails with `File missing despite success`, and custom commands that `DEPENDS` on a *target* name are not
 ordered after it, so depend on the produced file (e.g. an `ExternalProject` `INSTALL_BYPRODUCTS`). ld64.lld does not
 add `libobjc` implicitly the way Apple's linker does (`undefined symbol: objc_msgSend`, see `ports/tracy/0008-*`).
+
+`ports/mimalloc` exists for a macOS bug in mimalloc 3.x, so retire it only once upstream fixes it. dyld allocates
+each image's thread-local-variable block from the system zone (`malloc_type_malloc`) and frees it at thread exit
+through the pthread key destructor `free`, which is interposed to `mi_free`. mimalloc's own thread locals are
+included, so every exiting thread frees a block mimalloc doesn't own. Debug builds print
+`mi_free: invalid pointer`, and both builds leak 32 bytes per thread. The patch interposes `free` with a check
+that forwards foreign pointers to `malloc_zone_from_ptr(p)`.
