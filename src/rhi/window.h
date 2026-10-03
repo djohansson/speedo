@@ -68,13 +68,13 @@ public:
 
 	void OnInputStateChanged(const core::InputState& input);
 	void OnResizeFramebuffer(int width, int height);
-	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height);
+	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height); // call on the draw thread, which reads the grid unlocked
 
 	void UpdateViewBuffer() { InternalUpdateViewBuffer(); }
 
 private:
 	void InternalUpdateViewBuffer();
-	void InternalInitializeViews();
+	void InternalInitializeViews(std::optional<Extent2d<G>> splitScreenGrid = std::nullopt);
 	void InternalUpdateViews(const core::InputState& input);
 
 	[[nodiscard]] uint32_t InternalDrawViews(

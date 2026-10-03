@@ -62,9 +62,13 @@ void Window<kVk>::InternalUpdateViewBuffer()
 }
 
 template <>
-void Window<kVk>::InternalInitializeViews()
+void Window<kVk>::InternalInitializeViews(std::optional<Extent2d<kVk>> splitScreenGrid)
 {
 	auto cameras = myCameras.Write();
+
+	// under the cameras lock, since input handling reads the grid with it held (see InternalUpdateViews)
+	if (splitScreenGrid)
+		InternalGetDesc().splitScreenGrid = *splitScreenGrid;
 
 	cameras.Get().resize(static_cast<size_t>(GetDesc().splitScreenGrid.width) * static_cast<size_t>(GetDesc().splitScreenGrid.height));
 
@@ -102,8 +106,7 @@ void Window<kVk>::OnResizeFramebuffer(int width, int height)
 template <>
 void Window<kVk>::OnResizeSplitScreenGrid(uint32_t width, uint32_t height)
 {
-	InternalGetDesc().splitScreenGrid = Extent2d<kVk>{.width = width, .height = height};
-	InternalInitializeViews();
+	InternalInitializeViews(Extent2d<kVk>{.width = width, .height = height});
 }
 
 template <>

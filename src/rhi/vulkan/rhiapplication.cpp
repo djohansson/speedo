@@ -1101,7 +1101,10 @@ void RHIApplication::PrepareDraw()
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				Extent2d<kVk> splitScreenGrid = window.GetDesc().splitScreenGrid;
+				// the window's grid is owned by the draw thread (see Window::OnResizeSplitScreenGrid), so track the
+				// requested one here. nothing else changes the grid, so the window's is current when this is initialized.
+				static Extent2d<kVk> gSplitScreenGrid = window.GetDesc().splitScreenGrid;
+				Extent2d<kVk>& splitScreenGrid = gSplitScreenGrid;
 
 				//static bool hasChanged = 
 				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
@@ -1138,7 +1141,16 @@ void RHIApplication::PrepareDraw()
 				ImGui::EndMenu();
 
 				if (anyChanged)
-					window.OnResizeSplitScreenGrid(splitScreenGrid.width, splitScreenGrid.height);
+				{
+					// also upload the new views: otherwise that only happens on the next input change
+					auto [resizeTask, resizeFuture] = core::CreateTask(
+						[&window, grid = splitScreenGrid]
+						{
+							window.OnResizeSplitScreenGrid(grid.width, grid.height);
+							window.UpdateViewBuffer();
+						});
+					rhi.drawCalls.enqueue(resizeTask);
+				}
 			}
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
