@@ -20,6 +20,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
+#include <cstring>
+#include <format>
 #include <limits>
 #include <span>
 #include <array>
@@ -48,19 +51,46 @@ IMPLEMENT_DEVICEOBJECT_GETDEVICE(RenderImageSet<kVk>);
 namespace rhiapplication
 {
 
-// imgui draw data is handed from PrepareDraw (main thread) to IMGUIDrawFunction (draw thread) through a triple buffer:
-// the main thread snapshots into its write frame and publishes it as the pending one, the draw thread takes the pending
+// imgui draw data is handed from PrepareDraw (tick task) to IMGUIDrawFunction (draw task) through a triple buffer:
+// PrepareDraw snapshots into its write frame and publishes it as the pending one, the draw thread takes the pending
 // frame as its read frame. each frame's snapshot owns its draw lists, so neither thread touches the other's.
 struct IMGUIFrame
 {
 	imgui_extra::ImDrawDataSnapshot snapshot;
 	ImDrawData drawData;
+	uint64_t sequence = 0; // PrepareDraw count when published
 };
 static std::array<IMGUIFrame, 3> gIMGUIFrames;
 static constexpr uint8_t kIMGUIFrameFresh = 0x80; // set on gIMGUIPendingFrame when published but not yet taken
-static uint8_t gIMGUIWriteFrame = 0; // main thread only
+static uint8_t gIMGUIWriteFrame = 0; // PrepareDraw only
 static uint8_t gIMGUIReadFrame = 1; // draw thread only
 static std::atomic_uint8_t gIMGUIPendingFrame = 2;
+static uint64_t gIMGUIFrameSequence = 0; // PrepareDraw only
+
+// imgui textures are managed here rather than by the vulkan backend, whose ImGui_ImplVulkan_UpdateTexture submits to
+// (and waits for) the graphics queue that the draw thread uses. PrepareDraw creates images, descriptor sets and staging
+// buffers, and queues IMGUITextureOps that the draw thread records into its frame. a texture is referenced from
+// ImTextureData::BackendUserData, and since the backend would free that as its own type, ShutdownImgui destroys all
+// textures before ImGui_ImplVulkan_Shutdown.
+struct IMGUITexture
+{
+	Image<kVk> image;
+	ImageView<kVk> view;
+	VkDescriptorSet descriptorSet = VK_NULL_HANDLE; // allocated from the backend's pool, only touched in PrepareDraw
+};
+struct IMGUITextureOp
+{
+	IMGUITexture* texture = nullptr;
+	BufferHandle<kVk> buffer = VK_NULL_HANDLE; // staging buffer to upload from, or null to destroy the texture
+	AllocationHandle<kVk> memory = VK_NULL_HANDLE;
+	VkBufferImageCopy region{};
+	uint64_t sequence = 0; // frame sequence when queued
+};
+static core::ConcurrentQueue<IMGUITextureOp> gIMGUITextureOps;
+// the queue is only FIFO per producer, and PrepareDraw runs on whichever thread the tick task lands on (one at a time)
+static core::ProducerToken gIMGUITextureOpsProducer(gIMGUITextureOps);
+static std::vector<IMGUITextureOp> gIMGUIDeferredTextureDestroys; // draw thread only
+static core::ConcurrentQueue<VkDescriptorSet> gIMGUIRetiredDescriptorSets; // freed in PrepareDraw
 static std::array<uuids::uuid, 3> gRenderImageSetUuids;
 static uuids::uuid gModelUuid;
 static uuids::uuid gBlackTextureUuid;
@@ -69,17 +99,204 @@ static uuids::uuid gSamplersUuid;
 static uuids::uuid gMaterialsUuid;
 static uuids::uuid gModelInstancesUuid;
 
+// creates, updates or destroys `tex` as imgui requests, see IMGUITexture. call from PrepareDraw, after ImGui::Render().
+static void UpdateIMGUITexture(RHI<kVk>& rhi, ImTextureData& tex)
+{
+	ZoneScopedN("RHIApplication::UpdateIMGUITexture");
+
+	auto* texture = static_cast<IMGUITexture*>(tex.BackendUserData);
+
+	if (tex.Status == ImTextureStatus_WantDestroy)
+	{
+		// imgui no longer references the texture, but earlier frames may still be drawn: see IMGUIPrepareFrame
+		if (texture != nullptr)
+			gIMGUITextureOps.enqueue(gIMGUITextureOpsProducer, IMGUITextureOp{.texture = texture, .sequence = gIMGUIFrameSequence});
+		tex.SetTexID(ImTextureID_Invalid);
+		tex.BackendUserData = nullptr;
+		tex.SetStatus(ImTextureStatus_Destroyed);
+		return;
+	}
+
+	if (tex.Status == ImTextureStatus_WantCreate)
+	{
+		ENSURE(texture == nullptr && tex.Format == ImTextureFormat_RGBA32);
+
+		auto width = static_cast<uint32_t>(tex.Width);
+		auto height = static_cast<uint32_t>(tex.Height);
+		texture = new IMGUITexture{ //NOLINT(cppcoreguidelines-owning-memory) owned by tex.BackendUserData
+			.image = Image<kVk>(ImageCreateDesc<kVk>{
+				rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("ImGui Texture {}", tex.UniqueID)),
+				{ImageMipLevelDesc<kVk>{
+					.extent = Extent2d<kVk>{.width = width, .height = height},
+					.size = width * height * static_cast<uint32_t>(tex.BytesPerPixel),
+					.offset = 0}},
+				VK_FORMAT_R8G8B8A8_UNORM,
+				VK_IMAGE_TILING_OPTIMAL,
+				VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+				VK_IMAGE_ASPECT_COLOR_BIT,
+				VK_IMAGE_LAYOUT_UNDEFINED})};
+		texture->view = ImageView<kVk>(ImageViewCreateDesc<kVk>{
+			rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("ImGui Texture View {}", tex.UniqueID)),
+			texture->image,
+			texture->image.GetDesc().format,
+			VK_IMAGE_ASPECT_COLOR_BIT});
+		texture->descriptorSet = ImGui_ImplVulkan_AddTexture(texture->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+		tex.SetTexID(reinterpret_cast<ImTextureID>(texture->descriptorSet));
+		tex.BackendUserData = texture;
+	}
+
+	if (tex.Status == ImTextureStatus_WantCreate || tex.Status == ImTextureStatus_WantUpdates)
+	{
+		// imgui only updates regions that were never drawn from, so frames still in flight are unaffected
+		bool whole = tex.Status == ImTextureStatus_WantCreate;
+		int offsetX = whole ? 0 : tex.UpdateRect.x;
+		int offsetY = whole ? 0 : tex.UpdateRect.y;
+		int width = whole ? tex.Width : tex.UpdateRect.w;
+		int height = whole ? tex.Height : tex.UpdateRect.h;
+		auto pitch = static_cast<size_t>(width) * static_cast<size_t>(tex.BytesPerPixel);
+
+		auto* allocator = rhi.GetPrimaryDevice().GetAllocator();
+		auto [buffer, memory] = CreateBuffer(
+			allocator,
+			pitch * static_cast<size_t>(height),
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			"ImGui Texture Staging");
+
+		void* data;
+		VK_CHECK(vmaMapMemory(allocator, memory, &data));
+		for (int row = 0; row < height; row++)
+			std::memcpy(static_cast<std::byte*>(data) + (pitch * static_cast<size_t>(row)), tex.GetPixelsAt(offsetX, offsetY + row), pitch);
+		vmaUnmapMemory(allocator, memory);
+
+		gIMGUITextureOps.enqueue(
+			gIMGUITextureOpsProducer,
+			IMGUITextureOp{
+				.texture = texture,
+				.buffer = buffer,
+				.memory = memory,
+				.region = VkBufferImageCopy{
+					.bufferOffset = 0,
+					.bufferRowLength = 0,
+					.bufferImageHeight = 0,
+					.imageSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+					.imageOffset = {.x = offsetX, .y = offsetY, .z = 0},
+					.imageExtent = {.width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height), .depth = 1}},
+				.sequence = gIMGUIFrameSequence});
+
+		// the upload is recorded before any frame published from now on is drawn
+		tex.SetStatus(ImTextureStatus_OK);
+	}
+}
+
+// destroys all imgui textures and pending texture ops. call once the gpu is idle and all timeline callbacks have run.
+static void DestroyIMGUITextures(VmaAllocator allocator)
+{
+	auto destroy = [](IMGUITexture* texture)
+	{
+		ImGui_ImplVulkan_RemoveTexture(texture->descriptorSet);
+		delete texture; //NOLINT(cppcoreguidelines-owning-memory)
+	};
+
+	IMGUITextureOp textureOp;
+	while (gIMGUITextureOps.try_dequeue(textureOp))
+	{
+		if (textureOp.buffer != VK_NULL_HANDLE)
+			vmaDestroyBuffer(allocator, textureOp.buffer, textureOp.memory);
+		else
+			destroy(textureOp.texture);
+	}
+	for (auto& deferred : gIMGUIDeferredTextureDestroys)
+		destroy(deferred.texture);
+	gIMGUIDeferredTextureDestroys.clear();
+
+	VkDescriptorSet descriptorSet;
+	while (gIMGUIRetiredDescriptorSets.try_dequeue(descriptorSet))
+		ImGui_ImplVulkan_RemoveTexture(descriptorSet);
+
+	for (ImTextureData* tex : ImGui::GetPlatformIO().Textures)
+	{
+		if (auto* texture = static_cast<IMGUITexture*>(tex->BackendUserData))
+		{
+			destroy(texture);
+			tex->SetTexID(ImTextureID_Invalid);
+			tex->BackendUserData = nullptr;
+			tex->SetStatus(ImTextureStatus_Destroyed);
+		}
+	}
+}
+
+// takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
+// (outside of a render pass). textures that are no longer drawn are destroyed from a task added to `callbacks`, which
+// must run once the gpu has completed the submission of `cmd`. call on the draw thread, before IMGUIDrawFunction.
+static void IMGUIPrepareFrame(
+	Device<kVk>& device,
+	CommandBufferHandle<kVk> cmd,
+	std::vector<core::TaskHandle>& callbacks)
+{
+	ZoneScopedN("RHIApplication::IMGUIPrepareFrame");
+
+	// take the frame before draining the texture ops: a frame is published after the ops it depends on were queued.
+	// keep drawing the previous frame if no new one was published.
+	if ((gIMGUIPendingFrame.load(std::memory_order_relaxed) & kIMGUIFrameFresh) != 0)
+		gIMGUIReadFrame = gIMGUIPendingFrame.exchange(gIMGUIReadFrame, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
+
+	std::vector<std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>>> stagingBuffers;
+	IMGUITextureOp textureOp;
+	while (gIMGUITextureOps.try_dequeue_from_producer(gIMGUITextureOpsProducer, textureOp))
+	{
+		if (textureOp.buffer == VK_NULL_HANDLE)
+		{
+			gIMGUIDeferredTextureDestroys.emplace_back(textureOp);
+			continue;
+		}
+
+		auto& image = textureOp.texture->image;
+		image.Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+		vkCmdCopyBufferToImage(cmd, textureOp.buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &textureOp.region);
+		image.Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+		stagingBuffers.emplace_back(textureOp.buffer, textureOp.memory);
+	}
+
+	// a texture destroyed in PrepareDraw may still be referenced by frames published before that, and so by the frame
+	// taken here (or kept, if nothing new was published). from a frame published at or after its destroy on, it is
+	// never drawn again, and this submission completes after all earlier ones (the graphics timeline orders them).
+	std::vector<std::unique_ptr<IMGUITexture>> textures;
+	std::erase_if(
+		gIMGUIDeferredTextureDestroys,
+		[&textures, sequence = gIMGUIFrames[gIMGUIReadFrame].sequence](const IMGUITextureOp& destroy)
+		{
+			if (destroy.sequence > sequence)
+				return false;
+
+			textures.emplace_back(destroy.texture);
+			return true;
+		});
+
+	if (stagingBuffers.empty() && textures.empty())
+		return;
+
+	callbacks.emplace_back(
+		core::CreateTask(
+			[allocator = device.GetAllocator(), stagingBuffers = std::move(stagingBuffers), textures = std::move(textures)]() mutable
+			{
+				for (auto& [buffer, memory] : stagingBuffers)
+					vmaDestroyBuffer(allocator, buffer, memory);
+
+				// descriptor sets come from the backend's pool, which only PrepareDraw may use
+				for (auto& texture : textures)
+					gIMGUIRetiredDescriptorSets.enqueue(texture->descriptorSet);
+				textures.clear();
+			}).handle);
+}
+
 void IMGUIDrawFunction(
 	CommandBufferHandle<kVk> cmd,
 	PipelineHandle<kVk> pipeline = nullptr)
 {
 	ZoneScopedN("RHIApplication::IMGUIDraw");
-
-	using namespace ImGui;
-
-	// keep drawing the previous frame if no new one was published
-	if ((gIMGUIPendingFrame.load(std::memory_order_relaxed) & kIMGUIFrameFresh) != 0)
-		gIMGUIReadFrame = gIMGUIPendingFrame.exchange(gIMGUIReadFrame, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
 
 	ImGui_ImplVulkan_RenderDrawData(&gIMGUIFrames[gIMGUIReadFrame].drawData, cmd, pipeline);
 }
@@ -169,9 +386,10 @@ static void IMGUIInit(
 	initInfo.PhysicalDevice = rhi.GetPrimaryDevice().GetPhysicalDevice();
 	initInfo.Device = rhi.GetPrimaryDevice();
 	initInfo.QueueFamily = graphicsQueue.GetDesc().queueFamilyIndex;
-	initInfo.Queue = graphicsQueue;
+	initInfo.Queue = graphicsQueue; // required, but only used for texture uploads, which we do ourselves (see IMGUITexture)
 	initInfo.PipelineCache = pipeline.GetCache();
-	initInfo.DescriptorPool = pipeline.GetDescriptorPool();
+	// a pool of the backend's own, used only by PrepareDraw: the pipeline's pool is used by the draw thread
+	initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
 	// initInfo.ImageCount is used to determine the number of buffers in flight inside imgui, 
 	// and since we allow up to queuecount in-flight renders per frame due to triple buffering,
@@ -204,12 +422,13 @@ static void IMGUIInit(
 	//	myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
 }
 
-static void ShutdownImgui()
+static void ShutdownImgui(VmaAllocator allocator)
 {
 	// size_t count;
 	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
 	// IMNODES_NAMESPACE::DestroyContext();
 
+	DestroyIMGUITextures(allocator);
 	ImGui_ImplVulkan_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
 
@@ -942,26 +1161,26 @@ void RHIApplication::PrepareDraw()
 		EndMainMenuBar();
 	}
 
-	// unfortunately, we need to lock here to prevent imgui from modifying internal data structures under our feet in the draw thread.
-	// this was not needed before, but with the recent rewrites to imgui textures,
-	// we get races with imgui setting completion codes for texture uploads in the render thread which are also read and modified here.
-	// so we need to lock :(
-	{
-		std::unique_lock lock(gDrawMutex);
-		Render();
+	Render();
 
-		// process texture creates/updates/destroys here rather than in the render thread: the snapshot below
-		// outlives this frame, and imgui frees ImTextureData (e.g. when the font atlas grows) on the next NewFrame().
-		if (auto* data = GetDrawData(); data && data->Textures)
-			for (ImTextureData* tex : *data->Textures)
-				if (tex->Status != ImTextureStatus_OK)
-					ImGui_ImplVulkan_UpdateTexture(tex);
-	}
+	// descriptor sets of textures the draw thread has retired (see IMGUIPrepareFrame)
+	VkDescriptorSet retiredDescriptorSet;
+	while (gIMGUIRetiredDescriptorSets.try_dequeue(retiredDescriptorSet))
+		ImGui_ImplVulkan_RemoveTexture(retiredDescriptorSet);
+
+	// process texture creates/updates/destroys here rather than in the render thread: the snapshot below
+	// outlives this frame, and imgui frees ImTextureData (e.g. when the font atlas grows) on the next NewFrame().
+	++gIMGUIFrameSequence;
+	if (auto* data = GetDrawData(); data && data->Textures)
+		for (ImTextureData* tex : *data->Textures)
+			if (tex->Status != ImTextureStatus_OK)
+				UpdateIMGUITexture(rhi, *tex);
 
 	if (auto *data = GetDrawData())
 	{
-		auto& [snapshot, drawData] = gIMGUIFrames[gIMGUIWriteFrame];
+		auto& [snapshot, drawData, sequence] = gIMGUIFrames[gIMGUIWriteFrame];
 		snapshot.SnapUsingSwap(data, &drawData, GetTime());
+		sequence = gIMGUIFrameSequence;
 
 		// detach the snapshot from imgui-owned texture data: resolve texture refs to their (already uploaded)
 		// backend ids, and drop the texture list so RenderDrawData in the render thread doesn't touch it.
@@ -1167,6 +1386,11 @@ bool RHIApplication::Draw()
 		// 		VK_FILTER_NEAREST);
 		// }
 		std::vector<core::TaskHandle> graphicsCallbacks;
+		{
+			GPU_SCOPE(cmd, graphicsQueue, imguiTextures);
+
+			IMGUIPrepareFrame(device, cmd, graphicsCallbacks);
+		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, imgui);
 
@@ -1541,7 +1765,7 @@ void RHIApplication::Shutdown()
 	}
 	executor.JoinAll();
 
-	ShutdownImgui();
+	ShutdownImgui(device.GetAllocator());
 
 	// not myRHI.reset(): that nulls myRHI before destroying the rhi, but objects destroyed along with it
 	// (e.g. window view buffers) still resolve the (not yet destroyed) devices through GetRHI()
