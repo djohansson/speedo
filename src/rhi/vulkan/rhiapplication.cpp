@@ -19,6 +19,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <limits>
 #include <span>
 #include <array>
@@ -47,8 +48,19 @@ IMPLEMENT_DEVICEOBJECT_GETDEVICE(RenderImageSet<kVk>);
 namespace rhiapplication
 {
 
-static core::ConcurrentQueue<ImDrawData> gIMGUIDrawData;
-static imgui_extra::ImDrawDataSnapshot gIMGUIDrawDataSnapshot; // owns the draw lists referenced by gIMGUIDrawData
+// imgui draw data is handed from PrepareDraw (main thread) to IMGUIDrawFunction (draw thread) through a triple buffer:
+// the main thread snapshots into its write frame and publishes it as the pending one, the draw thread takes the pending
+// frame as its read frame. each frame's snapshot owns its draw lists, so neither thread touches the other's.
+struct IMGUIFrame
+{
+	imgui_extra::ImDrawDataSnapshot snapshot;
+	ImDrawData drawData;
+};
+static std::array<IMGUIFrame, 3> gIMGUIFrames;
+static constexpr uint8_t kIMGUIFrameFresh = 0x80; // set on gIMGUIPendingFrame when published but not yet taken
+static uint8_t gIMGUIWriteFrame = 0; // main thread only
+static uint8_t gIMGUIReadFrame = 1; // draw thread only
+static std::atomic_uint8_t gIMGUIPendingFrame = 2;
 static std::array<uuids::uuid, 3> gRenderImageSetUuids;
 static uuids::uuid gModelUuid;
 static uuids::uuid gBlackTextureUuid;
@@ -65,10 +77,11 @@ void IMGUIDrawFunction(
 
 	using namespace ImGui;
 
-	static ImDrawData gDrawData{};
-	while (gIMGUIDrawData.try_dequeue(gDrawData));
+	// keep drawing the previous frame if no new one was published
+	if ((gIMGUIPendingFrame.load(std::memory_order_relaxed) & kIMGUIFrameFresh) != 0)
+		gIMGUIReadFrame = gIMGUIPendingFrame.exchange(gIMGUIReadFrame, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
 
-	ImGui_ImplVulkan_RenderDrawData(&gDrawData, cmd, pipeline);
+	ImGui_ImplVulkan_RenderDrawData(&gIMGUIFrames[gIMGUIReadFrame].drawData, cmd, pipeline);
 }
 
 static void IMGUIInit(
@@ -201,9 +214,11 @@ static void ShutdownImgui()
 	ImGui_ImplGlfw_Shutdown();
 
 	// snapshot draw lists are registered with the context's shared data, and must be gone before it is destroyed
-	ImDrawData drawData;
-	while (gIMGUIDrawData.try_dequeue(drawData));
-	gIMGUIDrawDataSnapshot.Clear();
+	for (auto& frame : gIMGUIFrames)
+	{
+		frame.drawData.Clear();
+		frame.snapshot.Clear();
+	}
 
 	ImGui::DestroyContext();
 }
@@ -943,19 +958,20 @@ void RHIApplication::PrepareDraw()
 					ImGui_ImplVulkan_UpdateTexture(tex);
 	}
 
-	static ImDrawData gDrawData{};
 	if (auto *data = GetDrawData())
 	{
-		gIMGUIDrawDataSnapshot.SnapUsingSwap(data, &gDrawData, GetTime());
+		auto& [snapshot, drawData] = gIMGUIFrames[gIMGUIWriteFrame];
+		snapshot.SnapUsingSwap(data, &drawData, GetTime());
 
 		// detach the snapshot from imgui-owned texture data: resolve texture refs to their (already uploaded)
 		// backend ids, and drop the texture list so RenderDrawData in the render thread doesn't touch it.
-		for (ImDrawList* drawList : gDrawData.CmdLists)
+		for (ImDrawList* drawList : drawData.CmdLists)
 			for (ImDrawCmd& drawCmd : drawList->CmdBuffer)
 				drawCmd.TexRef = ImTextureRef(drawCmd.GetTexID());
-		gDrawData.Textures = nullptr;
+		drawData.Textures = nullptr;
 
-		gIMGUIDrawData.enqueue(std::move(gDrawData));
+		// publish, and continue with the previous pending frame (whether or not the draw thread took it)
+		gIMGUIWriteFrame = gIMGUIPendingFrame.exchange(gIMGUIWriteFrame | kIMGUIFrameFresh, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
 	}
 }
 
