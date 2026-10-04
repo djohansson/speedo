@@ -24,6 +24,9 @@ public:
 	
 	[[nodiscard]] virtual bool Main();
 
+	// also wakes the main loop, which sleeps in glfwWaitEvents() until the next window event
+	void RequestExit() noexcept override;
+
 	void OnResizeFramebuffer(WindowHandle window, int width, int height);
 	void OnInputStateChanged(const core::InputState& input);
 	

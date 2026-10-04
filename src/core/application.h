@@ -42,7 +42,8 @@ public:
 	[[nodiscard]] auto& GetExecutor() noexcept { return *myExecutor; }
 	[[nodiscard]] const auto& GetExecutor() const noexcept { return *myExecutor; }
 
-	void RequestExit() noexcept { myExitRequested = true; }
+	// from any thread. an application with an event loop overrides this to wake it, so that it sees the request.
+	virtual void RequestExit() noexcept { myExitRequested = true; }
 	[[nodiscard]] bool IsExitRequested() const noexcept { return myExitRequested; }
 
 	[[nodiscard]] static std::shared_ptr<Application> Get() { return gApplication.lock(); }

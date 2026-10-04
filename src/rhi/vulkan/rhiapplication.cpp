@@ -13,6 +13,8 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
+#include <GLFW/glfw3.h>
+
 #include <gfx/imgui_extra.h>
 
 #include <glm/glm.hpp>
@@ -1282,6 +1284,12 @@ void RHIApplication::PrepareDraw()
 		// publish, and continue with the previous pending frame (whether or not the draw thread took it)
 		gIMGUIWriteFrame = gIMGUIPendingFrame.exchange(gIMGUIWriteFrame | kIMGUIFrameFresh, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
 	}
+}
+
+void RHIApplication::RequestExit() noexcept
+{
+	Application::RequestExit();
+	glfwPostEmptyEvent(); // thread safe
 }
 
 bool RHIApplication::Main()
