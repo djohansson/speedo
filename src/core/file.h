@@ -35,11 +35,13 @@ struct Record
 	uint64_t size = 0;
 };
 
-// a step's share of a load's progress (0-255): advanced from its value when the step starts, to `end` when it is done
+// a step's share of a load's progress (0-255): advanced from its value when the step starts, to `end` when it is done.
+// a step that takes long checks `cancelled` (if set) as it goes, and fails with std::errc::operation_canceled.
 struct Progress
 {
 	std::atomic_uint8_t* value = nullptr;
 	uint8_t end = 0;
+	std::function<bool()> cancelled;
 };
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct = false>
@@ -117,7 +119,8 @@ template <typename T>
 	const SaveFn& SaveBinaryCacheFn,
 	const std::string& parameterHash,
 	const DependenciesFn& dependenciesFn = {},
-	std::atomic_uint8_t* progressOut = nullptr); // see LoadAsset in file.cpp for the share its steps take
+	std::atomic_uint8_t* progressOut = nullptr, // see LoadAsset in file.cpp for the share its steps take
+	const std::function<bool()>& cancelled = {}); // checked while hashing (the load ops check it themselves)
 
 } // namespace file
 

@@ -1034,18 +1034,23 @@ void RHIApplication::PrepareDraw()
 					if (!modelFile.empty() && !exitRequested())
 					{
 						gProgress = 0;
-						auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress);
-						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
-						rhi.drawCalls.enqueue(installTask);
+						if (auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress)) // else cancelled
+						{
+							auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+								[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
+							rhi.drawCalls.enqueue(installTask);
+						}
 					}
 					if (!imageFile.empty() && !exitRequested())
 					{
 						gProgress = 0;
 						auto [image, imageView] = Image<kVk>::LoadImage(device, (resourcePath / "images" / imageFile).string(), gProgress);
-						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-							[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
-						rhi.drawCalls.enqueue(installTask);
+						if (image) // else cancelled
+						{
+							auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+								[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
+							rhi.drawCalls.enqueue(installTask);
+						}
 					}
 					gShowProgress = false;
 				});
@@ -1067,6 +1072,8 @@ void RHIApplication::PrepareDraw()
 				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto model = Model<kVk>::LoadModel(filePath, progressOut);
+						if (!model) // cancelled
+							return core::Future<void>{};
 						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
 							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
 						rhi.drawCalls.enqueue(installTask);
@@ -1082,6 +1089,8 @@ void RHIApplication::PrepareDraw()
 				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
 					[&rhi, &device](std::string_view filePath, std::atomic_uint8_t& progressOut){
 						auto [image, imageView] = Image<kVk>::LoadImage(device, filePath, progressOut);
+						if (!image) // cancelled
+							return core::Future<void>{};
 						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
 							[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
 						rhi.drawCalls.enqueue(installTask);

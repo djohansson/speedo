@@ -89,7 +89,8 @@ std::expected<Record, std::error_code> LoadAsset(
 	const SaveFn& saveBinaryCacheFn,
 	const std::string& parameterHash,
 	const DependenciesFn& dependenciesFn,
-	std::atomic_uint8_t* progressOut)
+	std::atomic_uint8_t* progressOut,
+	const std::function<bool()>& cancelled)
 {
 	using namespace detail;
 	
@@ -117,7 +118,7 @@ std::expected<Record, std::error_code> LoadAsset(
 	static constexpr uint8_t kImportBegin = 32;
 	static constexpr uint8_t kCacheHashEnd = 255;
 
-	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn, &dependenciesFn, progressOut]() -> std::expected<AssetManifest, std::error_code>
+	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn, &dependenciesFn, progressOut, &cancelled]() -> std::expected<AssetManifest, std::error_code>
 	{
 		ZoneScopedN("LoadAsset::importSourceFile");
 
@@ -141,13 +142,25 @@ std::expected<Record, std::error_code> LoadAsset(
 		if (error)
 			return std::unexpected(error);
 
-		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn, {.value = progressOut, .end = kImportBegin});
-		if (!asset)
-			return std::unexpected(asset.error());
+		// a failed (e.g. cancelled) import leaves neither an empty manifest nor an orphaned cache file behind
+		auto fail = [&manifestFile, &manifestPath, cachePath = cacheDir / uuidStr](std::error_code failure)
+		{
+			manifestFile.unmap();
+			std::error_code ignored;
+			std::filesystem::remove(manifestPath, ignored);
+			std::filesystem::remove(cachePath, ignored);
+			return std::unexpected(failure);
+		};
 
-		auto cache = SaveBinary<true>(cacheDir / uuidStr, saveBinaryCacheFn, {.value = progressOut, .end = kCacheHashEnd});
+		auto asset = LoadBinary<true>(
+			assetFilePath, loadSourceFileFn, {.value = progressOut, .end = kImportBegin, .cancelled = cancelled});
+		if (!asset)
+			return fail(asset.error());
+
+		auto cache = SaveBinary<true>(
+			cacheDir / uuidStr, saveBinaryCacheFn, {.value = progressOut, .end = kCacheHashEnd, .cancelled = cancelled});
 		if (!cache)
-			return std::unexpected(cache.error());
+			return fail(cache.error());
 
 		AssetManifest manifest{.assetFileInfo = asset.value(), .cacheFileInfo=cache.value()};
 
@@ -166,12 +179,12 @@ std::expected<Record, std::error_code> LoadAsset(
 		auto outStream = zpp::bits::out(manifestFile, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
 
 		if (auto result = outStream(manifest); failure(result))
-			return std::unexpected(std::make_error_code(result));
+			return fail(std::make_error_code(result));
 
 		manifestFile.truncate(outStream.position(), error);
 
 		if (error)
-			return std::unexpected(error);
+			return fail(error);
 
 		return manifest;
 	};

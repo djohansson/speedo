@@ -100,7 +100,8 @@ public:
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags = {});
 
 	// loads and uploads an image (plus a view of it). returns once the upload has completed; the image is left in the
-	// layout of the upload, so the caller must transition it before sampling from it.
+	// layout of the upload, so the caller must transition it before sampling from it. returns nulls if the load was
+	// cancelled because the application is exiting.
 	[[nodiscard]]
 	static std::tuple<std::shared_ptr<Image<G>>, std::shared_ptr<ImageView<G>>>
 	LoadImage(DeviceHandle<G> deviceHandle, std::string_view imageFile, std::atomic_uint8_t& progress);

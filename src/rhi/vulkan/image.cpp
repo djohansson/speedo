@@ -88,6 +88,11 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 	desc.imageAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
 
+	// loading is given up when the application exits (only where it takes long; decoding itself can't be interrupted)
+	auto app = core::Application::Get();
+	ENSURE(app);
+	auto cancelled = [&app] { return app->IsExitRequested(); };
+
 	auto loadBin = [&imageFile, &initialData, &device, &progressOut](auto& inStream) -> std::error_code
 	{
 		progressOut = 32;
@@ -150,7 +155,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		return {};
 	};
 
-	auto loadImage = [&imageFile, &initialData, &device, &progressOut](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&imageFile, &initialData, &device, &progressOut, &cancelled](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		progressOut = 32;
 
@@ -199,7 +204,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		void* stagingBuffer;
 		VK_CHECK(vmaMapMemory(device.GetAllocator(), locMemoryHandle, &stagingBuffer));
 
-		auto compressBlocks = [](const stbi_uc* src,
+		auto compressBlocks = [&cancelled](const stbi_uc* src,
 								 unsigned char* dst,
 								 const Extent2d<kVk>& extent,
 								 uint32_t compressedBlockSize,
@@ -230,7 +235,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 				[&](uint32_t /*threadId*/)
 				{
 					auto blockIt = blockAtomic++;
-					while (blockIt < blockCount)
+					while (blockIt < blockCount && !cancelled())
 					{
 						auto blockRowIt = blockIt / blockColCount;
 						auto blockColIt = blockIt % blockColCount;
@@ -257,10 +262,21 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		auto dprogress = 192 / (2 * desc.mipLevels.size());
 
+		auto cancel = [&]
+		{
+			vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
+			vmaDestroyBuffer(device.GetAllocator(), locBufferHandle, locMemoryHandle);
+			stbi_image_free(stbiImageData);
+			return std::make_error_code(std::errc::operation_canceled);
+		};
+
 		dst += compressBlocks(
 			src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
 
 		progressOut += 2*dprogress;
+
+		if (cancelled())
+			return cancel();
 
 		std::array<std::vector<stbi_uc>, 2> mipBuffers;
 		for (size_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
@@ -328,6 +344,9 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
 
 			progressOut += dprogress;
+
+			if (cancelled())
+				return cancel();
 		}
 
 		vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
@@ -347,7 +366,17 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = core::file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash, {}, &progressOut);
+	auto loadResult = core::file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash, {}, &progressOut, cancelled);
+
+	if (!loadResult && loadResult.error() == std::errc::operation_canceled)
+	{
+		// cancelled after the import created its staging buffer, i.e. while hashing the cache
+		if (bufferHandle != nullptr)
+			vmaDestroyBuffer(device.GetAllocator(), bufferHandle, memoryHandle);
+		bufferHandle = nullptr;
+
+		return initialData;
+	}
 
 	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image."); //NOLINT(readability-simplify-boolean-expr)
 
@@ -608,6 +637,8 @@ Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath,
 	// load into a staging buffer before taking the queue lock: on devices without a dedicated transfer queue it is the
 	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
 	auto initialDataAndDesc = image::detail::Load(filePath, device, progressOut);
+	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled
+		return {};
 
 	std::shared_ptr<Image<kVk>> image;
 	std::shared_ptr<ImageView<kVk>> imageView;

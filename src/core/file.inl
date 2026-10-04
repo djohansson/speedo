@@ -127,6 +127,9 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 		for (size_t offset = 0; offset < file.size(); offset += kChunkSize)
 		{
 			size_t chunkEnd = std::min(offset + kChunkSize, file.size());
+			if (progress.cancelled && progress.cancelled())
+				return std::unexpected(std::make_error_code(std::errc::operation_canceled));
+
 			hasher.process(file.cbegin() + offset, file.cbegin() + chunkEnd);
 			if (progress.value != nullptr && progress.end > progressBegin)
 				progress.value->store(

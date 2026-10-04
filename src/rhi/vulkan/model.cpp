@@ -90,6 +90,9 @@ Load(
 	auto& rhi = app->GetRHI<kVk>();
 	auto& device = rhi.GetDevice(desc.device);
 
+	// loading is given up when the application exits (only where it takes long; parsing itself can't be interrupted)
+	auto cancelled = [&app] { return app->IsExitRequested(); };
+
 	auto initialData = std::tuple<
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
@@ -185,7 +188,7 @@ Load(
 		return {};
 	};
 
-	auto loadOBJ = [&modelFile, &initialData, &device, &progressOut](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&modelFile, &initialData, &device, &progressOut, &cancelled](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -202,6 +205,9 @@ Load(
 		ENSUREF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.data()), "%s", err)
 
 		progressOut = 64;
+
+		if (cancelled())
+			return std::make_error_code(std::errc::operation_canceled);
 
 		uint32_t indexCount = 0;
 		for (const auto& shape : shapes)
@@ -306,6 +312,9 @@ Load(
 
 		progressOut = 128;
 
+		if (cancelled())
+			return std::make_error_code(std::errc::operation_canceled);
+
 		std::string ibName;
 		std::string vbName;
 		ibName = std::string(modelFile).append("_staging_ib");
@@ -359,7 +368,20 @@ Load(
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = core::file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash, {}, &progressOut);
+	auto loadResult = core::file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash, {}, &progressOut, cancelled);
+
+	if (!loadResult && loadResult.error() == std::errc::operation_canceled)
+	{
+		// cancelled after the import created its staging buffers, i.e. while hashing the cache
+		if (ibHandle != nullptr)
+			vmaDestroyBuffer(device.GetAllocator(), ibHandle, ibMemHandle);
+		if (vbHandle != nullptr)
+			vmaDestroyBuffer(device.GetAllocator(), vbHandle, vbMemHandle);
+		ibHandle = nullptr;
+		vbHandle = nullptr;
+
+		return initialData;
+	}
 
 	ENSUREF(loadResult && vbHandle && ibHandle, "Failed to load model.");
 
@@ -440,6 +462,8 @@ std::shared_ptr<Model<kVk>> Model<kVk>::LoadModel(std::string_view filePath, std
 	// parse into staging buffers before taking the queue lock: on devices without a dedicated transfer queue it is the
 	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
 	auto initialDataAndDesc = model::Load(ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)}, filePath, progressOut);
+	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled
+		return {};
 
 	std::shared_ptr<Model<kVk>> model;
 	const Semaphore<kVk>* transferSemaphore = nullptr;
