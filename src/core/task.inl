@@ -47,7 +47,7 @@ static void InternalDelete(void* callablePtr, void* argsPtr)
 
 template <typename... Params, typename... Args, typename F, typename C, typename ArgsTuple, typename ParamsTuple, typename R>
 requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-constexpr Task::Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept
+constexpr Task::Task(PrivateTag /*tag*/, F&& callable, ParamsTuple&& params, Args&&... args) noexcept
 	: myInvokeFcn(core::detail::InternalInvoke<C, ArgsTuple, ParamsTuple, R>)
 	, myDeleteFcn(core::detail::InternalDelete<C, ArgsTuple>)
 //	, myState(std::static_pointer_cast<TaskState>(std::make_shared<typename Future<R>::FutureState>()))
@@ -86,13 +86,9 @@ TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept
 	{
 		auto& task = *core::detail::InternalHandleToPtr(handle);
 
-		// std::construct_at(
-		// 	&task,
-		// 	std::forward<F>(callable),
-		// 	ParamsTuple{},
-		// 	std::forward<Args>(args)...);
-
-		new (&task) Task(
+		std::construct_at(
+			&task,
+			Task::PrivateTag{},
 			std::forward<F>(callable),
 			ParamsTuple{},
 			std::forward<Args>(args)...);

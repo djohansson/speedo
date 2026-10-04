@@ -24,7 +24,24 @@ class alignas (std::hardware_constructive_interference_size) Task final
 	friend TaskCreateInfo<R> CreateTask(F&& callable, Args&&... args) noexcept;
 	friend class TaskExecutor;
 
+	// passkey: the constructor is public so that std::construct_at can call it, but only friends can name the tag
+	struct PrivateTag
+	{
+		explicit PrivateTag() = default;
+	};
+
 public:
+	template <
+		typename... Params,
+		typename... Args,
+		typename F,
+		typename C = std::decay_t<F>,
+		typename ArgsTuple = std::tuple<Args...>,
+		typename ParamsTuple = std::tuple<Params...>,
+		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
+	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
+	constexpr Task(PrivateTag, F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
+
 	constexpr Task() noexcept = delete;
 	Task(const Task&) = delete;
 	Task(Task&&) noexcept = delete;
@@ -41,17 +58,6 @@ public:
 	void AddDependency(Task& other, bool isContinuation = false) noexcept;
 
 private:
-	template <
-		typename... Params,
-		typename... Args,
-		typename F,
-		typename C = std::decay_t<F>,
-		typename ArgsTuple = std::tuple<Args...>,
-		typename ParamsTuple = std::tuple<Params...>,
-		typename R = std_extra::apply_result_t<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>>
-	requires std_extra::applicable<C, std_extra::tuple_cat_t<ArgsTuple, ParamsTuple>>
-	constexpr Task(F&& callable, ParamsTuple&& params, Args&&... args) noexcept;
-
 	[[nodiscard]] auto& InternalState() noexcept { return myState; }
 	[[nodiscard]] const auto& InternalState() const noexcept { return myState; }
 
