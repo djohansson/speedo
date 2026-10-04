@@ -1000,12 +1000,14 @@ void RHIApplication::PrepareDraw()
 					 "Loading",
 					 &loading,
 					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
-						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings))
+						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+						 ImGuiWindowFlags_AlwaysAutoResize))
 	{
 		constexpr uint8_t kProgressMax = 255;
-		constexpr float kProgressWindowWidth = 160.0F;
-		SetWindowSize(ImVec2(kProgressWindowWidth, 0));
-		ProgressBar((1.F / kProgressMax) * static_cast<float>(gProgress));
+		constexpr float kProgressBarWidth = 160.0F;
+		ProgressBar((1.F / kProgressMax) * static_cast<float>(gProgress), ImVec2(kProgressBarWidth, 0));
+		SameLine();
+		TextUnformatted(std::string(gProgressName.Read().Get()).c_str()); // a copy: the loading thread may change it
 		End();
 	}
 
@@ -1034,6 +1036,7 @@ void RHIApplication::PrepareDraw()
 					if (!modelFile.empty() && !exitRequested())
 					{
 						gProgress = 0;
+						gProgressName.Write().Get() = modelFile;
 						if (auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress)) // else cancelled
 						{
 							auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
@@ -1044,6 +1047,7 @@ void RHIApplication::PrepareDraw()
 					if (!imageFile.empty() && !exitRequested())
 					{
 						gProgress = 0;
+						gProgressName.Write().Get() = imageFile;
 						auto [image, imageView] = Image<kVk>::LoadImage(device, (resourcePath / "images" / imageFile).string(), gProgress);
 						if (image) // else cancelled
 						{

@@ -5,9 +5,11 @@
 
 #include <core/application.h>
 #include <core/capi.h>
+#include <core/concurrentaccess.h>
 #include <core/inputstate.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -70,6 +72,7 @@ private:
 	static core::UpgradableSharedMutex gDrawMutex; //NOLINT(readability-identifier-naming)
 	static std::atomic_uint8_t gProgress; //NOLINT(readability-identifier-naming)
 	static std::atomic_bool gShowProgress; //NOLINT(readability-identifier-naming)
+	static core::ConcurrentAccess<std::string> gProgressName; //NOLINT(readability-identifier-naming) shown next to the bar
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
 	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
 };

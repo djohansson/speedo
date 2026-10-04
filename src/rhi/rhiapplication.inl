@@ -27,6 +27,7 @@ auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 			if (openFileResult)
 			{
 				gProgress = 0;
+				gProgressName.Write().Get() = std::filesystem::path(openFilePath).filename().string();
 				gShowProgress = true;
 				auto result = loadOp(openFilePath, gProgress);
 				gShowProgress = false;
