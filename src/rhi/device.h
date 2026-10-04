@@ -109,8 +109,12 @@ public:
 		ENSUREF(myResources.emplace(resource).second, "resource {} is already stored", resource->GetName());
 		return resource;
 	}
-	// stores resource in place of the one with previousUuid (if any), and returns that one, so the caller can defer
-	// its destruction until the gpu is no longer using it. resource is found by its own uuid from now on.
+	// stores resource in place of the previous one (if stored), given by its uuid or itself, and returns it, so the
+	// caller can defer its destruction until the gpu is no longer using it. resource is found by its own uuid from now on.
+	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource)
+	{
+		return ReplaceResource(previous ? previous->GetUuid() : uuids::uuid{}, std::move(resource));
+	}
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource)
 	{
 		std::shared_ptr<IObject> previous;
