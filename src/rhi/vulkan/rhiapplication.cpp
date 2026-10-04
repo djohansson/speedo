@@ -1611,7 +1611,7 @@ RHIApplication::RHIApplication(
 	auto [blackTextureUuid, blackTexture, blackTextureInserted] = device.CreateResource<Image<kVk>>(
 		"Black Texture",
 		ImageCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc(),
+			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture"),
 			{ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_IMAGE_TILING_LINEAR,
@@ -1623,7 +1623,7 @@ RHIApplication::RHIApplication(
 	auto [blackTextureViewUuid, blackTextureView, blackTextureViewInserted] = device.CreateResource<ImageView<kVk>>(
 		"Black Texture View",
 		ImageViewCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc(),
+			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture View"),
 			*blackTexture,
 			blackTexture->GetDesc().format,
 			VK_IMAGE_ASPECT_COLOR_BIT});
@@ -1655,7 +1655,7 @@ RHIApplication::RHIApplication(
 	auto [samplersUuid, samplers, samplersInserted] = device.CreateResource<SamplerVector<kVk>>(
 		"Samplers",
 		SamplerVectorCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc(),
+			rhi.CreatePrimaryDeviceObjectCreateDesc("Samplers"),
 			std::move(samplerCreateInfos)});
 	gSamplersUuid = samplersUuid;
 

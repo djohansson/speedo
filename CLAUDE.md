@@ -142,7 +142,11 @@ Related gotchas hit while getting shutdown right:
 - **Every vulkan object is tracked** (validation builds), keyed by type and handle in sharded `phmap` maps, which
   is what the Statistics window shows (`GetTypeCount`). Call `Track(device, type, handle, name)` right after
   creating a handle and `Untrack(type, handle)` right before destroying it; untracking a handle that was never
-  tracked traps, so a missing `Track` shows up immediately. Buffers, images, image views, framebuffers and render
+  tracked traps, so a missing `Track` shows up immediately. Handles must not be null (destroy paths that may run
+  for an object that was never created check that themselves), the device must be valid and the name non-empty:
+  use `GetDebugName(desc)` (the name, or the uuid) for desc-based objects. Instance level objects created before
+  there is a device (instance, physical devices, surfaces) use `TrackInstance(type, handle, name)` instead, and are
+  named through the device once `Device` calls `NameInstanceObjects`. Buffers, images, image views, framebuffers and render
   passes are tracked by the `Create*` helpers in `rhi/vulkan/utils.h`: destroy them with the matching `Destroy*`
   helpers, not `vmaDestroy*`/`vkDestroy*`. VMA's device memory blocks are tracked through its device memory
   callbacks.

@@ -40,6 +40,13 @@ struct ObjectCreateDesc
 	}
 };
 
+// the desc's name, or its uuid if it has none: never empty for a valid desc
+template <GraphicsApi G>
+[[nodiscard]] std::string GetDebugName(const ObjectCreateDesc<G>& desc)
+{
+	return desc.name.empty() ? uuids::to_string(desc.uuid) : desc.name;
+}
+
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 // uuids of the live objects, to check they are unique. sharded, with a lock per shard.
 inline phmap::parallel_flat_hash_set<
@@ -76,7 +83,7 @@ public:
 
 	[[nodiscard]] static consteval GraphicsApi GetApi() { return ObjectTraits<DerivedType>::CreateDescType::GetApi(); }
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
-	[[nodiscard]] std::string GetName() const { return myDesc.name.empty() ? uuids::to_string(myDesc.uuid) : myDesc.name; }
+	[[nodiscard]] std::string GetName() const { return GetDebugName(myDesc); }
 	[[nodiscard]] Instance<GetApi()>& GetInstance() const noexcept;
 
 	void Swap(Object& other) noexcept;

@@ -43,22 +43,29 @@ extern PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV;
 extern PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR;
 extern PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR;
 
-// tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject
+// tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject/TrackInstanceObject
 template <typename HandleT>
-void Track(VkDevice device, VkObjectType type, HandleT handle, std::string_view name = {})
+[[nodiscard]] constexpr uint64_t ToObjectHandle(HandleT handle) noexcept
 {
 	if constexpr (std::is_pointer_v<HandleT>)
-		rhi::TrackObject<kVk>(device, type, reinterpret_cast<uint64_t>(handle), name);
+		return reinterpret_cast<uint64_t>(handle);
 	else
-		rhi::TrackObject<kVk>(device, type, static_cast<uint64_t>(handle), name);
+		return static_cast<uint64_t>(handle);
+}
+template <typename HandleT>
+void Track(VkDevice device, VkObjectType type, HandleT handle, std::string_view name)
+{
+	rhi::TrackObject<kVk>(device, type, ToObjectHandle(handle), name);
+}
+template <typename HandleT>
+void TrackInstance(VkObjectType type, HandleT handle, std::string_view name)
+{
+	rhi::TrackInstanceObject<kVk>(type, ToObjectHandle(handle), name);
 }
 template <typename HandleT>
 void Untrack(VkObjectType type, HandleT handle)
 {
-	if constexpr (std::is_pointer_v<HandleT>)
-		rhi::UntrackObject<kVk>(type, reinterpret_cast<uint64_t>(handle));
-	else
-		rhi::UntrackObject<kVk>(type, static_cast<uint64_t>(handle));
+	rhi::UntrackObject<kVk>(type, ToObjectHandle(handle));
 }
 
 void InitInstanceExtensions(VkInstance instance);

@@ -145,7 +145,7 @@ BufferView<kVk>::BufferView(
 			VkBufferView outBufferView;
 			VK_CHECK(vkCreateBufferView(desc.device, &viewInfo, &GetInstance().GetHostAllocationCallbacks(), &outBufferView));
 
-			Track(desc.device, VK_OBJECT_TYPE_BUFFER_VIEW, outBufferView, desc.name);
+			Track(desc.device, VK_OBJECT_TYPE_BUFFER_VIEW, outBufferView, GetDebugName(desc));
 
 			return outBufferView;
 		}())

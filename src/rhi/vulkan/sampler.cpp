@@ -39,7 +39,7 @@ SamplerVector<kVk>::SamplerVector(CreateDescType&& desc)
 					&GetInstance().GetHostAllocationCallbacks(),
 					&outSampler));
 
-				Track(desc.device, VK_OBJECT_TYPE_SAMPLER, outSampler, std::format("{} {}", desc.name, outSamplers.size()));
+				Track(desc.device, VK_OBJECT_TYPE_SAMPLER, outSampler, std::format("{} {}", GetDebugName(desc), outSamplers.size()));
 
 				outSamplers.emplace_back(outSampler);
 			}

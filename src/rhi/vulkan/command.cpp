@@ -38,7 +38,7 @@ CreateArray(const Device<kVk>& device, const CommandBufferArrayCreateDesc<kVk>& 
 	}
 
 	for (size_t cmdIt = 0; cmdIt < outArray.size(); cmdIt++)
-		Track(device, VK_OBJECT_TYPE_COMMAND_BUFFER, outArray[cmdIt], std::format("{} {}", desc.name, cmdIt));
+		Track(device, VK_OBJECT_TYPE_COMMAND_BUFFER, outArray[cmdIt], std::format("{} {}", GetDebugName(desc), cmdIt));
 
 	return outArray;
 }
@@ -180,7 +180,7 @@ CommandPool<kVk>::CommandPool(
 				&GetInstance().GetHostAllocationCallbacks(),
 				&outPool));
 
-			Track(desc.device, VK_OBJECT_TYPE_COMMAND_POOL, outPool, desc.name);
+			Track(desc.device, VK_OBJECT_TYPE_COMMAND_POOL, outPool, GetDebugName(desc));
 
 			return outPool;
 		}())

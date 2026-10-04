@@ -69,11 +69,17 @@ protected:
 };
 
 // validation builds track the graphics api objects that exist, by type and handle: call TrackObject where an object
-// is created (which also names it, if a device is given) and UntrackObject where it is destroyed. GetTypeCount reports
-// the number of live objects of a type. other builds do nothing.
+// is created and UntrackObject where it is destroyed. GetTypeCount reports the number of live objects of a type.
+// TrackObject names the object for debugging, through its device: instance level objects created before there is a
+// device (the instance, physical devices, surfaces) are tracked with TrackInstanceObject instead, and named by
+// NameInstanceObjects once a device exists. handles must not be null, and names not empty. other builds do nothing.
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 template <GraphicsApi G>
 void TrackObject(DeviceHandle<G> device, ObjectType<G> type, uint64_t handle, std::string_view name);
+template <GraphicsApi G>
+void TrackInstanceObject(ObjectType<G> type, uint64_t handle, std::string_view name);
+template <GraphicsApi G>
+void NameInstanceObjects(DeviceHandle<G> device);
 template <GraphicsApi G>
 void UntrackObject(ObjectType<G> type, uint64_t handle);
 template <GraphicsApi G>
@@ -81,6 +87,10 @@ template <GraphicsApi G>
 #else
 template <GraphicsApi G>
 void TrackObject(DeviceHandle<G> /*device*/, ObjectType<G> /*type*/, uint64_t /*handle*/, std::string_view /*name*/) {}
+template <GraphicsApi G>
+void TrackInstanceObject(ObjectType<G> /*type*/, uint64_t /*handle*/, std::string_view /*name*/) {}
+template <GraphicsApi G>
+void NameInstanceObjects(DeviceHandle<G> /*device*/) {}
 template <GraphicsApi G>
 void UntrackObject(ObjectType<G> /*type*/, uint64_t /*handle*/) {}
 template <GraphicsApi G>

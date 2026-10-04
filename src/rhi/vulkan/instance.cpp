@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <ostream>
+#include <format>
 #include <print>
 #include <string_view>
 #include <vector>
@@ -488,8 +489,8 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	InitInstanceExtensions(myInstance);
 
-	// there is no device yet to name instance level objects with
-	Track(VK_NULL_HANDLE, VK_OBJECT_TYPE_INSTANCE, myInstance);
+	// instance level objects are named once there is a device (see TrackInstanceObject)
+	TrackInstance(VK_OBJECT_TYPE_INSTANCE, myInstance, std::format("{} Instance", myConfig.applicationName));
 
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
@@ -500,11 +501,14 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	for (auto* physicalDevice : myPhysicalDevices)
 	{
-		Track(VK_NULL_HANDLE, VK_OBJECT_TYPE_PHYSICAL_DEVICE, physicalDevice);
-
 		auto infoInsertNode = myPhysicalDeviceInfos.emplace(
 			physicalDevice, std::make_unique<PhysicalDeviceInfo<kVk>>());
 		GetPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice);
+
+		TrackInstance(
+			VK_OBJECT_TYPE_PHYSICAL_DEVICE,
+			physicalDevice,
+			std::string_view(infoInsertNode.first->second->deviceProperties.properties.deviceName));
 	}
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)

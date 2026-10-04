@@ -206,7 +206,7 @@ PipelineLayout<kVk>::PipelineLayout(
 				  &GetInstance().GetHostAllocationCallbacks(),
 				  &layout));
 
-			  Track(desc.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, layout, desc.name);
+			  Track(desc.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, layout, GetDebugName(desc));
 
 			  return layout;
 		  }())
@@ -242,7 +242,7 @@ PipelineLayout<kVk>::PipelineLayout(
 				layout.device = desc.device;
 				// nor is a uuid (see ObjectCreateDesc)
 				layout.uuid = uuids::NewUuid();
-				layout.name = std::format("{} DescriptorSetLayout {}", desc.name, set);
+				layout.name = std::format("{} DescriptorSetLayout {}", GetDebugName(desc), set);
 				map.emplace(set, DescriptorSetLayout<kVk>(std::move(layout)));
 			}
 

@@ -432,7 +432,7 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 
 	VmaAllocatorInfo allocatorInfo;
 	vmaGetAllocatorInfo(allocator, &allocatorInfo);
-	Track(allocatorInfo.device, VK_OBJECT_TYPE_BUFFER, outBuffer, debugName != nullptr ? debugName : "");
+	Track(allocatorInfo.device, VK_OBJECT_TYPE_BUFFER, outBuffer, (debugName != nullptr && *debugName != '\0') ? debugName : "Buffer");
 
 	return std::make_tuple(outBuffer, outBufferMemory);
 }
@@ -720,7 +720,7 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 
 	VmaAllocatorInfo allocatorInfo;
 	vmaGetAllocatorInfo(allocator, &allocatorInfo);
-	Track(allocatorInfo.device, VK_OBJECT_TYPE_IMAGE, outImage, debugName != nullptr ? debugName : "");
+	Track(allocatorInfo.device, VK_OBJECT_TYPE_IMAGE, outImage, (debugName != nullptr && *debugName != '\0') ? debugName : "Image");
 
 	return std::make_tuple(outImage, outImageMemory);
 }
@@ -818,7 +818,7 @@ VkImageView CreateImageView2D(
 	VkImageView outImageView;
 	VK_CHECK(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
 
-	Track(device, VK_OBJECT_TYPE_IMAGE_VIEW, outImageView, debugName);
+	Track(device, VK_OBJECT_TYPE_IMAGE_VIEW, outImageView, debugName.empty() ? "ImageView" : debugName);
 
 	return outImageView;
 }
@@ -851,7 +851,7 @@ VkFramebuffer CreateFramebuffer(
 	VkFramebuffer outFramebuffer;
 	VK_CHECK(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
 
-	Track(device, VK_OBJECT_TYPE_FRAMEBUFFER, outFramebuffer, debugName);
+	Track(device, VK_OBJECT_TYPE_FRAMEBUFFER, outFramebuffer, debugName.empty() ? "Framebuffer" : debugName);
 
 	return outFramebuffer;
 }
@@ -881,7 +881,7 @@ VkRenderPass CreateRenderPass(
 	VkRenderPass outRenderPass;
 	VK_CHECK(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
 
-	Track(device, VK_OBJECT_TYPE_RENDER_PASS, outRenderPass, debugName);
+	Track(device, VK_OBJECT_TYPE_RENDER_PASS, outRenderPass, debugName.empty() ? "RenderPass" : debugName);
 
 	return outRenderPass;
 }
@@ -977,7 +977,7 @@ VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hos
 		hostAllocator,
 		&surface));
 
-	Track(VK_NULL_HANDLE, VK_OBJECT_TYPE_SURFACE_KHR, surface); // destroyed by the swapchain that takes it
+	TrackInstance(VK_OBJECT_TYPE_SURFACE_KHR, surface, "Window Surface"); // destroyed by the swapchain that takes it
 
 	return surface;
 }

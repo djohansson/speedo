@@ -39,7 +39,7 @@ Semaphore<kVk>::Semaphore(CreateDescType&& desc)
 				&GetInstance().GetHostAllocationCallbacks(),
 				&handle));
 
-			Track(desc.device, VK_OBJECT_TYPE_SEMAPHORE, handle, desc.name);
+			Track(desc.device, VK_OBJECT_TYPE_SEMAPHORE, handle, GetDebugName(desc));
 
 			return handle;
 		}())

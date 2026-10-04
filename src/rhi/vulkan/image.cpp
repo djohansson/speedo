@@ -603,7 +603,7 @@ ImageView<kVk>::ImageView(
 			desc.format,
 			desc.aspectFlags,
 			1,
-			desc.name))
+			GetDebugName(desc)))
 {}
 
 template <>

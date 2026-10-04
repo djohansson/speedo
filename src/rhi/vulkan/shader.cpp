@@ -358,7 +358,7 @@ ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 
 			VkShaderModule vkShaderModule;
 			VK_CHECK(vkCreateShaderModule(desc.device, &info, &GetInstance().GetHostAllocationCallbacks(), &vkShaderModule));
-			Track(desc.device, VK_OBJECT_TYPE_SHADER_MODULE, vkShaderModule, desc.name);
+			Track(desc.device, VK_OBJECT_TYPE_SHADER_MODULE, vkShaderModule, GetDebugName(desc));
 			return vkShaderModule;
 		}(reinterpret_cast<const uint32_t*>(std::get<0>(desc.shader).data()), std::get<0>(desc.shader).size()),
 		EntryPoint<kVk>{std::get<1>(desc.shader)}) // copy, since desc is moved into the base before myEntryPoint is initialized

@@ -112,7 +112,7 @@ Queue<kVk>::Queue(QueueCreateDesc<kVk>&& queueDesc)
 				queueDesc.queueFamilyIndex,
 				queueDesc.queueIndex,
 				&queue);
-			Track(queueDesc.device, VK_OBJECT_TYPE_QUEUE, queue, queueDesc.name);
+			Track(queueDesc.device, VK_OBJECT_TYPE_QUEUE, queue, GetDebugName(queueDesc));
 			return queue;
 		}())
 {}

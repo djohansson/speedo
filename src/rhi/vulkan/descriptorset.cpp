@@ -85,7 +85,7 @@ DescriptorSetLayout<kVk>::DescriptorSetLayout(CreateDescType&& desc)
 				&GetInstance().GetHostAllocationCallbacks(),
 				&layout));
 
-			Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, layout, desc.name);
+			Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, layout, GetDebugName(desc));
 
 			return std::make_tuple(layout, std::move(samplers), std::move(bindingsMap));
 		}())
@@ -155,7 +155,7 @@ DescriptorSetArray<kVk>::DescriptorSetArray(
 			VK_CHECK(vkAllocateDescriptorSets(desc.device, &allocInfo, sets.data()));
 
 			for (size_t setIt = 0; setIt < sets.size(); setIt++)
-				Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, sets[setIt], std::format("{} {}", desc.name, setIt));
+				Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, sets[setIt], std::format("{} {}", GetDebugName(desc), setIt));
 
 			return sets;
 		}())
