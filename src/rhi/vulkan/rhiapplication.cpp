@@ -1029,7 +1029,9 @@ void RHIApplication::PrepareDraw()
 				{
 					// like the "File" menu loads (see InternalOpenFileDialogueAsync), each load restarting the bar
 					gShowProgress = true;
-					if (!modelFile.empty())
+					// assets not yet started when exiting are skipped
+					auto exitRequested = [] { return core::Application::Get()->IsExitRequested(); };
+					if (!modelFile.empty() && !exitRequested())
 					{
 						gProgress = 0;
 						auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress);
@@ -1037,7 +1039,7 @@ void RHIApplication::PrepareDraw()
 							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
 						rhi.drawCalls.enqueue(installTask);
 					}
-					if (!imageFile.empty())
+					if (!imageFile.empty() && !exitRequested())
 					{
 						gProgress = 0;
 						auto [image, imageView] = Image<kVk>::LoadImage(device, (resourcePath / "images" / imageFile).string(), gProgress);

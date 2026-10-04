@@ -388,6 +388,10 @@ void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 {
 	using namespace client;
 
+	// however the client is closing (window closed, interrupted, or the exit menu item), tell work that checks for it,
+	// e.g. loads, to wind down
+	gClientApplication.Read()->RequestExit();
+
 	// request all chains to stop first, so they wind down concurrently
 	bool rpcRunning = RequestTaskStop(gRpcTaskState);
 	bool tickRunning = RequestTaskStop(gTickTaskState);
