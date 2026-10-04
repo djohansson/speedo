@@ -219,7 +219,7 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 	for (auto& device : myDevices)
 	{
 		device.InternalCreateQueues();
-		device.InternalCreatePipeline();
+		device.InternalCreatePipeline(std::vector(initData.descriptorPoolSizes));
 	}
 
 	myWindows.emplace_back(

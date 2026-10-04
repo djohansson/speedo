@@ -1,7 +1,7 @@
 #pragma once
 
 #include <gfx/bounds.h>
-#include <rhi/shaders/capi.h>
+#include <gfx/shaders/capi.h>
 
 #include <array>
 #include <cstdint>

@@ -129,7 +129,7 @@ private:
 	template <GraphicsApi> friend class RHI;
 
 	void InternalCreateQueues();
-	void InternalCreatePipeline();
+	void InternalCreatePipeline(std::vector<DescriptorPoolSize>&& descriptorPoolSizes);
 	// the stored resource with uuid, which must be stored
 	[[nodiscard]] ResourceSetType::const_iterator InternalGetResourceIterator(const uuids::uuid& uuid) const;
 

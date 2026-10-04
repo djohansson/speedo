@@ -1,12 +1,13 @@
 #include <gfx/capi.h>
 #include <gfx/windowedapplication.h>
 #include <gfx/model.h>
+#include <gfx/shaderloader.h>
 #include <gfx/texture.h>
 
 #include <core/task.h>
 #include <rhi/capi.h>
 #include <rhi/renderimageset.h>
-#include <rhi/shaders/capi.h>
+#include <gfx/shaders/capi.h>
 
 #include <uuid.h>
 
@@ -217,6 +218,28 @@ static void ShutdownImgui()
 	}
 
 	ImGui::DestroyContext();
+}
+
+// what the descriptor sets of the pipeline (see shaders/capi.h) are allocated from: room for many copies of the
+// global arrays, since every change to one takes a new descriptor set
+static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
+{
+	constexpr uint32_t kGlobalResourceBaseCount = 128;
+	constexpr uint32_t kBufferBaseCount = kGlobalResourceBaseCount * 1024;
+
+	return {
+		{.type = rhi::DescriptorType::kSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
+		{.type = rhi::DescriptorType::kCombinedImageSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
+		{.type = rhi::DescriptorType::kSampledImage, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
+		{.type = rhi::DescriptorType::kStorageImage, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
+		{.type = rhi::DescriptorType::kUniformTexelBuffer, .count = kBufferBaseCount},
+		{.type = rhi::DescriptorType::kStorageTexelBuffer, .count = kBufferBaseCount},
+		{.type = rhi::DescriptorType::kUniformBuffer, .count = kBufferBaseCount},
+		{.type = rhi::DescriptorType::kStorageBuffer, .count = kBufferBaseCount},
+		{.type = rhi::DescriptorType::kUniformBufferDynamic, .count = kBufferBaseCount},
+		{.type = rhi::DescriptorType::kStorageBufferDynamic, .count = kBufferBaseCount},
+		{.type = rhi::DescriptorType::kInputAttachment, .count = kBufferBaseCount},
+	};
 }
 
 // gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain). material 0 is the
@@ -1667,7 +1690,10 @@ bool WindowedApplication::Draw()
 WindowedApplication::WindowedApplication(
 	std::string_view appName, core::Environment&& env, CreateWindowFunc createWindowFunc)
 	: Application(std::forward<std::string_view>(appName), std::forward<core::Environment>(env))
-	, myRHI(std::make_unique<RHI>(RHIInitializationData{.name = appName, .createWindowFunc = createWindowFunc}))
+	, myRHI(std::make_unique<RHI>(RHIInitializationData{
+		  .name = appName,
+		  .createWindowFunc = createWindowFunc,
+		  .descriptorPoolSizes = windowedapplication::DescriptorPoolSizes()}))
 {
 	using namespace windowedapplication;
 
@@ -1785,7 +1811,7 @@ WindowedApplication::WindowedApplication(
 		graphicsSubmits |= graphicsQueue.Submit();
 	}
 
-	auto shaderIncludePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["RootPath"]) / "src/rhi/shaders";
+	auto shaderIncludePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["RootPath"]) / "src/gfx/shaders";
 	auto shaderIntermediatePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / ".slang.intermediate";
 
 	ShaderLoader shaderLoader({shaderIncludePath}, {}, shaderIntermediatePath);
@@ -1794,12 +1820,10 @@ WindowedApplication::WindowedApplication(
 
 	const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = device.GetPipelineLayoutHandles().emplace(
 		std::hash<std::string_view>{}("VertexZPrepass"),
-		pipeline.CreateLayout(shaderLoader.Load<kGraphicsApi>(
+		pipeline.CreateLayout(shaderLoader.Load(
 			shaderSourceFile,
 			{
 				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-				.target = SLANG_SPIRV,
-				.targetProfile = "SPIRV_1_6",
 				.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
 				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -1823,12 +1847,10 @@ WindowedApplication::WindowedApplication(
 
 	const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = device.GetPipelineLayoutHandles().emplace(
 		std::hash<std::string_view>{}("Main"),
-		pipeline.CreateLayout(shaderLoader.Load<kGraphicsApi>(
+		pipeline.CreateLayout(shaderLoader.Load(
 			shaderSourceFile,
 			{
 				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-				.target = SLANG_SPIRV,
-				.targetProfile = "SPIRV_1_6",
 				.entryPoints = {
 					{"VertexMain", SLANG_STAGE_VERTEX},
 					{"FragmentMain", SLANG_STAGE_FRAGMENT},

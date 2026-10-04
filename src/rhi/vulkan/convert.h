@@ -2,6 +2,9 @@
 
 #include <rhi/enums.h>
 
+#include <array>
+#include <utility>
+
 #include <core/assert.h>
 
 #include <vulkan/vulkan.h>
@@ -288,6 +291,55 @@ namespace rhi::vk
 
 [[nodiscard]] constexpr VkExtent2D ToVk(Extent2d extent) noexcept { return {.width = extent.width, .height = extent.height}; }
 [[nodiscard]] constexpr Extent2d FromVk(VkExtent2D extent) noexcept { return {.width = extent.width, .height = extent.height}; }
+
+[[nodiscard]] constexpr VkShaderStageFlags ToVk(ShaderStage stages) noexcept
+{
+	if (stages == ShaderStage::kAll)
+		return VK_SHADER_STAGE_ALL;
+
+	constexpr std::array<std::pair<ShaderStage, VkShaderStageFlagBits>, 12> kStages{{
+		{ShaderStage::kVertex, VK_SHADER_STAGE_VERTEX_BIT},
+		{ShaderStage::kTessellationControl, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT},
+		{ShaderStage::kTessellationEvaluation, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT},
+		{ShaderStage::kGeometry, VK_SHADER_STAGE_GEOMETRY_BIT},
+		{ShaderStage::kFragment, VK_SHADER_STAGE_FRAGMENT_BIT},
+		{ShaderStage::kCompute, VK_SHADER_STAGE_COMPUTE_BIT},
+		{ShaderStage::kRayGeneration, VK_SHADER_STAGE_RAYGEN_BIT_KHR},
+		{ShaderStage::kAnyHit, VK_SHADER_STAGE_ANY_HIT_BIT_KHR},
+		{ShaderStage::kClosestHit, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR},
+		{ShaderStage::kMiss, VK_SHADER_STAGE_MISS_BIT_KHR},
+		{ShaderStage::kIntersection, VK_SHADER_STAGE_INTERSECTION_BIT_KHR},
+		{ShaderStage::kCallable, VK_SHADER_STAGE_CALLABLE_BIT_KHR},
+	}};
+
+	VkShaderStageFlags flags = 0;
+	for (auto [stage, vkStage] : kStages)
+		if (Any(stages & stage))
+			flags |= vkStage;
+	return flags;
+}
+
+[[nodiscard]] constexpr VkDescriptorType ToVk(DescriptorType type) noexcept
+{
+	switch (type)
+	{
+	case DescriptorType::kSampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
+	case DescriptorType::kCombinedImageSampler: return VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	case DescriptorType::kSampledImage: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+	case DescriptorType::kStorageImage: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+	case DescriptorType::kUniformTexelBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+	case DescriptorType::kStorageTexelBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+	case DescriptorType::kUniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	case DescriptorType::kStorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	case DescriptorType::kUniformBufferDynamic: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+	case DescriptorType::kStorageBufferDynamic: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC;
+	case DescriptorType::kInputAttachment: return VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+	case DescriptorType::kInlineUniformBlock: return VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK;
+	case DescriptorType::kAccelerationStructure: return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	}
+	ASSERT(false);
+	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+}
 
 // the result of an acquire or present
 [[nodiscard]] constexpr PresentResult ToPresentResult(VkResult result) noexcept

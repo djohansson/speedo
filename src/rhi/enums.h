@@ -250,6 +250,51 @@ struct DeviceLimits
 	uint32_t maxPerStageSampledImages = 0;
 };
 
+// the shader stages a shader, binding or push constant range is used in
+enum class ShaderStage : uint16_t
+{
+	kNone = 0,
+	kVertex = 1U << 0U,
+	kTessellationControl = 1U << 1U,
+	kTessellationEvaluation = 1U << 2U,
+	kGeometry = 1U << 3U,
+	kFragment = 1U << 4U,
+	kCompute = 1U << 5U,
+	kRayGeneration = 1U << 6U,
+	kAnyHit = 1U << 7U,
+	kClosestHit = 1U << 8U,
+	kMiss = 1U << 9U,
+	kIntersection = 1U << 10U,
+	kCallable = 1U << 11U,
+	kAllGraphics = kVertex | kTessellationControl | kTessellationEvaluation | kGeometry | kFragment,
+	kAll = 0xfffU,
+};
+RHI_FLAGS(ShaderStage)
+
+enum class DescriptorType : uint8_t
+{
+	kSampler,
+	kCombinedImageSampler,
+	kSampledImage,
+	kStorageImage,
+	kUniformTexelBuffer,
+	kStorageTexelBuffer,
+	kUniformBuffer,
+	kStorageBuffer,
+	kUniformBufferDynamic,
+	kStorageBufferDynamic,
+	kInputAttachment,
+	kInlineUniformBlock, // its count is the block's size in bytes
+	kAccelerationStructure,
+};
+
+// how many descriptors of a type a descriptor pool holds
+struct DescriptorPoolSize
+{
+	DescriptorType type{};
+	uint32_t count = 0;
+};
+
 // what presenting a frame says about the swapchain
 enum class PresentResult : uint8_t
 {

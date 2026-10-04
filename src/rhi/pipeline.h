@@ -61,7 +61,7 @@ private:
 	friend Pipeline<G>;
 	explicit PipelineLayout(
 		CreateDescType&& desc,
-		const ShaderSet<G>& shaderSet);
+		const ShaderSet& shaderSet);
 	PipelineLayout( // takes ownership over provided handles
 		CreateDescType&& desc,
 		std::vector<ShaderModule<G>>&& shaderModules,
@@ -86,6 +86,7 @@ template <GraphicsApi G>
 struct PipelineCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	std::string cachePath;
+	std::vector<DescriptorPoolSize> descriptorPoolSizes; // of the descriptor pool its descriptor sets come from
 };
 
 template <GraphicsApi G>
@@ -138,7 +139,7 @@ public:
 	// pushes data at offset into the current layout, with the stage flags of the push constant ranges it overlaps
 	void PushConstants(CommandBufferHandle<G> cmd, std::span<const std::byte> data, uint32_t offset = 0) const;
 
-	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(const ShaderSet<G>& shaderSet);
+	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(const ShaderSet& shaderSet);
 
 	// "manual" api
 

@@ -4,6 +4,7 @@
 #include <rhi/device.h>
 #include <rhi/instance.h>
 #include <rhi/rhibase.h>
+#include <rhi/shaderset.h>
 #include <rhi/types.h>
 #include <rhi/window.h>
 
@@ -25,10 +26,14 @@ struct RHIInitializationData
 	WindowState windowState{.x = 0, .y = 0, .width = kDefaultWindowWidth, .height = kDefaultWindowHeight, .fullscreenEnabled = 0U};
 	WindowHandle windowHandle{};
 	SurfaceHandle<kVk> surface{};
+	// the descriptors the primary device's pipeline allocates its descriptor sets from, per type
+	std::vector<DescriptorPoolSize> descriptorPoolSizes;
 };
 
 // the graphics api the code above rhi uses (one per build)
 inline constexpr GraphicsApi kGraphicsApi = kVk;
+// the shader binaries it takes
+inline constexpr ShaderFormat kShaderFormat = ShaderFormat::kSpirv16;
 
 template <GraphicsApi G>
 class RHI;

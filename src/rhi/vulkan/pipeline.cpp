@@ -1,10 +1,13 @@
 #include <rhi/pipeline.h>
-#include <rhi/shaders/capi.h>
 #include <rhi/rhi.h>
-#include <rhi/rhi.h>
+#include <rhi/vulkan/convert.h>
 #include <rhi/vulkan/utils.h>
 
+#include <core/file.h>
+
+#include <filesystem>
 #include <format>
+#include <iostream>
 
 namespace rhi
 {
@@ -212,10 +215,37 @@ PipelineLayout<kVk>::PipelineLayout(
 		  }())
 {}
 
+namespace pipeline
+{
+
+// a shader set layout as vulkan takes it: every binding partially bound, so the shaders may leave elements unwritten
+static DescriptorSetLayoutCreateDesc<kVk> ToDescriptorSetLayoutCreateDesc(const ShaderSetLayout& layout)
+{
+	DescriptorSetLayoutCreateDesc<kVk> desc;
+	for (const auto& binding : layout.bindings)
+	{
+		desc.bindings.push_back(DescriptorSetLayoutBinding<kVk>{
+			.binding = binding.binding,
+			.descriptorType = vk::ToVk(binding.type),
+			.descriptorCount = binding.count,
+			.stageFlags = vk::ToVk(binding.stages),
+			.pImmutableSamplers = nullptr});
+		desc.bindingFlags.push_back(VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT);
+		desc.variableNames.push_back(binding.name);
+		desc.variableNameHashes.push_back(binding.nameHash);
+	}
+	if (const auto& pushConstants = layout.pushConstants)
+		desc.pushConstantRange =
+			PushConstantRange<kVk>{vk::ToVk(pushConstants->stages), pushConstants->offset, pushConstants->size};
+	return desc;
+}
+
+} // namespace pipeline
+
 template <>
 PipelineLayout<kVk>::PipelineLayout(
 	CreateDescType&& desc,
-	const ShaderSet<kVk>& shaderSet)
+	const ShaderSet& shaderSet)
 	: PipelineLayout(
 		std::forward<CreateDescType>(desc),
 		// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
@@ -235,12 +265,11 @@ PipelineLayout<kVk>::PipelineLayout(
 		[&shaderSet, &desc]
 		{
 			DescriptorSetLayoutFlatMap<kVk> map;
-			for (auto [set, layout] : shaderSet.layouts)
+			for (const auto& [set, shaderSetLayout] : shaderSet.layouts)
 			{
-				// runtime handles are not part of the serialized shader set, so take them from the owning layout
+				auto layout = pipeline::ToDescriptorSetLayoutCreateDesc(shaderSetLayout);
 				layout.instance = desc.instance;
 				layout.device = desc.device;
-				// nor is a uuid (see ObjectCreateDesc)
 				layout.uuid = uuids::NewUuid();
 				layout.name = std::format("{} DescriptorSetLayout {}", GetDebugName(desc), set);
 				map.emplace(set, DescriptorSetLayout<kVk>(std::move(layout)));
@@ -637,7 +666,7 @@ void Pipeline<kVk>::PushConstants(CommandBufferHandle<kVk> cmd, std::span<const 
 }
 
 template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shaderSet)
+PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet& shaderSet)
 {
 	const auto& [layoutIt, wasInserted] = myPipelineLayouts.emplace(
 		PipelineLayout<kVk>(
@@ -670,18 +699,18 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 		{
 			const auto& [entryPointName, shaderStage, launchParams] = shader.GetEntryPoint();
 
-			if ((shaderStage & VK_SHADER_STAGE_ALL_GRAPHICS) != 0)
+			if (Any(shaderStage & ShaderStage::kAllGraphics))
 			{
 				myGraphicsState.shaderStages.emplace_back(PipelineShaderStageCreateInfo<kVk>{
 					.sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 					.pNext=nullptr,
 					.flags=0,
-					.stage=shaderStage,
+					.stage=static_cast<VkShaderStageFlagBits>(vk::ToVk(shaderStage)),
 					.module=shader,
 					.pName=entryPointName.c_str(),
 					.pSpecializationInfo=nullptr});
 
-				myGraphicsState.shaderStageFlags |= shaderStage;
+				myGraphicsState.shaderStageFlags |= vk::ToVk(shaderStage);
 			}
 		}
 		break;
@@ -689,7 +718,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 		{
 			// todo: better handling of multiple compute shaders
 			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.back().GetEntryPoint();
-			ENSURE(shaderStage == VK_SHADER_STAGE_COMPUTE_BIT);
+			ENSURE(shaderStage == ShaderStage::kCompute);
 			myComputeState.shaderStage = {
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 				.pNext = nullptr,
@@ -899,36 +928,23 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 	, myDescriptorPool(
 		[this]
 		{
-			static constexpr uint32_t kGlobalResourceBaseCount = 128;
-			static constexpr uint32_t kBufferBaseCount = kGlobalResourceBaseCount*1024;
-			//static constexpr uint32_t kMaxSets = 128;
-			static constexpr uint32_t kMaxSets = 16*1024;
-			
-			static constexpr auto kPoolSizes = std::to_array<VkDescriptorPoolSize>({
-				{.type = VK_DESCRIPTOR_TYPE_SAMPLER, .descriptorCount=kGlobalResourceBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
-				{.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-				.descriptorCount=kGlobalResourceBaseCount * DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS},
-				{.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-				.descriptorCount=kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
-				{.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-				.descriptorCount=kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
-				{.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, .descriptorCount=kBufferBaseCount},
-				{.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, .descriptorCount=kBufferBaseCount},
-				{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, .descriptorCount=kBufferBaseCount},
-				{.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount=kBufferBaseCount},
-				{.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount=kBufferBaseCount},
-				{.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, .descriptorCount=kBufferBaseCount},
-				{.type = VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, .descriptorCount=kBufferBaseCount}});
+			static constexpr uint32_t kMaxInlineUniformBlockBindings = 128 * 1024;
+			static constexpr uint32_t kMaxSets = 16 * 1024; // per pool size
+
+			std::vector<VkDescriptorPoolSize> poolSizes;
+			for (const auto& [type, count] : GetDesc().descriptorPoolSizes)
+				poolSizes.push_back({.type = vk::ToVk(type), .descriptorCount = count});
+			ENSURE(!poolSizes.empty());
 
 			VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{
 				.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_INLINE_UNIFORM_BLOCK_CREATE_INFO};
-			inlineUniformBlockInfo.maxInlineUniformBlockBindings = kBufferBaseCount;
+			inlineUniformBlockInfo.maxInlineUniformBlockBindings = kMaxInlineUniformBlockBindings;
 
 			VkDescriptorPoolCreateInfo poolInfo{.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 			poolInfo.pNext = &inlineUniformBlockInfo;
-			poolInfo.poolSizeCount = std::size(kPoolSizes);
-			poolInfo.pPoolSizes = kPoolSizes.data();
-			poolInfo.maxSets = kMaxSets * std::size(kPoolSizes);
+			poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+			poolInfo.pPoolSizes = poolSizes.data();
+			poolInfo.maxSets = kMaxSets * static_cast<uint32_t>(poolSizes.size());
 			poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 			// VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT
 			// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT

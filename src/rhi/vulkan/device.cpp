@@ -258,14 +258,15 @@ void Device<kVk>::InternalCreateQueues()
 }
 
 template <>
-void Device<kVk>::InternalCreatePipeline()
+void Device<kVk>::InternalCreatePipeline(std::vector<DescriptorPoolSize>&& descriptorPoolSizes)
 {
 	ZoneScopedN("Device::InternalCreatePipeline");
 
 	myPipeline = Pipeline<kVk>(
 		PipelineCreateDesc<kVk>{
 			CreateDeviceObjectCreateDesc("Pipeline"),
-			(std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
+			(std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string(),
+			std::move(descriptorPoolSizes)
 		});
 }
 

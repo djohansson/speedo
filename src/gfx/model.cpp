@@ -1,7 +1,7 @@
 #include <gfx/model.h>
 #include <gfx/objimport.h>
 
-#include <rhi/shaders/capi.h>
+#include <gfx/shaders/capi.h>
 
 #include <core/application.h>
 #include <core/file.h>

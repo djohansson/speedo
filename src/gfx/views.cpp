@@ -1,6 +1,6 @@
 #include <gfx/views.h>
 
-#include <rhi/shaders/capi.h>
+#include <gfx/shaders/capi.h>
 
 #include <core/profiling.h>
 

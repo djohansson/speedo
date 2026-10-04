@@ -37,7 +37,7 @@ struct ModelDesc
 	std::string name;
 	Bounds3f bounds;
 	uint32_t indexCount = 0; // uint32_t indices, a triangle list
-	uint32_t vertexCount = 0; // VertexP3fN3fT014fC4f vertices (see rhi/shaders/capi.h)
+	uint32_t vertexCount = 0; // VertexP3fN3fT014fC4f vertices (see gfx/shaders/capi.h)
 	std::vector<ModelSubmesh> submeshes;
 	std::vector<ModelMaterial> materials;
 };

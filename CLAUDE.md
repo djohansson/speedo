@@ -25,6 +25,16 @@ Notes for working in this codebase, distilled from real build failures.
   textures, which it creates and uploads itself on the ui thread and records on the draw thread. gfx owns the imgui
   context, the glfw platform backend (`ImGui_ImplGlfw_InitForOther`) and the triple buffer of draw data snapshots
   between the two threads.
+- Shaders are gfx's: the slang sources and the C header they share with the C++ code (`gfx/shaders/`), and
+  `gfx::ShaderLoader`, which compiles them for `rhi::kShaderFormat` and reflects their bindings into a neutral
+  `rhi::ShaderSet` (`rhi/shaderset.h`: binaries, entry points, and per set the bindings and push constants). rhi
+  doesn't link slang. `Pipeline::CreateLayout` turns a `ShaderSet` into the backend's descriptor set layouts (every
+  binding partially bound). What the app's descriptor sets need from the pool comes in through
+  `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes.
+- The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
+  `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
+  in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
+  rhi, `rhi::DescriptorType` in gfx.
 
 ## rhi: `Object<T>` / `DeviceObject<T>` base classes
 
@@ -106,7 +116,7 @@ members are initialized, so pass a copy.
 
 Serialized create-descs arrive *without* runtime handles: `ObjectCreateDesc`/`DeviceObjectCreateDesc`
 deliberately serialize only `uuid`, never `instance`/`device`/`name`. Any code that builds a desc from a
-file or cache (e.g. shader reflection) must fill in `instance`/`device`, and
+file or cache must fill in `instance`/`device`, and
 replace the `uuid` with `uuids::NewUuid()` (a cached desc holds the uuid of the object it was saved from),
 before the desc is used to construct an object, or `GetDevice()` trips the assert below. Also, a
 derived desc with extra fields needs its own `serialize()` (see `ImageCreateDesc`): otherwise it

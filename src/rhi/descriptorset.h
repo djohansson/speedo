@@ -85,7 +85,7 @@ public:
 private:
 	using ShaderVariableBindingsMap = core::UnorderedMap<
 		uint64_t,
-		std::tuple<uint32_t, DescriptorType<G>, uint32_t>,
+		std::tuple<uint32_t, ::DescriptorType<G>, uint32_t>,
 		core::IdentityHash<uint64_t>>;
 	using ValueType =
 		std::tuple<DescriptorSetLayoutHandle<G>, SamplerVector<G>, ShaderVariableBindingsMap>;
@@ -240,7 +240,7 @@ template <GraphicsApi G>
 using BindingValue = std::tuple<
 	uint32_t,			 // offset
 	uint32_t,			 // count
-	DescriptorType<G>,	 // type
+	::DescriptorType<G>, // type (the backend's)
 	core::RangeSet<uint32_t>>; // array ranges
 
 template <GraphicsApi G>
