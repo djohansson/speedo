@@ -36,7 +36,7 @@ Foo& Foo::operator=(Foo&& other) noexcept { Swap(other); return *this; }
 
 After a swap, the moved-from object holds the *default-constructed* state (because the
 move constructor default-constructs `this` before swapping). Destructors on these types
-must guard on `IsValid()` (from `Object::IsValid()`, true iff `GetDesc().instance` is
+must guard on `IsValid()` (from `Object::IsValid()`, true iff `GetDesc().uuid` is
 set) before doing any GPU-handle cleanup, otherwise a moved-from object double-frees or
 operates on null handles.
 
