@@ -1,6 +1,7 @@
 #include <core/application.h>
 #include <core/profiling.h>
 
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <utility>
@@ -84,7 +85,7 @@ LoadAssetManifest(std::span<const std::byte> buffer, const LoadAssetManifestInfo
 } // namespace detail
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath)
+std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath, Progress progress)
 {
 	ZoneScoped;
 
@@ -119,7 +120,21 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 		if (error)
 			return std::unexpected(error);
 
-		picosha2::hash256(file.cbegin(), file.cend(), sha2.begin(), sha2.end());
+		// in chunks, to report progress: hashing large assets takes a while
+		static constexpr size_t kChunkSize = size_t{4} << 20U;
+		uint8_t progressBegin = progress.value != nullptr ? progress.value->load(std::memory_order_relaxed) : 0;
+		picosha2::hash256_one_by_one hasher;
+		for (size_t offset = 0; offset < file.size(); offset += kChunkSize)
+		{
+			size_t chunkEnd = std::min(offset + kChunkSize, file.size());
+			hasher.process(file.cbegin() + offset, file.cbegin() + chunkEnd);
+			if (progress.value != nullptr && progress.end > progressBegin)
+				progress.value->store(
+					static_cast<uint8_t>(progressBegin + ((progress.end - progressBegin) * chunkEnd / file.size())),
+					std::memory_order_relaxed);
+		}
+		hasher.finish();
+		hasher.get_hash_bytes(sha2.begin(), sha2.end());
 		picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), fileInfo.sha2);
 	}
 
@@ -183,11 +198,11 @@ std::expected<void, std::error_code> SaveObject(const T& object, const std::stri
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp)
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp, Progress hashProgress)
 {
 	ZoneScoped;
 
-	auto fileInfo = GetRecord<Sha256ChecksumEnable>(filePath);
+	auto fileInfo = GetRecord<Sha256ChecksumEnable>(filePath, hashProgress);
 
 	if (fileInfo)
 	{
@@ -209,7 +224,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp)
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp, Progress hashProgress)
 {
 	ZoneScoped;
 
@@ -234,7 +249,7 @@ std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& f
 			return std::unexpected(error);
 	}
 
-	return GetRecord<Sha256ChecksumEnable>(filePath);
+	return GetRecord<Sha256ChecksumEnable>(filePath, hashProgress);
 }
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct>

@@ -128,7 +128,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		return {};
 	};
 
-	auto saveBin = [&initialData, &device, &progressOut](auto& outStream) -> std::error_code
+	auto saveBin = [&initialData, &device](auto& outStream) -> std::error_code
 	{
 		auto& [bufferHandle, memoryHandle, desc] = initialData;
 		
@@ -146,8 +146,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		if (failure(result))
 			return std::make_error_code(result);
 
-		progressOut = 255;
-
+		// LoadAsset reports the rest, while hashing the saved cache
 		return {};
 	};
 
@@ -348,7 +347,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = core::file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash);
+	auto loadResult = core::file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash, {}, &progressOut);
 
 	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image."); //NOLINT(readability-simplify-boolean-expr)
 

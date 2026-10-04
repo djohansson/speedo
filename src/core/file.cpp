@@ -88,7 +88,8 @@ std::expected<Record, std::error_code> LoadAsset(
 	const LoadFn& loadBinaryCacheFn,
 	const SaveFn& saveBinaryCacheFn,
 	const std::string& parameterHash,
-	const DependenciesFn& dependenciesFn)
+	const DependenciesFn& dependenciesFn,
+	std::atomic_uint8_t* progressOut)
 {
 	using namespace detail;
 	
@@ -110,7 +111,13 @@ std::expected<Record, std::error_code> LoadAsset(
 
 	auto manifestStatus = std::filesystem::status(manifestPath);
 
-	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn, &dependenciesFn]() -> std::expected<AssetManifest, std::error_code>
+	// importing reports progress (0-255) as: hashing the source file up to kImportBegin, then the import itself
+	// (loadSourceFileFn and saveBinaryCacheFn, which should leave room for the rest), then hashing the cache file it saved
+	// up to kCacheHashEnd. loading a cached asset leaves all of it to loadBinaryCacheFn.
+	static constexpr uint8_t kImportBegin = 32;
+	static constexpr uint8_t kCacheHashEnd = 255;
+
+	auto importSourceFile = [&cacheDir, &manifestPath, &assetFilePath, &loadSourceFileFn, &saveBinaryCacheFn, &dependenciesFn, progressOut]() -> std::expected<AssetManifest, std::error_code>
 	{
 		ZoneScopedN("LoadAsset::importSourceFile");
 
@@ -134,11 +141,11 @@ std::expected<Record, std::error_code> LoadAsset(
 		if (error)
 			return std::unexpected(error);
 
-		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn);
+		auto asset = LoadBinary<true>(assetFilePath, loadSourceFileFn, {.value = progressOut, .end = kImportBegin});
 		if (!asset)
 			return std::unexpected(asset.error());
 
-		auto cache = SaveBinary<true>(cacheDir / uuidStr, saveBinaryCacheFn);
+		auto cache = SaveBinary<true>(cacheDir / uuidStr, saveBinaryCacheFn, {.value = progressOut, .end = kCacheHashEnd});
 		if (!cache)
 			return std::unexpected(cache.error());
 

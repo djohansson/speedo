@@ -3,6 +3,8 @@
 #include <core/utils.h>
 #include <core/mio_extra.h>
 
+#include <atomic>
+#include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
@@ -31,6 +33,13 @@ struct Record
 	std::string timeStamp;
 	std::string sha2;
 	uint64_t size = 0;
+};
+
+// a step's share of a load's progress (0-255): advanced from its value when the step starts, to `end` when it is done
+struct Progress
+{
+	std::atomic_uint8_t* value = nullptr;
+	uint8_t end = 0;
 };
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct = false>
@@ -84,13 +93,13 @@ using DependenciesFn = std::function<std::vector<std::filesystem::path>()>;
 	bool createIfMissing = false) noexcept;
 
 template <bool Sha256ChecksumEnable>
-[[nodiscard]] std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath);
+[[nodiscard]] std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath, Progress progress = {});
 
 template <bool Sha256ChecksumEnable>
-[[nodiscard]] std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp);
+[[nodiscard]] std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp, Progress hashProgress = {});
 
 template <bool Sha256ChecksumEnable>
-[[nodiscard]] std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp);
+[[nodiscard]] std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp, Progress hashProgress = {});
 
 template <typename T>
 [[nodiscard]] std::expected<T, std::error_code> LoadObject(std::span<std::byte> buffer) noexcept;
@@ -107,7 +116,8 @@ template <typename T>
 	const LoadFn& loadBinaryCacheFn,
 	const SaveFn& SaveBinaryCacheFn,
 	const std::string& parameterHash,
-	const DependenciesFn& dependenciesFn = {});
+	const DependenciesFn& dependenciesFn = {},
+	std::atomic_uint8_t* progressOut = nullptr); // see LoadAsset in file.cpp for the share its steps take
 
 } // namespace file
 
