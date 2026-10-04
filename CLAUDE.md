@@ -194,6 +194,25 @@ Loaded resources (models/images from the File menu or `SPEEDO_AUTOLOAD_MODEL`/`S
 are installed on the draw thread via `rhi.drawCalls`, stored with `Device::ReplaceResource`, and the
 previous resource is freed via `RetireAfterGraphicsWork` once all in-flight graphics work is done.
 
+## Asset import and testing
+
+Decoding is CPU only and lives in `gfx`: `gfx::obj::Import` (tinyobjloader) and `gfx::image::Import` (stb_image,
+stb_image_resize2, stb_dxt). `rhi`'s `Model`/`Image` loaders only copy the result into staging buffers, and a failed
+load prints why and returns null instead of trapping. When an importer changes what it produces, bump its
+`objimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output. Assets outside
+`RootPath` are cached under `<user profile>/external/<absolute path>`.
+
+OBJ has no up axis or handedness, so the importer goes by the conventions the renderer expects: counter-clockwise front
+faces (the projection flips y, see `Camera`), and `v` flipped so `v = 0` is the first image row. Runs of faces whose
+winding disagrees with the file's normals are flipped (mirrored exports), and missing normals are generated, smoothed
+within a smoothing group, or within 60 degrees for group 0. Some test scenes are z up (e.g. chestnut) and are loaded as
+is.
+
+`scripts/assettest.sh <zips or dirs>` runs the `assettest` tool (imports every model and image and checks the result:
+index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `--client`
+also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish), failing
+on load errors, asserts and validation messages. Use a debug preset for `--client`, since only debug enables validation.
+
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 
 `CreateTask(callable, args...)` keeps `args` in a `std::tuple<Args...>` with `Args` deduced as

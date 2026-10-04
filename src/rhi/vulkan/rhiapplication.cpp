@@ -19,6 +19,8 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <cstdlib>
+#include <optional>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -1101,24 +1103,35 @@ void RHIApplication::PrepareDraw()
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
-	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images to
-	// load at startup, through the same load + install path as the "File" menu.
+	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images (or
+	// an absolute path) to load at startup, through the same load + install path as the "File" menu. with
+	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
+	// scripts/assettest.sh).
+	static std::vector<core::Future<void>> gAutoLoads;
+	static std::optional<uint32_t> gAutoLoadExitFrames;
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
 	{
 		gAutoLoadDone = true;
 
 		// queued as separate loads, which run concurrently
-		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"))
-			(void)gLoads.Enqueue(
+		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
+			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
 				[&rhi, path = (resourcePath / "models" / autoLoadModel).string()](std::atomic_uint8_t& progress)
-				{ LoadAndInstallModel(rhi, path, progress); });
-		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"))
-			(void)gLoads.Enqueue(
+				{ LoadAndInstallModel(rhi, path, progress); }));
+		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
+			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadImage,
 				[&rhi, path = (resourcePath / "images" / autoLoadImage).string()](std::atomic_uint8_t& progress)
-				{ LoadAndInstallImage(rhi, path, progress); });
+				{ LoadAndInstallImage(rhi, path, progress); }));
+		if (const char* autoLoadExit = std::getenv("SPEEDO_AUTOLOAD_EXIT"); autoLoadExit != nullptr && *autoLoadExit != '\0')
+			gAutoLoadExitFrames = static_cast<uint32_t>(std::strtoul(autoLoadExit, nullptr, 10));
 	}
+
+	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later
+	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }))
+		if ((*gAutoLoadExitFrames)-- == 0)
+			core::Application::Get()->RequestExit();
 
 	if (BeginMainMenuBar())
 	{

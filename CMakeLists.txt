@@ -308,6 +308,24 @@ endif()
 
 ###############################################################################
 
+# imports models and images like the client does and checks the results, see src/tools/assettest.cpp and
+# scripts/assettest.sh
+add_executable(assettest ${SPEEDO_SOURCE_DIR}/tools/assettest.cpp)
+
+target_compile_features(
+	assettest
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	assettest
+	PRIVATE
+		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		gfx
+)
+
+###############################################################################
+
 install(
 	TARGETS
 		core
