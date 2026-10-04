@@ -16,6 +16,7 @@
 #include <GLFW/glfw3.h>
 
 #include <gfx/imgui_extra.h>
+#include <gfx/ziparchive.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -28,6 +29,9 @@
 #include <cstddef>
 #include <cstring>
 #include <format>
+#include <fstream>
+#include <functional>
+#include <mutex>
 #include <limits>
 #include <span>
 #include <array>
@@ -807,6 +811,109 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 	rhi.drawCalls.enqueue(installTask);
 }
 
+// extracts a zip archive into the user profile directory, once: later loads of the same file (by path, size and time)
+// reuse it. returns the directory it was extracted to, or nothing if it failed (the reason is printed to stderr) or was
+// cancelled.
+static std::optional<std::filesystem::path> ExtractArchive(const std::filesystem::path& archive, std::atomic_uint8_t& progress)
+{
+	ZoneScopedN("RHIApplication::ExtractArchive");
+
+	auto app = core::Application::Get();
+	auto userProfilePath = std::get<std::filesystem::path>(app->GetEnv().variables["UserProfilePath"]);
+
+	std::error_code error;
+	auto absolute = std::filesystem::absolute(archive, error);
+	auto size = std::filesystem::file_size(archive, error);
+	auto time = std::filesystem::last_write_time(archive, error).time_since_epoch().count();
+	if (error)
+	{
+		std::println(stderr, "Failed to load archive {}: {}", archive.string(), error.message());
+		return std::nullopt;
+	}
+
+	auto key = std::hash<std::string>{}(std::format("{}|{}|{}", absolute.string(), size, time));
+	auto directory = userProfilePath / "archives" / std::format("{}-{:016x}", archive.stem().string(), key);
+	auto marker = directory / ".extracted";
+	if (std::filesystem::exists(marker, error))
+		return directory;
+
+	// a previous extraction that didn't finish
+	std::filesystem::remove_all(directory, error);
+
+	auto result = gfx::zip::ExtractAll(archive, directory, &progress, [&app] { return app->IsExitRequested(); });
+	if (!result)
+	{
+		if (!app->IsExitRequested())
+			std::println(stderr, "Failed to load archive {}: {}", archive.string(), result.error());
+		std::filesystem::remove_all(directory, error);
+		return std::nullopt;
+	}
+
+	std::ofstream(marker).put('\n');
+
+	return directory;
+}
+
+// the .obj files below a directory, sorted
+static std::vector<std::filesystem::path> FindModels(const std::filesystem::path& directory)
+{
+	std::vector<std::filesystem::path> models;
+	std::error_code error;
+	for (auto it = std::filesystem::recursive_directory_iterator(directory, error);
+		 !error && it != std::filesystem::recursive_directory_iterator();
+		 it.increment(error))
+	{
+		auto extension = it->path().extension().string();
+		std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		if (extension == ".obj" && it->is_regular_file(error))
+			models.push_back(it->path());
+	}
+	std::ranges::sort(models);
+	return models;
+}
+
+// the models of an archive with several, for the user to choose from (see PrepareDraw)
+struct ArchiveChoice
+{
+	std::string archive;
+	std::filesystem::path directory;
+	std::vector<std::filesystem::path> models;
+};
+static std::mutex gArchiveChoiceMutex;
+static std::optional<ArchiveChoice> gArchiveChoice; // guarded by gArchiveChoiceMutex
+
+// extracts a zip archive and loads the model in it. with several, the user chooses one, unless firstModel is set, which
+// loads the first (by path). call from a load (see gLoads).
+static void LoadAndInstallArchive(RHI<kVk>& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, bool firstModel)
+{
+	auto directory = ExtractArchive(archivePath, progress);
+	if (!directory) // failed or cancelled
+		return;
+
+	auto models = FindModels(*directory);
+	if (models.empty())
+	{
+		std::println(stderr, "Failed to load archive {}: it holds no .obj files", archivePath);
+		return;
+	}
+
+	if (models.size() == 1 || firstModel)
+	{
+		if (models.size() > 1)
+			std::println(stderr, "{} holds {} models, loading {}", archivePath, models.size(), models[0].lexically_relative(*directory).string());
+
+		progress = 0;
+		LoadAndInstallModel(rhi, models[0].string(), progress);
+		return;
+	}
+
+	std::scoped_lock lock(gArchiveChoiceMutex);
+	gArchiveChoice = ArchiveChoice{
+		.archive = std::filesystem::path(archivePath).filename().string(),
+		.directory = std::move(*directory),
+		.models = std::move(models)};
+}
+
 // loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
 static void LoadAndInstallImage(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
@@ -1260,6 +1367,46 @@ void RHIApplication::PrepareDraw()
 	}
 #endif
 
+	// the models of an archive with several (see LoadAndInstallArchive)
+	static std::optional<ArchiveChoice> gShownArchiveChoice;
+	if (!gShownArchiveChoice)
+	{
+		std::scoped_lock lock(gArchiveChoiceMutex);
+		if (gArchiveChoice)
+		{
+			gShownArchiveChoice = std::move(gArchiveChoice);
+			gArchiveChoice.reset();
+			OpenPopup("Load Model");
+		}
+	}
+	if (BeginPopupModal("Load Model", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const auto& choice = *gShownArchiveChoice;
+		Text("%s holds %zu models:", choice.archive.c_str(), choice.models.size());
+
+		constexpr float kListHeight = 300.0F;
+		std::optional<std::filesystem::path> chosen;
+		if (BeginChild("Models", ImVec2(0.0F, kListHeight), ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_Borders))
+		{
+			for (const auto& model : choice.models)
+				if (Selectable(model.lexically_relative(choice.directory).string().c_str()))
+					chosen = model;
+		}
+		EndChild();
+
+		if (chosen)
+			(void)gLoads.Enqueue(
+				chosen->filename().string(),
+				[&rhi, path = chosen->string()](std::atomic_uint8_t& progress) { LoadAndInstallModel(rhi, path, progress); });
+
+		if (chosen || Button("Cancel"))
+		{
+			gShownArchiveChoice.reset();
+			CloseCurrentPopup();
+		}
+		EndPopup();
+	}
+
 	if (gShowDemoWindow)
 		ShowDemoWindow(&gShowDemoWindow);
 
@@ -1335,7 +1482,7 @@ void RHIApplication::PrepareDraw()
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images (or
-	// an absolute path) to load at startup, through the same load + install path as the "File" menu. with
+	// an absolute path; for a model also a zip archive) to load at startup, through the same load + install path as the "File" menu. with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
 	// scripts/assettest.sh).
 	static std::vector<core::Future<void>> gAutoLoads;
@@ -1345,11 +1492,17 @@ void RHIApplication::PrepareDraw()
 		gAutoLoadDone = true;
 
 		// queued as separate loads, which run concurrently
+		// a zip archive loads its first model
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
 				[&rhi, path = (resourcePath / "models" / autoLoadModel).string()](std::atomic_uint8_t& progress)
-				{ LoadAndInstallModel(rhi, path, progress); }));
+				{
+					if (std::string_view(path).ends_with(".zip") || std::string_view(path).ends_with(".ZIP"))
+						LoadAndInstallArchive(rhi, path, progress, true);
+					else
+						LoadAndInstallModel(rhi, path, progress);
+				}));
 		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadImage,
@@ -1376,6 +1529,15 @@ void RHIApplication::PrepareDraw()
 				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
 					{ LoadAndInstallModel(rhi, filePath, progressOut); });
+			}
+			if (MenuItem("Open Zip..."))
+			{
+				static const std::vector<window::FileFilter> kFilterList = {
+					window::FileFilter{.name = "Zip archives", .spec = "zip"}
+				};
+				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
+					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
+					{ LoadAndInstallArchive(rhi, filePath, progressOut, false); });
 			}
 			if (MenuItem("Open Image..."))
 			{

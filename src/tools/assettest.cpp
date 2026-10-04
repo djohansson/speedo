@@ -1,11 +1,12 @@
 // imports models and images the way the client does (gfx::obj::Import, gfx::image::Import) and checks the results.
-// usage: assettest [--models-only | --images-only] <file or directory>...
-// directories are searched recursively for .obj files and images. the textures that models' materials name are
+// usage: assettest [--models-only | --images-only] <file, directory or zip archive>...
+// directories (and zip archives, extracted to a temporary directory) are searched recursively for .obj files and images. the textures that models' materials name are
 // checked too. prints one line per asset (PASS, WARN or FAIL, with details) and a summary, and exits with 1 if any
 // asset failed.
 
 #include <gfx/imageimport.h>
 #include <gfx/objimport.h>
+#include <gfx/ziparchive.h>
 
 #include <algorithm>
 #include <array>
@@ -517,6 +518,7 @@ int main(int argc, char* argv[])
 {
 	bool models = true;
 	bool images = true;
+	bool archiveFailed = false;
 	std::vector<std::filesystem::path> modelFiles;
 	std::set<ImageCheck> imageFiles;
 
@@ -535,6 +537,26 @@ int main(int argc, char* argv[])
 		}
 
 		std::filesystem::path path(arg);
+
+		// a zip archive is extracted (as the client does) to a temporary directory, which is then searched
+		if (Lower(path.extension().string()) == ".zip")
+		{
+			auto directory = std::filesystem::temp_directory_path() / "assettest" / path.stem();
+			std::error_code error;
+			std::filesystem::remove_all(directory, error);
+			auto start = std::chrono::steady_clock::now();
+			if (auto result = gfx::zip::ExtractAll(path, directory); !result)
+			{
+				std::println("FAIL {}\n    {}", path.string(), result.error());
+				archiveFailed = true;
+				continue;
+			}
+			std::println(
+				"PASS {} ({:.2f}s)\n    extracted to {}", path.string(),
+				std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), directory.string());
+			path = directory;
+		}
+
 		if (std::filesystem::is_directory(path))
 		{
 			for (auto it = std::filesystem::recursive_directory_iterator(path); it != std::filesystem::recursive_directory_iterator(); ++it)
@@ -604,5 +626,5 @@ int main(int argc, char* argv[])
 		modelResults[Result::kPass], modelResults[Result::kWarn], modelResults[Result::kFail],
 		imageResults[Result::kPass], imageResults[Result::kWarn], imageResults[Result::kFail]);
 
-	return modelResults[Result::kFail] + imageResults[Result::kFail] > 0 ? 1 : 0;
+	return archiveFailed || modelResults[Result::kFail] + imageResults[Result::kFail] > 0 ? 1 : 0;
 }

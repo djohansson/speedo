@@ -224,6 +224,12 @@ thread step, after the textures are transitioned: every change to `gTextures` ta
 and the pool only holds 128 copies of that 1024 slot array. Installing a model also frames the cameras on its bounds
 (`Window::FrameBounds`).
 
+Zip archives (File > Open Zip..., or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads its first model) are extracted
+once into `<user profile>/archives/<name>-<hash of path, size and time>` with `gfx::zip` (stb_image's inflate, no zip
+library), then loaded from there like any other files; with several models the user picks one. The extractor reads
+each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
+which unzip ignores too. `assettest` takes zip archives as well, extracting them the same way.
+
 `scripts/assettest.sh <zips or dirs>` runs the `assettest` tool (imports every model and image and checks the result:
 index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `--client`
 also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish), failing
