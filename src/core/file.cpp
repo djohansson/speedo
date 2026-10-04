@@ -110,9 +110,18 @@ std::expected<Record, std::error_code> LoadAsset(
 		std::filesystem::create_directories(cacheDir);
 
 	std::error_code error;
-	std::filesystem::path manifestPath(cacheDir / std::filesystem::relative(assetFilePath, rootPath, error));
+	auto relativePath = std::filesystem::relative(assetFilePath, rootPath, error);
 	if (error)
 		return std::unexpected(error);
+
+	// assets outside the root (e.g. opened from anywhere with the file dialog) would otherwise put their manifest
+	// outside the cache directory, so they go under external/ by their absolute path
+	if (relativePath.empty() || *relativePath.begin() == "..")
+		relativePath = std::filesystem::path("external") / std::filesystem::absolute(assetFilePath, error).relative_path();
+	if (error)
+		return std::unexpected(error);
+
+	std::filesystem::path manifestPath(cacheDir / relativePath);
 
 	manifestPath /= parameterHash + ".manifest.bin";
 
@@ -241,7 +250,22 @@ std::expected<Record, std::error_code> LoadAsset(
 		return manifest->cacheFileInfo;
 	}
 
-	return LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
+	auto cache = LoadBinary<false>(manifest->cacheFileInfo.path, loadBinaryCacheFn);
+	if (cache || cache.error() == std::errc::operation_canceled)
+		return cache;
+
+	// e.g. a cache written by an older version with the same layout hash, that can't be read anymore
+	std::cerr << "Asset cache is invalid: " << cache.error().message() << ", Path: " << manifest->cacheFileInfo.path << '\n';
+
+	std::filesystem::remove(manifestPath, error);
+	std::filesystem::remove(manifest->cacheFileInfo.path, error);
+
+	std::cerr << "Reimporting source file\n";
+
+	if (auto result = importSourceFile(); result)
+		return result->cacheFileInfo;
+	else
+		return std::unexpected(result.error());
 }
 
 } // namespace file

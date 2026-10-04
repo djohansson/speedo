@@ -5,15 +5,13 @@
 #include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
-#include <gfx/bounds.h>
-#include <gfx/vertex.h>
+#include <gfx/objimport.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <print>
 #include <tuple>
-
-#define TINYOBJLOADER_IMPLEMENTATION
-#include <tiny_obj_loader.h>
 
 namespace rhi
 {
@@ -90,6 +88,20 @@ Load(
 	// loading is given up when the application exits (only where it takes long; parsing itself can't be interrupted)
 	auto cancelled = [&app] { return app->IsExitRequested(); };
 
+	// the vertex buffer is read by the shaders as a storage buffer, which can't be larger than this
+	auto fitsDevice = [&device, &modelFile](const ModelCreateDesc<kVk>& modelDesc)
+	{
+		const auto& limits = device.GetInstance().GetPhysicalDeviceInfo(device.GetPhysicalDevice()).deviceProperties.properties.limits;
+		auto vertexBufferSize = static_cast<uint64_t>(modelDesc.vertexCount) * sizeof(VertexP3fN3fT014fC4f);
+		if (vertexBufferSize <= limits.maxStorageBufferRange)
+			return true;
+
+		std::println(
+			stderr, "{}: the vertex buffer ({} bytes) is larger than the device's maxStorageBufferRange ({} bytes)",
+			modelFile, vertexBufferSize, limits.maxStorageBufferRange);
+		return false;
+	};
+
 	auto initialData = std::tuple<
 		BufferHandle<kVk>,
 		AllocationHandle<kVk>,
@@ -99,7 +111,7 @@ Load(
 
 	auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, modelDesc] = initialData;
 
-	auto loadBin = [&modelFile, &initialData, &device, &progressOut](auto& inStream) -> std::error_code
+	auto loadBin = [&modelFile, &initialData, &device, &progressOut, &fitsDevice](auto& inStream) -> std::error_code
 	{
 		ZoneScopedN("model::loadBin");
 
@@ -112,6 +124,9 @@ Load(
 
 		// the cached desc holds the uuid of the model it was saved from (see ObjectCreateDesc)
 		modelDesc.uuid = uuids::NewUuid();
+
+		if (!fitsDevice(modelDesc))
+			return std::make_error_code(std::errc::file_too_large);
 
 		std::string ibName;
 		std::string vbName;
@@ -130,10 +145,10 @@ Load(
 		auto ibResult = inStream(std::span(static_cast<char*>(ibData), modelDesc.indexCount * sizeof(uint32_t)));
 		vmaUnmapMemory(device.GetAllocator(), locIbMemHandle);
 		if (failure(ibResult))
+		{
+			DestroyBuffer(device.GetAllocator(), locIbHandle, locIbMemHandle);
 			return std::make_error_code(ibResult);
-
-		ibHandle = locIbHandle;
-		ibMemHandle = locIbMemHandle;
+		}
 
 		progressOut = 128;
 
@@ -150,8 +165,14 @@ Load(
 			std::span(static_cast<char*>(vbData), modelDesc.vertexCount * sizeof(VertexP3fN3fT014fC4f)));
 		vmaUnmapMemory(device.GetAllocator(), locVbMemHandle);
 		if (failure(vbResult))
+		{
+			DestroyBuffer(device.GetAllocator(), locVbHandle, locVbMemHandle);
+			DestroyBuffer(device.GetAllocator(), locIbHandle, locIbMemHandle);
 			return std::make_error_code(vbResult);
+		}
 
+		ibHandle = locIbHandle;
+		ibMemHandle = locIbMemHandle;
 		vbHandle = locVbHandle;
 		vbMemHandle = locVbMemHandle;
 
@@ -188,7 +209,7 @@ Load(
 		return {};
 	};
 
-	auto loadOBJ = [&modelFile, &initialData, &device, &progressOut, &cancelled](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadOBJ = [&modelFile, &initialData, &device, &progressOut, &cancelled, &fitsDevice](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		ZoneScopedN("model::loadOBJ");
 
@@ -196,132 +217,52 @@ Load(
 
 		auto& [ibHandle, ibMemHandle, vbHandle, vbMemHandle, desc] = initialData;
 
-		using namespace tinyobj;
-		attrib_t attrib;
-		std::vector<shape_t> shapes;
-		std::vector<material_t> materials;
-		std::string warn;
-		std::string err;
-		ENSUREF(tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, modelFile.data()), "%s", err)
-
-		progressOut = 64;
-
-		if (cancelled())
-			return std::make_error_code(std::errc::operation_canceled);
-
-		uint32_t indexCount = 0;
-		for (const auto& shape : shapes)
-			indexCount += shape.mesh.indices.size();
-
-		if (!attrib.vertices.empty())
+		auto mesh = gfx::obj::Import(std::filesystem::path(modelFile), cancelled);
+		if (!mesh)
 		{
-			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				.location = static_cast<uint32_t>(desc.attributes.size()),
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, position))});
+			if (cancelled())
+				return std::make_error_code(std::errc::operation_canceled);
+
+			std::println(stderr, "{}", mesh.error());
+			return std::make_error_code(std::errc::invalid_argument);
 		}
 
-		if (!attrib.normals.empty())
+		for (const auto& warning : mesh->stats.warnings)
+			std::println(stderr, "{}: {}", modelFile, warning);
+
+		if (mesh->indices.empty())
 		{
-			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				.location = static_cast<uint32_t>(desc.attributes.size()),
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, normal))});
-		}
-
-		if (!attrib.texcoords.empty())
-		{
-			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				.location = static_cast<uint32_t>(desc.attributes.size()),
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32A32_SFLOAT,
-				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, texCoord01))});
-		}
-
-		if (!attrib.colors.empty())
-		{
-			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
-				.location = static_cast<uint32_t>(desc.attributes.size()),
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32A32_SFLOAT,
-				.offset = static_cast<uint32_t>(offsetof(VertexP3fN3fT014fC4f, color))});
-		}
-
-		core::UnorderedMap<uint64_t, uint32_t> uniqueVertices;
-
-		VertexAllocator vertices;
-		vertices.SetStride(sizeof(VertexP3fN3fT014fC4f));
-
-		std::vector<uint32_t> indices;
-
-		ScopedVertexAllocation vertexScope(vertices);
-		vertices.Reserve(indexCount / 3); // guesstimate
-		indices.reserve(indexCount);
-
-		for (const auto& shape : shapes)
-		{
-			for (const auto& index : shape.mesh.indices)
-			{
-				auto& vertex = *vertexScope.CreateVertices();
-				
-				if (!attrib.vertices.empty())
-					std::copy_n(
-						&attrib.vertices[3UL * index.vertex_index],
-						3,
-						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, position)));
-
-				if (!attrib.normals.empty())
-					std::copy_n(
-						&attrib.normals[3UL * index.normal_index],
-						3,
-						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, normal)));
-
-				if (!attrib.texcoords.empty())
-				{
-					std::array<float, 2> uvs = {
-						attrib.texcoords[2UL * index.texcoord_index],
-						1.0F - attrib.texcoords[(2UL * index.texcoord_index) + 1]};
-					std::copy_n(
-						uvs.data(), uvs.size(), &vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, texCoord01)));
-				}
-
-				if (!attrib.colors.empty())
-					std::copy_n(
-						&attrib.colors[3UL * index.vertex_index],
-						3,
-						&vertex.DataAs<float>(offsetof(VertexP3fN3fT014fC4f, color)));
-
-				uint64_t vertexIndex = vertex.Hash();
-				if (!uniqueVertices.contains(vertexIndex))
-				{
-					uniqueVertices[vertexIndex] = static_cast<uint32_t>(vertices.Size() - 1);
-
-					if (!attrib.vertices.empty())
-						desc.bounds.Merge(
-							std::to_array(vertex.DataAs<decltype(VertexP3fN3fT014fC4f::position)>(offsetof(VertexP3fN3fT014fC4f, position))));
-				}
-				else
-				{
-					vertexScope.FreeVertices(&vertex);
-				}
-				indices.push_back(uniqueVertices[vertexIndex]);
-			}
+			std::println(stderr, "{}: no triangles", modelFile);
+			return std::make_error_code(std::errc::invalid_argument);
 		}
 
 		progressOut = 128;
 
-		if (cancelled())
-			return std::make_error_code(std::errc::operation_canceled);
+		// every vertex has all of them: the importer generates missing normals, and texcoords default to zero
+		for (auto [format, offset] : {
+				 std::pair{VK_FORMAT_R32G32B32_SFLOAT, offsetof(VertexP3fN3fT014fC4f, position)},
+				 std::pair{VK_FORMAT_R32G32B32_SFLOAT, offsetof(VertexP3fN3fT014fC4f, normal)},
+				 std::pair{VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(VertexP3fN3fT014fC4f, texCoord01)},
+				 std::pair{VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(VertexP3fN3fT014fC4f, color)}})
+		{
+			desc.attributes.emplace_back(VertexInputAttributeDescription<kVk>{
+				.location = static_cast<uint32_t>(desc.attributes.size()),
+				.binding = 0,
+				.format = format,
+				.offset = static_cast<uint32_t>(offset)});
+		}
+
+		desc.bounds = mesh->bounds;
+		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
+		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
+
+		if (!fitsDevice(desc))
+			return std::make_error_code(std::errc::file_too_large);
 
 		std::string ibName;
 		std::string vbName;
 		ibName = std::string(modelFile).append("_staging_ib");
 		vbName = std::string(modelFile).append("_staging_vb");
-
-		desc.indexCount = indices.size();
-		desc.vertexCount = vertices.Size();
 
 		auto [locIbHandle, locIbMemHandle] = CreateBuffer(
 			device.GetAllocator(),
@@ -332,7 +273,7 @@ Load(
 
 		void* ibData;
 		VK_CHECK(vmaMapMemory(device.GetAllocator(), locIbMemHandle, &ibData));
-		memcpy(ibData, indices.data(), desc.indexCount * sizeof(uint32_t));
+		memcpy(ibData, mesh->indices.data(), desc.indexCount * sizeof(uint32_t));
 		vmaUnmapMemory(device.GetAllocator(), locIbMemHandle);
 
 		ibHandle = locIbHandle;
@@ -349,7 +290,7 @@ Load(
 
 		void* vbData;
 		VK_CHECK(vmaMapMemory(device.GetAllocator(), locVbMemHandle, &vbData));
-		memcpy(vbData, vertices.Data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
+		memcpy(vbData, mesh->vertices.data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
 		vmaUnmapMemory(device.GetAllocator(), locVbMemHandle);
 
 		vbHandle = locVbHandle;
@@ -362,28 +303,30 @@ Load(
 
 	std::string params;
 	std::string paramsHash;
-	params.append("tinyobjloader-2.0.15"); // todo: read version from tinyobjloader.h
+	params.append("tinyobjloader-2.0.0"); // todo: read version from tinyobjloader.h
+	params.append("|objimport-v1"); // bump when gfx::obj::Import changes what it produces
 	params.append("|cache-v2"); // bump when the serialized ModelCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = core::file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash, {}, &progressOut, cancelled);
+	// the materials are baked into the vertex colors, so a change to them must reimport the model
+	auto materialFiles = [&modelFile] { return gfx::obj::MaterialFiles(std::filesystem::path(modelFile)); };
+	auto loadResult = core::file::LoadAsset(modelFile, loadOBJ, loadBin, saveBin, paramsHash, materialFiles, &progressOut, cancelled);
 
-	if (!loadResult && loadResult.error() == std::errc::operation_canceled)
+	if (!loadResult || vbHandle == nullptr || ibHandle == nullptr)
 	{
-		// cancelled after the import created its staging buffers, i.e. while hashing the cache
+		// cancelled or failed, possibly after creating staging buffers (e.g. while hashing the cache)
+		if (!loadResult && loadResult.error() != std::errc::operation_canceled)
+			std::println(stderr, "Failed to load model {}: {}", modelFile, loadResult.error().message());
+
 		if (ibHandle != nullptr)
 			DestroyBuffer(device.GetAllocator(), ibHandle, ibMemHandle);
 		if (vbHandle != nullptr)
 			DestroyBuffer(device.GetAllocator(), vbHandle, vbMemHandle);
 		ibHandle = nullptr;
 		vbHandle = nullptr;
-
-		return initialData;
 	}
-
-	ENSUREF(loadResult && vbHandle && ibHandle, "Failed to load model.");
 
 	return initialData;
 }
@@ -462,7 +405,7 @@ std::shared_ptr<Model<kVk>> Model<kVk>::LoadModel(std::string_view filePath, std
 	// parse into staging buffers before taking the queue lock: on devices without a dedicated transfer queue it is the
 	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
 	auto initialDataAndDesc = model::Load(ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)}, filePath, progressOut);
-	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled
+	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled or failed
 		return {};
 
 	std::shared_ptr<Model<kVk>> model;

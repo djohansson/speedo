@@ -71,7 +71,7 @@ public:
 	[[nodiscard]] const auto& GetVertexBuffer() const noexcept { return myVertexBuffer; }
 
 	// loads and uploads a model on the primary device. returns once the upload has completed, or null if the load was
-	// cancelled because the application is exiting.
+	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
 	[[nodiscard]] static std::shared_ptr<Model<G>> LoadModel(std::string_view filePath, std::atomic_uint8_t& progress);
 
 private:

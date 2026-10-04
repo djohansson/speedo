@@ -4,20 +4,12 @@
 #include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
-#include <core/math.h>
+#include <gfx/imageimport.h>
 
-#include <execution>
+#include <filesystem>
+#include <print>
 #include <string_view>
 #include <tuple>
-
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-
-#define STB_DXT_IMPLEMENTATION
-#include <stb_dxt.h>
-
-#define STB_IMAGE_RESIZE_IMPLEMENTATION
-#include <stb_image_resize2.h>
 
 namespace rhi
 {
@@ -117,10 +109,13 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device.GetAllocator(), locMemoryHandle, &data));
-		auto result = inStream(std::span(static_cast<stbi_uc*>(data), size));
+		auto result = inStream(std::span(static_cast<uint8_t*>(data), size));
 		vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
 		if (failure(result))
+		{
+			DestroyBuffer(device.GetAllocator(), locBufferHandle, locMemoryHandle);
 			return std::make_error_code(result);
+		}
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
@@ -143,7 +138,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		void* data;
 		VK_CHECK(vmaMapMemory(device.GetAllocator(), memoryHandle, &data));
-		auto result = outStream(std::span(static_cast<const stbi_uc*>(data), size));
+		auto result = outStream(std::span(static_cast<const uint8_t*>(data), size));
 		vmaUnmapMemory(device.GetAllocator(), memoryHandle);
 		if (failure(result))
 			return std::make_error_code(result);
@@ -158,196 +153,49 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		auto& [bufferHandle, memoryHandle, desc] = initialData;
 
-		int width;
-		int height;
-		int channelCount;
-		stbi_uc* stbiImageData = stbi_load(imageFile.data(), &width, &height, &channelCount, STBI_rgb_alpha);
+		BufferHandle<kVk> locBufferHandle = nullptr;
+		AllocationHandle<kVk> locMemoryHandle = nullptr;
+		void* stagingBuffer = nullptr;
+		auto allocate = [&](size_t size) -> std::byte*
+		{
+			std::tie(locBufferHandle, locMemoryHandle) = CreateBuffer(
+				device.GetAllocator(),
+				size,
+				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+				nullptr);
+			VK_CHECK(vmaMapMemory(device.GetAllocator(), locMemoryHandle, &stagingBuffer));
+			return static_cast<std::byte*>(stagingBuffer);
+		};
 
-		uint32_t mipCount =
-			static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
-		bool hasAlpha = channelCount == 4;
-		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
+		auto image = gfx::image::Import(std::filesystem::path(imageFile), allocate, &progressOut, cancelled);
+
+		if (stagingBuffer != nullptr)
+			vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
+
+		if (!image)
+		{
+			if (locBufferHandle != nullptr)
+				DestroyBuffer(device.GetAllocator(), locBufferHandle, locMemoryHandle);
+
+			if (cancelled())
+				return std::make_error_code(std::errc::operation_canceled);
+
+			std::println(stderr, "{}", image.error());
+			return std::make_error_code(std::errc::invalid_argument);
+		}
 
 		desc.uuid = uuids::NewUuid();
 		desc.name = std::string(imageFile);
-		desc.mipLevels.resize(mipCount);
-		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+		desc.format = image->format == gfx::image::Format::kBC3 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
 		desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
-
-		uint32_t mipOffset = 0;
-		for (uint32_t mipIt = 0; mipIt < mipCount; mipIt++)
+		desc.mipLevels.resize(image->mipLevels.size());
+		for (size_t levelIt = 0; levelIt < image->mipLevels.size(); levelIt++)
 		{
-			uint32_t mipWidth = width >> mipIt;
-			uint32_t mipHeight = height >> mipIt;
-			auto mipSize = core::RoundUp(mipWidth, 4) * core::RoundUp(mipHeight, 4);
-
-			if (!hasAlpha)
-				mipSize >>= 1;
-
-			desc.mipLevels[mipIt].extent = {.width = mipWidth, .height = mipHeight};
-			desc.mipLevels[mipIt].size = mipSize;
-			desc.mipLevels[mipIt].offset = mipOffset;
-
-			mipOffset += mipSize;
+			const auto& level = image->mipLevels[levelIt];
+			desc.mipLevels[levelIt] = {
+				.extent = {.width = level.width, .height = level.height}, .size = level.size, .offset = level.offset};
 		}
-
-		auto [locBufferHandle, locMemoryHandle] = CreateBuffer(
-			device.GetAllocator(),
-			mipOffset,
-			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-			nullptr);
-
-		void* stagingBuffer;
-		VK_CHECK(vmaMapMemory(device.GetAllocator(), locMemoryHandle, &stagingBuffer));
-
-		auto compressBlocks = [&cancelled](const stbi_uc* src,
-								 unsigned char* dst,
-								 const Extent2d<kVk>& extent,
-								 uint32_t compressedBlockSize,
-								 bool hasAlpha,
-								 uint32_t threadCount)
-		{
-			auto blockRowCount = extent.height >> 2;
-			auto blockColCount = extent.width >> 2;
-			auto blockCount = blockRowCount * blockColCount;
-
-			auto extractBlock =
-				[](const stbi_uc* src, size_t width, size_t stride, stbi_uc* dst)
-			{
-				for (size_t rowIt = 0; rowIt < 4; rowIt++)
-				{
-					std::copy(src, src + (stride * 4), &dst[rowIt * 16]);
-					src += width * stride;
-				}
-			};
-
-			std::atomic_uint32_t blockAtomic = 0;
-			std::vector<uint32_t> threadIds(threadCount);
-			std::ranges::iota(threadIds, 0);
-			std::for_each_n(
-				std::execution::par,
-				threadIds.begin(),
-				threadCount,
-				[&](uint32_t /*threadId*/)
-				{
-					auto blockIt = blockAtomic++;
-					while (blockIt < blockCount && !cancelled())
-					{
-						auto blockRowIt = blockIt / blockColCount;
-						auto blockColIt = blockIt % blockColCount;
-						auto rowIt = blockRowIt << 2;
-						auto colIt = blockColIt << 2;
-						auto srcOffset = ((rowIt * extent.width) + colIt) * 4;
-						auto dstOffset = blockIt * compressedBlockSize;
-
-						std::array<stbi_uc, 64> block;
-						extractBlock(src + srcOffset, extent.width, 4, block.data());
-
-						stb_compress_dxt_block(dst + dstOffset, block.data(), hasAlpha, STB_DXT_HIGHQUAL);
-
-						blockIt = blockAtomic++;
-					}
-				});
-
-			return blockCount * compressedBlockSize;
-		};
-
-		auto threadCount = std::thread::hardware_concurrency();
-		auto* src = stbiImageData;
-		auto* dst = static_cast<unsigned char*>(stagingBuffer);
-
-		auto dprogress = 192 / (2 * desc.mipLevels.size());
-
-		auto cancel = [&]
-		{
-			vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
-			DestroyBuffer(device.GetAllocator(), locBufferHandle, locMemoryHandle);
-			stbi_image_free(stbiImageData);
-			return std::make_error_code(std::errc::operation_canceled);
-		};
-
-		dst += compressBlocks(
-			src, dst, desc.mipLevels[0].extent, compressedBlockSize, hasAlpha, threadCount);
-
-		progressOut += 2*dprogress;
-
-		if (cancelled())
-			return cancel();
-
-		std::array<std::vector<stbi_uc>, 2> mipBuffers;
-		for (size_t mipIt = 1; mipIt < desc.mipLevels.size(); mipIt++)
-		{
-			ZoneScopedN("image::loadImage::mip");
-
-			auto previousMipIt = (mipIt - 1);
-			auto currentBuffer = mipIt & 1;
-
-			const auto& previousExtent = desc.mipLevels[previousMipIt].extent;
-			const auto& currentExtent = desc.mipLevels[mipIt].extent;
-
-			mipBuffers[currentBuffer].resize(
-				std::max<size_t>(currentExtent.width, 4) *
-				std::max<size_t>(currentExtent.height, 4) * 4);
-
-			auto threadRowCount = previousExtent.height / threadCount;
-			if (threadRowCount > 4)
-			{
-				std::vector<size_t> threadIds(threadCount);
-				std::ranges::iota(threadIds, 0);
-				std::for_each_n(
-					std::execution::par,
-					threadIds.begin(),
-					threadCount,
-					[&](size_t threadId)
-					{
-						ZoneScopedN("image::loadImage::mip::resize::thread");
-
-						auto threadRowCountRest = (threadId == (threadCount - 1) ? previousExtent.height % threadCount : 0);
-
-						stbir_resize_uint8_linear(
-							src + (threadId * threadRowCount * previousExtent.width * 4),
-							static_cast<int>(previousExtent.width),
-							static_cast<int>(threadRowCount + threadRowCountRest),
-							static_cast<int>(previousExtent.width * 4),
-							mipBuffers[currentBuffer].data() +
-								(threadId * (threadRowCount >> 1) * currentExtent.width * 4),
-							static_cast<int>(currentExtent.width),
-							static_cast<int>(((threadRowCount + threadRowCountRest) >> 1)),
-							static_cast<int>(currentExtent.width * 4),
-							STBIR_RGBA);
-					});
-			}
-			else
-			{
-				ZoneScopedN("image::loadImage::mip::resize");
-
-				stbir_resize_uint8_linear(
-					src,
-					static_cast<int>(previousExtent.width),
-					static_cast<int>(previousExtent.height),
-					static_cast<int>(previousExtent.width * 4),
-					mipBuffers[currentBuffer].data(),
-					static_cast<int>(currentExtent.width),
-					static_cast<int>(currentExtent.height),
-					static_cast<int>(currentExtent.width * 4),
-					STBIR_RGBA);
-			}
-
-			progressOut += dprogress;
-
-			src = mipBuffers[currentBuffer].data();
-			dst +=
-				compressBlocks(src, dst, currentExtent, compressedBlockSize, hasAlpha, threadCount);
-
-			progressOut += dprogress;
-
-			if (cancelled())
-				return cancel();
-		}
-
-		vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
-		stbi_image_free(stbiImageData);
 
 		bufferHandle = locBufferHandle;
 		memoryHandle = locMemoryHandle;
@@ -357,7 +205,8 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 	std::string params;
 	std::string paramsHash;
-	params.append("stb_image-2.26|stb_image_resize-0.96|stb_dxt-1.10"); // todo: read version from stb headers
+	params.append("stb_image-2.30|stb_image_resize-2.10|stb_dxt-1.12"); // todo: read version from stb headers
+	params.append("|imageimport-v1"); // bump when gfx::image::Import changes what it produces
 	params.append("|cache-v2"); // bump when the serialized ImageCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
@@ -365,17 +214,18 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
 	auto loadResult = core::file::LoadAsset(imageFile, loadImage, loadBin, saveBin, paramsHash, {}, &progressOut, cancelled);
 
-	if (!loadResult && loadResult.error() == std::errc::operation_canceled)
+	if (!loadResult || bufferHandle == nullptr)
 	{
-		// cancelled after the import created its staging buffer, i.e. while hashing the cache
+		// cancelled or failed, possibly after creating the staging buffer (e.g. while hashing the cache)
+		if (!loadResult && loadResult.error() != std::errc::operation_canceled)
+			std::println(stderr, "Failed to load image {}: {}", imageFile, loadResult.error().message());
+
 		if (bufferHandle != nullptr)
 			DestroyBuffer(device.GetAllocator(), bufferHandle, memoryHandle);
 		bufferHandle = nullptr;
 
 		return initialData;
 	}
-
-	ENSUREF(loadResult && bufferHandle != nullptr, "Failed to load image."); //NOLINT(readability-simplify-boolean-expr)
 
 	// runtime handles are not part of the serialized desc (and the loaders don't set them), so fill them in here
 	desc.instance = device.GetDesc().instance;
@@ -632,7 +482,7 @@ Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath,
 	// load into a staging buffer before taking the queue lock: on devices without a dedicated transfer queue it is the
 	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
 	auto initialDataAndDesc = image::detail::Load(filePath, device, progressOut);
-	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled
+	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled or failed
 		return {};
 
 	std::shared_ptr<Image<kVk>> image;

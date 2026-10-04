@@ -653,8 +653,9 @@ void CopyBufferToImage(
 	std::vector<VkBufferImageCopy> regions(mipLevels);
 	for (uint32_t mipIt = 0UL; mipIt < mipLevels; mipIt++)
 	{
-		uint32_t mipWidth = width >> mipIt;
-		uint32_t mipHeight = height >> mipIt;
+		// a non-square image's shorter side reaches 1 before the end of the chain, and stays there
+		uint32_t mipWidth = std::max(width >> mipIt, 1U);
+		uint32_t mipHeight = std::max(height >> mipIt, 1U);
 
 		auto& region = regions[mipIt];
 		region.bufferOffset = *(mipOffsets + static_cast<size_t>(mipIt * mipOffsetsStride));
