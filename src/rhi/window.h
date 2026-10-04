@@ -1,15 +1,11 @@
 #pragma once
 
 #include <rhi/buffer.h>
-#include <rhi/device.h>
 #include <rhi/pipeline.h>
 #include <rhi/swapchain.h>
 
-#include <core/capi.h>
-#include <core/file.h>
 #include <core/inputstate.h>
 #include <core/concurrentaccess.h>
-#include <core/utils.h>
 
 #include <gfx/camera.h>
 

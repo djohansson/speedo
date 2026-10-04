@@ -1,8 +1,8 @@
 #pragma once
 
+#include <core/uuids_extra.h>
 #include <rhi/capi.h>
 #include <rhi/object.h>
-#include <uuid.h>
 
 #include <cstdint>
 #include <string_view>

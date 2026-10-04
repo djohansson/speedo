@@ -14,7 +14,6 @@
 #include <rhi/capi.h>
 
 #ifdef __cplusplus
-#include <cstdbool>
 extern "C"
 {
 #else

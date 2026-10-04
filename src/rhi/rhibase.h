@@ -1,6 +1,5 @@
 #pragma once
 
-#include <rhi/types.h>
 #include <core/task.h>
 
 namespace rhi

@@ -2,9 +2,8 @@
 #pragma once
 
 #include <core/assert.h>
-#include <core/utils.h>
 
-#include <stack>
+#include <type_traits>
 #include <vector>
 
 #include <xxhash.h>

@@ -1,8 +1,6 @@
 #pragma once
 
 #include <core/assert.h>
-#include <core/upgradablesharedmutex.h>
-#include <core/utils.h>
 #include <core/uuids_extra.h>
 #include <rhi/capi.h>
 #include <rhi/instance.h>

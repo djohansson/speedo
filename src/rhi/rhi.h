@@ -3,14 +3,11 @@
 #include <rhi/capi.h>
 #include <rhi/device.h>
 #include <rhi/instance.h>
-#include <rhi/pipeline.h>
 #include <rhi/rhibase.h>
-#include <rhi/renderimageset.h>
 #include <rhi/types.h>
 #include <rhi/window.h>
 
 #include <core/assert.h>
-#include <core/utils.h>
 
 #include <string_view>
 #include <utility>

@@ -4,7 +4,6 @@
 #include <rhi/buffer.h>
 
 #include <gfx/bounds.h>
-#include <gfx/vertex.h>
 
 #include <array>
 #include <memory>

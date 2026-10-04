@@ -20,7 +20,6 @@
 #if defined(__WINDOWS__)
 #include <windows.h>
 #else
-#include <unistd.h>
 #endif
 
 static struct cag_option gCmdArgs[] =

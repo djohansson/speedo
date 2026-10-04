@@ -5,7 +5,6 @@
 #include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
-#include <core/std_extra.h>
 #include <gfx/bounds.h>
 #include <gfx/vertex.h>
 
@@ -15,8 +14,6 @@
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include <tiny_obj_loader.h>
-
-#include <zpp_bits.h>
 
 namespace rhi
 {

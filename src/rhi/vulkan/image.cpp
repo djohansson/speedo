@@ -1,12 +1,10 @@
 #include <rhi/device.h>
 #include <rhi/image.h>
 #include <rhi/rhiapplication.h>
-#include <rhi/shaders/capi.h>
 #include <rhi/vulkan/utils.h>
 
 #include <core/file.h>
 #include <core/math.h>
-#include <core/std_extra.h>
 
 #include <execution>
 #include <string_view>
@@ -20,8 +18,6 @@
 
 #define STB_IMAGE_RESIZE_IMPLEMENTATION
 #include <stb_image_resize2.h>
-
-#include <zpp_bits.h>
 
 namespace rhi
 {

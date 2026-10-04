@@ -1,9 +1,6 @@
 #pragma once
 
-#include <core/std_extra.h>
-
 #include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 #include <cstdint>
 

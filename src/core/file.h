@@ -1,6 +1,5 @@
 #pragma once
 
-#include <core/utils.h>
 #include <core/mio_extra.h>
 
 #include <atomic>

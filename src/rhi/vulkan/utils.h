@@ -1,6 +1,5 @@
 #pragma once
 
-#include <core/utils.h>
 #include <rhi/deviceobject.h>
 #include <rhi/types.h>
 

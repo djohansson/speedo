@@ -1,14 +1,10 @@
-#include <core/application.h>
 #include <core/profiling.h>
 
 #include <algorithm>
 #include <array>
-#include <iostream>
 #include <utility>
 
 #include <picosha2.h>
-
-#include <uuid.h>
 
 namespace core
 {

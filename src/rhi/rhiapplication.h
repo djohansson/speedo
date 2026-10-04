@@ -4,7 +4,6 @@
 #include <rhi/rhi.h>
 
 #include <core/application.h>
-#include <core/capi.h>
 #include <core/loadqueue.h>
 #include <core/inputstate.h>
 

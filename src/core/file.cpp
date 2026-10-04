@@ -1,7 +1,13 @@
 #include <core/file.h>
 
+#include <core/application.h>
+#include <core/assert.h>//NOLINT(modernize-deprecated-headers)
+
 #include <ctime>
 #include <chrono>
+#include <iostream>
+
+#include <uuid.h>
 
 namespace core
 {

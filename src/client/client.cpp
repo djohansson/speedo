@@ -2,7 +2,6 @@
 #include <core/eventhandlers.h>
 #include <core/file.h>
 #include <core/concurrentaccess.h>
-#include <core/upgradablesharedmutex.h>
 
 #include <client/capi.h>
 #include <client/client.h>

@@ -13,7 +13,6 @@
 #include <core/capi.h>
 
 #ifdef __cplusplus
-#include <cstdbool>
 extern "C"
 {
 #else

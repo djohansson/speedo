@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <flat_map>
-#include <flat_set>
 #include <functional>
 #include <memory>
 #include <type_traits>

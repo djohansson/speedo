@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdlib> // mio's mmap.ipp calls alloca without including it
 #include <expected>
 #include <string>
 #include <system_error>

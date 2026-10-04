@@ -1,17 +1,17 @@
 #include <core/task.h>
 #include <rhi/capi.h>
 #include <rhi/rhiapplication.h>
+#include <rhi/image.h>
 #include <rhi/model.h>
+#include <rhi/renderimageset.h>
 #include <rhi/shaders/capi.h>
 #include <rhi/vulkan/utils.h>
-#include <gfx/scene.h>
 
 #include <uuid.h>
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
-#include <imgui_stdlib.h>
 
 #include <gfx/imgui_extra.h>
 

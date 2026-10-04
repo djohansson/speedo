@@ -13,7 +13,6 @@
 #include <core/std_extra.h>
 
 #include <atomic>
-#include <core/upgradablesharedmutex.h>
 
 #include <cstdint>
 #include <memory>

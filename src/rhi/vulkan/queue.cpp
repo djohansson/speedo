@@ -4,7 +4,6 @@
 #include <rhi/rhiapplication.h>
 #include <rhi/vulkan/utils.h>
 
-#include <tracy/TracyC.h>
 #include <tracy/TracyVulkan.hpp>
 
 namespace rhi

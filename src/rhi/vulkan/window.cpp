@@ -6,8 +6,6 @@
 
 #include <GLFW/glfw3.h>
 
-#include <imgui.h>
-
 #include <string_view>
 
 namespace rhi

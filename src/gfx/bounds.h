@@ -1,8 +1,6 @@
 #pragma once
 
-#include <algorithm>
 #include <array>
-#include <limits>
 #include <tuple>
 
 #include <glm/glm.hpp>

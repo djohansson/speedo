@@ -7,9 +7,7 @@
 #include <core/task.h>
 #include <core/taskexecutor.h>
 
-#include <algorithm>
 #include <atomic>
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <type_traits>
