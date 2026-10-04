@@ -61,8 +61,23 @@ std::shared_ptr<IObject> Device<kVk>::ReplaceResource(const std::shared_ptr<IObj
 template <>
 void Device<kVk>::EraseResource(const uuids::uuid& uuid)
 {
-	ENSUREF(!uuid.is_nil(), "must have a valid uuid");
+	if (uuid.is_nil())
+		return;
+
 	ENSUREF(myResources.erase(uuid) > 0, "no resource with uuid {}", uuids::to_string(uuid));
+}
+
+template <>
+DeviceObjectCreateDesc<kVk> Device<kVk>::CreateDeviceObjectCreateDesc(std::string_view name) const noexcept
+{
+	return DeviceObjectCreateDesc<kVk>{
+		ObjectCreateDesc<kVk>{
+			.uuid = uuids::NewUuid(),
+			.instance = GetDesc().instance,
+			.name = std::string(name),
+		},
+		myDevice
+	};
 }
 
 template <>

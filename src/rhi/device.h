@@ -109,20 +109,12 @@ public:
 	// previous one. a previous uuid that is not nil must be stored.
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource);
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource);
-	// destroys the resource with uuid (unless it is still referenced elsewhere), which must be stored
+	// destroys the resource with uuid (unless it is still referenced elsewhere). a nil uuid erases nothing, any other
+	// must be stored.
 	void EraseResource(const uuids::uuid& uuid);
 
-	[[nodiscard]] DeviceObjectCreateDesc<G> CreateDeviceObjectCreateDesc(std::string_view name = {}) const noexcept
-	{
-		return DeviceObjectCreateDesc<G>{
-			ObjectCreateDesc<G>{
-				.uuid = uuids::NewUuid(),
-				.instance = SuperType::GetDesc().instance,
-				.name = std::string(name),
-			},
-			myDevice
-		};
-	}
+	// a desc for an object on this device, with a new uuid
+	[[nodiscard]] DeviceObjectCreateDesc<G> CreateDeviceObjectCreateDesc(std::string_view name = {}) const noexcept;
 
 	[[nodiscard]] bool SupportsFeature(StructureType<G> feature, const Instance<G>& instance) const;
 
