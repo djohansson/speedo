@@ -36,7 +36,22 @@ template <GraphicsApi G>
 class Device final : public Object<Device<G>>
 {
 	using PipelineLayoutHandleMapType = core::UnorderedMap<size_t, PipelineLayoutHandle<G>>;
-	using ResourceMapType = core::UnorderedMap<uuids::uuid, std::shared_ptr<IObject>>;
+	// resources are keyed by their own uuid (unique among live objects, see ObjectCreateDesc): hash and compare
+	// them by it, and look them up by a plain uuid
+	struct ResourceHash
+	{
+		using is_transparent = void;
+		[[nodiscard]] size_t operator()(const uuids::uuid& uuid) const noexcept { return std::hash<uuids::uuid>{}(uuid); }
+		[[nodiscard]] size_t operator()(const std::shared_ptr<IObject>& resource) const noexcept { return (*this)(resource->GetUuid()); }
+	};
+	struct ResourceEqual
+	{
+		using is_transparent = void;
+		[[nodiscard]] static const uuids::uuid& Key(const uuids::uuid& uuid) noexcept { return uuid; }
+		[[nodiscard]] static const uuids::uuid& Key(const std::shared_ptr<IObject>& resource) noexcept { return resource->GetUuid(); }
+		[[nodiscard]] bool operator()(const auto& lhs, const auto& rhs) const noexcept { return Key(lhs) == Key(rhs); }
+	};
+	using ResourceSetType = core::UnorderedSet<std::shared_ptr<IObject>, ResourceHash, ResourceEqual>;
 
 public:
 	using SuperType = Object<Device<G>>;
@@ -76,32 +91,37 @@ public:
 	[[nodiscard]] auto& GetPipeline() noexcept { return myPipeline; }
 	[[nodiscard]] const auto& GetPipeline() const noexcept { return myPipeline; }
 
+	// resources owned by the device, keyed by their uuids. callers keep the uuid CreateResource returns to find one.
 	[[nodiscard]] bool HasResource(const uuids::uuid& uuid) const { return myResources.contains(uuid); }
-	[[nodiscard]] bool HasResource(std::string_view name) const { return myResources.contains(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name)); }
 	template <typename T>
-	[[nodiscard]] auto GetResource(const uuids::uuid& uuid) const { return static_pointer_cast<T>(myResources.at(uuid)); }
-	template <typename T>
-	[[nodiscard]] auto GetResource(std::string_view name) const { return static_pointer_cast<T>(myResources.at(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name))); }
+	[[nodiscard]] std::shared_ptr<T> GetResource(const uuids::uuid& uuid) const
+	{
+		auto it = myResources.find(uuid);
+		ENSUREF(it != myResources.end(), "no resource with uuid {}", uuids::to_string(uuid));
+		return static_pointer_cast<T>(*it);
+	}
+	// constructs a T from args (its create desc first) and stores it. returns its uuid and the resource.
 	template <class T, class... Args>
-	[[nodiscard]] auto CreateResource(uuids::uuid&& uuid, Args&&... args)
+	[[nodiscard]] auto CreateResource(Args&&... args)
 	{
 		auto resource = std::make_shared<T>(std::forward<Args>(args)...);
-		auto [it, inserted] = myResources.emplace(std::forward<uuids::uuid>(uuid), resource);
-		return std::make_tuple(it->first, resource, inserted);
+		auto uuid = resource->GetUuid();
+		ENSUREF(myResources.emplace(resource).second, "resource {} is already stored", resource->GetName());
+		return std::make_tuple(uuid, resource);
 	}
-	template <class T, class... Args>
-	[[nodiscard]] auto CreateResource(std::string_view name, Args&&... args)
+	// stores resource in place of the one with previousUuid (if any), and returns that one, so the caller can defer
+	// its destruction until the gpu is no longer using it. resource is found by its own uuid from now on.
+	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource)
 	{
-		return CreateResource<T>(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name), std::forward<Args>(args)...);
+		std::shared_ptr<IObject> previous;
+		if (auto it = myResources.find(previousUuid); it != myResources.end())
+		{
+			previous = *it;
+			myResources.erase(it);
+		}
+		ENSUREF(myResources.insert(std::move(resource)).second, "replacing a resource with one that is already stored");
+		return previous;
 	}
-	// inserts or replaces a resource. returns the previous one (if any), so the caller can defer its destruction
-	// until the gpu is no longer using it.
-	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& uuid, std::shared_ptr<IObject> resource)
-	{
-		return std::exchange(myResources[uuid], std::move(resource));
-	}
-	template <typename T>
-	[[maybe_unused]] auto ExtractResource(const uuids::uuid& uuid) { return static_pointer_cast<T>(myResources.extract(uuid)); }
 	void EraseResource(const uuids::uuid& uuid) { myResources.erase(uuid); }
 
 	[[nodiscard]] DeviceObjectCreateDesc<G> CreateDeviceObjectCreateDesc(std::string_view name = {}) const noexcept
@@ -135,7 +155,7 @@ private:
 	core::UnorderedMap<QueueType, std::shared_ptr<QueueTimelineContext<G>>> myQueues;
 	Pipeline<G> myPipeline;
 	PipelineLayoutHandleMapType myPipelineLayoutHandles;
-	ResourceMapType myResources;
+	ResourceSetType myResources;
 };
 
 } // namespace rhi

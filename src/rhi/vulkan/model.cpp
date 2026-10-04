@@ -113,6 +113,9 @@ Load(
 		if (auto result = inStream(modelDesc); failure(result))
 			return std::make_error_code(result);
 
+		// the cached desc holds the uuid of the model it was saved from (see ObjectCreateDesc)
+		modelDesc.uuid = uuids::NewUuid();
+
 		std::string ibName;
 		std::string vbName;
 		ibName = std::string(modelFile).append("_staging_ib");

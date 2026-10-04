@@ -98,7 +98,9 @@ static std::atomic_uint32_t gFrameSubmitBatchCount;
 // presented frames per second, over (at least) the last half second. written by Draw
 static std::atomic<float> gFramesPerSecond;
 static std::array<uuids::uuid, 3> gRenderImageSetUuids;
-static uuids::uuid gModelUuid;
+static uuids::uuid gModelUuid; // the loaded model, see InstallModel. nil until one is loaded
+static uuids::uuid gLoadedImageUuid; // the loaded image and its view, see InstallImage. nil until one is loaded
+static uuids::uuid gLoadedImageViewUuid;
 static uuids::uuid gBlackTextureUuid;
 static uuids::uuid gBlackTextureViewUuid;
 static uuids::uuid gSamplersUuid;
@@ -491,8 +493,8 @@ static void InstallModel(RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics,
 		DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
-	gModelUuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}("LoadedModel");
 	RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelUuid, model));
+	gModelUuid = model->GetUuid();
 }
 
 // makes an uploaded image the texture sampled by material 0, retiring the previous one. call on the draw thread.
@@ -531,9 +533,10 @@ static void InstallImage(
 					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 					kMaterialTextureId);
 
-				auto nameUuid = [](std::string_view name) { return uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name); };
-				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(nameUuid("LoadedImage"), image));
-				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(nameUuid("LoadedImageView"), imageView));
+				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(gLoadedImageUuid, image));
+				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(gLoadedImageViewUuid, imageView));
+				gLoadedImageUuid = image->GetUuid();
+				gLoadedImageViewUuid = imageView->GetUuid();
 			});
 		rhi.drawCalls.enqueue(bindTask);
 	});
@@ -859,13 +862,9 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 				VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED});
 
-		// one render target per frame; replace any previous one (e.g. on resize), since CreateResource won't overwrite
-		auto renderImageSetName = std::format("Main RT {}", frameIt);
-		if (device.HasResource(renderImageSetName))
-			device.EraseResource(uuids::uuid_name_generator{uuids::uuid_namespace_oid}(renderImageSetName));
-
-		auto [renderImageSetUuid, renderImageSet, renderImageSetInserted] = device.CreateResource<RenderImageSet<kVk>>(renderImageSetName, std::move(colorImage), std::move(depthStencilImage));
-		ENSURE(renderImageSetInserted);
+		// one render target per frame, replacing any previous one (e.g. on resize)
+		device.EraseResource(gRenderImageSetUuids[frameIt]);
+		auto [renderImageSetUuid, renderImageSet] = device.CreateResource<RenderImageSet<kVk>>(std::move(colorImage), std::move(depthStencilImage));
 		gRenderImageSetUuids[frameIt] = renderImageSetUuid;
 	}
 
@@ -1608,8 +1607,7 @@ RHIApplication::RHIApplication(
 	constexpr uint32_t kBlackTextureHeight = 4;
 	constexpr uint32_t kBlackTextureSize = kBlackTextureWidth * kBlackTextureHeight * 4;
 	
-	auto [blackTextureUuid, blackTexture, blackTextureInserted] = device.CreateResource<Image<kVk>>(
-		"Black Texture",
+	auto [blackTextureUuid, blackTexture] = device.CreateResource<Image<kVk>>(
 		ImageCreateDesc<kVk>{
 			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture"),
 			{ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
@@ -1620,8 +1618,7 @@ RHIApplication::RHIApplication(
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED
 		});
-	auto [blackTextureViewUuid, blackTextureView, blackTextureViewInserted] = device.CreateResource<ImageView<kVk>>(
-		"Black Texture View",
+	auto [blackTextureViewUuid, blackTextureView] = device.CreateResource<ImageView<kVk>>(
 		ImageViewCreateDesc<kVk>{
 			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture View"),
 			*blackTexture,
@@ -1652,8 +1649,7 @@ RHIApplication::RHIApplication(
 		.maxLod = kDefaultSamplerMaxLod,
 		.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 		.unnormalizedCoordinates = VK_FALSE});
-	auto [samplersUuid, samplers, samplersInserted] = device.CreateResource<SamplerVector<kVk>>(
-		"Samplers",
+	auto [samplersUuid, samplers] = device.CreateResource<SamplerVector<kVk>>(
 		SamplerVectorCreateDesc<kVk>{
 			rhi.CreatePrimaryDeviceObjectCreateDesc("Samplers"),
 			std::move(samplerCreateInfos)});
@@ -1685,8 +1681,7 @@ RHIApplication::RHIApplication(
 			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
 
 		core::TaskCreateInfo<void> materialTransfersDone;
-		auto [materialsUuid, materials, materialsInserted] = device.CreateResource<Buffer<kVk>>(
-			"Materials",
+		auto [materialsUuid, materials] = device.CreateResource<Buffer<kVk>>(
 			BufferCreateDesc<kVk>{
 				rhi.CreatePrimaryDeviceObjectCreateDesc("Materials"),
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
@@ -1708,8 +1703,7 @@ RHIApplication::RHIApplication(
 		std::copy_n(&inverseTransposeModelTransform[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].inverseTransposeModelTransform[0][0]);
 
 		core::TaskCreateInfo<void> modelTransfersDone;
-		auto [modelInstancesUuid, modelInstancesBuffer, modelInstancesInserted] = device.CreateResource<Buffer<kVk>>(
-			"ModelInstances",
+		auto [modelInstancesUuid, modelInstancesBuffer] = device.CreateResource<Buffer<kVk>>(
 			BufferCreateDesc<kVk>{
 				rhi.CreatePrimaryDeviceObjectCreateDesc("ModelInstances"),
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
@@ -1759,7 +1753,7 @@ RHIApplication::RHIApplication(
 
 	pipeline.SetDescriptorData(
 		"gModelInstances",
-		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>("ModelInstances"), .offset = 0, .range = VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>(gModelInstancesUuid), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
@@ -1792,17 +1786,17 @@ RHIApplication::RHIApplication(
 
 	pipeline.SetDescriptorData(
 		"gMaterialData",
-		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>("Materials"), .offset = 0, .range = VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>(gMaterialsUuid), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
 	pipeline.SetDescriptorData(
 		"gModelInstances",
-		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>("ModelInstances"), .offset = 0, .range = VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>(gModelInstancesUuid), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	pipeline.SetDescriptorData(
 		"gSamplers",
-		DescriptorImageInfo<kVk>{.sampler = (*device.GetResource<SamplerVector<kVk>>("Samplers"))[0]},
+		DescriptorImageInfo<kVk>{.sampler = (*device.GetResource<SamplerVector<kVk>>(gSamplersUuid))[0]},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
 		kSamplerId);
 
