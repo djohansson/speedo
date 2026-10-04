@@ -74,6 +74,7 @@ private:
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
 	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
+	static bool gShowFps; //NOLINT(readability-identifier-naming)
 };
 
 } // namespace rhi

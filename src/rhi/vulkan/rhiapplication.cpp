@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -94,6 +95,8 @@ static core::ConcurrentQueue<VkDescriptorSet> gIMGUIRetiredDescriptorSets; // fr
 // gpu submits (and their batches) between the last two presented frames, from any thread. written by Draw
 static std::atomic_uint32_t gFrameSubmitCount;
 static std::atomic_uint32_t gFrameSubmitBatchCount;
+// presented frames per second, over (at least) the last half second. written by Draw
+static std::atomic<float> gFramesPerSecond;
 static std::array<uuids::uuid, 3> gRenderImageSetUuids;
 static uuids::uuid gModelUuid;
 static uuids::uuid gBlackTextureUuid;
@@ -1033,6 +1036,29 @@ void RHIApplication::PrepareDraw()
 		End();
 	}
 
+	// frame rate overlay in the top right corner, below the menu bar
+	if (gShowFps)
+	{
+		constexpr float kFpsOverlayPadding = 10.0F;
+		constexpr float kFpsOverlayBgAlpha = 0.35F;
+		const auto* viewport = GetMainViewport();
+		SetNextWindowPos(
+			ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kFpsOverlayPadding, viewport->WorkPos.y + kFpsOverlayPadding),
+			ImGuiCond_Always,
+			ImVec2(1.0F, 0.0F));
+		SetNextWindowBgAlpha(kFpsOverlayBgAlpha);
+		if (Begin(
+				"FPS",
+				nullptr,
+				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+					ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
+		{
+			float fps = gFramesPerSecond.load(std::memory_order_relaxed);
+			Text("%.0f FPS (%.2f ms)", fps, fps > 0.0F ? 1000.0F / fps : 0.0F);
+		}
+		End();
+	}
+
 	// one row per load in progress
 	if (bool loading = !gLoads.Empty() &&
 				 Begin(
@@ -1170,6 +1196,7 @@ void RHIApplication::PrepareDraw()
 					rhi.drawCalls.enqueue(resizeTask);
 				}
 			}
+			MenuItem("FPS", nullptr, &gShowFps);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
@@ -1512,6 +1539,19 @@ bool RHIApplication::Draw()
 		gFrameSubmitBatchCount.store(static_cast<uint32_t>(submitBatchCount - gLastFrameSubmitBatchCount), std::memory_order_relaxed);
 		gLastFrameSubmitCount = submitCount;
 		gLastFrameSubmitBatchCount = submitBatchCount;
+
+		using namespace std::chrono_literals;
+		static auto gFpsTime = std::chrono::steady_clock::now();
+		static uint32_t gFpsFrameCount = 0;
+		gFpsFrameCount++;
+		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
+		{
+			gFramesPerSecond.store(
+				static_cast<float>(gFpsFrameCount) / std::chrono::duration<float>(now - gFpsTime).count(),
+				std::memory_order_relaxed);
+			gFpsFrameCount = 0;
+			gFpsTime = now;
+		}
 	}
 
 	GetExecutor().Submit(frameTasks);
