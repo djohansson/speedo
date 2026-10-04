@@ -1,7 +1,7 @@
 #include <rhi/pipeline.h>
 #include <rhi/shaders/capi.h>
 #include <rhi/rhi.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
 #include <format>
@@ -605,17 +605,6 @@ PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd
 	BindPipeline(cmd, myBindPoint, handle);
 	
 	return handle;
-}
-
-template <>
-void Pipeline<kVk>::SetVertexInputState(const Model<kVk>& model)
-{
-	myGraphicsState.vertexInput.vertexBindingDescriptionCount =
-		static_cast<uint32_t>(model.GetBindings().size());
-	myGraphicsState.vertexInput.pVertexBindingDescriptions = model.GetBindings().data();
-	myGraphicsState.vertexInput.vertexAttributeDescriptionCount =
-		static_cast<uint32_t>(model.GetDesc().attributes.size());
-	myGraphicsState.vertexInput.pVertexAttributeDescriptions = model.GetDesc().attributes.data();
 }
 
 template <>

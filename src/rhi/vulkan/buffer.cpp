@@ -1,7 +1,7 @@
 #include <rhi/buffer.h>
 #include <rhi/device.h>
 #include <rhi/instance.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
 #include <utility>
@@ -87,6 +87,57 @@ Buffer<kVk>::Buffer(
 		cmd,
 		timelineCallbackOut)
 {}
+
+template <>
+Buffer<kVk>::Buffer(
+	CreateDescType&& desc,
+	Buffer&& staging,
+	CommandBufferHandle<kVk> cmd,
+	core::TaskCreateInfo<void>& timelineCallbackOut)
+	: Buffer(
+		std::forward<CreateDescType>(desc),
+		CreateBuffer(
+			cmd,
+			GetDevice(desc.device).GetAllocator(),
+			staging.GetBuffer(),
+			desc.size,
+			desc.usageFlags,
+			desc.memoryFlags,
+			nullptr))
+{
+	timelineCallbackOut = core::CreateTask([staging = std::make_shared<Buffer>(std::move(staging))] {});
+}
+
+template <>
+Buffer<kVk> Buffer<kVk>::CreateStaging(DeviceObjectCreateDesc<kVk>&& desc, size_t size)
+{
+	return Buffer(BufferCreateDesc<kVk>{
+		std::forward<DeviceObjectCreateDesc<kVk>>(desc),
+		size,
+		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT});
+}
+
+template <>
+std::span<std::byte> Buffer<kVk>::Map()
+{
+	void* data = nullptr;
+	VK_CHECK(vmaMapMemory(GetDevice().GetAllocator(), GetMemory(), &data));
+	ENSURE(data != nullptr);
+	return {static_cast<std::byte*>(data), static_cast<size_t>(GetDesc().size)};
+}
+
+template <>
+void Buffer<kVk>::Unmap()
+{
+	vmaUnmapMemory(GetDevice().GetAllocator(), GetMemory());
+}
+
+template <>
+void Buffer<kVk>::Flush(size_t offset, size_t size)
+{
+	VK_CHECK(vmaFlushAllocation(GetDevice().GetAllocator(), GetMemory(), offset, size));
+}
 
 template <>
 Buffer<kVk>::~Buffer()

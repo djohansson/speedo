@@ -1,8 +1,10 @@
+// vulkan specific: command recording, barriers, formats and the imgui vulkan backend (see gfx/gpu.h)
+#include <gfx/windowedapplication.h>
+#include <gfx/model.h>
+#include <gfx/texture.h>
+
 #include <core/task.h>
 #include <rhi/capi.h>
-#include <rhi/rhiapplication.h>
-#include <rhi/image.h>
-#include <rhi/model.h>
 #include <rhi/renderimageset.h>
 #include <rhi/shaders/capi.h>
 #include <rhi/vulkan/utils.h>
@@ -39,26 +41,20 @@
 
 //#include <imnodes.h>
 
-namespace rhi
+namespace gfx
 {
 
-template <>
-RHI<kVk>& RHIApplication::GetRHI<kVk>() noexcept
+using namespace rhi;
+
+namespace windowedapplication
 {
-	return *static_cast<RHI<kVk>*>(myRHI.get());
+
+[[nodiscard]] static WindowedApplication& App()
+{
+	auto app = std::static_pointer_cast<WindowedApplication>(core::Application::Get());
+	ENSURE(app);
+	return *app;
 }
-
-template <>
-const RHI<kVk>& RHIApplication::GetRHI<kVk>() const noexcept
-{
-	return *static_cast<const RHI<kVk>*>(myRHI.get());
-}
-
-IMPLEMENT_OBJECT_GETINSTANCE(RenderImageSet<kVk>);
-IMPLEMENT_DEVICEOBJECT_GETDEVICE(RenderImageSet<kVk>);
-
-namespace rhiapplication
-{
 
 // imgui draw data is handed from PrepareDraw (tick task) to IMGUIDrawFunction (draw task) through a triple buffer:
 // PrepareDraw snapshots into its write frame and publishes it as the pending one, the draw thread takes the pending
@@ -83,8 +79,8 @@ static uint64_t gIMGUIFrameSequence = 0; // PrepareDraw only
 // textures before ImGui_ImplVulkan_Shutdown.
 struct IMGUITexture
 {
-	Image<kVk> image;
-	ImageView<kVk> view;
+	Image image;
+	ImageView view;
 	VkDescriptorSet descriptorSet = VK_NULL_HANDLE; // allocated from the backend's pool, only touched in PrepareDraw
 };
 struct IMGUITextureOp
@@ -106,7 +102,7 @@ static std::atomic_uint32_t gFrameSubmitBatchCount;
 // presented frames per second, over (at least) the last half second. written by Draw
 static std::atomic<float> gFramesPerSecond;
 static std::array<uuids::uuid, 3> gRenderImageSetUuids;
-static uuids::uuid gModelUuid; // the loaded model, see InstallModel. nil until one is loaded
+static std::shared_ptr<Model> gModel; // the loaded model, see InstallModel. only the draw thread uses it
 static uuids::uuid gLoadedImageUuid; // the loaded image and its view, see InstallImage. nil until one is loaded
 static uuids::uuid gLoadedImageViewUuid;
 static uuids::uuid gBlackTextureUuid;
@@ -116,9 +112,9 @@ static uuids::uuid gMaterialsUuid;
 static uuids::uuid gModelInstancesUuid;
 
 // creates, updates or destroys `tex` as imgui requests, see IMGUITexture. call from PrepareDraw, after ImGui::Render().
-static void UpdateIMGUITexture(Device<kVk>& device, ImTextureData& tex)
+static void UpdateIMGUITexture(Device& device, ImTextureData& tex)
 {
-	ZoneScopedN("RHIApplication::UpdateIMGUITexture");
+	ZoneScopedN("WindowedApplication::UpdateIMGUITexture");
 
 	auto* texture = static_cast<IMGUITexture*>(tex.BackendUserData);
 
@@ -140,7 +136,7 @@ static void UpdateIMGUITexture(Device<kVk>& device, ImTextureData& tex)
 		auto width = static_cast<uint32_t>(tex.Width);
 		auto height = static_cast<uint32_t>(tex.Height);
 		texture = new IMGUITexture{ //NOLINT(cppcoreguidelines-owning-memory) owned by tex.BackendUserData
-			.image = Image<kVk>(ImageCreateDesc<kVk>{
+			.image = Image(ImageCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc(std::format("ImGui Texture {}", tex.UniqueID)),
 				{ImageMipLevelDesc<kVk>{
 					.extent = Extent2d<kVk>{.width = width, .height = height},
@@ -152,7 +148,7 @@ static void UpdateIMGUITexture(Device<kVk>& device, ImTextureData& tex)
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 				VK_IMAGE_ASPECT_COLOR_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED})};
-		texture->view = ImageView<kVk>(ImageViewCreateDesc<kVk>{
+		texture->view = ImageView(ImageViewCreateDesc<kVk>{
 			device.CreateDeviceObjectCreateDesc(std::format("ImGui Texture View {}", tex.UniqueID)),
 			texture->image,
 			texture->image.GetDesc().format,
@@ -248,11 +244,11 @@ static void DestroyIMGUITextures(VmaAllocator allocator)
 // (outside of a render pass). textures that are no longer drawn are destroyed from a task added to `callbacks`, which
 // must run once the gpu has completed the submission of `cmd`. call on the draw thread, before IMGUIDrawFunction.
 static void IMGUIPrepareFrame(
-	Device<kVk>& device,
+	Device& device,
 	CommandBufferHandle<kVk> cmd,
 	std::vector<core::TaskHandle>& callbacks)
 {
-	ZoneScopedN("RHIApplication::IMGUIPrepareFrame");
+	ZoneScopedN("WindowedApplication::IMGUIPrepareFrame");
 
 	// take the frame before draining the texture ops: a frame is published after the ops it depends on were queued.
 	// keep drawing the previous frame if no new one was published.
@@ -312,23 +308,23 @@ void IMGUIDrawFunction(
 	CommandBufferHandle<kVk> cmd,
 	PipelineHandle<kVk> pipeline = nullptr)
 {
-	ZoneScopedN("RHIApplication::IMGUIDraw");
+	ZoneScopedN("WindowedApplication::IMGUIDraw");
 
 	ImGui_ImplVulkan_RenderDrawData(&gIMGUIFrames[gIMGUIReadFrame].drawData, cmd, pipeline);
 }
 
 static void IMGUIInit(
-	Window<kVk>& window,
-	RHI<kVk>& rhi,
+	Window& window,
+	RHI& rhi,
 	Pipeline<kVk>& pipeline,
 	Queue<kVk>& graphicsQueue,
 	uint32_t graphicsQueueCount,
 	std::string_view imguiIniSettings)
 {
-	ZoneScopedN("RHIApplication::IMGUIInit");
+	ZoneScopedN("WindowedApplication::IMGUIInit");
 
 	using namespace ImGui;
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 
 	IMGUI_CHECKVERSION();
 	CreateContext();
@@ -506,7 +502,7 @@ static void RetireAfterGraphicsWork(QueueTimelineContextData<kVk>& graphics, std
 // writes materials, starting at slot first, in a submission on the graphics queue that is ordered after all graphics
 // work submitted so far, and before all that follows. call on the draw thread.
 static void UpdateMaterials(
-	RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics, uint32_t first, std::span<const MaterialData> materials)
+	RHI& rhi, QueueTimelineContextData<kVk>& graphics, uint32_t first, std::span<const MaterialData> materials)
 {
 	if (materials.empty())
 		return;
@@ -514,7 +510,7 @@ static void UpdateMaterials(
 	ENSURE(first + materials.size() <= SHADER_TYPES_MATERIAL_COUNT);
 
 	auto& device = rhi.GetPrimaryDevice();
-	auto& buffer = *device.GetResource<Buffer<kVk>>(gMaterialsUuid);
+	auto& buffer = *device.GetResource<Buffer>(gMaterialsUuid);
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
 	auto cmd = graphicsQueue.GetPool().Commands();
@@ -555,9 +551,9 @@ static void UpdateMaterials(
 // transitions images to a shader readable layout on the graphics queue, and once that has executed, has the draw thread
 // call bind (with the graphics queue context). call on the draw thread.
 static void TransitionThenBind(
-	RHI<kVk>& rhi,
+	RHI& rhi,
 	QueueTimelineContextData<kVk>& graphics,
-	const std::vector<std::shared_ptr<Image<kVk>>>& images,
+	const std::vector<std::shared_ptr<Image>>& images,
 	std::function<void(QueueTimelineContextData<kVk>&)> bind)
 {
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
@@ -592,31 +588,29 @@ static void TransitionThenBind(
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-using ImageAndView = std::pair<std::shared_ptr<Image<kVk>>, std::shared_ptr<ImageView<kVk>>>;
-
 // a material's textures, null where it has none (or it failed to load)
 struct MaterialTextures
 {
-	ImageAndView diffuse;
-	ImageAndView alpha;
-	ImageAndView normal;
+	Texture diffuse;
+	Texture alpha;
+	Texture normal;
 };
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
 // previous ones. call on the draw thread.
 static void InstallModel(
-	RHI<kVk>& rhi,
+	RHI& rhi,
 	QueueTimelineContextData<kVk>& graphics,
-	const std::shared_ptr<Model<kVk>>& model,
+	const std::shared_ptr<Model>& model,
 	std::vector<MaterialTextures> textures)
 {
-	ZoneScopedN("RHIApplication::InstallModel");
+	ZoneScopedN("WindowedApplication::InstallModel");
 
-	std::vector<std::shared_ptr<Image<kVk>>> images;
+	std::vector<std::shared_ptr<Image>> images;
 	for (const auto& material : textures)
 		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal})
-			if (texture->first)
-				images.push_back(texture->first);
+			if (texture->image)
+				images.push_back(texture->image);
 
 	// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 	// the new model with the old materials or the other way around
@@ -624,14 +618,14 @@ static void InstallModel(
 	{
 		auto& device = rhi.GetPrimaryDevice();
 		auto& pipeline = device.GetPipeline();
-		const auto& blackView = *device.GetResource<ImageView<kVk>>(gBlackTextureViewUuid);
+		const auto& blackView = *device.GetResource<ImageView>(gBlackTextureViewUuid);
 
 		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 		// each texture once, in the slots from kModelTextureFirstSlot. the previous model's slots go back to black.
 		std::vector<std::pair<uuids::uuid, uuids::uuid>> textureUuids;
-		core::UnorderedMap<const Image<kVk>*, uint32_t> textureSlots;
-		auto slotOf = [&](const ImageAndView& texture) -> std::optional<uint32_t>
+		core::UnorderedMap<const Image*, uint32_t> textureSlots;
+		auto slotOf = [&](const Texture& texture) -> std::optional<uint32_t>
 		{
 			const auto& [image, view] = texture;
 			if (!image)
@@ -703,22 +697,20 @@ static void InstallModel(
 			DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
-		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelUuid, model));
-		gModelUuid = model->GetUuid();
+		RetireAfterGraphicsWork(graphics, std::exchange(gModel, model));
 
-		for (auto& window : rhi.GetWindows())
-			window.FrameBounds(model->GetDesc().bounds);
+		App().GetViews().FrameBounds(model->GetDesc().bounds);
 	});
 }
 
 // makes an uploaded image the texture sampled by material 0, retiring the previous one. call on the draw thread.
 static void InstallImage(
-	RHI<kVk>& rhi,
+	RHI& rhi,
 	QueueTimelineContextData<kVk>& graphics,
-	const std::shared_ptr<Image<kVk>>& image,
-	const std::shared_ptr<ImageView<kVk>>& imageView)
+	const std::shared_ptr<Image>& image,
+	const std::shared_ptr<ImageView>& imageView)
 {
-	ZoneScopedN("RHIApplication::InstallImage");
+	ZoneScopedN("WindowedApplication::InstallImage");
 
 	TransitionThenBind(rhi, graphics, {image}, [&rhi, image, imageView](QueueTimelineContextData<kVk>& graphics)
 	{
@@ -748,9 +740,9 @@ static void InstallImage(
 
 // loads a model and its materials' textures, and has the draw thread install them, unless the load was cancelled. call
 // from a load (see gLoads).
-static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+static void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	auto model = Model<kVk>::LoadModel(filePath, progress);
+	auto model = Model::Load(filePath, progress);
 	if (!model) // cancelled or failed
 		return;
 
@@ -763,7 +755,7 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 	{
 		std::string path;
 		gfx::image::Options options;
-		ImageAndView* result;
+		Texture* result;
 	};
 	std::vector<MaterialTextures> textures(materials.size());
 	std::vector<TextureLoad> loads;
@@ -782,7 +774,7 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 				{material.bumpTexture, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
 	}
 
-	core::UnorderedMap<std::string, ImageAndView> loaded;
+	core::UnorderedMap<std::string, Texture> loaded;
 	progress = 0;
 	for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
 	{
@@ -795,7 +787,7 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 				return;
 
 			std::atomic_uint8_t textureProgress = 0;
-			it->second = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), load.path, textureProgress, load.options);
+			it->second = LoadTexture(load.path, textureProgress, load.options);
 		}
 		*load.result = it->second;
 
@@ -816,7 +808,7 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 // cancelled.
 static std::optional<std::filesystem::path> ExtractArchive(const std::filesystem::path& archive, std::atomic_uint8_t& progress)
 {
-	ZoneScopedN("RHIApplication::ExtractArchive");
+	ZoneScopedN("WindowedApplication::ExtractArchive");
 
 	auto app = core::Application::Get();
 	auto userProfilePath = std::get<std::filesystem::path>(app->GetEnv().variables["UserProfilePath"]);
@@ -884,7 +876,7 @@ static std::optional<ArchiveChoice> gArchiveChoice; // guarded by gArchiveChoice
 
 // extracts a zip archive and loads the model in it. with several, the user chooses one, unless firstModel is set, which
 // loads the first (by path). call from a load (see gLoads).
-static void LoadAndInstallArchive(RHI<kVk>& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, bool firstModel)
+static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, bool firstModel)
 {
 	auto directory = ExtractArchive(archivePath, progress);
 	if (!directory) // failed or cancelled
@@ -915,9 +907,9 @@ static void LoadAndInstallArchive(RHI<kVk>& rhi, std::string_view archivePath, s
 }
 
 // loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
-static void LoadAndInstallImage(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	auto [image, imageView] = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), filePath, progress);
+	auto [image, imageView] = LoadTexture(filePath, progress);
 	if (!image) // cancelled or failed
 		return;
 
@@ -927,8 +919,8 @@ static void LoadAndInstallImage(RHI<kVk>& rhi, std::string_view filePath, std::a
 }
 
 static void DrawMainPass(
-	RHI<kVk>& rhi,
-	Window<kVk>& window,
+	RHI& rhi,
+	Window& window,
 	Pipeline<kVk>& pipeline,
 	Queue<kVk>& graphicsQueue,
 	CommandBufferHandle<kVk> cmd,
@@ -954,21 +946,21 @@ static void DrawMainPass(
 	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 	// setup draw parameters
-	uint32_t drawCount = window.GetDesc().splitScreenGrid.width * window.GetDesc().splitScreenGrid.height;
+	const auto grid = App().GetViews().GetGrid();
+	uint32_t drawCount = grid.x * grid.y;
 	uint32_t drawThreadCount = 0;
 
 	std::atomic_uint32_t drawAtomic = 0UL;
 
 	// draw views using secondary command buffers
 	// todo: generalize this to other types of draws
-	if (device.HasResource(gModelUuid))
+	if (gModel)
 	{
-		auto& model = *device.GetResource<Model<kVk>>(gModelUuid);
+		auto& model = *gModel;
 
-		ZoneScopedN("RHIApplication::Draw::drawViews");
+		ZoneScopedN("WindowedApplication::Draw::drawViews");
 
 		drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
-		const auto& windowDesc = window.GetDesc();
 
 		constexpr uint32_t kMaxDrawThreads = 128;
 		std::array<uint32_t, kMaxDrawThreads> seq;
@@ -984,7 +976,7 @@ static void DrawMainPass(
 			&drawAtomic,
 			&drawCount,
 			&model,
-			&windowDesc](uint32_t threadIt)
+			grid](uint32_t threadIt)
 			{
 				ZoneScoped;
 
@@ -1012,16 +1004,16 @@ static void DrawMainPass(
 				{
 					inheritInfo.pNext = &dynamicRenderingInfo->inheritanceInfo;
 
-					deltaX = dynamicRenderingInfo->renderInfo.renderArea.extent.width / windowDesc.splitScreenGrid.width;
-					deltaY = dynamicRenderingInfo->renderInfo.renderArea.extent.height / windowDesc.splitScreenGrid.height;
+					deltaX = dynamicRenderingInfo->renderInfo.renderArea.extent.width / grid.x;
+					deltaY = dynamicRenderingInfo->renderInfo.renderArea.extent.height / grid.y;
 				}
 				else if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderTargetInfo))
 				{
 					inheritInfo.renderPass = renderPassBeginInfo->renderPass;
 					inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
 
-					deltaX = renderPassBeginInfo->renderArea.extent.width / windowDesc.splitScreenGrid.width;
-					deltaY = renderPassBeginInfo->renderArea.extent.height / windowDesc.splitScreenGrid.height;
+					deltaX = renderPassBeginInfo->renderArea.extent.width / grid.x;
+					deltaY = renderPassBeginInfo->renderArea.extent.height / grid.y;
 				}
 
 				auto cmd = graphicsQueue.GetPool().Commands(beginInfo);
@@ -1054,12 +1046,12 @@ static void DrawMainPass(
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &deltaX, &deltaY, &windowDesc](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &deltaX, &deltaY, grid](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
-						uint32_t col = viewIt % windowDesc.splitScreenGrid.width;
-						uint32_t row = viewIt / windowDesc.splitScreenGrid.width;
+						uint32_t col = viewIt % grid.x;
+						uint32_t row = viewIt / grid.x;
 
 						auto setViewportAndScissor = [](VkCommandBuffer cmd,
 														int32_t posX,
@@ -1162,7 +1154,7 @@ static void DrawMainPass(
 // 	return 0;
 // };
 
-void CreateWindowDependentObjects(RHI<kVk>& rhi)
+void CreateWindowDependentObjects(RHI& rhi)
 {
 	ZoneScopedN("CreateWindowDependentObjects");
 	
@@ -1173,7 +1165,7 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 	
 	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
 	{
-		auto colorImage = Image<kVk>(
+		auto colorImage = Image(
 			ImageCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc(std::format("Main RT Color Image {}", frameIt)),
 				{{.extent = window.GetSwapchain().GetDesc().extent}},
@@ -1186,7 +1178,7 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 				VK_IMAGE_ASPECT_COLOR_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED});
 
-		auto depthStencilImage = Image<kVk>(
+		auto depthStencilImage = Image(
 			ImageCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc(std::format("Main RT DepthStencil Image {}", frameIt)),
 				{{.extent = window.GetSwapchain().GetDesc().extent}},
@@ -1277,7 +1269,7 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
 // returns false if the surface has no area (minimized), in which case nothing is recreated.
-bool RecreateWindowDependentObjects(RHI<kVk>& rhi, Window<kVk>& window)
+bool RecreateWindowDependentObjects(RHI& rhi, Window& window)
 {
 	ZoneScopedN("RecreateWindowDependentObjects");
 
@@ -1294,21 +1286,23 @@ bool RecreateWindowDependentObjects(RHI<kVk>& rhi, Window<kVk>& window)
 
 	device.WaitIdle();
 	window.OnResizeFramebuffer(static_cast<int>(extent.width), static_cast<int>(extent.height));
+	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
+	App().GetViews().UpdateBuffers();
 	CreateWindowDependentObjects(rhi);
 
 	return true;
 }
 
-} // namespace rhiapplication
+} // namespace windowedapplication
 
-void RHIApplication::PrepareDraw()
+void WindowedApplication::PrepareDraw()
 {
-	ZoneScopedN("RHIApplication::PrepareDraw");
+	ZoneScopedN("WindowedApplication::PrepareDraw");
 
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 	using namespace ImGui;
 
-	auto& rhi = GetRHI<kVk>();
+	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();
 
 	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
@@ -1570,9 +1564,9 @@ void RHIApplication::PrepareDraw()
 			// 	showNodeEditor = !showNodeEditor;
 			if (BeginMenu("Layout"))
 			{
-				// the window's grid is owned by the draw thread (see Window::OnResizeSplitScreenGrid), so track the
+				// the views' grid is owned by the draw thread (see Views::OnResizeGrid), so track the
 				// requested one here. nothing else changes the grid, so the window's is current when this is initialized.
-				static Extent2d<kVk> gSplitScreenGrid = window.GetDesc().splitScreenGrid;
+				static Extent2d<kVk> gSplitScreenGrid{.width = myViews->GetGrid().x, .height = myViews->GetGrid().y};
 				Extent2d<kVk>& splitScreenGrid = gSplitScreenGrid;
 
 				//static bool hasChanged = 
@@ -1613,10 +1607,10 @@ void RHIApplication::PrepareDraw()
 				{
 					// also upload the new views: otherwise that only happens on the next input change
 					auto [resizeTask, resizeFuture] = core::CreateTask(
-						[&window, grid = splitScreenGrid]
+						[this, grid = splitScreenGrid]
 						{
-							window.OnResizeSplitScreenGrid(grid.width, grid.height);
-							window.UpdateViewBuffer();
+							myViews->OnResizeGrid({grid.width, grid.height});
+							myViews->UpdateBuffers();
 						});
 					rhi.drawCalls.enqueue(resizeTask);
 				}
@@ -1677,19 +1671,19 @@ void RHIApplication::PrepareDraw()
 	}
 }
 
-void RHIApplication::RequestExit() noexcept
+void WindowedApplication::RequestExit() noexcept
 {
 	Application::RequestExit();
 	glfwPostEmptyEvent(); // thread safe
 }
 
-bool RHIApplication::Main()
+bool WindowedApplication::Main()
 {
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 	
-	ZoneScopedN("RHIApplication::Main");
+	ZoneScopedN("WindowedApplication::Main");
 
-	auto& rhi = GetRHI<kVk>();
+	auto& rhi = GetRHI();
 
 	core::TaskHandle mainCall;
 	while (rhi.mainCalls.try_dequeue(mainCall))
@@ -1700,14 +1694,12 @@ bool RHIApplication::Main()
 	return !IsExitRequested();
 }
 
-void RHIApplication::OnInputStateChanged(const core::InputState& input)
+void WindowedApplication::OnInputStateChanged(const core::InputState& input)
 {
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 	
-	ZoneScopedN("RHIApplication::OnInputStateChanged");
+	ZoneScopedN("WindowedApplication::OnInputStateChanged");
 
-	auto& rhi = GetRHI<kVk>();
-	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto& imguiIO = ImGui::GetIO();
 
 	if (imguiIO.WantSaveIniSettings)
@@ -1719,20 +1711,25 @@ void RHIApplication::OnInputStateChanged(const core::InputState& input)
 	}
 
 	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
-		window.OnInputStateChanged(input);
+	{
+		myViews->OnInputStateChanged(input);
+
+		auto [updateTask, updateFuture] = core::CreateTask([this] { myViews->UpdateBuffers(); });
+		GetRHI().drawCalls.enqueue(updateTask);
+	}
 }
 
-bool RHIApplication::Draw()
+bool WindowedApplication::Draw()
 {
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 
 	FrameMark;
-	ZoneScopedN("RHIApplication::Draw");
+	ZoneScopedN("WindowedApplication::Draw");
 
 	std::unique_lock lock(gDrawMutex);
 	std::vector<core::TaskHandle> frameTasks;
 
-	auto& rhi = GetRHI<kVk>();
+	auto& rhi = GetRHI();
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
 	auto& window = rhi.GetWindow(GetCurrentWindow());
@@ -1776,7 +1773,7 @@ bool RHIApplication::Draw()
 		core::TaskHandle drawCall;
 		while (rhi.drawCalls.try_dequeue(drawCall))
 		{
-			ZoneScopedN("RHIApplication::Draw::drawCall");
+			ZoneScopedN("WindowedApplication::Draw::drawCall");
 			GetExecutor().Call(drawCall, graphics.Get().get());
 		}
 		
@@ -1786,7 +1783,7 @@ bool RHIApplication::Draw()
 
 		//NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
 
-		ZoneScopedN("RHIApplication::Draw::submit");
+		ZoneScopedN("WindowedApplication::Draw::submit");
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 		
@@ -1991,27 +1988,21 @@ bool RHIApplication::Draw()
 	return flipSuccess;
 }
 
-RHIApplication::RHIApplication(
+WindowedApplication::WindowedApplication(
 	std::string_view appName, core::Environment&& env, CreateWindowFunc createWindowFunc)
 	: Application(std::forward<std::string_view>(appName), std::forward<core::Environment>(env))
-	, myRHI(static_cast<RHI<kVk>*>(::operator new(sizeof(RHI<kVk>)))) // storage only, constructed below
+	, myRHI(std::make_unique<RHI>(RHIInitializationData{.name = appName, .createWindowFunc = createWindowFunc}))
 {
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 
-	// matches the (non-aligned) operator delete used when myRHI is deleted through RHIBase
-	static_assert(alignof(RHI<kVk>) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
-
-	// construct in place after myRHI is published, since objects created during RHI construction
-	// (e.g. device queue semaphores) resolve their Instance via RHIApplication::GetRHI<kVk>().
-	std::construct_at(
-		static_cast<RHI<kVk>*>(myRHI.get()),
-		RHIInitializationData{.name = appName, .createWindowFunc = createWindowFunc});
-
-	auto& rhi = GetRHI<kVk>();
+	auto& rhi = GetRHI();
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 	auto& pipeline = device.GetPipeline();
+
+	myViews = std::make_unique<Views>(
+		device, glm::uvec2(window.GetSwapchain().GetDesc().extent.width, window.GetSwapchain().GetDesc().extent.height));
 
 	std::vector<core::TaskHandle> timelineCallbacks;
 
@@ -2019,7 +2010,7 @@ RHIApplication::RHIApplication(
 	constexpr uint32_t kBlackTextureHeight = 4;
 	constexpr uint32_t kBlackTextureSize = kBlackTextureWidth * kBlackTextureHeight * 4;
 	
-	auto blackTexture = device.CreateResource<Image<kVk>>(
+	auto blackTexture = device.CreateResource<Image>(
 		ImageCreateDesc<kVk>{
 			device.CreateDeviceObjectCreateDesc("Black Texture"),
 			{ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
@@ -2030,7 +2021,7 @@ RHIApplication::RHIApplication(
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED
 		});
-	auto blackTextureView = device.CreateResource<ImageView<kVk>>(
+	auto blackTextureView = device.CreateResource<ImageView>(
 		ImageViewCreateDesc<kVk>{
 			device.CreateDeviceObjectCreateDesc("Black Texture View"),
 			*blackTexture,
@@ -2087,7 +2078,7 @@ RHIApplication::RHIApplication(
 			std::ranges::fill(material.color, 1.0F);
 
 		core::TaskCreateInfo<void> materialTransfersDone;
-		auto materials = device.CreateResource<Buffer<kVk>>(
+		auto materials = device.CreateResource<Buffer>(
 			BufferCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc("Materials"),
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
@@ -2109,7 +2100,7 @@ RHIApplication::RHIApplication(
 		std::copy_n(&inverseTransposeModelTransform[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].inverseTransposeModelTransform[0][0]);
 
 		core::TaskCreateInfo<void> modelTransfersDone;
-		auto modelInstancesBuffer = device.CreateResource<Buffer<kVk>>(
+		auto modelInstancesBuffer = device.CreateResource<Buffer>(
 			BufferCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc("ModelInstances"),
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
@@ -2159,14 +2150,14 @@ RHIApplication::RHIApplication(
 
 	pipeline.SetDescriptorData(
 		"gModelInstances",
-		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>(gModelInstancesUuid), .offset = 0, .range = VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer>(gModelInstancesUuid), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
 		pipeline.SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{.buffer = window.GetViewBuffer(i), .offset = 0, .range = VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{.buffer = myViews->GetBuffer(i), .offset = 0, .range = VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
@@ -2192,12 +2183,12 @@ RHIApplication::RHIApplication(
 
 	pipeline.SetDescriptorData(
 		"gMaterialData",
-		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>(gMaterialsUuid), .offset = 0, .range = VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer>(gMaterialsUuid), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
 	pipeline.SetDescriptorData(
 		"gModelInstances",
-		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer<kVk>>(gModelInstancesUuid), .offset = 0, .range = VK_WHOLE_SIZE},
+		DescriptorBufferInfo<kVk>{.buffer = *device.GetResource<Buffer>(gModelInstancesUuid), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	pipeline.SetDescriptorData(
@@ -2210,7 +2201,7 @@ RHIApplication::RHIApplication(
 	{
 		pipeline.SetDescriptorData(
 			"gViewData",
-			DescriptorBufferInfo<kVk>{.buffer = window.GetViewBuffer(i), .offset = 0, .range = VK_WHOLE_SIZE},
+			DescriptorBufferInfo<kVk>{.buffer = myViews->GetBuffer(i), .offset = 0, .range = VK_WHOLE_SIZE},
 			DESCRIPTOR_SET_CATEGORY_VIEW,
 			i);
 	}
@@ -2220,22 +2211,22 @@ RHIApplication::RHIApplication(
 	CreateWindowDependentObjects(rhi);
 }
 
-RHIApplication::~RHIApplication()
+WindowedApplication::~WindowedApplication()
 {
 	// can't tear down the rhi here, since Application::Get() already returns null (see Shutdown())
-	ENSUREF(!myRHI, "RHIApplication::Shutdown() must be called before the application is released");
+	ENSUREF(!myRHI, "WindowedApplication::Shutdown() must be called before the application is released");
 }
 
-void RHIApplication::Shutdown()
+void WindowedApplication::Shutdown()
 {
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 
-	ZoneScopedN("RHIApplication::Shutdown");
+	ZoneScopedN("WindowedApplication::Shutdown");
 
 	if (!myRHI)
 		return;
 
-	auto& rhi = GetRHI<kVk>();
+	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();
 	auto& executor = GetExecutor();
 
@@ -2289,21 +2280,21 @@ void RHIApplication::Shutdown()
 
 	ShutdownImgui(device.GetAllocator());
 
-	// not myRHI.reset(): that nulls myRHI before destroying the rhi, but objects destroyed along with it
-	// (e.g. window view buffers) still resolve the (not yet destroyed) devices through GetRHI()
-	delete myRHI.get();
-	(void)myRHI.release();
+	// what holds gpu objects, before the rhi they belong to
+	gModel.reset();
+	myViews.reset();
+	myRHI.reset();
 }
 
-void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
+void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
 {
-	using namespace rhiapplication;
+	using namespace windowedapplication;
 
 	std::unique_lock lock(gDrawMutex);
 
-	ZoneScopedN("RHIApplication::OnResizeFramebuffer");
+	ZoneScopedN("WindowedApplication::OnResizeFramebuffer");
 
-	auto& rhi = GetRHI<kVk>();
+	auto& rhi = GetRHI();
 	auto& rhiWindow = rhi.GetWindow(window);
 
 	// minimizing reports 0x0: keep the swapchain, and have Draw skip frames until the window is restored
@@ -2315,19 +2306,19 @@ void RHIApplication::OnResizeFramebuffer(WindowHandle window, int width, int hei
 	RecreateWindowDependentObjects(rhi, rhiWindow);
 }
 
-WindowState* RHIApplication::GetWindowState(WindowHandle window)
+WindowState* WindowedApplication::GetWindowState(WindowHandle window)
 {
-	return &GetRHI<kVk>().GetWindow(window).GetState();
+	return &GetRHI().GetWindow(window).GetState();
 }
 
-uint32_t RHIApplication::GetWindowCount() const noexcept
+uint32_t WindowedApplication::GetWindowCount() const noexcept
 {
-	return GetRHI<kVk>().GetWindows().size();
+	return GetRHI().GetWindows().size();
 }
 
-WindowHandle RHIApplication::GetWindow(uint32_t index) const noexcept
+WindowHandle WindowedApplication::GetWindow(uint32_t index) const noexcept
 {
-	return *std::next(GetRHI<kVk>().GetWindows().begin(), index);
+	return *std::next(GetRHI().GetWindows().begin(), index);
 }
 
-} // namespace rhi
+} // namespace gfx

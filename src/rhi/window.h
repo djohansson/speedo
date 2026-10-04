@@ -4,15 +4,11 @@
 #include <rhi/pipeline.h>
 #include <rhi/swapchain.h>
 
-#include <core/inputstate.h>
-#include <core/concurrentaccess.h>
-
-#include <gfx/bounds.h>
-#include <gfx/camera.h>
-
 #include <optional>
 #include <string>
 #include <vector>
+
+#include <glm/glm.hpp>
 
 namespace rhi
 {
@@ -25,7 +21,6 @@ struct WindowCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	WindowHandle window{};
 	glm::vec2 contentScale = glm::vec2(1.F, 1.F);
-	Extent2d<G> splitScreenGrid{1, 1}; // todo: replace with view list
 	bool fullscreen{false};
 };
 
@@ -53,8 +48,6 @@ public:
 	void Swap(Window& rhs) noexcept;
 	friend void Swap(Window& lhs, Window& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] const auto& GetActiveViewIndex() const noexcept { return myActiveCamera; }
-	[[nodiscard]] const auto& GetViewBuffer(uint8_t index) const noexcept { return myViewBuffers[index]; }
 	[[nodiscard]] auto& GetSwapchain() noexcept { return mySwapchain; }
 	[[nodiscard]] const auto& GetSwapchain() const noexcept { return mySwapchain; }
 	[[nodiscard]] auto& GetState() noexcept { return myState; }
@@ -63,31 +56,12 @@ public:
 	[[nodiscard]] bool IsMinimized() const noexcept { return myMinimized; }
 	void SetMinimized(bool minimized) noexcept { myMinimized = minimized; }
 
-	void OnInputStateChanged(const core::InputState& input);
+	// recreates the swapchain at the framebuffer's current size
 	void OnResizeFramebuffer(int width, int height);
-	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height); // call on the draw thread, which reads the grid unlocked
-
-	// moves every view's camera back from bounds (looking down -z) until all of it is in view, and fits the near and far
-	// planes to its size. call on the draw thread.
-	void FrameBounds(const Bounds3f& bounds);
-
-	void UpdateViewBuffer() { InternalUpdateViewBuffer(); }
 
 private:
-	void InternalUpdateViewBuffer();
-	void InternalInitializeViews(std::optional<Extent2d<G>> splitScreenGrid = std::nullopt);
-	void InternalUpdateViews(const core::InputState& input);
-
-	[[nodiscard]] uint32_t InternalDrawViews(
-		Pipeline<G>& pipeline,
-		Queue<G>& queue,
-		const RenderingInfo<G>& renderInfo);
-
 	WindowState myState{};
 	Swapchain<G> mySwapchain{};
-	std::vector<Buffer<G>> myViewBuffers; // cbuffer data for all views
-	core::ConcurrentAccess<std::vector<gfx::Camera>> myCameras;
-	std::optional<size_t> myActiveCamera;
 	bool myMinimized{};
 };
 

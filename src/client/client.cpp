@@ -286,9 +286,9 @@ void Client::Tick()
 	}
 
 	if (eventsProcessed > 0 || input.keyboard.keysDown.any())
-		RHIApplication::OnInputStateChanged(input);
+		WindowedApplication::OnInputStateChanged(input);
 
-	RHIApplication::PrepareDraw();
+	WindowedApplication::PrepareDraw();
 
 	using namespace std::chrono_literals;
 	static constexpr std::chrono::microseconds kTickMinTime = 1000us;
@@ -299,11 +299,11 @@ bool Client::Main()
 {
 	ZoneScopedN("Client::Main");
 
-	return RHIApplication::Main();
+	return WindowedApplication::Main();
 }
 
 Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
-: RHIApplication(
+: WindowedApplication(
 	std::forward<std::string_view>(name),
 	std::forward<Environment>(env),
 	createWindowFunc)
@@ -342,8 +342,8 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	myTimestamps[0] = std::chrono::high_resolution_clock::now();
 
 	// initial OnInputStateChanged call required to initialize data structures in imgui (and potentially others)
-	// since RHIApplication draw thread/tasks can launch before next Tick is called
-	RHIApplication::OnInputStateChanged(myInput);
+	// since WindowedApplication draw thread/tasks can launch before next Tick is called
+	WindowedApplication::OnInputStateChanged(myInput);
 }
 
 } // namespace client

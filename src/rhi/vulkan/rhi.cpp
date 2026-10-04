@@ -5,6 +5,7 @@
 
 #include <core/assert.h>
 
+#include <atomic>
 #include <cstdint>
 #include <format>
 #include <iostream>
@@ -16,6 +17,21 @@ namespace rhi
 
 namespace detail
 {
+
+static std::atomic<RHI<kVk>*> gRHI = nullptr;
+
+template <>
+RHIRegistration<kVk>::RHIRegistration(RHI<kVk>* rhi) noexcept
+{
+	[[maybe_unused]] RHI<kVk>* expected = nullptr;
+	ENSUREF(gRHI.compare_exchange_strong(expected, rhi), "only one RHI<kVk> may exist at a time");
+}
+
+template <>
+RHIRegistration<kVk>::~RHIRegistration()
+{
+	gRHI = nullptr;
+}
 
 std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, SurfaceHandle<kVk> surface)
 {
@@ -178,6 +194,12 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 } // namespace detail
 
 template <>
+RHI<kVk>* GetRHI<kVk>() noexcept
+{
+	return detail::gRHI.load(std::memory_order_acquire);
+}
+
+template <>
 RHI<kVk>::RHI(RHIInitializationData&& initData)
 	: myInstance(InstanceCreateDesc<kVk>{std::string(initData.name), "speedo"})
 	, myDevices{[&initData](Instance<kVk>& instance)
@@ -192,7 +214,7 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 {
 	using namespace detail;
 
-	// device objects resolve their Device via RHIApplication::GetRHI<kVk>().GetDevice(), so these
+	// device objects resolve their Device via GetRHI<kVk>()->GetDevice(), so these
 	// can only be created once the devices are registered in myDevices.
 	for (auto& device : myDevices)
 	{
@@ -205,7 +227,6 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 			GetPrimaryDevice().CreateDeviceObjectCreateDesc("Window"),
 			initData.windowHandle,
 			{initData.windowState.xscale, initData.windowState.yscale},
-			{.width = 1, .height = 1},
 			initData.windowState.fullscreenEnabled > 0,
 		},
 		DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface),

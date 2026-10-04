@@ -2,7 +2,7 @@
 
 #include <core/inputstate.h>
 #include <core/eventhandlers.h>
-#include <rhi/rhiapplication.h>
+#include <gfx/windowedapplication.h>
 
 #include <string_view>
 
@@ -12,7 +12,7 @@
 namespace client
 {
 
-class Client final : public rhi::RHIApplication, public core::KeyboardEventHandler, public core::MouseEventHandler
+class Client final : public gfx::WindowedApplication, public core::KeyboardEventHandler, public core::MouseEventHandler
 {	
 public:
 	Client(std::string_view name, core::Environment&& env, CreateWindowFunc createWindowFunc);

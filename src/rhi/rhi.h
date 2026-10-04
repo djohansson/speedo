@@ -27,6 +27,36 @@ struct RHIInitializationData
 	SurfaceHandle<kVk> surface{};
 };
 
+// the graphics api the code above rhi uses (one per build)
+inline constexpr GraphicsApi kGraphicsApi = kVk;
+
+template <GraphicsApi G>
+class RHI;
+
+// the RHI of a graphics api while one exists, from the start of its construction to the end of its destruction (so
+// that the objects it creates and destroys can find their instance and devices through it), else null
+template <GraphicsApi G>
+[[nodiscard]] RHI<G>* GetRHI() noexcept;
+
+namespace detail
+{
+
+// registers an RHI for GetRHI for as long as it lives, as its first member
+template <GraphicsApi G>
+class RHIRegistration final
+{
+public:
+	explicit RHIRegistration(RHI<G>* rhi) noexcept;
+	RHIRegistration(const RHIRegistration&) = delete;
+	RHIRegistration(RHIRegistration&&) = delete;
+	~RHIRegistration();
+
+	RHIRegistration& operator=(const RHIRegistration&) = delete;
+	RHIRegistration& operator=(RHIRegistration&&) = delete;
+};
+
+} // namespace detail
+
 template <GraphicsApi G>
 class RHI final : public RHIBase 
 {
@@ -59,6 +89,7 @@ public:
 	[[nodiscard]] const auto& GetPrimaryDevice() const noexcept { return myDevices.front(); }
 
 private:
+	detail::RHIRegistration<G> myRegistration{this}; // first: constructed before, and destroyed after, the rest
 	Instance<G> myInstance;
 	std::vector<Device<G>> myDevices;
 	std::vector<Window<G>> myWindows;

@@ -1,6 +1,6 @@
 #include <rhi/capi.h>
 #include <rhi/device.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
 #include <rhi/swapchain.h>
 #include <rhi/vulkan/utils.h>
 

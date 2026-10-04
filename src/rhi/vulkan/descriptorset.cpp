@@ -1,7 +1,7 @@
 #include <rhi/descriptorset.h>
 #include <rhi/device.h>
 #include <rhi/instance.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
 #include <format>

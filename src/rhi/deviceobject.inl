@@ -32,9 +32,8 @@ void DeviceObject<DerivedType>::Swap(DeviceObject<DerivedType>& other) noexcept
 template <> \
 Device<DeviceObject<DerivedType>::GetApi()>& DeviceObject<DerivedType>::GetDevice(DeviceHandle<GetApi()> deviceHandle) const noexcept \
 { \
-	if (auto app = std::static_pointer_cast<RHIApplication>(core::Application::Get())) \
-		return app->GetRHI<GetApi()>().GetDevice( \
-			deviceHandle ? deviceHandle : SuperType::GetDesc().device); \
+	if (auto* rhi = GetRHI<GetApi()>()) \
+		return rhi->GetDevice(deviceHandle ? deviceHandle : SuperType::GetDesc().device); \
 	static Device<GetApi()> gNullDevice{}; \
 	return gNullDevice; \
 }

@@ -1,7 +1,9 @@
 #pragma once
 
+#include <gfx/gpu.h>
+#include <gfx/views.h>
+
 #include <rhi/capi.h>
-#include <rhi/rhi.h>
 
 #include <core/application.h>
 #include <core/loadqueue.h>
@@ -14,13 +16,15 @@
 #include <string>
 #include <string_view>
 
-namespace rhi
+namespace gfx
 {
 
-class RHIApplication : public core::Application
+// an application drawing graphics in a window, on the build's graphics api (see gfx/gpu.h): it owns the rhi, draws
+// the loaded model with its materials through the window's views, and runs the user interface
+class WindowedApplication : public core::Application
 {	
 public:
-	~RHIApplication() override;
+	~WindowedApplication() override;
 	
 	[[nodiscard]] virtual bool Main();
 
@@ -48,17 +52,12 @@ public:
 	[[nodiscard]] uint32_t GetWindowCount() const noexcept;
 	[[nodiscard]] WindowHandle GetWindow(uint32_t index) const noexcept;
 
-	[[nodiscard]] RHIBase& GetRHI() noexcept { return *myRHI; }
-	[[nodiscard]] const RHIBase& GetRHI() const noexcept { return *myRHI; }
-
-	template <GraphicsApi G>
-	[[nodiscard]] RHI<G>& GetRHI() noexcept;
-
-	template <GraphicsApi G>
-	[[nodiscard]] const RHI<G>& GetRHI() const noexcept;
+	[[nodiscard]] RHI& GetRHI() noexcept { return *myRHI; }
+	[[nodiscard]] const RHI& GetRHI() const noexcept { return *myRHI; }
+	[[nodiscard]] Views& GetViews() noexcept { return *myViews; }
 
 protected:
-	RHIApplication(
+	WindowedApplication(
 		std::string_view name,
 		core::Environment&& env,
 		CreateWindowFunc createWindowFunc);
@@ -67,10 +66,11 @@ private:
 	template <typename LoadOp>
 	void InternalOpenFileDialogueAsync(
 		std::string&& resourcePathString,
-		const std::vector<window::FileFilter>& filterList,
+		const std::vector<rhi::window::FileFilter>& filterList,
 		LoadOp loadOp);
 	
-	std::unique_ptr<RHIBase> myRHI;
+	std::unique_ptr<RHI> myRHI;
+	std::unique_ptr<Views> myViews; // of the window
 	std::string myImGuiIniSettings;
 	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
@@ -80,6 +80,6 @@ private:
 	static bool gShowTps; //NOLINT(readability-identifier-naming)
 };
 
-} // namespace rhi
+} // namespace gfx
 
-#include "rhiapplication.inl"
+#include "windowedapplication.inl"

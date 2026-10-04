@@ -1,7 +1,7 @@
 #include "rhi/deviceobject.h"
 #include <rhi/command.h>
 #include <rhi/device.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
 #include <format>

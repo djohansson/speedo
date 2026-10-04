@@ -3,6 +3,7 @@
 
 #include <client/capi.h>
 
+#include <gfx/capi.h>
 #include <rhi/capi.h>
 
 #include <signal.h> 

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstddef>
+#include <span>
+
 #include <rhi/deviceobject.h>
 
 #include <core/task.h>
@@ -54,7 +57,16 @@ public:
 		std::tuple<BufferHandle<G>, AllocationHandle<G>>&& initialData,
 		CommandBufferHandle<G> cmd,
 		core::TaskCreateInfo<void>& timelineCallbackOut);
+	Buffer( // copies a staging buffer (see CreateStaging) into the target, and releases it from timelineCallbackOut
+		CreateDescType&& desc,
+		Buffer&& staging,
+		CommandBufferHandle<G> cmd,
+		core::TaskCreateInfo<void>& timelineCallbackOut);
 	~Buffer();
+
+	// a host visible buffer of size bytes, to fill (see Map) and copy from, with the staging constructors of Buffer and
+	// Image. filling it before taking a queue's lock keeps the copy under the lock short.
+	[[nodiscard]] static Buffer CreateStaging(DeviceObjectCreateDesc<G>&& desc, size_t size);
 
 	[[maybe_unused]] Buffer& operator=(Buffer&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return GetBuffer(); }//NOLINT(google-explicit-constructor)
@@ -64,6 +76,12 @@ public:
 
 	[[nodiscard]] const auto& GetBuffer() const noexcept { return std::get<0>(myBuffer); }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
+
+	// for host visible buffers: the buffer's memory, until Unmap. Flush makes host writes to a range of it visible to
+	// the device when the memory isn't host coherent.
+	[[nodiscard]] std::span<std::byte> Map();
+	void Unmap();
+	void Flush(size_t offset, size_t size);
 
 private:
 	ValueType myBuffer{};

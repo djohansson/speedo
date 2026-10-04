@@ -1,5 +1,4 @@
 #include <rhi/capi.h>
-#include <rhi/rhiapplication.h>
 
 #include <optional>
 
@@ -8,15 +7,6 @@ namespace rhi
 
 static std::optional<WindowHandle> gCurrentWindow{};
 
-}
-
-void ResizeFramebuffer(WindowHandle window, int width, int height)
-{
-	using namespace core;
-	using namespace rhi;
-
-	if (auto app = static_pointer_cast<RHIApplication>(Application::Get()); app)
-		app->OnResizeFramebuffer(window, width, height);
 }
 
 WindowHandle GetCurrentWindow(void)
@@ -34,13 +24,3 @@ void SetCurrentWindow(WindowHandle window)
 		gCurrentWindow = window;
 }
 
-WindowState* GetWindowState(WindowHandle window)
-{
-	using namespace core;
-	using namespace rhi;
-
-	if (auto app = static_pointer_cast<RHIApplication>(Application::Get()); app)
-		return app->GetWindowState(window);
-
-	return nullptr;
-}

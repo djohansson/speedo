@@ -121,7 +121,7 @@ public:
 
 private:
 	// queues and pipeline are created by RHI once the device is registered in RHI::myDevices,
-	// since DeviceObject<T>::GetDevice() resolves devices through RHIApplication::GetRHI<G>().
+	// since DeviceObject<T>::GetDevice() resolves devices through GetRHI<G>().
 	template <GraphicsApi> friend class RHI;
 
 	void InternalCreateQueues();

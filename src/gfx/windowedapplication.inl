@@ -1,12 +1,12 @@
-namespace rhi
+namespace gfx
 {
 
 template <typename LoadOp>
-void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<window::FileFilter>& filterList, LoadOp loadOp)
+void WindowedApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<rhi::window::FileFilter>& filterList, LoadOp loadOp)
 {
 	using namespace core;
 	
-	auto app = std::static_pointer_cast<RHIApplication>(Application::Get());
+	auto app = std::static_pointer_cast<WindowedApplication>(Application::Get());
 	ENSURE(app);
 	auto& rhi = app->GetRHI();
 
@@ -15,7 +15,7 @@ void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 	auto [openFileTask, openFileFuture] = CreateTask(
 		[resourcePathString = std::move(resourcePathString), filterList = std::vector(filterList), loadOp = std::move(loadOp)]() mutable
 		{
-			auto [openFileResult, openFilePath] = window::OpenFileDialogue(std::move(resourcePathString), filterList);
+			auto [openFileResult, openFilePath] = rhi::window::OpenFileDialogue(std::move(resourcePathString), filterList);
 			if (!openFileResult)
 				return;
 
@@ -29,4 +29,4 @@ void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 	rhi.mainCalls.enqueue(openFileTask);
 }
 
-} // namespace rhi
+} // namespace gfx

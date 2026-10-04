@@ -45,8 +45,8 @@ Object<DerivedType>::~Object()
 template <> \
 Instance<ObjectTraits<DerivedType>::CreateDescType::GetApi()>& Object<DerivedType>::GetInstance() const noexcept \
 { \
-	if (auto app = std::static_pointer_cast<RHIApplication>(core::Application::Get())) \
-		return app->GetRHI<ObjectTraits<DerivedType>::CreateDescType::GetApi()>().GetInstance(); \
+	if (auto* rhi = GetRHI<ObjectTraits<DerivedType>::CreateDescType::GetApi()>()) \
+		return rhi->GetInstance(); \
 	static Instance<ObjectTraits<DerivedType>::CreateDescType::GetApi()> gNullInstance{}; \
 	return gNullInstance; \
 }

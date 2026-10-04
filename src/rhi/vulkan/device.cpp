@@ -1,5 +1,7 @@
 #include <rhi/device.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
+
+#include <core/application.h>
 #include <rhi/vulkan/utils.h>
 
 #include <core/std_extra.h>

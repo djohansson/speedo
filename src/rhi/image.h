@@ -1,7 +1,7 @@
 #pragma once
 
 #include <core/task.h>
-#include <gfx/imageimport.h>
+#include <rhi/buffer.h>
 #include <rhi/deviceobject.h>
 
 #include <memory>
@@ -72,11 +72,11 @@ public:
 	Image(Image&& other) noexcept;
 	explicit Image( // creates uninitialized image
 		CreateDescType&& desc);
-	Image( // loads a file into a buffer and creates a new image from it.
-		DeviceHandle<G> device,
+	Image( // copies a staging buffer (see Buffer::CreateStaging) into the target, mip level by mip level as desc lays them
+		   // out, and releases the staging buffer from timlineCallbackOut
+		CreateDescType&& desc,
+		Buffer<G>&& staging,
 		CommandBufferHandle<G> cmd,
-		std::string_view imageFile,
-		std::atomic_uint8_t& progressOut,
 		core::TaskCreateInfo<void>& timlineCallbackOut);
 	Image( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		CreateDescType&& desc,
@@ -100,19 +100,7 @@ public:
 		const std::optional<ImageSubresourceRange<G>>& range = std::nullopt);
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags = {});
 
-	// loads and uploads an image (plus a view of it). returns once the upload has completed; the image is left in the
-	// layout of the upload, so the caller must transition it before sampling from it. returns nulls if the load was
-	// cancelled because the application is exiting, or failed (the reason is printed to stderr). options.usage decides
-	// the format: color images get an srgb one, so that sampling them returns linear values.
-	[[nodiscard]]
-	static std::tuple<std::shared_ptr<Image<G>>, std::shared_ptr<ImageView<G>>>
-	LoadImage(DeviceHandle<G> deviceHandle, std::string_view imageFile, std::atomic_uint8_t& progress, const gfx::image::Options& options = {});
-
 private:
-	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
-		CommandBufferHandle<G> cmd,
-		core::TaskCreateInfo<void>& timlineCallbackOut,
-		std::tuple<BufferHandle<G>, AllocationHandle<G>, CreateDescType>&& initialDataAndDesc);
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
 		CreateDescType&& desc,
 		CommandBufferHandle<G> cmd,

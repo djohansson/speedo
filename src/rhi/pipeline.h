@@ -5,7 +5,6 @@
 #include <rhi/descriptorset.h>
 #include <rhi/deviceobject.h>
 #include <rhi/rendertarget.h>
-#include <rhi/model.h>
 #include <rhi/shader.h>
 #include <rhi/types.h>
 
@@ -199,7 +198,6 @@ public:
 		uint32_t index);	
 
 	void SetRenderTarget(IRenderTarget<G>& renderTarget);
-	void SetVertexInputState(const Model<G>& model);
 	//
 
 	// "auto" api end	

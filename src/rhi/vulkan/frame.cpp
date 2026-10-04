@@ -1,5 +1,5 @@
 #include <rhi/frame.h>
-#include <rhi/rhiapplication.h>
+#include <rhi/rhi.h>
 #include <rhi/rendertarget.h>
 #include <rhi/vulkan/utils.h>
 

@@ -11,6 +11,7 @@
 #endif
 
 #include <core/capi.h>
+#include <gfx/capi.h>
 #include <rhi/capi.h>
 
 #ifdef __cplusplus

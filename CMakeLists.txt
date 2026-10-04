@@ -120,7 +120,7 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB GFX_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
+file(GLOB_RECURSE GFX_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
 add_library(gfx STATIC ${GFX_SOURCE_FILES})
 
 target_compile_features(
@@ -138,6 +138,7 @@ target_link_libraries(
 	gfx
 	PUBLIC
 		core
+		rhi
 		xxHash::xxhash
 		imgui::imgui
 		glm::glm

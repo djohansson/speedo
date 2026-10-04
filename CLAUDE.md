@@ -2,6 +2,19 @@
 
 Notes for working in this codebase, distilled from real build failures.
 
+## Layering: core ← rhi ← gfx ← client
+
+- `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchain,
+  `Window`), templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
+  their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
+  by its first member, so before its members are created and after they are destroyed).
+- `gfx` is everything above it: importers (`obj::Import`, `image::Import`, `zip`), `Model`, `LoadTexture`, cameras and
+  `Views`, and `gfx::WindowedApplication` (the windowed, drawing application the client derives from). gfx code is
+  not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
+  build), and its headers carry no backend types. Code that still needs Vulkan calls, enums or types lives in
+  `gfx/vulkan/*.cpp`, each saying what it uses; moving those behind rhi APIs (command recording, barriers, formats,
+  usage flags, the imgui backend) is the next step.
+
 ## rhi: `Object<T>` / `DeviceObject<T>` base classes
 
 Most `rhi` types (`Buffer`, `Fence`, `Queue`, `Pipeline`, `Window`, ...) derive from
@@ -19,8 +32,7 @@ If a new type deriving from `Object`/`DeviceObject` is added (or one is spotted 
 these), forgetting this produces linker errors like
 `undefined symbol: rhi::Object<rhi::Foo<...>>::GetInstance() const` — it is *not* a sign
 that something else is broken, just that the macro invocation is missing. These macros
-expand to code that calls `RHIApplication::GetRHI<G>()`, so the `.cpp` needs
-`#include <rhi/rhiapplication.h>`.
+expand to code that calls `GetRHI<G>()`, so the `.cpp` needs `#include <rhi/rhi.h>`.
 
 ## Move-via-Swap idiom
 
@@ -58,8 +70,8 @@ definition. Two concrete ways this bites in this codebase:
    file, not after.
 2. **`IMPLEMENT_OBJECT_GETINSTANCE`/`IMPLEMENT_DEVICEOBJECT_GETDEVICE`**: if the same
    `.cpp` also defines explicit specializations of functions the macro calls internally
-   (e.g. `rhiapplication.cpp` defining `RHIApplication::GetRHI<kVk>()`), the macro
-   invocation must come *after* those specializations, not before.
+   (e.g. `vulkan/rhi.cpp` defining `GetRHI<kVk>()`), the macro invocation must come *after* those
+   specializations, not before.
 
 ## Gotcha: delegating constructors run their arguments before the base exists
 
@@ -83,7 +95,7 @@ members are initialized, so pass a copy.
 
 Serialized create-descs arrive *without* runtime handles: `ObjectCreateDesc`/`DeviceObjectCreateDesc`
 deliberately serialize only `uuid`, never `instance`/`device`/`name`. Any code that builds a desc from a
-file or cache (shader reflection, `image::detail::Load`, ...) must fill in `instance`/`device`, and
+file or cache (e.g. shader reflection) must fill in `instance`/`device`, and
 replace the `uuid` with `uuids::NewUuid()` (a cached desc holds the uuid of the object it was saved from),
 before the desc is used to construct an object, or `GetDevice()` trips the assert below. Also, a
 derived desc with extra fields needs its own `serialize()` (see `ImageCreateDesc`): otherwise it
@@ -91,29 +103,28 @@ inherits the base one and silently serializes only the `uuid`. When a serialized
 bump the `cache-vN` tag in that loader's params hash so stale caches are rebuilt rather than misread.
 
 Related: `DeviceObject<T>::GetDevice()` resolves through
-`RHIApplication::GetRHI<G>().GetDevice(handle)`, which only finds devices already stored in
+`GetRHI<G>()->GetDevice(handle)`, which only finds devices already stored in
 `RHI::myDevices`. That's why `Device` creates its queues and pipeline from the `RHI`
 constructor, after the devices are registered, rather than from its own constructor. A
 failed lookup trips the `ASSERTF` in `RHI::GetDevice()`.
 
 ## Application lifecycle: create and destroy while registered in `gApplication`
 
-Device objects find their instance/device through `core::Application::Get()`, which locks the
-`core::gApplication` weak_ptr. Two rules follow from that:
+Much of the code (asset loading, the pipeline cache path, exit requests) finds the application through
+`core::Application::Get()`, which locks the `core::gApplication` weak_ptr. Two rules follow from that:
 
 - **Create with `core::CreateApplication<T>(args...)`** (`src/core/application.h`). It publishes
   the application in `gApplication` *before* constructing it (objects created during construction
   need `Get()`), and constructs it exactly once in place. Don't recreate the old
   `make_shared_for_overwrite` + `std::construct_at` pattern: it constructs a default object first
   and never destroys it, which leaked a second `TaskExecutor` and its threads. The default
-  constructors of `Application`/`RHIApplication`/`Client`/`Server`/`RHI` were removed so that
+  constructors of `Application`/`WindowedApplication`/`Client`/`Server`/`RHI` were removed so that
   pattern no longer compiles.
 - **Tear down before releasing the last `shared_ptr`.** Once the strong count hits zero, `Get()`
-  returns null even though destructors are still running, and `GetDevice()`/`GetInstance()`
-  silently fall back to null objects ("Invalid device" from the loader). So `ClientDestroy` calls
-  `RHIApplication::Shutdown()` (joins all tasks, waits for the GPU, flushes timeline callbacks,
-  shuts down imgui, destroys the RHI) *before* `reset()`, and `ServerDestroy` joins the executor
-  first. `~RHIApplication` only checks that `Shutdown()` ran.
+  returns null even though destructors are still running. So `ClientDestroy` calls
+  `WindowedApplication::Shutdown()` (joins all tasks, waits for the GPU, flushes timeline callbacks,
+  shuts down imgui, releases what holds gpu objects, destroys the RHI) *before* `reset()`, and
+  `ServerDestroy` joins the executor first. `~WindowedApplication` only checks that `Shutdown()` ran.
 
 Related gotchas hit while getting shutdown right:
 
@@ -122,9 +133,8 @@ Related gotchas hit while getting shutdown right:
 - Destructor bodies run *before* members are destroyed: if a body destroys the parent handle
   (`vkDestroyDevice`, `vmaDestroyAllocator`, `vkDestroyCommandPool`), release the members owning
   children of it first (see `~Device`, `~CommandPool`).
-- Don't `myRHI.reset()`: it nulls the pointer before `~RHI` runs, while objects being destroyed
-  still resolve devices through `GetRHI()`. `Shutdown()` does `delete myRHI.get()` then
-  `release()`.
+- Release everything holding gpu objects (the model, the views, textures) before the RHI: once it is
+  destroyed, `GetRHI<G>()` returns null and objects fall back to null instances and devices.
 - Task chains (`Rpc`/`Tick`/`Draw` in client/server) must reach `SetTaskDone` on *every* exit path,
   including errors, and `*Destroy` stops them with `RequestTaskStop`/`WaitTaskStopped` (an
   `exchange`, so an already-ended chain isn't waited on forever).
@@ -178,7 +188,7 @@ Consequences:
 - **Never hold locks on two queue types at once** unless you know they are distinct (e.g. the
   compute lock inside `Draw()` is only taken when `dedicatedCompute`): `UpgradableSharedMutex` is
   not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
-  visiting all queue types dedupe by context (see `RHIApplication::Shutdown()`).
+  visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
 
 ## Descriptor sets: redundant updates consume the pool
 
@@ -197,8 +207,9 @@ previous resource is freed via `RetireAfterGraphicsWork` once all in-flight grap
 ## Asset import and testing
 
 Decoding is CPU only and lives in `gfx`: `gfx::obj::Import` (tinyobjloader) and `gfx::image::Import` (stb_image,
-stb_image_resize2, stb_dxt). `rhi`'s `Model`/`Image` loaders only copy the result into staging buffers, and a failed
-load prints why and returns null instead of trapping. When an importer changes what it produces, bump its
+stb_image_resize2, stb_dxt). `gfx::Model::Load` and `gfx::LoadTexture` cache the result and fill rhi staging buffers
+(`Buffer::CreateStaging`, before taking a queue's lock), which the staging constructors of `Buffer`/`Image` upload; a
+failed load prints why and returns null instead of trapping. When an importer changes what it produces, bump its
 `objimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output. Assets outside
 `RootPath` are cached under `<user profile>/external/<absolute path>`.
 
@@ -222,7 +233,7 @@ points down: without it bumps come out inverted. A quad with a known height map 
 the light comes from) is the quickest way to see a sign error. `InstallModel` switches model, textures and materials in one draw
 thread step, after the textures are transitioned: every change to `gTextures` takes a new descriptor set (see above),
 and the pool only holds 128 copies of that 1024 slot array. Installing a model also frames the cameras on its bounds
-(`Window::FrameBounds`).
+(`Views::FrameBounds`).
 
 Zip archives (File > Open Zip..., or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads its first model) are extracted
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `gfx::zip` (stb_image's inflate, no zip
@@ -245,7 +256,7 @@ forwarding references, so an **lvalue argument is stored as a reference**, not c
 usually runs later, so passing a local or a function parameter as an lvalue leaves a dangling
 reference (typically read back as mimalloc's freed-memory pattern `0xdfdf...`). Pass arguments that
 must outlive the call as rvalues — `std::move(x)` or an explicit copy like `std::vector(x)` — as
-`RHIApplication::InternalOpenFileDialogueAsync` does. Only pass lvalues when the reference is
+`WindowedApplication::InternalOpenFileDialogueAsync` does. Only pass lvalues when the reference is
 intended and the referee outlives the task (e.g. the `Rpc` tasks' socket/poller, which are members
 of the client/server object).
 
