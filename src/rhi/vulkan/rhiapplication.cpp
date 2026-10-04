@@ -20,7 +20,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -92,6 +91,9 @@ static core::ConcurrentQueue<IMGUITextureOp> gIMGUITextureOps;
 static core::ProducerToken gIMGUITextureOpsProducer(gIMGUITextureOps);
 static std::vector<IMGUITextureOp> gIMGUIDeferredTextureDestroys; // draw thread only
 static core::ConcurrentQueue<VkDescriptorSet> gIMGUIRetiredDescriptorSets; // freed in PrepareDraw
+// gpu submits (and their batches) between the last two presented frames, from any thread. written by Draw
+static std::atomic_uint32_t gFrameSubmitCount;
+static std::atomic_uint32_t gFrameSubmitBatchCount;
 static std::array<uuids::uuid, 3> gRenderImageSetUuids;
 static uuids::uuid gModelUuid;
 static uuids::uuid gBlackTextureUuid;
@@ -1007,26 +1009,16 @@ void RHIApplication::PrepareDraw()
 				Text("Surfaces: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_SURFACE_KHR));
 				Text("Swapchains: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
 
-				// gpu submits: totals, and rates over the last whole second
-				static auto gSubmitRateTime = std::chrono::steady_clock::now();
-				static uint64_t gSubmitRateCount = Queue<kVk>::GetSubmitCount();
-				static uint64_t gSubmitRateBatchCount = Queue<kVk>::GetSubmitBatchCount();
-				static uint64_t gSubmitsPerSecond = 0;
-				static uint64_t gSubmitBatchesPerSecond = 0;
-				auto submitCount = Queue<kVk>::GetSubmitCount();
-				auto submitBatchCount = Queue<kVk>::GetSubmitBatchCount();
-				if (auto now = std::chrono::steady_clock::now(); now - gSubmitRateTime >= std::chrono::seconds(1))
-				{
-					auto seconds = std::chrono::duration<double>(now - gSubmitRateTime).count();
-					gSubmitsPerSecond = static_cast<uint64_t>(static_cast<double>(submitCount - gSubmitRateCount) / seconds);
-					gSubmitBatchesPerSecond = static_cast<uint64_t>(static_cast<double>(submitBatchCount - gSubmitRateBatchCount) / seconds);
-					gSubmitRateTime = now;
-					gSubmitRateCount = submitCount;
-					gSubmitRateBatchCount = submitBatchCount;
-				}
+				// gpu submits: totals, and how many went to the gpu between the last two presented frames (see Draw)
 				Separator();
-				Text("Queue Submits: %llu (%llu/s)", static_cast<unsigned long long>(submitCount), static_cast<unsigned long long>(gSubmitsPerSecond));
-				Text("Submit Batches: %llu (%llu/s)", static_cast<unsigned long long>(submitBatchCount), static_cast<unsigned long long>(gSubmitBatchesPerSecond));
+				Text(
+					"Queue Submits: %llu (%u/frame)",
+					static_cast<unsigned long long>(Queue<kVk>::GetSubmitCount()),
+					gFrameSubmitCount.load(std::memory_order_relaxed));
+				Text(
+					"Submit Batches: %llu (%u/frame)",
+					static_cast<unsigned long long>(Queue<kVk>::GetSubmitBatchCount()),
+					gFrameSubmitBatchCount.load(std::memory_order_relaxed));
 			}
 			End();
 		}
@@ -1511,6 +1503,15 @@ bool RHIApplication::Draw()
 			graphicsSubmits |= graphicsQueue.Present(&presentResult);
 			swapchain.OnPresentResult(presentResult);
 		}
+
+		static uint64_t gLastFrameSubmitCount = Queue<kVk>::GetSubmitCount();
+		static uint64_t gLastFrameSubmitBatchCount = Queue<kVk>::GetSubmitBatchCount();
+		auto submitCount = Queue<kVk>::GetSubmitCount();
+		auto submitBatchCount = Queue<kVk>::GetSubmitBatchCount();
+		gFrameSubmitCount.store(static_cast<uint32_t>(submitCount - gLastFrameSubmitCount), std::memory_order_relaxed);
+		gFrameSubmitBatchCount.store(static_cast<uint32_t>(submitBatchCount - gLastFrameSubmitBatchCount), std::memory_order_relaxed);
+		gLastFrameSubmitCount = submitCount;
+		gLastFrameSubmitBatchCount = submitBatchCount;
 	}
 
 	GetExecutor().Submit(frameTasks);
