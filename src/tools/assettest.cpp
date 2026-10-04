@@ -265,8 +265,10 @@ Report CheckImage(const std::filesystem::path& path)
 
 	static constexpr std::byte kFill{0xcd};
 	std::vector<std::byte> data;
+	// as the client loads them: as color (textures that aren't, like bump maps, only differ in how mips are filtered)
 	auto image = gfx::image::Import(
 		path,
+		gfx::image::ColorSpace::kSrgb,
 		[&data](size_t size)
 		{
 			data.assign(size, kFill);
@@ -342,18 +344,21 @@ Report CheckImage(const std::filesystem::path& path)
 		return rgba;
 	};
 
-	// rgb weighted by alpha (the resize doesn't let the color of transparent pixels bleed into the mips), and alpha
-	auto average = [](const std::vector<uint8_t>& rgba)
+	// rgb weighted by alpha (the resize doesn't let the color of transparent pixels bleed into the mips), and alpha. in
+	// linear space, where the mips are filtered, and back to srgb for comparing.
+	auto toLinear = [](double c) { c /= 255.0; return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
+	auto toSrgb = [](double c) { return 255.0 * (c <= 0.0031308 ? c * 12.92 : (1.055 * std::pow(c, 1.0 / 2.4)) - 0.055); };
+	auto average = [&toLinear, &toSrgb](const std::vector<uint8_t>& rgba)
 	{
 		std::array<double, 4> sum{};
 		for (size_t i = 0; i < rgba.size(); i += 4)
 		{
 			for (size_t ch = 0; ch < 3; ch++)
-				sum[ch] += rgba[i + ch] * (rgba[i + 3] / 255.0);
+				sum[ch] += toLinear(rgba[i + ch]) * (rgba[i + 3] / 255.0);
 			sum[3] += rgba[i + 3];
 		}
 		for (size_t ch = 0; ch < 3; ch++)
-			sum[ch] = sum[3] > 0.0 ? sum[ch] * 255.0 / sum[3] : 0.0;
+			sum[ch] = sum[3] > 0.0 ? toSrgb(sum[ch] * 255.0 / sum[3]) : 0.0;
 		sum[3] /= static_cast<double>(rgba.size() / 4);
 		return sum;
 	};

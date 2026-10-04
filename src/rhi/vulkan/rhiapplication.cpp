@@ -843,7 +843,9 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 			ImageCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc(std::format("Main RT Color Image {}", frameIt)),
 				{{.extent = window.GetSwapchain().GetDesc().extent}},
-				window.GetSwapchain().GetDesc().surfaceFormat.format,
+				// linear: shading and blending happen in linear space, and ComputeMain applies the srgb curve when it
+				// copies the result to the swapchain. vulkan requires this format to support all of the usages below.
+				VK_FORMAT_R16G16B16A16_SFLOAT,
 				VK_IMAGE_TILING_OPTIMAL,
 				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT/* | VK_IMAGE_USAGE_TRANSFER_DST_BIT*/ | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
 				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,

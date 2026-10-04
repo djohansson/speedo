@@ -101,10 +101,11 @@ public:
 
 	// loads and uploads an image (plus a view of it). returns once the upload has completed; the image is left in the
 	// layout of the upload, so the caller must transition it before sampling from it. returns nulls if the load was
-	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
+	// cancelled because the application is exiting, or failed (the reason is printed to stderr). a color image (srgb)
+	// gets an srgb format, so that sampling it returns linear values; anything else (normals, masks) is left as is.
 	[[nodiscard]]
 	static std::tuple<std::shared_ptr<Image<G>>, std::shared_ptr<ImageView<G>>>
-	LoadImage(DeviceHandle<G> deviceHandle, std::string_view imageFile, std::atomic_uint8_t& progress);
+	LoadImage(DeviceHandle<G> deviceHandle, std::string_view imageFile, std::atomic_uint8_t& progress, bool srgb = true);
 
 private:
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.

@@ -213,8 +213,9 @@ void ComputeMain(
 
             uint2 xy = uint2(x, y);
 
-            // dst[xy] = src[xy];
-            dst.Store(xy, src.Load(int3(xy, 0)));
+            // the render target is linear, the swapchain (a storage image, so not an srgb format) is not
+            float4 color = src.Load(int3(xy, 0));
+            dst.Store(xy, float4(ApplySRGBCurve(saturate(color.rgb)), color.a));
         }
     }
 

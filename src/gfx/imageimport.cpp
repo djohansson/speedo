@@ -125,6 +125,7 @@ void DecodeColors(std::span<const std::byte, 4> endpoints, bool fourColors, std:
 
 std::expected<Image, std::string> Import(
 	const std::filesystem::path& path,
+	ColorSpace colorSpace,
 	const std::function<std::byte*(size_t size)>& allocate,
 	std::atomic_uint8_t* progress,
 	const std::function<bool()>& cancelled)
@@ -143,6 +144,7 @@ std::expected<Image, std::string> Import(
 
 	Image image;
 	image.channelCount = static_cast<uint32_t>(channelCount);
+	image.colorSpace = colorSpace;
 
 	auto pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
 	bool alpha = false;
@@ -189,7 +191,8 @@ std::expected<Image, std::string> Import(
 
 			const auto& previousLevel = image.mipLevels[levelIt - 1];
 			current.resize(static_cast<size_t>(level.width) * level.height * kRgba);
-			if (stbir_resize_uint8_linear(
+			auto resize = colorSpace == ColorSpace::kSrgb ? &stbir_resize_uint8_srgb : &stbir_resize_uint8_linear;
+			if (resize(
 					src,
 					static_cast<int>(previousLevel.width),
 					static_cast<int>(previousLevel.height),
