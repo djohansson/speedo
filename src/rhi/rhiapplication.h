@@ -75,6 +75,7 @@ private:
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
 	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
 	static bool gShowFps; //NOLINT(readability-identifier-naming)
+	static bool gShowTps; //NOLINT(readability-identifier-naming)
 };
 
 } // namespace rhi

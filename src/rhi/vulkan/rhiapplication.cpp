@@ -1036,8 +1036,23 @@ void RHIApplication::PrepareDraw()
 		End();
 	}
 
-	// frame rate overlay in the top right corner, below the menu bar
-	if (gShowFps)
+	// ticks per second: PrepareDraw runs once per tick, measured like the frame rate (see Draw)
+	static float gTicksPerSecond = 0.0F;
+	{
+		using namespace std::chrono_literals;
+		static auto gTpsTime = std::chrono::steady_clock::now();
+		static uint32_t gTpsTickCount = 0;
+		gTpsTickCount++;
+		if (auto now = std::chrono::steady_clock::now(); now - gTpsTime >= 500ms)
+		{
+			gTicksPerSecond = static_cast<float>(gTpsTickCount) / std::chrono::duration<float>(now - gTpsTime).count();
+			gTpsTickCount = 0;
+			gTpsTime = now;
+		}
+	}
+
+	// frame/tick rate overlay in the top right corner, below the menu bar
+	if (gShowFps || gShowTps)
 	{
 		constexpr float kFpsOverlayPadding = 10.0F;
 		constexpr float kFpsOverlayBgAlpha = 0.35F;
@@ -1048,13 +1063,18 @@ void RHIApplication::PrepareDraw()
 			ImVec2(1.0F, 0.0F));
 		SetNextWindowBgAlpha(kFpsOverlayBgAlpha);
 		if (Begin(
-				"FPS",
+				"Rates",
 				nullptr,
 				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
 					ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
 		{
-			float fps = gFramesPerSecond.load(std::memory_order_relaxed);
-			Text("%.0f FPS (%.2f ms)", fps, fps > 0.0F ? 1000.0F / fps : 0.0F);
+			if (gShowFps)
+			{
+				float fps = gFramesPerSecond.load(std::memory_order_relaxed);
+				Text("%.0f FPS (%.2f ms)", fps, fps > 0.0F ? 1000.0F / fps : 0.0F);
+			}
+			if (gShowTps)
+				Text("%.0f TPS (%.2f ms)", gTicksPerSecond, gTicksPerSecond > 0.0F ? 1000.0F / gTicksPerSecond : 0.0F);
 		}
 		End();
 	}
@@ -1197,6 +1217,7 @@ void RHIApplication::PrepareDraw()
 				}
 			}
 			MenuItem("FPS", nullptr, &gShowFps);
+			MenuItem("TPS", nullptr, &gShowTps);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
