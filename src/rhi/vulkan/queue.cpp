@@ -268,6 +268,9 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 			reinterpret_cast<uintptr_t>(myQueue));
 	}
 
+	gSubmitCount.fetch_add(1, std::memory_order_relaxed);
+	gSubmitBatchCount.fetch_add(myPendingSubmits.size(), std::memory_order_relaxed);
+
 	myPendingSubmits.clear();
 
 	return result;

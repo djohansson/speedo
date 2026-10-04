@@ -11,6 +11,8 @@
 #include <core/circularcontainer.h>
 #include <core/concurrentaccess.h>
 #include <core/std_extra.h>
+
+#include <atomic>
 #include <core/upgradablesharedmutex.h>
 
 #include <cstdint>
@@ -157,6 +159,10 @@ public:
 
 	void SwapAndResetPool();
 
+	// totals over all queues: gpu submits (vkQueueSubmit calls), and the submit batches (VkSubmitInfos) they carried
+	[[nodiscard]] static uint64_t GetSubmitCount() noexcept { return gSubmitCount.load(std::memory_order_relaxed); }
+	[[nodiscard]] static uint64_t GetSubmitBatchCount() noexcept { return gSubmitBatchCount.load(std::memory_order_relaxed); }
+
 	template <SourceLocationData Location>
 	[[nodiscard]] std::shared_ptr<void> CreateGpuScope(CommandBufferHandle<G> cmd);
 	void CollectGpuScope(CommandBufferHandle<G> cmd);
@@ -180,6 +186,9 @@ private:
 #if (SPEEDO_PROFILING_LEVEL > 0)
 	void* myProfilingContext = nullptr;
 #endif
+
+	static inline std::atomic_uint64_t gSubmitCount = 0; //NOLINT(readability-identifier-naming)
+	static inline std::atomic_uint64_t gSubmitBatchCount = 0; //NOLINT(readability-identifier-naming)
 };
 
 template <GraphicsApi G>

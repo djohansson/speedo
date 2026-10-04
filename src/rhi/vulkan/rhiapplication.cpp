@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <format>
@@ -1005,6 +1006,27 @@ void RHIApplication::PrepareDraw()
 				Text("Command Pools: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_COMMAND_POOL));
 				Text("Surfaces: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_SURFACE_KHR));
 				Text("Swapchains: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_SWAPCHAIN_KHR));
+
+				// gpu submits: totals, and rates over the last whole second
+				static auto gSubmitRateTime = std::chrono::steady_clock::now();
+				static uint64_t gSubmitRateCount = Queue<kVk>::GetSubmitCount();
+				static uint64_t gSubmitRateBatchCount = Queue<kVk>::GetSubmitBatchCount();
+				static uint64_t gSubmitsPerSecond = 0;
+				static uint64_t gSubmitBatchesPerSecond = 0;
+				auto submitCount = Queue<kVk>::GetSubmitCount();
+				auto submitBatchCount = Queue<kVk>::GetSubmitBatchCount();
+				if (auto now = std::chrono::steady_clock::now(); now - gSubmitRateTime >= std::chrono::seconds(1))
+				{
+					auto seconds = std::chrono::duration<double>(now - gSubmitRateTime).count();
+					gSubmitsPerSecond = static_cast<uint64_t>(static_cast<double>(submitCount - gSubmitRateCount) / seconds);
+					gSubmitBatchesPerSecond = static_cast<uint64_t>(static_cast<double>(submitBatchCount - gSubmitRateBatchCount) / seconds);
+					gSubmitRateTime = now;
+					gSubmitRateCount = submitCount;
+					gSubmitRateBatchCount = submitBatchCount;
+				}
+				Separator();
+				Text("Queue Submits: %llu (%llu/s)", static_cast<unsigned long long>(submitCount), static_cast<unsigned long long>(gSubmitsPerSecond));
+				Text("Submit Batches: %llu (%llu/s)", static_cast<unsigned long long>(submitBatchCount), static_cast<unsigned long long>(gSubmitBatchesPerSecond));
 			}
 			End();
 		}
