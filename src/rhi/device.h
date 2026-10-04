@@ -96,9 +96,14 @@ public:
 	template <typename T>
 	[[nodiscard]] std::shared_ptr<T> GetResource(const uuids::uuid& uuid) const
 	{
-		auto it = myResources.find(uuid);
-		ENSUREF(it != myResources.end(), "no resource with uuid {}", uuids::to_string(uuid));
-		return static_pointer_cast<T>(*it);
+		return static_pointer_cast<T>(*InternalGetResourceIterator(uuid));
+	}
+	// stores a resource created elsewhere (e.g. by a loader), found by its own uuid from now on. the only way into the
+	// set: it must not be null, nor already stored.
+	void AddResource(std::shared_ptr<IObject> resource)
+	{
+		ENSUREF(resource, "cannot add a null resource");
+		ENSUREF(myResources.insert(std::move(resource)).second, "resource is already stored");
 	}
 	// constructs a T from args (its create desc first) and stores it. returns the resource: keep its GetUuid() to find
 	// it again.
@@ -106,24 +111,24 @@ public:
 	[[nodiscard]] std::shared_ptr<T> CreateResource(Args&&... args)
 	{
 		auto resource = std::make_shared<T>(std::forward<Args>(args)...);
-		ENSUREF(myResources.emplace(resource).second, "resource {} is already stored", resource->GetName());
+		AddResource(resource);
 		return resource;
 	}
-	// stores resource in place of the previous one (if stored), given by its uuid or itself, and returns it, so the
-	// caller can defer its destruction until the gpu is no longer using it. resource is found by its own uuid from now on.
+	// stores resource in place of the previous one, given by its uuid or itself, which must be stored. returns the
+	// previous one, so the caller can defer its destruction until the gpu is no longer using it. resource is found by
+	// its own uuid from now on.
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource)
 	{
-		return ReplaceResource(previous ? previous->GetUuid() : uuids::uuid{}, std::move(resource));
+		ENSUREF(previous, "previous resource must not be null");
+		return ReplaceResource(previous->GetUuid(), std::move(resource));
 	}
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource)
 	{
-		std::shared_ptr<IObject> previous;
-		if (auto it = myResources.find(previousUuid); it != myResources.end())
-		{
-			previous = *it;
-			myResources.erase(it);
-		}
-		ENSUREF(myResources.insert(std::move(resource)).second, "replacing a resource with one that is already stored");
+		ENSUREF(resource, "cannot replace with a null resource. use EraseResource instead");
+		auto previousIt = InternalGetResourceIterator(previousUuid);
+		auto previous = *previousIt;
+		myResources.erase(previousIt);
+		AddResource(std::move(resource));
 		return previous;
 	}
 	void EraseResource(const uuids::uuid& uuid) { myResources.erase(uuid); }
@@ -151,6 +156,12 @@ private:
 
 	void InternalCreateQueues();
 	void InternalCreatePipeline();
+	[[nodiscard]] auto InternalGetResourceIterator(const uuids::uuid& uuid) const
+	{
+		auto resourceit = myResources.find(uuid);
+		ENSUREF(resourceit != myResources.end(), "no resource with uuid {}", uuids::to_string(uuid));
+		return resourceit;
+	}
 
 	DeviceHandle<G> myDevice{};
 	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)

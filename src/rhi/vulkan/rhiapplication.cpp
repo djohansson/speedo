@@ -479,6 +479,22 @@ static void RetireAfterGraphicsWork(QueueTimelineContextData<kVk>& graphics, std
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
+// stores resource in the slot whose current resource has uuid (nil while empty), retiring the previous one (if any)
+// once the gpu is done with it, and sets uuid to resource's. call on the draw thread.
+static void InstallResource(
+	Device<kVk>& device,
+	QueueTimelineContextData<kVk>& graphics,
+	uuids::uuid& uuid,
+	std::shared_ptr<IObject> resource)
+{
+	auto resourceUuid = resource->GetUuid();
+	if (device.HasResource(uuid))
+		RetireAfterGraphicsWork(graphics, device.ReplaceResource(uuid, std::move(resource)));
+	else
+		device.AddResource(std::move(resource));
+	uuid = resourceUuid;
+}
+
 // makes an uploaded model the one being drawn, retiring the previous one. call on the draw thread.
 static void InstallModel(RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics, const std::shared_ptr<Model<kVk>>& model)
 {
@@ -493,8 +509,7 @@ static void InstallModel(RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics,
 		DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
-	RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelUuid, model));
-	gModelUuid = model->GetUuid();
+	InstallResource(device, graphics, gModelUuid, model);
 }
 
 // makes an uploaded image the texture sampled by material 0, retiring the previous one. call on the draw thread.
@@ -533,10 +548,8 @@ static void InstallImage(
 					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 					kMaterialTextureId);
 
-				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(gLoadedImageUuid, image));
-				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(gLoadedImageViewUuid, imageView));
-				gLoadedImageUuid = image->GetUuid();
-				gLoadedImageViewUuid = imageView->GetUuid();
+				InstallResource(device, *graphics, gLoadedImageUuid, image);
+				InstallResource(device, *graphics, gLoadedImageViewUuid, imageView);
 			});
 		rhi.drawCalls.enqueue(bindTask);
 	});
