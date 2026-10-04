@@ -108,7 +108,7 @@ static uuids::uuid gMaterialsUuid;
 static uuids::uuid gModelInstancesUuid;
 
 // creates, updates or destroys `tex` as imgui requests, see IMGUITexture. call from PrepareDraw, after ImGui::Render().
-static void UpdateIMGUITexture(RHI<kVk>& rhi, ImTextureData& tex)
+static void UpdateIMGUITexture(Device<kVk>& device, ImTextureData& tex)
 {
 	ZoneScopedN("RHIApplication::UpdateIMGUITexture");
 
@@ -133,7 +133,7 @@ static void UpdateIMGUITexture(RHI<kVk>& rhi, ImTextureData& tex)
 		auto height = static_cast<uint32_t>(tex.Height);
 		texture = new IMGUITexture{ //NOLINT(cppcoreguidelines-owning-memory) owned by tex.BackendUserData
 			.image = Image<kVk>(ImageCreateDesc<kVk>{
-				rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("ImGui Texture {}", tex.UniqueID)),
+				device.CreateDeviceObjectCreateDesc(std::format("ImGui Texture {}", tex.UniqueID)),
 				{ImageMipLevelDesc<kVk>{
 					.extent = Extent2d<kVk>{.width = width, .height = height},
 					.size = width * height * static_cast<uint32_t>(tex.BytesPerPixel),
@@ -145,7 +145,7 @@ static void UpdateIMGUITexture(RHI<kVk>& rhi, ImTextureData& tex)
 				VK_IMAGE_ASPECT_COLOR_BIT,
 				VK_IMAGE_LAYOUT_UNDEFINED})};
 		texture->view = ImageView<kVk>(ImageViewCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("ImGui Texture View {}", tex.UniqueID)),
+			device.CreateDeviceObjectCreateDesc(std::format("ImGui Texture View {}", tex.UniqueID)),
 			texture->image,
 			texture->image.GetDesc().format,
 			VK_IMAGE_ASPECT_COLOR_BIT});
@@ -165,7 +165,7 @@ static void UpdateIMGUITexture(RHI<kVk>& rhi, ImTextureData& tex)
 		int height = whole ? tex.Height : tex.UpdateRect.h;
 		auto pitch = static_cast<size_t>(width) * static_cast<size_t>(tex.BytesPerPixel);
 
-		auto* allocator = rhi.GetPrimaryDevice().GetAllocator();
+		auto* allocator = device.GetAllocator();
 		auto [buffer, memory] = CreateBuffer(
 			allocator,
 			pitch * static_cast<size_t>(height),
@@ -837,7 +837,7 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 	{
 		auto colorImage = Image<kVk>(
 			ImageCreateDesc<kVk>{
-				rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("Main RT Color Image {}", frameIt)),
+				device.CreateDeviceObjectCreateDesc(std::format("Main RT Color Image {}", frameIt)),
 				{{.extent = window.GetSwapchain().GetDesc().extent}},
 				window.GetSwapchain().GetDesc().surfaceFormat.format,
 				VK_IMAGE_TILING_OPTIMAL,
@@ -848,7 +848,7 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 
 		auto depthStencilImage = Image<kVk>(
 			ImageCreateDesc<kVk>{
-				rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("Main RT DepthStencil Image {}", frameIt)),
+				device.CreateDeviceObjectCreateDesc(std::format("Main RT DepthStencil Image {}", frameIt)),
 				{{.extent = window.GetSwapchain().GetDesc().extent}},
 				FindSupportedFormat(
 					device.GetPhysicalDevice(),
@@ -1251,7 +1251,7 @@ void RHIApplication::PrepareDraw()
 	if (auto* data = GetDrawData(); data && data->Textures)
 		for (ImTextureData* tex : *data->Textures)
 			if (tex->Status != ImTextureStatus_OK)
-				UpdateIMGUITexture(rhi, *tex);
+				UpdateIMGUITexture(device, *tex);
 
 	if (auto *data = GetDrawData())
 	{
@@ -1495,7 +1495,7 @@ bool RHIApplication::Draw()
 		SemaphoreHandle<kVk> acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
 		auto graphicsDoneSemaphore = Semaphore<kVk>(
 			SemaphoreCreateDesc<kVk>{
-				rhi.CreatePrimaryDeviceObjectCreateDesc(std::format("graphicsDoneSemaphore{}", newFrameIndex)),
+				device.CreateDeviceObjectCreateDesc(std::format("graphicsDoneSemaphore{}", newFrameIndex)),
 				VK_SEMAPHORE_TYPE_BINARY
 			});
 		SemaphoreHandle<kVk> graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
@@ -1609,7 +1609,7 @@ RHIApplication::RHIApplication(
 	
 	auto blackTexture = device.CreateResource<Image<kVk>>(
 		ImageCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture"),
+			device.CreateDeviceObjectCreateDesc("Black Texture"),
 			{ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
 			VK_FORMAT_R8G8B8A8_UNORM,
 			VK_IMAGE_TILING_LINEAR,
@@ -1620,7 +1620,7 @@ RHIApplication::RHIApplication(
 		});
 	auto blackTextureView = device.CreateResource<ImageView<kVk>>(
 		ImageViewCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture View"),
+			device.CreateDeviceObjectCreateDesc("Black Texture View"),
 			*blackTexture,
 			blackTexture->GetDesc().format,
 			VK_IMAGE_ASPECT_COLOR_BIT});
@@ -1651,7 +1651,7 @@ RHIApplication::RHIApplication(
 		.unnormalizedCoordinates = VK_FALSE});
 	auto samplers = device.CreateResource<SamplerVector<kVk>>(
 		SamplerVectorCreateDesc<kVk>{
-			rhi.CreatePrimaryDeviceObjectCreateDesc("Samplers"),
+			device.CreateDeviceObjectCreateDesc("Samplers"),
 			std::move(samplerCreateInfos)});
 	gSamplersUuid = samplers->GetUuid();
 
@@ -1683,7 +1683,7 @@ RHIApplication::RHIApplication(
 		core::TaskCreateInfo<void> materialTransfersDone;
 		auto materials = device.CreateResource<Buffer<kVk>>(
 			BufferCreateDesc<kVk>{
-				rhi.CreatePrimaryDeviceObjectCreateDesc("Materials"),
+				device.CreateDeviceObjectCreateDesc("Materials"),
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT},
@@ -1705,7 +1705,7 @@ RHIApplication::RHIApplication(
 		core::TaskCreateInfo<void> modelTransfersDone;
 		auto modelInstancesBuffer = device.CreateResource<Buffer<kVk>>(
 			BufferCreateDesc<kVk>{
-				rhi.CreatePrimaryDeviceObjectCreateDesc("ModelInstances"),
+				device.CreateDeviceObjectCreateDesc("ModelInstances"),
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
 				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT

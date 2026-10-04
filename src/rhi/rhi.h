@@ -61,15 +61,6 @@ public:
 	[[nodiscard]] auto& GetPrimaryDevice() noexcept { return myDevices.front(); }
 	[[nodiscard]] const auto& GetPrimaryDevice() const noexcept { return myDevices.front(); }
 
-	[[nodiscard]] DeviceObjectCreateDesc<G> CreatePrimaryDeviceObjectCreateDesc(std::string_view name = {}) const noexcept
-	{
-		return DeviceObjectCreateDesc<G>{
-			ObjectCreateDesc<G>{
-				.uuid = uuids::NewUuid(),
-				.instance = GetInstance(),
-				.name = std::string(name),
-			}, GetPrimaryDevice() }; }
-	
 private:
 	Instance<G> myInstance;
 	std::vector<Device<G>> myDevices;
