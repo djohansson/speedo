@@ -1,4 +1,5 @@
 #include <gfx/texture.h>
+#include <gfx/importversions.h>
 
 #include <core/application.h>
 #include <core/file.h>
@@ -127,7 +128,7 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 
 	std::string params;
 	std::string paramsHash;
-	params.append("stb_image-2.30|stb_image_resize-2.10|stb_dxt-1.12"); // todo: read version from stb headers
+	params.append(std::format("stb-{}", kStbVersion)); // stb_image, stb_image_resize2 and stb_dxt
 	params.append("|imageimport-v3"); // bump when image::Import changes what it produces
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
 	if (options.usage == image::Usage::kBump)

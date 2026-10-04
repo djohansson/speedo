@@ -1,4 +1,5 @@
 #include <gfx/model.h>
+#include <gfx/importversions.h>
 #include <gfx/objimport.h>
 
 #include <gfx/shaders/capi.h>
@@ -189,7 +190,7 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 
 	std::string params;
 	std::string paramsHash;
-	params.append("tinyobjloader-2.0.0"); // todo: read version from tinyobjloader.h
+	params.append(std::format("tinyobjloader-{}", kTinyObjLoaderVersion));
 	params.append("|objimport-v1"); // bump when obj::Import changes what it produces
 	params.append("|cache-v6"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;

@@ -1,0 +1,11 @@
+#pragma once
+
+// the installed versions of the import libraries (vcpkg port versions, see CMakeLists.txt), for the asset cache keys
+// of what they import. generated from importversions.h.in.
+namespace gfx
+{
+
+inline constexpr const char* kStbVersion = "@SPEEDO_STB_VERSION@";
+inline constexpr const char* kTinyObjLoaderVersion = "@SPEEDO_TINYOBJLOADER_VERSION@";
+
+} // namespace gfx

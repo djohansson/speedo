@@ -134,6 +134,33 @@ target_include_directories(
 		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
 		$<INSTALL_INTERFACE:include/speedo>
 )
+# the installed versions of the import libraries, which the asset caches of their output depend on (see
+# gfx/importversions.h.in). read from vcpkg's package metadata, since the libraries don't define their versions.
+function(speedo_port_version port outVar)
+	set(spdxFile "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/${port}/vcpkg.spdx.json")
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${spdxFile}")
+	file(READ "${spdxFile}" spdx)
+	string(JSON packageCount LENGTH "${spdx}" packages)
+	math(EXPR lastPackage "${packageCount} - 1")
+	foreach(packageIndex RANGE ${lastPackage})
+		string(JSON name GET "${spdx}" packages ${packageIndex} name)
+		if(name STREQUAL port)
+			string(JSON version GET "${spdx}" packages ${packageIndex} versionInfo)
+			set(${outVar} "${version}" PARENT_SCOPE)
+			return()
+		endif()
+	endforeach()
+	message(FATAL_ERROR "No version of ${port} in ${spdxFile}")
+endfunction()
+
+speedo_port_version(stb SPEEDO_STB_VERSION)
+speedo_port_version(tinyobjloader SPEEDO_TINYOBJLOADER_VERSION)
+configure_file(${SPEEDO_SOURCE_DIR}/gfx/importversions.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/gfx/importversions.h @ONLY)
+target_include_directories(
+	gfx
+	PRIVATE
+		${CMAKE_CURRENT_BINARY_DIR}/generated
+)
 target_link_libraries(
 	gfx
 	PUBLIC
