@@ -16,6 +16,56 @@ namespace rhi
 IMPLEMENT_OBJECT_GETINSTANCE(Device<kVk>);
 
 template <>
+Device<kVk>::ResourceSetType::const_iterator Device<kVk>::InternalGetResourceIterator(const uuids::uuid& uuid) const
+{
+	auto resourceIt = myResources.find(uuid);
+	ENSUREF(resourceIt != myResources.end(), "no resource with uuid {}", uuids::to_string(uuid));
+	return resourceIt;
+}
+
+template <>
+bool Device<kVk>::HasResource(const uuids::uuid& uuid) const
+{
+	return myResources.contains(uuid);
+}
+
+template <>
+void Device<kVk>::AddResource(std::shared_ptr<IObject> resource)
+{
+	ENSUREF(resource, "cannot add a null resource");
+	ENSUREF(!resource->GetUuid().is_nil(), "resource must have a valid uuid");
+	ENSUREF(myResources.insert(std::move(resource)).second, "resource is already stored");
+}
+
+template <>
+std::shared_ptr<IObject> Device<kVk>::ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource)
+{
+	std::shared_ptr<IObject> previous;
+	if (!previousUuid.is_nil())
+	{
+		auto previousIt = InternalGetResourceIterator(previousUuid);
+		previous = *previousIt;
+		myResources.erase(previousIt);
+	}
+	if (resource)
+		AddResource(std::move(resource));
+	return previous;
+}
+
+template <>
+std::shared_ptr<IObject> Device<kVk>::ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource)
+{
+	return ReplaceResource(previous ? previous->GetUuid() : uuids::uuid{}, std::move(resource));
+}
+
+template <>
+void Device<kVk>::EraseResource(const uuids::uuid& uuid)
+{
+	ENSUREF(!uuid.is_nil(), "must have a valid uuid");
+	ENSUREF(myResources.erase(uuid) > 0, "no resource with uuid {}", uuids::to_string(uuid));
+}
+
+template <>
 void Device<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");

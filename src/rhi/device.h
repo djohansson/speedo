@@ -91,52 +91,26 @@ public:
 	[[nodiscard]] auto& GetPipeline() noexcept { return myPipeline; }
 	[[nodiscard]] const auto& GetPipeline() const noexcept { return myPipeline; }
 
-	// resources owned by the device, keyed by their uuids. callers keep the uuid CreateResource returns to find one.
-	[[nodiscard]] bool HasResource(const uuids::uuid& uuid) const { return myResources.contains(uuid); }
+	// resources owned by the device, keyed by their uuids. callers keep the uuid of a resource to find it.
+	[[nodiscard]] bool HasResource(const uuids::uuid& uuid) const;
+	// the resource with uuid, which must be stored
 	template <typename T>
-	[[nodiscard]] std::shared_ptr<T> GetResource(const uuids::uuid& uuid) const
-	{
-		return static_pointer_cast<T>(*InternalGetResourceIterator(uuid));
-	}
+	[[nodiscard]] std::shared_ptr<T> GetResource(const uuids::uuid& uuid) const;
 	// stores a resource created elsewhere (e.g. by a loader), found by its own uuid from now on. the only way into the
-	// set: it must not be null, nor already stored.
-	void AddResource(std::shared_ptr<IObject> resource)
-	{
-		ENSUREF(resource, "cannot add a null resource");
-		ENSUREF(!resource->GetUuid().is_nil(), "resource must have a valid uuid");
-		ENSUREF(myResources.insert(std::move(resource)).second, "resource is already stored");
-	}
+	// set: it must not be null, have a uuid, and not already be stored.
+	void AddResource(std::shared_ptr<IObject> resource);
 	// constructs a T from args (its create desc first) and stores it. returns the resource: keep its GetUuid() to find
 	// it again.
 	template <class T, class... Args>
-	[[nodiscard]] std::shared_ptr<T> CreateResource(Args&&... args)
-	{
-		auto resource = std::make_shared<T>(std::forward<Args>(args)...);
-		AddResource(resource);
-		return resource;
-	}
+	[[nodiscard]] std::shared_ptr<T> CreateResource(Args&&... args);
 	// stores resource in place of the previous one, given by its uuid or itself, and returns the previous one, so the
 	// caller can defer its destruction until the gpu is no longer using it. resource is found by its own uuid from now
 	// on. either may be absent: a nil uuid (or null previous) just adds resource, and a null resource just removes the
 	// previous one. a previous uuid that is not nil must be stored.
-	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource)
-	{
-		return ReplaceResource(previous ? previous->GetUuid() : uuids::uuid{}, std::move(resource));
-	}
-	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource)
-	{
-		std::shared_ptr<IObject> previous;
-		if (!previousUuid.is_nil())
-		{
-			auto previousIt = InternalGetResourceIterator(previousUuid);
-			previous = *previousIt;
-			myResources.erase(previousIt);
-		}
-		if (resource)
-			AddResource(std::move(resource));
-		return previous;
-	}
-	void EraseResource(const uuids::uuid& uuid) { myResources.erase(uuid); }
+	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource);
+	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource);
+	// destroys the resource with uuid (unless it is still referenced elsewhere), which must be stored
+	void EraseResource(const uuids::uuid& uuid);
 
 	[[nodiscard]] DeviceObjectCreateDesc<G> CreateDeviceObjectCreateDesc(std::string_view name = {}) const noexcept
 	{
@@ -161,12 +135,8 @@ private:
 
 	void InternalCreateQueues();
 	void InternalCreatePipeline();
-	[[nodiscard]] auto InternalGetResourceIterator(const uuids::uuid& uuid) const
-	{
-		auto resourceit = myResources.find(uuid);
-		ENSUREF(resourceit != myResources.end(), "no resource with uuid {}", uuids::to_string(uuid));
-		return resourceit;
-	}
+	// the stored resource with uuid, which must be stored
+	[[nodiscard]] ResourceSetType::const_iterator InternalGetResourceIterator(const uuids::uuid& uuid) const;
 
 	DeviceHandle<G> myDevice{};
 	AllocatorHandle<G> myAllocator{};//NOLINT(google-readability-casting)
@@ -179,3 +149,5 @@ private:
 };
 
 } // namespace rhi
+
+#include "device.inl"

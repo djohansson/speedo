@@ -863,7 +863,8 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 				VK_IMAGE_LAYOUT_UNDEFINED});
 
 		// one render target per frame, replacing any previous one (e.g. on resize)
-		device.EraseResource(gRenderImageSetUuids[frameIt]);
+		if (!gRenderImageSetUuids[frameIt].is_nil())
+			device.EraseResource(gRenderImageSetUuids[frameIt]);
 		gRenderImageSetUuids[frameIt] =
 			device.CreateResource<RenderImageSet<kVk>>(std::move(colorImage), std::move(depthStencilImage))->GetUuid();
 	}
