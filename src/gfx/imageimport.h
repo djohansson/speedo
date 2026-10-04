@@ -26,18 +26,20 @@ enum class Usage : uint8_t
 {
 	kColor, // srgb color (and alpha): BC1, or BC3 if any pixel isn't opaque. mips are filtered in linear space.
 	kLinear, // anything else, as is: BC1 or BC3
-	// a tangent space normal map, or a height (bump) map, which is turned into one: BC5 holding x and y (z is
-	// reconstructed). +x points along +u, and +y down the image, along +v as sampled (the obj importer flips v), so
-	// normal maps in the usual (OpenGL, +y up) convention get their y flipped.
+	// a tangent space normal map, in the usual (OpenGL, +y up the image) convention: BC5 holding x and y (z is
+	// reconstructed). stored with +x along +u and +y down the image, along +v as sampled (the obj importer flips v),
+	// i.e. with y flipped.
 	kNormal,
 	kMask, // one channel, e.g. an alpha mask: the alpha channel if any pixel isn't opaque, else the luminance. BC4.
+	// a bump texture: a height map, which is turned into a normal map, or (told apart by color) a normal map. as kNormal.
+	kBump,
 };
 
 struct Options
 {
 	Usage usage = Usage::kColor;
-	// for a height map turned into a normal map: how deep its full range is, in 1/64ths of the image's width (the mtl
-	// -bm option)
+	// for kBump, if the image is a height map: how deep its full range is, in 1/64ths of the image's width (the mtl -bm
+	// option)
 	float bumpScale = 1.0F;
 };
 
@@ -54,20 +56,20 @@ struct Image
 	uint32_t channelCount = 0; // in the file
 	Format format = Format::kBC1;
 	Usage usage = Usage::kColor;
-	bool fromHeight = false; // for kNormal: the file was a height map
+	bool fromHeight = false; // for kBump: the file was a height map
 	std::vector<MipLevel> mipLevels; // the full chain, down to 1x1
 	size_t size = 0; // in bytes, of all mip levels
 };
 
-// level 0 of an image prepared for a usage, before compression: rgba, with for kNormal the normal * 0.5 + 0.5 in rgb,
-// and for kMask the mask in rgb
+// level 0 of an image prepared for a usage, before compression: rgba, with for kNormal and kBump the normal * 0.5 + 0.5
+// in rgb, and for kMask the mask in rgb
 struct Pixels
 {
 	uint32_t width = 0;
 	uint32_t height = 0;
 	uint32_t channelCount = 0; // in the file
 	bool alpha = false; // for kColor and kLinear: some pixel isn't opaque
-	bool fromHeight = false; // for kNormal: the file was a height map
+	bool fromHeight = false; // for kBump: the file was a height map
 	std::vector<uint8_t> rgba;
 };
 

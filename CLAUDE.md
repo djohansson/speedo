@@ -212,7 +212,7 @@ Rendering is linear: color textures are loaded with srgb formats (`gfx::image::U
 space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` applies the srgb curve when it copies to the
 swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already). A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and bump (`kNormal`: BC5) textures are loaded with the model and go in `gTextures` slots from 16
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
 (0-3 are the frames' render targets, 15 the "Open Image..." texture of material 0). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the

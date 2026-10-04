@@ -23,6 +23,7 @@ struct Material
 	// counted in Stats::missingTextures and left empty.
 	std::filesystem::path diffuseTexture; // map_Kd
 	std::filesystem::path alphaTexture; // map_d
+	std::filesystem::path normalTexture; // norm: a normal map
 	std::filesystem::path bumpTexture; // map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option
 };

@@ -260,6 +260,7 @@ Load(
 				.name = material.name,
 				.diffuseTexture = material.diffuseTexture.string(),
 				.alphaTexture = material.alphaTexture.string(),
+				.normalTexture = material.normalTexture.string(),
 				.bumpTexture = material.bumpTexture.string(),
 				.bumpScale = material.bumpScale});
 		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
@@ -314,7 +315,7 @@ Load(
 	std::string paramsHash;
 	params.append("tinyobjloader-2.0.0"); // todo: read version from tinyobjloader.h
 	params.append("|objimport-v1"); // bump when gfx::obj::Import changes what it produces
-	params.append("|cache-v4"); // bump when the serialized ModelCreateDesc layout changes, to invalidate stale caches
+	params.append("|cache-v5"); // bump when the serialized ModelCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

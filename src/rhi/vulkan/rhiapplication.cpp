@@ -771,9 +771,11 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 			loads.push_back({material.diffuseTexture, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
 		if (!material.alphaTexture.empty())
 			loads.push_back({material.alphaTexture, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
-		if (!material.bumpTexture.empty())
+		if (!material.normalTexture.empty())
+			loads.push_back({material.normalTexture, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
+		else if (!material.bumpTexture.empty())
 			loads.push_back(
-				{material.bumpTexture, {.usage = gfx::image::Usage::kNormal, .bumpScale = material.bumpScale}, &texture.normal});
+				{material.bumpTexture, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
 	}
 
 	core::UnorderedMap<std::string, ImageAndView> loaded;

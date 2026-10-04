@@ -90,7 +90,7 @@ using Vec3 = std::array<double, 3>;
 
 Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(modernize-avoid-c-arrays)
 
-// an image, with the usage it is checked for, and its bump scale for kNormal
+// an image, with the usage it is checked for, and its bump scale for kBump
 using ImageCheck = std::tuple<std::filesystem::path, gfx::image::Usage, float>;
 
 Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& texturesOut)
@@ -261,8 +261,10 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 			texturesOut.insert({std::filesystem::weakly_canonical(material.diffuseTexture), gfx::image::Usage::kColor, 1.0F});
 		if (!material.alphaTexture.empty())
 			texturesOut.insert({std::filesystem::weakly_canonical(material.alphaTexture), gfx::image::Usage::kMask, 1.0F});
-		if (!material.bumpTexture.empty())
-			texturesOut.insert({std::filesystem::weakly_canonical(material.bumpTexture), gfx::image::Usage::kNormal, material.bumpScale});
+		if (!material.normalTexture.empty())
+			texturesOut.insert({std::filesystem::weakly_canonical(material.normalTexture), gfx::image::Usage::kNormal, 1.0F});
+		else if (!material.bumpTexture.empty())
+			texturesOut.insert({std::filesystem::weakly_canonical(material.bumpTexture), gfx::image::Usage::kBump, material.bumpScale});
 	}
 
 	return report;
@@ -287,6 +289,7 @@ constexpr std::string_view ToString(gfx::image::Usage usage)
 	case gfx::image::Usage::kColor: return "color";
 	case gfx::image::Usage::kLinear: return "linear";
 	case gfx::image::Usage::kNormal: return "normal";
+	case gfx::image::Usage::kBump: return "bump";
 	case gfx::image::Usage::kMask: return "mask";
 	}
 	return "?";
@@ -408,7 +411,7 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 
 	auto decodeSigned = [](uint8_t value) { return (value / 255.0 * 2.0) - 1.0; };
 
-	if (options.usage == Usage::kNormal)
+	if (options.usage == Usage::kNormal || options.usage == Usage::kBump)
 	{
 		// the angle between the reconstructed normals and the reference ones, and how many point below the surface
 		double angleSum = 0.0;

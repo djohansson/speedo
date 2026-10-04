@@ -37,7 +37,8 @@ constexpr uint32_t kRgba = 4;
 {
 	switch (usage)
 	{
-	case Usage::kNormal: return Format::kBC5;
+	case Usage::kNormal:
+	case Usage::kBump: return Format::kBC5;
 	case Usage::kMask: return Format::kBC4;
 	default: return alpha ? Format::kBC3 : Format::kBC1;
 	}
@@ -278,7 +279,8 @@ std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, con
 		break;
 
 	case Usage::kNormal:
-		if (IsNormalMap(rgba.data(), pixelCount, pixels.channelCount))
+	case Usage::kBump:
+		if (options.usage == Usage::kNormal || IsNormalMap(rgba.data(), pixelCount, pixels.channelCount))
 		{
 			// +y up to +y down the image
 			for (size_t i = 0; i < rgba.size(); i += kRgba)
@@ -393,7 +395,7 @@ std::expected<Image, std::string> Import(
 				return std::unexpected(std::format("failed to resize {} to {}x{}", path.string(), level.width, level.height));
 
 			// averaged normals are shorter than unit length
-			if (options.usage == Usage::kNormal)
+			if (options.usage == Usage::kNormal || options.usage == Usage::kBump)
 				RenormalizeLevel(current);
 
 			std::swap(previous, current);

@@ -220,9 +220,9 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::string params;
 	std::string paramsHash;
 	params.append("stb_image-2.30|stb_image_resize-2.10|stb_dxt-1.12"); // todo: read version from stb headers
-	params.append("|imageimport-v2"); // bump when gfx::image::Import changes what it produces
+	params.append("|imageimport-v3"); // bump when gfx::image::Import changes what it produces
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
-	if (options.usage == gfx::image::Usage::kNormal)
+	if (options.usage == gfx::image::Usage::kBump)
 		params.append(std::format("|bump-scale-{}", options.bumpScale));
 	params.append("|cache-v2"); // bump when the serialized ImageCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
