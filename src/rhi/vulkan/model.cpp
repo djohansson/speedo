@@ -438,6 +438,10 @@ std::shared_ptr<Model<kVk>> Model<kVk>::LoadModel(std::string_view filePath, std
 	auto& rhi = app->GetRHI<kVk>();
 	auto& device = rhi.GetPrimaryDevice();
 
+	// parse into staging buffers before taking the queue lock: on devices without a dedicated transfer queue it is the
+	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
+	auto initialDataAndDesc = model::Load(ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)}, filePath, progressOut);
+
 	std::shared_ptr<Model<kVk>> model;
 	const Semaphore<kVk>* transferSemaphore = nullptr;
 	uint64_t transferTimelineValue = 0;
@@ -448,12 +452,8 @@ std::shared_ptr<Model<kVk>> Model<kVk>::LoadModel(std::string_view filePath, std
 		auto cmd = transferQueue.GetPool().Commands();
 
 		std::array<core::TaskCreateInfo<void>, 2> transfersDone;
-		model = std::make_shared<Model<kVk>>(
-			ModelCreateDesc<kVk>{device.CreateDeviceObjectCreateDesc(filePath)},
-			filePath,
-			cmd,
-			transfersDone,
-			progressOut);
+		// not make_shared: the constructor taking staging buffers is private
+		model = std::shared_ptr<Model<kVk>>(new Model<kVk>(std::move(initialDataAndDesc), cmd, transfersDone));
 		cmd.End();
 
 		std::vector<core::TaskHandle> timelineCallbacks;

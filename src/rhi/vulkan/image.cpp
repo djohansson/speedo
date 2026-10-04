@@ -606,6 +606,10 @@ Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath,
 	auto& rhi = app->GetRHI<kVk>();
 	auto& device = rhi.GetDevice(deviceHandle);
 
+	// load into a staging buffer before taking the queue lock: on devices without a dedicated transfer queue it is the
+	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
+	auto initialDataAndDesc = image::detail::Load(filePath, device, progressOut);
+
 	std::shared_ptr<Image<kVk>> image;
 	std::shared_ptr<ImageView<kVk>> imageView;
 	const Semaphore<kVk>* transferSemaphore = nullptr;
@@ -615,7 +619,9 @@ Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath,
 		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
 		core::TaskCreateInfo<void> transferDone;
-		image = std::make_shared<Image<kVk>>(device, transferQueue.GetPool().Commands(), filePath, progressOut, transferDone);
+		// not make_shared: the constructor taking a staging buffer is private
+		image = std::shared_ptr<Image<kVk>>(
+			new Image<kVk>(transferQueue.GetPool().Commands(), transferDone, std::move(initialDataAndDesc)));
 		imageView = std::make_shared<ImageView<kVk>>(
 			ImageViewCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc(filePath),
