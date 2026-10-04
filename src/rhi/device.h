@@ -100,14 +100,14 @@ public:
 		ENSUREF(it != myResources.end(), "no resource with uuid {}", uuids::to_string(uuid));
 		return static_pointer_cast<T>(*it);
 	}
-	// constructs a T from args (its create desc first) and stores it. returns its uuid and the resource.
+	// constructs a T from args (its create desc first) and stores it. returns the resource: keep its GetUuid() to find
+	// it again.
 	template <class T, class... Args>
-	[[nodiscard]] auto CreateResource(Args&&... args)
+	[[nodiscard]] std::shared_ptr<T> CreateResource(Args&&... args)
 	{
 		auto resource = std::make_shared<T>(std::forward<Args>(args)...);
-		auto uuid = resource->GetUuid();
 		ENSUREF(myResources.emplace(resource).second, "resource {} is already stored", resource->GetName());
-		return std::make_tuple(uuid, resource);
+		return resource;
 	}
 	// stores resource in place of the one with previousUuid (if any), and returns that one, so the caller can defer
 	// its destruction until the gpu is no longer using it. resource is found by its own uuid from now on.

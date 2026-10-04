@@ -138,7 +138,7 @@ Related gotchas hit while getting shutdown right:
   `Create*ObjectCreateDesc(name)` helpers, which assign `uuids::NewUuid()`. Validation builds `ENSUREF` in
   `Object`'s constructor that the uuid is non-nil and not held by another live object (`gLiveObjectUuids`), so
   copying a live object's desc to create another object traps. `Device`'s resources are a set keyed by each
-  object's own uuid: `CreateResource<T>(desc, ...)` returns it, callers keep it to `GetResource`, and
+  object's own uuid: `CreateResource<T>(desc, ...)` returns the object, callers keep its uuid to `GetResource`, and
   `ReplaceResource(previousUuid, resource)` swaps an object out (the caller then keeps the new object's uuid).
 - **Every vulkan object is tracked** (validation builds), keyed by type and handle in sharded `phmap` maps, which
   is what the Statistics window shows (`GetTypeCount`). Call `Track(device, type, handle, name)` right after

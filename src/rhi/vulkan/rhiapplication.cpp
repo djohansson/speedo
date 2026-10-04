@@ -864,8 +864,8 @@ void CreateWindowDependentObjects(RHI<kVk>& rhi)
 
 		// one render target per frame, replacing any previous one (e.g. on resize)
 		device.EraseResource(gRenderImageSetUuids[frameIt]);
-		auto [renderImageSetUuid, renderImageSet] = device.CreateResource<RenderImageSet<kVk>>(std::move(colorImage), std::move(depthStencilImage));
-		gRenderImageSetUuids[frameIt] = renderImageSetUuid;
+		gRenderImageSetUuids[frameIt] =
+			device.CreateResource<RenderImageSet<kVk>>(std::move(colorImage), std::move(depthStencilImage))->GetUuid();
 	}
 
 	{
@@ -1607,7 +1607,7 @@ RHIApplication::RHIApplication(
 	constexpr uint32_t kBlackTextureHeight = 4;
 	constexpr uint32_t kBlackTextureSize = kBlackTextureWidth * kBlackTextureHeight * 4;
 	
-	auto [blackTextureUuid, blackTexture] = device.CreateResource<Image<kVk>>(
+	auto blackTexture = device.CreateResource<Image<kVk>>(
 		ImageCreateDesc<kVk>{
 			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture"),
 			{ImageMipLevelDesc<kVk>{.extent = Extent2d<kVk>{.width=kBlackTextureWidth, .height=kBlackTextureHeight}, .size = kBlackTextureSize, .offset = 0}},
@@ -1618,14 +1618,14 @@ RHIApplication::RHIApplication(
 			VK_IMAGE_ASPECT_COLOR_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED
 		});
-	auto [blackTextureViewUuid, blackTextureView] = device.CreateResource<ImageView<kVk>>(
+	auto blackTextureView = device.CreateResource<ImageView<kVk>>(
 		ImageViewCreateDesc<kVk>{
 			rhi.CreatePrimaryDeviceObjectCreateDesc("Black Texture View"),
 			*blackTexture,
 			blackTexture->GetDesc().format,
 			VK_IMAGE_ASPECT_COLOR_BIT});
-	gBlackTextureUuid = blackTextureUuid;
-	gBlackTextureViewUuid = blackTextureViewUuid;
+	gBlackTextureUuid = blackTexture->GetUuid();
+	gBlackTextureViewUuid = blackTextureView->GetUuid();
 
 	std::vector<SamplerCreateInfo<kVk>> samplerCreateInfos;
 	constexpr float kDefaultSamplerMaxAnisotropy = 16.0F;
@@ -1649,11 +1649,11 @@ RHIApplication::RHIApplication(
 		.maxLod = kDefaultSamplerMaxLod,
 		.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
 		.unnormalizedCoordinates = VK_FALSE});
-	auto [samplersUuid, samplers] = device.CreateResource<SamplerVector<kVk>>(
+	auto samplers = device.CreateResource<SamplerVector<kVk>>(
 		SamplerVectorCreateDesc<kVk>{
 			rhi.CreatePrimaryDeviceObjectCreateDesc("Samplers"),
 			std::move(samplerCreateInfos)});
-	gSamplersUuid = samplersUuid;
+	gSamplersUuid = samplers->GetUuid();
 
 	// initialize stuff on graphics queue
 	constexpr uint32_t kTextureId = kMaterialTextureId;
@@ -1681,7 +1681,7 @@ RHIApplication::RHIApplication(
 			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
 
 		core::TaskCreateInfo<void> materialTransfersDone;
-		auto [materialsUuid, materials] = device.CreateResource<Buffer<kVk>>(
+		auto materials = device.CreateResource<Buffer<kVk>>(
 			BufferCreateDesc<kVk>{
 				rhi.CreatePrimaryDeviceObjectCreateDesc("Materials"),
 				SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData),
@@ -1690,7 +1690,7 @@ RHIApplication::RHIApplication(
 			materialData.data(),
 			cmd,
 			materialTransfersDone);
-		gMaterialsUuid = materialsUuid;
+		gMaterialsUuid = materials->GetUuid();
 		timelineCallbacks.emplace_back(materialTransfersDone.handle);
 
 		constexpr uint32_t kDefaultModelInstanceId = 666;
@@ -1703,7 +1703,7 @@ RHIApplication::RHIApplication(
 		std::copy_n(&inverseTransposeModelTransform[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].inverseTransposeModelTransform[0][0]);
 
 		core::TaskCreateInfo<void> modelTransfersDone;
-		auto [modelInstancesUuid, modelInstancesBuffer] = device.CreateResource<Buffer<kVk>>(
+		auto modelInstancesBuffer = device.CreateResource<Buffer<kVk>>(
 			BufferCreateDesc<kVk>{
 				rhi.CreatePrimaryDeviceObjectCreateDesc("ModelInstances"),
 				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
@@ -1713,7 +1713,7 @@ RHIApplication::RHIApplication(
 			modelInstances.data(),
 			cmd,
 			modelTransfersDone);
-		gModelInstancesUuid = modelInstancesUuid;
+		gModelInstancesUuid = modelInstancesBuffer->GetUuid();
 		timelineCallbacks.emplace_back(modelTransfersDone.handle);
 
 		cmd.End();
