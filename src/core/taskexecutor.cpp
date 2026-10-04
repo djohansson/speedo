@@ -2,7 +2,6 @@
 #include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
 #include <atomic>
-#include <shared_mutex>
 
 // #if !defined(__cpp_lib_atomic_shared_ptr) || __cpp_lib_atomic_shared_ptr < 201711L
 // static_assert(false, "std::atomic<std::shared_ptr> is not supported by the standard library!");
@@ -116,6 +115,8 @@ TaskExecutor::~TaskExecutor()
 	ASSERT(myDeletionQueue.size_approx() == 0);
 
 	myStopSource.request_stop();
+	myWakeCount.fetch_add(1, std::memory_order_release);
+	myWakeCount.notify_all();
 
 	for (auto& thread : myThreads)
 		thread.join();
@@ -230,13 +231,18 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 	
 	SetThreadName(myThreads[threadIndex], std::format("TaskThread {}", threadIndex).c_str());
 			
-	std::shared_lock lock(myMutex);
 	auto stopToken = myStopSource.get_token();
 
 	while (!stopToken.stop_requested())
-		if (myCV.wait(lock, stopToken,
-			[this]{ return std::atomic_ref(myReadyQueueSize).load(std::memory_order_acquire) > 0; }))
+	{
+		// read the wake count before checking for work: Submit bumps it after making work visible, so if the queue
+		// looks empty here, any later submit changes the count and the wait below returns right away.
+		auto wakeCount = myWakeCount.load(std::memory_order_acquire);
+		if (std::atomic_ref(myReadyQueueSize).load(std::memory_order_acquire) > 0)
 			InternalProcessReadyQueue();
+		else
+			myWakeCount.wait(wakeCount, std::memory_order_acquire);
+	}
 }
 
 void TaskExecutor::InternalSubmit(std::span<const TaskHandle> handles)
@@ -253,10 +259,11 @@ void TaskExecutor::Submit(std::span<const TaskHandle> handles, bool wakeThreads)
 	
 	if (auto count = handles.size(); wakeThreads && count > 0)
 	{
+		myWakeCount.fetch_add(1, std::memory_order_release);
 		if (count >= myThreads.size())
-			myCV.notify_all();
+			myWakeCount.notify_all();
 		else while (count-- > 0)
-			myCV.notify_one();
+			myWakeCount.notify_one();
 	}
 }
 

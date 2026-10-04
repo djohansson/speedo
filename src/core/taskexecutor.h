@@ -1,10 +1,9 @@
 #pragma once
 
 #include <core/task.h>
-#include <core/upgradablesharedmutex.h>
 #include <core/utils.h>
 
-#include <condition_variable>
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -64,8 +63,10 @@ private:
 
 	std::vector<std::jthread> myThreads;
 	std::stop_source myStopSource;
-	UpgradableSharedMutex myMutex;
-	std::condition_variable_any myCV;
+	// idle threads wait for this to change: it is bumped after work is submitted (with wakeThreads) and on stop. an
+	// atomic rather than a condition variable, so submitting takes no lock, and a thread can't miss a wake between
+	// finding the ready queue empty and starting to wait (see InternalThreadMain).
+	std::atomic_uint32_t myWakeCount = 0;
 	mutable ConcurrentQueue<TaskHandle> myReadyQueue;
 	uint64_t myReadyQueueSize = 0;
 	uint64_t myActiveTaskCount = 0; // tasks dequeued (or about to be) and not yet finished, see InternalTryCallOne

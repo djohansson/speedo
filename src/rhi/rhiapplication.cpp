@@ -3,7 +3,7 @@
 namespace rhi
 {
 
-core::UpgradableSharedMutex RHIApplication::gDrawMutex{};
+std::mutex RHIApplication::gDrawMutex{};
 core::LoadQueue RHIApplication::gLoads{};
 bool RHIApplication::gShowAbout = false;
 bool RHIApplication::gShowDemoWindow = false;

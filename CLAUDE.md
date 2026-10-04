@@ -147,6 +147,18 @@ Related gotchas hit while getting shutdown right:
   helpers, not `vmaDestroy*`/`vkDestroy*`. VMA's device memory blocks are tracked through its device memory
   callbacks.
 
+## Choosing a lock
+
+Measured on this machine (M4 Pro): `core::UpgradableSharedMutex` is the cheapest uncontended (~4-7 ns) and is the
+only one with upgrade locks, but every unlock wakes all waiters, so it degrades badly under contention (8 threads
+on one exclusive lock: ~430 ns vs `std::mutex`'s ~17 ns). So: `std::mutex` for exclusive-only locks
+(`gDrawMutex`, `MemoryPool`'s free list, the object tracking maps); `UpgradableSharedMutex` where upgrade locks are
+used (descriptor set state in `Pipeline`) and as `ConcurrentAccess`'s default, whose locks are short and mostly
+uncontended (at 2-3 threads it and `std::shared_mutex` trade wins). Don't lock what can't change: `MemoryPool`'s
+`GetPointer`/`GetHandle` are plain address arithmetic on fixed storage. The `TaskExecutor` wakes idle threads with
+an atomic wake count (`myWakeCount`) rather than a condition variable: submitting takes no lock, and a thread
+can't miss a wake between finding the queue empty and waiting.
+
 ## Queues: aliased queue types share one lock
 
 When a device has no dedicated compute/transfer queue family (e.g. KosmicKrisp/MoltenVK, one

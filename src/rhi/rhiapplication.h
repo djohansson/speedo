@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -69,7 +70,7 @@ private:
 	
 	std::unique_ptr<RHIBase> myRHI;
 	std::string myImGuiIniSettings;
-	static core::UpgradableSharedMutex gDrawMutex; //NOLINT(readability-identifier-naming)
+	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
 	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)

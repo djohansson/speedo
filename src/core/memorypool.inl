@@ -1,6 +1,6 @@
 #include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
-#include <shared_mutex>
+#include <mutex>
 
 namespace core
 {
@@ -60,8 +60,7 @@ void MemoryPool<T, N>::Free(Handle handle) noexcept
 template <typename T, std::size_t N>
 constexpr T* MemoryPool<T, N>::GetPointer(Handle handle) noexcept
 {
-	std::shared_lock lock(myMutex);
-
+	// no lock: the pool never moves, so this is just address arithmetic
 	ENSURE(!!handle);
 
 	return reinterpret_cast<T*>(&myPool[handle.value * sizeof(T)]);
@@ -70,8 +69,7 @@ constexpr T* MemoryPool<T, N>::GetPointer(Handle handle) noexcept
 template <typename T, std::size_t N>
 constexpr MemoryPool<T, N>::Handle MemoryPool<T, N>::GetHandle(const T* ptr) noexcept
 {
-	std::shared_lock lock(myMutex);
-	
+	// no lock: see GetPointer
 	ENSURE(ptr != nullptr);
 
 	return Handle{static_cast<std_extra::min_unsigned_t<N>>(ptr - reinterpret_cast<const T*>(myPool.data()))};

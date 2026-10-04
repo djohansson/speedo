@@ -1,11 +1,11 @@
 #pragma once
 
 #include <core/std_extra.h>
-#include <core/upgradablesharedmutex.h>
 #include <core/utils.h>
 
 #include <array>
 #include <atomic>
+#include <mutex>
 
 namespace core
 {
@@ -45,7 +45,7 @@ private:
 
 	alignas(T) std::array<std::byte, N * sizeof(T)> myPool;
 	std::array<Entry, N> myEntries;
-	UpgradableSharedMutex myMutex;
+	std::mutex myMutex; // guards the free list (myEntries/myAvailable): GetPointer/GetHandle need no lock
 	std::atomic<std_extra::min_unsigned_t<N>> myAvailable{0};
 };
 
