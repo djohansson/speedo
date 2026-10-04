@@ -526,6 +526,9 @@ Instance<kVk>::~Instance()
 
 	ZoneScopedN("~Instance()");
 
+	if (myInstance == VK_NULL_HANDLE) // e.g. the null instance GetInstance() falls back to
+		return;
+
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	//if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{

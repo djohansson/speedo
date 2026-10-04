@@ -36,8 +36,8 @@ void TrackObject<kVk>(VkDevice device, VkObjectType type, uint64_t handle, std::
 
 	ZoneScopedN("TrackObject");
 
-	if (handle == 0U)
-		return;
+	// a null handle means the object was never created: tracking it is a bug at the call site
+	ENSUREF(handle != 0U, "tracking a null handle: type {}", static_cast<int>(type));
 
 	gObjects.try_emplace_l({type, handle}, [](auto& object) { ++object.second; }, 1U);
 	gTypeCounts.try_emplace_l(type, [](auto& count) { ++count.second; }, 1U);
@@ -65,8 +65,8 @@ void UntrackObject<kVk>(VkObjectType type, uint64_t handle)
 
 	ZoneScopedN("UntrackObject");
 
-	if (handle == 0U)
-		return;
+	// callers destroying an object that may not exist (e.g. moved from) check that themselves, like for vkDestroy*
+	ENSUREF(handle != 0U, "untracking a null handle: type {}", static_cast<int>(type));
 
 	bool tracked = false;
 	gObjects.erase_if({type, handle}, [&tracked](auto& object) { tracked = true; return --object.second == 0; });

@@ -188,6 +188,9 @@ void DescriptorUpdateTemplate<kVk>::InternalDestroyTemplate()
 {
 	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
 
+	if (myHandle == VK_NULL_HANDLE) // not created yet (the first SetEntries), or moved from
+		return;
+
 	Untrack(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE, myHandle);
 	vkDestroyDescriptorUpdateTemplate(
 		GetDevice(),
