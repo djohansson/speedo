@@ -2,48 +2,31 @@ namespace rhi
 {
 
 template <typename LoadOp>
-auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<window::FileFilter>& filterList, LoadOp loadOp)
+void RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<window::FileFilter>& filterList, LoadOp loadOp)
 {
 	using namespace core;
 	
 	auto app = std::static_pointer_cast<RHIApplication>(Application::Get());
 	ENSURE(app);
 	auto& rhi = app->GetRHI();
-	
+
+	// only the dialogue needs the main thread. the load is queued to run in the thread pool once the dialogue has
+	// returned: on the main thread it would stall window event processing (input, resizes, quitting) while it runs.
 	auto [openFileTask, openFileFuture] = CreateTask(
-		window::OpenFileDialogue,
-		std::move(resourcePathString),
-		std::vector(filterList)); // by value, see loadOp below
-
-	auto [loadTask, loadFuture] = CreateTask(
-		[](auto openFileFuture, auto loadOp) -> std::invoke_result_t<LoadOp, const std::string&, std::atomic_uint8_t&>
+		[resourcePathString = std::move(resourcePathString), filterList = std::vector(filterList), loadOp = std::move(loadOp)]() mutable
 		{
-			ZoneScopedN("RHIApplication::draw::loadTask");
+			auto [openFileResult, openFilePath] = window::OpenFileDialogue(std::move(resourcePathString), filterList);
+			if (!openFileResult)
+				return;
 
-			ENSURE(openFileFuture.Valid());
-			ENSURE(openFileFuture.IsReady());
+			auto name = std::filesystem::path(openFilePath).filename().string();
+			(void)gLoads.Enqueue(
+				std::move(name),
+				[openFilePath = std::move(openFilePath), loadOp = std::move(loadOp)](std::atomic_uint8_t& progress)
+				{ return loadOp(openFilePath, progress); });
+		}); // captured rather than passed as arguments: CreateTask stores lvalue arguments by reference
 
-			auto [openFileResult, openFilePath] = openFileFuture.Get();
-			if (openFileResult)
-			{
-				gProgress = 0;
-				gProgressName.Write().Get() = std::filesystem::path(openFilePath).filename().string();
-				gShowProgress = true;
-				auto result = loadOp(openFilePath, gProgress);
-				gShowProgress = false;
-				return result;
-			}
-			return {};
-		},
-		std::move(openFileFuture),
-		std::move(loadOp)); // by value: CreateTask stores lvalue arguments by reference, and loadOp dies when we return
-
-	// only the dialogue needs the main thread. the load runs in the thread pool once the dialogue has returned: on the
-	// main thread it would stall window event processing (input, resizes, quitting) for the duration of the load.
-	AddDependency(openFileTask, loadTask);
 	rhi.mainCalls.enqueue(openFileTask);
-
-	return loadFuture;
 }
 
 } // namespace rhi

@@ -546,6 +546,30 @@ static void InstallImage(
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
+// loads a model and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
+static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+{
+	auto model = Model<kVk>::LoadModel(filePath, progress);
+	if (!model) // cancelled
+		return;
+
+	auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+		[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
+	rhi.drawCalls.enqueue(installTask);
+}
+
+// loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
+static void LoadAndInstallImage(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+{
+	auto [image, imageView] = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), filePath, progress);
+	if (!image) // cancelled
+		return;
+
+	auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
+		[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
+	rhi.drawCalls.enqueue(installTask);
+}
+
 static void DrawMainPass(
 	RHI<kVk>& rhi,
 	Window<kVk>& window,
@@ -995,7 +1019,8 @@ void RHIApplication::PrepareDraw()
 		End();
 	}
 
-	if (bool loading = gShowProgress.load(std::memory_order_relaxed) &&
+	// one row per load in progress
+	if (bool loading = !gLoads.Empty() &&
 				 Begin(
 					 "Loading",
 					 &loading,
@@ -1005,9 +1030,12 @@ void RHIApplication::PrepareDraw()
 	{
 		constexpr uint8_t kProgressMax = 255;
 		constexpr float kProgressBarWidth = 160.0F;
-		ProgressBar((1.F / kProgressMax) * static_cast<float>(gProgress), ImVec2(kProgressBarWidth, 0));
-		SameLine();
-		TextUnformatted(std::string(gProgressName.Read().Get()).c_str()); // a copy: the loading thread may change it
+		gLoads.ForEach([](const core::LoadQueue::Load& load)
+		{
+			ProgressBar((1.F / kProgressMax) * static_cast<float>(load.progress), ImVec2(kProgressBarWidth, 0));
+			SameLine();
+			TextUnformatted(load.name.c_str());
+		});
 		End();
 	}
 
@@ -1020,49 +1048,18 @@ void RHIApplication::PrepareDraw()
 	{
 		gAutoLoadDone = true;
 
-		const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL");
-		const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE");
-		if (autoLoadModel || autoLoadImage)
-		{
-			auto [autoLoadTask, autoLoadFuture] = core::CreateTask(
-				[&rhi, &device, resourcePath,
-				 modelFile = std::string(autoLoadModel ? autoLoadModel : ""),
-				 imageFile = std::string(autoLoadImage ? autoLoadImage : "")]
-				{
-					// like the "File" menu loads (see InternalOpenFileDialogueAsync), each load restarting the bar
-					gShowProgress = true;
-					// assets not yet started when exiting are skipped
-					auto exitRequested = [] { return core::Application::Get()->IsExitRequested(); };
-					if (!modelFile.empty() && !exitRequested())
-					{
-						gProgress = 0;
-						gProgressName.Write().Get() = modelFile;
-						if (auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress)) // else cancelled
-						{
-							auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-								[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
-							rhi.drawCalls.enqueue(installTask);
-						}
-					}
-					if (!imageFile.empty() && !exitRequested())
-					{
-						gProgress = 0;
-						gProgressName.Write().Get() = imageFile;
-						auto [image, imageView] = Image<kVk>::LoadImage(device, (resourcePath / "images" / imageFile).string(), gProgress);
-						if (image) // else cancelled
-						{
-							auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-								[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
-							rhi.drawCalls.enqueue(installTask);
-						}
-					}
-					gShowProgress = false;
-				});
-			// in the thread pool rather than as a main call, which would stall window event processing during the load
-			GetExecutor().Submit({&autoLoadTask, 1});
-		}
+		// queued as separate loads, which run concurrently
+		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"))
+			(void)gLoads.Enqueue(
+				autoLoadModel,
+				[&rhi, path = (resourcePath / "models" / autoLoadModel).string()](std::atomic_uint8_t& progress)
+				{ LoadAndInstallModel(rhi, path, progress); });
+		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"))
+			(void)gLoads.Enqueue(
+				autoLoadImage,
+				[&rhi, path = (resourcePath / "images" / autoLoadImage).string()](std::atomic_uint8_t& progress)
+				{ LoadAndInstallImage(rhi, path, progress); });
 	}
-
 
 	if (BeginMainMenuBar())
 	{
@@ -1073,16 +1070,9 @@ void RHIApplication::PrepareDraw()
 				static const std::vector<window::FileFilter> kFilterList ={
 					window::FileFilter{.name = "Wavefront OBJ", .spec = "obj"}
 				};
-				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
-					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto model = Model<kVk>::LoadModel(filePath, progressOut);
-						if (!model) // cancelled
-							return core::Future<void>{};
-						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
-						rhi.drawCalls.enqueue(installTask);
-						return installFuture;
-					});
+				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
+					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
+					{ LoadAndInstallModel(rhi, filePath, progressOut); });
 			}
 			if (MenuItem("Open Image..."))
 			{
@@ -1090,16 +1080,9 @@ void RHIApplication::PrepareDraw()
 					window::FileFilter{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
-				auto resourceUpdatedFuture = InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList, 
-					[&rhi, &device](std::string_view filePath, std::atomic_uint8_t& progressOut){
-						auto [image, imageView] = Image<kVk>::LoadImage(device, filePath, progressOut);
-						if (!image) // cancelled
-							return core::Future<void>{};
-						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-							[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
-						rhi.drawCalls.enqueue(installTask);
-						return installFuture;
-					});
+				InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList,
+					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
+					{ LoadAndInstallImage(rhi, filePath, progressOut); });
 			}
 			// if (MenuItem("Open Scene..."))
 			// {

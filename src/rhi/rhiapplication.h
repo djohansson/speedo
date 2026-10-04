@@ -5,7 +5,7 @@
 
 #include <core/application.h>
 #include <core/capi.h>
-#include <core/concurrentaccess.h>
+#include <core/loadqueue.h>
 #include <core/inputstate.h>
 
 #include <cstdint>
@@ -62,7 +62,7 @@ protected:
 
 private:
 	template <typename LoadOp>
-	[[maybe_unused]] auto InternalOpenFileDialogueAsync(
+	void InternalOpenFileDialogueAsync(
 		std::string&& resourcePathString,
 		const std::vector<window::FileFilter>& filterList,
 		LoadOp loadOp);
@@ -70,9 +70,7 @@ private:
 	std::unique_ptr<RHIBase> myRHI;
 	std::string myImGuiIniSettings;
 	static core::UpgradableSharedMutex gDrawMutex; //NOLINT(readability-identifier-naming)
-	static std::atomic_uint8_t gProgress; //NOLINT(readability-identifier-naming)
-	static std::atomic_bool gShowProgress; //NOLINT(readability-identifier-naming)
-	static core::ConcurrentAccess<std::string> gProgressName; //NOLINT(readability-identifier-naming) shown next to the bar
+	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
 	static bool gShowAbout; //NOLINT(readability-identifier-naming)
 	static bool gShowDemoWindow; //NOLINT(readability-identifier-naming)
 };
