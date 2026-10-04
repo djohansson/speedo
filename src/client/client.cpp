@@ -403,7 +403,6 @@ void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 	auto& appPtrRef = gClientApplication.Write().Get();
 
 	ENSURE(appPtrRef);
-	ASSERT(appPtrRef.use_count() == 1);
 
 	// the app owns the vulkan surfaces/swapchains of these windows, so destroy it before the native windows
 	std::vector<WindowHandle> windows;
@@ -412,6 +411,9 @@ void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 		windows.emplace_back(appPtrRef->GetWindow(windowIt));
 
 	appPtrRef->Shutdown();
+
+	// only now: tasks (e.g. loads) hold the application while they run, and Shutdown() has joined them
+	ASSERT(appPtrRef.use_count() == 1);
 	appPtrRef.reset();
 
 	for (auto window : windows)

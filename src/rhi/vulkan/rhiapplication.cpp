@@ -1042,7 +1042,8 @@ void RHIApplication::PrepareDraw()
 						rhi.drawCalls.enqueue(installTask);
 					}
 				});
-			rhi.mainCalls.enqueue(autoLoadTask);
+			// in the thread pool rather than as a main call, which would stall window event processing during the load
+			GetExecutor().Submit({&autoLoadTask, 1});
 		}
 	}
 
@@ -1751,31 +1752,53 @@ void RHIApplication::Shutdown()
 	auto& device = rhi.GetPrimaryDevice();
 	auto& executor = GetExecutor();
 
-	// let in-flight frame tasks (from the last Draw) finish before tearing anything down
+	// let in-flight frame tasks (from the last Draw) and loads finish before tearing anything down
 	executor.JoinAll();
 
-	device.WaitIdle();
-
-	// all gpu work has completed, so every pending timeline callback is due (they own per-frame fences/semaphores etc).
-	// queue locks are released before joining, since callbacks may access the queues themselves.
-	// each distinct queue context once, locking one at a time: queue types may alias the same context (and mutex).
+	// settle: run the draw calls the draw task didn't get to, wait for the gpu, and run the timeline callbacks that are
+	// now due, until no draw calls remain. an unrun task is never destroyed, and would leak what it holds past the device:
+	// e.g. a load completing during shutdown queues an install, and installing an image queues another draw call from
+	// its transition's timeline callback.
+	for (bool settled = false; !settled;)
 	{
-		constexpr auto kAllTimelineValues = std::numeric_limits<uint64_t>::max();
-
-		std::vector<QueueTimelineContext<kVk>*> visited;
-		for (auto type : {kQueueTypeGraphics, kQueueTypeCompute, kQueueTypeTransfer})
+		settled = true;
 		{
-			auto* context = &device.GetQueue(type);
-			if (std::ranges::contains(visited, context))
-				continue;
-			visited.emplace_back(context);
-
-			auto queues = context->Write();
-			for (auto& [queue, submits] : queues->queues)
-				queue.SubmitCallbacks(executor, kAllTimelineValues);
+			auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
+			core::TaskHandle drawCall;
+			while (rhi.drawCalls.try_dequeue(drawCall))
+			{
+				executor.Call(drawCall, graphics.Get().get());
+				settled = false;
+			}
 		}
+		executor.JoinAll();
+
+		device.WaitIdle();
+
+		// all gpu work has completed, so every pending timeline callback is due (they own per-frame fences/semaphores etc).
+		// queue locks are released before joining, since callbacks may access the queues themselves.
+		// each distinct queue context once, locking one at a time: queue types may alias the same context (and mutex).
+		{
+			constexpr auto kAllTimelineValues = std::numeric_limits<uint64_t>::max();
+
+			std::vector<QueueTimelineContext<kVk>*> visited;
+			for (auto type : {kQueueTypeGraphics, kQueueTypeCompute, kQueueTypeTransfer})
+			{
+				auto* context = &device.GetQueue(type);
+				if (std::ranges::contains(visited, context))
+					continue;
+				visited.emplace_back(context);
+
+				auto queues = context->Write();
+				for (auto& [queue, submits] : queues->queues)
+					queue.SubmitCallbacks(executor, kAllTimelineValues);
+			}
+		}
+		executor.JoinAll();
+
+		if (rhi.drawCalls.size_approx() != 0)
+			settled = false;
 	}
-	executor.JoinAll();
 
 	ShutdownImgui(device.GetAllocator());
 

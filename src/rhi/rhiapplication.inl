@@ -37,8 +37,10 @@ auto RHIApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathStr
 		std::move(openFileFuture),
 		std::move(loadOp)); // by value: CreateTask stores lvalue arguments by reference, and loadOp dies when we return
 
+	// only the dialogue needs the main thread. the load runs in the thread pool once the dialogue has returned: on the
+	// main thread it would stall window event processing (input, resizes, quitting) for the duration of the load.
+	AddDependency(openFileTask, loadTask);
 	rhi.mainCalls.enqueue(openFileTask);
-	rhi.mainCalls.enqueue(loadTask);
 
 	return loadFuture;
 }
