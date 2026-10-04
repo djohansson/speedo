@@ -256,6 +256,16 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName
 				  << "\" is selected as primary graphics device" << '\n';
 
+	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	{
+		// the ones the shaders' resource arrays and the model loader depend on
+		const auto& limits = physicalDeviceInfo.deviceProperties.properties.limits;
+		std::cout << "maxPerStageDescriptorSampledImages: " << limits.maxPerStageDescriptorSampledImages
+				  << ", maxDescriptorSetSampledImages: " << limits.maxDescriptorSetSampledImages
+				  << ", maxPerStageResources: " << limits.maxPerStageResources
+				  << ", maxStorageBufferRange: " << limits.maxStorageBufferRange << '\n';
+	}
+
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
 	queueCreateInfos.reserve(physicalDeviceInfo.queueFamilyProperties.size());
 	std::list<std::vector<float>> queuePriorityList;

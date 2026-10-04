@@ -58,7 +58,7 @@ extern "C"
 #define DESCRIPTOR_SET_CATEGORY_MATERIAL 6
 #define DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES 7
 
-#define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 7u
+#define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 10u
 #define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 3u
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
@@ -79,10 +79,13 @@ struct ViewData
 	alignas(16) FLOAT4X4(viewProjection);
 };
 
+#define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId (multiplied in, and alpha tested)
+
 struct MaterialData
 {
 	alignas(16) FLOAT4(color);
 	alignas(4) UINT(textureAndSamplerId);
+	alignas(4) UINT(flags);
 };
 
 struct ModelInstance

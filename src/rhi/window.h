@@ -7,6 +7,7 @@
 #include <core/inputstate.h>
 #include <core/concurrentaccess.h>
 
+#include <gfx/bounds.h>
 #include <gfx/camera.h>
 
 #include <optional>
@@ -65,6 +66,10 @@ public:
 	void OnInputStateChanged(const core::InputState& input);
 	void OnResizeFramebuffer(int width, int height);
 	void OnResizeSplitScreenGrid(uint32_t width, uint32_t height); // call on the draw thread, which reads the grid unlocked
+
+	// moves every view's camera back from bounds (looking down -z) until all of it is in view, and fits the near and far
+	// planes to its size. call on the draw thread.
+	void FrameBounds(const Bounds3f& bounds);
 
 	void UpdateViewBuffer() { InternalUpdateViewBuffer(); }
 

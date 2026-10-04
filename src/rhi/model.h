@@ -7,6 +7,7 @@
 
 #include <array>
 #include <memory>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -16,6 +17,20 @@ namespace rhi
 template <GraphicsApi G>
 class Model;
 
+// the indices drawn with one material, contiguous in the index buffer
+struct ModelSubmesh
+{
+	uint32_t firstIndex = 0;
+	uint32_t indexCount = 0;
+	int32_t material = -1; // index into ModelCreateDesc::materials, or -1 for none
+};
+
+struct ModelMaterial
+{
+	std::string name;
+	std::string diffuseTexture; // path, empty if none. its colors are multiplied with the vertex colors
+};
+
 template <GraphicsApi G>
 struct ModelCreateDesc final : DeviceObjectCreateDesc<G>
 {
@@ -23,6 +38,8 @@ struct ModelCreateDesc final : DeviceObjectCreateDesc<G>
 	uint32_t indexCount = 0;
 	uint32_t vertexCount = 0;
 	std::vector<VertexInputAttributeDescription<G>> attributes;
+	std::vector<ModelSubmesh> submeshes;
+	std::vector<ModelMaterial> materials;
 
 	// see DeviceObjectCreateDesc::serialize for why this is needed
 	constexpr static auto serialize(auto& archive, auto& self)//NOLINT(readability-identifier-naming)
@@ -34,7 +51,9 @@ struct ModelCreateDesc final : DeviceObjectCreateDesc<G>
 			self.bounds,
 			self.indexCount,
 			self.vertexCount,
-			self.attributes);
+			self.attributes,
+			self.submeshes,
+			self.materials);
 	}
 };
 

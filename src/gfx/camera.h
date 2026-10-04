@@ -25,9 +25,11 @@ struct ViewportCreateDesc
 
 struct CameraCreateDesc
 {
-	glm::vec3 position = glm::vec3(0.0f, -2.0f, 0.0f);
+	glm::vec3 position = glm::vec3(0.0f, -2.0f, 0.0f); // negated: the camera is at -position
 	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0);
 	ViewportCreateDesc viewport{};
+	float nearPlane = 0.01f;
+	float farPlane = 100.0f;
 };
 
 enum FrustumPlane

@@ -126,7 +126,7 @@ if [[ $client -eq 1 ]]; then
 		wait $pid
 		status=$?
 
-		problems=$(grep -E "Failed to load|\(errno: |VUID-|UNASSIGNED-|timed out after" "$log" | sort | uniq -c | head -5)
+		problems=$(grep -E "Failed to load (model|image)|\(errno: |VUID-|UNASSIGNED-|timed out after" "$log" | sort | uniq -c | head -5)
 		if [[ $status -ne 0 || -n $problems ]]; then
 			echo "FAIL client $model (exit $status, $(( $(date +%s) - start ))s, log: $log)"
 			[[ -n $problems ]] && echo "$problems" | sed 's/^/    /'

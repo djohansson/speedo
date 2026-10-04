@@ -41,10 +41,8 @@ void Camera::UpdateProjectionMatrix()
 		constexpr auto kFov = 75.0F;
 		auto aspect =
 			static_cast<float>(myDesc.viewport.width) / static_cast<float>(myDesc.viewport.height);
-		constexpr auto kNearplane = 0.01F;
-		constexpr auto kFarplane = 100.0F;
 		myProjectionMatrix =
-			kClip * glm::perspective(glm::radians(kFov), aspect, kNearplane, kFarplane);
+			kClip * glm::perspective(glm::radians(kFov), aspect, myDesc.nearPlane, myDesc.farPlane);
 	}
 	break;
 	default:

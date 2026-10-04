@@ -454,8 +454,24 @@ static void ShutdownImgui(VmaAllocator allocator)
 	ImGui::DestroyContext();
 }
 
-// material 0 samples this slot of gTextures, which "Open Image..." replaces
+// gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain). material 0 is the
+// default material, for models (or parts of them) without one: it samples this slot, which "Open Image..." replaces.
 static constexpr uint32_t kMaterialTextureId = 15;
+// the loaded model's materials are 1 and up, and their textures are in the slots from here up
+static constexpr uint32_t kModelTextureFirstSlot = 16;
+static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
+static constexpr uint32_t kModelMaterialMaxCount = SHADER_TYPES_MATERIAL_COUNT - 1;
+static constexpr uint32_t kDefaultSamplerId = 2;
+static_assert(kMaterialTextureId >= SHADER_TYPES_FRAME_COUNT && kMaterialTextureId < kModelTextureFirstSlot);
+
+// the material slot drawn for a submesh of the loaded model
+static uint32_t ModelMaterialSlot(int32_t material)
+{
+	return material >= 0 && static_cast<uint32_t>(material) < kModelMaterialMaxCount ? static_cast<uint32_t>(material) + 1 : 0;
+}
+
+// the loaded model's textures, by slot (from kModelTextureFirstSlot). nil for slots it doesn't use.
+static std::vector<std::pair<uuids::uuid, uuids::uuid>> gModelTextureUuids; // image, view
 
 // hands `resource` to a graphics queue submission that waits for all graphics work submitted so far, and releases it
 // from that submission's timeline callback, i.e. once the gpu can no longer be using it. call on the draw thread.
@@ -483,65 +499,78 @@ static void RetireAfterGraphicsWork(QueueTimelineContextData<kVk>& graphics, std
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-// makes an uploaded model the one being drawn, retiring the previous one. call on the draw thread.
-static void InstallModel(RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics, const std::shared_ptr<Model<kVk>>& model)
+// writes materials, starting at slot first, in a submission on the graphics queue that is ordered after all graphics
+// work submitted so far, and before all that follows. call on the draw thread.
+static void UpdateMaterials(
+	RHI<kVk>& rhi, QueueTimelineContextData<kVk>& graphics, uint32_t first, std::span<const MaterialData> materials)
 {
-	ZoneScopedN("RHIApplication::InstallModel");
+	if (materials.empty())
+		return;
+
+	ENSURE(first + materials.size() <= SHADER_TYPES_MATERIAL_COUNT);
 
 	auto& device = rhi.GetPrimaryDevice();
-	auto& pipeline = device.GetPipeline();
+	auto& buffer = *device.GetResource<Buffer<kVk>>(gMaterialsUuid);
+	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
-	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
-	pipeline.SetDescriptorData(
-		"gVertexBuffer",
-		DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
-		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	auto cmd = graphicsQueue.GetPool().Commands();
+	{
+		GPU_SCOPE(cmd, graphicsQueue, UpdateMaterials); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
-	RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelUuid, model));
-	gModelUuid = model->GetUuid();
+		// after the frames in flight have read the old ones
+		VkMemoryBarrier before{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
+			.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT};
+		vkCmdPipelineBarrier(
+			cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, nullptr, 0, nullptr);
+
+		// 32 kB at most, below vkCmdUpdateBuffer's limit of 64 kB
+		static_assert(SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData) <= 65536);
+		vkCmdUpdateBuffer(cmd, buffer, first * sizeof(MaterialData), materials.size_bytes(), materials.data());
+
+		VkMemoryBarrier after{
+			.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT};
+		vkCmdPipelineBarrier(
+			cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
+	}
+	cmd.End();
+
+	graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		.waitSemaphores = {graphics.semaphore},
+		.waitDstStageMasks = {VK_PIPELINE_STAGE_ALL_COMMANDS_BIT},
+		.waitSemaphoreValues = {graphics.timeline},
+		.signalSemaphores = {graphics.semaphore},
+		.signalSemaphoreValues = {++graphics.timeline}});
+
+	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-// makes an uploaded image the texture sampled by material 0, retiring the previous one. call on the draw thread.
-static void InstallImage(
+// transitions images to a shader readable layout on the graphics queue, and once that has executed, has the draw thread
+// call bind (with the graphics queue context). call on the draw thread.
+static void TransitionThenBind(
 	RHI<kVk>& rhi,
 	QueueTimelineContextData<kVk>& graphics,
-	const std::shared_ptr<Image<kVk>>& image,
-	const std::shared_ptr<ImageView<kVk>>& imageView)
+	const std::vector<std::shared_ptr<Image<kVk>>>& images,
+	std::function<void(QueueTimelineContextData<kVk>&)> bind)
 {
-	ZoneScopedN("RHIApplication::InstallImage");
-
-	// transition to a shader readable layout on the graphics queue first, and only point gTextures at the new view
-	// once that has executed: the transition's timeline callback hands the rest back to the draw thread.
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
 	auto cmd = graphicsQueue.GetPool().Commands();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
-		image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		for (const auto& image : images)
+			image->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	}
 	cmd.End();
 
-	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, image, imageView]
+	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, bind = std::move(bind)]
 	{
 		auto [bindTask, bindFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-			[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics)
-			{
-				auto& device = rhi.GetPrimaryDevice();
-				auto& pipeline = device.GetPipeline();
-
-				pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
-				pipeline.SetDescriptorData(
-					"gTextures",
-					DescriptorImageInfo<kVk>{.sampler = {}, .imageView = *imageView, .imageLayout = image->GetDesc().layout},
-					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-					kMaterialTextureId);
-
-				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(gLoadedImageUuid, image));
-				RetireAfterGraphicsWork(*graphics, device.ReplaceResource(gLoadedImageViewUuid, imageView));
-				gLoadedImageUuid = image->GetUuid();
-				gLoadedImageViewUuid = imageView->GetUuid();
-			});
+			[bind](QueueTimelineContextData<kVk>* graphics) { bind(*graphics); });
 		rhi.drawCalls.enqueue(bindTask);
 	});
 
@@ -559,15 +588,181 @@ static void InstallImage(
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-// loads a model and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
+using ImageAndView = std::pair<std::shared_ptr<Image<kVk>>, std::shared_ptr<ImageView<kVk>>>;
+
+// makes an uploaded model the one being drawn, with its materials and their textures (by material, null where a
+// material has no texture, or it failed to load), retiring the previous ones. call on the draw thread.
+static void InstallModel(
+	RHI<kVk>& rhi,
+	QueueTimelineContextData<kVk>& graphics,
+	const std::shared_ptr<Model<kVk>>& model,
+	std::vector<ImageAndView> textures)
+{
+	ZoneScopedN("RHIApplication::InstallModel");
+
+	std::vector<std::shared_ptr<Image<kVk>>> images;
+	for (const auto& [image, view] : textures)
+		if (image)
+			images.push_back(image);
+
+	// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
+	// the new model with the old materials or the other way around
+	TransitionThenBind(rhi, graphics, images, [&rhi, model, textures = std::move(textures)](QueueTimelineContextData<kVk>& graphics)
+	{
+		auto& device = rhi.GetPrimaryDevice();
+		auto& pipeline = device.GetPipeline();
+		const auto& blackView = *device.GetResource<ImageView<kVk>>(gBlackTextureViewUuid);
+
+		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+		// each texture once, in the slots from kModelTextureFirstSlot. the previous model's slots go back to black.
+		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
+		std::vector<std::pair<uuids::uuid, uuids::uuid>> textureUuids;
+		core::UnorderedMap<const Image<kVk>*, uint32_t> textureSlots;
+		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
+		{
+			auto& material = materials[materialIt];
+			std::ranges::fill(material.color, 1.0F);
+
+			const auto& [image, view] = textures[materialIt];
+			if (!image)
+				continue;
+
+			auto [slotIt, inserted] = textureSlots.try_emplace(image.get(), kModelTextureFirstSlot + textureUuids.size());
+			if (inserted)
+			{
+				if (textureUuids.size() == kModelTextureMaxCount)
+				{
+					textureSlots.erase(slotIt);
+					continue;
+				}
+
+				pipeline.SetDescriptorData(
+					"gTextures",
+					DescriptorImageInfo<kVk>{.sampler = {}, .imageView = *view, .imageLayout = image->GetDesc().layout},
+					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+					slotIt->second);
+
+				device.AddResource(image);
+				device.AddResource(view);
+				textureUuids.emplace_back(image->GetUuid(), view->GetUuid());
+			}
+
+			material.textureAndSamplerId = (slotIt->second << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kDefaultSamplerId;
+			material.flags = MATERIAL_FLAG_TEXTURE;
+		}
+
+		for (size_t slotIt = textureUuids.size(); slotIt < gModelTextureUuids.size(); slotIt++)
+			pipeline.SetDescriptorData(
+				"gTextures",
+				DescriptorImageInfo<kVk>{.sampler = {}, .imageView = blackView, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				kModelTextureFirstSlot + slotIt);
+
+		for (const auto& [imageUuid, viewUuid] : gModelTextureUuids)
+		{
+			RetireAfterGraphicsWork(graphics, device.ReplaceResource(viewUuid, nullptr));
+			RetireAfterGraphicsWork(graphics, device.ReplaceResource(imageUuid, nullptr));
+		}
+		gModelTextureUuids = std::move(textureUuids);
+
+		UpdateMaterials(rhi, graphics, 1, materials);
+
+		pipeline.SetDescriptorData(
+			"gVertexBuffer",
+			DescriptorBufferInfo<kVk>{.buffer = model->GetVertexBuffer(), .offset = 0, .range = VK_WHOLE_SIZE},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+
+		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelUuid, model));
+		gModelUuid = model->GetUuid();
+
+		for (auto& window : rhi.GetWindows())
+			window.FrameBounds(model->GetDesc().bounds);
+	});
+}
+
+// makes an uploaded image the texture sampled by material 0, retiring the previous one. call on the draw thread.
+static void InstallImage(
+	RHI<kVk>& rhi,
+	QueueTimelineContextData<kVk>& graphics,
+	const std::shared_ptr<Image<kVk>>& image,
+	const std::shared_ptr<ImageView<kVk>>& imageView)
+{
+	ZoneScopedN("RHIApplication::InstallImage");
+
+	TransitionThenBind(rhi, graphics, {image}, [&rhi, image, imageView](QueueTimelineContextData<kVk>& graphics)
+	{
+		auto& device = rhi.GetPrimaryDevice();
+		auto& pipeline = device.GetPipeline();
+
+		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
+		pipeline.SetDescriptorData(
+			"gTextures",
+			DescriptorImageInfo<kVk>{.sampler = {}, .imageView = *imageView, .imageLayout = image->GetDesc().layout},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			kMaterialTextureId);
+
+		// the default material is untextured until an image is loaded
+		MaterialData material{
+			.color = {1.0F, 1.0F, 1.0F, 1.0F},
+			.textureAndSamplerId = (kMaterialTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kDefaultSamplerId,
+			.flags = MATERIAL_FLAG_TEXTURE};
+		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
+
+		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
+		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageViewUuid, imageView));
+		gLoadedImageUuid = image->GetUuid();
+		gLoadedImageViewUuid = imageView->GetUuid();
+	});
+}
+
+// loads a model and its materials' textures, and has the draw thread install them, unless the load was cancelled. call
+// from a load (see gLoads).
 static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	auto model = Model<kVk>::LoadModel(filePath, progress);
-	if (!model) // cancelled
+	if (!model) // cancelled or failed
 		return;
 
+	// then the textures, each once. the progress starts over for them.
+	const auto& materials = model->GetDesc().materials;
+	if (materials.size() > kModelMaterialMaxCount)
+		std::println(stderr, "{}: {} materials, only the first {} are used", filePath, materials.size(), kModelMaterialMaxCount);
+
+	std::vector<ImageAndView> textures(materials.size());
+	core::UnorderedMap<std::string, ImageAndView> loaded;
+	size_t textureCount = 0;
+	for (const auto& material : materials)
+		textureCount += material.diffuseTexture.empty() ? 0 : 1;
+
+	progress = 0;
+	size_t textureIt = 0;
+	for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
+	{
+		const auto& path = materials[materialIt].diffuseTexture;
+		if (path.empty())
+			continue;
+
+		auto [it, inserted] = loaded.try_emplace(path);
+		if (inserted)
+		{
+			if (core::Application::Get()->IsExitRequested())
+				return;
+
+			std::atomic_uint8_t textureProgress = 0;
+			it->second = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), path, textureProgress);
+		}
+		textures[materialIt] = it->second;
+
+		progress = static_cast<uint8_t>(255 * ++textureIt / textureCount);
+	}
+
+	if (loaded.size() > kModelTextureMaxCount)
+		std::println(stderr, "{}: {} textures, only the first {} are used", filePath, loaded.size(), kModelTextureMaxCount);
+
 	auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
-		[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
+		[&rhi, model, textures = std::move(textures)](QueueTimelineContextData<kVk>* graphics) mutable
+		{ InstallModel(rhi, *graphics, model, std::move(textures)); });
 	rhi.drawCalls.enqueue(installTask);
 }
 
@@ -575,7 +770,7 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 static void LoadAndInstallImage(RHI<kVk>& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	auto [image, imageView] = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), filePath, progress);
-	if (!image) // cancelled
+	if (!image) // cancelled or failed
 		return;
 
 	auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
@@ -753,32 +948,23 @@ static void DrawMainPass(
 							deltaY);
 
 						uint16_t viewIndex = viewIt;
-						constexpr uint32_t kMaterialIndex = 0U;
 						constexpr uint32_t kDefaultModelInstanceId = 666;
 
-						pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | kMaterialIndex;
 						pushConstants.modelInstanceId = kDefaultModelInstanceId;
 
-						auto drawModel = [&pushConstants, &pipeline, &model](VkCommandBuffer cmd)
+						// one draw per material (see InstallModel for where the materials are)
+						auto drawModel = [&pushConstants, &pipeline, &model, viewIndex](VkCommandBuffer cmd)
 						{
 							ZoneScopedN("drawModel");
 
+							for (const auto& submesh : model.GetDesc().submeshes)
 							{
-								ZoneScopedN("drawModel::vkCmdPushConstants");
+								pushConstants.viewAndMaterialId =
+									(static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | ModelMaterialSlot(submesh.material);
 
 								pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-							}
 
-							{
-								ZoneScopedN("drawModel::vkCmdDrawIndexed");
-
-								vkCmdDrawIndexed(
-									cmd,
-									model.GetDesc().indexCount,
-									1,
-									0,
-									0,
-									0);
+								vkCmdDrawIndexed(cmd, submesh.indexCount, 1, submesh.firstIndex, 0, 0);
 							}
 						};
 
@@ -1679,10 +1865,7 @@ RHIApplication::RHIApplication(
 	gSamplersUuid = samplers->GetUuid();
 
 	// initialize stuff on graphics queue
-	constexpr uint32_t kTextureId = kMaterialTextureId;
-	constexpr uint32_t kSamplerId = 2;
-	static_assert(kTextureId < SHADER_TYPES_GLOBAL_TEXTURE_COUNT);
-	static_assert(kSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
+	static_assert(kDefaultSamplerId < SHADER_TYPES_GLOBAL_SAMPLER_COUNT);
 	{
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
@@ -1695,13 +1878,10 @@ RHIApplication::RHIApplication(
 		blackTexture->Clear(cmd, {.color = {{0.0F, 0.0F, 0.0F, 1.0F}}});
 		blackTexture->Transition(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
+		// white and untextured, until InstallModel and InstallImage fill them in
 		std::vector<MaterialData> materialData(SHADER_TYPES_MATERIAL_COUNT);
-		materialData[0].color[0] = 1.0;
-		materialData[0].color[1] = 0.0;
-		materialData[0].color[2] = 0.0;
-		materialData[0].color[3] = 1.0;
-		materialData[0].textureAndSamplerId =
-			(kTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kSamplerId;
+		for (auto& material : materialData)
+			std::ranges::fill(material.color, 1.0F);
 
 		core::TaskCreateInfo<void> materialTransfersDone;
 		auto materials = device.CreateResource<Buffer<kVk>>(
@@ -1821,7 +2001,7 @@ RHIApplication::RHIApplication(
 		"gSamplers",
 		DescriptorImageInfo<kVk>{.sampler = (*device.GetResource<SamplerVector<kVk>>(gSamplersUuid))[0]},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
-		kSamplerId);
+		kDefaultSamplerId);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{

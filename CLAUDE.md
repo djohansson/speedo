@@ -208,10 +208,23 @@ winding disagrees with the file's normals are flipped (mirrored exports), and mi
 within a smoothing group, or within 60 degrees for group 0. Some test scenes are z up (e.g. chestnut) and are loaded as
 is.
 
+Rendering is linear: color textures are loaded with srgb formats (`Image::LoadImage(..., srgb)`, mips filtered in
+linear space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` applies the srgb curve when it copies
+to the swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already). A model's
+materials (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`, and their
+diffuse textures are loaded with the model and go in `gTextures` slots from 16 (0-3 are the frames' render targets,
+15 the "Open Image..." texture of material 0). `InstallModel` switches model, textures and materials in one draw
+thread step, after the textures are transitioned: every change to `gTextures` takes a new descriptor set (see above),
+and the pool only holds 128 copies of that 1024 slot array. Installing a model also frames the cameras on its bounds
+(`Window::FrameBounds`).
+
 `scripts/assettest.sh <zips or dirs>` runs the `assettest` tool (imports every model and image and checks the result:
 index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `--client`
 also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish), failing
-on load errors, asserts and validation messages. Use a debug preset for `--client`, since only debug enables validation.
+on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
+profile preset first, then debug with `--client-only` and the same `--work` dir, whose caches it reuses. The client's
+main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
+`RequestExit()`, which posts an empty event.
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 

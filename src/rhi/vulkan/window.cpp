@@ -86,6 +86,30 @@ void Window<kVk>::InternalInitializeViews(std::optional<Extent2d<kVk>> splitScre
 }
 
 template <>
+void Window<kVk>::FrameBounds(const Bounds3f& bounds)
+{
+	// far enough back for a sphere around the bounds to fit the (75 degree) field of view
+	auto radius = std::max(bounds.Radius(), 1e-3F);
+	auto eye = bounds.Center() + glm::vec3(0.0F, 0.0F, 1.4F * radius);
+
+	{
+		auto cameras = myCameras.Write();
+		for (auto& camera : cameras.Get())
+		{
+			auto& desc = camera.GetDesc();
+			desc.position = -eye;
+			desc.cameraRotation = glm::vec3(0.0F);
+			desc.farPlane = 4.0F * radius;
+			desc.nearPlane = desc.farPlane * 1e-4F;
+			camera.UpdateAll();
+		}
+	}
+
+	// the views are otherwise only uploaded when the input changes them
+	InternalUpdateViewBuffer();
+}
+
+template <>
 void Window<kVk>::OnResizeFramebuffer(int width, int height)
 {
 	ASSERT(width > 0);

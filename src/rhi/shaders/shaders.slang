@@ -140,31 +140,29 @@ FragmentOutput FragmentMain(VertexOutput input)
 
 	MaterialData material = gMaterialData[materialId];
 
-	uint textureAndSamplerId = material.textureAndSamplerId;
+	// linear: the vertex colors hold the materials' diffuse colors, and textures are sampled through srgb formats
+	float4 color = v.color * material.color;
 
-	uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
-	uint samplerId = textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u);
+	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
+	{
+		uint textureAndSamplerId = material.textureAndSamplerId;
+		uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
+		uint samplerId = textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u);
 
-	Texture2D texture = gTextures[textureId];
-	SamplerState sampler = gSamplers[samplerId];
+		float4 sample = gTextures[textureId].Sample(gSamplers[samplerId], v.texCoord01.xy);
 
-	const uint checkerScale = 2;
-	const float checkerScaleInv = 1.f / checkerScale;
-	float checkers = checkerScale * frac(checkerScaleInv * (floor(v.position.x) + floor(v.position.y) + floor(v.position.z)));
+		// cutouts (foliage, fences) keep their mask in the alpha channel
+		if (sample.a < 0.5)
+			discard;
 
-	float4 sample = texture.Sample(sampler, v.texCoord01.xy);
+		color *= sample;
+	}
 
-	output.color = 
-		lerp(
-			lerp(
-				lerp(
-					lerp(v.color, material.color, 0.5),
-					float4(float3(checkers), 1.0),
-					0.2),
-				float4(SignedOctEncode(v.normal), 1.0),
-				0.2),
-			sample,
-			sample.a);
+	// a fixed light from above, and some ambient, so that the shapes read
+	const float3 lightDirection = normalize(float3(0.3, 1.0, 0.5));
+	float diffuse = saturate(dot(normalize(v.normal), lightDirection));
+
+	output.color = float4(color.rgb * (0.3 + 0.7 * diffuse), color.a);
 
 	return output;
 }
