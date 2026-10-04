@@ -1,3 +1,7 @@
+#include <rhi/vulkan/convert.h>
+
+#include <type_traits>
+
 namespace rhi
 {
 
@@ -20,6 +24,37 @@ template <typename T>
 [[nodiscard]] bool SameBindingValue(const T& lhs, const T& rhs) noexcept // handles, inline uniform blocks
 {
 	return lhs == rhs;
+}
+
+[[nodiscard]] inline DescriptorBufferInfo<kVk> ToVk(const BufferBinding<kVk>& binding) noexcept
+{
+	return {.buffer = binding.buffer, .offset = binding.offset, .range = binding.range};
+}
+
+[[nodiscard]] inline DescriptorImageInfo<kVk> ToVk(const ImageBinding<kVk>& binding) noexcept
+{
+	return {.sampler = binding.sampler, .imageView = binding.imageView, .imageLayout = vk::ToVk(binding.layout)};
+}
+
+// the stored form of a descriptor value: neutral bindings become vulkan's structs, everything else is stored as is
+template <typename T>
+[[nodiscard]] decltype(auto) ToBindingValue(T&& value) noexcept
+{
+	if constexpr (requires { ToVk(value); })
+		return ToVk(value);
+	else
+		return std::forward<T>(value);
+}
+
+template <typename T>
+[[nodiscard]] std::vector<std::remove_cvref_t<decltype(ToBindingValue(std::declval<const T&>()))>> ToBindingValues(
+	const std::vector<T>& values)
+{
+	std::vector<std::remove_cvref_t<decltype(ToBindingValue(std::declval<const T&>()))>> result;
+	result.reserve(values.size());
+	for (const auto& value : values)
+		result.push_back(ToBindingValue(value));
+	return result;
 }
 
 template <typename T>
@@ -96,7 +131,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
-		std::forward<T>(data));
+		pipeline::ToBindingValue(std::forward<T>(data)));
 }
 
 template <>
@@ -195,7 +230,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
-		data);
+		pipeline::ToBindingValues(data));
 }
 
 template <>
@@ -297,7 +332,7 @@ void Pipeline<kVk>::SetDescriptorData(
 	SetDescriptorData(
 		XXH3_64bits(shaderVariableName.data(), shaderVariableName.size()),
 		layoutIt->GetDescriptorSetLayout(set),
-		std::forward<T>(data),
+		pipeline::ToBindingValue(std::forward<T>(data)),
 		index);
 }
 

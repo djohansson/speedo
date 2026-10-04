@@ -124,17 +124,17 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 		RenderTargetCreateDesc<kVk>
 		{
 			device.CreateDeviceObjectCreateDesc("Swapchain"),
-			swapchainInfo.capabilities.currentExtent,
-		 	{VK_FORMAT_UNDEFINED},
-			{VK_IMAGE_LAYOUT_UNDEFINED},
-			{VK_IMAGE_ASPECT_COLOR_BIT}
+			vk::FromVk(swapchainInfo.capabilities.currentExtent),
+			{Format::kUndefined},
+			{ImageLayout::kUndefined},
+			{ImageAspect::kColor}
 		},
 		surface,
 		{.format=VK_FORMAT_UNDEFINED, .colorSpace=VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
 		VK_PRESENT_MODE_FIFO_KHR
 	};
 
-	constexpr std::array<Format<kVk>, 4> kRequestSurfaceImageFormat{
+	constexpr std::array<VkFormat, 4> kRequestSurfaceImageFormat{
 		VK_FORMAT_B8G8R8A8_UNORM,
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_FORMAT_B8G8R8_UNORM,
@@ -233,7 +233,6 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 		WindowState{initData.windowState}
 	);
 
-	SetCurrentWindow(initData.windowHandle);
 	//(std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
 }
 

@@ -13,12 +13,12 @@ namespace rhi
 template <GraphicsApi G>
 struct RenderTargetCreateDesc : DeviceObjectCreateDesc<G>
 {
-	Extent2d<G> extent{};
-	std::vector<Format<G>> imageFormats;
-	std::vector<ImageLayout<G>> imageLayouts;
-	std::vector<ImageAspectFlags<G>> imageAspectFlags;
+	Extent2d extent{};
+	std::vector<Format> imageFormats;
+	std::vector<ImageLayout> imageLayouts;
+	std::vector<ImageAspect> imageAspectFlags;
 	std::vector<ImageHandle<G>> images;
-	std::vector<VkClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depthStencil = {.depth = 1.0F, .stencil = 0}}};
+	std::vector<ClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depth = 1.0F, .stencil = 0}};
 	uint32_t layerCount = 1;
 	bool useDynamicRendering = true;
 };
@@ -40,21 +40,21 @@ template <GraphicsApi G>
 struct IRenderTarget
 {
 	[[nodiscard]] virtual RenderTargetPassHandle<G> GetHandle() = 0;
-	[[nodiscard]] virtual Extent2d<G> GetExtent() const = 0;
+	[[nodiscard]] virtual Extent2d GetExtent() const = 0;
 	[[nodiscard]] virtual std::span<const ImageHandle<G>> GetImages() const = 0;
 	[[nodiscard]] virtual std::span<const ImageViewHandle<G>> GetAttachments() const = 0;
 	[[nodiscard]] virtual std::span<const AttachmentDescription<G>> GetAttachmentDescs() const = 0;
-	[[nodiscard]] virtual ImageLayout<G> GetLayout(uint32_t index) const = 0;
+	[[nodiscard]] virtual ImageLayout GetLayout(uint32_t index) const = 0;
 	[[nodiscard]] virtual const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const = 0;
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] virtual const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) = 0;
+	[[maybe_unused]] virtual const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents contents) = 0;
 	virtual void End(CommandBufferHandle<G> cmd) = 0;
 	//
 
 	virtual void ClearAll(
 		CommandBufferHandle<G> cmd,
-		std::span<const ClearValue<G>> values) const = 0;
+		std::span<const ClearValue> values) const = 0;
 
 	virtual void Blit(
 		CommandBufferHandle<G> cmd,
@@ -63,7 +63,7 @@ struct IRenderTarget
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<G> filter) = 0;
+		Filter filter) = 0;
 
 	virtual void Copy(
 		CommandBufferHandle<G> cmd,
@@ -75,17 +75,17 @@ struct IRenderTarget
 
 	virtual void Clear(
 		CommandBufferHandle<G> cmd,
-		const ClearValue<G>& value,
+		const ClearValue& value,
 		uint32_t index) = 0;
 
 	virtual void Transition(
 		CommandBufferHandle<G> cmd,
-		ImageLayout<G> layout,
-		ImageAspectFlags<G> aspectFlags,
+		ImageLayout layout,
+		ImageAspect aspectFlags,
 		uint32_t index) = 0;
 
-	virtual void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<G> stencilLoadOp = {}) = 0; //NOLINT(google-default-arguments)
-	virtual void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<G> stencilStoreOp = {}) = 0; //NOLINT(google-default-arguments)
+	virtual void SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp = {}) = 0; //NOLINT(google-default-arguments)
+	virtual void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) = 0; //NOLINT(google-default-arguments)
 };
 
 template <typename DerivedType, GraphicsApi G/* = Object<DerivedType>::Api*/>

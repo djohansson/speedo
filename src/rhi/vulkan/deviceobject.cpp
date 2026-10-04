@@ -1,3 +1,4 @@
+#include <array>
 #include <rhi/deviceobject.h>
 #include <rhi/vulkan/utils.h>
 
@@ -134,6 +135,47 @@ uint32_t GetTypeCount<kVk>(VkObjectType type)
 	uint32_t count = 0;
 	deviceobject::gTypeCounts.if_contains(type, [&count](const auto& entry) { count = entry.second; });
 	return count;
+}
+
+template <>
+std::vector<std::pair<std::string_view, uint32_t>> GetObjectCounts<kVk>()
+{
+	static constexpr std::array<std::pair<std::string_view, VkObjectType>, 28> kTypes{{
+		{"Instances", VK_OBJECT_TYPE_INSTANCE},
+		{"Physical Devices", VK_OBJECT_TYPE_PHYSICAL_DEVICE},
+		{"Devices", VK_OBJECT_TYPE_DEVICE},
+		{"Queues", VK_OBJECT_TYPE_QUEUE},
+		{"Semaphores", VK_OBJECT_TYPE_SEMAPHORE},
+		{"Command Buffers", VK_OBJECT_TYPE_COMMAND_BUFFER},
+		{"Fences", VK_OBJECT_TYPE_FENCE},
+		{"Device Memory", VK_OBJECT_TYPE_DEVICE_MEMORY},
+		{"Buffers", VK_OBJECT_TYPE_BUFFER},
+		{"Images", VK_OBJECT_TYPE_IMAGE},
+		{"Events", VK_OBJECT_TYPE_EVENT},
+		{"Query Pools", VK_OBJECT_TYPE_QUERY_POOL},
+		{"Buffer Views", VK_OBJECT_TYPE_BUFFER_VIEW},
+		{"Image Views", VK_OBJECT_TYPE_IMAGE_VIEW},
+		{"Shader Modules", VK_OBJECT_TYPE_SHADER_MODULE},
+		{"Pipeline Caches", VK_OBJECT_TYPE_PIPELINE_CACHE},
+		{"Pipeline Layouts", VK_OBJECT_TYPE_PIPELINE_LAYOUT},
+		{"Render Passes", VK_OBJECT_TYPE_RENDER_PASS},
+		{"Pipelines", VK_OBJECT_TYPE_PIPELINE},
+		{"Descriptor Set Layouts", VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT},
+		{"Samplers", VK_OBJECT_TYPE_SAMPLER},
+		{"Descriptor Pools", VK_OBJECT_TYPE_DESCRIPTOR_POOL},
+		{"Descriptor Sets", VK_OBJECT_TYPE_DESCRIPTOR_SET},
+		{"Descriptor Update Templates", VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE},
+		{"Framebuffers", VK_OBJECT_TYPE_FRAMEBUFFER},
+		{"Command Pools", VK_OBJECT_TYPE_COMMAND_POOL},
+		{"Surfaces", VK_OBJECT_TYPE_SURFACE_KHR},
+		{"Swapchains", VK_OBJECT_TYPE_SWAPCHAIN_KHR},
+	}};
+
+	std::vector<std::pair<std::string_view, uint32_t>> counts;
+	counts.reserve(kTypes.size());
+	for (const auto& [name, type] : kTypes)
+		counts.emplace_back(name, GetTypeCount<kVk>(type));
+	return counts;
 }
 #endif // SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0
 

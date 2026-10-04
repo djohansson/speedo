@@ -166,7 +166,7 @@ void AddBinding(
 	layout.variableNameHashes.push_back(XXH3_64bits(name.data(), name.size()));
 
 	// todo: immutable samplers
-	//layout.immutableSamplers.push_back(SamplerCreateInfo<kVk>{});
+	//layout.immutableSamplers.push_back(SamplerDesc{});
 
 	// todo: push descriptors
 	constexpr bool kUsePushDescriptor = false;

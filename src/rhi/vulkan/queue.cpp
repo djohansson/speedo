@@ -236,15 +236,24 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 	auto* submitPtr = submitBegin;
 	timelinePtr = timelineBegin;
 
+	// the wait stages in vulkan's terms, alive until the submit
+	std::vector<std::vector<VkPipelineStageFlags>> waitDstStageMasks;
+	waitDstStageMasks.reserve(myPendingSubmits.size());
+
 	for (const auto& pendingSubmit : myPendingSubmits)
 	{
 		auto& submitInfo = *(submitPtr++);
+
+		auto& stageMasks = waitDstStageMasks.emplace_back();
+		stageMasks.reserve(pendingSubmit.waitDstStageMasks.size());
+		for (auto stages : pendingSubmit.waitDstStageMasks)
+			stageMasks.push_back(vk::ToVk(stages));
 
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.pNext = timelinePtr++;
 		submitInfo.waitSemaphoreCount = pendingSubmit.waitSemaphores.size();
 		submitInfo.pWaitSemaphores = pendingSubmit.waitSemaphores.data();
-		submitInfo.pWaitDstStageMask = pendingSubmit.waitDstStageMasks.data();
+		submitInfo.pWaitDstStageMask = stageMasks.data();
 		submitInfo.signalSemaphoreCount = pendingSubmit.signalSemaphores.size();
 		submitInfo.pSignalSemaphores = pendingSubmit.signalSemaphores.data();
 		submitInfo.commandBufferCount = pendingSubmit.commandBuffers.size();
@@ -284,7 +293,7 @@ void Queue<kVk>::WaitIdle() const
 }
 
 template <>
-QueueHostSyncInfo<kVk> Queue<kVk>::Present(Result<kVk>* presentResult)
+QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 {
 	ZoneScopedN("Queue::Present");
 
@@ -345,7 +354,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(Result<kVk>* presentResult)
 		if (vkResult != VK_SUBOPTIMAL_KHR && vkResult != VK_ERROR_OUT_OF_DATE_KHR)
 			VK_CHECK(vkResult, reinterpret_cast<uintptr_t>(myQueue));
 		if (presentResult != nullptr)
-			*presentResult = vkResult;
+			*presentResult = vk::ToPresentResult(vkResult);
 	}
 
 	myPendingPresent = {};

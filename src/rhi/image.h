@@ -15,7 +15,7 @@ namespace rhi
 template <GraphicsApi G>
 struct ImageMipLevelDesc
 {
-	Extent2d<G> extent{};
+	Extent2d extent{};
 	uint32_t size = 0;
 	uint32_t offset = 0;
 };
@@ -24,12 +24,12 @@ template <GraphicsApi G>
 struct ImageCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	std::vector<ImageMipLevelDesc<G>> mipLevels;
-	Format<G> format{};
-	ImageTiling<G> tiling{};
-	Flags<G> usageFlags{};
-	Flags<G> memoryFlags{};
-	ImageAspectFlags<G> imageAspectFlags{};
-	ImageLayout<G> layout{};
+	Format format{};
+	ImageTiling tiling{};
+	ImageUsage usageFlags{};
+	MemoryProperty memoryFlags{};
+	ImageAspect imageAspectFlags{};
+	ImageLayout layout{};
 
 	// see DeviceObjectCreateDesc::serialize for why this is needed
 	constexpr static auto serialize(auto& archive, auto& self)//NOLINT(readability-identifier-naming)
@@ -96,9 +96,9 @@ public:
 
 	void Clear(
 		CommandBufferHandle<G> cmd,
-		const ClearValue<G>& value = {},
+		const ClearValue& value = {},
 		const std::optional<ImageSubresourceRange<G>>& range = std::nullopt);
-	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags = {});
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags = {});
 
 private:
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.
@@ -116,8 +116,8 @@ private:
 	// these methods are not meant to be used except in very special cases
 	// such as for instance to update the image layout after a render pass
 	// (which implicitly changes the image layout).
-	void InternalSetImageLayout(ImageLayout<G> layout) noexcept { this->InternalGetDesc().layout = layout; }
-	void InternalSetAspectFlags(ImageAspectFlags<G> aspectFlags) noexcept { this->InternalGetDesc().imageAspectFlags = aspectFlags; }
+	void InternalSetImageLayout(ImageLayout layout) noexcept { this->InternalGetDesc().layout = layout; }
+	void InternalSetAspectFlags(ImageAspect aspectFlags) noexcept { this->InternalGetDesc().imageAspectFlags = aspectFlags; }
 
 	ValueType myImage{};
 };
@@ -126,8 +126,8 @@ template <GraphicsApi G>
 struct ImageViewCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	ImageHandle<G> image{};
-	Format<G> format{};
-	Flags<G> aspectFlags{};
+	Format format{};
+	ImageAspect aspectFlags{};
 };
 
 template <GraphicsApi G>
@@ -154,7 +154,7 @@ public:
 	[[maybe_unused]] ImageView& operator=(ImageView&& other) noexcept;
 	[[nodiscard]] operator auto() const noexcept { return myView; }//NOLINT(google-explicit-constructor)
 
-	void SetFormat(Format<G> format) noexcept { this->InternalGetDesc().format = format; }
+	void SetFormat(Format format) noexcept { this->InternalGetDesc().format = format; }
 	void SetAspectFlags(Flags<G> aspectFlags) noexcept { this->InternalGetDesc().aspectFlags = aspectFlags; }
 
 	void Swap(ImageView& rhs) noexcept;

@@ -57,21 +57,21 @@ public:
 	friend void Swap(Swapchain& lhs, Swapchain& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] RenderTargetPassHandle<G> GetHandle() final;
-	[[nodiscard]] Extent2d<G> GetExtent() const final;
+	[[nodiscard]] Extent2d GetExtent() const final;
 	[[nodiscard]] std::span<const ImageHandle<G>> GetImages() const final;
 	[[nodiscard]] std::span<const ImageViewHandle<G>> GetAttachments() const final;
 	[[nodiscard]] std::span<const AttachmentDescription<G>> GetAttachmentDescs() const final;
-	[[nodiscard]] ImageLayout<G> GetLayout(uint32_t index) const final;
+	[[nodiscard]] ImageLayout GetLayout(uint32_t index) const final;
 	[[nodiscard]] const std::optional<PipelineRenderingCreateInfo<G>>& GetPipelineRenderingCreateInfo() const final;
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents<G> contents) final;
+	[[maybe_unused]] const RenderTargetBeginInfo<G>& Begin(CommandBufferHandle<G> cmd, SubpassContents contents) final;
 	void End(CommandBufferHandle<G> cmd) final;
 	//
 
 	void ClearAll(
 		CommandBufferHandle<G> cmd,
-		std::span<const ClearValue<G>> values) const final;
+		std::span<const ClearValue> values) const final;
 
 	void Blit(
 		CommandBufferHandle<G> cmd,
@@ -80,7 +80,7 @@ public:
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<G> filter) final;
+		Filter filter) final;
 
 	void Copy(
 		CommandBufferHandle<G> cmd,
@@ -90,14 +90,16 @@ public:
 		const ImageSubresourceLayers<G>& dstSubresource,
 		uint32_t dstIndex) final;
 
-	void Clear(CommandBufferHandle<G> cmd, const ClearValue<G>& value, uint32_t index) final;
+	void Clear(CommandBufferHandle<G> cmd, const ClearValue& value, uint32_t index) final;
 
-	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index) final;
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index) final;
 
-	void SetLoadOp(AttachmentLoadOp<G> loadOp, uint32_t index, AttachmentLoadOp<G> stencilLoadOp = {}) final;
-	void SetStoreOp(AttachmentStoreOp<G> storeOp, uint32_t index, AttachmentStoreOp<G> stencilStoreOp = {}) final;
+	void SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp = {}) final;
+	void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) final;
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
+	// queries the surface's current size. the swapchain's own extent if the surface leaves it to the swapchain.
+	[[nodiscard]] Extent2d QuerySurfaceExtent();
 	
 	[[nodiscard]] FlipResult<G> Flip();
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
@@ -111,7 +113,7 @@ public:
 
 	// set when an acquire or present reports the swapchain out of date or suboptimal (e.g. after a fullscreen switch,
 	// which doesn't always come with a framebuffer resize event of the final size). cleared by CreateSwapchain.
-	void OnPresentResult(Result<G> result) noexcept;
+	void OnPresentResult(PresentResult result) noexcept;
 	[[nodiscard]] bool NeedsRecreate() const noexcept { return myNeedsRecreate; }
 
 private:

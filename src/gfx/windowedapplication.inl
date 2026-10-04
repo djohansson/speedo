@@ -2,7 +2,7 @@ namespace gfx
 {
 
 template <typename LoadOp>
-void WindowedApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<rhi::window::FileFilter>& filterList, LoadOp loadOp)
+void WindowedApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<FileFilter>& filterList, LoadOp loadOp)
 {
 	using namespace core;
 	
@@ -15,7 +15,7 @@ void WindowedApplication::InternalOpenFileDialogueAsync(std::string&& resourcePa
 	auto [openFileTask, openFileFuture] = CreateTask(
 		[resourcePathString = std::move(resourcePathString), filterList = std::vector(filterList), loadOp = std::move(loadOp)]() mutable
 		{
-			auto [openFileResult, openFilePath] = rhi::window::OpenFileDialogue(std::move(resourcePathString), filterList);
+			auto [openFileResult, openFilePath] = OpenFileDialogue(std::move(resourcePathString), filterList);
 			if (!openFileResult)
 				return;
 

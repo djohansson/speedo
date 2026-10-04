@@ -1,4 +1,3 @@
-// vulkan specific: the view buffers' usage and memory flags (see gfx/gpu.h)
 #include <gfx/views.h>
 
 #include <rhi/shaders/capi.h>
@@ -21,11 +20,11 @@ Views::Views(Device& device, glm::uvec2 framebufferExtent)
 
 	myBuffers.reserve(SHADER_TYPES_FRAME_COUNT);
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
-		myBuffers.emplace_back(rhi::BufferCreateDesc<rhi::kGraphicsApi>{
+		myBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("ViewBuffer{}", frameIt)),
 			SHADER_TYPES_VIEW_COUNT * sizeof(ViewData),
-			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT});
+			rhi::BufferUsage::kStorage,
+			rhi::MemoryProperty::kHostVisible});
 
 	InternalLayout();
 }

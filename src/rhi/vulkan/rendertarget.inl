@@ -13,21 +13,21 @@ public:
 	~RenderTarget() override;
 
 	[[nodiscard]] RenderTargetPassHandle<kVk> GetHandle() final { return InternalGetValues(); }
-	[[nodiscard]] Extent2d<kVk> GetExtent() const final { return this->GetDesc().extent; }
+	[[nodiscard]] Extent2d GetExtent() const final { return this->GetDesc().extent; }
 	[[nodiscard]] std::span<const ImageHandle<kVk>> GetImages() const final { return this->GetDesc().images; }
-	[[nodiscard]] ImageLayout<kVk> GetLayout(uint32_t index) const override { return this->GetDesc().imageLayouts[index]; }
+	[[nodiscard]] ImageLayout GetLayout(uint32_t index) const override { return this->GetDesc().imageLayouts[index]; }
 	[[nodiscard]] std::span<const ImageViewHandle<kVk>> GetAttachments() const final { return myAttachments; }
 	[[nodiscard]] std::span<const AttachmentDescription<kVk>> GetAttachmentDescs() const final { return myAttachmentDescs; }
 	[[nodiscard]] const std::optional<PipelineRenderingCreateInfo<kVk>>& GetPipelineRenderingCreateInfo() const final { return myPipelineRenderingCreateInfo; }
 
 	// TODO(djohansson): make these two a single scoped call
-	[[maybe_unused]] const RenderTargetBeginInfo<kVk>& Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents) final;
+	[[maybe_unused]] const RenderTargetBeginInfo<kVk>& Begin(CommandBufferHandle<kVk> cmd, SubpassContents contents) final;
 	void End(CommandBufferHandle<kVk> cmd) override;
 	//
 
 	void ClearAll(
 		CommandBufferHandle<kVk> cmd,
-		std::span<const ClearValue<kVk>> values) const final;
+		std::span<const ClearValue> values) const final;
 
 	void Blit(
 		CommandBufferHandle<kVk> cmd,
@@ -36,7 +36,7 @@ public:
 		uint32_t srcIndex,
 		const ImageSubresourceLayers<kVk>& dstSubresource,
 		uint32_t dstIndex,
-		Filter<kVk> filter) final;
+		Filter filter) final;
 
 	void Copy(
 		CommandBufferHandle<kVk> cmd,
@@ -48,15 +48,15 @@ public:
 
 	void Clear(
 		CommandBufferHandle<kVk> cmd,
-		const ClearValue<kVk>& value,
+		const ClearValue& value,
 		uint32_t index) final;
 
-	void SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp = {}) final;
-	void SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp = {}) final;
+	void SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp = {}) final;
+	void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) final;
 
 	void AddSubpassDescription(SubpassDescription<kVk>&& description);
 	void AddSubpassDependency(SubpassDependency<kVk>&& dependency);
-	void NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents);
+	void NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContents contents);
 	void ResetSubpasses();
 
 	void Swap(RenderTarget& rhs) noexcept;
@@ -95,9 +95,10 @@ private:
 	std::vector<RenderingAttachmentInfo<kVk>> myColorAttachmentInfos;
 	std::optional<RenderingAttachmentInfo<kVk>> myDepthAttachmentInfo;
 	std::optional<RenderingAttachmentInfo<kVk>> myStencilAttachmentInfo;
-	std::vector<Format<kVk>> myColorAttachmentFormats;
-	std::optional<Format<kVk>> myDepthAttachmentFormat;
-	std::optional<Format<kVk>> myStencilAttachmentFormat;
+	std::vector<VkFormat> myColorAttachmentFormats;
+	std::optional<VkFormat> myDepthAttachmentFormat;
+	std::optional<VkFormat> myStencilAttachmentFormat;
+	std::vector<VkClearValue> myClearValues; // the desc's, for the render pass
 
 	core::UnorderedMap<uint64_t, RenderTargetPassHandle<kVk>> myCache; // todo: consider making global
 };
@@ -161,20 +162,20 @@ void RenderTarget<DerivedType, kVk>::InternalInitializeAttachments()
 			&this->GetInstance().GetHostAllocationCallbacks(),
 			0,
 			this->GetDesc().images[attachmentIt],
-			this->GetDesc().imageFormats[attachmentIt],
-			this->GetDesc().imageAspectFlags[attachmentIt],
+			vk::ToVk(this->GetDesc().imageFormats[attachmentIt]),
+			vk::ToVk(this->GetDesc().imageAspectFlags[attachmentIt]),
 			1,
 			std::format("{} Attachment {} ImageView", this->GetName(), attachmentIt)));
 
 		auto& attachment = myAttachmentDescs.emplace_back();
 		attachment.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
-		attachment.format = this->GetDesc().imageFormats[attachmentIt];
+		attachment.format = vk::ToVk(this->GetDesc().imageFormats[attachmentIt]);
 		attachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		attachment.initialLayout = this->GetDesc().imageLayouts[attachmentIt];
+		attachment.initialLayout = vk::ToVk(this->GetDesc().imageLayouts[attachmentIt]);
 		attachment.finalLayout = finalLayout;
 
 		auto& attachmentRef = myAttachmentsReferences.emplace_back();
@@ -182,7 +183,7 @@ void RenderTarget<DerivedType, kVk>::InternalInitializeAttachments()
 		attachmentRef.attachment = attachmentIt;
 		attachmentRef.layout = finalLayout;
 
-		auto aspectMask = this->GetDesc().imageAspectFlags[attachmentIt];
+		auto aspectMask = vk::ToVk(this->GetDesc().imageAspectFlags[attachmentIt]);
 
 		if (aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
 			aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -362,10 +363,10 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 		auto& attachmentDesc = myAttachmentDescs[attachmentIt];
 		auto& attachmentRef = myAttachmentsReferences[attachmentIt];
 
-		if (auto layout = this->GetLayout(attachmentIt); layout != attachmentDesc.initialLayout)
+		if (auto layout = vk::ToVk(this->GetLayout(attachmentIt)); layout != attachmentDesc.initialLayout)
 			attachmentDesc.initialLayout = layout;
 
-		if (auto aspectMask = this->GetDesc().imageAspectFlags[attachmentIt]; aspectMask != attachmentRef.aspectMask)
+		if (auto aspectMask = vk::ToVk(this->GetDesc().imageAspectFlags[attachmentIt]); aspectMask != attachmentRef.aspectMask)
 		{
 			if (aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
 				aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -383,7 +384,7 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 				&this->GetInstance().GetHostAllocationCallbacks(),
 				0,
 				this->GetDesc().images[attachmentIt],
-				this->GetDesc().imageFormats[attachmentIt],
+				vk::ToVk(this->GetDesc().imageFormats[attachmentIt]),
 				aspectMask,
 				1,
 				std::format("{} Attachment {} ImageView", this->GetName(), attachmentIt));
@@ -416,10 +417,10 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
 					.pNext = nullptr,
 					.imageView = attachment,
-					.imageLayout = GetLayout(i),
+					.imageLayout = vk::ToVk(GetLayout(i)),
 					.loadOp = attachmentDesc.loadOp,
 					.storeOp = attachmentDesc.storeOp,
-					.clearValue = clearValue,
+					.clearValue = vk::ToVk(clearValue, AspectOf(this->GetDesc().imageFormats[i])),
 				});
 				myColorAttachmentFormats.emplace_back(attachmentDesc.format);
 			}
@@ -430,10 +431,10 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
 					.pNext = nullptr,
 					.imageView = attachment,
-					.imageLayout = GetLayout(i),
+					.imageLayout = vk::ToVk(GetLayout(i)),
 					.loadOp = attachmentDesc.loadOp,
 					.storeOp = attachmentDesc.storeOp,
-					.clearValue = clearValue,
+					.clearValue = vk::ToVk(clearValue, AspectOf(this->GetDesc().imageFormats[i])),
 				};
 				myDepthAttachmentFormat = attachmentDesc.format;
 			}
@@ -444,10 +445,10 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
 					.pNext = nullptr,
 					.imageView = attachment,
-					.imageLayout = GetLayout(i),
+					.imageLayout = vk::ToVk(GetLayout(i)),
 					.loadOp = attachmentDesc.loadOp,
 					.storeOp = attachmentDesc.storeOp,
-					.clearValue = clearValue,
+					.clearValue = vk::ToVk(clearValue, AspectOf(this->GetDesc().imageFormats[i])),
 				};
 				myStencilAttachmentFormat = attachmentDesc.format;
 			}
@@ -459,10 +460,16 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 			.viewMask = 0,
 			.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentInfos.size()),
 			.pColorAttachmentFormats = myColorAttachmentFormats.data(),
-			.depthAttachmentFormat = myDepthAttachmentFormat.value_or(Format<kVk>{}),
-			.stencilAttachmentFormat = myStencilAttachmentFormat.value_or(Format<kVk>{}),
+			.depthAttachmentFormat = myDepthAttachmentFormat.value_or(VK_FORMAT_UNDEFINED),
+			.stencilAttachmentFormat = myStencilAttachmentFormat.value_or(VK_FORMAT_UNDEFINED),
 		};
 	}
+
+	myClearValues.clear();
+	for (uint32_t i = 0; i < this->GetDesc().clearValues.size(); i++)
+		myClearValues.push_back(vk::ToVk(
+			this->GetDesc().clearValues[i],
+			i < this->GetDesc().imageFormats.size() ? AspectOf(this->GetDesc().imageFormats[i]) : ImageAspect::kColor));
 }
 
 template <typename DerivedType>
@@ -473,7 +480,7 @@ void RenderTarget<DerivedType, kVk>::Blit(
 	uint32_t srcIndex,
 	const ImageSubresourceLayers<kVk>& dstSubresource,
 	uint32_t dstIndex,
-	Filter<kVk> filter)
+	Filter filter)
 {
 	ZoneScopedN("RenderTarget::blit");
 
@@ -485,30 +492,17 @@ void RenderTarget<DerivedType, kVk>::Blit(
 	imageBlit.dstSubresource = dstSubresource;
 	imageBlit.dstOffsets[1] = { .x = static_cast<int32_t>(this->GetDesc().extent.width), .y = static_cast<int32_t>(this->GetDesc().extent.height), .z = 1 };
 
-	VkImageAspectFlags aspectFlags{};
-	if (HasColorComponent(this->GetDesc().imageFormats[srcIndex]))
-	{
-		aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
-	else 
-	{
-		if (HasDepthComponent(this->GetDesc().imageFormats[srcIndex]))
-			aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-		if (HasStencilComponent(this->GetDesc().imageFormats[srcIndex]))
-			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
-
-	this->Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, dstIndex);
+	this->Transition(cmd, ImageLayout::kTransferDestination, AspectOf(this->GetDesc().imageFormats[srcIndex]), dstIndex);
 
 	vkCmdBlitImage(
 		cmd,
 		srcRenderTarget.GetImages()[srcIndex],
-		srcRenderTarget.GetLayout(srcIndex),
+		vk::ToVk(srcRenderTarget.GetLayout(srcIndex)),
 		this->GetDesc().images[dstIndex],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
 		&imageBlit,
-		filter);
+		vk::ToVk(filter));
 }
 
 template <typename DerivedType>
@@ -531,25 +525,12 @@ void RenderTarget<DerivedType, kVk>::Copy(
 	imageCopy.dstOffset = { .x = 0, .y = 0, .z = 0 };
 	imageCopy.extent = { .width = srcExtent.width, .height = srcExtent.height, .depth = 1 };
 
-	VkImageAspectFlags aspectFlags{};
-	if (HasColorComponent(this->GetDesc().imageFormats[srcIndex]))
-	{
-		aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
-	else 
-	{
-		if (HasDepthComponent(this->GetDesc().imageFormats[srcIndex]))
-			aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-		if (HasStencilComponent(this->GetDesc().imageFormats[srcIndex]))
-			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
-
-	this->Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, dstIndex);
+	this->Transition(cmd, ImageLayout::kTransferDestination, AspectOf(this->GetDesc().imageFormats[srcIndex]), dstIndex);
 
 	vkCmdCopyImage(
 		cmd,
 		srcRenderTarget.GetImages()[srcIndex],
-		srcRenderTarget.GetLayout(srcIndex),
+		vk::ToVk(srcRenderTarget.GetLayout(srcIndex)),
 		this->GetImages()[dstIndex],
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1,
@@ -559,34 +540,23 @@ void RenderTarget<DerivedType, kVk>::Copy(
 template <typename DerivedType>
 void RenderTarget<DerivedType, kVk>::ClearAll(
 	CommandBufferHandle<kVk> cmd,
-	std::span<const ClearValue<kVk>> values) const
+	std::span<const ClearValue> values) const
 {
 	ZoneScopedN("RenderTarget::ClearAll");
 
 	uint32_t attachmentIt = 0UL;
 	VkClearRect rect{
-		.rect = {.offset = {.x = 0, .y = 0}, .extent = this->GetDesc().extent},
+		.rect = {.offset = {.x = 0, .y = 0}, .extent = vk::ToVk(this->GetDesc().extent)},
 		.baseArrayLayer = 0,
 		.layerCount = this->GetDesc().layerCount};
 	
 	std::vector<VkClearAttachment> clearAttachments(this->GetDesc().images.size());
 	for (auto& attachment : clearAttachments)
 	{
-		auto format = this->GetDesc().imageFormats[attachmentIt];
-		if (HasColorComponent(format))
-		{
-			attachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		}
-		else 
-		{
-			if (HasDepthComponent(format))
-				attachment.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
-			if (HasStencilComponent(format))
-				attachment.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-		}
-
+		auto aspect = AspectOf(this->GetDesc().imageFormats[attachmentIt]);
+		attachment.aspectMask = vk::ToVk(aspect);
 		attachment.colorAttachment = attachmentIt;
-		attachment.clearValue = values[attachmentIt++];
+		attachment.clearValue = vk::ToVk(values[attachmentIt++], aspect);
 	}
 
 	vkCmdClearAttachments(cmd, clearAttachments.size(), clearAttachments.data(), 1, &rect);
@@ -595,28 +565,18 @@ void RenderTarget<DerivedType, kVk>::ClearAll(
 template <typename DerivedType>
 void RenderTarget<DerivedType, kVk>::Clear(
 	CommandBufferHandle<kVk> cmd,
-	const ClearValue<kVk>& value,
+	const ClearValue& value,
 	uint32_t index)
 {
 	ZoneScopedN("RenderTarget::Clear");
 
-	VkImageAspectFlags aspectFlags{};
-	if (HasColorComponent(this->GetDesc().imageFormats[index]))
-	{
-		aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
-	else 
-	{
-		if (HasDepthComponent(this->GetDesc().imageFormats[index]))
-			aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-		if (HasStencilComponent(this->GetDesc().imageFormats[index]))
-			aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
+	auto aspect = AspectOf(this->GetDesc().imageFormats[index]);
 
-	this->Transition(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspectFlags, index);
+	this->Transition(cmd, ImageLayout::kTransferDestination, aspect, index);
 
+	auto clearValue = vk::ToVk(value, aspect);
 	VkImageSubresourceRange range{
-		.aspectMask = aspectFlags,
+		.aspectMask = vk::ToVk(aspect),
 		.baseMipLevel = 0,
 		.levelCount = VK_REMAINING_MIP_LEVELS,
 		.baseArrayLayer = 0,
@@ -628,8 +588,8 @@ void RenderTarget<DerivedType, kVk>::Clear(
 		vkCmdClearColorImage(
 			cmd,
 			this->GetDesc().images[index],
-			this->GetLayout(index),
-			&value.color,
+			vk::ToVk(this->GetLayout(index)),
+			&clearValue.color,
 			1,
 			&range);
 	}
@@ -638,8 +598,8 @@ void RenderTarget<DerivedType, kVk>::Clear(
 		vkCmdClearDepthStencilImage(
 			cmd,
 			this->GetDesc().images[index],
-			this->GetLayout(index),
-			&value.depthStencil,
+			vk::ToVk(this->GetLayout(index)),
+			&clearValue.depthStencil,
 			1,
 			&range);
 	}
@@ -647,32 +607,32 @@ void RenderTarget<DerivedType, kVk>::Clear(
 
 template <typename DerivedType>
 void RenderTarget<DerivedType, kVk>::SetLoadOp(
-	AttachmentLoadOp<kVk> loadOp,
+	LoadOp loadOp,
 	uint32_t index,
-	AttachmentLoadOp<kVk> stencilLoadOp)
+	LoadOp stencilLoadOp)
 {
-	myAttachmentDescs[index].loadOp = loadOp;
+	myAttachmentDescs[index].loadOp = vk::ToVk(loadOp);
 	if (HasStencilComponent(this->GetDesc().imageFormats[index]))
-		myAttachmentDescs[index].stencilLoadOp = stencilLoadOp;
+		myAttachmentDescs[index].stencilLoadOp = vk::ToVk(stencilLoadOp);
 }
 
 template <typename DerivedType>
 void RenderTarget<DerivedType, kVk>::SetStoreOp(
-	AttachmentStoreOp<kVk> storeOp,
+	StoreOp storeOp,
 	uint32_t index,
-	AttachmentStoreOp<kVk> stencilStoreOp)
+	StoreOp stencilStoreOp)
 {
-	myAttachmentDescs[index].storeOp = storeOp;
+	myAttachmentDescs[index].storeOp = vk::ToVk(storeOp);
 	if (HasStencilComponent(this->GetDesc().imageFormats[index]))
-		myAttachmentDescs[index].stencilStoreOp = stencilStoreOp;
+		myAttachmentDescs[index].stencilStoreOp = vk::ToVk(stencilStoreOp);
 }
 
 template <typename DerivedType>
-void RenderTarget<DerivedType, kVk>::NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
+void RenderTarget<DerivedType, kVk>::NextSubpass(CommandBufferHandle<kVk> cmd, SubpassContents contents)
 {
 	ZoneScopedN("RenderTarget::NextSubpass");
 
-	vkCmdNextSubpass(cmd, contents);
+	vkCmdNextSubpass(cmd, vk::ToVk(contents));
 }
 
 template <typename DerivedType>
@@ -694,7 +654,7 @@ const RenderTargetPassHandle<kVk>& RenderTarget<DerivedType, kVk>::InternalGetVa
 template <typename DerivedType>
 const RenderTargetBeginInfo<kVk>& RenderTarget<DerivedType, kVk>::Begin(
 	CommandBufferHandle<kVk> cmd,
-	SubpassContents<kVk> contents)
+	SubpassContents contents)
 {
 	ZoneScopedN("RenderTarget::Begin");
 
@@ -710,7 +670,7 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<DerivedType, kVk>::Begin(
 			{
 				.sType = VK_STRUCTURE_TYPE_RENDERING_INFO_KHR,
 				.pNext = nullptr,
-				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0U,
+				.flags = contents == SubpassContents::kSecondaryCommandBuffers ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0U,
 				.renderArea = {.offset = {.x = 0, .y = 0}, .extent = {.width = desc.extent.width, .height = desc.extent.height}},
 				.layerCount = 1,
 				.viewMask = 0,
@@ -723,12 +683,12 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<DerivedType, kVk>::Begin(
 			{
 				.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO_KHR,
 				.pNext = nullptr,
-				.flags = contents == VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0U,
+				.flags = contents == SubpassContents::kSecondaryCommandBuffers ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0U,
 				.viewMask = 0,
 				.colorAttachmentCount = static_cast<uint32_t>(myColorAttachmentFormats.size()),
 				.pColorAttachmentFormats = myColorAttachmentFormats.data(),
-				.depthAttachmentFormat = myDepthAttachmentFormat.value_or(Format<kVk>{}),
-				.stencilAttachmentFormat = myStencilAttachmentFormat.value_or(Format<kVk>{}),
+				.depthAttachmentFormat = myDepthAttachmentFormat.value_or(VK_FORMAT_UNDEFINED),
+				.stencilAttachmentFormat = myStencilAttachmentFormat.value_or(VK_FORMAT_UNDEFINED),
 				.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT,
 			}
 		};
@@ -747,10 +707,10 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<DerivedType, kVk>::Begin(
 			.renderPass = renderPass,
 			.framebuffer = frameBuffer,
 			.renderArea = {.offset = {.x = 0, .y = 0}, .extent = {.width = desc.extent.width, .height = desc.extent.height}},
-			.clearValueCount = static_cast<uint32_t>(desc.clearValues.size()),
-			.pClearValues = desc.clearValues.data()};
+			.clearValueCount = static_cast<uint32_t>(myClearValues.size()),
+			.pClearValues = myClearValues.data()};
 
-		vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderTargetBeginInfo.value()), contents);
+		vkCmdBeginRenderPass(cmd, &std::get<VkRenderPassBeginInfo>(myRenderTargetBeginInfo.value()), vk::ToVk(contents));
 	}
 
 	return myRenderTargetBeginInfo.value();

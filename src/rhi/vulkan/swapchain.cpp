@@ -15,7 +15,7 @@ IMPLEMENT_OBJECT_GETINSTANCE(Swapchain<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Swapchain<kVk>);
 
 template <>
-const RenderTargetBeginInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents<kVk> contents)
+const RenderTargetBeginInfo<kVk>& Swapchain<kVk>::Begin(CommandBufferHandle<kVk> cmd, SubpassContents contents)
 {
 	return myFrames[myFrameIndex].Begin(cmd, contents);
 }
@@ -33,7 +33,7 @@ RenderTargetPassHandle<kVk> Swapchain<kVk>::GetHandle()
 }
 	
 template <>
-Extent2d<kVk> Swapchain<kVk>::GetExtent() const
+Extent2d Swapchain<kVk>::GetExtent() const
 {
 	return myFrames[myFrameIndex].GetExtent();
 }
@@ -57,7 +57,7 @@ std::span<const AttachmentDescription<kVk>> Swapchain<kVk>::GetAttachmentDescs()
 }
 
 template <>
-ImageLayout<kVk> Swapchain<kVk>::GetLayout(uint32_t index) const
+ImageLayout Swapchain<kVk>::GetLayout(uint32_t index) const
 {
 	return myFrames[myFrameIndex].GetLayout(index);
 }
@@ -78,7 +78,7 @@ void Swapchain<kVk>::Blit(
 	uint32_t srcIndex,
 	const ImageSubresourceLayers<kVk>& dstSubresource,
 	uint32_t dstIndex,
-	Filter<kVk> filter)
+	Filter filter)
 {
 	myFrames[myFrameIndex].Blit(
 		cmd, srcRenderTarget, srcSubresource, srcIndex, dstSubresource, dstIndex, filter);
@@ -99,42 +99,54 @@ void Swapchain<kVk>::Copy(
 template <>
 void Swapchain<kVk>::ClearAll(
 	CommandBufferHandle<kVk> cmd,
-	std::span<const ClearValue<kVk>> values) const
+	std::span<const ClearValue> values) const
 {
 	myFrames[myFrameIndex].ClearAll(cmd, values);
 }
 
 template <>
 void Swapchain<kVk>::Clear(
-	CommandBufferHandle<kVk> cmd, const ClearValue<kVk>& value, uint32_t index)
+	CommandBufferHandle<kVk> cmd, const ClearValue& value, uint32_t index)
 {
 	myFrames[myFrameIndex].Clear(cmd, value, index);
 }
 
 template <>
 void Swapchain<kVk>::Transition(
-	CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, ImageAspectFlags<kVk> aspectFlags, uint32_t index)
+	CommandBufferHandle<kVk> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index)
 {
 	myFrames[myFrameIndex].Transition(cmd, layout, aspectFlags, index);
 }
 
 template <>
-void Swapchain<kVk>::SetLoadOp(AttachmentLoadOp<kVk> loadOp, uint32_t index, AttachmentLoadOp<kVk> stencilLoadOp)
+void Swapchain<kVk>::SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp)
 {
 	myFrames[myFrameIndex].SetLoadOp(loadOp, index, stencilLoadOp);
 }
 
 template <>
-void Swapchain<kVk>::SetStoreOp(AttachmentStoreOp<kVk> storeOp, uint32_t index, AttachmentStoreOp<kVk> stencilStoreOp)
+void Swapchain<kVk>::SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp)
 {
 	myFrames[myFrameIndex].SetStoreOp(storeOp, index, stencilStoreOp);
 }
 
 template <>
-void Swapchain<kVk>::OnPresentResult(Result<kVk> result) noexcept
+void Swapchain<kVk>::OnPresentResult(PresentResult result) noexcept
 {
-	if (result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR)
+	if (result == PresentResult::kSuboptimal || result == PresentResult::kOutOfDate)
 		myNeedsRecreate = true;
+}
+
+template <>
+Extent2d Swapchain<kVk>::QuerySurfaceExtent()
+{
+	auto& instance = GetInstance();
+	auto physicalDevice = GetDevice().GetPhysicalDevice();
+	instance.UpdateSurfaceCapabilities(physicalDevice, mySurface);
+	auto extent = instance.GetSwapchainInfo(physicalDevice, mySurface).capabilities.currentExtent;
+	if (extent.width == std::numeric_limits<uint32_t>::max()) // surface size is determined by the swapchain
+		return GetDesc().extent;
+	return vk::FromVk(extent);
 }
 
 template <>
@@ -148,7 +160,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	std::erase_if(myAcquireFences, [](const Fence<kVk>& acquireFence) { return acquireFence.Wait(0ULL); });
 
 	Fence<kVk> fence(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageFence")});
-	Semaphore<kVk> semaphore(SemaphoreCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageSemaphore"), VK_SEMAPHORE_TYPE_BINARY});
+	Semaphore<kVk> semaphore(SemaphoreCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageSemaphore"), SemaphoreType::kBinary});
 
 	auto flipResult = vkAcquireNextImageKHR(
 		GetDevice(),
@@ -161,7 +173,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	// suboptimal still acquires an image (and signals the fence and semaphore). out of date is expected while
 	// resizing: the frame is skipped, and the swapchain recreated before the next one (see NeedsRecreate).
 	bool success = flipResult == VK_SUCCESS || flipResult == VK_SUBOPTIMAL_KHR;
-	OnPresentResult(flipResult);
+	OnPresentResult(vk::ToPresentResult(flipResult));
 	if (success)
 		myAcquireFences.emplace_back(std::move(fence));
 	else if (flipResult == VK_ERROR_OUT_OF_DATE_KHR)
@@ -236,14 +248,14 @@ void Swapchain<kVk>::CreateSwapchain()
 	GetInstance().UpdateSurfaceCapabilities(device.GetPhysicalDevice(), GetSurface());
 	const auto& capabilities = GetInstance().GetSwapchainInfo(device.GetPhysicalDevice(), GetSurface()).capabilities;
 	if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
-		InternalGetDesc().extent = capabilities.currentExtent;
+		InternalGetDesc().extent = vk::FromVk(capabilities.currentExtent);
 
 	VkSwapchainCreateInfoKHR info{.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
 	info.minImageCount = GetDesc().images.size();
 	info.imageFormat = GetDesc().surfaceFormat.format;
 	info.imageColorSpace = GetDesc().surfaceFormat.colorSpace;
-	info.imageExtent = GetDesc().extent;
+	info.imageExtent = vk::ToVk(GetDesc().extent);
 	info.imageArrayLayers = 1;
 	info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -300,11 +312,11 @@ void Swapchain<kVk>::CreateSwapchain()
 				{
 					SuperType::CreateDeviceObjectCreateDesc(std::format("Frame{}", frameIt)),
 					GetDesc().extent,
-				 	{GetDesc().surfaceFormat.format},
-					{VK_IMAGE_LAYOUT_UNDEFINED},
-					{VK_IMAGE_ASPECT_COLOR_BIT},
+					{vk::FromVk(GetDesc().surfaceFormat.format)},
+					{ImageLayout::kUndefined},
+					{ImageAspect::kColor},
 					{colorImages[frameIt]},
-					{ClearValue<kVk>{}},
+					{ClearValue{}},
 					1,
 					GetDesc().useDynamicRendering
 				},

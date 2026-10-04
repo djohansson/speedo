@@ -144,13 +144,13 @@ public:
 
 	void BindPipeline(
 		CommandBufferHandle<G> cmd,
-		PipelineBindPoint<G> bindPoint,
+		PipelineBindPoint bindPoint,
 		PipelineHandle<G> handle) const;
 
 	void BindDescriptorSet(
 		CommandBufferHandle<G> cmd,
 		DescriptorSetHandle<G> handle,
-		PipelineBindPoint<G> bindPoint,
+		PipelineBindPoint bindPoint,
 		PipelineLayoutHandle<G> layoutHandle,
 		uint32_t set,
 		std::optional<uint32_t> bufferOffset = std::nullopt) const;
@@ -159,7 +159,7 @@ public:
 
 	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd); // todo: make implicit and call internally whenever relevant state changes
 
-	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint<G> bindPoint);
+	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint bindPoint);
 
 	void BindDescriptorSetAuto(
 		CommandBufferHandle<G> cmd,
@@ -243,7 +243,7 @@ private:
 	PipelineCacheHandle<G> myCache{};
 
 	// auto api shared state
-	PipelineBindPoint<G> myBindPoint{};
+	PipelineBindPoint myBindPoint{};
 	RenderTargetPassHandle<G> myRenderTarget;
 	PipelineLayoutSetType myPipelineLayouts;
 	typename PipelineLayoutSetType::iterator myCurrentLayoutIt{};
@@ -255,8 +255,8 @@ private:
 		uint32_t shaderStageFlags{};
 		PipelineVertexInputStateCreateInfo<G> vertexInput{};
 		PipelineInputAssemblyStateCreateInfo<G> inputAssembly{};
-		std::vector<Viewport<G>> viewports;
-		std::vector<Rect2D<G>> scissorRects;
+		std::vector<NativeViewport<G>> viewports;
+		std::vector<NativeRect<G>> scissorRects;
 		PipelineViewportStateCreateInfo<G> viewport{};
 		PipelineRasterizationStateCreateInfo<G> rasterization{};
 		PipelineMultisampleStateCreateInfo<G> multisample{};

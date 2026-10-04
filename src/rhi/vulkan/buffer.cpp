@@ -43,8 +43,8 @@ Buffer<kVk>::Buffer(
 		CreateBuffer(
 			GetDevice(desc.device).GetAllocator(),
 			desc.size,
-			desc.usageFlags,
-			desc.memoryFlags,
+			vk::ToVk(desc.usageFlags),
+			vk::ToVk(desc.memoryFlags),
 			nullptr))
 {}
 
@@ -61,8 +61,8 @@ Buffer<kVk>::Buffer(
 			GetDevice(desc.device).GetAllocator(),
 			std::get<0>(initialData),
 			desc.size,
-			desc.usageFlags,
-			desc.memoryFlags,
+			vk::ToVk(desc.usageFlags),
+			vk::ToVk(desc.memoryFlags),
 			nullptr))
 {
 	timelineCallbackOut = core::CreateTask(
@@ -101,8 +101,8 @@ Buffer<kVk>::Buffer(
 			GetDevice(desc.device).GetAllocator(),
 			staging.GetBuffer(),
 			desc.size,
-			desc.usageFlags,
-			desc.memoryFlags,
+			vk::ToVk(desc.usageFlags),
+			vk::ToVk(desc.memoryFlags),
 			nullptr))
 {
 	timelineCallbackOut = core::CreateTask([staging = std::make_shared<Buffer>(std::move(staging))] {});
@@ -114,8 +114,8 @@ Buffer<kVk> Buffer<kVk>::CreateStaging(DeviceObjectCreateDesc<kVk>&& desc, size_
 	return Buffer(BufferCreateDesc<kVk>{
 		std::forward<DeviceObjectCreateDesc<kVk>>(desc),
 		size,
-		VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT});
+		BufferUsage::kTransferSource,
+		MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent});
 }
 
 template <>
@@ -189,7 +189,7 @@ BufferView<kVk>::BufferView(
 			VkBufferViewCreateInfo viewInfo{.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO};
 			viewInfo.flags = 0; // "reserved for future use"
 			viewInfo.buffer = buffer;
-			viewInfo.format = desc.format;
+			viewInfo.format = vk::ToVk(desc.format);
 			viewInfo.offset = desc.offset;
 			viewInfo.range = desc.range;
 

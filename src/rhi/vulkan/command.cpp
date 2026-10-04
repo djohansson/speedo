@@ -378,4 +378,31 @@ bool CommandBufferAccessScopeDesc<kVk>::operator==(const CommandBufferAccessScop
 	return result;
 }
 
+template <>
+CommandBufferAccessScope<kVk>
+CommandPool<kVk>::SecondaryCommands(uint8_t level, const RenderTargetBeginInfo<kVk>& renderTarget)
+{
+	ENSURE(level > 0);
+
+	// only needs to live while the scope begins (in Commands)
+	VkCommandBufferInheritanceInfo inheritInfo{.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
+	if (const auto* dynamicRenderingInfo = std::get_if<DynamicRenderingInfo<kVk>>(&renderTarget))
+	{
+		inheritInfo.pNext = &dynamicRenderingInfo->inheritanceInfo;
+	}
+	else if (const auto* renderPassBeginInfo = std::get_if<VkRenderPassBeginInfo>(&renderTarget))
+	{
+		inheritInfo.renderPass = renderPassBeginInfo->renderPass;
+		inheritInfo.framebuffer = renderPassBeginInfo->framebuffer;
+	}
+
+	CommandBufferAccessScopeDesc<kVk> beginInfo{};
+	beginInfo.pInheritanceInfo = &inheritInfo;
+	// for dynamic rendering, render pass continue just silences validation warnings
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT | VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+	beginInfo.level = level;
+
+	return Commands(beginInfo);
+}
+
 } // namespace rhi

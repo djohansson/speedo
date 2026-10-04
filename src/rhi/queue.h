@@ -35,7 +35,7 @@ template <GraphicsApi G>
 struct QueueDeviceSyncInfo
 {
 	std::vector<SemaphoreHandle<G>> waitSemaphores;
-	std::vector<Flags<G>> waitDstStageMasks;
+	std::vector<PipelineStage> waitDstStageMasks; // one per wait semaphore
 	std::vector<uint64_t> waitSemaphoreValues;
 	std::vector<SemaphoreHandle<G>> signalSemaphores;
 	std::vector<uint64_t> signalSemaphoreValues;
@@ -145,7 +145,7 @@ public:
 	template <typename T, typename... Ts>
 	void EnqueuePresent(T&& first, Ts&&... rest);
 	// presentResult (optional) receives the vkQueuePresentKHR result, e.g. to recreate an out of date swapchain
-	[[maybe_unused]] QueueHostSyncInfo<G> Present(Result<G>* presentResult = nullptr);
+	[[maybe_unused]] QueueHostSyncInfo<G> Present(PresentResult* presentResult = nullptr);
 
 	void Execute(uint8_t level, uint64_t timelineValue);
 

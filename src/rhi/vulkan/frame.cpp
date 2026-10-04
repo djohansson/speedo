@@ -14,7 +14,7 @@ IMPLEMENT_DEVICEOBJECT_GETDEVICE(Frame<kVk>);
 template <>
 Frame<kVk>::Frame(CreateDescType&& desc)
 	: RenderTarget<Frame<kVk>, kVk>(std::forward<CreateDescType>(desc))
-	, myImageLayout(VK_IMAGE_LAYOUT_UNDEFINED)
+	, myImageLayout(ImageLayout::kUndefined)
 {}
 
 template <>
@@ -38,7 +38,7 @@ Frame<kVk>& Frame<kVk>::operator=(Frame&& other) noexcept
 }
 
 template <>
-ImageLayout<kVk> Frame<kVk>::GetLayout(uint32_t) const
+ImageLayout Frame<kVk>::GetLayout(uint32_t) const
 {
 	return myImageLayout;
 }
@@ -48,11 +48,11 @@ void Frame<kVk>::End(CommandBufferHandle<kVk> cmd)
 {
 	RenderTarget<Frame<kVk>, kVk>::End(cmd);
 
-	myImageLayout = GetAttachmentDescs()[0].finalLayout;
+	myImageLayout = vk::FromVk(GetAttachmentDescs()[0].finalLayout);
 }
 
 template <>
-void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, ImageAspectFlags<kVk> aspectFlags, uint32_t index)
+void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index)
 {
 	ZoneScopedN("Frame::TransitionColor");
 
@@ -63,11 +63,11 @@ void Frame<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 		TransitionImageLayout(
 			cmd,
 			GetDesc().images[index],
-			GetDesc().imageFormats[index],
-			myImageLayout,
-			layout,
+			vk::ToVk(GetDesc().imageFormats[index]),
+			vk::ToVk(myImageLayout),
+			vk::ToVk(layout),
 			1,
-			aspectFlags);
+			vk::ToVk(aspectFlags));
 
 		myImageLayout = layout;
 	}

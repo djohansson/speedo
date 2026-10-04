@@ -46,16 +46,16 @@ public:
 	void Swap(Frame& rhs) noexcept;
 	friend void Swap(Frame& lhs, Frame& rhs) noexcept { lhs.Swap(rhs); }
 
-	[[nodiscard]] ImageLayout<G> GetLayout(uint32_t) const final;
+	[[nodiscard]] ImageLayout GetLayout(uint32_t) const final;
 
 	void End(CommandBufferHandle<G> cmd) final;
 
-	void Transition(CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index) final;
+	void Transition(CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index) final;
 	
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
 
 private:
-	ImageLayout<G> myImageLayout{}; // replace with layout in desc?
+	ImageLayout myImageLayout{}; // replace with layout in desc?
 };
 
 } // namespace rhi

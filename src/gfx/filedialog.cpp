@@ -1,12 +1,11 @@
-#include "window.h"
+#include "filedialog.h"
+
+#include <gfx/capi.h>
 
 #include <nfd.h>
 #include <nfd_glfw3.h>
 
-namespace rhi
-{
-
-namespace window
+namespace gfx
 {
 
 std::tuple<bool, std::string>
@@ -35,6 +34,4 @@ OpenFileDialogue(std::string&& resourcePathString, const std::vector<FileFilter>
 	return {false, {}};
 }
 
-} // namespace window
-
-} // namespace rhi
+} // namespace gfx

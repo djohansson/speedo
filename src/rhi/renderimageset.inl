@@ -93,27 +93,15 @@ void RenderImageSet<G>::Swap(RenderImageSet& rhs) noexcept
 }
 
 template <GraphicsApi G>
-ImageLayout<G> RenderImageSet<G>::GetLayout(uint32_t index) const
+ImageLayout RenderImageSet<G>::GetLayout(uint32_t index) const
 {
 	auto& image = myImages.get()[index];
 	return image.GetDesc().layout;
 }
 
 template <GraphicsApi G>
-void RenderImageSet<G>::End(CommandBufferHandle<G> cmd)
-{
-	SuperType::End(cmd);
-
-	for (uint32_t imageIt = 0ul; imageIt < GetImageCount(); imageIt++)
-	{
-		auto& image = myImages.get()[imageIt];
-		image.InternalSetImageLayout(this->GetAttachmentDescs()[imageIt].finalLayout);
-	}
-}
-
-template <GraphicsApi G>
 void RenderImageSet<G>::Transition(
-	CommandBufferHandle<G> cmd, ImageLayout<G> layout, ImageAspectFlags<G> aspectFlags, uint32_t index)
+	CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index)
 {
 	auto& image = myImages.get()[index];
 	image.Transition(cmd, layout, aspectFlags);

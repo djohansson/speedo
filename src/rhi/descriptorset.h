@@ -25,7 +25,7 @@ struct DescriptorSetLayoutCreateDesc final : DeviceObjectCreateDesc<G>
 	std::vector<DescriptorBindingFlags<G>> bindingFlags;
 	std::vector<std::string> variableNames;
 	std::vector<uint64_t> variableNameHashes;
-	std::vector<SamplerCreateInfo<G>> immutableSamplers;
+	std::vector<SamplerDesc> immutableSamplers;
 	std::optional<PushConstantRange<G>> pushConstantRange;
 	DescriptorSetLayoutCreateFlags<G> flags{};
 
@@ -156,7 +156,7 @@ struct DescriptorUpdateTemplateCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	DescriptorUpdateTemplateType<G> templateType{};
 	DescriptorSetLayoutHandle<G> descriptorSetLayout{};
-	PipelineBindPoint<G> pipelineBindPoint{};
+	PipelineBindPoint pipelineBindPoint{};
 	PipelineLayoutHandle<G> pipelineLayout{};
 	uint32_t set = 0UL;
 };
@@ -207,6 +207,25 @@ private:
 
 	std::vector<DescriptorUpdateTemplateEntry<G>> myEntries;
 	DescriptorUpdateTemplateHandle<G> myHandle{};
+};
+
+// descriptor values in rhi's neutral terms, for Pipeline::SetDescriptorData. the backend stores them in its own form.
+inline constexpr uint64_t kWholeSize = ~0ULL;
+
+template <GraphicsApi G>
+struct BufferBinding
+{
+	BufferHandle<G> buffer{};
+	uint64_t offset = 0;
+	uint64_t range = kWholeSize;
+};
+
+template <GraphicsApi G>
+struct ImageBinding
+{
+	SamplerHandle<G> sampler{};
+	ImageViewHandle<G> imageView{};
+	ImageLayout layout = ImageLayout::kUndefined;
 };
 
 template <GraphicsApi G>

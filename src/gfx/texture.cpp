@@ -1,4 +1,3 @@
-// vulkan specific: the image's format, usage and aspect, and the upload's queue submission (see gfx/gpu.h)
 #include <gfx/texture.h>
 
 #include <core/application.h>
@@ -21,17 +20,17 @@ namespace gfx
 namespace detail
 {
 
-[[nodiscard]] VkFormat FormatOf(const image::Image& image) noexcept
+[[nodiscard]] rhi::Format FormatOf(const image::Image& image) noexcept
 {
 	bool srgb = image.usage == image::Usage::kColor;
 	switch (image.format)
 	{
-	case image::Format::kBC1: return srgb ? VK_FORMAT_BC1_RGB_SRGB_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
-	case image::Format::kBC3: return srgb ? VK_FORMAT_BC3_SRGB_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK;
-	case image::Format::kBC4: return VK_FORMAT_BC4_UNORM_BLOCK;
-	case image::Format::kBC5: return VK_FORMAT_BC5_UNORM_BLOCK;
+	case image::Format::kBC1: return srgb ? rhi::Format::kBC1RgbSrgb : rhi::Format::kBC1RgbUnorm;
+	case image::Format::kBC3: return srgb ? rhi::Format::kBC3Srgb : rhi::Format::kBC3Unorm;
+	case image::Format::kBC4: return rhi::Format::kBC4Unorm;
+	case image::Format::kBC5: return rhi::Format::kBC5Unorm;
 	}
-	return VK_FORMAT_UNDEFINED;
+	return rhi::Format::kUndefined;
 }
 
 } // namespace detail
@@ -149,22 +148,22 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 		return {};
 	}
 
-	ImageCreateDesc<kVk> desc{
+	ImageCreateDesc desc{
 		device.CreateDeviceObjectCreateDesc(filePath),
 		{},
 		detail::FormatOf(layout),
-		VK_IMAGE_TILING_OPTIMAL,
-		VK_IMAGE_USAGE_SAMPLED_BIT,
-		{},
-		VK_IMAGE_ASPECT_COLOR_BIT,
-		VK_IMAGE_LAYOUT_UNDEFINED};
+		ImageTiling::kOptimal,
+		ImageUsage::kSampled | ImageUsage::kTransferDestination,
+		MemoryProperty::kDeviceLocal,
+		ImageAspect::kColor,
+		ImageLayout::kUndefined};
 	desc.mipLevels.reserve(layout.mipLevels.size());
 	for (const auto& level : layout.mipLevels)
 		desc.mipLevels.push_back(
 			{.extent = {.width = level.width, .height = level.height}, .size = level.size, .offset = level.offset});
 
 	Texture texture;
-	const Semaphore<kVk>* transferSemaphore = nullptr;
+	const Semaphore* transferSemaphore = nullptr;
 	uint64_t transferTimelineValue = 0;
 	{
 		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
@@ -172,14 +171,14 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 
 		core::TaskCreateInfo<void> transferDone;
 		texture.image = std::make_shared<Image>(std::move(desc), std::move(staging), transferQueue.GetPool().Commands(), transferDone);
-		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc<kVk>{
-			device.CreateDeviceObjectCreateDesc(filePath), *texture.image, texture.image->GetDesc().format, VK_IMAGE_ASPECT_COLOR_BIT});
+		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc(filePath), *texture.image, texture.image->GetDesc().format, ImageAspect::kColor});
 
 		std::vector<core::TaskHandle> transferTimelineCallbacks;
 		transferTimelineCallbacks.emplace_back(transferDone.handle);
 
 		transferTimelineValue = ++transfer->timeline;
-		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo{
 			.waitSemaphores = {},
 			.waitDstStageMasks = {},
 			.waitSemaphoreValues = {},

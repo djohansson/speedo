@@ -1,5 +1,3 @@
-// vulkan specific: the buffers' usage and memory flags, the device limit check, and the upload's queue submission (see
-// gfx/gpu.h)
 #include <gfx/model.h>
 #include <gfx/objimport.h>
 
@@ -48,7 +46,7 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	// the vertex buffer is read by the shaders as a storage buffer, which can't be larger than this
 	auto fitsDevice = [&device, filePath](const ModelDesc& desc)
 	{
-		const auto& limits = device.GetInstance().GetPhysicalDeviceInfo(device.GetPhysicalDevice()).deviceProperties.properties.limits;
+		auto limits = device.GetLimits();
 		auto vertexBufferSize = static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fT014fC4f);
 		if (vertexBufferSize <= limits.maxStorageBufferRange)
 			return true;
@@ -214,7 +212,7 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	desc.name = std::string(filePath);
 
 	std::shared_ptr<Model> model;
-	const Semaphore<kVk>* transferSemaphore = nullptr;
+	const Semaphore* transferSemaphore = nullptr;
 	uint64_t transferTimelineValue = 0;
 	{
 		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
@@ -224,20 +222,20 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 
 		std::array<core::TaskCreateInfo<void>, 2> transfersDone;
 		auto indexBuffer = Buffer(
-			BufferCreateDesc<kVk>{
+			BufferCreateDesc{
 				device.CreateDeviceObjectCreateDesc(std::format("{} (indices)", filePath)),
 				desc.indexCount * sizeof(uint32_t),
-				VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+				BufferUsage::kIndex | BufferUsage::kTransferDestination,
+				MemoryProperty::kDeviceLocal},
 			std::move(indexStaging),
 			cmd,
 			transfersDone[0]);
 		auto vertexBuffer = Buffer(
-			BufferCreateDesc<kVk>{
+			BufferCreateDesc{
 				device.CreateDeviceObjectCreateDesc(std::format("{} (vertices)", filePath)),
 				desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
-				VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-				VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT},
+				BufferUsage::kVertex | BufferUsage::kStorage | BufferUsage::kTransferDestination,
+				MemoryProperty::kDeviceLocal},
 			std::move(vertexStaging),
 			cmd,
 			transfersDone[1]);
@@ -249,9 +247,9 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 		timelineCallbacks.emplace_back(transfersDone[1].handle);
 
 		transferTimelineValue = ++transfer->timeline;
-		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo<kVk>{
+		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo{
 			.waitSemaphores = {transfer->semaphore},
-			.waitDstStageMasks = {VK_PIPELINE_STAGE_TRANSFER_BIT},
+			.waitDstStageMasks = {PipelineStage::kTransfer},
 			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
 			.signalSemaphores = {transfer->semaphore},
 			.signalSemaphoreValues = {transferTimelineValue},

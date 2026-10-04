@@ -65,18 +65,4 @@ private:
 	bool myMinimized{};
 };
 
-namespace window
-{
-
-// mirrors nfdu8filteritem_t, so the nfd header stays in the implementation
-struct FileFilter
-{
-	const char* name; // shown in the dialogue
-	const char* spec; // comma separated extensions, e.g. "jpg,png"
-};
-
-[[nodiscard]] std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<FileFilter>& filterList);
-
-} // namespace window
-
 } // namespace rhi

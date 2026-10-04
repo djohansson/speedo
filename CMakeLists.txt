@@ -139,6 +139,7 @@ target_link_libraries(
 	PUBLIC
 		core
 		rhi
+		nfd::nfd
 		xxHash::xxhash
 		imgui::imgui
 		glm::glm
@@ -170,9 +171,9 @@ target_link_libraries(
 	rhi
 	PUBLIC
 		core
-		nfd::nfd
 		slang::slang
 		xxHash::xxhash
+		imgui::imgui
 		Vulkan::Vulkan
 )
 

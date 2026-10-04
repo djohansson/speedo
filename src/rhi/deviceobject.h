@@ -1,5 +1,9 @@
 #pragma once
 
+#include <vector>
+
+#include <utility>
+
 #include <core/uuids_extra.h>
 #include <rhi/capi.h>
 #include <rhi/object.h>
@@ -84,6 +88,9 @@ template <GraphicsApi G>
 void UntrackObject(ObjectType<G> type, uint64_t handle);
 template <GraphicsApi G>
 [[nodiscard]] uint32_t GetTypeCount(ObjectType<G> type);
+// the live objects of each tracked type, by name
+template <GraphicsApi G>
+[[nodiscard]] std::vector<std::pair<std::string_view, uint32_t>> GetObjectCounts();
 #else
 template <GraphicsApi G>
 void TrackObject(DeviceHandle<G> /*device*/, ObjectType<G> /*type*/, uint64_t /*handle*/, std::string_view /*name*/) {}
@@ -95,6 +102,8 @@ template <GraphicsApi G>
 void UntrackObject(ObjectType<G> /*type*/, uint64_t /*handle*/) {}
 template <GraphicsApi G>
 [[nodiscard]] uint32_t GetTypeCount(ObjectType<G> /*type*/) { return 0; }
+template <GraphicsApi G>
+[[nodiscard]] std::vector<std::pair<std::string_view, uint32_t>> GetObjectCounts() { return {}; }
 #endif
 
 } // namespace rhi

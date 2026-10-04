@@ -21,6 +21,11 @@ extern "C"
 GFX_API void ResizeFramebuffer(WindowHandle window, int width, int height);
 GFX_API struct WindowState* GetWindowState(WindowHandle window);
 
+// the window the application draws its user interface in, and parents its dialogues to. only the first window set
+// counts; until then, kInvalidWindowHandle.
+GFX_API WindowHandle GetCurrentWindow(void);
+GFX_API void SetCurrentWindow(WindowHandle window);
+
 #ifdef __cplusplus
 }
 #endif

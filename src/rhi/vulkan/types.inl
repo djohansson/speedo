@@ -40,18 +40,17 @@ using Flags = std::conditional_t<G == kVk, VkFlags, std::nullptr_t>;
 template <GraphicsApi G>
 using DeviceSize = std::conditional_t<G == kVk, VkDeviceSize, std::nullptr_t>;
 
-template <GraphicsApi G>
-using Extent2d = std::conditional_t<G == kVk, VkExtent2D, std::nullptr_t>;
 
 template <GraphicsApi G>
 using Extent3d = std::conditional_t<G == kVk, VkExtent3D, std::nullptr_t>;
 
-template <GraphicsApi G>
-using Viewport = std::conditional_t<G == kVk, VkViewport, std::nullptr_t>;
 
-template <GraphicsApi G>
-using Rect2D = std::conditional_t<G == kVk, VkRect2D, std::nullptr_t>;
 
+// the backend's viewport and scissor, for state kept in the backend's own layout (see the neutral Viewport and Rect)
+template <GraphicsApi G>
+using NativeViewport = std::conditional_t<G == kVk, VkViewport, std::nullptr_t>;
+template <GraphicsApi G>
+using NativeRect = std::conditional_t<G == kVk, VkRect2D, std::nullptr_t>;
 template <GraphicsApi G>
 using ObjectType = std::conditional_t<G == kVk, VkObjectType, std::nullptr_t>;
 
@@ -64,11 +63,7 @@ using BufferHandle = std::conditional_t<G == kVk, VkBuffer, std::nullptr_t>;
 template <GraphicsApi G>
 using ImageHandle = std::conditional_t<G == kVk, VkImage, std::nullptr_t>;
 
-template <GraphicsApi G>
-using ImageLayout = std::conditional_t<G == kVk, VkImageLayout, std::nullptr_t>;
 
-template <GraphicsApi G>
-using ImageTiling = std::conditional_t<G == kVk, VkImageTiling, std::nullptr_t>;
 
 template <GraphicsApi G>
 using AllocatorHandle = std::conditional_t<G == kVk, VmaAllocator, std::nullptr_t>;
@@ -88,8 +83,6 @@ using SurfaceHandle = std::conditional_t<G == kVk, VkSurfaceKHR, std::nullptr_t>
 template <GraphicsApi G>
 using SurfaceFormat = std::conditional_t<G == kVk, VkSurfaceFormatKHR, std::nullptr_t>;
 
-template <GraphicsApi G>
-using Format = std::conditional_t<G == kVk, VkFormat, std::nullptr_t>;
 
 template <GraphicsApi G>
 using ColorSpace = std::conditional_t<G == kVk, VkColorSpaceKHR, std::nullptr_t>;
@@ -124,11 +117,7 @@ using SubpassDescription = std::conditional_t<G == kVk, VkSubpassDescription2 , 
 template <GraphicsApi G>
 using SubpassDependency = std::conditional_t<G == kVk, VkSubpassDependency2, std::nullptr_t>;
 
-template <GraphicsApi G>
-using AttachmentLoadOp = std::conditional_t<G == kVk, VkAttachmentLoadOp, std::nullptr_t>;
 
-template <GraphicsApi G>
-using AttachmentStoreOp = std::conditional_t<G == kVk, VkAttachmentStoreOp, std::nullptr_t>;
 
 template <GraphicsApi G>
 using DescriptorSetLayoutBinding =
@@ -232,8 +221,6 @@ using DescriptorUpdateTemplateHandle =
 template <GraphicsApi G>
 using PipelineLayoutHandle = std::conditional_t<G == kVk, VkPipelineLayout, std::nullptr_t>;
 
-template <GraphicsApi G>
-using PipelineBindPoint = std::conditional_t<G == kVk, VkPipelineBindPoint, std::nullptr_t>;
 
 template <GraphicsApi G>
 using DescriptorPoolHandle = std::conditional_t<G == kVk, VkDescriptorPool, std::nullptr_t>;
@@ -244,8 +231,6 @@ using DescriptorSetHandle = std::conditional_t<G == kVk, VkDescriptorSet, std::n
 template <GraphicsApi G>
 using RenderPassHandle = std::conditional_t<G == kVk, VkRenderPass, std::nullptr_t>;
 
-template <GraphicsApi G>
-using SubpassContents = std::conditional_t<G == kVk, VkSubpassContents, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PipelineHandle = std::conditional_t<G == kVk, VkPipeline, std::nullptr_t>;
@@ -335,11 +320,7 @@ using FenceHandle = std::conditional_t<G == kVk, VkFence, std::nullptr_t>;
 template <GraphicsApi G>
 using SemaphoreHandle = std::conditional_t<G == kVk, VkSemaphore, std::nullptr_t>;
 
-template <GraphicsApi G>
-using SemaphoreType = std::conditional_t<G == kVk, VkSemaphoreType, std::nullptr_t>;
 
-template <GraphicsApi G>
-using ClearValue = std::conditional_t<G == kVk, VkClearValue, std::nullptr_t>;
 
 template <GraphicsApi G>
 using ClearColorValue = std::conditional_t<G == kVk, VkClearColorValue, std::nullptr_t>;
@@ -385,8 +366,6 @@ using TimelineSemaphoreSubmitInfo =
 template <GraphicsApi G>
 using ImageBlit = std::conditional_t<G == kVk, VkImageBlit, std::nullptr_t>;
 
-template <GraphicsApi G>
-using Filter = std::conditional_t<G == kVk, VkFilter, std::nullptr_t>;
 
 template <GraphicsApi G>
 using ImageSubresourceLayers =
@@ -431,9 +410,6 @@ template <GraphicsApi G>
 using DescriptorBindingFlags =
 	std::conditional_t<G == kVk, VkDescriptorBindingFlags, std::nullptr_t>;
 
-template <GraphicsApi G>
-using ImageAspectFlags =
-	std::conditional_t<G == kVk, VkImageAspectFlags, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PipelineRenderingCreateInfo = 

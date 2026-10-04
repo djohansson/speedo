@@ -12,7 +12,7 @@ class SamplerVector;
 template <GraphicsApi G>
 struct SamplerVectorCreateDesc final : DeviceObjectCreateDesc<G>
 {
-	std::vector<SamplerCreateInfo<G>> createInfos;
+	std::vector<SamplerDesc> samplers;
 };
 
 template <GraphicsApi G>

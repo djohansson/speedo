@@ -215,7 +215,7 @@ void DescriptorUpdateTemplate<kVk>::SetEntries(
 			.pDescriptorUpdateEntries = myEntries.data(),
 			.templateType = GetDesc().templateType,
 			.descriptorSetLayout = GetDesc().descriptorSetLayout,
-			.pipelineBindPoint = GetDesc().pipelineBindPoint,
+			.pipelineBindPoint = vk::ToVk(GetDesc().pipelineBindPoint),
 			.pipelineLayout = GetDesc().pipelineLayout,
 			.set = GetDesc().set};
 		VK_CHECK(vkCreateDescriptorUpdateTemplate(

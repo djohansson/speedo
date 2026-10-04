@@ -14,7 +14,7 @@ class Semaphore;
 template <GraphicsApi G>
 struct SemaphoreCreateDesc final : DeviceObjectCreateDesc<G>
 {
-	SemaphoreType<G> type{};
+	SemaphoreType type{};
 	uint32_t flags = 0UL;
 };
 

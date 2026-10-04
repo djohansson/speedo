@@ -83,6 +83,29 @@ DeviceObjectCreateDesc<kVk> Device<kVk>::CreateDeviceObjectCreateDesc(std::strin
 }
 
 template <>
+DeviceLimits Device<kVk>::GetLimits() const
+{
+	const auto& limits = GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice()).deviceProperties.properties.limits;
+	return DeviceLimits{
+		.maxStorageBufferRange = limits.maxStorageBufferRange,
+		.maxPerStageSampledImages = limits.maxPerStageDescriptorSampledImages};
+}
+
+template <>
+Format Device<kVk>::FindSupportedFormat(std::span<const Format> candidates, ImageTiling tiling, FormatFeature features) const
+{
+	for (auto candidate : candidates)
+	{
+		VkFormatProperties properties;
+		vkGetPhysicalDeviceFormatProperties(GetPhysicalDevice(), vk::ToVk(candidate), &properties);
+		auto supported = tiling == ImageTiling::kLinear ? properties.linearTilingFeatures : properties.optimalTilingFeatures;
+		if ((supported & vk::ToVk(features)) == vk::ToVk(features))
+			return candidate;
+	}
+	return Format::kUndefined;
+}
+
+template <>
 void Device<kVk>::WaitIdle() const
 {
 	ZoneScopedN("Device::waitIdle");
@@ -117,21 +140,21 @@ void Device<kVk>::InternalCreateQueues()
 	queues.emplace(
 		kQueueTypeGraphics,
 		std::make_shared<QueueTimelineContext<kVk>>(std::make_shared<QueueTimelineContextData<kVk>>(
-			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Graphics Queue Timeline Semaphore")), VK_SEMAPHORE_TYPE_TIMELINE}},
+			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Graphics Queue Timeline Semaphore")), SemaphoreType::kTimeline}},
 			uint64_t{},
 			uint32_t{},
 			core::CircularContainer<QueueContext<kVk>>{})));
 	queues.emplace(
 		kQueueTypeCompute,
 		std::make_shared<QueueTimelineContext<kVk>>(std::make_shared<QueueTimelineContextData<kVk>>(
-			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Compute Queue Timeline Semaphore")), VK_SEMAPHORE_TYPE_TIMELINE}},
+			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Compute Queue Timeline Semaphore")), SemaphoreType::kTimeline}},
 			uint64_t{},
 			uint32_t{},
 			core::CircularContainer<QueueContext<kVk>>{})));
 	queues.emplace(
 		kQueueTypeTransfer,
 		std::make_shared<QueueTimelineContext<kVk>>(std::make_shared<QueueTimelineContextData<kVk>>(
-			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Transfer Queue Timeline Semaphore")), VK_SEMAPHORE_TYPE_TIMELINE}},
+			Semaphore<kVk>{SemaphoreCreateDesc<kVk>{CreateDeviceObjectCreateDesc(std::format("Transfer Queue Timeline Semaphore")), SemaphoreType::kTimeline}},
 			uint64_t{},
 			uint32_t{},
 			core::CircularContainer<QueueContext<kVk>>{})));

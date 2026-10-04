@@ -52,8 +52,6 @@ typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(mo
 typedef void (*DestroyWindowFunc)(WindowHandle window);//NOLINT(modernize-use-using)
 static const WindowHandle kInvalidWindowHandle = 0;//NOLINT(modernize-use-nullptr)
 
-RHI_API WindowHandle GetCurrentWindow(void);
-RHI_API void SetCurrentWindow(WindowHandle window);
 
 #ifdef __cplusplus
 }

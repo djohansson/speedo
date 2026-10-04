@@ -1,5 +1,6 @@
 #pragma once
 
+#include <gfx/filedialog.h>
 #include <gfx/gpu.h>
 #include <gfx/views.h>
 
@@ -66,7 +67,7 @@ private:
 	template <typename LoadOp>
 	void InternalOpenFileDialogueAsync(
 		std::string&& resourcePathString,
-		const std::vector<rhi::window::FileFilter>& filterList,
+		const std::vector<FileFilter>& filterList,
 		LoadOp loadOp);
 	
 	std::unique_ptr<RHI> myRHI;

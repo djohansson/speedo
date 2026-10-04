@@ -376,10 +376,10 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.primitiveRestartEnable = VK_FALSE};
 
 	myGraphicsState.viewports.clear();
-	myGraphicsState.viewports.emplace_back(Viewport<kVk>{.x=0.0F, .y=0.0F, .width=0, .height=0, .minDepth=0.0F, .maxDepth=1.0F});
+	myGraphicsState.viewports.emplace_back(VkViewport{.x=0.0F, .y=0.0F, .width=0, .height=0, .minDepth=0.0F, .maxDepth=1.0F});
 
 	myGraphicsState.scissorRects.clear();
-	myGraphicsState.scissorRects.emplace_back(Rect2D<kVk>{.offset={.x=0, .y=0}, .extent={.width=0, .height=0}});
+	myGraphicsState.scissorRects.emplace_back(VkRect2D{.offset={.x=0, .y=0}, .extent={.width=0, .height=0}});
 
 	myGraphicsState.viewport = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
@@ -566,10 +566,10 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 
 		switch (myBindPoint)
 		{
-		case VK_PIPELINE_BIND_POINT_GRAPHICS:
+		case PipelineBindPoint::kGraphics:
 			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key), std::memory_order_release);
 			break;
-		case VK_PIPELINE_BIND_POINT_COMPUTE:
+		case PipelineBindPoint::kCompute:
 			pipelineHandleAtomic.store(InternalCreateComputePipeline(key), std::memory_order_release);
 			break;
 		default:
@@ -590,11 +590,11 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 
 template <>
 void Pipeline<kVk>::BindPipeline(
-	CommandBufferHandle<kVk> cmd, PipelineBindPoint<kVk> bindPoint, PipelineHandle<kVk> handle) const
+	CommandBufferHandle<kVk> cmd, PipelineBindPoint bindPoint, PipelineHandle<kVk> handle) const
 {
 	ZoneScopedN("Pipeline::BindPipeline");
 
-	vkCmdBindPipeline(cmd, bindPoint, handle);
+	vkCmdBindPipeline(cmd, vk::ToVk(bindPoint), handle);
 }
 
 template <>
@@ -650,7 +650,7 @@ PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet<kVk>& shad
 }
 
 template <>
-void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, PipelineBindPoint<kVk> bindPoint)
+void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, PipelineBindPoint bindPoint)
 {
 	myBindPoint = bindPoint;
 	myCurrentLayoutIt = myPipelineLayouts.find(layoutHandle);
@@ -662,7 +662,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 
 	switch (myBindPoint)
 	{
-	case VK_PIPELINE_BIND_POINT_GRAPHICS:
+	case PipelineBindPoint::kGraphics:
 		myGraphicsState.shaderStageFlags = {};
 		myGraphicsState.shaderStages.clear();
 		myGraphicsState.shaderStages.reserve(shaderModules.size());
@@ -685,7 +685,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 			}
 		}
 		break;
-	case VK_PIPELINE_BIND_POINT_COMPUTE:
+	case PipelineBindPoint::kCompute:
 		{
 			// todo: better handling of multiple compute shaders
 			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.back().GetEntryPoint();
@@ -811,7 +811,7 @@ template <>
 void Pipeline<kVk>::BindDescriptorSet(
 	CommandBufferHandle<kVk> cmd,
 	DescriptorSetHandle<kVk> handle,
-	PipelineBindPoint<kVk> bindPoint,
+	PipelineBindPoint bindPoint,
 	PipelineLayoutHandle<kVk> layoutHandle,
 	uint32_t set,
 	std::optional<uint32_t> bufferOffset) const
@@ -820,7 +820,7 @@ void Pipeline<kVk>::BindDescriptorSet(
 
 	vkCmdBindDescriptorSets(
 		cmd,
-		bindPoint,
+		vk::ToVk(bindPoint),
 		layoutHandle,
 		set,
 		1,

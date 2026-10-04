@@ -27,12 +27,12 @@ CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<kVk>& desc)
 		desc.mipLevels[0].extent.width,
 		desc.mipLevels[0].extent.height,
 		desc.mipLevels.size(),
-		desc.format,
-		desc.tiling,
-		desc.usageFlags,
-		desc.memoryFlags,
+		vk::ToVk(desc.format),
+		vk::ToVk(desc.tiling),
+		vk::ToVk(desc.usageFlags),
+		vk::ToVk(desc.memoryFlags),
 		nullptr,
-		desc.layout);
+		vk::ToVk(desc.layout));
 }
 
 std::tuple<VkImage, VmaAllocation> CreateImage2D(
@@ -47,13 +47,13 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 		desc.mipLevels.size(),
 		&desc.mipLevels[0].offset,
 		sizeof(desc.mipLevels[0]) / sizeof(uint32_t),
-		desc.format,
-		desc.tiling,
-		desc.usageFlags,
-		desc.memoryFlags,
-		desc.imageAspectFlags,
+		vk::ToVk(desc.format),
+		vk::ToVk(desc.tiling),
+		vk::ToVk(desc.usageFlags),
+		vk::ToVk(desc.memoryFlags),
+		vk::ToVk(desc.imageAspectFlags),
 		nullptr,
-		desc.layout);
+		vk::ToVk(desc.layout));
 }
 
 
@@ -62,27 +62,23 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 } // namespace image
 
 template <>
-void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layout, ImageAspectFlags<kVk> aspectFlags)
+void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout layout, ImageAspect aspectFlags)
 {
 	ZoneScopedN("Image::Transition");
 
-	if (aspectFlags == VK_IMAGE_ASPECT_NONE)
-	{
-		if (HasColorComponent(GetDesc().format))
-			aspectFlags |= VK_IMAGE_ASPECT_COLOR_BIT;
-		else
-		{
-			if (HasDepthComponent(GetDesc().format))
-				aspectFlags |= VK_IMAGE_ASPECT_DEPTH_BIT;
-			if (HasStencilComponent(GetDesc().format))
-				aspectFlags |= VK_IMAGE_ASPECT_STENCIL_BIT;
-		}
-	}
+	if (aspectFlags == ImageAspect::kNone)
+		aspectFlags = AspectOf(GetDesc().format);
 
 	if (GetDesc().layout != layout || GetDesc().imageAspectFlags != aspectFlags)
 	{
 		TransitionImageLayout(
-			cmd, *this, GetDesc().format, GetDesc().layout, layout, GetDesc().mipLevels.size(), aspectFlags);
+			cmd,
+			*this,
+			vk::ToVk(GetDesc().format),
+			vk::ToVk(GetDesc().layout),
+			vk::ToVk(layout),
+			GetDesc().mipLevels.size(),
+			vk::ToVk(aspectFlags));
 		InternalSetImageLayout(layout);
 		InternalSetAspectFlags(aspectFlags);
 	}
@@ -91,37 +87,39 @@ void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout<kVk> layou
 template <>
 void Image<kVk>::Clear(
 	CommandBufferHandle<kVk> cmd,
-	const ClearValue<kVk>& value,
+	const ClearValue& value,
 	const std::optional<ImageSubresourceRange<kVk>>& range)
 {
 	ZoneScopedN("Image::clear");
 
-	static const VkImageSubresourceRange kDefaultRange{
-		.aspectMask = GetDesc().imageAspectFlags,
+	// not static: it depends on the image
+	const VkImageSubresourceRange defaultRange{
+		.aspectMask = vk::ToVk(GetDesc().imageAspectFlags),
 		.baseMipLevel = 0,
 		.levelCount = VK_REMAINING_MIP_LEVELS,
 		.baseArrayLayer = 0,
 		.layerCount = VK_REMAINING_ARRAY_LAYERS};
+	auto clearValue = vk::ToVk(value, GetDesc().imageAspectFlags);
 
-	if ((GetDesc().imageAspectFlags & VK_IMAGE_ASPECT_COLOR_BIT) != 0U)
+	if (Any(GetDesc().imageAspectFlags & ImageAspect::kColor))
 	{
 		vkCmdClearColorImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			GetDesc().layout,
-			&value.color,
+			vk::ToVk(GetDesc().layout),
+			&clearValue.color,
 			1,
-			range ? &range.value() : &kDefaultRange);
+			range ? &range.value() : &defaultRange);
 	}
-	else if (((GetDesc().imageAspectFlags & VK_IMAGE_ASPECT_DEPTH_BIT) != 0U) || ((GetDesc().imageAspectFlags & VK_IMAGE_ASPECT_STENCIL_BIT) != 0U))
+	else if (Any(GetDesc().imageAspectFlags & (ImageAspect::kDepth | ImageAspect::kStencil)))
 	{
 		vkCmdClearDepthStencilImage(
 			cmd,
 			static_cast<VkImage>(*this),
-			GetDesc().layout,
-			&value.depthStencil,
+			vk::ToVk(GetDesc().layout),
+			&clearValue.depthStencil,
 			1,
-			range ? &range.value() : &kDefaultRange);
+			range ? &range.value() : &defaultRange);
 	}
 	else
 	{
@@ -253,8 +251,8 @@ ImageView<kVk>::ImageView(
 			&GetInstance().GetHostAllocationCallbacks(),
 			0, // "reserved for future use"
 			desc.image,
-			desc.format,
-			desc.aspectFlags,
+			vk::ToVk(desc.format),
+			vk::ToVk(desc.aspectFlags),
 			1,
 			GetDebugName(desc)))
 {}

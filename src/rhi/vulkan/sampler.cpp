@@ -28,10 +28,11 @@ SamplerVector<kVk>::SamplerVector(CreateDescType&& desc)
 		[this, &desc]
 		{
 			std::vector<SamplerHandle<kVk>> outSamplers;
-			outSamplers.reserve(desc.createInfos.size());
+			outSamplers.reserve(desc.samplers.size());
 
-			for (const auto& createInfo : desc.createInfos)
+			for (const auto& sampler : desc.samplers)
 			{
+				auto createInfo = vk::ToVk(sampler);
 				SamplerHandle<kVk> outSampler;
 				VK_CHECK(vkCreateSampler(
 					desc.device,

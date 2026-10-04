@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rhi/deviceobject.h>
+#include <rhi/rendertarget.h>
 #include <rhi/types.h>
 
 #include <array>
@@ -181,6 +182,10 @@ public:
 	void Reset();
 
 	[[nodiscard]] CommandBufferAccessScope<G> Commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
+	// begins a secondary command buffer at level (1 and up) for recording inside the render target begun with
+	// renderTarget (see IRenderTarget::Begin with SubpassContents::kSecondaryCommandBuffers). its commands are run by
+	// Queue::Execute.
+	[[nodiscard]] CommandBufferAccessScope<G> SecondaryCommands(uint8_t level, const RenderTargetBeginInfo<G>& renderTarget);
 
 private:
 	friend class Queue<G>;

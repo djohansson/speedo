@@ -11,9 +11,20 @@ Notes for working in this codebase, distilled from real build failures.
 - `gfx` is everything above it: importers (`obj::Import`, `image::Import`, `zip`), `Model`, `LoadTexture`, cameras and
   `Views`, and `gfx::WindowedApplication` (the windowed, drawing application the client derives from). gfx code is
   not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
-  build), and its headers carry no backend types. Code that still needs Vulkan calls, enums or types lives in
-  `gfx/vulkan/*.cpp`, each saying what it uses; moving those behind rhi APIs (command recording, barriers, formats,
-  usage flags, the imgui backend) is the next step.
+  build), and contains no backend code: no Vulkan calls, enums or types. gfx also owns the current window
+  (`GetCurrentWindow`/`SetCurrentWindow` in `gfx/capi.h`) and the file dialog (`gfx/filedialog.h`).
+- rhi's public API speaks its own vocabulary, `rhi/enums.h` (`Format`, `ImageLayout`, `ImageAspect`, `ImageUsage`,
+  `BufferUsage`, `PipelineStage`, `Access`, `LoadOp`, `SamplerDesc`, `Extent2d`, `ClearValue`, `PresentResult`,
+  ...), converted at the backend boundary with `rhi::vk::ToVk`/`FromVk` (`rhi/vulkan/convert.h`, backend sources
+  only). Handles stay `XxxHandle<G>`. Add a neutral value (and its conversion) rather than exposing a Vulkan type.
+  Commands without an object of their own go through `CommandEncoder<G>` (viewport, scissor, index buffer, draws,
+  dispatch, buffer updates, memory barriers); secondary command buffers inheriting a render target come from
+  `CommandPool::SecondaryCommands`; descriptor values are `BufferBinding<G>`/`ImageBinding<G>`, which `Pipeline`
+  stores in Vulkan's form (the update templates read them in place).
+- ImGui's renderer is rhi's `ImGuiRenderer<G>` (`rhi/imguirenderer.h`): the imgui Vulkan backend plus imgui's
+  textures, which it creates and uploads itself on the ui thread and records on the draw thread. gfx owns the imgui
+  context, the glfw platform backend (`ImGui_ImplGlfw_InitForOther`) and the triple buffer of draw data snapshots
+  between the two threads.
 
 ## rhi: `Object<T>` / `DeviceObject<T>` base classes
 
@@ -151,7 +162,7 @@ Related gotchas hit while getting shutdown right:
   object's own uuid: `CreateResource<T>(desc, ...)` returns the object, callers keep its uuid to `GetResource`, and
   `ReplaceResource(previousUuid, resource)` swaps an object out (the caller then keeps the new object's uuid).
 - **Every vulkan object is tracked** (validation builds), keyed by type and handle in sharded `phmap` maps, which
-  is what the Statistics window shows (`GetTypeCount`). Call `Track(device, type, handle, name)` right after
+  is what the Statistics window shows (`GetObjectCounts`). Call `Track(device, type, handle, name)` right after
   creating a handle and `Untrack(type, handle)` right before destroying it; untracking a handle that was never
   tracked traps, so a missing `Track` shows up immediately. Handles must not be null (destroy paths that may run
   for an object that was never created check that themselves), the device must be valid and the name non-empty:

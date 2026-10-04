@@ -22,8 +22,8 @@ template <GraphicsApi G>
 struct BufferCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	DeviceSize<G> size{};
-	Flags<G> usageFlags{};
-	Flags<G> memoryFlags{};
+	BufferUsage usageFlags{};
+	MemoryProperty memoryFlags{};
 };
 
 template <GraphicsApi G>
@@ -90,7 +90,7 @@ private:
 template <GraphicsApi G>
 struct BufferViewCreateDesc final : DeviceObjectCreateDesc<G>
 {
-	Format<G> format{};
+	Format format{};
 	DeviceSize<G> offset{};
 	DeviceSize<G> range{};
 };

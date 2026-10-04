@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace rhi
@@ -73,6 +74,9 @@ public:
 	[[nodiscard]] auto GetAllocator() const noexcept { return myAllocator; }
 
 	[[nodiscard]] PhysicalDeviceHandle<G> GetPhysicalDevice() const noexcept { return SuperType::GetDesc().physicalDevice; }
+	[[nodiscard]] DeviceLimits GetLimits() const;
+	// the first of candidates that supports features with tiling, or kUndefined if none does
+	[[nodiscard]] Format FindSupportedFormat(std::span<const Format> candidates, ImageTiling tiling, FormatFeature features) const;
 
 	[[nodiscard]] const auto& GetQueueFamilies() const noexcept { return myQueueFamilyDescs; }
 	

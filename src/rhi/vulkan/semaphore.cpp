@@ -25,7 +25,7 @@ Semaphore<kVk>::Semaphore(CreateDescType&& desc)
 		[this, &desc]
 		{
 			VkSemaphoreTypeCreateInfo typeCreateInfo{.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
-			typeCreateInfo.semaphoreType = desc.type;
+			typeCreateInfo.semaphoreType = vk::ToVk(desc.type);
 			typeCreateInfo.initialValue = 0ULL;
 
 			SemaphoreHandle<kVk> handle;
@@ -98,7 +98,7 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	waitInfo.flags = {};
 	waitInfo.semaphoreCount = 1;
 	waitInfo.pSemaphores = &mySemaphore;
-	if (GetDesc().type == VK_SEMAPHORE_TYPE_TIMELINE)
+	if (GetDesc().type == SemaphoreType::kTimeline)
 		waitInfo.pValues = &timelineValue;
 
 	auto result = vkWaitSemaphores(GetDevice(), &waitInfo, timeout);
