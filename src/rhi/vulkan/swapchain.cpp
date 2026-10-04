@@ -266,23 +266,14 @@ void Swapchain<kVk>::CreateSwapchain()
 			acquireFence.Wait();
 		myAcquireFences.clear();
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		EraseOwnedObjectHandle<kVk>(GetDesc().uuid, reinterpret_cast<uint64_t>(previous));
-#endif
+		Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, previous);
 		vkDestroySwapchainKHR(
 			device,
 			previous,
 			&GetInstance().GetHostAllocationCallbacks());
 	}
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	AddOwnedObjectHandle<kVk>(
-		device,
-		GetDesc().uuid,
-		VK_OBJECT_TYPE_SWAPCHAIN_KHR,
-		reinterpret_cast<uint64_t>(mySwapchain),
-		std::format("{}_Swapchain", uuids::to_string(GetDesc().uuid)));
-#endif
+	Track(static_cast<VkDevice>(device), VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain, GetName());
 
 	uint32_t frameCount = GetDesc().images.size();
 
@@ -364,16 +355,22 @@ Swapchain<kVk>::~Swapchain()
 		myAcquireFences.clear();
 
 		if (mySwapchain != nullptr)
+		{
+			Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain);
 			vkDestroySwapchainKHR(
 				GetDevice(),
 				mySwapchain,
 				&GetInstance().GetHostAllocationCallbacks());
+		}
 
 		if (mySurface != nullptr)
+		{
+			Untrack(VK_OBJECT_TYPE_SURFACE_KHR, mySurface);
 			vkDestroySurfaceKHR(
 				GetInstance(),
 				mySurface,
 				&GetInstance().GetHostAllocationCallbacks());
+		}
 	}
 }
 

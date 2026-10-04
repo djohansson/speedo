@@ -488,6 +488,9 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	InitInstanceExtensions(myInstance);
 
+	// there is no device yet to name instance level objects with
+	Track(VK_NULL_HANDLE, VK_OBJECT_TYPE_INSTANCE, myInstance);
+
 	uint32_t physicalDeviceCount = 0;
 	VK_CHECK(vkEnumeratePhysicalDevices(myInstance, &physicalDeviceCount, nullptr));
 	ENSUREF(physicalDeviceCount > 0, "Failed to find GPUs with Vulkan support.");
@@ -497,6 +500,8 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	for (auto* physicalDevice : myPhysicalDevices)
 	{
+		Track(VK_NULL_HANDLE, VK_OBJECT_TYPE_PHYSICAL_DEVICE, physicalDevice);
+
 		auto infoInsertNode = myPhysicalDeviceInfos.emplace(
 			physicalDevice, std::make_unique<PhysicalDeviceInfo<kVk>>());
 		GetPhysicalDeviceInfo2(*infoInsertNode.first->second, myInstance, physicalDevice);
@@ -529,6 +534,10 @@ Instance<kVk>::~Instance()
 	}
 #endif
 
+	for (auto* physicalDevice : myPhysicalDevices)
+		Untrack(VK_OBJECT_TYPE_PHYSICAL_DEVICE, physicalDevice);
+
+	Untrack(VK_OBJECT_TYPE_INSTANCE, myInstance);
 	vkDestroyInstance(myInstance, &myHostAllocationCallbacks);
 }
 

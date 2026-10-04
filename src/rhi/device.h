@@ -108,8 +108,9 @@ public:
 	{
 		return DeviceObjectCreateDesc<G>{
 			ObjectCreateDesc<G>{
-				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+				.uuid = uuids::NewUuid(),
 				.instance = SuperType::GetDesc().instance,
+				.name = std::string(name),
 			},
 			myDevice
 		};

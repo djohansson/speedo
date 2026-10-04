@@ -430,7 +430,17 @@ std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
 	VmaAllocation outBufferMemory;
 	VK_CHECK(vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &outBuffer, &outBufferMemory, nullptr));
 
+	VmaAllocatorInfo allocatorInfo;
+	vmaGetAllocatorInfo(allocator, &allocatorInfo);
+	Track(allocatorInfo.device, VK_OBJECT_TYPE_BUFFER, outBuffer, debugName != nullptr ? debugName : "");
+
 	return std::make_tuple(outBuffer, outBufferMemory);
+}
+
+void DestroyBuffer(VmaAllocator allocator, VkBuffer buffer, VmaAllocation memory)
+{
+	Untrack(VK_OBJECT_TYPE_BUFFER, buffer);
+	vmaDestroyBuffer(allocator, buffer, memory);
 }
 
 std::tuple<VkBuffer, VmaAllocation> CreateBuffer(
@@ -708,7 +718,17 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VmaAllocationInfo outAllocInfo;
 	VK_CHECK(vmaCreateImage(allocator, &imageInfo, &allocInfo, &outImage, &outImageMemory, &outAllocInfo));
 
+	VmaAllocatorInfo allocatorInfo;
+	vmaGetAllocatorInfo(allocator, &allocatorInfo);
+	Track(allocatorInfo.device, VK_OBJECT_TYPE_IMAGE, outImage, debugName != nullptr ? debugName : "");
+
 	return std::make_tuple(outImage, outImageMemory);
+}
+
+void DestroyImage(VmaAllocator allocator, VkImage image, VmaAllocation memory)
+{
+	Untrack(VK_OBJECT_TYPE_IMAGE, image);
+	vmaDestroyImage(allocator, image, memory);
 }
 
 std::tuple<VkImage, VmaAllocation> CreateImage2D(
@@ -777,7 +797,8 @@ VkImageView CreateImageView2D(
 	VkImage image,
 	VkFormat format,
 	VkImageAspectFlags aspectFlags,
-	uint32_t mipLevels)
+	uint32_t mipLevels,
+	std::string_view debugName)
 {
 	VkImageViewCreateInfo viewInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
@@ -797,7 +818,15 @@ VkImageView CreateImageView2D(
 	VkImageView outImageView;
 	VK_CHECK(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));
 
+	Track(device, VK_OBJECT_TYPE_IMAGE_VIEW, outImageView, debugName);
+
 	return outImageView;
+}
+
+void DestroyImageView(VkDevice device, const VkAllocationCallbacks* hostAllocationCallbacks, VkImageView imageView)
+{
+	Untrack(VK_OBJECT_TYPE_IMAGE_VIEW, imageView);
+	vkDestroyImageView(device, imageView, hostAllocationCallbacks);
 }
 
 VkFramebuffer CreateFramebuffer(
@@ -808,7 +837,8 @@ VkFramebuffer CreateFramebuffer(
 	const VkImageView* attachments,
 	uint32_t width,
 	uint32_t height,
-	uint32_t layers)
+	uint32_t layers,
+	std::string_view debugName)
 {
 	VkFramebufferCreateInfo info{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
 	info.renderPass = renderPass;
@@ -821,7 +851,15 @@ VkFramebuffer CreateFramebuffer(
 	VkFramebuffer outFramebuffer;
 	VK_CHECK(vkCreateFramebuffer(device, &info, hostAllocator, &outFramebuffer));
 
+	Track(device, VK_OBJECT_TYPE_FRAMEBUFFER, outFramebuffer, debugName);
+
 	return outFramebuffer;
+}
+
+void DestroyFramebuffer(VkDevice device, const VkAllocationCallbacks* hostAllocator, VkFramebuffer framebuffer)
+{
+	Untrack(VK_OBJECT_TYPE_FRAMEBUFFER, framebuffer);
+	vkDestroyFramebuffer(device, framebuffer, hostAllocator);
 }
 
 VkRenderPass CreateRenderPass(
@@ -829,7 +867,8 @@ VkRenderPass CreateRenderPass(
 	const VkAllocationCallbacks* hostAllocator,
 	std::span<const VkAttachmentDescription2> attachments,
 	std::span<const VkSubpassDescription2> subpasses,
-	std::span<const VkSubpassDependency2> subpassDependencies)
+	std::span<const VkSubpassDependency2> subpassDependencies,
+	std::string_view debugName)
 {
 	VkRenderPassCreateInfo2 renderInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2};
 	renderInfo.attachmentCount = static_cast<uint32_t>(attachments.size());
@@ -842,7 +881,15 @@ VkRenderPass CreateRenderPass(
 	VkRenderPass outRenderPass;
 	VK_CHECK(vkCreateRenderPass2(device, &renderInfo, hostAllocator, &outRenderPass));
 
+	Track(device, VK_OBJECT_TYPE_RENDER_PASS, outRenderPass, debugName);
+
 	return outRenderPass;
+}
+
+void DestroyRenderPass(VkDevice device, const VkAllocationCallbacks* hostAllocator, VkRenderPass renderPass)
+{
+	Untrack(VK_OBJECT_TYPE_RENDER_PASS, renderPass);
+	vkDestroyRenderPass(device, renderPass, hostAllocator);
 }
 
 VkRenderPass CreateRenderPass(
@@ -929,6 +976,8 @@ VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hos
 		reinterpret_cast<GLFWwindow*>(handle),
 		hostAllocator,
 		&surface));
+
+	Track(VK_NULL_HANDLE, VK_OBJECT_TYPE_SURFACE_KHR, surface); // destroyed by the swapchain that takes it
 
 	return surface;
 }

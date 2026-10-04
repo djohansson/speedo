@@ -102,8 +102,9 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
 
-		desc.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(
-			std::string(imageFile).append(" loadBin staging"));
+		// the cached desc holds the uuid of the image it was saved from (see ObjectCreateDesc)
+		desc.uuid = uuids::NewUuid();
+		desc.name = std::string(imageFile);
 
 		size_t size = 0;
 		for (const auto& mipLevel : desc.mipLevels)
@@ -171,8 +172,8 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		bool hasAlpha = channelCount == 4;
 		uint32_t compressedBlockSize = hasAlpha ? 16 : 8;
 
-		desc.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(
-			std::string(imageFile).append("loadImage staging"));
+		desc.uuid = uuids::NewUuid();
+		desc.name = std::string(imageFile);
 		desc.mipLevels.resize(mipCount);
 		desc.format = channelCount == 4 ? VK_FORMAT_BC3_UNORM_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
 		desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -265,7 +266,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		auto cancel = [&]
 		{
 			vmaUnmapMemory(device.GetAllocator(), locMemoryHandle);
-			vmaDestroyBuffer(device.GetAllocator(), locBufferHandle, locMemoryHandle);
+			DestroyBuffer(device.GetAllocator(), locBufferHandle, locMemoryHandle);
 			stbi_image_free(stbiImageData);
 			return std::make_error_code(std::errc::operation_canceled);
 		};
@@ -372,7 +373,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	{
 		// cancelled after the import created its staging buffer, i.e. while hashing the cache
 		if (bufferHandle != nullptr)
-			vmaDestroyBuffer(device.GetAllocator(), bufferHandle, memoryHandle);
+			DestroyBuffer(device.GetAllocator(), bufferHandle, memoryHandle);
 		bufferHandle = nullptr;
 
 		return initialData;
@@ -502,7 +503,7 @@ Image<kVk>::Image(
 {
 	timlineCallbackOut = core::CreateTask(
 		[allocator = GetDevice().GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
-			vmaDestroyBuffer(allocator, buffer, memory); });
+			DestroyBuffer(allocator, buffer, memory); });
 }
 
 template <>
@@ -555,7 +556,7 @@ template <>
 Image<kVk>::~Image()
 {
 	if (IsValid())
-		vmaDestroyImage(
+		DestroyImage(
 			GetDevice().GetAllocator(),
 			std::get<0>(myImage),
 			std::get<1>(myImage));
@@ -601,17 +602,15 @@ ImageView<kVk>::ImageView(
 			desc.image,
 			desc.format,
 			desc.aspectFlags,
-			1))
+			1,
+			desc.name))
 {}
 
 template <>
 ImageView<kVk>::~ImageView()
 {
 	if (IsValid())
-		vkDestroyImageView(
-			GetDevice(),
-			myView,
-			&GetInstance().GetHostAllocationCallbacks());
+		DestroyImageView(GetDevice(), &GetInstance().GetHostAllocationCallbacks(), myView);
 }
 
 template <>

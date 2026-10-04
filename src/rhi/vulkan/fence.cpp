@@ -29,6 +29,7 @@ Fence<kVk>::Fence(CreateDescType&& desc)
 			VkFenceCreateInfo createInfo{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
 			createInfo.flags = desc.flags;
 			VK_CHECK(vkCreateFence(desc.device, &createInfo, &GetInstance().GetHostAllocationCallbacks(), &fence));
+			Track(desc.device, VK_OBJECT_TYPE_FENCE, fence, desc.name);
 			return fence;
 		}())
 {}
@@ -49,11 +50,14 @@ Fence<kVk>::Fence(Fence<kVk>&& other) noexcept
 template <>
 Fence<kVk>::~Fence()
 {
-	if (IsValid())
-		vkDestroyFence(
-			GetDevice(),
-			myFence,
-			&GetInstance().GetHostAllocationCallbacks());
+	if (!IsValid())
+		return;
+
+	Untrack(VK_OBJECT_TYPE_FENCE, myFence);
+	vkDestroyFence(
+		GetDevice(),
+		myFence,
+		&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>

@@ -112,6 +112,7 @@ Queue<kVk>::Queue(QueueCreateDesc<kVk>&& queueDesc)
 				queueDesc.queueFamilyIndex,
 				queueDesc.queueIndex,
 				&queue);
+			Track(queueDesc.device, VK_OBJECT_TYPE_QUEUE, queue, queueDesc.name);
 			return queue;
 		}())
 {}
@@ -149,6 +150,10 @@ Queue<kVk>::~Queue()
 #endif
 
 	ASSERT(myTimelineCallbacks.size_approx() == 0);
+
+	// queues are owned by the device, and only stop being tracked
+	if (IsValid())
+		Untrack(VK_OBJECT_TYPE_QUEUE, myQueue);
 }
 
 template <>

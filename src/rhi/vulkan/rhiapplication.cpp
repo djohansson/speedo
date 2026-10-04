@@ -204,7 +204,7 @@ static void DestroyIMGUITextures(VmaAllocator allocator)
 	while (gIMGUITextureOps.try_dequeue(textureOp))
 	{
 		if (textureOp.buffer != VK_NULL_HANDLE)
-			vmaDestroyBuffer(allocator, textureOp.buffer, textureOp.memory);
+			DestroyBuffer(allocator, textureOp.buffer, textureOp.memory);
 		else
 			destroy(textureOp.texture);
 	}
@@ -283,7 +283,7 @@ static void IMGUIPrepareFrame(
 			[allocator = device.GetAllocator(), stagingBuffers = std::move(stagingBuffers), textures = std::move(textures)]() mutable
 			{
 				for (auto& [buffer, memory] : stagingBuffers)
-					vmaDestroyBuffer(allocator, buffer, memory);
+					DestroyBuffer(allocator, buffer, memory);
 
 				// descriptor sets come from the backend's pool, which only PrepareDraw may use
 				for (auto& texture : textures)
@@ -977,7 +977,6 @@ void RHIApplication::PrepareDraw()
 		{
 			if (Begin("Statistics", &gShowStatistics))
 			{
-				Text("Unknowns: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_UNKNOWN));
 				Text("Instances: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_INSTANCE));
 				Text("Physical Devices: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_PHYSICAL_DEVICE));
 				Text("Devices: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_DEVICE));
@@ -1001,6 +1000,7 @@ void RHIApplication::PrepareDraw()
 				Text("Samplers: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_SAMPLER));
 				Text("Descriptor Pools: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_DESCRIPTOR_POOL));
 				Text("Descriptor Sets: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_DESCRIPTOR_SET));
+				Text("Descriptor Update Templates: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE));
 				Text("Framebuffers: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_FRAMEBUFFER));
 				Text("Command Pools: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_COMMAND_POOL));
 				Text("Surfaces: %u", GetTypeCount<kVk>(VK_OBJECT_TYPE_SURFACE_KHR));

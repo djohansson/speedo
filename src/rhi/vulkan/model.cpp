@@ -374,9 +374,9 @@ Load(
 	{
 		// cancelled after the import created its staging buffers, i.e. while hashing the cache
 		if (ibHandle != nullptr)
-			vmaDestroyBuffer(device.GetAllocator(), ibHandle, ibMemHandle);
+			DestroyBuffer(device.GetAllocator(), ibHandle, ibMemHandle);
 		if (vbHandle != nullptr)
-			vmaDestroyBuffer(device.GetAllocator(), vbHandle, vbMemHandle);
+			DestroyBuffer(device.GetAllocator(), vbHandle, vbMemHandle);
 		ibHandle = nullptr;
 		vbHandle = nullptr;
 

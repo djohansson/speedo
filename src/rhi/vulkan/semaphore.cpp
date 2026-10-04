@@ -39,6 +39,8 @@ Semaphore<kVk>::Semaphore(CreateDescType&& desc)
 				&GetInstance().GetHostAllocationCallbacks(),
 				&handle));
 
+			Track(desc.device, VK_OBJECT_TYPE_SEMAPHORE, handle, desc.name);
+
 			return handle;
 		}())
 {}
@@ -59,11 +61,14 @@ Semaphore<kVk>::Semaphore(Semaphore<kVk>&& other) noexcept
 template <>
 Semaphore<kVk>::~Semaphore()
 {
-	if (IsValid())
-		vkDestroySemaphore(
-			GetDevice(),
-			mySemaphore,
-			&GetInstance().GetHostAllocationCallbacks());
+	if (!IsValid())
+		return;
+
+	Untrack(VK_OBJECT_TYPE_SEMAPHORE, mySemaphore);
+	vkDestroySemaphore(
+		GetDevice(),
+		mySemaphore,
+		&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>

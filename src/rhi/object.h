@@ -1,11 +1,19 @@
 #pragma once
 
+#include <core/assert.h>
 #include <core/upgradablesharedmutex.h>
 #include <core/utils.h>
 #include <core/uuids_extra.h>
 #include <rhi/capi.h>
 #include <rhi/instance.h>
 #include <rhi/types.h>
+
+#include <string>
+
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+#include <mutex>
+#include <parallel_hashmap/phmap.h>
+#endif
 
 namespace rhi
 {
@@ -16,18 +24,32 @@ struct ObjectTraits;
 template <GraphicsApi G>
 struct ObjectCreateDesc
 {
+	// identifies the object: must be unique among live objects, and not nil (see Object::IsValid). create descs through
+	// the Create*ObjectCreateDesc helpers, which assign a new random one; validation builds check both on construction.
 	uuids::uuid uuid{};
 	InstanceHandle<G> instance{};
+	std::string name; // for debugging, e.g. the vulkan object names. not unique
 
 	static consteval GraphicsApi GetApi() { return G; }
 
-	// "instance" (and, in validation builds, "objectType"/"objectPointers") are runtime-only
-	// handles/pointers that are not meaningful across a save/load round-trip, so only "name" is serialized.
+	// "instance" and "name" are runtime-only, so only "uuid" is serialized. a desc read back from a file shares the
+	// uuid of the object it was saved from, so loaders replace it with a new one before constructing an object.
 	constexpr static auto serialize(auto& archive, auto& self)//NOLINT(readability-identifier-naming)
 	{
 		return archive(self.uuid);
 	}
 };
+
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+// uuids of the live objects, to check they are unique. sharded, with a lock per shard.
+inline phmap::parallel_flat_hash_set<
+	uuids::uuid,
+	std::hash<uuids::uuid>,
+	std::equal_to<>,
+	std::allocator<uuids::uuid>,
+	4,
+	std::mutex> gLiveObjectUuids;
+#endif
 
 struct IObject
 {
@@ -54,7 +76,7 @@ public:
 
 	[[nodiscard]] static consteval GraphicsApi GetApi() { return ObjectTraits<DerivedType>::CreateDescType::GetApi(); }
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
-	[[nodiscard]] auto GetName() const { return uuids::to_string(myDesc.uuid); }
+	[[nodiscard]] std::string GetName() const { return myDesc.name.empty() ? uuids::to_string(myDesc.uuid) : myDesc.name; }
 	[[nodiscard]] Instance<GetApi()>& GetInstance() const noexcept;
 
 	void Swap(Object& other) noexcept;

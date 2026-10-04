@@ -85,10 +85,10 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 	for (const auto& [physicalDeviceIt, queueFamilyIt] : graphicsDeviceCandidates)
 		devices.emplace_back(
 			DeviceCreateDesc<kVk>{
-				// a uuid is what makes an object valid (see Object::IsValid): without one ~Device skips destroying it
 				ObjectCreateDesc<kVk>{
-					.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(std::format("Device {}", physicalDeviceIt)),
-					.instance = instance},
+					.uuid = uuids::NewUuid(),
+					.instance = instance,
+					.name = std::format("Device {}", physicalDeviceIt)},
 				physicalDevices[physicalDeviceIt],
 			},
 			instance);

@@ -163,16 +163,8 @@ void RenderTarget<DerivedType, kVk>::InternalInitializeAttachments()
 			this->GetDesc().images[attachmentIt],
 			this->GetDesc().imageFormats[attachmentIt],
 			this->GetDesc().imageAspectFlags[attachmentIt],
-			1));
-
-	#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		AddOwnedObjectHandle<kVk>(
-			this->GetDevice(),
-			this->GetDesc().uuid,
-			VK_OBJECT_TYPE_IMAGE_VIEW,
-			reinterpret_cast<uint64_t>(myAttachments.back()),
-			std::format("{}_ColorImageView_{}", this->GetName(), attachmentIt));
-	#endif
+			1,
+			std::format("{} Attachment {} ImageView", this->GetName(), attachmentIt)));
 
 		auto& attachment = myAttachmentDescs.emplace_back();
 		attachment.sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
@@ -319,7 +311,8 @@ RenderTarget<DerivedType, kVk>::InternalCreateRenderPassAndFrameBuffer(uint64_t 
 		&this->GetInstance().GetHostAllocationCallbacks(),
 		myAttachmentDescs,
 		mySubPassDescs,
-		mySubPassDependencies);
+		mySubPassDependencies,
+		std::format("{} RenderPass {}", this->GetName(), hashKey));
 
 	auto* frameBuffer = CreateFramebuffer(
 		this->GetDevice(),
@@ -329,23 +322,8 @@ RenderTarget<DerivedType, kVk>::InternalCreateRenderPassAndFrameBuffer(uint64_t 
 		myAttachments.data(),
 		this->GetDesc().extent.width,
 		this->GetDesc().extent.height,
-		this->GetDesc().layerCount);
-
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	AddOwnedObjectHandle<kVk>(
-		this->GetDevice(),
-		this->GetDesc().uuid,
-		VK_OBJECT_TYPE_RENDER_PASS,
-		reinterpret_cast<uint64_t>(renderPass),
-		std::format("{}_RenderPass_{}", this->GetName(), hashKey));
-
-	AddOwnedObjectHandle<kVk>(
-		this->GetDevice(),
-		this->GetDesc().uuid,
-		VK_OBJECT_TYPE_FRAMEBUFFER,
-		reinterpret_cast<uint64_t>(frameBuffer),
-		std::format("{}_FrameBuffer_{}", this->GetName(), hashKey));
-#endif
+		this->GetDesc().layerCount,
+		std::format("{} Framebuffer {}", this->GetName(), hashKey));
 
 	return std::make_tuple(renderPass, frameBuffer);
 }
@@ -396,18 +374,19 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 			// todo: store a pool of these to aviud recreating them every time
 			attachmentRef.aspectMask = aspectMask;
 			if (myAttachments[attachmentIt] != VK_NULL_HANDLE)
-				vkDestroyImageView(
+				DestroyImageView(
 					this->GetDevice(),
-					myAttachments[attachmentIt],
-					&this->GetInstance().GetHostAllocationCallbacks());
-					myAttachments[attachmentIt] = CreateImageView2D(
-						this->GetDevice(),
-						&this->GetInstance().GetHostAllocationCallbacks(),
-						0,
-						this->GetDesc().images[attachmentIt],
-						this->GetDesc().imageFormats[attachmentIt],
-						aspectMask,
-						1);
+					&this->GetInstance().GetHostAllocationCallbacks(),
+					myAttachments[attachmentIt]);
+			myAttachments[attachmentIt] = CreateImageView2D(
+				this->GetDevice(),
+				&this->GetInstance().GetHostAllocationCallbacks(),
+				0,
+				this->GetDesc().images[attachmentIt],
+				this->GetDesc().imageFormats[attachmentIt],
+				aspectMask,
+				1,
+				std::format("{} Attachment {} ImageView", this->GetName(), attachmentIt));
 		}
 	}
 
@@ -823,21 +802,12 @@ RenderTarget<DerivedType, kVk>::~RenderTarget()
 
 	for (const auto& entry : myCache)
 	{
-		vkDestroyRenderPass(
-			this->GetDevice(),
-			std::get<0>(entry.second),
-			&this->GetInstance().GetHostAllocationCallbacks());
-		vkDestroyFramebuffer(
-			this->GetDevice(),
-			std::get<1>(entry.second),
-			&this->GetInstance().GetHostAllocationCallbacks());
+		DestroyRenderPass(this->GetDevice(), &this->GetInstance().GetHostAllocationCallbacks(), std::get<0>(entry.second));
+		DestroyFramebuffer(this->GetDevice(), &this->GetInstance().GetHostAllocationCallbacks(), std::get<1>(entry.second));
 	}
 
 	for (const auto& colorView : myAttachments)
-		vkDestroyImageView(
-			this->GetDevice(),
-			colorView,
-			&this->GetInstance().GetHostAllocationCallbacks());
+		DestroyImageView(this->GetDevice(), &this->GetInstance().GetHostAllocationCallbacks(), colorView);
 }
 
 template <typename DerivedType>

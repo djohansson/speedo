@@ -206,6 +206,8 @@ PipelineLayout<kVk>::PipelineLayout(
 				  &GetInstance().GetHostAllocationCallbacks(),
 				  &layout));
 
+			  Track(desc.device, VK_OBJECT_TYPE_PIPELINE_LAYOUT, layout, desc.name);
+
 			  return layout;
 		  }())
 {}
@@ -238,9 +240,9 @@ PipelineLayout<kVk>::PipelineLayout(
 				// runtime handles are not part of the serialized shader set, so take them from the owning layout
 				layout.instance = desc.instance;
 				layout.device = desc.device;
-				// neither is a uuid (reflection default-constructs the desc), which is what makes an object valid
-				// (see Object::IsValid): without one ~DescriptorSetLayout skips destroying it
-				layout.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(std::format("DescriptorSetLayout {}", set));
+				// nor is a uuid (see ObjectCreateDesc)
+				layout.uuid = uuids::NewUuid();
+				layout.name = std::format("{} DescriptorSetLayout {}", desc.name, set);
 				map.emplace(set, DescriptorSetLayout<kVk>(std::move(layout)));
 			}
 
@@ -252,10 +254,13 @@ template <>
 PipelineLayout<kVk>::~PipelineLayout()
 {
 	if (IsValid())
+	{
+		Untrack(VK_OBJECT_TYPE_PIPELINE_LAYOUT, myLayout);
 		vkDestroyPipelineLayout(
 			GetDevice(),
 			myLayout,
 			&GetInstance().GetHostAllocationCallbacks());
+	}
 }
 
 template <>
@@ -511,16 +516,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	{
-		AddOwnedObjectHandle<kVk>(
-			GetDevice(),
-			GetDesc().uuid,
-			VK_OBJECT_TYPE_PIPELINE,
-			reinterpret_cast<uint64_t>(pipelineHandle),
-			std::format("{}_Pipeline_{}", GetName(), hashKey));
-	}
-#endif
+	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Graphics Pipeline {}", GetName(), hashKey));
 
 	return pipelineHandle;
 }
@@ -548,7 +544,9 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 		&pipelineInfo,
 		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
-  
+
+	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Compute Pipeline {}", GetName(), hashKey));
+
 	return pipelineHandle;
 }
 
@@ -953,6 +951,8 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 				&GetInstance().GetHostAllocationCallbacks(),
 				&outDescriptorPool));
 
+			Track(GetDevice(), VK_OBJECT_TYPE_DESCRIPTOR_POOL, outDescriptorPool, std::format("{} DescriptorPool", GetName()));
+
 			return outDescriptorPool;
 		}())
 	, myCache(pipeline::LoadPipelineCache(GetDesc().cachePath, GetDevice(), GetInstance()))
@@ -960,21 +960,7 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 	InternalResetGraphicsState();
 	InternalResetComputeState();
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	AddOwnedObjectHandle<kVk>(
-		GetDevice(),
-		GetDesc().uuid,
-		VK_OBJECT_TYPE_PIPELINE_CACHE,
-		reinterpret_cast<uint64_t>(myCache),
-		std::format("PipelineCache"));
-
-	AddOwnedObjectHandle<kVk>(
-		GetDevice(),
-		GetDesc().uuid,
-		VK_OBJECT_TYPE_DESCRIPTOR_POOL,
-		reinterpret_cast<uint64_t>(myDescriptorPool),
-		"Device_DescriptorPool");
-#endif
+	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE_CACHE, myCache, std::format("{} PipelineCache", GetName()));
 }
 
 template <>
@@ -1028,11 +1014,15 @@ Pipeline<kVk>::~Pipeline()
 	}
 
 	for (const auto& pipelineIt : myPipelineMap)
+	{
+		Untrack(VK_OBJECT_TYPE_PIPELINE, pipelineIt.second);
 		vkDestroyPipeline(
 			GetDevice(),
 			pipelineIt.second,
 			&GetInstance().GetHostAllocationCallbacks());
+	}
 
+	Untrack(VK_OBJECT_TYPE_PIPELINE_CACHE, myCache);
 	vkDestroyPipelineCache(
 		GetDevice(),
 		myCache,
@@ -1040,6 +1030,7 @@ Pipeline<kVk>::~Pipeline()
 
 	myDescriptorMap.clear();
 
+	Untrack(VK_OBJECT_TYPE_DESCRIPTOR_POOL, myDescriptorPool);
 	if (myDescriptorPool != nullptr)
 		vkDestroyDescriptorPool(
 			GetDevice(),

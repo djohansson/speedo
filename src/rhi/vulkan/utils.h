@@ -1,9 +1,12 @@
 #pragma once
 
 #include <core/utils.h>
+#include <rhi/deviceobject.h>
 #include <rhi/types.h>
 
 #include <span>
+#include <string_view>
+#include <type_traits>
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 void OnCheckFailedDefault(VkResult result, uintptr_t count, ...);
@@ -39,6 +42,24 @@ extern PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV;
 extern PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV;
 extern PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR;
 extern PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR;
+
+// tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject
+template <typename HandleT>
+void Track(VkDevice device, VkObjectType type, HandleT handle, std::string_view name = {})
+{
+	if constexpr (std::is_pointer_v<HandleT>)
+		rhi::TrackObject<kVk>(device, type, reinterpret_cast<uint64_t>(handle), name);
+	else
+		rhi::TrackObject<kVk>(device, type, static_cast<uint64_t>(handle), name);
+}
+template <typename HandleT>
+void Untrack(VkObjectType type, HandleT handle)
+{
+	if constexpr (std::is_pointer_v<HandleT>)
+		rhi::UntrackObject<kVk>(type, reinterpret_cast<uint64_t>(handle));
+	else
+		rhi::UntrackObject<kVk>(type, static_cast<uint64_t>(handle));
+}
 
 void InitInstanceExtensions(VkInstance instance);
 void InitDeviceExtensions(VkDevice device);
@@ -84,6 +105,13 @@ void CopyBuffer(
 	VkBufferUsageFlags usage,
 	VkMemoryPropertyFlags memoryFlags,
 	const char* debugName);
+
+// destroy what the Create* functions in this file created (they track the objects, see Track)
+void DestroyBuffer(VmaAllocator allocator, VkBuffer buffer, VmaAllocation memory);
+void DestroyImage(VmaAllocator allocator, VkImage image, VmaAllocation memory);
+void DestroyImageView(VkDevice device, const VkAllocationCallbacks* hostAllocationCallbacks, VkImageView imageView);
+void DestroyFramebuffer(VkDevice device, const VkAllocationCallbacks* hostAllocator, VkFramebuffer framebuffer);
+void DestroyRenderPass(VkDevice device, const VkAllocationCallbacks* hostAllocator, VkRenderPass renderPass);
 
 [[nodiscard]] std::tuple<VkBuffer, VmaAllocation> CreateStagingBuffer(
 	VmaAllocator allocator,
@@ -146,7 +174,8 @@ void CopyBufferToImage(
 	VkImage image,
 	VkFormat format,
 	VkImageAspectFlags aspectFlags,
-	uint32_t mipLevels);
+	uint32_t mipLevels,
+	std::string_view debugName = {});
 
 [[nodiscard]] VkFramebuffer CreateFramebuffer(
 	VkDevice device,
@@ -156,14 +185,16 @@ void CopyBufferToImage(
 	const VkImageView* attachments,
 	uint32_t width,
 	uint32_t height,
-	uint32_t layers);
+	uint32_t layers,
+	std::string_view debugName = {});
 
 [[nodiscard]] VkRenderPass CreateRenderPass(
 	VkDevice device,
 	const VkAllocationCallbacks* hostAllocator,
 	std::span<const VkAttachmentDescription2> attachments,
 	std::span<const VkSubpassDescription2> subpasses,
-	std::span<const VkSubpassDependency2> subpassDependencies);
+	std::span<const VkSubpassDependency2> subpassDependencies,
+	std::string_view debugName = {});
 
 [[nodiscard]] VkRenderPass CreateRenderPass(
 	VkDevice device,

@@ -264,44 +264,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 
 	InitDeviceExtensions(myDevice);
 
-	// AddOwnedObjectHandle(
-	//     GetDesc().uuid,
-	//     VK_OBJECT_TYPE_INSTANCE,
-	//     reinterpret_cast<uint64_t>(myInstance->instance),
-	//     "Instance");
-
-	// AddOwnedObjectHandle(
-	//     GetDesc().uuid,
-	//     VK_OBJECT_TYPE_SURFACE_KHR,
-	//     reinterpret_cast<uint64_t>(myInstance->GetSurface()),
-	//     "Instance_Surface");
-
-	// char stringBuffer[256];
-	// for (uint32_t physicalDeviceIt = 0ul; physicalDeviceIt < myInstance->GetPhysicalDevices().size(); physicalDeviceIt++)
-	// {
-	//     auto physicalDevice = myInstance->GetPhysicalDevices()[physicalDeviceIt];
-
-	//     static constexpr std::string_view physicalDeviceStr = "Instance_PhysicalDevice";
-
-	//     std::format_to_n(
-	//         stringBuffer,
-	//         std::size(stringBuffer),
-	//         "{0}_{1}",
-	//         physicalDeviceStr.data(),
-	//         physicalDeviceIt);
-
-	//     AddOwnedObjectHandle(
-	//         GetDesc().uuid,
-	//         VK_OBJECT_TYPE_PHYSICAL_DEVICE,
-	//         reinterpret_cast<uint64_t>(physicalDevice),
-	//         stringBuffer);
-	// }
-
-	// AddOwnedObjectHandle(
-	//     GetDesc().uuid,
-	//     VK_OBJECT_TYPE_DEVICE,
-	//     reinterpret_cast<uint64_t>(myDevice),
-	//     "Device");
+	Track(myDevice, VK_OBJECT_TYPE_DEVICE, myDevice, GetName());
 
 	ENSURE(physicalDeviceInfo.queueFamilyProperties.size() > 0);
 
@@ -354,6 +317,14 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		functions.vkGetBufferMemoryRequirements2KHR = gVkGetBufferMemoryRequirements2KHR;
 		functions.vkGetImageMemoryRequirements2KHR = gVkGetImageMemoryRequirements2KHR;
 
+		// vma allocates device memory itself, in blocks: count them as it does
+		VmaDeviceMemoryCallbacks memoryCallbacks{
+			.pfnAllocate = [](VmaAllocator /*allocator*/, uint32_t /*memoryType*/, VkDeviceMemory memory, VkDeviceSize /*size*/, void* device)
+			{ Track(static_cast<VkDevice>(device), VK_OBJECT_TYPE_DEVICE_MEMORY, memory, "VMA block"); },
+			.pfnFree = [](VmaAllocator /*allocator*/, uint32_t /*memoryType*/, VkDeviceMemory memory, VkDeviceSize /*size*/, void* /*device*/)
+			{ Untrack(VK_OBJECT_TYPE_DEVICE_MEMORY, memory); },
+			.pUserData = myDevice};
+
 		VmaAllocator allocator;
 		VmaAllocatorCreateInfo allocatorInfo{};
 		allocatorInfo.flags = {};
@@ -363,6 +334,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		allocatorInfo.instance = instance;
         allocatorInfo.pAllocationCallbacks = &instance.GetHostAllocationCallbacks();
 		allocatorInfo.pVulkanFunctions = &functions;
+		allocatorInfo.pDeviceMemoryCallbacks = &memoryCallbacks;
 		vmaCreateAllocator(&allocatorInfo, &allocator);
 
 		return allocator;
@@ -421,6 +393,7 @@ Device<kVk>::~Device()
 	myQueues.clear();
 
 	vmaDestroyAllocator(myAllocator);
+	Untrack(VK_OBJECT_TYPE_DEVICE, myDevice);
 	vkDestroyDevice(myDevice, &GetInstance().GetHostAllocationCallbacks());
 }
 

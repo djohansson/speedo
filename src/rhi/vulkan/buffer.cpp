@@ -67,7 +67,7 @@ Buffer<kVk>::Buffer(
 {
 	timelineCallbackOut = core::CreateTask(
 		[allocator = GetDevice().GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
-			vmaDestroyBuffer(allocator, buffer, memory);
+			DestroyBuffer(allocator, buffer, memory);
 		});
 }
 
@@ -92,7 +92,7 @@ template <>
 Buffer<kVk>::~Buffer()
 {
 	if (IsValid())
-		vmaDestroyBuffer(
+		DestroyBuffer(
 			GetDevice().GetAllocator(),
 			GetBuffer(),
 			GetMemory());
@@ -145,6 +145,8 @@ BufferView<kVk>::BufferView(
 			VkBufferView outBufferView;
 			VK_CHECK(vkCreateBufferView(desc.device, &viewInfo, &GetInstance().GetHostAllocationCallbacks(), &outBufferView));
 
+			Track(desc.device, VK_OBJECT_TYPE_BUFFER_VIEW, outBufferView, desc.name);
+
 			return outBufferView;
 		}())
 {}
@@ -152,11 +154,14 @@ BufferView<kVk>::BufferView(
 template <>
 BufferView<kVk>::~BufferView()
 {
-	if (IsValid())
-		vkDestroyBufferView(
-			GetDevice(),
-			myView,
-			&GetDevice().GetInstance().GetHostAllocationCallbacks());
+	if (!IsValid())
+		return;
+
+	Untrack(VK_OBJECT_TYPE_BUFFER_VIEW, myView);
+	vkDestroyBufferView(
+		GetDevice(),
+		myView,
+		&GetDevice().GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>

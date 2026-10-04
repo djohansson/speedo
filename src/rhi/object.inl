@@ -25,11 +25,21 @@ Object<DerivedType>::Object(Object<DerivedType>&& other) noexcept
 template <typename DerivedType>
 Object<DerivedType>::Object(typename ObjectTraits<DerivedType>::CreateDescType&& desc)
 	: myDesc(std::forward<typename ObjectTraits<DerivedType>::CreateDescType>(desc))
-{}
+{
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	ENSUREF(IsValid(), "rhi object \"{}\" created without a uuid", myDesc.name);
+	ENSUREF(gLiveObjectUuids.insert(myDesc.uuid).second, "rhi object \"{}\" created with the uuid of a live object", GetName());
+#endif
+}
 
 template <typename DerivedType>
 Object<DerivedType>::~Object()
-{}
+{
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+	if (IsValid())
+		gLiveObjectUuids.erase(myDesc.uuid);
+#endif
+}
 
 #define IMPLEMENT_OBJECT_GETINSTANCE(DerivedType) \
 template <> \

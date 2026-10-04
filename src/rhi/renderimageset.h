@@ -4,6 +4,7 @@
 #include <rhi/rendertarget.h>
 #include <rhi/types.h>
 
+#include <format>
 #include <memory>
 
 namespace rhi

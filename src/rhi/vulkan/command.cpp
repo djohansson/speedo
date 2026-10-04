@@ -4,6 +4,7 @@
 #include <rhi/rhiapplication.h>
 #include <rhi/vulkan/utils.h>
 
+#include <format>
 #include <utility>
 
 #include <vulkan/vulkan_core.h>
@@ -35,6 +36,9 @@ CreateArray(const Device<kVk>& device, const CommandBufferArrayCreateDesc<kVk>& 
 		cmdInfo.commandBufferCount = CommandBufferArray<kVk>::Capacity();
 		VK_CHECK(vkAllocateCommandBuffers(device, &cmdInfo, outArray.data()));
 	}
+
+	for (size_t cmdIt = 0; cmdIt < outArray.size(); cmdIt++)
+		Track(device, VK_OBJECT_TYPE_COMMAND_BUFFER, outArray[cmdIt], std::format("{} {}", desc.name, cmdIt));
 
 	return outArray;
 }
@@ -79,6 +83,8 @@ CommandBufferArray<kVk>::~CommandBufferArray()
 	{
 		ZoneScopedN("~CommandBufferArray()::vkFreeCommandBuffers");
 
+		for (auto* cmd : myArray)
+			Untrack(VK_OBJECT_TYPE_COMMAND_BUFFER, cmd);
 		vkFreeCommandBuffers(
 			GetDevice(), GetDesc().pool, kCommandBufferCount, myArray.data());
 	}
@@ -174,6 +180,8 @@ CommandPool<kVk>::CommandPool(
 				&GetInstance().GetHostAllocationCallbacks(),
 				&outPool));
 
+			Track(desc.device, VK_OBJECT_TYPE_COMMAND_POOL, outPool, desc.name);
+
 			return outPool;
 		}())
 {}
@@ -207,6 +215,7 @@ CommandPool<kVk>::~CommandPool()
 	mySubmittedCommands.clear();
 	myFreeCommands.clear();
 
+	Untrack(VK_OBJECT_TYPE_COMMAND_POOL, myPool);
 	vkDestroyCommandPool(
 		GetDevice(),
 		myPool,

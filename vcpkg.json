@@ -93,6 +93,7 @@
           ]
         },
         "nativefiledialog-extended",
+        "parallel-hashmap",
         "shader-slang",
         "stb",
         "tinyobjloader",

@@ -8,6 +8,7 @@ template <GraphicsApi G, typename... Images>
 RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
 {
 	RenderTargetCreateDesc<G> outDesc{};
+	outDesc.uuid = uuids::NewUuid();
 
 	auto imageCount = sizeof...(images);
 
@@ -26,6 +27,8 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
 		// the render target lives on the same instance/device as its images
 		outDesc.instance = image.GetDesc().instance;
 		outDesc.device = image.GetDesc().device;
+		if (index == 0)
+			outDesc.name = std::format("{} RenderImageSet", image.GetName());
 
 		ENSUREF(
 			(outDesc.extent.width == 0 || outDesc.extent.width == extent.width),

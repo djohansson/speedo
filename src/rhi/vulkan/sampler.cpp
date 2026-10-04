@@ -4,6 +4,8 @@
 #include <rhi/rhiapplication.h>
 #include <rhi/vulkan/utils.h>
 
+#include <format>
+
 namespace rhi
 {
 
@@ -37,6 +39,8 @@ SamplerVector<kVk>::SamplerVector(CreateDescType&& desc)
 					&GetInstance().GetHostAllocationCallbacks(),
 					&outSampler));
 
+				Track(desc.device, VK_OBJECT_TYPE_SAMPLER, outSampler, std::format("{} {}", desc.name, outSamplers.size()));
+
 				outSamplers.emplace_back(outSampler);
 			}
 
@@ -62,10 +66,13 @@ template <>
 SamplerVector<kVk>::~SamplerVector()
 {
 	for (auto* sampler : mySamplers)
+	{
+		Untrack(VK_OBJECT_TYPE_SAMPLER, sampler);
 		vkDestroySampler(
 			GetDevice(),
 			sampler,
 			&GetInstance().GetHostAllocationCallbacks());
+	}
 }
 
 template <>

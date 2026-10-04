@@ -358,6 +358,7 @@ ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 
 			VkShaderModule vkShaderModule;
 			VK_CHECK(vkCreateShaderModule(desc.device, &info, &GetInstance().GetHostAllocationCallbacks(), &vkShaderModule));
+			Track(desc.device, VK_OBJECT_TYPE_SHADER_MODULE, vkShaderModule, desc.name);
 			return vkShaderModule;
 		}(reinterpret_cast<const uint32_t*>(std::get<0>(desc.shader).data()), std::get<0>(desc.shader).size()),
 		EntryPoint<kVk>{std::get<1>(desc.shader)}) // copy, since desc is moved into the base before myEntryPoint is initialized
@@ -372,11 +373,14 @@ ShaderModule<kVk>::ShaderModule(ShaderModule&& other) noexcept
 template <>
 ShaderModule<kVk>::~ShaderModule()
 {
-	if (myShaderModule != nullptr)
-		vkDestroyShaderModule(
-			GetDevice(),
-			myShaderModule,
-			&GetInstance().GetHostAllocationCallbacks());
+	if (myShaderModule == nullptr)
+		return;
+
+	Untrack(VK_OBJECT_TYPE_SHADER_MODULE, myShaderModule);
+	vkDestroyShaderModule(
+		GetDevice(),
+		myShaderModule,
+		&GetInstance().GetHostAllocationCallbacks());
 }
 
 template <>

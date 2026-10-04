@@ -4,6 +4,7 @@
 #include <rhi/rhiapplication.h>
 #include <rhi/vulkan/utils.h>
 
+#include <format>
 #include <utility>
 
 namespace rhi
@@ -84,6 +85,8 @@ DescriptorSetLayout<kVk>::DescriptorSetLayout(CreateDescType&& desc)
 				&GetInstance().GetHostAllocationCallbacks(),
 				&layout));
 
+			Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, layout, desc.name);
+
 			return std::make_tuple(layout, std::move(samplers), std::move(bindingsMap));
 		}())
 {}
@@ -95,6 +98,7 @@ DescriptorSetLayout<kVk>::~DescriptorSetLayout()
 	{
 		ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorSetLayout");
 
+		Untrack(VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, std::get<0>(myLayout));
 		vkDestroyDescriptorSetLayout(
 			GetDevice(),
 			std::get<0>(myLayout),
@@ -150,6 +154,9 @@ DescriptorSetArray<kVk>::DescriptorSetArray(
 			allocInfo.pSetLayouts = layouts.data();
 			VK_CHECK(vkAllocateDescriptorSets(desc.device, &allocInfo, sets.data()));
 
+			for (size_t setIt = 0; setIt < sets.size(); setIt++)
+				Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, sets[setIt], std::format("{} {}", desc.name, setIt));
+
 			return sets;
 		}())
 {}
@@ -158,11 +165,15 @@ template <>
 DescriptorSetArray<kVk>::~DescriptorSetArray()
 {
 	if (IsValid())
+	{
+		for (auto* set : myDescriptorSets)
+			Untrack(VK_OBJECT_TYPE_DESCRIPTOR_SET, set);
 		vkFreeDescriptorSets(
 			GetDevice(),
 			GetDesc().pool,
 			myDescriptorSets.size(),
 			myDescriptorSets.data());
+	}
 }
 
 template <>
@@ -177,6 +188,7 @@ void DescriptorUpdateTemplate<kVk>::InternalDestroyTemplate()
 {
 	ZoneScopedN("DescriptorSetLayout::vkDestroyDescriptorUpdateTemplate");
 
+	Untrack(VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE, myHandle);
 	vkDestroyDescriptorUpdateTemplate(
 		GetDevice(),
 		myHandle,
@@ -203,11 +215,13 @@ void DescriptorUpdateTemplate<kVk>::SetEntries(
 			.pipelineBindPoint = GetDesc().pipelineBindPoint,
 			.pipelineLayout = GetDesc().pipelineLayout,
 			.set = GetDesc().set};
-		vkCreateDescriptorUpdateTemplate(
+		VK_CHECK(vkCreateDescriptorUpdateTemplate(
 			GetDevice(),
 			&createInfo,
 			&GetInstance().GetHostAllocationCallbacks(),
-			&descriptorTemplate);
+			&descriptorTemplate));
+
+		Track(GetDevice(), VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE, descriptorTemplate, GetName());
 
 		return descriptorTemplate;
 	}();

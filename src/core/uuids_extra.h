@@ -1,7 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <functional>
+#include <random>
 #include <ranges>
 #include <type_traits>
 
@@ -10,6 +13,22 @@
 
 namespace uuids
 {
+
+// a new random (version 4) uuid. thread-safe: each thread has its own generator.
+[[nodiscard]] inline uuid NewUuid()
+{
+	thread_local std::mt19937 tEngine = []
+	{
+		std::random_device device;
+		std::array<std::mt19937::result_type, std::mt19937::state_size> seed{};
+		std::ranges::generate(seed, std::ref(device));
+		std::seed_seq sequence(seed.begin(), seed.end());
+		return std::mt19937(sequence);
+	}();
+	thread_local uuid_random_generator tGenerator(tEngine);
+
+	return tGenerator();
+}
 
 // uuids::uuid keeps its bytes private, so zpp::bits can't reflect it via structured bindings;
 // this ADL-found overload serializes it as its raw 16 bytes instead.

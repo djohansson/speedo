@@ -4,9 +4,8 @@
 #include <rhi/object.h>
 #include <uuid.h>
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-#include <vector>
-#endif
+#include <cstdint>
+#include <string_view>
 
 namespace rhi
 {
@@ -28,11 +27,6 @@ struct DeviceObjectCreateDesc : ObjectCreateDesc<G>
 		using BaseType = std::conditional_t<std::is_const_v<SelfType>, const ObjectCreateDesc<G>, ObjectCreateDesc<G>>;
 		return archive(static_cast<BaseType&>(self));
 	}
-
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	ObjectType<G> objectType{};
-	std::vector<const uint64_t*> objectPointers;
-#endif
 };
 
 template <typename DerivedType>
@@ -56,8 +50,9 @@ public:
 	{
 		return DeviceObjectCreateDesc<GetApi()>{
 			ObjectCreateDesc<GetApi()>{
-				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+				.uuid = uuids::NewUuid(),
 				.instance = SuperType::GetInstance(),
+				.name = std::string(name),
 			},
 			GetDevice(deviceHandle)
 		};
@@ -73,27 +68,23 @@ protected:
 	[[maybe_unused]] DeviceObject& operator=(DeviceObject&& other) noexcept;
 };
 
+// validation builds track the graphics api objects that exist, by type and handle: call TrackObject where an object
+// is created (which also names it, if a device is given) and UntrackObject where it is destroyed. GetTypeCount reports
+// the number of live objects of a type. other builds do nothing.
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-inline core::UpgradableSharedMutex gObjectNameInfoMutex;
 template <GraphicsApi G>
-inline core::UnorderedMap<uint64_t, std::vector<std::pair<ObjectNameInfo<G>, std::unique_ptr<char[]>>>, core::IdentityHash<uint64_t>> gOwnerToObjectNameInfoMap;
+void TrackObject(DeviceHandle<G> device, ObjectType<G> type, uint64_t handle, std::string_view name);
 template <GraphicsApi G>
-inline core::UnorderedMap<ObjectType<G>, uint32_t> gObjectTypeToCountMap;
+void UntrackObject(ObjectType<G> type, uint64_t handle);
 template <GraphicsApi G>
-void AddOwnedObjectHandle(
-	DeviceHandle<G> device,
-	const uuids::uuid& ownerId,
-	ObjectType<G> objectType,
-	uint64_t objectHandle,
-	std::string_view objectName);
+[[nodiscard]] uint32_t GetTypeCount(ObjectType<G> type);
+#else
 template <GraphicsApi G>
-void EraseOwnedObjectHandle(
-	const uuids::uuid& ownerId,
-	uint64_t objectHandle);
+void TrackObject(DeviceHandle<G> /*device*/, ObjectType<G> /*type*/, uint64_t /*handle*/, std::string_view /*name*/) {}
 template <GraphicsApi G>
-void ClearOwnedObjectHandles(const uuids::uuid& ownerId);
+void UntrackObject(ObjectType<G> /*type*/, uint64_t /*handle*/) {}
 template <GraphicsApi G>
-[[nodiscard]] static uint32_t GetTypeCount(ObjectType<G> type);
+[[nodiscard]] uint32_t GetTypeCount(ObjectType<G> /*type*/) { return 0; }
 #endif
 
 } // namespace rhi

@@ -65,8 +65,9 @@ public:
 	{
 		return DeviceObjectCreateDesc<G>{
 			ObjectCreateDesc<G>{
-				.uuid = uuids::uuid_name_generator{uuids::uuid_namespace_oid}(name),
+				.uuid = uuids::NewUuid(),
 				.instance = GetInstance(),
+				.name = std::string(name),
 			}, GetPrimaryDevice() }; }
 	
 private:

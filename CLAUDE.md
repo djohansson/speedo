@@ -82,8 +82,9 @@ field bound to a `const&` parameter): `desc` is moved into the base before the t
 members are initialized, so pass a copy.
 
 Serialized create-descs arrive *without* runtime handles: `ObjectCreateDesc`/`DeviceObjectCreateDesc`
-deliberately serialize only `uuid`, never `instance`/`device`. Any code that builds a desc from a
-file or cache (shader reflection, `image::detail::Load`, ...) must fill in `instance`/`device`
+deliberately serialize only `uuid`, never `instance`/`device`/`name`. Any code that builds a desc from a
+file or cache (shader reflection, `image::detail::Load`, ...) must fill in `instance`/`device`, and
+replace the `uuid` with `uuids::NewUuid()` (a cached desc holds the uuid of the object it was saved from),
 before the desc is used to construct an object, or `GetDevice()` trips the assert below. Also, a
 derived desc with extra fields needs its own `serialize()` (see `ImageCreateDesc`): otherwise it
 inherits the base one and silently serializes only the `uuid`. When a serialized layout changes,
@@ -129,6 +130,22 @@ Related gotchas hit while getting shutdown right:
   `exchange`, so an already-ended chain isn't waited on forever).
 - The signal handlers re-raise fatal signals with `SIG_DFL`; returning from e.g. SIGSEGV re-runs
   the faulting instruction and loops in the handler forever, which looks like a hang.
+
+## rhi object identity and tracking
+
+- **uuids are random and unique.** `ObjectCreateDesc::uuid` identifies a live object (`IsValid()` is
+  `uuid != nil`); `name` is for debugging only and need not be unique. Build descs with the
+  `Create*ObjectCreateDesc(name)` helpers, which assign `uuids::NewUuid()`. Validation builds `ENSUREF` in
+  `Object`'s constructor that the uuid is non-nil and not held by another live object (`gLiveObjectUuids`), so
+  copying a live object's desc to create another object traps. Name-based lookups are separate:
+  `Device::CreateResource(name, ...)`/`GetResource(name)` key the resource map by a uuid derived from the name.
+- **Every vulkan object is tracked** (validation builds), keyed by type and handle in sharded `phmap` maps, which
+  is what the Statistics window shows (`GetTypeCount`). Call `Track(device, type, handle, name)` right after
+  creating a handle and `Untrack(type, handle)` right before destroying it; untracking a handle that was never
+  tracked traps, so a missing `Track` shows up immediately. Buffers, images, image views, framebuffers and render
+  passes are tracked by the `Create*` helpers in `rhi/vulkan/utils.h`: destroy them with the matching `Destroy*`
+  helpers, not `vmaDestroy*`/`vkDestroy*`. VMA's device memory blocks are tracked through its device memory
+  callbacks.
 
 ## Queues: aliased queue types share one lock
 
