@@ -114,21 +114,25 @@ public:
 		AddResource(resource);
 		return resource;
 	}
-	// stores resource in place of the previous one, given by its uuid or itself, which must be stored. returns the
-	// previous one, so the caller can defer its destruction until the gpu is no longer using it. resource is found by
-	// its own uuid from now on.
+	// stores resource in place of the previous one, given by its uuid or itself, and returns the previous one, so the
+	// caller can defer its destruction until the gpu is no longer using it. resource is found by its own uuid from now
+	// on. either may be absent: a nil uuid (or null previous) just adds resource, and a null resource just removes the
+	// previous one. a previous uuid that is not nil must be stored.
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const std::shared_ptr<IObject>& previous, std::shared_ptr<IObject> resource)
 	{
-		ENSUREF(previous, "previous resource must not be null");
-		return ReplaceResource(previous->GetUuid(), std::move(resource));
+		return ReplaceResource(previous ? previous->GetUuid() : uuids::uuid{}, std::move(resource));
 	}
 	[[nodiscard]] std::shared_ptr<IObject> ReplaceResource(const uuids::uuid& previousUuid, std::shared_ptr<IObject> resource)
 	{
-		ENSUREF(resource, "cannot replace with a null resource. use EraseResource instead");
-		auto previousIt = InternalGetResourceIterator(previousUuid);
-		auto previous = *previousIt;
-		myResources.erase(previousIt);
-		AddResource(std::move(resource));
+		std::shared_ptr<IObject> previous;
+		if (!previousUuid.is_nil())
+		{
+			auto previousIt = InternalGetResourceIterator(previousUuid);
+			previous = *previousIt;
+			myResources.erase(previousIt);
+		}
+		if (resource)
+			AddResource(std::move(resource));
 		return previous;
 	}
 	void EraseResource(const uuids::uuid& uuid) { myResources.erase(uuid); }
