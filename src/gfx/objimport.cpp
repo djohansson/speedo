@@ -216,6 +216,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 		material.diffuseTexture = resolveTexture(objMaterial.diffuse_texname, objMaterial.name);
 		material.alphaTexture = resolveTexture(objMaterial.alpha_texname, objMaterial.name);
 		material.bumpTexture = resolveTexture(objMaterial.bump_texname, objMaterial.name);
+		material.bumpScale = objMaterial.bump_texopt.bump_multiplier;
 	}
 
 	const auto positionCount = attrib.vertices.size() / 3;

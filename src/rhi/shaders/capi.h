@@ -79,13 +79,18 @@ struct ViewData
 	alignas(16) FLOAT4X4(viewProjection);
 };
 
-#define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId (multiplied in, and alpha tested)
+#define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId's texture (multiplied in, and alpha tested)
+#define MATERIAL_FLAG_ALPHA_TEXTURE 2u // samples alphaTextureId (a mask in r, alpha tested)
+#define MATERIAL_FLAG_NORMAL_TEXTURE 4u // samples normalTextureId (a tangent space normal map, x and y in rg)
 
+// textures are indices into gTextures, all sampled with textureAndSamplerId's sampler
 struct MaterialData
 {
 	alignas(16) FLOAT4(color);
 	alignas(4) UINT(textureAndSamplerId);
 	alignas(4) UINT(flags);
+	alignas(4) UINT(alphaTextureId);
+	alignas(4) UINT(normalTextureId);
 };
 
 struct ModelInstance

@@ -25,10 +25,14 @@ struct ModelSubmesh
 	int32_t material = -1; // index into ModelCreateDesc::materials, or -1 for none
 };
 
+// texture paths are empty if the material has none
 struct ModelMaterial
 {
 	std::string name;
-	std::string diffuseTexture; // path, empty if none. its colors are multiplied with the vertex colors
+	std::string diffuseTexture; // its colors are multiplied with the vertex colors
+	std::string alphaTexture; // a mask, alpha tested
+	std::string bumpTexture; // a height map or a normal map
+	float bumpScale = 1.0F; // for a bump texture that is a height map: see gfx::image::Options::bumpScale
 };
 
 template <GraphicsApi G>

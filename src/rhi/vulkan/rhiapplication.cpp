@@ -590,20 +590,29 @@ static void TransitionThenBind(
 
 using ImageAndView = std::pair<std::shared_ptr<Image<kVk>>, std::shared_ptr<ImageView<kVk>>>;
 
-// makes an uploaded model the one being drawn, with its materials and their textures (by material, null where a
-// material has no texture, or it failed to load), retiring the previous ones. call on the draw thread.
+// a material's textures, null where it has none (or it failed to load)
+struct MaterialTextures
+{
+	ImageAndView diffuse;
+	ImageAndView alpha;
+	ImageAndView normal;
+};
+
+// makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
+// previous ones. call on the draw thread.
 static void InstallModel(
 	RHI<kVk>& rhi,
 	QueueTimelineContextData<kVk>& graphics,
 	const std::shared_ptr<Model<kVk>>& model,
-	std::vector<ImageAndView> textures)
+	std::vector<MaterialTextures> textures)
 {
 	ZoneScopedN("RHIApplication::InstallModel");
 
 	std::vector<std::shared_ptr<Image<kVk>>> images;
-	for (const auto& [image, view] : textures)
-		if (image)
-			images.push_back(image);
+	for (const auto& material : textures)
+		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal})
+			if (texture->first)
+				images.push_back(texture->first);
 
 	// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 	// the new model with the old materials or the other way around
@@ -616,40 +625,57 @@ static void InstallModel(
 		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
 		// each texture once, in the slots from kModelTextureFirstSlot. the previous model's slots go back to black.
-		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
 		std::vector<std::pair<uuids::uuid, uuids::uuid>> textureUuids;
 		core::UnorderedMap<const Image<kVk>*, uint32_t> textureSlots;
+		auto slotOf = [&](const ImageAndView& texture) -> std::optional<uint32_t>
+		{
+			const auto& [image, view] = texture;
+			if (!image)
+				return std::nullopt;
+
+			if (auto it = textureSlots.find(image.get()); it != textureSlots.end())
+				return it->second;
+
+			if (textureUuids.size() == kModelTextureMaxCount)
+				return std::nullopt;
+
+			auto slot = static_cast<uint32_t>(kModelTextureFirstSlot + textureUuids.size());
+			pipeline.SetDescriptorData(
+				"gTextures",
+				DescriptorImageInfo<kVk>{.sampler = {}, .imageView = *view, .imageLayout = image->GetDesc().layout},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				slot);
+
+			device.AddResource(image);
+			device.AddResource(view);
+			textureUuids.emplace_back(image->GetUuid(), view->GetUuid());
+			textureSlots.emplace(image.get(), slot);
+
+			return slot;
+		};
+
+		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
 		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
 		{
 			auto& material = materials[materialIt];
 			std::ranges::fill(material.color, 1.0F);
+			material.textureAndSamplerId = kDefaultSamplerId;
 
-			const auto& [image, view] = textures[materialIt];
-			if (!image)
-				continue;
-
-			auto [slotIt, inserted] = textureSlots.try_emplace(image.get(), kModelTextureFirstSlot + textureUuids.size());
-			if (inserted)
+			if (auto slot = slotOf(textures[materialIt].diffuse))
 			{
-				if (textureUuids.size() == kModelTextureMaxCount)
-				{
-					textureSlots.erase(slotIt);
-					continue;
-				}
-
-				pipeline.SetDescriptorData(
-					"gTextures",
-					DescriptorImageInfo<kVk>{.sampler = {}, .imageView = *view, .imageLayout = image->GetDesc().layout},
-					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-					slotIt->second);
-
-				device.AddResource(image);
-				device.AddResource(view);
-				textureUuids.emplace_back(image->GetUuid(), view->GetUuid());
+				material.textureAndSamplerId |= *slot << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
+				material.flags |= MATERIAL_FLAG_TEXTURE;
 			}
-
-			material.textureAndSamplerId = (slotIt->second << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kDefaultSamplerId;
-			material.flags = MATERIAL_FLAG_TEXTURE;
+			if (auto slot = slotOf(textures[materialIt].alpha))
+			{
+				material.alphaTextureId = *slot;
+				material.flags |= MATERIAL_FLAG_ALPHA_TEXTURE;
+			}
+			if (auto slot = slotOf(textures[materialIt].normal))
+			{
+				material.normalTextureId = *slot;
+				material.flags |= MATERIAL_FLAG_NORMAL_TEXTURE;
+			}
 		}
 
 		for (size_t slotIt = textureUuids.size(); slotIt < gModelTextureUuids.size(); slotIt++)
@@ -724,37 +750,50 @@ static void LoadAndInstallModel(RHI<kVk>& rhi, std::string_view filePath, std::a
 	if (!model) // cancelled or failed
 		return;
 
-	// then the textures, each once. the progress starts over for them.
 	const auto& materials = model->GetDesc().materials;
 	if (materials.size() > kModelMaterialMaxCount)
 		std::println(stderr, "{}: {} materials, only the first {} are used", filePath, materials.size(), kModelMaterialMaxCount);
 
-	std::vector<ImageAndView> textures(materials.size());
-	core::UnorderedMap<std::string, ImageAndView> loaded;
-	size_t textureCount = 0;
-	for (const auto& material : materials)
-		textureCount += material.diffuseTexture.empty() ? 0 : 1;
-
-	progress = 0;
-	size_t textureIt = 0;
+	// then the textures, each file and usage once. the progress starts over for them.
+	struct TextureLoad
+	{
+		std::string path;
+		gfx::image::Options options;
+		ImageAndView* result;
+	};
+	std::vector<MaterialTextures> textures(materials.size());
+	std::vector<TextureLoad> loads;
 	for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
 	{
-		const auto& path = materials[materialIt].diffuseTexture;
-		if (path.empty())
-			continue;
+		const auto& material = materials[materialIt];
+		auto& texture = textures[materialIt];
+		if (!material.diffuseTexture.empty())
+			loads.push_back({material.diffuseTexture, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
+		if (!material.alphaTexture.empty())
+			loads.push_back({material.alphaTexture, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
+		if (!material.bumpTexture.empty())
+			loads.push_back(
+				{material.bumpTexture, {.usage = gfx::image::Usage::kNormal, .bumpScale = material.bumpScale}, &texture.normal});
+	}
 
-		auto [it, inserted] = loaded.try_emplace(path);
+	core::UnorderedMap<std::string, ImageAndView> loaded;
+	progress = 0;
+	for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
+	{
+		const auto& load = loads[loadIt];
+		auto key = std::format("{}|{}|{}", load.path, std::to_underlying(load.options.usage), load.options.bumpScale);
+		auto [it, inserted] = loaded.try_emplace(std::move(key));
 		if (inserted)
 		{
 			if (core::Application::Get()->IsExitRequested())
 				return;
 
 			std::atomic_uint8_t textureProgress = 0;
-			it->second = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), path, textureProgress);
+			it->second = Image<kVk>::LoadImage(rhi.GetPrimaryDevice(), load.path, textureProgress, load.options);
 		}
-		textures[materialIt] = it->second;
+		*load.result = it->second;
 
-		progress = static_cast<uint8_t>(255 * ++textureIt / textureCount);
+		progress = static_cast<uint8_t>(255 * (loadIt + 1) / loads.size());
 	}
 
 	if (loaded.size() > kModelTextureMaxCount)

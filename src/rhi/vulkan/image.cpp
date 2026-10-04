@@ -7,6 +7,7 @@
 #include <gfx/imageimport.h>
 
 #include <filesystem>
+#include <format>
 #include <print>
 #include <string_view>
 #include <tuple>
@@ -67,7 +68,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::string_view imageFile,
 	Device<kVk>& device,
 	std::atomic_uint8_t& progressOut,
-	bool srgb)
+	const gfx::image::Options& options)
 {
 	ZoneScopedN("image::load");
 
@@ -148,7 +149,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 		return {};
 	};
 
-	auto loadImage = [&imageFile, &initialData, &device, &progressOut, &cancelled, srgb](auto& /*todo: use me: in*/) -> std::error_code
+	auto loadImage = [&imageFile, &initialData, &device, &progressOut, &cancelled, &options](auto& /*todo: use me: in*/) -> std::error_code
 	{
 		progressOut = 32;
 
@@ -171,7 +172,7 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		auto image = gfx::image::Import(
 			std::filesystem::path(imageFile),
-			srgb ? gfx::image::ColorSpace::kSrgb : gfx::image::ColorSpace::kLinear,
+			options,
 			allocate,
 			&progressOut,
 			cancelled);
@@ -193,10 +194,14 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 
 		desc.uuid = uuids::NewUuid();
 		desc.name = std::string(imageFile);
-		if (image->format == gfx::image::Format::kBC3)
-			desc.format = srgb ? VK_FORMAT_BC3_SRGB_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK;
-		else
-			desc.format = srgb ? VK_FORMAT_BC1_RGB_SRGB_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+		bool srgb = image->usage == gfx::image::Usage::kColor;
+		switch (image->format)
+		{
+		case gfx::image::Format::kBC1: desc.format = srgb ? VK_FORMAT_BC1_RGB_SRGB_BLOCK : VK_FORMAT_BC1_RGB_UNORM_BLOCK; break;
+		case gfx::image::Format::kBC3: desc.format = srgb ? VK_FORMAT_BC3_SRGB_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK; break;
+		case gfx::image::Format::kBC4: desc.format = VK_FORMAT_BC4_UNORM_BLOCK; break;
+		case gfx::image::Format::kBC5: desc.format = VK_FORMAT_BC5_UNORM_BLOCK; break;
+		}
 		desc.usageFlags = VK_IMAGE_USAGE_SAMPLED_BIT;
 		desc.mipLevels.resize(image->mipLevels.size());
 		for (size_t levelIt = 0; levelIt < image->mipLevels.size(); levelIt++)
@@ -215,8 +220,10 @@ std::tuple<BufferHandle<kVk>, AllocationHandle<kVk>, ImageCreateDesc<kVk>> Load(
 	std::string params;
 	std::string paramsHash;
 	params.append("stb_image-2.30|stb_image_resize-2.10|stb_dxt-1.12"); // todo: read version from stb headers
-	params.append("|imageimport-v1"); // bump when gfx::image::Import changes what it produces
-	params.append(srgb ? "|srgb" : "|linear");
+	params.append("|imageimport-v2"); // bump when gfx::image::Import changes what it produces
+	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
+	if (options.usage == gfx::image::Usage::kNormal)
+		params.append(std::format("|bump-scale-{}", options.bumpScale));
 	params.append("|cache-v2"); // bump when the serialized ImageCreateDesc layout changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
@@ -406,7 +413,7 @@ Image<kVk>::Image(
 			imageFile,
 			GetDevice(device),
 			progressOut,
-			true))
+			{}))
 {}
 
 template <>
@@ -479,7 +486,7 @@ ImageView<kVk>& ImageView<kVk>::operator=(ImageView&& other) noexcept
 
 template <>
 std::tuple<std::shared_ptr<Image<kVk>>, std::shared_ptr<ImageView<kVk>>>
-Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath, std::atomic_uint8_t& progressOut, bool srgb)
+Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath, std::atomic_uint8_t& progressOut, const gfx::image::Options& options)
 {
 	using namespace core;
 
@@ -492,7 +499,7 @@ Image<kVk>::LoadImage(DeviceHandle<kVk> deviceHandle, std::string_view filePath,
 
 	// load into a staging buffer before taking the queue lock: on devices without a dedicated transfer queue it is the
 	// graphics queue's lock, which Draw() takes every frame (see Device::GetQueue)
-	auto initialDataAndDesc = image::detail::Load(filePath, device, progressOut, srgb);
+	auto initialDataAndDesc = image::detail::Load(filePath, device, progressOut, options);
 	if (std::get<0>(initialDataAndDesc) == nullptr) // cancelled or failed
 		return {};
 

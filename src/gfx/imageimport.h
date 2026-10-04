@@ -17,6 +17,28 @@ enum class Format : uint8_t
 {
 	kBC1, // rgb, 8 bytes per 4x4 block
 	kBC3, // rgba, 16 bytes per 4x4 block
+	kBC4, // r, 8 bytes per 4x4 block
+	kBC5, // rg, 16 bytes per 4x4 block
+};
+
+// what an image is used for, which decides how it is filtered and compressed
+enum class Usage : uint8_t
+{
+	kColor, // srgb color (and alpha): BC1, or BC3 if any pixel isn't opaque. mips are filtered in linear space.
+	kLinear, // anything else, as is: BC1 or BC3
+	// a tangent space normal map, or a height (bump) map, which is turned into one: BC5 holding x and y (z is
+	// reconstructed). +x points along +u, and +y down the image, along +v as sampled (the obj importer flips v), so
+	// normal maps in the usual (OpenGL, +y up) convention get their y flipped.
+	kNormal,
+	kMask, // one channel, e.g. an alpha mask: the alpha channel if any pixel isn't opaque, else the luminance. BC4.
+};
+
+struct Options
+{
+	Usage usage = Usage::kColor;
+	// for a height map turned into a normal map: how deep its full range is, in 1/64ths of the image's width (the mtl
+	// -bm option)
+	float bumpScale = 1.0F;
 };
 
 struct MipLevel
@@ -27,35 +49,49 @@ struct MipLevel
 	uint32_t size = 0; // in bytes
 };
 
-enum class ColorSpace : uint8_t
-{
-	kLinear, // e.g. normal and bump maps, masks
-	kSrgb, // color: mips are filtered in linear space, and the image should be sampled through an srgb format
-};
-
 struct Image
 {
 	uint32_t channelCount = 0; // in the file
-	Format format = Format::kBC1; // kBC3 if any pixel isn't opaque
-	ColorSpace colorSpace = ColorSpace::kSrgb;
+	Format format = Format::kBC1;
+	Usage usage = Usage::kColor;
+	bool fromHeight = false; // for kNormal: the file was a height map
 	std::vector<MipLevel> mipLevels; // the full chain, down to 1x1
 	size_t size = 0; // in bytes, of all mip levels
 };
 
-[[nodiscard]] constexpr uint32_t BlockSize(Format format) noexcept { return format == Format::kBC1 ? 8 : 16; }
+// level 0 of an image prepared for a usage, before compression: rgba, with for kNormal the normal * 0.5 + 0.5 in rgb,
+// and for kMask the mask in rgb
+struct Pixels
+{
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t channelCount = 0; // in the file
+	bool alpha = false; // for kColor and kLinear: some pixel isn't opaque
+	bool fromHeight = false; // for kNormal: the file was a height map
+	std::vector<uint8_t> rgba;
+};
 
-// decodes an image file (anything stb_image reads), generates its mip chain (filtered in colorSpace) and compresses
-// it. calls allocate once with the size of the compressed data, which it writes to the returned memory, mip level 0
-// first. progress is advanced from its current value to 224 while compressing. returns an error message if the file
-// can't be read or decoded, or if cancelled() returns true (allocate may have been called then).
+[[nodiscard]] constexpr uint32_t BlockSize(Format format) noexcept
+{
+	return format == Format::kBC1 || format == Format::kBC4 ? 8 : 16; //NOLINT(readability-magic-numbers)
+}
+
+// decodes an image file (anything stb_image reads) and prepares it for a usage, as Import does first. for testing.
+[[nodiscard]] std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options);
+
+// decodes an image file, prepares it for a usage, generates its mip chain and compresses it. calls allocate once with
+// the size of the compressed data, which it writes to the returned memory, mip level 0 first. progress is advanced
+// from its current value to 224 while compressing. returns an error message if the file can't be read or decoded, or if
+// cancelled() returns true (allocate may have been called then).
 [[nodiscard]] std::expected<Image, std::string> Import(
 	const std::filesystem::path& path,
-	ColorSpace colorSpace,
+	const Options& options,
 	const std::function<std::byte*(size_t size)>& allocate,
 	std::atomic_uint8_t* progress = nullptr,
 	const std::function<bool()>& cancelled = {});
 
-// decompresses one block of format to 4x4 rgba pixels, row by row. for testing.
+// decompresses one block of format to 4x4 rgba pixels, row by row: bc4 to the value in rgb, bc5 to x, y and the
+// reconstructed z (each * 0.5 + 0.5) in rgb, both with alpha 255. for testing.
 void DecompressBlock(Format format, std::span<const std::byte> block, std::span<uint8_t, 64> rgbaOut) noexcept;
 
 } // namespace gfx::image

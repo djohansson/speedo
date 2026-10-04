@@ -128,6 +128,27 @@ VertexOutput VertexMain(InputStream input)
 	return output;
 }
 
+// the tangent frame at a pixel, from the screen space derivatives of its position and texcoords (Christian Schüler,
+// "Normal Mapping Without Precomputed Tangents"), so that meshes need no tangents. rows: along +u, along +v, normal.
+float3x3 CotangentFrame(float3 normal, float3 position, float2 uv)
+{
+	float3 dp1 = ddx(position);
+	float3 dp2 = ddy(position);
+	float2 duv1 = ddx(uv);
+	float2 duv2 = ddy(uv);
+
+	float3 dp2perp = cross(dp2, normal);
+	float3 dp1perp = cross(normal, dp1);
+	float3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+	float3 bitangent = dp2perp * duv1.y + dp1perp * duv2.y;
+
+	// the solution is scaled by dot(cross(dp1, dp2), normal), whose sign depends on which way the screen's y axis points
+	// (it is negative for front faces here, where y points down), so the frame needs that sign to point along +u and +v
+	float handedness = dot(cross(dp1, dp2), normal) < 0.0 ? -1.0 : 1.0;
+	float invmax = handedness * rsqrt(max(max(dot(tangent, tangent), dot(bitangent, bitangent)), 1e-20));
+	return float3x3(tangent * invmax, bitangent * invmax, normal);
+}
+
 [shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input)
 {
@@ -140,27 +161,38 @@ FragmentOutput FragmentMain(VertexOutput input)
 
 	MaterialData material = gMaterialData[materialId];
 
+	uint textureAndSamplerId = material.textureAndSamplerId;
+	uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
+	SamplerState sampler = gSamplers[textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u)];
+	float2 uv = v.texCoord01.xy;
+
 	// linear: the vertex colors hold the materials' diffuse colors, and textures are sampled through srgb formats
 	float4 color = v.color * material.color;
 
+	// cutouts (foliage, fences) keep their mask in the diffuse texture's alpha channel, or in a separate texture
 	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
 	{
-		uint textureAndSamplerId = material.textureAndSamplerId;
-		uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
-		uint samplerId = textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u);
-
-		float4 sample = gTextures[textureId].Sample(gSamplers[samplerId], v.texCoord01.xy);
-
-		// cutouts (foliage, fences) keep their mask in the alpha channel
+		float4 sample = gTextures[textureId].Sample(sampler, uv);
 		if (sample.a < 0.5)
 			discard;
 
 		color *= sample;
 	}
 
+	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && gTextures[material.alphaTextureId].Sample(sampler, uv).r < 0.5)
+		discard;
+
+	float3 normal = normalize(v.normal);
+	if ((material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
+	{
+		float2 xy = gTextures[material.normalTextureId].Sample(sampler, uv).rg * 2.0 - 1.0;
+		float3 tangentSpaceNormal = float3(xy, sqrt(saturate(1.0 - dot(xy, xy))));
+		normal = normalize(mul(tangentSpaceNormal, CotangentFrame(normal, v.position, uv)));
+	}
+
 	// a fixed light from above, and some ambient, so that the shapes read
 	const float3 lightDirection = normalize(float3(0.3, 1.0, 0.5));
-	float diffuse = saturate(dot(normalize(v.normal), lightDirection));
+	float diffuse = saturate(dot(normal, lightDirection));
 
 	output.color = float4(color.rgb * (0.3 + 0.7 * diffuse), color.a);
 

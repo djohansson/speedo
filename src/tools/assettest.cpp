@@ -17,13 +17,13 @@
 #include <filesystem>
 #include <format>
 #include <map>
+#include <numbers>
 #include <print>
 #include <set>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
-
-#include <stb_image.h>
 
 namespace
 {
@@ -90,7 +90,10 @@ using Vec3 = std::array<double, 3>;
 
 Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(modernize-avoid-c-arrays)
 
-Report CheckModel(const std::filesystem::path& path, std::set<std::filesystem::path>& texturesOut)
+// an image, with the usage it is checked for, and its bump scale for kNormal
+using ImageCheck = std::tuple<std::filesystem::path, gfx::image::Usage, float>;
+
+Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& texturesOut)
 {
 	Report report;
 
@@ -251,24 +254,55 @@ Report CheckModel(const std::filesystem::path& path, std::set<std::filesystem::p
 	for (const auto& warning : stats.warnings)
 		report.Info("parser: {}", warning);
 
+	// with the usage the client loads them with
 	for (const auto& material : mesh->materials)
-		for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.bumpTexture})
-			if (!texture->empty())
-				texturesOut.insert(std::filesystem::weakly_canonical(*texture));
+	{
+		if (!material.diffuseTexture.empty())
+			texturesOut.insert({std::filesystem::weakly_canonical(material.diffuseTexture), gfx::image::Usage::kColor, 1.0F});
+		if (!material.alphaTexture.empty())
+			texturesOut.insert({std::filesystem::weakly_canonical(material.alphaTexture), gfx::image::Usage::kMask, 1.0F});
+		if (!material.bumpTexture.empty())
+			texturesOut.insert({std::filesystem::weakly_canonical(material.bumpTexture), gfx::image::Usage::kNormal, material.bumpScale});
+	}
 
 	return report;
 }
 
-Report CheckImage(const std::filesystem::path& path)
+constexpr std::string_view ToString(gfx::image::Format format)
 {
+	switch (format)
+	{
+	case gfx::image::Format::kBC1: return "BC1";
+	case gfx::image::Format::kBC3: return "BC3";
+	case gfx::image::Format::kBC4: return "BC4";
+	case gfx::image::Format::kBC5: return "BC5";
+	}
+	return "?";
+}
+
+constexpr std::string_view ToString(gfx::image::Usage usage)
+{
+	switch (usage)
+	{
+	case gfx::image::Usage::kColor: return "color";
+	case gfx::image::Usage::kLinear: return "linear";
+	case gfx::image::Usage::kNormal: return "normal";
+	case gfx::image::Usage::kMask: return "mask";
+	}
+	return "?";
+}
+
+Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& options)
+{
+	using gfx::image::Usage;
+
 	Report report;
 
 	static constexpr std::byte kFill{0xcd};
 	std::vector<std::byte> data;
-	// as the client loads them: as color (textures that aren't, like bump maps, only differ in how mips are filtered)
 	auto image = gfx::image::Import(
 		path,
-		gfx::image::ColorSpace::kSrgb,
+		options,
 		[&data](size_t size)
 		{
 			data.assign(size, kFill);
@@ -280,22 +314,24 @@ Report CheckImage(const std::filesystem::path& path)
 		return report;
 	}
 
-	int width = 0;
-	int height = 0;
-	int channels = 0;
-	auto* pixels = stbi_load(path.string().c_str(), &width, &height, &channels, STBI_rgb_alpha);
-	if (pixels == nullptr)
+	// what Import compressed: the image prepared for the usage
+	auto reference = gfx::image::Decode(path, options);
+	if (!reference)
 	{
-		report.Fail("reference decode failed: {}", stbi_failure_reason());
+		report.Fail("reference decode failed: {}", reference.error());
 		return report;
 	}
+	auto width = reference->width;
+	auto height = reference->height;
+	const auto& pixels = reference->rgba;
 
 	auto format = image->format;
 	report.Info(
-		"{}x{}, {} channels, {}, {} mips", width, height, channels, format == gfx::image::Format::kBC3 ? "BC3" : "BC1",
+		"{}x{}, {} channels, as {}{}: {}, {} mips", width, height, reference->channelCount, ToString(options.usage),
+		image->fromHeight ? std::format(" (from a height map, scale {})", options.bumpScale) : "", ToString(format),
 		image->mipLevels.size());
 
-	auto expectedLevels = static_cast<size_t>(std::bit_width(static_cast<uint32_t>(std::max(width, height))));
+	auto expectedLevels = static_cast<size_t>(std::bit_width(std::max(width, height)));
 	if (image->mipLevels.size() != expectedLevels)
 		report.Fail("{} mip levels, expected {}", image->mipLevels.size(), expectedLevels);
 
@@ -304,8 +340,8 @@ Report CheckImage(const std::filesystem::path& path)
 	for (size_t levelIt = 0; levelIt < image->mipLevels.size(); levelIt++)
 	{
 		const auto& level = image->mipLevels[levelIt];
-		auto expectedWidth = std::max(static_cast<uint32_t>(width) >> levelIt, 1U);
-		auto expectedHeight = std::max(static_cast<uint32_t>(height) >> levelIt, 1U);
+		auto expectedWidth = std::max(width >> levelIt, 1U);
+		auto expectedHeight = std::max(height >> levelIt, 1U);
 		if (level.width != expectedWidth || level.height != expectedHeight)
 			report.Fail("mip {} is {}x{}, expected {}x{}", levelIt, level.width, level.height, expectedWidth, expectedHeight);
 		auto expectedSize = ((level.width + 3) / 4) * ((level.height + 3) / 4) * blockSize;
@@ -324,7 +360,10 @@ Report CheckImage(const std::filesystem::path& path)
 	if (unwritten > 0)
 		report.Fail("{} blocks were not written", unwritten);
 
-	// decode the blocks back, and compare level 0 to the source, and the average color of each level to level 0's
+	if (image->mipLevels.empty() || unwritten > 0)
+		return report;
+
+	// decode the blocks back, and compare level 0 to the reference, and the average of each level to level 0's
 	auto decodeLevel = [&](const gfx::image::MipLevel& level)
 	{
 		std::vector<uint8_t> rgba(static_cast<size_t>(level.width) * level.height * 4);
@@ -344,11 +383,86 @@ Report CheckImage(const std::filesystem::path& path)
 		return rgba;
 	};
 
-	// rgb weighted by alpha (the resize doesn't let the color of transparent pixels bleed into the mips), and alpha. in
-	// linear space, where the mips are filtered, and back to srgb for comparing.
-	auto toLinear = [](double c) { c /= 255.0; return c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4); };
-	auto toSrgb = [](double c) { return 255.0 * (c <= 0.0031308 ? c * 12.92 : (1.055 * std::pow(c, 1.0 / 2.4)) - 0.055); };
-	auto average = [&toLinear, &toSrgb](const std::vector<uint8_t>& rgba)
+	auto level0 = decodeLevel(image->mipLevels[0]);
+	auto pixelCount = static_cast<size_t>(width) * height;
+
+	// the channels the format holds: rgb, r (bc4), or x and y (bc5)
+	size_t channelCount = format == gfx::image::Format::kBC4 ? 1 : format == gfx::image::Format::kBC5 ? 2 : 3;
+	double squaredError = 0.0;
+	for (size_t i = 0; i < pixelCount; i++)
+	{
+		for (size_t ch = 0; ch < channelCount; ch++)
+		{
+			double d = static_cast<double>(level0[(i * 4) + ch]) - pixels[(i * 4) + ch];
+			squaredError += d * d;
+		}
+	}
+	auto mse = squaredError / static_cast<double>(pixelCount * channelCount);
+	auto psnr = mse > 0.0 ? 10.0 * std::log10(255.0 * 255.0 / mse) : 99.0;
+	report.Info("level 0 psnr {:.1f} dB", psnr);
+	// bc1 can't do much better on noisy textures
+	if (psnr < 18.0)
+		report.Fail("level 0 psnr {:.1f} dB is too low", psnr);
+	else if (psnr < 22.0)
+		report.Warn("level 0 psnr {:.1f} dB is low", psnr);
+
+	auto decodeSigned = [](uint8_t value) { return (value / 255.0 * 2.0) - 1.0; };
+
+	if (options.usage == Usage::kNormal)
+	{
+		// the angle between the reconstructed normals and the reference ones, and how many point below the surface
+		double angleSum = 0.0;
+		double maxAngle = 0.0;
+		for (size_t i = 0; i < pixelCount; i++)
+		{
+			std::array<double, 3> a{};
+			std::array<double, 3> b{};
+			for (size_t ch = 0; ch < 3; ch++)
+			{
+				a[ch] = decodeSigned(level0[(i * 4) + ch]);
+				b[ch] = decodeSigned(pixels[(i * 4) + ch]);
+			}
+			auto dot = (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+			auto lengths = std::sqrt(((a[0] * a[0]) + (a[1] * a[1]) + (a[2] * a[2])) * ((b[0] * b[0]) + (b[1] * b[1]) + (b[2] * b[2])));
+			auto angle = std::acos(std::clamp(lengths > 0.0 ? dot / lengths : 1.0, -1.0, 1.0)) * 180.0 / std::numbers::pi;
+			angleSum += angle;
+			maxAngle = std::max(maxAngle, angle);
+		}
+		auto meanAngle = angleSum / static_cast<double>(pixelCount);
+		report.Info("level 0 normals off by {:.2f} degrees on average, {:.1f} at most", meanAngle, maxAngle);
+		if (meanAngle > 5.0)
+			report.Fail("level 0 normals are off by {:.2f} degrees on average", meanAngle);
+		return report;
+	}
+
+	if (options.usage == Usage::kColor || options.usage == Usage::kLinear)
+	{
+		uint32_t maxAlphaError = 0;
+		for (size_t i = 0; i < pixelCount; i++)
+		{
+			auto sourceAlpha = format == gfx::image::Format::kBC3 ? pixels[(i * 4) + 3] : 255;
+			maxAlphaError = std::max(maxAlphaError, static_cast<uint32_t>(std::abs(level0[(i * 4) + 3] - sourceAlpha)));
+		}
+		if (maxAlphaError > 24)
+			report.Fail("max alpha error {} is too high", maxAlphaError);
+
+		if (reference->alpha != (format == gfx::image::Format::kBC3))
+			report.Fail("alpha {} but format is {}", reference->alpha ? "present" : "absent", ToString(format));
+	}
+
+	// rgb weighted by alpha (the resize doesn't let the color of transparent pixels bleed into the mips), and alpha. for
+	// color in linear space, where the mips are filtered, and back to srgb for comparing.
+	bool srgb = options.usage == Usage::kColor;
+	auto toLinear = [srgb](double c)
+	{
+		c /= 255.0;
+		return !srgb ? c : c <= 0.04045 ? c / 12.92 : std::pow((c + 0.055) / 1.055, 2.4);
+	};
+	auto fromLinear = [srgb](double c)
+	{
+		return 255.0 * (!srgb ? c : c <= 0.0031308 ? c * 12.92 : (1.055 * std::pow(c, 1.0 / 2.4)) - 0.055);
+	};
+	auto average = [&toLinear, &fromLinear](const std::vector<uint8_t>& rgba)
 	{
 		std::array<double, 4> sum{};
 		for (size_t i = 0; i < rgba.size(); i += 4)
@@ -358,68 +472,31 @@ Report CheckImage(const std::filesystem::path& path)
 			sum[3] += rgba[i + 3];
 		}
 		for (size_t ch = 0; ch < 3; ch++)
-			sum[ch] = sum[3] > 0.0 ? toSrgb(sum[ch] * 255.0 / sum[3]) : 0.0;
+			sum[ch] = sum[3] > 0.0 ? fromLinear(sum[ch] * 255.0 / sum[3]) : 0.0;
 		sum[3] /= static_cast<double>(rgba.size() / 4);
 		return sum;
 	};
 
-	if (!image->mipLevels.empty() && unwritten == 0)
+	auto levelAverage0 = average(level0);
+	double worst = 0.0;
+	size_t worstLevel = 0;
+	for (size_t levelIt = 1; levelIt < image->mipLevels.size(); levelIt++)
 	{
-		auto level0 = decodeLevel(image->mipLevels[0]);
-
-		double squaredError = 0.0;
-		uint32_t maxAlphaError = 0;
-		auto pixelCount = static_cast<size_t>(width) * height;
-		for (size_t i = 0; i < pixelCount; i++)
+		auto levelAverage = average(decodeLevel(image->mipLevels[levelIt]));
+		for (size_t ch = 0; ch < 4; ch++)
 		{
-			for (size_t ch = 0; ch < 3; ch++)
+			if (auto d = std::abs(levelAverage[ch] - levelAverage0[ch]); d > worst)
 			{
-				double d = static_cast<double>(level0[(i * 4) + ch]) - pixels[(i * 4) + ch];
-				squaredError += d * d;
-			}
-			auto sourceAlpha = format == gfx::image::Format::kBC3 ? pixels[(i * 4) + 3] : 255;
-			maxAlphaError = std::max(maxAlphaError, static_cast<uint32_t>(std::abs(level0[(i * 4) + 3] - sourceAlpha)));
-		}
-		auto mse = squaredError / static_cast<double>(pixelCount * 3);
-		auto psnr = mse > 0.0 ? 10.0 * std::log10(255.0 * 255.0 / mse) : 99.0;
-		report.Info("level 0 rgb psnr {:.1f} dB, max alpha error {}", psnr, maxAlphaError);
-		// bc1 can't do much better on noisy textures
-		if (psnr < 18.0)
-			report.Fail("level 0 rgb psnr {:.1f} dB is too low", psnr);
-		else if (psnr < 22.0)
-			report.Warn("level 0 rgb psnr {:.1f} dB is low", psnr);
-		if (maxAlphaError > 24)
-			report.Fail("max alpha error {} is too high", maxAlphaError);
-
-		bool hasAlpha = false;
-		for (size_t i = 0; i < pixelCount && !hasAlpha; i++)
-			hasAlpha = pixels[(i * 4) + 3] != 255;
-		if (hasAlpha != (format == gfx::image::Format::kBC3))
-			report.Fail("alpha {} but format is {}", hasAlpha ? "present" : "absent", format == gfx::image::Format::kBC3 ? "BC3" : "BC1");
-
-		auto reference = average(level0);
-		double worst = 0.0;
-		size_t worstLevel = 0;
-		for (size_t levelIt = 1; levelIt < image->mipLevels.size(); levelIt++)
-		{
-			auto levelAverage = average(decodeLevel(image->mipLevels[levelIt]));
-			for (size_t ch = 0; ch < 4; ch++)
-			{
-				if (auto d = std::abs(levelAverage[ch] - reference[ch]); d > worst)
-				{
-					worst = d;
-					worstLevel = levelIt;
-				}
+				worst = d;
+				worstLevel = levelIt;
 			}
 		}
-		// odd extents drop a row or column per level, so small drifts are expected
-		if (worst > 24.0)
-			report.Fail("mip {} average color is off by {:.1f}", worstLevel, worst);
-		else if (worst > 12.0)
-			report.Warn("mip {} average color is off by {:.1f}", worstLevel, worst);
 	}
-
-	stbi_image_free(pixels);
+	// odd extents drop a row or column per level, so small drifts are expected
+	if (worst > 24.0)
+		report.Fail("mip {} average is off by {:.1f}", worstLevel, worst);
+	else if (worst > 12.0)
+		report.Warn("mip {} average is off by {:.1f}", worstLevel, worst);
 
 	return report;
 }
@@ -438,7 +515,7 @@ int main(int argc, char* argv[])
 	bool models = true;
 	bool images = true;
 	std::vector<std::filesystem::path> modelFiles;
-	std::set<std::filesystem::path> imageFiles;
+	std::set<ImageCheck> imageFiles;
 
 	for (int argIt = 1; argIt < argc; argIt++)
 	{
@@ -471,7 +548,7 @@ int main(int argc, char* argv[])
 				if (IsModel(entry.path()))
 					modelFiles.push_back(entry.path());
 				else if (IsImage(entry.path()))
-					imageFiles.insert(std::filesystem::weakly_canonical(entry.path()));
+					imageFiles.insert({std::filesystem::weakly_canonical(entry.path()), gfx::image::Usage::kColor, 1.0F});
 			}
 		}
 		else if (IsModel(path))
@@ -480,7 +557,7 @@ int main(int argc, char* argv[])
 		}
 		else if (IsImage(path))
 		{
-			imageFiles.insert(std::filesystem::weakly_canonical(path));
+			imageFiles.insert({std::filesystem::weakly_canonical(path), gfx::image::Usage::kColor, 1.0F});
 		}
 		else
 		{
@@ -499,7 +576,7 @@ int main(int argc, char* argv[])
 		for (const auto& path : modelFiles)
 		{
 			auto start = std::chrono::steady_clock::now();
-			std::set<std::filesystem::path> textures;
+			std::set<ImageCheck> textures;
 			auto report = CheckModel(path, textures);
 			Print(path, report, std::chrono::steady_clock::now() - start);
 			modelResults[report.result]++;
@@ -510,10 +587,10 @@ int main(int argc, char* argv[])
 
 	if (images)
 	{
-		for (const auto& path : imageFiles)
+		for (const auto& [path, usage, bumpScale] : imageFiles)
 		{
 			auto start = std::chrono::steady_clock::now();
-			auto report = CheckImage(path);
+			auto report = CheckImage(path, {.usage = usage, .bumpScale = bumpScale});
 			Print(path, report, std::chrono::steady_clock::now() - start);
 			imageResults[report.result]++;
 		}
