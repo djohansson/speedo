@@ -103,6 +103,7 @@ public:
 	void AddResource(std::shared_ptr<IObject> resource)
 	{
 		ENSUREF(resource, "cannot add a null resource");
+		ENSUREF(!resource->GetUuid().is_nil(), "resource must have a valid uuid");
 		ENSUREF(myResources.insert(std::move(resource)).second, "resource is already stored");
 	}
 	// constructs a T from args (its create desc first) and stores it. returns the resource: keep its GetUuid() to find

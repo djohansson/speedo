@@ -72,7 +72,7 @@ public:
 	// IObject
 	~Object() override;
 	[[nodiscard]] const uuids::uuid& GetUuid() const noexcept final { return myDesc.uuid; }
-	[[nodiscard]] bool IsValid() const noexcept override { return GetUuid() != uuids::uuid{}; }
+	[[nodiscard]] bool IsValid() const noexcept final { return !GetUuid().is_nil(); }
 
 	// Object
 	using SuperType = IObject;
