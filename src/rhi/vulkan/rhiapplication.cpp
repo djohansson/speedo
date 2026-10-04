@@ -1027,8 +1027,11 @@ void RHIApplication::PrepareDraw()
 				 modelFile = std::string(autoLoadModel ? autoLoadModel : ""),
 				 imageFile = std::string(autoLoadImage ? autoLoadImage : "")]
 				{
+					// like the "File" menu loads (see InternalOpenFileDialogueAsync), each load restarting the bar
+					gShowProgress = true;
 					if (!modelFile.empty())
 					{
+						gProgress = 0;
 						auto model = Model<kVk>::LoadModel((resourcePath / "models" / modelFile).string(), gProgress);
 						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
 							[&rhi, model](QueueTimelineContextData<kVk>* graphics) { InstallModel(rhi, *graphics, model); });
@@ -1036,11 +1039,13 @@ void RHIApplication::PrepareDraw()
 					}
 					if (!imageFile.empty())
 					{
+						gProgress = 0;
 						auto [image, imageView] = Image<kVk>::LoadImage(device, (resourcePath / "images" / imageFile).string(), gProgress);
 						auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData<kVk>*>(
 							[&rhi, image, imageView](QueueTimelineContextData<kVk>* graphics) { InstallImage(rhi, *graphics, image, imageView); });
 						rhi.drawCalls.enqueue(installTask);
 					}
+					gShowProgress = false;
 				});
 			// in the thread pool rather than as a main call, which would stall window event processing during the load
 			GetExecutor().Submit({&autoLoadTask, 1});
