@@ -282,7 +282,7 @@ space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` appli
 swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already). A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
-(0-3 are the frames' render targets, 15 the "Open Image..." texture of material 0). Bump textures are height maps in
+(0-3 are the frames' render targets, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). The fragment shader builds the tangent frame from screen space derivatives (no vertex
@@ -293,7 +293,9 @@ thread step, after the textures are transitioned: every change to `gTextures` ta
 and the pool only holds 128 copies of that 1024 slot array. Installing a model also frames the cameras on its bounds
 (`Views::FrameBounds`).
 
-Zip archives (File > Open Zip..., or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads its first model) are extracted
+File > "Open File..." loads models, zip archives and images, by their type (`LoadAndInstallFile`), and "Open
+Folder..." a directory's models; `SPEEDO_AUTOLOAD_MODEL` and `SPEEDO_AUTOLOAD_IMAGE` take paths absolute or relative to
+the resource directory. Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `gfx::zip` (stb_image's inflate, no zip
 library), then loaded from there like any other files; with several models the user picks one. The extractor reads
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
@@ -328,7 +330,7 @@ Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a
 scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
 same size and centered in its cell (each file still through its own cache entry, merged as staging data before the one
-upload). Autoloading a zip or a directory loads all of its models that way, "Open Zip..." offers it next to choosing one,
+upload). Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
 "Open Folder..." loads a directory's, and `assettest.sh` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145

@@ -244,7 +244,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 }
 
 // gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain). material 0 is the
-// default material, for models (or parts of them) without one: it samples this slot, which "Open Image..." replaces.
+// default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
 static constexpr uint32_t kMaterialTextureId = 15;
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
 static constexpr uint32_t kModelTextureFirstSlot = 16;
@@ -799,6 +799,46 @@ static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic
 	rhi.drawCalls.enqueue(installTask);
 }
 
+// the image files LoadAndInstallImage takes, as a file dialog filter spec (see image::Import)
+static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm";
+
+[[nodiscard]] static bool IsImageFile(const std::filesystem::path& path)
+{
+	auto extension = path.extension().string();
+	if (extension.empty())
+		return false;
+	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	std::string_view extensions = kImageExtensions;
+	for (size_t begin = 0; begin < extensions.size();)
+	{
+		auto end = std::min(extensions.find(',', begin), extensions.size());
+		if (extensions.substr(begin, end - begin) == std::string_view(extension).substr(1))
+			return true;
+		begin = end + 1;
+	}
+	return false;
+}
+
+// loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, or an
+// image (on the default material). call from a load (see gLoads).
+static void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several)
+{
+	std::filesystem::path path(filePath);
+	auto extension = path.extension().string();
+	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+	if (std::error_code error; std::filesystem::is_directory(path, error))
+		LoadAndInstallFolder(rhi, filePath, progress);
+	else if (extension == ".zip")
+		LoadAndInstallArchive(rhi, filePath, progress, several);
+	else if (mesh::IsModelFile(path))
+		LoadAndInstallModel(rhi, filePath, progress);
+	else if (IsImageFile(path))
+		LoadAndInstallImage(rhi, filePath, progress);
+	else
+		std::println(stderr, "Failed to load file {}: not a model, zip archive or image", filePath);
+}
+
 static void DrawMainPass(
 	RHI& rhi,
 	Window& window,
@@ -1301,15 +1341,16 @@ void WindowedApplication::PrepareDraw()
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.sh)
-	auto dialogPath = [&resourcePath](std::string_view fallback)
+	auto dialogPath = [&resourcePath]
 	{
 		std::error_code error;
 		auto testAssets = resourcePath / "test-assets";
-		return (std::filesystem::is_directory(testAssets, error) ? testAssets : resourcePath / fallback).string();
+		return (std::filesystem::is_directory(testAssets, error) ? testAssets : resourcePath).string();
 	};
 
-	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images (or
-	// an absolute path; for a model also a zip archive or a directory, whose models are loaded side by side) to load at startup, through the same load + install path as the "File" menu. with
+	// automation: SPEEDO_AUTOLOAD_MODEL (a model, or a zip archive or directory, whose models are loaded side by side)
+	// and SPEEDO_AUTOLOAD_IMAGE (an image, on the default material) name files to load at startup, absolute or relative to
+	// the resource directory, through the same load + install path as the "File" menu. with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
 	// scripts/assettest.sh).
 	static std::vector<core::Future<void>> gAutoLoads;
@@ -1323,19 +1364,12 @@ void WindowedApplication::PrepareDraw()
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
-				[&rhi, path = (resourcePath / "models" / autoLoadModel).string()](std::atomic_uint8_t& progress)
-				{
-					if (std::error_code error; std::filesystem::is_directory(path, error))
-						LoadAndInstallFolder(rhi, path, progress);
-					else if (std::string_view(path).ends_with(".zip") || std::string_view(path).ends_with(".ZIP"))
-						LoadAndInstallArchive(rhi, path, progress, ArchiveModels::kAll);
-					else
-						LoadAndInstallModel(rhi, path, progress);
-				}));
+				[&rhi, path = (resourcePath / autoLoadModel).string()](std::atomic_uint8_t& progress)
+				{ LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll); }));
 		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadImage,
-				[&rhi, path = (resourcePath / "images" / autoLoadImage).string()](std::atomic_uint8_t& progress)
+				[&rhi, path = (resourcePath / autoLoadImage).string()](std::atomic_uint8_t& progress)
 				{ LoadAndInstallImage(rhi, path, progress); }));
 		if (const char* autoLoadExit = std::getenv("SPEEDO_AUTOLOAD_EXIT"); autoLoadExit != nullptr && *autoLoadExit != '\0')
 			gAutoLoadExitFrames = static_cast<uint32_t>(std::strtoul(autoLoadExit, nullptr, 10));
@@ -1350,39 +1384,25 @@ void WindowedApplication::PrepareDraw()
 	{
 		if (BeginMenu("File"))
 		{
-			if (MenuItem("Open Model..."))
+			if (MenuItem("Open File..."))
 			{
-				static const std::vector<FileFilter> kFilterList ={
-					FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"}
-				};
-				InternalOpenFileDialogueAsync(dialogPath("models"), kFilterList,
-					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
-					{ LoadAndInstallModel(rhi, filePath, progressOut); });
-			}
-			if (MenuItem("Open Zip..."))
-			{
+				// models, zip archives (of models) and images: what is loaded depends on the file's type
+				static const std::string kAllExtensions = std::format("obj,gltf,glb,zip,{}", kImageExtensions);
 				static const std::vector<FileFilter> kFilterList = {
-					FileFilter{.name = "Zip archives", .spec = "zip"}
+					FileFilter{.name = "Models, zip archives and images", .spec = kAllExtensions.c_str()},
+					FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"},
+					FileFilter{.name = "Zip archives", .spec = "zip"},
+					FileFilter{.name = "Images", .spec = kImageExtensions},
 				};
-				InternalOpenFileDialogueAsync(dialogPath("models"), kFilterList,
+				InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
-					{ LoadAndInstallArchive(rhi, filePath, progressOut, ArchiveModels::kChoose); });
+					{ LoadAndInstallFile(rhi, filePath, progressOut, ArchiveModels::kChoose); });
 			}
 			if (MenuItem("Open Folder..."))
 			{
-				InternalOpenFolderDialogueAsync(dialogPath("models"),
+				InternalOpenFolderDialogueAsync(dialogPath(),
 					[&rhi](std::string_view directoryPath, std::atomic_uint8_t& progressOut)
 					{ LoadAndInstallFolder(rhi, directoryPath, progressOut); });
-			}
-			if (MenuItem("Open Image..."))
-			{
-				static const std::vector<FileFilter> kFilterList = {
-					FileFilter{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
-				};
-
-				InternalOpenFileDialogueAsync(dialogPath("images"), kFilterList,
-					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
-					{ LoadAndInstallImage(rhi, filePath, progressOut); });
 			}
 			// if (MenuItem("Open Scene..."))
 			// {
