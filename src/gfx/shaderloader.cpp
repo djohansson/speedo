@@ -6,6 +6,7 @@
 
 #include <xxhash.h>
 
+#include <array>
 #include <format>
 #include <iostream>
 #include <utility>
@@ -224,7 +225,7 @@ static uint32_t CreateLayoutBindings(
 
 	uint32_t uniformsTotalSize = 0;
 
-	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
+	for (auto categoryIndex = 0; std::cmp_less(categoryIndex , categoryCount); categoryIndex++)
 	{
 		auto subCategory = static_cast<SlangParameterCategory>(parameter->getCategoryByIndex(categoryIndex));
 		auto spaceForCategory = parameter->getBindingSpace(subCategory);
@@ -270,7 +271,7 @@ static uint32_t CreateLayoutBindings(
 		}
 	}
 
-	for (auto elementFieldIndex = 0; elementFieldIndex < elementFieldCount; elementFieldIndex++)
+	for (auto elementFieldIndex = 0; std::cmp_less(elementFieldIndex , elementFieldCount); elementFieldIndex++)
 	{
 		auto* elementField = (elementTypeLayout != nullptr)
 								 ? elementTypeLayout->getFieldByIndex(elementFieldIndex)
@@ -288,7 +289,7 @@ static uint32_t CreateLayoutBindings(
 				elementField, genericParameterIndices, layouts, &bindingSpace, fullName.c_str());
 	}
 
-	for (auto categoryIndex = 0; categoryIndex < categoryCount; categoryIndex++)
+	for (auto categoryIndex = 0; std::cmp_less(categoryIndex , categoryCount); categoryIndex++)
 	{
 		auto subCategory = parameter->getCategoryByIndex(categoryIndex);
 
@@ -426,6 +427,13 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 		int targetIndex = spAddCodeGenTarget(slangRequest, target);
 
 		spSetTargetProfile(slangRequest, targetIndex, spFindProfile(slangSession, targetProfile));
+
+		// keep the entry points' names in the binaries (rhi::EntryPoint names them): for spir-v, slang otherwise renames
+		// every entry point to "main"
+		constexpr std::array<const char*, 1> kKeepEntryPointNames{"-fvk-use-entrypoint-name"};
+		ENSUREF(
+			SLANG_SUCCEEDED(spProcessCommandLineArguments(slangRequest, kKeepEntryPointNames.data(), kKeepEntryPointNames.size())),
+			"Failed to set slang options.");
 		//spSetTargetFlags(slangRequest, targetIndex, 0); SLANG_TARGET_FLAG_GENERATE_SPIRV_DIRECTLY
 
 		int translationUnitIndex = spAddTranslationUnit(slangRequest, config.sourceLanguage, nullptr);
@@ -434,10 +442,10 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 			slangRequest, translationUnitIndex, file.generic_string().c_str());
 
 		std::vector<rhi::EntryPoint> entryPoints;
-		for (const auto& [ep, stage] : config.entryPoints)
+		for (const auto& [entryPoint, stage] : config.entryPoints)
 		{
-			ENSUREF(spAddEntryPoint(slangRequest, translationUnitIndex, ep.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
-			entryPoints.emplace_back("main", shaderloader::GetStage(stage), std::nullopt);
+			ENSUREF(spAddEntryPoint(slangRequest, translationUnitIndex, entryPoint.c_str(), stage) == entryPoints.size(), "Failed to add entry point.");
+			entryPoints.emplace_back(entryPoint, shaderloader::GetStage(stage), std::nullopt);
 		}
 
 		const SlangResult compileRes = spCompile(slangRequest);
@@ -472,7 +480,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 				ENSUREF(false, "Failed to get slang blob.");
 			}
 
-			shaderSet.shaders.emplace_back(std::make_tuple(blob->getBufferSize(), entryPoint));
+			shaderSet.shaders.emplace_back(blob->getBufferSize(), entryPoint);
 			std::copy(
 				static_cast<const char*>(blob->getBufferPointer()),
 				static_cast<const char*>(blob->getBufferPointer()) + blob->getBufferSize(),
@@ -527,10 +535,11 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 		return {};
 	};
 
-	std::string params, paramsHash;
+	std::string params;
+	std::string paramsHash;
 	params.append("slang-");
 	params.append(spGetBuildTagString()); // the loaded slang library's version, so upgrading it recompiles
-	params.append("|cache-v4"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
+	params.append("|cache-v5"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(std::format("|format-{}", std::to_underlying(rhi::kShaderFormat)));
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;
