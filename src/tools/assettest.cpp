@@ -8,6 +8,8 @@
 #include <gfx/meshimport.h>
 #include <gfx/ziparchive.h>
 
+#include <core/utils.h>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -17,11 +19,9 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
-#include <map>
 #include <numbers>
 #include <optional>
 #include <print>
-#include <set>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -84,8 +84,8 @@ bool IsModel(const std::filesystem::path& path) { return gfx::mesh::IsModelFile(
 
 bool IsImage(const std::filesystem::path& path)
 {
-	static const std::set<std::string> kExtensions{".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm"};
-	return kExtensions.contains(Lower(path.extension().string()));
+	static constexpr std::array<std::string_view, 12> kExtensions{".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm"};
+	return std::ranges::contains(kExtensions, Lower(path.extension().string()));
 }
 
 using Vec3 = std::array<double, 3>;
@@ -94,6 +94,20 @@ Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(moderni
 
 // an image, with the usage it is checked for, and its bump scale for kBump
 using ImageCheck = std::tuple<std::filesystem::path, gfx::image::Usage, float>;
+
+// the images to check, each (with its usage and bump scale) once
+using ImageChecks = core::UnorderedMap<std::string, ImageCheck>;
+
+void Add(ImageChecks& checks, std::filesystem::path path, gfx::image::Usage usage, float bumpScale)
+{
+	auto key = std::format("{}|{}|{}", path.string(), std::to_underlying(usage), bumpScale);
+	checks.try_emplace(std::move(key), std::move(path), usage, bumpScale);
+}
+
+// counts of each Result
+using ResultCounts = std::array<size_t, 3>;
+
+[[nodiscard]] size_t& Count(ResultCounts& counts, Result result) { return counts[static_cast<size_t>(result)]; }
 
 // what an import produced, to compare the encodings of a model with (see CheckEncodings)
 struct ModelSummary
@@ -107,7 +121,7 @@ struct ModelSummary
 	Vec3 max{};
 };
 
-Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& texturesOut, std::optional<ModelSummary>& summaryOut)
+Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, std::optional<ModelSummary>& summaryOut)
 {
 	Report report;
 
@@ -352,15 +366,15 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 	for (const auto& material : mesh->materials)
 	{
 		if (!material.diffuseTexture.empty())
-			texturesOut.insert({std::filesystem::weakly_canonical(material.diffuseTexture.path), gfx::image::Usage::kColor, 1.0F});
+			Add(texturesOut, std::filesystem::weakly_canonical(material.diffuseTexture.path), gfx::image::Usage::kColor, 1.0F);
 		if (!material.alphaTexture.empty())
-			texturesOut.insert({std::filesystem::weakly_canonical(material.alphaTexture.path), gfx::image::Usage::kMask, 1.0F});
+			Add(texturesOut, std::filesystem::weakly_canonical(material.alphaTexture.path), gfx::image::Usage::kMask, 1.0F);
 		if (!material.occlusionTexture.empty())
-			texturesOut.insert({std::filesystem::weakly_canonical(material.occlusionTexture.path), gfx::image::Usage::kOcclusion, 1.0F});
+			Add(texturesOut, std::filesystem::weakly_canonical(material.occlusionTexture.path), gfx::image::Usage::kOcclusion, 1.0F);
 		if (!material.normalTexture.empty())
-			texturesOut.insert({std::filesystem::weakly_canonical(material.normalTexture.path), gfx::image::Usage::kNormal, 1.0F});
+			Add(texturesOut, std::filesystem::weakly_canonical(material.normalTexture.path), gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())
-			texturesOut.insert({std::filesystem::weakly_canonical(material.bumpTexture.path), gfx::image::Usage::kBump, material.bumpScale});
+			Add(texturesOut, std::filesystem::weakly_canonical(material.bumpTexture.path), gfx::image::Usage::kBump, material.bumpScale);
 	}
 
 	return report;
@@ -685,7 +699,7 @@ int main(int argc, char* argv[])
 	bool images = true;
 	bool archiveFailed = false;
 	std::vector<std::filesystem::path> modelFiles;
-	std::set<ImageCheck> imageFiles;
+	ImageChecks imageFiles;
 
 	for (int argIt = 1; argIt < argc; argIt++)
 	{
@@ -738,7 +752,7 @@ int main(int argc, char* argv[])
 				if (IsModel(entry.path()))
 					modelFiles.push_back(entry.path());
 				else if (IsImage(entry.path()))
-					imageFiles.insert({std::filesystem::weakly_canonical(entry.path()), gfx::image::Usage::kColor, 1.0F});
+					Add(imageFiles, std::filesystem::weakly_canonical(entry.path()), gfx::image::Usage::kColor, 1.0F);
 			}
 		}
 		else if (IsModel(path))
@@ -747,7 +761,7 @@ int main(int argc, char* argv[])
 		}
 		else if (IsImage(path))
 		{
-			imageFiles.insert({std::filesystem::weakly_canonical(path), gfx::image::Usage::kColor, 1.0F});
+			Add(imageFiles, std::filesystem::weakly_canonical(path), gfx::image::Usage::kColor, 1.0F);
 		}
 		else
 		{
@@ -758,59 +772,71 @@ int main(int argc, char* argv[])
 
 	std::ranges::sort(modelFiles);
 
-	std::map<Result, size_t> modelResults;
-	std::map<Result, size_t> encodingResults;
-	std::map<Result, size_t> imageResults;
+	ResultCounts modelResults{};
+	ResultCounts encodingResults{};
+	ResultCounts imageResults{};
 
 	if (models)
 	{
 		// by the directory above theirs and their (lower case) name: the encodings of a model
-		std::map<std::pair<std::filesystem::path, std::string>, std::vector<std::pair<std::filesystem::path, ModelSummary>>> encodings;
+		core::UnorderedMap<std::string, std::vector<std::pair<std::filesystem::path, ModelSummary>>> encodings;
 
 		for (const auto& path : modelFiles)
 		{
 			auto start = std::chrono::steady_clock::now();
-			std::set<ImageCheck> textures;
+			ImageChecks textures;
 			std::optional<ModelSummary> summary;
 			auto report = CheckModel(path, textures, summary);
 			Print(path, report, std::chrono::steady_clock::now() - start);
-			modelResults[report.result]++;
+			Count(modelResults, report.result)++;
 			if (images)
 				imageFiles.insert(textures.begin(), textures.end());
 			if (auto model = path.parent_path().parent_path(); summary && Lower(model.filename().string()) == Lower(path.stem().string()))
-				encodings[{model, Lower(path.stem().string())}].emplace_back(path, *summary);
+				encodings[(model / Lower(path.stem().string())).string()].emplace_back(path, *summary);
 		}
 
-		for (const auto& [key, files] : encodings)
+		// in order, for a stable report
+		std::vector<std::string> models;
+		for (const auto& [model, files] : encodings)
+			models.push_back(model);
+		std::ranges::sort(models);
+		for (const auto& model : models)
 		{
-			std::set<std::filesystem::path> directories;
+			const auto& files = encodings[model];
+			core::UnorderedSet<std::string> directories;
 			for (const auto& [path, summary] : files)
-				directories.insert(path.parent_path());
+				directories.insert(path.parent_path().string());
 			if (files.size() < 2 || directories.size() != files.size())
 				continue;
 
 			auto report = CheckEncodings(files);
-			Print(key.first / key.second, report, {});
-			encodingResults[report.result]++;
+			Print(model, report, {});
+			Count(encodingResults, report.result)++;
 		}
 	}
 
 	if (images)
 	{
-		for (const auto& [path, usage, bumpScale] : imageFiles)
+		// in order, for a stable report
+		std::vector<ImageCheck> checks;
+		checks.reserve(imageFiles.size());
+		for (const auto& [key, check] : imageFiles)
+			checks.push_back(check);
+		std::ranges::sort(checks);
+		for (const auto& [path, usage, bumpScale] : checks)
 		{
 			auto start = std::chrono::steady_clock::now();
 			auto report = CheckImage(path, {.usage = usage, .bumpScale = bumpScale});
 			Print(path, report, std::chrono::steady_clock::now() - start);
-			imageResults[report.result]++;
+			Count(imageResults, report.result)++;
 		}
 	}
 
 	std::println(
 		"models: {} pass, {} warn, {} fail. encodings: {} pass, {} warn. images: {} pass, {} warn, {} fail.",
-		modelResults[Result::kPass], modelResults[Result::kWarn], modelResults[Result::kFail],
-		encodingResults[Result::kPass], encodingResults[Result::kWarn],
-		imageResults[Result::kPass], imageResults[Result::kWarn], imageResults[Result::kFail]);
+		Count(modelResults, Result::kPass), Count(modelResults, Result::kWarn), Count(modelResults, Result::kFail),
+		Count(encodingResults, Result::kPass), Count(encodingResults, Result::kWarn),
+		Count(imageResults, Result::kPass), Count(imageResults, Result::kWarn), Count(imageResults, Result::kFail));
 
-	return archiveFailed || modelResults[Result::kFail] + imageResults[Result::kFail] > 0 ? 1 : 0;
+	return archiveFailed || Count(modelResults, Result::kFail) + Count(imageResults, Result::kFail) > 0 ? 1 : 0;
 }
