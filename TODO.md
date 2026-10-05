@@ -6,7 +6,7 @@
 	* compression and image formats that need libraries we don't have: draco & meshopt (KHR_/EXT_) mesh compression, KTX2/basisu & WebP textures. files requiring them fail to load.
 	* skins: skinned meshes are drawn in their rest (bind) pose
 	* animation: ignored (node, morph weight and KHR_animation_pointer animations)
-	* morph targets: ignored, the base mesh is drawn
+	* morph targets: drawn at their default weights (the node's, else the mesh's), position and normal deltas. animated weights belong to animation
 	* cameras & lights (KHR_lights_punctual): ignored. the view is framed on the bounds, and lit by the fixed light in the shader
 	* shading models: no PBR. metallic-roughness, specular-glossiness and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, ...) are read past, unlit isn't special cased
 	* alpha blending: BLEND is drawn alpha tested (as MASK at 0.5), there is no blended, sorted pass

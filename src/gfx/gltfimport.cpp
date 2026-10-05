@@ -452,11 +452,12 @@ std::expected<Mesh, std::string> Import(
 	size_t skippedPrimitives = 0;
 	bool instancingWarned = false;
 	bool skinWarned = false;
-	bool morphWarned = false;
+	bool morphWarned = false; // about weights that can't be applied
 	double agreeingArea = 0.0;
 	double normalArea = 0.0;
 
-	auto addPrimitive = [&](const cgltf_primitive& primitive, const Matrix& world, std::string_view meshName) -> void
+	// weights: the morph target weights (the node's, else the mesh's defaults), see the deltas below
+	auto addPrimitive = [&](const cgltf_primitive& primitive, const Matrix& world, std::span<const cgltf_float> weights, std::string_view meshName) -> void
 	{
 		if (primitive.type != cgltf_primitive_type_triangles && primitive.type != cgltf_primitive_type_triangle_strip &&
 			primitive.type != cgltf_primitive_type_triangle_fan)
@@ -465,8 +466,6 @@ std::expected<Mesh, std::string> Import(
 			return;
 		}
 
-		if (primitive.targets_count > 0 && !std::exchange(morphWarned, true))
-			warn("morph targets are ignored (e.g. in mesh {})", meshName);
 
 		const cgltf_accessor* positions = nullptr;
 		const cgltf_accessor* normals = nullptr;
@@ -523,6 +522,36 @@ std::expected<Mesh, std::string> Import(
 			return;
 		}
 		auto normalValues = normals != nullptr && normals->type == cgltf_type_vec3 ? unpack(normals, 3) : std::nullopt;
+
+		// morph targets, at their weights (animating them belongs to animation, which is ignored): each target's
+		// position and normal deltas, times its weight, are added to the base mesh. tangents are ignored anyway.
+		for (cgltf_size targetIt = 0; targetIt < primitive.targets_count; targetIt++)
+		{
+			auto weight = targetIt < weights.size() ? weights[targetIt] : 0.0F;
+			if (weight == 0.0F)
+				continue;
+
+			const auto& target = primitive.targets[targetIt];
+			for (cgltf_size attributeIt = 0; attributeIt < target.attributes_count; attributeIt++)
+			{
+				const auto& attribute = target.attributes[attributeIt];
+				auto* values = attribute.type == cgltf_attribute_type_position ? &positionValues
+							   : attribute.type == cgltf_attribute_type_normal ? &normalValues
+																				 : nullptr;
+				if (values == nullptr || !*values || attribute.data->type != cgltf_type_vec3)
+					continue;
+
+				auto deltas = unpack(attribute.data, 3);
+				if (!deltas)
+				{
+					if (!std::exchange(morphWarned, true))
+						warn("mesh {}: a morph target can't be read, and is ignored", meshName);
+					continue;
+				}
+				for (size_t i = 0; i < deltas->size(); i++)
+					(**values)[i] += weight * (*deltas)[i];
+			}
+		}
 		std::array<std::optional<std::vector<float>>, 2> texCoordValues;
 		for (size_t set = 0; set < texCoords.size(); set++)
 			if (texCoords[set] != nullptr && texCoords[set]->type == cgltf_type_vec2)
@@ -777,9 +806,13 @@ std::expected<Mesh, std::string> Import(
 				cgltf_node_transform_world(node, world.data());
 			}
 
+			// a node's morph target weights override its mesh's defaults
+			auto weights = node->weights_count > 0 ? std::span<const cgltf_float>(node->weights, node->weights_count)
+												   : std::span<const cgltf_float>(node->mesh->weights, node->mesh->weights_count);
+
 			std::string meshName = node->mesh->name != nullptr ? node->mesh->name : std::format("{}", node->mesh - data.meshes);
 			for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
-				addPrimitive(node->mesh->primitives[primitiveIt], world, meshName);
+				addPrimitive(node->mesh->primitives[primitiveIt], world, weights, meshName);
 
 			if (isCancelled())
 				return std::unexpected("cancelled");

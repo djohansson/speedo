@@ -246,8 +246,9 @@ KHR_texture_transform applied. glTF samplers (wrap modes, filters) aren't honore
 renderer's one repeating sampler. Images embedded in buffers or data uris are written to
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Files requiring draco or
 meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
-project doesn't have. KHR_node_visibility hides nodes; skins (drawn in bind pose), animation, morph targets, cameras
-and lights are ignored with a warning. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
+project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
+node's, else the mesh's; position and normal deltas); skins (drawn in bind pose), animation, cameras and lights are
+ignored with a warning. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
 `.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
 more than four colors), and normals below the surface (z < 0, which BC5 can't store) are compared mirrored and warned
 about, since both are properties of the asset rather than importer errors.
