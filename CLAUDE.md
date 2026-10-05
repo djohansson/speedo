@@ -250,7 +250,9 @@ imported as `image::Usage::kOcclusion` (the red channel, linear, BC4), since glt
 metallic into one texture's r, g and b, which kMask's luminance would mix. The texcoord set a material's textures use goes first, with its
 KHR_texture_transform applied. glTF samplers (wrap modes, filters) aren't honored: every texture uses the
 renderer's one repeating sampler. Images embedded in buffers or data uris are written to
-`<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Files requiring draco or
+`<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Only an import writes
+them, so `Model::Load` treats a cached model whose extracted images are missing as an unreadable cache, and
+`LoadAsset` imports it again. Files requiring draco or
 meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
 project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
 node's, else the mesh's; position and normal deltas); skins (drawn in bind pose), animation, cameras and lights are

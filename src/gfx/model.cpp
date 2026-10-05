@@ -91,6 +91,27 @@ struct Staged
 		vertexStaging = {};
 	};
 
+	// embedded images of gltf files are extracted to files, which the textures are loaded from
+	auto userProfilePath = std::get<std::filesystem::path>(app->GetEnv().variables["UserProfilePath"]);
+	auto absolutePath = std::filesystem::absolute(std::filesystem::path(filePath));
+	mesh::ImportOptions importOptions{
+		.embeddedImageDirectory = userProfilePath / "embedded" /
+								  std::format("{}-{:016x}", absolutePath.stem().string(), std::hash<std::string>{}(absolutePath.string()))};
+
+	// the embedded images a cached model names, which only an import writes: missing ones (e.g. a cleared user profile)
+	// make the cache unusable, so that LoadAsset imports the model again, which extracts them again
+	auto missingEmbeddedImage = [&importOptions](const ModelDesc& modelDesc) -> std::optional<std::string>
+	{
+		auto directory = importOptions.embeddedImageDirectory.generic_string() + "/";
+		for (const auto& material : modelDesc.materials)
+			for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.normalTexture,
+										&material.bumpTexture, &material.emissiveTexture, &material.occlusionTexture})
+				if (std::error_code error; std::filesystem::path(*texture).generic_string().starts_with(directory) &&
+										   !std::filesystem::is_regular_file(*texture, error))
+					return *texture;
+		return std::nullopt;
+	};
+
 	auto loadBin = [&](auto& inStream) -> std::error_code
 	{
 		ZoneScopedN("gfx::Model::loadBin");
@@ -99,6 +120,13 @@ struct Staged
 
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
+
+		if (auto missing = missingEmbeddedImage(desc))
+		{
+			std::println(stderr, "{}: embedded image {} is missing, importing again", filePath, *missing);
+			desc = {};
+			return std::make_error_code(std::errc::no_such_file_or_directory);
+		}
 
 		if (!fitsDevice(desc))
 			return std::make_error_code(std::errc::file_too_large);
@@ -141,13 +169,6 @@ struct Staged
 		// LoadAsset reports the rest, while hashing the saved cache
 		return {};
 	};
-
-	// embedded images of gltf files are extracted to files, which the textures are loaded from
-	auto userProfilePath = std::get<std::filesystem::path>(app->GetEnv().variables["UserProfilePath"]);
-	auto absolutePath = std::filesystem::absolute(std::filesystem::path(filePath));
-	mesh::ImportOptions importOptions{
-		.embeddedImageDirectory = userProfilePath / "embedded" /
-								  std::format("{}-{:016x}", absolutePath.stem().string(), std::hash<std::string>{}(absolutePath.string()))};
 
 	auto loadModel = [&](auto& /*todo: use me: in*/) -> std::error_code
 	{
