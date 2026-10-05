@@ -247,7 +247,7 @@ renderer's one repeating sampler. Images embedded in buffers or data uris are wr
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Files requiring draco or
 meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
 project doesn't have. KHR_node_visibility hides nodes; skins (drawn in bind pose), animation, morph targets, cameras
-and lights are ignored with a warning. The Khronos glTF-Sample-Assets `Models/` are the test set (`assettest` takes
+and lights are ignored with a warning. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
 `.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
 more than four colors), and normals below the surface (z < 0, which BC5 can't store) are compared mirrored and warned
 about, since both are properties of the asset rather than importer errors.
@@ -297,6 +297,17 @@ on load errors, asserts and validation messages. Only debug enables validation, 
 profile preset first, then debug with `--client-only` and the same `--work` dir, whose caches it reuses. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
 `RequestExit()`, which posts an empty event.
+
+The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.sh` downloads Morgan McGuire's
+Computer Graphics Archive (obj, about 2.7 GB) and the Khronos glTF-Sample-Assets models (at a pinned commit, about
+2.3 GB) into `~/.cache/speedo/test-assets` (or `$SPEEDO_TEST_ASSETS`), and prints the paths to test:
+`scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)`. The archive publishes no versions or checksums and
+does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
+sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
+Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
+and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
+extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its
+(consistent) winding on a quarter of its area, and Bistro and bmw have normals that get replaced.
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 

@@ -3,6 +3,9 @@
 #
 # usage: scripts/assettest.sh [--client | --client-only] [--preset <name>] [--work <dir>] <zip or directory>...
 #
+# The test sets are downloaded by scripts/fetch-test-assets.sh, which prints their paths:
+#   scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)
+#
 # Zip archives are extracted to <work>/assets/<archive name> (the work dir defaults to a new temporary dir, and is
 # kept). Then build/<preset>/assettest imports every model (.obj, .gltf, .glb) and image the way the client does and checks the
 # results (see src/tools/assettest.cpp). With --client, the client also loads each model (and the first image next to
