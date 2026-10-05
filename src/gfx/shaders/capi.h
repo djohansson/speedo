@@ -94,6 +94,7 @@ struct MaterialData
 	alignas(4) UINT(alphaTextureId);
 	alignas(4) UINT(normalTextureId);
 	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
+	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
 };
 
 struct ModelInstance

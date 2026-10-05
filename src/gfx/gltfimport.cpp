@@ -410,6 +410,7 @@ std::expected<Mesh, std::string> Import(
 
 		material.diffuseTexture = images.Resolve(*baseColorTexture, material.name);
 		material.normalTexture = images.Resolve(gltfMaterial.normal_texture, material.name);
+		material.normalScale = gltfMaterial.normal_texture.scale;
 
 		switch (gltfMaterial.alpha_mode)
 		{

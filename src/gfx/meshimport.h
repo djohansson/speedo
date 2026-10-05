@@ -28,6 +28,7 @@ struct Material
 	std::filesystem::path diffuseTexture; // obj map_Kd, gltf baseColorTexture
 	std::filesystem::path alphaTexture; // obj map_d
 	std::filesystem::path normalTexture; // obj norm, gltf normalTexture: a normal map
+	float normalScale = 1.0F; // gltf normalTexture.scale: scales the normal map's x and y (0 flattens it)
 	std::filesystem::path bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option
 	// fragments whose diffuse texture alpha (or alpha texture value) is below this are discarded: 0 for opaque

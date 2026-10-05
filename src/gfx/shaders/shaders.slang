@@ -186,7 +186,9 @@ FragmentOutput FragmentMain(VertexOutput input)
 	if ((material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
 	{
 		float2 xy = gTextures[material.normalTextureId].Sample(sampler, uv).rg * 2.0 - 1.0;
-		float3 tangentSpaceNormal = float3(xy, sqrt(saturate(1.0 - dot(xy, xy))));
+		// z is reconstructed from the stored (unit length) normal, then x and y are scaled, as gltf defines
+		// normalTexture.scale: normalize(normal * (scale, scale, 1))
+		float3 tangentSpaceNormal = float3(xy * material.normalScale, sqrt(saturate(1.0 - dot(xy, xy))));
 		normal = normalize(mul(tangentSpaceNormal, CotangentFrame(normal, v.position, uv)));
 	}
 

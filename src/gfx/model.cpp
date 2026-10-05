@@ -187,6 +187,7 @@ struct Staged
 				.diffuseTexture = material.diffuseTexture.string(),
 				.alphaTexture = material.alphaTexture.string(),
 				.normalTexture = material.normalTexture.string(),
+				.normalScale = material.normalScale,
 				.bumpTexture = material.bumpTexture.string(),
 				.bumpScale = material.bumpScale,
 				.alphaCutoff = material.alphaCutoff});
@@ -218,7 +219,7 @@ struct Staged
 		params.append(std::format("tinyobjloader-{}|objimport-v1", kTinyObjLoaderVersion));
 	else
 		params.append(std::format("cgltf-{}|gltfimport-v1", kCgltfVersion));
-	params.append("|cache-v7"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v8"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

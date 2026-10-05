@@ -501,6 +501,7 @@ static void InstallModel(
 			if (auto slot = slotOf(textures[materialIt].normal))
 			{
 				material.normalTextureId = *slot;
+				material.normalScale = model->GetDesc().materials[materialIt].normalScale;
 				material.flags |= MATERIAL_FLAG_NORMAL_TEXTURE;
 			}
 		}

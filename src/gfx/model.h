@@ -30,6 +30,7 @@ struct ModelMaterial
 	std::string diffuseTexture; // its colors are multiplied with the vertex colors
 	std::string alphaTexture; // a mask, alpha tested
 	std::string normalTexture; // a normal map, used rather than bumpTexture if there are both
+	float normalScale = 1.0F; // see mesh::Material::normalScale
 	std::string bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
 	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff
