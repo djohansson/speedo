@@ -43,6 +43,9 @@ struct Material
 	float alphaCutoff = 0.5F;
 	// gltf doubleSided: its back faces are drawn too (not culled), lit as seen from behind. obj materials are single sided.
 	bool doubleSided = false;
+	// gltf BLEND: drawn blended by its alpha (base color times texture alpha), after the opaque ones, back to front by
+	// submesh (see ModelSubmesh::center), without writing depth. alphaCutoff is 0.
+	bool blend = false;
 };
 
 // the indices of one material and topology, contiguous in Mesh::indices

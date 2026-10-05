@@ -108,6 +108,16 @@ void Views::SetMoveSpeed(float speed) noexcept
 	myMoveSpeed.store(std::clamp(speed, kMinSpeed, kMaxSpeed), std::memory_order_relaxed);
 }
 
+std::vector<glm::vec3> Views::GetEyePositions() const
+{
+	auto cameras = myCameras.Read();
+	std::vector<glm::vec3> eyes;
+	eyes.reserve(cameras.Get().size());
+	for (const auto& camera : cameras.Get())
+		eyes.push_back(glm::vec3(glm::inverse(camera.GetViewMatrix())[3]));
+	return eyes;
+}
+
 void Views::UpdateBuffers()
 {
 	ZoneScopedN("Views::UpdateBuffers");

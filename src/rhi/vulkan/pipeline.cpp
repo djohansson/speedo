@@ -293,7 +293,7 @@ PipelineLayout<kVk>::~PipelineLayout()
 }
 
 template <>
-uint64_t Pipeline<kVk>::InternalCalculateHashKey(PrimitiveTopology topology) const
+uint64_t Pipeline<kVk>::InternalCalculateHashKey(GraphicsPipelineVariant variant) const
 {
 	ZoneScopedN("Pipeline::InternalCalculateHashKey");
 
@@ -315,7 +315,8 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey(PrimitiveTopology topology) con
 
 	if (myBindPoint == PipelineBindPoint::kGraphics)
 	{
-		result = XXH3_64bits_update(gThreadXxhState.get(), &topology, sizeof(topology));
+		std::array<uint8_t, 2> key{static_cast<uint8_t>(variant.topology), static_cast<uint8_t>(variant.blend)};
+		result = XXH3_64bits_update(gThreadXxhState.get(), key.data(), key.size());
 		ENSURE(result != XXH_ERROR);
 	}
 
@@ -514,7 +515,7 @@ void Pipeline<kVk>::InternalResetDescriptorPool()
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashKey, PrimitiveTopology topology)
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashKey, GraphicsPipelineVariant variant)
 {
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
@@ -529,13 +530,31 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
 	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
 	auto inputAssembly = myGraphicsState.inputAssembly;
-	inputAssembly.topology = vk::ToVk(topology);
+	inputAssembly.topology = vk::ToVk(variant.topology);
 	pipelineInfo.pInputAssemblyState = &inputAssembly;
 	pipelineInfo.pViewportState = &myGraphicsState.viewport;
 	pipelineInfo.pRasterizationState = &myGraphicsState.rasterization;
 	pipelineInfo.pMultisampleState = &myGraphicsState.multisample;
-	pipelineInfo.pDepthStencilState = &myGraphicsState.depthStencil;
-	pipelineInfo.pColorBlendState = &myGraphicsState.colorBlend;
+	auto depthStencil = myGraphicsState.depthStencil;
+	auto colorBlendAttachments = myGraphicsState.colorBlendAttachments;
+	auto colorBlend = myGraphicsState.colorBlend;
+	if (variant.blend == BlendMode::kAlpha)
+	{
+		depthStencil.depthWriteEnable = VK_FALSE;
+		for (auto& attachment : colorBlendAttachments)
+		{
+			attachment.blendEnable = VK_TRUE;
+			attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+			attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			attachment.colorBlendOp = VK_BLEND_OP_ADD;
+			attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+			attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		}
+		colorBlend.pAttachments = colorBlendAttachments.data();
+	}
+	pipelineInfo.pDepthStencilState = &depthStencil;
+	pipelineInfo.pColorBlendState = &colorBlend;
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
 	pipelineInfo.layout = layout;
 	pipelineInfo.renderPass = std::get<0>(myRenderTarget);
@@ -590,12 +609,12 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(PrimitiveTopology topology)
+PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant variant)
 {
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
 	auto [keyValIt, insertResult] =
-		myPipelineMap.insert({InternalCalculateHashKey(topology), PipelineHandle<kVk>{}});
+		myPipelineMap.insert({InternalCalculateHashKey(variant), PipelineHandle<kVk>{}});
 	auto& [key, pipelineHandle] = *keyValIt;
 	auto pipelineHandleAtomic = std::atomic_ref(pipelineHandle);
 
@@ -606,7 +625,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(PrimitiveTopology topolog
 		switch (myBindPoint)
 		{
 		case PipelineBindPoint::kGraphics:
-			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key, topology), std::memory_order_release);
+			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key, variant), std::memory_order_release);
 			break;
 		case PipelineBindPoint::kCompute:
 			pipelineHandleAtomic.store(InternalCreateComputePipeline(key), std::memory_order_release);
@@ -637,9 +656,9 @@ void Pipeline<kVk>::BindPipeline(
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd, PrimitiveTopology topology)
+PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd, GraphicsPipelineVariant variant)
 {
-	auto* handle = InternalGetPipeline(topology);
+	auto* handle = InternalGetPipeline(variant);
 
 	BindPipeline(cmd, myBindPoint, handle);
 	

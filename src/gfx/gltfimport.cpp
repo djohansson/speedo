@@ -550,7 +550,6 @@ std::expected<Mesh, std::string> Import(
 	// materials, and how their vertices take texcoords
 	Images images(data, path, options, stats);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
-	bool blendWarned = false;
 	mesh.materials.reserve(data.materials_count);
 	for (cgltf_size materialIt = 0; materialIt < data.materials_count; materialIt++)
 	{
@@ -606,9 +605,8 @@ std::expected<Mesh, std::string> Import(
 		case cgltf_alpha_mode_opaque: material.alphaCutoff = 0.0F; break;
 		case cgltf_alpha_mode_mask: material.alphaCutoff = gltfMaterial.alpha_cutoff; break;
 		case cgltf_alpha_mode_blend:
-			material.alphaCutoff = 0.5F;
-			if (!std::exchange(blendWarned, true))
-				warn("alpha blended materials (e.g. {}) are drawn alpha tested", material.name);
+			material.alphaCutoff = 0.0F;
+			material.blend = true;
 			break;
 		default: break;
 		}

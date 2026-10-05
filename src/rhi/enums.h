@@ -178,6 +178,22 @@ enum class PrimitiveTopology : uint8_t
 	kPointList,
 };
 
+// how a draw's color output combines with the render target's
+enum class BlendMode : uint8_t
+{
+	kOpaque, // replaces it, and writes depth
+	kAlpha, // source alpha over: color * a + target * (1 - a). tests depth but doesn't write it, so draw back to front
+};
+
+// what a graphics pipeline is created for, beyond its layout and render target (see Pipeline::BindPipelineAuto)
+struct GraphicsPipelineVariant
+{
+	PrimitiveTopology topology = PrimitiveTopology::kTriangleList;
+	BlendMode blend = BlendMode::kOpaque;
+
+	bool operator==(const GraphicsPipelineVariant&) const = default;
+};
+
 // which faces rasterization discards: front faces are counter-clockwise
 enum class CullMode : uint8_t
 {

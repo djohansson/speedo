@@ -24,6 +24,8 @@ struct ModelSubmesh
 	uint32_t indexCount = 0;
 	int32_t material = -1; // index into ModelDesc::materials, or -1 for none
 	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList; // see mesh::Submesh::topology
+	// the center of its vertices' bounds, which blended submeshes are sorted by (back to front, per view)
+	std::array<float, 3> center{};
 };
 
 // textures are empty (see TextureRef) if the material has none
@@ -42,6 +44,7 @@ struct ModelMaterial
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
 	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff
 	bool doubleSided = false; // see mesh::Material::doubleSided
+	bool blend = false; // see mesh::Material::blend
 };
 
 struct ModelDesc

@@ -14,6 +14,7 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <limits>
 #include <optional>
 #include <print>
 #include <span>
@@ -201,8 +202,24 @@ struct Staged
 		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
 		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
 		for (const auto& submesh : mesh->submeshes)
-			desc.submeshes.push_back(
-				{.firstIndex = submesh.firstIndex, .indexCount = submesh.indexCount, .material = submesh.material, .topology = submesh.topology});
+		{
+			auto& modelSubmesh = desc.submeshes.emplace_back(ModelSubmesh{
+				.firstIndex = submesh.firstIndex, .indexCount = submesh.indexCount, .material = submesh.material, .topology = submesh.topology});
+			if (submesh.indexCount == 0)
+				continue;
+			std::array<float, 3> min;
+			std::array<float, 3> max;
+			std::ranges::fill(min, std::numeric_limits<float>::max());
+			std::ranges::fill(max, std::numeric_limits<float>::lowest());
+			for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
+				for (size_t axis = 0; axis < 3; axis++)
+				{
+					min[axis] = std::min(min[axis], mesh->vertices[index].position[axis]);
+					max[axis] = std::max(max[axis], mesh->vertices[index].position[axis]);
+				}
+			for (size_t axis = 0; axis < 3; axis++)
+				modelSubmesh.center[axis] = 0.5F * (min[axis] + max[axis]);
+		}
 		for (const auto& material : mesh->materials)
 			desc.materials.push_back({
 				.name = material.name,
@@ -217,7 +234,8 @@ struct Staged
 				.bumpTexture = material.bumpTexture,
 				.bumpScale = material.bumpScale,
 				.alphaCutoff = material.alphaCutoff,
-				.doubleSided = material.doubleSided});
+				.doubleSided = material.doubleSided,
+				.blend = material.blend});
 
 		if (!fitsDevice(desc))
 			return std::make_error_code(std::errc::file_too_large);
@@ -245,8 +263,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v9", kCgltfVersion));
-	params.append("|cache-v14"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v10", kCgltfVersion));
+	params.append("|cache-v15"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -328,6 +346,8 @@ struct Staged
 			submesh.firstIndex += indexBase;
 			if (submesh.material >= 0)
 				submesh.material += materialBase;
+			for (size_t axis = 0; axis < 3; axis++)
+				submesh.center[axis] = place(submesh.center[axis], axis);
 			merged.desc.submeshes.push_back(submesh);
 		}
 

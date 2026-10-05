@@ -1021,6 +1021,9 @@ static void DrawMainPass(
 
 		drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
 
+		// blended submeshes are drawn back to front from each view's camera
+		auto eyes = App().GetViews().GetEyePositions();
+
 		constexpr uint32_t kMaxDrawThreads = 128;
 		std::array<uint32_t, kMaxDrawThreads> seq;
 		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
@@ -1035,6 +1038,7 @@ static void DrawMainPass(
 			&drawAtomic,
 			&drawCount,
 			&model,
+			&eyes,
 			grid](uint32_t threadIt)
 			{
 				ZoneScoped;
@@ -1082,7 +1086,7 @@ static void DrawMainPass(
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, grid](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &eyes, grid](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
@@ -1112,20 +1116,22 @@ static void DrawMainPass(
 
 						pushConstants.modelInstanceId = kDefaultModelInstanceId;
 
-						// one draw per material (see InstallModel for where the materials are)
-						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, viewIndex](CommandBufferHandle cmd)
+						// one draw per submesh (material and topology, see InstallModel for where the materials are): the opaque
+						// ones first, then the blended ones back to front by their centers (each as a whole: the triangles within
+						// one are drawn in their order)
+						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, &eyes, viewIndex](CommandBufferHandle cmd)
 						{
 							ZoneScopedN("drawModel");
 
 							const auto& materials = model.GetDesc().materials;
-							// bindState bound the triangle list pipeline. lines and points have pipelines of their own
-							auto topology = PrimitiveTopology::kTriangleList;
-							for (const auto& submesh : model.GetDesc().submeshes)
+							// bindState bound the default (opaque triangle list) pipeline
+							GraphicsPipelineVariant bound{};
+							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend)
 							{
-								if (submesh.topology != topology)
+								if (GraphicsPipelineVariant variant{.topology = submesh.topology, .blend = blend}; variant != bound)
 								{
-									topology = submesh.topology;
-									pipeline.BindPipelineAuto(cmd, topology);
+									bound = variant;
+									pipeline.BindPipelineAuto(cmd, variant);
 								}
 
 								// double sided materials' back faces are drawn too (the cull mode is dynamic state)
@@ -1138,8 +1144,31 @@ static void DrawMainPass(
 								pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
 								encoder.DrawIndexed(submesh.indexCount, 1, submesh.firstIndex);
+							};
+
+							std::vector<const ModelSubmesh*> blended;
+							for (const auto& submesh : model.GetDesc().submeshes)
+							{
+								if (submesh.material >= 0 && materials[submesh.material].blend)
+									blended.push_back(&submesh);
+								else
+									draw(submesh, BlendMode::kOpaque);
 							}
-							if (topology != PrimitiveTopology::kTriangleList)
+
+							if (!blended.empty())
+							{
+								auto eye = viewIndex < eyes.size() ? eyes[viewIndex] : glm::vec3(0.0F);
+								auto distance2 = [&eye](const ModelSubmesh* submesh)
+								{
+									auto offset = glm::vec3(submesh->center[0], submesh->center[1], submesh->center[2]) - eye;
+									return glm::dot(offset, offset);
+								};
+								std::ranges::sort(blended, std::greater{}, distance2);
+								for (const auto* submesh : blended)
+									draw(*submesh, BlendMode::kAlpha);
+							}
+
+							if (bound != GraphicsPipelineVariant{})
 								pipeline.BindPipelineAuto(cmd);
 						};
 

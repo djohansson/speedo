@@ -158,11 +158,9 @@ public:
 
 	// "auto" api
 
-	// a graphics pipeline is created per topology (and cached): it is a parameter rather than state, since the draw
-	// threads share the pipeline object
-	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(
-		CommandBufferHandle<G> cmd,
-		PrimitiveTopology topology = PrimitiveTopology::kTriangleList); // todo: make implicit and call internally whenever relevant state changes
+	// a graphics pipeline is created per variant (topology and blending, cached): it is a parameter rather than state,
+	// since the draw threads share the pipeline object
+	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd, GraphicsPipelineVariant variant = {}); // todo: make implicit and call internally whenever relevant state changes
 
 	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint bindPoint);
 
@@ -232,10 +230,10 @@ private:
 		const BindingsMap<G>& bindingsMap,
 		DescriptorUpdateTemplate<G>& setTemplate);
 
-	[[nodiscard]] uint64_t InternalCalculateHashKey(PrimitiveTopology topology) const;
-	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey, PrimitiveTopology topology);
+	[[nodiscard]] uint64_t InternalCalculateHashKey(GraphicsPipelineVariant variant) const;
+	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey, GraphicsPipelineVariant variant);
 	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey);
-	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(PrimitiveTopology topology);
+	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(GraphicsPipelineVariant variant);
 	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
 
 	DescriptorMapType myDescriptorMap;
