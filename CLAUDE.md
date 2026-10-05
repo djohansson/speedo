@@ -291,8 +291,11 @@ them, so `Model::Load` treats a cached model whose extracted images are missing 
 `LoadAsset` imports it again. Files requiring draco or
 meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
 project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
-node's, else the mesh's; position and normal deltas); skins (drawn in bind pose), animation, cameras and lights are
-ignored with a warning. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
+node's, else the mesh's; position and normal deltas); skins (drawn in bind pose) and animation are ignored with a
+warning, and lights silently. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
+perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
+(`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). The views keep no roll,
+so a rolled camera loses it, and the file's aspect ratio gives way to the view's. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
 `.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
 more than four colors), and normals below the surface (z < 0, which BC5 can't store) are compared mirrored and warned
 about, since both are properties of the asset rather than importer errors.
@@ -331,8 +334,8 @@ Either frame follows the normal map's texture transform. NormalTangentMirrorTest
 renders right either way, but negating its tangents' w must break it. A quad with a known height map (a dome, which must be lit on the side
 the light comes from) is the quickest way to see a sign error. `InstallModel` switches model, textures and materials in one draw
 thread step, after the textures are transitioned: every change to `gTextures` takes a new descriptor set (see above),
-and the pool only holds 128 copies of that 1024 slot array. Installing a model also frames the cameras on its bounds
-(`Views::FrameBounds`).
+and the pool only holds 128 copies of that 1024 slot array. Installing a model also sets the views to its first camera,
+or frames them on its bounds (`Views::SetScene`, `Views::FrameBounds`).
 
 File > "Open File..." loads models, zip archives and images, by their type (`LoadAndInstallFile`), and "Open
 Folder..." a directory's models; `SPEEDO_AUTOLOAD_MODEL` and `SPEEDO_AUTOLOAD_IMAGE` take paths absolute or relative to

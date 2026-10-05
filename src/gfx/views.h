@@ -3,6 +3,7 @@
 #include <gfx/bounds.h>
 #include <gfx/camera.h>
 #include <gfx/gpu.h>
+#include <gfx/scenecamera.h>
 
 #include <core/concurrentaccess.h>
 #include <core/inputstate.h>
@@ -11,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -47,6 +49,16 @@ public:
 	// its size, and sets the movement speed after it (see GetMoveSpeed). call on the draw thread.
 	void FrameBounds(const Bounds3f& bounds);
 
+	// the installed model's bounds and cameras (see ModelDesc::cameras): sets the views to its first camera, or frames
+	// the bounds if it has none. call on the draw thread.
+	void SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras);
+	// sets every view to one of the scene's cameras (its projection too: field of view, orthographic, near and far
+	// planes; not its roll, which the views don't have), or frames the scene's bounds (nullopt). call on the draw thread.
+	void UseSceneCamera(std::optional<size_t> camera);
+	// the scene's camera names, and which one the views were last set to (nullopt: framed). any thread.
+	[[nodiscard]] std::vector<std::string> GetSceneCameraNames() const;
+	[[nodiscard]] std::optional<size_t> GetSceneCamera() const;
+
 	// how fast the cameras move (with w, a, s, d), in units per second: a quarter of the framed bounds' radius, so
 	// crossing them takes the same time whatever the scale of the model. any thread.
 	[[nodiscard]] float GetMoveSpeed() const noexcept { return myMoveSpeed.load(std::memory_order_relaxed); }
@@ -66,6 +78,13 @@ private:
 	glm::uvec2 myFramebufferExtent{};
 	glm::uvec2 myGrid{1, 1};
 	std::optional<size_t> myActiveCamera;
+	struct Scene
+	{
+		Bounds3f bounds;
+		std::vector<SceneCamera> cameras;
+		std::optional<size_t> current;
+	};
+	core::ConcurrentAccess<Scene> myScene;
 	static constexpr float kDefaultMoveSpeed = 5.0F; // until a model is framed
 
 	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};

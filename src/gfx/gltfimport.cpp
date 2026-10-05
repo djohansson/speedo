@@ -28,6 +28,7 @@ namespace gfx::gltf
 
 using mesh::Mesh;
 using mesh::Submesh;
+using gfx::SceneCamera;
 
 namespace detail
 {
@@ -195,6 +196,44 @@ using Matrix = std::array<float, 16>;
 			t[0], t[1], t[2], 1.0F};
 	}
 	return transforms;
+}
+
+// a camera node's camera, in world space: it looks along its node's -z, with +y up
+[[nodiscard]] SceneCamera SceneCameraOf(const cgltf_node& node, const cgltf_data& data)
+{
+	const auto& camera = *node.camera;
+
+	Matrix world{};
+	cgltf_node_transform_world(&node, world.data());
+	auto unit = [](Vec3 v) -> std::array<float, 3>
+	{
+		auto length = Length(v);
+		if (!(length > 0.0) || !IsFinite(v))
+			return {0.0F, 0.0F, 0.0F};
+		return {static_cast<float>(v[0] / length), static_cast<float>(v[1] / length), static_cast<float>(v[2] / length)};
+	};
+
+	SceneCamera result{
+		.name = camera.name != nullptr ? camera.name
+				: node.name != nullptr ? node.name
+									   : std::format("camera {}", &camera - data.cameras),
+		.position = {world[12], world[13], world[14]},
+		.forward = unit({-world[8], -world[9], -world[10]}),
+		.up = unit({world[4], world[5], world[6]})};
+	if (camera.type == cgltf_camera_type_orthographic)
+	{
+		result.orthographic = true;
+		result.ymag = camera.data.orthographic.ymag;
+		result.znear = camera.data.orthographic.znear;
+		result.zfar = camera.data.orthographic.zfar;
+	}
+	else
+	{
+		result.yfov = camera.data.perspective.yfov;
+		result.znear = camera.data.perspective.znear;
+		result.zfar = camera.data.perspective.has_zfar != 0 ? camera.data.perspective.zfar : 0.0F;
+	}
+	return result;
 }
 
 // by the upper 3x3 only, for directions such as tangents
@@ -1012,6 +1051,9 @@ std::expected<Mesh, std::string> Import(
 				continue;
 			for (auto childIt = node->children_count; childIt > 0; childIt--)
 				stack.push_back(node->children[childIt - 1]);
+
+			if (node->camera != nullptr)
+				mesh.cameras.push_back(SceneCameraOf(*node, data));
 
 			if (node->mesh == nullptr)
 				continue;

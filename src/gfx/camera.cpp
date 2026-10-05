@@ -20,7 +20,8 @@ void Camera::UpdateProjectionMatrix()
 {
 	switch (myDesc.viewport.type)
 	{
-	case ViewType::Perspective: {
+	case ViewType::Perspective:
+	case ViewType::Orthographic: {
 		static const glm::mat4 kClip{
 			1.0F,
 			0.0F,
@@ -38,11 +39,19 @@ void Camera::UpdateProjectionMatrix()
 			0.0F,
 			0.5F,
 			1.0F};
-		constexpr auto kFov = 75.0F;
 		auto aspect =
 			static_cast<float>(myDesc.viewport.width) / static_cast<float>(myDesc.viewport.height);
-		myProjectionMatrix =
-			kClip * glm::perspective(glm::radians(kFov), aspect, myDesc.nearPlane, myDesc.farPlane);
+		if (myDesc.viewport.type == ViewType::Perspective)
+		{
+			myProjectionMatrix = kClip * glm::perspective(myDesc.fovY, aspect, myDesc.nearPlane, myDesc.farPlane);
+		}
+		else
+		{
+			auto halfHeight = myDesc.orthoHalfHeight;
+			auto halfWidth = halfHeight * aspect;
+			myProjectionMatrix =
+				kClip * glm::ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, myDesc.nearPlane, myDesc.farPlane);
+		}
 	}
 	break;
 	default:

@@ -88,6 +88,8 @@ void Views::FrameBounds(const Bounds3f& bounds)
 			auto& desc = camera.GetDesc();
 			desc.position = -eye;
 			desc.cameraRotation = glm::vec3(0.0F);
+			desc.viewport.type = ViewType::Perspective;
+			desc.fovY = CameraCreateDesc{}.fovY;
 			desc.farPlane = 4.0F * radius;
 			desc.nearPlane = desc.farPlane * 1e-4F;
 			camera.UpdateAll();
@@ -98,6 +100,86 @@ void Views::FrameBounds(const Bounds3f& bounds)
 
 	// the views are otherwise only uploaded when the input changes them
 	UpdateBuffers();
+}
+
+void Views::SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras)
+{
+	bool hasCameras = !cameras.empty();
+	{
+		auto scene = myScene.Write();
+		scene.Get() = Scene{.bounds = bounds, .cameras = std::move(cameras)};
+	}
+	UseSceneCamera(hasCameras ? std::optional<size_t>(0) : std::nullopt);
+}
+
+void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
+{
+	ZoneScopedN("Views::UseSceneCamera");
+
+	Bounds3f bounds;
+	std::optional<SceneCamera> sceneCamera;
+	{
+		auto scene = myScene.Write();
+		if (cameraIndex && *cameraIndex >= scene.Get().cameras.size())
+			cameraIndex.reset();
+		scene.Get().current = cameraIndex;
+		bounds = scene.Get().bounds;
+		if (cameraIndex)
+			sceneCamera = scene.Get().cameras[*cameraIndex];
+	}
+
+	if (!sceneCamera)
+	{
+		FrameBounds(bounds);
+		return;
+	}
+
+	// the views' cameras turn by pitch (about x) and then yaw (about y), looking down -z: forward is
+	// (cos(pitch) sin(yaw), -sin(pitch), -cos(pitch) cos(yaw))
+	auto eye = glm::vec3(sceneCamera->position[0], sceneCamera->position[1], sceneCamera->position[2]);
+	auto forward = glm::vec3(sceneCamera->forward[0], sceneCamera->forward[1], sceneCamera->forward[2]);
+	auto pitch = std::asin(std::clamp(-forward.y, -1.0F, 1.0F));
+	auto yaw = std::atan2(forward.x, -forward.z);
+
+	// a far plane the file leaves out (an infinite perspective) takes in all of the bounds
+	auto radius = std::max(bounds.Radius(), 1e-3F);
+	auto farPlane = sceneCamera->zfar > 0.0F ? sceneCamera->zfar : 2.0F * (glm::distance(eye, bounds.Center()) + radius);
+	auto nearPlane = sceneCamera->znear > 0.0F ? sceneCamera->znear : farPlane * 1e-4F;
+
+	{
+		auto cameras = myCameras.Write();
+		for (auto& camera : cameras.Get())
+		{
+			auto& desc = camera.GetDesc();
+			desc.position = -eye;
+			desc.cameraRotation = glm::vec3(pitch, yaw, 0.0F);
+			desc.viewport.type = sceneCamera->orthographic ? ViewType::Orthographic : ViewType::Perspective;
+			desc.fovY = sceneCamera->yfov > 0.0F ? sceneCamera->yfov : CameraCreateDesc{}.fovY;
+			desc.orthoHalfHeight = sceneCamera->ymag > 0.0F ? sceneCamera->ymag : 1.0F;
+			desc.nearPlane = nearPlane;
+			desc.farPlane = farPlane;
+			camera.UpdateAll();
+		}
+	}
+
+	SetMoveSpeed(0.25F * radius);
+
+	UpdateBuffers();
+}
+
+std::vector<std::string> Views::GetSceneCameraNames() const
+{
+	auto scene = myScene.Read();
+	std::vector<std::string> names;
+	names.reserve(scene.Get().cameras.size());
+	for (const auto& camera : scene.Get().cameras)
+		names.push_back(camera.name);
+	return names;
+}
+
+std::optional<size_t> Views::GetSceneCamera() const
+{
+	return myScene.Read().Get().current;
 }
 
 void Views::SetMoveSpeed(float speed) noexcept

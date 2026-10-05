@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/bounds.h>
+#include <gfx/scenecamera.h>
 #include <gfx/textureref.h>
 #include <gfx/shaders/capi.h>
 
@@ -101,6 +102,7 @@ struct Mesh
 	// (gltf EXT_mesh_gpu_instancing) use: their vertices are in world space. instanced ones keep their vertices in their
 	// node's space, and have a range of their own (the node's transform times each instance's).
 	std::vector<Transform> instances{kIdentityTransform};
+	std::vector<SceneCamera> cameras; // gltf: the cameras of the scene's nodes, in the order they are visited
 	std::vector<Material> materials;
 	Bounds3f bounds; // of the vertices, in world space (each instanced submesh's at each of its instances)
 	bool hasNormals = false; // in the file, for at least one vertex. missing ones are generated (see Stats)

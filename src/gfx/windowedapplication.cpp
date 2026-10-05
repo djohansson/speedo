@@ -684,7 +684,7 @@ static void InstallModel(
 
 		RetireAfterGraphicsWork(graphics, std::exchange(gModel, model));
 
-		App().GetViews().FrameBounds(model->GetDesc().bounds);
+		App().GetViews().SetScene(model->GetDesc().bounds, model->GetDesc().cameras);
 	});
 }
 
@@ -1669,6 +1669,29 @@ void WindowedApplication::PrepareDraw()
 						});
 					rhi.drawCalls.enqueue(resizeTask);
 				}
+			}
+			if (BeginMenu("Camera"))
+			{
+				// the installed model's cameras (see Views::SetScene), applied on the draw thread
+				auto useCamera = [this, &rhi](std::optional<size_t> camera)
+				{
+					auto [task, future] = core::CreateTask([this, camera] { myViews->UseSceneCamera(camera); });
+					rhi.drawCalls.enqueue(task);
+				};
+				auto current = myViews->GetSceneCamera();
+				if (MenuItem("Frame model", nullptr, !current.has_value()))
+					useCamera(std::nullopt);
+				auto names = myViews->GetSceneCameraNames();
+				if (!names.empty())
+					Separator();
+				for (size_t cameraIt = 0; cameraIt < names.size(); cameraIt++)
+				{
+					PushID(static_cast<int>(cameraIt));
+					if (MenuItem(names[cameraIt].c_str(), nullptr, current == cameraIt))
+						useCamera(cameraIt);
+					PopID();
+				}
+				ImGui::EndMenu();
 			}
 			MenuItem("FPS", nullptr, &gShowFps);
 			MenuItem("TPS", nullptr, &gShowTps);

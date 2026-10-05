@@ -9,7 +9,8 @@ namespace gfx
 
 enum class ViewType : uint8_t
 {
-	Perspective
+	Perspective,
+	Orthographic,
 };
 
 struct ViewportCreateDesc
@@ -30,6 +31,8 @@ struct CameraCreateDesc
 	ViewportCreateDesc viewport{};
 	float nearPlane = 0.01f;
 	float farPlane = 100.0f;
+	float fovY = 1.3089969f; // perspective: the vertical field of view, in radians (75 degrees)
+	float orthoHalfHeight = 1.0f; // orthographic: half the view's height, its width follows the aspect ratio
 };
 
 enum FrustumPlane

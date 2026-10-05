@@ -211,6 +211,7 @@ struct Staged
 		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
 		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
 		desc.instances = mesh->instances;
+		desc.cameras = mesh->cameras;
 		for (const auto& submesh : mesh->submeshes)
 		{
 			auto& modelSubmesh = desc.submeshes.emplace_back(ModelSubmesh{
@@ -288,8 +289,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v11", kCgltfVersion));
-	params.append("|cache-v16"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v12", kCgltfVersion));
+	params.append("|cache-v17"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
