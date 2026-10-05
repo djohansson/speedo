@@ -23,6 +23,7 @@ struct InputState
 		glm::vec2 leftLastPressPosition;
 		glm::vec2 rightLastPressPosition;
 		glm::vec2 middleLastPressPosition;
+		glm::vec2 scroll; // wheel (or trackpad) scrolling since the last tick: y is up (+) and down (-)
 		uint8_t insideWindow : 1;
 		uint8_t leftDown : 1;
 		uint8_t rightDown : 1;

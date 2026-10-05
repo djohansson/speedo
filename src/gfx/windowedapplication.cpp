@@ -1225,6 +1225,37 @@ void WindowedApplication::PrepareDraw()
 		End();
 	}
 
+	// the move speed for a moment after it changes (with the mouse wheel, or a newly framed model), at the bottom
+	{
+		using namespace std::chrono_literals;
+		static float gShownMoveSpeed = myViews->GetMoveSpeed();
+		static auto gMoveSpeedChanged = std::chrono::steady_clock::time_point{};
+		auto now = std::chrono::steady_clock::now();
+		if (auto moveSpeed = myViews->GetMoveSpeed(); moveSpeed != gShownMoveSpeed)
+		{
+			gShownMoveSpeed = moveSpeed;
+			gMoveSpeedChanged = now;
+		}
+		if (now - gMoveSpeedChanged < 1500ms)
+		{
+			constexpr float kOverlayPadding = 10.0F;
+			constexpr float kOverlayBgAlpha = 0.35F;
+			const auto* viewport = GetMainViewport();
+			SetNextWindowPos(
+				ImVec2(viewport->WorkPos.x + (0.5F * viewport->WorkSize.x), viewport->WorkPos.y + viewport->WorkSize.y - kOverlayPadding),
+				ImGuiCond_Always,
+				ImVec2(0.5F, 1.0F));
+			SetNextWindowBgAlpha(kOverlayBgAlpha);
+			if (Begin(
+					"Move speed",
+					nullptr,
+					ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+						ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
+				Text("Move speed: %.3g units/s", gShownMoveSpeed);
+			End();
+		}
+	}
+
 	// one row per load in progress
 	if (bool loading = !gLoads.Empty() &&
 				 Begin(
@@ -1406,6 +1437,28 @@ void WindowedApplication::PrepareDraw()
 			}
 			MenuItem("FPS", nullptr, &gShowFps);
 			MenuItem("TPS", nullptr, &gShowTps);
+			Separator();
+			{
+				// logarithmic: model scales span many orders of magnitude (see Views::FrameBounds). a drag box rather than a
+				// slider: a double-click (or Ctrl/Cmd+click) types a number into it, which a slider only does on
+				// Ctrl/Cmd+click. its speed is in the logarithmic range's terms: about 1% faster or slower per pixel.
+				constexpr float kMinMoveSpeed = 1e-4F;
+				constexpr float kMaxMoveSpeed = 1e6F;
+				constexpr float kDragPixelsAcrossRange = 1000.0F;
+				float moveSpeed = myViews->GetMoveSpeed();
+				if (DragFloat(
+						"Move speed",
+						&moveSpeed,
+						(kMaxMoveSpeed - kMinMoveSpeed) / kDragPixelsAcrossRange,
+						kMinMoveSpeed,
+						kMaxMoveSpeed,
+						"%.3g units/s",
+						ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+					myViews->SetMoveSpeed(moveSpeed);
+				SetItemTooltip(
+					"Drag to change, or double-click to type a speed.\n"
+					"w, a, s, d move the camera under the mouse, and the mouse wheel changes the speed.");
+			}
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))

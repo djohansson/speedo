@@ -7,6 +7,7 @@
 #include <core/concurrentaccess.h>
 #include <core/inputstate.h>
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -38,13 +39,18 @@ public:
 	void OnResizeFramebuffer(glm::uvec2 framebufferExtent);
 	// changes the grid. call on the draw thread.
 	void OnResizeGrid(glm::uvec2 grid);
-	// moves the active view's camera (the one under the mouse, or being dragged) by the input. the views then need
-	// uploading (see UpdateBuffers).
+	// moves the active view's camera (the one under the mouse, or being dragged) by the input, and scales the movement
+	// speed with the scroll wheel. the views then need uploading (see UpdateBuffers).
 	void OnInputStateChanged(const core::InputState& input);
 
-	// moves every camera back from bounds (looking down -z) until all of it is in view, and fits the near and far
-	// planes to its size. call on the draw thread.
+	// moves every camera back from bounds (looking down -z) until all of it is in view, fits the near and far planes to
+	// its size, and sets the movement speed after it (see GetMoveSpeed). call on the draw thread.
 	void FrameBounds(const Bounds3f& bounds);
+
+	// how fast the cameras move (with w, a, s, d), in units per second: a quarter of the framed bounds' radius, so
+	// crossing them takes the same time whatever the scale of the model. any thread.
+	[[nodiscard]] float GetMoveSpeed() const noexcept { return myMoveSpeed.load(std::memory_order_relaxed); }
+	void SetMoveSpeed(float speed) noexcept;
 
 	// uploads the views' view projections. call on the draw thread.
 	void UpdateBuffers();
@@ -57,6 +63,9 @@ private:
 	glm::uvec2 myFramebufferExtent{};
 	glm::uvec2 myGrid{1, 1};
 	std::optional<size_t> myActiveCamera;
+	static constexpr float kDefaultMoveSpeed = 5.0F; // until a model is framed
+
+	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};
 };
 
 } // namespace gfx

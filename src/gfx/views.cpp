@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <format>
 
 #include <GLFW/glfw3.h>
@@ -93,8 +94,18 @@ void Views::FrameBounds(const Bounds3f& bounds)
 		}
 	}
 
+	SetMoveSpeed(0.25F * radius);
+
 	// the views are otherwise only uploaded when the input changes them
 	UpdateBuffers();
+}
+
+void Views::SetMoveSpeed(float speed) noexcept
+{
+	// within reach of any scale, and never zero or negative (which the scroll wheel couldn't get out of)
+	constexpr float kMinSpeed = 1e-6F;
+	constexpr float kMaxSpeed = 1e9F;
+	myMoveSpeed.store(std::clamp(speed, kMinSpeed, kMaxSpeed), std::memory_order_relaxed);
 }
 
 void Views::UpdateBuffers()
@@ -122,6 +133,13 @@ void Views::UpdateBuffers()
 void Views::OnInputStateChanged(const core::InputState& input)
 {
 	ZoneScopedN("Views::OnInputStateChanged");
+
+	// each notch of the wheel up makes the cameras 20% faster, down slower. trackpads scroll in fractions of notches.
+	if (input.mouse.insideWindow && input.mouse.scroll[1] != 0.0F)
+	{
+		constexpr float kSpeedStep = 1.2F;
+		SetMoveSpeed(GetMoveSpeed() * std::pow(kSpeedStep, input.mouse.scroll[1]));
+	}
 
 	auto cameras = myCameras.Write();
 
@@ -159,9 +177,9 @@ void Views::OnInputStateChanged(const core::InputState& input)
 		auto forward = glm::vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]);
 		auto strafe = glm::vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 
-		constexpr auto kMoveSpeed = 0.000000005F;
+		constexpr auto kSecondsPerTick = 1e-9F; // input.dt is in nanoseconds
 
-		view.GetDesc().position += input.dt * (deltaZ * forward + deltaX * strafe) * kMoveSpeed;
+		view.GetDesc().position += input.dt * kSecondsPerTick * (deltaZ * forward + deltaX * strafe) * GetMoveSpeed();
 
 		doUpdateViewMatrix = true;
 	}

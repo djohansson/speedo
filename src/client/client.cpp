@@ -199,6 +199,7 @@ void Client::Tick()
 	auto& input = myInput;
 	input.dt = dt;
 	input.mouse.lastPosition = input.mouse.position;
+	input.mouse.scroll = glm::vec2(0.0F);
 	
 	unsigned eventsProcessed = 0;
 
@@ -210,6 +211,12 @@ void Client::Tick()
 			input.mouse.position[0] = static_cast<float>(mouse.xpos);
 			input.mouse.position[1] = static_cast<float>(mouse.ypos);
 			input.mouse.insideWindow = mouse.insideWindow;
+		}
+
+		if ((mouse.flags & MouseEvent::kScroll) != 0)
+		{
+			input.mouse.scroll[0] += static_cast<float>(mouse.xoffset);
+			input.mouse.scroll[1] += static_cast<float>(mouse.yoffset);
 		}
 
 		if ((mouse.flags & MouseEvent::kButton) != 0)
