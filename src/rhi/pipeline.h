@@ -158,7 +158,11 @@ public:
 
 	// "auto" api
 
-	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd); // todo: make implicit and call internally whenever relevant state changes
+	// a graphics pipeline is created per topology (and cached): it is a parameter rather than state, since the draw
+	// threads share the pipeline object
+	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(
+		CommandBufferHandle<G> cmd,
+		PrimitiveTopology topology = PrimitiveTopology::kTriangleList); // todo: make implicit and call internally whenever relevant state changes
 
 	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint bindPoint);
 
@@ -228,10 +232,10 @@ private:
 		const BindingsMap<G>& bindingsMap,
 		DescriptorUpdateTemplate<G>& setTemplate);
 
-	[[nodiscard]] uint64_t InternalCalculateHashKey() const;
-	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey);
+	[[nodiscard]] uint64_t InternalCalculateHashKey(PrimitiveTopology topology) const;
+	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey, PrimitiveTopology topology);
 	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey);
-	[[nodiscard]] PipelineHandle<G> InternalGetPipeline();
+	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(PrimitiveTopology topology);
 	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
 
 	DescriptorMapType myDescriptorMap;

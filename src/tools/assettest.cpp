@@ -74,6 +74,17 @@ constexpr std::string_view ToString(Result result)
 	return "?";
 }
 
+uint32_t IndicesPerPrimitive(rhi::PrimitiveTopology topology)
+{
+	switch (topology)
+	{
+	case rhi::PrimitiveTopology::kTriangleList: return 3;
+	case rhi::PrimitiveTopology::kLineList: return 2;
+	case rhi::PrimitiveTopology::kPointList: return 1;
+	}
+	return 3;
+}
+
 std::string Lower(std::string str)
 {
 	std::ranges::transform(str, str.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
@@ -152,18 +163,17 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	}
 
 	report.Info(
-		"{} triangles, {} vertices, {} materials, {} submeshes, normals: {}, tangents: {}, texcoords: {}, colors: {}",
-		stats.triangleCount, mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
+		"{} triangles{}, {} vertices, {} materials, {} submeshes, normals: {}, tangents: {}, texcoords: {}, colors: {}",
+		stats.triangleCount,
+		stats.lineCount + stats.pointCount > 0 ? std::format(", {} lines, {} points", stats.lineCount, stats.pointCount) : "",
+		mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
 		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
 	if (mesh->indices.empty())
 	{
-		report.Fail("no triangles");
+		report.Fail("no primitives");
 		return report;
 	}
-
-	if (mesh->indices.size() % 3 != 0)
-		report.Fail("index count {} is not a multiple of 3", mesh->indices.size());
 
 	if (auto it = std::ranges::find_if(mesh->indices, [&mesh](uint32_t index) { return index >= mesh->vertices.size(); });
 		it != mesh->indices.end())
@@ -177,7 +187,22 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		submeshIndices = submesh.firstIndex + submesh.indexCount;
 		if (submesh.material >= static_cast<int32_t>(mesh->materials.size()))
 			report.Fail("submesh material {} out of range", submesh.material);
+		if (auto size = IndicesPerPrimitive(submesh.topology); submesh.indexCount % size != 0)
+			report.Fail("submesh index count {} is not a multiple of {}", submesh.indexCount, size);
 	}
+
+	// the triangle submeshes' indices (lines and points are only checked for their indices and vertices). vertices of
+	// lines and points may have zero normals (none in the file: drawn unlit), those of triangles may not
+	std::vector<uint32_t> triangleIndices;
+	for (const auto& submesh : mesh->submeshes)
+		if (submesh.topology == rhi::PrimitiveTopology::kTriangleList && submesh.firstIndex + submesh.indexCount <= mesh->indices.size())
+			triangleIndices.insert(
+				triangleIndices.end(), mesh->indices.begin() + submesh.firstIndex,
+				mesh->indices.begin() + submesh.firstIndex + submesh.indexCount);
+	std::vector<bool> inTriangles(mesh->vertices.size(), false);
+	for (auto index : triangleIndices)
+		if (index < inTriangles.size())
+			inTriangles[index] = true;
 	if (submeshIndices != mesh->indices.size())
 		report.Fail("submeshes cover {} of {} indices", submeshIndices, mesh->indices.size());
 
@@ -185,8 +210,9 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	size_t badNormals = 0;
 	size_t badTangents = 0; // not unit length, or w not +-1 (0, no tangent, is fine)
 	size_t skewedTangents = 0; // far from perpendicular to the normal
-	for (const auto& vertex : mesh->vertices)
+	for (size_t vertexIt = 0; vertexIt < mesh->vertices.size(); vertexIt++)
 	{
+		const auto& vertex = mesh->vertices[vertexIt];
 		auto values = {
 			vertex.position[0], vertex.position[1], vertex.position[2],
 			vertex.normal[0], vertex.normal[1], vertex.normal[2],
@@ -197,7 +223,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			nonFinite++;
 
 		auto n = ToVec3(vertex.normal);
-		if (std::abs(std::sqrt((n[0] * n[0]) + (n[1] * n[1]) + (n[2] * n[2])) - 1.0) > 1e-3)
+		auto normalLength = std::sqrt((n[0] * n[0]) + (n[1] * n[1]) + (n[2] * n[2]));
+		if (std::abs(normalLength - 1.0) > 1e-3 && (inTriangles[vertexIt] || normalLength != 0.0))
 			badNormals++;
 
 		if (vertex.tangent[3] != 0.0F)
@@ -219,18 +246,18 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	if (nonFinite > 0)
 		report.Fail("{} vertices have non-finite values", nonFinite);
 	if (badNormals > 0)
-		report.Fail("{} vertices have normals that aren't unit length", badNormals);
+		report.Fail("{} vertices have normals that aren't unit length (or zero, for lines and points)", badNormals);
 
 	// what the triangles' geometric (counter-clockwise) normals say about the vertex normals and the up axis
 	std::array<double, 6> axisArea{}; // area facing +x, -x, +y, -y, +z, -z
 	double agreeing = 0.0;
 	double total = 0.0;
 	double signedVolume = 0.0; // positive if the counter-clockwise side faces out, for closed meshes
-	for (size_t i = 0; i + 2 < mesh->indices.size(); i += 3)
+	for (size_t i = 0; i + 2 < triangleIndices.size(); i += 3)
 	{
-		const auto& v0 = mesh->vertices[mesh->indices[i]];
-		const auto& v1 = mesh->vertices[mesh->indices[i + 1]];
-		const auto& v2 = mesh->vertices[mesh->indices[i + 2]];
+		const auto& v0 = mesh->vertices[triangleIndices[i]];
+		const auto& v1 = mesh->vertices[triangleIndices[i + 1]];
+		const auto& v2 = mesh->vertices[triangleIndices[i + 2]];
 		auto p0 = ToVec3(v0.position);
 		auto p1 = ToVec3(v1.position);
 		auto p2 = ToVec3(v2.position);

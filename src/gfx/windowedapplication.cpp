@@ -1118,8 +1118,16 @@ static void DrawMainPass(
 							ZoneScopedN("drawModel");
 
 							const auto& materials = model.GetDesc().materials;
+							// bindState bound the triangle list pipeline. lines and points have pipelines of their own
+							auto topology = PrimitiveTopology::kTriangleList;
 							for (const auto& submesh : model.GetDesc().submeshes)
 							{
+								if (submesh.topology != topology)
+								{
+									topology = submesh.topology;
+									pipeline.BindPipelineAuto(cmd, topology);
+								}
+
 								// double sided materials' back faces are drawn too (the cull mode is dynamic state)
 								bool doubleSided = submesh.material >= 0 && materials[submesh.material].doubleSided;
 								encoder.SetCullMode(doubleSided ? CullMode::kNone : CullMode::kBack);
@@ -1131,6 +1139,8 @@ static void DrawMainPass(
 
 								encoder.DrawIndexed(submesh.indexCount, 1, submesh.firstIndex);
 							}
+							if (topology != PrimitiveTopology::kTriangleList)
+								pipeline.BindPipelineAuto(cmd);
 						};
 
 						drawModel(cmd);

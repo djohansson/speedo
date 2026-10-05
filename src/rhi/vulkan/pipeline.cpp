@@ -293,7 +293,7 @@ PipelineLayout<kVk>::~PipelineLayout()
 }
 
 template <>
-uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
+uint64_t Pipeline<kVk>::InternalCalculateHashKey(PrimitiveTopology topology) const
 {
 	ZoneScopedN("Pipeline::InternalCalculateHashKey");
 
@@ -312,6 +312,12 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey() const
 	result = XXH3_64bits_update(gThreadXxhState.get(), &layoutHandle, sizeof(layoutHandle));
 	//result = XXH3_64bits_update(gThreadXxhState.get(), &(*layoutIt), sizeof(*layoutIt));
 	ENSURE(result != XXH_ERROR);
+
+	if (myBindPoint == PipelineBindPoint::kGraphics)
+	{
+		result = XXH3_64bits_update(gThreadXxhState.get(), &topology, sizeof(topology));
+		ENSURE(result != XXH_ERROR);
+	}
 
 	// todo: hash more releveant state for the current bind point... framebuffer, model, etc.
 
@@ -508,7 +514,7 @@ void Pipeline<kVk>::InternalResetDescriptorPool()
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashKey)
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashKey, PrimitiveTopology topology)
 {
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
@@ -522,7 +528,9 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
 	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
 	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
-	pipelineInfo.pInputAssemblyState = &myGraphicsState.inputAssembly;
+	auto inputAssembly = myGraphicsState.inputAssembly;
+	inputAssembly.topology = vk::ToVk(topology);
+	pipelineInfo.pInputAssemblyState = &inputAssembly;
 	pipelineInfo.pViewportState = &myGraphicsState.viewport;
 	pipelineInfo.pRasterizationState = &myGraphicsState.rasterization;
 	pipelineInfo.pMultisampleState = &myGraphicsState.multisample;
@@ -582,12 +590,12 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
+PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(PrimitiveTopology topology)
 {
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
 	auto [keyValIt, insertResult] =
-		myPipelineMap.insert({InternalCalculateHashKey(), PipelineHandle<kVk>{}});
+		myPipelineMap.insert({InternalCalculateHashKey(topology), PipelineHandle<kVk>{}});
 	auto& [key, pipelineHandle] = *keyValIt;
 	auto pipelineHandleAtomic = std::atomic_ref(pipelineHandle);
 
@@ -598,7 +606,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline()
 		switch (myBindPoint)
 		{
 		case PipelineBindPoint::kGraphics:
-			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key), std::memory_order_release);
+			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key, topology), std::memory_order_release);
 			break;
 		case PipelineBindPoint::kCompute:
 			pipelineHandleAtomic.store(InternalCreateComputePipeline(key), std::memory_order_release);
@@ -629,9 +637,9 @@ void Pipeline<kVk>::BindPipeline(
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd)
+PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd, PrimitiveTopology topology)
 {
-	auto* handle = InternalGetPipeline();
+	auto* handle = InternalGetPipeline(topology);
 
 	BindPipeline(cmd, myBindPoint, handle);
 	

@@ -49,6 +49,14 @@ struct VertexOutput : IInterpolants
 	float4 hPos : SV_Position;
 };
 
+// VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)
+struct VertexMainOutput
+{
+	VertexOutput varyings;
+	// points are a pixel (vulkan needs the size written for point lists)
+	float pointSize : SV_PointSize;
+};
+
 struct FragmentOutput
 {
 	float4 color : SV_Target;
@@ -104,7 +112,7 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 }
 
 [shader("vertex")]
-VertexOutput VertexMain(InputStream input)
+VertexMainOutput VertexMain(InputStream input)
 {
 	VertexOutput output;
 
@@ -131,7 +139,7 @@ VertexOutput VertexMain(InputStream input)
 	output.vertex.texCoord01 = v.texCoord01;
 	output.vertex.color = v.color;
 
-	return output;
+	return { output, 1.0 };
 }
 
 // the tangent frame at a pixel, from the screen space derivatives of its position and texcoords (Christian Schüler,
@@ -223,8 +231,11 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	// a back face (only drawn for double sided materials) is lit as seen from behind, as gltf defines it: its normal,
 	// normal mapped or not, is reversed
 	float faceSign = isFrontFace ? 1.0 : -1.0;
-	float3 normal = normalize(v.normal);
-	if ((material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
+	// lines and points without normals (zero ones, see mesh::Submesh::topology) are unlit: gltf draws them in their base
+	// color plus emissive
+	bool unlit = dot(v.normal, v.normal) == 0.0;
+	float3 normal = unlit ? float3(0.0, 0.0, 1.0) : normalize(v.normal);
+	if (!unlit && (material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
 	{
 		// the tangent frame follows the normal map's own (transformed) texcoords
 		TextureView normalView = gTextureViews[material.normalView];
@@ -260,7 +271,8 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	if ((material.flags & MATERIAL_FLAG_OCCLUSION_TEXTURE) != 0u)
 		occlusion = lerp(1.0, SampleView(material.occlusionView, v.texCoord01).r, material.emissive.w);
 
-	output.color = float4(color.rgb * (0.3 * occlusion + 0.7 * diffuse) + emissive, color.a);
+	float lighting = unlit ? 1.0 : 0.3 * occlusion + 0.7 * diffuse;
+	output.color = float4(color.rgb * lighting + emissive, color.a);
 
 	return output;
 }

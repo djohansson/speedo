@@ -45,20 +45,25 @@ struct Material
 	bool doubleSided = false;
 };
 
-// the indices of one material, contiguous in Mesh::indices
+// the indices of one material and topology, contiguous in Mesh::indices
 struct Submesh
 {
 	uint32_t firstIndex = 0;
 	uint32_t indexCount = 0;
 	int32_t material = -1; // index into Mesh::materials, or -1 for none
+	// triangles, lines (pairs of indices) or points. lines and points without normals in the file keep zero normals,
+	// which the shader draws unlit (gltf: base color plus emissive)
+	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList;
 };
 
 // what the import found in the file, and what it had to repair
 struct Stats
 {
 	size_t triangleCount = 0;
+	size_t lineCount = 0; // gltf lines, line strips and loops, as line segments
+	size_t pointCount = 0;
 	size_t degenerateTriangles = 0; // zero area, kept
-	size_t droppedTriangles = 0; // referencing vertex data that doesn't exist
+	size_t droppedTriangles = 0; // referencing vertex data that doesn't exist (and lines and points that do)
 	size_t generatedNormals = 0; // vertices without a normal in the file, computed from the faces around them
 	size_t repairedNormals = 0; // zero length or non-finite normals in the file, replaced by the face normal
 	size_t invalidTangents = 0; // zero length or non-finite tangents in the file (or w = 0), left for the shader to derive

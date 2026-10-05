@@ -252,7 +252,13 @@ Assets outside `RootPath` are cached under `<user profile>/external/<absolute pa
 
 glTF: the default scene is flattened into one mesh with the node transforms applied (a mirroring one reverses the
 winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). `EXT_mesh_gpu_instancing`
-is flattened too: a copy per instance, at the node's transform times the instance's (translation * rotation * scale). Double sided materials
+is flattened too: a copy per instance, at the node's transform times the instance's (translation * rotation * scale).
+Points and lines (strips and loops become line lists) are submeshes of their own (`ModelSubmesh::topology`), drawn
+with a pipeline per topology: `Pipeline::BindPipelineAuto(cmd, topology)` takes it as a parameter, part of the pipeline
+cache key, rather than as state, since the draw threads share the pipeline. Without normals in the file they keep zero
+normals, which the fragment shader draws unlit (base color plus emissive, as gltf says). `VertexMain` writes the point
+size (Vulkan needs it for point lists) in a struct of its own (`VertexMainOutput`): slang refuses `SV_PointSize` as a
+fragment input. Double sided materials
 (`ModelMaterial::doubleSided`) are drawn with culling off, set per submesh with `CommandEncoder::SetCullMode` (dynamic
 cull mode, `VK_EXT_extended_dynamic_state`, a required device extension), and the fragment shader flips the normal of
 back faces (`SV_IsFrontFace`). The renderer has no blending, so alpha modes become

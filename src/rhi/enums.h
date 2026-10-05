@@ -170,6 +170,14 @@ enum class Access : uint8_t
 };
 RHI_FLAGS(Access)
 
+// what the indices of a draw form
+enum class PrimitiveTopology : uint8_t
+{
+	kTriangleList,
+	kLineList,
+	kPointList,
+};
+
 // which faces rasterization discards: front faces are counter-clockwise
 enum class CullMode : uint8_t
 {

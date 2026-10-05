@@ -503,6 +503,7 @@ private:
 struct Part
 {
 	int32_t material = -1;
+	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList;
 	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<uint32_t> indices;
 };
@@ -630,13 +631,20 @@ std::expected<Mesh, std::string> Import(
 	// weights: the morph target weights (the node's, else the mesh's defaults), see the deltas below
 	auto addPrimitive = [&](const cgltf_primitive& primitive, const Matrix& world, std::span<const cgltf_float> weights, std::string_view meshName) -> void
 	{
-		if (primitive.type != cgltf_primitive_type_triangles && primitive.type != cgltf_primitive_type_triangle_strip &&
-			primitive.type != cgltf_primitive_type_triangle_fan)
+		rhi::PrimitiveTopology topology{};
+		switch (primitive.type)
 		{
+		case cgltf_primitive_type_triangles:
+		case cgltf_primitive_type_triangle_strip:
+		case cgltf_primitive_type_triangle_fan: topology = rhi::PrimitiveTopology::kTriangleList; break;
+		case cgltf_primitive_type_lines:
+		case cgltf_primitive_type_line_strip:
+		case cgltf_primitive_type_line_loop: topology = rhi::PrimitiveTopology::kLineList; break;
+		case cgltf_primitive_type_points: topology = rhi::PrimitiveTopology::kPointList; break;
+		default:
 			skippedPrimitives++;
 			return;
 		}
-
 
 		const cgltf_accessor* positions = nullptr;
 		const cgltf_accessor* normals = nullptr;
@@ -746,7 +754,7 @@ std::expected<Mesh, std::string> Import(
 		mesh.hasTexCoords |= texCoordValues[0].has_value() || texCoordValues[1].has_value();
 		mesh.hasColors |= colorValues.has_value();
 
-		// the triangle list, in the primitive's vertices
+		// the primitive's elements, in its vertices
 		std::vector<uint32_t> elements;
 		if (primitive.indices != nullptr)
 		{
@@ -766,6 +774,7 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		std::vector<std::array<uint32_t, 3>> triangles;
+		std::vector<uint32_t> linesOrPoints; // a line list (pairs), or points
 		switch (primitive.type)
 		{
 		case cgltf_primitive_type_triangles:
@@ -781,6 +790,18 @@ std::expected<Mesh, std::string> Import(
 			for (size_t i = 1; i + 1 < elements.size(); i++)
 				triangles.push_back({elements[0], elements[i], elements[i + 1]});
 			break;
+		case cgltf_primitive_type_lines:
+			for (size_t i = 0; i + 1 < elements.size(); i += 2)
+				linesOrPoints.insert(linesOrPoints.end(), {elements[i], elements[i + 1]});
+			break;
+		case cgltf_primitive_type_line_strip:
+		case cgltf_primitive_type_line_loop:
+			for (size_t i = 0; i + 1 < elements.size(); i++)
+				linesOrPoints.insert(linesOrPoints.end(), {elements[i], elements[i + 1]});
+			if (primitive.type == cgltf_primitive_type_line_loop && elements.size() > 2)
+				linesOrPoints.insert(linesOrPoints.end(), {elements.back(), elements.front()});
+			break;
+		case cgltf_primitive_type_points: linesOrPoints = std::move(elements); break;
 		default: break;
 		}
 
@@ -792,7 +813,7 @@ std::expected<Mesh, std::string> Import(
 		if (mirrored)
 			std::ranges::transform(normalMatrix, normalMatrix.begin(), [](double v) { return -v; });
 
-		auto& part = parts.emplace_back(Part{.material = material});
+		auto& part = parts.emplace_back(Part{.material = material, .topology = topology});
 
 		// the vertices in world space, before normals are generated or repaired
 		std::vector<VertexP3fN3fTa4fT014fC4f> vertices(vertexCount);
@@ -863,6 +884,25 @@ std::expected<Mesh, std::string> Import(
 					color[i] = (*colorValues)[(colorComponents * vertexIt) + i];
 			for (size_t i = 0; i < 4; i++)
 				vertex.color[i] = color[i] * factor[i];
+		}
+
+		// lines and points: as they are. without normals in the file they keep zero normals, and are drawn unlit
+		if (topology != rhi::PrimitiveTopology::kTriangleList)
+		{
+			size_t size = topology == rhi::PrimitiveTopology::kLineList ? 2 : 1;
+			for (size_t i = 0; i + size <= linesOrPoints.size(); i += size)
+			{
+				auto element = std::span(linesOrPoints).subspan(i, size);
+				if (std::ranges::any_of(element, [vertexCount](uint32_t index) { return index >= vertexCount; }))
+				{
+					stats.droppedTriangles++;
+					continue;
+				}
+				part.indices.insert(part.indices.end(), element.begin(), element.end());
+				(size == 2 ? stats.lineCount : stats.pointCount)++;
+			}
+			part.vertices = std::move(vertices);
+			return;
 		}
 
 		auto faceNormalOf = [&vertices](const std::array<uint32_t, 3>& t)
@@ -1009,13 +1049,13 @@ std::expected<Mesh, std::string> Import(
 	}
 
 	if (skippedPrimitives > 0)
-		warn("{} primitives skipped (points, lines, or unreadable data)", skippedPrimitives);
+		warn("{} primitives skipped (unreadable data)", skippedPrimitives);
 	if (data.animations_count > 0)
 		warn("{} animations are ignored", data.animations_count);
 	if (normalArea > 0.0)
 		stats.windingAgreement = agreeingArea / normalArea;
 
-	// the parts in material order (-1 last), one submesh per material
+	// the parts in material order (-1 last), then by topology: one submesh per material and topology
 	{
 		ZoneScopedN("gltf::Import::merge");
 
@@ -1030,7 +1070,7 @@ std::expected<Mesh, std::string> Import(
 		mesh.indices.reserve(indexTotal);
 
 		auto bucketOf = [&mesh](int32_t material) { return material >= 0 ? static_cast<size_t>(material) : mesh.materials.size(); };
-		std::ranges::stable_sort(parts, {}, [&bucketOf](const Part& part) { return bucketOf(part.material); });
+		std::ranges::stable_sort(parts, {}, [&bucketOf](const Part& part) { return std::pair(bucketOf(part.material), part.topology); });
 
 		bool firstVertex = true;
 		for (auto& part : parts)
@@ -1038,9 +1078,13 @@ std::expected<Mesh, std::string> Import(
 			if (part.indices.empty())
 				continue;
 
-			if (mesh.submeshes.empty() || mesh.submeshes.back().material != part.material)
+			if (mesh.submeshes.empty() || mesh.submeshes.back().material != part.material ||
+				mesh.submeshes.back().topology != part.topology)
 				mesh.submeshes.push_back(Submesh{
-					.firstIndex = static_cast<uint32_t>(mesh.indices.size()), .indexCount = 0, .material = part.material});
+					.firstIndex = static_cast<uint32_t>(mesh.indices.size()),
+					.indexCount = 0,
+					.material = part.material,
+					.topology = part.topology});
 
 			auto vertexOffset = static_cast<uint32_t>(mesh.vertices.size());
 			for (auto index : part.indices)

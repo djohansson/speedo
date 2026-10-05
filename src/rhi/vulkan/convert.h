@@ -343,6 +343,17 @@ namespace rhi::vk
 	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
+[[nodiscard]] constexpr VkPrimitiveTopology ToVk(PrimitiveTopology topology) noexcept
+{
+	switch (topology)
+	{
+	case PrimitiveTopology::kTriangleList: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	case PrimitiveTopology::kLineList: return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+	case PrimitiveTopology::kPointList: return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+	}
+	return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+}
+
 [[nodiscard]] constexpr VkCullModeFlags ToVk(CullMode mode) noexcept
 {
 	switch (mode)

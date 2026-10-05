@@ -17,12 +17,13 @@
 namespace gfx
 {
 
-// the indices drawn with one material, contiguous in the index buffer
+// the indices drawn with one material and topology, contiguous in the index buffer
 struct ModelSubmesh
 {
 	uint32_t firstIndex = 0;
 	uint32_t indexCount = 0;
 	int32_t material = -1; // index into ModelDesc::materials, or -1 for none
+	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList; // see mesh::Submesh::topology
 };
 
 // textures are empty (see TextureRef) if the material has none
@@ -47,7 +48,7 @@ struct ModelDesc
 {
 	std::string name;
 	Bounds3f bounds;
-	uint32_t indexCount = 0; // uint32_t indices, a triangle list
+	uint32_t indexCount = 0; // uint32_t indices: triangle, line or point lists (see ModelSubmesh::topology)
 	uint32_t vertexCount = 0; // VertexP3fN3fTa4fT014fC4f vertices (see gfx/shaders/capi.h)
 	std::vector<ModelSubmesh> submeshes;
 	std::vector<ModelMaterial> materials;
