@@ -202,6 +202,69 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 		}
 	}
 
+	// stray vertices: far away from the rest, which a broken export leaves (spikes, and bounds, and so a camera framing,
+	// far larger than the model). measured from the median point, which they don't drag along as they do the bounds.
+	if (!mesh->vertices.empty())
+	{
+		auto medianOf = [](std::vector<double>& values)
+		{
+			auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2);
+			std::ranges::nth_element(values, middle);
+			return *middle;
+		};
+		Vec3 median{};
+		std::vector<double> values(mesh->vertices.size());
+		for (size_t axis = 0; axis < 3; axis++)
+		{
+			std::ranges::transform(mesh->vertices, values.begin(), [axis](const auto& vertex) { return static_cast<double>(vertex.position[axis]); });
+			median[axis] = medianOf(values);
+		}
+		std::ranges::transform(mesh->vertices, values.begin(), [&median](const auto& vertex)
+		{
+			Vec3 d{vertex.position[0] - median[0], vertex.position[1] - median[1], vertex.position[2] - median[2]};
+			return std::sqrt((d[0] * d[0]) + (d[1] * d[1]) + (d[2] * d[2]));
+		});
+		auto distances = values;
+		auto medianDistance = medianOf(values);
+		constexpr double kStrayFactor = 100.0; // large ground planes and backdrops reach about 20 (mori_knob)
+		auto stray = std::ranges::count_if(distances, [medianDistance](double d) { return d > kStrayFactor * medianDistance; });
+		if (medianDistance > 0.0 && stray > 0)
+			report.Warn(
+				"{} vertices are more than {:.0f} times as far from the median point as the median vertex (stray vertices?)",
+				stray, kStrayFactor);
+	}
+
+	// stray vertices: far away from the rest, which a broken export leaves (spikes, and bounds, and so a camera framing,
+	// far larger than the model). measured from the median point, which they don't drag along as they do the bounds.
+	if (!mesh->vertices.empty())
+	{
+		auto medianOf = [](std::vector<double> values)
+		{
+			auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2);
+			std::ranges::nth_element(values, middle);
+			return *middle;
+		};
+		Vec3 median{};
+		std::vector<double> values(mesh->vertices.size());
+		for (size_t axis = 0; axis < 3; axis++)
+		{
+			std::ranges::transform(mesh->vertices, values.begin(), [axis](const auto& vertex) { return static_cast<double>(vertex.position[axis]); });
+			median[axis] = medianOf(values);
+		}
+		std::ranges::transform(mesh->vertices, values.begin(), [&median](const auto& vertex)
+		{
+			Vec3 d{vertex.position[0] - median[0], vertex.position[1] - median[1], vertex.position[2] - median[2]};
+			return std::sqrt((d[0] * d[0]) + (d[1] * d[1]) + (d[2] * d[2]));
+		});
+		auto medianDistance = medianOf(values);
+		constexpr double kStrayFactor = 100.0; // large ground planes and backdrops reach about 20 (mori_knob)
+		auto stray = std::ranges::count_if(values, [medianDistance](double d) { return d > kStrayFactor * medianDistance; });
+		if (medianDistance > 0.0 && stray > 0)
+			report.Warn(
+				"{} vertices are more than {:.0f} times as far from the median point as the median vertex (stray vertices?)",
+				stray, kStrayFactor);
+	}
+
 	auto size = mesh->bounds.Size();
 	if (auto boundsVolume = static_cast<double>(size.x) * size.y * size.z; boundsVolume > 0.0)
 		report.Info("signed volume {:.3g} of bounds", signedVolume / boundsVolume);

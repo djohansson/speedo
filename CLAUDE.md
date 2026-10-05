@@ -307,7 +307,17 @@ sha256: a changed file is kept as `.unverified` and reported until the manifest 
 Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its
-(consistent) winding on a quarter of its area, and Bistro and bmw have normals that get replaced.
+(consistent) winding on a quarter of its area, Bistro and bmw have normals that get replaced, and
+`geodesic_dual_classIII_20_10.obj` has 1419 stray vertices (at radius 1140, the others at 1), which `assettest`'s stray
+vertex check (more than 100 times the median distance from the median point; ground planes reach about 20) finds.
+
+Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere's tessellations and texture mappings,
+the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a
+scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
+same size and centered in its cell (each file still through its own cache entry, merged as staging data before the one
+upload). Autoloading a zip loads all of its models that way, "Open Zip..." offers it next to choosing one, and
+`assettest.sh` runs the client once per such archive (with the archive's first image on the default material: sphere.zip's
+models name materials its mtl file doesn't have) rather than once per file, 38 client runs instead of 145.
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 

@@ -111,5 +111,5 @@ if [[ $gltf -eq 1 ]]; then
 	[[ -d $out/Models ]] && paths+=("$out/Models")
 fi
 
-printf '%s\n' "${paths[@]}"
+[[ ${#paths[@]} -gt 0 ]] && printf '%s\n' "${paths[@]}"
 exit $failed

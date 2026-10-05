@@ -569,13 +569,15 @@ static void InstallImage(
 	});
 }
 
-// loads a model and its materials' textures, and has the draw thread install them, unless the load was cancelled. call
-// from a load (see gLoads).
-static void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+// loads a model (or several, side by side as one, see Model::Load) and its materials' textures, and has the draw thread
+// install them, unless the load was cancelled. call from a load (see gLoads).
+static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress)
 {
-	auto model = Model::Load(filePath, progress);
+	auto model = Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
 	if (!model) // cancelled or failed
 		return;
+
+	const auto& filePath = model->GetDesc().name; // or the models' directory, for several
 
 	const auto& materials = model->GetDesc().materials;
 	if (materials.size() > kModelMaterialMaxCount)
@@ -632,6 +634,11 @@ static void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic
 		[&rhi, model, textures = std::move(textures)](QueueTimelineContextData* graphics) mutable
 		{ InstallModel(rhi, *graphics, model, std::move(textures)); });
 	rhi.drawCalls.enqueue(installTask);
+}
+
+static void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
+{
+	LoadAndInstallModels(rhi, {std::string(filePath)}, progress);
 }
 
 // extracts a zip archive into the user profile directory, once: later loads of the same file (by path, size and time)
@@ -703,9 +710,15 @@ struct ArchiveChoice
 static std::mutex gArchiveChoiceMutex;
 static std::optional<ArchiveChoice> gArchiveChoice; // guarded by gArchiveChoiceMutex
 
-// extracts a zip archive and loads the model in it. with several, the user chooses one, unless firstModel is set, which
-// loads the first (by path). call from a load (see gLoads).
-static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, bool firstModel)
+// what LoadAndInstallArchive does with an archive of several models (sets of variants, such as the geodesic spheres)
+enum class ArchiveModels : uint8_t
+{
+	kChoose, // the user chooses one, or all of them
+	kAll, // all of them, side by side
+};
+
+// extracts a zip archive and loads the model in it. with several, see ArchiveModels. call from a load (see gLoads).
+static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several)
 {
 	auto directory = ExtractArchive(archivePath, progress);
 	if (!directory) // failed or cancelled
@@ -718,13 +731,13 @@ static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::a
 		return;
 	}
 
-	if (models.size() == 1 || firstModel)
+	if (models.size() == 1 || several == ArchiveModels::kAll)
 	{
-		if (models.size() > 1)
-			std::println(stderr, "{} holds {} models, loading {}", archivePath, models.size(), models[0].lexically_relative(*directory).string());
-
 		progress = 0;
-		LoadAndInstallModel(rhi, models[0].string(), progress);
+		std::vector<std::string> paths;
+		for (const auto& model : models)
+			paths.push_back(model.string());
+		LoadAndInstallModels(rhi, paths, progress);
 		return;
 	}
 
@@ -1124,7 +1137,19 @@ void WindowedApplication::PrepareDraw()
 				chosen->filename().string(),
 				[&rhi, path = chosen->string()](std::atomic_uint8_t& progress) { LoadAndInstallModel(rhi, path, progress); });
 
-		if (chosen || Button("Cancel"))
+		bool all = Button("All, side by side");
+		if (all)
+		{
+			std::vector<std::string> paths;
+			for (const auto& model : choice.models)
+				paths.push_back(model.string());
+			(void)gLoads.Enqueue(
+				choice.archive,
+				[&rhi, paths = std::move(paths)](std::atomic_uint8_t& progress) { LoadAndInstallModels(rhi, paths, progress); });
+		}
+		SameLine();
+
+		if (chosen || all || Button("Cancel"))
 		{
 			gShownArchiveChoice.reset();
 			CloseCurrentPopup();
@@ -1217,14 +1242,14 @@ void WindowedApplication::PrepareDraw()
 		gAutoLoadDone = true;
 
 		// queued as separate loads, which run concurrently
-		// a zip archive loads its first model
+		// a zip archive loads all of its models, side by side
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
 				[&rhi, path = (resourcePath / "models" / autoLoadModel).string()](std::atomic_uint8_t& progress)
 				{
 					if (std::string_view(path).ends_with(".zip") || std::string_view(path).ends_with(".ZIP"))
-						LoadAndInstallArchive(rhi, path, progress, true);
+						LoadAndInstallArchive(rhi, path, progress, ArchiveModels::kAll);
 					else
 						LoadAndInstallModel(rhi, path, progress);
 				}));
@@ -1262,7 +1287,7 @@ void WindowedApplication::PrepareDraw()
 				};
 				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
-					{ LoadAndInstallArchive(rhi, filePath, progressOut, false); });
+					{ LoadAndInstallArchive(rhi, filePath, progressOut, ArchiveModels::kChoose); });
 			}
 			if (MenuItem("Open Image..."))
 			{

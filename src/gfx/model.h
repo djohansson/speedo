@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -67,6 +68,10 @@ public:
 	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
 	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
 	[[nodiscard]] static std::shared_ptr<Model> Load(std::string_view filePath, std::atomic_uint8_t& progress);
+	// loads several model files (each through its own cache entry) as one, side by side in a grid in the xy plane, each
+	// centered in a cell as large as the largest: for sets of variants, such as an archive's models. null if any load
+	// is cancelled or fails.
+	[[nodiscard]] static std::shared_ptr<Model> Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress);
 
 private:
 	ModelDesc myDesc;

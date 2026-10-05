@@ -8,10 +8,13 @@
 #include <core/file.h>
 #include <core/profiling.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <print>
 #include <span>
 #include <string>
@@ -30,34 +33,45 @@ Model::Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, cons
 Model::~Model() = default;
 
 //NOLINTBEGIN(readability-magic-numbers)
-std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress)
+namespace model
+{
+
+// a model's desc, and its indices and vertices in staging buffers, before the upload
+struct Staged
+{
+	ModelDesc desc;
+	Buffer indexStaging;
+	Buffer vertexStaging;
+};
+
+// the vertex buffer is read by the shaders as a storage buffer, which can't be larger than this
+[[nodiscard]] static bool FitsDevice(const Device& device, const ModelDesc& desc, std::string_view name)
+{
+	auto limits = device.GetLimits();
+	auto vertexBufferSize = static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fT014fC4f);
+	if (vertexBufferSize <= limits.maxStorageBufferRange)
+		return true;
+
+	std::println(
+		stderr, "{}: the vertex buffer ({} bytes) is larger than the device's maxStorageBufferRange ({} bytes)",
+		name, vertexBufferSize, limits.maxStorageBufferRange);
+	return false;
+}
+
+// loads a model file through the asset cache into staging buffers, filled before the upload takes the transfer
+// queue's lock. nothing if cancelled or failed (the reason is printed to stderr).
+[[nodiscard]] static std::optional<Staged> LoadStaged(Device& device, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	using namespace rhi;
 
-	ZoneScopedN("gfx::Model::Load");
-
-	auto* rhi = GetRHI<kGraphicsApi>();
-	ENSURE(rhi);
-	auto& device = rhi->GetPrimaryDevice();
+	ZoneScopedN("gfx::Model::LoadStaged");
 
 	// loading is given up when the application exits (only where it takes long; parsing itself can't be interrupted)
 	auto app = core::Application::Get();
 	ENSURE(app);
 	auto cancelled = [&app] { return app->IsExitRequested(); };
 
-	// the vertex buffer is read by the shaders as a storage buffer, which can't be larger than this
-	auto fitsDevice = [&device, filePath](const ModelDesc& desc)
-	{
-		auto limits = device.GetLimits();
-		auto vertexBufferSize = static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fT014fC4f);
-		if (vertexBufferSize <= limits.maxStorageBufferRange)
-			return true;
-
-		std::println(
-			stderr, "{}: the vertex buffer ({} bytes) is larger than the device's maxStorageBufferRange ({} bytes)",
-			filePath, vertexBufferSize, limits.maxStorageBufferRange);
-		return false;
-	};
+	auto fitsDevice = [&device, filePath](const ModelDesc& desc) { return FitsDevice(device, desc, filePath); };
 
 	// the indices and vertices, in staging buffers: filled here, before the upload takes the transfer queue's lock
 	ModelDesc desc;
@@ -219,10 +233,129 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 		if (!loadResult && loadResult.error() != std::errc::operation_canceled)
 			std::println(stderr, "Failed to load model {}: {}", filePath, loadResult.error().message());
 
-		return {};
+		return std::nullopt;
 	}
 
 	desc.name = std::string(filePath);
+
+	return Staged{.desc = std::move(desc), .indexStaging = std::move(indexStaging), .vertexStaging = std::move(vertexStaging)};
+}
+
+// the models side by side, in a grid in the xy plane (facing +z, the cameras' default view), as one: their indices and
+// vertices in new staging buffers, and their materials. each is scaled (uniformly, so its normals stay) to the same size
+// and centered in its cell: the files of a set needn't share a scale (sphere.zip's spheres have radius 1 and 115).
+[[nodiscard]] static std::optional<Staged> Merge(Device& device, std::vector<Staged>&& models, std::string name)
+{
+	ZoneScopedN("gfx::Model::Merge");
+
+	if (models.size() == 1)
+		return std::move(models.front());
+
+	constexpr float kCell = 1.25F; // for models of size 1, with some space between them
+	Staged merged;
+	merged.desc.name = std::move(name);
+	for (const auto& model : models)
+	{
+		merged.desc.indexCount += model.desc.indexCount;
+		merged.desc.vertexCount += model.desc.vertexCount;
+	}
+
+	if (!FitsDevice(device, merged.desc, merged.desc.name))
+		return std::nullopt;
+
+	merged.indexStaging = Buffer::CreateStaging(
+		device.CreateDeviceObjectCreateDesc(std::format("{} (index staging)", merged.desc.name)),
+		merged.desc.indexCount * sizeof(uint32_t));
+	merged.vertexStaging = Buffer::CreateStaging(
+		device.CreateDeviceObjectCreateDesc(std::format("{} (vertex staging)", merged.desc.name)),
+		merged.desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
+
+	auto indices = merged.indexStaging.Map();
+	auto vertices = merged.vertexStaging.Map();
+	auto* indexOut = reinterpret_cast<uint32_t*>(indices.data());
+	auto* vertexOut = reinterpret_cast<VertexP3fN3fT014fC4f*>(vertices.data());
+
+	auto columns = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(models.size()))));
+	uint32_t vertexBase = 0;
+	uint32_t indexBase = 0;
+	for (size_t modelIt = 0; modelIt < models.size(); modelIt++)
+	{
+		auto& model = models[modelIt];
+		const auto& desc = model.desc;
+
+		// left to right, top to bottom
+		auto column = static_cast<float>(modelIt % columns);
+		auto row = static_cast<float>(modelIt / columns);
+		auto center = desc.bounds.Center();
+		auto size = desc.bounds.Size();
+		auto extent = std::max({size.x, size.y, size.z});
+		auto scale = extent > 0.0F ? 1.0F / extent : 1.0F;
+		std::array<float, 3> cellCenter{column * kCell, -row * kCell, 0.0F};
+		auto place = [&](float value, size_t axis) { return ((value - center[static_cast<int>(axis)]) * scale) + cellCenter[axis]; };
+
+		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
+		merged.desc.materials.insert(merged.desc.materials.end(), desc.materials.begin(), desc.materials.end());
+		for (auto submesh : desc.submeshes)
+		{
+			submesh.firstIndex += indexBase;
+			if (submesh.material >= 0)
+				submesh.material += materialBase;
+			merged.desc.submeshes.push_back(submesh);
+		}
+
+		auto sourceIndices = model.indexStaging.Map();
+		const auto* indexIn = reinterpret_cast<const uint32_t*>(sourceIndices.data());
+		for (uint32_t i = 0; i < desc.indexCount; i++)
+			indexOut[indexBase + i] = vertexBase + indexIn[i];
+		model.indexStaging.Unmap();
+
+		auto sourceVertices = model.vertexStaging.Map();
+		std::memcpy(&vertexOut[vertexBase], sourceVertices.data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
+		model.vertexStaging.Unmap();
+		for (uint32_t i = 0; i < desc.vertexCount; i++)
+		{
+			auto& position = vertexOut[vertexBase + i].position;
+			for (size_t axis = 0; axis < 3; axis++)
+				position[axis] = place(position[axis], axis);
+		}
+
+		auto min = desc.bounds.GetMin();
+		auto max = desc.bounds.GetMax();
+		auto placedMin = Bounds3f::VectorType(place(min.x, 0), place(min.y, 1), place(min.z, 2));
+		auto placedMax = Bounds3f::VectorType(place(max.x, 0), place(max.y, 1), place(max.z, 2));
+		if (modelIt == 0)
+		{
+			merged.desc.bounds.SetMin(placedMin);
+			merged.desc.bounds.SetMax(placedMax);
+		}
+		else
+		{
+			merged.desc.bounds.Merge(std::array{placedMin.x, placedMin.y, placedMin.z});
+			merged.desc.bounds.Merge(std::array{placedMax.x, placedMax.y, placedMax.z});
+		}
+
+		vertexBase += desc.vertexCount;
+		indexBase += desc.indexCount;
+
+		// the sources' staging memory goes as soon as it is copied
+		model = {};
+	}
+
+	merged.indexStaging.Unmap();
+	merged.vertexStaging.Unmap();
+
+	return merged;
+}
+
+// uploads a model's staged indices and vertices on the transfer queue (see Model::Load)
+[[nodiscard]] static std::shared_ptr<Model> UploadStaged(Device& device, Staged&& staged)
+{
+	using namespace rhi;
+
+	ZoneScopedN("gfx::Model::Upload");
+
+	auto& [desc, indexStaging, vertexStaging] = staged;
+	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
 
 	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
 	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
@@ -281,6 +414,46 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	}
 
 	return model;
+}
+
+} // namespace model
+
+std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress)
+{
+	return Load(std::span(&filePath, 1), progress);
+}
+
+std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress)
+{
+	ZoneScopedN("gfx::Model::Load");
+
+	ENSURE(!filePaths.empty());
+
+	auto* rhi = rhi::GetRHI<rhi::kGraphicsApi>();
+	ENSURE(rhi);
+	auto& device = rhi->GetPrimaryDevice();
+
+	// each file through its own cache entry: the progress of each is a share of the whole
+	std::vector<model::Staged> models;
+	models.reserve(filePaths.size());
+	for (size_t fileIt = 0; fileIt < filePaths.size(); fileIt++)
+	{
+		std::atomic_uint8_t fileProgress = 0;
+		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress);
+		if (!staged) // cancelled or failed
+			return {};
+		models.push_back(std::move(*staged));
+		progress = static_cast<uint8_t>(255 * (fileIt + 1) / filePaths.size());
+	}
+
+	auto name = filePaths.size() == 1
+					? std::string(filePaths.front())
+					: std::format("{} ({} models)", std::filesystem::path(filePaths.front()).parent_path().string(), filePaths.size());
+	auto merged = model::Merge(device, std::move(models), std::move(name));
+	if (!merged)
+		return {};
+
+	return model::UploadStaged(device, std::move(*merged));
 }
 //NOLINTEND(readability-magic-numbers)
 
