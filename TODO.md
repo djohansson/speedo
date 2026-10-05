@@ -18,7 +18,6 @@
 	* scenes: only the default one (or the first) is loaded
 	* EXT_mesh_gpu_instancing: instanced meshes are drawn once
 	* points and lines primitives: skipped
-	* sparse index accessors: their primitives are skipped
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)
 	* everything is flattened into one Model with one draw per material: no per node transforms, culling or instancing at draw time
 * todo: add tonemapping

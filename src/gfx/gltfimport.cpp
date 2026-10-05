@@ -333,6 +333,77 @@ private:
 	core::UnorderedMap<size_t, std::string> myErrors; // why an image resolved to nothing
 };
 
+// an unsigned integer of a component type an index can have
+[[nodiscard]] std::optional<uint32_t> ReadIndexComponent(const uint8_t* data, cgltf_component_type type)
+{
+	switch (type)
+	{
+	case cgltf_component_type_r_8u: return *data;
+	case cgltf_component_type_r_16u:
+	{
+		uint16_t value = 0;
+		std::memcpy(&value, data, sizeof(value));
+		return value;
+	}
+	case cgltf_component_type_r_32u:
+	{
+		uint32_t value = 0;
+		std::memcpy(&value, data, sizeof(value));
+		return value;
+	}
+	default: return std::nullopt;
+	}
+}
+
+// reads an index accessor, sparse ones too (cgltf_accessor_unpack_indices doesn't apply them): the base values (zeros
+// without a buffer view), then the sparse ones replacing them. read as integers, which the float path would round
+// above 2^24.
+[[nodiscard]] bool ReadIndices(const cgltf_accessor& accessor, std::span<uint32_t> out)
+{
+	if (!accessor.is_sparse)
+		return cgltf_accessor_unpack_indices(&accessor, out.data(), sizeof(uint32_t), out.size()) == out.size();
+
+	// cgltf_accessor_read_index refuses sparse accessors (it returns 0), so the base values are read here
+	if (accessor.buffer_view != nullptr)
+	{
+		const auto* base = static_cast<const uint8_t*>(cgltf_buffer_view_data(accessor.buffer_view));
+		if (base == nullptr)
+			return false;
+		base += accessor.offset;
+		for (size_t i = 0; i < out.size(); i++)
+		{
+			auto value = ReadIndexComponent(base + (i * accessor.stride), accessor.component_type);
+			if (!value)
+				return false;
+			out[i] = *value;
+		}
+	}
+	else
+	{
+		std::ranges::fill(out, 0U);
+	}
+
+	const auto& sparse = accessor.sparse;
+	const auto* indices = static_cast<const uint8_t*>(cgltf_buffer_view_data(sparse.indices_buffer_view));
+	const auto* values = static_cast<const uint8_t*>(cgltf_buffer_view_data(sparse.values_buffer_view));
+	if (indices == nullptr || values == nullptr)
+		return false;
+	indices += sparse.indices_byte_offset;
+	values += sparse.values_byte_offset;
+
+	auto indexSize = cgltf_component_size(sparse.indices_component_type);
+	auto valueSize = cgltf_component_size(accessor.component_type);
+	for (size_t i = 0; i < sparse.count; i++)
+	{
+		auto element = ReadIndexComponent(indices + (i * indexSize), sparse.indices_component_type);
+		auto value = ReadIndexComponent(values + (i * valueSize), accessor.component_type);
+		if (!element || !value || *element >= out.size())
+			return false;
+		out[*element] = *value;
+	}
+	return true;
+}
+
 // a primitive's triangles, before they are put in the mesh's material order
 struct Part
 {
@@ -576,7 +647,7 @@ std::expected<Mesh, std::string> Import(
 		if (primitive.indices != nullptr)
 		{
 			elements.resize(primitive.indices->count);
-			if (cgltf_accessor_unpack_indices(primitive.indices, elements.data(), sizeof(uint32_t), elements.size()) != elements.size())
+			if (!ReadIndices(*primitive.indices, elements))
 			{
 				warn("mesh {}: a primitive whose indices can't be read is skipped", meshName);
 				skippedPrimitives++;

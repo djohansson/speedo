@@ -9,7 +9,8 @@
 #   reported (and kept as <name>.unverified) rather than used, until the manifest is updated.
 # --gltf: the Khronos glTF-Sample-Assets models (https://github.com/KhronosGroup/glTF-Sample-Assets), at the commit
 #   pinned below (about 2.3 GB), into <dir>/glTF-Sample-Assets.
-# Without either, both are fetched. The dir defaults to $SPEEDO_TEST_ASSETS, or resources/test-assets (which git
+# Without either, both are fetched. The hand-made models in scripts/test-assets/gltf (for what no downloaded model
+# covers, e.g. sparse index accessors) are always printed too. The dir defaults to $SPEEDO_TEST_ASSETS, or resources/test-assets (which git
 # ignores, and the client's file dialogs open in). Files already there (and verified) are kept, so running it again only
 # fetches what is missing.
 #
@@ -111,6 +112,8 @@ if [[ $gltf -eq 1 ]]; then
 	fi
 	[[ -d $out/Models ]] && paths+=("$out/Models")
 fi
+
+paths+=("$root/scripts/test-assets/gltf")
 
 [[ ${#paths[@]} -gt 0 ]] && printf '%s\n' "${paths[@]}"
 exit $failed

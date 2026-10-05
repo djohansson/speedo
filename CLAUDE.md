@@ -314,7 +314,10 @@ prints the paths to test:
 `scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)`. The archive publishes no versions or checksums and
 does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
 sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
-Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
+`scripts/test-assets/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
+accessors that are sparse, with and without base values; cgltf's `cgltf_accessor_read_index` and
+`cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them), and is always part
+of the printed paths. Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its
 (consistent) winding on a quarter of its area, Bistro and bmw have normals that get replaced, and
