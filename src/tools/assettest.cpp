@@ -169,6 +169,9 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
 		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
+	if (mesh->instances.size() > 1)
+		report.Info("{} instances (EXT_mesh_gpu_instancing)", mesh->instances.size() - 1);
+
 	if (mesh->indices.empty())
 	{
 		report.Fail("no primitives");

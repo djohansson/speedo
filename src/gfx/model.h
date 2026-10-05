@@ -26,6 +26,9 @@ struct ModelSubmesh
 	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList; // see mesh::Submesh::topology
 	// the center of its vertices' bounds, which blended submeshes are sorted by (back to front, per view)
 	std::array<float, 3> center{};
+	uint32_t firstInstance = 0; // see mesh::Submesh::firstInstance
+	uint32_t instanceCount = 1;
+	uint32_t mirroredInstanceCount = 0;
 };
 
 // textures are empty (see TextureRef) if the material has none
@@ -55,13 +58,15 @@ struct ModelDesc
 	uint32_t vertexCount = 0; // VertexP3fN3fTa4fT014fC4f vertices (see gfx/shaders/capi.h)
 	std::vector<ModelSubmesh> submeshes;
 	std::vector<ModelMaterial> materials;
+	// column major instance transforms (see mesh::Mesh::instances), in the model's instance buffer (gModelInstances)
+	std::vector<std::array<float, 16>> instances;
 };
 
-// a mesh on the gpu: its index and vertex buffers, drawn a submesh (material) at a time
+// a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time
 class Model final
 {
 public:
-	Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, const Upload& upload) noexcept;
+	Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, Buffer&& instanceBuffer, const Upload& upload) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
 	~Model();
@@ -72,6 +77,8 @@ public:
 	[[nodiscard]] const ModelDesc& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const Buffer& GetIndexBuffer() const noexcept { return myIndexBuffer; }
 	[[nodiscard]] const Buffer& GetVertexBuffer() const noexcept { return myVertexBuffer; }
+	// ModelInstance (gfx/shaders/capi.h) per ModelDesc::instances: the transform and its inverse transpose
+	[[nodiscard]] const Buffer& GetInstanceBuffer() const noexcept { return myInstanceBuffer; }
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
@@ -90,6 +97,7 @@ private:
 	ModelDesc myDesc;
 	Buffer myIndexBuffer;
 	Buffer myVertexBuffer;
+	Buffer myInstanceBuffer;
 	Upload myUpload;
 };
 

@@ -27,6 +27,7 @@ public:
 	void SetScissor(const Rect& rect) const;
 	// which faces draws discard: dynamic state, so it must be set before drawing with the pipeline
 	void SetCullMode(CullMode mode) const;
+	void SetFrontFace(FrontFace face) const;
 	void BindIndexBuffer(const Buffer<G>& buffer, uint64_t offset, IndexType type) const;
 	void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0, int32_t vertexOffset = 0, uint32_t firstInstance = 0) const;
 	void Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const;

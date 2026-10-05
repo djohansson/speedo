@@ -497,7 +497,7 @@ static void InstallModel(
 
 	// each resource once: materials share textures
 	Uploads uploads;
-	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer()})
+	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer(), &model->GetInstanceBuffer()})
 		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
 		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion})
@@ -677,6 +677,10 @@ static void InstallModel(
 			"gVertexBuffer",
 			BufferBinding{.buffer = model->GetVertexBuffer(), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		pipeline.SetDescriptorData(
+			"gModelInstances",
+			BufferBinding{.buffer = model->GetInstanceBuffer(), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 		RetireAfterGraphicsWork(graphics, std::exchange(gModel, model));
 
@@ -1112,9 +1116,6 @@ static void DrawMainPass(
 						}
 
 						uint16_t viewIndex = viewIt;
-						constexpr uint32_t kDefaultModelInstanceId = 666;
-
-						pushConstants.modelInstanceId = kDefaultModelInstanceId;
 
 						// one draw per submesh (material and topology, see InstallModel for where the materials are): the opaque
 						// ones first, then the blended ones back to front by their centers (each as a whole: the triangles within
@@ -1141,9 +1142,20 @@ static void DrawMainPass(
 								pushConstants.viewAndMaterialId =
 									(static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | ModelMaterialSlot(submesh.material);
 
-								pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-
-								encoder.DrawIndexed(submesh.indexCount, 1, submesh.firstIndex);
+								// its instances (gModelInstances from modelInstanceId, by SV_InstanceID), the mirroring ones last and
+								// separately: they reverse the winding, so their front faces are clockwise (dynamic state too)
+								auto drawInstances = [&](uint32_t firstInstance, uint32_t instanceCount, FrontFace frontFace)
+								{
+									if (instanceCount == 0)
+										return;
+									encoder.SetFrontFace(frontFace);
+									pushConstants.modelInstanceId = firstInstance;
+									pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
+								};
+								auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
+								drawInstances(submesh.firstInstance, unmirrored, FrontFace::kCounterClockwise);
+								drawInstances(submesh.firstInstance + unmirrored, submesh.mirroredInstanceCount, FrontFace::kClockwise);
 							};
 
 							std::vector<const ModelSubmesh*> blended;
@@ -2157,20 +2169,18 @@ WindowedApplication::WindowedApplication(
 		gTextureViewsUuid = textureViews->GetUuid();
 		timelineCallbacks.emplace_back(textureViewTransfersDone.handle);
 
-		constexpr uint32_t kDefaultModelInstanceId = 666;
+		// bound until a model is installed, which binds its own instance buffer (see Model::GetInstanceBuffer)
 		constexpr uint32_t kMatrix4x4ElementCount = 16;
-		std::vector<ModelInstance> modelInstances(SHADER_TYPES_MODEL_INSTANCE_COUNT);
+		std::vector<ModelInstance> modelInstances(1);
 		static const auto kIdentityMatrix = glm::mat4x4(1.0);
-		std::copy_n(&kIdentityMatrix[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].modelTransform[0][0]);
-		auto modelTransform = glm::make_mat4(&modelInstances[kDefaultModelInstanceId].modelTransform[0][0]);
-		auto inverseTransposeModelTransform = glm::transpose(glm::inverse(modelTransform));
-		std::copy_n(&inverseTransposeModelTransform[0][0], kMatrix4x4ElementCount, &modelInstances[kDefaultModelInstanceId].inverseTransposeModelTransform[0][0]);
+		std::copy_n(&kIdentityMatrix[0][0], kMatrix4x4ElementCount, &modelInstances[0].modelTransform[0][0]);
+		std::copy_n(&kIdentityMatrix[0][0], kMatrix4x4ElementCount, &modelInstances[0].inverseTransposeModelTransform[0][0]);
 
 		core::TaskCreateInfo<void> modelTransfersDone;
 		auto modelInstancesBuffer = device.CreateResource<Buffer>(
 			BufferCreateDesc{
 				device.CreateDeviceObjectCreateDesc("ModelInstances"),
-				SHADER_TYPES_MODEL_INSTANCE_COUNT * sizeof(ModelInstance),
+				modelInstances.size() * sizeof(ModelInstance),
 				BufferUsage::kStorage,
 				MemoryProperty::kHostVisible
 			},

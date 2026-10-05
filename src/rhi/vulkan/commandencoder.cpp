@@ -28,6 +28,12 @@ void CommandEncoder<kVk>::SetCullMode(CullMode mode) const
 }
 
 template <>
+void CommandEncoder<kVk>::SetFrontFace(FrontFace face) const
+{
+	gVkCmdSetFrontFaceEXT(myCmd, vk::ToVk(face));
+}
+
+template <>
 void CommandEncoder<kVk>::BindIndexBuffer(const Buffer<kVk>& buffer, uint64_t offset, IndexType type) const
 {
 	vkCmdBindIndexBuffer(myCmd, buffer, offset, vk::ToVk(type));

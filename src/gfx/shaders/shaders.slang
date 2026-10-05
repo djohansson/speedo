@@ -102,7 +102,7 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	ViewData view = gViewData[frameIndex][viewId];
 
     VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-    ModelInstance i = gModelInstances[modelInstanceId];
+    ModelInstance i = gModelInstances[modelInstanceId + input.instanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
 	
@@ -125,7 +125,7 @@ VertexMainOutput VertexMain(InputStream input)
 	ViewData view = gViewData[frameIndex][viewId];
 
     VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-    ModelInstance i = gModelInstances[modelInstanceId];
+    ModelInstance i = gModelInstances[modelInstanceId + input.instanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
 	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;

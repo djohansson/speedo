@@ -72,8 +72,6 @@ extern "C"
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 #define SHADER_TYPES_MATERIAL_INDEX_BITS 10u
 #define SHADER_TYPES_MATERIAL_COUNT (1u << SHADER_TYPES_MATERIAL_INDEX_BITS)
-#define SHADER_TYPES_MODEL_INSTANCE_INDEX_BITS 19u
-#define SHADER_TYPES_MODEL_INSTANCE_COUNT (1u << SHADER_TYPES_MODEL_INSTANCE_INDEX_BITS)
 
 // caution: don't change the alignment unless you know what you are doing.
 struct ViewData
@@ -143,7 +141,7 @@ struct PushConstants
 	// per view
 	// per material
 	alignas(4) UINT(viewAndMaterialId);
-	// per draw
+	// per draw: the first of its instances in gModelInstances (the model's instance buffer), offset by SV_InstanceID
 	alignas(4) UINT(modelInstanceId);
 };
 

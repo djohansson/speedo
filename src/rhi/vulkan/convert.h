@@ -354,6 +354,11 @@ namespace rhi::vk
 	return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 }
 
+[[nodiscard]] constexpr VkFrontFace ToVk(FrontFace face) noexcept
+{
+	return face == FrontFace::kClockwise ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+}
+
 [[nodiscard]] constexpr VkCullModeFlags ToVk(CullMode mode) noexcept
 {
 	switch (mode)

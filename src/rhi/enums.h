@@ -194,7 +194,14 @@ struct GraphicsPipelineVariant
 	bool operator==(const GraphicsPipelineVariant&) const = default;
 };
 
-// which faces rasterization discards: front faces are counter-clockwise
+// which winding faces the viewer (see CullMode). a mirroring transform reverses the winding, so its draws use kClockwise
+enum class FrontFace : uint8_t
+{
+	kCounterClockwise,
+	kClockwise,
+};
+
+// which faces rasterization discards: front faces are counter-clockwise (see FrontFace)
 enum class CullMode : uint8_t
 {
 	kNone,

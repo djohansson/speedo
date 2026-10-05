@@ -57,7 +57,17 @@ struct Submesh
 	// triangles, lines (pairs of indices) or points. lines and points without normals in the file keep zero normals,
 	// which the shader draws unlit (gltf: base color plus emissive)
 	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList;
+	// the instances it is drawn with (see Mesh::instances): one draw of instanceCount instances. the last
+	// mirroredInstanceCount of them mirror (a negative determinant), which reverses the winding, so they are drawn
+	// separately, with clockwise front faces
+	uint32_t firstInstance = 0;
+	uint32_t instanceCount = 1;
+	uint32_t mirroredInstanceCount = 0;
 };
+
+// a column major 4x4 transform, from a submesh's vertices to world space
+using Transform = std::array<float, 16>;
+inline constexpr Transform kIdentityTransform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 
 // what the import found in the file, and what it had to repair
 struct Stats
@@ -87,8 +97,12 @@ struct Mesh
 	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<uint32_t> indices; // triangle list
 	std::vector<Submesh> submeshes; // ordered by material
+	// the instance transforms submeshes are drawn with. 0 is the identity, which all submeshes but the instanced ones
+	// (gltf EXT_mesh_gpu_instancing) use: their vertices are in world space. instanced ones keep their vertices in their
+	// node's space, and have a range of their own (the node's transform times each instance's).
+	std::vector<Transform> instances{kIdentityTransform};
 	std::vector<Material> materials;
-	Bounds3f bounds; // of the vertices
+	Bounds3f bounds; // of the vertices, in world space (each instanced submesh's at each of its instances)
 	bool hasNormals = false; // in the file, for at least one vertex. missing ones are generated (see Stats)
 	bool hasTangents = false; // in the file (gltf), for at least one vertex. without them, w = 0 (see the vertex's tangent)
 	bool hasTexCoords = false; // in the file, for at least one vertex. missing ones are zero

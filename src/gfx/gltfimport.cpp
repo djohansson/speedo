@@ -12,9 +12,11 @@
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <span>
 #include <string_view>
 #include <system_error>
+#include <tuple>
 
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
@@ -504,6 +506,10 @@ struct Part
 {
 	int32_t material = -1;
 	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList;
+	// its instances (see mesh::Submesh::firstInstance): 0, the identity, for parts whose vertices are in world space
+	uint32_t firstInstance = 0;
+	uint32_t instanceCount = 1;
+	uint32_t mirroredInstanceCount = 0;
 	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<uint32_t> indices;
 };
@@ -627,7 +633,12 @@ std::expected<Mesh, std::string> Import(
 	double normalArea = 0.0;
 
 	// weights: the morph target weights (the node's, else the mesh's defaults), see the deltas below
-	auto addPrimitive = [&](const cgltf_primitive& primitive, const Matrix& world, std::span<const cgltf_float> weights, std::string_view meshName) -> void
+	// instances: the part's instances (see Part), whose vertices are then in their node's space (world is the identity)
+	auto addPrimitive = [&](const cgltf_primitive& primitive,
+							const Matrix& world,
+							std::span<const cgltf_float> weights,
+							std::string_view meshName,
+							const Part& instances) -> void
 	{
 		rhi::PrimitiveTopology topology{};
 		switch (primitive.type)
@@ -811,7 +822,12 @@ std::expected<Mesh, std::string> Import(
 		if (mirrored)
 			std::ranges::transform(normalMatrix, normalMatrix.begin(), [](double v) { return -v; });
 
-		auto& part = parts.emplace_back(Part{.material = material, .topology = topology});
+		auto& part = parts.emplace_back(Part{
+			.material = material,
+			.topology = topology,
+			.firstInstance = instances.firstInstance,
+			.instanceCount = instances.instanceCount,
+			.mirroredInstanceCount = instances.mirroredInstanceCount});
 
 		// the vertices in world space, before normals are generated or repaired
 		std::vector<VertexP3fN3fTa4fT014fC4f> vertices(vertexCount);
@@ -1018,31 +1034,29 @@ std::expected<Mesh, std::string> Import(
 
 			std::string meshName = node->mesh->name != nullptr ? node->mesh->name : std::format("{}", node->mesh - data.meshes);
 
-			// instanced meshes (EXT_mesh_gpu_instancing) are flattened like the rest: a copy per instance, placed by the
-			// instance's transform within the node's
-			std::vector<Matrix> instances{world};
-			if (node->has_mesh_gpu_instancing)
+			// instanced meshes (EXT_mesh_gpu_instancing) are drawn instanced: their vertices once, in the node's space, and
+			// a transform per instance (the node's times the instance's), the mirroring ones last (see mesh::Submesh)
+			Part instances{};
+			auto transforms = node->has_mesh_gpu_instancing ? InstanceTransforms(node->mesh_gpu_instancing) : std::nullopt;
+			if (node->has_mesh_gpu_instancing && !transforms && !std::exchange(instancingWarned, true))
+				warn("mesh {}: its instances (EXT_mesh_gpu_instancing) can't be read, it is drawn once", meshName);
+			if (transforms && !transforms->empty())
 			{
-				if (auto transforms = InstanceTransforms(node->mesh_gpu_instancing))
-				{
-					instances.clear();
-					for (const auto& transform : *transforms)
-						instances.push_back(Multiply(world, transform));
-				}
-				else if (!std::exchange(instancingWarned, true))
-				{
-					warn("mesh {}: its instances (EXT_mesh_gpu_instancing) can't be read, it is drawn once", meshName);
-				}
+				for (auto& transform : *transforms)
+					transform = Multiply(world, transform);
+				auto mirrored = std::ranges::stable_partition(*transforms, [](const Matrix& m) { return Determinant(m) >= 0.0; });
+				instances.firstInstance = static_cast<uint32_t>(mesh.instances.size());
+				instances.instanceCount = static_cast<uint32_t>(transforms->size());
+				instances.mirroredInstanceCount = static_cast<uint32_t>(mirrored.size());
+				mesh.instances.insert(mesh.instances.end(), transforms->begin(), transforms->end());
+				world = gfx::mesh::kIdentityTransform;
 			}
 
-			for (const auto& instance : instances)
-			{
-				for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
-					addPrimitive(node->mesh->primitives[primitiveIt], instance, weights, meshName);
+			for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
+				addPrimitive(node->mesh->primitives[primitiveIt], world, weights, meshName, instances);
 
-				if (isCancelled())
-					return std::unexpected("cancelled");
-			}
+			if (isCancelled())
+				return std::unexpected("cancelled");
 		}
 	}
 
@@ -1068,7 +1082,8 @@ std::expected<Mesh, std::string> Import(
 		mesh.indices.reserve(indexTotal);
 
 		auto bucketOf = [&mesh](int32_t material) { return material >= 0 ? static_cast<size_t>(material) : mesh.materials.size(); };
-		std::ranges::stable_sort(parts, {}, [&bucketOf](const Part& part) { return std::pair(bucketOf(part.material), part.topology); });
+		std::ranges::stable_sort(
+			parts, {}, [&bucketOf](const Part& part) { return std::tuple(bucketOf(part.material), part.topology, part.firstInstance); });
 
 		bool firstVertex = true;
 		for (auto& part : parts)
@@ -1077,30 +1092,56 @@ std::expected<Mesh, std::string> Import(
 				continue;
 
 			if (mesh.submeshes.empty() || mesh.submeshes.back().material != part.material ||
-				mesh.submeshes.back().topology != part.topology)
+				mesh.submeshes.back().topology != part.topology || mesh.submeshes.back().firstInstance != part.firstInstance)
 				mesh.submeshes.push_back(Submesh{
 					.firstIndex = static_cast<uint32_t>(mesh.indices.size()),
 					.indexCount = 0,
 					.material = part.material,
-					.topology = part.topology});
+					.topology = part.topology,
+					.firstInstance = part.firstInstance,
+					.instanceCount = part.instanceCount,
+					.mirroredInstanceCount = part.mirroredInstanceCount});
 
 			auto vertexOffset = static_cast<uint32_t>(mesh.vertices.size());
 			for (auto index : part.indices)
 				mesh.indices.push_back(vertexOffset + index);
 			mesh.submeshes.back().indexCount += static_cast<uint32_t>(part.indices.size());
 
-			for (const auto& vertex : part.vertices)
+			auto addToBounds = [&mesh, &firstVertex](const std::array<float, 3>& position)
 			{
-				if (firstVertex)
+				if (std::exchange(firstVertex, false))
 				{
-					mesh.bounds.SetMin(Bounds3f::VectorType(vertex.position[0], vertex.position[1], vertex.position[2]));
+					mesh.bounds.SetMin(Bounds3f::VectorType(position[0], position[1], position[2]));
 					mesh.bounds.SetMax(mesh.bounds.GetMin());
-					firstVertex = false;
 				}
 				else
 				{
-					mesh.bounds.Merge(std::to_array(vertex.position));
+					mesh.bounds.Merge(position);
 				}
+			};
+			if (part.firstInstance == 0)
+			{
+				for (const auto& vertex : part.vertices)
+					addToBounds(std::to_array(vertex.position));
+			}
+			else if (!part.vertices.empty())
+			{
+				// the corners of its bounds at each instance
+				std::array<double, 3> min{};
+				std::array<double, 3> max{};
+				for (size_t axis = 0; axis < 3; axis++)
+				{
+					auto [lo, hi] = std::ranges::minmax(part.vertices | std::views::transform([axis](const auto& vertex) { return vertex.position[axis]; }));
+					min[axis] = lo;
+					max[axis] = hi;
+				}
+				for (uint32_t instanceIt = part.firstInstance; instanceIt < part.firstInstance + part.instanceCount; instanceIt++)
+					for (uint32_t corner = 0; corner < 8; corner++)
+					{
+						Vec3 p{(corner & 1U) != 0 ? max[0] : min[0], (corner & 2U) != 0 ? max[1] : min[1], (corner & 4U) != 0 ? max[2] : min[2]};
+						auto q = TransformPoint(mesh.instances[instanceIt], p);
+						addToBounds({static_cast<float>(q[0]), static_cast<float>(q[1]), static_cast<float>(q[2])});
+					}
 			}
 			mesh.vertices.insert(mesh.vertices.end(), part.vertices.begin(), part.vertices.end());
 

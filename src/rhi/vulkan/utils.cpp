@@ -43,6 +43,7 @@ PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV{};
 PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV{};
 PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
 PFN_vkCmdSetCullModeEXT gVkCmdSetCullModeEXT{};
+PFN_vkCmdSetFrontFaceEXT gVkCmdSetFrontFaceEXT{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
@@ -174,6 +175,11 @@ void InitDeviceExtensions(VkDevice device)
 		gVkCmdSetCullModeEXT = reinterpret_cast<PFN_vkCmdSetCullModeEXT>(vkGetDeviceProcAddr(device, "vkCmdSetCullModeEXT"));
 
 	ENSURE(gVkCmdSetCullModeEXT != nullptr);
+
+	if (gVkCmdSetFrontFaceEXT == nullptr)
+		gVkCmdSetFrontFaceEXT = reinterpret_cast<PFN_vkCmdSetFrontFaceEXT>(vkGetDeviceProcAddr(device, "vkCmdSetFrontFaceEXT"));
+
+	ENSURE(gVkCmdSetFrontFaceEXT != nullptr);
 
 	if (gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
 		gVkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(

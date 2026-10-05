@@ -252,7 +252,14 @@ Assets outside `RootPath` are cached under `<user profile>/external/<absolute pa
 
 glTF: the default scene is flattened into one mesh with the node transforms applied (a mirroring one reverses the
 winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). `EXT_mesh_gpu_instancing`
-is flattened too: a copy per instance, at the node's transform times the instance's (translation * rotation * scale).
+is drawn instanced instead: the node's primitives once, in its space, and a transform per instance (the node's times
+the instance's translation * rotation * scale) in `Mesh::instances`/`ModelDesc::instances`, which each submesh names a
+range of (`firstInstance`, `instanceCount`; instance 0 is the identity, for everything flattened). Each `Model` has an
+instance buffer (`ModelInstance`: the transform and its inverse transpose), which `InstallModel` binds as
+`gModelInstances`; a submesh is one `DrawIndexed` of its instances, read at `modelInstanceId + SV_InstanceID`. The
+mirroring instances (negative determinant) are sorted last (`mirroredInstanceCount`) and drawn separately with clockwise
+front faces (`CommandEncoder::SetFrontFace`, dynamic state like the cull mode): they reverse the winding, so a single
+draw would cull them, and get double sided shading's front and back the wrong way round.
 Points and lines (strips and loops become line lists) are submeshes of their own (`ModelSubmesh::topology`), drawn
 with a pipeline per topology: `Pipeline::BindPipelineAuto(cmd, variant)` takes it as a parameter, part of the pipeline
 cache key, rather than as state, since the draw threads share the pipeline. Without normals in the file they keep zero
@@ -366,8 +373,8 @@ vertex check (more than 100 times the median distance from the median point; gro
 Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere's tessellations and texture mappings,
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a
 scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
-same size and centered in its cell (each file still through its own cache entry, merged as staging data before the one
-upload). Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
+same size and centered in its cell by its instance transforms (premultiplied by the placement; vertices are copied as
+they are), each file still through its own cache entry, merged as staging data before the one upload. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
 "Open Folder..." loads a directory's, and `assettest.sh` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145

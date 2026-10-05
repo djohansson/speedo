@@ -15,10 +15,10 @@
 	* texcoords: sets above 1 fall back to set 0
 	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
 	* scenes: only the default one (or the first) is loaded
-	* EXT_mesh_gpu_instancing: flattened, a copy of the mesh per instance (see the line below), so many instances of a large mesh cost as much memory as distinct meshes
+	* EXT_mesh_gpu_instancing: drawn instanced, but blended instanced submeshes are sorted as a whole, not per instance
 	* points and lines: drawn a pixel wide (points one pixel, as gltf has no size for them)
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)
-	* everything is flattened into one Model with one draw per material: no per node transforms, culling or instancing at draw time
+	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
 * todo: add tonemapping
 * todo: frame graph
 * todo: clustered forward shading

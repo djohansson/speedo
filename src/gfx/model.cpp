@@ -8,6 +8,9 @@
 #include <core/file.h>
 #include <core/profiling.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -24,10 +27,11 @@
 namespace gfx
 {
 
-Model::Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, const Upload& upload) noexcept
+Model::Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, Buffer&& instanceBuffer, const Upload& upload) noexcept
 	: myDesc(std::move(desc))
 	, myIndexBuffer(std::move(indexBuffer))
 	, myVertexBuffer(std::move(vertexBuffer))
+	, myInstanceBuffer(std::move(instanceBuffer))
 	, myUpload(upload)
 {}
 
@@ -45,18 +49,23 @@ struct Staged
 	Buffer vertexStaging;
 };
 
-// the vertex buffer is read by the shaders as a storage buffer, which can't be larger than this
+// the vertex and instance buffers are read by the shaders as storage buffers, which can't be larger than this
 [[nodiscard]] static bool FitsDevice(const Device& device, const ModelDesc& desc, std::string_view name)
 {
 	auto limits = device.GetLimits();
-	auto vertexBufferSize = static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fTa4fT014fC4f);
-	if (vertexBufferSize <= limits.maxStorageBufferRange)
-		return true;
-
-	std::println(
-		stderr, "{}: the vertex buffer ({} bytes) is larger than the device's maxStorageBufferRange ({} bytes)",
-		name, vertexBufferSize, limits.maxStorageBufferRange);
-	return false;
+	for (auto [buffer, size] : {
+			 std::pair{"vertex", static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fTa4fT014fC4f)},
+			 std::pair{"instance", static_cast<uint64_t>(desc.instances.size()) * sizeof(ModelInstance)}})
+	{
+		if (size > limits.maxStorageBufferRange)
+		{
+			std::println(
+				stderr, "{}: the {} buffer ({} bytes) is larger than the device's maxStorageBufferRange ({} bytes)", name,
+				buffer, size, limits.maxStorageBufferRange);
+			return false;
+		}
+	}
+	return true;
 }
 
 // loads a model file through the asset cache into staging buffers, filled before the upload takes the transfer
@@ -201,24 +210,40 @@ struct Staged
 		desc.bounds = mesh->bounds;
 		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
 		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
+		desc.instances = mesh->instances;
 		for (const auto& submesh : mesh->submeshes)
 		{
 			auto& modelSubmesh = desc.submeshes.emplace_back(ModelSubmesh{
-				.firstIndex = submesh.firstIndex, .indexCount = submesh.indexCount, .material = submesh.material, .topology = submesh.topology});
+				.firstIndex = submesh.firstIndex,
+				.indexCount = submesh.indexCount,
+				.material = submesh.material,
+				.topology = submesh.topology,
+				.firstInstance = submesh.firstInstance,
+				.instanceCount = submesh.instanceCount,
+				.mirroredInstanceCount = submesh.mirroredInstanceCount});
 			if (submesh.indexCount == 0)
 				continue;
-			std::array<float, 3> min;
-			std::array<float, 3> max;
-			std::ranges::fill(min, std::numeric_limits<float>::max());
-			std::ranges::fill(max, std::numeric_limits<float>::lowest());
+			// in world space: the center of its bounds' corners at each of its instances
+			glm::vec3 min(std::numeric_limits<float>::max());
+			glm::vec3 max(std::numeric_limits<float>::lowest());
 			for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
-				for (size_t axis = 0; axis < 3; axis++)
+			{
+				auto position = glm::make_vec3(mesh->vertices[index].position);
+				min = glm::min(min, position);
+				max = glm::max(max, position);
+			}
+			glm::vec3 worldMin(std::numeric_limits<float>::max());
+			glm::vec3 worldMax(std::numeric_limits<float>::lowest());
+			for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
+				for (uint32_t corner = 0; corner < 8; corner++)
 				{
-					min[axis] = std::min(min[axis], mesh->vertices[index].position[axis]);
-					max[axis] = std::max(max[axis], mesh->vertices[index].position[axis]);
+					glm::vec4 local((corner & 1U) != 0 ? max.x : min.x, (corner & 2U) != 0 ? max.y : min.y, (corner & 4U) != 0 ? max.z : min.z, 1.0F);
+					auto world = glm::vec3(glm::make_mat4(mesh->instances[instanceIt].data()) * local);
+					worldMin = glm::min(worldMin, world);
+					worldMax = glm::max(worldMax, world);
 				}
-			for (size_t axis = 0; axis < 3; axis++)
-				modelSubmesh.center[axis] = 0.5F * (min[axis] + max[axis]);
+			auto center = 0.5F * (worldMin + worldMax);
+			modelSubmesh.center = {center.x, center.y, center.z};
 		}
 		for (const auto& material : mesh->materials)
 			desc.materials.push_back({
@@ -263,8 +288,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v10", kCgltfVersion));
-	params.append("|cache-v15"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v11", kCgltfVersion));
+	params.append("|cache-v16"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -288,7 +313,7 @@ struct Staged
 }
 
 // the models side by side, in a grid in the xy plane (facing +z, the cameras' default view), as one: their indices and
-// vertices in new staging buffers, and their materials. each is scaled (uniformly, so its normals stay) to the same size
+// vertices in new staging buffers, and their materials and instances. each is scaled (uniformly, so its normals stay) to the same size
 // and centered in its cell: the files of a set needn't share a scale (sphere.zip's spheres have radius 1 and 115).
 [[nodiscard]] static std::optional<Staged> Merge(Device& device, std::vector<Staged>&& models, std::string name)
 {
@@ -300,10 +325,64 @@ struct Staged
 	constexpr float kCell = 1.25F; // for models of size 1, with some space between them
 	Staged merged;
 	merged.desc.name = std::move(name);
-	for (const auto& model : models)
+
+	// placed by their instance transforms, which the vertices are drawn with: each model's become the placement times
+	// its own, and its submeshes' instances move along
+	auto columns = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(models.size()))));
+	for (size_t modelIt = 0; modelIt < models.size(); modelIt++)
 	{
-		merged.desc.indexCount += model.desc.indexCount;
-		merged.desc.vertexCount += model.desc.vertexCount;
+		const auto& desc = models[modelIt].desc;
+
+		// left to right, top to bottom
+		auto column = static_cast<float>(modelIt % columns);
+		auto row = static_cast<float>(modelIt / columns);
+		auto center = desc.bounds.Center();
+		auto size = desc.bounds.Size();
+		auto extent = std::max({size.x, size.y, size.z});
+		auto scale = extent > 0.0F ? 1.0F / extent : 1.0F;
+		std::array<float, 3> offset{
+			(column * kCell) - (center.x * scale), (-row * kCell) - (center.y * scale), -center.z * scale};
+		auto place = [&](float value, size_t axis) { return (value * scale) + offset[axis]; };
+
+		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
+		auto instanceBase = static_cast<uint32_t>(merged.desc.instances.size());
+		merged.desc.materials.insert(merged.desc.materials.end(), desc.materials.begin(), desc.materials.end());
+		for (auto submesh : desc.submeshes)
+		{
+			submesh.firstIndex += merged.desc.indexCount;
+			if (submesh.material >= 0)
+				submesh.material += materialBase;
+			submesh.firstInstance += instanceBase;
+			for (size_t axis = 0; axis < 3; axis++)
+				submesh.center[axis] = place(submesh.center[axis], axis);
+			merged.desc.submeshes.push_back(submesh);
+		}
+		for (auto transform : desc.instances)
+		{
+			// the placement (a uniform scale and an offset) times the transform, column major
+			for (size_t col = 0; col < 4; col++)
+				for (size_t row = 0; row < 3; row++)
+					transform[(col * 4) + row] = (scale * transform[(col * 4) + row]) + (offset[row] * transform[(col * 4) + 3]);
+			merged.desc.instances.push_back(transform);
+		}
+
+		auto min = desc.bounds.GetMin();
+		auto max = desc.bounds.GetMax();
+		auto placedMin = Bounds3f::VectorType(place(min.x, 0), place(min.y, 1), place(min.z, 2));
+		auto placedMax = Bounds3f::VectorType(place(max.x, 0), place(max.y, 1), place(max.z, 2));
+		if (modelIt == 0)
+		{
+			merged.desc.bounds.SetMin(placedMin);
+			merged.desc.bounds.SetMax(placedMax);
+		}
+		else
+		{
+			merged.desc.bounds.Merge(std::array{placedMin.x, placedMin.y, placedMin.z});
+			merged.desc.bounds.Merge(std::array{placedMax.x, placedMax.y, placedMax.z});
+		}
+
+		merged.desc.indexCount += desc.indexCount;
+		merged.desc.vertexCount += desc.vertexCount;
 	}
 
 	if (!FitsDevice(device, merged.desc, merged.desc.name))
@@ -321,35 +400,11 @@ struct Staged
 	auto* indexOut = reinterpret_cast<uint32_t*>(indices.data());
 	auto* vertexOut = reinterpret_cast<VertexP3fN3fTa4fT014fC4f*>(vertices.data());
 
-	auto columns = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(models.size()))));
 	uint32_t vertexBase = 0;
 	uint32_t indexBase = 0;
-	for (size_t modelIt = 0; modelIt < models.size(); modelIt++)
+	for (auto& model : models)
 	{
-		auto& model = models[modelIt];
 		const auto& desc = model.desc;
-
-		// left to right, top to bottom
-		auto column = static_cast<float>(modelIt % columns);
-		auto row = static_cast<float>(modelIt / columns);
-		auto center = desc.bounds.Center();
-		auto size = desc.bounds.Size();
-		auto extent = std::max({size.x, size.y, size.z});
-		auto scale = extent > 0.0F ? 1.0F / extent : 1.0F;
-		std::array<float, 3> cellCenter{column * kCell, -row * kCell, 0.0F};
-		auto place = [&](float value, size_t axis) { return ((value - center[static_cast<int>(axis)]) * scale) + cellCenter[axis]; };
-
-		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
-		merged.desc.materials.insert(merged.desc.materials.end(), desc.materials.begin(), desc.materials.end());
-		for (auto submesh : desc.submeshes)
-		{
-			submesh.firstIndex += indexBase;
-			if (submesh.material >= 0)
-				submesh.material += materialBase;
-			for (size_t axis = 0; axis < 3; axis++)
-				submesh.center[axis] = place(submesh.center[axis], axis);
-			merged.desc.submeshes.push_back(submesh);
-		}
 
 		auto sourceIndices = model.indexStaging.Map();
 		const auto* indexIn = reinterpret_cast<const uint32_t*>(sourceIndices.data());
@@ -360,27 +415,6 @@ struct Staged
 		auto sourceVertices = model.vertexStaging.Map();
 		std::memcpy(&vertexOut[vertexBase], sourceVertices.data(), desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f));
 		model.vertexStaging.Unmap();
-		for (uint32_t i = 0; i < desc.vertexCount; i++)
-		{
-			auto& position = vertexOut[vertexBase + i].position;
-			for (size_t axis = 0; axis < 3; axis++)
-				position[axis] = place(position[axis], axis);
-		}
-
-		auto min = desc.bounds.GetMin();
-		auto max = desc.bounds.GetMax();
-		auto placedMin = Bounds3f::VectorType(place(min.x, 0), place(min.y, 1), place(min.z, 2));
-		auto placedMax = Bounds3f::VectorType(place(max.x, 0), place(max.y, 1), place(max.z, 2));
-		if (modelIt == 0)
-		{
-			merged.desc.bounds.SetMin(placedMin);
-			merged.desc.bounds.SetMax(placedMax);
-		}
-		else
-		{
-			merged.desc.bounds.Merge(std::array{placedMin.x, placedMin.y, placedMin.z});
-			merged.desc.bounds.Merge(std::array{placedMax.x, placedMax.y, placedMax.z});
-		}
 
 		vertexBase += desc.vertexCount;
 		indexBase += desc.indexCount;
@@ -405,6 +439,23 @@ struct Staged
 	auto& [desc, indexStaging, vertexStaging] = staged;
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
 
+	// each instance's transform and its inverse transpose (for the normals), filled before taking the queue's lock
+	auto instanceStaging = Buffer::CreateStaging(
+		device.CreateDeviceObjectCreateDesc(std::format("{} (instance staging)", filePath)),
+		desc.instances.size() * sizeof(ModelInstance));
+	{
+		auto memory = instanceStaging.Map();
+		auto* instances = reinterpret_cast<ModelInstance*>(memory.data());
+		for (size_t instanceIt = 0; instanceIt < desc.instances.size(); instanceIt++)
+		{
+			auto transform = glm::make_mat4(desc.instances[instanceIt].data());
+			auto inverseTranspose = glm::transpose(glm::inverse(transform));
+			std::memcpy(&instances[instanceIt].modelTransform[0][0], glm::value_ptr(transform), sizeof(float) * 16);
+			std::memcpy(&instances[instanceIt].inverseTransposeModelTransform[0][0], glm::value_ptr(inverseTranspose), sizeof(float) * 16);
+		}
+		instanceStaging.Unmap();
+	}
+
 	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
 	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
 
@@ -415,7 +466,7 @@ struct Staged
 
 		auto cmd = transferQueue.GetPool().Commands();
 
-		std::array<core::TaskCreateInfo<void>, 2> transfersDone;
+		std::array<core::TaskCreateInfo<void>, 3> transfersDone;
 		auto indexBuffer = Buffer(
 			BufferCreateDesc{
 				device.CreateDeviceObjectCreateDesc(std::format("{} (indices)", filePath)),
@@ -434,12 +485,22 @@ struct Staged
 			std::move(vertexStaging),
 			cmd,
 			transfersDone[1]);
+		auto instanceBuffer = Buffer(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("{} (instances)", filePath)),
+				desc.instances.size() * sizeof(ModelInstance),
+				BufferUsage::kStorage | BufferUsage::kTransferDestination,
+				MemoryProperty::kDeviceLocal},
+			std::move(instanceStaging),
+			cmd,
+			transfersDone[2]);
 		auto upload = Upload{
 			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
-		model = std::make_shared<Model>(std::move(desc), std::move(indexBuffer), std::move(vertexBuffer), upload);
+		model = std::make_shared<Model>(
+			std::move(desc), std::move(indexBuffer), std::move(vertexBuffer), std::move(instanceBuffer), upload);
 
 		CommandEncoder encoder(cmd);
-		for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer()})
+		for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer(), &model->GetInstanceBuffer()})
 			encoder.ReleaseOwnership(
 				*buffer, upload.queueFamilyIndex, graphicsQueueFamilyIndex, PipelineStage::kTransfer, Access::kTransferWrite);
 		cmd.End();
@@ -447,6 +508,7 @@ struct Staged
 		std::vector<core::TaskHandle> timelineCallbacks;
 		timelineCallbacks.emplace_back(transfersDone[0].handle);
 		timelineCallbacks.emplace_back(transfersDone[1].handle);
+		timelineCallbacks.emplace_back(transfersDone[2].handle);
 		// the caller may drop the model before the upload has completed, e.g. if the load it is part of is cancelled
 		timelineCallbacks.emplace_back(core::CreateTask([model] {}).handle);
 

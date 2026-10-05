@@ -42,6 +42,7 @@ extern PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV;
 extern PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV;
 extern PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR;
 extern PFN_vkCmdSetCullModeEXT gVkCmdSetCullModeEXT;
+extern PFN_vkCmdSetFrontFaceEXT gVkCmdSetFrontFaceEXT;
 extern PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR;
 
 // tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject/TrackInstanceObject
