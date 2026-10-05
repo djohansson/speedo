@@ -227,12 +227,30 @@ previous resource is freed via `RetireAfterGraphicsWork` once all in-flight grap
 
 ## Asset import and testing
 
-Decoding is CPU only and lives in `gfx`: `gfx::obj::Import` (tinyobjloader) and `gfx::image::Import` (stb_image,
-stb_image_resize2, stb_dxt). `gfx::Model::Load` and `gfx::LoadTexture` cache the result and fill rhi staging buffers
+Decoding is CPU only and lives in `gfx`: `gfx::obj::Import` (tinyobjloader), `gfx::gltf::Import` (cgltf) and
+`gfx::image::Import` (stb_image, stb_image_resize2, stb_dxt). Both model importers produce a `gfx::mesh::Mesh`
+(`gfx/meshimport.h`, which also dispatches on the extension: `mesh::Import`, `IsModelFile`, `Dependencies`).
+`gfx::Model::Load` and `gfx::LoadTexture` cache the result and fill rhi staging buffers
 (`Buffer::CreateStaging`, before taking a queue's lock), which the staging constructors of `Buffer`/`Image` upload; a
 failed load prints why and returns null instead of trapping. When an importer changes what it produces, bump its
-`objimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output. Assets outside
-`RootPath` are cached under `<user profile>/external/<absolute path>`.
+`objimport-vN`/`gltfimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output.
+Assets outside `RootPath` are cached under `<user profile>/external/<absolute path>`.
+
+glTF: the default scene is flattened into one mesh with the node transforms applied (a mirroring one reverses the
+winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). The renderer culls back
+faces and has no blending, so double sided materials get a reversed copy of their triangles, and alpha modes become
+`mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
+texture; BLEND is drawn as MASK). glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
+normal maps share the obj convention. The texcoord set a material's textures use goes first, with its
+KHR_texture_transform applied. glTF samplers (wrap modes, filters) aren't honored: every texture uses the
+renderer's one repeating sampler. Images embedded in buffers or data uris are written to
+`<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Files requiring draco or
+meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
+project doesn't have. KHR_node_visibility hides nodes; skins (drawn in bind pose), animation, morph targets, cameras
+and lights are ignored with a warning. The Khronos glTF-Sample-Assets `Models/` are the test set (`assettest` takes
+`.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
+more than four colors), and normals below the surface (z < 0, which BC5 can't store) are compared mirrored and warned
+about, since both are properties of the asset rather than importer errors.
 
 The loaders don't wait for their uploads: they return the resource with its `gfx::Upload` (the transfer timeline
 semaphore and value, and the transfer queue family), and keep it alive from the upload's timeline callback in case the

@@ -2,7 +2,25 @@
 
 * todo: generalize drawcall submission & move out of rhiapplication class. use sorted draw call lists.
 * todo: multi window/swapchain capability
-* todo: proper GLTF support
+* todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
+	* compression and image formats that need libraries we don't have: draco & meshopt (KHR_/EXT_) mesh compression, KTX2/basisu & WebP textures. files requiring them fail to load.
+	* skins: skinned meshes are drawn in their rest (bind) pose
+	* animation: ignored (node, morph weight and KHR_animation_pointer animations)
+	* morph targets: ignored, the base mesh is drawn
+	* cameras & lights (KHR_lights_punctual): ignored. the view is framed on the bounds, and lit by the fixed light in the shader
+	* shading models: no PBR. metallic-roughness, specular-glossiness and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, ...) are read past, unlit isn't special cased
+	* alpha blending: BLEND is drawn alpha tested (as MASK at 0.5), there is no blended, sorted pass
+	* metallic-roughness, emissive and occlusion maps: not loaded or drawn. normalTexture.scale is ignored
+	* texture sampler settings: wrap modes and filters are ignored, every texture uses the one repeating sampler
+	* texcoords: a material's textures all sample one set (the base color's), with its transform. a normal map with another set or transform, and sets above 1, fall back to that
+	* vertex tangents: ignored, the shader builds the tangent frame from screen space derivatives
+	* double sided materials: drawn as a second, reversed copy of their triangles (twice the geometry), since back faces are always culled. a per material cull mode would avoid that
+	* scenes: only the default one (or the first) is loaded
+	* EXT_mesh_gpu_instancing: instanced meshes are drawn once
+	* points and lines primitives: skipped
+	* sparse index accessors: their primitives are skipped
+	* embedded images: extracted to files in the user profile and loaded from there, not from memory. a cached model doesn't extract them again if they have been deleted
+	* everything is flattened into one Model with one draw per material: no per node transforms, culling or instancing at draw time
 * todo: frame graph
 * todo: clustered forward shading
 * todo: shader graph

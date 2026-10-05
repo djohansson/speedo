@@ -21,6 +21,7 @@ extern "C"
 #	define FLOAT4(name) float name[4]
 #	define FLOAT3(name) float name[3]
 #	define FLOAT2(name) float name[2]
+#	define FLOAT(name) float name
 #	define UINT(name) uint32_t name
 #	define UINT2(name) uint32_t name[2]
 #	define UINT3(name) uint32_t name[3]
@@ -39,6 +40,7 @@ extern "C"
 #	define FLOAT4(name) float4 name
 #	define FLOAT3(name) float3 name
 #	define FLOAT2(name) float2 name
+#	define FLOAT(name) float name
 #	define UINT(name) uint name
 #	define UINT2(name) uint2 name
 #	define UINT3(name) uint3 name
@@ -79,8 +81,8 @@ struct ViewData
 	alignas(16) FLOAT4X4(viewProjection);
 };
 
-#define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId's texture (multiplied in, and alpha tested)
-#define MATERIAL_FLAG_ALPHA_TEXTURE 2u // samples alphaTextureId (a mask in r, alpha tested)
+#define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId's texture (multiplied in, and alpha tested against alphaCutoff)
+#define MATERIAL_FLAG_ALPHA_TEXTURE 2u // samples alphaTextureId (a mask in r, tested against alphaCutoff)
 #define MATERIAL_FLAG_NORMAL_TEXTURE 4u // samples normalTextureId (a tangent space normal map, x and y in rg)
 
 // textures are indices into gTextures, all sampled with textureAndSamplerId's sampler
@@ -91,6 +93,7 @@ struct MaterialData
 	alignas(4) UINT(flags);
 	alignas(4) UINT(alphaTextureId);
 	alignas(4) UINT(normalTextureId);
+	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
 };
 
 struct ModelInstance

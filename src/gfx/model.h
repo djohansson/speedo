@@ -31,6 +31,7 @@ struct ModelMaterial
 	std::string normalTexture; // a normal map, used rather than bumpTexture if there are both
 	std::string bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
+	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff
 };
 
 struct ModelDesc
@@ -61,7 +62,8 @@ public:
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
-	// loads a model file through the asset cache (see core::file::LoadAsset and obj::Import) and uploads it on the
+	// loads a model file (.obj, .gltf or .glb) through the asset cache (see core::file::LoadAsset and mesh::Import) and
+	// uploads it on the
 	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
 	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
 	[[nodiscard]] static std::shared_ptr<Model> Load(std::string_view filePath, std::atomic_uint8_t& progress);

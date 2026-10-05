@@ -1,5 +1,6 @@
 #include <gfx/capi.h>
 #include <gfx/windowedapplication.h>
+#include <gfx/meshimport.h>
 #include <gfx/model.h>
 #include <gfx/shaderloader.h>
 #include <gfx/texture.h>
@@ -485,6 +486,7 @@ static void InstallModel(
 			auto& material = materials[materialIt];
 			std::ranges::fill(material.color, 1.0F);
 			material.textureAndSamplerId = kDefaultSamplerId;
+			material.alphaCutoff = model->GetDesc().materials[materialIt].alphaCutoff;
 
 			if (auto slot = slotOf(textures[materialIt].diffuse))
 			{
@@ -556,7 +558,8 @@ static void InstallImage(
 		MaterialData material{
 			.color = {1.0F, 1.0F, 1.0F, 1.0F},
 			.textureAndSamplerId = (kMaterialTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kDefaultSamplerId,
-			.flags = MATERIAL_FLAG_TEXTURE};
+			.flags = MATERIAL_FLAG_TEXTURE,
+			.alphaCutoff = 0.5F};
 		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
@@ -674,7 +677,7 @@ static std::optional<std::filesystem::path> ExtractArchive(const std::filesystem
 	return directory;
 }
 
-// the .obj files below a directory, sorted
+// the model files (.obj, .gltf, .glb) below a directory, sorted
 static std::vector<std::filesystem::path> FindModels(const std::filesystem::path& directory)
 {
 	std::vector<std::filesystem::path> models;
@@ -683,9 +686,7 @@ static std::vector<std::filesystem::path> FindModels(const std::filesystem::path
 		 !error && it != std::filesystem::recursive_directory_iterator();
 		 it.increment(error))
 	{
-		auto extension = it->path().extension().string();
-		std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		if (extension == ".obj" && it->is_regular_file(error))
+		if (mesh::IsModelFile(it->path()) && it->is_regular_file(error))
 			models.push_back(it->path());
 	}
 	std::ranges::sort(models);
@@ -713,7 +714,7 @@ static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::a
 	auto models = FindModels(*directory);
 	if (models.empty())
 	{
-		std::println(stderr, "Failed to load archive {}: it holds no .obj files", archivePath);
+		std::println(stderr, "Failed to load archive {}: it holds no model files", archivePath);
 		return;
 	}
 
@@ -915,34 +916,6 @@ static void DrawMainPass(
 
 	renderImageSet.End(cmd);
 }
-
-// auto loadGlTF = [](nfdchar_t* openFilePath)
-// {
-// 	try
-// 	{
-// 		std::filesystem::path path(openFilePath);
-
-// 		if (path.is_relative())
-// 			throw std::runtime_error("Command line argument path is not absolute");
-
-// 		if (!path.has_filename())
-// 			throw std::runtime_error("Command line argument path has no filename");
-
-// 		if (!path.has_extension())
-// 			throw std::runtime_error("Command line argument path has no filename extension");
-
-// 		gltfstream::PrintInfo(path);
-// 	}
-// 	catch (const std::runtime_error& ex)
-// 	{
-// 		std::cerr << "Error! - ";
-// 		std::cerr << ex.what() << "\n";
-
-// 		throw;
-// 	}
-
-// 	return 0;
-// };
 
 void CreateWindowDependentObjects(RHI& rhi)
 {
@@ -1273,10 +1246,10 @@ void WindowedApplication::PrepareDraw()
 	{
 		if (BeginMenu("File"))
 		{
-			if (MenuItem("Open OBJ..."))
+			if (MenuItem("Open Model..."))
 			{
 				static const std::vector<FileFilter> kFilterList ={
-					FileFilter{.name = "Wavefront OBJ", .spec = "obj"}
+					FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"}
 				};
 				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)

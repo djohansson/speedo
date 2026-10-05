@@ -1,6 +1,6 @@
 #include <gfx/model.h>
 #include <gfx/importversions.h>
-#include <gfx/objimport.h>
+#include <gfx/meshimport.h>
 
 #include <gfx/shaders/capi.h>
 
@@ -128,13 +128,20 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 		return {};
 	};
 
-	auto loadOBJ = [&](auto& /*todo: use me: in*/) -> std::error_code
+	// embedded images of gltf files are extracted to files, which the textures are loaded from
+	auto userProfilePath = std::get<std::filesystem::path>(app->GetEnv().variables["UserProfilePath"]);
+	auto absolutePath = std::filesystem::absolute(std::filesystem::path(filePath));
+	mesh::ImportOptions importOptions{
+		.embeddedImageDirectory = userProfilePath / "embedded" /
+								  std::format("{}-{:016x}", absolutePath.stem().string(), std::hash<std::string>{}(absolutePath.string()))};
+
+	auto loadModel = [&](auto& /*todo: use me: in*/) -> std::error_code
 	{
-		ZoneScopedN("gfx::Model::loadOBJ");
+		ZoneScopedN("gfx::Model::loadModel");
 
 		progress = 32;
 
-		auto mesh = obj::Import(std::filesystem::path(filePath), cancelled);
+		auto mesh = mesh::Import(std::filesystem::path(filePath), importOptions, cancelled);
 		if (!mesh)
 		{
 			if (cancelled())
@@ -167,7 +174,8 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 				.alphaTexture = material.alphaTexture.string(),
 				.normalTexture = material.normalTexture.string(),
 				.bumpTexture = material.bumpTexture.string(),
-				.bumpScale = material.bumpScale});
+				.bumpScale = material.bumpScale,
+				.alphaCutoff = material.alphaCutoff});
 
 		if (!fitsDevice(desc))
 			return std::make_error_code(std::errc::file_too_large);
@@ -191,16 +199,19 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 
 	std::string params;
 	std::string paramsHash;
-	params.append(std::format("tinyobjloader-{}", kTinyObjLoaderVersion));
-	params.append("|objimport-v1"); // bump when obj::Import changes what it produces
-	params.append("|cache-v6"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	// bump an importer's tag when it changes what it produces
+	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
+		params.append(std::format("tinyobjloader-{}|objimport-v1", kTinyObjLoaderVersion));
+	else
+		params.append(std::format("cgltf-{}|gltfimport-v1", kCgltfVersion));
+	params.append("|cache-v7"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	// the materials are baked into the vertex colors, so a change to them must reimport the model
-	auto materialFiles = [filePath] { return obj::MaterialFiles(std::filesystem::path(filePath)); };
-	auto loadResult = core::file::LoadAsset(filePath, loadOBJ, loadBin, saveBin, paramsHash, materialFiles, &progress, cancelled);
+	// the materials are baked into the vertex colors, so a change to them (or a gltf file's buffers) must reimport it
+	auto dependencies = [filePath] { return mesh::Dependencies(std::filesystem::path(filePath)); };
+	auto loadResult = core::file::LoadAsset(filePath, loadModel, loadBin, saveBin, paramsHash, dependencies, &progress, cancelled);
 
 	if (!loadResult || !indexStaging.IsValid() || !vertexStaging.IsValid())
 	{

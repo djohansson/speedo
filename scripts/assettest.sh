@@ -4,7 +4,7 @@
 # usage: scripts/assettest.sh [--client | --client-only] [--preset <name>] [--work <dir>] <zip or directory>...
 #
 # Zip archives are extracted to <work>/assets/<archive name> (the work dir defaults to a new temporary dir, and is
-# kept). Then build/<preset>/assettest imports every .obj file and image the way the client does and checks the
+# kept). Then build/<preset>/assettest imports every model (.obj, .gltf, .glb) and image the way the client does and checks the
 # results (see src/tools/assettest.cpp). With --client, the client also loads each model (and the first image next to
 # it) through the full load + upload + draw path, with a user profile dir under <work>, and fails a model if the
 # client crashes or prints load failures, failed asserts or validation errors (validation needs a debug preset).
@@ -103,7 +103,10 @@ if [[ $client -eq 1 ]]; then
 
 	while IFS= read -r -d '' model; do
 		dir=$(dirname "$model")
-		image=$(find "$dir" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.tga' \) ! -name '._*' | sort | head -1)
+		# an obj model's textures can be missing, so it is drawn with an image next to it on the default material
+		image=
+		[[ $model == *.[oO][bB][jJ] ]] &&
+			image=$(find "$dir" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.tga' \) ! -name '._*' | sort | head -1)
 		log=$work/logs/client-$(basename "$dir")-$(basename "$model" | tr ' ' '_').log
 
 		# glfw finds no monitors while the display sleeps (on macos), and the client then fails to start: wake it, and
@@ -135,7 +138,7 @@ if [[ $client -eq 1 ]]; then
 			echo "PASS client $model ($(( $(date +%s) - start ))s)"
 			pass=$((pass + 1))
 		fi
-	done < <(find "${dirs[@]}" -type f -iname '*.obj' ! -name '._*' ! -path '*/__MACOSX/*' -print0 | sort -z)
+	done < <(find "${dirs[@]}" -type f \( -iname '*.obj' -o -iname '*.gltf' -o -iname '*.glb' \) ! -name '._*' ! -path '*/__MACOSX/*' -print0 | sort -z)
 
 	echo "client: $pass pass, $fail fail."
 	[[ $fail -eq 0 ]] || failed=1

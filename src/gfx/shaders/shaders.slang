@@ -173,13 +173,13 @@ FragmentOutput FragmentMain(VertexOutput input)
 	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
 	{
 		float4 sample = gTextures[textureId].Sample(sampler, uv);
-		if (sample.a < 0.5)
+		if (sample.a < material.alphaCutoff)
 			discard;
 
 		color *= sample;
 	}
 
-	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && gTextures[material.alphaTextureId].Sample(sampler, uv).r < 0.5)
+	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && gTextures[material.alphaTextureId].Sample(sampler, uv).r < material.alphaCutoff)
 		discard;
 
 	float3 normal = normalize(v.normal);

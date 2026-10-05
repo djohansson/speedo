@@ -19,6 +19,9 @@
 namespace gfx::obj
 {
 
+using mesh::Mesh;
+using mesh::Submesh;
+
 namespace detail
 {
 

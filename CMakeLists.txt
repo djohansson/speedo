@@ -155,6 +155,7 @@ endfunction()
 
 speedo_port_version(stb SPEEDO_STB_VERSION)
 speedo_port_version(tinyobjloader SPEEDO_TINYOBJLOADER_VERSION)
+speedo_port_version(cgltf SPEEDO_CGLTF_VERSION)
 configure_file(${SPEEDO_SOURCE_DIR}/gfx/importversions.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/gfx/importversions.h @ONLY)
 target_include_directories(
 	gfx

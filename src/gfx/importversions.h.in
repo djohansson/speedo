@@ -7,5 +7,6 @@ namespace gfx
 
 inline constexpr const char* kStbVersion = "@SPEEDO_STB_VERSION@";
 inline constexpr const char* kTinyObjLoaderVersion = "@SPEEDO_TINYOBJLOADER_VERSION@";
+inline constexpr const char* kCgltfVersion = "@SPEEDO_CGLTF_VERSION@";
 
 } // namespace gfx

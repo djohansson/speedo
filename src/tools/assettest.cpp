@@ -1,11 +1,11 @@
-// imports models and images the way the client does (gfx::obj::Import, gfx::image::Import) and checks the results.
+// imports models and images the way the client does (gfx::mesh::Import, gfx::image::Import) and checks the results.
 // usage: assettest [--models-only | --images-only] <file, directory or zip archive>...
-// directories (and zip archives, extracted to a temporary directory) are searched recursively for .obj files and images. the textures that models' materials name are
+// directories (and zip archives, extracted to a temporary directory) are searched recursively for models (.obj, .gltf, .glb) and images. the textures that models' materials name are
 // checked too. prints one line per asset (PASS, WARN or FAIL, with details) and a summary, and exits with 1 if any
 // asset failed.
 
 #include <gfx/imageimport.h>
-#include <gfx/objimport.h>
+#include <gfx/meshimport.h>
 #include <gfx/ziparchive.h>
 
 #include <algorithm>
@@ -79,7 +79,7 @@ std::string Lower(std::string str)
 	return str;
 }
 
-bool IsModel(const std::filesystem::path& path) { return Lower(path.extension().string()) == ".obj"; }
+bool IsModel(const std::filesystem::path& path) { return gfx::mesh::IsModelFile(path); }
 
 bool IsImage(const std::filesystem::path& path)
 {
@@ -98,7 +98,9 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 {
 	Report report;
 
-	auto mesh = gfx::obj::Import(path);
+	// embedded gltf images are extracted (as the client does) to a temporary directory, and checked like the others
+	auto mesh = gfx::mesh::Import(
+		path, {.embeddedImageDirectory = std::filesystem::temp_directory_path() / "assettest" / "embedded" / path.stem()});
 	if (!mesh)
 	{
 		report.Fail("{}", mesh.error());
@@ -414,9 +416,12 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 
 	if (options.usage == Usage::kNormal || options.usage == Usage::kBump)
 	{
-		// the angle between the reconstructed normals and the reference ones, and how many point below the surface
+		// the angle between the reconstructed normals and the reference ones, and how many point below the surface. bc5
+		// keeps x and y, and z is reconstructed as positive: a reference normal below the surface (z < 0, which a valid
+		// normal map doesn't have) comes back mirrored, so it is compared mirrored, and counted.
 		double angleSum = 0.0;
 		double maxAngle = 0.0;
+		size_t belowSurface = 0;
 		for (size_t i = 0; i < pixelCount; i++)
 		{
 			std::array<double, 3> a{};
@@ -426,6 +431,11 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 				a[ch] = decodeSigned(level0[(i * 4) + ch]);
 				b[ch] = decodeSigned(pixels[(i * 4) + ch]);
 			}
+			if (b[2] < 0.0)
+			{
+				belowSurface++;
+				b[2] = -b[2];
+			}
 			auto dot = (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
 			auto lengths = std::sqrt(((a[0] * a[0]) + (a[1] * a[1]) + (a[2] * a[2])) * ((b[0] * b[0]) + (b[1] * b[1]) + (b[2] * b[2])));
 			auto angle = std::acos(std::clamp(lengths > 0.0 ? dot / lengths : 1.0, -1.0, 1.0)) * 180.0 / std::numbers::pi;
@@ -434,6 +444,8 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 		}
 		auto meanAngle = angleSum / static_cast<double>(pixelCount);
 		report.Info("level 0 normals off by {:.2f} degrees on average, {:.1f} at most", meanAngle, maxAngle);
+		if (auto share = static_cast<double>(belowSurface) / static_cast<double>(pixelCount); share > 0.01)
+			report.Warn("{:.1f}% of the source normals point below the surface, and are drawn mirrored", 100.0 * share);
 		if (meanAngle > 5.0)
 			report.Fail("level 0 normals are off by {:.2f} degrees on average", meanAngle);
 		return report;
@@ -481,18 +493,26 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 		return sum;
 	};
 
+	// a level of one block (4x4 or smaller) holds at most four colors, on a line for bc1: one whose pixels have more
+	// distinct colors than that can't keep their average, however well it is filtered, so it only warns
 	auto levelAverage0 = average(level0);
 	double worst = 0.0;
 	size_t worstLevel = 0;
+	double worstSingleBlock = 0.0;
+	size_t worstSingleBlockLevel = 0;
 	for (size_t levelIt = 1; levelIt < image->mipLevels.size(); levelIt++)
 	{
-		auto levelAverage = average(decodeLevel(image->mipLevels[levelIt]));
+		const auto& level = image->mipLevels[levelIt];
+		bool singleBlock = level.width <= 4 && level.height <= 4;
+		auto levelAverage = average(decodeLevel(level));
 		for (size_t ch = 0; ch < 4; ch++)
 		{
-			if (auto d = std::abs(levelAverage[ch] - levelAverage0[ch]); d > worst)
+			auto d = std::abs(levelAverage[ch] - levelAverage0[ch]);
+			auto& levelWorst = singleBlock ? worstSingleBlock : worst;
+			if (d > levelWorst)
 			{
-				worst = d;
-				worstLevel = levelIt;
+				levelWorst = d;
+				(singleBlock ? worstSingleBlockLevel : worstLevel) = levelIt;
 			}
 		}
 	}
@@ -501,6 +521,8 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 		report.Fail("mip {} average is off by {:.1f}", worstLevel, worst);
 	else if (worst > 12.0)
 		report.Warn("mip {} average is off by {:.1f}", worstLevel, worst);
+	if (worstSingleBlock > 12.0)
+		report.Warn("mip {} (a single block) average is off by {:.1f}", worstSingleBlockLevel, worstSingleBlock);
 
 	return report;
 }
