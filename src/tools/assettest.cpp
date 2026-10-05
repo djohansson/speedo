@@ -152,9 +152,9 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	}
 
 	report.Info(
-		"{} triangles, {} vertices, {} materials, {} submeshes, normals: {}, texcoords: {}, colors: {}",
+		"{} triangles, {} vertices, {} materials, {} submeshes, normals: {}, tangents: {}, texcoords: {}, colors: {}",
 		stats.triangleCount, mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
-		mesh->hasNormals ? "file" : "generated", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
+		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
 	if (mesh->indices.empty())
 	{
@@ -183,11 +183,14 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 
 	size_t nonFinite = 0;
 	size_t badNormals = 0;
+	size_t badTangents = 0; // not unit length, or w not +-1 (0, no tangent, is fine)
+	size_t skewedTangents = 0; // far from perpendicular to the normal
 	for (const auto& vertex : mesh->vertices)
 	{
 		auto values = {
 			vertex.position[0], vertex.position[1], vertex.position[2],
 			vertex.normal[0], vertex.normal[1], vertex.normal[2],
+			vertex.tangent[0], vertex.tangent[1], vertex.tangent[2], vertex.tangent[3],
 			vertex.texCoord01[0], vertex.texCoord01[1],
 			vertex.color[0], vertex.color[1], vertex.color[2], vertex.color[3]};
 		if (std::ranges::any_of(values, [](float v) { return !std::isfinite(v); }))
@@ -196,7 +199,23 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		auto n = ToVec3(vertex.normal);
 		if (std::abs(std::sqrt((n[0] * n[0]) + (n[1] * n[1]) + (n[2] * n[2])) - 1.0) > 1e-3)
 			badNormals++;
+
+		if (vertex.tangent[3] != 0.0F)
+		{
+			Vec3 t{vertex.tangent[0], vertex.tangent[1], vertex.tangent[2]};
+			auto length = std::sqrt((t[0] * t[0]) + (t[1] * t[1]) + (t[2] * t[2]));
+			if (std::abs(length - 1.0) > 1e-3 || std::abs(vertex.tangent[3]) != 1.0F)
+				badTangents++;
+			else if (std::abs((t[0] * n[0]) + (t[1] * n[1]) + (t[2] * n[2])) > 0.5)
+				skewedTangents++;
+		}
 	}
+	if (badTangents > 0)
+		report.Fail("{} tangents are not unit length with w = +-1", badTangents);
+	// the shader makes them perpendicular (and uses the derived frame for parallel ones), but far off they say little
+	// about the surface. a property of the file, not of the importer
+	if (skewedTangents > 0)
+		report.Warn("{} tangents are more than 30 degrees from perpendicular to their normal", skewedTangents);
 	if (nonFinite > 0)
 		report.Fail("{} vertices have non-finite values", nonFinite);
 	if (badNormals > 0)
@@ -346,7 +365,7 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	const auto& max = mesh->bounds.GetMax();
 	report.Info("bounds [{:.3g} {:.3g} {:.3g}] - [{:.3g} {:.3g} {:.3g}]", min.x, min.y, min.z, max.x, max.y, max.z);
 
-	auto vertexBytes = mesh->vertices.size() * sizeof(VertexP3fN3fT014fC4f);
+	auto vertexBytes = mesh->vertices.size() * sizeof(VertexP3fN3fTa4fT014fC4f);
 	report.Info("vertex buffer {:.1f} MiB, index buffer {:.1f} MiB", vertexBytes / 1048576.0, mesh->indices.size() * 4 / 1048576.0);
 
 	if (stats.droppedTriangles > 0)
@@ -355,6 +374,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		report.Info("{} degenerate triangles", stats.degenerateTriangles);
 	if (stats.repairedNormals > 0)
 		report.Warn("{} unusable normals in the file replaced", stats.repairedNormals);
+	if (stats.invalidTangents > 0)
+		report.Warn("{} unusable tangents in the file, left to the shader", stats.invalidTangents);
 	if (stats.nonFiniteValues > 0)
 		report.Warn("{} non-finite values in the file replaced", stats.nonFiniteValues);
 	if (stats.missingTextures > 0)

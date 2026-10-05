@@ -48,7 +48,7 @@ struct Staged
 [[nodiscard]] static bool FitsDevice(const Device& device, const ModelDesc& desc, std::string_view name)
 {
 	auto limits = device.GetLimits();
-	auto vertexBufferSize = static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fT014fC4f);
+	auto vertexBufferSize = static_cast<uint64_t>(desc.vertexCount) * sizeof(VertexP3fN3fTa4fT014fC4f);
 	if (vertexBufferSize <= limits.maxStorageBufferRange)
 		return true;
 
@@ -83,7 +83,7 @@ struct Staged
 			device.CreateDeviceObjectCreateDesc(std::format("{} (index staging)", filePath)), desc.indexCount * sizeof(uint32_t));
 		vertexStaging = Buffer::CreateStaging(
 			device.CreateDeviceObjectCreateDesc(std::format("{} (vertex staging)", filePath)),
-			desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
+			desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f));
 	};
 	auto releaseStaging = [&]
 	{
@@ -244,8 +244,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v6", kCgltfVersion));
-	params.append("|cache-v12"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v7", kCgltfVersion));
+	params.append("|cache-v13"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -295,12 +295,12 @@ struct Staged
 		merged.desc.indexCount * sizeof(uint32_t));
 	merged.vertexStaging = Buffer::CreateStaging(
 		device.CreateDeviceObjectCreateDesc(std::format("{} (vertex staging)", merged.desc.name)),
-		merged.desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
+		merged.desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f));
 
 	auto indices = merged.indexStaging.Map();
 	auto vertices = merged.vertexStaging.Map();
 	auto* indexOut = reinterpret_cast<uint32_t*>(indices.data());
-	auto* vertexOut = reinterpret_cast<VertexP3fN3fT014fC4f*>(vertices.data());
+	auto* vertexOut = reinterpret_cast<VertexP3fN3fTa4fT014fC4f*>(vertices.data());
 
 	auto columns = static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(models.size()))));
 	uint32_t vertexBase = 0;
@@ -337,7 +337,7 @@ struct Staged
 		model.indexStaging.Unmap();
 
 		auto sourceVertices = model.vertexStaging.Map();
-		std::memcpy(&vertexOut[vertexBase], sourceVertices.data(), desc.vertexCount * sizeof(VertexP3fN3fT014fC4f));
+		std::memcpy(&vertexOut[vertexBase], sourceVertices.data(), desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f));
 		model.vertexStaging.Unmap();
 		for (uint32_t i = 0; i < desc.vertexCount; i++)
 		{
@@ -407,7 +407,7 @@ struct Staged
 		auto vertexBuffer = Buffer(
 			BufferCreateDesc{
 				device.CreateDeviceObjectCreateDesc(std::format("{} (vertices)", filePath)),
-				desc.vertexCount * sizeof(VertexP3fN3fT014fC4f),
+				desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f),
 				BufferUsage::kVertex | BufferUsage::kStorage | BufferUsage::kTransferDestination,
 				MemoryProperty::kDeviceLocal},
 			std::move(vertexStaging),

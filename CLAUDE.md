@@ -304,9 +304,14 @@ swapchain, which stays unorm since it is a storage image (and imgui's colors are
 (0-3 are the frames' render targets, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
-obj importer flips v). The fragment shader builds the tangent frame from screen space derivatives (no vertex
-tangents), corrected by the sign of `dot(cross(ddx(p), ddy(p)), n)`, which is negative here since the framebuffer's y
-points down: without it bumps come out inverted. A quad with a known height map (a dome, which must be lit on the side
+obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
+handedness, so the bitangent `cross(n, t) * w` points *up* the image, i.e. along -v in this convention; mirroring node
+and instance transforms flip w). Without them (obj, gltf files without `TANGENT`, or with generated normals, where gltf
+says to ignore them) w is 0, and the fragment shader builds the tangent frame from screen space derivatives instead,
+corrected by the sign of `dot(cross(ddx(p), ddy(p)), n)`, which is negative here since the framebuffer's y
+points down: without it bumps come out inverted. Missing tangents aren't generated (MikkTSpace would need a library).
+Either frame follows the normal map's texture transform. NormalTangentMirrorTest checks the vertex tangent path: it
+renders right either way, but negating its tangents' w must break it. A quad with a known height map (a dome, which must be lit on the side
 the light comes from) is the quickest way to see a sign error. `InstallModel` switches model, textures and materials in one draw
 thread step, after the textures are transitioned: every change to `gTextures` takes a new descriptor set (see above),
 and the pool only holds 128 copies of that 1024 slot array. Installing a model also frames the cameras on its bounds

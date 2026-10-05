@@ -137,6 +137,15 @@ using Matrix = std::array<float, 16>;
 		   (a(0, 2) * ((a(1, 0) * a(2, 1)) - (a(1, 1) * a(2, 0))));
 }
 
+// by the upper 3x3 only, for directions such as tangents
+[[nodiscard]] Vec3 TransformDirection(const Matrix& m, const Vec3& v)
+{
+	return {
+		(m[0] * v[0]) + (m[4] * v[1]) + (m[8] * v[2]),
+		(m[1] * v[0]) + (m[5] * v[1]) + (m[9] * v[2]),
+		(m[2] * v[0]) + (m[6] * v[1]) + (m[10] * v[2])};
+}
+
 [[nodiscard]] Vec3 TransformNormal(const std::array<double, 9>& n, const Vec3& v)
 {
 	// rows of the cofactor matrix
@@ -436,7 +445,7 @@ private:
 struct Part
 {
 	int32_t material = -1;
-	std::vector<VertexP3fN3fT014fC4f> vertices;
+	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<uint32_t> indices;
 };
 
@@ -573,6 +582,7 @@ std::expected<Mesh, std::string> Import(
 
 		const cgltf_accessor* positions = nullptr;
 		const cgltf_accessor* normals = nullptr;
+		const cgltf_accessor* tangents = nullptr;
 		std::array<const cgltf_accessor*, 2> texCoords{};
 		const cgltf_accessor* colors = nullptr;
 		for (cgltf_size attributeIt = 0; attributeIt < primitive.attributes_count; attributeIt++)
@@ -587,6 +597,10 @@ std::expected<Mesh, std::string> Import(
 			case cgltf_attribute_type_normal:
 				if (attribute.index == 0)
 					normals = attribute.data;
+				break;
+			case cgltf_attribute_type_tangent:
+				if (attribute.index == 0)
+					tangents = attribute.data;
 				break;
 			case cgltf_attribute_type_texcoord:
 				if (attribute.index >= 0 && attribute.index < 2)
@@ -626,9 +640,11 @@ std::expected<Mesh, std::string> Import(
 			return;
 		}
 		auto normalValues = normals != nullptr && normals->type == cgltf_type_vec3 ? unpack(normals, 3) : std::nullopt;
+		// tangents go with the file's normals: when normals are generated, gltf says to ignore them
+		auto tangentValues = normalValues && tangents != nullptr && tangents->type == cgltf_type_vec4 ? unpack(tangents, 4) : std::nullopt;
 
 		// morph targets, at their weights (animating them belongs to animation, which is ignored): each target's
-		// position and normal deltas, times its weight, are added to the base mesh. tangents are ignored anyway.
+		// position, normal and tangent (xyz) deltas, times its weight, are added to the base mesh
 		for (cgltf_size targetIt = 0; targetIt < primitive.targets_count; targetIt++)
 		{
 			auto weight = targetIt < weights.size() ? weights[targetIt] : 0.0F;
@@ -639,11 +655,13 @@ std::expected<Mesh, std::string> Import(
 			for (cgltf_size attributeIt = 0; attributeIt < target.attributes_count; attributeIt++)
 			{
 				const auto& attribute = target.attributes[attributeIt];
-				auto* values = attribute.type == cgltf_attribute_type_position ? &positionValues
-							   : attribute.type == cgltf_attribute_type_normal ? &normalValues
-																				 : nullptr;
+				auto* values = attribute.type == cgltf_attribute_type_position  ? &positionValues
+							   : attribute.type == cgltf_attribute_type_normal  ? &normalValues
+							   : attribute.type == cgltf_attribute_type_tangent ? &tangentValues
+																				  : nullptr;
 				if (values == nullptr || !*values || attribute.data->type != cgltf_type_vec3)
 					continue;
+				size_t stride = attribute.type == cgltf_attribute_type_tangent ? 4 : 3;
 
 				auto deltas = unpack(attribute.data, 3);
 				if (!deltas)
@@ -653,7 +671,7 @@ std::expected<Mesh, std::string> Import(
 					continue;
 				}
 				for (size_t i = 0; i < deltas->size(); i++)
-					(**values)[i] += weight * (*deltas)[i];
+					(**values)[((i / 3) * stride) + (i % 3)] += weight * (*deltas)[i];
 			}
 		}
 		std::array<std::optional<std::vector<float>>, 2> texCoordValues;
@@ -666,6 +684,7 @@ std::expected<Mesh, std::string> Import(
 							   : std::nullopt;
 
 		mesh.hasNormals |= normalValues.has_value();
+		mesh.hasTangents |= tangentValues.has_value();
 		mesh.hasTexCoords |= texCoordValues[0].has_value() || texCoordValues[1].has_value();
 		mesh.hasColors |= colorValues.has_value();
 
@@ -718,7 +737,7 @@ std::expected<Mesh, std::string> Import(
 		auto& part = parts.emplace_back(Part{.material = material});
 
 		// the vertices in world space, before normals are generated or repaired
-		std::vector<VertexP3fN3fT014fC4f> vertices(vertexCount);
+		std::vector<VertexP3fN3fTa4fT014fC4f> vertices(vertexCount);
 		std::vector<bool> normalValid(vertexCount, false);
 		for (size_t vertexIt = 0; vertexIt < vertexCount; vertexIt++)
 		{
@@ -742,6 +761,25 @@ std::expected<Mesh, std::string> Import(
 					normalValid[vertexIt] = true;
 					for (size_t i = 0; i < 3; i++)
 						vertex.normal[i] = static_cast<float>(n[i] / length);
+				}
+			}
+
+			// along +u, transformed like positions. a mirroring transform flips the handedness, as it does the
+			// winding. unusable tangents are left at w = 0, which the shader replaces with a derived frame
+			if (tangentValues)
+			{
+				const auto* t = &(*tangentValues)[4 * vertexIt];
+				auto w = t[3];
+				Vec3 tangent = TransformDirection(world, Vec3{t[0], t[1], t[2]});
+				if (auto length = Length(tangent); IsFinite(tangent) && length > 0.0 && std::isfinite(w) && w != 0.0F)
+				{
+					for (size_t i = 0; i < 3; i++)
+						vertex.tangent[i] = static_cast<float>(tangent[i] / length);
+					vertex.tangent[3] = (w < 0.0F) != mirrored ? -1.0F : 1.0F;
+				}
+				else
+				{
+					stats.invalidTangents++;
 				}
 			}
 
@@ -886,6 +924,7 @@ std::expected<Mesh, std::string> Import(
 												   : std::span<const cgltf_float>(node->mesh->weights, node->mesh->weights_count);
 
 			std::string meshName = node->mesh->name != nullptr ? node->mesh->name : std::format("{}", node->mesh - data.meshes);
+
 			for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
 				addPrimitive(node->mesh->primitives[primitiveIt], world, weights, meshName);
 
@@ -948,7 +987,7 @@ std::expected<Mesh, std::string> Import(
 			}
 			mesh.vertices.insert(mesh.vertices.end(), part.vertices.begin(), part.vertices.end());
 
-			std::vector<VertexP3fN3fT014fC4f>().swap(part.vertices);
+			std::vector<VertexP3fN3fTa4fT014fC4f>().swap(part.vertices);
 			std::vector<uint32_t>().swap(part.indices);
 		}
 	}

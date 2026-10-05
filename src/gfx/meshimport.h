@@ -61,6 +61,7 @@ struct Stats
 	size_t droppedTriangles = 0; // referencing vertex data that doesn't exist
 	size_t generatedNormals = 0; // vertices without a normal in the file, computed from the faces around them
 	size_t repairedNormals = 0; // zero length or non-finite normals in the file, replaced by the face normal
+	size_t invalidTangents = 0; // zero length or non-finite tangents in the file (or w = 0), left for the shader to derive
 	size_t nonFiniteValues = 0; // non-finite positions or texcoords, replaced by zero
 	size_t missingTextures = 0; // textures named by a material that don't exist
 	// obj: parts (runs of faces with the same material in a shape) whose winding was reversed, since it was clockwise
@@ -75,12 +76,13 @@ struct Stats
 
 struct Mesh
 {
-	std::vector<VertexP3fN3fT014fC4f> vertices;
+	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<uint32_t> indices; // triangle list
 	std::vector<Submesh> submeshes; // ordered by material
 	std::vector<Material> materials;
 	Bounds3f bounds; // of the vertices
 	bool hasNormals = false; // in the file, for at least one vertex. missing ones are generated (see Stats)
+	bool hasTangents = false; // in the file (gltf), for at least one vertex. without them, w = 0 (see the vertex's tangent)
 	bool hasTexCoords = false; // in the file, for at least one vertex. missing ones are zero
 	bool hasColors = false; // in the file. vertex colors are 1 otherwise
 	Stats stats;

@@ -13,7 +13,7 @@
 	* metallic-roughness maps: not loaded or drawn
 	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
 	* texcoords: sets above 1 fall back to set 0
-	* vertex tangents: ignored, the shader builds the tangent frame from screen space derivatives
+	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
 	* scenes: only the default one (or the first) is loaded
 	* EXT_mesh_gpu_instancing: instanced meshes are drawn once
 	* points and lines primitives: skipped

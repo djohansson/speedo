@@ -124,10 +124,14 @@ struct ModelInstance
 	alignas(16) FLOAT4X4(inverseTransposeModelTransform);
 };
 
-struct VertexP3fN3fT014fC4f
+struct VertexP3fN3fTa4fT014fC4f
 {
 	alignas(16) FLOAT3(position);
 	alignas(16) FLOAT3(normal);
+	// xyz: along +u of the normal map's texcoords (before its transform). w: the handedness of the frame (gltf's), whose
+	// bitangent cross(normal, tangent.xyz) * w points up the image, i.e. along -v. w = 0: no tangent, the fragment shader
+	// derives the frame from screen space derivatives
+	alignas(16) FLOAT4(tangent);
 	alignas(16) FLOAT4(texCoord01);
 	alignas(16) FLOAT4(color);
 };

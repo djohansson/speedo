@@ -9,7 +9,7 @@ __include types;
 ConstantBuffer<PushConstants> gPushConstants;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
-StructuredBuffer<VertexP3fN3fT014fC4f> gVertexBuffer;
+StructuredBuffer<VertexP3fN3fTa4fT014fC4f> gVertexBuffer;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
@@ -45,7 +45,7 @@ struct VertexZPrepassOutput : IInterpolants
 
 struct VertexOutput : IInterpolants
 {
-	VertexP3fN3fT014fC4f vertex;
+	VertexP3fN3fTa4fT014fC4f vertex;
 	float4 hPos : SV_Position;
 };
 
@@ -93,7 +93,7 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 
 	ViewData view = gViewData[frameIndex][viewId];
 
-    VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
+    VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
     ModelInstance i = gModelInstances[modelInstanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
@@ -116,7 +116,7 @@ VertexOutput VertexMain(InputStream input)
 
 	ViewData view = gViewData[frameIndex][viewId];
 
-    VertexP3fN3fT014fC4f v = gVertexBuffer[input.vertexId];
+    VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
     ModelInstance i = gModelInstances[modelInstanceId];
 
 	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
@@ -125,6 +125,9 @@ VertexOutput VertexMain(InputStream input)
 	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
 	output.vertex.position = worldPosition;
 	output.vertex.normal = worldNormal;
+	// a mirroring transform flips the handedness of the tangent frame
+	float3x3 linear = float3x3(i.modelTransform[0].xyz, i.modelTransform[1].xyz, i.modelTransform[2].xyz);
+	output.vertex.tangent = float4(mul(linear, v.tangent.xyz), determinant(linear) < 0.0 ? -v.tangent.w : v.tangent.w);
 	output.vertex.texCoord01 = v.texCoord01;
 	output.vertex.color = v.color;
 
@@ -152,6 +155,25 @@ float3x3 CotangentFrame(float3 normal, float3 position, float2 uv)
 	return float3x3(tangent * invmax, bitangent * invmax, normal);
 }
 
+// the tangent frame at a pixel from the vertex tangent (see VertexP3fN3fTa4fT014fC4f::tangent), already made
+// perpendicular to the normal, turned to follow the view's transform of the texcoords: with uv' = A * uv + c, +u' and
+// +v' point along the columns of A^-1 applied to (+u, +v). rows as CotangentFrame's.
+float3x3 TangentFrame(float3 normal, float3 alongU, float handedness, TextureView view)
+{
+	float3 alongV = -cross(normal, alongU) * sign(handedness);
+
+	float det = view.uTransform.x * view.vTransform.y - view.uTransform.y * view.vTransform.x;
+	if (det != 0.0)
+	{
+		float s = sign(det);
+		float3 u = normalize((alongU * view.vTransform.y - alongV * view.vTransform.x) * s);
+		float3 v = normalize((alongV * view.uTransform.x - alongU * view.uTransform.y) * s);
+		alongU = u;
+		alongV = v;
+	}
+	return float3x3(alongU, alongV, normal);
+}
+
 // a view's texcoords: its set, transformed (see TextureView)
 float2 ViewTexCoord(TextureView view, float4 texCoord01)
 {
@@ -173,7 +195,7 @@ float4 SampleView(uint viewId, float4 texCoord01)
 [shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
-	VertexP3fN3fT014fC4f v = input.vertex;
+	VertexP3fN3fTa4fT014fC4f v = input.vertex;
 	FragmentOutput output;
 
 	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
@@ -198,8 +220,10 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && SampleView(material.alphaView, v.texCoord01).r < material.alphaCutoff)
 		discard;
 
-	// a back face (only drawn for double sided materials) is lit as seen from behind, as gltf defines it
-	float3 normal = normalize(isFrontFace ? v.normal : -v.normal);
+	// a back face (only drawn for double sided materials) is lit as seen from behind, as gltf defines it: its normal,
+	// normal mapped or not, is reversed
+	float faceSign = isFrontFace ? 1.0 : -1.0;
+	float3 normal = normalize(v.normal);
 	if ((material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
 	{
 		// the tangent frame follows the normal map's own (transformed) texcoords
@@ -209,7 +233,17 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 		// z is reconstructed from the stored (unit length) normal, then x and y are scaled, as gltf defines
 		// normalTexture.scale: normalize(normal * (scale, scale, 1))
 		float3 tangentSpaceNormal = float3(xy * material.normalScale, sqrt(saturate(1.0 - dot(xy, xy))));
-		normal = normalize(mul(tangentSpaceNormal, CotangentFrame(normal, v.position, uv)));
+		// the vertex tangents if the mesh has them (interpolated w stays away from 0) and they aren't (nearly) parallel
+		// to the normal, which some files have, else a derived frame
+		float3 alongU = v.tangent.xyz - normal * dot(normal, v.tangent.xyz);
+		if (abs(v.tangent.w) > 0.5 && dot(alongU, alongU) > 1e-4 * dot(v.tangent.xyz, v.tangent.xyz))
+			normal = faceSign * normalize(mul(tangentSpaceNormal, TangentFrame(normal, normalize(alongU), v.tangent.w, normalView)));
+		else
+			normal = normalize(mul(tangentSpaceNormal, CotangentFrame(faceSign * normal, v.position, uv)));
+	}
+	else
+	{
+		normal *= faceSign;
 	}
 
 	// a fixed light from above, and some ambient, so that the shapes read
