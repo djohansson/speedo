@@ -9,8 +9,9 @@
 #   reported (and kept as <name>.unverified) rather than used, until the manifest is updated.
 # --gltf: the Khronos glTF-Sample-Assets models (https://github.com/KhronosGroup/glTF-Sample-Assets), at the commit
 #   pinned below (about 2.3 GB), into <dir>/glTF-Sample-Assets.
-# Without either, both are fetched. The dir defaults to $SPEEDO_TEST_ASSETS, or ~/.cache/speedo/test-assets. Files
-# already there (and verified) are kept, so running it again only fetches what is missing.
+# Without either, both are fetched. The dir defaults to $SPEEDO_TEST_ASSETS, or resources/test-assets (which git
+# ignores, and the client's file dialogs open in). Files already there (and verified) are kept, so running it again only
+# fetches what is missing.
 #
 # Prints the paths to pass to scripts/assettest.sh, e.g.
 #   scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)
@@ -18,7 +19,7 @@
 set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-dir=${SPEEDO_TEST_ASSETS:-$HOME/.cache/speedo/test-assets}
+dir=${SPEEDO_TEST_ASSETS:-$root/resources/test-assets}
 mcguire=0
 gltf=0
 

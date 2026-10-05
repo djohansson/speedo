@@ -1231,6 +1231,14 @@ void WindowedApplication::PrepareDraw()
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
+	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.sh)
+	auto dialogPath = [&resourcePath](std::string_view fallback)
+	{
+		std::error_code error;
+		auto testAssets = resourcePath / "test-assets";
+		return (std::filesystem::is_directory(testAssets, error) ? testAssets : resourcePath / fallback).string();
+	};
+
 	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images (or
 	// an absolute path; for a model also a zip archive) to load at startup, through the same load + install path as the "File" menu. with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
@@ -1276,7 +1284,7 @@ void WindowedApplication::PrepareDraw()
 				static const std::vector<FileFilter> kFilterList ={
 					FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"}
 				};
-				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
+				InternalOpenFileDialogueAsync(dialogPath("models"), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
 					{ LoadAndInstallModel(rhi, filePath, progressOut); });
 			}
@@ -1285,7 +1293,7 @@ void WindowedApplication::PrepareDraw()
 				static const std::vector<FileFilter> kFilterList = {
 					FileFilter{.name = "Zip archives", .spec = "zip"}
 				};
-				InternalOpenFileDialogueAsync((resourcePath / "models").string(), kFilterList,
+				InternalOpenFileDialogueAsync(dialogPath("models"), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
 					{ LoadAndInstallArchive(rhi, filePath, progressOut, ArchiveModels::kChoose); });
 			}
@@ -1295,7 +1303,7 @@ void WindowedApplication::PrepareDraw()
 					FileFilter{.name = "Image files", .spec = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm"}
 				};
 
-				InternalOpenFileDialogueAsync((resourcePath / "images").string(), kFilterList,
+				InternalOpenFileDialogueAsync(dialogPath("images"), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
 					{ LoadAndInstallImage(rhi, filePath, progressOut); });
 			}

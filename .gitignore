@@ -7,6 +7,9 @@ build/*
 install/*
 temp/*
 
+# downloaded by scripts/fetch-test-assets.sh
+resources/test-assets/
+
 *.fdb
 *.log
 *.dmg

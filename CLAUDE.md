@@ -300,7 +300,8 @@ main loop sleeps in `glfwWaitEvents()`, so anything that must end it from anothe
 
 The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.sh` downloads Morgan McGuire's
 Computer Graphics Archive (obj, about 2.7 GB) and the Khronos glTF-Sample-Assets models (at a pinned commit, about
-2.3 GB) into `~/.cache/speedo/test-assets` (or `$SPEEDO_TEST_ASSETS`), and prints the paths to test:
+2.3 GB) into `resources/test-assets` (gitignored; the client's file dialogs open there; or `$SPEEDO_TEST_ASSETS`), and
+prints the paths to test:
 `scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)`. The archive publishes no versions or checksums and
 does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
 sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
