@@ -34,6 +34,8 @@ struct ModelMaterial
 	float normalScale = 1.0F; // see mesh::Material::normalScale
 	std::array<float, 3> emissive{0.0F, 0.0F, 0.0F}; // see mesh::Material::emissive
 	std::string emissiveTexture;
+	std::string occlusionTexture; // see mesh::Material::occlusionTexture
+	float occlusionStrength = 1.0F;
 	std::string bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
 	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff

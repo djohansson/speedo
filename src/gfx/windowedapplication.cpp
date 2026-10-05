@@ -419,6 +419,7 @@ struct MaterialTextures
 	Texture alpha;
 	Texture normal;
 	Texture emissive;
+	Texture occlusion;
 };
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
@@ -436,7 +437,7 @@ static void InstallModel(
 	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer()})
 		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
-		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal, &material.emissive})
+		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -511,6 +512,12 @@ static void InstallModel(
 			{
 				material.emissiveTextureId = *slot;
 				material.flags |= MATERIAL_FLAG_EMISSIVE_TEXTURE;
+			}
+			if (auto slot = slotOf(textures[materialIt].occlusion))
+			{
+				material.occlusionTextureId = *slot;
+				material.emissive[3] = model->GetDesc().materials[materialIt].occlusionStrength;
+				material.flags |= MATERIAL_FLAG_OCCLUSION_TEXTURE;
 			}
 		}
 
@@ -617,6 +624,8 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 		// the texture scales emissive, so it is only worth loading if that isn't black (obj map_Ke usually comes with Ke 0)
 		if (!material.emissiveTexture.empty() && std::ranges::any_of(material.emissive, [](float value) { return value > 0.0F; }))
 			loads.push_back({material.emissiveTexture, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
+		if (!material.occlusionTexture.empty())
+			loads.push_back({material.occlusionTexture, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;

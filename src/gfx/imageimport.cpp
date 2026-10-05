@@ -39,7 +39,8 @@ constexpr uint32_t kRgba = 4;
 	{
 	case Usage::kNormal:
 	case Usage::kBump: return Format::kBC5;
-	case Usage::kMask: return Format::kBC4;
+	case Usage::kMask:
+	case Usage::kOcclusion: return Format::kBC4;
 	default: return alpha ? Format::kBC3 : Format::kBC1;
 	}
 }
@@ -274,6 +275,14 @@ std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, con
 			auto value = alpha ? rgba[i + 3]
 							   : static_cast<uint8_t>(std::lround((0.299 * rgba[i]) + (0.587 * rgba[i + 1]) + (0.114 * rgba[i + 2])));
 			rgba[i] = rgba[i + 1] = rgba[i + 2] = value;
+			rgba[i + 3] = 255;
+		}
+		break;
+
+	case Usage::kOcclusion:
+		for (size_t i = 0; i < rgba.size(); i += kRgba)
+		{
+			rgba[i + 1] = rgba[i + 2] = rgba[i];
 			rgba[i + 3] = 255;
 		}
 		break;

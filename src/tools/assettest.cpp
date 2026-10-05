@@ -355,6 +355,8 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 			texturesOut.insert({std::filesystem::weakly_canonical(material.diffuseTexture), gfx::image::Usage::kColor, 1.0F});
 		if (!material.alphaTexture.empty())
 			texturesOut.insert({std::filesystem::weakly_canonical(material.alphaTexture), gfx::image::Usage::kMask, 1.0F});
+		if (!material.occlusionTexture.empty())
+			texturesOut.insert({std::filesystem::weakly_canonical(material.occlusionTexture), gfx::image::Usage::kOcclusion, 1.0F});
 		if (!material.normalTexture.empty())
 			texturesOut.insert({std::filesystem::weakly_canonical(material.normalTexture), gfx::image::Usage::kNormal, 1.0F});
 		else if (!material.bumpTexture.empty())
@@ -434,6 +436,7 @@ constexpr std::string_view ToString(gfx::image::Usage usage)
 	case gfx::image::Usage::kNormal: return "normal";
 	case gfx::image::Usage::kBump: return "bump";
 	case gfx::image::Usage::kMask: return "mask";
+	case gfx::image::Usage::kOcclusion: return "occlusion";
 	}
 	return "?";
 }

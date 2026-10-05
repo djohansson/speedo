@@ -33,6 +33,9 @@ enum class Usage : uint8_t
 	kMask, // one channel, e.g. an alpha mask: the alpha channel if any pixel isn't opaque, else the luminance. BC4.
 	// a bump texture: a height map, which is turned into a normal map, or (told apart by color) a normal map. as kNormal.
 	kBump,
+	// an ambient occlusion map: its red channel (gltf packs occlusion, roughness and metallic in r, g and b), linear.
+	// BC4. (appended: usages are part of the serialized images)
+	kOcclusion,
 };
 
 struct Options

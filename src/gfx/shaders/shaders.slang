@@ -201,7 +201,12 @@ FragmentOutput FragmentMain(VertexOutput input)
 	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
 		emissive *= gTextures[material.emissiveTextureId].Sample(sampler, uv).rgb;
 
-	output.color = float4(color.rgb * (0.3 + 0.7 * diffuse) + emissive, color.a);
+	// ambient occlusion only darkens the ambient light, the stand-in for indirect light, which is what gltf applies it to
+	float occlusion = 1.0;
+	if ((material.flags & MATERIAL_FLAG_OCCLUSION_TEXTURE) != 0u)
+		occlusion = lerp(1.0, gTextures[material.occlusionTextureId].Sample(sampler, uv).r, material.emissive.w);
+
+	output.color = float4(color.rgb * (0.3 * occlusion + 0.7 * diffuse) + emissive, color.a);
 
 	return output;
 }

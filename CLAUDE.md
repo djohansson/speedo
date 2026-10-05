@@ -244,7 +244,10 @@ texture; BLEND is drawn as MASK). glTF texcoords already have v = 0 at the top, 
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
 Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the srgb `emissiveTexture`, obj `Ke` and
 `map_Ke`) is added after the lighting, unclamped (CornellBox's lamp, `Ke 17 12 4`, saturates to white); an emissive
-texture with a black factor isn't loaded (obj files pair `map_Ke` with `Ke 0`). The texcoord set a material's textures use goes first, with its
+texture with a black factor isn't loaded (obj files pair `map_Ke` with `Ke 0`). Occlusion maps (gltf `occlusionTexture`,
+by its strength) darken only the ambient term, the stand-in for the indirect light gltf applies them to; they are
+imported as `image::Usage::kOcclusion` (the red channel, linear, BC4), since gltf often packs occlusion, roughness and
+metallic into one texture's r, g and b, which kMask's luminance would mix. The texcoord set a material's textures use goes first, with its
 KHR_texture_transform applied. glTF samplers (wrap modes, filters) aren't honored: every texture uses the
 renderer's one repeating sampler. Images embedded in buffers or data uris are written to
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Files requiring draco or

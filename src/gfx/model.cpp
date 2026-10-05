@@ -190,6 +190,8 @@ struct Staged
 				.normalScale = material.normalScale,
 				.emissive = material.emissive,
 				.emissiveTexture = material.emissiveTexture.string(),
+				.occlusionTexture = material.occlusionTexture.string(),
+				.occlusionStrength = material.occlusionStrength,
 				.bumpTexture = material.bumpTexture.string(),
 				.bumpScale = material.bumpScale,
 				.alphaCutoff = material.alphaCutoff});
@@ -220,8 +222,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v3", kCgltfVersion));
-	params.append("|cache-v9"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v4", kCgltfVersion));
+	params.append("|cache-v10"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

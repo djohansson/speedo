@@ -415,6 +415,8 @@ std::expected<Mesh, std::string> Import(
 		for (size_t channel = 0; channel < 3; channel++)
 			material.emissive[channel] = gltfMaterial.emissive_factor[channel] * emissiveStrength;
 		material.emissiveTexture = images.Resolve(gltfMaterial.emissive_texture, material.name);
+		material.occlusionTexture = images.Resolve(gltfMaterial.occlusion_texture, material.name);
+		material.occlusionStrength = gltfMaterial.occlusion_texture.scale; // cgltf keeps the strength as scale
 
 		switch (gltfMaterial.alpha_mode)
 		{

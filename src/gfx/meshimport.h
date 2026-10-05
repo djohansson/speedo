@@ -33,6 +33,9 @@ struct Material
 	// times the emissive texture's color if there is one. linear, and may be above 1.
 	std::array<float, 3> emissive{0.0F, 0.0F, 0.0F};
 	std::filesystem::path emissiveTexture; // obj map_Ke, gltf emissiveTexture
+	// gltf occlusionTexture: ambient occlusion in its red channel, which darkens the ambient (indirect) light, by strength
+	std::filesystem::path occlusionTexture;
+	float occlusionStrength = 1.0F;
 	std::filesystem::path bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option
 	// fragments whose diffuse texture alpha (or alpha texture value) is below this are discarded: 0 for opaque
