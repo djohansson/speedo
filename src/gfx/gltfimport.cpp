@@ -411,6 +411,10 @@ std::expected<Mesh, std::string> Import(
 		material.diffuseTexture = images.Resolve(*baseColorTexture, material.name);
 		material.normalTexture = images.Resolve(gltfMaterial.normal_texture, material.name);
 		material.normalScale = gltfMaterial.normal_texture.scale;
+		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
+		for (size_t channel = 0; channel < 3; channel++)
+			material.emissive[channel] = gltfMaterial.emissive_factor[channel] * emissiveStrength;
+		material.emissiveTexture = images.Resolve(gltfMaterial.emissive_texture, material.name);
 
 		switch (gltfMaterial.alpha_mode)
 		{

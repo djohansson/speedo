@@ -418,6 +418,7 @@ struct MaterialTextures
 	Texture diffuse;
 	Texture alpha;
 	Texture normal;
+	Texture emissive;
 };
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
@@ -435,7 +436,7 @@ static void InstallModel(
 	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer()})
 		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
-		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal})
+		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal, &material.emissive})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -503,6 +504,13 @@ static void InstallModel(
 				material.normalTextureId = *slot;
 				material.normalScale = model->GetDesc().materials[materialIt].normalScale;
 				material.flags |= MATERIAL_FLAG_NORMAL_TEXTURE;
+			}
+			const auto& emissive = model->GetDesc().materials[materialIt].emissive;
+			std::ranges::copy(emissive, material.emissive);
+			if (auto slot = slotOf(textures[materialIt].emissive))
+			{
+				material.emissiveTextureId = *slot;
+				material.flags |= MATERIAL_FLAG_EMISSIVE_TEXTURE;
 			}
 		}
 
@@ -606,6 +614,9 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 		else if (!material.bumpTexture.empty())
 			loads.push_back(
 				{material.bumpTexture, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
+		// the texture scales emissive, so it is only worth loading if that isn't black (obj map_Ke usually comes with Ke 0)
+		if (!material.emissiveTexture.empty() && std::ranges::any_of(material.emissive, [](float value) { return value > 0.0F; }))
+			loads.push_back({material.emissiveTexture, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;

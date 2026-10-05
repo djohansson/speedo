@@ -196,7 +196,12 @@ FragmentOutput FragmentMain(VertexOutput input)
 	const float3 lightDirection = normalize(float3(0.3, 1.0, 0.5));
 	float diffuse = saturate(dot(normal, lightDirection));
 
-	output.color = float4(color.rgb * (0.3 + 0.7 * diffuse), color.a);
+	// light the surface gives off, unaffected by the lighting
+	float3 emissive = material.emissive.rgb;
+	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
+		emissive *= gTextures[material.emissiveTextureId].Sample(sampler, uv).rgb;
+
+	output.color = float4(color.rgb * (0.3 + 0.7 * diffuse) + emissive, color.a);
 
 	return output;
 }

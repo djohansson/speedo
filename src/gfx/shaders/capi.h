@@ -84,6 +84,7 @@ struct ViewData
 #define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId's texture (multiplied in, and alpha tested against alphaCutoff)
 #define MATERIAL_FLAG_ALPHA_TEXTURE 2u // samples alphaTextureId (a mask in r, tested against alphaCutoff)
 #define MATERIAL_FLAG_NORMAL_TEXTURE 4u // samples normalTextureId (a tangent space normal map, x and y in rg)
+#define MATERIAL_FLAG_EMISSIVE_TEXTURE 8u // samples emissiveTextureId (an srgb color, times emissive)
 
 // textures are indices into gTextures, all sampled with textureAndSamplerId's sampler
 struct MaterialData
@@ -95,6 +96,8 @@ struct MaterialData
 	alignas(4) UINT(normalTextureId);
 	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
 	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
+	alignas(4) UINT(emissiveTextureId);
+	alignas(16) FLOAT4(emissive); // rgb: linear light added after lighting (may be above 1), times the emissive texture
 };
 
 struct ModelInstance

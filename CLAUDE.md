@@ -241,7 +241,10 @@ winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTes
 faces and has no blending, so double sided materials get a reversed copy of their triangles, and alpha modes become
 `mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
 texture; BLEND is drawn as MASK). glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
-normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it). The texcoord set a material's textures use goes first, with its
+normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
+Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the srgb `emissiveTexture`, obj `Ke` and
+`map_Ke`) is added after the lighting, unclamped (CornellBox's lamp, `Ke 17 12 4`, saturates to white); an emissive
+texture with a black factor isn't loaded (obj files pair `map_Ke` with `Ke 0`). The texcoord set a material's textures use goes first, with its
 KHR_texture_transform applied. glTF samplers (wrap modes, filters) aren't honored: every texture uses the
 renderer's one repeating sampler. Images embedded in buffers or data uris are written to
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Files requiring draco or

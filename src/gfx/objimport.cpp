@@ -219,6 +219,8 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 		material.diffuseTexture = resolveTexture(objMaterial.diffuse_texname, objMaterial.name);
 		material.alphaTexture = resolveTexture(objMaterial.alpha_texname, objMaterial.name);
 		material.normalTexture = resolveTexture(objMaterial.normal_texname, objMaterial.name);
+		std::ranges::copy(objMaterial.emission, material.emissive.begin());
+		material.emissiveTexture = resolveTexture(objMaterial.emissive_texname, objMaterial.name);
 		material.bumpTexture = resolveTexture(objMaterial.bump_texname, objMaterial.name);
 		material.bumpScale = objMaterial.bump_texopt.bump_multiplier;
 	}
