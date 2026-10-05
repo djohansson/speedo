@@ -32,6 +32,9 @@ StructuredBuffer<TextureView> gTextureViews;
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<ModelInstance> gModelInstances;
 
+[[vk::binding(1, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<LightData> gLights;
+
 struct InputStream : IInputStream
 {
 	uint vertexId : SV_VertexID;
@@ -200,6 +203,102 @@ float4 SampleView(uint viewId, float4 texCoord01)
 	return SampleView(view, ViewTexCoord(view, texCoord01));
 }
 
+static const float kPi = 3.14159265358979;
+
+// the light around everything, a uniform environment of this radiance: the stand-in for indirect light (there is no
+// image based lighting). a white matte surface reflects as much of it
+static const float kAmbientRadiance = 0.3;
+
+// the glTF metallic-roughness brdf (the spec's appendix B): GGX distribution, height correlated Smith visibility, and
+// Schlick's Fresnel, mixing a Lambertian diffuse and the specular by the Fresnel term
+float3 FresnelSchlick(float3 f0, float cosine)
+{
+	return f0 + (1.0 - f0) * pow(saturate(1.0 - cosine), 5.0);
+}
+
+float DistributionGgx(float nDotH, float alpha)
+{
+	float alpha2 = alpha * alpha;
+	float d = nDotH * nDotH * (alpha2 - 1.0) + 1.0;
+	return alpha2 / (kPi * d * d);
+}
+
+float VisibilitySmithGgxCorrelated(float nDotL, float nDotV, float alpha)
+{
+	float alpha2 = alpha * alpha;
+	float ggxV = nDotL * sqrt(nDotV * nDotV * (1.0 - alpha2) + alpha2);
+	float ggxL = nDotV * sqrt(nDotL * nDotL * (1.0 - alpha2) + alpha2);
+	float sum = ggxV + ggxL;
+	return sum > 0.0 ? 0.5 / sum : 0.0;
+}
+
+// the specular reflectance of a uniform environment, integrated over the hemisphere: Karis' analytic fit to the
+// split sum's lookup table ("Physically Based Shading on Mobile")
+float3 EnvironmentBrdfApprox(float3 f0, float roughness, float nDotV)
+{
+	const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
+	const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
+	float4 r = roughness * c0 + c1;
+	float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
+	float2 ab = float2(-1.04, 1.04) * a004 + r.zw;
+	return f0 * ab.x + ab.y;
+}
+
+// the light a surface reflects towards view: from gLights, and the ambient (by occlusion). linear, before exposure
+float3 Shade(float3 baseColor, float metallic, float roughness, float occlusion, float3 normal, float3 view, float3 position)
+{
+	float3 diffuseColor = lerp(baseColor, float3(0.0), metallic);
+	float3 f0 = lerp(float3(0.04), baseColor, metallic);
+	float alpha = max(roughness * roughness, 1e-3);
+	float nDotV = max(dot(normal, view), 1e-4);
+
+	float3 result = kAmbientRadiance * occlusion * (diffuseColor + EnvironmentBrdfApprox(f0, roughness, nDotV));
+
+	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
+	{
+		LightData light = gLights[lightIt];
+
+		float3 toLight;
+		float attenuation = 1.0;
+		if (light.type == LIGHT_TYPE_DIRECTIONAL)
+		{
+			toLight = -light.direction.xyz;
+		}
+		else
+		{
+			// inverse square, windowed to 0 at the range (KHR_lights_punctual's recommendation)
+			float3 offset = light.positionRange.xyz - position;
+			float distance2 = max(dot(offset, offset), 1e-8);
+			toLight = offset * rsqrt(distance2);
+			attenuation = 1.0 / distance2;
+			if (light.positionRange.w > 0.0)
+			{
+				float ratio = sqrt(distance2) / light.positionRange.w;
+				float window = saturate(1.0 - ratio * ratio * ratio * ratio);
+				attenuation *= window * window;
+			}
+			if (light.type == LIGHT_TYPE_SPOT)
+			{
+				float cone = saturate(dot(light.direction.xyz, -toLight) * light.spotScale + light.spotOffset);
+				attenuation *= cone * cone;
+			}
+		}
+
+		float nDotL = dot(normal, toLight);
+		if (nDotL <= 0.0 || attenuation <= 0.0)
+			continue;
+
+		float3 halfway = normalize(toLight + view);
+		float nDotH = saturate(dot(normal, halfway));
+		float3 fresnel = FresnelSchlick(f0, saturate(dot(view, halfway)));
+		float3 diffuse = (1.0 - fresnel) * diffuseColor / kPi;
+		float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
+		result += (diffuse + specular) * light.intensity.rgb * attenuation * nDotL;
+	}
+
+	return result;
+}
+
 [shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
@@ -233,7 +332,7 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	float faceSign = isFrontFace ? 1.0 : -1.0;
 	// lines and points without normals (zero ones, see mesh::Submesh::topology) are unlit: gltf draws them in their base
 	// color plus emissive
-	bool unlit = dot(v.normal, v.normal) == 0.0;
+	bool unlit = dot(v.normal, v.normal) == 0.0 || (material.flags & MATERIAL_FLAG_UNLIT) != 0u;
 	float3 normal = unlit ? float3(0.0, 0.0, 1.0) : normalize(v.normal);
 	if (!unlit && (material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
 	{
@@ -257,24 +356,63 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 		normal *= faceSign;
 	}
 
-	// a fixed light from above, and some ambient, so that the shapes read
-	const float3 lightDirection = normalize(float3(0.3, 1.0, 0.5));
-	float diffuse = saturate(dot(normal, lightDirection));
-
 	// light the surface gives off, unaffected by the lighting
 	float3 emissive = material.emissive.rgb;
 	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
 		emissive *= SampleView(material.emissiveView, v.texCoord01).rgb;
+
+	// KHR_materials_unlit: the base color alone. lines and points without normals: plus emissive
+	if (unlit)
+	{
+		bool unlitMaterial = (material.flags & MATERIAL_FLAG_UNLIT) != 0u;
+		output.color = float4(color.rgb + (unlitMaterial ? float3(0.0) : emissive), color.a);
+		return output;
+	}
+
+	float metallic = material.metallic;
+	float roughness = material.roughness;
+	if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+	{
+		float2 sample = SampleView(material.metallicRoughnessView, v.texCoord01).rg;
+		roughness *= sample.r;
+		metallic *= sample.g;
+	}
 
 	// ambient occlusion only darkens the ambient light, the stand-in for indirect light, which is what gltf applies it to
 	float occlusion = 1.0;
 	if ((material.flags & MATERIAL_FLAG_OCCLUSION_TEXTURE) != 0u)
 		occlusion = lerp(1.0, SampleView(material.occlusionView, v.texCoord01).r, material.emissive.w);
 
-	float lighting = unlit ? 1.0 : 0.3 * occlusion + 0.7 * diffuse;
-	output.color = float4(color.rgb * lighting + emissive, color.a);
+	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
+	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
+	float3 view = normalize(eye - v.position);
+
+	output.color = float4(Shade(color.rgb, metallic, roughness, occlusion, normal, view, v.position) + emissive, color.a);
 
 	return output;
+}
+
+// Khronos PBR Neutral: leaves colors up to about 0.76 nearly as they are (base colors render as themselves under a
+// white light of 1), and compresses brighter ones towards white, desaturating them
+float3 TonemapPbrNeutral(float3 color)
+{
+	const float startCompression = 0.8 - 0.04;
+	const float desaturation = 0.15;
+
+	float x = min(color.r, min(color.g, color.b));
+	float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+	color -= offset;
+
+	float peak = max(color.r, max(color.g, color.b));
+	if (peak < startCompression)
+		return color;
+
+	const float d = 1.0 - startCompression;
+	float newPeak = 1.0 - d * d / (peak + d - startCompression);
+	color *= newPeak / peak;
+
+	float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+	return lerp(color, newPeak * float3(1.0), g);
 }
 
 float3 ApplySRGBCurve(float3 x)
@@ -321,9 +459,11 @@ void ComputeMain(
 
             uint2 xy = uint2(x, y);
 
-            // the render target is linear, the swapchain (a storage image, so not an srgb format) is not
+            // the render target is linear, the swapchain (a storage image, so not an srgb format) is not: exposed,
+            // tonemapped, and then the srgb curve
             float4 color = src.Load(int3(xy, 0));
-            dst.Store(xy, float4(ApplySRGBCurve(saturate(color.rgb)), color.a));
+            float3 mapped = TonemapPbrNeutral(max(color.rgb, 0.0) * gPushConstants.exposure);
+            dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), color.a));
         }
     }
 

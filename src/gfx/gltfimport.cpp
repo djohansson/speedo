@@ -29,6 +29,7 @@ namespace gfx::gltf
 using mesh::Mesh;
 using mesh::Submesh;
 using gfx::SceneCamera;
+using gfx::SceneLight;
 
 namespace detail
 {
@@ -233,6 +234,33 @@ using Matrix = std::array<float, 16>;
 		result.znear = camera.data.perspective.znear;
 		result.zfar = camera.data.perspective.has_zfar != 0 ? camera.data.perspective.zfar : 0.0F;
 	}
+	return result;
+}
+
+// a light node's light (KHR_lights_punctual), in world space: it shines along its node's -z
+[[nodiscard]] SceneLight SceneLightOf(const cgltf_node& node, const cgltf_data& data)
+{
+	const auto& light = *node.light;
+
+	Matrix world{};
+	cgltf_node_transform_world(&node, world.data());
+	Vec3 direction{-world[8], -world[9], -world[10]};
+	auto length = Length(direction);
+
+	SceneLight result{
+		.name = light.name != nullptr ? light.name : node.name != nullptr ? node.name : std::format("light {}", &light - data.lights),
+		.type = light.type == cgltf_light_type_point  ? SceneLight::Type::kPoint
+				: light.type == cgltf_light_type_spot ? SceneLight::Type::kSpot
+													  : SceneLight::Type::kDirectional,
+		.position = {world[12], world[13], world[14]},
+		.color = {light.color[0], light.color[1], light.color[2]},
+		.intensity = light.intensity,
+		.range = light.range,
+		.innerConeAngle = light.spot_inner_cone_angle,
+		.outerConeAngle = light.spot_outer_cone_angle};
+	if (length > 0.0 && IsFinite(direction))
+		for (size_t axis = 0; axis < 3; axis++)
+			result.direction[axis] = static_cast<float>(direction[axis] / length);
 	return result;
 }
 
@@ -636,6 +664,26 @@ std::expected<Mesh, std::string> Import(
 			return ref;
 		};
 		material.diffuseTexture = textureRef(*baseColorTexture);
+		if (gltfMaterial.has_pbr_metallic_roughness)
+		{
+			const auto& pbr = gltfMaterial.pbr_metallic_roughness;
+			material.metallic = pbr.metallic_factor;
+			material.roughness = pbr.roughness_factor;
+			material.metallicRoughnessTexture = textureRef(pbr.metallic_roughness_texture);
+		}
+		else if (gltfMaterial.has_pbr_specular_glossiness)
+		{
+			// a dielectric as glossy as it says (its specular color and texture are ignored)
+			material.metallic = 0.0F;
+			material.roughness = 1.0F - gltfMaterial.pbr_specular_glossiness.glossiness_factor;
+		}
+		else
+		{
+			// no pbrMetallicRoughness: its defaults, a rough metal
+			material.metallic = 1.0F;
+			material.roughness = 1.0F;
+		}
+		material.unlit = gltfMaterial.unlit != 0;
 		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
@@ -1054,6 +1102,8 @@ std::expected<Mesh, std::string> Import(
 
 			if (node->camera != nullptr)
 				mesh.cameras.push_back(SceneCameraOf(*node, data));
+			if (node->light != nullptr)
+				mesh.lights.push_back(SceneLightOf(*node, data));
 
 			if (node->mesh == nullptr)
 				continue;

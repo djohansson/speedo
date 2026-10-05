@@ -115,7 +115,8 @@ struct Staged
 		auto directory = importOptions.embeddedImageDirectory.generic_string() + "/";
 		for (const auto& material : modelDesc.materials)
 			for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.normalTexture,
-										&material.bumpTexture, &material.emissiveTexture, &material.occlusionTexture})
+										&material.bumpTexture, &material.emissiveTexture, &material.occlusionTexture,
+										&material.metallicRoughnessTexture})
 				if (std::error_code error; std::filesystem::path(texture->path).generic_string().starts_with(directory) &&
 										   !std::filesystem::is_regular_file(texture->path, error))
 					return texture->path;
@@ -212,6 +213,7 @@ struct Staged
 		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
 		desc.instances = mesh->instances;
 		desc.cameras = mesh->cameras;
+		desc.lights = mesh->lights;
 		for (const auto& submesh : mesh->submeshes)
 		{
 			auto& modelSubmesh = desc.submeshes.emplace_back(ModelSubmesh{
@@ -257,6 +259,10 @@ struct Staged
 				.emissiveTexture = material.emissiveTexture,
 				.occlusionTexture = material.occlusionTexture,
 				.occlusionStrength = material.occlusionStrength,
+				.metallic = material.metallic,
+				.roughness = material.roughness,
+				.metallicRoughnessTexture = material.metallicRoughnessTexture,
+				.unlit = material.unlit,
 				.bumpTexture = material.bumpTexture,
 				.bumpScale = material.bumpScale,
 				.alphaCutoff = material.alphaCutoff,
@@ -289,8 +295,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v12", kCgltfVersion));
-	params.append("|cache-v17"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v13", kCgltfVersion));
+	params.append("|cache-v18"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

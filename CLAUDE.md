@@ -292,7 +292,7 @@ them, so `Model::Load` treats a cached model whose extracted images are missing 
 meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
 project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
 node's, else the mesh's; position and normal deltas); skins (drawn in bind pose) and animation are ignored with a
-warning, and lights silently. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
+warning. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). The views keep no roll,
 so a rolled camera loses it, and the file's aspect ratio gives way to the view's. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
@@ -317,8 +317,16 @@ within a smoothing group, or within 60 degrees for group 0. Some test scenes are
 is.
 
 Rendering is linear: color textures are loaded with srgb formats (`gfx::image::Usage::kColor`, mips filtered in linear
-space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` applies the srgb curve when it copies to the
-swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already). A model's materials
+space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` scales it by the exposure (View > Exposure,
+in stops), tonemaps it (Khronos PBR Neutral, which leaves colors up to about 0.76 as they are) and applies the srgb curve
+when it copies to the swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already).
+Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
+lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
+candela, or a default directional light of 2.2 lux), plus a constant ambient radiance (0.3, its specular part by Karis'
+environment brdf fit) that occlusion darkens. The default light and ambient light a white matte surface as the fixed
+light did before there was PBR. Metallic-roughness textures are `Usage::kMetallicRoughness` (BC5: roughness, the file's
+green, in r, and metallic, its blue, in g); obj materials are matte dielectrics (metallic 0, roughness 1), and
+`MaterialData` defaults must set roughness to 1 (zero is a mirror). KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
 (0-3 are the frames' render targets, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in

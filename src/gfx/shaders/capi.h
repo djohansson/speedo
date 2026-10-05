@@ -77,6 +77,27 @@ extern "C"
 struct ViewData
 {
 	alignas(16) FLOAT4X4(viewProjection);
+	alignas(16) FLOAT4(eyePosition); // xyz: the camera's position, in world space (for the specular lighting)
+};
+
+#define SHADER_TYPES_LIGHT_COUNT 256u
+
+#define LIGHT_TYPE_DIRECTIONAL 0u
+#define LIGHT_TYPE_POINT 1u
+#define LIGHT_TYPE_SPOT 2u
+
+// a punctual light (gltf KHR_lights_punctual), in world space. gLights holds PushConstants::lightCount of them.
+struct LightData
+{
+	alignas(16) FLOAT4(positionRange); // xyz: where it is (point, spot). w: its range, 0 for none (inverse square falloff)
+	alignas(16) FLOAT4(direction); // xyz: where it shines (directional, spot), unit length
+	// rgb: its color times its intensity, in lux (directional) or candela (point, spot). linear
+	alignas(16) FLOAT4(intensity);
+	// spot: the cone's attenuation, saturate(dot(direction, -l) * x + y)^2. type: LIGHT_TYPE_*
+	alignas(4) FLOAT(spotScale);
+	alignas(4) FLOAT(spotOffset);
+	alignas(4) UINT(type);
+	alignas(4) UINT(padding);
 };
 
 #define SHADER_TYPES_TEXTURE_VIEW_INDEX_BITS 12u
@@ -100,6 +121,8 @@ struct TextureView
 #define MATERIAL_FLAG_NORMAL_TEXTURE 4u // normalView: a tangent space normal map, x and y in rg
 #define MATERIAL_FLAG_EMISSIVE_TEXTURE 8u // emissiveView: an srgb color, times emissive
 #define MATERIAL_FLAG_OCCLUSION_TEXTURE 16u // occlusionView: ambient occlusion in r, by emissive.w
+#define MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE 32u // metallicRoughnessView: roughness in r, metallic in g, times the factors
+#define MATERIAL_FLAG_UNLIT 64u // gltf KHR_materials_unlit: drawn in its base color, without lighting
 
 struct MaterialData
 {
@@ -114,6 +137,12 @@ struct MaterialData
 	alignas(4) UINT(normalView);
 	alignas(4) UINT(emissiveView);
 	alignas(4) UINT(occlusionView);
+	// the glTF metallic-roughness model: 0 to 1 each (perceptual roughness, squared for the brdf). 1 and 0 for obj
+	// materials, which are matte
+	alignas(4) FLOAT(metallic);
+	alignas(4) FLOAT(roughness);
+	alignas(4) UINT(metallicRoughnessView);
+	alignas(4) UINT(padding);
 };
 
 struct ModelInstance
@@ -143,6 +172,9 @@ struct PushConstants
 	alignas(4) UINT(viewAndMaterialId);
 	// per draw: the first of its instances in gModelInstances (the model's instance buffer), offset by SV_InstanceID
 	alignas(4) UINT(modelInstanceId);
+	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
+	alignas(4) UINT(lightCount);
+	alignas(4) FLOAT(exposure);
 };
 
 #ifdef __cplusplus

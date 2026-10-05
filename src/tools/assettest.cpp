@@ -422,6 +422,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			Add(texturesOut, std::filesystem::weakly_canonical(material.alphaTexture.path), gfx::image::Usage::kMask, 1.0F);
 		if (!material.occlusionTexture.empty())
 			Add(texturesOut, std::filesystem::weakly_canonical(material.occlusionTexture.path), gfx::image::Usage::kOcclusion, 1.0F);
+		if (!material.metallicRoughnessTexture.empty())
+			Add(texturesOut, std::filesystem::weakly_canonical(material.metallicRoughnessTexture.path), gfx::image::Usage::kMetallicRoughness, 1.0F);
 		if (!material.normalTexture.empty())
 			Add(texturesOut, std::filesystem::weakly_canonical(material.normalTexture.path), gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())
@@ -502,6 +504,7 @@ constexpr std::string_view ToString(gfx::image::Usage usage)
 	case gfx::image::Usage::kBump: return "bump";
 	case gfx::image::Usage::kMask: return "mask";
 	case gfx::image::Usage::kOcclusion: return "occlusion";
+	case gfx::image::Usage::kMetallicRoughness: return "metallic-roughness";
 	}
 	return "?";
 }
@@ -715,6 +718,10 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 		auto levelAverage = average(decodeLevel(level));
 		for (size_t ch = 0; ch < 4; ch++)
 		{
+			// only the channels the format holds, and alpha: bc5's blue is a normal's z, reconstructed from x and y,
+			// whose average doesn't carry over to the mips for what isn't a normal map (e.g. metallic-roughness)
+			if (ch < 3 && ch >= channelCount)
+				continue;
 			auto d = std::abs(levelAverage[ch] - levelAverage0[ch]);
 			auto& levelWorst = singleBlock ? worstSingleBlock : worst;
 			if (d > levelWorst)

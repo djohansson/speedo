@@ -103,6 +103,11 @@ static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see Insta
 static uuids::uuid gMaterialsUuid;
 static uuids::uuid gTextureViewsUuid;
 static uuids::uuid gModelInstancesUuid;
+// gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
+static uuids::uuid gLightsUuid;
+static uint32_t gLightCount = 0;
+// the final image is scaled by 2^gExposureStops before tonemapping. set from the ui, read by the draw thread.
+static std::atomic<float> gExposureStops = 0.0F;
 
 // takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
 // (outside of a render pass). textures that are no longer drawn are destroyed from a task added to `callbacks`, which
@@ -350,6 +355,45 @@ static void UpdateMaterials(
 		graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gMaterialsUuid), first * sizeof(MaterialData), std::as_bytes(materials));
 }
 
+// writes a model's lights to gLights, or the default light if it has none: a directional light from above that, with
+// the ambient light in the shader, lights matte surfaces as before there were lights. call on the draw thread.
+static void UpdateLights(RHI& rhi, QueueTimelineContextData& graphics, std::span<const SceneLight> sceneLights)
+{
+	static const SceneLight kDefaultLight{
+		.name = "default",
+		.direction = {-0.2638F, -0.8794F, -0.4397F}, // -normalize(0.3, 1, 0.5)
+		.intensity = 2.2F}; // lux: 0.7 pi, the diffuse light of a white surface facing it (0.7) times pi
+	if (sceneLights.empty())
+		sceneLights = std::span(&kDefaultLight, 1);
+	if (sceneLights.size() > SHADER_TYPES_LIGHT_COUNT)
+	{
+		std::println(stderr, "{} lights, only the first {} are used", sceneLights.size(), SHADER_TYPES_LIGHT_COUNT);
+		sceneLights = sceneLights.first(SHADER_TYPES_LIGHT_COUNT);
+	}
+
+	std::vector<LightData> lights(sceneLights.size());
+	for (size_t lightIt = 0; lightIt < lights.size(); lightIt++)
+	{
+		const auto& sceneLight = sceneLights[lightIt];
+		auto& light = lights[lightIt];
+		std::ranges::copy(sceneLight.position, light.positionRange);
+		light.positionRange[3] = sceneLight.range;
+		std::ranges::copy(sceneLight.direction, light.direction);
+		for (size_t channel = 0; channel < 3; channel++)
+			light.intensity[channel] = sceneLight.color[channel] * sceneLight.intensity;
+		light.type = sceneLight.type == SceneLight::Type::kPoint  ? LIGHT_TYPE_POINT
+				   : sceneLight.type == SceneLight::Type::kSpot ? LIGHT_TYPE_SPOT
+																  : LIGHT_TYPE_DIRECTIONAL;
+		// KHR_lights_punctual's cone attenuation
+		auto cosOuter = std::cos(sceneLight.outerConeAngle);
+		light.spotScale = 1.0F / std::max(0.001F, std::cos(sceneLight.innerConeAngle) - cosOuter);
+		light.spotOffset = -cosOuter * light.spotScale;
+	}
+
+	UpdateBufferOnGraphics(graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gLightsUuid), 0, std::as_bytes(std::span(lights)));
+	gLightCount = static_cast<uint32_t>(lights.size());
+}
+
 // writes texture views, starting at slot first (see UpdateBufferOnGraphics). call on the draw thread.
 static void UpdateTextureViews(
 	RHI& rhi, QueueTimelineContextData& graphics, uint32_t first, std::span<const TextureView> views)
@@ -483,6 +527,7 @@ struct MaterialTextures
 	Texture normal;
 	Texture emissive;
 	Texture occlusion;
+	Texture metallicRoughness;
 };
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
@@ -500,7 +545,8 @@ static void InstallModel(
 	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer(), &model->GetInstanceBuffer()})
 		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
-		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion})
+		for (const auto* texture :
+			 {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion, &material.metallicRoughness})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -609,6 +655,15 @@ static void InstallModel(
 			std::ranges::fill(material.color, 1.0F);
 			material.alphaCutoff = desc.alphaCutoff;
 			std::ranges::copy(desc.emissive, material.emissive);
+			material.metallic = desc.metallic;
+			material.roughness = desc.roughness;
+			if (desc.unlit)
+				material.flags |= MATERIAL_FLAG_UNLIT;
+			if (auto view = viewOf(textures[materialIt].metallicRoughness, desc.metallicRoughnessTexture))
+			{
+				material.metallicRoughnessView = *view;
+				material.flags |= MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE;
+			}
 
 			if (auto view = viewOf(textures[materialIt].diffuse, desc.diffuseTexture))
 			{
@@ -672,6 +727,7 @@ static void InstallModel(
 		gModelTextureUuids = std::move(textureUuids);
 
 		UpdateMaterials(rhi, graphics, 1, materials);
+		UpdateLights(rhi, graphics, model->GetDesc().lights);
 
 		pipeline.SetDescriptorData(
 			"gVertexBuffer",
@@ -717,7 +773,8 @@ static void InstallImage(
 			.color = {1.0F, 1.0F, 1.0F, 1.0F},
 			.flags = MATERIAL_FLAG_TEXTURE,
 			.alphaCutoff = 0.5F,
-			.baseColorView = 0};
+			.baseColorView = 0,
+			.roughness = 1.0F};
 		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
@@ -768,6 +825,9 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 			loads.push_back({material.emissiveTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
 		if (!material.occlusionTexture.empty())
 			loads.push_back({material.occlusionTexture.path, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
+		if (!material.metallicRoughnessTexture.empty())
+			loads.push_back(
+				{material.metallicRoughnessTexture.path, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.metallicRoughness});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;
@@ -1083,7 +1143,8 @@ static void DrawMainPass(
 
 				bindState(cmd);
 
-				PushConstants pushConstants{.frameIndex = newFrameIndex};
+				PushConstants pushConstants{
+					.frameIndex = newFrameIndex, .lightCount = gLightCount, .exposure = std::exp2(gExposureStops.load(std::memory_order_relaxed))};
 
 				ASSERT(deltaX > 0);
 				ASSERT(deltaY > 0);
@@ -1717,6 +1778,12 @@ void WindowedApplication::PrepareDraw()
 					"Drag to change, or double-click to type a speed.\n"
 					"w, a, s, d move the camera under the mouse, and the mouse wheel changes the speed.");
 			}
+			{
+				float stops = gExposureStops.load(std::memory_order_relaxed);
+				if (DragFloat("Exposure", &stops, 0.05F, -16.0F, 16.0F, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp))
+					gExposureStops.store(stops, std::memory_order_relaxed);
+				SetItemTooltip("Scales the image by 2^EV before tonemapping. Drag, or double-click to type.");
+			}
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))
@@ -1935,7 +2002,8 @@ bool WindowedApplication::Draw()
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
 			pipeline.BindPipelineAuto(cmd);
 
-			PushConstants pushConstants{.frameIndex = newFrameIndex};
+			PushConstants pushConstants{
+				.frameIndex = newFrameIndex, .lightCount = gLightCount, .exposure = std::exp2(gExposureStops.load(std::memory_order_relaxed))};
 
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
@@ -2162,7 +2230,10 @@ WindowedApplication::WindowedApplication(
 		// white and untextured, until InstallModel and InstallImage fill them in
 		std::vector<MaterialData> materialData(SHADER_TYPES_MATERIAL_COUNT);
 		for (auto& material : materialData)
+		{
 			std::ranges::fill(material.color, 1.0F);
+			material.roughness = 1.0F;
+		}
 
 		core::TaskCreateInfo<void> materialTransfersDone;
 		auto materials = device.CreateResource<Buffer>(
@@ -2212,6 +2283,21 @@ WindowedApplication::WindowedApplication(
 			modelTransfersDone);
 		gModelInstancesUuid = modelInstancesBuffer->GetUuid();
 		timelineCallbacks.emplace_back(modelTransfersDone.handle);
+
+		// written when a model is installed (see UpdateLights)
+		std::vector<LightData> lightData(SHADER_TYPES_LIGHT_COUNT);
+		core::TaskCreateInfo<void> lightTransfersDone;
+		auto lights = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("Lights"),
+				lightData.size() * sizeof(LightData),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			lightData.data(),
+			cmd,
+			lightTransfersDone);
+		gLightsUuid = lights->GetUuid();
+		timelineCallbacks.emplace_back(lightTransfersDone.handle);
 
 		cmd.End();
 
@@ -2281,6 +2367,11 @@ WindowedApplication::WindowedApplication(
 		"gMaterialData",
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gMaterialsUuid), .offset = 0},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
+
+	pipeline.SetDescriptorData(
+		"gLights",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gLightsUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 	pipeline.SetDescriptorData(
 		"gTextureViews",

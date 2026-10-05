@@ -8,10 +8,9 @@
 	* animation: ignored (node, morph weight and KHR_animation_pointer animations)
 	* morph targets: drawn at their default weights (the node's, else the mesh's), position and normal deltas. animated weights belong to animation
 	* cameras: the views have no roll (a rolled camera loses it), and use their own aspect ratio rather than the file's
-	* lights (KHR_lights_punctual): ignored, lit by the fixed light in the shader. their physical units (candela, lux) need PBR shading and exposure/tonemapping, so they belong with PBR
-	* shading models: no PBR. metallic-roughness, specular-glossiness and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, ...) are read past, unlit isn't special cased
+	* lights: punctual lights only, every light shades every pixel (no culling or clustering), no shadows. ambient light is a constant (no image based lighting), so smooth metals reflect a uniform gray
+	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. obj materials are matte (their Ks and Ns are ignored), and so is the default material, which gltf would make a rough metal
 	* alpha blending: sorted per submesh (by the center of its bounds, per view), not per triangle, and not order independent: the triangles within a blended submesh, and intersecting or interleaved submeshes, can come out in the wrong order
-	* metallic-roughness maps: not loaded or drawn
 	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
 	* texcoords: sets above 1 fall back to set 0
 	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
@@ -20,7 +19,7 @@
 	* points and lines: drawn a pixel wide (points one pixel, as gltf has no size for them)
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
-* todo: add tonemapping
+* todo: tonemapping: Khronos PBR Neutral with a manual exposure is in; auto exposure and a choice of tonemappers aren't
 * todo: frame graph
 * todo: clustered forward shading
 * todo: shader graph

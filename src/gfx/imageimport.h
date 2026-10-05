@@ -36,6 +36,8 @@ enum class Usage : uint8_t
 	// an ambient occlusion map: its red channel (gltf packs occlusion, roughness and metallic in r, g and b), linear.
 	// BC4. (appended: usages are part of the serialized images)
 	kOcclusion,
+	// a gltf metallic-roughness texture: roughness (its green channel) in r and metallic (blue) in g, linear. BC5.
+	kMetallicRoughness,
 };
 
 struct Options

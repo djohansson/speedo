@@ -2,6 +2,7 @@
 
 #include <gfx/bounds.h>
 #include <gfx/scenecamera.h>
+#include <gfx/scenelight.h>
 #include <gfx/textureref.h>
 #include <gfx/shaders/capi.h>
 
@@ -37,6 +38,12 @@ struct Material
 	// gltf occlusionTexture: ambient occlusion in its red channel, which darkens the ambient (indirect) light, by strength
 	TextureRef occlusionTexture;
 	float occlusionStrength = 1.0F;
+	// gltf metallic-roughness: the factors, times the texture's blue (metallic) and green (roughness) channels. obj
+	// materials are matte dielectrics (metallic 0, roughness 1)
+	float metallic = 0.0F;
+	float roughness = 1.0F;
+	TextureRef metallicRoughnessTexture;
+	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option
 	// fragments whose diffuse texture alpha (or alpha texture value) is below this are discarded: 0 for opaque
@@ -103,6 +110,7 @@ struct Mesh
 	// node's space, and have a range of their own (the node's transform times each instance's).
 	std::vector<Transform> instances{kIdentityTransform};
 	std::vector<SceneCamera> cameras; // gltf: the cameras of the scene's nodes, in the order they are visited
+	std::vector<SceneLight> lights; // gltf KHR_lights_punctual: the lights of the scene's nodes
 	std::vector<Material> materials;
 	Bounds3f bounds; // of the vertices, in world space (each instanced submesh's at each of its instances)
 	bool hasNormals = false; // in the file, for at least one vertex. missing ones are generated (see Stats)

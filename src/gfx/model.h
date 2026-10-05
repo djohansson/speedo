@@ -3,6 +3,7 @@
 #include <gfx/bounds.h>
 #include <gfx/gpu.h>
 #include <gfx/scenecamera.h>
+#include <gfx/scenelight.h>
 #include <gfx/textureref.h>
 #include <gfx/upload.h>
 
@@ -44,6 +45,10 @@ struct ModelMaterial
 	TextureRef emissiveTexture;
 	TextureRef occlusionTexture; // see mesh::Material::occlusionTexture
 	float occlusionStrength = 1.0F;
+	float metallic = 0.0F; // see mesh::Material::metallic
+	float roughness = 1.0F;
+	TextureRef metallicRoughnessTexture;
+	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
 	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff
@@ -63,6 +68,8 @@ struct ModelDesc
 	std::vector<std::array<float, 16>> instances;
 	// the file's cameras (see mesh::Mesh::cameras). none for a set of several files (see Model::Load)
 	std::vector<SceneCamera> cameras;
+	// the file's lights (see mesh::Mesh::lights). none for a set of several files, which get the default light
+	std::vector<SceneLight> lights;
 };
 
 // a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time
