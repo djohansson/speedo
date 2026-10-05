@@ -748,6 +748,23 @@ static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::a
 		.models = std::move(models)};
 }
 
+// loads the models below a directory (e.g. the encodings of a gltf sample model) as one, side by side (see Model::Load).
+// call from a load (see gLoads).
+static void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::atomic_uint8_t& progress)
+{
+	auto models = FindModels(directoryPath);
+	if (models.empty())
+	{
+		std::println(stderr, "Failed to load folder {}: it holds no model files", directoryPath);
+		return;
+	}
+
+	std::vector<std::string> paths;
+	for (const auto& model : models)
+		paths.push_back(model.string());
+	LoadAndInstallModels(rhi, paths, progress);
+}
+
 // loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
 static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
@@ -1240,7 +1257,7 @@ void WindowedApplication::PrepareDraw()
 	};
 
 	// automation: SPEEDO_AUTOLOAD_MODEL / SPEEDO_AUTOLOAD_IMAGE name a file in resources/models / resources/images (or
-	// an absolute path; for a model also a zip archive) to load at startup, through the same load + install path as the "File" menu. with
+	// an absolute path; for a model also a zip archive or a directory, whose models are loaded side by side) to load at startup, through the same load + install path as the "File" menu. with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
 	// scripts/assettest.sh).
 	static std::vector<core::Future<void>> gAutoLoads;
@@ -1256,7 +1273,9 @@ void WindowedApplication::PrepareDraw()
 				autoLoadModel,
 				[&rhi, path = (resourcePath / "models" / autoLoadModel).string()](std::atomic_uint8_t& progress)
 				{
-					if (std::string_view(path).ends_with(".zip") || std::string_view(path).ends_with(".ZIP"))
+					if (std::error_code error; std::filesystem::is_directory(path, error))
+						LoadAndInstallFolder(rhi, path, progress);
+					else if (std::string_view(path).ends_with(".zip") || std::string_view(path).ends_with(".ZIP"))
 						LoadAndInstallArchive(rhi, path, progress, ArchiveModels::kAll);
 					else
 						LoadAndInstallModel(rhi, path, progress);
@@ -1296,6 +1315,12 @@ void WindowedApplication::PrepareDraw()
 				InternalOpenFileDialogueAsync(dialogPath("models"), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
 					{ LoadAndInstallArchive(rhi, filePath, progressOut, ArchiveModels::kChoose); });
+			}
+			if (MenuItem("Open Folder..."))
+			{
+				InternalOpenFolderDialogueAsync(dialogPath("models"),
+					[&rhi](std::string_view directoryPath, std::atomic_uint8_t& progressOut)
+					{ LoadAndInstallFolder(rhi, directoryPath, progressOut); });
 			}
 			if (MenuItem("Open Image..."))
 			{

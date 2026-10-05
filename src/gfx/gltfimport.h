@@ -5,6 +5,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,10 @@ namespace gfx::gltf
 // true.
 [[nodiscard]] std::expected<mesh::Mesh, std::string> Import(
 	const std::filesystem::path& path, const mesh::ImportOptions& options = {}, const std::function<bool()>& cancelled = {});
+
+// the first extension a gltf file requires that Import doesn't support (e.g. draco compression), if any. only parses
+// the json, so it is cheap.
+[[nodiscard]] std::optional<std::string> UnsupportedRequiredExtension(const std::filesystem::path& path);
 
 // the external buffer files a gltf file names (not images, which are loaded separately)
 [[nodiscard]] std::vector<std::filesystem::path> BufferFiles(const std::filesystem::path& path);

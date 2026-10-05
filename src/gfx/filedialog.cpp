@@ -34,4 +34,21 @@ OpenFileDialogue(std::string&& resourcePathString, const std::vector<FileFilter>
 	return {false, {}};
 }
 
+std::tuple<bool, std::string> OpenFolderDialogue(std::string&& startPathString)
+{
+	nfdu8char_t* folderPath;
+	nfdpickfolderu8args_t args{};
+	args.defaultPath = startPathString.c_str();
+	NFD_GetNativeWindowFromGLFWWindow(reinterpret_cast<GLFWwindow*>(GetCurrentWindow()), &args.parentWindow); // NOLINT(performance-no-int-to-ptr)
+
+	if (NFD_PickFolderU8_With(&folderPath, &args) == NFD_OKAY)
+	{
+		std::string folderPathStr(folderPath);
+		NFD_FreePath(folderPath);
+		return std::make_tuple(true, std::move(folderPathStr));
+	}
+
+	return {false, {}};
+}
+
 } // namespace gfx

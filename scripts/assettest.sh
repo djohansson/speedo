@@ -9,8 +9,9 @@
 # Zip archives are extracted to <work>/assets/<archive name> (the work dir defaults to a new temporary dir, and is
 # kept). Then build/<preset>/assettest imports every model (.obj, .gltf, .glb) and image the way the client does and checks the
 # results (see src/tools/assettest.cpp). With --client, the client also loads each model (and the first image next to
-# it) through the full load + upload + draw path, and a zip archive of several models (a set of variants) as one, side by
-# side, with a user profile dir under <work>, and fails a model if the
+# it) through the full load + upload + draw path, and a zip archive of several models (a set of variants), or a
+# subdirectory of a directory with several (e.g. a gltf sample model's encodings), as one, side by side (files the
+# importers don't support are skipped there), with a user profile dir under <work>, and fails a model if the
 # client crashes or prints load failures, failed asserts or validation errors (validation needs a debug preset).
 # --client-only skips the assettest run (which is slow with a debug preset). The client needs a vulkan driver: set
 # VK_DRIVER_FILES etc. as for running it by hand.
@@ -71,9 +72,14 @@ modelPattern=(\( -iname '*.obj' -o -iname '*.gltf' -o -iname '*.glb' \) ! -name 
 
 dirs=()
 setArchives=() # zip archives of several models (sets of variants), which the client loads as one, side by side
+setFolders=() # the same for the subdirectories of a directory, e.g. a gltf sample model's encodings
 for input in "${inputs[@]}"; do
 	if [[ -d $input ]]; then
-		dirs+=("$(cd "$input" && pwd -P)")
+		dir=$(cd "$input" && pwd -P)
+		dirs+=("$dir")
+		for sub in "$dir"/*/; do
+			[[ -d $sub && $(find "$sub" -type f "${modelPattern[@]}" | wc -l) -gt 1 ]] && setFolders+=("${sub%/}")
+		done
 	elif [[ $input == *.zip ]]; then
 		name=$(basename "$input" .zip)
 		if [[ ! -d $work/assets/$name ]]; then
@@ -155,6 +161,10 @@ if [[ $client -eq 1 ]]; then
 		setDirs+=("$dir")
 		image=$(find "$dir" -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.tga' \) ! -name '._*' | sort | head -1)
 		runClient "$archive" "$image" "$(basename "$archive" .zip)"
+	done
+	for folder in ${setFolders[@]+"${setFolders[@]}"}; do
+		setDirs+=("$folder")
+		runClient "$folder" "" "$(basename "$folder" | tr ' ' '_')"
 	done
 
 	while IFS= read -r -d '' model; do

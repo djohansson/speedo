@@ -8,6 +8,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -89,6 +90,9 @@ struct ImportOptions
 // parsed, or if cancelled() returns true.
 [[nodiscard]] std::expected<Mesh, std::string> Import(
 	const std::filesystem::path& path, const ImportOptions& options = {}, const std::function<bool()>& cancelled = {});
+
+// why Import can't load path at all, before trying (a gltf file requiring an unsupported extension), if it can't
+[[nodiscard]] std::optional<std::string> Unsupported(const std::filesystem::path& path);
 
 // the other files an import of path reads, which a change to must reimport it: an obj file's material files, a gltf
 // file's external buffers (images are loaded separately)

@@ -433,17 +433,32 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
-	// each file through its own cache entry: the progress of each is a share of the whole
+	// each file through its own cache entry: the progress of each is a share of the whole. in a set, files the
+	// importers don't support (e.g. other encodings of a gltf model, see mesh::Unsupported) are left out.
 	std::vector<model::Staged> models;
 	models.reserve(filePaths.size());
 	for (size_t fileIt = 0; fileIt < filePaths.size(); fileIt++)
 	{
+		if (filePaths.size() > 1)
+		{
+			if (auto reason = mesh::Unsupported(std::filesystem::path(filePaths[fileIt])))
+			{
+				std::println(stderr, "Skipped model {}: {}", filePaths[fileIt], *reason);
+				continue;
+			}
+		}
+
 		std::atomic_uint8_t fileProgress = 0;
 		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress);
 		if (!staged) // cancelled or failed
 			return {};
 		models.push_back(std::move(*staged));
 		progress = static_cast<uint8_t>(255 * (fileIt + 1) / filePaths.size());
+	}
+	if (models.empty())
+	{
+		std::println(stderr, "Failed to load model {}: none of its files are supported", filePaths.front());
+		return {};
 	}
 
 	auto name = filePaths.size() == 1

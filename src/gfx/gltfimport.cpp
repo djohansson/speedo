@@ -847,6 +847,19 @@ std::expected<Mesh, std::string> Import(
 	return mesh;
 }
 
+std::optional<std::string> UnsupportedRequiredExtension(const std::filesystem::path& path)
+{
+	auto parsed = detail::Parse(path);
+	if (!parsed)
+		return std::nullopt; // Import reports it
+
+	const auto& data = **parsed;
+	for (cgltf_size extensionIt = 0; extensionIt < data.extensions_required_count; extensionIt++)
+		if (std::string_view extension = data.extensions_required[extensionIt]; !detail::IsSupportedRequiredExtension(extension))
+			return std::string(extension);
+	return std::nullopt;
+}
+
 std::vector<std::filesystem::path> BufferFiles(const std::filesystem::path& path)
 {
 	std::vector<std::filesystem::path> files;

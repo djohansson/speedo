@@ -18,4 +18,8 @@ struct FileFilter
 // returns whether a file was chosen, and its path. call on the main thread.
 [[nodiscard]] std::tuple<bool, std::string> OpenFileDialogue(std::string&& resourcePathString, const std::vector<FileFilter>& filterList);
 
+// shows a native folder picker over the current window, starting in startPathString. returns whether a folder was chosen,
+// and its path. call on the main thread.
+[[nodiscard]] std::tuple<bool, std::string> OpenFolderDialogue(std::string&& startPathString);
+
 } // namespace gfx

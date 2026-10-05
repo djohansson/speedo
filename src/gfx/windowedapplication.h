@@ -69,6 +69,12 @@ private:
 		std::string&& resourcePathString,
 		const std::vector<FileFilter>& filterList,
 		LoadOp loadOp);
+	template <typename LoadOp>
+	void InternalOpenFolderDialogueAsync(std::string&& startPathString, LoadOp loadOp);
+	// shows dialogue() (returning whether something was chosen, and its path) on the main thread, and queues
+	// loadOp(path, progress) as a load (see gLoads) if something was
+	template <typename Dialogue, typename LoadOp>
+	void InternalDialogueAsync(Dialogue dialogue, LoadOp loadOp);
 	
 	std::unique_ptr<RHI> myRHI;
 	std::unique_ptr<Views> myViews; // of the window

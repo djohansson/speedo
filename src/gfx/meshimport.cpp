@@ -49,6 +49,14 @@ std::expected<Mesh, std::string> Import(
 	}
 }
 
+std::optional<std::string> Unsupported(const std::filesystem::path& path)
+{
+	if (detail::FormatOf(path) == detail::Format::kGltf)
+		if (auto extension = gltf::UnsupportedRequiredExtension(path))
+			return std::format("it requires {}, which isn't supported", *extension);
+	return std::nullopt;
+}
+
 std::vector<std::filesystem::path> Dependencies(const std::filesystem::path& path)
 {
 	switch (detail::FormatOf(path))

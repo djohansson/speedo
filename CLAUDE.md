@@ -316,9 +316,17 @@ Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a
 scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
 same size and centered in its cell (each file still through its own cache entry, merged as staging data before the one
-upload). Autoloading a zip loads all of its models that way, "Open Zip..." offers it next to choosing one, and
-`assettest.sh` runs the client once per such archive (with the archive's first image on the default material: sphere.zip's
-models name materials its mtl file doesn't have) rather than once per file, 38 client runs instead of 145.
+upload). Autoloading a zip or a directory loads all of its models that way, "Open Zip..." offers it next to choosing one,
+"Open Folder..." loads a directory's, and `assettest.sh` runs the client once per such archive (with the archive's first
+image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
+subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145
+for the McGuire set. The glTF sample models are such subdirectories, of encodings of the same model (glTF, glTF-Binary,
+glTF-Embedded, glTF-Quantized, Draco, KTX2, ...): one run each (150 instead of 339), with the encodings the importers
+don't support skipped (`mesh::Unsupported`, which only parses the gltf json) rather than failing the set. `assettest`
+compares the encodings of each model (files named after the model's directory, in its subdirectories): the same
+triangle, vertex, material, submesh and texture counts, and bounds within 1% (quantization rounds). It only warns, since
+some differ in the source files: ABeautifulGame's glb is another export (1152 fewer triangles), and StainedGlassLamp's
+JPG-PNG variant has 8 materials instead of 13.
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 

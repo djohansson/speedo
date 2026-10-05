@@ -19,6 +19,7 @@
 #include <format>
 #include <map>
 #include <numbers>
+#include <optional>
 #include <print>
 #include <set>
 #include <string>
@@ -94,7 +95,19 @@ Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(moderni
 // an image, with the usage it is checked for, and its bump scale for kBump
 using ImageCheck = std::tuple<std::filesystem::path, gfx::image::Usage, float>;
 
-Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& texturesOut)
+// what an import produced, to compare the encodings of a model with (see CheckEncodings)
+struct ModelSummary
+{
+	size_t triangles = 0;
+	size_t vertices = 0;
+	size_t materials = 0;
+	size_t submeshes = 0;
+	size_t textures = 0; // texture slots the materials use
+	Vec3 min{};
+	Vec3 max{};
+};
+
+Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& texturesOut, std::optional<ModelSummary>& summaryOut)
 {
 	Report report;
 
@@ -108,6 +121,21 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 	}
 
 	const auto& stats = mesh->stats;
+
+	{
+		auto& summary = summaryOut.emplace();
+		summary.triangles = stats.triangleCount;
+		summary.vertices = mesh->vertices.size();
+		summary.materials = mesh->materials.size();
+		summary.submeshes = mesh->submeshes.size();
+		for (const auto& material : mesh->materials)
+			for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.normalTexture, &material.bumpTexture})
+				summary.textures += texture->empty() ? 0 : 1;
+		auto min = mesh->bounds.GetMin();
+		auto max = mesh->bounds.GetMax();
+		summary.min = {min.x, min.y, min.z};
+		summary.max = {max.x, max.y, max.z};
+	}
 
 	report.Info(
 		"{} triangles, {} vertices, {} materials, {} submeshes, normals: {}, texcoords: {}, colors: {}",
@@ -331,6 +359,55 @@ Report CheckModel(const std::filesystem::path& path, std::set<ImageCheck>& textu
 			texturesOut.insert({std::filesystem::weakly_canonical(material.normalTexture), gfx::image::Usage::kNormal, 1.0F});
 		else if (!material.bumpTexture.empty())
 			texturesOut.insert({std::filesystem::weakly_canonical(material.bumpTexture), gfx::image::Usage::kBump, material.bumpScale});
+	}
+
+	return report;
+}
+
+// the encodings of one model should import to the same mesh: files named after the model's directory, in its
+// subdirectories, as the gltf sample models come (Duck/glTF/Duck.gltf, Duck/glTF-Binary/Duck.glb, ...). they only warn if they don't, since a
+// variant can legitimately be another export (ABeautifulGame's glb has 1152 fewer triangles than its gltf).
+Report CheckEncodings(const std::vector<std::pair<std::filesystem::path, ModelSummary>>& encodings)
+{
+	Report report;
+
+	auto variant = [](const std::filesystem::path& path) { return path.parent_path().filename().string(); };
+	std::string names;
+	for (const auto& [path, summary] : encodings)
+		names += (names.empty() ? "" : ", ") + variant(path);
+	report.Info("{} encodings: {}", encodings.size(), names);
+
+	auto compare = [&](std::string_view what, auto field)
+	{
+		const auto& [firstPath, first] = encodings.front();
+		std::string values;
+		bool differ = false;
+		for (const auto& [path, summary] : encodings)
+		{
+			differ |= field(summary) != field(first);
+			values += std::format("{}{} {}", values.empty() ? "" : ", ", variant(path), field(summary));
+		}
+		if (differ)
+			report.Warn("{} differ: {}", what, values);
+	};
+	compare("triangle counts", [](const ModelSummary& summary) { return summary.triangles; });
+	compare("vertex counts", [](const ModelSummary& summary) { return summary.vertices; });
+	compare("material counts", [](const ModelSummary& summary) { return summary.materials; });
+	compare("submesh counts", [](const ModelSummary& summary) { return summary.submeshes; });
+	compare("texture counts", [](const ModelSummary& summary) { return summary.textures; });
+
+	// within 1% of the extent: quantized encodings (KHR_mesh_quantization) round positions
+	const auto& first = encodings.front().second;
+	double extent = 0.0;
+	for (size_t axis = 0; axis < 3; axis++)
+		extent = std::max(extent, first.max[axis] - first.min[axis]);
+	for (const auto& [path, summary] : encodings)
+	{
+		double offBy = 0.0;
+		for (size_t axis = 0; axis < 3; axis++)
+			offBy = std::max({offBy, std::abs(summary.min[axis] - first.min[axis]), std::abs(summary.max[axis] - first.max[axis])});
+		if (offBy > 0.01 * extent)
+			report.Warn("{}'s bounds differ from {}'s by {:.3g} ({:.1f}% of the extent)", variant(path), variant(encodings.front().first), offBy, 100.0 * offBy / extent);
 	}
 
 	return report;
@@ -679,19 +756,39 @@ int main(int argc, char* argv[])
 	std::ranges::sort(modelFiles);
 
 	std::map<Result, size_t> modelResults;
+	std::map<Result, size_t> encodingResults;
 	std::map<Result, size_t> imageResults;
 
 	if (models)
 	{
+		// by the directory above theirs and their (lower case) name: the encodings of a model
+		std::map<std::pair<std::filesystem::path, std::string>, std::vector<std::pair<std::filesystem::path, ModelSummary>>> encodings;
+
 		for (const auto& path : modelFiles)
 		{
 			auto start = std::chrono::steady_clock::now();
 			std::set<ImageCheck> textures;
-			auto report = CheckModel(path, textures);
+			std::optional<ModelSummary> summary;
+			auto report = CheckModel(path, textures, summary);
 			Print(path, report, std::chrono::steady_clock::now() - start);
 			modelResults[report.result]++;
 			if (images)
 				imageFiles.insert(textures.begin(), textures.end());
+			if (auto model = path.parent_path().parent_path(); summary && Lower(model.filename().string()) == Lower(path.stem().string()))
+				encodings[{model, Lower(path.stem().string())}].emplace_back(path, *summary);
+		}
+
+		for (const auto& [key, files] : encodings)
+		{
+			std::set<std::filesystem::path> directories;
+			for (const auto& [path, summary] : files)
+				directories.insert(path.parent_path());
+			if (files.size() < 2 || directories.size() != files.size())
+				continue;
+
+			auto report = CheckEncodings(files);
+			Print(key.first / key.second, report, {});
+			encodingResults[report.result]++;
 		}
 	}
 
@@ -707,8 +804,9 @@ int main(int argc, char* argv[])
 	}
 
 	std::println(
-		"models: {} pass, {} warn, {} fail. images: {} pass, {} warn, {} fail.",
+		"models: {} pass, {} warn, {} fail. encodings: {} pass, {} warn. images: {} pass, {} warn, {} fail.",
 		modelResults[Result::kPass], modelResults[Result::kWarn], modelResults[Result::kFail],
+		encodingResults[Result::kPass], encodingResults[Result::kWarn],
 		imageResults[Result::kPass], imageResults[Result::kWarn], imageResults[Result::kFail]);
 
 	return archiveFailed || modelResults[Result::kFail] + imageResults[Result::kFail] > 0 ? 1 : 0;

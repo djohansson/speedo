@@ -69,8 +69,9 @@ public:
 	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
 	[[nodiscard]] static std::shared_ptr<Model> Load(std::string_view filePath, std::atomic_uint8_t& progress);
 	// loads several model files (each through its own cache entry) as one, side by side in a grid in the xy plane, each
-	// centered in a cell as large as the largest: for sets of variants, such as an archive's models. null if any load
-	// is cancelled or fails.
+	// scaled to the same size and centered in its cell: for sets of variants, such as an archive's models, or the
+	// encodings of a gltf model. files the importers don't support (see mesh::Unsupported) are skipped. null if any
+	// load is cancelled or fails.
 	[[nodiscard]] static std::shared_ptr<Model> Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress);
 
 private:
