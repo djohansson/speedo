@@ -21,6 +21,7 @@
 	* sparse index accessors: their primitives are skipped
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory. a cached model doesn't extract them again if they have been deleted
 	* everything is flattened into one Model with one draw per material: no per node transforms, culling or instancing at draw time
+* todo: add tonemapping
 * todo: frame graph
 * todo: clustered forward shading
 * todo: shader graph
