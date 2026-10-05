@@ -73,7 +73,7 @@ public:
 	explicit Image( // creates uninitialized image
 		CreateDescType&& desc);
 	Image( // copies a staging buffer (see Buffer::CreateStaging) into the target, mip level by mip level as desc lays them
-		   // out, and releases the staging buffer from timlineCallbackOut
+		   // out, and releases the staging buffer from timlineCallbackOut. leaves the image in kTransferDestination.
 		CreateDescType&& desc,
 		Buffer<G>&& staging,
 		CommandBufferHandle<G> cmd,

@@ -12,6 +12,9 @@ namespace rhi
 template <GraphicsApi G>
 class Buffer;
 
+template <GraphicsApi G>
+class Image;
+
 // records commands into a command buffer, in rhi's neutral terms. it doesn't own the command buffer: construct one
 // wherever a command buffer is at hand.
 template <GraphicsApi G>
@@ -30,6 +33,16 @@ public:
 	// makes the memory accesses (srcAccess) of the commands before, in srcStages, visible to the accesses (dstAccess) of
 	// the commands after, in dstStages, which wait for them
 	void Barrier(PipelineStage srcStages, Access srcAccess, PipelineStage dstStages, Access dstAccess) const;
+
+	// queue family ownership transfer, for a resource written on a queue of one family (srcFamily) and then used on a
+	// queue of another (dstFamily): resources are exclusive to one family at a time. record the release on the source
+	// queue after the writes (in srcStages, with srcAccess), and the same transfer's acquire on the destination queue
+	// before the uses (in dstStages, with dstAccess), in a submission that waits for the release's. an image keeps its
+	// layout. both are no-ops if the families are the same.
+	void ReleaseOwnership(const Buffer<G>& buffer, uint32_t srcFamily, uint32_t dstFamily, PipelineStage srcStages, Access srcAccess) const;
+	void AcquireOwnership(const Buffer<G>& buffer, uint32_t srcFamily, uint32_t dstFamily, PipelineStage dstStages, Access dstAccess) const;
+	void ReleaseOwnership(const Image<G>& image, uint32_t srcFamily, uint32_t dstFamily, PipelineStage srcStages, Access srcAccess) const;
+	void AcquireOwnership(const Image<G>& image, uint32_t srcFamily, uint32_t dstFamily, PipelineStage dstStages, Access dstAccess) const;
 
 	[[nodiscard]] CommandBufferHandle<G> GetHandle() const noexcept { return myCmd; }
 

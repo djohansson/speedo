@@ -163,37 +163,42 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 		desc.mipLevels.push_back(
 			{.extent = {.width = level.width, .height = level.height}, .size = level.size, .offset = level.offset});
 
+	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
+	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
+
 	Texture texture;
-	const Semaphore* transferSemaphore = nullptr;
-	uint64_t transferTimelineValue = 0;
 	{
 		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
 		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
+		auto cmd = transferQueue.GetPool().Commands();
+
 		core::TaskCreateInfo<void> transferDone;
-		texture.image = std::make_shared<Image>(std::move(desc), std::move(staging), transferQueue.GetPool().Commands(), transferDone);
+		texture.image = std::make_shared<Image>(std::move(desc), std::move(staging), cmd, transferDone);
 		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
 			device.CreateDeviceObjectCreateDesc(filePath), *texture.image, texture.image->GetDesc().format, ImageAspect::kColor});
+		texture.upload = Upload{
+			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
+
+		CommandEncoder(cmd).ReleaseOwnership(
+			*texture.image, texture.upload.queueFamilyIndex, graphicsQueueFamilyIndex, PipelineStage::kTransfer, Access::kTransferWrite);
+		cmd.End();
 
 		std::vector<core::TaskHandle> transferTimelineCallbacks;
 		transferTimelineCallbacks.emplace_back(transferDone.handle);
+		// the caller may drop the texture before the upload has completed, e.g. if the load it is part of is cancelled
+		transferTimelineCallbacks.emplace_back(core::CreateTask([image = texture.image, view = texture.view] {}).handle);
 
-		transferTimelineValue = ++transfer->timeline;
 		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo{
 			.waitSemaphores = {},
 			.waitDstStageMasks = {},
 			.waitSemaphoreValues = {},
 			.signalSemaphores = {transfer->semaphore},
-			.signalSemaphoreValues = {transferTimelineValue},
+			.signalSemaphoreValues = {texture.upload.value},
 			.callbacks = std::move(transferTimelineCallbacks)});
 
 		transferSubmits |= transferQueue.Submit();
-
-		transferSemaphore = &transfer->semaphore;
 	}
-
-	// wait for the upload outside the queue lock
-	transferSemaphore->Wait(transferTimelineValue);
 
 	return texture;
 }

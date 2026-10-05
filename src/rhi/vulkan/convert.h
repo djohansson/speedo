@@ -231,6 +231,8 @@ namespace rhi::vk
 		flags |= VK_ACCESS_TRANSFER_WRITE_BIT;
 	if (Any(access & Access::kHostWrite))
 		flags |= VK_ACCESS_HOST_WRITE_BIT;
+	if (Any(access & Access::kIndexRead))
+		flags |= VK_ACCESS_INDEX_READ_BIT;
 	return flags;
 }
 

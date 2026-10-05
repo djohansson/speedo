@@ -328,22 +328,71 @@ static void UpdateMaterials(
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-// transitions images to a shader readable layout on the graphics queue, and once that has executed, has the draw thread
-// call bind (with the graphics queue context). call on the draw thread.
+// buffers and images uploaded by the loaders (see Upload), to install
+struct Uploads
+{
+	std::vector<std::pair<const Buffer*, Upload>> buffers;
+	std::vector<std::pair<std::shared_ptr<Image>, Upload>> images;
+};
+
+// in a graphics queue submission that waits for the uploads, acquires the uploaded resources for the graphics queue
+// family and transitions the images to a shader readable layout. once that has executed, has the draw thread call
+// bind (with the graphics queue context). call on the draw thread.
 static void TransitionThenBind(
 	RHI& rhi,
 	QueueTimelineContextData& graphics,
-	const std::vector<std::shared_ptr<Image>>& images,
+	const Uploads& uploads,
 	std::function<void(QueueTimelineContextData&)> bind)
 {
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+
+	// what to wait for: all graphics work so far, and the latest upload on each other semaphore. uploads on the graphics
+	// semaphore (the transfer queue type aliases the graphics queue's context) are covered by the first.
+	QueueDeviceSyncInfo syncInfo{
+		.waitSemaphores = {graphics.semaphore},
+		.waitDstStageMasks = {PipelineStage::kAllCommands},
+		.waitSemaphoreValues = {graphics.timeline}};
+	std::vector<const Semaphore*> waitSemaphores{&graphics.semaphore};
+	auto waitFor = [&](const Upload& upload)
+	{
+		ENSURE(upload.semaphore != nullptr);
+		auto it = std::ranges::find(waitSemaphores, upload.semaphore);
+		auto index = static_cast<size_t>(it - waitSemaphores.begin());
+		if (it == waitSemaphores.end())
+		{
+			waitSemaphores.push_back(upload.semaphore);
+			syncInfo.waitSemaphores.emplace_back(*upload.semaphore);
+			syncInfo.waitDstStageMasks.emplace_back(PipelineStage::kAllCommands);
+			syncInfo.waitSemaphoreValues.emplace_back(upload.value);
+		}
+		else if (index > 0)
+			syncInfo.waitSemaphoreValues[index] = std::max(syncInfo.waitSemaphoreValues[index], upload.value);
+	};
 
 	auto cmd = graphicsQueue.GetPool().Commands();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
-		for (const auto& image : images)
+		CommandEncoder encoder(cmd);
+		for (const auto& [buffer, upload] : uploads.buffers)
+		{
+			waitFor(upload);
+			encoder.AcquireOwnership(
+				*buffer,
+				upload.queueFamilyIndex,
+				graphics.queueFamilyIndex,
+				PipelineStage::kAllCommands,
+				Access::kShaderRead | Access::kIndexRead);
+		}
+
+		for (const auto& [image, upload] : uploads.images)
+		{
+			waitFor(upload);
+			// in the upload's layout, which the transition below starts from
+			encoder.AcquireOwnership(
+				*image, upload.queueFamilyIndex, graphics.queueFamilyIndex, PipelineStage::kAllCommands, Access::kShaderRead);
 			image->Transition(cmd, ImageLayout::kShaderReadOnly);
+		}
 	}
 	cmd.End();
 
@@ -354,16 +403,10 @@ static void TransitionThenBind(
 		rhi.drawCalls.enqueue(bindTask);
 	});
 
-	std::vector<core::TaskHandle> callbacks;
-	callbacks.emplace_back(transitionDoneTask);
-
-	graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
-		.waitSemaphores = {graphics.semaphore},
-		.waitDstStageMasks = {PipelineStage::kAllCommands},
-		.waitSemaphoreValues = {graphics.timeline},
-		.signalSemaphores = {graphics.semaphore},
-		.signalSemaphoreValues = {++graphics.timeline},
-		.callbacks = std::move(callbacks)});
+	syncInfo.signalSemaphores = {graphics.semaphore};
+	syncInfo.signalSemaphoreValues = {++graphics.timeline};
+	syncInfo.callbacks.emplace_back(transitionDoneTask);
+	graphicsQueue.EnqueueSubmit(std::move(syncInfo));
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -386,15 +429,19 @@ static void InstallModel(
 {
 	ZoneScopedN("WindowedApplication::InstallModel");
 
-	std::vector<std::shared_ptr<Image>> images;
+	// each resource once: materials share textures
+	Uploads uploads;
+	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer()})
+		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
 		for (const auto* texture : {&material.diffuse, &material.alpha, &material.normal})
-			if (texture->image)
-				images.push_back(texture->image);
+			if (texture->image &&
+				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
+				uploads.images.emplace_back(texture->image, texture->upload);
 
 	// everything is switched at once, after the textures are readable: one descriptor set update, and no frame draws
 	// the new model with the old materials or the other way around
-	TransitionThenBind(rhi, graphics, images, [&rhi, model, textures = std::move(textures)](QueueTimelineContextData& graphics)
+	TransitionThenBind(rhi, graphics, uploads, [&rhi, model, textures = std::move(textures)](QueueTimelineContextData& graphics)
 	{
 		auto& device = rhi.GetPrimaryDevice();
 		auto& pipeline = device.GetPipeline();
@@ -407,7 +454,7 @@ static void InstallModel(
 		core::UnorderedMap<const Image*, uint32_t> textureSlots;
 		auto slotOf = [&](const Texture& texture) -> std::optional<uint32_t>
 		{
-			const auto& [image, view] = texture;
+			const auto& [image, view, upload] = texture;
 			if (!image)
 				return std::nullopt;
 
@@ -488,11 +535,12 @@ static void InstallImage(
 	RHI& rhi,
 	QueueTimelineContextData& graphics,
 	const std::shared_ptr<Image>& image,
-	const std::shared_ptr<ImageView>& imageView)
+	const std::shared_ptr<ImageView>& imageView,
+	const Upload& upload)
 {
 	ZoneScopedN("WindowedApplication::InstallImage");
 
-	TransitionThenBind(rhi, graphics, {image}, [&rhi, image, imageView](QueueTimelineContextData& graphics)
+	TransitionThenBind(rhi, graphics, Uploads{.images = {{image, upload}}}, [&rhi, image, imageView](QueueTimelineContextData& graphics)
 	{
 		auto& device = rhi.GetPrimaryDevice();
 		auto& pipeline = device.GetPipeline();
@@ -689,12 +737,13 @@ static void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::a
 // loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
 static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	auto [image, imageView] = LoadTexture(filePath, progress);
+	auto [image, imageView, upload] = LoadTexture(filePath, progress);
 	if (!image) // cancelled or failed
 		return;
 
 	auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
-		[&rhi, image, imageView](QueueTimelineContextData* graphics) { InstallImage(rhi, *graphics, image, imageView); });
+		[&rhi, image, imageView, upload](QueueTimelineContextData* graphics)
+		{ InstallImage(rhi, *graphics, image, imageView, upload); });
 	rhi.drawCalls.enqueue(installTask);
 }
 
@@ -1450,6 +1499,17 @@ bool WindowedApplication::Draw()
 	auto queueFamilyIndex = [&device](QueueType type) { return device.GetQueue(type).Read()->queueFamilyIndex; };
 	bool dedicatedTransfer = queueFamilyIndex(kQueueTypeTransfer) != queueFamilyIndex(kQueueTypeCompute);
 	bool dedicatedCompute = queueFamilyIndex(kQueueTypeCompute) != queueFamilyIndex(kQueueTypeGraphics);
+
+	// the timeline callbacks of the transfer queues (e.g. what the loaders' uploads release), unless the transfer queue
+	// type aliases the graphics queues, whose callbacks are run below
+	if (&device.GetQueue(kQueueTypeTransfer) != &device.GetQueue(kQueueTypeGraphics))
+	{
+		auto transfer = device.GetQueue(kQueueTypeTransfer).Read();
+		for (const auto& [queue, submits] : transfer->queues)
+			frameTasks.emplace_back(
+				core::CreateTask([&executor, &queue = queue, &semaphore = transfer->semaphore]
+				{ queue.SubmitCallbacks(executor, semaphore.GetValue()); }).handle);
+	}
 
 	if (flipSuccess)
 	{

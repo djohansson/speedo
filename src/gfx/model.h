@@ -2,6 +2,7 @@
 
 #include <gfx/bounds.h>
 #include <gfx/gpu.h>
+#include <gfx/upload.h>
 
 #include <atomic>
 #include <cstdint>
@@ -46,7 +47,7 @@ struct ModelDesc
 class Model final
 {
 public:
-	Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer) noexcept;
+	Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, const Upload& upload) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
 	~Model();
@@ -57,16 +58,19 @@ public:
 	[[nodiscard]] const ModelDesc& GetDesc() const noexcept { return myDesc; }
 	[[nodiscard]] const Buffer& GetIndexBuffer() const noexcept { return myIndexBuffer; }
 	[[nodiscard]] const Buffer& GetVertexBuffer() const noexcept { return myVertexBuffer; }
+	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
+	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
 	// loads a model file through the asset cache (see core::file::LoadAsset and obj::Import) and uploads it on the
-	// primary device. returns once the upload has completed, or null if the load was cancelled because the application
-	// is exiting, or failed (the reason is printed to stderr).
+	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
+	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
 	[[nodiscard]] static std::shared_ptr<Model> Load(std::string_view filePath, std::atomic_uint8_t& progress);
 
 private:
 	ModelDesc myDesc;
 	Buffer myIndexBuffer;
 	Buffer myVertexBuffer;
+	Upload myUpload;
 };
 
 } // namespace gfx

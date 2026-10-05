@@ -167,6 +167,7 @@ Image<kVk>::Image(
 			std::get<0>(initialData),
 			desc))
 {
+	InternalSetImageLayout(ImageLayout::kTransferDestination); // as the upload leaves it
 	timlineCallbackOut = core::CreateTask(
 		[allocator = GetDevice().GetAllocator(), buffer = std::get<0>(initialData), memory = std::get<1>(initialData)]{
 			DestroyBuffer(allocator, buffer, memory); });
@@ -200,6 +201,7 @@ Image<kVk>::Image(
 		std::forward<CreateDescType>(desc),
 		image::detail::CreateImage2D(cmd, GetDevice(desc.device).GetAllocator(), staging.GetBuffer(), desc))
 {
+	InternalSetImageLayout(ImageLayout::kTransferDestination); // as the upload leaves it
 	timlineCallbackOut = core::CreateTask([staging = std::make_shared<Buffer<kVk>>(std::move(staging))] {});
 }
 

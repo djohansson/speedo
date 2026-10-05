@@ -20,10 +20,11 @@
 namespace gfx
 {
 
-Model::Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer) noexcept
+Model::Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, const Upload& upload) noexcept
 	: myDesc(std::move(desc))
 	, myIndexBuffer(std::move(indexBuffer))
 	, myVertexBuffer(std::move(vertexBuffer))
+	, myUpload(upload)
 {}
 
 Model::~Model() = default;
@@ -212,9 +213,10 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 
 	desc.name = std::string(filePath);
 
+	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
+	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
+
 	std::shared_ptr<Model> model;
-	const Semaphore* transferSemaphore = nullptr;
-	uint64_t transferTimelineValue = 0;
 	{
 		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
 		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
@@ -240,29 +242,32 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 			std::move(vertexStaging),
 			cmd,
 			transfersDone[1]);
-		model = std::make_shared<Model>(std::move(desc), std::move(indexBuffer), std::move(vertexBuffer));
+		auto upload = Upload{
+			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
+		model = std::make_shared<Model>(std::move(desc), std::move(indexBuffer), std::move(vertexBuffer), upload);
+
+		CommandEncoder encoder(cmd);
+		for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer()})
+			encoder.ReleaseOwnership(
+				*buffer, upload.queueFamilyIndex, graphicsQueueFamilyIndex, PipelineStage::kTransfer, Access::kTransferWrite);
 		cmd.End();
 
 		std::vector<core::TaskHandle> timelineCallbacks;
 		timelineCallbacks.emplace_back(transfersDone[0].handle);
 		timelineCallbacks.emplace_back(transfersDone[1].handle);
+		// the caller may drop the model before the upload has completed, e.g. if the load it is part of is cancelled
+		timelineCallbacks.emplace_back(core::CreateTask([model] {}).handle);
 
-		transferTimelineValue = ++transfer->timeline;
 		transferQueue.EnqueueSubmit(QueueDeviceSyncInfo{
 			.waitSemaphores = {transfer->semaphore},
 			.waitDstStageMasks = {PipelineStage::kTransfer},
 			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
 			.signalSemaphores = {transfer->semaphore},
-			.signalSemaphoreValues = {transferTimelineValue},
+			.signalSemaphoreValues = {upload.value},
 			.callbacks = std::move(timelineCallbacks)});
 
 		transferSubmits |= transferQueue.Submit();
-
-		transferSemaphore = &transfer->semaphore;
 	}
-
-	// wait for the upload outside the queue lock, so the model is ready for use by the caller
-	transferSemaphore->Wait(transferTimelineValue);
 
 	return model;
 }

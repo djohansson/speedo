@@ -166,6 +166,7 @@ enum class Access : uint8_t
 	kTransferRead = 1U << 2U,
 	kTransferWrite = 1U << 3U,
 	kHostWrite = 1U << 4U,
+	kIndexRead = 1U << 5U,
 };
 RHI_FLAGS(Access)
 

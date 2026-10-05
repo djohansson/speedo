@@ -234,6 +234,16 @@ failed load prints why and returns null instead of trapping. When an importer ch
 `objimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output. Assets outside
 `RootPath` are cached under `<user profile>/external/<absolute path>`.
 
+The loaders don't wait for their uploads: they return the resource with its `gfx::Upload` (the transfer timeline
+semaphore and value, and the transfer queue family), and keep it alive from the upload's timeline callback in case the
+caller drops it. Whatever uses it on another queue must wait for the upload on the gpu and acquire the resource for its
+family (`TransitionThenBind` does both, with `CommandEncoder::AcquireOwnership`): buffers and images are
+`VK_SHARING_MODE_EXCLUSIVE`, and the loaders release them to the graphics family. On a single family device (e.g.
+KosmicKrisp) the release and acquire are no-ops and the graphics timeline wait covers the upload, so none of this can
+be tested there. The transfer queues' timeline callbacks run every frame (in `Draw`) when they aren't the graphics
+queues. The staging constructors of `Image` leave it in `kTransferDestination`, and track that: transitioning an
+uploaded image from the `kUndefined` it was created with would let the driver discard its contents.
+
 OBJ has no up axis or handedness, so the importer goes by the conventions the renderer expects: counter-clockwise front
 faces (the projection flips y, see `Camera`), and `v` flipped so `v = 0` is the first image row. Runs of faces whose
 winding disagrees with the file's normals are flipped (mirrored exports), and missing normals are generated, smoothed
