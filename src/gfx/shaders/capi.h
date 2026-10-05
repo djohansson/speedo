@@ -81,26 +81,41 @@ struct ViewData
 	alignas(16) FLOAT4X4(viewProjection);
 };
 
-#define MATERIAL_FLAG_TEXTURE 1u // samples textureAndSamplerId's texture (multiplied in, and alpha tested against alphaCutoff)
-#define MATERIAL_FLAG_ALPHA_TEXTURE 2u // samples alphaTextureId (a mask in r, tested against alphaCutoff)
-#define MATERIAL_FLAG_NORMAL_TEXTURE 4u // samples normalTextureId (a tangent space normal map, x and y in rg)
-#define MATERIAL_FLAG_EMISSIVE_TEXTURE 8u // samples emissiveTextureId (an srgb color, times emissive)
-#define MATERIAL_FLAG_OCCLUSION_TEXTURE 16u // samples occlusionTextureId (ambient occlusion in r, by emissive.w)
+#define SHADER_TYPES_TEXTURE_VIEW_INDEX_BITS 12u
+#define SHADER_TYPES_TEXTURE_VIEW_COUNT (1u << SHADER_TYPES_TEXTURE_VIEW_INDEX_BITS)
 
-// textures are indices into gTextures, all sampled with textureAndSamplerId's sampler
+// a texture as a material samples it (see gfx::TextureRef): gTextures[textureId] with gSamplers[samplerId], at its
+// texcoord set (texCoord01.xy or .zw) transformed: (u', v') = (dot(uTransform.xyz, (u, v, 1)), dot(vTransform.xyz, (u, v, 1)))
+struct TextureView
+{
+	alignas(16) FLOAT4(uTransform);
+	alignas(16) FLOAT4(vTransform);
+	alignas(4) UINT(textureId);
+	alignas(4) UINT(samplerId);
+	alignas(4) UINT(texCoordSet); // 0 or 1
+	alignas(4) UINT(padding);
+};
+
+// which of a material's textures it has, each sampled through its view (an index into gTextureViews)
+#define MATERIAL_FLAG_TEXTURE 1u // baseColorView: an srgb color (and alpha), multiplied in, and alpha tested against alphaCutoff
+#define MATERIAL_FLAG_ALPHA_TEXTURE 2u // alphaView: a mask in r, tested against alphaCutoff
+#define MATERIAL_FLAG_NORMAL_TEXTURE 4u // normalView: a tangent space normal map, x and y in rg
+#define MATERIAL_FLAG_EMISSIVE_TEXTURE 8u // emissiveView: an srgb color, times emissive
+#define MATERIAL_FLAG_OCCLUSION_TEXTURE 16u // occlusionView: ambient occlusion in r, by emissive.w
+
 struct MaterialData
 {
 	alignas(16) FLOAT4(color);
-	alignas(4) UINT(textureAndSamplerId);
-	alignas(4) UINT(flags);
-	alignas(4) UINT(alphaTextureId);
-	alignas(4) UINT(normalTextureId);
-	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
-	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
-	alignas(4) UINT(emissiveTextureId);
-	alignas(4) UINT(occlusionTextureId);
 	// rgb: linear light added after lighting (may be above 1), times the emissive texture. a: the occlusion strength
 	alignas(16) FLOAT4(emissive);
+	alignas(4) UINT(flags);
+	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
+	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
+	alignas(4) UINT(baseColorView);
+	alignas(4) UINT(alphaView);
+	alignas(4) UINT(normalView);
+	alignas(4) UINT(emissiveView);
+	alignas(4) UINT(occlusionView);
 };
 
 struct ModelInstance

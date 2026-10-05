@@ -11,6 +11,7 @@
 #include <gfx/shaders/capi.h>
 
 #include <uuid.h>
+#include <xxhash.h>
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -25,6 +26,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <cstdlib>
 #include <optional>
 #include <atomic>
@@ -97,7 +99,9 @@ static uuids::uuid gLoadedImageViewUuid;
 static uuids::uuid gBlackTextureUuid;
 static uuids::uuid gBlackTextureViewUuid;
 static uuids::uuid gSamplersUuid;
+static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
 static uuids::uuid gMaterialsUuid;
+static uuids::uuid gTextureViewsUuid;
 static uuids::uuid gModelInstancesUuid;
 
 // takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
@@ -251,6 +255,16 @@ static constexpr uint32_t kModelTextureFirstSlot = 16;
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 static constexpr uint32_t kModelMaterialMaxCount = SHADER_TYPES_MATERIAL_COUNT - 1;
 static constexpr uint32_t kDefaultSamplerId = 2;
+// the sampler slots a model's samplers go in: all but the default's
+static constexpr auto kModelSamplerSlots = []
+{
+	std::array<uint32_t, SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1> slots{};
+	for (uint32_t slot = 0, slotIt = 0; slot < SHADER_TYPES_GLOBAL_SAMPLER_COUNT; slot++)
+		if (slot != kDefaultSamplerId)
+			slots[slotIt++] = slot;
+	return slots;
+}();
+static size_t gModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
 static_assert(kMaterialTextureId >= SHADER_TYPES_FRAME_COUNT && kMaterialTextureId < kModelTextureFirstSlot);
 
 // the material slot drawn for a submesh of the loaded model
@@ -288,32 +302,29 @@ static void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::sha
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-// writes materials, starting at slot first, in a submission on the graphics queue that is ordered after all graphics
-// work submitted so far, and before all that follows. call on the draw thread.
-static void UpdateMaterials(
-	RHI& rhi, QueueTimelineContextData& graphics, uint32_t first, std::span<const MaterialData> materials)
+// writes data to buffer at offset, in a submission on the graphics queue that is ordered after all graphics work
+// submitted so far, and before all that follows. call on the draw thread.
+static void UpdateBufferOnGraphics(
+	QueueTimelineContextData& graphics, const Buffer& buffer, uint64_t offset, std::span<const std::byte> data)
 {
-	if (materials.empty())
+	if (data.empty())
 		return;
 
-	ENSURE(first + materials.size() <= SHADER_TYPES_MATERIAL_COUNT);
-
-	auto& device = rhi.GetPrimaryDevice();
-	auto& buffer = *device.GetResource<Buffer>(gMaterialsUuid);
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
 	auto cmd = graphicsQueue.GetPool().Commands();
 	{
-		GPU_SCOPE(cmd, graphicsQueue, UpdateMaterials); //NOLINT(bugprone-suspicious-stringview-data-usage)
+		GPU_SCOPE(cmd, graphicsQueue, UpdateBuffer); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
 		CommandEncoder encoder(cmd);
 
-		// after the frames in flight have read the old ones
+		// after the frames in flight have read the old data
 		encoder.Barrier(PipelineStage::kAllCommands, Access::kShaderRead, PipelineStage::kTransfer, Access::kTransferWrite);
 
-		// 32 kB at most, below UpdateBuffer's limit of 64 kB
-		static_assert(SHADER_TYPES_MATERIAL_COUNT * sizeof(MaterialData) <= 65536);
-		encoder.UpdateBuffer(buffer, first * sizeof(MaterialData), std::as_bytes(materials));
+		// UpdateBuffer takes 64 kB at most
+		constexpr size_t kMaxUpdateSize = 65536;
+		for (size_t chunk = 0; chunk < data.size(); chunk += kMaxUpdateSize)
+			encoder.UpdateBuffer(buffer, offset + chunk, data.subspan(chunk, std::min(kMaxUpdateSize, data.size() - chunk)));
 
 		encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kAllCommands, Access::kShaderRead);
 	}
@@ -327,6 +338,58 @@ static void UpdateMaterials(
 		.signalSemaphoreValues = {++graphics.timeline}});
 
 	graphicsSubmits |= graphicsQueue.Submit();
+}
+
+// writes materials, starting at slot first (see UpdateBufferOnGraphics). call on the draw thread.
+static void UpdateMaterials(
+	RHI& rhi, QueueTimelineContextData& graphics, uint32_t first, std::span<const MaterialData> materials)
+{
+	ENSURE(first + materials.size() <= SHADER_TYPES_MATERIAL_COUNT);
+
+	UpdateBufferOnGraphics(
+		graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gMaterialsUuid), first * sizeof(MaterialData), std::as_bytes(materials));
+}
+
+// writes texture views, starting at slot first (see UpdateBufferOnGraphics). call on the draw thread.
+static void UpdateTextureViews(
+	RHI& rhi, QueueTimelineContextData& graphics, uint32_t first, std::span<const TextureView> views)
+{
+	ENSURE(first + views.size() <= SHADER_TYPES_TEXTURE_VIEW_COUNT);
+
+	UpdateBufferOnGraphics(
+		graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gTextureViewsUuid), first * sizeof(TextureView), std::as_bytes(views));
+}
+
+// what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes
+struct TextureViewKey
+{
+	uint32_t textureSlot = 0;
+	uint32_t samplerSlot = 0;
+	uint32_t texCoord = 0;
+	std::array<uint32_t, 6> transform{};
+
+	[[nodiscard]] bool operator==(const TextureViewKey&) const = default;
+};
+static_assert(std::has_unique_object_representations_v<TextureViewKey>, "TextureViewKey is hashed as bytes");
+
+struct TextureViewKeyHash
+{
+	using is_avalanching = void; //NOLINT(readability-identifier-naming)
+
+	[[nodiscard]] uint64_t operator()(const TextureViewKey& key) const noexcept { return XXH3_64bits(&key, sizeof(key)); }
+};
+
+// a view of a texture slot with a sampler slot, as a TextureRef samples it
+[[nodiscard]] static TextureView MakeTextureView(uint32_t textureSlot, uint32_t samplerSlot, const TextureRef& ref)
+{
+	const auto& t = ref.transform;
+	return TextureView{
+		.uTransform = {t[0], t[1], t[2], 0.0F},
+		.vTransform = {t[3], t[4], t[5], 0.0F},
+		.textureId = textureSlot,
+		.samplerId = samplerSlot,
+		.texCoordSet = ref.texCoord,
+		.padding = 0};
 }
 
 // buffers and images uploaded by the loaders (see Upload), to install
@@ -482,44 +545,117 @@ static void InstallModel(
 			return slot;
 		};
 
+		const auto& descMaterials = model->GetDesc().materials;
+
+		// each distinct sampler once: the default in its slot, the others in the rest (see TextureRef::sampler)
+		std::vector<SamplerDesc> samplerDescs;
+		auto samplerSlotOf = [&samplerDescs, warned = false](const SamplerDesc& desc) mutable -> uint32_t
+		{
+			static const SamplerDesc kDefault = TextureRef{}.sampler;
+			if (desc == kDefault)
+				return kDefaultSamplerId;
+			auto it = std::ranges::find(samplerDescs, desc);
+			if (it == samplerDescs.end())
+			{
+				if (samplerDescs.size() == kModelSamplerSlots.size())
+				{
+					if (!std::exchange(warned, true))
+						std::println(stderr, "more than {} different samplers, the rest use the default", kModelSamplerSlots.size());
+					return kDefaultSamplerId;
+				}
+				it = samplerDescs.insert(samplerDescs.end(), desc);
+			}
+			return kModelSamplerSlots[static_cast<size_t>(it - samplerDescs.begin())];
+		};
+
+		// each distinct view once, from 1 (0 is material 0's, see InstallImage)
+		std::vector<TextureView> views;
+		core::UnorderedMap<TextureViewKey, uint32_t, TextureViewKeyHash> viewIds;
+		bool viewsFull = false;
+		auto viewOf = [&](const Texture& texture, const TextureRef& ref) -> std::optional<uint32_t>
+		{
+			auto textureSlot = slotOf(texture);
+			if (!textureSlot)
+				return std::nullopt;
+
+			auto samplerSlot = samplerSlotOf(ref.sampler);
+			auto [it, inserted] = viewIds.try_emplace(
+				TextureViewKey{
+					.textureSlot = *textureSlot,
+					.samplerSlot = samplerSlot,
+					.texCoord = ref.texCoord,
+					.transform = std::bit_cast<std::array<uint32_t, 6>>(ref.transform)},
+				0U);
+			if (inserted)
+			{
+				if (1 + views.size() == SHADER_TYPES_TEXTURE_VIEW_COUNT)
+				{
+					if (!std::exchange(viewsFull, true))
+						std::println(stderr, "more than {} texture views, the rest are left out", SHADER_TYPES_TEXTURE_VIEW_COUNT - 1);
+					viewIds.erase(it);
+					return std::nullopt;
+				}
+				it->second = static_cast<uint32_t>(1 + views.size());
+				views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref));
+			}
+			return it->second;
+		};
+
 		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
 		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
 		{
 			auto& material = materials[materialIt];
+			const auto& desc = descMaterials[materialIt];
 			std::ranges::fill(material.color, 1.0F);
-			material.textureAndSamplerId = kDefaultSamplerId;
-			material.alphaCutoff = model->GetDesc().materials[materialIt].alphaCutoff;
+			material.alphaCutoff = desc.alphaCutoff;
+			std::ranges::copy(desc.emissive, material.emissive);
 
-			if (auto slot = slotOf(textures[materialIt].diffuse))
+			if (auto view = viewOf(textures[materialIt].diffuse, desc.diffuseTexture))
 			{
-				material.textureAndSamplerId |= *slot << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
+				material.baseColorView = *view;
 				material.flags |= MATERIAL_FLAG_TEXTURE;
 			}
-			if (auto slot = slotOf(textures[materialIt].alpha))
+			if (auto view = viewOf(textures[materialIt].alpha, desc.alphaTexture))
 			{
-				material.alphaTextureId = *slot;
+				material.alphaView = *view;
 				material.flags |= MATERIAL_FLAG_ALPHA_TEXTURE;
 			}
-			if (auto slot = slotOf(textures[materialIt].normal))
+			// the normal map, or a bump texture turned into one (see LoadAndInstallModels)
+			if (auto view = viewOf(textures[materialIt].normal, desc.normalTexture.empty() ? desc.bumpTexture : desc.normalTexture))
 			{
-				material.normalTextureId = *slot;
-				material.normalScale = model->GetDesc().materials[materialIt].normalScale;
+				material.normalView = *view;
+				material.normalScale = desc.normalScale;
 				material.flags |= MATERIAL_FLAG_NORMAL_TEXTURE;
 			}
-			const auto& emissive = model->GetDesc().materials[materialIt].emissive;
-			std::ranges::copy(emissive, material.emissive);
-			if (auto slot = slotOf(textures[materialIt].emissive))
+			if (auto view = viewOf(textures[materialIt].emissive, desc.emissiveTexture))
 			{
-				material.emissiveTextureId = *slot;
+				material.emissiveView = *view;
 				material.flags |= MATERIAL_FLAG_EMISSIVE_TEXTURE;
 			}
-			if (auto slot = slotOf(textures[materialIt].occlusion))
+			if (auto view = viewOf(textures[materialIt].occlusion, desc.occlusionTexture))
 			{
-				material.occlusionTextureId = *slot;
-				material.emissive[3] = model->GetDesc().materials[materialIt].occlusionStrength;
+				material.occlusionView = *view;
+				material.emissive[3] = desc.occlusionStrength;
 				material.flags |= MATERIAL_FLAG_OCCLUSION_TEXTURE;
 			}
 		}
+
+		// the model's samplers in their slots, and the previous model's other slots back to the default sampler
+		auto samplers = std::make_shared<SamplerVector>(
+			SamplerVectorCreateDesc{device.CreateDeviceObjectCreateDesc("Model Samplers"), std::vector(samplerDescs)});
+		const auto& defaultSampler = (*device.GetResource<SamplerVector>(gSamplersUuid))[0];
+		for (size_t slotIt = 0; slotIt < kModelSamplerSlots.size(); slotIt++)
+			if (slotIt < samplerDescs.size() || slotIt < gModelSamplerCount)
+				pipeline.SetDescriptorData(
+					"gSamplers",
+					ImageBinding{.sampler = slotIt < samplerDescs.size() ? (*samplers)[slotIt] : defaultSampler},
+					DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
+					kModelSamplerSlots[slotIt]);
+		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gModelSamplersUuid, samplers));
+		gModelSamplersUuid = samplers->GetUuid();
+		gModelSamplerCount = samplerDescs.size();
+
+		UpdateTextureViews(rhi, graphics, 1, views);
 
 		for (size_t slotIt = textureUuids.size(); slotIt < gModelTextureUuids.size(); slotIt++)
 			pipeline.SetDescriptorData(
@@ -570,12 +706,14 @@ static void InstallImage(
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			kMaterialTextureId);
 
-		// the default material is untextured until an image is loaded
+		// the default material is untextured until an image is loaded. it samples it through view 0.
+		auto view = MakeTextureView(kMaterialTextureId, kDefaultSamplerId, TextureRef{});
+		UpdateTextureViews(rhi, graphics, 0, std::span(&view, 1));
 		MaterialData material{
 			.color = {1.0F, 1.0F, 1.0F, 1.0F},
-			.textureAndSamplerId = (kMaterialTextureId << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS) | kDefaultSamplerId,
 			.flags = MATERIAL_FLAG_TEXTURE,
-			.alphaCutoff = 0.5F};
+			.alphaCutoff = 0.5F,
+			.baseColorView = 0};
 		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
@@ -613,19 +751,19 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 		const auto& material = materials[materialIt];
 		auto& texture = textures[materialIt];
 		if (!material.diffuseTexture.empty())
-			loads.push_back({material.diffuseTexture, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
+			loads.push_back({material.diffuseTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
 		if (!material.alphaTexture.empty())
-			loads.push_back({material.alphaTexture, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
+			loads.push_back({material.alphaTexture.path, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
 		if (!material.normalTexture.empty())
-			loads.push_back({material.normalTexture, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
+			loads.push_back({material.normalTexture.path, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
 		else if (!material.bumpTexture.empty())
 			loads.push_back(
-				{material.bumpTexture, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
+				{material.bumpTexture.path, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
 		// the texture scales emissive, so it is only worth loading if that isn't black (obj map_Ke usually comes with Ke 0)
 		if (!material.emissiveTexture.empty() && std::ranges::any_of(material.emissive, [](float value) { return value > 0.0F; }))
-			loads.push_back({material.emissiveTexture, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
+			loads.push_back({material.emissiveTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
 		if (!material.occlusionTexture.empty())
-			loads.push_back({material.occlusionTexture, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
+			loads.push_back({material.occlusionTexture.path, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;
@@ -1960,6 +2098,21 @@ WindowedApplication::WindowedApplication(
 		gMaterialsUuid = materials->GetUuid();
 		timelineCallbacks.emplace_back(materialTransfersDone.handle);
 
+		// filled in by InstallModel and InstallImage
+		std::vector<TextureView> textureViewData(SHADER_TYPES_TEXTURE_VIEW_COUNT);
+		core::TaskCreateInfo<void> textureViewTransfersDone;
+		auto textureViews = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("TextureViews"),
+				SHADER_TYPES_TEXTURE_VIEW_COUNT * sizeof(TextureView),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			textureViewData.data(),
+			cmd,
+			textureViewTransfersDone);
+		gTextureViewsUuid = textureViews->GetUuid();
+		timelineCallbacks.emplace_back(textureViewTransfersDone.handle);
+
 		constexpr uint32_t kDefaultModelInstanceId = 666;
 		constexpr uint32_t kMatrix4x4ElementCount = 16;
 		std::vector<ModelInstance> modelInstances(SHADER_TYPES_MODEL_INSTANCE_COUNT);
@@ -2050,6 +2203,11 @@ WindowedApplication::WindowedApplication(
 	pipeline.SetDescriptorData(
 		"gMaterialData",
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gMaterialsUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_MATERIAL);
+
+	pipeline.SetDescriptorData(
+		"gTextureViews",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gTextureViewsUuid), .offset = 0},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
 	pipeline.SetDescriptorData(

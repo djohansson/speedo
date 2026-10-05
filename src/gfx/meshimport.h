@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/bounds.h>
+#include <gfx/textureref.h>
 #include <gfx/shaders/capi.h>
 
 #include <array>
@@ -23,20 +24,19 @@ struct Material
 	// the color, already multiplied into the vertex colors: obj Kd and d (or 1 - Tr), gltf baseColorFactor
 	std::array<float, 3> diffuse{1.0F, 1.0F, 1.0F};
 	float dissolve = 1.0F;
-	// resolved paths of the textures the material names, empty if it names none. a texture that can't be found is
-	// counted in Stats::missingTextures and left empty.
-	std::filesystem::path diffuseTexture; // obj map_Kd, gltf baseColorTexture
-	std::filesystem::path alphaTexture; // obj map_d
-	std::filesystem::path normalTexture; // obj norm, gltf normalTexture: a normal map
+	// the textures the material names (see TextureRef), empty if it names none
+	TextureRef diffuseTexture; // obj map_Kd, gltf baseColorTexture
+	TextureRef alphaTexture; // obj map_d
+	TextureRef normalTexture; // obj norm, gltf normalTexture: a normal map
 	float normalScale = 1.0F; // gltf normalTexture.scale: scales the normal map's x and y (0 flattens it)
 	// light the surface gives off, added after lighting: obj Ke, gltf emissiveFactor (times KHR_materials_emissive_strength),
 	// times the emissive texture's color if there is one. linear, and may be above 1.
 	std::array<float, 3> emissive{0.0F, 0.0F, 0.0F};
-	std::filesystem::path emissiveTexture; // obj map_Ke, gltf emissiveTexture
+	TextureRef emissiveTexture; // obj map_Ke, gltf emissiveTexture
 	// gltf occlusionTexture: ambient occlusion in its red channel, which darkens the ambient (indirect) light, by strength
-	std::filesystem::path occlusionTexture;
+	TextureRef occlusionTexture;
 	float occlusionStrength = 1.0F;
-	std::filesystem::path bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
+	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option
 	// fragments whose diffuse texture alpha (or alpha texture value) is below this are discarded: 0 for opaque
 	// materials (gltf OPAQUE), which ignore the alpha. obj materials are all alpha tested.

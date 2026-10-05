@@ -208,6 +208,8 @@ struct SamplerDesc
 	float maxAnisotropy = 1.0F; // anisotropic filtering if above 1
 	float minLod = 0.0F;
 	float maxLod = 1000.0F;
+
+	[[nodiscard]] bool operator==(const SamplerDesc&) const = default; // by field: it has padding
 };
 
 struct Extent2d

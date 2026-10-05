@@ -26,6 +26,9 @@ StructuredBuffer<ViewData> gViewData[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MATERIAL)]]
 StructuredBuffer<MaterialData> gMaterialData;
 
+[[vk::binding(1, DESCRIPTOR_SET_CATEGORY_MATERIAL)]]
+StructuredBuffer<TextureView> gTextureViews;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<ModelInstance> gModelInstances;
 
@@ -149,6 +152,24 @@ float3x3 CotangentFrame(float3 normal, float3 position, float2 uv)
 	return float3x3(tangent * invmax, bitangent * invmax, normal);
 }
 
+// a view's texcoords: its set, transformed (see TextureView)
+float2 ViewTexCoord(TextureView view, float4 texCoord01)
+{
+	float3 uv1 = float3(view.texCoordSet == 0u ? texCoord01.xy : texCoord01.zw, 1.0);
+	return float2(dot(view.uTransform.xyz, uv1), dot(view.vTransform.xyz, uv1));
+}
+
+float4 SampleView(TextureView view, float2 uv)
+{
+	return gTextures[view.textureId].Sample(gSamplers[view.samplerId], uv);
+}
+
+float4 SampleView(uint viewId, float4 texCoord01)
+{
+	TextureView view = gTextureViews[viewId];
+	return SampleView(view, ViewTexCoord(view, texCoord01));
+}
+
 [shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input)
 {
@@ -161,31 +182,29 @@ FragmentOutput FragmentMain(VertexOutput input)
 
 	MaterialData material = gMaterialData[materialId];
 
-	uint textureAndSamplerId = material.textureAndSamplerId;
-	uint textureId = textureAndSamplerId >> SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS;
-	SamplerState sampler = gSamplers[textureAndSamplerId & (SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1u)];
-	float2 uv = v.texCoord01.xy;
-
 	// linear: the vertex colors hold the materials' diffuse colors, and textures are sampled through srgb formats
 	float4 color = v.color * material.color;
 
 	// cutouts (foliage, fences) keep their mask in the diffuse texture's alpha channel, or in a separate texture
 	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
 	{
-		float4 sample = gTextures[textureId].Sample(sampler, uv);
+		float4 sample = SampleView(material.baseColorView, v.texCoord01);
 		if (sample.a < material.alphaCutoff)
 			discard;
 
 		color *= sample;
 	}
 
-	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && gTextures[material.alphaTextureId].Sample(sampler, uv).r < material.alphaCutoff)
+	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && SampleView(material.alphaView, v.texCoord01).r < material.alphaCutoff)
 		discard;
 
 	float3 normal = normalize(v.normal);
 	if ((material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
 	{
-		float2 xy = gTextures[material.normalTextureId].Sample(sampler, uv).rg * 2.0 - 1.0;
+		// the tangent frame follows the normal map's own (transformed) texcoords
+		TextureView normalView = gTextureViews[material.normalView];
+		float2 uv = ViewTexCoord(normalView, v.texCoord01);
+		float2 xy = SampleView(normalView, uv).rg * 2.0 - 1.0;
 		// z is reconstructed from the stored (unit length) normal, then x and y are scaled, as gltf defines
 		// normalTexture.scale: normalize(normal * (scale, scale, 1))
 		float3 tangentSpaceNormal = float3(xy * material.normalScale, sqrt(saturate(1.0 - dot(xy, xy))));
@@ -199,12 +218,12 @@ FragmentOutput FragmentMain(VertexOutput input)
 	// light the surface gives off, unaffected by the lighting
 	float3 emissive = material.emissive.rgb;
 	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
-		emissive *= gTextures[material.emissiveTextureId].Sample(sampler, uv).rgb;
+		emissive *= SampleView(material.emissiveView, v.texCoord01).rgb;
 
 	// ambient occlusion only darkens the ambient light, the stand-in for indirect light, which is what gltf applies it to
 	float occlusion = 1.0;
 	if ((material.flags & MATERIAL_FLAG_OCCLUSION_TEXTURE) != 0u)
-		occlusion = lerp(1.0, gTextures[material.occlusionTextureId].Sample(sampler, uv).r, material.emissive.w);
+		occlusion = lerp(1.0, SampleView(material.occlusionView, v.texCoord01).r, material.emissive.w);
 
 	output.color = float4(color.rgb * (0.3 * occlusion + 0.7 * diffuse) + emissive, color.a);
 

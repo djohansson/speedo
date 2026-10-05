@@ -146,23 +146,51 @@ using Matrix = std::array<float, 16>;
 		(n[6] * v[0]) + (n[7] * v[1]) + (n[8] * v[2])};
 }
 
-// how a material's vertices take their texcoords: which set goes first (the one its textures sample), and the base
-// color texture's transform, if any
-struct TexCoordMapping
+// KHR_texture_transform as a 2x3 matrix (see TextureRef::transform): offset * rotation * scale, with the rotation as
+// the extension defines it (counter-clockwise in uv space, whose v points down)
+[[nodiscard]] std::array<float, 6> TransformMatrix(const cgltf_texture_transform& t)
 {
-	int set = 0;
-	std::optional<cgltf_texture_transform> transform;
-};
+	auto c = std::cos(t.rotation);
+	auto s = std::sin(t.rotation);
+	return {c * t.scale[0], s * t.scale[1], t.offset[0], -s * t.scale[0], c * t.scale[1], t.offset[1]};
+}
 
-[[nodiscard]] std::array<float, 2> Transform(const cgltf_texture_transform& t, float u, float v)
+// a gltf sampler as rhi's (default: repeat, linear with mipmaps, anisotropic, as the spec suggests for no sampler)
+[[nodiscard]] rhi::SamplerDesc SamplerOf(const cgltf_sampler* sampler)
 {
-	// offset * rotation * scale, with the rotation as KHR_texture_transform defines it (counter-clockwise in uv space,
-	// whose v points down)
-	auto su = static_cast<double>(u) * t.scale[0];
-	auto sv = static_cast<double>(v) * t.scale[1];
-	auto c = std::cos(static_cast<double>(t.rotation));
-	auto s = std::sin(static_cast<double>(t.rotation));
-	return {static_cast<float>((c * su) + (s * sv) + t.offset[0]), static_cast<float>((-s * su) + (c * sv) + t.offset[1])};
+	rhi::SamplerDesc desc{.maxAnisotropy = TextureRef::kDefaultMaxAnisotropy};
+	if (sampler == nullptr)
+		return desc;
+
+	auto wrap = [](cgltf_int mode)
+	{
+		switch (mode)
+		{
+		case 33071: return rhi::AddressMode::kClampToEdge; // CLAMP_TO_EDGE
+		case 33648: return rhi::AddressMode::kMirroredRepeat; // MIRRORED_REPEAT
+		default: return rhi::AddressMode::kRepeat; // REPEAT
+		}
+	};
+	desc.addressModeU = wrap(sampler->wrap_s);
+	desc.addressModeV = wrap(sampler->wrap_t);
+
+	// filters: 9728 NEAREST, 9729 LINEAR, and for min also 9984 NEAREST_MIPMAP_NEAREST, 9985 LINEAR_MIPMAP_NEAREST,
+	// 9986 NEAREST_MIPMAP_LINEAR, 9987 LINEAR_MIPMAP_LINEAR. 0 is undefined: linear (with linear mipmaps)
+	if (sampler->mag_filter == 9728)
+		desc.magFilter = rhi::Filter::kNearest;
+	switch (sampler->min_filter)
+	{
+	case 9728: desc.minFilter = rhi::Filter::kNearest; desc.maxLod = 0.0F; break; // no mipmaps
+	case 9729: desc.maxLod = 0.0F; break;
+	case 9984: desc.minFilter = rhi::Filter::kNearest; desc.mipmapFilter = rhi::Filter::kNearest; break;
+	case 9985: desc.mipmapFilter = rhi::Filter::kNearest; break;
+	case 9986: desc.minFilter = rhi::Filter::kNearest; break;
+	default: break;
+	}
+	// anisotropic filtering only where it filters linearly
+	if (desc.magFilter != rhi::Filter::kLinear || desc.minFilter != rhi::Filter::kLinear)
+		desc.maxAnisotropy = 1.0F;
+	return desc;
 }
 
 // the image files of a file's textures: external ones are resolved next to the file, embedded ones (in a buffer view,
@@ -453,7 +481,6 @@ std::expected<Mesh, std::string> Import(
 
 	// materials, and how their vertices take texcoords
 	Images images(data, path, options, stats);
-	std::vector<TexCoordMapping> texCoordMappings(data.materials_count);
 	std::vector<bool> doubleSided(data.materials_count);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
 	bool blendWarned = false;
@@ -479,14 +506,32 @@ std::expected<Mesh, std::string> Import(
 		std::copy_n(factor.begin(), 3, material.diffuse.begin());
 		material.dissolve = factor[3];
 
-		material.diffuseTexture = images.Resolve(*baseColorTexture, material.name);
-		material.normalTexture = images.Resolve(gltfMaterial.normal_texture, material.name);
+		// each texture with its texcoord set, transform and sampler, which the shader applies (see TextureRef)
+		auto textureRef = [&](const cgltf_texture_view& view)
+		{
+			TextureRef ref;
+			ref.path = images.Resolve(view, material.name).string();
+			if (ref.empty())
+				return ref;
+			ref.texCoord = static_cast<uint32_t>(view.has_transform && view.transform.has_texcoord ? view.transform.texcoord : view.texcoord);
+			if (ref.texCoord > 1)
+			{
+				warn("material {}: texcoord set {} isn't supported, set 0 is used", material.name, ref.texCoord);
+				ref.texCoord = 0;
+			}
+			if (view.has_transform)
+				ref.transform = TransformMatrix(view.transform);
+			ref.sampler = SamplerOf(view.texture->sampler);
+			return ref;
+		};
+		material.diffuseTexture = textureRef(*baseColorTexture);
+		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
 		for (size_t channel = 0; channel < 3; channel++)
 			material.emissive[channel] = gltfMaterial.emissive_factor[channel] * emissiveStrength;
-		material.emissiveTexture = images.Resolve(gltfMaterial.emissive_texture, material.name);
-		material.occlusionTexture = images.Resolve(gltfMaterial.occlusion_texture, material.name);
+		material.emissiveTexture = textureRef(gltfMaterial.emissive_texture);
+		material.occlusionTexture = textureRef(gltfMaterial.occlusion_texture);
 		material.occlusionStrength = gltfMaterial.occlusion_texture.scale; // cgltf keeps the strength as scale
 
 		switch (gltfMaterial.alpha_mode)
@@ -502,23 +547,6 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		doubleSided[materialIt] = gltfMaterial.double_sided != 0;
-
-		// the textures this renderer samples share one texcoord set: the base color texture's (or the normal map's)
-		auto setOf = [](const cgltf_texture_view& view) { return view.has_transform && view.transform.has_texcoord ? view.transform.texcoord : view.texcoord; };
-		const auto* primary = baseColorTexture->texture != nullptr ? baseColorTexture : &gltfMaterial.normal_texture;
-		auto& mapping = texCoordMappings[materialIt];
-		mapping.set = setOf(*primary);
-		if (primary->has_transform)
-			mapping.transform = primary->transform;
-		if (baseColorTexture->texture != nullptr && gltfMaterial.normal_texture.texture != nullptr &&
-			(setOf(gltfMaterial.normal_texture) != mapping.set ||
-			 gltfMaterial.normal_texture.has_transform != baseColorTexture->has_transform))
-			warn("material {}: the normal map's texcoords (set or transform) differ from the base color's, and are ignored", material.name);
-		if (mapping.set > 1)
-		{
-			warn("material {}: texcoord set {} isn't supported, set 0 is used", material.name, mapping.set);
-			mapping.set = 0;
-		}
 	}
 
 	auto materialOf = [&data](const cgltf_primitive& primitive)
@@ -681,7 +709,6 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		auto material = materialOf(primitive);
-		const auto* mapping = material >= 0 ? &texCoordMappings[material] : nullptr;
 		auto factor = material >= 0 ? baseColorFactors[material] : std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F};
 
 		bool mirrored = Determinant(world) < 0.0;
@@ -719,10 +746,9 @@ std::expected<Mesh, std::string> Import(
 				}
 			}
 
+			// both sets as they are: each texture reads its set, and transforms it (see TextureRef)
 			for (size_t set = 0; set < texCoordValues.size(); set++)
 			{
-				// the set the material's textures sample goes first
-				auto slot = mapping != nullptr && mapping->set == 1 ? 1 - set : set;
 				if (!texCoordValues[set])
 					continue;
 				auto u = (*texCoordValues[set])[2 * vertexIt];
@@ -732,14 +758,8 @@ std::expected<Mesh, std::string> Import(
 					stats.nonFiniteValues++;
 					u = v = 0.0F;
 				}
-				if (slot == 0 && mapping != nullptr && mapping->transform)
-				{
-					auto [tu, tv] = Transform(*mapping->transform, u, v);
-					u = tu;
-					v = tv;
-				}
-				vertex.texCoord01[2 * slot] = u;
-				vertex.texCoord01[(2 * slot) + 1] = v;
+				vertex.texCoord01[2 * set] = u;
+				vertex.texCoord01[(2 * set) + 1] = v;
 			}
 
 			std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};

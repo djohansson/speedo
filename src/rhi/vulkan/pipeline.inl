@@ -280,22 +280,30 @@ void Pipeline<kVk>::SetDescriptorData(
 	{
 		ENSURE(count > 0);
 
+		// the binding's elements are stored in index order (the update template walks ranges in order): the element's
+		// position is the number of elements in the ranges before it. a new index goes before the first range above it,
+		// not at the end.
 		auto rangeIt = ranges.begin();
 		uint32_t indexOffset = 0;
+		bool found = false;
 		for (; rangeIt != ranges.end(); rangeIt++)
 		{
 			const auto& [low, high] = *rangeIt;
 
-			if (index >= low && index < high)
+			if (index < low)
+				break;
+
+			if (index < high)
 			{
 				indexOffset += index - low;
+				found = true;
 				break;
 			}
 
 			indexOffset += high - low;
 		}
 
-		if (rangeIt != ranges.end())
+		if (found)
 		{
 			if (pipeline::SameBinding(bindingsData[offset + indexOffset], data))
 				return;

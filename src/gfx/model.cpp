@@ -106,9 +106,9 @@ struct Staged
 		for (const auto& material : modelDesc.materials)
 			for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.normalTexture,
 										&material.bumpTexture, &material.emissiveTexture, &material.occlusionTexture})
-				if (std::error_code error; std::filesystem::path(*texture).generic_string().starts_with(directory) &&
-										   !std::filesystem::is_regular_file(*texture, error))
-					return *texture;
+				if (std::error_code error; std::filesystem::path(texture->path).generic_string().starts_with(directory) &&
+										   !std::filesystem::is_regular_file(texture->path, error))
+					return texture->path;
 		return std::nullopt;
 	};
 
@@ -205,15 +205,15 @@ struct Staged
 		for (const auto& material : mesh->materials)
 			desc.materials.push_back({
 				.name = material.name,
-				.diffuseTexture = material.diffuseTexture.string(),
-				.alphaTexture = material.alphaTexture.string(),
-				.normalTexture = material.normalTexture.string(),
+				.diffuseTexture = material.diffuseTexture,
+				.alphaTexture = material.alphaTexture,
+				.normalTexture = material.normalTexture,
 				.normalScale = material.normalScale,
 				.emissive = material.emissive,
-				.emissiveTexture = material.emissiveTexture.string(),
-				.occlusionTexture = material.occlusionTexture.string(),
+				.emissiveTexture = material.emissiveTexture,
+				.occlusionTexture = material.occlusionTexture,
 				.occlusionStrength = material.occlusionStrength,
-				.bumpTexture = material.bumpTexture.string(),
+				.bumpTexture = material.bumpTexture,
 				.bumpScale = material.bumpScale,
 				.alphaCutoff = material.alphaCutoff});
 
@@ -243,8 +243,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v4", kCgltfVersion));
-	params.append("|cache-v10"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v5", kCgltfVersion));
+	params.append("|cache-v11"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

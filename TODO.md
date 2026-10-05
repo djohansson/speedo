@@ -11,8 +11,8 @@
 	* shading models: no PBR. metallic-roughness, specular-glossiness and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, ...) are read past, unlit isn't special cased
 	* alpha blending: BLEND is drawn alpha tested (as MASK at 0.5), there is no blended, sorted pass
 	* metallic-roughness maps: not loaded or drawn
-	* texture sampler settings: wrap modes and filters are ignored, every texture uses the one repeating sampler
-	* texcoords: a material's textures all sample one set (the base color's), with its transform. a normal map with another set or transform, and sets above 1, fall back to that
+	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
+	* texcoords: sets above 1 fall back to set 0
 	* vertex tangents: ignored, the shader builds the tangent frame from screen space derivatives
 	* double sided materials: drawn as a second, reversed copy of their triangles (twice the geometry), since back faces are always culled. a per material cull mode would avoid that
 	* scenes: only the default one (or the first) is loaded

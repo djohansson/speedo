@@ -183,6 +183,14 @@ Related gotchas hit while getting shutdown right:
   helpers, not `vmaDestroy*`/`vkDestroy*`. VMA's device memory blocks are tracked through its device memory
   callbacks.
 
+## Associative containers: core's, not the standard library's
+
+Don't use `std::map`, `std::set`, `std::unordered_map` or `std::unordered_set` (tools included): use `core::UnorderedMap`
+and `core::UnorderedSet` (`core/utils.h`, ankerl::unordered_dense). Where an order matters (e.g. a report), sort a
+vector of the keys. Composite keys are small structs with a defaulted `operator==` and a byte hash (`XXH3_64bits`,
+`using is_avalanching = void;`, a `has_unique_object_representations` static_assert), floats stored by their bits so
+that equal keys hash equal (see `TextureViewKey`, `obj::detail::VertexKey`).
+
 ## Choosing a lock
 
 Measured on this machine (M4 Pro): `core::UpgradableSharedMutex` is the cheapest uncontended (~4-7 ns) and is the
@@ -212,6 +220,12 @@ Consequences:
   visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
 
 ## Descriptor sets: redundant updates consume the pool
+
+Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index
+order, which the update template walks: a new index goes before the first range above it. (It used to be appended,
+which swapped elements whenever one was set below an existing one: model sampler slot 0 got the default sampler set
+earlier in slot 2.)
+
 
 Binding a descriptor set that is marked dirty (`BindDescriptorSetAuto` → `InternalUpdateDescriptorSet`)
 takes a fresh set from the current `DescriptorSetArray` (16 sets), allocating a new array when it is
@@ -247,9 +261,12 @@ Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the 
 texture with a black factor isn't loaded (obj files pair `map_Ke` with `Ke 0`). Occlusion maps (gltf `occlusionTexture`,
 by its strength) darken only the ambient term, the stand-in for the indirect light gltf applies them to; they are
 imported as `image::Usage::kOcclusion` (the red channel, linear, BC4), since gltf often packs occlusion, roughness and
-metallic into one texture's r, g and b, which kMask's luminance would mix. The texcoord set a material's textures use goes first, with its
-KHR_texture_transform applied. glTF samplers (wrap modes, filters) aren't honored: every texture uses the
-renderer's one repeating sampler. Images embedded in buffers or data uris are written to
+metallic into one texture's r, g and b, which kMask's luminance would mix. Each texture is a `TextureRef` (`gfx/textureref.h`: path, texcoord set, `KHR_texture_transform` as a 2x3 matrix, and its
+sampler as `rhi::SamplerDesc`), which the shader applies: vertices keep both texcoord sets as they are (`texCoord01.xy`,
+`.zw`), materials name a `TextureView` per texture (`gTextureViews`: texture and sampler slot, set, transform; 0 is
+material 0's, deduplicated per model), and `ViewTexCoord`/`SampleView` sample through them (the normal map's tangent
+frame follows its own transformed texcoords). A model's distinct samplers get the 15 sampler slots other than the
+default's (`kModelSamplerSlots`), and the previous model's go back to the default. Images embedded in buffers or data uris are written to
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Only an import writes
 them, so `Model::Load` treats a cached model whose extracted images are missing as an unreadable cache, and
 `LoadAsset` imports it again. Files requiring draco or

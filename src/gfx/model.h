@@ -2,6 +2,7 @@
 
 #include <gfx/bounds.h>
 #include <gfx/gpu.h>
+#include <gfx/textureref.h>
 #include <gfx/upload.h>
 
 #include <array>
@@ -24,19 +25,19 @@ struct ModelSubmesh
 	int32_t material = -1; // index into ModelDesc::materials, or -1 for none
 };
 
-// texture paths are empty if the material has none
+// textures are empty (see TextureRef) if the material has none
 struct ModelMaterial
 {
 	std::string name;
-	std::string diffuseTexture; // its colors are multiplied with the vertex colors
-	std::string alphaTexture; // a mask, alpha tested
-	std::string normalTexture; // a normal map, used rather than bumpTexture if there are both
+	TextureRef diffuseTexture; // its colors are multiplied with the vertex colors
+	TextureRef alphaTexture; // a mask, alpha tested
+	TextureRef normalTexture; // a normal map, used rather than bumpTexture if there are both
 	float normalScale = 1.0F; // see mesh::Material::normalScale
 	std::array<float, 3> emissive{0.0F, 0.0F, 0.0F}; // see mesh::Material::emissive
-	std::string emissiveTexture;
-	std::string occlusionTexture; // see mesh::Material::occlusionTexture
+	TextureRef emissiveTexture;
+	TextureRef occlusionTexture; // see mesh::Material::occlusionTexture
 	float occlusionStrength = 1.0F;
-	std::string bumpTexture; // a height map or a normal map
+	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
 	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff
 };
