@@ -15,7 +15,7 @@
 	* texcoords: sets above 1 fall back to set 0
 	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
 	* scenes: only the default one (or the first) is loaded
-	* EXT_mesh_gpu_instancing: instanced meshes are drawn once
+	* EXT_mesh_gpu_instancing: flattened, a copy of the mesh per instance (see the line below), so many instances of a large mesh cost as much memory as distinct meshes
 	* points and lines primitives: skipped
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)
 	* everything is flattened into one Model with one draw per material: no per node transforms, culling or instancing at draw time

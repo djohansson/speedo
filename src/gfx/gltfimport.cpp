@@ -78,7 +78,7 @@ using DataPtr = std::unique_ptr<cgltf_data, DataDeleter>;
 [[nodiscard]] bool IsSupportedRequiredExtension(std::string_view name)
 {
 	return name == "KHR_mesh_quantization" || name == "KHR_texture_transform" || name.starts_with("KHR_materials_") ||
-		   name == "KHR_lights_punctual" || name == "KHR_node_visibility";
+		   name == "KHR_lights_punctual" || name == "KHR_node_visibility" || name == "EXT_mesh_gpu_instancing";
 }
 
 // whether KHR_node_visibility hides a node (and so its descendants). cgltf leaves the extension as json.
@@ -135,6 +135,64 @@ using Matrix = std::array<float, 16>;
 	auto a = [&m](int row, int col) { return static_cast<double>(m[(col * 4) + row]); };
 	return (a(0, 0) * ((a(1, 1) * a(2, 2)) - (a(1, 2) * a(2, 1)))) - (a(0, 1) * ((a(1, 0) * a(2, 2)) - (a(1, 2) * a(2, 0)))) +
 		   (a(0, 2) * ((a(1, 0) * a(2, 1)) - (a(1, 1) * a(2, 0))));
+}
+
+[[nodiscard]] Matrix Multiply(const Matrix& a, const Matrix& b)
+{
+	Matrix product{};
+	for (int col = 0; col < 4; col++)
+		for (int row = 0; row < 4; row++)
+			for (int k = 0; k < 4; k++)
+				product[(col * 4) + row] += a[(k * 4) + row] * b[(col * 4) + k];
+	return product;
+}
+
+// EXT_mesh_gpu_instancing: each instance's transform in its node's space, translation * rotation * scale (each
+// attribute optional; normalized integer rotations are unpacked by cgltf). nullopt if an attribute can't be read.
+[[nodiscard]] std::optional<std::vector<Matrix>> InstanceTransforms(const cgltf_mesh_gpu_instancing& instancing)
+{
+	if (instancing.attributes_count == 0)
+		return std::nullopt;
+
+	auto count = instancing.attributes[0].data->count;
+	std::vector<float> translations(count * 3, 0.0F);
+	std::vector<float> rotations(count * 4, 0.0F);
+	std::vector<float> scales(count * 3, 1.0F);
+	for (size_t i = 0; i < count; i++)
+		rotations[(4 * i) + 3] = 1.0F;
+
+	for (cgltf_size attributeIt = 0; attributeIt < instancing.attributes_count; attributeIt++)
+	{
+		const auto& attribute = instancing.attributes[attributeIt];
+		std::string_view name = attribute.name != nullptr ? attribute.name : "";
+		auto* values = name == "TRANSLATION" ? &translations : name == "ROTATION" ? &rotations : name == "SCALE" ? &scales : nullptr;
+		if (values == nullptr)
+			continue; // e.g. _FEATURE_ID_0 (EXT_instance_features)
+		if (attribute.data->count != count ||
+			cgltf_accessor_unpack_floats(attribute.data, values->data(), values->size()) != values->size())
+			return std::nullopt;
+	}
+
+	std::vector<Matrix> transforms(count);
+	for (size_t i = 0; i < count; i++)
+	{
+		const auto* t = &translations[3 * i];
+		const auto* q = &rotations[4 * i];
+		const auto* scale = &scales[3 * i];
+		auto length = std::sqrt((q[0] * q[0]) + (q[1] * q[1]) + (q[2] * q[2]) + (q[3] * q[3]));
+		auto inverse = length > 0.0F ? 1.0F / length : 0.0F;
+		auto x = q[0] * inverse;
+		auto y = q[1] * inverse;
+		auto z = q[2] * inverse;
+		auto w = length > 0.0F ? q[3] * inverse : 1.0F;
+
+		transforms[i] = {
+			(1.0F - (2.0F * ((y * y) + (z * z)))) * scale[0], 2.0F * ((x * y) + (z * w)) * scale[0], 2.0F * ((x * z) - (y * w)) * scale[0], 0.0F,
+			2.0F * ((x * y) - (z * w)) * scale[1], (1.0F - (2.0F * ((x * x) + (z * z)))) * scale[1], 2.0F * ((y * z) + (x * w)) * scale[1], 0.0F,
+			2.0F * ((x * z) + (y * w)) * scale[2], 2.0F * ((y * z) - (x * w)) * scale[2], (1.0F - (2.0F * ((x * x) + (y * y)))) * scale[2], 0.0F,
+			t[0], t[1], t[2], 1.0F};
+	}
+	return transforms;
 }
 
 // by the upper 3x3 only, for directions such as tangents
@@ -904,9 +962,6 @@ std::expected<Mesh, std::string> Import(
 			if (node->mesh == nullptr)
 				continue;
 
-			if (node->has_mesh_gpu_instancing && !std::exchange(instancingWarned, true))
-				warn("instanced meshes (EXT_mesh_gpu_instancing) are drawn once");
-
 			// a skinned mesh is placed by its joints, not its node: without skinning, it is drawn in its bind pose
 			Matrix world{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 			if (node->skin != nullptr)
@@ -925,11 +980,31 @@ std::expected<Mesh, std::string> Import(
 
 			std::string meshName = node->mesh->name != nullptr ? node->mesh->name : std::format("{}", node->mesh - data.meshes);
 
-			for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
-				addPrimitive(node->mesh->primitives[primitiveIt], world, weights, meshName);
+			// instanced meshes (EXT_mesh_gpu_instancing) are flattened like the rest: a copy per instance, placed by the
+			// instance's transform within the node's
+			std::vector<Matrix> instances{world};
+			if (node->has_mesh_gpu_instancing)
+			{
+				if (auto transforms = InstanceTransforms(node->mesh_gpu_instancing))
+				{
+					instances.clear();
+					for (const auto& transform : *transforms)
+						instances.push_back(Multiply(world, transform));
+				}
+				else if (!std::exchange(instancingWarned, true))
+				{
+					warn("mesh {}: its instances (EXT_mesh_gpu_instancing) can't be read, it is drawn once", meshName);
+				}
+			}
 
-			if (isCancelled())
-				return std::unexpected("cancelled");
+			for (const auto& instance : instances)
+			{
+				for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
+					addPrimitive(node->mesh->primitives[primitiveIt], instance, weights, meshName);
+
+				if (isCancelled())
+					return std::unexpected("cancelled");
+			}
 		}
 	}
 
