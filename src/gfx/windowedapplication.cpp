@@ -1117,8 +1117,13 @@ static void DrawMainPass(
 						{
 							ZoneScopedN("drawModel");
 
+							const auto& materials = model.GetDesc().materials;
 							for (const auto& submesh : model.GetDesc().submeshes)
 							{
+								// double sided materials' back faces are drawn too (the cull mode is dynamic state)
+								bool doubleSided = submesh.material >= 0 && materials[submesh.material].doubleSided;
+								encoder.SetCullMode(doubleSided ? CullMode::kNone : CullMode::kBack);
+
 								pushConstants.viewAndMaterialId =
 									(static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | ModelMaterialSlot(submesh.material);
 

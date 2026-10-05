@@ -41,6 +41,8 @@ struct Material
 	// fragments whose diffuse texture alpha (or alpha texture value) is below this are discarded: 0 for opaque
 	// materials (gltf OPAQUE), which ignore the alpha. obj materials are all alpha tested.
 	float alphaCutoff = 0.5F;
+	// gltf doubleSided: its back faces are drawn too (not culled), lit as seen from behind. obj materials are single sided.
+	bool doubleSided = false;
 };
 
 // the indices of one material, contiguous in Mesh::indices

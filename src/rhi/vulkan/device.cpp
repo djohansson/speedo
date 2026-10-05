@@ -324,6 +324,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 
 	std::vector<const char*> requiredExtensions = {
 		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
+		VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME, // the cull mode, set per draw (see CommandEncoder::SetCullMode)
 		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,

@@ -171,7 +171,7 @@ float4 SampleView(uint viewId, float4 texCoord01)
 }
 
 [shader("fragment")]
-FragmentOutput FragmentMain(VertexOutput input)
+FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
 	VertexP3fN3fT014fC4f v = input.vertex;
 	FragmentOutput output;
@@ -198,7 +198,8 @@ FragmentOutput FragmentMain(VertexOutput input)
 	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && SampleView(material.alphaView, v.texCoord01).r < material.alphaCutoff)
 		discard;
 
-	float3 normal = normalize(v.normal);
+	// a back face (only drawn for double sided materials) is lit as seen from behind, as gltf defines it
+	float3 normal = normalize(isFrontFace ? v.normal : -v.normal);
 	if ((material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
 	{
 		// the tangent frame follows the normal map's own (transformed) texcoords

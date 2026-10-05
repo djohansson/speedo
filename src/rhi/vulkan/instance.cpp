@@ -75,6 +75,10 @@ void GetPhysicalDeviceInfo2(
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
 	});
+	deviceFeatureParams.emplace(VkPhysicalDeviceExtendedDynamicStateFeaturesEXT
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
+	});
 	deviceFeatureParams.emplace(VkPhysicalDeviceMultiviewFeatures
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,

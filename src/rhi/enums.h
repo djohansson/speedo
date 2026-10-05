@@ -170,6 +170,14 @@ enum class Access : uint8_t
 };
 RHI_FLAGS(Access)
 
+// which faces rasterization discards: front faces are counter-clockwise
+enum class CullMode : uint8_t
+{
+	kNone,
+	kFront,
+	kBack,
+};
+
 enum class IndexType : uint8_t
 {
 	kUint16,

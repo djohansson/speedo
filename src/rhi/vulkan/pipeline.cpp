@@ -484,6 +484,8 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 	myGraphicsState.dynamicStateDescs.clear();
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_SCISSOR);
+	// per draw (e.g. per material, for double sided ones), see CommandEncoder::SetCullMode
+	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_CULL_MODE_EXT);
 
 	myGraphicsState.dynamicState = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,

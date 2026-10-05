@@ -40,6 +40,7 @@ struct ModelMaterial
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
 	float alphaCutoff = 0.5F; // see mesh::Material::alphaCutoff
+	bool doubleSided = false; // see mesh::Material::doubleSided
 };
 
 struct ModelDesc

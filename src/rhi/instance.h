@@ -39,6 +39,7 @@ using PhysicalDeviceFeatureParams = std::variant<
 	PhysicalDeviceInlineUniformBlockFeatures<G>,
 	PhysicalDeviceDynamicRenderingFeatures<G>,
 	PhysicalDeviceSynchronization2Features<G>,
+	PhysicalDeviceExtendedDynamicStateFeatures<G>,
 	PhysicalDevicePresentIdFeatures<G>,
 	PhysicalDevicePresentWaitFeatures<G>,
 	PhysicalDeviceMultiviewFeatures<G>,

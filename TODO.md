@@ -14,7 +14,6 @@
 	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
 	* texcoords: sets above 1 fall back to set 0
 	* vertex tangents: ignored, the shader builds the tangent frame from screen space derivatives
-	* double sided materials: drawn as a second, reversed copy of their triangles (twice the geometry), since back faces are always culled. a per material cull mode would avoid that
 	* scenes: only the default one (or the first) is loaded
 	* EXT_mesh_gpu_instancing: instanced meshes are drawn once
 	* points and lines primitives: skipped

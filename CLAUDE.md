@@ -251,8 +251,10 @@ failed load prints why and returns null instead of trapping. When an importer ch
 Assets outside `RootPath` are cached under `<user profile>/external/<absolute path>`.
 
 glTF: the default scene is flattened into one mesh with the node transforms applied (a mirroring one reverses the
-winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). The renderer culls back
-faces and has no blending, so double sided materials get a reversed copy of their triangles, and alpha modes become
+winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). Double sided materials
+(`ModelMaterial::doubleSided`) are drawn with culling off, set per submesh with `CommandEncoder::SetCullMode` (dynamic
+cull mode, `VK_EXT_extended_dynamic_state`, a required device extension), and the fragment shader flips the normal of
+back faces (`SV_IsFrontFace`). The renderer has no blending, so alpha modes become
 `mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
 texture; BLEND is drawn as MASK). glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).

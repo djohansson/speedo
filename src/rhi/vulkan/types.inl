@@ -174,6 +174,10 @@ using PhysicalDeviceSynchronization2Features =
 	std::conditional_t<G == kVk, VkPhysicalDeviceSynchronization2FeaturesKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
+using PhysicalDeviceExtendedDynamicStateFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDeviceExtendedDynamicStateFeaturesEXT, std::nullptr_t>;
+
+template <GraphicsApi G>
 using PhysicalDevicePresentIdFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDevicePresentIdFeaturesKHR, std::nullptr_t>;
 

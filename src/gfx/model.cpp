@@ -215,7 +215,8 @@ struct Staged
 				.occlusionStrength = material.occlusionStrength,
 				.bumpTexture = material.bumpTexture,
 				.bumpScale = material.bumpScale,
-				.alphaCutoff = material.alphaCutoff});
+				.alphaCutoff = material.alphaCutoff,
+				.doubleSided = material.doubleSided});
 
 		if (!fitsDevice(desc))
 			return std::make_error_code(std::errc::file_too_large);
@@ -243,8 +244,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v5", kCgltfVersion));
-	params.append("|cache-v11"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v6", kCgltfVersion));
+	params.append("|cache-v12"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

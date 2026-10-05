@@ -481,7 +481,6 @@ std::expected<Mesh, std::string> Import(
 
 	// materials, and how their vertices take texcoords
 	Images images(data, path, options, stats);
-	std::vector<bool> doubleSided(data.materials_count);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
 	bool blendWarned = false;
 	mesh.materials.reserve(data.materials_count);
@@ -546,7 +545,7 @@ std::expected<Mesh, std::string> Import(
 		default: break;
 		}
 
-		doubleSided[materialIt] = gltfMaterial.double_sided != 0;
+		material.doubleSided = gltfMaterial.double_sided != 0;
 	}
 
 	auto materialOf = [&data](const cgltf_primitive& primitive)
@@ -837,27 +836,6 @@ std::expected<Mesh, std::string> Import(
 		}
 		if (normalValues)
 			part.vertices = std::move(vertices);
-
-		// the renderer culls back faces: a double sided material's back faces are triangles of their own
-		if (material >= 0 && doubleSided[material])
-		{
-			auto vertexOffset = static_cast<uint32_t>(part.vertices.size());
-			auto indexCount = part.indices.size();
-			part.vertices.reserve(2 * part.vertices.size());
-			for (size_t vertexIt = 0; vertexIt < vertexOffset; vertexIt++)
-			{
-				auto vertex = part.vertices[vertexIt];
-				for (auto& n : vertex.normal)
-					n = -n;
-				part.vertices.push_back(vertex);
-			}
-			for (size_t i = 0; i + 2 < indexCount; i += 3)
-			{
-				part.indices.push_back(vertexOffset + part.indices[i]);
-				part.indices.push_back(vertexOffset + part.indices[i + 2]);
-				part.indices.push_back(vertexOffset + part.indices[i + 1]);
-			}
-		}
 	};
 
 	// the default scene (or the first), or all root nodes if there are no scenes

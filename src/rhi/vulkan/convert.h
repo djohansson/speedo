@@ -343,6 +343,17 @@ namespace rhi::vk
 	return VK_DESCRIPTOR_TYPE_MAX_ENUM;
 }
 
+[[nodiscard]] constexpr VkCullModeFlags ToVk(CullMode mode) noexcept
+{
+	switch (mode)
+	{
+	case CullMode::kNone: return VK_CULL_MODE_NONE;
+	case CullMode::kFront: return VK_CULL_MODE_FRONT_BIT;
+	case CullMode::kBack: return VK_CULL_MODE_BACK_BIT;
+	}
+	return VK_CULL_MODE_BACK_BIT;
+}
+
 // the result of an acquire or present
 [[nodiscard]] constexpr PresentResult ToPresentResult(VkResult result) noexcept
 {
