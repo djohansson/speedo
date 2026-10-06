@@ -1,0 +1,72 @@
+From 71185608fa766694ce5f00540a7889369ac3805d Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 14:31:14 +0200
+Subject: [PATCH] include <atomic> where std::atomic/std::atomic_ref are used
+
+The headers relied on <atomic> arriving transitively (as it does with MSVC's STL); libc++ doesn't provide std::atomic_ref through <barrier>/<thread>.
+---
+ .../parallel/cpp/no_atomic_ref/partition_branchless_par.h        | 1 +
+ include/ppqsort/parallel/cpp/no_atomic_ref/partition_par.h       | 1 +
+ include/ppqsort/parallel/cpp/partition_branchless_par.h          | 1 +
+ include/ppqsort/parallel/cpp/partition_par.h                     | 1 +
+ include/ppqsort/parallel/cpp/thread_pool.h                       | 1 +
+ 5 files changed, 5 insertions(+)
+
+diff --git a/include/ppqsort/parallel/cpp/no_atomic_ref/partition_branchless_par.h b/include/ppqsort/parallel/cpp/no_atomic_ref/partition_branchless_par.h
+index e420d61..eef5a8b 100644
+--- a/include/ppqsort/parallel/cpp/no_atomic_ref/partition_branchless_par.h
++++ b/include/ppqsort/parallel/cpp/no_atomic_ref/partition_branchless_par.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <latch>
+ 
+ #include "partition_par.h"
+diff --git a/include/ppqsort/parallel/cpp/no_atomic_ref/partition_par.h b/include/ppqsort/parallel/cpp/no_atomic_ref/partition_par.h
+index 435a048..0defab6 100644
+--- a/include/ppqsort/parallel/cpp/no_atomic_ref/partition_par.h
++++ b/include/ppqsort/parallel/cpp/no_atomic_ref/partition_par.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <barrier>
+ #include <thread>
+ 
+diff --git a/include/ppqsort/parallel/cpp/partition_branchless_par.h b/include/ppqsort/parallel/cpp/partition_branchless_par.h
+index eb59f83..7c2ec26 100644
+--- a/include/ppqsort/parallel/cpp/partition_branchless_par.h
++++ b/include/ppqsort/parallel/cpp/partition_branchless_par.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <latch>
+ 
+ #include "partition_par.h"
+diff --git a/include/ppqsort/parallel/cpp/partition_par.h b/include/ppqsort/parallel/cpp/partition_par.h
+index 0a9e073..18acfea 100644
+--- a/include/ppqsort/parallel/cpp/partition_par.h
++++ b/include/ppqsort/parallel/cpp/partition_par.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <barrier>
+ #include <thread>
+ 
+diff --git a/include/ppqsort/parallel/cpp/thread_pool.h b/include/ppqsort/parallel/cpp/thread_pool.h
+index bcb042c..908f981 100644
+--- a/include/ppqsort/parallel/cpp/thread_pool.h
++++ b/include/ppqsort/parallel/cpp/thread_pool.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ 
++#include <atomic>
+ #include <functional>
+ #include <mutex>
+ #include <queue>
+-- 
+2.56.0.windows.1
+
