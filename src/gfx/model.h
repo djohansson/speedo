@@ -28,8 +28,10 @@ struct ModelSubmesh
 	uint32_t indexCount = 0;
 	int32_t material = -1; // index into ModelDesc::materials, or -1 for none
 	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList; // see mesh::Submesh::topology
-	// the center of its vertices' bounds, which blended submeshes are sorted by (back to front, per view)
+	// the center of its vertices' bounds, which blended submeshes are sorted by (back to front, per view), at rest in
+	// world space, and in their own space (see Model::GetCenter)
 	std::array<float, 3> center{};
+	std::array<float, 3> localCenter{};
 	uint32_t firstInstance = 0; // see mesh::Submesh::firstInstance
 	uint32_t instanceCount = 1;
 	uint32_t mirroredInstanceCount = 0;
@@ -80,6 +82,9 @@ struct ModelDesc
 	// what moves (see mesh::Mesh::animation). empty for a set of several files, which are drawn at rest
 	SceneAnimationData animation;
 	bool skinned = false; // whether it has skin vertices (SkinVertex, vertexCount of them, in their own buffer)
+	// per joint (see SceneSkin::jointBase), the bounds (min xyz, max xyz) of the skinned vertices weighted to it, in their
+	// own (bind) space: what the joint moves, for centers that follow the animation. empty bounds have min > max
+	std::vector<std::array<float, 6>> jointBounds;
 };
 
 // a model's gpu buffers: the instance and joint buffers are one per frame (host visible, see Model::Animate) if it moves,
@@ -124,6 +129,10 @@ public:
 	[[nodiscard]] std::vector<const Buffer*> GetUploadedBuffers() const;
 	[[nodiscard]] bool Moves() const noexcept { return !myDesc.animation.Empty(); }
 
+	// a submesh's center (at an instance of it) where the last Animate left it, else at rest: for sorting blended draws.
+	// skinned ones by their joints' bounds. call on the draw thread.
+	[[nodiscard]] std::array<float, 3> GetCenter(const ModelSubmesh& submesh, uint32_t instance) const;
+
 	// writes a frame's instance and joint buffers with an animation (an index into ModelDesc::animation.animations, or
 	// nullopt for the rest pose) at time (seconds, looping). call on the draw thread, once the frame's previous use of its
 	// buffers is done.
@@ -148,6 +157,9 @@ private:
 	ModelDesc myDesc;
 	ModelBuffers myBuffers;
 	Upload myUpload;
+	// the instance transforms and joint matrices on the cpu, as the last Animate (or the rest pose) left them
+	std::vector<SceneMatrix> myInstanceTransforms;
+	std::vector<SceneMatrix> myJoints;
 };
 
 } // namespace gfx

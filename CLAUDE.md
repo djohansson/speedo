@@ -272,8 +272,10 @@ fragment input. Double sided materials
 cull mode, `VK_EXT_extended_dynamic_state`, a required device extension), and the fragment shader flips the normal of
 back faces (`SV_IsFrontFace`). Alpha modes become
 `mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
-texture, and for BLEND). BLEND materials (`blend`) are drawn after the opaque submeshes, sorted back to front per view
-by `ModelSubmesh::center` (from `Views::GetEyePositions`), with the `BlendMode::kAlpha` pipeline variant (source alpha
+texture, and for BLEND). BLEND materials (`blend`) are drawn after the opaque submeshes, an instance at a time, sorted
+back to front per view by `Model::GetCenter` (from `Views::GetEyePositions`): a submesh's `localCenter` at the
+instance's current transform, or for a skinned one its joints' bounds (`ModelDesc::jointBounds`, what each joint
+moves) at the current joint matrices, both as the last `Model::Animate` left them, with the `BlendMode::kAlpha` pipeline variant (source alpha
 over, depth tested but not written). The pipeline variant (`GraphicsPipelineVariant`: topology and blend mode) is a
 parameter of `BindPipelineAuto`, part of the pipeline cache key. glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
@@ -396,7 +398,8 @@ accessors that are sparse, with and without base values; cgltf's `cgltf_accessor
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;
 `InstancingTransforms.gltf`: instances of a single sided, asymmetric triangle under a scaled and moved node, with
 normalized short rotations and a mirroring instance, which must face the camera too; `BlendOrder.gltf`: blended quads
-listed nearest first, whose overlaps must be tinted by the nearer one; `ManySamplers.gltf`: 36 quads with a sampler
+listed nearest first, whose overlaps must be tinted by the nearer one; `BlendInstances.gltf`: a
+blended quad instanced in front of and behind another, which a sort per submesh can't order; `ManySamplers.gltf`: 36 quads with a sampler
 each, of every filter and wrap mode, more than the model sampler slots once were), and is always part
 of the printed paths. Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are

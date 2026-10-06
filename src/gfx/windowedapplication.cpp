@@ -1276,7 +1276,8 @@ static void DrawMainPass(
 							const auto& skins = model.GetDesc().animation.skins;
 							// bindState bound the default (opaque triangle list) pipeline
 							GraphicsPipelineVariant bound{};
-							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend)
+							// a submesh's instances, or only one of them (instance)
+							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend, std::optional<uint32_t> instance = std::nullopt)
 							{
 								if (GraphicsPipelineVariant variant{.topology = submesh.topology, .blend = blend}; variant != bound)
 								{
@@ -1304,31 +1305,43 @@ static void DrawMainPass(
 									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
 								};
 								auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
+								if (instance)
+								{
+									drawInstances(
+										*instance, 1, *instance < submesh.firstInstance + unmirrored ? FrontFace::kCounterClockwise : FrontFace::kClockwise);
+									return;
+								}
 								drawInstances(submesh.firstInstance, unmirrored, FrontFace::kCounterClockwise);
 								drawInstances(submesh.firstInstance + unmirrored, submesh.mirroredInstanceCount, FrontFace::kClockwise);
 							};
 
-							std::vector<const ModelSubmesh*> blended;
+							// blended submeshes, an instance at a time, sorted by where (the last Animate put) their centers
+							struct Blended
+							{
+								const ModelSubmesh* submesh;
+								uint32_t instance;
+								float distance2;
+							};
+							std::vector<Blended> blended;
+							auto eye = viewIndex < eyes.size() ? eyes[viewIndex] : glm::vec3(0.0F);
 							for (const auto& submesh : model.GetDesc().submeshes)
 							{
-								if (submesh.material >= 0 && materials[submesh.material].blend)
-									blended.push_back(&submesh);
-								else
+								if (submesh.material < 0 || !materials[submesh.material].blend)
+								{
 									draw(submesh, BlendMode::kOpaque);
+									continue;
+								}
+								for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
+								{
+									auto center = model.GetCenter(submesh, instanceIt);
+									auto offset = glm::vec3(center[0], center[1], center[2]) - eye;
+									blended.push_back({&submesh, instanceIt, glm::dot(offset, offset)});
+								}
 							}
 
-							if (!blended.empty())
-							{
-								auto eye = viewIndex < eyes.size() ? eyes[viewIndex] : glm::vec3(0.0F);
-								auto distance2 = [&eye](const ModelSubmesh* submesh)
-								{
-									auto offset = glm::vec3(submesh->center[0], submesh->center[1], submesh->center[2]) - eye;
-									return glm::dot(offset, offset);
-								};
-								std::ranges::sort(blended, std::greater{}, distance2);
-								for (const auto* submesh : blended)
-									draw(*submesh, BlendMode::kAlpha);
-							}
+							std::ranges::sort(blended, std::greater{}, &Blended::distance2);
+							for (const auto& item : blended)
+								draw(*item.submesh, BlendMode::kAlpha, item.instance);
 
 							if (bound != GraphicsPipelineVariant{})
 								pipeline.BindPipelineAuto(cmd);
