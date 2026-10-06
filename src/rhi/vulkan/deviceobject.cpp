@@ -29,9 +29,17 @@ using ParallelMap = phmap::parallel_flat_hash_map<K, V, phmap::priv::hash_defaul
 static ParallelMap<std::pair<VkObjectType, uint64_t>, uint32_t> gObjects;
 static ParallelMap<VkObjectType, uint32_t> gTypeCounts;
 // the names of the instance level objects (see TrackInstanceObject), and the device they are named through once
-// there is one: the last one passed to NameInstanceObjects, until it is untracked
+// there is one: the last one passed to NameInstanceObjects, until it is untracked, and that device's physical device
 static ParallelMap<std::pair<VkObjectType, uint64_t>, std::string> gInstanceObjectNames;
 static std::atomic<VkDevice> gNamingDevice = VK_NULL_HANDLE;
+static std::atomic<VkPhysicalDevice> gNamingPhysicalDevice = VK_NULL_HANDLE;
+
+// whether an instance level object can be named through a device created from physicalDevice: every object except
+// other physical devices, which may belong to another driver (see NameInstanceObjects in rhi/deviceobject.h)
+static bool InternalCanNameThrough(VkObjectType type, uint64_t handle, VkPhysicalDevice physicalDevice)
+{
+	return type != VK_OBJECT_TYPE_PHYSICAL_DEVICE || handle == reinterpret_cast<uint64_t>(physicalDevice);
+}
 
 static void InternalTrack(VkObjectType type, uint64_t handle, std::string_view name)
 {
@@ -82,24 +90,28 @@ void TrackInstanceObject<kVk>(VkObjectType type, uint64_t handle, std::string_vi
 	InternalTrack(type, handle, name);
 	gInstanceObjectNames.try_emplace({type, handle}, name);
 
-	if (auto* device = gNamingDevice.load(std::memory_order_acquire); device != VK_NULL_HANDLE)
+	if (auto* device = gNamingDevice.load(std::memory_order_acquire); device != VK_NULL_HANDLE &&
+		InternalCanNameThrough(type, handle, gNamingPhysicalDevice.load(std::memory_order_acquire)))
 		InternalSetName(device, type, handle, name);
 }
 
 template <>
-void NameInstanceObjects<kVk>(VkDevice device)
+void NameInstanceObjects<kVk>(VkDevice device, VkPhysicalDevice physicalDevice)
 {
 	using namespace deviceobject;
 
 	ZoneScopedN("NameInstanceObjects");
 
 	ENSURE(device != VK_NULL_HANDLE);
+	ENSURE(physicalDevice != VK_NULL_HANDLE);
 
+	gNamingPhysicalDevice.store(physicalDevice, std::memory_order_release);
 	gNamingDevice.store(device, std::memory_order_release);
-	gInstanceObjectNames.for_each([device](const auto& object)
+	gInstanceObjectNames.for_each([device, physicalDevice](const auto& object)
 	{
 		const auto& [key, name] = object;
-		InternalSetName(device, key.first, key.second, name);
+		if (InternalCanNameThrough(key.first, key.second, physicalDevice))
+			InternalSetName(device, key.first, key.second, name);
 	});
 }
 

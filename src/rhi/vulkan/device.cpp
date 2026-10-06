@@ -367,7 +367,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	InitDeviceExtensions(myDevice);
 
 	Track(myDevice, VK_OBJECT_TYPE_DEVICE, myDevice, GetName());
-	NameInstanceObjects<kVk>(myDevice); // the instance, physical devices and surface, tracked before there was a device
+	NameInstanceObjects<kVk>(myDevice, GetDesc().physicalDevice); // the instance, our physical device and surface, tracked before there was a device
 
 	ENSURE(physicalDeviceInfo.queueFamilyProperties.size() > 0);
 

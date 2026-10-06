@@ -76,14 +76,16 @@ protected:
 // is created and UntrackObject where it is destroyed. GetTypeCount reports the number of live objects of a type.
 // TrackObject names the object for debugging, through its device: instance level objects created before there is a
 // device (the instance, physical devices, surfaces) are tracked with TrackInstanceObject instead, and named by
-// NameInstanceObjects once a device exists. handles must not be null, and names not empty. other builds do nothing.
+// NameInstanceObjects once a device exists. a physical device is only named through a device created from it: naming
+// another driver's physical device through this device hands the driver a foreign handle (and corrupted the heap with
+// an nvidia + intel setup). handles must not be null, and names not empty. other builds do nothing.
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 template <GraphicsApi G>
 void TrackObject(DeviceHandle<G> device, ObjectType<G> type, uint64_t handle, std::string_view name);
 template <GraphicsApi G>
 void TrackInstanceObject(ObjectType<G> type, uint64_t handle, std::string_view name);
 template <GraphicsApi G>
-void NameInstanceObjects(DeviceHandle<G> device);
+void NameInstanceObjects(DeviceHandle<G> device, PhysicalDeviceHandle<G> physicalDevice);
 template <GraphicsApi G>
 void UntrackObject(ObjectType<G> type, uint64_t handle);
 template <GraphicsApi G>
@@ -97,7 +99,7 @@ void TrackObject(DeviceHandle<G> /*device*/, ObjectType<G> /*type*/, uint64_t /*
 template <GraphicsApi G>
 void TrackInstanceObject(ObjectType<G> /*type*/, uint64_t /*handle*/, std::string_view /*name*/) {}
 template <GraphicsApi G>
-void NameInstanceObjects(DeviceHandle<G> /*device*/) {}
+void NameInstanceObjects(DeviceHandle<G> /*device*/, PhysicalDeviceHandle<G> /*physicalDevice*/) {}
 template <GraphicsApi G>
 void UntrackObject(ObjectType<G> /*type*/, uint64_t /*handle*/) {}
 template <GraphicsApi G>
