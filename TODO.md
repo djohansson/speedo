@@ -3,7 +3,7 @@
 * todo: generalize drawcall submission & move out of rhiapplication class. use sorted draw call lists.
 * todo: multi window/swapchain capability
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
-	* compression and image formats that need libraries we don't have: draco & meshopt (KHR_/EXT_) mesh compression, KTX2/basisu & WebP textures. files requiring them fail to load.
+	* KTX2 textures are transcoded to rgba8 and compressed again to BC formats (a second lossy step), rather than transcoded straight to BC7/BC1-5 or uploaded as they are; their mips are made again too
 	* animation: node (translation, rotation, scale) animations and skins move. morph weight and KHR_animation_pointer animations are ignored: morph targets are applied at their default weights at import, so animating them needs the deltas on the gpu. joint normals use the joint matrices directly (non-uniform scale on joints skews them). bounds, culling and blend sorting use the rest pose. one animation plays at a time, without blending. a set of files is drawn at rest
 	* cameras: the views have no roll (a rolled camera loses it), and use their own aspect ratio rather than the file's
 	* lights: punctual lights only, every light shades every pixel (no culling or clustering), no shadows. ambient light is a constant (no image based lighting), so smooth metals reflect a uniform gray

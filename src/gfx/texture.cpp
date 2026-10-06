@@ -6,7 +6,9 @@
 #include <core/profiling.h>
 #include <core/uuids_extra.h>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <filesystem>
 #include <format>
 #include <print>
@@ -130,6 +132,13 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 	std::string paramsHash;
 	params.append(std::format("stb-{}", kStbVersion)); // stb_image, stb_image_resize2 and stb_dxt
 	params.append("|imageimport-v3"); // bump when image::Import changes what it produces
+	// the decoders of the formats stb_image doesn't read
+	auto extension = std::filesystem::path(filePath).extension().string();
+	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (extension == ".webp")
+		params.append(std::format("|libwebp-{}", kLibWebpVersion));
+	else if (extension == ".ktx2")
+		params.append(std::format("|ktx-{}", kKtxVersion));
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
 	if (options.usage == image::Usage::kBump)
 		params.append(std::format("|bump-scale-{}", options.bumpScale));

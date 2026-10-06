@@ -4,12 +4,19 @@
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <execution>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <numeric>
+
+#include <ktx.h>
+#include <webp/decode.h>
+#include <webp/demux.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -234,11 +241,88 @@ void DecodeColors(std::span<const std::byte, 4> endpoints, bool fourColors, std:
 
 } // namespace detail
 
-std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options)
+// a file's pixels as rgba8, with its channel count (see Decode)
+[[nodiscard]] static std::expected<Pixels, std::string> DecodeRgba8(const std::filesystem::path& path)
 {
-	using namespace detail;
+	auto extension = path.extension().string();
+	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-	ZoneScopedN("image::Decode");
+	if (extension == ".webp")
+	{
+		std::ifstream file(path, std::ios::binary);
+		std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		WebPBitstreamFeatures features{};
+		if (bytes.empty() || WebPGetFeatures(bytes.data(), bytes.size(), &features) != VP8_STATUS_OK)
+			return std::unexpected(std::format("failed to decode {}: not a WebP image", path.string()));
+		// an animation: its first frame
+		if (features.has_animation != 0)
+		{
+			WebPAnimDecoderOptions options{};
+			WebPAnimDecoderOptionsInit(&options);
+			options.color_mode = MODE_RGBA;
+			WebPData webpData{.bytes = bytes.data(), .size = bytes.size()};
+			std::unique_ptr<WebPAnimDecoder, decltype(&WebPAnimDecoderDelete)> decoder(
+				WebPAnimDecoderNew(&webpData, &options), &WebPAnimDecoderDelete);
+			WebPAnimInfo info{};
+			uint8_t* frame = nullptr;
+			int timestamp = 0;
+			if (!decoder || WebPAnimDecoderGetInfo(decoder.get(), &info) == 0 ||
+				WebPAnimDecoderGetNext(decoder.get(), &frame, &timestamp) == 0)
+				return std::unexpected(std::format("failed to decode {}: its first animation frame doesn't decode", path.string()));
+			Pixels pixels{.width = info.canvas_width, .height = info.canvas_height, .channelCount = 4};
+			pixels.rgba.assign(frame, frame + (static_cast<size_t>(info.canvas_width) * info.canvas_height * 4));
+			return pixels;
+		}
+
+		int width = 0;
+		int height = 0;
+		std::unique_ptr<uint8_t, decltype(&WebPFree)> rgba(WebPDecodeRGBA(bytes.data(), bytes.size(), &width, &height), &WebPFree);
+		if (!rgba)
+			return std::unexpected(std::format("failed to decode {}: WebPDecodeRGBA failed", path.string()));
+		Pixels pixels{
+			.width = static_cast<uint32_t>(width),
+			.height = static_cast<uint32_t>(height),
+			.channelCount = features.has_alpha != 0 ? 4U : 3U};
+		pixels.rgba.assign(rgba.get(), rgba.get() + (static_cast<size_t>(width) * height * 4));
+		return pixels;
+	}
+
+	if (extension == ".ktx2")
+	{
+		ktxTexture2* texture = nullptr;
+		if (auto result = ktxTexture2_CreateFromNamedFile(path.string().c_str(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
+			result != KTX_SUCCESS)
+			return std::unexpected(std::format("failed to decode {}: {}", path.string(), ktxErrorString(result)));
+		std::unique_ptr<ktxTexture2, void (*)(ktxTexture2*)> owner(texture, [](ktxTexture2* t) { ktxTexture2_Destroy(t); });
+
+		if (ktxTexture2_NeedsTranscoding(texture))
+			if (auto result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_RGBA32, 0); result != KTX_SUCCESS)
+				return std::unexpected(std::format("failed to transcode {}: {}", path.string(), ktxErrorString(result)));
+
+		// VK_FORMAT_R8G8B8A8_UNORM, _SRGB, VK_FORMAT_R8G8B8_UNORM, _SRGB
+		constexpr uint32_t kRgba8Unorm = 37;
+		constexpr uint32_t kRgba8Srgb = 43;
+		constexpr uint32_t kRgb8Unorm = 23;
+		constexpr uint32_t kRgb8Srgb = 29;
+		auto format = texture->vkFormat;
+		uint32_t sourceChannels = format == kRgba8Unorm || format == kRgba8Srgb ? 4 : format == kRgb8Unorm || format == kRgb8Srgb ? 3 : 0;
+		if (sourceChannels == 0)
+			return std::unexpected(std::format("failed to decode {}: KTX2 format {} isn't supported", path.string(), format));
+
+		ktx_size_t offset = 0;
+		ktxTexture_GetImageOffset(ktxTexture(texture), 0, 0, 0, &offset);
+		const auto* data = ktxTexture_GetData(ktxTexture(texture)) + offset;
+		Pixels pixels{.width = texture->baseWidth, .height = texture->baseHeight, .channelCount = sourceChannels};
+		auto pixelCount = static_cast<size_t>(pixels.width) * pixels.height;
+		pixels.rgba.resize(pixelCount * 4);
+		for (size_t pixelIt = 0; pixelIt < pixelCount; pixelIt++)
+		{
+			std::copy_n(&data[pixelIt * sourceChannels], sourceChannels, &pixels.rgba[pixelIt * 4]);
+			if (sourceChannels == 3)
+				pixels.rgba[(pixelIt * 4) + 3] = 255;
+		}
+		return pixels;
+	}
 
 	int width = 0;
 	int height = 0;
@@ -252,9 +336,27 @@ std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, con
 		.width = static_cast<uint32_t>(width),
 		.height = static_cast<uint32_t>(height),
 		.channelCount = static_cast<uint32_t>(channelCount)};
-	auto pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
-	pixels.rgba.assign(decoded.get(), decoded.get() + (pixelCount * kRgba));
-	decoded.reset();
+	pixels.rgba.assign(decoded.get(), decoded.get() + (static_cast<size_t>(width) * height * 4));
+	return pixels;
+}
+
+std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options)
+{
+	using namespace detail;
+
+	ZoneScopedN("image::Decode");
+
+	// rgba8 pixels of the first image (level 0, layer 0, face 0): WebP with libwebp, KTX2 with libktx (Basis Universal
+	// transcoded to rgba8, or an uncompressed rgba8 or rgb8 format), anything else with stb_image
+	auto decoded = DecodeRgba8(path);
+	if (!decoded)
+		return std::unexpected(decoded.error());
+
+	Pixels pixels = std::move(*decoded);
+	auto width = static_cast<int>(pixels.width);
+	auto height = static_cast<int>(pixels.height);
+	auto channelCount = pixels.channelCount;
+	auto pixelCount = static_cast<size_t>(pixels.width) * pixels.height;
 
 	auto& rgba = pixels.rgba;
 

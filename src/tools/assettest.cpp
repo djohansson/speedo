@@ -95,7 +95,8 @@ bool IsModel(const std::filesystem::path& path) { return gfx::mesh::IsModelFile(
 
 bool IsImage(const std::filesystem::path& path)
 {
-	static constexpr std::array<std::string_view, 12> kExtensions{".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm"};
+	static constexpr std::array<std::string_view, 14> kExtensions{
+		".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm", ".webp", ".ktx2"};
 	return std::ranges::contains(kExtensions, Lower(path.extension().string()));
 }
 

@@ -77,6 +77,7 @@
           "features": [ "common" ]
         },
         "cgltf",
+        "draco",
         "glfw3",
         {
           "name": "glfw3",
@@ -91,6 +92,22 @@
             "glfw-binding",
             "vulkan-binding"
           ]
+        },
+        {
+          "name": "ktx",
+          "default-features": false
+        },
+        {
+          "name": "libwebp",
+          "default-features": false,
+          "features": [
+            "simd",
+            "unicode"
+          ]
+        },
+        {
+          "name": "meshoptimizer",
+          "default-features": false
         },
         "nativefiledialog-extended",
         "parallel-hashmap",

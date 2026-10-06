@@ -288,9 +288,14 @@ frame follows its own transformed texcoords). A model's distinct samplers get th
 default's (`kModelSamplerSlots`), and the previous model's go back to the default. Images embedded in buffers or data uris are written to
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Only an import writes
 them, so `Model::Load` treats a cached model whose extracted images are missing as an unreadable cache, and
-`LoadAsset` imports it again. Files requiring draco or
-meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
-project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
+`LoadAsset` imports it again. Compressed meshes are decoded at import: meshopt (EXT_meshopt_compression, which cgltf
+parses, and KHR_meshopt_compression, read from its json) into `cgltf_buffer_view::data` right after the buffers load
+(`DecodeMeshopt`), so accessors read them as usual; draco per primitive (`DecodeDraco`: cgltf turns the extension's
+draco attribute ids into accessor pointers by index), whose values `addPrimitive` reads in place of the accessors'.
+Textures use their plain image if they have one, else their KHR_texture_basisu (KTX2) or EXT_texture_webp image, which
+`image::Import` decodes (libktx, transcoding Basis Universal to rgba8; libwebp, the first frame of an animation) before
+compressing them as any other; the decoders' versions are part of those files' cache keys, and draco's and
+meshoptimizer's of every gltf model's. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
 node's, else the mesh's; position and normal deltas). Skins and node animations (translation, rotation, scale; step,
 linear and cubic spline) are drawn moving (`SceneAnimationData`, `ModelDesc::animation`, `gfx/sceneanimation.h`): the
 nodes animations move, and their descendants, keep their meshes in node space, drawn with instances linked to the
@@ -590,6 +595,11 @@ Toolchain-level fixes that removed the need for port patches:
 - mimalloc is built with `MI_USE_CXX=OFF`: as C++ it links the static libc++/libc++abi into its dylib and
   exports them. Note that this generally applies to every C++ dylib here (zmq, cpptrace, TracyClient, slang, ...),
   since the host LLVM only ships static `libc++.a`/`libc++abi.a`.
+
+A port FASTBuild can't build at all can use another generator from its portfile (`vcpkg_cmake_configure(... GENERATOR
+Ninja)`, see `ports/draco`: a shared library linked from object libraries only, and header-only object libraries). Ports
+that link executables with GNU link groups (`-Wl,--start-group`) need a patch on apple platforms: ld64.lld has none, and
+our clang reports itself as `Clang`, not `AppleClang`, which the ports' checks expect (`ports/draco/0001-*`).
 
 FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a directory as a custom command
 `OUTPUT` fails with `File missing despite success`, and custom commands that `DEPENDS` on a *target* name are not

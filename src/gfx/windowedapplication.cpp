@@ -1054,7 +1054,7 @@ static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic
 }
 
 // the image files LoadAndInstallImage takes, as a file dialog filter spec (see image::Import)
-static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm";
+static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm,webp,ktx2";
 
 [[nodiscard]] static bool IsImageFile(const std::filesystem::path& path)
 {

@@ -21,6 +21,8 @@
 
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
+#include <draco/compression/decode.h>
+#include <meshoptimizer.h>
 
 #include <xxhash.h>
 
@@ -84,7 +86,167 @@ using DataPtr = std::unique_ptr<cgltf_data, DataDeleter>;
 [[nodiscard]] bool IsSupportedRequiredExtension(std::string_view name)
 {
 	return name == "KHR_mesh_quantization" || name == "KHR_texture_transform" || name.starts_with("KHR_materials_") ||
-		   name == "KHR_lights_punctual" || name == "KHR_node_visibility" || name == "EXT_mesh_gpu_instancing";
+		   name == "KHR_lights_punctual" || name == "KHR_node_visibility" || name == "EXT_mesh_gpu_instancing" ||
+		   name == "KHR_texture_basisu" || name == "EXT_texture_webp" || name == "KHR_draco_mesh_compression" ||
+		   name == "EXT_meshopt_compression" || name == "KHR_meshopt_compression";
+}
+
+// a number or string value of a flat json object (an extension cgltf leaves as json), without its quotes
+[[nodiscard]] std::optional<std::string> JsonValue(std::string_view json, std::string_view key)
+{
+	std::string compact(json);
+	std::erase_if(compact, [](unsigned char c) { return std::isspace(c) != 0; });
+	auto at = compact.find(std::format("\"{}\":", key));
+	if (at == std::string::npos)
+		return std::nullopt;
+	auto begin = at + key.size() + 3;
+	auto end = compact.find_first_of(",}", begin);
+	auto value = compact.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+	if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+		value = value.substr(1, value.size() - 2);
+	return value;
+}
+
+// buffer views compressed with meshopt (EXT_meshopt_compression, which cgltf parses, or KHR_meshopt_compression,
+// which it leaves as json), decoded into memory that cgltf owns (cgltf_buffer_view::data, freed with the data). an
+// error message if one can't be.
+[[nodiscard]] std::optional<std::string> DecodeMeshopt(cgltf_data& data)
+{
+	for (cgltf_size viewIt = 0; viewIt < data.buffer_views_count; viewIt++)
+	{
+		auto& view = data.buffer_views[viewIt];
+		cgltf_meshopt_compression compression{};
+		std::string filter = "NONE";
+		if (view.has_meshopt_compression)
+		{
+			compression = view.meshopt_compression;
+		}
+		else
+		{
+			const char* json = nullptr;
+			for (cgltf_size extensionIt = 0; extensionIt < view.extensions_count; extensionIt++)
+				if (view.extensions[extensionIt].name != nullptr &&
+					std::string_view(view.extensions[extensionIt].name) == "KHR_meshopt_compression")
+					json = view.extensions[extensionIt].data;
+			if (json == nullptr)
+				continue;
+			auto number = [json](std::string_view key) -> cgltf_size
+			{
+				auto value = JsonValue(json, key);
+				return value ? std::strtoull(value->c_str(), nullptr, 10) : 0;
+			};
+			auto buffer = number("buffer");
+			if (!JsonValue(json, "buffer") || buffer >= data.buffers_count)
+				return std::format("buffer view {}: KHR_meshopt_compression without a valid buffer", viewIt);
+			compression.buffer = &data.buffers[buffer];
+			compression.offset = number("byteOffset");
+			compression.size = number("byteLength");
+			compression.stride = number("byteStride");
+			compression.count = number("count");
+			auto mode = JsonValue(json, "mode").value_or("");
+			compression.mode = mode == "ATTRIBUTES"  ? cgltf_meshopt_compression_mode_attributes
+							 : mode == "TRIANGLES" ? cgltf_meshopt_compression_mode_triangles
+							 : mode == "INDICES"   ? cgltf_meshopt_compression_mode_indices
+												   : cgltf_meshopt_compression_mode_invalid;
+			filter = JsonValue(json, "filter").value_or("NONE");
+		}
+		switch (compression.filter)
+		{
+		case cgltf_meshopt_compression_filter_octahedral: filter = "OCTAHEDRAL"; break;
+		case cgltf_meshopt_compression_filter_quaternion: filter = "QUATERNION"; break;
+		case cgltf_meshopt_compression_filter_exponential: filter = "EXPONENTIAL"; break;
+		default: break;
+		}
+
+		if (compression.buffer == nullptr || compression.buffer->data == nullptr ||
+			compression.offset + compression.size > compression.buffer->size)
+			return std::format("buffer view {}: its meshopt compressed buffer isn't loaded", viewIt);
+
+		const auto* source = static_cast<const unsigned char*>(compression.buffer->data) + compression.offset;
+		auto size = compression.count * compression.stride;
+		std::unique_ptr<void, void (*)(void*)> decoded(std::malloc(std::max<size_t>(size, 1)), std::free);
+		int result = -1;
+		switch (compression.mode)
+		{
+		case cgltf_meshopt_compression_mode_attributes:
+			result = meshopt_decodeVertexBuffer(decoded.get(), compression.count, compression.stride, source, compression.size);
+			break;
+		case cgltf_meshopt_compression_mode_triangles:
+			result = meshopt_decodeIndexBuffer(decoded.get(), compression.count, compression.stride, source, compression.size);
+			break;
+		case cgltf_meshopt_compression_mode_indices:
+			result = meshopt_decodeIndexSequence(decoded.get(), compression.count, compression.stride, source, compression.size);
+			break;
+		default: break;
+		}
+		if (result != 0)
+			return std::format("buffer view {}: its meshopt compressed data doesn't decode", viewIt);
+
+		if (filter == "OCTAHEDRAL")
+			meshopt_decodeFilterOct(decoded.get(), compression.count, compression.stride);
+		else if (filter == "QUATERNION")
+			meshopt_decodeFilterQuat(decoded.get(), compression.count, compression.stride);
+		else if (filter == "EXPONENTIAL")
+			meshopt_decodeFilterExp(decoded.get(), compression.count, compression.stride);
+		else if (filter == "COLOR")
+			meshopt_decodeFilterColor(decoded.get(), compression.count, compression.stride);
+		else if (filter != "NONE")
+			return std::format("buffer view {}: meshopt filter {} isn't supported", viewIt, filter);
+
+		view.data = decoded.release();
+	}
+	return std::nullopt;
+}
+
+// a KHR_draco_mesh_compression primitive, decoded: its triangle list, and the values of its attributes, by the accessor
+// they replace (as many floats per vertex as the accessor has components, normalized integers as floats in [0, 1])
+struct DracoPrimitive
+{
+	std::vector<uint32_t> indices;
+	core::UnorderedMap<const cgltf_accessor*, std::vector<float>> values;
+};
+
+[[nodiscard]] std::expected<DracoPrimitive, std::string> DecodeDraco(const cgltf_primitive& primitive, const cgltf_data& data)
+{
+	const auto& compression = primitive.draco_mesh_compression;
+	const auto* bytes = reinterpret_cast<const char*>(cgltf_buffer_view_data(compression.buffer_view));
+	if (bytes == nullptr)
+		return std::unexpected("its draco compressed buffer isn't loaded");
+
+	draco::DecoderBuffer buffer;
+	buffer.Init(bytes, compression.buffer_view->size);
+	draco::Decoder decoder;
+	auto decoded = decoder.DecodeMeshFromBuffer(&buffer);
+	if (!decoded.ok())
+		return std::unexpected(std::format("its draco data doesn't decode: {}", decoded.status().error_msg_string()));
+	auto mesh = std::move(decoded).value();
+
+	DracoPrimitive result;
+	result.indices.reserve(static_cast<size_t>(mesh->num_faces()) * 3);
+	for (draco::FaceIndex faceIt(0); faceIt < mesh->num_faces(); ++faceIt)
+		for (auto corner : mesh->face(faceIt))
+			result.indices.push_back(corner.value());
+
+	// the extension's attributes name the draco attribute ids (which cgltf turns into accessor pointers by index)
+	for (cgltf_size attributeIt = 0; attributeIt < primitive.attributes_count; attributeIt++)
+	{
+		const auto& attribute = primitive.attributes[attributeIt];
+		for (cgltf_size dracoIt = 0; dracoIt < compression.attributes_count; dracoIt++)
+		{
+			const auto& dracoAttribute = compression.attributes[dracoIt];
+			if (dracoAttribute.name == nullptr || attribute.name == nullptr || std::string_view(dracoAttribute.name) != attribute.name)
+				continue;
+			const auto* source = mesh->GetAttributeByUniqueId(static_cast<uint32_t>(dracoAttribute.data - data.accessors));
+			if (source == nullptr)
+				return std::unexpected(std::format("its draco data has no attribute {}", attribute.name));
+			auto components = cgltf_num_components(attribute.data->type);
+			auto& values = result.values[attribute.data];
+			values.resize(mesh->num_points() * components);
+			for (draco::PointIndex pointIt(0); pointIt < mesh->num_points(); ++pointIt)
+				source->ConvertValue<float>(source->mapped_index(pointIt), static_cast<int8_t>(components), &values[pointIt.value() * components]);
+		}
+	}
+	return result;
 }
 
 // whether KHR_node_visibility hides a node (and so its descendants). cgltf leaves the extension as json.
@@ -352,16 +514,18 @@ public:
 		if (texture == nullptr)
 			return {};
 
-		if (texture->image == nullptr)
+		// its plain image if it has one (a fallback for the extensions'), else its KTX2 (KHR_texture_basisu) or WebP
+		// (EXT_texture_webp) image, which image::Import decodes too
+		const auto* image = texture->image != nullptr ? texture->image : texture->basisu_image != nullptr ? texture->basisu_image : texture->webp_image;
+		if (image == nullptr)
 		{
-			const char* extension = texture->has_basisu ? "KHR_texture_basisu" : texture->has_webp ? "EXT_texture_webp" : nullptr;
-			Missing(material, extension != nullptr ? std::format("the texture is only in a format of {}", extension) : "the texture has no image");
+			Missing(material, "the texture has no image");
 			return {};
 		}
 
-		auto index = static_cast<size_t>(texture->image - myData.images);
+		auto index = static_cast<size_t>(image - myData.images);
 		if (!myPaths[index])
-			myPaths[index] = InternalResolve(*texture->image, index);
+			myPaths[index] = InternalResolve(*image, index);
 		if (myPaths[index]->empty())
 			Missing(material, myErrors[index]);
 		return *myPaths[index];
@@ -380,6 +544,10 @@ private:
 			return ".png";
 		if (mimeType == "image/jpeg")
 			return ".jpg";
+		if (mimeType == "image/webp")
+			return ".webp";
+		if (mimeType == "image/ktx2")
+			return ".ktx2";
 		return {};
 	}
 
@@ -390,13 +558,6 @@ private:
 		if (image.uri != nullptr && !IsDataUri(image.uri))
 		{
 			auto path = myBaseDir / UriPath(image.uri);
-			auto extension = path.extension().string();
-			std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			if (extension == ".ktx2" || extension == ".webp")
-			{
-				error = std::format("{}: {} images aren't supported", path.filename().string(), extension);
-				return {};
-			}
 			if (std::error_code ec; !std::filesystem::is_regular_file(path, ec))
 			{
 				error = std::format("{} not found", path.string());
@@ -611,6 +772,8 @@ std::expected<Mesh, std::string> Import(
 		cgltf_options loadOptions{};
 		if (auto result = cgltf_load_buffers(&loadOptions, &data, path.string().c_str()); result != cgltf_result_success)
 			return std::unexpected(std::format("failed to load the buffers of {}: {}", path.string(), ToString(result)));
+		if (auto error = DecodeMeshopt(data))
+			return std::unexpected(std::format("{}: {}", path.string(), *error));
 	}
 
 	if (auto result = cgltf_validate(&data); result != cgltf_result_success)
@@ -797,11 +960,33 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		const auto vertexCount = positions->count;
-		auto unpack = [vertexCount](const cgltf_accessor* accessor, size_t components) -> std::optional<std::vector<float>>
+		// a draco compressed primitive's attributes and indices are decoded first, and read from there
+		std::optional<DracoPrimitive> draco;
+		if (primitive.has_draco_mesh_compression)
 		{
+			auto decoded = DecodeDraco(primitive, data);
+			if (!decoded)
+			{
+				warn("mesh {}: a primitive is skipped: {}", meshName, decoded.error());
+				skippedPrimitives++;
+				return;
+			}
+			draco = std::move(*decoded);
+		}
+
+		auto unpack = [vertexCount, &draco](const cgltf_accessor* accessor, size_t components) -> std::optional<std::vector<float>>
+		{
+			if (accessor == nullptr || accessor->count != vertexCount)
+				return std::nullopt;
+			if (draco)
+			{
+				auto it = draco->values.find(accessor);
+				if (it == draco->values.end() || it->second.size() != vertexCount * components)
+					return std::nullopt;
+				return it->second;
+			}
 			std::vector<float> values(vertexCount * components);
-			if (accessor == nullptr || accessor->count != vertexCount ||
-				cgltf_accessor_unpack_floats(accessor, values.data(), values.size()) != values.size())
+			if (cgltf_accessor_unpack_floats(accessor, values.data(), values.size()) != values.size())
 				return std::nullopt;
 			return values;
 		};
@@ -865,7 +1050,11 @@ std::expected<Mesh, std::string> Import(
 
 		// the primitive's elements, in its vertices
 		std::vector<uint32_t> elements;
-		if (primitive.indices != nullptr)
+		if (draco)
+		{
+			elements = std::move(draco->indices);
+		}
+		else if (primitive.indices != nullptr)
 		{
 			elements.resize(primitive.indices->count);
 			if (!ReadIndices(*primitive.indices, elements))
@@ -936,7 +1125,9 @@ std::expected<Mesh, std::string> Import(
 		{
 			skinVertices.resize(vertexCount);
 			auto weightValues = jointWeights != nullptr && jointWeights->type == cgltf_type_vec4 ? unpack(jointWeights, 4) : std::nullopt;
-			if (joints == nullptr || joints->type != cgltf_type_vec4 || joints->count != vertexCount || !weightValues)
+			// decoded draco joints are floats, the others are read as they are
+			auto jointValues = draco && joints != nullptr ? unpack(joints, 4) : std::nullopt;
+			if (joints == nullptr || joints->type != cgltf_type_vec4 || joints->count != vertexCount || !weightValues || (draco && !jointValues))
 			{
 				warn("mesh {}: a skinned primitive without readable JOINTS_0 and WEIGHTS_0 is drawn in its bind pose", meshName);
 				part.skin = -1;
@@ -945,7 +1136,10 @@ std::expected<Mesh, std::string> Import(
 			for (size_t vertexIt = 0; vertexIt < skinVertices.size(); vertexIt++)
 			{
 				std::array<cgltf_uint, 4> jointIndices{};
-				cgltf_accessor_read_uint(joints, vertexIt, jointIndices.data(), jointIndices.size());
+				if (jointValues)
+					std::ranges::transform(std::span(*jointValues).subspan(4 * vertexIt, 4), jointIndices.begin(), [](float v) { return static_cast<cgltf_uint>(std::lround(v)); });
+				else
+					cgltf_accessor_read_uint(joints, vertexIt, jointIndices.data(), jointIndices.size());
 				std::array<float, 4> weights{};
 				std::copy_n(&(*weightValues)[4 * vertexIt], 4, weights.begin());
 				auto sum = weights[0] + weights[1] + weights[2] + weights[3];
