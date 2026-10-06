@@ -1,6 +1,8 @@
 # TODO
 
 * todo: generalize drawcall submission & move out of rhiapplication class. use sorted draw call lists.
+* todo: move window class from rhi into gfx or app support library. same for imguirenderer.
+* todo: split some of the bulkier rhi files such as pipeline and command into separate files.
 * todo: multi window/swapchain capability
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2 textures are transcoded to rgba8 and compressed again to BC formats (a second lossy step), rather than transcoded straight to BC7/BC1-5 or uploaded as they are; their mips are made again too
