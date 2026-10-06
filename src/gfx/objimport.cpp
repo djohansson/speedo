@@ -223,6 +223,9 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 		material.emissiveTexture.path = resolveTexture(objMaterial.emissive_texname, objMaterial.name).string();
 		material.bumpTexture.path = resolveTexture(objMaterial.bump_texname, objMaterial.name).string();
 		material.bumpScale = objMaterial.bump_texopt.bump_multiplier;
+		// Ks scales the specular (0: matte), and the Blinn-Phong exponent Ns gives the roughness
+		material.specular = std::clamp(std::max({objMaterial.specular[0], objMaterial.specular[1], objMaterial.specular[2]}), 0.0F, 1.0F);
+		material.roughness = material.specular > 0.0F ? std::clamp(std::sqrt(2.0F / (std::max(objMaterial.shininess, 0.0F) + 2.0F)), 0.0F, 1.0F) : 1.0F;
 	}
 
 	const auto positionCount = attrib.vertices.size() / 3;

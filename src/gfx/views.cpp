@@ -4,6 +4,8 @@
 
 #include <core/profiling.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -46,14 +48,36 @@ void Views::InternalLayout()
 	{
 		for (uint32_t i = 0; i < myGrid.x; i++)
 		{
+			// the cell, or the largest rectangle of the camera's aspect ratio centered in it
 			auto& camera = cameras.Get()[(j * myGrid.x) + i];
-			camera.GetDesc().viewport.x = i * width;
-			camera.GetDesc().viewport.y = j * height;
-			camera.GetDesc().viewport.width = width;
-			camera.GetDesc().viewport.height = height;
+			auto& viewport = camera.GetDesc().viewport;
+			auto aspectRatio = camera.GetDesc().aspectRatio;
+			auto viewWidth = width;
+			auto viewHeight = height;
+			if (aspectRatio > 0.0F && height > 0)
+			{
+				if (static_cast<float>(width) / static_cast<float>(height) > aspectRatio)
+					viewWidth = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(height) * aspectRatio)));
+				else
+					viewHeight = std::max(1U, static_cast<uint32_t>(std::lround(static_cast<float>(width) / aspectRatio)));
+			}
+			viewport.x = static_cast<uint16_t>((i * width) + ((width - viewWidth) / 2));
+			viewport.y = static_cast<uint16_t>((j * height) + ((height - viewHeight) / 2));
+			viewport.width = static_cast<uint16_t>(viewWidth);
+			viewport.height = static_cast<uint16_t>(viewHeight);
 			camera.UpdateAll();
 		}
 	}
+}
+
+std::vector<ViewportCreateDesc> Views::GetViewports() const
+{
+	auto cameras = myCameras.Read();
+	std::vector<ViewportCreateDesc> viewports;
+	viewports.reserve(cameras.Get().size());
+	for (const auto& camera : cameras.Get())
+		viewports.push_back(camera.GetDesc().viewport);
+	return viewports;
 }
 
 void Views::OnResizeFramebuffer(glm::uvec2 framebufferExtent)
@@ -90,11 +114,15 @@ void Views::FrameBounds(const Bounds3f& bounds)
 			desc.cameraRotation = glm::vec3(0.0F);
 			desc.viewport.type = ViewType::Perspective;
 			desc.fovY = CameraCreateDesc{}.fovY;
+			desc.aspectRatio = 0.0F;
 			desc.farPlane = 4.0F * radius;
 			desc.nearPlane = desc.farPlane * 1e-4F;
 			camera.UpdateAll();
 		}
 	}
+
+	// the viewports follow the cameras' aspect ratios
+	InternalLayout();
 
 	SetMoveSpeed(0.25F * radius);
 
@@ -140,6 +168,13 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 	auto forward = glm::vec3(sceneCamera->forward[0], sceneCamera->forward[1], sceneCamera->forward[2]);
 	auto pitch = std::asin(std::clamp(-forward.y, -1.0F, 1.0F));
 	auto yaw = std::atan2(forward.x, -forward.z);
+	// roll (about the view's z, before pitch and yaw, see Camera::UpdateViewMatrix) turns pitch and yaw's up, up0, to
+	// cos(roll) * up0 - sin(roll) * right0, which is the file's up
+	auto turn = glm::rotate(glm::mat4(1.0F), yaw, glm::vec3(0, -1, 0)) * glm::rotate(glm::mat4(1.0F), pitch, glm::vec3(-1, 0, 0));
+	auto up0 = glm::vec3(turn * glm::vec4(0, 1, 0, 0));
+	auto right0 = glm::vec3(turn * glm::vec4(1, 0, 0, 0));
+	auto up = glm::vec3(sceneCamera->up[0], sceneCamera->up[1], sceneCamera->up[2]);
+	auto roll = std::atan2(-glm::dot(up, right0), glm::dot(up, up0));
 
 	// a far plane the file leaves out (an infinite perspective) takes in all of the bounds
 	auto radius = std::max(bounds.Radius(), 1e-3F);
@@ -152,7 +187,8 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 		{
 			auto& desc = camera.GetDesc();
 			desc.position = -eye;
-			desc.cameraRotation = glm::vec3(pitch, yaw, 0.0F);
+			desc.cameraRotation = glm::vec3(pitch, yaw, roll);
+			desc.aspectRatio = sceneCamera->aspectRatio;
 			desc.viewport.type = sceneCamera->orthographic ? ViewType::Orthographic : ViewType::Perspective;
 			desc.fovY = sceneCamera->yfov > 0.0F ? sceneCamera->yfov : CameraCreateDesc{}.fovY;
 			desc.orthoHalfHeight = sceneCamera->ymag > 0.0F ? sceneCamera->ymag : 1.0F;
@@ -161,6 +197,9 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 			camera.UpdateAll();
 		}
 	}
+
+	// the viewports follow the cameras' aspect ratios
+	InternalLayout();
 
 	SetMoveSpeed(0.25F * radius);
 

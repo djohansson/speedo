@@ -684,6 +684,7 @@ static void InstallModel(
 			std::ranges::copy(desc.emissive, material.emissive);
 			material.metallic = desc.metallic;
 			material.roughness = desc.roughness;
+			material.specular = desc.specular;
 			if (desc.unlit)
 				material.flags |= MATERIAL_FLAG_UNLIT;
 			if (auto view = viewOf(textures[materialIt].metallicRoughness, desc.metallicRoughnessTexture))
@@ -843,7 +844,8 @@ static void InstallImage(
 			.flags = MATERIAL_FLAG_TEXTURE,
 			.alphaCutoff = 0.5F,
 			.baseColorView = 0,
-			.roughness = 1.0F};
+			.roughness = 1.0F,
+			.specular = 1.0F};
 		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
@@ -1160,6 +1162,8 @@ static void DrawMainPass(
 
 		// blended submeshes are drawn back to front from each view's camera
 		auto eyes = App().GetViews().GetEyePositions();
+		// and drawn in their viewports: their grid cells, letterboxed to their cameras' aspect ratios
+		auto viewports = App().GetViews().GetViewports();
 
 		constexpr uint32_t kMaxDrawThreads = 128;
 		std::array<uint32_t, kMaxDrawThreads> seq;
@@ -1176,6 +1180,7 @@ static void DrawMainPass(
 			&drawCount,
 			&model,
 			&eyes,
+			&viewports,
 			grid](uint32_t threadIt)
 			{
 				ZoneScoped;
@@ -1224,7 +1229,7 @@ static void DrawMainPass(
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &eyes, grid](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &eyes, &viewports, grid](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
@@ -1239,14 +1244,23 @@ static void DrawMainPass(
 
 							auto posX = static_cast<int32_t>(col * deltaX);
 							auto posY = static_cast<int32_t>(row * deltaY);
+							auto width = deltaX;
+							auto height = deltaY;
+							if (viewIt < viewports.size() && viewports[viewIt].width > 0 && viewports[viewIt].height > 0)
+							{
+								posX = viewports[viewIt].x;
+								posY = viewports[viewIt].y;
+								width = viewports[viewIt].width;
+								height = viewports[viewIt].height;
+							}
 							encoder.SetViewport(Viewport{
 								.x = static_cast<float>(posX),
 								.y = static_cast<float>(posY),
-								.width = static_cast<float>(deltaX),
-								.height = static_cast<float>(deltaY),
+								.width = static_cast<float>(width),
+								.height = static_cast<float>(height),
 								.minDepth = 0.0F,
 								.maxDepth = 1.0F});
-							encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = deltaX, .height = deltaY});
+							encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
 						}
 
 						uint16_t viewIndex = viewIt;
@@ -2376,6 +2390,7 @@ WindowedApplication::WindowedApplication(
 		{
 			std::ranges::fill(material.color, 1.0F);
 			material.roughness = 1.0F;
+			material.specular = 1.0F;
 		}
 
 		core::TaskCreateInfo<void> materialTransfersDone;

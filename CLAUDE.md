@@ -286,8 +286,8 @@ metallic into one texture's r, g and b, which kMask's luminance would mix. Each 
 sampler as `rhi::SamplerDesc`), which the shader applies: vertices keep both texcoord sets as they are (`texCoord01.xy`,
 `.zw`), materials name a `TextureView` per texture (`gTextureViews`: texture and sampler slot, set, transform; 0 is
 material 0's, deduplicated per model), and `ViewTexCoord`/`SampleView` sample through them (the normal map's tangent
-frame follows its own transformed texcoords). A model's distinct samplers get the 15 sampler slots other than the
-default's (`kModelSamplerSlots`), and the previous model's go back to the default. Images embedded in buffers or data uris are written to
+frame follows its own transformed texcoords). A model's distinct samplers get the 63 sampler slots other than the
+default's (`kModelSamplerSlots`; `ManySamplers.gltf` uses 36), and the previous model's go back to the default. Images embedded in buffers or data uris are written to
 `<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Only an import writes
 them, so `Model::Load` treats a cached model whose extracted images are missing as an unreadable cache, and
 `LoadAsset` imports it again. Compressed meshes are decoded at import: meshopt (EXT_meshopt_compression, which cgltf
@@ -312,8 +312,9 @@ stand in for what it doesn't have. Skinned bounds and blend centers are at the r
 first plays on load), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
 weight and KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at rest. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
-(`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). The views keep no roll,
-so a rolled camera loses it, and the file's aspect ratio gives way to the view's. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
+(`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
+`cameraRotation.z` (applied before pitch and yaw), and its aspect ratio (gltf `aspectRatio`, or `xmag / ymag`)
+letterboxes its view in its grid cell (`Views::InternalLayout`; the draw uses `Views::GetViewports`). The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
 `.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
 more than four colors), and normals below the surface (z < 0, which BC5 can't store) are compared mirrored and warned
 about, since both are properties of the asset rather than importer errors.
@@ -343,8 +344,11 @@ lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual 
 candela, or a default directional light of 2.2 lux), plus a constant ambient radiance (0.3, its specular part by Karis'
 environment brdf fit) that occlusion darkens. The default light and ambient light a white matte surface as the fixed
 light did before there was PBR. Metallic-roughness textures are `Usage::kMetallicRoughness` (BC5: roughness, the file's
-green, in r, and metallic, its blue, in g); obj materials are matte dielectrics (metallic 0, roughness 1), and
-`MaterialData` defaults must set roughness to 1 (zero is a mirror). KHR_materials_unlit draws the base color alone. A model's materials
+green, in r, and metallic, its blue, in g); obj materials are dielectrics whose `Ks` scales the specular
+(`MaterialData::specular`, also KHR_materials_specular's factor; 0 is matte, without even a fresnel rim) and whose `Ns`
+gives the roughness (`sqrt(2 / (Ns + 2))`), and `MaterialData` defaults must set roughness and specular to 1 (zero
+roughness is a mirror). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
 (0-3 are the frames' render targets, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
@@ -392,7 +396,8 @@ accessors that are sparse, with and without base values; cgltf's `cgltf_accessor
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;
 `InstancingTransforms.gltf`: instances of a single sided, asymmetric triangle under a scaled and moved node, with
 normalized short rotations and a mirroring instance, which must face the camera too; `BlendOrder.gltf`: blended quads
-listed nearest first, whose overlaps must be tinted by the nearer one), and is always part
+listed nearest first, whose overlaps must be tinted by the nearer one; `ManySamplers.gltf`: 36 quads with a sampler
+each, of every filter and wrap mode, more than the model sampler slots once were), and is always part
 of the printed paths. Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its

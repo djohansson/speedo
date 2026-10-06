@@ -7,16 +7,12 @@
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2 textures are transcoded to rgba8 and compressed again to BC formats (a second lossy step), rather than transcoded straight to BC7/BC1-5 or uploaded as they are; their mips are made again too
 	* animation: node (translation, rotation, scale) animations and skins move. morph weight and KHR_animation_pointer animations are ignored: morph targets are applied at their default weights at import, so animating them needs the deltas on the gpu. joint normals use the joint matrices directly (non-uniform scale on joints skews them). bounds, culling and blend sorting use the rest pose. one animation plays at a time, without blending. a set of files is drawn at rest
-	* cameras: the views have no roll (a rolled camera loses it), and use their own aspect ratio rather than the file's
 	* lights: punctual lights only, every light shades every pixel (no culling or clustering), no shadows. ambient light is a constant (no image based lighting), so smooth metals reflect a uniform gray
-	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. obj materials are matte (their Ks and Ns are ignored), and so is the default material, which gltf would make a rough metal
+	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. KHR_materials_specular's factor is applied, its color isn't. obj materials map Ks and Ns to specular and roughness (their Ks color, Ka, Tf, Ni and illum are ignored)
 	* alpha blending: sorted per submesh (by the center of its bounds, per view), not per triangle, and not order independent: the triangles within a blended submesh, and intersecting or interleaved submeshes, can come out in the wrong order
-	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
-	* texcoords: sets above 1 fall back to set 0
+	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
 	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
-	* scenes: one at a time (View > Scene loads the file again with another), not several side by side
 	* EXT_mesh_gpu_instancing: drawn instanced, but blended instanced submeshes are sorted as a whole, not per instance
-	* points and lines: drawn a pixel wide (points one pixel, as gltf has no size for them)
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
 * todo: tonemapping: Khronos PBR Neutral with a manual exposure is in; auto exposure and a choice of tonemappers aren't

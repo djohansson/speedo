@@ -389,12 +389,16 @@ using Matrix = std::array<float, 16>;
 	{
 		result.orthographic = true;
 		result.ymag = camera.data.orthographic.ymag;
+		if (camera.data.orthographic.xmag > 0.0F && camera.data.orthographic.ymag > 0.0F)
+			result.aspectRatio = camera.data.orthographic.xmag / camera.data.orthographic.ymag;
 		result.znear = camera.data.orthographic.znear;
 		result.zfar = camera.data.orthographic.zfar;
 	}
 	else
 	{
 		result.yfov = camera.data.perspective.yfov;
+		if (camera.data.perspective.has_aspect_ratio != 0 && camera.data.perspective.aspect_ratio > 0.0F)
+			result.aspectRatio = camera.data.perspective.aspect_ratio;
 		result.znear = camera.data.perspective.znear;
 		result.zfar = camera.data.perspective.has_zfar != 0 ? camera.data.perspective.zfar : 0.0F;
 	}
@@ -851,6 +855,8 @@ std::expected<Mesh, std::string> Import(
 			material.roughness = 1.0F;
 		}
 		material.unlit = gltfMaterial.unlit != 0;
+		if (gltfMaterial.has_specular)
+			material.specular = std::clamp(gltfMaterial.specular.specular_factor, 0.0F, 1.0F);
 		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
@@ -874,8 +880,18 @@ std::expected<Mesh, std::string> Import(
 		material.doubleSided = gltfMaterial.double_sided != 0;
 	}
 
-	auto materialOf = [&data](const cgltf_primitive& primitive)
-	{ return primitive.material != nullptr ? static_cast<int32_t>(primitive.material - data.materials) : -1; };
+	// primitives without a material get the spec's default one: white, metallic 1, roughness 1, opaque, single sided
+	int32_t defaultMaterial = -1;
+	for (cgltf_size meshIt = 0; meshIt < data.meshes_count && defaultMaterial < 0; meshIt++)
+		for (cgltf_size primitiveIt = 0; primitiveIt < data.meshes[meshIt].primitives_count && defaultMaterial < 0; primitiveIt++)
+			if (data.meshes[meshIt].primitives[primitiveIt].material == nullptr)
+			{
+				defaultMaterial = static_cast<int32_t>(mesh.materials.size());
+				mesh.materials.push_back({.name = "default", .metallic = 1.0F, .roughness = 1.0F, .alphaCutoff = 0.0F});
+				baseColorFactors.push_back({1.0F, 1.0F, 1.0F, 1.0F});
+			}
+	auto materialOf = [&data, defaultMaterial](const cgltf_primitive& primitive)
+	{ return primitive.material != nullptr ? static_cast<int32_t>(primitive.material - data.materials) : defaultMaterial; };
 
 	// the primitives of the scene's nodes, in their world space
 	std::vector<Part> parts;

@@ -64,7 +64,7 @@ extern "C"
 #define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 3u
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
-#define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 4u
+#define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
 #define SHADER_TYPES_FRAME_INDEX_BITS 2u
 #define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
@@ -143,7 +143,7 @@ struct MaterialData
 	alignas(4) FLOAT(metallic);
 	alignas(4) FLOAT(roughness);
 	alignas(4) UINT(metallicRoughnessView);
-	alignas(4) UINT(padding);
+	alignas(4) FLOAT(specular); // the dielectric specular's strength (see mesh::Material::specular): 1 by default
 };
 
 struct ModelInstance

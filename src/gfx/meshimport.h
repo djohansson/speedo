@@ -40,10 +40,13 @@ struct Material
 	TextureRef occlusionTexture;
 	float occlusionStrength = 1.0F;
 	// gltf metallic-roughness: the factors, times the texture's blue (metallic) and green (roughness) channels. obj
-	// materials are matte dielectrics (metallic 0, roughness 1)
+	// materials are dielectrics (metallic 0) as rough as their Ns says (Blinn-Phong to GGX: sqrt(2 / (Ns + 2)))
 	float metallic = 0.0F;
 	float roughness = 1.0F;
 	TextureRef metallicRoughnessTexture;
+	// the strength of the dielectric specular (the fresnel term, not metals'): gltf KHR_materials_specular's
+	// specularFactor (its color is ignored), obj Ks (its largest component: 0 is matte, without even a fresnel rim)
+	float specular = 1.0F;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

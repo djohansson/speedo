@@ -51,6 +51,7 @@ struct ModelMaterial
 	float metallic = 0.0F; // see mesh::Material::metallic
 	float roughness = 1.0F;
 	TextureRef metallicRoughnessTexture;
+	float specular = 1.0F; // see mesh::Material::specular
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale

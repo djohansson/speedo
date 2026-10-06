@@ -27,12 +27,14 @@ struct ViewportCreateDesc
 struct CameraCreateDesc
 {
 	glm::vec3 position = glm::vec3(0.0f, -2.0f, 0.0f); // negated: the camera is at -position
-	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0);
+	glm::vec3 cameraRotation = glm::vec3(0.0f, 0.0f, 0.0); // pitch (about x), yaw (about y) and roll (about z)
 	ViewportCreateDesc viewport{};
 	float nearPlane = 0.01f;
 	float farPlane = 100.0f;
 	float fovY = 1.3089969f; // perspective: the vertical field of view, in radians (75 degrees)
 	float orthoHalfHeight = 1.0f; // orthographic: half the view's height, its width follows the aspect ratio
+	// the width / height the view keeps, letterboxed in its grid cell (see Views), or 0 for the cell's
+	float aspectRatio = 0.0f;
 };
 
 enum FrustumPlane

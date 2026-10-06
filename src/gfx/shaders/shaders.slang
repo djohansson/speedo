@@ -282,15 +282,23 @@ float3 EnvironmentBrdfApprox(float3 f0, float roughness, float nDotV)
 	return f0 * ab.x + ab.y;
 }
 
+// the fresnel term of a mix of dielectric (f0 0.04, scaled by specular: KHR_materials_specular's specularWeight) and
+// metal (f0 the base color)
+float3 Fresnel(float3 baseColor, float metallic, float specular, float cosine)
+{
+	return lerp(specular * FresnelSchlick(float3(0.04), cosine), FresnelSchlick(baseColor, cosine), metallic);
+}
+
 // the light a surface reflects towards view: from gLights, and the ambient (by occlusion). linear, before exposure
-float3 Shade(float3 baseColor, float metallic, float roughness, float occlusion, float3 normal, float3 view, float3 position)
+float3 Shade(float3 baseColor, float metallic, float roughness, float specular, float occlusion, float3 normal, float3 view, float3 position)
 {
 	float3 diffuseColor = lerp(baseColor, float3(0.0), metallic);
-	float3 f0 = lerp(float3(0.04), baseColor, metallic);
 	float alpha = max(roughness * roughness, 1e-3);
 	float nDotV = max(dot(normal, view), 1e-4);
 
-	float3 result = kAmbientRadiance * occlusion * (diffuseColor + EnvironmentBrdfApprox(f0, roughness, nDotV));
+	float3 environmentSpecular = lerp(
+		specular * EnvironmentBrdfApprox(float3(0.04), roughness, nDotV), EnvironmentBrdfApprox(baseColor, roughness, nDotV), metallic);
+	float3 result = kAmbientRadiance * occlusion * (diffuseColor + environmentSpecular);
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{
@@ -328,7 +336,7 @@ float3 Shade(float3 baseColor, float metallic, float roughness, float occlusion,
 
 		float3 halfway = normalize(toLight + view);
 		float nDotH = saturate(dot(normal, halfway));
-		float3 fresnel = FresnelSchlick(f0, saturate(dot(view, halfway)));
+		float3 fresnel = Fresnel(baseColor, metallic, specular, saturate(dot(view, halfway)));
 		float3 diffuse = (1.0 - fresnel) * diffuseColor / kPi;
 		float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
 		result += (diffuse + specular) * light.intensity.rgb * attenuation * nDotL;
@@ -425,7 +433,7 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
-	output.color = float4(Shade(color.rgb, metallic, roughness, occlusion, normal, view, v.position) + emissive, color.a);
+	output.color = float4(Shade(color.rgb, metallic, roughness, material.specular, occlusion, normal, view, v.position) + emissive, color.a);
 
 	return output;
 }
