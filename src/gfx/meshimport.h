@@ -113,6 +113,10 @@ struct Mesh
 	// (gltf EXT_mesh_gpu_instancing) use: their vertices are in world space. instanced ones keep their vertices in their
 	// node's space, and have a range of their own (the node's transform times each instance's).
 	std::vector<Transform> instances{kIdentityTransform};
+	// gltf: the file's scenes (their names, or "scene <index>"), and which one was loaded. empty for obj files, and gltf
+	// files without scenes (whose root nodes are loaded)
+	std::vector<std::string> scenes;
+	uint32_t scene = 0;
 	std::vector<SceneCamera> cameras; // gltf: the cameras of the scene's nodes, in the order they are visited
 	std::vector<SceneLight> lights; // gltf KHR_lights_punctual: the lights of the scene's nodes
 	// what moves: the nodes animations move or skins use, with the instances that follow them (see SceneAnimationData)
@@ -133,6 +137,8 @@ struct ImportOptions
 	// where to write the images a gltf file embeds (in a buffer or as a data uri), which are loaded from files like the
 	// others. empty: embedded images are counted as missing textures.
 	std::filesystem::path embeddedImageDirectory;
+	// gltf: the scene to load (an index into the file's scenes), else its default scene, or the first
+	std::optional<size_t> scene;
 };
 
 // whether path is a model file Import takes, by its extension (.obj, .gltf, .glb)

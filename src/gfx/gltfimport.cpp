@@ -1320,17 +1320,29 @@ std::expected<Mesh, std::string> Import(
 		}
 	};
 
-	// the default scene (or the first), or all root nodes if there are no scenes
+	// the scene asked for, else the default scene (or the first), or all root nodes if there are no scenes
+	for (cgltf_size sceneIt = 0; sceneIt < data.scenes_count; sceneIt++)
+		mesh.scenes.push_back(data.scenes[sceneIt].name != nullptr ? data.scenes[sceneIt].name : std::format("scene {}", sceneIt));
+	const cgltf_scene* scene = nullptr;
+	if (options.scene && *options.scene < data.scenes_count)
+		scene = &data.scenes[*options.scene];
+	else if (options.scene && data.scenes_count > 0)
+		warn("there is no scene {}, {} is loaded", *options.scene, data.scene != nullptr ? "the default one" : "the first");
+	if (scene == nullptr)
+		scene = data.scene != nullptr ? data.scene : data.scenes_count > 0 ? &data.scenes[0] : nullptr;
 	std::vector<const cgltf_node*> roots;
-	if (const auto* scene = data.scene != nullptr ? data.scene : data.scenes_count > 0 ? &data.scenes[0] : nullptr)
+	if (scene != nullptr)
+	{
+		mesh.scene = static_cast<uint32_t>(scene - data.scenes);
 		for (cgltf_size nodeIt = 0; nodeIt < scene->nodes_count; nodeIt++)
 			roots.push_back(scene->nodes[nodeIt]);
+	}
 	else
+	{
 		for (cgltf_size nodeIt = 0; nodeIt < data.nodes_count; nodeIt++)
 			if (data.nodes[nodeIt].parent == nullptr)
 				roots.push_back(&data.nodes[nodeIt]);
-	if (data.scenes_count > 1)
-		warn("{} scenes, only {} is loaded", data.scenes_count, data.scene != nullptr ? "the default one" : "the first");
+	}
 
 	// the nodes animations move (their translation, rotation or scale), and their descendants: their meshes keep their
 	// vertices in the node's space, drawn with instances that follow the node (see SceneAnimationData)

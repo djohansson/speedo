@@ -118,6 +118,16 @@ struct AnimationState
 	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
 };
 static core::ConcurrentAccess<AnimationState> gAnimation;
+
+// the installed model's file and its scenes (a gltf file's, see ModelDesc::scenes), for View > Scene. the draw thread
+// sets it, the ui thread reads it.
+struct SceneState
+{
+	std::string filePath;
+	std::vector<std::string> names;
+	uint32_t current = 0;
+};
+static core::ConcurrentAccess<SceneState> gScenes;
 // gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
 static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
@@ -300,7 +310,8 @@ static std::vector<std::pair<uuids::uuid, uuids::uuid>> gModelTextureUuids; // i
 // from that submission's timeline callback, i.e. once the gpu can no longer be using it. call on the draw thread.
 static void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr<void> resource)
 {
-	ENSURE(resource);
+	if (!resource)
+		return;
 
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
@@ -772,6 +783,12 @@ static void InstallModel(
 				frameIt);
 		}
 
+		{
+			auto scenes = gScenes.Write();
+			scenes.Get() = SceneState{
+				.filePath = model->GetDesc().name, .names = model->GetDesc().scenes, .current = model->GetDesc().scene};
+		}
+
 		// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
 		{
 			auto animation = gAnimation.Write();
@@ -838,9 +855,13 @@ static void InstallImage(
 
 // loads a model (or several, side by side as one, see Model::Load) and its materials' textures, and has the draw thread
 // install them, unless the load was cancelled. call from a load (see gLoads).
-static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress)
+// scene: a gltf file's scene to load (one file only), else its default one
+static void LoadAndInstallModels(
+	RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, std::optional<size_t> scene = std::nullopt)
 {
-	auto model = Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
+	auto model = scene && filePaths.size() == 1
+					 ? Model::Load(filePaths.front(), progress, scene)
+					 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
 	if (!model) // cancelled or failed
 		return;
 
@@ -1659,7 +1680,8 @@ void WindowedApplication::PrepareDraw()
 
 	// automation: SPEEDO_AUTOLOAD_MODEL (a model, or a zip archive or directory, whose models are loaded side by side)
 	// and SPEEDO_AUTOLOAD_IMAGE (an image, on the default material) name files to load at startup, absolute or relative to
-	// the resource directory, through the same load + install path as the "File" menu. with
+	// the resource directory, through the same load + install path as the "File" menu (SPEEDO_AUTOLOAD_SCENE=<index>: a
+	// gltf model's scene, as View > Scene loads it). with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
 	// scripts/assettest.ps1).
 	static std::vector<core::Future<void>> gAutoLoads;
@@ -1670,11 +1692,19 @@ void WindowedApplication::PrepareDraw()
 
 		// queued as separate loads, which run concurrently
 		// a zip archive loads all of its models, side by side
+		std::optional<size_t> autoLoadScene;
+		if (const char* scene = std::getenv("SPEEDO_AUTOLOAD_SCENE"); scene != nullptr && *scene != '\0')
+			autoLoadScene = std::strtoull(scene, nullptr, 10);
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
-				[&rhi, path = (resourcePath / autoLoadModel).string()](std::atomic_uint8_t& progress)
-				{ LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll); }));
+				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadScene](std::atomic_uint8_t& progress)
+				{
+					if (autoLoadScene && mesh::IsModelFile(path))
+						LoadAndInstallModels(rhi, {path}, progress, autoLoadScene);
+					else
+						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
+				}));
 		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadImage,
@@ -1784,6 +1814,24 @@ void WindowedApplication::PrepareDraw()
 						});
 					rhi.drawCalls.enqueue(resizeTask);
 				}
+			}
+			if (BeginMenu("Scene"))
+			{
+				// the installed gltf file's scenes: choosing one loads the file again with it
+				SceneState scenes = gScenes.Read().Get();
+				if (scenes.names.size() < 2)
+					TextDisabled(scenes.names.empty() ? "No scenes" : "One scene");
+				for (size_t sceneIt = 0; sceneIt < scenes.names.size(); sceneIt++)
+				{
+					PushID(static_cast<int>(sceneIt));
+					if (MenuItem(scenes.names[sceneIt].c_str(), nullptr, scenes.current == sceneIt) && scenes.current != sceneIt)
+						(void)gLoads.Enqueue(
+							std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), scenes.names[sceneIt]),
+							[&rhi, path = scenes.filePath, sceneIt](std::atomic_uint8_t& progress)
+							{ LoadAndInstallModels(rhi, {path}, progress, sceneIt); });
+					PopID();
+				}
+				ImGui::EndMenu();
 			}
 			if (BeginMenu("Animation"))
 			{

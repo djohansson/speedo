@@ -250,7 +250,9 @@ failed load prints why and returns null instead of trapping. When an importer ch
 `objimport-vN`/`gltfimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output.
 Assets outside `RootPath` are cached under `<user profile>/external/<absolute path>`.
 
-glTF: the default scene is flattened into one mesh with the node transforms applied (a mirroring one reverses the
+glTF: a scene (`mesh::ImportOptions::scene`, else the default one, or the first; the file's scenes are
+`ModelDesc::scenes`, and View > Scene, or `SPEEDO_AUTOLOAD_SCENE=<index>`, loads the file again with another, as a
+cache entry of its own) is flattened into one mesh with the node transforms applied (a mirroring one reverses the
 winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). `EXT_mesh_gpu_instancing`
 is drawn instanced instead: the node's primitives once, in its space, and a transform per instance (the node's times
 the instance's translation * rotation * scale) in `Mesh::instances`/`ModelDesc::instances`, which each submesh names a

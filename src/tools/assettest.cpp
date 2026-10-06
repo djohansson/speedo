@@ -148,6 +148,31 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 
 	const auto& stats = mesh->stats;
 
+	// the file's other scenes import too (the checks below are of the default one)
+	if (mesh->scenes.size() > 1)
+	{
+		report.Info("{} scenes, scene {} ({}) is checked", mesh->scenes.size(), mesh->scene, mesh->scenes[mesh->scene]);
+		for (size_t sceneIt = 0; sceneIt < mesh->scenes.size(); sceneIt++)
+		{
+			if (sceneIt == mesh->scene)
+				continue;
+			auto other = gfx::mesh::Import(
+				path,
+				{.embeddedImageDirectory = std::filesystem::temp_directory_path() / "assettest" / "embedded" / path.stem(),
+				 .scene = sceneIt});
+			if (!other)
+				report.Fail("scene {} ({}): {}", sceneIt, mesh->scenes[sceneIt], other.error());
+			else if (other->scene != sceneIt)
+				report.Fail("scene {} ({}): scene {} was imported instead", sceneIt, mesh->scenes[sceneIt], other->scene);
+			else if (other->indices.empty())
+				report.Warn("scene {} ({}) has no primitives", sceneIt, mesh->scenes[sceneIt]);
+			else
+				report.Info(
+					"scene {} ({}): {} triangles, {} vertices", sceneIt, mesh->scenes[sceneIt], other->stats.triangleCount,
+					other->vertices.size());
+		}
+	}
+
 	{
 		auto& summary = summaryOut.emplace();
 		summary.triangles = stats.triangleCount;

@@ -14,7 +14,7 @@
 	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
 	* texcoords: sets above 1 fall back to set 0
 	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
-	* scenes: only the default one (or the first) is loaded
+	* scenes: one at a time (View > Scene loads the file again with another), not several side by side
 	* EXT_mesh_gpu_instancing: drawn instanced, but blended instanced submeshes are sorted as a whole, not per instance
 	* points and lines: drawn a pixel wide (points one pixel, as gltf has no size for them)
 	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)

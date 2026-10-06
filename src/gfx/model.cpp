@@ -103,7 +103,8 @@ struct Staged
 
 // loads a model file through the asset cache into staging buffers, filled before the upload takes the transfer
 // queue's lock. nothing if cancelled or failed (the reason is printed to stderr).
-[[nodiscard]] static std::optional<Staged> LoadStaged(Device& device, std::string_view filePath, std::atomic_uint8_t& progress)
+[[nodiscard]] static std::optional<Staged> LoadStaged(
+	Device& device, std::string_view filePath, std::atomic_uint8_t& progress, std::optional<size_t> scene)
 {
 	using namespace rhi;
 
@@ -145,7 +146,8 @@ struct Staged
 	auto absolutePath = std::filesystem::absolute(std::filesystem::path(filePath));
 	mesh::ImportOptions importOptions{
 		.embeddedImageDirectory = userProfilePath / "embedded" /
-								  std::format("{}-{:016x}", absolutePath.stem().string(), std::hash<std::string>{}(absolutePath.string()))};
+								  std::format("{}-{:016x}", absolutePath.stem().string(), std::hash<std::string>{}(absolutePath.string())),
+		.scene = scene};
 
 	// the embedded images a cached model names, which only an import writes: missing ones (e.g. a cleared user profile)
 	// make the cache unusable, so that LoadAsset imports the model again, which extracts them again
@@ -257,6 +259,8 @@ struct Staged
 		desc.instances = mesh->instances;
 		desc.animation = mesh->animation;
 		desc.skinned = !mesh->skinVertices.empty();
+		desc.scenes = mesh->scenes;
+		desc.scene = mesh->scene;
 		desc.cameras = mesh->cameras;
 		desc.lights = mesh->lights;
 		// skinned vertices are where their joints put them at rest
@@ -357,8 +361,11 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v16", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
-	params.append("|cache-v19"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v17", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+	// a scene asked for is a cache entry of its own, the default scene's is the one without
+	if (scene)
+		params.append(std::format("|scene-{}", *scene));
+	params.append("|cache-v20"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -637,9 +644,18 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 } // namespace model
 
-std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress)
+std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress, std::optional<size_t> scene)
 {
-	return Load(std::span(&filePath, 1), progress);
+	ZoneScopedN("gfx::Model::Load");
+
+	auto* rhi = rhi::GetRHI<rhi::kGraphicsApi>();
+	ENSURE(rhi);
+	auto& device = rhi->GetPrimaryDevice();
+
+	auto staged = model::LoadStaged(device, filePath, progress, scene);
+	if (!staged) // cancelled or failed
+		return {};
+	return model::UploadStaged(device, std::move(*staged));
 }
 
 std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress)
@@ -668,7 +684,7 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 		}
 
 		std::atomic_uint8_t fileProgress = 0;
-		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress);
+		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, std::nullopt);
 		if (!staged) // cancelled or failed
 			return {};
 		models.push_back(std::move(*staged));
