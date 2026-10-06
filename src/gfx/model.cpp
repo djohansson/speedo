@@ -27,13 +27,45 @@
 namespace gfx
 {
 
-Model::Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, Buffer&& instanceBuffer, const Upload& upload) noexcept
+Model::Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noexcept
 	: myDesc(std::move(desc))
-	, myIndexBuffer(std::move(indexBuffer))
-	, myVertexBuffer(std::move(vertexBuffer))
-	, myInstanceBuffer(std::move(instanceBuffer))
+	, myBuffers(std::move(buffers))
 	, myUpload(upload)
 {}
+
+std::vector<const Buffer*> Model::GetUploadedBuffers() const
+{
+	std::vector<const Buffer*> buffers{&myBuffers.index, &myBuffers.vertex};
+	if (myBuffers.skin.IsValid())
+		buffers.push_back(&myBuffers.skin);
+	if (myBuffers.instances.size() == 1)
+		buffers.push_back(&myBuffers.instances.front());
+	return buffers;
+}
+
+void Model::Animate(size_t frameIndex, std::optional<size_t> animation, float time)
+{
+	ZoneScopedN("gfx::Model::Animate");
+
+	if (myDesc.animation.empty() || frameIndex >= myBuffers.instances.size() || frameIndex >= myBuffers.joints.size())
+		return;
+
+	auto worlds = EvaluateNodes(myDesc.animation, animation.value_or(myDesc.animation.animations.size()), time);
+
+	auto& instances = myBuffers.instances[frameIndex];
+	auto instanceMemory = instances.Map();
+	WriteInstances(myDesc.animation, worlds, instanceMemory);
+	instances.Flush(0, instanceMemory.size());
+	instances.Unmap();
+
+	auto& joints = myBuffers.joints[frameIndex];
+	auto jointMemory = joints.Map();
+	WriteJoints(
+		myDesc.animation, worlds,
+		std::span(reinterpret_cast<SceneMatrix*>(jointMemory.data()), jointMemory.size() / sizeof(SceneMatrix)));
+	joints.Flush(0, jointMemory.size());
+	joints.Unmap();
+}
 
 Model::~Model() = default;
 
@@ -47,6 +79,7 @@ struct Staged
 	ModelDesc desc;
 	Buffer indexStaging;
 	Buffer vertexStaging;
+	Buffer skinStaging; // SkinVertex per vertex, if desc.skinned
 };
 
 // the vertex and instance buffers are read by the shaders as storage buffers, which can't be larger than this
@@ -87,8 +120,13 @@ struct Staged
 	ModelDesc desc;
 	Buffer indexStaging;
 	Buffer vertexStaging;
+	Buffer skinStaging;
 	auto createStaging = [&]
 	{
+		if (desc.skinned)
+			skinStaging = Buffer::CreateStaging(
+				device.CreateDeviceObjectCreateDesc(std::format("{} (skin staging)", filePath)),
+				desc.vertexCount * sizeof(SkinVertex));
 		indexStaging = Buffer::CreateStaging(
 			device.CreateDeviceObjectCreateDesc(std::format("{} (index staging)", filePath)), desc.indexCount * sizeof(uint32_t));
 		vertexStaging = Buffer::CreateStaging(
@@ -99,6 +137,7 @@ struct Staged
 	{
 		indexStaging = {};
 		vertexStaging = {};
+		skinStaging = {};
 	};
 
 	// embedded images of gltf files are extracted to files, which the textures are loaded from
@@ -144,8 +183,10 @@ struct Staged
 
 		createStaging();
 
-		for (auto* staging : {&indexStaging, &vertexStaging})
+		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging})
 		{
+			if (!staging->IsValid())
+				continue;
 			auto memory = staging->Map();
 			auto result = inStream(std::span(reinterpret_cast<char*>(memory.data()), memory.size()));
 			staging->Unmap();
@@ -168,8 +209,10 @@ struct Staged
 		if (auto result = outStream(desc); failure(result))
 			return std::make_error_code(result);
 
-		for (auto* staging : {&indexStaging, &vertexStaging})
+		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging})
 		{
+			if (!staging->IsValid())
+				continue;
 			auto memory = staging->Map();
 			auto result = outStream(std::span(reinterpret_cast<const char*>(memory.data()), memory.size()));
 			staging->Unmap();
@@ -212,8 +255,12 @@ struct Staged
 		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
 		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
 		desc.instances = mesh->instances;
+		desc.animation = mesh->animation;
+		desc.skinned = !mesh->skinVertices.empty();
 		desc.cameras = mesh->cameras;
 		desc.lights = mesh->lights;
+		// skinned vertices are where their joints put them at rest
+		auto restJoints = desc.skinned ? RestJoints(mesh->animation) : std::vector<SceneMatrix>{};
 		for (const auto& submesh : mesh->submeshes)
 		{
 			auto& modelSubmesh = desc.submeshes.emplace_back(ModelSubmesh{
@@ -223,7 +270,8 @@ struct Staged
 				.topology = submesh.topology,
 				.firstInstance = submesh.firstInstance,
 				.instanceCount = submesh.instanceCount,
-				.mirroredInstanceCount = submesh.mirroredInstanceCount});
+				.mirroredInstanceCount = submesh.mirroredInstanceCount,
+				.skin = submesh.skin});
 			if (submesh.indexCount == 0)
 				continue;
 			// in world space: the center of its bounds' corners at each of its instances
@@ -232,6 +280,13 @@ struct Staged
 			for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
 			{
 				auto position = glm::make_vec3(mesh->vertices[index].position);
+				if (submesh.skin >= 0 && desc.skinned)
+				{
+					auto skinned = SkinPosition(
+						restJoints, mesh->animation.skins[submesh.skin].jointBase, mesh->skinVertices[index],
+						std::to_array(mesh->vertices[index].position));
+					position = glm::make_vec3(skinned.data());
+				}
 				min = glm::min(min, position);
 				max = glm::max(max, position);
 			}
@@ -284,6 +339,13 @@ struct Staged
 		std::memcpy(vertices.data(), mesh->vertices.data(), vertices.size());
 		vertexStaging.Unmap();
 
+		if (skinStaging.IsValid())
+		{
+			auto skinVertices = skinStaging.Map();
+			std::memcpy(skinVertices.data(), mesh->skinVertices.data(), skinVertices.size());
+			skinStaging.Unmap();
+		}
+
 		progress = 224;
 
 		return {};
@@ -295,8 +357,8 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v2", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|gltfimport-v13", kCgltfVersion));
-	params.append("|cache-v18"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+		params.append(std::format("cgltf-{}|gltfimport-v15", kCgltfVersion));
+	params.append("|cache-v19"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -316,7 +378,11 @@ struct Staged
 
 	desc.name = std::string(filePath);
 
-	return Staged{.desc = std::move(desc), .indexStaging = std::move(indexStaging), .vertexStaging = std::move(vertexStaging)};
+	return Staged{
+		.desc = std::move(desc),
+		.indexStaging = std::move(indexStaging),
+		.vertexStaging = std::move(vertexStaging),
+		.skinStaging = std::move(skinStaging)};
 }
 
 // the models side by side, in a grid in the xy plane (facing +z, the cameras' default view), as one: their indices and
@@ -360,6 +426,7 @@ struct Staged
 			if (submesh.material >= 0)
 				submesh.material += materialBase;
 			submesh.firstInstance += instanceBase;
+			submesh.skin = -1; // a set is drawn at rest (see ModelDesc::animation)
 			for (size_t axis = 0; axis < 3; axis++)
 				submesh.center[axis] = place(submesh.center[axis], axis);
 			merged.desc.submeshes.push_back(submesh);
@@ -437,29 +504,71 @@ struct Staged
 }
 
 // uploads a model's staged indices and vertices on the transfer queue (see Model::Load)
+// each instance's transform and its inverse transpose (for the normals), as ModelInstance
+static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memory)
+{
+	auto* instances = reinterpret_cast<ModelInstance*>(memory.data());
+	for (size_t instanceIt = 0; instanceIt < desc.instances.size(); instanceIt++)
+	{
+		auto transform = glm::make_mat4(desc.instances[instanceIt].data());
+		auto inverseTranspose = glm::transpose(glm::inverse(transform));
+		std::memcpy(&instances[instanceIt].modelTransform[0][0], glm::value_ptr(transform), sizeof(float) * 16);
+		std::memcpy(&instances[instanceIt].inverseTransposeModelTransform[0][0], glm::value_ptr(inverseTranspose), sizeof(float) * 16);
+	}
+}
+
+// uploads a model's staged indices, vertices and skin vertices on the transfer queue (see Model::Load). its instances
+// go in a device local buffer too, unless it moves: then each frame has a host visible instance and joint buffer,
+// which Model::Animate writes (starting at rest)
 [[nodiscard]] static std::shared_ptr<Model> UploadStaged(Device& device, Staged&& staged)
 {
 	using namespace rhi;
 
 	ZoneScopedN("gfx::Model::Upload");
 
-	auto& [desc, indexStaging, vertexStaging] = staged;
+	auto& [desc, indexStaging, vertexStaging, skinStaging] = staged;
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
+	bool moves = !desc.animation.empty();
 
-	// each instance's transform and its inverse transpose (for the normals), filled before taking the queue's lock
-	auto instanceStaging = Buffer::CreateStaging(
-		device.CreateDeviceObjectCreateDesc(std::format("{} (instance staging)", filePath)),
-		desc.instances.size() * sizeof(ModelInstance));
+	ModelBuffers buffers;
+	Buffer instanceStaging;
+	if (moves)
 	{
-		auto memory = instanceStaging.Map();
-		auto* instances = reinterpret_cast<ModelInstance*>(memory.data());
-		for (size_t instanceIt = 0; instanceIt < desc.instances.size(); instanceIt++)
+		auto worlds = EvaluateNodes(desc.animation, desc.animation.animations.size(), 0.0F);
+		std::vector<SceneMatrix> joints(std::max<size_t>(desc.animation.jointCount, 1), gfx::mesh::kIdentityTransform);
+		WriteJoints(desc.animation, worlds, joints);
+		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 		{
-			auto transform = glm::make_mat4(desc.instances[instanceIt].data());
-			auto inverseTranspose = glm::transpose(glm::inverse(transform));
-			std::memcpy(&instances[instanceIt].modelTransform[0][0], glm::value_ptr(transform), sizeof(float) * 16);
-			std::memcpy(&instances[instanceIt].inverseTransposeModelTransform[0][0], glm::value_ptr(inverseTranspose), sizeof(float) * 16);
+			auto& instances = buffers.instances.emplace_back(BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("{} (instances {})", filePath, frameIt)),
+				desc.instances.size() * sizeof(ModelInstance),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible});
+			auto memory = instances.Map();
+			WriteRestInstances(desc, memory);
+			WriteInstances(desc.animation, worlds, memory);
+			instances.Flush(0, memory.size());
+			instances.Unmap();
+
+			auto& jointBuffer = buffers.joints.emplace_back(BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("{} (joints {})", filePath, frameIt)),
+				joints.size() * sizeof(SceneMatrix),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible});
+			auto jointMemory = jointBuffer.Map();
+			std::memcpy(jointMemory.data(), joints.data(), jointMemory.size());
+			jointBuffer.Flush(0, jointMemory.size());
+			jointBuffer.Unmap();
 		}
+	}
+	else
+	{
+		// filled before taking the queue's lock
+		instanceStaging = Buffer::CreateStaging(
+			device.CreateDeviceObjectCreateDesc(std::format("{} (instance staging)", filePath)),
+			desc.instances.size() * sizeof(ModelInstance));
+		auto memory = instanceStaging.Map();
+		WriteRestInstances(desc, memory);
 		instanceStaging.Unmap();
 	}
 
@@ -473,49 +582,42 @@ struct Staged
 
 		auto cmd = transferQueue.GetPool().Commands();
 
-		std::array<core::TaskCreateInfo<void>, 3> transfersDone;
-		auto indexBuffer = Buffer(
-			BufferCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("{} (indices)", filePath)),
-				desc.indexCount * sizeof(uint32_t),
-				BufferUsage::kIndex | BufferUsage::kTransferDestination,
-				MemoryProperty::kDeviceLocal},
-			std::move(indexStaging),
-			cmd,
-			transfersDone[0]);
-		auto vertexBuffer = Buffer(
-			BufferCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("{} (vertices)", filePath)),
-				desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f),
-				BufferUsage::kVertex | BufferUsage::kStorage | BufferUsage::kTransferDestination,
-				MemoryProperty::kDeviceLocal},
-			std::move(vertexStaging),
-			cmd,
-			transfersDone[1]);
-		auto instanceBuffer = Buffer(
-			BufferCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("{} (instances)", filePath)),
-				desc.instances.size() * sizeof(ModelInstance),
-				BufferUsage::kStorage | BufferUsage::kTransferDestination,
-				MemoryProperty::kDeviceLocal},
-			std::move(instanceStaging),
-			cmd,
-			transfersDone[2]);
-		auto upload = Upload{
+		std::vector<core::TaskHandle> timelineCallbacks;
+		auto upload = [&](std::string_view what, uint64_t size, BufferUsage usage, Buffer&& staging)
+		{
+			core::TaskCreateInfo<void> transferDone;
+			auto buffer = Buffer(
+				BufferCreateDesc{
+					device.CreateDeviceObjectCreateDesc(std::format("{} ({})", filePath, what)),
+					size,
+					usage | BufferUsage::kTransferDestination,
+					MemoryProperty::kDeviceLocal},
+				std::move(staging),
+				cmd,
+				transferDone);
+			timelineCallbacks.emplace_back(transferDone.handle);
+			return buffer;
+		};
+		buffers.index = upload("indices", desc.indexCount * sizeof(uint32_t), BufferUsage::kIndex, std::move(indexStaging));
+		buffers.vertex = upload(
+			"vertices", desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f), BufferUsage::kVertex | BufferUsage::kStorage,
+			std::move(vertexStaging));
+		if (skinStaging.IsValid())
+			buffers.skin = upload("skin vertices", desc.vertexCount * sizeof(SkinVertex), BufferUsage::kStorage, std::move(skinStaging));
+		if (!moves)
+			buffers.instances.push_back(
+				upload("instances", desc.instances.size() * sizeof(ModelInstance), BufferUsage::kStorage, std::move(instanceStaging)));
+
+		auto uploadInfo = Upload{
 			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
-		model = std::make_shared<Model>(
-			std::move(desc), std::move(indexBuffer), std::move(vertexBuffer), std::move(instanceBuffer), upload);
+		model = std::make_shared<Model>(std::move(desc), std::move(buffers), uploadInfo);
 
 		CommandEncoder encoder(cmd);
-		for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer(), &model->GetInstanceBuffer()})
+		for (const auto* buffer : model->GetUploadedBuffers())
 			encoder.ReleaseOwnership(
-				*buffer, upload.queueFamilyIndex, graphicsQueueFamilyIndex, PipelineStage::kTransfer, Access::kTransferWrite);
+				*buffer, uploadInfo.queueFamilyIndex, graphicsQueueFamilyIndex, PipelineStage::kTransfer, Access::kTransferWrite);
 		cmd.End();
 
-		std::vector<core::TaskHandle> timelineCallbacks;
-		timelineCallbacks.emplace_back(transfersDone[0].handle);
-		timelineCallbacks.emplace_back(transfersDone[1].handle);
-		timelineCallbacks.emplace_back(transfersDone[2].handle);
 		// the caller may drop the model before the upload has completed, e.g. if the load it is part of is cancelled
 		timelineCallbacks.emplace_back(core::CreateTask([model] {}).handle);
 
@@ -524,7 +626,7 @@ struct Staged
 			.waitDstStageMasks = {PipelineStage::kTransfer},
 			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
 			.signalSemaphores = {transfer->semaphore},
-			.signalSemaphoreValues = {upload.value},
+			.signalSemaphoreValues = {uploadInfo.value},
 			.callbacks = std::move(timelineCallbacks)});
 
 		transferSubmits |= transferQueue.Submit();

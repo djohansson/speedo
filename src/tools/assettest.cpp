@@ -170,7 +170,13 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
 	if (mesh->instances.size() > 1)
-		report.Info("{} instances (EXT_mesh_gpu_instancing)", mesh->instances.size() - 1);
+		report.Info("{} instances (EXT_mesh_gpu_instancing, or of moving nodes)", mesh->instances.size() - 1);
+	if (const auto& animation = mesh->animation; !animation.empty())
+		report.Info(
+			"{} skins ({} joints), {} animations, {} instances follow nodes", animation.skins.size(), animation.jointCount,
+			animation.animations.size(), animation.instanceLinks.size());
+	if (!mesh->skinVertices.empty() && mesh->skinVertices.size() != mesh->vertices.size())
+		report.Fail("{} skin vertices for {} vertices", mesh->skinVertices.size(), mesh->vertices.size());
 
 	if (mesh->indices.empty())
 	{
@@ -294,41 +300,34 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	}
 
 	// stray vertices: far away from the rest, which a broken export leaves (spikes, and bounds, and so a camera framing,
-	// far larger than the model). measured from the median point, which they don't drag along as they do the bounds.
+	// far larger than the model). measured from the median point, which they don't drag along as they do the bounds. at
+	// rest, in world space: instanced submeshes keep their vertices in their node's space (by their first instance), and
+	// skinned ones in their mesh's (by their joints at rest).
 	if (!mesh->vertices.empty())
 	{
-		auto medianOf = [](std::vector<double>& values)
+		std::vector<std::array<double, 3>> positions(mesh->vertices.size());
+		for (size_t vertexIt = 0; vertexIt < mesh->vertices.size(); vertexIt++)
+			for (size_t axis = 0; axis < 3; axis++)
+				positions[vertexIt][axis] = mesh->vertices[vertexIt].position[axis];
+		auto restJoints = mesh->skinVertices.empty() ? std::vector<gfx::SceneMatrix>{} : gfx::RestJoints(mesh->animation);
+		for (const auto& submesh : mesh->submeshes)
 		{
-			auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2);
-			std::ranges::nth_element(values, middle);
-			return *middle;
-		};
-		Vec3 median{};
-		std::vector<double> values(mesh->vertices.size());
-		for (size_t axis = 0; axis < 3; axis++)
-		{
-			std::ranges::transform(mesh->vertices, values.begin(), [axis](const auto& vertex) { return static_cast<double>(vertex.position[axis]); });
-			median[axis] = medianOf(values);
+			if (submesh.firstIndex + submesh.indexCount > mesh->indices.size())
+				continue;
+			const auto& transform = mesh->instances[std::min<size_t>(submesh.firstInstance, mesh->instances.size() - 1)];
+			for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
+			{
+				if (index >= positions.size())
+					continue;
+				auto position = std::to_array(mesh->vertices[index].position);
+				if (submesh.skin >= 0 && !mesh->skinVertices.empty())
+					position = gfx::SkinPosition(restJoints, mesh->animation.skins[submesh.skin].jointBase, mesh->skinVertices[index], position);
+				for (size_t axis = 0; axis < 3; axis++)
+					positions[index][axis] = (transform[axis] * position[0]) + (transform[4 + axis] * position[1]) +
+											 (transform[8 + axis] * position[2]) + transform[12 + axis];
+			}
 		}
-		std::ranges::transform(mesh->vertices, values.begin(), [&median](const auto& vertex)
-		{
-			Vec3 d{vertex.position[0] - median[0], vertex.position[1] - median[1], vertex.position[2] - median[2]};
-			return std::sqrt((d[0] * d[0]) + (d[1] * d[1]) + (d[2] * d[2]));
-		});
-		auto distances = values;
-		auto medianDistance = medianOf(values);
-		constexpr double kStrayFactor = 100.0; // large ground planes and backdrops reach about 20 (mori_knob)
-		auto stray = std::ranges::count_if(distances, [medianDistance](double d) { return d > kStrayFactor * medianDistance; });
-		if (medianDistance > 0.0 && stray > 0)
-			report.Warn(
-				"{} vertices are more than {:.0f} times as far from the median point as the median vertex (stray vertices?)",
-				stray, kStrayFactor);
-	}
 
-	// stray vertices: far away from the rest, which a broken export leaves (spikes, and bounds, and so a camera framing,
-	// far larger than the model). measured from the median point, which they don't drag along as they do the bounds.
-	if (!mesh->vertices.empty())
-	{
 		auto medianOf = [](std::vector<double> values)
 		{
 			auto middle = values.begin() + static_cast<std::ptrdiff_t>(values.size() / 2);
@@ -336,15 +335,15 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			return *middle;
 		};
 		Vec3 median{};
-		std::vector<double> values(mesh->vertices.size());
+		std::vector<double> values(positions.size());
 		for (size_t axis = 0; axis < 3; axis++)
 		{
-			std::ranges::transform(mesh->vertices, values.begin(), [axis](const auto& vertex) { return static_cast<double>(vertex.position[axis]); });
+			std::ranges::transform(positions, values.begin(), [axis](const auto& position) { return position[axis]; });
 			median[axis] = medianOf(values);
 		}
-		std::ranges::transform(mesh->vertices, values.begin(), [&median](const auto& vertex)
+		std::ranges::transform(positions, values.begin(), [&median](const auto& position)
 		{
-			Vec3 d{vertex.position[0] - median[0], vertex.position[1] - median[1], vertex.position[2] - median[2]};
+			Vec3 d{position[0] - median[0], position[1] - median[1], position[2] - median[2]};
 			return std::sqrt((d[0] * d[0]) + (d[1] * d[1]) + (d[2] * d[2]));
 		});
 		auto medianDistance = medianOf(values);

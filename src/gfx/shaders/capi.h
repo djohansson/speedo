@@ -81,6 +81,7 @@ struct ViewData
 };
 
 #define SHADER_TYPES_LIGHT_COUNT 256u
+#define SHADER_TYPES_NOT_SKINNED 0xffffffffu
 
 #define LIGHT_TYPE_DIRECTIONAL 0u
 #define LIGHT_TYPE_POINT 1u
@@ -163,6 +164,14 @@ struct VertexP3fN3fTa4fT014fC4f
 	alignas(16) FLOAT4(color);
 };
 
+// a skinned vertex's joints and weights (gltf JOINTS_0 and WEIGHTS_0), by vertex index (gSkinVertices, parallel to
+// gVertexBuffer): position = sum of weight i * gJointMatrices[frame][PushConstants::jointBase + joint i] * position
+struct SkinVertex
+{
+	alignas(8) UINT2(joints); // 4 x 16 bit joint indices into its skin, low half first
+	alignas(8) UINT2(weights); // 4 x 16 bit unorm weights, summing to 1
+};
+
 struct PushConstants
 {
 	// per frame
@@ -175,6 +184,8 @@ struct PushConstants
 	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
 	alignas(4) UINT(lightCount);
 	alignas(4) FLOAT(exposure);
+	// per draw: where its skin's joint matrices start in gJointMatrices, or SHADER_TYPES_NOT_SKINNED
+	alignas(4) UINT(jointBase);
 };
 
 #ifdef __cplusplus

@@ -103,6 +103,22 @@ static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see Insta
 static uuids::uuid gMaterialsUuid;
 static uuids::uuid gTextureViewsUuid;
 static uuids::uuid gModelInstancesUuid;
+// bound as gSkinVertices and gJointMatrices while the installed model has none (a model that doesn't move or isn't
+// skinned): one zero skin vertex and one identity joint matrix
+static uuids::uuid gDefaultSkinVerticesUuid;
+static uuids::uuid gDefaultJointsUuid;
+
+// which of the installed model's animations plays (see Model::Animate), and its clock. the ui thread reads and changes
+// it, the draw thread advances it.
+struct AnimationState
+{
+	std::vector<std::string> names;
+	std::optional<size_t> selected; // nullopt: the rest pose
+	bool playing = true;
+	double time = 0.0; // seconds
+	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+};
+static core::ConcurrentAccess<AnimationState> gAnimation;
 // gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
 static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
@@ -542,7 +558,7 @@ static void InstallModel(
 
 	// each resource once: materials share textures
 	Uploads uploads;
-	for (const auto* buffer : {&model->GetIndexBuffer(), &model->GetVertexBuffer(), &model->GetInstanceBuffer()})
+	for (const auto* buffer : model->GetUploadedBuffers())
 		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
 		for (const auto* texture :
@@ -734,9 +750,45 @@ static void InstallModel(
 			BufferBinding{.buffer = model->GetVertexBuffer(), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 		pipeline.SetDescriptorData(
-			"gModelInstances",
-			BufferBinding{.buffer = model->GetInstanceBuffer(), .offset = 0},
-			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+			"gSkinVertices",
+			BufferBinding{
+				.buffer = model->GetSkinBuffer() != nullptr ? *model->GetSkinBuffer() : *device.GetResource<Buffer>(gDefaultSkinVerticesUuid),
+				.offset = 0},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+		{
+			pipeline.SetDescriptorData(
+				"gModelInstances",
+				BufferBinding{.buffer = model->GetInstanceBuffer(frameIt), .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+			pipeline.SetDescriptorData(
+				"gJointMatrices",
+				BufferBinding{
+					.buffer = model->GetJointBuffer(frameIt) != nullptr ? *model->GetJointBuffer(frameIt)
+																		: *device.GetResource<Buffer>(gDefaultJointsUuid),
+					.offset = 0},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+		}
+
+		// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
+		{
+			auto animation = gAnimation.Write();
+			auto& state = animation.Get();
+			state.names.clear();
+			for (const auto& clip : model->GetDesc().animation.animations)
+				state.names.push_back(clip.name);
+			state.selected = state.names.empty() ? std::nullopt : std::optional<size_t>(0);
+			state.playing = true;
+			state.time = 0.0;
+			state.last = std::chrono::steady_clock::now();
+			if (const char* time = std::getenv("SPEEDO_ANIMATION_TIME"); time != nullptr && *time != '\0')
+			{
+				state.playing = false;
+				state.time = std::strtod(time, nullptr);
+			}
+		}
 
 		RetireAfterGraphicsWork(graphics, std::exchange(gModel, model));
 
@@ -1186,6 +1238,7 @@ static void DrawMainPass(
 							ZoneScopedN("drawModel");
 
 							const auto& materials = model.GetDesc().materials;
+							const auto& skins = model.GetDesc().animation.skins;
 							// bindState bound the default (opaque triangle list) pipeline
 							GraphicsPipelineVariant bound{};
 							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend)
@@ -1211,6 +1264,7 @@ static void DrawMainPass(
 										return;
 									encoder.SetFrontFace(frontFace);
 									pushConstants.modelInstanceId = firstInstance;
+									pushConstants.jointBase = submesh.skin >= 0 ? skins[submesh.skin].jointBase : SHADER_TYPES_NOT_SKINNED;
 									pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
 								};
@@ -1731,6 +1785,29 @@ void WindowedApplication::PrepareDraw()
 					rhi.drawCalls.enqueue(resizeTask);
 				}
 			}
+			if (BeginMenu("Animation"))
+			{
+				// the installed model's animations (see Model::Animate)
+				auto animation = gAnimation.Write();
+				auto& state = animation.Get();
+				MenuItem("Play", nullptr, &state.playing);
+				if (MenuItem("Restart"))
+					state.time = 0.0;
+				Separator();
+				if (MenuItem("Rest pose", nullptr, !state.selected.has_value()))
+					state.selected.reset();
+				for (size_t animationIt = 0; animationIt < state.names.size(); animationIt++)
+				{
+					PushID(static_cast<int>(animationIt));
+					if (MenuItem(state.names[animationIt].c_str(), nullptr, state.selected == animationIt))
+					{
+						state.selected = animationIt;
+						state.time = 0.0;
+					}
+					PopID();
+				}
+				ImGui::EndMenu();
+			}
 			if (BeginMenu("Camera"))
 			{
 				// the installed model's cameras (see Views::SetScene), applied on the draw thread
@@ -1944,6 +2021,24 @@ bool WindowedApplication::Draw()
 		{
 			ZoneScopedN("WindowedApplication::Draw::drawCall");
 			GetExecutor().Call(drawCall, graphics.Get().get());
+		}
+
+		// the frame's instance and joint buffers, now that the frame's previous use of them is done (see the fences above)
+		if (gModel && gModel->Moves())
+		{
+			std::optional<size_t> selected;
+			double time = 0.0;
+			{
+				auto animation = gAnimation.Write();
+				auto& state = animation.Get();
+				auto now = std::chrono::steady_clock::now();
+				if (state.playing)
+					state.time += std::chrono::duration<double>(now - state.last).count();
+				state.last = now;
+				selected = state.selected;
+				time = state.time;
+			}
+			gModel->Animate(newFrameIndex, selected, static_cast<float>(time));
 		}
 		
 		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);
@@ -2299,6 +2394,34 @@ WindowedApplication::WindowedApplication(
 		gLightsUuid = lights->GetUuid();
 		timelineCallbacks.emplace_back(lightTransfersDone.handle);
 
+		std::array<SkinVertex, 1> defaultSkinVertices{};
+		core::TaskCreateInfo<void> skinTransfersDone;
+		auto skinVertices = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("DefaultSkinVertices"),
+				sizeof(defaultSkinVertices),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			defaultSkinVertices.data(),
+			cmd,
+			skinTransfersDone);
+		gDefaultSkinVerticesUuid = skinVertices->GetUuid();
+		timelineCallbacks.emplace_back(skinTransfersDone.handle);
+
+		std::array<std::array<float, 16>, 1> defaultJoints{gfx::mesh::kIdentityTransform};
+		core::TaskCreateInfo<void> jointTransfersDone;
+		auto joints = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("DefaultJoints"),
+				sizeof(defaultJoints),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			defaultJoints.data(),
+			cmd,
+			jointTransfersDone);
+		gDefaultJointsUuid = joints->GetUuid();
+		timelineCallbacks.emplace_back(jointTransfersDone.handle);
+
 		cmd.End();
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
@@ -2332,10 +2455,23 @@ WindowedApplication::WindowedApplication(
 
 	pipeline.BindLayoutAuto(zPrepassShaderLayoutPairIt->second, PipelineBindPoint::kGraphics);
 
+	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+	{
+		pipeline.SetDescriptorData(
+			"gModelInstances",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(gModelInstancesUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+		pipeline.SetDescriptorData(
+			"gJointMatrices",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultJointsUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+	}
 	pipeline.SetDescriptorData(
-		"gModelInstances",
-		BufferBinding{.buffer = *device.GetResource<Buffer>(gModelInstancesUuid), .offset = 0},
-		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		"gSkinVertices",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultSkinVerticesUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{
@@ -2378,10 +2514,23 @@ WindowedApplication::WindowedApplication(
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gTextureViewsUuid), .offset = 0},
 		DESCRIPTOR_SET_CATEGORY_MATERIAL);
 
+	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+	{
+		pipeline.SetDescriptorData(
+			"gModelInstances",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(gModelInstancesUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+		pipeline.SetDescriptorData(
+			"gJointMatrices",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultJointsUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+	}
 	pipeline.SetDescriptorData(
-		"gModelInstances",
-		BufferBinding{.buffer = *device.GetResource<Buffer>(gModelInstancesUuid), .offset = 0},
-		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		"gSkinVertices",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultSkinVerticesUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 	pipeline.SetDescriptorData(
 		"gSamplers",

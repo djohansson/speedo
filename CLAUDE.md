@@ -291,8 +291,19 @@ them, so `Model::Load` treats a cached model whose extracted images are missing 
 `LoadAsset` imports it again. Files requiring draco or
 meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
 project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
-node's, else the mesh's; position and normal deltas); skins (drawn in bind pose) and animation are ignored with a
-warning. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
+node's, else the mesh's; position and normal deltas). Skins and node animations (translation, rotation, scale; step,
+linear and cubic spline) are drawn moving (`SceneAnimationData`, `ModelDesc::animation`, `gfx/sceneanimation.h`): the
+nodes animations move, and their descendants, keep their meshes in node space, drawn with instances linked to the
+node (`SceneInstanceLink`), and skinned meshes keep their vertices in mesh space with a `SkinVertex` each
+(`gSkinVertices`: 4 joints and unorm16 weights), blended in the vertex shader by `gJointMatrices` from
+`PushConstants::jointBase` (world(joint) * inverse bind). Everything else is flattened as before. A moving model has a
+host visible instance and joint buffer per frame (`gModelInstances[frame]`, `gJointMatrices[frame]`), which
+`Model::Animate` writes on the draw thread after the frame's fence wait, from `EvaluateNodes` on the cpu; a static one
+binds its device local instance buffer in every slot, and the defaults (`gDefaultSkinVerticesUuid`, `gDefaultJointsUuid`)
+stand in for what it doesn't have. Skinned bounds and blend centers are at the rest pose (`RestJoints`,
+`SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
+first plays on load), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
+weight and KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at rest. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). The views keep no roll,
 so a rolled camera loses it, and the file's aspect ratio gives way to the view's. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes

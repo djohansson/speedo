@@ -4,9 +4,7 @@
 * todo: multi window/swapchain capability
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* compression and image formats that need libraries we don't have: draco & meshopt (KHR_/EXT_) mesh compression, KTX2/basisu & WebP textures. files requiring them fail to load.
-	* skins: skinned meshes are drawn in their rest (bind) pose
-	* animation: ignored (node, morph weight and KHR_animation_pointer animations)
-	* morph targets: drawn at their default weights (the node's, else the mesh's), position and normal deltas. animated weights belong to animation
+	* animation: node (translation, rotation, scale) animations and skins move. morph weight and KHR_animation_pointer animations are ignored: morph targets are applied at their default weights at import, so animating them needs the deltas on the gpu. joint normals use the joint matrices directly (non-uniform scale on joints skews them). bounds, culling and blend sorting use the rest pose. one animation plays at a time, without blending. a set of files is drawn at rest
 	* cameras: the views have no roll (a rolled camera loses it), and use their own aspect ratio rather than the file's
 	* lights: punctual lights only, every light shades every pixel (no culling or clustering), no shadows. ambient light is a constant (no image based lighting), so smooth metals reflect a uniform gray
 	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. obj materials are matte (their Ks and Ns are ignored), and so is the default material, which gltf would make a rough metal

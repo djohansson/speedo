@@ -11,6 +11,7 @@
 #include <format>
 #include <fstream>
 #include <memory>
+#include <numeric>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -30,6 +31,7 @@ using mesh::Mesh;
 using mesh::Submesh;
 using gfx::SceneCamera;
 using gfx::SceneLight;
+using gfx::SceneMatrix;
 
 namespace detail
 {
@@ -577,7 +579,9 @@ struct Part
 	uint32_t firstInstance = 0;
 	uint32_t instanceCount = 1;
 	uint32_t mirroredInstanceCount = 0;
+	int32_t skin = -1; // see mesh::Submesh::skin
 	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
+	std::vector<SkinVertex> skinVertices; // parallel to vertices if skinned, else empty
 	std::vector<uint32_t> indices;
 };
 
@@ -714,7 +718,6 @@ std::expected<Mesh, std::string> Import(
 	std::vector<Part> parts;
 	size_t skippedPrimitives = 0;
 	bool instancingWarned = false;
-	bool skinWarned = false;
 	bool morphWarned = false; // about weights that can't be applied
 	double agreeingArea = 0.0;
 	double normalArea = 0.0;
@@ -745,6 +748,8 @@ std::expected<Mesh, std::string> Import(
 		const cgltf_accessor* positions = nullptr;
 		const cgltf_accessor* normals = nullptr;
 		const cgltf_accessor* tangents = nullptr;
+		const cgltf_accessor* joints = nullptr;
+		const cgltf_accessor* jointWeights = nullptr;
 		std::array<const cgltf_accessor*, 2> texCoords{};
 		const cgltf_accessor* colors = nullptr;
 		for (cgltf_size attributeIt = 0; attributeIt < primitive.attributes_count; attributeIt++)
@@ -763,6 +768,14 @@ std::expected<Mesh, std::string> Import(
 			case cgltf_attribute_type_tangent:
 				if (attribute.index == 0)
 					tangents = attribute.data;
+				break;
+			case cgltf_attribute_type_joints:
+				if (attribute.index == 0)
+					joints = attribute.data;
+				break;
+			case cgltf_attribute_type_weights:
+				if (attribute.index == 0)
+					jointWeights = attribute.data;
 				break;
 			case cgltf_attribute_type_texcoord:
 				if (attribute.index >= 0 && attribute.index < 2)
@@ -914,7 +927,39 @@ std::expected<Mesh, std::string> Import(
 			.topology = topology,
 			.firstInstance = instances.firstInstance,
 			.instanceCount = instances.instanceCount,
-			.mirroredInstanceCount = instances.mirroredInstanceCount});
+			.mirroredInstanceCount = instances.mirroredInstanceCount,
+			.skin = instances.skin});
+
+		// a skinned primitive's joints and weights, the weights normalized to sum to 1 (see SkinVertex)
+		std::vector<SkinVertex> skinVertices;
+		if (instances.skin >= 0)
+		{
+			skinVertices.resize(vertexCount);
+			auto weightValues = jointWeights != nullptr && jointWeights->type == cgltf_type_vec4 ? unpack(jointWeights, 4) : std::nullopt;
+			if (joints == nullptr || joints->type != cgltf_type_vec4 || joints->count != vertexCount || !weightValues)
+			{
+				warn("mesh {}: a skinned primitive without readable JOINTS_0 and WEIGHTS_0 is drawn in its bind pose", meshName);
+				part.skin = -1;
+				skinVertices.clear();
+			}
+			for (size_t vertexIt = 0; vertexIt < skinVertices.size(); vertexIt++)
+			{
+				std::array<cgltf_uint, 4> jointIndices{};
+				cgltf_accessor_read_uint(joints, vertexIt, jointIndices.data(), jointIndices.size());
+				std::array<float, 4> weights{};
+				std::copy_n(&(*weightValues)[4 * vertexIt], 4, weights.begin());
+				auto sum = weights[0] + weights[1] + weights[2] + weights[3];
+				auto& skinVertex = skinVertices[vertexIt];
+				for (size_t i = 0; i < 4; i++)
+				{
+					auto weight = sum > 0.0F && std::isfinite(sum) ? std::clamp(weights[i] / sum, 0.0F, 1.0F) : (i == 0 ? 1.0F : 0.0F);
+					auto unorm = static_cast<uint32_t>(std::lround(weight * 65535.0F));
+					auto joint = std::min<cgltf_uint>(jointIndices[i], 0xffffU);
+					skinVertex.joints[i / 2] |= joint << ((i % 2) * 16);
+					skinVertex.weights[i / 2] |= unorm << ((i % 2) * 16);
+				}
+			}
+		}
 
 		// the vertices in world space, before normals are generated or repaired
 		std::vector<VertexP3fN3fTa4fT014fC4f> vertices(vertexCount);
@@ -1003,6 +1048,7 @@ std::expected<Mesh, std::string> Import(
 				(size == 2 ? stats.lineCount : stats.pointCount)++;
 			}
 			part.vertices = std::move(vertices);
+			part.skinVertices = std::move(skinVertices);
 			return;
 		}
 
@@ -1041,6 +1087,8 @@ std::expected<Mesh, std::string> Import(
 					std::ranges::transform(n, vertex.normal, [](double v) { return static_cast<float>(v); });
 					part.indices.push_back(static_cast<uint32_t>(part.vertices.size()));
 					part.vertices.push_back(vertex);
+					if (!skinVertices.empty())
+						part.skinVertices.push_back(skinVertices[corner]);
 					stats.generatedNormals++;
 				}
 				continue;
@@ -1072,7 +1120,10 @@ std::expected<Mesh, std::string> Import(
 				part.indices.push_back(corner);
 		}
 		if (normalValues)
+		{
 			part.vertices = std::move(vertices);
+			part.skinVertices = std::move(skinVertices);
+		}
 	};
 
 	// the default scene (or the first), or all root nodes if there are no scenes
@@ -1086,6 +1137,58 @@ std::expected<Mesh, std::string> Import(
 				roots.push_back(&data.nodes[nodeIt]);
 	if (data.scenes_count > 1)
 		warn("{} scenes, only {} is loaded", data.scenes_count, data.scene != nullptr ? "the default one" : "the first");
+
+	// the nodes animations move (their translation, rotation or scale), and their descendants: their meshes keep their
+	// vertices in the node's space, drawn with instances that follow the node (see SceneAnimationData)
+	std::vector<uint8_t> moves(data.nodes_count, 0);
+	for (cgltf_size animationIt = 0; animationIt < data.animations_count; animationIt++)
+	{
+		const auto& animation = data.animations[animationIt];
+		for (cgltf_size channelIt = 0; channelIt < animation.channels_count; channelIt++)
+		{
+			const auto& channel = animation.channels[channelIt];
+			if (channel.target_node != nullptr &&
+				(channel.target_path == cgltf_animation_path_type_translation ||
+				 channel.target_path == cgltf_animation_path_type_rotation || channel.target_path == cgltf_animation_path_type_scale))
+				moves[channel.target_node - data.nodes] = 1;
+		}
+	}
+	auto nodeMoves = [&data, &moves](const cgltf_node* node)
+	{
+		for (; node != nullptr; node = node->parent)
+			if (moves[node - data.nodes] != 0)
+				return true;
+		return false;
+	};
+
+	// each skin a mesh uses, once: its joints (as node indices) and inverse bind matrices, and where its joint
+	// matrices start
+	core::UnorderedMap<size_t, int32_t> skinIndices;
+	auto skinOf = [&](const cgltf_skin& gltfSkin) -> int32_t
+	{
+		auto key = static_cast<size_t>(&gltfSkin - data.skins);
+		if (auto it = skinIndices.find(key); it != skinIndices.end())
+			return it->second;
+
+		SceneSkin skin;
+		skin.jointBase = mesh.animation.jointCount;
+		for (cgltf_size jointIt = 0; jointIt < gltfSkin.joints_count; jointIt++)
+			skin.joints.push_back(static_cast<uint32_t>(gltfSkin.joints[jointIt] - data.nodes));
+		skin.inverseBindMatrices.assign(skin.joints.size(), gfx::mesh::kIdentityTransform);
+		if (const auto* accessor = gltfSkin.inverse_bind_matrices; accessor != nullptr && accessor->type == cgltf_type_mat4)
+		{
+			std::vector<float> values(accessor->count * 16);
+			if (cgltf_accessor_unpack_floats(accessor, values.data(), values.size()) == values.size())
+				for (size_t jointIt = 0; jointIt < std::min<size_t>(accessor->count, skin.joints.size()); jointIt++)
+					std::copy_n(&values[jointIt * 16], 16, skin.inverseBindMatrices[jointIt].begin());
+		}
+		mesh.animation.jointCount += static_cast<uint32_t>(skin.joints.size());
+
+		auto index = static_cast<int32_t>(mesh.animation.skins.size());
+		mesh.animation.skins.push_back(std::move(skin));
+		skinIndices.emplace(key, index);
+		return index;
+	};
 
 	{
 		ZoneScopedN("gltf::Import::nodes");
@@ -1108,17 +1211,15 @@ std::expected<Mesh, std::string> Import(
 			if (node->mesh == nullptr)
 				continue;
 
-			// a skinned mesh is placed by its joints, not its node: without skinning, it is drawn in its bind pose
-			Matrix world{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+			auto nodeIndex = static_cast<uint32_t>(node - data.nodes);
+
+			// a skinned mesh is placed by its joints, not its node: its vertices stay in the mesh's space
+			Matrix world = gfx::mesh::kIdentityTransform;
+			Part instances{};
 			if (node->skin != nullptr)
-			{
-				if (!std::exchange(skinWarned, true))
-					warn("skinned meshes are drawn in their bind pose");
-			}
+				instances.skin = skinOf(*node->skin);
 			else
-			{
 				cgltf_node_transform_world(node, world.data());
-			}
 
 			// a node's morph target weights override its mesh's defaults
 			auto weights = node->weights_count > 0 ? std::span<const cgltf_float>(node->weights, node->weights_count)
@@ -1127,20 +1228,31 @@ std::expected<Mesh, std::string> Import(
 			std::string meshName = node->mesh->name != nullptr ? node->mesh->name : std::format("{}", node->mesh - data.meshes);
 
 			// instanced meshes (EXT_mesh_gpu_instancing) are drawn instanced: their vertices once, in the node's space, and
-			// a transform per instance (the node's times the instance's), the mirroring ones last (see mesh::Submesh)
-			Part instances{};
-			auto transforms = node->has_mesh_gpu_instancing ? InstanceTransforms(node->mesh_gpu_instancing) : std::nullopt;
+			// a transform per instance (the node's times the instance's), the mirroring ones last (see mesh::Submesh). so
+			// is a mesh an animation moves, with one instance, linked to its node.
+			auto transforms = node->has_mesh_gpu_instancing && instances.skin < 0 ? InstanceTransforms(node->mesh_gpu_instancing)
+																				   : std::nullopt;
 			if (node->has_mesh_gpu_instancing && !transforms && !std::exchange(instancingWarned, true))
 				warn("mesh {}: its instances (EXT_mesh_gpu_instancing) can't be read, it is drawn once", meshName);
-			if (transforms && !transforms->empty())
+			bool moving = instances.skin < 0 && nodeMoves(node);
+			if (moving || (transforms && !transforms->empty()))
 			{
-				for (auto& transform : *transforms)
-					transform = Multiply(world, transform);
-				auto mirrored = std::ranges::stable_partition(*transforms, [](const Matrix& m) { return Determinant(m) >= 0.0; });
+				// each instance's transform within the node, and at rest in world space
+				auto locals = transforms && !transforms->empty() ? std::move(*transforms) : std::vector<Matrix>{gfx::mesh::kIdentityTransform};
+				std::vector<size_t> order(locals.size());
+				std::iota(order.begin(), order.end(), 0);
+				auto mirrored = std::ranges::stable_partition(
+					order, [&](size_t i) { return Determinant(Multiply(world, locals[i])) >= 0.0; });
 				instances.firstInstance = static_cast<uint32_t>(mesh.instances.size());
-				instances.instanceCount = static_cast<uint32_t>(transforms->size());
+				instances.instanceCount = static_cast<uint32_t>(order.size());
 				instances.mirroredInstanceCount = static_cast<uint32_t>(mirrored.size());
-				mesh.instances.insert(mesh.instances.end(), transforms->begin(), transforms->end());
+				for (auto i : order)
+				{
+					if (moving)
+						mesh.animation.instanceLinks.push_back(SceneInstanceLink{
+							.instance = static_cast<uint32_t>(mesh.instances.size()), .node = nodeIndex, .local = locals[i]});
+					mesh.instances.push_back(Multiply(world, locals[i]));
+				}
 				world = gfx::mesh::kIdentityTransform;
 			}
 
@@ -1154,8 +1266,77 @@ std::expected<Mesh, std::string> Import(
 
 	if (skippedPrimitives > 0)
 		warn("{} primitives skipped (unreadable data)", skippedPrimitives);
-	if (data.animations_count > 0)
-		warn("{} animations are ignored", data.animations_count);
+	// what moves: all the nodes (by their gltf index), and the animations' translation, rotation and scale channels
+	if (!mesh.animation.empty())
+	{
+		for (cgltf_size nodeIt = 0; nodeIt < data.nodes_count; nodeIt++)
+		{
+			const auto& gltfNode = data.nodes[nodeIt];
+			auto& node = mesh.animation.nodes.emplace_back();
+			node.parent = gltfNode.parent != nullptr ? static_cast<int32_t>(gltfNode.parent - data.nodes) : -1;
+			if (gltfNode.has_matrix)
+			{
+				node.hasMatrix = true;
+				std::copy_n(gltfNode.matrix, 16, node.matrix.begin());
+			}
+			if (gltfNode.has_translation)
+				std::copy_n(gltfNode.translation, 3, node.translation.begin());
+			if (gltfNode.has_rotation)
+				std::copy_n(gltfNode.rotation, 4, node.rotation.begin());
+			if (gltfNode.has_scale)
+				std::copy_n(gltfNode.scale, 3, node.scale.begin());
+		}
+	}
+	size_t ignoredChannels = 0;
+	for (cgltf_size animationIt = 0; animationIt < data.animations_count && !mesh.animation.empty(); animationIt++)
+	{
+		const auto& gltfAnimation = data.animations[animationIt];
+		auto& animation = mesh.animation.animations.emplace_back();
+		animation.name = gltfAnimation.name != nullptr ? gltfAnimation.name : std::format("animation {}", animationIt);
+		for (cgltf_size channelIt = 0; channelIt < gltfAnimation.channels_count; channelIt++)
+		{
+			const auto& gltfChannel = gltfAnimation.channels[channelIt];
+			SceneAnimationChannel channel;
+			size_t components = 3;
+			switch (gltfChannel.target_path)
+			{
+			case cgltf_animation_path_type_translation: channel.path = SceneAnimationChannel::Path::kTranslation; break;
+			case cgltf_animation_path_type_rotation:
+				channel.path = SceneAnimationChannel::Path::kRotation;
+				components = 4;
+				break;
+			case cgltf_animation_path_type_scale: channel.path = SceneAnimationChannel::Path::kScale; break;
+			default: components = 0; break;
+			}
+			const auto* sampler = gltfChannel.sampler;
+			if (components == 0 || gltfChannel.target_node == nullptr || sampler == nullptr || sampler->input == nullptr ||
+				sampler->output == nullptr)
+			{
+				ignoredChannels++;
+				continue;
+			}
+			channel.node = static_cast<uint32_t>(gltfChannel.target_node - data.nodes);
+			channel.interpolation = sampler->interpolation == cgltf_interpolation_type_step ? SceneAnimationChannel::Interpolation::kStep
+								  : sampler->interpolation == cgltf_interpolation_type_cubic_spline
+									  ? SceneAnimationChannel::Interpolation::kCubicSpline
+									  : SceneAnimationChannel::Interpolation::kLinear;
+			channel.times.resize(sampler->input->count);
+			channel.values.resize(sampler->output->count * components);
+			if (cgltf_accessor_unpack_floats(sampler->input, channel.times.data(), channel.times.size()) != channel.times.size() ||
+				cgltf_accessor_unpack_floats(sampler->output, channel.values.data(), channel.values.size()) != channel.values.size())
+			{
+				ignoredChannels++;
+				continue;
+			}
+			if (!channel.times.empty())
+				animation.duration = std::max(animation.duration, channel.times.back());
+			animation.channels.push_back(std::move(channel));
+		}
+	}
+	if (data.animations_count > 0 && mesh.animation.empty())
+		warn("{} animations are ignored (they move nothing drawn: morph weights, KHR_animation_pointer)", data.animations_count);
+	if (ignoredChannels > 0)
+		warn("{} animation channels are ignored (morph weights, KHR_animation_pointer, or unreadable)", ignoredChannels);
 	if (normalArea > 0.0)
 		stats.windingAgreement = agreeingArea / normalArea;
 
@@ -1175,8 +1356,11 @@ std::expected<Mesh, std::string> Import(
 
 		auto bucketOf = [&mesh](int32_t material) { return material >= 0 ? static_cast<size_t>(material) : mesh.materials.size(); };
 		std::ranges::stable_sort(
-			parts, {}, [&bucketOf](const Part& part) { return std::tuple(bucketOf(part.material), part.topology, part.firstInstance); });
+			parts, {}, [&bucketOf](const Part& part) { return std::tuple(bucketOf(part.material), part.topology, part.firstInstance, part.skin); });
 
+		bool anySkinned = std::ranges::any_of(parts, [](const Part& part) { return part.skin >= 0; });
+		// skinned vertices are bounded where their joints put them at rest, not in the mesh's (bind) space
+		auto restJoints = anySkinned ? RestJoints(mesh.animation) : std::vector<SceneMatrix>{};
 		bool firstVertex = true;
 		for (auto& part : parts)
 		{
@@ -1184,7 +1368,8 @@ std::expected<Mesh, std::string> Import(
 				continue;
 
 			if (mesh.submeshes.empty() || mesh.submeshes.back().material != part.material ||
-				mesh.submeshes.back().topology != part.topology || mesh.submeshes.back().firstInstance != part.firstInstance)
+				mesh.submeshes.back().topology != part.topology || mesh.submeshes.back().firstInstance != part.firstInstance ||
+				mesh.submeshes.back().skin != part.skin)
 				mesh.submeshes.push_back(Submesh{
 					.firstIndex = static_cast<uint32_t>(mesh.indices.size()),
 					.indexCount = 0,
@@ -1192,7 +1377,8 @@ std::expected<Mesh, std::string> Import(
 					.topology = part.topology,
 					.firstInstance = part.firstInstance,
 					.instanceCount = part.instanceCount,
-					.mirroredInstanceCount = part.mirroredInstanceCount});
+					.mirroredInstanceCount = part.mirroredInstanceCount,
+					.skin = part.skin});
 
 			auto vertexOffset = static_cast<uint32_t>(mesh.vertices.size());
 			for (auto index : part.indices)
@@ -1211,7 +1397,13 @@ std::expected<Mesh, std::string> Import(
 					mesh.bounds.Merge(position);
 				}
 			};
-			if (part.firstInstance == 0)
+			if (part.skin >= 0 && part.skinVertices.size() == part.vertices.size())
+			{
+				auto jointBase = mesh.animation.skins[part.skin].jointBase;
+				for (size_t vertexIt = 0; vertexIt < part.vertices.size(); vertexIt++)
+					addToBounds(SkinPosition(restJoints, jointBase, part.skinVertices[vertexIt], std::to_array(part.vertices[vertexIt].position)));
+			}
+			else if (part.firstInstance == 0)
 			{
 				for (const auto& vertex : part.vertices)
 					addToBounds(std::to_array(vertex.position));
@@ -1236,8 +1428,17 @@ std::expected<Mesh, std::string> Import(
 					}
 			}
 			mesh.vertices.insert(mesh.vertices.end(), part.vertices.begin(), part.vertices.end());
+			// skin vertices for all vertices if any are skinned (zero weights for the others)
+			if (anySkinned)
+			{
+				if (part.skinVertices.size() == part.vertices.size())
+					mesh.skinVertices.insert(mesh.skinVertices.end(), part.skinVertices.begin(), part.skinVertices.end());
+				else
+					mesh.skinVertices.resize(mesh.skinVertices.size() + part.vertices.size());
+			}
 
 			std::vector<VertexP3fN3fTa4fT014fC4f>().swap(part.vertices);
+			std::vector<SkinVertex>().swap(part.skinVertices);
 			std::vector<uint32_t>().swap(part.indices);
 		}
 	}

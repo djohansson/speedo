@@ -4,6 +4,7 @@
 #include <gfx/gpu.h>
 #include <gfx/scenecamera.h>
 #include <gfx/scenelight.h>
+#include <gfx/sceneanimation.h>
 #include <gfx/textureref.h>
 #include <gfx/upload.h>
 
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -31,6 +33,7 @@ struct ModelSubmesh
 	uint32_t firstInstance = 0; // see mesh::Submesh::firstInstance
 	uint32_t instanceCount = 1;
 	uint32_t mirroredInstanceCount = 0;
+	int32_t skin = -1; // see mesh::Submesh::skin
 };
 
 // textures are empty (see TextureRef) if the material has none
@@ -70,13 +73,27 @@ struct ModelDesc
 	std::vector<SceneCamera> cameras;
 	// the file's lights (see mesh::Mesh::lights). none for a set of several files, which get the default light
 	std::vector<SceneLight> lights;
+	// what moves (see mesh::Mesh::animation). empty for a set of several files, which are drawn at rest
+	SceneAnimationData animation;
+	bool skinned = false; // whether it has skin vertices (SkinVertex, vertexCount of them, in their own buffer)
+};
+
+// a model's gpu buffers: the instance and joint buffers are one per frame (host visible, see Model::Animate) if it moves,
+// else one device local instance buffer and no joints
+struct ModelBuffers
+{
+	Buffer index;
+	Buffer vertex;
+	Buffer skin; // SkinVertex per vertex, if ModelDesc::skinned
+	std::vector<Buffer> instances; // ModelInstance per ModelDesc::instances
+	std::vector<Buffer> joints; // ModelDesc::animation.jointCount joint matrices (at least one)
 };
 
 // a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time
 class Model final
 {
 public:
-	Model(ModelDesc&& desc, Buffer&& indexBuffer, Buffer&& vertexBuffer, Buffer&& instanceBuffer, const Upload& upload) noexcept;
+	Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
 	~Model();
@@ -85,10 +102,28 @@ public:
 	Model& operator=(Model&&) noexcept = delete;
 
 	[[nodiscard]] const ModelDesc& GetDesc() const noexcept { return myDesc; }
-	[[nodiscard]] const Buffer& GetIndexBuffer() const noexcept { return myIndexBuffer; }
-	[[nodiscard]] const Buffer& GetVertexBuffer() const noexcept { return myVertexBuffer; }
-	// ModelInstance (gfx/shaders/capi.h) per ModelDesc::instances: the transform and its inverse transpose
-	[[nodiscard]] const Buffer& GetInstanceBuffer() const noexcept { return myInstanceBuffer; }
+	[[nodiscard]] const Buffer& GetIndexBuffer() const noexcept { return myBuffers.index; }
+	[[nodiscard]] const Buffer& GetVertexBuffer() const noexcept { return myBuffers.vertex; }
+	// SkinVertex per vertex, or null if it has no skinned submeshes
+	[[nodiscard]] const Buffer* GetSkinBuffer() const noexcept { return myBuffers.skin.IsValid() ? &myBuffers.skin : nullptr; }
+	// ModelInstance (gfx/shaders/capi.h) per ModelDesc::instances, for a frame: the transform and its inverse transpose
+	[[nodiscard]] const Buffer& GetInstanceBuffer(size_t frameIndex) const noexcept
+	{
+		return myBuffers.instances[myBuffers.instances.size() == 1 ? 0 : frameIndex];
+	}
+	// the joint matrices for a frame, or null if it doesn't move
+	[[nodiscard]] const Buffer* GetJointBuffer(size_t frameIndex) const noexcept
+	{
+		return frameIndex < myBuffers.joints.size() ? &myBuffers.joints[frameIndex] : nullptr;
+	}
+	// the buffers the upload filled, which the graphics queue acquires (see GetUpload)
+	[[nodiscard]] std::vector<const Buffer*> GetUploadedBuffers() const;
+	[[nodiscard]] bool Moves() const noexcept { return !myDesc.animation.empty(); }
+
+	// writes a frame's instance and joint buffers with an animation (an index into ModelDesc::animation.animations, or
+	// nullopt for the rest pose) at time (seconds, looping). call on the draw thread, once the frame's previous use of its
+	// buffers is done.
+	void Animate(size_t frameIndex, std::optional<size_t> animation, float time);
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
@@ -105,9 +140,7 @@ public:
 
 private:
 	ModelDesc myDesc;
-	Buffer myIndexBuffer;
-	Buffer myVertexBuffer;
-	Buffer myInstanceBuffer;
+	ModelBuffers myBuffers;
 	Upload myUpload;
 };
 

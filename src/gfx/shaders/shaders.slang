@@ -11,6 +11,9 @@ ConstantBuffer<PushConstants> gPushConstants;
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<VertexP3fN3fTa4fT014fC4f> gVertexBuffer;
 
+[[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<SkinVertex> gSkinVertices;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 
@@ -30,10 +33,29 @@ StructuredBuffer<MaterialData> gMaterialData;
 StructuredBuffer<TextureView> gTextureViews;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
-StructuredBuffer<ModelInstance> gModelInstances;
+StructuredBuffer<ModelInstance> gModelInstances[SHADER_TYPES_FRAME_COUNT];
 
 [[vk::binding(1, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<LightData> gLights;
+
+[[vk::binding(2, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<float4x4> gJointMatrices[SHADER_TYPES_FRAME_COUNT];
+
+// a skinned vertex's matrix: its joints' matrices by its weights (see SkinVertex), from mesh to world space
+float4x4 SkinMatrix(uint vertexId, uint frameIndex, uint jointBase)
+{
+	SkinVertex skin = gSkinVertices[vertexId];
+	float4x4 result = 0;
+	for (uint i = 0; i < 4; i++)
+	{
+		uint shift = (i % 2) * 16;
+		uint joint = (skin.joints[i / 2] >> shift) & 0xffffu;
+		float weight = float((skin.weights[i / 2] >> shift) & 0xffffu) / 65535.0;
+		if (weight > 0.0)
+			result += weight * gJointMatrices[frameIndex][jointBase + joint];
+	}
+	return result;
+}
 
 struct InputStream : IInputStream
 {
@@ -105,9 +127,12 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	ViewData view = gViewData[frameIndex][viewId];
 
     VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-    ModelInstance i = gModelInstances[modelInstanceId + input.instanceId];
+    ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
 
-	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
+	float3 position = v.position;
+	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
+		position = mul(SkinMatrix(input.vertexId, frameIndex, gPushConstants.jointBase), float4(position, 1.0)).xyz;
+	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
 	
 	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
 	
@@ -128,17 +153,30 @@ VertexMainOutput VertexMain(InputStream input)
 	ViewData view = gViewData[frameIndex][viewId];
 
     VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-    ModelInstance i = gModelInstances[modelInstanceId + input.instanceId];
+    ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
 
-	float3 worldPosition = mul(i.modelTransform, float4(v.position, 1.0)).xyz;
-	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(v.normal, 0.0)).xyz;
+	// skinned vertices move with their joints (in world space), before the instance's transform (the identity for them).
+	// the normals and tangents go by the same matrix, which is exact for joints without non-uniform scale.
+	float3 position = v.position;
+	float3 normal = v.normal;
+	float3 tangent = v.tangent.xyz;
+	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
+	{
+		float4x4 skin = SkinMatrix(input.vertexId, frameIndex, gPushConstants.jointBase);
+		position = mul(skin, float4(position, 1.0)).xyz;
+		normal = mul(skin, float4(normal, 0.0)).xyz;
+		tangent = mul(skin, float4(tangent, 0.0)).xyz;
+	}
+
+	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
+	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(normal, 0.0)).xyz;
 
 	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
 	output.vertex.position = worldPosition;
 	output.vertex.normal = worldNormal;
 	// a mirroring transform flips the handedness of the tangent frame
 	float3x3 linear = float3x3(i.modelTransform[0].xyz, i.modelTransform[1].xyz, i.modelTransform[2].xyz);
-	output.vertex.tangent = float4(mul(linear, v.tangent.xyz), determinant(linear) < 0.0 ? -v.tangent.w : v.tangent.w);
+	output.vertex.tangent = float4(mul(linear, tangent), determinant(linear) < 0.0 ? -v.tangent.w : v.tangent.w);
 	output.vertex.texCoord01 = v.texCoord01;
 	output.vertex.color = v.color;
 
