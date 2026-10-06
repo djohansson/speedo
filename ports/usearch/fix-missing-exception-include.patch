@@ -1,0 +1,25 @@
+From 4832d259861db86456977bf14026d05d6659758b Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 14:32:53 +0200
+Subject: [PATCH] include <exception> for std::uncaught_exceptions
+
+It arrived transitively with MSVC's STL; libc++ doesn't provide it through the other includes.
+---
+ include/usearch/index.hpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/include/usearch/index.hpp b/include/usearch/index.hpp
+index e95d862..ead1c9f 100644
+--- a/include/usearch/index.hpp
++++ b/include/usearch/index.hpp
+@@ -97,6 +97,7 @@
+ #include <climits>   // `CHAR_BIT`
+ #include <cmath>     // `std::sqrt`
+ #include <cstring>   // `std::memset`
++#include <exception> // `std::uncaught_exceptions`
+ #include <iterator>  // `std::reverse_iterator`
+ #include <mutex>     // `std::unique_lock` - replacement candidate
+ #include <random>    // `std::default_random_engine` - replacement candidate
+-- 
+2.56.0.windows.1
+
