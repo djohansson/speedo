@@ -85,14 +85,14 @@ std::vector<const Buffer*> Model::GetUploadedBuffers() const
 	return buffers;
 }
 
-void Model::Animate(size_t frameIndex, std::optional<size_t> animation, float time)
+void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from, float weight)
 {
 	ZoneScopedN("gfx::Model::Animate");
 
 	if (myDesc.animation.Empty() || frameIndex >= myBuffers.instances.size() || frameIndex >= myBuffers.joints.size())
 		return;
 
-	auto worlds = EvaluateNodes(myDesc.animation, animation.value_or(myDesc.animation.animations.size()), time);
+	auto worlds = EvaluateNodes(myDesc.animation, pose, from, weight);
 
 	// the cpu's copies, for GetCenter
 	for (const auto& link : myDesc.animation.instanceLinks)

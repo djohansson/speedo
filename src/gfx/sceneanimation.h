@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -93,6 +94,17 @@ struct SceneAnimationData
 // the nodes' world transforms with animation playing at time (seconds, wrapped to its duration), or at rest if
 // animation is out of range
 [[nodiscard]] std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, size_t animation, float time);
+
+// an animation (an index into SceneAnimationData::animations, or nullopt for the rest pose) at a time, in seconds
+struct ScenePose
+{
+	std::optional<size_t> animation;
+	float time = 0.0F;
+};
+
+// the nodes' world transforms with pose crossfaded in over from: their local transforms blended by weight (0: from's,
+// 1: pose's; translation and scale lerped, rotation slerped), as when one animation fades into another
+[[nodiscard]] std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, const ScenePose& pose, const ScenePose& from, float weight);
 
 // what moves, from the nodes' world transforms: the linked instances' transforms (written at their instance index,
 // with their inverse transposes, as ModelInstance in gfx/shaders/capi.h) and the joint matrices (jointCount of them)

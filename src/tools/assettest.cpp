@@ -201,6 +201,40 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		report.Info(
 			"{} skins ({} joints), {} animations, {} instances follow nodes", animation.skins.size(), animation.jointCount,
 			animation.animations.size(), animation.instanceLinks.size());
+	// every animation evaluates to finite transforms, and crossfading from the rest pose starts at it and ends at the
+	// animation's own pose
+	if (const auto& animation = mesh->animation; !animation.Empty())
+	{
+		auto maxDifference = [](const std::vector<gfx::SceneMatrix>& a, const std::vector<gfx::SceneMatrix>& b)
+		{
+			double difference = 0.0;
+			for (size_t nodeIt = 0; nodeIt < std::min(a.size(), b.size()); nodeIt++)
+				for (size_t i = 0; i < 16; i++)
+					difference = std::max(difference, static_cast<double>(std::abs(a[nodeIt][i] - b[nodeIt][i])));
+			return difference;
+		};
+		auto rest = gfx::EvaluateNodes(animation, animation.animations.size(), 0.0F);
+		for (size_t animationIt = 0; animationIt < animation.animations.size(); animationIt++)
+		{
+			const auto& clip = animation.animations[animationIt];
+			for (auto fraction : {0.0F, 0.37F, 0.81F})
+			{
+				auto time = fraction * clip.duration;
+				auto worlds = gfx::EvaluateNodes(animation, animationIt, time);
+				if (std::ranges::any_of(worlds, [](const auto& m) { return std::ranges::any_of(m, [](float v) { return !std::isfinite(v); }); }))
+				{
+					report.Fail("animation {} ({}) has non-finite transforms at {:.2f}s", animationIt, clip.name, time);
+					break;
+				}
+				gfx::ScenePose pose{.animation = animationIt, .time = time};
+				if (auto d = maxDifference(gfx::EvaluateNodes(animation, pose, {}, 1.0F), worlds); d > 1e-4)
+					report.Fail("animation {} ({}): a finished crossfade differs from it by {:.3g}", animationIt, clip.name, d);
+				if (auto d = maxDifference(gfx::EvaluateNodes(animation, pose, {}, 0.0F), rest); d > 1e-4)
+					report.Fail("animation {} ({}): a crossfade's start differs from the rest pose by {:.3g}", animationIt, clip.name, d);
+			}
+		}
+	}
+
 	if (!mesh->skinVertices.empty() && mesh->skinVertices.size() != mesh->vertices.size())
 		report.Fail("{} skin vertices for {} vertices", mesh->skinVertices.size(), mesh->vertices.size());
 

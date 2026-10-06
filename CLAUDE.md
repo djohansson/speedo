@@ -311,7 +311,8 @@ host visible instance and joint buffer per frame (`gModelInstances[frame]`, `gJo
 binds its device local instance buffer in every slot, and the defaults (`gDefaultSkinVerticesUuid`, `gDefaultJointsUuid`)
 stand in for what it doesn't have. Skinned bounds and blend centers are at the rest pose (`RestJoints`,
 `SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
-first plays on load), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
+first plays on load), crossfading from the previous one over 0.3 s (`EvaluateNodes` with two `ScenePose`s and a weight:
+local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
 weight and KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at rest. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is

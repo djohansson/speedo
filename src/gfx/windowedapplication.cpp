@@ -111,11 +111,29 @@ static uuids::uuid gDefaultJointsUuid;
 // it, the draw thread advances it.
 struct AnimationState
 {
+	static constexpr double kCrossfade = 0.3; // seconds a switch of animation fades over
+
 	std::vector<std::string> names;
 	std::optional<size_t> selected; // nullopt: the rest pose
 	bool playing = true;
 	double time = 0.0; // seconds
 	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+	// what is fading out after a switch (and still playing), and for how long it has
+	std::optional<size_t> previous;
+	double previousTime = 0.0;
+	double fade = kCrossfade;
+
+	// switches to an animation (or the rest pose), from its start, crossfading from the current one
+	void Select(std::optional<size_t> animation)
+	{
+		if (animation == selected)
+			return;
+		previous = selected;
+		previousTime = time;
+		fade = 0.0;
+		selected = animation;
+		time = 0.0;
+	}
 };
 static core::ConcurrentAccess<AnimationState> gAnimation;
 
@@ -801,6 +819,8 @@ static void InstallModel(
 			state.playing = true;
 			state.time = 0.0;
 			state.last = std::chrono::steady_clock::now();
+			state.previous.reset();
+			state.fade = AnimationState::kCrossfade;
 			if (const char* time = std::getenv("SPEEDO_ANIMATION_TIME"); time != nullptr && *time != '\0')
 			{
 				state.playing = false;
@@ -1870,15 +1890,12 @@ void WindowedApplication::PrepareDraw()
 					state.time = 0.0;
 				Separator();
 				if (MenuItem("Rest pose", nullptr, !state.selected.has_value()))
-					state.selected.reset();
+					state.Select(std::nullopt);
 				for (size_t animationIt = 0; animationIt < state.names.size(); animationIt++)
 				{
 					PushID(static_cast<int>(animationIt));
 					if (MenuItem(state.names[animationIt].c_str(), nullptr, state.selected == animationIt))
-					{
-						state.selected = animationIt;
-						state.time = 0.0;
-					}
+						state.Select(animationIt);
 					PopID();
 				}
 				ImGui::EndMenu();
@@ -2101,19 +2118,27 @@ bool WindowedApplication::Draw()
 		// the frame's instance and joint buffers, now that the frame's previous use of them is done (see the fences above)
 		if (gModel && gModel->Moves())
 		{
-			std::optional<size_t> selected;
-			double time = 0.0;
+			ScenePose pose;
+			ScenePose from;
+			float weight = 1.0F;
 			{
 				auto animation = gAnimation.Write();
 				auto& state = animation.Get();
 				auto now = std::chrono::steady_clock::now();
-				if (state.playing)
-					state.time += std::chrono::duration<double>(now - state.last).count();
+				auto elapsed = std::chrono::duration<double>(now - state.last).count();
 				state.last = now;
-				selected = state.selected;
-				time = state.time;
+				if (state.playing)
+				{
+					state.time += elapsed;
+					state.previousTime += elapsed;
+				}
+				// the fade runs in real time, also while paused
+				state.fade = std::min(state.fade + elapsed, AnimationState::kCrossfade);
+				pose = {.animation = state.selected, .time = static_cast<float>(state.time)};
+				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
+				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			gModel->Animate(newFrameIndex, selected, static_cast<float>(time));
+			gModel->Animate(newFrameIndex, pose, from, weight);
 		}
 		
 		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);

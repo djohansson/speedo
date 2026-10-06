@@ -133,10 +133,10 @@ public:
 	// skinned ones by their joints' bounds. call on the draw thread.
 	[[nodiscard]] std::array<float, 3> GetCenter(const ModelSubmesh& submesh, uint32_t instance) const;
 
-	// writes a frame's instance and joint buffers with an animation (an index into ModelDesc::animation.animations, or
-	// nullopt for the rest pose) at time (seconds, looping). call on the draw thread, once the frame's previous use of its
-	// buffers is done.
-	void Animate(size_t frameIndex, std::optional<size_t> animation, float time);
+	// writes a frame's instance and joint buffers with a pose (see ScenePose: an animation at a time, looping, or the rest
+	// pose), crossfaded in over from by weight (see EvaluateNodes; 1: pose alone). call on the draw thread, once the
+	// frame's previous use of its buffers is done.
+	void Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from = {}, float weight = 1.0F);
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
