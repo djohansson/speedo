@@ -44,3 +44,8 @@ if(PORT STREQUAL "mimalloc")
 	# (__cxa_throw, operator new, ...), giving the process two C++ runtimes ("mi_free: invalid pointer")
 	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DMI_USE_CXX=OFF)
 endif()
+if(PORT STREQUAL "zstd" OR PORT STREQUAL "pugixml")
+	# they only dllexport under CMake's MSVC check, which is false for clang's GNU driver, so their DLLs export nothing
+	# ("undefined symbol: __declspec(dllimport) ZSTD_createDStream" when linking the tracy profiler). link statically.
+	set(VCPKG_LIBRARY_LINKAGE static)
+endif()
