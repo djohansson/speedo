@@ -1,6 +1,6 @@
 #include <core/application.h>
 #include <core/assert.h>
-#include <core/file.h>
+#include <core/path.h>
 #include <core/concurrentaccess.h>
 
 #include <server/capi.h>

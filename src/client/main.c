@@ -16,10 +16,6 @@
 #include <cargs.h>
 #include <ctrace/ctrace.h>
 #include <GLFW/glfw3.h>
-#if __WINDOWS__
-#	define GLFW_EXPOSE_NATIVE_WIN32
-#	include <GLFW/glfw3native.h>
-#endif
 #if defined(__APPLE__)
 #	define GLFW_EXPOSE_NATIVE_COCOA
 #	include <GLFW/glfw3native.h>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <core/mio_extra.h>
+#include <core/path.h>
 
 #include <atomic>
 #include <cstdint>
@@ -85,13 +86,6 @@ using SaveFn = std::function<std::error_code(OutputSerializer&)>;
 // files the source file pulled in while loading (e.g. shader includes/imports). called after a successful source load;
 // their records are kept in the manifest, so that changing any of them invalidates the cache as well.
 using DependenciesFn = std::function<std::vector<std::filesystem::path>()>;
-
-[[nodiscard]] std::expected<std::string, std::error_code> GetTimeStamp(const std::filesystem::path& filePath) noexcept;
-
-[[nodiscard]] std::expected<std::filesystem::path, std::error_code> GetCanonicalPath(
-	const char* pathStr,
-	const char* defaultPathStr,
-	bool createIfMissing = false) noexcept;
 
 template <bool Sha256ChecksumEnable>
 [[nodiscard]] std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath, Progress progress = {});

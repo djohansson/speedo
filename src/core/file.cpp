@@ -7,7 +7,7 @@
 #include <chrono>
 #include <iostream>
 
-#include <uuid.h>
+#include <core/uuids_extra.h>
 
 namespace core
 {
@@ -137,7 +137,7 @@ std::expected<Record, std::error_code> LoadAsset(
 	{
 		ZoneScopedN("LoadAsset::importSourceFile");
 
-		auto uuid = uuids::uuid_system_generator{}();
+		auto uuid = uuids::NewUuid();
 		auto uuidStr = uuids::to_string(uuid);
 
 		std::error_code error;

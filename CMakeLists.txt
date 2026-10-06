@@ -100,7 +100,6 @@ target_compile_definitions(
 	PUBLIC
 		SPEEDO_PROFILING_LEVEL=$<IF:$<CONFIG:release>,0,1>
 		SPEEDO_USE_MIMALLOC
-		UUID_SYSTEM_GENERATOR
 )
 target_include_directories(
 	core
@@ -114,7 +113,6 @@ target_link_libraries(
 		SHA-Intrinsics
 		cpptrace::cpptrace
 		stduuid
-		$<$<PLATFORM_ID:Linux>:uuid>
 		Tracy::TracyClient
 )
 

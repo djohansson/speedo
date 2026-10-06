@@ -4,9 +4,7 @@
 #include <vulkan/vk_enum_string_helper.h>
 
 #if defined(__WINDOWS__)
-#include <windows.h>
-#include <vma/vk_mem_alloc.h>
-#include <vulkan/vulkan_win32.h>
+#include <vma/vk_mem_alloc.h> // no windows.h/vulkan_win32.h: no Win32-specific Vulkan types are used (surfaces come from glfw)
 #elif defined(__LINUX__)
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan_wayland.h>

@@ -395,7 +395,7 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 		VK_EXT_METAL_SURFACE_EXTENSION_NAME,
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,
 	#elif defined(__WINDOWS__)
-		VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+		"VK_KHR_win32_surface", // VK_KHR_WIN32_SURFACE_EXTENSION_NAME, without vulkan_win32.h (which requires windows.h)
 	#elif defined(__LINUX__)
 		VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
 	#endif
