@@ -351,7 +351,7 @@ endif()
 ###############################################################################
 
 # imports models and images like the client does and checks the results, see src/tools/assettest.cpp and
-# scripts/assettest.sh
+# scripts/assettest.ps1
 add_executable(assettest ${SPEEDO_SOURCE_DIR}/tools/assettest.cpp)
 
 target_compile_features(

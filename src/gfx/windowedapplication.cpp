@@ -1649,7 +1649,7 @@ void WindowedApplication::PrepareDraw()
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
-	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.sh)
+	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.ps1)
 	auto dialogPath = [&resourcePath]
 	{
 		std::error_code error;
@@ -1661,7 +1661,7 @@ void WindowedApplication::PrepareDraw()
 	// and SPEEDO_AUTOLOAD_IMAGE (an image, on the default material) name files to load at startup, absolute or relative to
 	// the resource directory, through the same load + install path as the "File" menu. with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
-	// scripts/assettest.sh).
+	// scripts/assettest.ps1).
 	static std::vector<core::Future<void>> gAutoLoads;
 	static std::optional<uint32_t> gAutoLoadExitFrames;
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)

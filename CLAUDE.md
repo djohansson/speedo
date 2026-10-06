@@ -369,19 +369,20 @@ library), then loaded from there like any other files; with several models the u
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
 which unzip ignores too. `assettest` takes zip archives as well, extracting them the same way.
 
-`scripts/assettest.sh <zips or dirs>` runs the `assettest` tool (imports every model and image and checks the result:
-index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `--client`
+`scripts/assettest.ps1 <zips or dirs>` (PowerShell, as the other scripts) runs the `assettest` tool (imports every model and image and checks the result:
+index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `-Client`
 also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish), failing
 on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
-profile preset first, then debug with `--client-only` and the same `--work` dir, whose caches it reuses. The client's
+profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
 `RequestExit()`, which posts an empty event.
 
-The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.sh` downloads Morgan McGuire's
+The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.ps1` downloads Morgan McGuire's
 Computer Graphics Archive (obj, about 2.7 GB) and the Khronos glTF-Sample-Assets models (at a pinned commit, about
 2.3 GB) into `resources/test-assets` (gitignored; the client's file dialogs open there; or `$SPEEDO_TEST_ASSETS`), and
 prints the paths to test:
-`scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)`. The archive publishes no versions or checksums and
+`scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
+`pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). The archive publishes no versions or checksums and
 does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
 sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
 `scripts/test-assets/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
@@ -402,7 +403,7 @@ the CornellBox variants, ...), not scenes: each file stands alone at the origin,
 scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
 same size and centered in its cell by its instance transforms (premultiplied by the placement; vertices are copied as
 they are), each file still through its own cache entry, merged as staging data before the one upload. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
-"Open Folder..." loads a directory's, and `assettest.sh` runs the client once per such archive (with the archive's first
+"Open Folder..." loads a directory's, and `assettest.ps1` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145
 for the McGuire set. The glTF sample models are such subdirectories, of encodings of the same model (glTF, glTF-Binary,
