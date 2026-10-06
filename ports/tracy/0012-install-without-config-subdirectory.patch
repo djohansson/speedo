@@ -1,0 +1,42 @@
+From ef4342fc29b9741ac5c1ece718a40bb7461f2189 Mon Sep 17 00:00:00 2001
+From: Daniel Johansson <1911831+djohansson@users.noreply.github.com>
+Date: Tue, 6 Oct 2026 16:08:48 +0200
+Subject: [PATCH] install the client into bin/lib for every config
+
+Non-Release configs were installed into a per-config subdirectory (bin/Debug, lib/Debug). vcpkg already separates
+debug and release by prefix, and its app-local dll deployment only looks in debug/bin, so debug consumers kept running
+a stale TracyClient.dll that didn't match the import library they linked against.
+---
+ CMakeLists.txt | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4a8ef00..189200b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -224,16 +224,16 @@ set(common_includes
+ 
+ install(TARGETS TracyClient
+         EXPORT TracyConfig
+-        RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}/$<IF:$<CONFIG:Release>,,$<CONFIG>>
+-        LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}/$<IF:$<CONFIG:Release>,,$<CONFIG>>
+-        ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}/$<IF:$<CONFIG:Release>,,$<CONFIG>>
++        RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
++        LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
++        ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+         COMPONENT lib)
+ if(TRACY_Fortran)
+     install(TARGETS TracyClientF90
+             EXPORT TracyConfig
+-            RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}/$<IF:$<CONFIG:Release>,,$<CONFIG>>
+-            LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}/$<IF:$<CONFIG:Release>,,$<CONFIG>>
+-            ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}/$<IF:$<CONFIG:Release>,,$<CONFIG>>
++            RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}
++            LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}
++            ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}
+             COMPONENT lib)
+ endif()
+ # Export targets to build tree root
+-- 
+2.56.0.windows.1
+

@@ -21,6 +21,7 @@ vcpkg_from_github(
         0009-backport-fix-2x-scaling-on-macos-with-imgui-1.92.patch # upstream 0a438193, in v0.14.0
         0010-backport-fix-ui-zoom-scale-not-applying-on-macos.patch # upstream 12a964d3, in v0.14.0
         0011-build-embed-in-project.patch
+        0012-install-without-config-subdirectory.patch
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
