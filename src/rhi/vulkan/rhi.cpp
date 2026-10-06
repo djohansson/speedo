@@ -104,7 +104,7 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 				ObjectCreateDesc<kVk>{
 					.uuid = uuids::NewUuid(),
 					.instance = instance,
-					.name = std::format("Device {}", physicalDeviceIt)},
+					.name = std::format("Device {}", physicalDeviceIt),},
 				physicalDevices[physicalDeviceIt],
 			},
 			instance);
@@ -210,7 +210,7 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 		initData.surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.windowHandle);
 
 		return DetectAndCreateDevices(instance, initData.surface);
-	}(myInstance)}
+	}(myInstance),}
 {
 	using namespace detail;
 

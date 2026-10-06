@@ -1,14 +1,16 @@
+#include <core/task.h>
 #include <gfx/capi.h>
-#include <gfx/windowedapplication.h>
+#include <gfx/gpu.h>
+#include <gfx/imgui_extra.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
 #include <gfx/shaderloader.h>
+#include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
-
-#include <core/task.h>
+#include <gfx/windowedapplication.h>
+#include <gfx/ziparchive.h>
 #include <rhi/capi.h>
 #include <rhi/renderimageset.h>
-#include <gfx/shaders/capi.h>
 
 #include <uuid.h>
 #include <xxhash.h>
@@ -17,10 +19,6 @@
 #include <imgui_impl_glfw.h>
 
 #include <GLFW/glfw3.h>
-
-#include <gfx/gpu.h>
-#include <gfx/imgui_extra.h>
-#include <gfx/ziparchive.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -41,6 +39,7 @@
 #include <span>
 #include <array>
 #include <memory>
+#include <utility>
 
 //#include <imnodes.h>
 
@@ -291,7 +290,7 @@ static_assert(kMaterialTextureId >= SHADER_TYPES_FRAME_COUNT && kMaterialTexture
 // the material slot drawn for a submesh of the loaded model
 static uint32_t ModelMaterialSlot(int32_t material)
 {
-	return material >= 0 && static_cast<uint32_t>(material) < kModelMaterialMaxCount ? static_cast<uint32_t>(material) + 1 : 0;
+	return material >= 0 && std::cmp_less(material, kModelMaterialMaxCount) ? static_cast<uint32_t>(material) + 1 : 0;
 }
 
 // the loaded model's textures, by slot (from kModelTextureFirstSlot). nil for slots it doesn't use.
@@ -301,8 +300,7 @@ static std::vector<std::pair<uuids::uuid, uuids::uuid>> gModelTextureUuids; // i
 // from that submission's timeline callback, i.e. once the gpu can no longer be using it. call on the draw thread.
 static void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr<void> resource)
 {
-	if (!resource)
-		return;
+	ENSURE(resource);
 
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
@@ -318,7 +316,7 @@ static void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::sha
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
 		.signalSemaphoreValues = {++graphics.timeline},
-		.callbacks = std::move(callbacks)});
+		.callbacks = std::move(callbacks),});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -356,7 +354,7 @@ static void UpdateBufferOnGraphics(
 		.waitDstStageMasks = {PipelineStage::kAllCommands},
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
-		.signalSemaphoreValues = {++graphics.timeline}});
+		.signalSemaphoreValues = {++graphics.timeline},});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -378,7 +376,7 @@ static void UpdateLights(RHI& rhi, QueueTimelineContextData& graphics, std::span
 	static const SceneLight kDefaultLight{
 		.name = "default",
 		.direction = {-0.2638F, -0.8794F, -0.4397F}, // -normalize(0.3, 1, 0.5)
-		.intensity = 2.2F}; // lux: 0.7 pi, the diffuse light of a white surface facing it (0.7) times pi
+		.intensity = 2.2F,}; // lux: 0.7 pi, the diffuse light of a white surface facing it (0.7) times pi
 	if (sceneLights.empty())
 		sceneLights = std::span(&kDefaultLight, 1);
 	if (sceneLights.size() > SHADER_TYPES_LIGHT_COUNT)
@@ -442,14 +440,14 @@ struct TextureViewKeyHash
 // a view of a texture slot with a sampler slot, as a TextureRef samples it
 [[nodiscard]] static TextureView MakeTextureView(uint32_t textureSlot, uint32_t samplerSlot, const TextureRef& ref)
 {
-	const auto& t = ref.transform;
+	const auto& tRef = ref.transform;
 	return TextureView{
-		.uTransform = {t[0], t[1], t[2], 0.0F},
-		.vTransform = {t[3], t[4], t[5], 0.0F},
+		.uTransform = {tRef[0], tRef[1], tRef[2], 0.0F},
+		.vTransform = {tRef[3], tRef[4], tRef[5], 0.0F},
 		.textureId = textureSlot,
 		.samplerId = samplerSlot,
 		.texCoordSet = ref.texCoord,
-		.padding = 0};
+		.padding = 0,};
 }
 
 // buffers and images uploaded by the loaders (see Upload), to install
@@ -475,14 +473,14 @@ static void TransitionThenBind(
 	QueueDeviceSyncInfo syncInfo{
 		.waitSemaphores = {graphics.semaphore},
 		.waitDstStageMasks = {PipelineStage::kAllCommands},
-		.waitSemaphoreValues = {graphics.timeline}};
+		.waitSemaphoreValues = {graphics.timeline},};
 	std::vector<const Semaphore*> waitSemaphores{&graphics.semaphore};
 	auto waitFor = [&](const Upload& upload)
 	{
 		ENSURE(upload.semaphore != nullptr);
-		auto it = std::ranges::find(waitSemaphores, upload.semaphore);
-		auto index = static_cast<size_t>(it - waitSemaphores.begin());
-		if (it == waitSemaphores.end())
+		auto semaIt = std::ranges::find(waitSemaphores, upload.semaphore);
+		auto index = static_cast<size_t>(semaIt - waitSemaphores.begin());
+		if (semaIt == waitSemaphores.end())
 		{
 			waitSemaphores.push_back(upload.semaphore);
 			syncInfo.waitSemaphores.emplace_back(*upload.semaphore);
@@ -490,7 +488,9 @@ static void TransitionThenBind(
 			syncInfo.waitSemaphoreValues.emplace_back(upload.value);
 		}
 		else if (index > 0)
+		{
 			syncInfo.waitSemaphoreValues[index] = std::max(syncInfo.waitSemaphoreValues[index], upload.value);
+		}
 	};
 
 	auto cmd = graphicsQueue.GetPool().Commands();
@@ -586,8 +586,8 @@ static void InstallModel(
 			if (!image)
 				return std::nullopt;
 
-			if (auto it = textureSlots.find(image.get()); it != textureSlots.end())
-				return it->second;
+			if (auto slotIt = textureSlots.find(image.get()); slotIt != textureSlots.end())
+				return slotIt->second;
 
 			if (textureUuids.size() == kModelTextureMaxCount)
 				return std::nullopt;
@@ -616,8 +616,8 @@ static void InstallModel(
 			static const SamplerDesc kDefault = TextureRef{}.sampler;
 			if (desc == kDefault)
 				return kDefaultSamplerId;
-			auto it = std::ranges::find(samplerDescs, desc);
-			if (it == samplerDescs.end())
+			auto samplerDescIt = std::ranges::find(samplerDescs, desc);
+			if (samplerDescIt == samplerDescs.end())
 			{
 				if (samplerDescs.size() == kModelSamplerSlots.size())
 				{
@@ -625,9 +625,9 @@ static void InstallModel(
 						std::println(stderr, "more than {} different samplers, the rest use the default", kModelSamplerSlots.size());
 					return kDefaultSamplerId;
 				}
-				it = samplerDescs.insert(samplerDescs.end(), desc);
+				samplerDescIt = samplerDescs.insert(samplerDescs.end(), desc);
 			}
-			return kModelSamplerSlots[static_cast<size_t>(it - samplerDescs.begin())];
+			return kModelSamplerSlots[static_cast<size_t>(samplerDescIt - samplerDescs.begin())];
 		};
 
 		// each distinct view once, from 1 (0 is material 0's, see InstallImage)
@@ -641,7 +641,7 @@ static void InstallModel(
 				return std::nullopt;
 
 			auto samplerSlot = samplerSlotOf(ref.sampler);
-			auto [it, inserted] = viewIds.try_emplace(
+			auto [viewIdIt, inserted] = viewIds.try_emplace(
 				TextureViewKey{
 					.textureSlot = *textureSlot,
 					.samplerSlot = samplerSlot,
@@ -654,13 +654,13 @@ static void InstallModel(
 				{
 					if (!std::exchange(viewsFull, true))
 						std::println(stderr, "more than {} texture views, the rest are left out", SHADER_TYPES_TEXTURE_VIEW_COUNT - 1);
-					viewIds.erase(it);
+					viewIds.erase(viewIdIt);
 					return std::nullopt;
 				}
-				it->second = static_cast<uint32_t>(1 + views.size());
+				viewIdIt->second = static_cast<uint32_t>(1 + views.size());
 				views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref));
 			}
-			return it->second;
+			return viewIdIt->second;
 		};
 
 		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
@@ -753,7 +753,7 @@ static void InstallModel(
 			"gSkinVertices",
 			BufferBinding{
 				.buffer = model->GetSkinBuffer() != nullptr ? *model->GetSkinBuffer() : *device.GetResource<Buffer>(gDefaultSkinVerticesUuid),
-				.offset = 0},
+				.offset = 0,},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 		{
@@ -767,7 +767,7 @@ static void InstallModel(
 				BufferBinding{
 					.buffer = model->GetJointBuffer(frameIt) != nullptr ? *model->GetJointBuffer(frameIt)
 																		: *device.GetResource<Buffer>(gDefaultJointsUuid),
-					.offset = 0},
+					.offset = 0,},
 				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 				frameIt);
 		}

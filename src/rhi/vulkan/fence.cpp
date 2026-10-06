@@ -1,5 +1,5 @@
-#include <rhi/fence.h>
 #include <rhi/device.h>
+#include <rhi/fence.h>
 #include <rhi/instance.h>
 #include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
@@ -72,7 +72,7 @@ bool Fence<kVk>::Wait(uint64_t timeout) const
 {
 	ZoneScopedN("Fence::Wait");
 
-	auto result = vkWaitForFences(GetDevice(), 1, &myFence, true, timeout);
+	auto result = vkWaitForFences(GetDevice(), 1, &myFence, static_cast<VkBool32>(true), timeout);
 	if (result == VK_SUCCESS)
 		return true;
 
@@ -90,7 +90,7 @@ bool Fence<kVk>::Wait(
 {
 	ZoneScopedN("Fence::Wait");
 
-	auto result = vkWaitForFences(device, static_cast<uint32_t>(fences.size()), fences.data(), waitAll, timeout);
+	auto result = vkWaitForFences(device, static_cast<uint32_t>(fences.size()), fences.data(), static_cast<VkBool32>(waitAll), timeout);
 	if (result == VK_SUCCESS)
 		return true;
 

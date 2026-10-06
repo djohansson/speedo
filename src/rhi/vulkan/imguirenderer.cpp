@@ -1,14 +1,13 @@
-#include <rhi/imguirenderer.h>
+#include <core/profiling.h>
+#include <core/utils.h>
 #include <rhi/buffer.h>
 #include <rhi/device.h>
 #include <rhi/image.h>
+#include <rhi/imguirenderer.h>
 #include <rhi/queue.h>
 #include <rhi/rhi.h>
 #include <rhi/window.h>
 #include <rhi/vulkan/utils.h>
-
-#include <core/profiling.h>
-#include <core/utils.h>
 
 #include <algorithm>
 #include <cstring>
@@ -91,13 +90,13 @@ struct ImGuiRenderer<kVk>::State
 					{ImageMipLevelDesc<kVk>{
 						.extent = Extent2d{.width = width, .height = height},
 						.size = width * height * static_cast<uint32_t>(tex.BytesPerPixel),
-						.offset = 0}},
+						.offset = 0,},},
 					Format::kR8G8B8A8Unorm,
 					ImageTiling::kOptimal,
 					ImageUsage::kSampled | ImageUsage::kTransferDestination,
 					MemoryProperty::kDeviceLocal,
 					ImageAspect::kColor,
-					ImageLayout::kUndefined})};
+					ImageLayout::kUndefined,}),};
 			texture->view = ImageView<kVk>(ImageViewCreateDesc<kVk>{
 				device.CreateDeviceObjectCreateDesc(std::format("ImGui Texture View {}", tex.UniqueID)),
 				texture->image,

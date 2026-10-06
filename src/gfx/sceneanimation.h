@@ -87,7 +87,7 @@ struct SceneAnimationData
 	std::vector<SceneInstanceLink> instanceLinks;
 	uint32_t jointCount = 0; // of all skins
 
-	[[nodiscard]] bool empty() const noexcept { return skins.empty() && instanceLinks.empty(); }
+	[[nodiscard]] bool Empty() const noexcept { return skins.empty() && instanceLinks.empty(); }
 };
 
 // the nodes' world transforms with animation playing at time (seconds, wrapped to its duration), or at rest if

@@ -47,7 +47,7 @@ void Model::Animate(size_t frameIndex, std::optional<size_t> animation, float ti
 {
 	ZoneScopedN("gfx::Model::Animate");
 
-	if (myDesc.animation.empty() || frameIndex >= myBuffers.instances.size() || frameIndex >= myBuffers.joints.size())
+	if (myDesc.animation.Empty() || frameIndex >= myBuffers.instances.size() || frameIndex >= myBuffers.joints.size())
 		return;
 
 	auto worlds = EvaluateNodes(myDesc.animation, animation.value_or(myDesc.animation.animations.size()), time);
@@ -528,7 +528,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 	auto& [desc, indexStaging, vertexStaging, skinStaging] = staged;
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
-	bool moves = !desc.animation.empty();
+	bool moves = !desc.animation.Empty();
 
 	ModelBuffers buffers;
 	Buffer instanceStaging;

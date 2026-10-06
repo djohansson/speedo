@@ -1,10 +1,8 @@
+#include <core/application.h>
+#include <core/std_extra.h>
 #include <rhi/device.h>
 #include <rhi/rhi.h>
-
-#include <core/application.h>
 #include <rhi/vulkan/utils.h>
-
-#include <core/std_extra.h>
 
 #include <list>
 #include <iostream>
@@ -230,7 +228,7 @@ void Device<kVk>::InternalCreateQueues()
 							queueIt,
 							queueFamilyIt,
 							1,
-							VK_FALSE // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
+							VK_FALSE, // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
 						}
 					);
 				}
@@ -319,7 +317,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 			.flags=0, //VK_DEVICE_QUEUE_CREATE_PROTECTED_BIT,
 			.queueFamilyIndex=queueFamilyIt,
 			.queueCount=static_cast<uint32_t>(queuePriorities.size()),
-			.pQueuePriorities=queuePriorities.data()});
+			.pQueuePriorities=queuePriorities.data(),});
 	}
 
 	std::vector<const char*> requiredExtensions = {
@@ -328,14 +326,14 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
 		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
+		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,};
 
 	for (const char* extensionName : requiredExtensions)
 		ENSUREF(SupportsExtension(extensionName, GetDesc().physicalDevice), "Vulkan device extension not supported: {}", extensionName);
 
 	std::vector<const char*> desiredExtensions = requiredExtensions;
 
-#if defined(__OSX__)
+#ifdef __OSX__
 	if (SupportsExtension(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 #endif
@@ -369,7 +367,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	Track(myDevice, VK_OBJECT_TYPE_DEVICE, myDevice, GetName());
 	NameInstanceObjects<kVk>(myDevice, GetDesc().physicalDevice); // the instance, our physical device and surface, tracked before there was a device
 
-	ENSURE(physicalDeviceInfo.queueFamilyProperties.size() > 0);
+	ENSURE(!physicalDeviceInfo.queueFamilyProperties.empty());
 
 	myQueueFamilyDescs.resize(physicalDeviceInfo.queueFamilyProperties.size());
 

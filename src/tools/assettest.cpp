@@ -172,7 +172,7 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 
 	if (mesh->instances.size() > 1)
 		report.Info("{} instances (EXT_mesh_gpu_instancing, or of moving nodes)", mesh->instances.size() - 1);
-	if (const auto& animation = mesh->animation; !animation.empty())
+	if (const auto& animation = mesh->animation; !animation.Empty())
 		report.Info(
 			"{} skins ({} joints), {} animations, {} instances follow nodes", animation.skins.size(), animation.jointCount,
 			animation.animations.size(), animation.instanceLinks.size());

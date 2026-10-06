@@ -46,10 +46,10 @@ private:
 	ShaderModule( // takes ownership of provided handle
 		CreateDescType&& desc,
 		ShaderModuleHandle<G>&& shaderModule,
-		const EntryPoint& entryPoint);
+		EntryPoint&& entryPoint);
 
 	ShaderModuleHandle<G> myShaderModule{};
-	EntryPoint myEntryPoint{};
+	EntryPoint myEntryPoint;
 };
 
 } // namespace rhi

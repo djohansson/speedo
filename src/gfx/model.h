@@ -118,7 +118,7 @@ public:
 	}
 	// the buffers the upload filled, which the graphics queue acquires (see GetUpload)
 	[[nodiscard]] std::vector<const Buffer*> GetUploadedBuffers() const;
-	[[nodiscard]] bool Moves() const noexcept { return !myDesc.animation.empty(); }
+	[[nodiscard]] bool Moves() const noexcept { return !myDesc.animation.Empty(); }
 
 	// writes a frame's instance and joint buffers with an animation (an index into ModelDesc::animation.animations, or
 	// nullopt for the rest pose) at time (seconds, looping). call on the draw thread, once the frame's previous use of its

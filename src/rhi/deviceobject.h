@@ -1,15 +1,14 @@
 #pragma once
 
-#include <vector>
-
-#include <utility>
-
 #include <core/uuids_extra.h>
 #include <rhi/capi.h>
 #include <rhi/object.h>
+#include <rhi/types.h>
 
 #include <cstdint>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace rhi
 {

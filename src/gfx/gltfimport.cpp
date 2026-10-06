@@ -1461,7 +1461,7 @@ std::expected<Mesh, std::string> Import(
 	if (skippedPrimitives > 0)
 		warn("{} primitives skipped (unreadable data)", skippedPrimitives);
 	// what moves: all the nodes (by their gltf index), and the animations' translation, rotation and scale channels
-	if (!mesh.animation.empty())
+	if (!mesh.animation.Empty())
 	{
 		for (cgltf_size nodeIt = 0; nodeIt < data.nodes_count; nodeIt++)
 		{
@@ -1482,7 +1482,7 @@ std::expected<Mesh, std::string> Import(
 		}
 	}
 	size_t ignoredChannels = 0;
-	for (cgltf_size animationIt = 0; animationIt < data.animations_count && !mesh.animation.empty(); animationIt++)
+	for (cgltf_size animationIt = 0; animationIt < data.animations_count && !mesh.animation.Empty(); animationIt++)
 	{
 		const auto& gltfAnimation = data.animations[animationIt];
 		auto& animation = mesh.animation.animations.emplace_back();
@@ -1527,7 +1527,7 @@ std::expected<Mesh, std::string> Import(
 			animation.channels.push_back(std::move(channel));
 		}
 	}
-	if (data.animations_count > 0 && mesh.animation.empty())
+	if (data.animations_count > 0 && mesh.animation.Empty())
 		warn("{} animations are ignored (they move nothing drawn: morph weights, KHR_animation_pointer)", data.animations_count);
 	if (ignoredChannels > 0)
 		warn("{} animation channels are ignored (morph weights, KHR_animation_pointer, or unreadable)", ignoredChannels);

@@ -1,10 +1,9 @@
 #pragma once
 
+#include <core/upgradablesharedmutex.h>
 #include <rhi/deviceobject.h>
 #include <rhi/sampler.h>
 #include <rhi/types.h>
-
-#include <core/upgradablesharedmutex.h>
 
 #include <array>
 #include <flat_map>

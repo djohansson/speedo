@@ -1,11 +1,10 @@
 #pragma once
 
+#include <core/assert.h>
 #include <rhi/enums.h>
 
 #include <array>
 #include <utility>
-
-#include <core/assert.h>
 
 #include <vulkan/vulkan.h>
 
@@ -384,7 +383,7 @@ namespace rhi::vk
 
 [[nodiscard]] constexpr VkViewport ToVk(const Viewport& viewport) noexcept
 {
-	return {viewport.x, viewport.y, viewport.width, viewport.height, viewport.minDepth, viewport.maxDepth};
+	return {.x=viewport.x, .y=viewport.y, .width=viewport.width, .height=viewport.height, .minDepth=viewport.minDepth, .maxDepth=viewport.maxDepth};
 }
 
 [[nodiscard]] constexpr VkRect2D ToVk(const Rect& rect) noexcept
