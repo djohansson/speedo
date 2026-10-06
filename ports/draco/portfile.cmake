@@ -1,4 +1,5 @@
-# speedo overlay: built with ninja, and without link groups on apple platforms (0001-*). the FASTBuild generator can't
+# speedo overlay: built with ninja, without link groups on apple platforms (0001-*), and without posix large file
+# support on windows (0002-*). the FASTBuild generator can't
 # build draco: its shared library is linked from object libraries only ("DLL() - Missing required property
 # 'Libraries'"), and header only object libraries leave no output ("Failed due to missing file").
 
@@ -22,6 +23,7 @@ vcpkg_from_github(
         install-linkage.diff
         "${ALGORITHM_INCLUDE_PATCH}"
         0001-no-link-groups-on-apple.patch # speedo: ld64.lld (clang, not AppleClang) has no --start-group
+        0002-no-posix-large-files-on-windows.patch # speedo: _FILE_OFFSET_BITS=64 picks ftello, which windows lacks
 )
 
 if(VCPKG_TARGET_IS_EMSCRIPTEN)

@@ -1,0 +1,14 @@
+diff --git a/cmake/draco_build_definitions.cmake b/cmake/draco_build_definitions.cmake
+index 4c7b3f9..69867c8 100644
+--- a/cmake/draco_build_definitions.cmake
++++ b/cmake/draco_build_definitions.cmake
+@@ -89,7 +89,8 @@ macro(draco_set_build_definitions)
+     endif()
+   endif()
+ 
+-  if(NOT MSVC)
++  # not for windows either (clang's GNU driver): its CRT has no ftello
++  if(NOT MSVC AND NOT WIN32)
+     if(${CMAKE_SIZEOF_VOID_P} EQUAL 8)
+       # Ensure 64-bit platforms can support large files.
+       list(APPEND draco_defines "_LARGEFILE_SOURCE" "_FILE_OFFSET_BITS=64")
