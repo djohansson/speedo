@@ -10,11 +10,16 @@
 #	endif
 #endif
 
+#include <version> // defines __cpp_lib_debugging, if the standard library provides <debugging>
+
 #if defined(__cpp_lib_debugging) && __cpp_lib_debugging >= 202311L
 #include <debugging>
 #else
 #if defined(__WINDOWS__)
-#	include <windows.h>
+// declared directly rather than via <windows.h>, which this widely included header would otherwise pull in everywhere
+// (its macros clash with ours, e.g. capi.h's UINT(name) rewriting the SDK's `typedef UINT (CALLBACK *YIELDPROC)`).
+// matches the SDK declaration (WINBASEAPI BOOL WINAPI IsDebuggerPresent(VOID)), so including both is fine.
+extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent(void);
 namespace std
 {
 	inline bool is_debugger_present() noexcept //NOLINT(readability-identifier-naming)
