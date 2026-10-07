@@ -35,6 +35,8 @@ namespace rhi::vk
 	case Format::kBC3Srgb: return VK_FORMAT_BC3_SRGB_BLOCK;
 	case Format::kBC4Unorm: return VK_FORMAT_BC4_UNORM_BLOCK;
 	case Format::kBC5Unorm: return VK_FORMAT_BC5_UNORM_BLOCK;
+	case Format::kBC7Unorm: return VK_FORMAT_BC7_UNORM_BLOCK;
+	case Format::kBC7Srgb: return VK_FORMAT_BC7_SRGB_BLOCK;
 	}
 	return VK_FORMAT_UNDEFINED;
 }
@@ -47,7 +49,7 @@ namespace rhi::vk
 			 Format::kR8G8B8Unorm, Format::kB8G8R8Unorm, Format::kA2R10G10B10UnormPack32,
 			 Format::kA2B10G10R10UnormPack32, Format::kR16G16B16A16Sfloat, Format::kD32Sfloat, Format::kD32SfloatS8Uint, Format::kD24UnormS8Uint,
 			 Format::kBC1RgbUnorm, Format::kBC1RgbSrgb, Format::kBC3Unorm, Format::kBC3Srgb, Format::kBC4Unorm,
-			 Format::kBC5Unorm})
+			 Format::kBC5Unorm, Format::kBC7Unorm, Format::kBC7Srgb})
 		if (ToVk(candidate) == format)
 			return candidate;
 	return Format::kUndefined;

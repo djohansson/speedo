@@ -20,6 +20,8 @@ enum class Format : uint8_t
 	kBC3, // rgba, 16 bytes per 4x4 block
 	kBC4, // r, 8 bytes per 4x4 block
 	kBC5, // rg, 16 bytes per 4x4 block
+	// rgba, 16 bytes per 4x4 block: only from KTX2 files, transcoded (Basis Universal) or as they are, not compressed here
+	kBC7,
 };
 
 // what an image is used for, which decides how it is filtered and compressed

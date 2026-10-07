@@ -123,6 +123,8 @@ constexpr uint32_t kRgba = 4;
 					}
 					stb_compress_bc5_block(out, channels.data());
 					break;
+				case Format::kBC7: // only from KTX2 files (see ImportKtx2), never compressed here
+					break;
 				}
 			}
 		});
@@ -479,6 +481,80 @@ std::expected<Image, std::string> Import(
 	return Import(*bytes, path.string(), options, allocate, progress, cancelled);
 }
 
+// a KTX2 file's own block compressed mip chain, for a color or linear usage: Basis Universal transcoded to BC7, or BC1,
+// BC3 or BC7 data as it is. nullopt if the file isn't such (another format or usage, or not a full mip chain of one 2d
+// image), which Import then decodes to rgba8 and compresses itself. the transfer function is the usage's: color
+// textures are srgb, as gltf's KTX2 color textures are.
+[[nodiscard]] static std::optional<std::expected<Image, std::string>> ImportKtx2(
+	std::span<const std::byte> data,
+	std::string_view name,
+	const Options& options,
+	const std::function<std::byte*(size_t size)>& allocate)
+{
+	using namespace detail;
+
+	static constexpr std::array<uint8_t, 12> kKtx2{0xab, 'K', 'T', 'X', ' ', '2', '0', 0xbb, '\r', '\n', 0x1a, '\n'};
+	if ((options.usage != Usage::kColor && options.usage != Usage::kLinear) || data.size() < kKtx2.size() ||
+		!std::equal(kKtx2.begin(), kKtx2.end(), reinterpret_cast<const uint8_t*>(data.data())))
+		return std::nullopt;
+
+	ktxTexture2* texture = nullptr;
+	if (ktxTexture2_CreateFromMemory(
+			reinterpret_cast<const ktx_uint8_t*>(data.data()), data.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture) !=
+		KTX_SUCCESS)
+		return std::nullopt;
+	std::unique_ptr<ktxTexture2, void (*)(ktxTexture2*)> owner(texture, [](ktxTexture2* t) { ktxTexture2_Destroy(t); });
+
+	auto width = texture->baseWidth;
+	auto height = texture->baseHeight;
+	auto levelCount = static_cast<uint32_t>(std::bit_width(std::max(width, height)));
+	if (texture->numLevels != levelCount || texture->numLayers != 1 || texture->numFaces != 1 || texture->baseDepth != 1)
+		return std::nullopt;
+
+	if (ktxTexture2_NeedsTranscoding(texture))
+		if (auto result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_BC7_RGBA, 0); result != KTX_SUCCESS)
+			return std::unexpected(std::format("failed to transcode {} to BC7: {}", name, ktxErrorString(result)));
+
+	// VK_FORMAT_BC1_RGB_UNORM_BLOCK and _SRGB, BC3, BC7
+	std::optional<Format> format;
+	switch (texture->vkFormat)
+	{
+	case 131:
+	case 132: format = Format::kBC1; break;
+	case 137:
+	case 138: format = Format::kBC3; break;
+	case 145:
+	case 146: format = Format::kBC7; break;
+	default: return std::nullopt;
+	}
+
+	Image image{.channelCount = 4, .format = *format, .usage = options.usage};
+	image.mipLevels.resize(levelCount);
+	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+	{
+		auto& level = image.mipLevels[levelIt];
+		level.width = std::max(width >> levelIt, 1U);
+		level.height = std::max(height >> levelIt, 1U);
+		level.offset = static_cast<uint32_t>(image.size);
+		level.size = BlockCount(level.width) * BlockCount(level.height) * BlockSize(image.format);
+		if (ktxTexture_GetImageSize(ktxTexture(texture), levelIt) != level.size)
+			return std::nullopt;
+		image.size += level.size;
+	}
+
+	auto* dst = allocate(image.size);
+	if (dst == nullptr)
+		return std::unexpected(std::format("failed to allocate {} bytes for {}", image.size, name));
+	const auto* source = ktxTexture_GetData(ktxTexture(texture));
+	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+	{
+		ktx_size_t offset = 0;
+		ktxTexture_GetImageOffset(ktxTexture(texture), levelIt, 0, 0, &offset);
+		std::memcpy(dst + image.mipLevels[levelIt].offset, source + offset, image.mipLevels[levelIt].size);
+	}
+	return image;
+}
+
 std::expected<Image, std::string> Import(
 	std::span<const std::byte> data,
 	std::string_view name,
@@ -490,6 +566,9 @@ std::expected<Image, std::string> Import(
 	using namespace detail;
 
 	ZoneScopedN("image::Import");
+
+	if (auto ktx2 = ImportKtx2(data, name, options, allocate))
+		return std::move(*ktx2);
 
 	auto pixels = Decode(data, name, options);
 	if (!pixels)
@@ -574,6 +653,9 @@ std::expected<Image, std::string> Import(
 void DecompressBlock(Format format, std::span<const std::byte> block, std::span<uint8_t, 64> rgbaOut) noexcept
 {
 	using namespace detail;
+
+	if (format == Format::kBC7) // not decoded: rgbaOut is left as it is
+		return;
 
 	if (format == Format::kBC4 || format == Format::kBC5)
 	{

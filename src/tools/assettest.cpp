@@ -557,6 +557,7 @@ constexpr std::string_view ToString(gfx::image::Format format)
 	case gfx::image::Format::kBC3: return "BC3";
 	case gfx::image::Format::kBC4: return "BC4";
 	case gfx::image::Format::kBC5: return "BC5";
+	case gfx::image::Format::kBC7: return "BC7";
 	}
 	return "?";
 }
@@ -688,6 +689,13 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 		}
 		return rgba;
 	};
+
+	// bc7 (from KTX2 files) isn't decoded here: its compression and mips (the file's own) are left unchecked
+	if (format == gfx::image::Format::kBC7)
+	{
+		report.Info("BC7: compression and mip averages not checked (no BC7 decoder)");
+		return report;
+	}
 
 	auto level0 = decodeLevel(image->mipLevels[0]);
 	auto pixelCount = static_cast<size_t>(width) * height;

@@ -33,6 +33,7 @@ namespace detail
 	case image::Format::kBC3: return srgb ? rhi::Format::kBC3Srgb : rhi::Format::kBC3Unorm;
 	case image::Format::kBC4: return rhi::Format::kBC4Unorm;
 	case image::Format::kBC5: return rhi::Format::kBC5Unorm;
+	case image::Format::kBC7: return srgb ? rhi::Format::kBC7Srgb : rhi::Format::kBC7Unorm;
 	}
 	return rhi::Format::kUndefined;
 }
@@ -151,10 +152,10 @@ Texture LoadTexture(
 	if (extension == ".webp")
 		params.append(std::format("|libwebp-{}", kLibWebpVersion));
 	else if (extension == ".ktx2")
-		params.append(std::format("|ktx-{}", kKtxVersion));
+		params.append(std::format("|ktx-{}|ktx2-direct-v1", kKtxVersion));
 	// an image a model embeds is cached against the model's file: any of the decoders may read it
 	if (embeddedImage)
-		params.append(std::format("|embedded-{}|libwebp-{}|ktx-{}", *embeddedImage, kLibWebpVersion, kKtxVersion));
+		params.append(std::format("|embedded-{}|libwebp-{}|ktx-{}|ktx2-direct-v1", *embeddedImage, kLibWebpVersion, kKtxVersion));
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
 	if (options.usage == image::Usage::kBump)
 		params.append(std::format("|bump-scale-{}", options.bumpScale));
