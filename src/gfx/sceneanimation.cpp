@@ -151,6 +151,8 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 				Sample(channel, clipTime, 3, value.data());
 				local.scale = glm::make_vec3(value.data());
 				break;
+			case SceneAnimationChannel::Path::kWeights: // see EvaluateWeights
+				break;
 			}
 		}
 	}
@@ -220,6 +222,47 @@ std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, const Sce
 		}
 	}
 	return ComposeWorlds(data, locals);
+}
+
+// the morph weights with one animation at a time (or the defaults alone, if animation is out of range)
+[[nodiscard]] static std::vector<float> EvaluateWeights(
+	const SceneAnimationData& data, std::span<const float> defaults, size_t animation, float time)
+{
+	using namespace sceneanimation;
+
+	std::vector<float> weights(defaults.begin(), defaults.end());
+	if (animation >= data.animations.size())
+		return weights;
+
+	const auto& clip = data.animations[animation];
+	auto clipTime = clip.duration > 0.0F ? std::fmod(std::max(time, 0.0F), clip.duration) : 0.0F;
+	for (const auto& channel : clip.channels)
+	{
+		if (channel.path != SceneAnimationChannel::Path::kWeights)
+			continue;
+		auto morph = std::ranges::find(data.morphs, channel.node, &SceneMorph::node);
+		if (morph == data.morphs.end() || morph->weightBase + morph->weightCount > weights.size())
+			continue;
+		Sample(channel, clipTime, morph->weightCount, &weights[morph->weightBase]);
+	}
+	return weights;
+}
+
+std::vector<float> EvaluateWeights(
+	const SceneAnimationData& data, std::span<const float> defaults, const ScenePose& pose, const ScenePose& from, float weight)
+{
+	ZoneScopedN("gfx::EvaluateWeights");
+
+	auto rest = data.animations.size();
+	auto weights = EvaluateWeights(data, defaults, pose.animation.value_or(rest), pose.time);
+	if (weight < 1.0F)
+	{
+		auto fromWeights = EvaluateWeights(data, defaults, from.animation.value_or(rest), from.time);
+		auto t = std::clamp(weight, 0.0F, 1.0F);
+		for (size_t weightIt = 0; weightIt < weights.size(); weightIt++)
+			weights[weightIt] = std::lerp(fromWeights[weightIt], weights[weightIt], t);
+	}
+	return weights;
 }
 
 void WriteInstances(const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<std::byte> modelInstances)

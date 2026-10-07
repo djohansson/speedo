@@ -102,10 +102,13 @@ static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see Insta
 static uuids::uuid gMaterialsUuid;
 static uuids::uuid gTextureViewsUuid;
 static uuids::uuid gModelInstancesUuid;
-// bound as gSkinVertices and gJointMatrices while the installed model has none (a model that doesn't move or isn't
-// skinned): one zero skin vertex and one identity joint matrix
+// bound as gSkinVertices, gJointMatrices, gMorphDeltas and gMorphWeights while the installed model has none (a model
+// that doesn't move, isn't skinned or has no animated morph targets): one zero skin vertex, one identity joint matrix,
+// one zero morph delta and one zero weight
 static uuids::uuid gDefaultSkinVerticesUuid;
 static uuids::uuid gDefaultJointsUuid;
+static uuids::uuid gDefaultMorphDeltasUuid;
+static uuids::uuid gDefaultMorphWeightsUuid;
 
 // which of the installed model's animations plays (see Model::Animate), and its clock. the ui thread reads and changes
 // it, the draw thread advances it.
@@ -785,6 +788,13 @@ static void InstallModel(
 				.buffer = model->GetSkinBuffer() != nullptr ? *model->GetSkinBuffer() : *device.GetResource<Buffer>(gDefaultSkinVerticesUuid),
 				.offset = 0,},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		pipeline.SetDescriptorData(
+			"gMorphDeltas",
+			BufferBinding{
+				.buffer = model->GetMorphDeltaBuffer() != nullptr ? *model->GetMorphDeltaBuffer()
+																  : *device.GetResource<Buffer>(gDefaultMorphDeltasUuid),
+				.offset = 0,},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 		{
 			pipeline.SetDescriptorData(
@@ -797,6 +807,14 @@ static void InstallModel(
 				BufferBinding{
 					.buffer = model->GetJointBuffer(frameIt) != nullptr ? *model->GetJointBuffer(frameIt)
 																		: *device.GetResource<Buffer>(gDefaultJointsUuid),
+					.offset = 0,},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+			pipeline.SetDescriptorData(
+				"gMorphWeights",
+				BufferBinding{
+					.buffer = model->GetMorphWeightBuffer(frameIt) != nullptr ? *model->GetMorphWeightBuffer(frameIt)
+																			  : *device.GetResource<Buffer>(gDefaultMorphWeightsUuid),
 					.offset = 0,},
 				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 				frameIt);
@@ -1328,6 +1346,10 @@ static void DrawMainPass(
 									encoder.SetFrontFace(frontFace);
 									pushConstants.modelInstanceId = firstInstance;
 									pushConstants.jointBase = submesh.skin >= 0 ? skins[submesh.skin].jointBase : SHADER_TYPES_NOT_SKINNED;
+									pushConstants.morphTargetCount = submesh.morphTargetCount;
+									pushConstants.morphDeltaBase = submesh.morphDeltaBase;
+									pushConstants.morphFirstVertex = submesh.morphFirstVertex;
+									pushConstants.morphWeightBase = submesh.morphWeightBase;
 									pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
 								};
@@ -2530,6 +2552,34 @@ WindowedApplication::WindowedApplication(
 		gDefaultJointsUuid = joints->GetUuid();
 		timelineCallbacks.emplace_back(jointTransfersDone.handle);
 
+		std::array<MorphDelta, 1> defaultMorphDeltas{};
+		core::TaskCreateInfo<void> morphDeltaTransfersDone;
+		auto morphDeltas = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("DefaultMorphDeltas"),
+				sizeof(defaultMorphDeltas),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			defaultMorphDeltas.data(),
+			cmd,
+			morphDeltaTransfersDone);
+		gDefaultMorphDeltasUuid = morphDeltas->GetUuid();
+		timelineCallbacks.emplace_back(morphDeltaTransfersDone.handle);
+
+		std::array<float, 1> defaultMorphWeights{};
+		core::TaskCreateInfo<void> morphWeightTransfersDone;
+		auto morphWeights = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("DefaultMorphWeights"),
+				sizeof(defaultMorphWeights),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			defaultMorphWeights.data(),
+			cmd,
+			morphWeightTransfersDone);
+		gDefaultMorphWeightsUuid = morphWeights->GetUuid();
+		timelineCallbacks.emplace_back(morphWeightTransfersDone.handle);
+
 		cmd.End();
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
@@ -2575,10 +2625,19 @@ WindowedApplication::WindowedApplication(
 			BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultJointsUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
+		pipeline.SetDescriptorData(
+			"gMorphWeights",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultMorphWeightsUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
 	}
 	pipeline.SetDescriptorData(
 		"gSkinVertices",
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultSkinVerticesUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData(
+		"gMorphDeltas",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultMorphDeltasUuid), .offset = 0},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
@@ -2634,10 +2693,19 @@ WindowedApplication::WindowedApplication(
 			BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultJointsUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
+		pipeline.SetDescriptorData(
+			"gMorphWeights",
+			BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultMorphWeightsUuid), .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
 	}
 	pipeline.SetDescriptorData(
 		"gSkinVertices",
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultSkinVerticesUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData(
+		"gMorphDeltas",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gDefaultMorphDeltasUuid), .offset = 0},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 	pipeline.SetDescriptorData(

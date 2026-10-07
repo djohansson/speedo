@@ -80,6 +80,8 @@ std::vector<const Buffer*> Model::GetUploadedBuffers() const
 	std::vector<const Buffer*> buffers{&myBuffers.index, &myBuffers.vertex};
 	if (myBuffers.skin.IsValid())
 		buffers.push_back(&myBuffers.skin);
+	if (myBuffers.morphDeltas.IsValid())
+		buffers.push_back(&myBuffers.morphDeltas);
 	if (myBuffers.instances.size() == 1)
 		buffers.push_back(&myBuffers.instances.front());
 	return buffers;
@@ -115,6 +117,16 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 	std::memcpy(jointMemory.data(), myJoints.data(), std::min(jointMemory.size(), myJoints.size() * sizeof(SceneMatrix)));
 	joints.Flush(0, jointMemory.size());
 	joints.Unmap();
+
+	if (!myDesc.animation.morphs.empty() && frameIndex < myBuffers.morphWeights.size())
+	{
+		auto weights = EvaluateWeights(myDesc.animation, myDesc.morphWeights, pose, from, weight);
+		auto& weightBuffer = myBuffers.morphWeights[frameIndex];
+		auto weightMemory = weightBuffer.Map();
+		std::memcpy(weightMemory.data(), weights.data(), std::min(weightMemory.size(), weights.size() * sizeof(float)));
+		weightBuffer.Flush(0, weightMemory.size());
+		weightBuffer.Unmap();
+	}
 }
 
 Model::~Model() = default;
@@ -130,6 +142,7 @@ struct Staged
 	Buffer indexStaging;
 	Buffer vertexStaging;
 	Buffer skinStaging; // SkinVertex per vertex, if desc.skinned
+	Buffer morphStaging; // MorphDelta, desc.morphDeltaCount of them, if any
 };
 
 // the vertex and instance buffers are read by the shaders as storage buffers, which can't be larger than this
@@ -172,8 +185,13 @@ struct Staged
 	Buffer indexStaging;
 	Buffer vertexStaging;
 	Buffer skinStaging;
+	Buffer morphStaging;
 	auto createStaging = [&]
 	{
+		if (desc.morphDeltaCount > 0)
+			morphStaging = Buffer::CreateStaging(
+				device.CreateDeviceObjectCreateDesc(std::format("{} (morph staging)", filePath)),
+				desc.morphDeltaCount * sizeof(MorphDelta));
 		if (desc.skinned)
 			skinStaging = Buffer::CreateStaging(
 				device.CreateDeviceObjectCreateDesc(std::format("{} (skin staging)", filePath)),
@@ -189,6 +207,7 @@ struct Staged
 		indexStaging = {};
 		vertexStaging = {};
 		skinStaging = {};
+		morphStaging = {};
 	};
 
 	mesh::ImportOptions importOptions{.scene = scene};
@@ -207,7 +226,7 @@ struct Staged
 
 		createStaging();
 
-		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging})
+		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging, &morphStaging})
 		{
 			if (!staging->IsValid())
 				continue;
@@ -233,7 +252,7 @@ struct Staged
 		if (auto result = outStream(desc); failure(result))
 			return std::make_error_code(result);
 
-		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging})
+		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging, &morphStaging})
 		{
 			if (!staging->IsValid())
 				continue;
@@ -281,6 +300,8 @@ struct Staged
 		desc.instances = mesh->instances;
 		desc.animation = mesh->animation;
 		desc.skinned = !mesh->skinVertices.empty();
+		desc.morphDeltaCount = static_cast<uint32_t>(mesh->morphDeltas.size());
+		desc.morphWeights = mesh->morphWeights;
 		desc.scenes = mesh->scenes;
 		desc.scene = mesh->scene;
 		desc.cameras = mesh->cameras;
@@ -297,7 +318,11 @@ struct Staged
 				.firstInstance = submesh.firstInstance,
 				.instanceCount = submesh.instanceCount,
 				.mirroredInstanceCount = submesh.mirroredInstanceCount,
-				.skin = submesh.skin});
+				.skin = submesh.skin,
+				.morphTargetCount = submesh.morphTargetCount,
+				.morphDeltaBase = submesh.morphDeltaBase,
+				.morphFirstVertex = submesh.morphFirstVertex,
+				.morphWeightBase = submesh.morphWeightBase});
 			if (submesh.indexCount == 0)
 				continue;
 			// in world space: the center of its bounds' corners at each of its instances
@@ -402,6 +427,13 @@ struct Staged
 		std::memcpy(vertices.data(), mesh->vertices.data(), vertices.size());
 		vertexStaging.Unmap();
 
+		if (morphStaging.IsValid())
+		{
+			auto morphDeltas = morphStaging.Map();
+			std::memcpy(morphDeltas.data(), mesh->morphDeltas.data(), morphDeltas.size());
+			morphStaging.Unmap();
+		}
+
 		if (skinStaging.IsValid())
 		{
 			auto skinVertices = skinStaging.Map();
@@ -420,11 +452,11 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v3", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v21", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v22", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));
-	params.append("|cache-v23"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v24"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -448,7 +480,8 @@ struct Staged
 		.desc = std::move(desc),
 		.indexStaging = std::move(indexStaging),
 		.vertexStaging = std::move(vertexStaging),
-		.skinStaging = std::move(skinStaging)};
+		.skinStaging = std::move(skinStaging),
+		.morphStaging = std::move(morphStaging)};
 }
 
 // the models side by side, in a grid in the xy plane (facing +z, the cameras' default view), as one: their indices and
@@ -485,6 +518,8 @@ struct Staged
 
 		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
 		auto instanceBase = static_cast<uint32_t>(merged.desc.instances.size());
+		auto weightBase = static_cast<uint32_t>(merged.desc.morphWeights.size());
+		merged.desc.morphWeights.insert(merged.desc.morphWeights.end(), desc.morphWeights.begin(), desc.morphWeights.end());
 		merged.desc.materials.insert(merged.desc.materials.end(), desc.materials.begin(), desc.materials.end());
 		for (auto submesh : desc.submeshes)
 		{
@@ -492,7 +527,13 @@ struct Staged
 			if (submesh.material >= 0)
 				submesh.material += materialBase;
 			submesh.firstInstance += instanceBase;
-			submesh.skin = -1; // a set is drawn at rest (see ModelDesc::animation)
+			submesh.skin = -1; // a set is drawn at rest (see ModelDesc::animation), its morph targets at their default weights
+			if (submesh.morphTargetCount > 0)
+			{
+				submesh.morphDeltaBase += merged.desc.morphDeltaCount;
+				submesh.morphFirstVertex += merged.desc.vertexCount;
+				submesh.morphWeightBase += weightBase;
+			}
 			for (size_t axis = 0; axis < 3; axis++)
 				submesh.center[axis] = place(submesh.center[axis], axis);
 			merged.desc.submeshes.push_back(submesh);
@@ -523,6 +564,7 @@ struct Staged
 
 		merged.desc.indexCount += desc.indexCount;
 		merged.desc.vertexCount += desc.vertexCount;
+		merged.desc.morphDeltaCount += desc.morphDeltaCount;
 	}
 
 	if (!FitsDevice(device, merged.desc, merged.desc.name))
@@ -534,6 +576,11 @@ struct Staged
 	merged.vertexStaging = Buffer::CreateStaging(
 		device.CreateDeviceObjectCreateDesc(std::format("{} (vertex staging)", merged.desc.name)),
 		merged.desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f));
+	if (merged.desc.morphDeltaCount > 0)
+		merged.morphStaging = Buffer::CreateStaging(
+			device.CreateDeviceObjectCreateDesc(std::format("{} (morph staging)", merged.desc.name)),
+			merged.desc.morphDeltaCount * sizeof(MorphDelta));
+	auto morphDeltas = merged.morphStaging.IsValid() ? merged.morphStaging.Map() : std::span<std::byte>{};
 
 	auto indices = merged.indexStaging.Map();
 	auto vertices = merged.vertexStaging.Map();
@@ -542,6 +589,7 @@ struct Staged
 
 	uint32_t vertexBase = 0;
 	uint32_t indexBase = 0;
+	size_t morphOffset = 0;
 	for (auto& model : models)
 	{
 		const auto& desc = model.desc;
@@ -556,6 +604,14 @@ struct Staged
 		std::memcpy(&vertexOut[vertexBase], sourceVertices.data(), desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f));
 		model.vertexStaging.Unmap();
 
+		if (model.morphStaging.IsValid())
+		{
+			auto sourceDeltas = model.morphStaging.Map();
+			std::memcpy(morphDeltas.data() + morphOffset, sourceDeltas.data(), desc.morphDeltaCount * sizeof(MorphDelta));
+			model.morphStaging.Unmap();
+			morphOffset += desc.morphDeltaCount * sizeof(MorphDelta);
+		}
+
 		vertexBase += desc.vertexCount;
 		indexBase += desc.indexCount;
 
@@ -565,6 +621,8 @@ struct Staged
 
 	merged.indexStaging.Unmap();
 	merged.vertexStaging.Unmap();
+	if (merged.morphStaging.IsValid())
+		merged.morphStaging.Unmap();
 
 	return merged;
 }
@@ -592,7 +650,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 	ZoneScopedN("gfx::Model::Upload");
 
-	auto& [desc, indexStaging, vertexStaging, skinStaging] = staged;
+	auto& [desc, indexStaging, vertexStaging, skinStaging, morphStaging] = staged;
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
 	bool moves = !desc.animation.Empty();
 
@@ -638,6 +696,23 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		instanceStaging.Unmap();
 	}
 
+	// the morph weights, at their defaults until Model::Animate moves them (a merged set keeps them there)
+	if (!desc.morphWeights.empty())
+	{
+		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+		{
+			auto& weightBuffer = buffers.morphWeights.emplace_back(BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("{} (morph weights {})", filePath, frameIt)),
+				desc.morphWeights.size() * sizeof(float),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible});
+			auto weightMemory = weightBuffer.Map();
+			std::memcpy(weightMemory.data(), desc.morphWeights.data(), weightMemory.size());
+			weightBuffer.Flush(0, weightMemory.size());
+			weightBuffer.Unmap();
+		}
+	}
+
 	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
 	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
 
@@ -670,6 +745,9 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			std::move(vertexStaging));
 		if (skinStaging.IsValid())
 			buffers.skin = upload("skin vertices", desc.vertexCount * sizeof(SkinVertex), BufferUsage::kStorage, std::move(skinStaging));
+		if (morphStaging.IsValid())
+			buffers.morphDeltas =
+				upload("morph deltas", desc.morphDeltaCount * sizeof(MorphDelta), BufferUsage::kStorage, std::move(morphStaging));
 		if (!moves)
 			buffers.instances.push_back(
 				upload("instances", desc.instances.size() * sizeof(ModelInstance), BufferUsage::kStorage, std::move(instanceStaging)));

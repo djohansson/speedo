@@ -35,6 +35,7 @@ using mesh::Submesh;
 using gfx::SceneCamera;
 using gfx::SceneLight;
 using gfx::SceneMatrix;
+using gfx::SceneMorph;
 
 namespace detail
 {
@@ -712,8 +713,12 @@ struct Part
 	uint32_t instanceCount = 1;
 	uint32_t mirroredInstanceCount = 0;
 	int32_t skin = -1; // see mesh::Submesh::skin
+	// animated morph targets (see mesh::Submesh::morphTargetCount): a row of morphTargets deltas per vertex
+	uint32_t morphTargets = 0;
+	uint32_t morphWeightBase = 0;
 	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<SkinVertex> skinVertices; // parallel to vertices if skinned, else empty
+	std::vector<MorphDelta> morphDeltas; // morphTargets per vertex, if any
 	std::vector<uint32_t> indices;
 };
 
@@ -772,6 +777,7 @@ size_t GenerateTangents(Part& part, uint32_t texCoordSet)
 	// each vertex once per distinct tangent of its corners
 	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
 	std::vector<SkinVertex> skinVertices;
+	std::vector<MorphDelta> morphDeltas;
 	std::vector<std::vector<std::pair<std::array<float, 4>, uint32_t>>> copies(part.vertices.size());
 	vertices.reserve(part.vertices.size());
 	for (size_t cornerIt = 0; cornerIt < part.indices.size(); cornerIt++)
@@ -802,6 +808,10 @@ size_t GenerateTangents(Part& part, uint32_t texCoordSet)
 			vertices.push_back(vertex);
 			if (!part.skinVertices.empty())
 				skinVertices.push_back(part.skinVertices[index]);
+			if (part.morphTargets > 0)
+				std::ranges::copy(
+					std::span(part.morphDeltas).subspan(static_cast<size_t>(index) * part.morphTargets, part.morphTargets),
+					std::back_inserter(morphDeltas));
 			it = vertexCopies.insert(vertexCopies.end(), {tangent, static_cast<uint32_t>(vertices.size() - 1)});
 		}
 		part.indices[cornerIt] = it->second;
@@ -809,6 +819,8 @@ size_t GenerateTangents(Part& part, uint32_t texCoordSet)
 	part.vertices = std::move(vertices);
 	if (!part.skinVertices.empty())
 		part.skinVertices = std::move(skinVertices);
+	if (part.morphTargets > 0)
+		part.morphDeltas = std::move(morphDeltas);
 	return part.vertices.size();
 }
 
@@ -1083,12 +1095,14 @@ std::expected<Mesh, std::string> Import(
 		// tangents go with the file's normals: when normals are generated, gltf says to ignore them
 		auto tangentValues = normalValues && tangents != nullptr && tangents->type == cgltf_type_vec4 ? unpack(tangents, 4) : std::nullopt;
 
-		// morph targets, at their weights (animating them belongs to animation, which is ignored): each target's
-		// position, normal and tangent (xyz) deltas, times its weight, are added to the base mesh
+		// morph targets: animated ones (instances.morphTargets) keep each target's position, normal and tangent (xyz)
+		// deltas, for the vertex shader to weigh (see MorphDelta). others are applied here, at their weights
+		bool animatedMorphs = instances.morphTargets > 0;
+		std::vector<std::array<std::optional<std::vector<float>>, 3>> targetDeltas(animatedMorphs ? instances.morphTargets : 0);
 		for (cgltf_size targetIt = 0; targetIt < primitive.targets_count; targetIt++)
 		{
 			auto weight = targetIt < weights.size() ? weights[targetIt] : 0.0F;
-			if (weight == 0.0F)
+			if (weight == 0.0F && !animatedMorphs)
 				continue;
 
 			const auto& target = primitive.targets[targetIt];
@@ -1108,6 +1122,12 @@ std::expected<Mesh, std::string> Import(
 				{
 					if (!std::exchange(morphWarned, true))
 						warn("mesh {}: a morph target can't be read, and is ignored", meshName);
+					continue;
+				}
+				if (animatedMorphs)
+				{
+					if (targetIt < targetDeltas.size())
+						targetDeltas[targetIt][values == &positionValues ? 0 : values == &normalValues ? 1 : 2] = std::move(deltas);
 					continue;
 				}
 				for (size_t i = 0; i < deltas->size(); i++)
@@ -1197,7 +1217,9 @@ std::expected<Mesh, std::string> Import(
 			.firstInstance = instances.firstInstance,
 			.instanceCount = instances.instanceCount,
 			.mirroredInstanceCount = instances.mirroredInstanceCount,
-			.skin = instances.skin});
+			.skin = instances.skin,
+			.morphTargets = instances.morphTargets,
+			.morphWeightBase = instances.morphWeightBase});
 
 		// a skinned primitive's joints and weights, the weights normalized to sum to 1 (see SkinVertex)
 		std::vector<SkinVertex> skinVertices;
@@ -1306,6 +1328,48 @@ std::expected<Mesh, std::string> Import(
 				vertex.color[i] = color[i] * factor[i];
 		}
 
+		// the animated morph targets' deltas, a row per vertex, transformed as the vertex is: positions' and tangents' by
+		// the node's transform, normals' by its cofactor matrix, and both scaled as their vertex's base vector was
+		// normalized
+		std::vector<MorphDelta> morphDeltas;
+		if (animatedMorphs)
+		{
+			auto targets = static_cast<size_t>(instances.morphTargets);
+			morphDeltas.resize(vertexCount * targets);
+			auto at = [](const std::vector<float>& values, size_t vertexIt, size_t stride)
+			{ return Vec3{values[stride * vertexIt], values[(stride * vertexIt) + 1], values[(stride * vertexIt) + 2]}; };
+			auto store = [](float* out, const Vec3& v, double scale)
+			{
+				for (size_t axis = 0; axis < 3; axis++)
+					out[axis] = static_cast<float>(v[axis] * scale);
+			};
+			for (size_t vertexIt = 0; vertexIt < vertexCount; vertexIt++)
+			{
+				double normalScale = 0.0;
+				if (normalValues)
+					if (auto length = Length(TransformNormal(normalMatrix, at(*normalValues, vertexIt, 3))); length > 0.0)
+						normalScale = 1.0 / length;
+				double tangentScale = 0.0;
+				if (tangentValues)
+					if (auto length = Length(TransformDirection(world, at(*tangentValues, vertexIt, 4))); length > 0.0)
+						tangentScale = 1.0 / length;
+				for (size_t targetIt = 0; targetIt < targets; targetIt++)
+				{
+					auto& delta = morphDeltas[(vertexIt * targets) + targetIt];
+					const auto& [positions, normals, tangents] = targetDeltas[targetIt];
+					if (positions)
+						store(delta.position, TransformDirection(world, at(*positions, vertexIt, 3)), 1.0);
+					if (normals)
+						store(delta.normal, TransformNormal(normalMatrix, at(*normals, vertexIt, 3)), normalScale);
+					if (tangents)
+						store(delta.tangent, TransformDirection(world, at(*tangents, vertexIt, 3)), tangentScale);
+				}
+			}
+		}
+		// rows of a vertex's deltas, for the copies of it the parts make
+		auto morphRow = [&morphDeltas, targets = static_cast<size_t>(instances.morphTargets)](size_t vertexIt)
+		{ return std::span(morphDeltas).subspan(vertexIt * targets, targets); };
+
 		// lines and points: as they are. without normals in the file they keep zero normals, and are drawn unlit
 		if (topology != rhi::PrimitiveTopology::kTriangleList)
 		{
@@ -1323,6 +1387,7 @@ std::expected<Mesh, std::string> Import(
 			}
 			part.vertices = std::move(vertices);
 			part.skinVertices = std::move(skinVertices);
+			part.morphDeltas = std::move(morphDeltas);
 			return;
 		}
 
@@ -1363,6 +1428,8 @@ std::expected<Mesh, std::string> Import(
 					part.vertices.push_back(vertex);
 					if (!skinVertices.empty())
 						part.skinVertices.push_back(skinVertices[corner]);
+					if (animatedMorphs)
+						std::ranges::copy(morphRow(corner), std::back_inserter(part.morphDeltas));
 					stats.generatedNormals++;
 				}
 				continue;
@@ -1397,6 +1464,7 @@ std::expected<Mesh, std::string> Import(
 		{
 			part.vertices = std::move(vertices);
 			part.skinVertices = std::move(skinVertices);
+			part.morphDeltas = std::move(morphDeltas);
 		}
 
 		// a normal map without tangents in the file: MikkTSpace's, as gltf says, from the normal map's texcoord set
@@ -1431,6 +1499,8 @@ std::expected<Mesh, std::string> Import(
 	// the nodes animations move (their translation, rotation or scale), and their descendants: their meshes keep their
 	// vertices in the node's space, drawn with instances that follow the node (see SceneAnimationData)
 	std::vector<uint8_t> moves(data.nodes_count, 0);
+	// the nodes whose morph target weights animations move: their meshes' targets are weighed on the gpu
+	std::vector<uint8_t> morphsMove(data.nodes_count, 0);
 	for (cgltf_size animationIt = 0; animationIt < data.animations_count; animationIt++)
 	{
 		const auto& animation = data.animations[animationIt];
@@ -1441,6 +1511,8 @@ std::expected<Mesh, std::string> Import(
 				(channel.target_path == cgltf_animation_path_type_translation ||
 				 channel.target_path == cgltf_animation_path_type_rotation || channel.target_path == cgltf_animation_path_type_scale))
 				moves[channel.target_node - data.nodes] = 1;
+			if (channel.target_node != nullptr && channel.target_path == cgltf_animation_path_type_weights)
+				morphsMove[channel.target_node - data.nodes] = 1;
 		}
 	}
 	auto nodeMoves = [&data, &moves](const cgltf_node* node)
@@ -1516,6 +1588,24 @@ std::expected<Mesh, std::string> Import(
 												   : std::span<const cgltf_float>(node->mesh->weights, node->mesh->weights_count);
 
 			std::string meshName = node->mesh->name != nullptr ? node->mesh->name : std::format("{}", node->mesh - data.meshes);
+
+			// animated weights: the node's morph weights (its defaults, padded with zeros), and its primitives' deltas, which
+			// the vertex shader weighs
+			if (morphsMove[nodeIndex] != 0)
+			{
+				cgltf_size targetCount = 0;
+				for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
+					targetCount = std::max(targetCount, node->mesh->primitives[primitiveIt].targets_count);
+				if (targetCount > 0)
+				{
+					instances.morphTargets = static_cast<uint32_t>(targetCount);
+					instances.morphWeightBase = static_cast<uint32_t>(mesh.morphWeights.size());
+					mesh.animation.morphs.push_back(
+						{.node = nodeIndex, .weightBase = instances.morphWeightBase, .weightCount = instances.morphTargets});
+					for (cgltf_size targetIt = 0; targetIt < targetCount; targetIt++)
+						mesh.morphWeights.push_back(targetIt < weights.size() ? weights[targetIt] : 0.0F);
+				}
+			}
 
 			// instanced meshes (EXT_mesh_gpu_instancing) are drawn instanced: their vertices once, in the node's space, and
 			// a transform per instance (the node's times the instance's), the mirroring ones last (see mesh::Submesh). so
@@ -1596,6 +1686,17 @@ std::expected<Mesh, std::string> Import(
 				components = 4;
 				break;
 			case cgltf_animation_path_type_scale: channel.path = SceneAnimationChannel::Path::kScale; break;
+			case cgltf_animation_path_type_weights:
+			{
+				// a node whose morphs are weighed on the gpu (see SceneMorph)
+				channel.path = SceneAnimationChannel::Path::kWeights;
+				auto morph = std::ranges::find(
+					mesh.animation.morphs,
+					gltfChannel.target_node != nullptr ? static_cast<uint32_t>(gltfChannel.target_node - data.nodes) : ~0U,
+					&SceneMorph::node);
+				components = morph != mesh.animation.morphs.end() ? morph->weightCount : 0;
+				break;
+			}
 			default: components = 0; break;
 			}
 			const auto* sampler = gltfChannel.sampler;
@@ -1611,9 +1712,12 @@ std::expected<Mesh, std::string> Import(
 									  ? SceneAnimationChannel::Interpolation::kCubicSpline
 									  : SceneAnimationChannel::Interpolation::kLinear;
 			channel.times.resize(sampler->input->count);
-			channel.values.resize(sampler->output->count * components);
+			// by the accessor's own type: weights are scalars, weightCount of them per key
+			channel.values.resize(sampler->output->count * cgltf_num_components(sampler->output->type));
+			auto valuesPerKey = components * (channel.interpolation == SceneAnimationChannel::Interpolation::kCubicSpline ? 3 : 1);
 			if (cgltf_accessor_unpack_floats(sampler->input, channel.times.data(), channel.times.size()) != channel.times.size() ||
-				cgltf_accessor_unpack_floats(sampler->output, channel.values.data(), channel.values.size()) != channel.values.size())
+				cgltf_accessor_unpack_floats(sampler->output, channel.values.data(), channel.values.size()) != channel.values.size() ||
+				channel.values.size() != channel.times.size() * valuesPerKey)
 			{
 				ignoredChannels++;
 				continue;
@@ -1624,9 +1728,9 @@ std::expected<Mesh, std::string> Import(
 		}
 	}
 	if (data.animations_count > 0 && mesh.animation.Empty())
-		warn("{} animations are ignored (they move nothing drawn: morph weights, KHR_animation_pointer)", data.animations_count);
+		warn("{} animations are ignored (they move nothing drawn, e.g. KHR_animation_pointer)", data.animations_count);
 	if (ignoredChannels > 0)
-		warn("{} animation channels are ignored (morph weights, KHR_animation_pointer, or unreadable)", ignoredChannels);
+		warn("{} animation channels are ignored (KHR_animation_pointer, or unreadable)", ignoredChannels);
 	if (normalArea > 0.0)
 		stats.windingAgreement = agreeingArea / normalArea;
 
@@ -1646,7 +1750,12 @@ std::expected<Mesh, std::string> Import(
 
 		auto bucketOf = [&mesh](int32_t material) { return material >= 0 ? static_cast<size_t>(material) : mesh.materials.size(); };
 		std::ranges::stable_sort(
-			parts, {}, [&bucketOf](const Part& part) { return std::tuple(bucketOf(part.material), part.topology, part.firstInstance, part.skin); });
+			parts, {},
+			[&bucketOf](const Part& part)
+			{
+				return std::tuple(
+					bucketOf(part.material), part.topology, part.firstInstance, part.skin, part.morphTargets, part.morphWeightBase);
+			});
 
 		bool anySkinned = std::ranges::any_of(parts, [](const Part& part) { return part.skin >= 0; });
 		// skinned vertices are bounded where their joints put them at rest, not in the mesh's (bind) space
@@ -1657,9 +1766,11 @@ std::expected<Mesh, std::string> Import(
 			if (part.indices.empty())
 				continue;
 
+			// parts with the same morph weights share a submesh: their delta rows follow their vertices
 			if (mesh.submeshes.empty() || mesh.submeshes.back().material != part.material ||
 				mesh.submeshes.back().topology != part.topology || mesh.submeshes.back().firstInstance != part.firstInstance ||
-				mesh.submeshes.back().skin != part.skin)
+				mesh.submeshes.back().skin != part.skin || mesh.submeshes.back().morphTargetCount != part.morphTargets ||
+				mesh.submeshes.back().morphWeightBase != part.morphWeightBase)
 				mesh.submeshes.push_back(Submesh{
 					.firstIndex = static_cast<uint32_t>(mesh.indices.size()),
 					.indexCount = 0,
@@ -1668,7 +1779,13 @@ std::expected<Mesh, std::string> Import(
 					.firstInstance = part.firstInstance,
 					.instanceCount = part.instanceCount,
 					.mirroredInstanceCount = part.mirroredInstanceCount,
-					.skin = part.skin});
+					.skin = part.skin,
+					.morphTargetCount = part.morphTargets,
+					.morphDeltaBase = static_cast<uint32_t>(mesh.morphDeltas.size()),
+					.morphFirstVertex = static_cast<uint32_t>(mesh.vertices.size()),
+					.morphWeightBase = part.morphWeightBase});
+			if (part.morphTargets > 0)
+				mesh.morphDeltas.insert(mesh.morphDeltas.end(), part.morphDeltas.begin(), part.morphDeltas.end());
 
 			auto vertexOffset = static_cast<uint32_t>(mesh.vertices.size());
 			for (auto index : part.indices)
@@ -1687,28 +1804,55 @@ std::expected<Mesh, std::string> Import(
 					mesh.bounds.Merge(position);
 				}
 			};
+			// where a vertex can go: at rest, and with animated morph targets, as far as their weights (0 to 1) take it
+			// each way
+			auto reach = [&part](size_t vertexIt, auto&& visit)
+			{
+				auto position = std::to_array(part.vertices[vertexIt].position);
+				visit(position);
+				if (part.morphTargets == 0)
+					return;
+				auto low = position;
+				auto high = position;
+				for (uint32_t targetIt = 0; targetIt < part.morphTargets; targetIt++)
+				{
+					const auto& delta = part.morphDeltas[(vertexIt * part.morphTargets) + targetIt].position;
+					for (size_t axis = 0; axis < 3; axis++)
+					{
+						low[axis] += std::min(delta[axis], 0.0F);
+						high[axis] += std::max(delta[axis], 0.0F);
+					}
+				}
+				visit(low);
+				visit(high);
+			};
 			if (part.skin >= 0 && part.skinVertices.size() == part.vertices.size())
 			{
 				auto jointBase = mesh.animation.skins[part.skin].jointBase;
 				for (size_t vertexIt = 0; vertexIt < part.vertices.size(); vertexIt++)
-					addToBounds(SkinPosition(restJoints, jointBase, part.skinVertices[vertexIt], std::to_array(part.vertices[vertexIt].position)));
+					reach(vertexIt, [&](const auto& position) { addToBounds(SkinPosition(restJoints, jointBase, part.skinVertices[vertexIt], position)); });
 			}
 			else if (part.firstInstance == 0)
 			{
-				for (const auto& vertex : part.vertices)
-					addToBounds(std::to_array(vertex.position));
+				for (size_t vertexIt = 0; vertexIt < part.vertices.size(); vertexIt++)
+					reach(vertexIt, addToBounds);
 			}
 			else if (!part.vertices.empty())
 			{
 				// the corners of its bounds at each instance
-				std::array<double, 3> min{};
-				std::array<double, 3> max{};
-				for (size_t axis = 0; axis < 3; axis++)
-				{
-					auto [lo, hi] = std::ranges::minmax(part.vertices | std::views::transform([axis](const auto& vertex) { return vertex.position[axis]; }));
-					min[axis] = lo;
-					max[axis] = hi;
-				}
+				std::array<double, 3> min{std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
+				std::array<double, 3> max{std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
+				for (size_t vertexIt = 0; vertexIt < part.vertices.size(); vertexIt++)
+					reach(
+						vertexIt,
+						[&](const auto& position)
+						{
+							for (size_t axis = 0; axis < 3; axis++)
+							{
+								min[axis] = std::min<double>(min[axis], position[axis]);
+								max[axis] = std::max<double>(max[axis], position[axis]);
+							}
+						});
 				for (uint32_t instanceIt = part.firstInstance; instanceIt < part.firstInstance + part.instanceCount; instanceIt++)
 					for (uint32_t corner = 0; corner < 8; corner++)
 					{
@@ -1729,6 +1873,7 @@ std::expected<Mesh, std::string> Import(
 
 			std::vector<VertexP3fN3fTa4fT014fC4f>().swap(part.vertices);
 			std::vector<SkinVertex>().swap(part.skinVertices);
+			std::vector<MorphDelta>().swap(part.morphDeltas);
 			std::vector<uint32_t>().swap(part.indices);
 		}
 	}

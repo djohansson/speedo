@@ -172,6 +172,16 @@ struct SkinVertex
 	alignas(8) UINT2(weights); // 4 x 16 bit unorm weights, summing to 1
 };
 
+// a vertex's deltas for one morph target, transformed like the vertex: gMorphDeltas holds a row of
+// PushConstants::morphTargetCount of them per vertex of an animated morph submesh, from morphDeltaBase for its vertices
+// from morphFirstVertex, added to the vertex by the target's weight (gMorphWeights[frame][morphWeightBase + target])
+struct MorphDelta
+{
+	alignas(16) FLOAT4(position);
+	alignas(16) FLOAT4(normal);
+	alignas(16) FLOAT4(tangent);
+};
+
 struct PushConstants
 {
 	// per frame
@@ -186,6 +196,11 @@ struct PushConstants
 	alignas(4) FLOAT(exposure);
 	// per draw: where its skin's joint matrices start in gJointMatrices, or SHADER_TYPES_NOT_SKINNED
 	alignas(4) UINT(jointBase);
+	// per draw: its morph targets (see MorphDelta), none if morphTargetCount is 0
+	alignas(4) UINT(morphTargetCount);
+	alignas(4) UINT(morphDeltaBase);
+	alignas(4) UINT(morphFirstVertex);
+	alignas(4) UINT(morphWeightBase);
 };
 
 #ifdef __cplusplus

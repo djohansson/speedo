@@ -49,6 +49,7 @@ struct SceneAnimationChannel
 		kTranslation,
 		kRotation,
 		kScale,
+		kWeights, // a node's morph target weights (see SceneMorph): its weightCount floats per key
 	};
 	enum class Interpolation : uint8_t
 	{
@@ -80,15 +81,25 @@ struct SceneInstanceLink
 	SceneMatrix local{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
+// a node whose mesh's morph targets an animation moves (by its weights): its weights are weightCount floats from
+// weightBase in the morph weight buffer (gMorphWeights, see MorphDelta in gfx/shaders/capi.h), which its submeshes read
+struct SceneMorph
+{
+	uint32_t node = 0;
+	uint32_t weightBase = 0;
+	uint32_t weightCount = 0;
+};
+
 struct SceneAnimationData
 {
 	std::vector<SceneNode> nodes; // all of the file's nodes, by their gltf index. empty if nothing moves or is skinned
 	std::vector<SceneSkin> skins;
 	std::vector<SceneAnimation> animations;
 	std::vector<SceneInstanceLink> instanceLinks;
+	std::vector<SceneMorph> morphs;
 	uint32_t jointCount = 0; // of all skins
 
-	[[nodiscard]] bool Empty() const noexcept { return skins.empty() && instanceLinks.empty(); }
+	[[nodiscard]] bool Empty() const noexcept { return skins.empty() && instanceLinks.empty() && morphs.empty(); }
 };
 
 // the nodes' world transforms with animation playing at time (seconds, wrapped to its duration), or at rest if
@@ -105,6 +116,11 @@ struct ScenePose
 // the nodes' world transforms with pose crossfaded in over from: their local transforms blended by weight (0: from's,
 // 1: pose's; translation and scale lerped, rotation slerped), as when one animation fades into another
 [[nodiscard]] std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, const ScenePose& pose, const ScenePose& from, float weight);
+
+// the morph target weights (see SceneMorph) with pose crossfaded in over from (lerped by weight): defaults (a node's, else
+// its mesh's, see ModelDesc::morphWeights) where the animations don't move them
+[[nodiscard]] std::vector<float> EvaluateWeights(
+	const SceneAnimationData& data, std::span<const float> defaults, const ScenePose& pose, const ScenePose& from, float weight);
 
 // what moves, from the nodes' world transforms: the linked instances' transforms (written at their instance index,
 // with their inverse transposes, as ModelInstance in gfx/shaders/capi.h) and the joint matrices (jointCount of them)

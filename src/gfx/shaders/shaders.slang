@@ -14,6 +14,9 @@ StructuredBuffer<VertexP3fN3fTa4fT014fC4f> gVertexBuffer;
 [[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<SkinVertex> gSkinVertices;
 
+[[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<MorphDelta> gMorphDeltas;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 
@@ -40,6 +43,26 @@ StructuredBuffer<LightData> gLights;
 
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<float4x4> gJointMatrices[SHADER_TYPES_FRAME_COUNT];
+
+[[vk::binding(3, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<float> gMorphWeights[SHADER_TYPES_FRAME_COUNT];
+
+// a vertex moved by its submesh's morph targets: each target's deltas (see MorphDelta) times the target's weight
+void Morph(uint vertexId, uint frameIndex, inout float3 position, inout float3 normal, inout float3 tangent)
+{
+	uint count = gPushConstants.morphTargetCount;
+	uint row = gPushConstants.morphDeltaBase + (vertexId - gPushConstants.morphFirstVertex) * count;
+	for (uint t = 0; t < count; t++)
+	{
+		float weight = gMorphWeights[frameIndex][gPushConstants.morphWeightBase + t];
+		if (weight == 0.0)
+			continue;
+		MorphDelta delta = gMorphDeltas[row + t];
+		position += weight * delta.position.xyz;
+		normal += weight * delta.normal.xyz;
+		tangent += weight * delta.tangent.xyz;
+	}
+}
 
 // a skinned vertex's matrix: its joints' matrices by its weights (see SkinVertex), from mesh to world space
 float4x4 SkinMatrix(uint vertexId, uint frameIndex, uint jointBase)
@@ -130,6 +153,12 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
 
 	float3 position = v.position;
+	if (gPushConstants.morphTargetCount > 0)
+	{
+		float3 normal = v.normal;
+		float3 tangent = v.tangent.xyz;
+		Morph(input.vertexId, frameIndex, position, normal, tangent);
+	}
 	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
 		position = mul(SkinMatrix(input.vertexId, frameIndex, gPushConstants.jointBase), float4(position, 1.0)).xyz;
 	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
@@ -155,11 +184,13 @@ VertexMainOutput VertexMain(InputStream input)
 	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
 	ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
 
-	// skinned vertices move with their joints (in world space), before the instance's transform (the identity for them).
+	// morph targets move the vertices first (in the space they are stored in), then skinned vertices move with their joints (in world space), before the instance's transform (the identity for them).
 	// the normals and tangents go by the same matrix, which is exact for joints without non-uniform scale.
 	float3 position = v.position;
 	float3 normal = v.normal;
 	float3 tangent = v.tangent.xyz;
+	if (gPushConstants.morphTargetCount > 0)
+		Morph(input.vertexId, frameIndex, position, normal, tangent);
 	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
 	{
 		float4x4 skin = SkinMatrix(input.vertexId, frameIndex, gPushConstants.jointBase);

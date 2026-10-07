@@ -303,7 +303,7 @@ Textures use their plain image if they have one, else their KHR_texture_basisu (
 `ports/bcdec` overlay, and only warns about such images' compression and mips, which are the file's), other KTX2 textures (normal maps and the other swizzled usages) are transcoded to rgba8 and compressed
 as any other, as are WebP images (libwebp, the first frame of an animation); the decoders' versions are part of those files' cache keys, and draco's and
 meshoptimizer's of every gltf model's. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
-node's, else the mesh's; position and normal deltas). Skins and node animations (translation, rotation, scale; step,
+node's, else the mesh's; position, normal and tangent deltas) unless an animation moves the node's weights. Skins and node animations (translation, rotation, scale; step,
 linear and cubic spline) are drawn moving (`SceneAnimationData`, `ModelDesc::animation`, `gfx/sceneanimation.h`): the
 nodes animations move, and their descendants, keep their meshes in node space, drawn with instances linked to the
 node (`SceneInstanceLink`), and skinned meshes keep their vertices in mesh space with a `SkinVertex` each
@@ -311,12 +311,18 @@ node (`SceneInstanceLink`), and skinned meshes keep their vertices in mesh space
 `PushConstants::jointBase` (world(joint) * inverse bind). Everything else is flattened as before. A moving model has a
 host visible instance and joint buffer per frame (`gModelInstances[frame]`, `gJointMatrices[frame]`), which
 `Model::Animate` writes on the draw thread after the frame's fence wait, from `EvaluateNodes` on the cpu; a static one
-binds its device local instance buffer in every slot, and the defaults (`gDefaultSkinVerticesUuid`, `gDefaultJointsUuid`)
+binds its device local instance buffer in every slot, and the defaults (`gDefaultSkinVerticesUuid`, `gDefaultJointsUuid`, `gDefaultMorphDeltasUuid`, `gDefaultMorphWeightsUuid`)
 stand in for what it doesn't have. Skinned bounds and blend centers are at the rest pose (`RestJoints`,
 `SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
 first plays on load), crossfading from the previous one over 0.3 s (`EvaluateNodes` with two `ScenePose`s and a weight:
-local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
-weight and KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at rest. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
+local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Animated
+morph targets (a node with a weights channel) keep their deltas, per vertex a row of a `MorphDelta` per target transformed
+like the vertex (`gMorphDeltas`, from `PushConstants::morphDeltaBase` for the vertices from `morphFirstVertex`), added in
+the vertex shader before skinning by the frame's weights (`gMorphWeights[frame]` from `morphWeightBase`, a `SceneMorph`
+per node), which `Model::Animate` writes from `EvaluateWeights` (crossfaded like the nodes); the bounds cover each
+vertex's reach with the weights from 0 to 1. A weights channel's output accessor is scalars, weightCount per key (its
+`count` is not the key count). KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at
+rest (morph targets at their default weights). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
 `cameraRotation.z` (applied before pitch and yaw), and its aspect ratio (gltf `aspectRatio`, or `xmag / ymag`)

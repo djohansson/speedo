@@ -243,8 +243,33 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 					report.Fail("animation {} ({}): a finished crossfade differs from it by {:.3g}", animationIt, clip.name, d);
 				if (auto d = maxDifference(gfx::EvaluateNodes(animation, pose, {}, 0.0F), rest); d > 1e-4)
 					report.Fail("animation {} ({}): a crossfade's start differs from the rest pose by {:.3g}", animationIt, clip.name, d);
+
+				if (animation.morphs.empty())
+					continue;
+				auto weights = gfx::EvaluateWeights(animation, mesh->morphWeights, pose, {}, 1.0F);
+				if (weights.size() != mesh->morphWeights.size() || std::ranges::any_of(weights, [](float w) { return !std::isfinite(w); }))
+					report.Fail("animation {} ({}) has {} non-finite or missing morph weights at {:.2f}s", animationIt, clip.name, weights.size(), time);
+				auto start = gfx::EvaluateWeights(animation, mesh->morphWeights, pose, {}, 0.0F);
+				if (!std::ranges::equal(start, mesh->morphWeights, [](float a, float b) { return std::abs(a - b) <= 1e-5F; }))
+					report.Fail("animation {} ({}): a crossfade's start differs from the default morph weights", animationIt, clip.name);
 			}
 		}
+	}
+
+	// each submesh with morph targets reads a row of deltas per vertex and its weights
+	for (const auto& submesh : mesh->submeshes)
+	{
+		if (submesh.morphTargetCount == 0 || submesh.firstIndex + submesh.indexCount > mesh->indices.size())
+			continue;
+		if (submesh.morphWeightBase + submesh.morphTargetCount > mesh->morphWeights.size())
+			report.Fail("submesh morph weights {}+{} out of range ({})", submesh.morphWeightBase, submesh.morphTargetCount, mesh->morphWeights.size());
+		for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
+			if (index < submesh.morphFirstVertex ||
+				submesh.morphDeltaBase + (static_cast<size_t>(index - submesh.morphFirstVertex) + 1) * submesh.morphTargetCount > mesh->morphDeltas.size())
+			{
+				report.Fail("submesh morph deltas out of range for vertex {}", index);
+				break;
+			}
 	}
 
 	if (!mesh->skinVertices.empty() && mesh->skinVertices.size() != mesh->vertices.size())

@@ -36,6 +36,10 @@ struct ModelSubmesh
 	uint32_t instanceCount = 1;
 	uint32_t mirroredInstanceCount = 0;
 	int32_t skin = -1; // see mesh::Submesh::skin
+	uint32_t morphTargetCount = 0; // see mesh::Submesh::morphTargetCount
+	uint32_t morphDeltaBase = 0;
+	uint32_t morphFirstVertex = 0;
+	uint32_t morphWeightBase = 0;
 };
 
 // textures are empty (see TextureRef) if the material has none
@@ -82,6 +86,8 @@ struct ModelDesc
 	// what moves (see mesh::Mesh::animation). empty for a set of several files, which are drawn at rest
 	SceneAnimationData animation;
 	bool skinned = false; // whether it has skin vertices (SkinVertex, vertexCount of them, in their own buffer)
+	uint32_t morphDeltaCount = 0; // MorphDelta in their own buffer (see mesh::Mesh::morphDeltas)
+	std::vector<float> morphWeights; // the default morph weights (see mesh::Mesh::morphWeights)
 	// per joint (see SceneSkin::jointBase), the bounds (min xyz, max xyz) of the skinned vertices weighted to it, in their
 	// own (bind) space: what the joint moves, for centers that follow the animation. empty bounds have min > max
 	std::vector<std::array<float, 6>> jointBounds;
@@ -96,6 +102,8 @@ struct ModelBuffers
 	Buffer skin; // SkinVertex per vertex, if ModelDesc::skinned
 	std::vector<Buffer> instances; // ModelInstance per ModelDesc::instances
 	std::vector<Buffer> joints; // ModelDesc::animation.jointCount joint matrices (at least one)
+	Buffer morphDeltas; // MorphDelta, ModelDesc::morphDeltaCount of them, if any
+	std::vector<Buffer> morphWeights; // per frame, host visible: ModelDesc::morphWeights' count of weights, if any
 };
 
 // a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time
@@ -119,6 +127,12 @@ public:
 	[[nodiscard]] const Buffer& GetInstanceBuffer(size_t frameIndex) const noexcept
 	{
 		return myBuffers.instances[myBuffers.instances.size() == 1 ? 0 : frameIndex];
+	}
+	// its morph deltas, and a frame's morph weights (see MorphDelta in gfx/shaders/capi.h), or null if it has none
+	[[nodiscard]] const Buffer* GetMorphDeltaBuffer() const noexcept { return myBuffers.morphDeltas.IsValid() ? &myBuffers.morphDeltas : nullptr; }
+	[[nodiscard]] const Buffer* GetMorphWeightBuffer(size_t frameIndex) const noexcept
+	{
+		return frameIndex < myBuffers.morphWeights.size() ? &myBuffers.morphWeights[frameIndex] : nullptr;
 	}
 	// the joint matrices for a frame, or null if it doesn't move
 	[[nodiscard]] const Buffer* GetJointBuffer(size_t frameIndex) const noexcept

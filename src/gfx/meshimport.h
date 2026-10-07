@@ -78,6 +78,13 @@ struct Submesh
 	// its skin (an index into SceneAnimationData::skins), whose joints move its vertices (kept in the mesh's space,
 	// with Mesh::skinVertices), or -1
 	int32_t skin = -1;
+	// its animated morph targets (see MorphDelta in gfx/shaders/capi.h, and SceneMorph), none if morphTargetCount is 0:
+	// a row of morphTargetCount deltas per vertex in Mesh::morphDeltas from morphDeltaBase, for its vertices from
+	// morphFirstVertex, weighted by the weights from morphWeightBase. the vertices are then unmorphed
+	uint32_t morphTargetCount = 0;
+	uint32_t morphDeltaBase = 0;
+	uint32_t morphFirstVertex = 0;
+	uint32_t morphWeightBase = 0;
 };
 
 // a column major 4x4 transform, from a submesh's vertices to world space
@@ -129,6 +136,10 @@ struct Mesh
 	SceneAnimationData animation;
 	// parallel to vertices if any submesh is skinned (zero weights for the others), else empty
 	std::vector<SkinVertex> skinVertices;
+	// the animated morph targets' deltas (see Submesh::morphTargetCount), and every SceneMorph's default weights (the
+	// node's, else its mesh's)
+	std::vector<MorphDelta> morphDeltas;
+	std::vector<float> morphWeights;
 	std::vector<Material> materials;
 	Bounds3f bounds; // of the vertices, in world space (each instanced submesh's at each of its instances)
 	bool hasNormals = false; // in the file, for at least one vertex. missing ones are generated (see Stats)
