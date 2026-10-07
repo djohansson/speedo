@@ -9,6 +9,10 @@
 #include <gfx/meshimport.h>
 #include <gfx/ziparchive.h>
 
+#define BCDEC_IMPLEMENTATION
+#define BCDEC_STATIC
+#include <bcdec.h>
+
 #include <core/utils.h>
 
 #include <algorithm>
@@ -633,6 +637,15 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	const auto& pixels = reference->rgba;
 
 	auto format = image->format;
+	// a file's own blocks and mips (KTX2) only warn: their quality is the file's (and libktx's transcoder's), not the
+	// importer's
+	auto failOrWarn = [&report, ownBlocks = image->ownBlocks](const std::string& what)
+	{
+		if (ownBlocks)
+			report.Warn("{} (the file's own blocks and mips)", what);
+		else
+			report.Fail("{}", what);
+	};
 	report.Info(
 		"{}x{}, {} channels, as {}{}: {}, {} mips", width, height, reference->channelCount, ToString(options.usage),
 		image->fromHeight ? std::format(" (from a height map, scale {})", options.bumpScale) : "", ToString(format),
@@ -680,8 +693,12 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 		{
 			for (uint32_t bx = 0; bx < blockCols; bx++)
 			{
-				gfx::image::DecompressBlock(
-					format, std::span(data).subspan(level.offset + (((by * blockCols) + bx) * blockSize), blockSize), block);
+				auto compressed = std::span(data).subspan(level.offset + (((by * blockCols) + bx) * blockSize), blockSize);
+				// bc7 (only from KTX2 files) with bcdec, the others as gfx::image decodes them
+				if (format == gfx::image::Format::kBC7)
+					bcdec_bc7(compressed.data(), block.data(), 4 * 4);
+				else
+					gfx::image::DecompressBlock(format, compressed, block);
 				for (uint32_t y = 0; y < 4 && (by * 4) + y < level.height; y++)
 					for (uint32_t x = 0; x < 4 && (bx * 4) + x < level.width; x++)
 						std::copy_n(&block[((y * 4) + x) * 4], 4, &rgba[((((by * 4) + y) * level.width) + (bx * 4) + x) * 4]);
@@ -689,13 +706,6 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 		}
 		return rgba;
 	};
-
-	// bc7 (from KTX2 files) isn't decoded here: its compression and mips (the file's own) are left unchecked
-	if (format == gfx::image::Format::kBC7)
-	{
-		report.Info("BC7: compression and mip averages not checked (no BC7 decoder)");
-		return report;
-	}
 
 	auto level0 = decodeLevel(image->mipLevels[0]);
 	auto pixelCount = static_cast<size_t>(width) * height;
@@ -716,7 +726,7 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	report.Info("level 0 psnr {:.1f} dB", psnr);
 	// bc1 can't do much better on noisy textures
 	if (psnr < 18.0)
-		report.Fail("level 0 psnr {:.1f} dB is too low", psnr);
+		failOrWarn(std::format("level 0 psnr {:.1f} dB is too low", psnr));
 	else if (psnr < 22.0)
 		report.Warn("level 0 psnr {:.1f} dB is low", psnr);
 
@@ -764,13 +774,15 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 		uint32_t maxAlphaError = 0;
 		for (size_t i = 0; i < pixelCount; i++)
 		{
-			auto sourceAlpha = format == gfx::image::Format::kBC3 ? pixels[(i * 4) + 3] : 255;
+			bool hasAlpha = format == gfx::image::Format::kBC3 || format == gfx::image::Format::kBC7;
+			auto sourceAlpha = hasAlpha ? pixels[(i * 4) + 3] : 255;
 			maxAlphaError = std::max(maxAlphaError, static_cast<uint32_t>(std::abs(level0[(i * 4) + 3] - sourceAlpha)));
 		}
 		if (maxAlphaError > 24)
-			report.Fail("max alpha error {} is too high", maxAlphaError);
+			failOrWarn(std::format("max alpha error {} is too high", maxAlphaError));
 
-		if (reference->alpha != (format == gfx::image::Format::kBC3))
+		// bc7 holds alpha whether the image has it or not
+		if (format != gfx::image::Format::kBC7 && reference->alpha != (format == gfx::image::Format::kBC3))
 			report.Fail("alpha {} but format is {}", reference->alpha ? "present" : "absent", ToString(format));
 	}
 
@@ -830,7 +842,7 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	}
 	// odd extents drop a row or column per level, so small drifts are expected
 	if (worst > 24.0)
-		report.Fail("mip {} average is off by {:.1f}", worstLevel, worst);
+		failOrWarn(std::format("mip {} average is off by {:.1f}", worstLevel, worst));
 	else if (worst > 12.0)
 		report.Warn("mip {} average is off by {:.1f}", worstLevel, worst);
 	if (worstSingleBlock > 12.0)

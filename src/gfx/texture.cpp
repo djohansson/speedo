@@ -159,7 +159,7 @@ Texture LoadTexture(
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
 	if (options.usage == image::Usage::kBump)
 		params.append(std::format("|bump-scale-{}", options.bumpScale));
-	params.append("|cache-v3"); // bump when the serialized layout (image::Image) changes, to invalidate stale caches
+	params.append("|cache-v4"); // bump when the serialized layout (image::Image) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

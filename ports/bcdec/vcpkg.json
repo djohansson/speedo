@@ -1,0 +1,7 @@
+{
+  "name": "bcdec",
+  "version-date": "2026-09-02",
+  "description": "A small header-only library for decompressing BC1-BC7 (DXT/S3TC/BPTC) blocks",
+  "homepage": "https://github.com/iOrange/bcdec",
+  "license": "MIT OR Unlicense"
+}

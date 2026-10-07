@@ -528,7 +528,7 @@ std::expected<Image, std::string> Import(
 	default: return std::nullopt;
 	}
 
-	Image image{.channelCount = 4, .format = *format, .usage = options.usage};
+	Image image{.channelCount = 4, .format = *format, .usage = options.usage, .ownBlocks = true};
 	image.mipLevels.resize(levelCount);
 	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 	{

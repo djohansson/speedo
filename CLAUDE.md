@@ -299,8 +299,8 @@ draco attribute ids into accessor pointers by index), whose values `addPrimitive
 Textures use their plain image if they have one, else their KHR_texture_basisu (KTX2) or EXT_texture_webp image, which
 `image::Import` decodes: a KTX2 color (or linear) texture with a full mip chain keeps its own blocks
 (`ImportKtx2`: Basis Universal transcoded straight to BC7, or BC1, BC3 or BC7 data as it is, with the file's mips;
-`image::Format::kBC7`, which only comes from there and which assettest can't decode, so it doesn't check their
-compression), other KTX2 textures (normal maps and the other swizzled usages) are transcoded to rgba8 and compressed
+`image::Format::kBC7`, which only comes from there; `Image::ownBlocks`: assettest decodes BC7 with bcdec, a header-only
+`ports/bcdec` overlay, and only warns about such images' compression and mips, which are the file's), other KTX2 textures (normal maps and the other swizzled usages) are transcoded to rgba8 and compressed
 as any other, as are WebP images (libwebp, the first frame of an animation); the decoders' versions are part of those files' cache keys, and draco's and
 meshoptimizer's of every gltf model's. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
 node's, else the mesh's; position and normal deltas). Skins and node animations (translation, rotation, scale; step,

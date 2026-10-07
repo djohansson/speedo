@@ -65,6 +65,8 @@ struct Image
 	Format format = Format::kBC1;
 	Usage usage = Usage::kColor;
 	bool fromHeight = false; // for kBump: the file was a height map
+	// the file's own blocks and mips (a KTX2 file's, see Import), rather than compressed and filtered here
+	bool ownBlocks = false;
 	std::vector<MipLevel> mipLevels; // the full chain, down to 1x1
 	size_t size = 0; // in bytes, of all mip levels
 };
