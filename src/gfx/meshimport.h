@@ -95,6 +95,9 @@ struct Stats
 	size_t generatedNormals = 0; // vertices without a normal in the file, computed from the faces around them
 	size_t repairedNormals = 0; // zero length or non-finite normals in the file, replaced by the face normal
 	size_t invalidTangents = 0; // zero length or non-finite tangents in the file (or w = 0), left for the shader to derive
+	// gltf: vertices given MikkTSpace tangents, for normal mapped triangles without TANGENT (split where their corners'
+	// tangents differ)
+	size_t generatedTangents = 0;
 	size_t nonFiniteValues = 0; // non-finite positions or texcoords, replaced by zero
 	size_t missingTextures = 0; // textures named by a material that don't exist
 	// obj: parts (runs of faces with the same material in a shape) whose winding was reversed, since it was clockwise

@@ -11,7 +11,7 @@
 	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. KHR_materials_specular's factor is applied, its color isn't. obj materials map Ks and Ns to specular and roughness (their Ks color, Ka, Tf, Ni and illum are ignored)
 	* alpha blending: sorted per submesh and instance (by the center of its bounds where the animation puts it, per view), not per triangle, and not order independent: the triangles within a blended submesh, and intersecting or interleaved submeshes, can come out in the wrong order
 	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
-	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
+	* tangents: obj models with normal or bump maps use the screen space derived frame, not MikkTSpace (which gltf files without TANGENT get)
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
 * todo: tonemapping: Khronos PBR Neutral with a manual exposure is in; auto exposure and a choice of tonemappers aren't
 * todo: frame graph

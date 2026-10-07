@@ -420,7 +420,7 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v3", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v19", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v21", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));

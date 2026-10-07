@@ -362,10 +362,14 @@ most mtl files, but some are normal maps: the importer tells them apart by color
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
 handedness, so the bitangent `cross(n, t) * w` points *up* the image, i.e. along -v in this convention; mirroring node
-and instance transforms flip w). Without them (obj, gltf files without `TANGENT`, or with generated normals, where gltf
-says to ignore them) w is 0, and the fragment shader builds the tangent frame from screen space derivatives instead,
+and instance transforms flip w). gltf triangles with a normal map but no `TANGENT` get MikkTSpace's
+(`GenerateTangents`, the `mikktspace` port: from the normal map's texcoord set, with v flipped back up the image as the
+exporters' MikkTSpace sees it, so that the bitangent points the way gltf's does; a vertex is split where its corners'
+tangents differ, and generated tangents are made perpendicular to their own vertex normal, since degenerate triangles
+get a neighbor's). Without them (obj files, and degenerate corners) w is 0, and the fragment shader builds the tangent
+frame from screen space derivatives instead,
 corrected by the sign of `dot(cross(ddx(p), ddy(p)), n)`, which is negative here since the framebuffer's y
-points down: without it bumps come out inverted. Missing tangents aren't generated (MikkTSpace would need a library).
+points down: without it bumps come out inverted.
 Either frame follows the normal map's texture transform. NormalTangentMirrorTest checks the vertex tangent path: it
 renders right either way, but negating its tangents' w must break it. A quad with a known height map (a dome, which must be lit on the side
 the light comes from) is the quickest way to see a sign error. `InstallModel` switches model, textures and materials in one draw

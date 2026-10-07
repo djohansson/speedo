@@ -85,6 +85,7 @@ find_package(WebP CONFIG REQUIRED)
 find_package(Ktx CONFIG REQUIRED)
 find_package(draco CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
+find_package(mikktspace CONFIG REQUIRED)
 
 if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
 	find_program(MINJECT NAMES minject.exe minject32.exe HINTS ENV PATH REQUIRED)
@@ -184,6 +185,7 @@ target_link_libraries(
 		KTX::ktx
 		draco::draco
 		meshoptimizer::meshoptimizer
+		mikktspace::mikktspace
 )
 
 ###############################################################################

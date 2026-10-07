@@ -106,6 +106,7 @@
             "unicode"
           ]
         },
+        "mikktspace",
         {
           "name": "meshoptimizer",
           "default-features": false

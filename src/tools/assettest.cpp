@@ -205,7 +205,7 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		stats.triangleCount,
 		stats.lineCount + stats.pointCount > 0 ? std::format(", {} lines, {} points", stats.lineCount, stats.pointCount) : "",
 		mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
-		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
+		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : stats.generatedTangents > 0 ? "generated" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
 	if (mesh->instances.size() > 1)
 		report.Info("{} instances (EXT_mesh_gpu_instancing, or of moving nodes)", mesh->instances.size() - 1);
@@ -475,6 +475,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		report.Info("{} degenerate triangles", stats.degenerateTriangles);
 	if (stats.repairedNormals > 0)
 		report.Warn("{} unusable normals in the file replaced", stats.repairedNormals);
+	if (stats.generatedTangents > 0)
+		report.Info("{} vertices with generated (MikkTSpace) tangents", stats.generatedTangents);
 	if (stats.invalidTangents > 0)
 		report.Warn("{} unusable tangents in the file, left to the shader", stats.invalidTangents);
 	if (stats.nonFiniteValues > 0)
