@@ -402,9 +402,15 @@ candela, or a default directional light of 2.2 lux), plus image based lighting t
 over a ground, as bright on average as the constant ambient light of 0.3 it replaced). `environment::Prefilter`
 turns it into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split sum with n = v = r, filtered importance
 sampling from a mip pyramid; level 0 is the panorama), the mips of one `R16G16B16A16_SFLOAT` texture
-(`SHADER_TYPES_ENVIRONMENT_TEXTURE`), and the irradiance as 9 spherical harmonics coefficients (`EnvironmentData` in
+(`SHADER_TYPES_ENVIRONMENT_TEXTURE`), 6 levels prefiltered with the sheen's Charlie lobe (`Environment::sheenLevels`, from
+an eighth of the width, `SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE`, `EnvironmentData::sheenLevelCount`), and the irradiance as 9 spherical harmonics coefficients (`EnvironmentData` in
 `gEnvironment`). `LoadEnvironment` caches a file's (`environment-vN`); `InstallEnvironment` installs it on the draw
-thread. The shader takes the specular's second term from Karis' environment brdf fit. Its intensity and rotation (about
+thread. The shader takes the specular's second term from Karis' environment brdf fit, and looks the base and clearcoat
+specular up along Frostbite's dominant direction (`DominantDirection`: leaned from the reflection toward the normal by
+roughness, which keeps rough grazing reflections from skimming the horizon). The Charlie lobe can't be importance
+sampled the usual way (Estevez and Kulla's half vectors): at low roughness its weight is near the horizon, where most
+reflected samples land below it, and the levels' means drifted by up to 50%; `PrefilterSheenTexel` samples l over the
+hemisphere with `cos = u^k` instead, k growing as the roughness drops, weighted by the lobe over that pdf. Its intensity and rotation (about
 +y) are push constants (`PushConstants::environmentIntensity`/`environmentRotation`, from View > Environment, or
 `SPEEDO_ENVIRONMENT_INTENSITY`/`SPEEDO_ENVIRONMENT_ROTATION` in degrees), applied to every lookup
 (`EnvironmentDirection`). It is the backdrop too: the main color target is cleared to alpha 0 and opaque draws write
@@ -430,7 +436,7 @@ diffuse scaled by 1 minus its largest component, and roughness `1 - glossiness *
 (in the specular color's slot, `kColor`: srgb rgb, linear alpha). KHR_materials_sheen adds a Charlie lobe (Estevez
 and Kulla's visibility, as the Khronos sample viewer has it) over that, which scales the layers below by
 `1 - max(sheen color) * E`, E its directional albedo (`kSheenAlbedo`: a 12x12 table over cos and roughness, integrated
-numerically and clamped to 1; lit by the environment's irradiance). KHR_materials_clearcoat adds a dielectric GGX layer
+numerically and clamped to 1; lit by the environment's sheen levels along the reflection, times E). KHR_materials_clearcoat adds a dielectric GGX layer
 (f0 0.04) of its strength (`kOcclusion`: the texture's red), roughness (`kMetallicRoughness`: its green) and own normal
 map (`NormalFromMap`, else the geometry's normal) over everything, emission included, which keeps `1 - strength *
 F(n_c . v)`. KHR_materials_transmission replaces that much of the dielectric's diffuse with the light from behind

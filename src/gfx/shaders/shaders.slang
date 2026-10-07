@@ -352,6 +352,25 @@ float3 EnvironmentRadiance(EnvironmentData environment, float3 r, float roughnes
 	return gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], uv, lod).rgb * gPushConstants.environmentIntensity;
 }
 
+// the radiance the sheen (KHR_materials_sheen's Charlie lobe) reflects along r for a sheen roughness, scaled by the
+// intensity: its directional albedo times this is the environment's sheen
+float3 EnvironmentSheenRadiance(EnvironmentData environment, float3 r, float roughness)
+{
+	float lod = roughness * (environment.sheenLevelCount - 1.0);
+	float2 uv = EnvironmentCoordinates(EnvironmentDirection(r));
+	return gTextures[SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE].SampleLevel(gSamplers[environment.samplerId], uv, lod).rgb *
+		   gPushConstants.environmentIntensity;
+}
+
+// the direction to look the prefiltered environment up along for a reflection r about n: the GGX lobe's peak leans from
+// r toward n as the roughness grows (Frostbite's dominant direction, Lagarde and de Rousiers), which matters at grazing
+// angles, where r skims the horizon but most of a rough lobe's light comes from above it
+float3 DominantDirection(float3 n, float3 r, float roughness)
+{
+	float a = roughness * roughness;
+	return normalize(lerp(n, r, (1.0 - a) * (sqrt(1.0 - a) + a)));
+}
+
 // the glTF metallic-roughness brdf (the spec's appendix B): GGX distribution, height correlated Smith visibility, and
 // Schlick's Fresnel, mixing a Lambertian diffuse and the specular by the Fresnel term
 float3 FresnelSchlick(float3 f0, float f90, float cosine)
@@ -610,7 +629,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float bend = 1.0 - surface.anisotropy * (1.0 - roughness);
 		reflectionNormal = normalize(lerp(anisotropicNormal, normal, bend * bend * bend * bend));
 	}
-	float3 reflected = reflect(-view, reflectionNormal);
+	float3 reflected = DominantDirection(reflectionNormal, reflect(-view, reflectionNormal), roughness);
 	float3 diffuseEnvironment = EnvironmentIrradiance(environment, normal);
 	if (surface.diffuseTransmission > 0.0)
 		diffuseEnvironment = lerp(
@@ -619,12 +638,13 @@ float3 Shade(Surface surface, float3 view, float3 position)
 										 environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
 	result += surface.transmitted * (1.0 - environmentSpecular);
 
-	// the sheen over that, which takes its albedo of it, and lit by the environment's light around the normal
+	// the sheen over that, which takes its albedo of it, lit by the environment prefiltered for its lobe
 	float sheenMax = max(surface.sheenColor.r, max(surface.sheenColor.g, surface.sheenColor.b));
 	float sheenAlbedoView = SheenAlbedo(nDotV, surface.sheenRoughness);
 	if (sheenMax > 0.0)
 		result = result * (1.0 - sheenMax * sheenAlbedoView) +
-				 surface.occlusion * surface.sheenColor * sheenAlbedoView * EnvironmentIrradiance(environment, normal);
+				 surface.occlusion * surface.sheenColor * sheenAlbedoView *
+					 EnvironmentSheenRadiance(environment, reflect(-view, normal), surface.sheenRoughness);
 
 	// and the clearcoat over all of it
 	float coatFresnel = ClearcoatFresnel(surface, view);
@@ -633,7 +653,10 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	if (surface.clearcoat > 0.0)
 		result = result * (1.0 - coatFresnel) +
 				 surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV) *
-					 EnvironmentRadiance(environment, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness);
+					 EnvironmentRadiance(
+						 environment,
+						 DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness),
+						 surface.clearcoatRoughness);
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{

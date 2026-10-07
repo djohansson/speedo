@@ -38,10 +38,12 @@ struct Texture
 	std::optional<uint32_t> embeddedImage = std::nullopt);
 
 // a prefiltered environment uploaded for sampling (see environment::Environment): its levels as the mips of a
-// R16G16B16A16_SFLOAT texture, and its irradiance
+// R16G16B16A16_SFLOAT texture, its sheen levels as another's, and its irradiance
 struct EnvironmentTexture
 {
 	Texture texture;
+	Texture sheenTexture;
+	uint32_t sheenLevelCount = 0;
 	std::array<std::array<float, 4>, 9> irradiance{};
 	uint32_t levelCount = 0;
 

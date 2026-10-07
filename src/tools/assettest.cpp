@@ -1013,6 +1013,20 @@ Report CheckEnvironment(const gfx::environment::Panorama& panorama)
 			report.Warn("level {} ({}x{}) mean radiance {:.4g} is off by {:.1f}%", levelIt, level.width, level.height, levelMean, error * 100.0);
 	}
 
+	// the sheen levels too (the Charlie lobe moves light around as the GGX one does)
+	for (size_t levelIt = 0; levelIt < environment->sheenLevels.size(); levelIt++)
+	{
+		const auto& level = environment->sheenLevels[levelIt];
+		auto levelMean = luminance(MeanRadiance(level, data));
+		auto error = std::abs(levelMean / mean - 1.0);
+		if (!std::isfinite(levelMean))
+			report.Fail("sheen level {} has values that aren't finite", levelIt);
+		else if (error > 0.1)
+			report.Fail("sheen level {} ({}x{}) mean radiance {:.4g} is off by {:.1f}%", levelIt, level.width, level.height, levelMean, error * 100.0);
+		else if (error > 0.03)
+			report.Warn("sheen level {} ({}x{}) mean radiance {:.4g} is off by {:.1f}%", levelIt, level.width, level.height, levelMean, error * 100.0);
+	}
+
 	// the constant band, times its basis function, is the mean over the sphere
 	constexpr double kY00 = 0.282095;
 	std::array<double, 3> irradianceMean{};

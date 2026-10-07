@@ -167,6 +167,54 @@ glm::vec3 PrefilterTexel(const Pyramid& pyramid, const glm::vec3& n, float rough
 	return weight > 0.0F ? sum / weight : pyramid.Sample(0.0F, Coordinates(n));
 }
 
+// the sheen radiance of a direction n for a roughness: the panorama weighted by KHR_materials_sheen's Charlie lobe
+// around it (n = v = r, as PrefilterTexel), D(h) n.l. its weight is near the horizon at low roughness, where importance
+// sampling the half vectors (Estevez and Kulla) reflects most samples below it, so l is sampled over the hemisphere
+// instead, with cos(theta) = u^k, which puts more of them near the horizon the lower the roughness
+glm::vec3 PrefilterSheenTexel(const Pyramid& pyramid, const glm::vec3& n, float roughness)
+{
+	constexpr uint32_t kSampleCount = 512;
+	float clamped = std::max(roughness, 0.07F);
+	float inverseAlpha = 1.0F / (clamped * clamped);
+
+	glm::vec3 up = std::abs(n.y) < 0.999F ? glm::vec3(0.0F, 1.0F, 0.0F) : glm::vec3(1.0F, 0.0F, 0.0F);
+	glm::vec3 tangent = glm::normalize(glm::cross(up, n));
+	glm::vec3 bitangent = glm::cross(n, tangent);
+
+	const auto& base = pyramid.levels.front();
+	float equatorTexelSolidAngle = (2.0F * kPi / static_cast<float>(base.width)) * (kPi / static_cast<float>(base.height));
+	float exponent = 1.0F + (0.1F * inverseAlpha);
+
+	glm::vec3 sum(0.0F);
+	float weight = 0.0F;
+	for (uint32_t i = 0; i < kSampleCount; i++)
+	{
+		auto xi = Hammersley(i, kSampleCount);
+		float cosTheta = std::pow(1.0F - xi.y, exponent);
+		float sinTheta = std::sqrt(std::max(0.0F, 1.0F - (cosTheta * cosTheta)));
+		float phi = 2.0F * kPi * xi.x;
+		glm::vec3 l = (tangent * (sinTheta * std::cos(phi))) + (bitangent * (sinTheta * std::sin(phi))) + (n * cosTheta);
+
+		// D(h) is sin(theta_h)^(1 / alpha) up to a constant, and theta_h = theta_l / 2: relative to its maximum on the
+		// hemisphere (theta_h = 45 degrees), so that it doesn't underflow
+		float sinHalf = std::sqrt(std::max(0.0F, (1.0F - cosTheta) * 0.5F));
+		// over the density of cos(theta), u^k's: c^(1 / k - 1) / k
+		float pdf = std::pow(cosTheta, (1.0F / exponent) - 1.0F) / exponent;
+		float w = std::pow(sinHalf * std::numbers::sqrt2_v<float>, inverseAlpha) * cosTheta / pdf;
+		if (!(w > 0.0F))
+			continue;
+		float sampleSolidAngle = 2.0F * kPi / (static_cast<float>(kSampleCount) * pdf);
+
+		auto uv = Coordinates(l);
+		float texelSolidAngle = equatorTexelSolidAngle * std::max(std::sin(uv.y * kPi), 1.0F / static_cast<float>(base.height));
+		float lod = 0.5F * std::log2(sampleSolidAngle / texelSolidAngle) + 1.0F;
+
+		sum += pyramid.Sample(lod, uv) * w;
+		weight += w;
+	}
+	return weight > 0.0F ? sum / weight : pyramid.Sample(0.0F, Coordinates(n));
+}
+
 // the real spherical harmonics basis, bands 0 to 2
 std::array<float, 9> ShBasis(const glm::vec3& d)
 {
@@ -274,16 +322,25 @@ std::expected<Environment, std::string> Prefilter(
 		environment.levels.push_back({.width = width, .height = height, .offset = offset, .size = size});
 		offset += size;
 	}
+	for (uint32_t levelIt = 0; levelIt < kLevelCount; levelIt++)
+	{
+		uint32_t width = std::max((panorama.width / 8) >> levelIt, 2U);
+		uint32_t height = std::max(width / 2, 1U);
+		uint32_t size = width * height * 4 * sizeof(uint16_t);
+		environment.sheenLevels.push_back({.width = width, .height = height, .offset = offset, .size = size});
+		offset += size;
+	}
 	environment.size = offset;
 
 	auto* memory = allocate(environment.size);
-	for (uint32_t levelIt = 0; levelIt < kLevelCount; levelIt++)
+	for (uint32_t levelIt = 0; levelIt < 2 * kLevelCount; levelIt++)
 	{
 		if (cancelled && cancelled())
 			return std::unexpected("cancelled");
 
-		const auto& level = environment.levels[levelIt];
-		float roughness = static_cast<float>(levelIt) / static_cast<float>(kLevelCount - 1);
+		bool sheen = levelIt >= kLevelCount;
+		const auto& level = sheen ? environment.sheenLevels[levelIt - kLevelCount] : environment.levels[levelIt];
+		float roughness = static_cast<float>(levelIt % kLevelCount) / static_cast<float>(kLevelCount - 1);
 		auto* out = reinterpret_cast<uint16_t*>(memory + level.offset);
 		std::vector<uint32_t> rows(level.height);
 		std::iota(rows.begin(), rows.end(), 0U);
@@ -298,7 +355,10 @@ std::expected<Environment, std::string> Prefilter(
 					glm::vec2 uv(
 						(static_cast<float>(x) + 0.5F) / static_cast<float>(level.width),
 						(static_cast<float>(y) + 0.5F) / static_cast<float>(level.height));
-					auto color = levelIt == 0 ? pyramid.Sample(size_t{0}, uv) : detail::PrefilterTexel(pyramid, detail::Direction(uv.x, uv.y), roughness);
+					auto direction = detail::Direction(uv.x, uv.y);
+					auto color = sheen		   ? detail::PrefilterSheenTexel(pyramid, direction, roughness)
+								 : levelIt == 0 ? pyramid.Sample(size_t{0}, uv)
+												: detail::PrefilterTexel(pyramid, direction, roughness);
 					auto* texel = &out[(static_cast<size_t>(y) * level.width + x) * 4];
 					texel[0] = glm::packHalf1x16(color.x);
 					texel[1] = glm::packHalf1x16(color.y);

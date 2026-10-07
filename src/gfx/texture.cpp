@@ -348,7 +348,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 
 		// bump environment-vN when environment::Import or Prefilter change what they produce, cache-vN when
 		// environment::Environment's layout does
-		std::string params = std::format("stb-{}|environment-v2|cache-v1", kStbVersion);
+		std::string params = std::format("stb-{}|environment-v3|cache-v2", kStbVersion);
 		std::string paramsHash;
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;
@@ -363,8 +363,26 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 		}
 	}
 
+	// the sheen levels are another texture's: copied to a staging buffer of their own, from offset 0
+	auto sheenOffset = layout.sheenLevels.front().offset;
+	std::vector<image::MipLevel> sheenLevels(layout.sheenLevels);
+	for (auto& level : sheenLevels)
+		level.offset -= sheenOffset;
+	auto sheenStaging = Buffer::CreateStaging(
+		device.CreateDeviceObjectCreateDesc(std::format("{} sheen (staging)", name)), layout.size - sheenOffset);
+	{
+		auto source = staging.Map();
+		auto destination = sheenStaging.Map();
+		std::ranges::copy(source.subspan(sheenOffset, layout.size - sheenOffset), destination.begin());
+		sheenStaging.Unmap();
+		staging.Unmap();
+	}
+
 	EnvironmentTexture result;
 	result.texture = detail::Upload(device, name, Format::kR16G16B16A16Sfloat, layout.levels, std::move(staging));
+	result.sheenTexture = detail::Upload(
+		device, std::format("{} sheen", name), Format::kR16G16B16A16Sfloat, sheenLevels, std::move(sheenStaging));
+	result.sheenLevelCount = static_cast<uint32_t>(sheenLevels.size());
 	result.irradiance = layout.irradiance;
 	result.levelCount = static_cast<uint32_t>(layout.levels.size());
 	return result;

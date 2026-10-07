@@ -76,6 +76,8 @@ extern "C"
 #define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u
 // the gTextures slot of the opaque scene, with mips, which transmissive materials refract (see the main pass's phases)
 #define SHADER_TYPES_TRANSMISSION_TEXTURE 13u
+// the gTextures slot of the environment's panorama prefiltered for sheen (see EnvironmentData)
+#define SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE 14u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
 #define SHADER_TYPES_CLAMP_SAMPLER 3u
 
@@ -131,7 +133,8 @@ struct EnvironmentData
 	alignas(4) UINT(textureId);
 	alignas(4) UINT(samplerId);
 	alignas(4) FLOAT(levelCount);
-	alignas(4) FLOAT(padding);
+	// the same for KHR_materials_sheen's Charlie lobe, in SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE (sampled with samplerId)
+	alignas(4) FLOAT(sheenLevelCount);
 };
 
 struct OitNode

@@ -98,10 +98,13 @@ static uuids::uuid gLoadedImageViewUuid;
 static uuids::uuid gBlackTextureUuid;
 static uuids::uuid gBlackTextureViewUuid;
 // the environment (see InstallEnvironment): gEnvironment's buffer, and the prefiltered panorama in
-// SHADER_TYPES_ENVIRONMENT_TEXTURE, nil until one is installed. its name, for the menu
+// SHADER_TYPES_ENVIRONMENT_TEXTURE (and for sheen, SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE), nil until one is
+// installed. its name, for the menu
 static uuids::uuid gEnvironmentUuid;
 static uuids::uuid gEnvironmentImageUuid;
 static uuids::uuid gEnvironmentViewUuid;
+static uuids::uuid gEnvironmentSheenImageUuid;
+static uuids::uuid gEnvironmentSheenViewUuid;
 static core::ConcurrentAccess<std::string> gEnvironmentName;
 // the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the render
 // target, gOitWidth wide), nodes (gOitNodeCapacity) and counter, sized with the render target (see
@@ -415,7 +418,8 @@ static constexpr uint8_t kTransparentFragmentShader = 1;
 static_assert(kOpaqueBlend.size() == kMaxColorAttachments);
 
 // gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain), and
-// SHADER_TYPES_ENVIRONMENT_TEXTURE the environment's. material 0 is the default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
+// SHADER_TYPES_ENVIRONMENT_TEXTURE and SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE the environment's (and
+// SHADER_TYPES_TRANSMISSION_TEXTURE the opaque scene). material 0 is the default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
 static constexpr uint32_t kMaterialTextureId = 15;
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
 static constexpr uint32_t kModelTextureFirstSlot = 16;
@@ -436,7 +440,9 @@ static constexpr auto kModelSamplerSlots = []
 static size_t gModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
 static_assert(
 	kMaterialTextureId >= SHADER_TYPES_FRAME_COUNT && kMaterialTextureId != SHADER_TYPES_ENVIRONMENT_TEXTURE &&
-	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && kMaterialTextureId < kModelTextureFirstSlot);
+	kMaterialTextureId != SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE && kMaterialTextureId != SHADER_TYPES_TRANSMISSION_TEXTURE &&
+	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
+	kMaterialTextureId < kModelTextureFirstSlot);
 
 // the material slot drawn for a submesh of the loaded model
 static uint32_t ModelMaterialSlot(int32_t material)
@@ -1648,12 +1654,16 @@ static void InstallEnvironment(
 	TransitionThenBind(
 		rhi,
 		graphics,
-		Uploads{.images = {{environment->texture.image, environment->texture.upload}}},
+		Uploads{
+			.images =
+				{{environment->texture.image, environment->texture.upload},
+				 {environment->sheenTexture.image, environment->sheenTexture.upload}}},
 		[&rhi, environment, name = std::move(name)](QueueTimelineContextData& graphics) mutable
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = device.GetPipeline();
 			const auto& [image, view, upload, normalYUp] = environment->texture;
+			const auto& [sheenImage, sheenView, sheenUpload, sheenNormalYUp] = environment->sheenTexture;
 
 			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			pipeline.SetDescriptorData(
@@ -1661,11 +1671,17 @@ static void InstallEnvironment(
 				ImageBinding{.sampler = {}, .imageView = *view, .layout = image->GetDesc().layout},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 				SHADER_TYPES_ENVIRONMENT_TEXTURE);
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = *sheenView, .layout = sheenImage->GetDesc().layout},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE);
 
 			EnvironmentData data{
 				.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE,
 				.samplerId = kDefaultSamplerId,
-				.levelCount = static_cast<float>(environment->levelCount)};
+				.levelCount = static_cast<float>(environment->levelCount),
+				.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
 			for (size_t i = 0; i < environment->irradiance.size(); i++)
 				std::ranges::copy(environment->irradiance[i], data.irradiance[i]);
 			UpdateBufferOnGraphics(
@@ -1673,8 +1689,12 @@ static void InstallEnvironment(
 
 			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentImageUuid, image));
 			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentViewUuid, view));
+			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentSheenImageUuid, sheenImage));
+			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentSheenViewUuid, sheenView));
 			gEnvironmentImageUuid = image->GetUuid();
 			gEnvironmentViewUuid = view->GetUuid();
+			gEnvironmentSheenImageUuid = sheenImage->GetUuid();
+			gEnvironmentSheenViewUuid = sheenView->GetUuid();
 			gEnvironmentName.Write().Get() = std::move(name);
 		});
 }
@@ -3264,7 +3284,8 @@ WindowedApplication::WindowedApplication(
 
 		// dark (and sampling the black texture) until an environment is installed (see InstallEnvironment)
 		std::array<EnvironmentData, 1> environmentData{
-			EnvironmentData{.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE, .samplerId = kDefaultSamplerId, .levelCount = 1.0F}};
+			EnvironmentData{
+				.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE, .samplerId = kDefaultSamplerId, .levelCount = 1.0F, .sheenLevelCount = 1.0F}};
 		core::TaskCreateInfo<void> environmentTransfersDone;
 		auto environmentBuffer = device.CreateResource<Buffer>(
 			BufferCreateDesc{
@@ -3455,6 +3476,11 @@ WindowedApplication::WindowedApplication(
 		ImageBinding{.sampler = {}, .imageView = *device.GetResource<ImageView>(gBlackTextureViewUuid), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_ENVIRONMENT_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = *device.GetResource<ImageView>(gBlackTextureViewUuid), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE);
 
 	pipeline.SetDescriptorData(
 		"gTextureViews",

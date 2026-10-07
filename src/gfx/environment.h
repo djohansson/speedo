@@ -48,6 +48,10 @@ constexpr uint32_t kLevelCount = 6;
 struct Environment
 {
 	std::vector<image::MipLevel> levels;
+	// the same for KHR_materials_sheen's Charlie lobe (kLevelCount levels, for roughness i / (kLevelCount - 1), from an
+	// eighth of the panorama's width: the lobe is broad at any roughness), another texture's mips, after levels in the
+	// same memory
+	std::vector<image::MipLevel> sheenLevels;
 	size_t size = 0; // in bytes, of all levels
 	std::array<std::array<float, 4>, 9> irradiance{};
 };
