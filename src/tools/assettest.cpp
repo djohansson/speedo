@@ -251,6 +251,16 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 				if (auto d = maxDifference(gfx::EvaluateNodes(animation, pose, {}, 0.0F), rest); d > 1e-4)
 					report.Fail("animation {} ({}): a crossfade's start differs from the rest pose by {:.3g}", animationIt, clip.name, d);
 
+				if (!animation.pointerTargets.empty())
+				{
+					auto values = gfx::EvaluatePointers(animation, pose, {}, 1.0F);
+					if (values.size() != animation.pointerDefaults.size() || std::ranges::any_of(values, [](float v) { return !std::isfinite(v); }))
+						report.Fail("animation {} ({}) has non-finite or missing pointer values at {:.2f}s", animationIt, clip.name, time);
+					auto start = gfx::EvaluatePointers(animation, pose, {}, 0.0F);
+					if (!std::ranges::equal(start, animation.pointerDefaults, [](float a, float b) { return std::abs(a - b) <= 1e-5F; }))
+						report.Fail("animation {} ({}): a crossfade's start differs from the pointer values at rest", animationIt, clip.name);
+				}
+
 				if (animation.morphs.empty())
 					continue;
 				auto weights = gfx::EvaluateWeights(animation, mesh->morphWeights, pose, {}, 1.0F);

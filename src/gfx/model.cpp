@@ -33,6 +33,8 @@ Model::Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noe
 	, myBuffers(std::move(buffers))
 	, myUpload(upload)
 	, myJoints(myDesc.animation.jointCount > 0 ? RestJoints(myDesc.animation) : std::vector<SceneMatrix>{})
+	, myPointerValues(myDesc.animation.pointerDefaults)
+	, myLights(myDesc.lights)
 {}
 
 std::vector<const Buffer*> Model::GetUploadedBuffers() const
@@ -55,13 +57,18 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 		return;
 
 	auto worlds = EvaluateNodes(myDesc.animation, pose, from, weight);
+	if (!myDesc.animation.pointerTargets.empty())
+		myPointerValues = EvaluatePointers(myDesc.animation, pose, from, weight);
+	auto visible = NodeVisibility(myDesc.animation, myPointerValues);
 
 	if (!myJoints.empty())
 		WriteJoints(myDesc.animation, worlds, myJoints);
+	if (!myDesc.animation.lightLinks.empty())
+		WriteLights(myDesc.animation, worlds, visible, myDesc.lights, myLights);
 
 	auto& instances = myBuffers.instances[frameIndex];
 	auto instanceMemory = instances.Map();
-	WriteInstances(myDesc.animation, worlds, instanceMemory);
+	WriteInstances(myDesc.animation, worlds, visible, instanceMemory);
 	instances.Flush(0, instanceMemory.size());
 	instances.Unmap();
 
@@ -373,11 +380,11 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v28", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v29", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));
-	params.append("|cache-v30"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v31"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -578,6 +585,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	if (moves)
 	{
 		auto worlds = EvaluateNodes(desc.animation, desc.animation.animations.size(), 0.0F);
+		auto visible = NodeVisibility(desc.animation, desc.animation.pointerDefaults);
 		std::vector<SceneMatrix> joints(std::max<size_t>(desc.animation.jointCount, 1), gfx::mesh::kIdentityTransform);
 		WriteJoints(desc.animation, worlds, joints);
 		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
@@ -589,7 +597,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 				MemoryProperty::kHostVisible});
 			auto memory = instances.Map();
 			WriteRestInstances(desc, memory);
-			WriteInstances(desc.animation, worlds, memory);
+			WriteInstances(desc.animation, worlds, visible, memory);
 			instances.Flush(0, memory.size());
 			instances.Unmap();
 

@@ -152,6 +152,7 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 				local.scale = glm::make_vec3(value.data());
 				break;
 			case SceneAnimationChannel::Path::kWeights: // see EvaluateWeights
+			case SceneAnimationChannel::Path::kPointer: // see EvaluatePointers
 				break;
 			}
 		}
@@ -265,7 +266,84 @@ std::vector<float> EvaluateWeights(
 	return weights;
 }
 
-void WriteInstances(const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<std::byte> modelInstances)
+[[nodiscard]] static std::vector<float> EvaluatePointers(const SceneAnimationData& data, size_t animation, float time)
+{
+	using namespace sceneanimation;
+
+	std::vector<float> values = data.pointerDefaults;
+	if (animation >= data.animations.size())
+		return values;
+
+	const auto& clip = data.animations[animation];
+	auto clipTime = clip.duration > 0.0F ? std::fmod(std::max(time, 0.0F), clip.duration) : 0.0F;
+	for (const auto& channel : clip.channels)
+	{
+		if (channel.path != SceneAnimationChannel::Path::kPointer || channel.node >= data.pointerTargets.size())
+			continue;
+		const auto& target = data.pointerTargets[channel.node];
+		if (target.valueBase + target.valueCount > values.size())
+			continue;
+		Sample(channel, clipTime, target.valueCount, &values[target.valueBase]);
+	}
+	return values;
+}
+
+std::vector<float> EvaluatePointers(const SceneAnimationData& data, const ScenePose& pose, const ScenePose& from, float weight)
+{
+	ZoneScopedN("gfx::EvaluatePointers");
+
+	auto rest = data.animations.size();
+	auto values = EvaluatePointers(data, pose.animation.value_or(rest), pose.time);
+	if (weight < 1.0F)
+	{
+		auto fromValues = EvaluatePointers(data, from.animation.value_or(rest), from.time);
+		auto t = std::clamp(weight, 0.0F, 1.0F);
+		for (size_t valueIt = 0; valueIt < values.size(); valueIt++)
+			values[valueIt] = std::lerp(fromValues[valueIt], values[valueIt], t);
+	}
+	return values;
+}
+
+std::vector<uint8_t> NodeVisibility(const SceneAnimationData& data, std::span<const float> pointerValues)
+{
+	// each node's own, then with its ancestors'
+	std::vector<uint8_t> own(data.nodes.size(), 1);
+	for (const auto& target : data.pointerTargets)
+		if (target.kind == ScenePointerTarget::Kind::kNodeVisibility && target.index < own.size() && target.valueBase < pointerValues.size())
+			own[target.index] = pointerValues[target.valueBase] >= 0.5F ? 1 : 0;
+	std::vector<uint8_t> visible(data.nodes.size(), 1);
+	for (size_t nodeIt = 0; nodeIt < data.nodes.size(); nodeIt++)
+		for (auto node = static_cast<int32_t>(nodeIt); node >= 0 && std::cmp_less(node, data.nodes.size()); node = data.nodes[node].parent)
+			if (own[node] == 0)
+			{
+				visible[nodeIt] = 0;
+				break;
+			}
+	return visible;
+}
+
+void WriteLights(
+	const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<const uint8_t> visible,
+	std::span<const SceneLight> restLights, std::span<SceneLight> lights)
+{
+	for (const auto& link : data.lightLinks)
+	{
+		if (link.node >= worlds.size() || link.light >= restLights.size() || link.light >= lights.size())
+			continue;
+		auto light = restLights[link.light];
+		auto world = glm::make_mat4(worlds[link.node].data());
+		auto direction = -glm::vec3(world[2]);
+		std::copy_n(glm::value_ptr(world[3]), 3, light.position.begin());
+		if (auto length = glm::length(direction); length > 0.0F)
+			std::copy_n(glm::value_ptr(direction / length), 3, light.direction.begin());
+		if (!visible.empty() && link.node < visible.size() && visible[link.node] == 0)
+			light.intensity = 0.0F;
+		lights[link.light] = std::move(light);
+	}
+}
+
+void WriteInstances(
+	const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<const uint8_t> visible, std::span<std::byte> modelInstances)
 {
 	ZoneScopedN("gfx::WriteInstances");
 
@@ -273,8 +351,11 @@ void WriteInstances(const SceneAnimationData& data, std::span<const SceneMatrix>
 	{
 		if (link.node >= worlds.size() || (link.instance + 1) * sizeof(ModelInstance) > modelInstances.size())
 			continue;
-		auto transform = glm::make_mat4(worlds[link.node].data()) * glm::make_mat4(link.local.data());
-		auto inverseTranspose = glm::transpose(glm::inverse(transform));
+		// hidden: collapsed to a point, which draws nothing
+		auto transform = !visible.empty() && link.node < visible.size() && visible[link.node] == 0
+							 ? glm::mat4(0.0F)
+							 : glm::make_mat4(worlds[link.node].data()) * glm::make_mat4(link.local.data());
+		auto inverseTranspose = transform == glm::mat4(0.0F) ? transform : glm::transpose(glm::inverse(transform));
 		ModelInstance instance;
 		std::memcpy(&instance.modelTransform[0][0], glm::value_ptr(transform), sizeof(SceneMatrix));
 		std::memcpy(&instance.inverseTransposeModelTransform[0][0], glm::value_ptr(inverseTranspose), sizeof(SceneMatrix));

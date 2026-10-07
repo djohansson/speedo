@@ -3,6 +3,7 @@
 #include <rhi/enums.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -25,10 +26,21 @@ struct TextureRef
 	// (u', v') = (transform[0] * u + transform[1] * v + transform[2], transform[3] * u + transform[4] * v + transform[5])
 	std::array<float, 6> transform{1.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F};
 	rhi::SamplerDesc sampler{.maxAnisotropy = kDefaultMaxAnisotropy};
+	// if an animation moves the transform (KHR_animation_pointer): the index of its offset's ScenePointerTarget, which
+	// its rotation's and scale's follow (see TextureTransform). -1 if none does.
+	int32_t animatedTransform = -1;
 
 	static constexpr float kDefaultMaxAnisotropy = 16.0F;
 
 	[[nodiscard]] bool empty() const noexcept { return path.empty(); }
 };
+
+// KHR_texture_transform's offset, rotation (radians) and scale as TextureRef::transform: translation * rotation * scale
+[[nodiscard]] inline std::array<float, 6> TextureTransform(const std::array<float, 2>& offset, float rotation, const std::array<float, 2>& scale)
+{
+	auto c = std::cos(rotation);
+	auto s = std::sin(rotation);
+	return {c * scale[0], s * scale[1], offset[0], -s * scale[0], c * scale[1], offset[1]};
+}
 
 } // namespace gfx

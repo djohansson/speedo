@@ -523,6 +523,8 @@ struct TextureViewKey
 	uint32_t samplerSlot = 0;
 	uint32_t texCoord = 0;
 	std::array<uint32_t, 6> transform{};
+	// 1 + the TextureRef::animatedTransform of a texture whose transform animates (its view is its own), else 0
+	uint32_t animated = 0;
 
 	[[nodiscard]] bool operator==(const TextureViewKey&) const = default;
 };
@@ -658,6 +660,68 @@ struct MaterialTextures
 	Texture diffuseTransmissionColor;
 };
 
+// the installed model's materials as uploaded (gMaterialData from 1), and its texture views whose transforms animate
+// (KHR_animation_pointer), which ApplyPointerValues patches. draw thread only.
+struct AnimatedTextureView
+{
+	uint32_t view = 0; // in gTextureViews
+	uint32_t target = 0; // its offset's ScenePointerTarget (see TextureRef::animatedTransform)
+	TextureView data; // as uploaded
+};
+static std::vector<MaterialData> gModelMaterialData;
+static std::vector<AnimatedTextureView> gAnimatedTextureViews;
+static std::vector<SceneLight> gAnimatedLights; // the lights as last uploaded, if some follow nodes
+
+// a material value a KHR_animation_pointer channel sets (see ScenePointerTarget::Kind::kMaterial), into its MaterialData
+static void ApplyMaterialProperty(MaterialData& data, const ModelMaterial& desc, MaterialProperty property, std::span<const float> v, float scale)
+{
+	auto copy = [&v](float* out, size_t count) { std::copy_n(v.begin(), std::min(count, v.size()), out); };
+	if (v.empty())
+		return;
+	switch (property)
+	{
+	case MaterialProperty::kBaseColor: copy(data.color, 4); break;
+	case MaterialProperty::kEmissive:
+		for (size_t channel = 0; channel < std::min<size_t>(3, v.size()); channel++)
+			data.emissive[channel] = v[channel] * scale;
+		break;
+	case MaterialProperty::kMetallic:
+		if (!desc.specularGlossiness)
+			data.metallic = v[0];
+		break;
+	case MaterialProperty::kRoughness:
+		if (!desc.specularGlossiness)
+			data.roughness = v[0];
+		break;
+	case MaterialProperty::kAlphaCutoff:
+		if (desc.alphaCutoff > 0.0F) // only masked materials test it
+			data.alphaCutoff = v[0];
+		break;
+	case MaterialProperty::kNormalScale: data.normalScale = v[0]; break;
+	case MaterialProperty::kOcclusionStrength: data.emissive[3] = v[0]; break;
+	case MaterialProperty::kSpecular: data.specular = v[0]; break;
+	case MaterialProperty::kSpecularColor: copy(data.specularColor, 3); break;
+	case MaterialProperty::kIor: data.specularColor[3] = v[0]; break;
+	case MaterialProperty::kClearcoat: data.clearcoat[0] = v[0]; break;
+	case MaterialProperty::kClearcoatRoughness: data.clearcoat[1] = v[0]; break;
+	case MaterialProperty::kClearcoatNormalScale: data.clearcoat[2] = v[0]; break;
+	case MaterialProperty::kSheenColor: copy(data.sheen, 3); break;
+	case MaterialProperty::kSheenRoughness: data.sheen[3] = v[0]; break;
+	case MaterialProperty::kTransmission: data.transmission[0] = v[0]; break;
+	case MaterialProperty::kThickness: data.transmission[1] = v[0]; break;
+	case MaterialProperty::kAttenuationDistance: data.transmission[2] = v[0]; break;
+	case MaterialProperty::kDispersion: data.transmission[3] = v[0]; break;
+	case MaterialProperty::kAttenuationColor: copy(data.attenuationColor, 3); break;
+	case MaterialProperty::kAnisotropy: data.anisotropy[0] = v[0]; break;
+	case MaterialProperty::kIridescence: data.iridescence[0] = v[0]; break;
+	case MaterialProperty::kIridescenceIor: data.iridescence[1] = v[0]; break;
+	case MaterialProperty::kIridescenceThicknessMin: data.iridescence[2] = v[0]; break;
+	case MaterialProperty::kIridescenceThicknessMax: data.iridescence[3] = v[0]; break;
+	case MaterialProperty::kDiffuseTransmission: data.diffuseTransmission[3] = v[0]; break;
+	case MaterialProperty::kDiffuseTransmissionColor: copy(data.diffuseTransmission, 3); break;
+	}
+}
+
 // a material's defaults: white, untextured, rough, dielectric, with the default specular (ior 1.5, white)
 [[nodiscard]] static MaterialData DefaultMaterialData()
 {
@@ -668,6 +732,75 @@ struct MaterialTextures
 	material.roughness = 1.0F;
 	material.specular = 1.0F;
 	return material;
+}
+
+// what KHR_animation_pointer channels (and lights that follow nodes) set, as the model's last Animate left it: patches
+// and uploads the materials, texture views and lights that changed. call on the draw thread.
+static void ApplyPointerValues(RHI& rhi, QueueTimelineContextData& graphics, const Model& model)
+{
+	const auto& animation = model.GetDesc().animation;
+	if (animation.pointerTargets.empty() && animation.lightLinks.empty())
+		return;
+	auto values = model.GetPointerValues();
+	auto valuesOf = [&values](const ScenePointerTarget& target)
+	{
+		return target.valueBase + target.valueCount <= values.size() ? values.subspan(target.valueBase, target.valueCount)
+																	 : std::span<const float>{};
+	};
+
+	// the materials, uploaded as one range from the first that changed to the last
+	std::optional<size_t> first;
+	size_t last = 0;
+	for (const auto& target : animation.pointerTargets)
+	{
+		if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index >= gModelMaterialData.size() ||
+			target.index >= model.GetDesc().materials.size())
+			continue;
+		auto& data = gModelMaterialData[target.index];
+		auto before = data;
+		ApplyMaterialProperty(data, model.GetDesc().materials[target.index], MaterialProperty{target.property}, valuesOf(target), target.scale);
+		if (std::memcmp(&before, &data, sizeof(MaterialData)) != 0)
+		{
+			first = std::min<size_t>(first.value_or(target.index), target.index);
+			last = std::max<size_t>(last, target.index);
+		}
+	}
+	if (first)
+		UpdateMaterials(rhi, graphics, static_cast<uint32_t>(1 + *first), std::span(gModelMaterialData).subspan(*first, last - *first + 1));
+
+	// the texture transforms (offset, rotation and scale, the three targets from the offset's)
+	for (auto& animated : gAnimatedTextureViews)
+	{
+		if (animated.target + 2 >= animation.pointerTargets.size())
+			continue;
+		auto offset = valuesOf(animation.pointerTargets[animated.target]);
+		auto rotation = valuesOf(animation.pointerTargets[animated.target + 1]);
+		auto scale = valuesOf(animation.pointerTargets[animated.target + 2]);
+		if (offset.size() < 2 || rotation.empty() || scale.size() < 2)
+			continue;
+		auto transform = TextureTransform({offset[0], offset[1]}, rotation[0], {scale[0], scale[1]});
+		auto view = animated.data;
+		std::ranges::copy(std::span(transform).first(3), view.uTransform);
+		std::ranges::copy(std::span(transform).last(3), view.vTransform);
+		if (std::memcmp(&view, &animated.data, sizeof(TextureView)) != 0)
+		{
+			animated.data = view;
+			UpdateTextureViews(rhi, graphics, animated.view, std::span(&view, 1));
+		}
+	}
+
+	// the lights that follow nodes (and their visibility)
+	if (!animation.lightLinks.empty())
+	{
+		auto lights = model.GetLights();
+		auto same = [](const SceneLight& a, const SceneLight& b)
+		{ return a.position == b.position && a.direction == b.direction && a.intensity == b.intensity; };
+		if (!std::ranges::equal(lights, gAnimatedLights, same))
+		{
+			gAnimatedLights.assign(lights.begin(), lights.end());
+			UpdateLights(rhi, graphics, lights);
+		}
+	}
 }
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
@@ -760,6 +893,7 @@ static void InstallModel(
 
 		// each distinct view once, from 1 (0 is material 0's, see InstallImage)
 		std::vector<TextureView> views;
+		std::vector<AnimatedTextureView> animatedViews;
 		core::UnorderedMap<TextureViewKey, uint32_t, TextureViewKeyHash> viewIds;
 		bool viewsFull = false;
 		auto viewOf = [&](const Texture& texture, const TextureRef& ref) -> std::optional<uint32_t>
@@ -774,7 +908,8 @@ static void InstallModel(
 					.textureSlot = *textureSlot,
 					.samplerSlot = samplerSlot,
 					.texCoord = ref.texCoord,
-					.transform = std::bit_cast<std::array<uint32_t, 6>>(ref.transform)},
+					.transform = std::bit_cast<std::array<uint32_t, 6>>(ref.transform),
+					.animated = static_cast<uint32_t>(ref.animatedTransform + 1)},
 				0U);
 			if (inserted)
 			{
@@ -787,6 +922,8 @@ static void InstallModel(
 				}
 				viewIdIt->second = static_cast<uint32_t>(1 + views.size());
 				views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref));
+				if (ref.animatedTransform >= 0)
+					animatedViews.push_back({.view = viewIdIt->second, .target = static_cast<uint32_t>(ref.animatedTransform), .data = views.back()});
 			}
 			return viewIdIt->second;
 		};
@@ -908,6 +1045,40 @@ static void InstallModel(
 						material.flags |= flag;
 					}
 			}
+			// the layers an animation turns on that are off at rest (KHR_animation_pointer): drawn, with their other values
+			for (const auto& target : model->GetDesc().animation.pointerTargets)
+			{
+				if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index != materialIt)
+					continue;
+				switch (MaterialProperty{target.property})
+				{
+				case MaterialProperty::kClearcoat:
+					material.flags |= MATERIAL_FLAG_CLEARCOAT;
+					material.clearcoat[1] = desc.clearcoatRoughness;
+					material.clearcoat[2] = desc.clearcoatNormalScale;
+					break;
+				case MaterialProperty::kSheenColor:
+					material.flags |= MATERIAL_FLAG_SHEEN;
+					material.sheen[3] = desc.sheenRoughness;
+					break;
+				case MaterialProperty::kAnisotropy:
+					material.flags |= MATERIAL_FLAG_ANISOTROPY;
+					material.anisotropy[1] = std::cos(desc.anisotropyRotation);
+					material.anisotropy[2] = std::sin(desc.anisotropyRotation);
+					break;
+				case MaterialProperty::kIridescence:
+					material.flags |= MATERIAL_FLAG_IRIDESCENCE;
+					material.iridescence[1] = desc.iridescenceIor;
+					material.iridescence[2] = desc.iridescenceThicknessMin;
+					material.iridescence[3] = desc.iridescenceThicknessMax;
+					break;
+				case MaterialProperty::kDiffuseTransmission:
+					material.flags |= MATERIAL_FLAG_DIFFUSE_TRANSMISSION;
+					std::ranges::copy(desc.diffuseTransmissionColor, material.diffuseTransmission);
+					break;
+				default: break;
+				}
+			}
 			if (desc.unlit)
 				material.flags |= MATERIAL_FLAG_UNLIT;
 			if (auto view = viewOf(textures[materialIt].metallicRoughness, desc.metallicRoughnessTexture))
@@ -962,6 +1133,7 @@ static void InstallModel(
 		gModelSamplerCount = samplerDescs.size();
 
 		UpdateTextureViews(rhi, graphics, 1, views);
+		gAnimatedTextureViews = std::move(animatedViews);
 
 		for (size_t slotIt = textureUuids.size(); slotIt < gModelTextureUuids.size(); slotIt++)
 			pipeline.SetDescriptorData(
@@ -978,7 +1150,11 @@ static void InstallModel(
 		gModelTextureUuids = std::move(textureUuids);
 
 		UpdateMaterials(rhi, graphics, 1, materials);
+		gModelMaterialData = materials;
+		gAnimatedLights.clear();
 		UpdateLights(rhi, graphics, model->GetDesc().lights);
+		// and the values animations set, at rest
+		ApplyPointerValues(rhi, graphics, *model);
 
 		pipeline.SetDescriptorData(
 			"gVertexBuffer",
@@ -2563,6 +2739,7 @@ bool WindowedApplication::Draw()
 				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
 			gModel->Animate(newFrameIndex, pose, from, weight);
+			ApplyPointerValues(rhi, *graphics, *gModel);
 		}
 		
 		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);

@@ -180,6 +180,11 @@ public:
 	// pose), crossfaded in over from by weight (see EvaluateNodes; 1: pose alone). call on the draw thread, once the
 	// frame's previous use of its buffers is done.
 	void Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from = {}, float weight = 1.0F);
+	// what the last Animate (or the rest pose) left: the pointer values (see ScenePointerTarget, for the materials and
+	// texture transforms to follow), and the lights (ModelDesc::lights, the linked ones where their nodes are). call on
+	// the draw thread.
+	[[nodiscard]] std::span<const float> GetPointerValues() const noexcept { return myPointerValues; }
+	[[nodiscard]] std::span<const SceneLight> GetLights() const noexcept { return myLights; }
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
@@ -202,6 +207,8 @@ private:
 	Upload myUpload;
 	// the joint matrices Animate writes, kept between its calls
 	std::vector<SceneMatrix> myJoints;
+	std::vector<float> myPointerValues;
+	std::vector<SceneLight> myLights;
 };
 
 } // namespace gfx

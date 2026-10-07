@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -36,6 +37,9 @@ using gfx::SceneCamera;
 using gfx::SceneLight;
 using gfx::SceneMatrix;
 using gfx::SceneMorph;
+using gfx::MaterialProperty;
+using gfx::MaterialTexture;
+using gfx::ScenePointerTarget;
 
 namespace detail
 {
@@ -456,9 +460,7 @@ using Matrix = std::array<float, 16>;
 // the extension defines it (counter-clockwise in uv space, whose v points down)
 [[nodiscard]] std::array<float, 6> TransformMatrix(const cgltf_texture_transform& t)
 {
-	auto c = std::cos(t.rotation);
-	auto s = std::sin(t.rotation);
-	return {c * t.scale[0], s * t.scale[1], t.offset[0], -s * t.scale[0], c * t.scale[1], t.offset[1]};
+	return TextureTransform({t.offset[0], t.offset[1]}, t.rotation, {t.scale[0], t.scale[1]});
 }
 
 // a gltf sampler as rhi's (default: repeat, linear with mipmaps, anisotropic, as the spec suggests for no sampler)
@@ -751,6 +753,306 @@ size_t GenerateTangents(Part& part, uint32_t texCoordSet)
 	return part.vertices.size();
 }
 
+// KHR_animation_pointer: each animation's channels' pointers (empty where a channel has none), read from the json with
+// cgltf's jsmn, since cgltf skips a channel target's extensions. JSON pointer escapes (~1, ~0) are undone per segment
+// by ParsePointer.
+[[nodiscard]] std::vector<std::vector<std::string>> AnimationPointers(const cgltf_data& data)
+{
+	std::vector<std::vector<std::string>> result(data.animations_count);
+	for (cgltf_size animationIt = 0; animationIt < data.animations_count; animationIt++)
+		result[animationIt].resize(data.animations[animationIt].channels_count);
+	if (data.json == nullptr || data.json_size == 0)
+		return result;
+
+	jsmn_parser parser;
+	jsmn_init(&parser);
+	auto count = jsmn_parse(&parser, data.json, data.json_size, nullptr, 0);
+	if (count <= 0)
+		return result;
+	std::vector<jsmntok_t> tokens(static_cast<size_t>(count));
+	jsmn_init(&parser);
+	if (jsmn_parse(&parser, data.json, data.json_size, tokens.data(), tokens.size()) < 0)
+		return result;
+
+	std::string_view json(data.json, data.json_size);
+	auto text = [&](int token) { return json.substr(tokens[token].start, tokens[token].end - tokens[token].start); };
+	// the token after token's subtree (an object's keys have their value as their one child)
+	auto skip = [&](int token)
+	{
+		for (int pending = 1; pending > 0 && std::cmp_less(token, tokens.size()); token++)
+			pending += tokens[token].size - 1;
+		return token;
+	};
+	auto member = [&](int object, std::string_view key) -> int
+	{
+		if (object < 0 || tokens[object].type != JSMN_OBJECT)
+			return -1;
+		auto token = object + 1;
+		for (int keyIt = 0; keyIt < tokens[object].size && std::cmp_less(token + 1, tokens.size()); keyIt++)
+		{
+			if (tokens[token].type == JSMN_STRING && text(token) == key)
+				return token + 1;
+			token = skip(token);
+		}
+		return -1;
+	};
+	auto elements = [&](int array)
+	{
+		std::vector<int> result;
+		if (array < 0 || tokens[array].type != JSMN_ARRAY)
+			return result;
+		for (int elementIt = 0, token = array + 1; elementIt < tokens[array].size; elementIt++, token = skip(token))
+			result.push_back(token);
+		return result;
+	};
+
+	auto animations = elements(member(0, "animations"));
+	for (size_t animationIt = 0; animationIt < std::min(animations.size(), result.size()); animationIt++)
+	{
+		auto channels = elements(member(animations[animationIt], "channels"));
+		for (size_t channelIt = 0; channelIt < std::min(channels.size(), result[animationIt].size()); channelIt++)
+		{
+			auto pointer = member(member(member(member(channels[channelIt], "target"), "extensions"), "KHR_animation_pointer"), "pointer");
+			if (pointer >= 0 && tokens[pointer].type == JSMN_STRING)
+				result[animationIt][channelIt] = std::string(text(pointer));
+		}
+	}
+	return result;
+}
+
+// what a KHR_animation_pointer pointer targets, of what the renderer can apply
+struct ParsedPointer
+{
+	enum class Kind : uint8_t
+	{
+		kNone, // not one of those
+		kNodeTranslation,
+		kNodeRotation,
+		kNodeScale,
+		kNodeWeights,
+		kNodeVisibility,
+		kMaterial, // property: a MaterialProperty
+		kTextureOffset, // property: a MaterialTexture
+		kTextureRotation,
+		kTextureScale,
+	};
+
+	Kind kind = Kind::kNone;
+	uint32_t index = 0; // the node or material
+	uint16_t property = 0;
+	int32_t target = -1; // its ScenePointerTarget, for the material and texture ones
+};
+
+// the material properties' pointers below /materials/<index>/
+constexpr std::array<std::pair<std::string_view, MaterialProperty>, 27> kMaterialPointers{{
+	{"pbrMetallicRoughness/baseColorFactor", MaterialProperty::kBaseColor},
+	{"pbrMetallicRoughness/metallicFactor", MaterialProperty::kMetallic},
+	{"pbrMetallicRoughness/roughnessFactor", MaterialProperty::kRoughness},
+	{"emissiveFactor", MaterialProperty::kEmissive},
+	{"alphaCutoff", MaterialProperty::kAlphaCutoff},
+	{"normalTexture/scale", MaterialProperty::kNormalScale},
+	{"occlusionTexture/strength", MaterialProperty::kOcclusionStrength},
+	{"extensions/KHR_materials_specular/specularFactor", MaterialProperty::kSpecular},
+	{"extensions/KHR_materials_specular/specularColorFactor", MaterialProperty::kSpecularColor},
+	{"extensions/KHR_materials_ior/ior", MaterialProperty::kIor},
+	{"extensions/KHR_materials_clearcoat/clearcoatFactor", MaterialProperty::kClearcoat},
+	{"extensions/KHR_materials_clearcoat/clearcoatRoughnessFactor", MaterialProperty::kClearcoatRoughness},
+	{"extensions/KHR_materials_clearcoat/clearcoatNormalTexture/scale", MaterialProperty::kClearcoatNormalScale},
+	{"extensions/KHR_materials_sheen/sheenColorFactor", MaterialProperty::kSheenColor},
+	{"extensions/KHR_materials_sheen/sheenRoughnessFactor", MaterialProperty::kSheenRoughness},
+	{"extensions/KHR_materials_transmission/transmissionFactor", MaterialProperty::kTransmission},
+	{"extensions/KHR_materials_volume/thicknessFactor", MaterialProperty::kThickness},
+	{"extensions/KHR_materials_volume/attenuationColor", MaterialProperty::kAttenuationColor},
+	{"extensions/KHR_materials_volume/attenuationDistance", MaterialProperty::kAttenuationDistance},
+	{"extensions/KHR_materials_dispersion/dispersion", MaterialProperty::kDispersion},
+	{"extensions/KHR_materials_anisotropy/anisotropyStrength", MaterialProperty::kAnisotropy},
+	{"extensions/KHR_materials_iridescence/iridescenceFactor", MaterialProperty::kIridescence},
+	{"extensions/KHR_materials_iridescence/iridescenceIor", MaterialProperty::kIridescenceIor},
+	{"extensions/KHR_materials_iridescence/iridescenceThicknessMinimum", MaterialProperty::kIridescenceThicknessMin},
+	{"extensions/KHR_materials_iridescence/iridescenceThicknessMaximum", MaterialProperty::kIridescenceThicknessMax},
+	{"extensions/KHR_materials_diffuse_transmission/diffuseTransmissionFactor", MaterialProperty::kDiffuseTransmission},
+	{"extensions/KHR_materials_diffuse_transmission/diffuseTransmissionColorFactor", MaterialProperty::kDiffuseTransmissionColor},
+}};
+
+// the material textures' pointers below /materials/<index>/, before /extensions/KHR_texture_transform/...
+constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTexturePointers{{
+	{"pbrMetallicRoughness/baseColorTexture", MaterialTexture::kBaseColor},
+	{"pbrMetallicRoughness/metallicRoughnessTexture", MaterialTexture::kMetallicRoughness},
+	{"normalTexture", MaterialTexture::kNormal},
+	{"occlusionTexture", MaterialTexture::kOcclusion},
+	{"emissiveTexture", MaterialTexture::kEmissive},
+	{"extensions/KHR_materials_specular/specularTexture", MaterialTexture::kSpecular},
+	{"extensions/KHR_materials_specular/specularColorTexture", MaterialTexture::kSpecularColor},
+	{"extensions/KHR_materials_clearcoat/clearcoatTexture", MaterialTexture::kClearcoat},
+	{"extensions/KHR_materials_clearcoat/clearcoatRoughnessTexture", MaterialTexture::kClearcoatRoughness},
+	{"extensions/KHR_materials_clearcoat/clearcoatNormalTexture", MaterialTexture::kClearcoatNormal},
+	{"extensions/KHR_materials_sheen/sheenColorTexture", MaterialTexture::kSheenColor},
+	{"extensions/KHR_materials_sheen/sheenRoughnessTexture", MaterialTexture::kSheenRoughness},
+	{"extensions/KHR_materials_transmission/transmissionTexture", MaterialTexture::kTransmission},
+	{"extensions/KHR_materials_volume/thicknessTexture", MaterialTexture::kThickness},
+	{"extensions/KHR_materials_anisotropy/anisotropyTexture", MaterialTexture::kAnisotropy},
+	{"extensions/KHR_materials_iridescence/iridescenceTexture", MaterialTexture::kIridescence},
+	{"extensions/KHR_materials_iridescence/iridescenceThicknessTexture", MaterialTexture::kIridescenceThickness},
+	{"extensions/KHR_materials_diffuse_transmission/diffuseTransmissionTexture", MaterialTexture::kDiffuseTransmission},
+	{"extensions/KHR_materials_diffuse_transmission/diffuseTransmissionColorTexture", MaterialTexture::kDiffuseTransmissionColor},
+}};
+
+[[nodiscard]] ParsedPointer ParsePointer(std::string_view pointer, const cgltf_data& data)
+{
+	// its segments, unescaped
+	std::vector<std::string> segments;
+	for (size_t begin = 0; begin <= pointer.size();)
+	{
+		auto end = std::min(pointer.find('/', begin), pointer.size());
+		std::string segment(pointer.substr(begin, end - begin));
+		for (size_t at = 0; (at = segment.find('~', at)) != std::string::npos && at + 1 < segment.size(); at++)
+			segment.replace(at, 2, segment[at + 1] == '1' ? "/" : "~");
+		segments.push_back(std::move(segment));
+		begin = end + 1;
+	}
+	if (segments.size() < 4 || !segments[0].empty())
+		return {};
+	uint32_t index = 0;
+	if (auto [end, error] = std::from_chars(segments[2].data(), segments[2].data() + segments[2].size(), index);
+		error != std::errc{} || end != segments[2].data() + segments[2].size())
+		return {};
+	std::string rest;
+	for (size_t segmentIt = 3; segmentIt < segments.size(); segmentIt++)
+		rest += (segmentIt > 3 ? "/" : "") + segments[segmentIt];
+
+	using Kind = ParsedPointer::Kind;
+	if (segments[1] == "nodes" && index < data.nodes_count)
+	{
+		auto kind = rest == "translation" ? Kind::kNodeTranslation
+				  : rest == "rotation"    ? Kind::kNodeRotation
+				  : rest == "scale"       ? Kind::kNodeScale
+				  : rest == "weights"     ? Kind::kNodeWeights
+				  : rest == "extensions/KHR_node_visibility/visible" ? Kind::kNodeVisibility
+																	   : Kind::kNone;
+		return {.kind = kind, .index = index};
+	}
+	if (segments[1] == "materials" && index < data.materials_count)
+	{
+		for (auto [path, property] : kMaterialPointers)
+			if (rest == path)
+				return {.kind = Kind::kMaterial, .index = index, .property = std::to_underlying(property)};
+		for (auto [suffix, kind] : std::array{
+				 std::pair{std::string_view("/extensions/KHR_texture_transform/offset"), Kind::kTextureOffset},
+				 std::pair{std::string_view("/extensions/KHR_texture_transform/rotation"), Kind::kTextureRotation},
+				 std::pair{std::string_view("/extensions/KHR_texture_transform/scale"), Kind::kTextureScale}})
+			if (rest.ends_with(suffix))
+				for (auto [path, texture] : kTexturePointers)
+					if (std::string_view(rest).substr(0, rest.size() - suffix.size()) == path)
+						return {.kind = kind, .index = index, .property = std::to_underlying(texture)};
+	}
+	return {};
+}
+
+// a material property's value as the file has it (the spec's default without its extension), and what it is scaled by
+[[nodiscard]] std::vector<float> MaterialPropertyRest(const cgltf_material& m, MaterialProperty property, float& scale)
+{
+	scale = 1.0F;
+	const auto& pbr = m.pbr_metallic_roughness;
+	bool metallicRoughness = m.has_pbr_metallic_roughness != 0;
+	switch (property)
+	{
+	case MaterialProperty::kBaseColor:
+		return metallicRoughness ? std::vector<float>(pbr.base_color_factor, pbr.base_color_factor + 4) : std::vector<float>{1, 1, 1, 1};
+	case MaterialProperty::kEmissive:
+		scale = m.has_emissive_strength ? m.emissive_strength.emissive_strength : 1.0F;
+		return {m.emissive_factor[0], m.emissive_factor[1], m.emissive_factor[2]};
+	case MaterialProperty::kMetallic: return {metallicRoughness ? pbr.metallic_factor : 1.0F};
+	case MaterialProperty::kRoughness: return {metallicRoughness ? pbr.roughness_factor : 1.0F};
+	case MaterialProperty::kAlphaCutoff: return {m.alpha_cutoff};
+	case MaterialProperty::kNormalScale: return {m.normal_texture.scale};
+	case MaterialProperty::kOcclusionStrength: return {m.occlusion_texture.scale};
+	case MaterialProperty::kSpecular: return {m.has_specular ? m.specular.specular_factor : 1.0F};
+	case MaterialProperty::kSpecularColor:
+		return m.has_specular ? std::vector<float>(m.specular.specular_color_factor, m.specular.specular_color_factor + 3) : std::vector<float>{1, 1, 1};
+	case MaterialProperty::kIor: return {m.has_ior ? m.ior.ior : 1.5F};
+	case MaterialProperty::kClearcoat: return {m.has_clearcoat ? m.clearcoat.clearcoat_factor : 0.0F};
+	case MaterialProperty::kClearcoatRoughness: return {m.has_clearcoat ? m.clearcoat.clearcoat_roughness_factor : 0.0F};
+	case MaterialProperty::kClearcoatNormalScale: return {m.has_clearcoat ? m.clearcoat.clearcoat_normal_texture.scale : 1.0F};
+	case MaterialProperty::kSheenColor:
+		return m.has_sheen ? std::vector<float>(m.sheen.sheen_color_factor, m.sheen.sheen_color_factor + 3) : std::vector<float>{0, 0, 0};
+	case MaterialProperty::kSheenRoughness: return {m.has_sheen ? m.sheen.sheen_roughness_factor : 0.0F};
+	case MaterialProperty::kTransmission: return {m.has_transmission ? m.transmission.transmission_factor : 0.0F};
+	case MaterialProperty::kThickness: return {m.has_volume ? m.volume.thickness_factor : 0.0F};
+	case MaterialProperty::kAttenuationColor:
+		return m.has_volume ? std::vector<float>(m.volume.attenuation_color, m.volume.attenuation_color + 3) : std::vector<float>{1, 1, 1};
+	case MaterialProperty::kAttenuationDistance:
+		return {m.has_volume && std::isfinite(m.volume.attenuation_distance) && m.volume.attenuation_distance < 1e30F ? m.volume.attenuation_distance : 0.0F};
+	case MaterialProperty::kDispersion: return {m.has_dispersion ? m.dispersion.dispersion : 0.0F};
+	case MaterialProperty::kAnisotropy: return {m.has_anisotropy ? m.anisotropy.anisotropy_strength : 0.0F};
+	case MaterialProperty::kIridescence: return {m.has_iridescence ? m.iridescence.iridescence_factor : 0.0F};
+	case MaterialProperty::kIridescenceIor: return {m.has_iridescence ? m.iridescence.iridescence_ior : 1.3F};
+	case MaterialProperty::kIridescenceThicknessMin: return {m.has_iridescence ? m.iridescence.iridescence_thickness_min : 100.0F};
+	case MaterialProperty::kIridescenceThicknessMax: return {m.has_iridescence ? m.iridescence.iridescence_thickness_max : 400.0F};
+	case MaterialProperty::kDiffuseTransmission:
+		return {m.has_diffuse_transmission ? m.diffuse_transmission.diffuse_transmission_factor : 0.0F};
+	case MaterialProperty::kDiffuseTransmissionColor:
+		return m.has_diffuse_transmission ? std::vector<float>(m.diffuse_transmission.diffuse_transmission_color_factor, m.diffuse_transmission.diffuse_transmission_color_factor + 3)
+										  : std::vector<float>{1, 1, 1};
+	}
+	return {};
+}
+
+// a material's texture view of a kind, as the file has it
+[[nodiscard]] const cgltf_texture_view& MaterialTextureView(const cgltf_material& m, MaterialTexture texture)
+{
+	switch (texture)
+	{
+	case MaterialTexture::kBaseColor: return m.pbr_metallic_roughness.base_color_texture;
+	case MaterialTexture::kMetallicRoughness: return m.pbr_metallic_roughness.metallic_roughness_texture;
+	case MaterialTexture::kNormal: return m.normal_texture;
+	case MaterialTexture::kOcclusion: return m.occlusion_texture;
+	case MaterialTexture::kEmissive: return m.emissive_texture;
+	case MaterialTexture::kSpecular: return m.specular.specular_texture;
+	case MaterialTexture::kSpecularColor: return m.specular.specular_color_texture;
+	case MaterialTexture::kClearcoat: return m.clearcoat.clearcoat_texture;
+	case MaterialTexture::kClearcoatRoughness: return m.clearcoat.clearcoat_roughness_texture;
+	case MaterialTexture::kClearcoatNormal: return m.clearcoat.clearcoat_normal_texture;
+	case MaterialTexture::kSheenColor: return m.sheen.sheen_color_texture;
+	case MaterialTexture::kSheenRoughness: return m.sheen.sheen_roughness_texture;
+	case MaterialTexture::kTransmission: return m.transmission.transmission_texture;
+	case MaterialTexture::kThickness: return m.volume.thickness_texture;
+	case MaterialTexture::kAnisotropy: return m.anisotropy.anisotropy_texture;
+	case MaterialTexture::kIridescence: return m.iridescence.iridescence_texture;
+	case MaterialTexture::kIridescenceThickness: return m.iridescence.iridescence_thickness_texture;
+	case MaterialTexture::kDiffuseTransmission: return m.diffuse_transmission.diffuse_transmission_texture;
+	case MaterialTexture::kDiffuseTransmissionColor: return m.diffuse_transmission.diffuse_transmission_color_texture;
+	}
+	return m.normal_texture;
+}
+
+// the imported material's reference to that texture
+[[nodiscard]] TextureRef& MaterialTextureRef(mesh::Material& m, MaterialTexture texture)
+{
+	switch (texture)
+	{
+	case MaterialTexture::kBaseColor: return m.diffuseTexture;
+	case MaterialTexture::kMetallicRoughness: return m.metallicRoughnessTexture;
+	case MaterialTexture::kNormal: return m.normalTexture;
+	case MaterialTexture::kOcclusion: return m.occlusionTexture;
+	case MaterialTexture::kEmissive: return m.emissiveTexture;
+	case MaterialTexture::kSpecular: return m.specularTexture;
+	case MaterialTexture::kSpecularColor: return m.specularColorTexture;
+	case MaterialTexture::kClearcoat: return m.clearcoatTexture;
+	case MaterialTexture::kClearcoatRoughness: return m.clearcoatRoughnessTexture;
+	case MaterialTexture::kClearcoatNormal: return m.clearcoatNormalTexture;
+	case MaterialTexture::kSheenColor: return m.sheenColorTexture;
+	case MaterialTexture::kSheenRoughness: return m.sheenRoughnessTexture;
+	case MaterialTexture::kTransmission: return m.transmissionTexture;
+	case MaterialTexture::kThickness: return m.thicknessTexture;
+	case MaterialTexture::kAnisotropy: return m.anisotropyTexture;
+	case MaterialTexture::kIridescence: return m.iridescenceTexture;
+	case MaterialTexture::kIridescenceThickness: return m.iridescenceThicknessTexture;
+	case MaterialTexture::kDiffuseTransmission: return m.diffuseTransmissionTexture;
+	case MaterialTexture::kDiffuseTransmissionColor: return m.diffuseTransmissionColorTexture;
+	}
+	return m.normalTexture;
+}
+
 } // namespace detail
 
 std::expected<Mesh, std::string> Import(
@@ -792,6 +1094,109 @@ std::expected<Mesh, std::string> Import(
 	auto warn = [&stats]<typename... Args>(std::format_string<Args...> fmt, Args&&... args)
 	{ stats.warnings.push_back(std::format(fmt, std::forward<Args>(args)...)); };
 
+	// KHR_animation_pointer: what each channel's pointer targets. the node transforms and weights are channels as any
+	// other; the node visibilities, material values and texture transforms get a ScenePointerTarget each (a texture's
+	// transform three: offset, rotation and scale, see TextureRef::animatedTransform), with their values at rest
+	auto pointers = AnimationPointers(data);
+	std::vector<std::vector<ParsedPointer>> parsedPointers(pointers.size());
+	std::vector<uint8_t> visibilityMoves(data.nodes_count, 0);
+	std::vector<uint8_t> animatedBaseColor(data.materials_count, 0);
+	std::vector<std::string> unsupportedPointers;
+	{
+		core::UnorderedMap<uint64_t, int32_t> targets; // the first of each, by kind, index and property
+		auto addTarget = [&mesh](ScenePointerTarget::Kind kind, uint32_t index, uint16_t property, std::span<const float> rest, float scale)
+		{
+			auto& animation = mesh.animation;
+			animation.pointerTargets.push_back(ScenePointerTarget{
+				.kind = kind,
+				.index = index,
+				.property = property,
+				.valueCount = static_cast<uint16_t>(rest.size()),
+				.valueBase = static_cast<uint32_t>(animation.pointerDefaults.size()),
+				.scale = scale});
+			animation.pointerDefaults.insert(animation.pointerDefaults.end(), rest.begin(), rest.end());
+			return static_cast<int32_t>(animation.pointerTargets.size() - 1);
+		};
+		for (size_t animationIt = 0; animationIt < pointers.size(); animationIt++)
+		{
+			parsedPointers[animationIt].resize(pointers[animationIt].size());
+			for (size_t channelIt = 0; channelIt < pointers[animationIt].size(); channelIt++)
+			{
+				const auto& pointer = pointers[animationIt][channelIt];
+				if (pointer.empty())
+					continue;
+				auto& parsedPointer = parsedPointers[animationIt][channelIt];
+				parsedPointer = ParsePointer(pointer, data);
+				using Kind = ParsedPointer::Kind;
+				auto key = (static_cast<uint64_t>(std::to_underlying(parsedPointer.kind)) << 48U) |
+						   (static_cast<uint64_t>(parsedPointer.index) << 16U) | parsedPointer.property;
+				switch (parsedPointer.kind)
+				{
+				case Kind::kNone:
+					if (!std::ranges::contains(unsupportedPointers, pointer))
+						unsupportedPointers.push_back(pointer);
+					break;
+				case Kind::kNodeVisibility:
+				{
+					auto [it, inserted] = targets.try_emplace(key, -1);
+					if (inserted)
+					{
+						std::array rest{IsHidden(data.nodes[parsedPointer.index]) ? 0.0F : 1.0F};
+						it->second = addTarget(ScenePointerTarget::Kind::kNodeVisibility, parsedPointer.index, 0, rest, 1.0F);
+					}
+					parsedPointer.target = it->second;
+					visibilityMoves[parsedPointer.index] = 1;
+					break;
+				}
+				case Kind::kMaterial:
+				{
+					auto [it, inserted] = targets.try_emplace(key, -1);
+					if (inserted)
+					{
+						float scale = 1.0F;
+						auto rest = MaterialPropertyRest(data.materials[parsedPointer.index], MaterialProperty{parsedPointer.property}, scale);
+						it->second = addTarget(ScenePointerTarget::Kind::kMaterial, parsedPointer.index, parsedPointer.property, rest, scale);
+					}
+					parsedPointer.target = it->second;
+					if (MaterialProperty{parsedPointer.property} == MaterialProperty::kBaseColor)
+						animatedBaseColor[parsedPointer.index] = 1;
+					break;
+				}
+				case Kind::kTextureOffset:
+				case Kind::kTextureRotation:
+				case Kind::kTextureScale:
+				{
+					// all three parts, keyed by the offset's
+					auto offsetKey = (static_cast<uint64_t>(std::to_underlying(Kind::kTextureOffset)) << 48U) |
+									 (static_cast<uint64_t>(parsedPointer.index) << 16U) | parsedPointer.property;
+					auto [it, inserted] = targets.try_emplace(offsetKey, -1);
+					if (inserted)
+					{
+						const auto& view = MaterialTextureView(data.materials[parsedPointer.index], MaterialTexture{parsedPointer.property});
+						std::array offset{0.0F, 0.0F};
+						std::array rotation{0.0F};
+						std::array scale{1.0F, 1.0F};
+						if (view.has_transform)
+						{
+							offset = {view.transform.offset[0], view.transform.offset[1]};
+							rotation = {view.transform.rotation};
+							scale = {view.transform.scale[0], view.transform.scale[1]};
+						}
+						it->second = addTarget(ScenePointerTarget::Kind::kTextureOffset, parsedPointer.index, parsedPointer.property, offset, 1.0F);
+						addTarget(ScenePointerTarget::Kind::kTextureRotation, parsedPointer.index, parsedPointer.property, rotation, 1.0F);
+						addTarget(ScenePointerTarget::Kind::kTextureScale, parsedPointer.index, parsedPointer.property, scale, 1.0F);
+					}
+					parsedPointer.target = it->second + (parsedPointer.kind == Kind::kTextureOffset	  ? 0
+														 : parsedPointer.kind == Kind::kTextureRotation ? 1
+																										: 2);
+					break;
+				}
+				default: break; // a node's transform or weights
+				}
+			}
+		}
+	}
+
 	// materials, and how their vertices take texcoords
 	Images images(data, path, stats);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
@@ -813,7 +1218,8 @@ std::expected<Mesh, std::string> Import(
 		std::array<float, 4> factor{1.0F, 1.0F, 1.0F, 1.0F};
 		if (gltfMaterial.has_pbr_metallic_roughness || gltfMaterial.has_pbr_specular_glossiness)
 			std::copy_n(baseColorFactor, 4, factor.begin());
-		baseColorFactors[materialIt] = factor;
+		// an animated base color factor is the material's (MaterialData::color), not baked into the vertex colors
+		baseColorFactors[materialIt] = animatedBaseColor[materialIt] != 0 ? std::array{1.0F, 1.0F, 1.0F, 1.0F} : factor;
 		std::copy_n(factor.begin(), 3, material.diffuse.begin());
 		material.dissolve = factor[3];
 
@@ -960,6 +1366,11 @@ std::expected<Mesh, std::string> Import(
 
 		material.doubleSided = gltfMaterial.double_sided != 0;
 	}
+	// the textures whose transforms animations move, by their offset's target (see TextureRef::animatedTransform)
+	for (size_t targetIt = 0; targetIt < mesh.animation.pointerTargets.size(); targetIt++)
+		if (const auto& target = mesh.animation.pointerTargets[targetIt];
+			target.kind == ScenePointerTarget::Kind::kTextureOffset && target.index < mesh.materials.size())
+			MaterialTextureRef(mesh.materials[target.index], MaterialTexture{target.property}).animatedTransform = static_cast<int32_t>(targetIt);
 
 	// primitives without a material get the spec's default one: white, metallic 1, roughness 1, opaque, single sided
 	int32_t defaultMaterial = -1;
@@ -1518,6 +1929,20 @@ std::expected<Mesh, std::string> Import(
 				moves[channel.target_node - data.nodes] = 1;
 			if (channel.target_node != nullptr && channel.target_path == cgltf_animation_path_type_weights)
 				morphsMove[channel.target_node - data.nodes] = 1;
+			// KHR_animation_pointer's: a node whose visibility animates is kept in its space too, as is what is below it
+			if (animationIt < parsedPointers.size() && channelIt < parsedPointers[animationIt].size())
+			{
+				const auto& parsedPointer = parsedPointers[animationIt][channelIt];
+				switch (parsedPointer.kind)
+				{
+				case ParsedPointer::Kind::kNodeTranslation:
+				case ParsedPointer::Kind::kNodeRotation:
+				case ParsedPointer::Kind::kNodeScale:
+				case ParsedPointer::Kind::kNodeVisibility: moves[parsedPointer.index] = 1; break;
+				case ParsedPointer::Kind::kNodeWeights: morphsMove[parsedPointer.index] = 1; break;
+				default: break;
+				}
+			}
 		}
 	}
 	auto nodeMoves = [&data, &moves](const cgltf_node* node)
@@ -1565,7 +1990,8 @@ std::expected<Mesh, std::string> Import(
 		{
 			const auto* node = stack.back();
 			stack.pop_back();
-			if (IsHidden(*node))
+			// hidden, unless an animation shows it (see NodeVisibility)
+			if (IsHidden(*node) && visibilityMoves[node - data.nodes] == 0)
 				continue;
 			for (auto childIt = node->children_count; childIt > 0; childIt--)
 				stack.push_back(node->children[childIt - 1]);
@@ -1573,7 +1999,13 @@ std::expected<Mesh, std::string> Import(
 			if (node->camera != nullptr)
 				mesh.cameras.push_back(SceneCameraOf(*node, data));
 			if (node->light != nullptr)
+			{
+				// a light under a node that moves follows it (and its visibility)
+				if (nodeMoves(node))
+					mesh.animation.lightLinks.push_back(
+						{.light = static_cast<uint32_t>(mesh.lights.size()), .node = static_cast<uint32_t>(node - data.nodes)});
 				mesh.lights.push_back(SceneLightOf(*node, data));
+			}
 
 			if (node->mesh == nullptr)
 				continue;
@@ -1683,7 +2115,32 @@ std::expected<Mesh, std::string> Import(
 			const auto& gltfChannel = gltfAnimation.channels[channelIt];
 			SceneAnimationChannel channel;
 			size_t components = 3;
-			switch (gltfChannel.target_path)
+			// KHR_animation_pointer's channels have no target node or path in cgltf: the pointer's, or a ScenePointerTarget
+			const cgltf_node* targetNode = gltfChannel.target_node;
+			auto targetPath = gltfChannel.target_path;
+			std::optional<int32_t> pointerTarget;
+			if (animationIt < parsedPointers.size() && channelIt < parsedPointers[animationIt].size())
+			{
+				const auto& parsedPointer = parsedPointers[animationIt][channelIt];
+				switch (parsedPointer.kind)
+				{
+				case ParsedPointer::Kind::kNodeTranslation: targetPath = cgltf_animation_path_type_translation; break;
+				case ParsedPointer::Kind::kNodeRotation: targetPath = cgltf_animation_path_type_rotation; break;
+				case ParsedPointer::Kind::kNodeScale: targetPath = cgltf_animation_path_type_scale; break;
+				case ParsedPointer::Kind::kNodeWeights: targetPath = cgltf_animation_path_type_weights; break;
+				case ParsedPointer::Kind::kNone: break;
+				default: pointerTarget = parsedPointer.target; break;
+				}
+				if (parsedPointer.kind != ParsedPointer::Kind::kNone && !pointerTarget)
+					targetNode = &data.nodes[parsedPointer.index];
+			}
+			if (pointerTarget && *pointerTarget >= 0)
+			{
+				channel.path = SceneAnimationChannel::Path::kPointer;
+				components = mesh.animation.pointerTargets[*pointerTarget].valueCount;
+				targetPath = cgltf_animation_path_type_invalid;
+			}
+			else switch (targetPath)
 			{
 			case cgltf_animation_path_type_translation: channel.path = SceneAnimationChannel::Path::kTranslation; break;
 			case cgltf_animation_path_type_rotation:
@@ -1696,22 +2153,20 @@ std::expected<Mesh, std::string> Import(
 				// a node whose morphs are weighed on the gpu (see SceneMorph)
 				channel.path = SceneAnimationChannel::Path::kWeights;
 				auto morph = std::ranges::find(
-					mesh.animation.morphs,
-					gltfChannel.target_node != nullptr ? static_cast<uint32_t>(gltfChannel.target_node - data.nodes) : ~0U,
-					&SceneMorph::node);
+					mesh.animation.morphs, targetNode != nullptr ? static_cast<uint32_t>(targetNode - data.nodes) : ~0U, &SceneMorph::node);
 				components = morph != mesh.animation.morphs.end() ? morph->weightCount : 0;
 				break;
 			}
 			default: components = 0; break;
 			}
 			const auto* sampler = gltfChannel.sampler;
-			if (components == 0 || gltfChannel.target_node == nullptr || sampler == nullptr || sampler->input == nullptr ||
+			if (components == 0 || (targetNode == nullptr && !pointerTarget) || sampler == nullptr || sampler->input == nullptr ||
 				sampler->output == nullptr)
 			{
 				ignoredChannels++;
 				continue;
 			}
-			channel.node = static_cast<uint32_t>(gltfChannel.target_node - data.nodes);
+			channel.node = pointerTarget ? static_cast<uint32_t>(*pointerTarget) : static_cast<uint32_t>(targetNode - data.nodes);
 			channel.interpolation = sampler->interpolation == cgltf_interpolation_type_step ? SceneAnimationChannel::Interpolation::kStep
 								  : sampler->interpolation == cgltf_interpolation_type_cubic_spline
 									  ? SceneAnimationChannel::Interpolation::kCubicSpline
@@ -1733,9 +2188,13 @@ std::expected<Mesh, std::string> Import(
 		}
 	}
 	if (data.animations_count > 0 && mesh.animation.Empty())
-		warn("{} animations are ignored (they move nothing drawn, e.g. KHR_animation_pointer)", data.animations_count);
+		warn("{} animations are ignored (they move nothing drawn)", data.animations_count);
 	if (ignoredChannels > 0)
-		warn("{} animation channels are ignored (KHR_animation_pointer, or unreadable)", ignoredChannels);
+		warn("{} animation channels are ignored (unreadable, or KHR_animation_pointer to what isn't drawn)", ignoredChannels);
+	if (!unsupportedPointers.empty())
+		warn(
+			"{} KHR_animation_pointer targets aren't supported, e.g. {}", unsupportedPointers.size(),
+			unsupportedPointers.front());
 	if (normalArea > 0.0)
 		stats.windingAgreement = agreeingArea / normalArea;
 

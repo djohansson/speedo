@@ -329,8 +329,19 @@ like the vertex (`gMorphDeltas`, from `PushConstants::morphDeltaBase` for the ve
 the vertex shader before skinning by the frame's weights (`gMorphWeights[frame]` from `morphWeightBase`, a `SceneMorph`
 per node), which `Model::Animate` writes from `EvaluateWeights` (crossfaded like the nodes); the bounds cover each
 vertex's reach with the weights from 0 to 1. A weights channel's output accessor is scalars, weightCount per key (its
-`count` is not the key count). KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at
-rest (morph targets at their default weights). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
+`count` is not the key count). KHR_animation_pointer: cgltf skips a channel target's extensions, so the importer reads
+the pointers from the json with cgltf's jsmn (`AnimationPointers`) and parses them (`ParsePointer`). Node translation,
+rotation, scale and weights pointers become ordinary channels; the rest get a `ScenePointerTarget` each, whose values (at
+rest `pointerDefaults`) `EvaluatePointers` samples like morph weights (`Path::kPointer`, the channel's node is the target).
+A node whose KHR_node_visibility animates is kept in its space (instance links, even if hidden at rest), and
+`NodeVisibility` hides it and its descendants (`WriteInstances` collapses their instances to a point); lights under nodes
+that move or hide follow them (`SceneLightLink`, `WriteLights`). Material values (`MaterialProperty`: the factors of the
+core material and of the KHR_materials_* extensions) and texture transforms (a `MaterialTexture`'s offset, rotation and
+scale, three targets from the offset's, which `TextureRef::animatedTransform` names: its view is its own, see
+`TextureViewKey::animated`) are applied on the draw thread after `Model::Animate` (`ApplyPointerValues`), which patches
+the uploaded `MaterialData` and `TextureView`s and uploads what changed. A material with an animated base color factor
+keeps it in `MaterialData::color` rather than baked into the vertex colors. A set of files is drawn at rest (morph
+targets at their default weights). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
 `cameraRotation.z` (applied before pitch and yaw), and its aspect ratio (gltf `aspectRatio`, or `xmag / ymag`)
