@@ -796,6 +796,8 @@ std::expected<Mesh, std::string> Import(
 	Images images(data, path, stats);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
 	mesh.materials.reserve(data.materials_count);
+	// the KHR_materials_* extensions the materials use that aren't drawn (they are read past)
+	std::vector<std::string_view> ignoredMaterialExtensions;
 	for (cgltf_size materialIt = 0; materialIt < data.materials_count; materialIt++)
 	{
 		const auto& gltfMaterial = data.materials[materialIt];
@@ -847,9 +849,14 @@ std::expected<Mesh, std::string> Import(
 		}
 		else if (gltfMaterial.has_pbr_specular_glossiness)
 		{
-			// a dielectric as glossy as it says (its specular color and texture are ignored)
+			// a dielectric of its specular color and glossiness (see mesh::Material::specularGlossiness)
+			const auto& specularGlossiness = gltfMaterial.pbr_specular_glossiness;
+			material.specularGlossiness = true;
 			material.metallic = 0.0F;
-			material.roughness = 1.0F - gltfMaterial.pbr_specular_glossiness.glossiness_factor;
+			material.glossiness = specularGlossiness.glossiness_factor;
+			material.roughness = 1.0F - specularGlossiness.glossiness_factor;
+			std::copy_n(specularGlossiness.specular_factor, 3, material.specularColor.begin());
+			material.specularColorTexture = textureRef(specularGlossiness.specular_glossiness_texture);
 		}
 		else
 		{
@@ -858,8 +865,31 @@ std::expected<Mesh, std::string> Import(
 			material.roughness = 1.0F;
 		}
 		material.unlit = gltfMaterial.unlit != 0;
-		if (gltfMaterial.has_specular)
-			material.specular = std::clamp(gltfMaterial.specular.specular_factor, 0.0F, 1.0F);
+		if (gltfMaterial.has_specular && !material.specularGlossiness)
+		{
+			const auto& specular = gltfMaterial.specular;
+			material.specular = std::clamp(specular.specular_factor, 0.0F, 1.0F);
+			material.specularTexture = textureRef(specular.specular_texture);
+			for (size_t channel = 0; channel < 3; channel++)
+				material.specularColor[channel] = std::max(specular.specular_color_factor[channel], 0.0F);
+			material.specularColorTexture = textureRef(specular.specular_color_texture);
+		}
+		// an ior of 0 is a perfect reflector's (the dielectric's f0 then 1), as the extension allows
+		if (gltfMaterial.has_ior)
+			material.ior = std::max(gltfMaterial.ior.ior, 0.0F);
+
+		// the extensions the renderer doesn't draw yet, named once per model (see ignoredMaterialExtensions)
+		for (auto [has, name] : std::initializer_list<std::pair<bool, std::string_view>>{
+				 {gltfMaterial.has_clearcoat != 0, "KHR_materials_clearcoat"},
+				 {gltfMaterial.has_sheen != 0, "KHR_materials_sheen"},
+				 {gltfMaterial.has_transmission != 0, "KHR_materials_transmission"},
+				 {gltfMaterial.has_volume != 0, "KHR_materials_volume"},
+				 {gltfMaterial.has_dispersion != 0, "KHR_materials_dispersion"},
+				 {gltfMaterial.has_anisotropy != 0, "KHR_materials_anisotropy"},
+				 {gltfMaterial.has_iridescence != 0, "KHR_materials_iridescence"},
+				 {gltfMaterial.has_diffuse_transmission != 0, "KHR_materials_diffuse_transmission"}})
+			if (has && !std::ranges::contains(ignoredMaterialExtensions, name))
+				ignoredMaterialExtensions.push_back(name);
 		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
@@ -881,6 +911,13 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		material.doubleSided = gltfMaterial.double_sided != 0;
+	}
+	if (!ignoredMaterialExtensions.empty())
+	{
+		std::string names;
+		for (auto name : ignoredMaterialExtensions)
+			names += std::format("{}{}", names.empty() ? "" : ", ", name);
+		warn("material extensions that aren't drawn yet are ignored: {}", names);
 	}
 
 	// primitives without a material get the spec's default one: white, metallic 1, roughness 1, opaque, single sided

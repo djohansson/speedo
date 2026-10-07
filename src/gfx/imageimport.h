@@ -41,6 +41,8 @@ enum class Usage : uint8_t
 	kOcclusion,
 	// a gltf metallic-roughness texture: roughness (its green channel) in r and metallic (blue) in g, linear. BC5.
 	kMetallicRoughness,
+	// an alpha channel, in r, linear (KHR_materials_specular's specularTexture keeps the strength there). BC4.
+	kAlpha,
 };
 
 struct Options

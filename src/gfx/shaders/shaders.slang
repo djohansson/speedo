@@ -347,9 +347,9 @@ float3 EnvironmentRadiance(EnvironmentData environment, float3 r, float roughnes
 
 // the glTF metallic-roughness brdf (the spec's appendix B): GGX distribution, height correlated Smith visibility, and
 // Schlick's Fresnel, mixing a Lambertian diffuse and the specular by the Fresnel term
-float3 FresnelSchlick(float3 f0, float cosine)
+float3 FresnelSchlick(float3 f0, float f90, float cosine)
 {
-	return f0 + (1.0 - f0) * pow(saturate(1.0 - cosine), 5.0);
+	return f0 + (f90 - f0) * pow(saturate(1.0 - cosine), 5.0);
 }
 
 float DistributionGgx(float nDotH, float alpha)
@@ -370,36 +370,42 @@ float VisibilitySmithGgxCorrelated(float nDotL, float nDotV, float alpha)
 
 // the specular reflectance of a uniform environment, integrated over the hemisphere: Karis' analytic fit to the
 // split sum's lookup table ("Physically Based Shading on Mobile")
-float3 EnvironmentBrdfApprox(float3 f0, float roughness, float nDotV)
+float3 EnvironmentBrdfApprox(float3 f0, float f90, float roughness, float nDotV)
 {
 	const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
 	const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
 	float4 r = roughness * c0 + c1;
 	float a004 = min(r.x * r.x, exp2(-9.28 * nDotV)) * r.x + r.y;
 	float2 ab = float2(-1.04, 1.04) * a004 + r.zw;
-	return f0 * ab.x + ab.y;
+	return f0 * ab.x + f90 * ab.y;
 }
 
-// the fresnel term of a mix of dielectric (f0 0.04, scaled by specular: KHR_materials_specular's specularWeight) and
-// metal (f0 the base color)
-float3 Fresnel(float3 baseColor, float metallic, float specular, float cosine)
+// what Shade lights: the Lambertian diffuse color, and the specular's Fresnel at normal incidence (f0) and at grazing
+// angles (f90): the metallic-roughness model's mix of a dielectric (f0 from the ior, tinted by KHR_materials_specular's
+// color, both scaled by its strength) and a metal (f0 the base color), or a specular-glossiness material's
+struct Surface
 {
-	return lerp(specular * FresnelSchlick(float3(0.04), cosine), FresnelSchlick(baseColor, cosine), metallic);
-}
+	float3 diffuseColor;
+	float3 f0;
+	float f90;
+	float roughness;
+	float occlusion;
+	float3 normal;
+};
 
 // the light a surface reflects towards view: from gLights, and the environment (by occlusion). linear, before exposure
-float3 Shade(float3 baseColor, float metallic, float roughness, float specular, float occlusion, float3 normal, float3 view, float3 position)
+float3 Shade(Surface surface, float3 view, float3 position)
 {
-	float3 diffuseColor = lerp(baseColor, float3(0.0), metallic);
+	float3 normal = surface.normal;
+	float roughness = surface.roughness;
 	float alpha = max(roughness * roughness, 1e-3);
 	float nDotV = max(dot(normal, view), 1e-4);
 
-	float3 environmentSpecular = lerp(
-		specular * EnvironmentBrdfApprox(float3(0.04), roughness, nDotV), EnvironmentBrdfApprox(baseColor, roughness, nDotV), metallic);
+	float3 environmentSpecular = EnvironmentBrdfApprox(surface.f0, surface.f90, roughness, nDotV);
 	EnvironmentData environment = gEnvironment[0];
 	float3 reflected = reflect(-view, normal);
-	float3 result = occlusion *
-		(diffuseColor * EnvironmentIrradiance(environment, normal) + environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
+	float3 result = surface.occlusion * (surface.diffuseColor * EnvironmentIrradiance(environment, normal) +
+										 environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{
@@ -437,8 +443,8 @@ float3 Shade(float3 baseColor, float metallic, float roughness, float specular, 
 
 		float3 halfway = normalize(toLight + view);
 		float nDotH = saturate(dot(normal, halfway));
-		float3 fresnel = Fresnel(baseColor, metallic, specular, saturate(dot(view, halfway)));
-		float3 diffuse = (1.0 - fresnel) * diffuseColor / kPi;
+		float3 fresnel = FresnelSchlick(surface.f0, surface.f90, saturate(dot(view, halfway)));
+		float3 diffuse = (1.0 - fresnel) * surface.diffuseColor / kPi;
 		float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
 		result += (diffuse + specular) * light.intensity.rgb * attenuation * nDotL;
 	}
@@ -528,11 +534,41 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	if ((material.flags & MATERIAL_FLAG_OCCLUSION_TEXTURE) != 0u)
 		occlusion = lerp(1.0, SampleView(material.occlusionView, v.texCoord01).r, material.emissive.w);
 
+	// the specular (KHR_materials_specular and KHR_materials_ior, or specular-glossiness)
+	float specular = material.specular;
+	if ((material.flags & MATERIAL_FLAG_SPECULAR_TEXTURE) != 0u)
+		specular *= SampleView(material.specularView, v.texCoord01).r;
+	float4 specularColor = float4(material.specularColor.rgb, 1.0);
+	if ((material.flags & MATERIAL_FLAG_SPECULAR_COLOR_TEXTURE) != 0u)
+		specularColor *= SampleView(material.specularColorView, v.texCoord01);
+
+	Surface surface;
+	surface.occlusion = occlusion;
+	surface.normal = normal;
+	if ((material.flags & MATERIAL_FLAG_SPECULAR_GLOSSINESS) != 0u)
+	{
+		// the specular color is f0, and the diffuse keeps what it leaves
+		surface.f0 = specularColor.rgb;
+		surface.f90 = 1.0;
+		surface.diffuseColor = color.rgb * (1.0 - max(surface.f0.r, max(surface.f0.g, surface.f0.b)));
+		surface.roughness = 1.0 - saturate(material.roughness * specularColor.a);
+	}
+	else
+	{
+		float ior = material.specularColor.a;
+		float reflectance = (ior - 1.0) / (ior + 1.0);
+		float3 dielectricF0 = min(reflectance * reflectance * specularColor.rgb, 1.0) * specular;
+		surface.f0 = lerp(dielectricF0, color.rgb, metallic);
+		surface.f90 = lerp(specular, 1.0, metallic);
+		surface.diffuseColor = lerp(color.rgb, float3(0.0), metallic);
+		surface.roughness = roughness;
+	}
+
 	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
-	return float4(Shade(color.rgb, metallic, roughness, material.specular, occlusion, normal, view, v.position) + emissive, color.a);
+	return float4(Shade(surface, view, v.position) + emissive, color.a);
 }
 
 [shader("fragment")]

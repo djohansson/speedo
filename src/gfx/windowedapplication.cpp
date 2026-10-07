@@ -622,7 +622,21 @@ struct MaterialTextures
 	Texture emissive;
 	Texture occlusion;
 	Texture metallicRoughness;
+	Texture specular;
+	Texture specularColor;
 };
+
+// a material's defaults: white, untextured, rough, dielectric, with the default specular (ior 1.5, white)
+[[nodiscard]] static MaterialData DefaultMaterialData()
+{
+	MaterialData material{};
+	std::ranges::fill(material.color, 1.0F);
+	material.specularColor[0] = material.specularColor[1] = material.specularColor[2] = 1.0F;
+	material.specularColor[3] = 1.5F;
+	material.roughness = 1.0F;
+	material.specular = 1.0F;
+	return material;
+}
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
 // previous ones. call on the draw thread.
@@ -640,7 +654,8 @@ static void InstallModel(
 		uploads.buffers.emplace_back(buffer, model->GetUpload());
 	for (const auto& material : textures)
 		for (const auto* texture :
-			 {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion, &material.metallicRoughness})
+			 {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion, &material.metallicRoughness,
+			  &material.specular, &material.specularColor})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -741,7 +756,7 @@ static void InstallModel(
 			return viewIdIt->second;
 		};
 
-		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
+		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount), DefaultMaterialData());
 		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
 		{
 			auto& material = materials[materialIt];
@@ -752,6 +767,23 @@ static void InstallModel(
 			material.metallic = desc.metallic;
 			material.roughness = desc.roughness;
 			material.specular = desc.specular;
+			std::ranges::copy(desc.specularColor, material.specularColor);
+			material.specularColor[3] = desc.ior;
+			if (desc.specularGlossiness)
+			{
+				material.flags |= MATERIAL_FLAG_SPECULAR_GLOSSINESS;
+				material.roughness = desc.glossiness;
+			}
+			if (auto view = viewOf(textures[materialIt].specular, desc.specularTexture))
+			{
+				material.specularView = *view;
+				material.flags |= MATERIAL_FLAG_SPECULAR_TEXTURE;
+			}
+			if (auto view = viewOf(textures[materialIt].specularColor, desc.specularColorTexture))
+			{
+				material.specularColorView = *view;
+				material.flags |= MATERIAL_FLAG_SPECULAR_COLOR_TEXTURE;
+			}
 			if (desc.unlit)
 				material.flags |= MATERIAL_FLAG_UNLIT;
 			if (auto view = viewOf(textures[materialIt].metallicRoughness, desc.metallicRoughnessTexture))
@@ -923,13 +955,10 @@ static void InstallImage(
 		// the default material is untextured until an image is loaded. it samples it through view 0.
 		auto view = MakeTextureView(kMaterialTextureId, kDefaultSamplerId, TextureRef{});
 		UpdateTextureViews(rhi, graphics, 0, std::span(&view, 1));
-		MaterialData material{
-			.color = {1.0F, 1.0F, 1.0F, 1.0F},
-			.flags = MATERIAL_FLAG_TEXTURE,
-			.alphaCutoff = 0.5F,
-			.baseColorView = 0,
-			.roughness = 1.0F,
-			.specular = 1.0F};
+		MaterialData material = DefaultMaterialData();
+		material.flags = MATERIAL_FLAG_TEXTURE;
+		material.alphaCutoff = 0.5F;
+		material.baseColorView = 0;
 		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
@@ -993,6 +1022,12 @@ static void LoadAndInstallModels(
 		if (!material.metallicRoughnessTexture.empty())
 			loads.push_back(
 				{material.metallicRoughnessTexture.path, material.metallicRoughnessTexture.embeddedImage, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.metallicRoughness});
+		if (!material.specularTexture.empty())
+			loads.push_back(
+				{material.specularTexture.path, material.specularTexture.embeddedImage, {.usage = gfx::image::Usage::kAlpha}, &texture.specular});
+		if (!material.specularColorTexture.empty())
+			loads.push_back(
+				{material.specularColorTexture.path, material.specularColorTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.specularColor});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;
@@ -2625,13 +2660,7 @@ WindowedApplication::WindowedApplication(
 		blackTexture->Transition(cmd, ImageLayout::kShaderReadOnly);
 
 		// white and untextured, until InstallModel and InstallImage fill them in
-		std::vector<MaterialData> materialData(SHADER_TYPES_MATERIAL_COUNT);
-		for (auto& material : materialData)
-		{
-			std::ranges::fill(material.color, 1.0F);
-			material.roughness = 1.0F;
-			material.specular = 1.0F;
-		}
+		std::vector<MaterialData> materialData(SHADER_TYPES_MATERIAL_COUNT, DefaultMaterialData());
 
 		core::TaskCreateInfo<void> materialTransfersDone;
 		auto materials = device.CreateResource<Buffer>(

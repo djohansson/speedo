@@ -48,7 +48,8 @@ constexpr uint32_t kRgba = 4;
 	case Usage::kBump:
 	case Usage::kMetallicRoughness: return Format::kBC5;
 	case Usage::kMask:
-	case Usage::kOcclusion: return Format::kBC4;
+	case Usage::kOcclusion:
+	case Usage::kAlpha: return Format::kBC4;
 	default: return alpha ? Format::kBC3 : Format::kBC1;
 	}
 }
@@ -411,6 +412,14 @@ std::expected<Pixels, std::string> Decode(std::span<const std::byte> data, std::
 		for (size_t i = 0; i < rgba.size(); i += kRgba)
 		{
 			rgba[i + 1] = rgba[i + 2] = rgba[i];
+			rgba[i + 3] = 255;
+		}
+		break;
+
+	case Usage::kAlpha:
+		for (size_t i = 0; i < rgba.size(); i += kRgba)
+		{
+			rgba[i] = rgba[i + 1] = rgba[i + 2] = rgba[i + 3];
 			rgba[i + 3] = 255;
 		}
 		break;

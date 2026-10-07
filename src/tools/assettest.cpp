@@ -529,6 +529,10 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			Add(texturesOut, material.occlusionTexture, gfx::image::Usage::kOcclusion, 1.0F);
 		if (!material.metallicRoughnessTexture.empty())
 			Add(texturesOut, material.metallicRoughnessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
+		if (!material.specularTexture.empty())
+			Add(texturesOut, material.specularTexture, gfx::image::Usage::kAlpha, 1.0F);
+		if (!material.specularColorTexture.empty())
+			Add(texturesOut, material.specularColorTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.normalTexture.empty())
 			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())
@@ -611,6 +615,7 @@ constexpr std::string_view ToString(gfx::image::Usage usage)
 	case gfx::image::Usage::kMask: return "mask";
 	case gfx::image::Usage::kOcclusion: return "occlusion";
 	case gfx::image::Usage::kMetallicRoughness: return "metallic-roughness";
+	case gfx::image::Usage::kAlpha: return "alpha";
 	}
 	return "?";
 }

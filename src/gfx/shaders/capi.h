@@ -159,12 +159,18 @@ struct TextureView
 #define MATERIAL_FLAG_OCCLUSION_TEXTURE 16u // occlusionView: ambient occlusion in r, by emissive.w
 #define MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE 32u // metallicRoughnessView: roughness in r, metallic in g, times the factors
 #define MATERIAL_FLAG_UNLIT 64u // gltf KHR_materials_unlit: drawn in its base color, without lighting
+#define MATERIAL_FLAG_SPECULAR_TEXTURE 128u // specularView: the specular strength in r, times specular
+#define MATERIAL_FLAG_SPECULAR_COLOR_TEXTURE 256u // specularColorView: an srgb color times specularColor (and glossiness in a)
+#define MATERIAL_FLAG_SPECULAR_GLOSSINESS 512u // specular-glossiness: specularColor is f0, roughness the glossiness
 
 struct MaterialData
 {
 	alignas(16) FLOAT4(color);
 	// rgb: linear light added after lighting (may be above 1), times the emissive texture. a: the occlusion strength
 	alignas(16) FLOAT4(emissive);
+	// rgb: the dielectric specular color (see gfx::mesh::Material::specularColor), or with
+	// MATERIAL_FLAG_SPECULAR_GLOSSINESS the color at normal incidence itself. a: the index of refraction
+	alignas(16) FLOAT4(specularColor);
 	alignas(4) UINT(flags);
 	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
 	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
@@ -174,11 +180,13 @@ struct MaterialData
 	alignas(4) UINT(emissiveView);
 	alignas(4) UINT(occlusionView);
 	// the glTF metallic-roughness model: 0 to 1 each (perceptual roughness, squared for the brdf). 1 and 0 for obj
-	// materials, which are matte
+	// materials, which are matte. with MATERIAL_FLAG_SPECULAR_GLOSSINESS, roughness is the glossiness
 	alignas(4) FLOAT(metallic);
 	alignas(4) FLOAT(roughness);
 	alignas(4) UINT(metallicRoughnessView);
 	alignas(4) FLOAT(specular); // the dielectric specular's strength (see mesh::Material::specular): 1 by default
+	alignas(4) UINT(specularView);
+	alignas(4) UINT(specularColorView);
 };
 
 struct ModelInstance

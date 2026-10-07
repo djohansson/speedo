@@ -45,8 +45,21 @@ struct Material
 	float roughness = 1.0F;
 	TextureRef metallicRoughnessTexture;
 	// the strength of the dielectric specular (the fresnel term, not metals'): gltf KHR_materials_specular's
-	// specularFactor (its color is ignored), obj Ks (its largest component: 0 is matte, without even a fresnel rim)
+	// specularFactor, times its specularTexture's alpha; obj Ks (its largest component: 0 is matte, without even a fresnel
+	// rim)
 	float specular = 1.0F;
+	TextureRef specularTexture;
+	// the dielectric specular's color at normal incidence is ((ior - 1) / (ior + 1))^2 (0.04 for the default 1.5,
+	// KHR_materials_ior) times this color (KHR_materials_specular's specularColorFactor, times its srgb
+	// specularColorTexture), at most 1, times the strength
+	std::array<float, 3> specularColor{1.0F, 1.0F, 1.0F};
+	TextureRef specularColorTexture;
+	float ior = 1.5F;
+	// KHR_materials_pbrSpecularGlossiness, for materials without metallic-roughness: a dielectric whose specular color at
+	// normal incidence is specularColor itself, and specularColorTexture's rgb (srgb), whose diffuse is scaled by 1 minus
+	// that color's largest component, and whose roughness is 1 - glossiness times the texture's alpha
+	bool specularGlossiness = false;
+	float glossiness = 1.0F;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

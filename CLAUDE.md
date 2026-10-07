@@ -384,12 +384,20 @@ cover all of their image's mips unless `ImageViewCreateDesc::levelCount` says ot
 0, so no texture was ever sampled below it). Metallic-roughness textures are `Usage::kMetallicRoughness` (BC5: roughness, the file's
 green, in r, and metallic, its blue, in g); obj materials are dielectrics whose `Ks` scales the specular
 (`MaterialData::specular`, also KHR_materials_specular's factor; 0 is matte, without even a fresnel rim) and whose `Ns`
-gives the roughness (`sqrt(2 / (Ns + 2))`), and `MaterialData` defaults must set roughness and specular to 1 (zero
-roughness is a mirror). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+gives the roughness (`sqrt(2 / (Ns + 2))`), and `MaterialData` starts from `DefaultMaterialData()` (roughness, specular
+and specular color 1, ior 1.5: zero roughness is a mirror, and a zero specular color no fresnel at all). `Shade` lights a
+`Surface` (diffuse color, f0 color, f90, roughness, occlusion, normal), which `ShadeFragment` builds as the spec does: the
+dielectric's f0 is `((ior - 1) / (ior + 1))^2` (KHR_materials_ior) times KHR_materials_specular's color (factor times its
+srgb texture), at most 1, times the strength (factor times its texture's alpha, `Usage::kAlpha`: BC4), and its f90 the
+strength, mixed with the metal's (f0 the base color, f90 1) by metallic; the environment term is `f0 * A + f90 * B`.
+Specular-glossiness materials (`MATERIAL_FLAG_SPECULAR_GLOSSINESS`) take their specular color as f0 (f90 1), their
+diffuse scaled by 1 minus its largest component, and roughness `1 - glossiness * a` of the specular-glossiness texture
+(in the specular color's slot, `kColor`: srgb rgb, linear alpha). The `KHR_materials_*` extensions not drawn are named
+in one import warning. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
-(0-11 are the frames' render targets: color, accumulation and revealage, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
+(0-3 are the frames' render targets, 12 the environment's, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
