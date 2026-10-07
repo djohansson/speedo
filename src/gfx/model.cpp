@@ -191,28 +191,7 @@ struct Staged
 		skinStaging = {};
 	};
 
-	// embedded images of gltf files are extracted to files, which the textures are loaded from
-	auto userProfilePath = std::get<std::filesystem::path>(app->GetEnv().variables["UserProfilePath"]);
-	auto absolutePath = std::filesystem::absolute(std::filesystem::path(filePath));
-	mesh::ImportOptions importOptions{
-		.embeddedImageDirectory = userProfilePath / "embedded" /
-								  std::format("{}-{:016x}", absolutePath.stem().string(), std::hash<std::string>{}(absolutePath.string())),
-		.scene = scene};
-
-	// the embedded images a cached model names, which only an import writes: missing ones (e.g. a cleared user profile)
-	// make the cache unusable, so that LoadAsset imports the model again, which extracts them again
-	auto missingEmbeddedImage = [&importOptions](const ModelDesc& modelDesc) -> std::optional<std::string>
-	{
-		auto directory = importOptions.embeddedImageDirectory.generic_string() + "/";
-		for (const auto& material : modelDesc.materials)
-			for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.normalTexture,
-										&material.bumpTexture, &material.emissiveTexture, &material.occlusionTexture,
-										&material.metallicRoughnessTexture})
-				if (std::error_code error; std::filesystem::path(texture->path).generic_string().starts_with(directory) &&
-										   !std::filesystem::is_regular_file(texture->path, error))
-					return texture->path;
-		return std::nullopt;
-	};
+	mesh::ImportOptions importOptions{.scene = scene};
 
 	auto loadBin = [&](auto& inStream) -> std::error_code
 	{
@@ -222,13 +201,6 @@ struct Staged
 
 		if (auto result = inStream(desc); failure(result))
 			return std::make_error_code(result);
-
-		if (auto missing = missingEmbeddedImage(desc))
-		{
-			std::println(stderr, "{}: embedded image {} is missing, importing again", filePath, *missing);
-			desc = {};
-			return std::make_error_code(std::errc::no_such_file_or_directory);
-		}
 
 		if (!fitsDevice(desc))
 			return std::make_error_code(std::errc::file_too_large);
@@ -448,11 +420,11 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v3", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v18", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v19", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));
-	params.append("|cache-v22"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v23"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

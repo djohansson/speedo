@@ -499,20 +499,69 @@ using Matrix = std::array<float, 16>;
 
 // the image files of a file's textures: external ones are resolved next to the file, embedded ones (in a buffer view,
 // or a data uri) are written to the embedded image directory, once per image
+// an embedded image's bytes (in a buffer view, or a base64 data uri) and its mime type, or why they can't be read. the
+// buffers must be loaded.
+struct EmbeddedBytes
+{
+	std::vector<std::byte> bytes;
+	std::string mimeType;
+};
+
+[[nodiscard]] std::expected<EmbeddedBytes, std::string> ReadEmbedded(const cgltf_image& image)
+{
+	EmbeddedBytes result{.mimeType = image.mime_type != nullptr ? image.mime_type : ""};
+	if (image.buffer_view != nullptr)
+	{
+		const auto* data = reinterpret_cast<const std::byte*>(cgltf_buffer_view_data(image.buffer_view));
+		if (data == nullptr)
+			return std::unexpected("its buffer isn't loaded");
+		result.bytes.assign(data, data + image.buffer_view->size);
+		return result;
+	}
+	if (image.uri != nullptr && IsDataUri(image.uri))
+	{
+		std::string_view uri(image.uri);
+		auto comma = uri.find(',');
+		auto header = uri.substr(0, comma);
+		if (comma == std::string_view::npos || !header.ends_with(";base64"))
+			return std::unexpected("a data uri that isn't base64");
+		result.mimeType = header.substr(5, header.size() - 5 - 7); // between "data:" and ";base64"
+		auto base64 = uri.substr(comma + 1);
+		auto padding = std::ranges::count(base64.substr(base64.size() >= 2 ? base64.size() - 2 : 0), '=');
+		auto size = ((base64.size() / 4) * 3) - static_cast<size_t>(padding);
+		cgltf_options options{};
+		void* out = nullptr;
+		if (cgltf_load_buffer_base64(&options, size, base64.data(), &out) != cgltf_result_success)
+			return std::unexpected("its data uri doesn't decode");
+		std::unique_ptr<void, void (*)(void*)> decoded(out, std::free);
+		result.bytes.assign(static_cast<const std::byte*>(out), static_cast<const std::byte*>(out) + size);
+		return result;
+	}
+	return std::unexpected("it is neither in a buffer view nor a data uri");
+}
+
+// the image file of each texture, or for an image the gltf file embeds, the gltf file and the image's index (see
+// TextureRef::embeddedImage), which the texture loader reads it from (see EmbeddedImage)
 class Images
 {
 public:
-	Images(const cgltf_data& data, const std::filesystem::path& path, const mesh::ImportOptions& options, mesh::Stats& stats)
+	struct Resolved
+	{
+		std::filesystem::path path; // empty if it can't be loaded
+		std::optional<uint32_t> embeddedImage;
+	};
+
+	Images(const cgltf_data& data, const std::filesystem::path& path, mesh::Stats& stats)
 		: myData(data)
+		, myPath(path)
 		, myBaseDir(path.parent_path())
-		, myStem(path.stem().string())
-		, myEmbeddedDir(options.embeddedImageDirectory)
 		, myStats(stats)
-		, myPaths(data.images_count)
+		, myResolved(data.images_count)
+		, myErrors(data.images_count)
 	{}
 
-	// the file of a texture, or empty (counted as missing) if it has none that can be loaded
-	[[nodiscard]] std::filesystem::path Resolve(const cgltf_texture_view& view, std::string_view material)
+	// a texture's image, or an empty path (counted as missing) if it has none that can be loaded
+	[[nodiscard]] Resolved Resolve(const cgltf_texture_view& view, std::string_view material)
 	{
 		const auto* texture = view.texture;
 		if (texture == nullptr)
@@ -528,11 +577,11 @@ public:
 		}
 
 		auto index = static_cast<size_t>(image - myData.images);
-		if (!myPaths[index])
-			myPaths[index] = InternalResolve(*image, index);
-		if (myPaths[index]->empty())
+		if (!myResolved[index])
+			myResolved[index] = InternalResolve(*image, index);
+		if (myResolved[index]->path.empty())
 			Missing(material, myErrors[index]);
-		return *myPaths[index];
+		return *myResolved[index];
 	}
 
 private:
@@ -542,20 +591,7 @@ private:
 		myStats.warnings.emplace_back(std::format("material {}: texture not loaded: {}", material, why));
 	}
 
-	[[nodiscard]] static std::string_view ExtensionOf(std::string_view mimeType)
-	{
-		if (mimeType == "image/png")
-			return ".png";
-		if (mimeType == "image/jpeg")
-			return ".jpg";
-		if (mimeType == "image/webp")
-			return ".webp";
-		if (mimeType == "image/ktx2")
-			return ".ktx2";
-		return {};
-	}
-
-	[[nodiscard]] std::filesystem::path InternalResolve(const cgltf_image& image, size_t index)
+	[[nodiscard]] Resolved InternalResolve(const cgltf_image& image, size_t index)
 	{
 		auto& error = myErrors[index];
 
@@ -567,101 +603,31 @@ private:
 				error = std::format("{} not found", path.string());
 				return {};
 			}
-			return path;
+			return {.path = path};
 		}
 
-		// embedded: in a buffer view (with a mime type), or a base64 data uri (data:<mime type>;base64,<data>)
-		std::string_view mimeType = image.mime_type != nullptr ? image.mime_type : "";
-		std::span<const std::byte> bytes;
-		std::unique_ptr<void, void (*)(void*)> decoded(nullptr, std::free);
-		if (image.buffer_view != nullptr)
+		// embedded: readable, and of a type image::Import decodes
+		auto embedded = ReadEmbedded(image);
+		if (!embedded)
 		{
-			const auto* data = reinterpret_cast<const std::byte*>(cgltf_buffer_view_data(image.buffer_view));
-			if (data == nullptr)
-			{
-				error = "its buffer isn't loaded";
-				return {};
-			}
-			bytes = std::span(data, image.buffer_view->size);
-		}
-		else if (IsDataUri(image.uri))
-		{
-			std::string_view uri(image.uri);
-			auto comma = uri.find(',');
-			auto header = uri.substr(0, comma);
-			if (comma == std::string_view::npos || !header.ends_with(";base64"))
-			{
-				error = "a data uri that isn't base64";
-				return {};
-			}
-			mimeType = header.substr(5, header.size() - 5 - 7); // between "data:" and ";base64"
-			auto base64 = uri.substr(comma + 1);
-			auto padding = std::ranges::count(base64.substr(base64.size() >= 2 ? base64.size() - 2 : 0), '=');
-			auto size = ((base64.size() / 4) * 3) - static_cast<size_t>(padding);
-			cgltf_options options{};
-			void* out = nullptr;
-			if (cgltf_load_buffer_base64(&options, size, base64.data(), &out) != cgltf_result_success)
-			{
-				error = "its data uri doesn't decode";
-				return {};
-			}
-			decoded.reset(out);
-			bytes = std::span(static_cast<const std::byte*>(out), size);
-		}
-		else
-		{
-			error = "it has neither a uri nor a buffer view";
+			error = embedded.error();
 			return {};
 		}
-
-		auto extension = ExtensionOf(mimeType);
-		if (extension.empty())
+		static constexpr std::array<std::string_view, 4> kMimeTypes{"image/png", "image/jpeg", "image/webp", "image/ktx2"};
+		if (!std::ranges::contains(kMimeTypes, embedded->mimeType))
 		{
-			error = std::format("embedded {} images aren't supported", mimeType.empty() ? "untyped" : mimeType);
+			error = std::format("embedded {} images aren't supported", embedded->mimeType.empty() ? "untyped" : embedded->mimeType);
 			return {};
 		}
-
-		if (myEmbeddedDir.empty())
-		{
-			error = "embedded, and there is no directory to extract it to";
-			return {};
-		}
-
-		// named after the content, so that unchanged images are written once
-		auto path = myEmbeddedDir /
-					std::format("{}-{}-{:016x}{}", myStem, index, XXH3_64bits(bytes.data(), bytes.size()), extension);
-		std::error_code ec;
-		if (std::filesystem::is_regular_file(path, ec))
-			return path;
-
-		std::filesystem::create_directories(myEmbeddedDir, ec);
-		auto temporary = path;
-		temporary += ".tmp";
-		{
-			std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-			file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-			if (!file)
-			{
-				error = std::format("failed to write {}", temporary.string());
-				return {};
-			}
-		}
-		std::filesystem::rename(temporary, path, ec);
-		if (ec)
-		{
-			error = std::format("failed to write {}: {}", path.string(), ec.message());
-			return {};
-		}
-		return path;
+		return {.path = myPath, .embeddedImage = static_cast<uint32_t>(index)};
 	}
 
 	const cgltf_data& myData;
+	std::filesystem::path myPath;
 	std::filesystem::path myBaseDir;
-	std::string myStem;
-	std::filesystem::path myEmbeddedDir;
 	mesh::Stats& myStats;
-	std::vector<std::optional<std::filesystem::path>> myPaths; // by image index, once resolved
-	core::UnorderedMap<size_t, std::string> myErrors; // why an image resolved to nothing
+	std::vector<std::optional<Resolved>> myResolved;
+	std::vector<std::string> myErrors;
 };
 
 // an unsigned integer of a component type an index can have
@@ -792,7 +758,7 @@ std::expected<Mesh, std::string> Import(
 	{ stats.warnings.push_back(std::format(fmt, std::forward<Args>(args)...)); };
 
 	// materials, and how their vertices take texcoords
-	Images images(data, path, options, stats);
+	Images images(data, path, stats);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
 	mesh.materials.reserve(data.materials_count);
 	for (cgltf_size materialIt = 0; materialIt < data.materials_count; materialIt++)
@@ -820,7 +786,9 @@ std::expected<Mesh, std::string> Import(
 		auto textureRef = [&](const cgltf_texture_view& view)
 		{
 			TextureRef ref;
-			ref.path = images.Resolve(view, material.name).string();
+			auto resolved = images.Resolve(view, material.name);
+			ref.path = resolved.path.string();
+			ref.embeddedImage = resolved.embeddedImage;
 			if (ref.empty())
 				return ref;
 			ref.texCoord = static_cast<uint32_t>(view.has_transform && view.transform.has_texcoord ? view.transform.texcoord : view.texcoord);
@@ -1666,6 +1634,25 @@ std::expected<Mesh, std::string> Import(
 	}
 
 	return mesh;
+}
+
+std::expected<std::vector<std::byte>, std::string> EmbeddedImage(const std::filesystem::path& path, uint32_t index)
+{
+	auto parsed = detail::Parse(path);
+	if (!parsed)
+		return std::unexpected(parsed.error());
+	auto& data = **parsed;
+	if (index >= data.images_count)
+		return std::unexpected(std::format("{} has no image {}", path.string(), index));
+
+	cgltf_options options{};
+	if (auto result = cgltf_load_buffers(&options, &data, path.string().c_str()); result != cgltf_result_success)
+		return std::unexpected(std::format("failed to load the buffers of {}: {}", path.string(), detail::ToString(result)));
+
+	auto embedded = detail::ReadEmbedded(data.images[index]);
+	if (!embedded)
+		return std::unexpected(std::format("{}: image {}: {}", path.string(), index, embedded.error()));
+	return std::move(embedded->bytes);
 }
 
 std::optional<std::string> UnsupportedRequiredExtension(const std::filesystem::path& path)

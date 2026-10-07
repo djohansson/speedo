@@ -8,6 +8,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace gfx::image
@@ -83,8 +84,10 @@ struct Pixels
 	return format == Format::kBC1 || format == Format::kBC4 ? 8 : 16; //NOLINT(readability-magic-numbers)
 }
 
-// decodes an image file (anything stb_image reads) and prepares it for a usage, as Import does first. for testing.
+// decodes an image (a file, or its bytes with a name for messages: WebP, KTX2 or anything stb_image reads, told apart by
+// their signature) and prepares it for a usage, as Import does first. for testing.
 [[nodiscard]] std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options);
+[[nodiscard]] std::expected<Pixels, std::string> Decode(std::span<const std::byte> data, std::string_view name, const Options& options);
 
 // decodes an image file, prepares it for a usage, generates its mip chain and compresses it. calls allocate once with
 // the size of the compressed data, which it writes to the returned memory, mip level 0 first. progress is advanced
@@ -92,6 +95,14 @@ struct Pixels
 // cancelled() returns true (allocate may have been called then).
 [[nodiscard]] std::expected<Image, std::string> Import(
 	const std::filesystem::path& path,
+	const Options& options,
+	const std::function<std::byte*(size_t size)>& allocate,
+	std::atomic_uint8_t* progress = nullptr,
+	const std::function<bool()>& cancelled = {});
+// the same from an image's bytes (e.g. an image a gltf file embeds), with a name for messages
+[[nodiscard]] std::expected<Image, std::string> Import(
+	std::span<const std::byte> data,
+	std::string_view name,
 	const Options& options,
 	const std::function<std::byte*(size_t size)>& allocate,
 	std::atomic_uint8_t* progress = nullptr,

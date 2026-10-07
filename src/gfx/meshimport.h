@@ -137,9 +137,6 @@ struct Mesh
 
 struct ImportOptions
 {
-	// where to write the images a gltf file embeds (in a buffer or as a data uri), which are loaded from files like the
-	// others. empty: embedded images are counted as missing textures.
-	std::filesystem::path embeddedImageDirectory;
 	// gltf: the scene to load (an index into the file's scenes), else its default scene, or the first
 	std::optional<size_t> scene;
 };

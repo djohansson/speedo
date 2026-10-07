@@ -897,6 +897,7 @@ static void LoadAndInstallModels(
 	struct TextureLoad
 	{
 		std::string path;
+		std::optional<uint32_t> embeddedImage; // see TextureRef::embeddedImage
 		gfx::image::Options options;
 		Texture* result;
 	};
@@ -907,22 +908,27 @@ static void LoadAndInstallModels(
 		const auto& material = materials[materialIt];
 		auto& texture = textures[materialIt];
 		if (!material.diffuseTexture.empty())
-			loads.push_back({material.diffuseTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
+			loads.push_back(
+				{material.diffuseTexture.path, material.diffuseTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
 		if (!material.alphaTexture.empty())
-			loads.push_back({material.alphaTexture.path, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
+			loads.push_back(
+				{material.alphaTexture.path, material.alphaTexture.embeddedImage, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
 		if (!material.normalTexture.empty())
-			loads.push_back({material.normalTexture.path, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
+			loads.push_back(
+				{material.normalTexture.path, material.normalTexture.embeddedImage, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
 		else if (!material.bumpTexture.empty())
 			loads.push_back(
-				{material.bumpTexture.path, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
+				{material.bumpTexture.path, material.bumpTexture.embeddedImage, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
 		// the texture scales emissive, so it is only worth loading if that isn't black (obj map_Ke usually comes with Ke 0)
 		if (!material.emissiveTexture.empty() && std::ranges::any_of(material.emissive, [](float value) { return value > 0.0F; }))
-			loads.push_back({material.emissiveTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
+			loads.push_back(
+				{material.emissiveTexture.path, material.emissiveTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
 		if (!material.occlusionTexture.empty())
-			loads.push_back({material.occlusionTexture.path, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
+			loads.push_back(
+				{material.occlusionTexture.path, material.occlusionTexture.embeddedImage, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
 		if (!material.metallicRoughnessTexture.empty())
 			loads.push_back(
-				{material.metallicRoughnessTexture.path, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.metallicRoughness});
+				{material.metallicRoughnessTexture.path, material.metallicRoughnessTexture.embeddedImage, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.metallicRoughness});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;
@@ -930,7 +936,8 @@ static void LoadAndInstallModels(
 	for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
 	{
 		const auto& load = loads[loadIt];
-		auto key = std::format("{}|{}|{}", load.path, std::to_underlying(load.options.usage), load.options.bumpScale);
+		auto key = std::format(
+			"{}|{}|{}|{}", load.path, load.embeddedImage.value_or(~0U), std::to_underlying(load.options.usage), load.options.bumpScale);
 		auto [it, inserted] = loaded.try_emplace(std::move(key));
 		if (inserted)
 		{
@@ -938,7 +945,7 @@ static void LoadAndInstallModels(
 				return;
 
 			std::atomic_uint8_t textureProgress = 0;
-			it->second = LoadTexture(load.path, textureProgress, load.options);
+			it->second = LoadTexture(load.path, textureProgress, load.options, load.embeddedImage);
 		}
 		*load.result = it->second;
 

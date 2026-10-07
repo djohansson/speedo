@@ -1,5 +1,6 @@
 #include <gfx/texture.h>
 #include <gfx/importversions.h>
+#include <gfx/gltfimport.h>
 
 #include <core/application.h>
 #include <core/file.h>
@@ -38,7 +39,8 @@ namespace detail
 
 } // namespace detail
 
-Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, const image::Options& options)
+Texture LoadTexture(
+	std::string_view filePath, std::atomic_uint8_t& progress, const image::Options& options, std::optional<uint32_t> embeddedImage)
 {
 	using namespace rhi;
 
@@ -56,7 +58,9 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 	// the compressed mip chain, in a staging buffer: filled here, before the upload takes the transfer queue's lock
 	image::Image layout;
 	Buffer staging;
-	auto stagingDesc = [&device, filePath] { return device.CreateDeviceObjectCreateDesc(std::format("{} (staging)", filePath)); };
+	// an embedded image is named after its file (a gltf model) and index
+	auto name = embeddedImage ? std::format("{}#image{}", filePath, *embeddedImage) : std::string(filePath);
+	auto stagingDesc = [&device, &name] { return device.CreateDeviceObjectCreateDesc(std::format("{} (staging)", name)); };
 
 	auto loadBin = [&](auto& inStream) -> std::error_code
 	{
@@ -107,7 +111,16 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 			return staging.Map().data();
 		};
 
-		auto result = image::Import(std::filesystem::path(filePath), options, allocate, &progress, cancelled);
+		std::expected<image::Image, std::string> result;
+		if (embeddedImage)
+		{
+			auto bytes = gltf::EmbeddedImage(std::filesystem::path(filePath), *embeddedImage);
+			result = bytes ? image::Import(*bytes, name, options, allocate, &progress, cancelled) : std::unexpected(bytes.error());
+		}
+		else
+		{
+			result = image::Import(std::filesystem::path(filePath), options, allocate, &progress, cancelled);
+		}
 
 		if (mapped)
 			staging.Unmap();
@@ -139,6 +152,9 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 		params.append(std::format("|libwebp-{}", kLibWebpVersion));
 	else if (extension == ".ktx2")
 		params.append(std::format("|ktx-{}", kKtxVersion));
+	// an image a model embeds is cached against the model's file: any of the decoders may read it
+	if (embeddedImage)
+		params.append(std::format("|embedded-{}|libwebp-{}|ktx-{}", *embeddedImage, kLibWebpVersion, kKtxVersion));
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
 	if (options.usage == image::Usage::kBump)
 		params.append(std::format("|bump-scale-{}", options.bumpScale));
@@ -153,13 +169,13 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 	{
 		// cancelled or failed (the staging buffer is released with it)
 		if (!loadResult && loadResult.error() != std::errc::operation_canceled)
-			std::println(stderr, "Failed to load image {}: {}", filePath, loadResult.error().message());
+			std::println(stderr, "Failed to load image {}: {}", name, loadResult.error().message());
 
 		return {};
 	}
 
 	ImageCreateDesc desc{
-		device.CreateDeviceObjectCreateDesc(filePath),
+		device.CreateDeviceObjectCreateDesc(name),
 		{},
 		detail::FormatOf(layout),
 		ImageTiling::kOptimal,
@@ -185,7 +201,7 @@ Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, co
 		core::TaskCreateInfo<void> transferDone;
 		texture.image = std::make_shared<Image>(std::move(desc), std::move(staging), cmd, transferDone);
 		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
-			device.CreateDeviceObjectCreateDesc(filePath), *texture.image, texture.image->GetDesc().format, ImageAspect::kColor});
+			device.CreateDeviceObjectCreateDesc(name), *texture.image, texture.image->GetDesc().format, ImageAspect::kColor});
 		texture.upload = Upload{
 			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
 

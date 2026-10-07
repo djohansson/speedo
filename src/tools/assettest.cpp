@@ -5,6 +5,7 @@
 // asset failed.
 
 #include <gfx/imageimport.h>
+#include <gfx/gltfimport.h>
 #include <gfx/meshimport.h>
 #include <gfx/ziparchive.h>
 
@@ -19,6 +20,8 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <iterator>
+#include <fstream>
 #include <numbers>
 #include <optional>
 #include <print>
@@ -104,16 +107,22 @@ using Vec3 = std::array<double, 3>;
 
 Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(modernize-avoid-c-arrays)
 
-// an image, with the usage it is checked for, and its bump scale for kBump
-using ImageCheck = std::tuple<std::filesystem::path, gfx::image::Usage, float>;
+// an image (a file, or an image the gltf file at the path embeds, see TextureRef::embeddedImage), with the usage it is
+// checked for, and its bump scale for kBump
+using ImageCheck = std::tuple<std::filesystem::path, std::optional<uint32_t>, gfx::image::Usage, float>;
 
 // the images to check, each (with its usage and bump scale) once
 using ImageChecks = core::UnorderedMap<std::string, ImageCheck>;
 
-void Add(ImageChecks& checks, std::filesystem::path path, gfx::image::Usage usage, float bumpScale)
+void Add(ImageChecks& checks, std::filesystem::path path, std::optional<uint32_t> embeddedImage, gfx::image::Usage usage, float bumpScale)
 {
-	auto key = std::format("{}|{}|{}", path.string(), std::to_underlying(usage), bumpScale);
-	checks.try_emplace(std::move(key), std::move(path), usage, bumpScale);
+	auto key = std::format("{}|{}|{}|{}", path.string(), embeddedImage.value_or(~0U), std::to_underlying(usage), bumpScale);
+	checks.try_emplace(std::move(key), std::move(path), embeddedImage, usage, bumpScale);
+}
+
+void Add(ImageChecks& checks, const gfx::TextureRef& texture, gfx::image::Usage usage, float bumpScale)
+{
+	Add(checks, std::filesystem::weakly_canonical(texture.path), texture.embeddedImage, usage, bumpScale);
 }
 
 // counts of each Result
@@ -137,9 +146,9 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 {
 	Report report;
 
-	// embedded gltf images are extracted (as the client does) to a temporary directory, and checked like the others
+	// embedded gltf images are checked like the others, read from the file (see TextureRef::embeddedImage)
 	auto mesh = gfx::mesh::Import(
-		path, {.embeddedImageDirectory = std::filesystem::temp_directory_path() / "assettest" / "embedded" / path.stem()});
+		path, {});
 	if (!mesh)
 	{
 		report.Fail("{}", mesh.error());
@@ -158,8 +167,7 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 				continue;
 			auto other = gfx::mesh::Import(
 				path,
-				{.embeddedImageDirectory = std::filesystem::temp_directory_path() / "assettest" / "embedded" / path.stem(),
-				 .scene = sceneIt});
+				{.scene = sceneIt});
 			if (!other)
 				report.Fail("scene {} ({}): {}", sceneIt, mesh->scenes[sceneIt], other.error());
 			else if (other->scene != sceneIt)
@@ -476,17 +484,17 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	for (const auto& material : mesh->materials)
 	{
 		if (!material.diffuseTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.diffuseTexture.path), gfx::image::Usage::kColor, 1.0F);
+			Add(texturesOut, material.diffuseTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.alphaTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.alphaTexture.path), gfx::image::Usage::kMask, 1.0F);
+			Add(texturesOut, material.alphaTexture, gfx::image::Usage::kMask, 1.0F);
 		if (!material.occlusionTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.occlusionTexture.path), gfx::image::Usage::kOcclusion, 1.0F);
+			Add(texturesOut, material.occlusionTexture, gfx::image::Usage::kOcclusion, 1.0F);
 		if (!material.metallicRoughnessTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.metallicRoughnessTexture.path), gfx::image::Usage::kMetallicRoughness, 1.0F);
+			Add(texturesOut, material.metallicRoughnessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
 		if (!material.normalTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.normalTexture.path), gfx::image::Usage::kNormal, 1.0F);
+			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.bumpTexture.path), gfx::image::Usage::kBump, material.bumpScale);
+			Add(texturesOut, material.bumpTexture, gfx::image::Usage::kBump, material.bumpScale);
 	}
 
 	return report;
@@ -568,16 +576,38 @@ constexpr std::string_view ToString(gfx::image::Usage usage)
 	return "?";
 }
 
-Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& options)
+Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> embeddedImage, const gfx::image::Options& options)
 {
 	using gfx::image::Usage;
 
 	Report report;
 
+	// the image's bytes: its file's, or a gltf file's embedded image
+	std::vector<std::byte> bytes;
+	if (embeddedImage)
+	{
+		auto embedded = gfx::gltf::EmbeddedImage(path, *embeddedImage);
+		if (!embedded)
+		{
+			report.Fail("{}", embedded.error());
+			return report;
+		}
+		bytes = std::move(*embedded);
+	}
+	else
+	{
+		std::ifstream file(path, std::ios::binary);
+		std::vector<char> chars((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		bytes.resize(chars.size());
+		std::memcpy(bytes.data(), chars.data(), chars.size());
+	}
+	auto name = embeddedImage ? std::format("{}#image{}", path.string(), *embeddedImage) : path.string();
+
 	static constexpr std::byte kFill{0xcd};
 	std::vector<std::byte> data;
 	auto image = gfx::image::Import(
-		path,
+		bytes,
+		name,
 		options,
 		[&data](size_t size)
 		{
@@ -591,7 +621,7 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 	}
 
 	// what Import compressed: the image prepared for the usage
-	auto reference = gfx::image::Decode(path, options);
+	auto reference = gfx::image::Decode(bytes, name, options);
 	if (!reference)
 	{
 		report.Fail("reference decode failed: {}", reference.error());
@@ -869,7 +899,7 @@ int main(int argc, char* argv[])
 				if (IsModel(entry.path()))
 					modelFiles.push_back(entry.path());
 				else if (IsImage(entry.path()))
-					Add(imageFiles, std::filesystem::weakly_canonical(entry.path()), gfx::image::Usage::kColor, 1.0F);
+					Add(imageFiles, std::filesystem::weakly_canonical(entry.path()), std::nullopt, gfx::image::Usage::kColor, 1.0F);
 			}
 		}
 		else if (IsModel(path))
@@ -878,7 +908,7 @@ int main(int argc, char* argv[])
 		}
 		else if (IsImage(path))
 		{
-			Add(imageFiles, std::filesystem::weakly_canonical(path), gfx::image::Usage::kColor, 1.0F);
+			Add(imageFiles, std::filesystem::weakly_canonical(path), std::nullopt, gfx::image::Usage::kColor, 1.0F);
 		}
 		else
 		{
@@ -940,11 +970,12 @@ int main(int argc, char* argv[])
 		for (const auto& [key, check] : imageFiles)
 			checks.push_back(check);
 		std::ranges::sort(checks);
-		for (const auto& [path, usage, bumpScale] : checks)
+		for (const auto& [path, embeddedImage, usage, bumpScale] : checks)
 		{
 			auto start = std::chrono::steady_clock::now();
-			auto report = CheckImage(path, {.usage = usage, .bumpScale = bumpScale});
-			Print(path, report, std::chrono::steady_clock::now() - start);
+			auto report = CheckImage(path, embeddedImage, {.usage = usage, .bumpScale = bumpScale});
+			Print(embeddedImage ? std::filesystem::path(std::format("{}#image{}", path.string(), *embeddedImage)) : path, report,
+				  std::chrono::steady_clock::now() - start);
 			Count(imageResults, report.result)++;
 		}
 	}

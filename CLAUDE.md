@@ -289,10 +289,10 @@ sampler as `rhi::SamplerDesc`), which the shader applies: vertices keep both tex
 `.zw`), materials name a `TextureView` per texture (`gTextureViews`: texture and sampler slot, set, transform; 0 is
 material 0's, deduplicated per model), and `ViewTexCoord`/`SampleView` sample through them (the normal map's tangent
 frame follows its own transformed texcoords). A model's distinct samplers get the 63 sampler slots other than the
-default's (`kModelSamplerSlots`; `ManySamplers.gltf` uses 36), and the previous model's go back to the default. Images embedded in buffers or data uris are written to
-`<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Only an import writes
-them, so `Model::Load` treats a cached model whose extracted images are missing as an unreadable cache, and
-`LoadAsset` imports it again. Compressed meshes are decoded at import: meshopt (EXT_meshopt_compression, which cgltf
+default's (`kModelSamplerSlots`; `ManySamplers.gltf` uses 36), and the previous model's go back to the default. Images embedded in buffers or data uris are named by their model file and
+index (`TextureRef::embeddedImage`): `LoadTexture` caches them against the model file and, on a miss, reads their
+bytes with `gltf::EmbeddedImage` and decodes them from memory (`image::Import`'s byte overload, which tells the formats
+apart by their signature), so nothing is extracted to disk. Compressed meshes are decoded at import: meshopt (EXT_meshopt_compression, which cgltf
 parses, and KHR_meshopt_compression, read from its json) into `cgltf_buffer_view::data` right after the buffers load
 (`DecodeMeshopt`), so accessors read them as usual; draco per primitive (`DecodeDraco`: cgltf turns the extension's
 draco attribute ids into accessor pointers by index), whose values `addPrimitive` reads in place of the accessors'.
