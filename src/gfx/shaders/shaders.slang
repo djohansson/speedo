@@ -47,6 +47,9 @@ StructuredBuffer<float4x4> gJointMatrices[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(3, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<float> gMorphWeights[SHADER_TYPES_FRAME_COUNT];
 
+[[vk::binding(4, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<EnvironmentData> gEnvironment;
+
 // a vertex moved by its submesh's morph targets: each target's deltas (see MorphDelta) times the target's weight
 void Morph(uint vertexId, uint frameIndex, inout float3 position, inout float3 normal, inout float3 tangent)
 {
@@ -279,9 +282,38 @@ float4 SampleView(uint viewId, float4 texCoord01)
 
 static const float kPi = 3.14159265358979;
 
-// the light around everything, a uniform environment of this radiance: the stand-in for indirect light (there is no
-// image based lighting). a white matte surface reflects as much of it
-static const float kAmbientRadiance = 0.3;
+// the environment (see EnvironmentData): where a direction is in its panorama (as gfx::environment::Panorama)
+float2 EnvironmentCoordinates(float3 d)
+{
+	return float2(0.5 + atan2(d.x, -d.z) / (2.0 * kPi), acos(clamp(d.y, -1.0, 1.0)) / kPi);
+}
+
+// the radiance a white Lambertian surface of normal n reflects (as gfx::environment::EvaluateIrradiance)
+float3 EnvironmentIrradiance(EnvironmentData environment, float3 n)
+{
+	float basis[9] = {
+		0.282095,
+		0.488603 * n.y,
+		0.488603 * n.z,
+		0.488603 * n.x,
+		1.092548 * n.x * n.y,
+		1.092548 * n.y * n.z,
+		0.315392 * (3.0 * n.z * n.z - 1.0),
+		1.092548 * n.x * n.z,
+		0.546274 * (n.x * n.x - n.y * n.y),
+	};
+	float3 result = 0.0;
+	for (uint i = 0; i < 9; i++)
+		result += environment.irradiance[i].rgb * basis[i];
+	return max(result, 0.0);
+}
+
+// the radiance reflected along r, prefiltered for a roughness (the split sum's first term)
+float3 EnvironmentRadiance(EnvironmentData environment, float3 r, float roughness)
+{
+	float lod = roughness * (environment.levelCount - 1.0);
+	return gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], EnvironmentCoordinates(r), lod).rgb;
+}
 
 // the glTF metallic-roughness brdf (the spec's appendix B): GGX distribution, height correlated Smith visibility, and
 // Schlick's Fresnel, mixing a Lambertian diffuse and the specular by the Fresnel term
@@ -325,7 +357,7 @@ float3 Fresnel(float3 baseColor, float metallic, float specular, float cosine)
 	return lerp(specular * FresnelSchlick(float3(0.04), cosine), FresnelSchlick(baseColor, cosine), metallic);
 }
 
-// the light a surface reflects towards view: from gLights, and the ambient (by occlusion). linear, before exposure
+// the light a surface reflects towards view: from gLights, and the environment (by occlusion). linear, before exposure
 float3 Shade(float3 baseColor, float metallic, float roughness, float specular, float occlusion, float3 normal, float3 view, float3 position)
 {
 	float3 diffuseColor = lerp(baseColor, float3(0.0), metallic);
@@ -334,7 +366,10 @@ float3 Shade(float3 baseColor, float metallic, float roughness, float specular, 
 
 	float3 environmentSpecular = lerp(
 		specular * EnvironmentBrdfApprox(float3(0.04), roughness, nDotV), EnvironmentBrdfApprox(baseColor, roughness, nDotV), metallic);
-	float3 result = kAmbientRadiance * occlusion * (diffuseColor + environmentSpecular);
+	EnvironmentData environment = gEnvironment[0];
+	float3 reflected = reflect(-view, normal);
+	float3 result = environment.intensity * occlusion *
+		(diffuseColor * EnvironmentIrradiance(environment, normal) + environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{

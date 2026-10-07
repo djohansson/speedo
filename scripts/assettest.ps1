@@ -208,8 +208,9 @@ if ($Client)
 	$script:pass = 0
 	$script:fail = 0
 
-	# runs the client on a model (a file, or a zip archive), drawn with image on the default material if given
-	function Invoke-Client([string] $Model, [string] $Image, [string] $Label)
+	# runs the client on a model (a file, or a zip archive), drawn with image on the default material if given, and lit by
+	# an environment panorama if given (else the procedural sky)
+	function Invoke-Client([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '')
 	{
 		$log = Join-Path $Work "logs/client-$Label.log"
 		$errorLog = "$log.stderr"
@@ -224,6 +225,7 @@ if ($Client)
 		$start = Get-Date
 		$env:SPEEDO_AUTOLOAD_MODEL = $Model
 		$env:SPEEDO_AUTOLOAD_IMAGE = $Image
+		$env:SPEEDO_AUTOLOAD_ENVIRONMENT = $Environment
 		try
 		{
 			$process = Start-Process -FilePath $clientExe -ArgumentList '-u', "`"$(Join-Path $Work 'user')`"" -PassThru -NoNewWindow `
@@ -231,7 +233,7 @@ if ($Client)
 		}
 		finally
 		{
-			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE -ErrorAction SilentlyContinue
+			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT -ErrorAction SilentlyContinue
 		}
 		$null = $process.Handle # keeps the exit code available after the process exits (windows)
 		$awake = if ($caffeinate) { Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $process.Id -PassThru } else { $null }
@@ -260,18 +262,18 @@ if ($Client)
 		$status = $process.ExitCode
 		$seconds = [int]((Get-Date) - $start).TotalSeconds
 
-		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive)|\(errno: |VUID-|UNASSIGNED-|timed out after' |
+		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
 			ForEach-Object { '{0,7} {1}' -f $_.Count, $_.Name })
 		if ($status -ne 0 -or $problems.Count -gt 0)
 		{
-			Write-Output "FAIL client $Model (exit $status, ${seconds}s, log: $log)"
+			Write-Output "FAIL client $(if ($Model) { $Model } else { $Environment }) (exit $status, ${seconds}s, log: $log)"
 			$problems | ForEach-Object { Write-Output "    $_" }
 			$script:fail++
 		}
 		else
 		{
-			Write-Output "PASS client $Model (${seconds}s)"
+			Write-Output "PASS client $(if ($Model) { $Model } else { $Environment }) (${seconds}s)"
 			$script:pass++
 		}
 	}
@@ -304,6 +306,14 @@ if ($Client)
 		$dir = Split-Path $model
 		$image = if ([IO.Path]::GetExtension($model) -eq '.obj') { Get-FirstImage $dir -Shallow } else { '' }
 		Invoke-Client $model $image ("{0}-{1}" -f (Split-Path $dir -Leaf), ((Split-Path $model -Leaf) -replace ' ', '_'))
+	}
+
+	# the environment panoramas, each on its own
+	$environments = Sort-Ordinal @($dirs | ForEach-Object {
+		Get-ChildItem -LiteralPath $_ -File -Recurse -Filter '*.hdr' | Where-Object { -not $_.Name.StartsWith('._') } | ForEach-Object FullName })
+	foreach ($environment in $environments)
+	{
+		Invoke-Client '' '' ("environment-{0}" -f [IO.Path]::GetFileNameWithoutExtension($environment)) $environment
 	}
 
 	Write-Output "client: $script:pass pass, $script:fail fail."

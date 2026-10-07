@@ -11,7 +11,12 @@ kept as <name>.unverified) rather than used, until the manifest is updated.
 -Gltf: the Khronos glTF-Sample-Assets models (https://github.com/KhronosGroup/glTF-Sample-Assets), at the commit pinned
 below (about 2.3 GB), into <dir>/glTF-Sample-Assets.
 
-Without either, both are fetched. The hand-made models in scripts/test-assets/gltf (for what no downloaded model covers,
+-Environments: the Khronos glTF-Sample-Environments panoramas (https://github.com/KhronosGroup/glTF-Sample-Environments,
+the .hdr files the glTF Sample Viewer lights with), at the commit pinned below (about 400 MB), into
+<dir>/glTF-Sample-Environments. They are Git LFS files, so they are downloaded one by one from GitHub's LFS media
+server and checked against the size and sha256 of their LFS pointers, in scripts/test-assets/environments.txt.
+
+Without any of them, all are fetched. The hand-made models in scripts/test-assets/gltf (for what no downloaded model covers,
 e.g. sparse index accessors) are always printed too. The dir defaults to $env:SPEEDO_TEST_ASSETS, or
 resources/test-assets (which git ignores, and the client's file dialogs open in). Files already there (and verified)
 are kept, so running it again only fetches what is missing.
@@ -26,7 +31,8 @@ scripts/fetch-test-assets.ps1 -Gltf
 param(
 	[string] $Dir,
 	[switch] $McGuire,
-	[switch] $Gltf
+	[switch] $Gltf,
+	[switch] $Environments
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,15 +44,18 @@ if (-not $Dir)
 {
 	$Dir = if ($env:SPEEDO_TEST_ASSETS) { $env:SPEEDO_TEST_ASSETS } else { Join-Path $root 'resources/test-assets' }
 }
-if (-not $McGuire -and -not $Gltf)
+if (-not $McGuire -and -not $Gltf -and -not $Environments)
 {
 	$McGuire = $true
 	$Gltf = $true
+	$Environments = $true
 }
 
 $kMcGuireUrl = 'https://casual-effects.com/g3d/data10'
 $kGltfRepository = 'https://github.com/KhronosGroup/glTF-Sample-Assets.git'
 $kGltfCommit = 'edc7c9e67c639d230715049ee31f9a96a6babbbe'
+$kEnvironmentsUrl = 'https://media.githubusercontent.com/media/KhronosGroup/glTF-Sample-Environments'
+$kEnvironmentsCommit = '4fc29557763275b8519b42920f85ad0ca1822f22'
 
 # messages go to stderr: stdout is the list of paths
 function Write-Message([string] $Message) { [Console]::Error.WriteLine($Message) }
@@ -173,6 +182,60 @@ if ($Gltf)
 	if (Test-Path (Join-Path $out 'Models') -PathType Container)
 	{
 		$paths.Add((Join-Path $out 'Models'))
+	}
+}
+
+if ($Environments)
+{
+	$out = Join-Path $Dir 'glTF-Sample-Environments'
+	New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+	# <file> <size> <sha256>
+	$complete = $true
+	foreach ($line in Get-Content (Join-Path $root 'scripts/test-assets/environments.txt'))
+	{
+		if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#'))
+		{
+			continue
+		}
+		$name, $size, $hash = $line -split '\s+'
+		$file = Join-Path $out $name
+
+		if ((Test-Path -LiteralPath $file -PathType Leaf) -and (Get-Item -LiteralPath $file).Length -eq [int64]$size -and
+			(Get-Sha256 $file) -eq $hash)
+		{
+			continue
+		}
+
+		Write-Message "fetching $name ($([int64]$size / 1MB -as [int]) MiB)"
+		$part = "$file.part"
+		try
+		{
+			Invoke-WebRequest -Uri "$kEnvironmentsUrl/$kEnvironmentsCommit/$name" -OutFile $part -MaximumRetryCount 3 -RetryIntervalSec 5
+		}
+		catch
+		{
+			Write-Message "failed to download ${name}: $($_.Exception.Message)"
+			Remove-Item -LiteralPath $part -Force -ErrorAction SilentlyContinue
+			$failed = $true
+			$complete = $false
+			continue
+		}
+
+		$actual = Get-Sha256 $part
+		if ($actual -ne $hash)
+		{
+			Remove-Item -LiteralPath $part -Force
+			Write-Message "$name doesn't match its LFS pointer (sha256 $actual, expected $hash)"
+			$failed = $true
+			$complete = $false
+			continue
+		}
+		Move-Item -LiteralPath $part -Destination $file -Force
+	}
+	if ($complete)
+	{
+		$paths.Add($out)
 	}
 }
 

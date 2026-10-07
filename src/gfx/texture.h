@@ -4,6 +4,7 @@
 #include <gfx/imageimport.h>
 #include <gfx/upload.h>
 
+#include <array>
 #include <atomic>
 #include <optional>
 #include <cstdint>
@@ -34,5 +35,20 @@ struct Texture
 	std::atomic_uint8_t& progress,
 	const image::Options& options = {},
 	std::optional<uint32_t> embeddedImage = std::nullopt);
+
+// a prefiltered environment uploaded for sampling (see environment::Environment): its levels as the mips of a
+// R16G16B16A16_SFLOAT texture, and its irradiance
+struct EnvironmentTexture
+{
+	Texture texture;
+	std::array<std::array<float, 4>, 9> irradiance{};
+	uint32_t levelCount = 0;
+
+	[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(texture); }
+};
+
+// loads an environment panorama file (e.g. Radiance .hdr) through the asset cache, or the procedural sky (see
+// environment::ProceduralSky) without one, prefilters it and uploads it as LoadTexture does. empty if cancelled or failed.
+[[nodiscard]] EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress);
 
 } // namespace gfx

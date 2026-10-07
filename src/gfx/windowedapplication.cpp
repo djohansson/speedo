@@ -97,6 +97,12 @@ static uuids::uuid gLoadedImageUuid; // the loaded image and its view, see Insta
 static uuids::uuid gLoadedImageViewUuid;
 static uuids::uuid gBlackTextureUuid;
 static uuids::uuid gBlackTextureViewUuid;
+// the environment (see InstallEnvironment): gEnvironment's buffer, and the prefiltered panorama in
+// SHADER_TYPES_ENVIRONMENT_TEXTURE, nil until one is installed. its name, for the menu
+static uuids::uuid gEnvironmentUuid;
+static uuids::uuid gEnvironmentImageUuid;
+static uuids::uuid gEnvironmentViewUuid;
+static core::ConcurrentAccess<std::string> gEnvironmentName;
 static uuids::uuid gSamplersUuid;
 static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
 static uuids::uuid gMaterialsUuid;
@@ -1132,8 +1138,68 @@ static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic
 	rhi.drawCalls.enqueue(installTask);
 }
 
+// makes an uploaded environment the one the scene is lit by, retiring the previous one. call on the draw thread.
+static void InstallEnvironment(
+	RHI& rhi, QueueTimelineContextData& graphics, const std::shared_ptr<const EnvironmentTexture>& environment, std::string name)
+{
+	ZoneScopedN("WindowedApplication::InstallEnvironment");
+
+	TransitionThenBind(
+		rhi,
+		graphics,
+		Uploads{.images = {{environment->texture.image, environment->texture.upload}}},
+		[&rhi, environment, name = std::move(name)](QueueTimelineContextData& graphics) mutable
+		{
+			auto& device = rhi.GetPrimaryDevice();
+			auto& pipeline = device.GetPipeline();
+			const auto& [image, view, upload] = environment->texture;
+
+			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = *view, .layout = image->GetDesc().layout},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				SHADER_TYPES_ENVIRONMENT_TEXTURE);
+
+			EnvironmentData data{
+				.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE,
+				.samplerId = kDefaultSamplerId,
+				.levelCount = static_cast<float>(environment->levelCount),
+				.intensity = 1.0F};
+			for (size_t i = 0; i < environment->irradiance.size(); i++)
+				std::ranges::copy(environment->irradiance[i], data.irradiance[i]);
+			UpdateBufferOnGraphics(
+				graphics, *device.GetResource<Buffer>(gEnvironmentUuid), 0, std::as_bytes(std::span(&data, 1)));
+
+			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentImageUuid, image));
+			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentViewUuid, view));
+			gEnvironmentImageUuid = image->GetUuid();
+			gEnvironmentViewUuid = view->GetUuid();
+			gEnvironmentName.Write().Get() = std::move(name);
+		});
+}
+
+// loads an environment panorama (or without one, the procedural sky) and has the draw thread install it, unless the
+// load was cancelled. call from a load (see gLoads).
+static void LoadAndInstallEnvironment(RHI& rhi, std::optional<std::string> filePath, std::atomic_uint8_t& progress)
+{
+	auto environment = std::make_shared<const EnvironmentTexture>(
+		LoadEnvironment(filePath ? std::optional<std::string_view>(*filePath) : std::nullopt, progress));
+	if (!*environment) // cancelled or failed
+		return;
+
+	auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Procedural sky");
+	auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
+		[&rhi, environment = std::move(environment), name = std::move(name)](QueueTimelineContextData* graphics)
+		{ InstallEnvironment(rhi, *graphics, environment, name); });
+	rhi.drawCalls.enqueue(installTask);
+}
+
+// the environment panorama files LoadAndInstallEnvironment takes, as a file dialog filter spec
+static constexpr const char* kEnvironmentExtensions = "hdr";
+
 // the image files LoadAndInstallImage takes, as a file dialog filter spec (see image::Import)
-static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm,webp,ktx2";
+static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,pic,pnm,webp,ktx2";
 
 [[nodiscard]] static bool IsImageFile(const std::filesystem::path& path)
 {
@@ -1152,8 +1218,8 @@ static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hd
 	return false;
 }
 
-// loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, or an
-// image (on the default material). call from a load (see gLoads).
+// loads whatever path is, by its type: a directory's models or a zip archive's (see ArchiveModels), a model, an
+// environment panorama (.hdr), or an image (on the default material). call from a load (see gLoads).
 static void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress, ArchiveModels several)
 {
 	std::filesystem::path path(filePath);
@@ -1166,10 +1232,12 @@ static void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_
 		LoadAndInstallArchive(rhi, filePath, progress, several);
 	else if (mesh::IsModelFile(path))
 		LoadAndInstallModel(rhi, filePath, progress);
+	else if (extension == ".hdr")
+		LoadAndInstallEnvironment(rhi, std::string(filePath), progress);
 	else if (IsImageFile(path))
 		LoadAndInstallImage(rhi, filePath, progress);
 	else
-		std::println(stderr, "Failed to load file {}: not a model, zip archive or image", filePath);
+		std::println(stderr, "Failed to load file {}: not a model, zip archive, environment or image", filePath);
 }
 
 static void DrawMainPass(
@@ -1801,6 +1869,14 @@ void WindowedApplication::PrepareDraw()
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
+		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama, else the procedural sky
+		std::optional<std::string> environmentPath;
+		if (const char* autoLoadEnvironment = std::getenv("SPEEDO_AUTOLOAD_ENVIRONMENT");
+			autoLoadEnvironment != nullptr && *autoLoadEnvironment != '\0')
+			environmentPath = (resourcePath / autoLoadEnvironment).string();
+		gAutoLoads.emplace_back(gLoads.Enqueue(
+			environmentPath.value_or("Procedural sky"),
+			[&rhi, environmentPath](std::atomic_uint8_t& progress) { LoadAndInstallEnvironment(rhi, environmentPath, progress); }));
 		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadImage,
@@ -1821,12 +1897,13 @@ void WindowedApplication::PrepareDraw()
 		{
 			if (MenuItem("Open File..."))
 			{
-				// models, zip archives (of models) and images: what is loaded depends on the file's type
-				static const std::string kAllExtensions = std::format("obj,gltf,glb,zip,{}", kImageExtensions);
+				// models, zip archives (of models), environments and images: what is loaded depends on the file's type
+				static const std::string kAllExtensions = std::format("obj,gltf,glb,zip,{},{}", kEnvironmentExtensions, kImageExtensions);
 				static const std::vector<FileFilter> kFilterList = {
-					FileFilter{.name = "Models, zip archives and images", .spec = kAllExtensions.c_str()},
+					FileFilter{.name = "Models, zip archives, environments and images", .spec = kAllExtensions.c_str()},
 					FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"},
 					FileFilter{.name = "Zip archives", .spec = "zip"},
+					FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions},
 					FileFilter{.name = "Images", .spec = kImageExtensions},
 				};
 				InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
@@ -1910,6 +1987,26 @@ void WindowedApplication::PrepareDraw()
 						});
 					rhi.drawCalls.enqueue(resizeTask);
 				}
+			}
+			if (BeginMenu("Environment"))
+			{
+				// what lights the scene (see InstallEnvironment): the procedural sky, or a panorama file
+				std::string current = gEnvironmentName.Read().Get();
+				TextDisabled("%s", current.empty() ? "None" : current.c_str());
+				Separator();
+				if (MenuItem("Procedural sky"))
+					(void)gLoads.Enqueue(
+						"Procedural sky",
+						[&rhi](std::atomic_uint8_t& progress) { LoadAndInstallEnvironment(rhi, std::nullopt, progress); });
+				if (MenuItem("Open Environment..."))
+				{
+					static const std::vector<FileFilter> kFilterList = {
+						FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions}};
+					InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
+						[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
+						{ LoadAndInstallEnvironment(rhi, std::string(filePath), progressOut); });
+				}
+				ImGui::EndMenu();
 			}
 			if (BeginMenu("Scene"))
 			{
@@ -2551,6 +2648,22 @@ WindowedApplication::WindowedApplication(
 		gLightsUuid = lights->GetUuid();
 		timelineCallbacks.emplace_back(lightTransfersDone.handle);
 
+		// dark (and sampling the black texture) until an environment is installed (see InstallEnvironment)
+		std::array<EnvironmentData, 1> environmentData{
+			EnvironmentData{.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE, .samplerId = kDefaultSamplerId, .levelCount = 1.0F}};
+		core::TaskCreateInfo<void> environmentTransfersDone;
+		auto environmentBuffer = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("Environment"),
+				sizeof(environmentData),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible},
+			environmentData.data(),
+			cmd,
+			environmentTransfersDone);
+		gEnvironmentUuid = environmentBuffer->GetUuid();
+		timelineCallbacks.emplace_back(environmentTransfersDone.handle);
+
 		std::array<SkinVertex, 1> defaultSkinVertices{};
 		core::TaskCreateInfo<void> skinTransfersDone;
 		auto skinVertices = device.CreateResource<Buffer>(
@@ -2702,6 +2815,16 @@ WindowedApplication::WindowedApplication(
 		"gLights",
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gLightsUuid), .offset = 0},
 		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+
+	pipeline.SetDescriptorData(
+		"gEnvironment",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gEnvironmentUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = *device.GetResource<ImageView>(gBlackTextureViewUuid), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_ENVIRONMENT_TEXTURE);
 
 	pipeline.SetDescriptorData(
 		"gTextureViews",

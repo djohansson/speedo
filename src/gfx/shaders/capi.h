@@ -18,6 +18,7 @@ extern "C"
 
 #if !defined(SHADERTYPES_H_GPU_TARGET)
 #	define FLOAT4X4(name) float name[4][4]
+#	define FLOAT4_ARRAY(name, count) float name[count][4]
 #	define FLOAT4(name) float name[4]
 #	define FLOAT3(name) float name[3]
 #	define FLOAT2(name) float name[2]
@@ -37,6 +38,7 @@ extern "C"
 #	define DBL_MAX 1.7976931348623158e+308
 #	define DBL_MIN 2.2250738585072014e-308
 #	define FLOAT4X4(name) float4x4 name
+#	define FLOAT4_ARRAY(name, count) float4 name[count]
 #	define FLOAT4(name) float4 name
 #	define FLOAT3(name) float3 name
 #	define FLOAT2(name) float2 name
@@ -73,6 +75,8 @@ extern "C"
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
 #define SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE SHADER_TYPES_FRAME_COUNT
 #define SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE (2u * SHADER_TYPES_FRAME_COUNT)
+// the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
+#define SHADER_TYPES_ENVIRONMENT_TEXTURE (3u * SHADER_TYPES_FRAME_COUNT)
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 #define SHADER_TYPES_MATERIAL_INDEX_BITS 10u
@@ -93,6 +97,18 @@ struct ViewData
 #define LIGHT_TYPE_SPOT 2u
 
 // a punctual light (gltf KHR_lights_punctual), in world space. gLights holds PushConstants::lightCount of them.
+// the environment the scene is lit by (image based lighting, see gfx/environment.h): gEnvironment[0]
+struct EnvironmentData
+{
+	// the irradiance divided by pi, as spherical harmonics (bands 0 to 2, rgb): what a white Lambertian surface reflects
+	alignas(16) FLOAT4_ARRAY(irradiance, 9);
+	// the prefiltered panorama (equirectangular, +y up, -z at its center): mip i for roughness i / (levelCount - 1)
+	alignas(4) UINT(textureId);
+	alignas(4) UINT(samplerId);
+	alignas(4) FLOAT(levelCount);
+	alignas(4) FLOAT(intensity); // scales its radiance
+};
+
 struct LightData
 {
 	alignas(16) FLOAT4(positionRange); // xyz: where it is (point, spot). w: its range, 0 for none (inverse square falloff)

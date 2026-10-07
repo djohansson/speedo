@@ -4,6 +4,7 @@
 // checked too. prints one line per asset (PASS, WARN or FAIL, with details) and a summary, and exits with 1 if any
 // asset failed.
 
+#include <gfx/environment.h>
 #include <gfx/imageimport.h>
 #include <gfx/gltfimport.h>
 #include <gfx/meshimport.h>
@@ -12,6 +13,9 @@
 #define BCDEC_IMPLEMENTATION
 #define BCDEC_STATIC
 #include <bcdec.h>
+
+#include <glm/glm.hpp>
+#include <glm/gtc/packing.hpp>
 
 #include <core/utils.h>
 
@@ -102,10 +106,13 @@ bool IsModel(const std::filesystem::path& path) { return gfx::mesh::IsModelFile(
 
 bool IsImage(const std::filesystem::path& path)
 {
-	static constexpr std::array<std::string_view, 14> kExtensions{
-		".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm", ".webp", ".ktx2"};
+	static constexpr std::array<std::string_view, 13> kExtensions{
+		".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".pic", ".pnm", ".ppm", ".pgm", ".webp", ".ktx2"};
 	return std::ranges::contains(kExtensions, Lower(path.extension().string()));
 }
+
+// environment panoramas (see gfx::environment), which the client loads as such rather than as images
+bool IsEnvironment(const std::filesystem::path& path) { return Lower(path.extension().string()) == ".hdr"; }
 
 using Vec3 = std::array<double, 3>;
 
@@ -878,6 +885,90 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	return report;
 }
 
+// prefilters an environment panorama and checks the result: every level there and finite, each level's mean radiance as the
+// panorama's (filtering moves light around, it doesn't add or remove any), and the irradiance's mean over the sphere
+// (its constant term) the panorama's mean too
+Report CheckEnvironment(const gfx::environment::Panorama& panorama)
+{
+	using namespace gfx::environment;
+
+	Report report;
+	std::vector<std::byte> data;
+	auto environment = Prefilter(panorama, [&data](size_t size) { data.resize(size); return data.data(); });
+	if (!environment)
+	{
+		report.Fail("{}", environment.error());
+		return report;
+	}
+
+	auto luminance = [](const std::array<double, 3>& rgb) { return (0.2126 * rgb[0]) + (0.7152 * rgb[1]) + (0.0722 * rgb[2]); };
+	auto mean = luminance(MeanRadiance(panorama));
+	report.Info("{}x{}, mean radiance {:.4g}", panorama.width, panorama.height, mean);
+	if (!(mean > 0.0) || !std::isfinite(mean))
+	{
+		report.Fail("the panorama is black, or not finite");
+		return report;
+	}
+
+	// how much a level varies (the standard deviation of its luminance, by solid angle): rougher levels are smoother
+	auto deviation = [&data, &luminance](const gfx::image::MipLevel& level)
+	{
+		const auto* texels = reinterpret_cast<const uint16_t*>(data.data() + level.offset);
+		double sum = 0.0;
+		double sum2 = 0.0;
+		double weight = 0.0;
+		for (uint32_t y = 0; y < level.height; y++)
+		{
+			double w = std::sin((y + 0.5) / level.height * std::numbers::pi);
+			for (uint32_t x = 0; x < level.width; x++)
+			{
+				const auto* texel = &texels[(static_cast<size_t>(y) * level.width + x) * 4];
+				auto l = luminance({glm::unpackHalf1x16(texel[0]), glm::unpackHalf1x16(texel[1]), glm::unpackHalf1x16(texel[2])});
+				sum += l * w;
+				sum2 += l * l * w;
+				weight += w;
+			}
+		}
+		auto mean = sum / weight;
+		return std::sqrt(std::max(sum2 / weight - mean * mean, 0.0));
+	};
+	std::vector<double> deviations;
+	for (const auto& level : environment->levels)
+		deviations.push_back(deviation(level));
+	report.Info("level deviations {}", deviations);
+	for (size_t levelIt = 1; levelIt < deviations.size(); levelIt++)
+		if (deviations[levelIt] > deviations[levelIt - 1] * 1.02)
+			report.Fail("level {} varies more than level {} ({:.4g} > {:.4g}): it isn't filtered", levelIt, levelIt - 1, deviations[levelIt], deviations[levelIt - 1]);
+
+	if (environment->levels.size() != kLevelCount || environment->size != data.size())
+		report.Fail("{} levels of {} bytes, expected {} of {}", environment->levels.size(), data.size(), kLevelCount, environment->size);
+	for (size_t levelIt = 0; levelIt < environment->levels.size(); levelIt++)
+	{
+		const auto& level = environment->levels[levelIt];
+		auto levelMean = luminance(MeanRadiance(level, data));
+		auto error = std::abs(levelMean / mean - 1.0);
+		if (!std::isfinite(levelMean))
+			report.Fail("level {} has values that aren't finite", levelIt);
+		else if (error > 0.1)
+			report.Fail("level {} ({}x{}) mean radiance {:.4g} is off by {:.1f}%", levelIt, level.width, level.height, levelMean, error * 100.0);
+		else if (error > 0.03)
+			report.Warn("level {} ({}x{}) mean radiance {:.4g} is off by {:.1f}%", levelIt, level.width, level.height, levelMean, error * 100.0);
+	}
+
+	// the constant band, times its basis function, is the mean over the sphere
+	constexpr double kY00 = 0.282095;
+	std::array<double, 3> irradianceMean{};
+	for (size_t c = 0; c < 3; c++)
+		irradianceMean[c] = environment->irradiance[0][c] * kY00;
+	if (auto error = std::abs(luminance(irradianceMean) / mean - 1.0); error > 0.02)
+		report.Fail("the irradiance's mean {:.4g} is off by {:.1f}%", luminance(irradianceMean), error * 100.0);
+	auto up = EvaluateIrradiance(*environment, {0.0F, 1.0F, 0.0F});
+	auto down = EvaluateIrradiance(*environment, {0.0F, -1.0F, 0.0F});
+	report.Info("irradiance up {:.4g}, down {:.4g}", luminance({up[0], up[1], up[2]}), luminance({down[0], down[1], down[2]}));
+
+	return report;
+}
+
 void Print(const std::filesystem::path& path, const Report& report, std::chrono::duration<double> time)
 {
 	std::println("{} {} ({:.2f}s)", ToString(report.result), path.string(), time.count());
@@ -893,6 +984,7 @@ int main(int argc, char* argv[])
 	bool images = true;
 	bool archiveFailed = false;
 	std::vector<std::filesystem::path> modelFiles;
+	std::vector<std::filesystem::path> environmentFiles;
 	ImageChecks imageFiles;
 
 	for (int argIt = 1; argIt < argc; argIt++)
@@ -945,6 +1037,8 @@ int main(int argc, char* argv[])
 					continue;
 				if (IsModel(entry.path()))
 					modelFiles.push_back(entry.path());
+				else if (IsEnvironment(entry.path()))
+					environmentFiles.push_back(entry.path());
 				else if (IsImage(entry.path()))
 					Add(imageFiles, std::filesystem::weakly_canonical(entry.path()), std::nullopt, gfx::image::Usage::kColor, 1.0F);
 			}
@@ -952,6 +1046,10 @@ int main(int argc, char* argv[])
 		else if (IsModel(path))
 		{
 			modelFiles.push_back(path);
+		}
+		else if (IsEnvironment(path))
+		{
+			environmentFiles.push_back(path);
 		}
 		else if (IsImage(path))
 		{
@@ -1027,11 +1125,39 @@ int main(int argc, char* argv[])
 		}
 	}
 
+	// the procedural sky (the client's default environment), and the environment files
+	ResultCounts environmentResults{};
+	if (images)
+	{
+		auto start = std::chrono::steady_clock::now();
+		auto report = CheckEnvironment(gfx::environment::ProceduralSky());
+		Print("procedural sky", report, std::chrono::steady_clock::now() - start);
+		Count(environmentResults, report.result)++;
+
+		std::ranges::sort(environmentFiles);
+		for (const auto& path : environmentFiles)
+		{
+			start = std::chrono::steady_clock::now();
+			auto panorama = gfx::environment::Import(path);
+			Report report;
+			if (!panorama)
+				report.Fail("{}", panorama.error());
+			else
+				report = CheckEnvironment(*panorama);
+			Print(path, report, std::chrono::steady_clock::now() - start);
+			Count(environmentResults, report.result)++;
+		}
+	}
+
 	std::println(
-		"models: {} pass, {} warn, {} fail. encodings: {} pass, {} warn. images: {} pass, {} warn, {} fail.",
+		"models: {} pass, {} warn, {} fail. encodings: {} pass, {} warn. images: {} pass, {} warn, {} fail. environments: {} pass, {} warn, {} fail.",
 		Count(modelResults, Result::kPass), Count(modelResults, Result::kWarn), Count(modelResults, Result::kFail),
 		Count(encodingResults, Result::kPass), Count(encodingResults, Result::kWarn),
-		Count(imageResults, Result::kPass), Count(imageResults, Result::kWarn), Count(imageResults, Result::kFail));
+		Count(imageResults, Result::kPass), Count(imageResults, Result::kWarn), Count(imageResults, Result::kFail),
+		Count(environmentResults, Result::kPass), Count(environmentResults, Result::kWarn), Count(environmentResults, Result::kFail));
 
-	return archiveFailed || Count(modelResults, Result::kFail) + Count(imageResults, Result::kFail) > 0 ? 1 : 0;
+	return archiveFailed ||
+				   Count(modelResults, Result::kFail) + Count(imageResults, Result::kFail) + Count(environmentResults, Result::kFail) > 0
+			   ? 1
+			   : 0;
 }

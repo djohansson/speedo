@@ -358,9 +358,20 @@ in stops), tonemaps it (Khronos PBR Neutral, which leaves colors up to about 0.7
 when it copies to the swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already).
 Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
-candela, or a default directional light of 2.2 lux), plus a constant ambient radiance (0.3, its specular part by Karis'
-environment brdf fit) that occlusion darkens. The default light and ambient light a white matte surface as the fixed
-light did before there was PBR. Metallic-roughness textures are `Usage::kMetallicRoughness` (BC5: roughness, the file's
+candela, or a default directional light of 2.2 lux), plus image based lighting that occlusion darkens. The environment
+(`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
+(`environment::Import`, scaled to 1024 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
+over a ground, as bright on average as the constant ambient light of 0.3 it replaced). `environment::Prefilter`
+turns it into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split sum with n = v = r, filtered importance
+sampling from a mip pyramid; level 0 is the panorama), the mips of one `R16G16B16A16_SFLOAT` texture
+(`SHADER_TYPES_ENVIRONMENT_TEXTURE`), and the irradiance as 9 spherical harmonics coefficients (`EnvironmentData` in
+`gEnvironment`). `LoadEnvironment` caches a file's (`environment-vN`); `InstallEnvironment` installs it on the draw
+thread. The shader takes the specular's second term from Karis' environment brdf fit. Equirectangular rows near the
+poles cover less of the sphere: the pyramid's mips weigh rows by their sine, and a sample's mip goes by the texel's real
+solid angle, otherwise the rough levels drift from the panorama's mean (papermill's by 15%), which `assettest` checks
+(each level's mean within 3%, the irradiance's within 2%, and each level smoother than the one before). Image views
+cover all of their image's mips unless `ImageViewCreateDesc::levelCount` says otherwise (they used to cover only level
+0, so no texture was ever sampled below it). Metallic-roughness textures are `Usage::kMetallicRoughness` (BC5: roughness, the file's
 green, in r, and metallic, its blue, in g); obj materials are dielectrics whose `Ks` scales the specular
 (`MaterialData::specular`, also KHR_materials_specular's factor; 0 is matte, without even a fresnel rim) and whose `Ns`
 gives the roughness (`sqrt(2 / (Ns + 2))`), and `MaterialData` defaults must set roughness and specular to 1 (zero
@@ -388,9 +399,10 @@ thread step, after the textures are transitioned: every change to `gTextures` ta
 and the pool only holds 128 copies of that 1024 slot array. Installing a model also sets the views to its first camera,
 or frames them on its bounds (`Views::SetScene`, `Views::FrameBounds`).
 
-File > "Open File..." loads models, zip archives and images, by their type (`LoadAndInstallFile`), and "Open
-Folder..." a directory's models; `SPEEDO_AUTOLOAD_MODEL` and `SPEEDO_AUTOLOAD_IMAGE` take paths absolute or relative to
-the resource directory. Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
+File > "Open File..." loads models, zip archives, environments (`.hdr`) and images, by their type
+(`LoadAndInstallFile`), and "Open Folder..." a directory's models; View > Environment picks the procedural sky or opens
+a panorama. `SPEEDO_AUTOLOAD_MODEL`, `SPEEDO_AUTOLOAD_IMAGE` and `SPEEDO_AUTOLOAD_ENVIRONMENT` take paths absolute or
+relative to the resource directory (without an environment, the procedural sky loads, as one of the autoloads). Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `gfx::zip` (stb_image's inflate, no zip
 library), then loaded from there like any other files; with several models the user picks one. The extractor reads
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
@@ -405,8 +417,10 @@ main loop sleeps in `glfwWaitEvents()`, so anything that must end it from anothe
 `RequestExit()`, which posts an empty event.
 
 The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.ps1` downloads Morgan McGuire's
-Computer Graphics Archive (obj, about 2.7 GB) and the Khronos glTF-Sample-Assets models (at a pinned commit, about
-2.3 GB) into `resources/test-assets` (gitignored; the client's file dialogs open there; or `$SPEEDO_TEST_ASSETS`), and
+Computer Graphics Archive (obj, about 2.7 GB), the Khronos glTF-Sample-Assets models (at a pinned commit, about
+2.3 GB) and the Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, downloaded from GitHub's LFS
+media server at a pinned commit and checked against `scripts/test-assets/environments.txt`, the sizes and sha256s of
+their LFS pointers; `assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) into `resources/test-assets` (gitignored; the client's file dialogs open there; or `$SPEEDO_TEST_ASSETS`), and
 prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). The archive publishes no versions or checksums and
