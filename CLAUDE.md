@@ -631,6 +631,12 @@ FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a 
 ordered after it, so depend on the produced file (e.g. an `ExternalProject` `INSTALL_BYPRODUCTS`). ld64.lld does not
 add `libobjc` implicitly the way Apple's linker does (`undefined symbol: objc_msgSend`, see `ports/tracy/0008-*`).
 
+`ports/ktx` exists because IT policy blocks msys2's `bash.exe` on Windows: upstream's portfile acquires msys2 bash to
+run KTX's `mkversion` script, and `0007-version-without-bash.patch` writes the same `version.h` from CMake instead
+(bash is still required for the tests or `KTX_GENERATE_VK_FILES`, which we don't build). Don't add ports that need an
+msys2 shell (`vcpkg_acquire_msys` with `bash`, `vcpkg_configure_make`) without patching that out; vcpkg's own
+`pkgconf.exe` (`vcpkg_fixup_pkgconfig`) runs fine.
+
 `ports/mimalloc` exists for a macOS bug in mimalloc 3.x, so retire it only once upstream fixes it. dyld allocates
 each image's thread-local-variable block from the system zone (`malloc_type_malloc`) and frees it at thread exit
 through the pthread key destructor `free`, which is interposed to `mi_free`. mimalloc's own thread locals are

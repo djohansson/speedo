@@ -1,0 +1,60 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1d1bccf..24bc48f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -8,7 +8,11 @@ include(CMakePrintHelpers)
+ 
+ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake/modules/")
+ 
+-find_package(Bash REQUIRED)
++# Bash generates version.h, the VkFormat files and runs the tests. With the version given, and neither of those
++# others, it isn't needed (and on Windows needs an msys2 bash, which may not be allowed to run).
++if(NOT KTX_GIT_VERSION_FULL OR KTX_GENERATE_VK_FILES OR NOT DEFINED KTX_FEATURE_TESTS OR KTX_FEATURE_TESTS)
++    find_package(Bash REQUIRED)
++endif()
+ 
+ include(cmake/version.cmake)
+ 
+diff --git a/cmake/version.cmake b/cmake/version.cmake
+index 667b5c3..ffcaf8e 100644
+--- a/cmake/version.cmake
++++ b/cmake/version.cmake
+@@ -176,6 +176,38 @@ function( create_version_header dest_path target )
+ 
+     set( version_h_output ${PROJECT_SOURCE_DIR}/${dest_path}/version.h)
+ 
++    # With the version given, write what mkversion would without running it.
++    if(KTX_GIT_VERSION_FULL)
++        if("${dest_path}" STREQUAL "lib")
++            set(object_name LIBKTX)
++            set(api_version "// [API version]
++@par API Version
++v4.0
++// [API version]
++")
++        else()
++            get_filename_component(object_name "${dest_path}" NAME)
++            string(TOUPPER "${object_name}" object_name)
++            set(api_version "")
++        endif()
++        set(version_h_content "/*
++${api_version}// [Code version]
++${KTX_GIT_VERSION_FULL}
++// [Code version]
++*/
++#define ${object_name}_VERSION ${KTX_GIT_VERSION_FULL}
++#define ${object_name}_DEFAULT_VERSION v4.0.__default__
++")
++        if(EXISTS "${version_h_output}")
++            file(READ "${version_h_output}" version_h_existing)
++        endif()
++        if(NOT "${version_h_existing}" STREQUAL "${version_h_content}")
++            file(WRITE "${version_h_output}" "${version_h_content}")
++        endif()
++        target_sources( ${target} PRIVATE ${version_h_output} )
++        return()
++    endif()
++
+     if(CMAKE_HOST_WIN32)
+         add_custom_command(
+             OUTPUT ${version_h_output}
