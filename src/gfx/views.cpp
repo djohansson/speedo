@@ -162,6 +162,37 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 		return;
 	}
 
+	InternalApplySceneCamera(*sceneCamera, bounds);
+	SetMoveSpeed(0.25F * std::max(bounds.Radius(), 1e-3F));
+	UpdateBuffers();
+}
+
+void Views::UpdateSceneCameras(std::span<const SceneCamera> cameras)
+{
+	ZoneScopedN("Views::UpdateSceneCameras");
+
+	Bounds3f bounds;
+	std::optional<SceneCamera> sceneCamera;
+	{
+		auto scene = myScene.Write();
+		if (scene.Get().cameras.size() != cameras.size())
+			return;
+		scene.Get().cameras.assign(cameras.begin(), cameras.end());
+		if (auto current = scene.Get().current; current && cameras[*current].animated)
+			sceneCamera = cameras[*current];
+		bounds = scene.Get().bounds;
+	}
+	if (!sceneCamera)
+		return;
+
+	InternalApplySceneCamera(*sceneCamera, bounds);
+	UpdateBuffers();
+}
+
+void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds)
+{
+	const auto* sceneCamera = &camera;
+
 	// the views' cameras turn by pitch (about x) and then yaw (about y), looking down -z: forward is
 	// (cos(pitch) sin(yaw), -sin(pitch), -cos(pitch) cos(yaw))
 	auto eye = glm::vec3(sceneCamera->position[0], sceneCamera->position[1], sceneCamera->position[2]);
@@ -200,10 +231,6 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 
 	// the viewports follow the cameras' aspect ratios
 	InternalLayout();
-
-	SetMoveSpeed(0.25F * radius);
-
-	UpdateBuffers();
 }
 
 std::vector<std::string> Views::GetSceneCameraNames() const

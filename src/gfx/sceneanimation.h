@@ -1,5 +1,6 @@
 #pragma once
 
+#include <gfx/scenecamera.h>
 #include <gfx/scenelight.h>
 #include <gfx/shaders/capi.h>
 
@@ -98,7 +99,7 @@ struct SceneMorph
 enum class MaterialProperty : uint16_t
 {
 	kBaseColor, // 4: the base color factor (whose material keeps it, rather than the vertex colors)
-	kEmissive, // 3: the emissive factor (times its strength, ScenePointerTarget::scale)
+	kEmissive, // 3: the emissive factor, times kEmissiveStrength (always the next target, see ApplyPointerValues)
 	kMetallic,
 	kRoughness,
 	kAlphaCutoff,
@@ -124,6 +125,8 @@ enum class MaterialProperty : uint16_t
 	kIridescenceThicknessMax,
 	kDiffuseTransmission,
 	kDiffuseTransmissionColor, // 3
+	kEmissiveStrength, // KHR_materials_emissive_strength's, the one after kEmissive's
+	kAnisotropyRotation, // radians
 };
 
 [[nodiscard]] constexpr uint16_t PropertyComponents(MaterialProperty property) noexcept
@@ -164,6 +167,27 @@ enum class MaterialTexture : uint16_t
 	kDiffuseTransmissionColor,
 };
 
+// a light's values a KHR_animation_pointer channel may set (KHR_lights_punctual's, by its light index)
+enum class LightProperty : uint16_t
+{
+	kColor, // 3
+	kIntensity,
+	kRange,
+	kInnerConeAngle,
+	kOuterConeAngle,
+};
+
+// a camera's values a KHR_animation_pointer channel may set (by its camera index)
+enum class CameraProperty : uint16_t
+{
+	kYfov,
+	kAspectRatio,
+	kZnear,
+	kZfar,
+	kXmag,
+	kYmag,
+};
+
 // what a KHR_animation_pointer channel (Path::kPointer) sets beyond a node's transform and weights: valueCount floats
 // from valueBase in the pointer values (see EvaluatePointers), at rest SceneAnimationData::pointerDefaults'
 struct ScenePointerTarget
@@ -177,6 +201,8 @@ struct ScenePointerTarget
 		kTextureRotation,
 		kTextureScale,
 		kNodeVisibility, // KHR_node_visibility's visible (index: the node): below 0.5 hides it and its descendants
+		kLight, // a light's value (index: the file's light, see SceneLight::source; property: a LightProperty)
+		kCamera, // a camera's value (index: the file's camera, see SceneCamera::source; property: a CameraProperty)
 	};
 
 	Kind kind = Kind::kMaterial;
@@ -184,7 +210,6 @@ struct ScenePointerTarget
 	uint16_t property = 0;
 	uint16_t valueCount = 0;
 	uint32_t valueBase = 0;
-	float scale = 1.0F; // for kMaterial: what the values are multiplied by (the emissive strength, for kEmissive)
 };
 
 // a light that follows a node (its position, and its direction its -z), and its visibility: the lights at index
@@ -245,6 +270,13 @@ struct ScenePose
 // visible, if visible isn't empty) and the joint matrices (jointCount of them)
 void WriteInstances(
 	const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<const uint8_t> visible, std::span<std::byte> modelInstances);
+// the lights' and cameras' values the pointer values set (see ScenePointerTarget::Kind::kLight and kCamera), over what
+// they hold
+void ApplyLightPointers(const SceneAnimationData& data, std::span<const float> pointerValues, std::span<SceneLight> lights);
+void ApplyCameraPointers(const SceneAnimationData& data, std::span<const float> pointerValues, std::span<SceneCamera> cameras);
+// the animated cameras (SceneCamera::animated) where their nodes are
+void WriteCameras(std::span<const SceneMatrix> worlds, std::span<SceneCamera> cameras);
+
 // the linked lights, from their rest values (restLights) where their nodes put them, dark where they aren't visible
 void WriteLights(
 	const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<const uint8_t> visible,

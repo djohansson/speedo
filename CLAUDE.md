@@ -345,7 +345,18 @@ core material and of the KHR_materials_* extensions) and texture transforms (a `
 scale, three targets from the offset's, which `TextureRef::animatedTransform` names: its view is its own, see
 `TextureViewKey::animated`) are applied on the draw thread after `Model::Animate` (`ApplyPointerValues`), which patches
 the uploaded `MaterialData` and `TextureView`s and uploads what changed. A material with an animated base color factor
-keeps it in `MaterialData::color` rather than baked into the vertex colors. A set of files is drawn at rest (morph
+keeps it in `MaterialData::color` rather than baked into the vertex colors. Lights' values (`LightProperty`, by the file's light, `SceneLight::source`: one light
+can be on several nodes) and cameras' (`CameraProperty`, `SceneCamera::source`) are pointer targets too; a camera is
+`animated` if its node moves or its values do, and `Model::Animate` updates the lights (`ApplyLightPointers`, then
+`WriteLights`) and cameras (`ApplyCameraPointers`, `WriteCameras`); the draw thread uploads the lights and hands the
+cameras to `Views::UpdateSceneCameras`, which re-applies the one the views look through if it animates (not their move
+speed). The emissive factor and `KHR_materials_emissive_strength` are a pair of targets (the factor's, then the
+strength's) whenever either animates, since the shader's emissive is their product; the anisotropy rotation becomes
+its cosine and sine. A layer whose factor animates up from 0 is on (`LayersOf`: its textures load, its flags are set,
+and transmission draws in the second phase). `AnimatedBounds` grows a model's bounds by its animations' poses (each
+sampled 30 times a second, at most 600: the linked instances' vertex bounds and the per joint bounds of skinned
+vertices), so the views frame all of it. `scripts/test-assets/gltf/AnimatedCameraLight.gltf` animates a camera's node
+and yfov, a light's color and intensity, and an emissive strength. A set of files is drawn at rest (morph
 targets at their default weights). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
 (`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is

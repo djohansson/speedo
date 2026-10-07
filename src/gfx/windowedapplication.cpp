@@ -124,10 +124,53 @@ enum class MainPassPhase : uint8_t
 	kTransmissive,
 };
 
+// the layers a material draws: those on at rest, and those an animation turns on (KHR_animation_pointer: a factor that
+// animates up from 0)
+struct MaterialLayers
+{
+	bool clearcoat = false;
+	bool sheen = false;
+	bool transmission = false;
+	bool anisotropy = false;
+	bool iridescence = false;
+	bool diffuseTransmission = false;
+};
+
+[[nodiscard]] static MaterialLayers LayersOf(const ModelDesc& desc, size_t materialIndex)
+{
+	const auto& material = desc.materials[materialIndex];
+	MaterialLayers layers{
+		.clearcoat = material.clearcoat > 0.0F,
+		.sheen = std::ranges::any_of(material.sheenColor, [](float c) { return c > 0.0F; }),
+		.transmission = material.transmission > 0.0F,
+		.anisotropy = material.anisotropy > 0.0F,
+		.iridescence = material.iridescence > 0.0F,
+		.diffuseTransmission = material.diffuseTransmission > 0.0F};
+	for (const auto& target : desc.animation.pointerTargets)
+	{
+		if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index != materialIndex)
+			continue;
+		switch (MaterialProperty{target.property})
+		{
+		case MaterialProperty::kClearcoat: layers.clearcoat = true; break;
+		case MaterialProperty::kSheenColor: layers.sheen = true; break;
+		case MaterialProperty::kTransmission: layers.transmission = true; break;
+		case MaterialProperty::kAnisotropy: layers.anisotropy = true; break;
+		case MaterialProperty::kIridescence: layers.iridescence = true; break;
+		case MaterialProperty::kDiffuseTransmission: layers.diffuseTransmission = true; break;
+		default: break;
+		}
+	}
+	return layers;
+}
+
 [[nodiscard]] static bool HasTransmission(const Model& model)
 {
-	return std::ranges::any_of(
-		model.GetDesc().materials, [](const ModelMaterial& material) { return material.transmission > 0.0F && !material.blend; });
+	const auto& desc = model.GetDesc();
+	for (size_t materialIt = 0; materialIt < desc.materials.size(); materialIt++)
+		if (!desc.materials[materialIt].blend && LayersOf(desc, materialIt).transmission)
+			return true;
+	return false;
 }
 static uuids::uuid gSamplersUuid;
 static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
@@ -731,6 +774,11 @@ static void ApplyMaterialProperty(MaterialData& data, const ModelMaterial& desc,
 	case MaterialProperty::kIridescenceThicknessMax: data.iridescence[3] = v[0]; break;
 	case MaterialProperty::kDiffuseTransmission: data.diffuseTransmission[3] = v[0]; break;
 	case MaterialProperty::kDiffuseTransmissionColor: copy(data.diffuseTransmission, 3); break;
+	case MaterialProperty::kAnisotropyRotation:
+		data.anisotropy[1] = std::cos(v[0]);
+		data.anisotropy[2] = std::sin(v[0]);
+		break;
+	case MaterialProperty::kEmissiveStrength: break; // with kEmissive
 	}
 }
 
@@ -815,14 +863,23 @@ static void ApplyPointerValues(RHI& rhi, QueueTimelineContextData& graphics, con
 	// the materials, uploaded as one range from the first that changed to the last
 	std::optional<size_t> first;
 	size_t last = 0;
-	for (const auto& target : animation.pointerTargets)
+	for (size_t targetIt = 0; targetIt < animation.pointerTargets.size(); targetIt++)
 	{
+		const auto& target = animation.pointerTargets[targetIt];
 		if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index >= gModelMaterialData.size() ||
 			target.index >= model.GetDesc().materials.size())
 			continue;
+		// the emissive factor times its strength, the target after it (see MaterialProperty::kEmissive)
+		auto property = MaterialProperty{target.property};
+		if (property == MaterialProperty::kEmissiveStrength)
+			continue;
+		float scale = 1.0F;
+		if (property == MaterialProperty::kEmissive && targetIt + 1 < animation.pointerTargets.size())
+			if (auto strength = valuesOf(animation.pointerTargets[targetIt + 1]); !strength.empty())
+				scale = strength[0];
 		auto& data = gModelMaterialData[target.index];
 		auto before = data;
-		ApplyMaterialProperty(data, model.GetDesc().materials[target.index], MaterialProperty{target.property}, valuesOf(target), target.scale);
+		ApplyMaterialProperty(data, model.GetDesc().materials[target.index], property, valuesOf(target), scale);
 		if (std::memcmp(&before, &data, sizeof(MaterialData)) != 0)
 		{
 			first = std::min<size_t>(first.value_or(target.index), target.index);
@@ -853,18 +910,25 @@ static void ApplyPointerValues(RHI& rhi, QueueTimelineContextData& graphics, con
 		}
 	}
 
-	// the lights that follow nodes (and their visibility)
-	if (!animation.lightLinks.empty())
+	// the lights that follow nodes (and their visibility), and whose values animate
+	if (model.AnimatesLights())
 	{
 		auto lights = model.GetLights();
 		auto same = [](const SceneLight& a, const SceneLight& b)
-		{ return a.position == b.position && a.direction == b.direction && a.intensity == b.intensity; };
+		{
+			return a.position == b.position && a.direction == b.direction && a.intensity == b.intensity && a.color == b.color &&
+				   a.range == b.range && a.innerConeAngle == b.innerConeAngle && a.outerConeAngle == b.outerConeAngle;
+		};
 		if (!std::ranges::equal(lights, gAnimatedLights, same))
 		{
 			gAnimatedLights.assign(lights.begin(), lights.end());
 			UpdateLights(rhi, graphics, lights);
 		}
 	}
+
+	// the views, when they look through a camera that animates
+	if (model.AnimatesCameras())
+		App().GetViews().UpdateSceneCameras(model.GetCameras());
 }
 
 // makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
@@ -1021,7 +1085,8 @@ static void InstallModel(
 				material.specularColorView = *view;
 				material.flags |= MATERIAL_FLAG_SPECULAR_COLOR_TEXTURE;
 			}
-			if (desc.clearcoat > 0.0F)
+			auto layers = LayersOf(model->GetDesc(), materialIt);
+			if (layers.clearcoat)
 			{
 				material.flags |= MATERIAL_FLAG_CLEARCOAT;
 				material.clearcoat[0] = desc.clearcoat;
@@ -1037,7 +1102,7 @@ static void InstallModel(
 						material.flags |= flag;
 					}
 			}
-			if (std::ranges::any_of(desc.sheenColor, [](float c) { return c > 0.0F; }))
+			if (layers.sheen)
 			{
 				material.flags |= MATERIAL_FLAG_SHEEN;
 				std::ranges::copy(desc.sheenColor, material.sheen);
@@ -1051,7 +1116,7 @@ static void InstallModel(
 						material.flags |= flag;
 					}
 			}
-			if (desc.transmission > 0.0F)
+			if (layers.transmission)
 			{
 				material.flags |= MATERIAL_FLAG_TRANSMISSION;
 				material.transmission[0] = desc.transmission;
@@ -1068,7 +1133,7 @@ static void InstallModel(
 						material.flags |= flag;
 					}
 			}
-			if (desc.anisotropy > 0.0F)
+			if (layers.anisotropy)
 			{
 				material.flags |= MATERIAL_FLAG_ANISOTROPY;
 				material.anisotropy[0] = desc.anisotropy;
@@ -1080,7 +1145,7 @@ static void InstallModel(
 					material.flags |= MATERIAL_FLAG_ANISOTROPY_TEXTURE;
 				}
 			}
-			if (desc.iridescence > 0.0F)
+			if (layers.iridescence)
 			{
 				material.flags |= MATERIAL_FLAG_IRIDESCENCE;
 				material.iridescence[0] = desc.iridescence;
@@ -1096,7 +1161,7 @@ static void InstallModel(
 						material.flags |= flag;
 					}
 			}
-			if (desc.diffuseTransmission > 0.0F)
+			if (layers.diffuseTransmission)
 			{
 				material.flags |= MATERIAL_FLAG_DIFFUSE_TRANSMISSION;
 				std::ranges::copy(desc.diffuseTransmissionColor, material.diffuseTransmission);
@@ -1109,40 +1174,6 @@ static void InstallModel(
 						*view = *id;
 						material.flags |= flag;
 					}
-			}
-			// the layers an animation turns on that are off at rest (KHR_animation_pointer): drawn, with their other values
-			for (const auto& target : model->GetDesc().animation.pointerTargets)
-			{
-				if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index != materialIt)
-					continue;
-				switch (MaterialProperty{target.property})
-				{
-				case MaterialProperty::kClearcoat:
-					material.flags |= MATERIAL_FLAG_CLEARCOAT;
-					material.clearcoat[1] = desc.clearcoatRoughness;
-					material.clearcoat[2] = desc.clearcoatNormalScale;
-					break;
-				case MaterialProperty::kSheenColor:
-					material.flags |= MATERIAL_FLAG_SHEEN;
-					material.sheen[3] = desc.sheenRoughness;
-					break;
-				case MaterialProperty::kAnisotropy:
-					material.flags |= MATERIAL_FLAG_ANISOTROPY;
-					material.anisotropy[1] = std::cos(desc.anisotropyRotation);
-					material.anisotropy[2] = std::sin(desc.anisotropyRotation);
-					break;
-				case MaterialProperty::kIridescence:
-					material.flags |= MATERIAL_FLAG_IRIDESCENCE;
-					material.iridescence[1] = desc.iridescenceIor;
-					material.iridescence[2] = desc.iridescenceThicknessMin;
-					material.iridescence[3] = desc.iridescenceThicknessMax;
-					break;
-				case MaterialProperty::kDiffuseTransmission:
-					material.flags |= MATERIAL_FLAG_DIFFUSE_TRANSMISSION;
-					std::ranges::copy(desc.diffuseTransmissionColor, material.diffuseTransmission);
-					break;
-				default: break;
-				}
 			}
 			if (desc.unlit)
 				material.flags |= MATERIAL_FLAG_UNLIT;
@@ -1365,6 +1396,7 @@ static void LoadAndInstallModels(
 	{
 		const auto& material = materials[materialIt];
 		auto& texture = textures[materialIt];
+		auto layers = LayersOf(model->GetDesc(), materialIt);
 		if (!material.diffuseTexture.empty())
 			loads.push_back(
 				{material.diffuseTexture.path, material.diffuseTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
@@ -1395,7 +1427,7 @@ static void LoadAndInstallModels(
 				{material.specularColorTexture.path, material.specularColorTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.specularColor});
 		// the clearcoat's strength is the texture's red, its roughness the green (as kOcclusion and kMetallicRoughness
 		// keep them), the sheen roughness the alpha
-		if (material.clearcoat > 0.0F)
+		if (layers.clearcoat)
 			for (auto [ref, usage, result] : std::array{
 					 std::tuple{&material.clearcoatTexture, gfx::image::Usage::kOcclusion, &texture.clearcoat},
 					 std::tuple{&material.clearcoatRoughnessTexture, gfx::image::Usage::kMetallicRoughness, &texture.clearcoatRoughness},
@@ -1404,30 +1436,30 @@ static void LoadAndInstallModels(
 					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 		// the anisotropy's direction and strength are a linear rgb texture; the iridescence's factor is the red, its
 		// thickness the green
-		if (material.anisotropy > 0.0F && !material.anisotropyTexture.empty())
+		if (layers.anisotropy && !material.anisotropyTexture.empty())
 			loads.push_back(
 				{material.anisotropyTexture.path, material.anisotropyTexture.embeddedImage, {.usage = gfx::image::Usage::kLinear}, &texture.anisotropy});
-		if (material.iridescence > 0.0F)
+		if (layers.iridescence)
 			for (auto [ref, usage, result] : std::array{
 					 std::tuple{&material.iridescenceTexture, gfx::image::Usage::kOcclusion, &texture.iridescence},
 					 std::tuple{&material.iridescenceThicknessTexture, gfx::image::Usage::kMetallicRoughness, &texture.iridescenceThickness}})
 				if (!ref->empty())
 					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 		// the diffuse transmission's factor is the texture's alpha, its color srgb
-		if (material.diffuseTransmission > 0.0F)
+		if (layers.diffuseTransmission)
 			for (auto [ref, usage, result] : std::array{
 					 std::tuple{&material.diffuseTransmissionTexture, gfx::image::Usage::kAlpha, &texture.diffuseTransmission},
 					 std::tuple{&material.diffuseTransmissionColorTexture, gfx::image::Usage::kColor, &texture.diffuseTransmissionColor}})
 				if (!ref->empty())
 					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 		// the transmission's factor is the texture's red, the thickness the green
-		if (material.transmission > 0.0F)
+		if (layers.transmission)
 			for (auto [ref, usage, result] : std::array{
 					 std::tuple{&material.transmissionTexture, gfx::image::Usage::kOcclusion, &texture.transmission},
 					 std::tuple{&material.thicknessTexture, gfx::image::Usage::kMetallicRoughness, &texture.thickness}})
 				if (!ref->empty())
 					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
-		if (std::ranges::any_of(material.sheenColor, [](float c) { return c > 0.0F; }))
+		if (layers.sheen)
 			for (auto [ref, usage, result] : std::array{
 					 std::tuple{&material.sheenColorTexture, gfx::image::Usage::kColor, &texture.sheenColor},
 					 std::tuple{&material.sheenRoughnessTexture, gfx::image::Usage::kAlpha, &texture.sheenRoughness}})

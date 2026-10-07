@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <span>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -55,6 +56,9 @@ public:
 	// sets every view to one of the scene's cameras (its projection too: field of view, orthographic, near and far
 	// planes; not its roll, which the views don't have), or frames the scene's bounds (nullopt). call on the draw thread.
 	void UseSceneCamera(std::optional<size_t> camera);
+	// the scene's cameras as an animation moves them (see Model::GetCameras): the views follow the one they look through,
+	// if it is animated (SceneCamera::animated). any thread.
+	void UpdateSceneCameras(std::span<const SceneCamera> cameras);
 	// the scene's camera names, and which one the views were last set to (nullopt: framed). any thread.
 	[[nodiscard]] std::vector<std::string> GetSceneCameraNames() const;
 	[[nodiscard]] std::optional<size_t> GetSceneCamera() const;
@@ -85,6 +89,8 @@ private:
 		std::optional<size_t> current;
 	};
 	core::ConcurrentAccess<Scene> myScene;
+	// a scene camera's pose and projection, for all views (see UseSceneCamera)
+	void InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds);
 	static constexpr float kDefaultMoveSpeed = 5.0F; // until a model is framed
 
 	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};

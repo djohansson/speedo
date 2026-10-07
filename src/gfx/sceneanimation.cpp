@@ -322,6 +322,76 @@ std::vector<uint8_t> NodeVisibility(const SceneAnimationData& data, std::span<co
 	return visible;
 }
 
+void ApplyLightPointers(const SceneAnimationData& data, std::span<const float> pointerValues, std::span<SceneLight> lights)
+{
+	for (const auto& target : data.pointerTargets)
+	{
+		if (target.kind != ScenePointerTarget::Kind::kLight || target.valueBase + target.valueCount > pointerValues.size())
+			continue;
+		auto v = pointerValues.subspan(target.valueBase, target.valueCount);
+		for (auto& light : lights)
+		{
+			if (light.source != target.index || v.empty())
+				continue;
+			switch (LightProperty{target.property})
+			{
+			case LightProperty::kColor: std::copy_n(v.begin(), std::min<size_t>(3, v.size()), light.color.begin()); break;
+			case LightProperty::kIntensity: light.intensity = v[0]; break;
+			case LightProperty::kRange: light.range = v[0]; break;
+			case LightProperty::kInnerConeAngle: light.innerConeAngle = v[0]; break;
+			case LightProperty::kOuterConeAngle: light.outerConeAngle = v[0]; break;
+			}
+		}
+	}
+}
+
+void ApplyCameraPointers(const SceneAnimationData& data, std::span<const float> pointerValues, std::span<SceneCamera> cameras)
+{
+	for (const auto& target : data.pointerTargets)
+	{
+		if (target.kind != ScenePointerTarget::Kind::kCamera || target.valueBase + target.valueCount > pointerValues.size())
+			continue;
+		auto value = pointerValues[target.valueBase];
+		for (auto& camera : cameras)
+		{
+			if (camera.source != target.index || target.valueCount == 0)
+				continue;
+			switch (CameraProperty{target.property})
+			{
+			case CameraProperty::kYfov: camera.yfov = value; break;
+			case CameraProperty::kAspectRatio: camera.aspectRatio = value; break;
+			case CameraProperty::kZnear: camera.znear = value; break;
+			case CameraProperty::kZfar: camera.zfar = value; break;
+			// an orthographic camera's width follows its aspect ratio (see SceneCamera)
+			case CameraProperty::kXmag:
+				if (camera.ymag > 0.0F)
+					camera.aspectRatio = value / camera.ymag;
+				break;
+			case CameraProperty::kYmag:
+				if (value > 0.0F && camera.ymag > 0.0F && camera.aspectRatio > 0.0F)
+					camera.aspectRatio *= camera.ymag / value;
+				camera.ymag = value;
+				break;
+			}
+		}
+	}
+}
+
+void WriteCameras(std::span<const SceneMatrix> worlds, std::span<SceneCamera> cameras)
+{
+	for (auto& camera : cameras)
+	{
+		if (!camera.animated || camera.node < 0 || std::cmp_greater_equal(camera.node, worlds.size()))
+			continue;
+		auto world = glm::make_mat4(worlds[camera.node].data());
+		std::copy_n(glm::value_ptr(world[3]), 3, camera.position.begin());
+		if (auto forward = -glm::vec3(world[2]); glm::length(forward) > 0.0F)
+			std::copy_n(glm::value_ptr(glm::normalize(forward)), 3, camera.forward.begin());
+		if (auto up = glm::vec3(world[1]); glm::length(up) > 0.0F)
+			std::copy_n(glm::value_ptr(glm::normalize(up)), 3, camera.up.begin());
+	}
+}
+
 void WriteLights(
 	const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<const uint8_t> visible,
 	std::span<const SceneLight> restLights, std::span<SceneLight> lights)

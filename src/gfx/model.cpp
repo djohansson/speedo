@@ -35,7 +35,20 @@ Model::Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noe
 	, myJoints(myDesc.animation.jointCount > 0 ? RestJoints(myDesc.animation) : std::vector<SceneMatrix>{})
 	, myPointerValues(myDesc.animation.pointerDefaults)
 	, myLights(myDesc.lights)
+	, myCameras(myDesc.cameras)
 {}
+
+bool Model::AnimatesLights() const noexcept
+{
+	const auto& animation = myDesc.animation;
+	return !animation.lightLinks.empty() ||
+		   std::ranges::any_of(animation.pointerTargets, [](const auto& target) { return target.kind == ScenePointerTarget::Kind::kLight; });
+}
+
+bool Model::AnimatesCameras() const noexcept
+{
+	return std::ranges::any_of(myDesc.cameras, &SceneCamera::animated);
+}
 
 std::vector<const Buffer*> Model::GetUploadedBuffers() const
 {
@@ -63,8 +76,23 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 
 	if (!myJoints.empty())
 		WriteJoints(myDesc.animation, worlds, myJoints);
-	if (!myDesc.animation.lightLinks.empty())
-		WriteLights(myDesc.animation, worlds, visible, myDesc.lights, myLights);
+	// the lights' values, then where their nodes put them
+	if (AnimatesLights())
+	{
+		myLights = myDesc.lights;
+		ApplyLightPointers(myDesc.animation, myPointerValues, myLights);
+		if (!myDesc.animation.lightLinks.empty())
+		{
+			auto rest = myLights;
+			WriteLights(myDesc.animation, worlds, visible, rest, myLights);
+		}
+	}
+	if (AnimatesCameras())
+	{
+		myCameras = myDesc.cameras;
+		ApplyCameraPointers(myDesc.animation, myPointerValues, myCameras);
+		WriteCameras(worlds, myCameras);
+	}
 
 	auto& instances = myBuffers.instances[frameIndex];
 	auto instanceMemory = instances.Map();
@@ -90,6 +118,101 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 }
 
 Model::~Model() = default;
+
+// grows bounds (a mesh's at rest) by where its animations take what moves: each animation sampled 30 times a second
+// (at most 600 times), the linked instances' vertices' bounds (in their node's space) and the skinned vertices' bounds
+// per joint (in bind space) where the sample puts them. so that the views frame all of it (see Views::FrameBounds).
+// morph targets' reach is in the rest bounds already, only where it is at rest.
+static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
+{
+	ZoneScopedN("gfx::AnimatedBounds");
+
+	const auto& animation = mesh.animation;
+	if (animation.animations.empty() || (animation.instanceLinks.empty() && animation.skins.empty()))
+		return;
+
+	using Box = std::pair<glm::vec3, glm::vec3>;
+	auto empty = [] { return Box{glm::vec3(std::numeric_limits<float>::max()), glm::vec3(std::numeric_limits<float>::lowest())}; };
+	auto grow = [](Box& box, const glm::vec3& p)
+	{
+		box.first = glm::min(box.first, p);
+		box.second = glm::max(box.second, p);
+	};
+
+	// the vertices' bounds per instance (of the submeshes drawn with it), and per joint (by the skinned vertices weighted
+	// to it)
+	std::vector<Box> instanceBoxes(mesh.instances.size(), empty());
+	std::vector<Box> jointBoxes(animation.jointCount, empty());
+	for (const auto& submesh : mesh.submeshes)
+	{
+		if (submesh.firstIndex + submesh.indexCount > mesh.indices.size())
+			continue;
+		Box box = empty();
+		for (auto index : std::span(mesh.indices).subspan(submesh.firstIndex, submesh.indexCount))
+		{
+			if (index >= mesh.vertices.size())
+				continue;
+			auto position = glm::make_vec3(mesh.vertices[index].position);
+			grow(box, position);
+			if (submesh.skin >= 0 && std::cmp_less(submesh.skin, animation.skins.size()) && index < mesh.skinVertices.size())
+			{
+				const auto& skin = mesh.skinVertices[index];
+				for (uint32_t i = 0; i < 4; i++)
+				{
+					auto shift = (i % 2) * 16;
+					auto joint = animation.skins[submesh.skin].jointBase + ((skin.joints[i / 2] >> shift) & 0xffffU);
+					if (((skin.weights[i / 2] >> shift) & 0xffffU) != 0 && joint < jointBoxes.size())
+						grow(jointBoxes[joint], position);
+				}
+			}
+		}
+		if (submesh.skin < 0)
+			for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount && instanceIt < instanceBoxes.size(); instanceIt++)
+			{
+				grow(instanceBoxes[instanceIt], box.first);
+				grow(instanceBoxes[instanceIt], box.second);
+			}
+	}
+
+	auto addBox = [&bounds](const Box& box, const glm::mat4& transform)
+	{
+		if (box.first.x > box.second.x)
+			return;
+		for (uint32_t corner = 0; corner < 8; corner++)
+		{
+			glm::vec4 local(
+				(corner & 1U) != 0 ? box.second.x : box.first.x, (corner & 2U) != 0 ? box.second.y : box.first.y,
+				(corner & 4U) != 0 ? box.second.z : box.first.z, 1.0F);
+			auto world = glm::vec3(transform * local);
+			if (std::isfinite(world.x) && std::isfinite(world.y) && std::isfinite(world.z))
+				bounds.Merge(std::array{world.x, world.y, world.z});
+		}
+	};
+
+	constexpr float kSamplesPerSecond = 30.0F;
+	constexpr uint32_t kMaxSamples = 600;
+	std::vector<SceneMatrix> joints(animation.jointCount);
+	for (size_t animationIt = 0; animationIt < animation.animations.size(); animationIt++)
+	{
+		auto duration = animation.animations[animationIt].duration;
+		auto sampleCount = std::clamp(static_cast<uint32_t>(std::ceil(duration * kSamplesPerSecond)), 1U, kMaxSamples);
+		for (uint32_t sampleIt = 0; sampleIt <= sampleCount; sampleIt++)
+		{
+			// the end too: the clip wraps around before it
+			auto time = std::min(duration * static_cast<float>(sampleIt) / static_cast<float>(sampleCount), std::nextafter(duration, 0.0F));
+			auto worlds = EvaluateNodes(animation, animationIt, std::max(time, 0.0F));
+			for (const auto& link : animation.instanceLinks)
+				if (link.instance < instanceBoxes.size() && link.node < worlds.size())
+					addBox(instanceBoxes[link.instance], glm::make_mat4(worlds[link.node].data()) * glm::make_mat4(link.local.data()));
+			if (!joints.empty())
+			{
+				WriteJoints(animation, worlds, joints);
+				for (size_t jointIt = 0; jointIt < joints.size(); jointIt++)
+					addBox(jointBoxes[jointIt], glm::make_mat4(joints[jointIt].data()));
+			}
+		}
+	}
+}
 
 //NOLINTBEGIN(readability-magic-numbers)
 namespace model
@@ -255,6 +378,7 @@ struct Staged
 		progress = 128;
 
 		desc.bounds = mesh->bounds;
+		AnimatedBounds(*mesh, desc.bounds);
 		desc.indexCount = static_cast<uint32_t>(mesh->indices.size());
 		desc.vertexCount = static_cast<uint32_t>(mesh->vertices.size());
 		desc.instances = mesh->instances;
@@ -380,11 +504,11 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v29", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v30", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));
-	params.append("|cache-v31"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v32"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

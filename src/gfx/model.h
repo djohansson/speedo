@@ -185,6 +185,11 @@ public:
 	// the draw thread.
 	[[nodiscard]] std::span<const float> GetPointerValues() const noexcept { return myPointerValues; }
 	[[nodiscard]] std::span<const SceneLight> GetLights() const noexcept { return myLights; }
+	// and the cameras (ModelDesc::cameras, the animated ones as Animate left them)
+	[[nodiscard]] std::span<const SceneCamera> GetCameras() const noexcept { return myCameras; }
+	// whether Animate changes lights (that follow nodes, or whose values animate) or cameras (SceneCamera::animated)
+	[[nodiscard]] bool AnimatesLights() const noexcept;
+	[[nodiscard]] bool AnimatesCameras() const noexcept;
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
@@ -209,6 +214,7 @@ private:
 	std::vector<SceneMatrix> myJoints;
 	std::vector<float> myPointerValues;
 	std::vector<SceneLight> myLights;
+	std::vector<SceneCamera> myCameras;
 };
 
 } // namespace gfx

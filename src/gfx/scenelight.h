@@ -26,6 +26,7 @@ struct SceneLight
 	float range = 0.0F; // point, spot: 0 for none
 	float innerConeAngle = 0.0F; // spot, in radians
 	float outerConeAngle = 0.7853982F;
+	uint32_t source = ~0U; // the file's light (gltf: its index in KHR_lights_punctual's lights), for animations to find
 };
 
 } // namespace gfx

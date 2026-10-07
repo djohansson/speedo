@@ -390,7 +390,9 @@ using Matrix = std::array<float, 16>;
 									   : std::format("camera {}", &camera - data.cameras),
 		.position = {world[12], world[13], world[14]},
 		.forward = unit({-world[8], -world[9], -world[10]}),
-		.up = unit({world[4], world[5], world[6]})};
+		.up = unit({world[4], world[5], world[6]}),
+		.node = static_cast<int32_t>(&node - data.nodes),
+		.source = static_cast<uint32_t>(&camera - data.cameras)};
 	if (camera.type == cgltf_camera_type_orthographic)
 	{
 		result.orthographic = true;
@@ -431,7 +433,8 @@ using Matrix = std::array<float, 16>;
 		.intensity = light.intensity,
 		.range = light.range,
 		.innerConeAngle = light.spot_inner_cone_angle,
-		.outerConeAngle = light.spot_outer_cone_angle};
+		.outerConeAngle = light.spot_outer_cone_angle,
+		.source = static_cast<uint32_t>(&light - data.lights)};
 	if (length > 0.0 && IsFinite(direction))
 		for (size_t axis = 0; axis < 3; axis++)
 			result.direction[axis] = static_cast<float>(direction[axis] / length);
@@ -835,16 +838,20 @@ struct ParsedPointer
 		kTextureOffset, // property: a MaterialTexture
 		kTextureRotation,
 		kTextureScale,
+		kLight, // property: a LightProperty
+		kCamera, // property: a CameraProperty
 	};
 
 	Kind kind = Kind::kNone;
-	uint32_t index = 0; // the node or material
+	uint32_t index = 0; // the node, material, light or camera
 	uint16_t property = 0;
 	int32_t target = -1; // its ScenePointerTarget, for the material and texture ones
 };
 
 // the material properties' pointers below /materials/<index>/
-constexpr std::array<std::pair<std::string_view, MaterialProperty>, 27> kMaterialPointers{{
+constexpr std::array<std::pair<std::string_view, MaterialProperty>, 29> kMaterialPointers{{
+	{"extensions/KHR_materials_emissive_strength/emissiveStrength", MaterialProperty::kEmissiveStrength},
+	{"extensions/KHR_materials_anisotropy/anisotropyRotation", MaterialProperty::kAnisotropyRotation},
 	{"pbrMetallicRoughness/baseColorFactor", MaterialProperty::kBaseColor},
 	{"pbrMetallicRoughness/metallicFactor", MaterialProperty::kMetallic},
 	{"pbrMetallicRoughness/roughnessFactor", MaterialProperty::kRoughness},
@@ -873,6 +880,37 @@ constexpr std::array<std::pair<std::string_view, MaterialProperty>, 27> kMateria
 	{"extensions/KHR_materials_diffuse_transmission/diffuseTransmissionFactor", MaterialProperty::kDiffuseTransmission},
 	{"extensions/KHR_materials_diffuse_transmission/diffuseTransmissionColorFactor", MaterialProperty::kDiffuseTransmissionColor},
 }};
+
+// a light's or camera's value as the file has it
+[[nodiscard]] std::vector<float> LightPropertyRest(const cgltf_light& light, LightProperty property)
+{
+	switch (property)
+	{
+	case LightProperty::kColor: return {light.color[0], light.color[1], light.color[2]};
+	case LightProperty::kIntensity: return {light.intensity};
+	case LightProperty::kRange: return {light.range};
+	case LightProperty::kInnerConeAngle: return {light.spot_inner_cone_angle};
+	case LightProperty::kOuterConeAngle: return {light.spot_outer_cone_angle};
+	}
+	return {};
+}
+
+[[nodiscard]] std::vector<float> CameraPropertyRest(const cgltf_camera& camera, CameraProperty property)
+{
+	bool orthographic = camera.type == cgltf_camera_type_orthographic;
+	const auto& perspective = camera.data.perspective;
+	const auto& ortho = camera.data.orthographic;
+	switch (property)
+	{
+	case CameraProperty::kYfov: return {orthographic ? 0.0F : perspective.yfov};
+	case CameraProperty::kAspectRatio: return {!orthographic && perspective.has_aspect_ratio ? perspective.aspect_ratio : 0.0F};
+	case CameraProperty::kZnear: return {orthographic ? ortho.znear : perspective.znear};
+	case CameraProperty::kZfar: return {orthographic ? ortho.zfar : (perspective.has_zfar ? perspective.zfar : 0.0F)};
+	case CameraProperty::kXmag: return {orthographic ? ortho.xmag : 0.0F};
+	case CameraProperty::kYmag: return {orthographic ? ortho.ymag : 0.0F};
+	}
+	return {};
+}
 
 // the material textures' pointers below /materials/<index>/, before /extensions/KHR_texture_transform/...
 constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTexturePointers{{
@@ -912,6 +950,27 @@ constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTextureP
 	}
 	if (segments.size() < 4 || !segments[0].empty())
 		return {};
+	using Kind = ParsedPointer::Kind;
+	// KHR_lights_punctual's lights: /extensions/KHR_lights_punctual/lights/<index>/...
+	if (segments.size() >= 6 && segments[1] == "extensions" && segments[2] == "KHR_lights_punctual" && segments[3] == "lights")
+	{
+		uint32_t light = 0;
+		if (auto [end, error] = std::from_chars(segments[4].data(), segments[4].data() + segments[4].size(), light);
+			error != std::errc{} || end != segments[4].data() + segments[4].size() || light >= data.lights_count)
+			return {};
+		std::string property;
+		for (size_t segmentIt = 5; segmentIt < segments.size(); segmentIt++)
+			property += (segmentIt > 5 ? "/" : "") + segments[segmentIt];
+		for (auto [path, value] : std::array{
+				 std::pair{std::string_view("color"), LightProperty::kColor},
+				 std::pair{std::string_view("intensity"), LightProperty::kIntensity},
+				 std::pair{std::string_view("range"), LightProperty::kRange},
+				 std::pair{std::string_view("spot/innerConeAngle"), LightProperty::kInnerConeAngle},
+				 std::pair{std::string_view("spot/outerConeAngle"), LightProperty::kOuterConeAngle}})
+			if (property == path)
+				return {.kind = Kind::kLight, .index = light, .property = std::to_underlying(value)};
+		return {};
+	}
 	uint32_t index = 0;
 	if (auto [end, error] = std::from_chars(segments[2].data(), segments[2].data() + segments[2].size(), index);
 		error != std::errc{} || end != segments[2].data() + segments[2].size())
@@ -920,7 +979,6 @@ constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTextureP
 	for (size_t segmentIt = 3; segmentIt < segments.size(); segmentIt++)
 		rest += (segmentIt > 3 ? "/" : "") + segments[segmentIt];
 
-	using Kind = ParsedPointer::Kind;
 	if (segments[1] == "nodes" && index < data.nodes_count)
 	{
 		auto kind = rest == "translation" ? Kind::kNodeTranslation
@@ -930,6 +988,21 @@ constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTextureP
 				  : rest == "extensions/KHR_node_visibility/visible" ? Kind::kNodeVisibility
 																	   : Kind::kNone;
 		return {.kind = kind, .index = index};
+	}
+	if (segments[1] == "cameras" && index < data.cameras_count)
+	{
+		for (auto [path, property] : std::array{
+				 std::pair{std::string_view("perspective/yfov"), CameraProperty::kYfov},
+				 std::pair{std::string_view("perspective/aspectRatio"), CameraProperty::kAspectRatio},
+				 std::pair{std::string_view("perspective/znear"), CameraProperty::kZnear},
+				 std::pair{std::string_view("perspective/zfar"), CameraProperty::kZfar},
+				 std::pair{std::string_view("orthographic/xmag"), CameraProperty::kXmag},
+				 std::pair{std::string_view("orthographic/ymag"), CameraProperty::kYmag},
+				 std::pair{std::string_view("orthographic/znear"), CameraProperty::kZnear},
+				 std::pair{std::string_view("orthographic/zfar"), CameraProperty::kZfar}})
+			if (rest == path)
+				return {.kind = Kind::kCamera, .index = index, .property = std::to_underlying(property)};
+		return {};
 	}
 	if (segments[1] == "materials" && index < data.materials_count)
 	{
@@ -949,18 +1022,17 @@ constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTextureP
 }
 
 // a material property's value as the file has it (the spec's default without its extension), and what it is scaled by
-[[nodiscard]] std::vector<float> MaterialPropertyRest(const cgltf_material& m, MaterialProperty property, float& scale)
+[[nodiscard]] std::vector<float> MaterialPropertyRest(const cgltf_material& m, MaterialProperty property)
 {
-	scale = 1.0F;
 	const auto& pbr = m.pbr_metallic_roughness;
 	bool metallicRoughness = m.has_pbr_metallic_roughness != 0;
 	switch (property)
 	{
 	case MaterialProperty::kBaseColor:
 		return metallicRoughness ? std::vector<float>(pbr.base_color_factor, pbr.base_color_factor + 4) : std::vector<float>{1, 1, 1, 1};
-	case MaterialProperty::kEmissive:
-		scale = m.has_emissive_strength ? m.emissive_strength.emissive_strength : 1.0F;
-		return {m.emissive_factor[0], m.emissive_factor[1], m.emissive_factor[2]};
+	case MaterialProperty::kEmissive: return {m.emissive_factor[0], m.emissive_factor[1], m.emissive_factor[2]};
+	case MaterialProperty::kEmissiveStrength: return {m.has_emissive_strength ? m.emissive_strength.emissive_strength : 1.0F};
+	case MaterialProperty::kAnisotropyRotation: return {m.has_anisotropy ? m.anisotropy.anisotropy_rotation : 0.0F};
 	case MaterialProperty::kMetallic: return {metallicRoughness ? pbr.metallic_factor : 1.0F};
 	case MaterialProperty::kRoughness: return {metallicRoughness ? pbr.roughness_factor : 1.0F};
 	case MaterialProperty::kAlphaCutoff: return {m.alpha_cutoff};
@@ -1104,7 +1176,7 @@ std::expected<Mesh, std::string> Import(
 	std::vector<std::string> unsupportedPointers;
 	{
 		core::UnorderedMap<uint64_t, int32_t> targets; // the first of each, by kind, index and property
-		auto addTarget = [&mesh](ScenePointerTarget::Kind kind, uint32_t index, uint16_t property, std::span<const float> rest, float scale)
+		auto addTarget = [&mesh](ScenePointerTarget::Kind kind, uint32_t index, uint16_t property, std::span<const float> rest)
 		{
 			auto& animation = mesh.animation;
 			animation.pointerTargets.push_back(ScenePointerTarget{
@@ -1112,8 +1184,7 @@ std::expected<Mesh, std::string> Import(
 				.index = index,
 				.property = property,
 				.valueCount = static_cast<uint16_t>(rest.size()),
-				.valueBase = static_cast<uint32_t>(animation.pointerDefaults.size()),
-				.scale = scale});
+				.valueBase = static_cast<uint32_t>(animation.pointerDefaults.size())});
 			animation.pointerDefaults.insert(animation.pointerDefaults.end(), rest.begin(), rest.end());
 			return static_cast<int32_t>(animation.pointerTargets.size() - 1);
 		};
@@ -1142,7 +1213,7 @@ std::expected<Mesh, std::string> Import(
 					if (inserted)
 					{
 						std::array rest{IsHidden(data.nodes[parsedPointer.index]) ? 0.0F : 1.0F};
-						it->second = addTarget(ScenePointerTarget::Kind::kNodeVisibility, parsedPointer.index, 0, rest, 1.0F);
+						it->second = addTarget(ScenePointerTarget::Kind::kNodeVisibility, parsedPointer.index, 0, rest);
 					}
 					parsedPointer.target = it->second;
 					visibilityMoves[parsedPointer.index] = 1;
@@ -1150,14 +1221,24 @@ std::expected<Mesh, std::string> Import(
 				}
 				case Kind::kMaterial:
 				{
-					auto [it, inserted] = targets.try_emplace(key, -1);
+					// the emissive factor and strength together (the shader's emissive is their product), keyed by the factor's
+					auto property = MaterialProperty{parsedPointer.property};
+					bool emissive = property == MaterialProperty::kEmissive || property == MaterialProperty::kEmissiveStrength;
+					auto emissiveKey = (static_cast<uint64_t>(std::to_underlying(Kind::kMaterial)) << 48U) |
+									   (static_cast<uint64_t>(parsedPointer.index) << 16U) | std::to_underlying(MaterialProperty::kEmissive);
+					auto [it, inserted] = targets.try_emplace(emissive ? emissiveKey : key, -1);
 					if (inserted)
 					{
-						float scale = 1.0F;
-						auto rest = MaterialPropertyRest(data.materials[parsedPointer.index], MaterialProperty{parsedPointer.property}, scale);
-						it->second = addTarget(ScenePointerTarget::Kind::kMaterial, parsedPointer.index, parsedPointer.property, rest, scale);
+						const auto& material = data.materials[parsedPointer.index];
+						auto first = emissive ? MaterialProperty::kEmissive : property;
+						it->second = addTarget(
+							ScenePointerTarget::Kind::kMaterial, parsedPointer.index, std::to_underlying(first), MaterialPropertyRest(material, first));
+						if (emissive)
+							addTarget(
+								ScenePointerTarget::Kind::kMaterial, parsedPointer.index, std::to_underlying(MaterialProperty::kEmissiveStrength),
+								MaterialPropertyRest(material, MaterialProperty::kEmissiveStrength));
 					}
-					parsedPointer.target = it->second;
+					parsedPointer.target = it->second + (property == MaterialProperty::kEmissiveStrength ? 1 : 0);
 					if (MaterialProperty{parsedPointer.property} == MaterialProperty::kBaseColor)
 						animatedBaseColor[parsedPointer.index] = 1;
 					break;
@@ -1182,13 +1263,29 @@ std::expected<Mesh, std::string> Import(
 							rotation = {view.transform.rotation};
 							scale = {view.transform.scale[0], view.transform.scale[1]};
 						}
-						it->second = addTarget(ScenePointerTarget::Kind::kTextureOffset, parsedPointer.index, parsedPointer.property, offset, 1.0F);
-						addTarget(ScenePointerTarget::Kind::kTextureRotation, parsedPointer.index, parsedPointer.property, rotation, 1.0F);
-						addTarget(ScenePointerTarget::Kind::kTextureScale, parsedPointer.index, parsedPointer.property, scale, 1.0F);
+						it->second = addTarget(ScenePointerTarget::Kind::kTextureOffset, parsedPointer.index, parsedPointer.property, offset);
+						addTarget(ScenePointerTarget::Kind::kTextureRotation, parsedPointer.index, parsedPointer.property, rotation);
+						addTarget(ScenePointerTarget::Kind::kTextureScale, parsedPointer.index, parsedPointer.property, scale);
 					}
 					parsedPointer.target = it->second + (parsedPointer.kind == Kind::kTextureOffset	  ? 0
 														 : parsedPointer.kind == Kind::kTextureRotation ? 1
 																										: 2);
+					break;
+				}
+				case Kind::kLight:
+				case Kind::kCamera:
+				{
+					auto [it, inserted] = targets.try_emplace(key, -1);
+					if (inserted)
+					{
+						auto rest = parsedPointer.kind == Kind::kLight
+										? LightPropertyRest(data.lights[parsedPointer.index], LightProperty{parsedPointer.property})
+										: CameraPropertyRest(data.cameras[parsedPointer.index], CameraProperty{parsedPointer.property});
+						it->second = addTarget(
+							parsedPointer.kind == Kind::kLight ? ScenePointerTarget::Kind::kLight : ScenePointerTarget::Kind::kCamera,
+							parsedPointer.index, parsedPointer.property, rest);
+					}
+					parsedPointer.target = it->second;
 					break;
 				}
 				default: break; // a node's transform or weights
@@ -1997,7 +2094,12 @@ std::expected<Mesh, std::string> Import(
 				stack.push_back(node->children[childIt - 1]);
 
 			if (node->camera != nullptr)
-				mesh.cameras.push_back(SceneCameraOf(*node, data));
+			{
+				// animated where its node moves, or its values do
+				auto& camera = mesh.cameras.emplace_back(SceneCameraOf(*node, data));
+				camera.animated = nodeMoves(node) || std::ranges::any_of(mesh.animation.pointerTargets, [&camera](const ScenePointerTarget& target)
+				{ return target.kind == ScenePointerTarget::Kind::kCamera && target.index == camera.source; });
+			}
 			if (node->light != nullptr)
 			{
 				// a light under a node that moves follows it (and its visibility)
