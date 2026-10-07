@@ -184,8 +184,16 @@ static core::ConcurrentAccess<SceneState> gScenes;
 // gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
 static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
-// the final image is scaled by 2^gExposureStops before tonemapping. set from the ui, read by the draw thread.
+// the final image is scaled by 2^gExposureStops before tonemapping (with auto exposure, on top of what it picks). set
+// from the ui, read by the draw thread.
 static std::atomic<float> gExposureStops = 0.0F;
+// auto exposure: on or off (from the ui), and what it picked, in stops (the draw thread's: see UpdateAutoExposure)
+static std::atomic<bool> gAutoExposure = false;
+static std::atomic<float> gAutoExposureStops = 0.0F; // written by the draw thread, shown by the ui
+static std::optional<std::chrono::steady_clock::time_point> gAutoExposureLast;
+static uuids::uuid gExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_EXPOSURE_BINS per frame, host visible
+// the tonemapper (TONEMAPPER_*). set from the ui, read by the draw thread.
+static std::atomic<uint32_t> gTonemapper = TONEMAPPER_PBR_NEUTRAL;
 // the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the backdrop.
 // set from the ui, read by the draw thread (see PushConstants::environmentIntensity)
 static std::atomic<float> gEnvironmentIntensity = 1.0F;
@@ -198,13 +206,16 @@ static PushConstants FramePushConstants(uint16_t frameIndex)
 	return PushConstants{
 		.frameIndex = frameIndex,
 		.lightCount = gLightCount,
-		.exposure = std::exp2(gExposureStops.load(std::memory_order_relaxed)),
+		.exposure = std::exp2(
+			gExposureStops.load(std::memory_order_relaxed) +
+			(gAutoExposure.load(std::memory_order_relaxed) ? gAutoExposureStops.load(std::memory_order_relaxed) : 0.0F)),
 		.environmentIntensity = gEnvironmentIntensity.load(std::memory_order_relaxed),
 		.environmentRotation = glm::radians(gEnvironmentRotationDegrees.load(std::memory_order_relaxed)),
 		.viewCount = std::min<uint32_t>(App().GetViews().GetGrid().x * App().GetViews().GetGrid().y, SHADER_TYPES_VIEW_COUNT),
 		.environmentBackdrop = gEnvironmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
 		.framebufferWidth = gOitWidth,
-		.oitNodeCapacity = gOitNodeCapacity};
+		.oitNodeCapacity = gOitNodeCapacity,
+		.tonemapper = gTonemapper.load(std::memory_order_relaxed)};
 }
 
 // takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
@@ -732,6 +743,58 @@ static void ApplyMaterialProperty(MaterialData& data, const ModelMaterial& desc,
 	material.roughness = 1.0F;
 	material.specular = 1.0F;
 	return material;
+}
+
+// auto exposure: what a frame's histogram (gExposureHistogram, read once the frame's previous use is done) says the
+// scene's luminance is, the mean log2 luminance of the pixels between the 50th and 95th percentile (the darkest and the
+// brightest left out), toward which the exposure moves, a little each frame (by elapsed time), so that it is
+// kAutoExposureKey: the default scene (the procedural sky) keeps the exposure it had before. call on the draw thread.
+static void UpdateAutoExposure(RHI& rhi, uint32_t frameIndex)
+{
+	constexpr double kAutoExposureKey = 0.3;
+	constexpr double kAdaptationSpeed = 2.0; // per second, of what is left to the target, as an exponential decay
+
+	auto now = std::chrono::steady_clock::now();
+	auto elapsed = gAutoExposureLast ? std::chrono::duration<double>(now - *gAutoExposureLast).count() : 0.0;
+	gAutoExposureLast = now;
+
+	auto& histogram = *rhi.GetPrimaryDevice().GetResource<Buffer>(gExposureHistogramUuid);
+	auto memory = histogram.Map();
+	std::array<uint32_t, SHADER_TYPES_EXPOSURE_BINS> bins{};
+	std::memcpy(bins.data(), memory.data() + (static_cast<size_t>(frameIndex) * sizeof(bins)), sizeof(bins));
+	histogram.Unmap();
+
+	uint64_t total = std::accumulate(bins.begin(), bins.end(), uint64_t{0});
+	if (total == 0 || !gAutoExposure.load(std::memory_order_relaxed))
+		return;
+	auto low = static_cast<double>(total) * 0.5;
+	auto high = static_cast<double>(total) * 0.95;
+	double counted = 0.0;
+	double sum = 0.0;
+	double weight = 0.0;
+	for (size_t binIt = 0; binIt < bins.size(); binIt++)
+	{
+		// the part of the bin between the percentiles
+		auto from = std::max(counted, low);
+		auto to = std::min(counted + bins[binIt], high);
+		counted += bins[binIt];
+		if (to <= from)
+			continue;
+		auto log2Luminance = SHADER_TYPES_EXPOSURE_LOG2_MIN +
+							 ((static_cast<double>(binIt) + 0.5) / SHADER_TYPES_EXPOSURE_BINS * (SHADER_TYPES_EXPOSURE_LOG2_MAX - SHADER_TYPES_EXPOSURE_LOG2_MIN));
+		sum += log2Luminance * (to - from);
+		weight += to - from;
+	}
+	if (weight <= 0.0)
+		return;
+	auto target = static_cast<float>(std::log2(kAutoExposureKey) - (sum / weight));
+	// the first measure is taken as it is
+	auto stops = gAutoExposureStops.load(std::memory_order_relaxed);
+	if (elapsed <= 0.0 || elapsed > 1.0)
+		stops = target;
+	else
+		stops += (target - stops) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));
+	gAutoExposureStops.store(stops, std::memory_order_relaxed);
 }
 
 // what KHR_animation_pointer channels (and lights that follow nodes) set, as the model's last Animate left it: patches
@@ -2022,7 +2085,8 @@ void CreateWindowDependentObjects(RHI& rhi)
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_TRANSMISSION_TEXTURE);
 	for (auto [name, uuid] : std::array{
-			 std::pair{"gOitHeads", gOitHeadsUuid}, std::pair{"gOitNodes", gOitNodesUuid}, std::pair{"gOitCounter", gOitCounterUuid}})
+			 std::pair{"gOitHeads", gOitHeadsUuid}, std::pair{"gOitNodes", gOitNodesUuid}, std::pair{"gOitCounter", gOitCounterUuid},
+			 std::pair{"gExposureHistogram", gExposureHistogramUuid}})
 		pipeline.SetDescriptorData(
 			name, BufferBinding{.buffer = *device.GetResource<Buffer>(uuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
@@ -2305,6 +2369,21 @@ void WindowedApplication::PrepareDraw()
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
+		// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear) and auto exposure
+		// (SPEEDO_AUTO_EXPOSURE=1) to start with (as View sets them)
+		if (const char* tonemapper = std::getenv("SPEEDO_TONEMAPPER"); tonemapper != nullptr)
+		{
+			std::string_view name(tonemapper);
+			gTonemapper.store(
+				name == "aces"		 ? TONEMAPPER_ACES
+				: name == "agx"		 ? TONEMAPPER_AGX
+				: name == "reinhard" ? TONEMAPPER_REINHARD
+				: name == "linear"	 ? TONEMAPPER_LINEAR
+									 : TONEMAPPER_PBR_NEUTRAL,
+				std::memory_order_relaxed);
+		}
+		if (const char* autoExposure = std::getenv("SPEEDO_AUTO_EXPOSURE"); autoExposure != nullptr && std::string_view(autoExposure) == "1")
+			gAutoExposure.store(true, std::memory_order_relaxed);
 		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
 		if (const char* rotation = std::getenv("SPEEDO_ENVIRONMENT_ROTATION"); rotation != nullptr && *rotation != '\0')
 			gEnvironmentRotationDegrees.store(std::strtof(rotation, nullptr), std::memory_order_relaxed);
@@ -2551,7 +2630,28 @@ void WindowedApplication::PrepareDraw()
 				float stops = gExposureStops.load(std::memory_order_relaxed);
 				if (DragFloat("Exposure", &stops, 0.05F, -16.0F, 16.0F, "%+.2f EV", ImGuiSliderFlags_AlwaysClamp))
 					gExposureStops.store(stops, std::memory_order_relaxed);
-				SetItemTooltip("Scales the image by 2^EV before tonemapping. Drag, or double-click to type.");
+				SetItemTooltip("Scales the image by 2^EV before tonemapping (with auto exposure, on top of what it picks). Drag, or double-click to type.");
+				bool autoExposure = gAutoExposure.load(std::memory_order_relaxed);
+				if (MenuItem("Auto Exposure", nullptr, &autoExposure))
+					gAutoExposure.store(autoExposure, std::memory_order_relaxed);
+				SetItemTooltip("Adapts the exposure to the scene's brightness over time.");
+				if (autoExposure)
+					TextDisabled("Auto: %+.2f EV", gAutoExposureStops.load(std::memory_order_relaxed));
+				if (BeginMenu("Tonemapper"))
+				{
+					static constexpr std::array<std::pair<const char*, uint32_t>, 5> kTonemappers{{
+						{"Khronos PBR Neutral", TONEMAPPER_PBR_NEUTRAL},
+						{"ACES", TONEMAPPER_ACES},
+						{"AgX", TONEMAPPER_AGX},
+						{"Reinhard", TONEMAPPER_REINHARD},
+						{"Linear (clamped)", TONEMAPPER_LINEAR},
+					}};
+					auto current = gTonemapper.load(std::memory_order_relaxed);
+					for (auto [name, tonemapper] : kTonemappers)
+						if (MenuItem(name, nullptr, current == tonemapper))
+							gTonemapper.store(tonemapper, std::memory_order_relaxed);
+					ImGui::EndMenu();
+				}
 			}
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
@@ -2715,7 +2815,9 @@ bool WindowedApplication::Draw()
 			GetExecutor().Call(drawCall, graphics.Get().get());
 		}
 
-		// the frame's instance and joint buffers, now that the frame's previous use of them is done (see the fences above)
+		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
+		// (see the fences above)
+		UpdateAutoExposure(rhi, newFrameIndex);
 		if (gModel && gModel->Moves())
 		{
 			ScenePose pose;
@@ -2777,8 +2879,17 @@ bool WindowedApplication::Draw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
-			// the transparency lists the main pass wrote
-			CommandEncoder(cmd).Barrier(PipelineStage::kFragmentShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
+			// the transparency lists the main pass wrote, and the frame's exposure histogram, emptied for ComputeMain to
+			// count into
+			{
+				CommandEncoder encoder(cmd);
+				encoder.Barrier(PipelineStage::kFragmentShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
+				constexpr auto kHistogramSize = SHADER_TYPES_EXPOSURE_BINS * sizeof(uint32_t);
+				encoder.FillBuffer(
+					*device.GetResource<Buffer>(gExposureHistogramUuid), newFrameIndex * kHistogramSize, kHistogramSize, 0);
+				encoder.Barrier(
+					PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
+			}
 
 			renderImageSet.SetLoadOp(LoadOp::kLoad, kColorAttachment);
 			renderImageSet.SetStoreOp(StoreOp::kStore, kColorAttachment);
@@ -2831,6 +2942,8 @@ bool WindowedApplication::Draw()
 				(dstExtent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
 				(dstExtent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
 				1U);
+			// for the cpu to read the histogram once the frame is done (see UpdateAutoExposure)
+			CommandEncoder(cmd).Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kHost, Access::kHostRead);
 		}
 		// {
 		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
@@ -3130,6 +3243,21 @@ WindowedApplication::WindowedApplication(
 			environmentTransfersDone);
 		gEnvironmentUuid = environmentBuffer->GetUuid();
 		timelineCallbacks.emplace_back(environmentTransfersDone.handle);
+
+		// counted into by ComputeMain, read by UpdateAutoExposure
+		std::vector<uint32_t> histograms(static_cast<size_t>(SHADER_TYPES_FRAME_COUNT) * SHADER_TYPES_EXPOSURE_BINS);
+		core::TaskCreateInfo<void> histogramTransfersDone;
+		auto histogramBuffer = device.CreateResource<Buffer>(
+			BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("Exposure Histogram"),
+				histograms.size() * sizeof(uint32_t),
+				BufferUsage::kStorage | BufferUsage::kTransferDestination,
+				MemoryProperty::kHostVisible | MemoryProperty::kHostCoherent},
+			histograms.data(),
+			cmd,
+			histogramTransfersDone);
+		gExposureHistogramUuid = histogramBuffer->GetUuid();
+		timelineCallbacks.emplace_back(histogramTransfersDone.handle);
 
 		std::array<SkinVertex, 1> defaultSkinVertices{};
 		core::TaskCreateInfo<void> skinTransfersDone;

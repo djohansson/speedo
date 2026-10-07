@@ -217,6 +217,8 @@ namespace rhi::vk
 		flags |= VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 	if (Any(stages & PipelineStage::kBottomOfPipe))
 		flags |= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+	if (Any(stages & PipelineStage::kHost))
+		flags |= VK_PIPELINE_STAGE_HOST_BIT;
 	return flags;
 }
 
@@ -235,6 +237,8 @@ namespace rhi::vk
 		flags |= VK_ACCESS_HOST_WRITE_BIT;
 	if (Any(access & Access::kIndexRead))
 		flags |= VK_ACCESS_INDEX_READ_BIT;
+	if (Any(access & Access::kHostRead))
+		flags |= VK_ACCESS_HOST_READ_BIT;
 	return flags;
 }
 

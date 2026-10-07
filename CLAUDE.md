@@ -368,8 +368,16 @@ is.
 
 Rendering is linear: color textures are loaded with srgb formats (`gfx::image::Usage::kColor`, mips filtered in linear
 space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` scales it by the exposure (View > Exposure,
-in stops), tonemaps it (Khronos PBR Neutral, which leaves colors up to about 0.76 as they are) and applies the srgb curve
-when it copies to the swapchain, which stays unorm since it is a storage image (and imgui's colors are srgb already).
+in stops), tonemaps it (`PushConstants::tonemapper`, View > Tonemapper or `SPEEDO_TONEMAPPER`: Khronos PBR Neutral, the
+default, which leaves colors up to about 0.76 as they are; ACES, Hill's fit; AgX, Wrensch's fit of the base look;
+Reinhard on luminance; linear) and applies the srgb curve when it copies to the swapchain, which stays unorm since it is a
+storage image (and imgui's colors are srgb already). Auto exposure (View > Auto Exposure, `SPEEDO_AUTO_EXPOSURE=1`; off
+by default) needs no pass of its own: ComputeMain counts the scene's pixels by their log2 luminance, before exposure,
+into 64 bins (`gExposureHistogram`, per frame index, host visible: shared memory per group, then atomics; emptied with
+`FillBuffer` before, and a barrier to the host stage after), and `UpdateAutoExposure` reads a frame's histogram after
+its fence (where `Model::Animate` writes the frame's buffers), averages the log luminance between the 50th and 95th
+percentile, and moves the exposure toward `log2(0.3) - mean` (the procedural sky keeps exposure 1) by an exponential
+decay of 2 per second; the Exposure slider is added on top.
 Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, or a default directional light of 2.2 lux), plus image based lighting that occlusion darkens. The environment

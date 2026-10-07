@@ -86,6 +86,20 @@ extern "C"
 #define SHADER_TYPES_OIT_NONE 0xffffffffu
 #define SHADER_TYPES_OIT_MAX_LAYERS 16u
 #define SHADER_TYPES_OIT_NODES_PER_PIXEL 4u
+
+// auto exposure: ComputeMain counts the frame's pixels by their log2 luminance (before exposure) in this many bins of
+// gExposureHistogram (per frame index), from SHADER_TYPES_EXPOSURE_LOG2_MIN to SHADER_TYPES_EXPOSURE_LOG2_MAX (the
+// first and last bins also take what is below and above), which the cpu reads back to adapt the exposure
+#define SHADER_TYPES_EXPOSURE_BINS 64u
+#define SHADER_TYPES_EXPOSURE_LOG2_MIN -12.0
+#define SHADER_TYPES_EXPOSURE_LOG2_MAX 12.0
+
+// PushConstants::tonemapper
+#define TONEMAPPER_PBR_NEUTRAL 0u // Khronos PBR Neutral: base colors render as themselves, brighter ones roll off to white
+#define TONEMAPPER_ACES 1u // ACES filmic (Stephen Hill's fit of the RRT and ODT)
+#define TONEMAPPER_AGX 2u // AgX (Benjamin Wrensch's polynomial fit, the base look)
+#define TONEMAPPER_REINHARD 3u // Reinhard on luminance: x / (1 + x)
+#define TONEMAPPER_LINEAR 4u // none: clamped
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 #define SHADER_TYPES_MATERIAL_INDEX_BITS 10u
@@ -303,6 +317,8 @@ struct PushConstants
 	// per frame: the order independent transparency's (see OitNode)
 	alignas(4) UINT(framebufferWidth);
 	alignas(4) UINT(oitNodeCapacity);
+	// per frame, for ComputeMain: which tonemapper (TONEMAPPER_*)
+	alignas(4) UINT(tonemapper);
 };
 
 #ifdef __cplusplus

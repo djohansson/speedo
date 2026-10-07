@@ -158,6 +158,7 @@ enum class PipelineStage : uint16_t
 	kAllGraphics = 1U << 6U,
 	kAllCommands = 1U << 7U,
 	kBottomOfPipe = 1U << 8U,
+	kHost = 1U << 9U, // the host's reads and writes of mapped memory
 };
 RHI_FLAGS(PipelineStage)
 
@@ -170,6 +171,7 @@ enum class Access : uint8_t
 	kTransferWrite = 1U << 3U,
 	kHostWrite = 1U << 4U,
 	kIndexRead = 1U << 5U,
+	kHostRead = 1U << 6U,
 };
 RHI_FLAGS(Access)
 
