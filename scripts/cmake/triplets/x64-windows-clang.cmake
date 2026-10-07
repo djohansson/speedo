@@ -49,3 +49,14 @@ if(PORT STREQUAL "zstd" OR PORT STREQUAL "pugixml")
 	# ("undefined symbol: __declspec(dllimport) ZSTD_createDStream" when linking the tracy profiler). link statically.
 	set(VCPKG_LIBRARY_LINKAGE static)
 endif()
+if(PORT STREQUAL "draco")
+	# outside of CMake's MSVC check it builds a static and a shared library both named draco, whose import library
+	# collides with the static one on windows ("multiple rules generate draco.lib"). link statically.
+	set(VCPKG_LIBRARY_LINKAGE static)
+endif()
+if(PORT STREQUAL "ktx")
+	# its astc-encoder adds -ffp-model=precise -Werror, which overrides -ffast-math's complex range and so fails with
+	# -Woverriding-complex-range
+	string(APPEND VCPKG_C_FLAGS " -Wno-overriding-complex-range")
+	string(APPEND VCPKG_CXX_FLAGS " -Wno-overriding-complex-range")
+endif()

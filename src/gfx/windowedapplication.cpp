@@ -1,14 +1,16 @@
+#include <core/task.h>
 #include <gfx/capi.h>
-#include <gfx/windowedapplication.h>
+#include <gfx/gpu.h>
+#include <gfx/imgui_extra.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
 #include <gfx/shaderloader.h>
+#include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
-
-#include <core/task.h>
+#include <gfx/windowedapplication.h>
+#include <gfx/ziparchive.h>
 #include <rhi/capi.h>
 #include <rhi/renderimageset.h>
-#include <gfx/shaders/capi.h>
 
 #include <uuid.h>
 #include <xxhash.h>
@@ -17,10 +19,6 @@
 #include <imgui_impl_glfw.h>
 
 #include <GLFW/glfw3.h>
-
-#include <gfx/gpu.h>
-#include <gfx/imgui_extra.h>
-#include <gfx/ziparchive.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -41,6 +39,7 @@
 #include <span>
 #include <array>
 #include <memory>
+#include <utility>
 
 //#include <imnodes.h>
 
@@ -112,13 +111,41 @@ static uuids::uuid gDefaultJointsUuid;
 // it, the draw thread advances it.
 struct AnimationState
 {
+	static constexpr double kCrossfade = 0.3; // seconds a switch of animation fades over
+
 	std::vector<std::string> names;
 	std::optional<size_t> selected; // nullopt: the rest pose
 	bool playing = true;
 	double time = 0.0; // seconds
 	std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+	// what is fading out after a switch (and still playing), and for how long it has
+	std::optional<size_t> previous;
+	double previousTime = 0.0;
+	double fade = kCrossfade;
+
+	// switches to an animation (or the rest pose), from its start, crossfading from the current one
+	void Select(std::optional<size_t> animation)
+	{
+		if (animation == selected)
+			return;
+		previous = selected;
+		previousTime = time;
+		fade = 0.0;
+		selected = animation;
+		time = 0.0;
+	}
 };
 static core::ConcurrentAccess<AnimationState> gAnimation;
+
+// the installed model's file and its scenes (a gltf file's, see ModelDesc::scenes), for View > Scene. the draw thread
+// sets it, the ui thread reads it.
+struct SceneState
+{
+	std::string filePath;
+	std::vector<std::string> names;
+	uint32_t current = 0;
+};
+static core::ConcurrentAccess<SceneState> gScenes;
 // gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
 static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
@@ -291,7 +318,7 @@ static_assert(kMaterialTextureId >= SHADER_TYPES_FRAME_COUNT && kMaterialTexture
 // the material slot drawn for a submesh of the loaded model
 static uint32_t ModelMaterialSlot(int32_t material)
 {
-	return material >= 0 && static_cast<uint32_t>(material) < kModelMaterialMaxCount ? static_cast<uint32_t>(material) + 1 : 0;
+	return material >= 0 && std::cmp_less(material, kModelMaterialMaxCount) ? static_cast<uint32_t>(material) + 1 : 0;
 }
 
 // the loaded model's textures, by slot (from kModelTextureFirstSlot). nil for slots it doesn't use.
@@ -318,7 +345,7 @@ static void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::sha
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
 		.signalSemaphoreValues = {++graphics.timeline},
-		.callbacks = std::move(callbacks)});
+		.callbacks = std::move(callbacks),});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -356,7 +383,7 @@ static void UpdateBufferOnGraphics(
 		.waitDstStageMasks = {PipelineStage::kAllCommands},
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
-		.signalSemaphoreValues = {++graphics.timeline}});
+		.signalSemaphoreValues = {++graphics.timeline},});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -378,7 +405,7 @@ static void UpdateLights(RHI& rhi, QueueTimelineContextData& graphics, std::span
 	static const SceneLight kDefaultLight{
 		.name = "default",
 		.direction = {-0.2638F, -0.8794F, -0.4397F}, // -normalize(0.3, 1, 0.5)
-		.intensity = 2.2F}; // lux: 0.7 pi, the diffuse light of a white surface facing it (0.7) times pi
+		.intensity = 2.2F,}; // lux: 0.7 pi, the diffuse light of a white surface facing it (0.7) times pi
 	if (sceneLights.empty())
 		sceneLights = std::span(&kDefaultLight, 1);
 	if (sceneLights.size() > SHADER_TYPES_LIGHT_COUNT)
@@ -442,14 +469,14 @@ struct TextureViewKeyHash
 // a view of a texture slot with a sampler slot, as a TextureRef samples it
 [[nodiscard]] static TextureView MakeTextureView(uint32_t textureSlot, uint32_t samplerSlot, const TextureRef& ref)
 {
-	const auto& t = ref.transform;
+	const auto& tRef = ref.transform;
 	return TextureView{
-		.uTransform = {t[0], t[1], t[2], 0.0F},
-		.vTransform = {t[3], t[4], t[5], 0.0F},
+		.uTransform = {tRef[0], tRef[1], tRef[2], 0.0F},
+		.vTransform = {tRef[3], tRef[4], tRef[5], 0.0F},
 		.textureId = textureSlot,
 		.samplerId = samplerSlot,
 		.texCoordSet = ref.texCoord,
-		.padding = 0};
+		.padding = 0,};
 }
 
 // buffers and images uploaded by the loaders (see Upload), to install
@@ -475,14 +502,14 @@ static void TransitionThenBind(
 	QueueDeviceSyncInfo syncInfo{
 		.waitSemaphores = {graphics.semaphore},
 		.waitDstStageMasks = {PipelineStage::kAllCommands},
-		.waitSemaphoreValues = {graphics.timeline}};
+		.waitSemaphoreValues = {graphics.timeline},};
 	std::vector<const Semaphore*> waitSemaphores{&graphics.semaphore};
 	auto waitFor = [&](const Upload& upload)
 	{
 		ENSURE(upload.semaphore != nullptr);
-		auto it = std::ranges::find(waitSemaphores, upload.semaphore);
-		auto index = static_cast<size_t>(it - waitSemaphores.begin());
-		if (it == waitSemaphores.end())
+		auto semaIt = std::ranges::find(waitSemaphores, upload.semaphore);
+		auto index = static_cast<size_t>(semaIt - waitSemaphores.begin());
+		if (semaIt == waitSemaphores.end())
 		{
 			waitSemaphores.push_back(upload.semaphore);
 			syncInfo.waitSemaphores.emplace_back(*upload.semaphore);
@@ -490,7 +517,9 @@ static void TransitionThenBind(
 			syncInfo.waitSemaphoreValues.emplace_back(upload.value);
 		}
 		else if (index > 0)
+		{
 			syncInfo.waitSemaphoreValues[index] = std::max(syncInfo.waitSemaphoreValues[index], upload.value);
+		}
 	};
 
 	auto cmd = graphicsQueue.GetPool().Commands();
@@ -586,8 +615,8 @@ static void InstallModel(
 			if (!image)
 				return std::nullopt;
 
-			if (auto it = textureSlots.find(image.get()); it != textureSlots.end())
-				return it->second;
+			if (auto slotIt = textureSlots.find(image.get()); slotIt != textureSlots.end())
+				return slotIt->second;
 
 			if (textureUuids.size() == kModelTextureMaxCount)
 				return std::nullopt;
@@ -616,8 +645,8 @@ static void InstallModel(
 			static const SamplerDesc kDefault = TextureRef{}.sampler;
 			if (desc == kDefault)
 				return kDefaultSamplerId;
-			auto it = std::ranges::find(samplerDescs, desc);
-			if (it == samplerDescs.end())
+			auto samplerDescIt = std::ranges::find(samplerDescs, desc);
+			if (samplerDescIt == samplerDescs.end())
 			{
 				if (samplerDescs.size() == kModelSamplerSlots.size())
 				{
@@ -625,9 +654,9 @@ static void InstallModel(
 						std::println(stderr, "more than {} different samplers, the rest use the default", kModelSamplerSlots.size());
 					return kDefaultSamplerId;
 				}
-				it = samplerDescs.insert(samplerDescs.end(), desc);
+				samplerDescIt = samplerDescs.insert(samplerDescs.end(), desc);
 			}
-			return kModelSamplerSlots[static_cast<size_t>(it - samplerDescs.begin())];
+			return kModelSamplerSlots[static_cast<size_t>(samplerDescIt - samplerDescs.begin())];
 		};
 
 		// each distinct view once, from 1 (0 is material 0's, see InstallImage)
@@ -641,7 +670,7 @@ static void InstallModel(
 				return std::nullopt;
 
 			auto samplerSlot = samplerSlotOf(ref.sampler);
-			auto [it, inserted] = viewIds.try_emplace(
+			auto [viewIdIt, inserted] = viewIds.try_emplace(
 				TextureViewKey{
 					.textureSlot = *textureSlot,
 					.samplerSlot = samplerSlot,
@@ -654,13 +683,13 @@ static void InstallModel(
 				{
 					if (!std::exchange(viewsFull, true))
 						std::println(stderr, "more than {} texture views, the rest are left out", SHADER_TYPES_TEXTURE_VIEW_COUNT - 1);
-					viewIds.erase(it);
+					viewIds.erase(viewIdIt);
 					return std::nullopt;
 				}
-				it->second = static_cast<uint32_t>(1 + views.size());
+				viewIdIt->second = static_cast<uint32_t>(1 + views.size());
 				views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref));
 			}
-			return it->second;
+			return viewIdIt->second;
 		};
 
 		std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount));
@@ -673,6 +702,7 @@ static void InstallModel(
 			std::ranges::copy(desc.emissive, material.emissive);
 			material.metallic = desc.metallic;
 			material.roughness = desc.roughness;
+			material.specular = desc.specular;
 			if (desc.unlit)
 				material.flags |= MATERIAL_FLAG_UNLIT;
 			if (auto view = viewOf(textures[materialIt].metallicRoughness, desc.metallicRoughnessTexture))
@@ -753,7 +783,7 @@ static void InstallModel(
 			"gSkinVertices",
 			BufferBinding{
 				.buffer = model->GetSkinBuffer() != nullptr ? *model->GetSkinBuffer() : *device.GetResource<Buffer>(gDefaultSkinVerticesUuid),
-				.offset = 0},
+				.offset = 0,},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 		{
@@ -767,9 +797,15 @@ static void InstallModel(
 				BufferBinding{
 					.buffer = model->GetJointBuffer(frameIt) != nullptr ? *model->GetJointBuffer(frameIt)
 																		: *device.GetResource<Buffer>(gDefaultJointsUuid),
-					.offset = 0},
+					.offset = 0,},
 				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 				frameIt);
+		}
+
+		{
+			auto scenes = gScenes.Write();
+			scenes.Get() = SceneState{
+				.filePath = model->GetDesc().name, .names = model->GetDesc().scenes, .current = model->GetDesc().scene};
 		}
 
 		// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
@@ -783,6 +819,8 @@ static void InstallModel(
 			state.playing = true;
 			state.time = 0.0;
 			state.last = std::chrono::steady_clock::now();
+			state.previous.reset();
+			state.fade = AnimationState::kCrossfade;
 			if (const char* time = std::getenv("SPEEDO_ANIMATION_TIME"); time != nullptr && *time != '\0')
 			{
 				state.playing = false;
@@ -826,7 +864,8 @@ static void InstallImage(
 			.flags = MATERIAL_FLAG_TEXTURE,
 			.alphaCutoff = 0.5F,
 			.baseColorView = 0,
-			.roughness = 1.0F};
+			.roughness = 1.0F,
+			.specular = 1.0F};
 		UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 		RetireAfterGraphicsWork(graphics, device.ReplaceResource(gLoadedImageUuid, image));
@@ -838,9 +877,13 @@ static void InstallImage(
 
 // loads a model (or several, side by side as one, see Model::Load) and its materials' textures, and has the draw thread
 // install them, unless the load was cancelled. call from a load (see gLoads).
-static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress)
+// scene: a gltf file's scene to load (one file only), else its default one
+static void LoadAndInstallModels(
+	RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, std::optional<size_t> scene = std::nullopt)
 {
-	auto model = Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
+	auto model = scene && filePaths.size() == 1
+					 ? Model::Load(filePaths.front(), progress, scene)
+					 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
 	if (!model) // cancelled or failed
 		return;
 
@@ -854,6 +897,7 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 	struct TextureLoad
 	{
 		std::string path;
+		std::optional<uint32_t> embeddedImage; // see TextureRef::embeddedImage
 		gfx::image::Options options;
 		Texture* result;
 	};
@@ -864,22 +908,27 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 		const auto& material = materials[materialIt];
 		auto& texture = textures[materialIt];
 		if (!material.diffuseTexture.empty())
-			loads.push_back({material.diffuseTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
+			loads.push_back(
+				{material.diffuseTexture.path, material.diffuseTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.diffuse});
 		if (!material.alphaTexture.empty())
-			loads.push_back({material.alphaTexture.path, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
+			loads.push_back(
+				{material.alphaTexture.path, material.alphaTexture.embeddedImage, {.usage = gfx::image::Usage::kMask}, &texture.alpha});
 		if (!material.normalTexture.empty())
-			loads.push_back({material.normalTexture.path, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
+			loads.push_back(
+				{material.normalTexture.path, material.normalTexture.embeddedImage, {.usage = gfx::image::Usage::kNormal}, &texture.normal});
 		else if (!material.bumpTexture.empty())
 			loads.push_back(
-				{material.bumpTexture.path, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
+				{material.bumpTexture.path, material.bumpTexture.embeddedImage, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
 		// the texture scales emissive, so it is only worth loading if that isn't black (obj map_Ke usually comes with Ke 0)
 		if (!material.emissiveTexture.empty() && std::ranges::any_of(material.emissive, [](float value) { return value > 0.0F; }))
-			loads.push_back({material.emissiveTexture.path, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
+			loads.push_back(
+				{material.emissiveTexture.path, material.emissiveTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
 		if (!material.occlusionTexture.empty())
-			loads.push_back({material.occlusionTexture.path, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
+			loads.push_back(
+				{material.occlusionTexture.path, material.occlusionTexture.embeddedImage, {.usage = gfx::image::Usage::kOcclusion}, &texture.occlusion});
 		if (!material.metallicRoughnessTexture.empty())
 			loads.push_back(
-				{material.metallicRoughnessTexture.path, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.metallicRoughness});
+				{material.metallicRoughnessTexture.path, material.metallicRoughnessTexture.embeddedImage, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.metallicRoughness});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;
@@ -887,7 +936,8 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 	for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
 	{
 		const auto& load = loads[loadIt];
-		auto key = std::format("{}|{}|{}", load.path, std::to_underlying(load.options.usage), load.options.bumpScale);
+		auto key = std::format(
+			"{}|{}|{}|{}", load.path, load.embeddedImage.value_or(~0U), std::to_underlying(load.options.usage), load.options.bumpScale);
 		auto [it, inserted] = loaded.try_emplace(std::move(key));
 		if (inserted)
 		{
@@ -895,7 +945,7 @@ static void LoadAndInstallModels(RHI& rhi, const std::vector<std::string>& fileP
 				return;
 
 			std::atomic_uint8_t textureProgress = 0;
-			it->second = LoadTexture(load.path, textureProgress, load.options);
+			it->second = LoadTexture(load.path, textureProgress, load.options, load.embeddedImage);
 		}
 		*load.result = it->second;
 
@@ -1054,7 +1104,7 @@ static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic
 }
 
 // the image files LoadAndInstallImage takes, as a file dialog filter spec (see image::Import)
-static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm";
+static constexpr const char* kImageExtensions = "jpg,jpeg,png,bmp,tga,gif,psd,hdr,pic,pnm,webp,ktx2";
 
 [[nodiscard]] static bool IsImageFile(const std::filesystem::path& path)
 {
@@ -1139,6 +1189,8 @@ static void DrawMainPass(
 
 		// blended submeshes are drawn back to front from each view's camera
 		auto eyes = App().GetViews().GetEyePositions();
+		// and drawn in their viewports: their grid cells, letterboxed to their cameras' aspect ratios
+		auto viewports = App().GetViews().GetViewports();
 
 		constexpr uint32_t kMaxDrawThreads = 128;
 		std::array<uint32_t, kMaxDrawThreads> seq;
@@ -1155,6 +1207,7 @@ static void DrawMainPass(
 			&drawCount,
 			&model,
 			&eyes,
+			&viewports,
 			grid](uint32_t threadIt)
 			{
 				ZoneScoped;
@@ -1203,7 +1256,7 @@ static void DrawMainPass(
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &eyes, grid](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &eyes, &viewports, grid](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
@@ -1218,14 +1271,23 @@ static void DrawMainPass(
 
 							auto posX = static_cast<int32_t>(col * deltaX);
 							auto posY = static_cast<int32_t>(row * deltaY);
+							auto width = deltaX;
+							auto height = deltaY;
+							if (viewIt < viewports.size() && viewports[viewIt].width > 0 && viewports[viewIt].height > 0)
+							{
+								posX = viewports[viewIt].x;
+								posY = viewports[viewIt].y;
+								width = viewports[viewIt].width;
+								height = viewports[viewIt].height;
+							}
 							encoder.SetViewport(Viewport{
 								.x = static_cast<float>(posX),
 								.y = static_cast<float>(posY),
-								.width = static_cast<float>(deltaX),
-								.height = static_cast<float>(deltaY),
+								.width = static_cast<float>(width),
+								.height = static_cast<float>(height),
 								.minDepth = 0.0F,
 								.maxDepth = 1.0F});
-							encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = deltaX, .height = deltaY});
+							encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
 						}
 
 						uint16_t viewIndex = viewIt;
@@ -1241,7 +1303,8 @@ static void DrawMainPass(
 							const auto& skins = model.GetDesc().animation.skins;
 							// bindState bound the default (opaque triangle list) pipeline
 							GraphicsPipelineVariant bound{};
-							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend)
+							// a submesh's instances, or only one of them (instance)
+							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend, std::optional<uint32_t> instance = std::nullopt)
 							{
 								if (GraphicsPipelineVariant variant{.topology = submesh.topology, .blend = blend}; variant != bound)
 								{
@@ -1269,31 +1332,43 @@ static void DrawMainPass(
 									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
 								};
 								auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
+								if (instance)
+								{
+									drawInstances(
+										*instance, 1, *instance < submesh.firstInstance + unmirrored ? FrontFace::kCounterClockwise : FrontFace::kClockwise);
+									return;
+								}
 								drawInstances(submesh.firstInstance, unmirrored, FrontFace::kCounterClockwise);
 								drawInstances(submesh.firstInstance + unmirrored, submesh.mirroredInstanceCount, FrontFace::kClockwise);
 							};
 
-							std::vector<const ModelSubmesh*> blended;
+							// blended submeshes, an instance at a time, sorted by where (the last Animate put) their centers
+							struct Blended
+							{
+								const ModelSubmesh* submesh;
+								uint32_t instance;
+								float distance2;
+							};
+							std::vector<Blended> blended;
+							auto eye = viewIndex < eyes.size() ? eyes[viewIndex] : glm::vec3(0.0F);
 							for (const auto& submesh : model.GetDesc().submeshes)
 							{
-								if (submesh.material >= 0 && materials[submesh.material].blend)
-									blended.push_back(&submesh);
-								else
+								if (submesh.material < 0 || !materials[submesh.material].blend)
+								{
 									draw(submesh, BlendMode::kOpaque);
+									continue;
+								}
+								for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
+								{
+									auto center = model.GetCenter(submesh, instanceIt);
+									auto offset = glm::vec3(center[0], center[1], center[2]) - eye;
+									blended.push_back({&submesh, instanceIt, glm::dot(offset, offset)});
+								}
 							}
 
-							if (!blended.empty())
-							{
-								auto eye = viewIndex < eyes.size() ? eyes[viewIndex] : glm::vec3(0.0F);
-								auto distance2 = [&eye](const ModelSubmesh* submesh)
-								{
-									auto offset = glm::vec3(submesh->center[0], submesh->center[1], submesh->center[2]) - eye;
-									return glm::dot(offset, offset);
-								};
-								std::ranges::sort(blended, std::greater{}, distance2);
-								for (const auto* submesh : blended)
-									draw(*submesh, BlendMode::kAlpha);
-							}
+							std::ranges::sort(blended, std::greater{}, &Blended::distance2);
+							for (const auto& item : blended)
+								draw(*item.submesh, BlendMode::kAlpha, item.instance);
 
 							if (bound != GraphicsPipelineVariant{})
 								pipeline.BindPipelineAuto(cmd);
@@ -1649,7 +1724,7 @@ void WindowedApplication::PrepareDraw()
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 	auto& window = rhi.GetWindow(GetCurrentWindow());
 
-	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.sh)
+	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.ps1)
 	auto dialogPath = [&resourcePath]
 	{
 		std::error_code error;
@@ -1659,9 +1734,10 @@ void WindowedApplication::PrepareDraw()
 
 	// automation: SPEEDO_AUTOLOAD_MODEL (a model, or a zip archive or directory, whose models are loaded side by side)
 	// and SPEEDO_AUTOLOAD_IMAGE (an image, on the default material) name files to load at startup, absolute or relative to
-	// the resource directory, through the same load + install path as the "File" menu. with
+	// the resource directory, through the same load + install path as the "File" menu (SPEEDO_AUTOLOAD_SCENE=<index>: a
+	// gltf model's scene, as View > Scene loads it). with
 	// SPEEDO_AUTOLOAD_EXIT=<frames>, the application exits that many frames after the loads have finished (see
-	// scripts/assettest.sh).
+	// scripts/assettest.ps1).
 	static std::vector<core::Future<void>> gAutoLoads;
 	static std::optional<uint32_t> gAutoLoadExitFrames;
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
@@ -1670,11 +1746,19 @@ void WindowedApplication::PrepareDraw()
 
 		// queued as separate loads, which run concurrently
 		// a zip archive loads all of its models, side by side
+		std::optional<size_t> autoLoadScene;
+		if (const char* scene = std::getenv("SPEEDO_AUTOLOAD_SCENE"); scene != nullptr && *scene != '\0')
+			autoLoadScene = std::strtoull(scene, nullptr, 10);
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
-				[&rhi, path = (resourcePath / autoLoadModel).string()](std::atomic_uint8_t& progress)
-				{ LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll); }));
+				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadScene](std::atomic_uint8_t& progress)
+				{
+					if (autoLoadScene && mesh::IsModelFile(path))
+						LoadAndInstallModels(rhi, {path}, progress, autoLoadScene);
+					else
+						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
+				}));
 		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadImage,
@@ -1785,6 +1869,24 @@ void WindowedApplication::PrepareDraw()
 					rhi.drawCalls.enqueue(resizeTask);
 				}
 			}
+			if (BeginMenu("Scene"))
+			{
+				// the installed gltf file's scenes: choosing one loads the file again with it
+				SceneState scenes = gScenes.Read().Get();
+				if (scenes.names.size() < 2)
+					TextDisabled(scenes.names.empty() ? "No scenes" : "One scene");
+				for (size_t sceneIt = 0; sceneIt < scenes.names.size(); sceneIt++)
+				{
+					PushID(static_cast<int>(sceneIt));
+					if (MenuItem(scenes.names[sceneIt].c_str(), nullptr, scenes.current == sceneIt) && scenes.current != sceneIt)
+						(void)gLoads.Enqueue(
+							std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), scenes.names[sceneIt]),
+							[&rhi, path = scenes.filePath, sceneIt](std::atomic_uint8_t& progress)
+							{ LoadAndInstallModels(rhi, {path}, progress, sceneIt); });
+					PopID();
+				}
+				ImGui::EndMenu();
+			}
 			if (BeginMenu("Animation"))
 			{
 				// the installed model's animations (see Model::Animate)
@@ -1795,15 +1897,12 @@ void WindowedApplication::PrepareDraw()
 					state.time = 0.0;
 				Separator();
 				if (MenuItem("Rest pose", nullptr, !state.selected.has_value()))
-					state.selected.reset();
+					state.Select(std::nullopt);
 				for (size_t animationIt = 0; animationIt < state.names.size(); animationIt++)
 				{
 					PushID(static_cast<int>(animationIt));
 					if (MenuItem(state.names[animationIt].c_str(), nullptr, state.selected == animationIt))
-					{
-						state.selected = animationIt;
-						state.time = 0.0;
-					}
+						state.Select(animationIt);
 					PopID();
 				}
 				ImGui::EndMenu();
@@ -2026,19 +2125,27 @@ bool WindowedApplication::Draw()
 		// the frame's instance and joint buffers, now that the frame's previous use of them is done (see the fences above)
 		if (gModel && gModel->Moves())
 		{
-			std::optional<size_t> selected;
-			double time = 0.0;
+			ScenePose pose;
+			ScenePose from;
+			float weight = 1.0F;
 			{
 				auto animation = gAnimation.Write();
 				auto& state = animation.Get();
 				auto now = std::chrono::steady_clock::now();
-				if (state.playing)
-					state.time += std::chrono::duration<double>(now - state.last).count();
+				auto elapsed = std::chrono::duration<double>(now - state.last).count();
 				state.last = now;
-				selected = state.selected;
-				time = state.time;
+				if (state.playing)
+				{
+					state.time += elapsed;
+					state.previousTime += elapsed;
+				}
+				// the fade runs in real time, also while paused
+				state.fade = std::min(state.fade + elapsed, AnimationState::kCrossfade);
+				pose = {.animation = state.selected, .time = static_cast<float>(state.time)};
+				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
+				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			gModel->Animate(newFrameIndex, selected, static_cast<float>(time));
+			gModel->Animate(newFrameIndex, pose, from, weight);
 		}
 		
 		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);
@@ -2328,6 +2435,7 @@ WindowedApplication::WindowedApplication(
 		{
 			std::ranges::fill(material.color, 1.0F);
 			material.roughness = 1.0F;
+			material.specular = 1.0F;
 		}
 
 		core::TaskCreateInfo<void> materialTransfersDone;

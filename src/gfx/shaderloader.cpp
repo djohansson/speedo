@@ -1,15 +1,16 @@
-#include <gfx/shaderloader.h>
+
 
 #include <core/assert.h>
 #include <core/file.h>
+#include <gfx/shaderloader.h>
 #include <rhi/rhi.h>
-
-#include <xxhash.h>
 
 #include <array>
 #include <format>
 #include <iostream>
 #include <utility>
+
+#include <xxhash.h>
 
 namespace gfx
 {
@@ -539,7 +540,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 	std::string paramsHash;
 	params.append("slang-");
 	params.append(spGetBuildTagString()); // the loaded slang library's version, so upgrading it recompiles
-	params.append("|cache-v5"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
+	params.append("|cache-v6"); // bump when the serialized ShaderSet layout changes, to invalidate stale caches
 	params.append(std::format("|format-{}", std::to_underlying(rhi::kShaderFormat)));
 	params.append(config.ToString());
 	static constexpr size_t kSha2Size = 32;

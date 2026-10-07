@@ -5,6 +5,7 @@
 #include <gfx/upload.h>
 
 #include <atomic>
+#include <optional>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -27,6 +28,11 @@ struct Texture
 // primary device's transfer queue. returns once the upload is submitted (see Texture::upload); the image is left in the
 // layout of the upload, so the caller must transition it before sampling from it. returns an empty texture if the load was cancelled because the
 // application is exiting, or failed (the reason is printed to stderr).
-[[nodiscard]] Texture LoadTexture(std::string_view filePath, std::atomic_uint8_t& progress, const image::Options& options = {});
+// embeddedImage: an image the gltf file at filePath embeds (see TextureRef::embeddedImage), else filePath is the image
+[[nodiscard]] Texture LoadTexture(
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	const image::Options& options = {},
+	std::optional<uint32_t> embeddedImage = std::nullopt);
 
 } // namespace gfx

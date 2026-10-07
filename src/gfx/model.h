@@ -28,8 +28,10 @@ struct ModelSubmesh
 	uint32_t indexCount = 0;
 	int32_t material = -1; // index into ModelDesc::materials, or -1 for none
 	rhi::PrimitiveTopology topology = rhi::PrimitiveTopology::kTriangleList; // see mesh::Submesh::topology
-	// the center of its vertices' bounds, which blended submeshes are sorted by (back to front, per view)
+	// the center of its vertices' bounds, which blended submeshes are sorted by (back to front, per view), at rest in
+	// world space, and in their own space (see Model::GetCenter)
 	std::array<float, 3> center{};
+	std::array<float, 3> localCenter{};
 	uint32_t firstInstance = 0; // see mesh::Submesh::firstInstance
 	uint32_t instanceCount = 1;
 	uint32_t mirroredInstanceCount = 0;
@@ -51,6 +53,7 @@ struct ModelMaterial
 	float metallic = 0.0F; // see mesh::Material::metallic
 	float roughness = 1.0F;
 	TextureRef metallicRoughnessTexture;
+	float specular = 1.0F; // see mesh::Material::specular
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
@@ -69,6 +72,9 @@ struct ModelDesc
 	std::vector<ModelMaterial> materials;
 	// column major instance transforms (see mesh::Mesh::instances), in the model's instance buffer (gModelInstances)
 	std::vector<std::array<float, 16>> instances;
+	// the file's scenes and which one this is (see mesh::Mesh::scenes). none for a set of several files
+	std::vector<std::string> scenes;
+	uint32_t scene = 0;
 	// the file's cameras (see mesh::Mesh::cameras). none for a set of several files (see Model::Load)
 	std::vector<SceneCamera> cameras;
 	// the file's lights (see mesh::Mesh::lights). none for a set of several files, which get the default light
@@ -76,6 +82,9 @@ struct ModelDesc
 	// what moves (see mesh::Mesh::animation). empty for a set of several files, which are drawn at rest
 	SceneAnimationData animation;
 	bool skinned = false; // whether it has skin vertices (SkinVertex, vertexCount of them, in their own buffer)
+	// per joint (see SceneSkin::jointBase), the bounds (min xyz, max xyz) of the skinned vertices weighted to it, in their
+	// own (bind) space: what the joint moves, for centers that follow the animation. empty bounds have min > max
+	std::vector<std::array<float, 6>> jointBounds;
 };
 
 // a model's gpu buffers: the instance and joint buffers are one per frame (host visible, see Model::Animate) if it moves,
@@ -118,12 +127,16 @@ public:
 	}
 	// the buffers the upload filled, which the graphics queue acquires (see GetUpload)
 	[[nodiscard]] std::vector<const Buffer*> GetUploadedBuffers() const;
-	[[nodiscard]] bool Moves() const noexcept { return !myDesc.animation.empty(); }
+	[[nodiscard]] bool Moves() const noexcept { return !myDesc.animation.Empty(); }
 
-	// writes a frame's instance and joint buffers with an animation (an index into ModelDesc::animation.animations, or
-	// nullopt for the rest pose) at time (seconds, looping). call on the draw thread, once the frame's previous use of its
-	// buffers is done.
-	void Animate(size_t frameIndex, std::optional<size_t> animation, float time);
+	// a submesh's center (at an instance of it) where the last Animate left it, else at rest: for sorting blended draws.
+	// skinned ones by their joints' bounds. call on the draw thread.
+	[[nodiscard]] std::array<float, 3> GetCenter(const ModelSubmesh& submesh, uint32_t instance) const;
+
+	// writes a frame's instance and joint buffers with a pose (see ScenePose: an animation at a time, looping, or the rest
+	// pose), crossfaded in over from by weight (see EvaluateNodes; 1: pose alone). call on the draw thread, once the
+	// frame's previous use of its buffers is done.
+	void Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from = {}, float weight = 1.0F);
 	// the upload of its buffers, which gpu work that uses them must wait for and acquire them from
 	[[nodiscard]] const Upload& GetUpload() const noexcept { return myUpload; }
 
@@ -131,7 +144,9 @@ public:
 	// uploads it on the
 	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
 	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
-	[[nodiscard]] static std::shared_ptr<Model> Load(std::string_view filePath, std::atomic_uint8_t& progress);
+	// scene: a gltf file's scene to load (see mesh::ImportOptions::scene), else its default one.
+	[[nodiscard]] static std::shared_ptr<Model> Load(
+		std::string_view filePath, std::atomic_uint8_t& progress, std::optional<size_t> scene = std::nullopt);
 	// loads several model files (each through its own cache entry) as one, side by side in a grid in the xy plane, each
 	// scaled to the same size and centered in its cell: for sets of variants, such as an archive's models, or the
 	// encodings of a gltf model. files the importers don't support (see mesh::Unsupported) are skipped. null if any
@@ -142,6 +157,9 @@ private:
 	ModelDesc myDesc;
 	ModelBuffers myBuffers;
 	Upload myUpload;
+	// the instance transforms and joint matrices on the cpu, as the last Animate (or the rest pose) left them
+	std::vector<SceneMatrix> myInstanceTransforms;
+	std::vector<SceneMatrix> myJoints;
 };
 
 } // namespace gfx

@@ -5,8 +5,13 @@
 // asset failed.
 
 #include <gfx/imageimport.h>
+#include <gfx/gltfimport.h>
 #include <gfx/meshimport.h>
 #include <gfx/ziparchive.h>
+
+#define BCDEC_IMPLEMENTATION
+#define BCDEC_STATIC
+#include <bcdec.h>
 
 #include <core/utils.h>
 
@@ -19,6 +24,8 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <iterator>
+#include <fstream>
 #include <numbers>
 #include <optional>
 #include <print>
@@ -95,7 +102,8 @@ bool IsModel(const std::filesystem::path& path) { return gfx::mesh::IsModelFile(
 
 bool IsImage(const std::filesystem::path& path)
 {
-	static constexpr std::array<std::string_view, 12> kExtensions{".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm"};
+	static constexpr std::array<std::string_view, 14> kExtensions{
+		".png", ".jpg", ".jpeg", ".tga", ".bmp", ".psd", ".gif", ".hdr", ".pic", ".pnm", ".ppm", ".pgm", ".webp", ".ktx2"};
 	return std::ranges::contains(kExtensions, Lower(path.extension().string()));
 }
 
@@ -103,16 +111,22 @@ using Vec3 = std::array<double, 3>;
 
 Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(modernize-avoid-c-arrays)
 
-// an image, with the usage it is checked for, and its bump scale for kBump
-using ImageCheck = std::tuple<std::filesystem::path, gfx::image::Usage, float>;
+// an image (a file, or an image the gltf file at the path embeds, see TextureRef::embeddedImage), with the usage it is
+// checked for, and its bump scale for kBump
+using ImageCheck = std::tuple<std::filesystem::path, std::optional<uint32_t>, gfx::image::Usage, float>;
 
 // the images to check, each (with its usage and bump scale) once
 using ImageChecks = core::UnorderedMap<std::string, ImageCheck>;
 
-void Add(ImageChecks& checks, std::filesystem::path path, gfx::image::Usage usage, float bumpScale)
+void Add(ImageChecks& checks, std::filesystem::path path, std::optional<uint32_t> embeddedImage, gfx::image::Usage usage, float bumpScale)
 {
-	auto key = std::format("{}|{}|{}", path.string(), std::to_underlying(usage), bumpScale);
-	checks.try_emplace(std::move(key), std::move(path), usage, bumpScale);
+	auto key = std::format("{}|{}|{}|{}", path.string(), embeddedImage.value_or(~0U), std::to_underlying(usage), bumpScale);
+	checks.try_emplace(std::move(key), std::move(path), embeddedImage, usage, bumpScale);
+}
+
+void Add(ImageChecks& checks, const gfx::TextureRef& texture, gfx::image::Usage usage, float bumpScale)
+{
+	Add(checks, std::filesystem::weakly_canonical(texture.path), texture.embeddedImage, usage, bumpScale);
 }
 
 // counts of each Result
@@ -136,9 +150,9 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 {
 	Report report;
 
-	// embedded gltf images are extracted (as the client does) to a temporary directory, and checked like the others
+	// embedded gltf images are checked like the others, read from the file (see TextureRef::embeddedImage)
 	auto mesh = gfx::mesh::Import(
-		path, {.embeddedImageDirectory = std::filesystem::temp_directory_path() / "assettest" / "embedded" / path.stem()});
+		path, {});
 	if (!mesh)
 	{
 		report.Fail("{}", mesh.error());
@@ -146,6 +160,30 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	}
 
 	const auto& stats = mesh->stats;
+
+	// the file's other scenes import too (the checks below are of the default one)
+	if (mesh->scenes.size() > 1)
+	{
+		report.Info("{} scenes, scene {} ({}) is checked", mesh->scenes.size(), mesh->scene, mesh->scenes[mesh->scene]);
+		for (size_t sceneIt = 0; sceneIt < mesh->scenes.size(); sceneIt++)
+		{
+			if (sceneIt == mesh->scene)
+				continue;
+			auto other = gfx::mesh::Import(
+				path,
+				{.scene = sceneIt});
+			if (!other)
+				report.Fail("scene {} ({}): {}", sceneIt, mesh->scenes[sceneIt], other.error());
+			else if (other->scene != sceneIt)
+				report.Fail("scene {} ({}): scene {} was imported instead", sceneIt, mesh->scenes[sceneIt], other->scene);
+			else if (other->indices.empty())
+				report.Warn("scene {} ({}) has no primitives", sceneIt, mesh->scenes[sceneIt]);
+			else
+				report.Info(
+					"scene {} ({}): {} triangles, {} vertices", sceneIt, mesh->scenes[sceneIt], other->stats.triangleCount,
+					other->vertices.size());
+		}
+	}
 
 	{
 		auto& summary = summaryOut.emplace();
@@ -167,14 +205,48 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		stats.triangleCount,
 		stats.lineCount + stats.pointCount > 0 ? std::format(", {} lines, {} points", stats.lineCount, stats.pointCount) : "",
 		mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
-		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
+		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : stats.generatedTangents > 0 ? "generated" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
 	if (mesh->instances.size() > 1)
 		report.Info("{} instances (EXT_mesh_gpu_instancing, or of moving nodes)", mesh->instances.size() - 1);
-	if (const auto& animation = mesh->animation; !animation.empty())
+	if (const auto& animation = mesh->animation; !animation.Empty())
 		report.Info(
 			"{} skins ({} joints), {} animations, {} instances follow nodes", animation.skins.size(), animation.jointCount,
 			animation.animations.size(), animation.instanceLinks.size());
+	// every animation evaluates to finite transforms, and crossfading from the rest pose starts at it and ends at the
+	// animation's own pose
+	if (const auto& animation = mesh->animation; !animation.Empty())
+	{
+		auto maxDifference = [](const std::vector<gfx::SceneMatrix>& a, const std::vector<gfx::SceneMatrix>& b)
+		{
+			double difference = 0.0;
+			for (size_t nodeIt = 0; nodeIt < std::min(a.size(), b.size()); nodeIt++)
+				for (size_t i = 0; i < 16; i++)
+					difference = std::max(difference, static_cast<double>(std::abs(a[nodeIt][i] - b[nodeIt][i])));
+			return difference;
+		};
+		auto rest = gfx::EvaluateNodes(animation, animation.animations.size(), 0.0F);
+		for (size_t animationIt = 0; animationIt < animation.animations.size(); animationIt++)
+		{
+			const auto& clip = animation.animations[animationIt];
+			for (auto fraction : {0.0F, 0.37F, 0.81F})
+			{
+				auto time = fraction * clip.duration;
+				auto worlds = gfx::EvaluateNodes(animation, animationIt, time);
+				if (std::ranges::any_of(worlds, [](const auto& m) { return std::ranges::any_of(m, [](float v) { return !std::isfinite(v); }); }))
+				{
+					report.Fail("animation {} ({}) has non-finite transforms at {:.2f}s", animationIt, clip.name, time);
+					break;
+				}
+				gfx::ScenePose pose{.animation = animationIt, .time = time};
+				if (auto d = maxDifference(gfx::EvaluateNodes(animation, pose, {}, 1.0F), worlds); d > 1e-4)
+					report.Fail("animation {} ({}): a finished crossfade differs from it by {:.3g}", animationIt, clip.name, d);
+				if (auto d = maxDifference(gfx::EvaluateNodes(animation, pose, {}, 0.0F), rest); d > 1e-4)
+					report.Fail("animation {} ({}): a crossfade's start differs from the rest pose by {:.3g}", animationIt, clip.name, d);
+			}
+		}
+	}
+
 	if (!mesh->skinVertices.empty() && mesh->skinVertices.size() != mesh->vertices.size())
 		report.Fail("{} skin vertices for {} vertices", mesh->skinVertices.size(), mesh->vertices.size());
 
@@ -403,6 +475,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		report.Info("{} degenerate triangles", stats.degenerateTriangles);
 	if (stats.repairedNormals > 0)
 		report.Warn("{} unusable normals in the file replaced", stats.repairedNormals);
+	if (stats.generatedTangents > 0)
+		report.Info("{} vertices with generated (MikkTSpace) tangents", stats.generatedTangents);
 	if (stats.invalidTangents > 0)
 		report.Warn("{} unusable tangents in the file, left to the shader", stats.invalidTangents);
 	if (stats.nonFiniteValues > 0)
@@ -416,17 +490,17 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	for (const auto& material : mesh->materials)
 	{
 		if (!material.diffuseTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.diffuseTexture.path), gfx::image::Usage::kColor, 1.0F);
+			Add(texturesOut, material.diffuseTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.alphaTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.alphaTexture.path), gfx::image::Usage::kMask, 1.0F);
+			Add(texturesOut, material.alphaTexture, gfx::image::Usage::kMask, 1.0F);
 		if (!material.occlusionTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.occlusionTexture.path), gfx::image::Usage::kOcclusion, 1.0F);
+			Add(texturesOut, material.occlusionTexture, gfx::image::Usage::kOcclusion, 1.0F);
 		if (!material.metallicRoughnessTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.metallicRoughnessTexture.path), gfx::image::Usage::kMetallicRoughness, 1.0F);
+			Add(texturesOut, material.metallicRoughnessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
 		if (!material.normalTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.normalTexture.path), gfx::image::Usage::kNormal, 1.0F);
+			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())
-			Add(texturesOut, std::filesystem::weakly_canonical(material.bumpTexture.path), gfx::image::Usage::kBump, material.bumpScale);
+			Add(texturesOut, material.bumpTexture, gfx::image::Usage::kBump, material.bumpScale);
 	}
 
 	return report;
@@ -489,6 +563,7 @@ constexpr std::string_view ToString(gfx::image::Format format)
 	case gfx::image::Format::kBC3: return "BC3";
 	case gfx::image::Format::kBC4: return "BC4";
 	case gfx::image::Format::kBC5: return "BC5";
+	case gfx::image::Format::kBC7: return "BC7";
 	}
 	return "?";
 }
@@ -508,16 +583,38 @@ constexpr std::string_view ToString(gfx::image::Usage usage)
 	return "?";
 }
 
-Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& options)
+Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> embeddedImage, const gfx::image::Options& options)
 {
 	using gfx::image::Usage;
 
 	Report report;
 
+	// the image's bytes: its file's, or a gltf file's embedded image
+	std::vector<std::byte> bytes;
+	if (embeddedImage)
+	{
+		auto embedded = gfx::gltf::EmbeddedImage(path, *embeddedImage);
+		if (!embedded)
+		{
+			report.Fail("{}", embedded.error());
+			return report;
+		}
+		bytes = std::move(*embedded);
+	}
+	else
+	{
+		std::ifstream file(path, std::ios::binary);
+		std::vector<char> chars((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+		bytes.resize(chars.size());
+		std::memcpy(bytes.data(), chars.data(), chars.size());
+	}
+	auto name = embeddedImage ? std::format("{}#image{}", path.string(), *embeddedImage) : path.string();
+
 	static constexpr std::byte kFill{0xcd};
 	std::vector<std::byte> data;
 	auto image = gfx::image::Import(
-		path,
+		bytes,
+		name,
 		options,
 		[&data](size_t size)
 		{
@@ -531,7 +628,7 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 	}
 
 	// what Import compressed: the image prepared for the usage
-	auto reference = gfx::image::Decode(path, options);
+	auto reference = gfx::image::Decode(bytes, name, options);
 	if (!reference)
 	{
 		report.Fail("reference decode failed: {}", reference.error());
@@ -542,6 +639,15 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 	const auto& pixels = reference->rgba;
 
 	auto format = image->format;
+	// a file's own blocks and mips (KTX2) only warn: their quality is the file's (and libktx's transcoder's), not the
+	// importer's
+	auto failOrWarn = [&report, ownBlocks = image->ownBlocks](const std::string& what)
+	{
+		if (ownBlocks)
+			report.Warn("{} (the file's own blocks and mips)", what);
+		else
+			report.Fail("{}", what);
+	};
 	report.Info(
 		"{}x{}, {} channels, as {}{}: {}, {} mips", width, height, reference->channelCount, ToString(options.usage),
 		image->fromHeight ? std::format(" (from a height map, scale {})", options.bumpScale) : "", ToString(format),
@@ -589,8 +695,12 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 		{
 			for (uint32_t bx = 0; bx < blockCols; bx++)
 			{
-				gfx::image::DecompressBlock(
-					format, std::span(data).subspan(level.offset + (((by * blockCols) + bx) * blockSize), blockSize), block);
+				auto compressed = std::span(data).subspan(level.offset + (((by * blockCols) + bx) * blockSize), blockSize);
+				// bc7 (only from KTX2 files) with bcdec, the others as gfx::image decodes them
+				if (format == gfx::image::Format::kBC7)
+					bcdec_bc7(compressed.data(), block.data(), 4 * 4);
+				else
+					gfx::image::DecompressBlock(format, compressed, block);
 				for (uint32_t y = 0; y < 4 && (by * 4) + y < level.height; y++)
 					for (uint32_t x = 0; x < 4 && (bx * 4) + x < level.width; x++)
 						std::copy_n(&block[((y * 4) + x) * 4], 4, &rgba[((((by * 4) + y) * level.width) + (bx * 4) + x) * 4]);
@@ -618,7 +728,7 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 	report.Info("level 0 psnr {:.1f} dB", psnr);
 	// bc1 can't do much better on noisy textures
 	if (psnr < 18.0)
-		report.Fail("level 0 psnr {:.1f} dB is too low", psnr);
+		failOrWarn(std::format("level 0 psnr {:.1f} dB is too low", psnr));
 	else if (psnr < 22.0)
 		report.Warn("level 0 psnr {:.1f} dB is low", psnr);
 
@@ -666,13 +776,15 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 		uint32_t maxAlphaError = 0;
 		for (size_t i = 0; i < pixelCount; i++)
 		{
-			auto sourceAlpha = format == gfx::image::Format::kBC3 ? pixels[(i * 4) + 3] : 255;
+			bool hasAlpha = format == gfx::image::Format::kBC3 || format == gfx::image::Format::kBC7;
+			auto sourceAlpha = hasAlpha ? pixels[(i * 4) + 3] : 255;
 			maxAlphaError = std::max(maxAlphaError, static_cast<uint32_t>(std::abs(level0[(i * 4) + 3] - sourceAlpha)));
 		}
 		if (maxAlphaError > 24)
-			report.Fail("max alpha error {} is too high", maxAlphaError);
+			failOrWarn(std::format("max alpha error {} is too high", maxAlphaError));
 
-		if (reference->alpha != (format == gfx::image::Format::kBC3))
+		// bc7 holds alpha whether the image has it or not
+		if (format != gfx::image::Format::kBC7 && reference->alpha != (format == gfx::image::Format::kBC3))
 			report.Fail("alpha {} but format is {}", reference->alpha ? "present" : "absent", ToString(format));
 	}
 
@@ -732,7 +844,7 @@ Report CheckImage(const std::filesystem::path& path, const gfx::image::Options& 
 	}
 	// odd extents drop a row or column per level, so small drifts are expected
 	if (worst > 24.0)
-		report.Fail("mip {} average is off by {:.1f}", worstLevel, worst);
+		failOrWarn(std::format("mip {} average is off by {:.1f}", worstLevel, worst));
 	else if (worst > 12.0)
 		report.Warn("mip {} average is off by {:.1f}", worstLevel, worst);
 	if (worstSingleBlock > 12.0)
@@ -809,7 +921,7 @@ int main(int argc, char* argv[])
 				if (IsModel(entry.path()))
 					modelFiles.push_back(entry.path());
 				else if (IsImage(entry.path()))
-					Add(imageFiles, std::filesystem::weakly_canonical(entry.path()), gfx::image::Usage::kColor, 1.0F);
+					Add(imageFiles, std::filesystem::weakly_canonical(entry.path()), std::nullopt, gfx::image::Usage::kColor, 1.0F);
 			}
 		}
 		else if (IsModel(path))
@@ -818,7 +930,7 @@ int main(int argc, char* argv[])
 		}
 		else if (IsImage(path))
 		{
-			Add(imageFiles, std::filesystem::weakly_canonical(path), gfx::image::Usage::kColor, 1.0F);
+			Add(imageFiles, std::filesystem::weakly_canonical(path), std::nullopt, gfx::image::Usage::kColor, 1.0F);
 		}
 		else
 		{
@@ -880,11 +992,12 @@ int main(int argc, char* argv[])
 		for (const auto& [key, check] : imageFiles)
 			checks.push_back(check);
 		std::ranges::sort(checks);
-		for (const auto& [path, usage, bumpScale] : checks)
+		for (const auto& [path, embeddedImage, usage, bumpScale] : checks)
 		{
 			auto start = std::chrono::steady_clock::now();
-			auto report = CheckImage(path, {.usage = usage, .bumpScale = bumpScale});
-			Print(path, report, std::chrono::steady_clock::now() - start);
+			auto report = CheckImage(path, embeddedImage, {.usage = usage, .bumpScale = bumpScale});
+			Print(embeddedImage ? std::filesystem::path(std::format("{}#image{}", path.string(), *embeddedImage)) : path, report,
+				  std::chrono::steady_clock::now() - start);
 			Count(imageResults, report.result)++;
 		}
 	}

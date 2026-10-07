@@ -84,12 +84,12 @@ struct OwnershipBarrier
 
 static OwnershipBarrier Release(PipelineStage srcStages, Access srcAccess)
 {
-	return {vk::ToVk(srcStages), vk::ToVk(srcAccess), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0};
+	return {.srcStages=vk::ToVk(srcStages), .srcAccess=vk::ToVk(srcAccess), .dstStages=VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, .dstAccess=0};
 }
 
 static OwnershipBarrier Acquire(PipelineStage dstStages, Access dstAccess)
 {
-	return {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, vk::ToVk(dstStages), vk::ToVk(dstAccess)};
+	return {.srcStages=VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, .srcAccess=0, .dstStages=vk::ToVk(dstStages), .dstAccess=vk::ToVk(dstAccess)};
 }
 
 static void TransferOwnership(

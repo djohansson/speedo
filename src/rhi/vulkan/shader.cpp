@@ -22,17 +22,16 @@ template <>
 ShaderModule<kVk>::ShaderModule(
 	CreateDescType&& desc,
 	ShaderModuleHandle<kVk>&& shaderModule,
-	const EntryPoint& entryPoint)
+	EntryPoint&& entryPoint)
 	: SuperType(std::forward<CreateDescType>(desc))
 	, myShaderModule(std::forward<ShaderModuleHandle<kVk>>(shaderModule))
-	, myEntryPoint(entryPoint)
+	, myEntryPoint(std::forward<EntryPoint>(entryPoint))
 {}
 
 template <>
 ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 	: ShaderModule<kVk>(
 		std::forward<CreateDescType>(desc),
-		// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
 		[this, &desc](const auto& codePtr, size_t codeSize)
 		{
 			VkShaderModuleCreateInfo info{.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
@@ -44,7 +43,7 @@ ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 			Track(desc.device, VK_OBJECT_TYPE_SHADER_MODULE, vkShaderModule, GetDebugName(desc));
 			return vkShaderModule;
 		}(reinterpret_cast<const uint32_t*>(std::get<0>(desc.shader).data()), std::get<0>(desc.shader).size()),
-		EntryPoint{std::get<1>(desc.shader)}) // copy, since desc is moved into the base before myEntryPoint is initialized
+		EntryPoint{std::get<1>(desc.shader)})
 {}
 
 template <>

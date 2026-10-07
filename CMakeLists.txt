@@ -81,6 +81,11 @@ find_package(slang CONFIG REQUIRED)
 find_package(Cargs CONFIG REQUIRED)
 find_package(mimalloc CONFIG REQUIRED)
 find_package(nfd CONFIG REQUIRED)
+find_package(WebP CONFIG REQUIRED)
+find_package(Ktx CONFIG REQUIRED)
+find_package(draco CONFIG REQUIRED)
+find_package(meshoptimizer CONFIG REQUIRED)
+find_package(mikktspace CONFIG REQUIRED)
 
 if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
 	find_program(MINJECT NAMES minject.exe minject32.exe HINTS ENV PATH REQUIRED)
@@ -154,6 +159,10 @@ endfunction()
 speedo_port_version(stb SPEEDO_STB_VERSION)
 speedo_port_version(tinyobjloader SPEEDO_TINYOBJLOADER_VERSION)
 speedo_port_version(cgltf SPEEDO_CGLTF_VERSION)
+speedo_port_version(libwebp SPEEDO_LIBWEBP_VERSION)
+speedo_port_version(ktx SPEEDO_KTX_VERSION)
+speedo_port_version(draco SPEEDO_DRACO_VERSION)
+speedo_port_version(meshoptimizer SPEEDO_MESHOPTIMIZER_VERSION)
 configure_file(${SPEEDO_SOURCE_DIR}/gfx/importversions.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/gfx/importversions.h @ONLY)
 target_include_directories(
 	gfx
@@ -170,6 +179,13 @@ target_link_libraries(
 		imgui::imgui
 		glm::glm
 		slang::slang
+	PRIVATE
+		WebP::webpdecoder
+		WebP::webpdemux
+		KTX::ktx
+		draco::draco
+		meshoptimizer::meshoptimizer
+		mikktspace::mikktspace
 )
 
 ###############################################################################
@@ -337,7 +353,7 @@ endif()
 ###############################################################################
 
 # imports models and images like the client does and checks the results, see src/tools/assettest.cpp and
-# scripts/assettest.sh
+# scripts/assettest.ps1
 add_executable(assettest ${SPEEDO_SOURCE_DIR}/tools/assettest.cpp)
 
 target_compile_features(

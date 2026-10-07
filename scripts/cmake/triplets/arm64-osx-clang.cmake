@@ -55,3 +55,9 @@ if(PORT STREQUAL "mimalloc")
 	# (__cxa_throw, operator new, ...), giving the process two C++ runtimes ("mi_free: invalid pointer")
 	list(APPEND VCPKG_CMAKE_CONFIGURE_OPTIONS -DMI_USE_CXX=OFF)
 endif()
+if(PORT STREQUAL "ktx")
+	# its astc-encoder adds -ffp-model=precise -Werror, which overrides -ffast-math's complex range and so fails with
+	# -Woverriding-complex-range
+	string(APPEND VCPKG_C_FLAGS " -Wno-overriding-complex-range")
+	string(APPEND VCPKG_CXX_FLAGS " -Wno-overriding-complex-range")
+endif()

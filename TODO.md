@@ -1,21 +1,17 @@
 # TODO
 
 * todo: generalize drawcall submission & move out of rhiapplication class. use sorted draw call lists.
+* todo: move window class from rhi into gfx or app support library. same for imguirenderer.
+* todo: split some of the bulkier rhi files such as pipeline and command into separate files.
 * todo: multi window/swapchain capability
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
-	* compression and image formats that need libraries we don't have: draco & meshopt (KHR_/EXT_) mesh compression, KTX2/basisu & WebP textures. files requiring them fail to load.
-	* animation: node (translation, rotation, scale) animations and skins move. morph weight and KHR_animation_pointer animations are ignored: morph targets are applied at their default weights at import, so animating them needs the deltas on the gpu. joint normals use the joint matrices directly (non-uniform scale on joints skews them). bounds, culling and blend sorting use the rest pose. one animation plays at a time, without blending. a set of files is drawn at rest
-	* cameras: the views have no roll (a rolled camera loses it), and use their own aspect ratio rather than the file's
+	* KTX2: color textures keep their blocks (BC7 for Basis Universal), but normal, mask, occlusion and metallic-roughness ones are transcoded to rgba8 and compressed again (a second lossy step), since their channels are rearranged for the shader.
+	* animation: node (translation, rotation, scale) animations and skins move. morph weight and KHR_animation_pointer animations are ignored: morph targets are applied at their default weights at import, so animating them needs the deltas on the gpu. joint normals use the joint matrices directly (non-uniform scale on joints skews them). the model's bounds (which frame the views) are the rest pose's. one animation plays at a time (switching crossfades over 0.3 s), without layering or additive blending. a set of files is drawn at rest
 	* lights: punctual lights only, every light shades every pixel (no culling or clustering), no shadows. ambient light is a constant (no image based lighting), so smooth metals reflect a uniform gray
-	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. obj materials are matte (their Ks and Ns are ignored), and so is the default material, which gltf would make a rough metal
-	* alpha blending: sorted per submesh (by the center of its bounds, per view), not per triangle, and not order independent: the triangles within a blended submesh, and intersecting or interleaved submeshes, can come out in the wrong order
-	* texture sampler settings: a model has 15 sampler slots (beyond the default's); more distinct samplers fall back to the default
-	* texcoords: sets above 1 fall back to set 0
-	* missing tangents: not generated with MikkTSpace (a library), the shader builds the frame from screen space derivatives instead, which can differ slightly from what the normal maps were baked against
-	* scenes: only the default one (or the first) is loaded
-	* EXT_mesh_gpu_instancing: drawn instanced, but blended instanced submeshes are sorted as a whole, not per instance
-	* points and lines: drawn a pixel wide (points one pixel, as gltf has no size for them)
-	* embedded images: extracted to files in the user profile and loaded from there, not from memory (a cached model whose extracted images have been deleted is imported again, which extracts them)
+	* shading models: metallic-roughness (and unlit) only. specular-glossiness is drawn as a dielectric of its glossiness (its specular color is ignored), and the KHR_materials_* extensions (clearcoat, transmission, volume, sheen, iridescence, anisotropy, specular, ior, ...) are read past. KHR_materials_specular's factor is applied, its color isn't. obj materials map Ks and Ns to specular and roughness (their Ks color, Ka, Tf, Ni and illum are ignored)
+	* alpha blending: sorted per submesh and instance (by the center of its bounds where the animation puts it, per view), not per triangle, and not order independent: the triangles within a blended submesh, and intersecting or interleaved submeshes, can come out in the wrong order
+	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
+	* tangents: obj models with normal or bump maps use the screen space derived frame, not MikkTSpace (which gltf files without TANGENT get)
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
 * todo: tonemapping: Khronos PBR Neutral with a manual exposure is in; auto exposure and a choice of tonemappers aren't
 * todo: frame graph

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace gfx
@@ -17,6 +18,9 @@ struct TextureRef
 	// the resolved path, empty if the material has no such texture. a texture that can't be found is counted in
 	// mesh::Stats::missingTextures and left empty.
 	std::string path;
+	// gltf: an image the file at path (a model) embeds, by its index, which the texture loader reads from it (see
+	// gltf::EmbeddedImage), rather than an image file
+	std::optional<uint32_t> embeddedImage;
 	uint32_t texCoord = 0;
 	// (u', v') = (transform[0] * u + transform[1] * v + transform[2], transform[3] * u + transform[4] * v + transform[5])
 	std::array<float, 6> transform{1.0F, 0.0F, 0.0F, 0.0F, 1.0F, 0.0F};

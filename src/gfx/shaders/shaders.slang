@@ -119,15 +119,15 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	VertexZPrepassOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-    uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
-    uint modelInstanceId = gPushConstants.modelInstanceId;
+	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+	uint modelInstanceId = gPushConstants.modelInstanceId;
 	
 	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 
 	ViewData view = gViewData[frameIndex][viewId];
 
-    VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-    ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
+	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
+	ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
 
 	float3 position = v.position;
 	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
@@ -145,15 +145,15 @@ VertexMainOutput VertexMain(InputStream input)
 	VertexOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-    uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
-    uint modelInstanceId = gPushConstants.modelInstanceId;
+	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
+	uint modelInstanceId = gPushConstants.modelInstanceId;
 
 	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
 
 	ViewData view = gViewData[frameIndex][viewId];
 
-    VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-    ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
+	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
+	ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
 
 	// skinned vertices move with their joints (in world space), before the instance's transform (the identity for them).
 	// the normals and tangents go by the same matrix, which is exact for joints without non-uniform scale.
@@ -282,15 +282,23 @@ float3 EnvironmentBrdfApprox(float3 f0, float roughness, float nDotV)
 	return f0 * ab.x + ab.y;
 }
 
+// the fresnel term of a mix of dielectric (f0 0.04, scaled by specular: KHR_materials_specular's specularWeight) and
+// metal (f0 the base color)
+float3 Fresnel(float3 baseColor, float metallic, float specular, float cosine)
+{
+	return lerp(specular * FresnelSchlick(float3(0.04), cosine), FresnelSchlick(baseColor, cosine), metallic);
+}
+
 // the light a surface reflects towards view: from gLights, and the ambient (by occlusion). linear, before exposure
-float3 Shade(float3 baseColor, float metallic, float roughness, float occlusion, float3 normal, float3 view, float3 position)
+float3 Shade(float3 baseColor, float metallic, float roughness, float specular, float occlusion, float3 normal, float3 view, float3 position)
 {
 	float3 diffuseColor = lerp(baseColor, float3(0.0), metallic);
-	float3 f0 = lerp(float3(0.04), baseColor, metallic);
 	float alpha = max(roughness * roughness, 1e-3);
 	float nDotV = max(dot(normal, view), 1e-4);
 
-	float3 result = kAmbientRadiance * occlusion * (diffuseColor + EnvironmentBrdfApprox(f0, roughness, nDotV));
+	float3 environmentSpecular = lerp(
+		specular * EnvironmentBrdfApprox(float3(0.04), roughness, nDotV), EnvironmentBrdfApprox(baseColor, roughness, nDotV), metallic);
+	float3 result = kAmbientRadiance * occlusion * (diffuseColor + environmentSpecular);
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{
@@ -328,7 +336,7 @@ float3 Shade(float3 baseColor, float metallic, float roughness, float occlusion,
 
 		float3 halfway = normalize(toLight + view);
 		float nDotH = saturate(dot(normal, halfway));
-		float3 fresnel = FresnelSchlick(f0, saturate(dot(view, halfway)));
+		float3 fresnel = Fresnel(baseColor, metallic, specular, saturate(dot(view, halfway)));
 		float3 diffuse = (1.0 - fresnel) * diffuseColor / kPi;
 		float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
 		result += (diffuse + specular) * light.intensity.rgb * attenuation * nDotL;
@@ -425,7 +433,7 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
-	output.color = float4(Shade(color.rgb, metallic, roughness, occlusion, normal, view, v.position) + emissive, color.a);
+	output.color = float4(Shade(color.rgb, metallic, roughness, material.specular, occlusion, normal, view, v.position) + emissive, color.a);
 
 	return output;
 }
@@ -455,14 +463,14 @@ float3 TonemapPbrNeutral(float3 color)
 
 float3 ApplySRGBCurve(float3 x)
 {
-    // Approximately pow(x, 1.0 / 2.2)
-    return select(x < 0.0031308, 12.92 * x, 1.055 * pow(x, 1.0 / 2.4) - 0.055);
+	// Approximately pow(x, 1.0 / 2.2)
+	return select(x < 0.0031308, 12.92 * x, 1.055 * pow(x, 1.0 / 2.4) - 0.055);
 }
 
 float3 RemoveSRGBCurve(float3 x)
 {
-    // Approximately pow(x, 2.2)
-    return select(x < 0.04045, x / 12.92, pow((x + 0.055) / 1.055, 2.4));
+	// Approximately pow(x, 2.2)
+	return select(x < 0.04045, x / 12.92, pow((x + 0.055) / 1.055, 2.4));
 }
 
 [shader("compute")]
@@ -478,51 +486,30 @@ void ComputeMain(
 	Texture2D src = gTextures[frameIndex];
 	RWTexture2D dst = gRWTextures[frameIndex];
 
-    uint2 dstDim;
-    dst.GetDimensions(dstDim.x, dstDim.y);
+	uint2 dstDim;
+	dst.GetDimensions(dstDim.x, dstDim.y);
 
-    static const uint2 bucketSize = uint2(16, 16); 
+	static const uint2 bucketSize = uint2(16, 16); 
 
-    for (uint j = 0; j < bucketSize.x; j++)
-    {
-        uint y = dispatchThreadId.y * bucketSize.y + j;
-        if (y >= dstDim.y)
-            break;
+	for (uint j = 0; j < bucketSize.x; j++)
+	{
+		uint y = dispatchThreadId.y * bucketSize.y + j;
+		if (y >= dstDim.y)
+			break;
 
-        for (uint i = 0; i < bucketSize.y; i++)
-        {
-            uint x = dispatchThreadId.x * bucketSize.x + i;
-            if (x >= dstDim.x)
-                break;
+		for (uint i = 0; i < bucketSize.y; i++)
+		{
+			uint x = dispatchThreadId.x * bucketSize.x + i;
+			if (x >= dstDim.x)
+				break;
 
-            uint2 xy = uint2(x, y);
+			uint2 xy = uint2(x, y);
 
-            // the render target is linear, the swapchain (a storage image, so not an srgb format) is not: exposed,
-            // tonemapped, and then the srgb curve
-            float4 color = src.Load(int3(xy, 0));
-            float3 mapped = TonemapPbrNeutral(max(color.rgb, 0.0) * gPushConstants.exposure);
-            dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), color.a));
-        }
-    }
-
-	// float4 color[3];
-	// color[0].r = (r0 >> 0  & 0xFF) / 255.0f;
-	// color[0].g = (r0 >> 8  & 0xFF) / 255.0f;
-	// color[0].b = (r0 >> 16 & 0xFF) / 255.0f;
-	// color[0].a = (r0 >> 24 & 0xFF) / 255.0f;
-
-	// color[1].r = (r1 >> 0  & 0xFF) / 255.0f;
-	// color[1].g = (r1 >> 8  & 0xFF) / 255.0f;
-	// color[1].b = (r1 >> 16 & 0xFF) / 255.0f;
-	// color[1].a = (r1 >> 24 & 0xFF) / 255.0f;
-
-	// color[2].r = (r2 >> 0  & 0xFF) / 255.0f;
-	// color[2].g = (r2 >> 8  & 0xFF) / 255.0f;
-	// color[2].b = (r2 >> 16 & 0xFF) / 255.0f;
-	// color[2].a = (r2 >> 24 & 0xFF) / 255.0f;
-
-	// float4 result = lerp(lerp(lerp(0, color[2], color[2].a), color[1], color[1].a), color[0], color[0].a);
-	// result.a = 1.0f;
-	// colorTarget[threadIds.xy] = result;
+			// the render target is linear, the swapchain (a storage image, so not an srgb format) is not: exposed,
+			// tonemapped, and then the srgb curve
+			float4 color = src.Load(int3(xy, 0));
+			float3 mapped = TonemapPbrNeutral(max(color.rgb, 0.0) * gPushConstants.exposure);
+			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), color.a));
+		}
+	}
 }
-

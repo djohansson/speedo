@@ -40,10 +40,13 @@ struct Material
 	TextureRef occlusionTexture;
 	float occlusionStrength = 1.0F;
 	// gltf metallic-roughness: the factors, times the texture's blue (metallic) and green (roughness) channels. obj
-	// materials are matte dielectrics (metallic 0, roughness 1)
+	// materials are dielectrics (metallic 0) as rough as their Ns says (Blinn-Phong to GGX: sqrt(2 / (Ns + 2)))
 	float metallic = 0.0F;
 	float roughness = 1.0F;
 	TextureRef metallicRoughnessTexture;
+	// the strength of the dielectric specular (the fresnel term, not metals'): gltf KHR_materials_specular's
+	// specularFactor (its color is ignored), obj Ks (its largest component: 0 is matte, without even a fresnel rim)
+	float specular = 1.0F;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option
@@ -92,6 +95,9 @@ struct Stats
 	size_t generatedNormals = 0; // vertices without a normal in the file, computed from the faces around them
 	size_t repairedNormals = 0; // zero length or non-finite normals in the file, replaced by the face normal
 	size_t invalidTangents = 0; // zero length or non-finite tangents in the file (or w = 0), left for the shader to derive
+	// gltf: vertices given MikkTSpace tangents, for normal mapped triangles without TANGENT (split where their corners'
+	// tangents differ)
+	size_t generatedTangents = 0;
 	size_t nonFiniteValues = 0; // non-finite positions or texcoords, replaced by zero
 	size_t missingTextures = 0; // textures named by a material that don't exist
 	// obj: parts (runs of faces with the same material in a shape) whose winding was reversed, since it was clockwise
@@ -113,6 +119,10 @@ struct Mesh
 	// (gltf EXT_mesh_gpu_instancing) use: their vertices are in world space. instanced ones keep their vertices in their
 	// node's space, and have a range of their own (the node's transform times each instance's).
 	std::vector<Transform> instances{kIdentityTransform};
+	// gltf: the file's scenes (their names, or "scene <index>"), and which one was loaded. empty for obj files, and gltf
+	// files without scenes (whose root nodes are loaded)
+	std::vector<std::string> scenes;
+	uint32_t scene = 0;
 	std::vector<SceneCamera> cameras; // gltf: the cameras of the scene's nodes, in the order they are visited
 	std::vector<SceneLight> lights; // gltf KHR_lights_punctual: the lights of the scene's nodes
 	// what moves: the nodes animations move or skins use, with the instances that follow them (see SceneAnimationData)
@@ -130,9 +140,8 @@ struct Mesh
 
 struct ImportOptions
 {
-	// where to write the images a gltf file embeds (in a buffer or as a data uri), which are loaded from files like the
-	// others. empty: embedded images are counted as missing textures.
-	std::filesystem::path embeddedImageDirectory;
+	// gltf: the scene to load (an index into the file's scenes), else its default scene, or the first
+	std::optional<size_t> scene;
 };
 
 // whether path is a model file Import takes, by its extension (.obj, .gltf, .glb)

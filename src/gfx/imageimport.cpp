@@ -4,12 +4,19 @@
 
 #include <algorithm>
 #include <bit>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <execution>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <numeric>
+
+#include <ktx.h>
+#include <webp/decode.h>
+#include <webp/demux.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
@@ -115,6 +122,8 @@ constexpr uint32_t kRgba = 4;
 						channels[(pixelIt * 2) + 1] = block[(pixelIt * kRgba) + 1];
 					}
 					stb_compress_bc5_block(out, channels.data());
+					break;
+				case Format::kBC7: // only from KTX2 files (see ImportKtx2), never compressed here
 					break;
 				}
 			}
@@ -234,27 +243,145 @@ void DecodeColors(std::span<const std::byte, 4> endpoints, bool fourColors, std:
 
 } // namespace detail
 
-std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options)
+// a file's pixels as rgba8, with its channel count (see Decode)
+// an image's pixels as rgba8, with its channel count (see Decode), from its bytes: told apart by their signature
+[[nodiscard]] static std::expected<Pixels, std::string> DecodeRgba8(std::span<const std::byte> data, std::string_view name)
 {
-	using namespace detail;
+	const auto* bytes = reinterpret_cast<const uint8_t*>(data.data());
+	auto startsWith = [&data, bytes](std::span<const uint8_t> signature, size_t offset = 0)
+	{ return data.size() >= offset + signature.size() && std::equal(signature.begin(), signature.end(), bytes + offset); };
+	static constexpr std::array<uint8_t, 12> kKtx2{0xab, 'K', 'T', 'X', ' ', '2', '0', 0xbb, '\r', '\n', 0x1a, '\n'};
+	static constexpr std::array<uint8_t, 4> kRiff{'R', 'I', 'F', 'F'};
+	static constexpr std::array<uint8_t, 4> kWebp{'W', 'E', 'B', 'P'};
 
-	ZoneScopedN("image::Decode");
+	if (startsWith(kRiff) && startsWith(kWebp, 8))
+	{
+		WebPBitstreamFeatures features{};
+		if (WebPGetFeatures(bytes, data.size(), &features) != VP8_STATUS_OK)
+			return std::unexpected(std::format("failed to decode {}: not a WebP image", name));
+		// an animation: its first frame
+		if (features.has_animation != 0)
+		{
+			WebPAnimDecoderOptions options{};
+			WebPAnimDecoderOptionsInit(&options);
+			options.color_mode = MODE_RGBA;
+			WebPData webpData{.bytes = bytes, .size = data.size()};
+			std::unique_ptr<WebPAnimDecoder, decltype(&WebPAnimDecoderDelete)> decoder(
+				WebPAnimDecoderNew(&webpData, &options), &WebPAnimDecoderDelete);
+			WebPAnimInfo info{};
+			uint8_t* frame = nullptr;
+			int timestamp = 0;
+			if (!decoder || WebPAnimDecoderGetInfo(decoder.get(), &info) == 0 ||
+				WebPAnimDecoderGetNext(decoder.get(), &frame, &timestamp) == 0)
+				return std::unexpected(std::format("failed to decode {}: its first animation frame doesn't decode", name));
+			Pixels pixels{.width = info.canvas_width, .height = info.canvas_height, .channelCount = 4};
+			pixels.rgba.assign(frame, frame + (static_cast<size_t>(info.canvas_width) * info.canvas_height * 4));
+			return pixels;
+		}
+
+		int width = 0;
+		int height = 0;
+		std::unique_ptr<uint8_t, decltype(&WebPFree)> rgba(WebPDecodeRGBA(bytes, data.size(), &width, &height), &WebPFree);
+		if (!rgba)
+			return std::unexpected(std::format("failed to decode {}: WebPDecodeRGBA failed", name));
+		Pixels pixels{
+			.width = static_cast<uint32_t>(width),
+			.height = static_cast<uint32_t>(height),
+			.channelCount = features.has_alpha != 0 ? 4U : 3U};
+		pixels.rgba.assign(rgba.get(), rgba.get() + (static_cast<size_t>(width) * height * 4));
+		return pixels;
+	}
+
+	if (startsWith(kKtx2))
+	{
+		ktxTexture2* texture = nullptr;
+		if (auto result = ktxTexture2_CreateFromMemory(bytes, data.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture);
+			result != KTX_SUCCESS)
+			return std::unexpected(std::format("failed to decode {}: {}", name, ktxErrorString(result)));
+		std::unique_ptr<ktxTexture2, void (*)(ktxTexture2*)> owner(texture, [](ktxTexture2* t) { ktxTexture2_Destroy(t); });
+
+		if (ktxTexture2_NeedsTranscoding(texture))
+			if (auto result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_RGBA32, 0); result != KTX_SUCCESS)
+				return std::unexpected(std::format("failed to transcode {}: {}", name, ktxErrorString(result)));
+
+		// VK_FORMAT_R8G8B8A8_UNORM, _SRGB, VK_FORMAT_R8G8B8_UNORM, _SRGB
+		constexpr uint32_t kRgba8Unorm = 37;
+		constexpr uint32_t kRgba8Srgb = 43;
+		constexpr uint32_t kRgb8Unorm = 23;
+		constexpr uint32_t kRgb8Srgb = 29;
+		auto format = texture->vkFormat;
+		uint32_t sourceChannels = format == kRgba8Unorm || format == kRgba8Srgb ? 4 : format == kRgb8Unorm || format == kRgb8Srgb ? 3 : 0;
+		if (sourceChannels == 0)
+			return std::unexpected(std::format("failed to decode {}: KTX2 format {} isn't supported", name, format));
+
+		ktx_size_t offset = 0;
+		ktxTexture_GetImageOffset(ktxTexture(texture), 0, 0, 0, &offset);
+		const auto* data = ktxTexture_GetData(ktxTexture(texture)) + offset;
+		Pixels pixels{.width = texture->baseWidth, .height = texture->baseHeight, .channelCount = sourceChannels};
+		auto pixelCount = static_cast<size_t>(pixels.width) * pixels.height;
+		pixels.rgba.resize(pixelCount * 4);
+		for (size_t pixelIt = 0; pixelIt < pixelCount; pixelIt++)
+		{
+			std::copy_n(&data[pixelIt * sourceChannels], sourceChannels, &pixels.rgba[pixelIt * 4]);
+			if (sourceChannels == 3)
+				pixels.rgba[(pixelIt * 4) + 3] = 255;
+		}
+		return pixels;
+	}
 
 	int width = 0;
 	int height = 0;
 	int channelCount = 0;
 	std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> decoded(
-		stbi_load(path.string().c_str(), &width, &height, &channelCount, STBI_rgb_alpha), &stbi_image_free);
+		stbi_load_from_memory(bytes, static_cast<int>(data.size()), &width, &height, &channelCount, STBI_rgb_alpha), &stbi_image_free);
 	if (!decoded)
-		return std::unexpected(std::format("failed to decode {}: {}", path.string(), stbi_failure_reason()));
+		return std::unexpected(std::format("failed to decode {}: {}", name, stbi_failure_reason()));
 
 	Pixels pixels{
 		.width = static_cast<uint32_t>(width),
 		.height = static_cast<uint32_t>(height),
 		.channelCount = static_cast<uint32_t>(channelCount)};
-	auto pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height);
-	pixels.rgba.assign(decoded.get(), decoded.get() + (pixelCount * kRgba));
-	decoded.reset();
+	pixels.rgba.assign(decoded.get(), decoded.get() + (static_cast<size_t>(width) * height * 4));
+	return pixels;
+}
+
+// a file's bytes, or an error message
+[[nodiscard]] static std::expected<std::vector<std::byte>, std::string> ReadFile(const std::filesystem::path& path)
+{
+	std::ifstream file(path, std::ios::binary);
+	if (!file)
+		return std::unexpected(std::format("failed to open {}", path.string()));
+	std::vector<char> chars((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+	std::vector<std::byte> bytes(chars.size());
+	std::memcpy(bytes.data(), chars.data(), chars.size());
+	return bytes;
+}
+
+std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options)
+{
+	auto bytes = ReadFile(path);
+	if (!bytes)
+		return std::unexpected(bytes.error());
+	return Decode(*bytes, path.string(), options);
+}
+
+std::expected<Pixels, std::string> Decode(std::span<const std::byte> data, std::string_view name, const Options& options)
+{
+	using namespace detail;
+
+	ZoneScopedN("image::Decode");
+
+	// rgba8 pixels of the first image (level 0, layer 0, face 0): WebP with libwebp, KTX2 with libktx (Basis Universal
+	// transcoded to rgba8, or an uncompressed rgba8 or rgb8 format), anything else with stb_image
+	auto decoded = DecodeRgba8(data, name);
+	if (!decoded)
+		return std::unexpected(decoded.error());
+
+	Pixels pixels = std::move(*decoded);
+	auto width = static_cast<int>(pixels.width);
+	auto height = static_cast<int>(pixels.height);
+	auto channelCount = pixels.channelCount;
+	auto pixelCount = static_cast<size_t>(pixels.width) * pixels.height;
 
 	auto& rgba = pixels.rgba;
 
@@ -348,11 +475,102 @@ std::expected<Image, std::string> Import(
 	std::atomic_uint8_t* progress,
 	const std::function<bool()>& cancelled)
 {
+	auto bytes = ReadFile(path);
+	if (!bytes)
+		return std::unexpected(bytes.error());
+	return Import(*bytes, path.string(), options, allocate, progress, cancelled);
+}
+
+// a KTX2 file's own block compressed mip chain, for a color or linear usage: Basis Universal transcoded to BC7, or BC1,
+// BC3 or BC7 data as it is. nullopt if the file isn't such (another format or usage, or not a full mip chain of one 2d
+// image), which Import then decodes to rgba8 and compresses itself. the transfer function is the usage's: color
+// textures are srgb, as gltf's KTX2 color textures are.
+[[nodiscard]] static std::optional<std::expected<Image, std::string>> ImportKtx2(
+	std::span<const std::byte> data,
+	std::string_view name,
+	const Options& options,
+	const std::function<std::byte*(size_t size)>& allocate)
+{
+	using namespace detail;
+
+	static constexpr std::array<uint8_t, 12> kKtx2{0xab, 'K', 'T', 'X', ' ', '2', '0', 0xbb, '\r', '\n', 0x1a, '\n'};
+	if ((options.usage != Usage::kColor && options.usage != Usage::kLinear) || data.size() < kKtx2.size() ||
+		!std::equal(kKtx2.begin(), kKtx2.end(), reinterpret_cast<const uint8_t*>(data.data())))
+		return std::nullopt;
+
+	ktxTexture2* texture = nullptr;
+	if (ktxTexture2_CreateFromMemory(
+			reinterpret_cast<const ktx_uint8_t*>(data.data()), data.size(), KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT, &texture) !=
+		KTX_SUCCESS)
+		return std::nullopt;
+	std::unique_ptr<ktxTexture2, void (*)(ktxTexture2*)> owner(texture, [](ktxTexture2* t) { ktxTexture2_Destroy(t); });
+
+	auto width = texture->baseWidth;
+	auto height = texture->baseHeight;
+	auto levelCount = static_cast<uint32_t>(std::bit_width(std::max(width, height)));
+	if (texture->numLevels != levelCount || texture->numLayers != 1 || texture->numFaces != 1 || texture->baseDepth != 1)
+		return std::nullopt;
+
+	if (ktxTexture2_NeedsTranscoding(texture))
+		if (auto result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_BC7_RGBA, 0); result != KTX_SUCCESS)
+			return std::unexpected(std::format("failed to transcode {} to BC7: {}", name, ktxErrorString(result)));
+
+	// VK_FORMAT_BC1_RGB_UNORM_BLOCK and _SRGB, BC3, BC7
+	std::optional<Format> format;
+	switch (texture->vkFormat)
+	{
+	case 131:
+	case 132: format = Format::kBC1; break;
+	case 137:
+	case 138: format = Format::kBC3; break;
+	case 145:
+	case 146: format = Format::kBC7; break;
+	default: return std::nullopt;
+	}
+
+	Image image{.channelCount = 4, .format = *format, .usage = options.usage, .ownBlocks = true};
+	image.mipLevels.resize(levelCount);
+	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+	{
+		auto& level = image.mipLevels[levelIt];
+		level.width = std::max(width >> levelIt, 1U);
+		level.height = std::max(height >> levelIt, 1U);
+		level.offset = static_cast<uint32_t>(image.size);
+		level.size = BlockCount(level.width) * BlockCount(level.height) * BlockSize(image.format);
+		if (ktxTexture_GetImageSize(ktxTexture(texture), levelIt) != level.size)
+			return std::nullopt;
+		image.size += level.size;
+	}
+
+	auto* dst = allocate(image.size);
+	if (dst == nullptr)
+		return std::unexpected(std::format("failed to allocate {} bytes for {}", image.size, name));
+	const auto* source = ktxTexture_GetData(ktxTexture(texture));
+	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+	{
+		ktx_size_t offset = 0;
+		ktxTexture_GetImageOffset(ktxTexture(texture), levelIt, 0, 0, &offset);
+		std::memcpy(dst + image.mipLevels[levelIt].offset, source + offset, image.mipLevels[levelIt].size);
+	}
+	return image;
+}
+
+std::expected<Image, std::string> Import(
+	std::span<const std::byte> data,
+	std::string_view name,
+	const Options& options,
+	const std::function<std::byte*(size_t size)>& allocate,
+	std::atomic_uint8_t* progress,
+	const std::function<bool()>& cancelled)
+{
 	using namespace detail;
 
 	ZoneScopedN("image::Import");
 
-	auto pixels = Decode(path, options);
+	if (auto ktx2 = ImportKtx2(data, name, options, allocate))
+		return std::move(*ktx2);
+
+	auto pixels = Decode(data, name, options);
 	if (!pixels)
 		return std::unexpected(pixels.error());
 
@@ -379,11 +597,11 @@ std::expected<Image, std::string> Import(
 	}
 
 	if (image.size > std::numeric_limits<uint32_t>::max())
-		return std::unexpected(std::format("{} is too large: {}x{}", path.string(), width, height));
+		return std::unexpected(std::format("{} is too large: {}x{}", name, width, height));
 
 	auto* dst = allocate(image.size);
 	if (dst == nullptr)
-		return std::unexpected(std::format("failed to allocate {} bytes for {}", image.size, path.string()));
+		return std::unexpected(std::format("failed to allocate {} bytes for {}", image.size, name));
 
 	constexpr uint8_t kProgressEnd = 224;
 	auto progressBegin = progress != nullptr ? std::min(progress->load(), kProgressEnd) : kProgressEnd;
@@ -412,7 +630,7 @@ std::expected<Image, std::string> Import(
 					static_cast<int>(level.height),
 					static_cast<int>(level.width * kRgba),
 					STBIR_RGBA) == nullptr)
-				return std::unexpected(std::format("failed to resize {} to {}x{}", path.string(), level.width, level.height));
+				return std::unexpected(std::format("failed to resize {} to {}x{}", name, level.width, level.height));
 
 			// averaged normals are shorter than unit length
 			if (options.usage == Usage::kNormal || options.usage == Usage::kBump)
@@ -435,6 +653,9 @@ std::expected<Image, std::string> Import(
 void DecompressBlock(Format format, std::span<const std::byte> block, std::span<uint8_t, 64> rgbaOut) noexcept
 {
 	using namespace detail;
+
+	if (format == Format::kBC7) // not decoded: rgbaOut is left as it is
+		return;
 
 	if (format == Format::kBC4 || format == Format::kBC5)
 	{

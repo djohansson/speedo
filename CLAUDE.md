@@ -250,7 +250,9 @@ failed load prints why and returns null instead of trapping. When an importer ch
 `objimport-vN`/`gltfimport-vN`/`imageimport-vN` tag in the loader's params hash, or stale caches keep the old output.
 Assets outside `RootPath` are cached under `<user profile>/external/<absolute path>`.
 
-glTF: the default scene is flattened into one mesh with the node transforms applied (a mirroring one reverses the
+glTF: a scene (`mesh::ImportOptions::scene`, else the default one, or the first; the file's scenes are
+`ModelDesc::scenes`, and View > Scene, or `SPEEDO_AUTOLOAD_SCENE=<index>`, loads the file again with another, as a
+cache entry of its own) is flattened into one mesh with the node transforms applied (a mirroring one reverses the
 winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). `EXT_mesh_gpu_instancing`
 is drawn instanced instead: the node's primitives once, in its space, and a transform per instance (the node's times
 the instance's translation * rotation * scale) in `Mesh::instances`/`ModelDesc::instances`, which each submesh names a
@@ -270,8 +272,10 @@ fragment input. Double sided materials
 cull mode, `VK_EXT_extended_dynamic_state`, a required device extension), and the fragment shader flips the normal of
 back faces (`SV_IsFrontFace`). Alpha modes become
 `mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
-texture, and for BLEND). BLEND materials (`blend`) are drawn after the opaque submeshes, sorted back to front per view
-by `ModelSubmesh::center` (from `Views::GetEyePositions`), with the `BlendMode::kAlpha` pipeline variant (source alpha
+texture, and for BLEND). BLEND materials (`blend`) are drawn after the opaque submeshes, an instance at a time, sorted
+back to front per view by `Model::GetCenter` (from `Views::GetEyePositions`): a submesh's `localCenter` at the
+instance's current transform, or for a skinned one its joints' bounds (`ModelDesc::jointBounds`, what each joint
+moves) at the current joint matrices, both as the last `Model::Animate` left them, with the `BlendMode::kAlpha` pipeline variant (source alpha
 over, depth tested but not written). The pipeline variant (`GraphicsPipelineVariant`: topology and blend mode) is a
 parameter of `BindPipelineAuto`, part of the pipeline cache key. glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
@@ -284,13 +288,21 @@ metallic into one texture's r, g and b, which kMask's luminance would mix. Each 
 sampler as `rhi::SamplerDesc`), which the shader applies: vertices keep both texcoord sets as they are (`texCoord01.xy`,
 `.zw`), materials name a `TextureView` per texture (`gTextureViews`: texture and sampler slot, set, transform; 0 is
 material 0's, deduplicated per model), and `ViewTexCoord`/`SampleView` sample through them (the normal map's tangent
-frame follows its own transformed texcoords). A model's distinct samplers get the 15 sampler slots other than the
-default's (`kModelSamplerSlots`), and the previous model's go back to the default. Images embedded in buffers or data uris are written to
-`<user profile>/embedded/<name>-<hash>/` (named by content) and loaded like external ones. Only an import writes
-them, so `Model::Load` treats a cached model whose extracted images are missing as an unreadable cache, and
-`LoadAsset` imports it again. Files requiring draco or
-meshopt compression, KTX2/basisu or WebP fail to load with a message naming the extension: those need libraries the
-project doesn't have. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
+frame follows its own transformed texcoords). A model's distinct samplers get the 63 sampler slots other than the
+default's (`kModelSamplerSlots`; `ManySamplers.gltf` uses 36), and the previous model's go back to the default. Images embedded in buffers or data uris are named by their model file and
+index (`TextureRef::embeddedImage`): `LoadTexture` caches them against the model file and, on a miss, reads their
+bytes with `gltf::EmbeddedImage` and decodes them from memory (`image::Import`'s byte overload, which tells the formats
+apart by their signature), so nothing is extracted to disk. Compressed meshes are decoded at import: meshopt (EXT_meshopt_compression, which cgltf
+parses, and KHR_meshopt_compression, read from its json) into `cgltf_buffer_view::data` right after the buffers load
+(`DecodeMeshopt`), so accessors read them as usual; draco per primitive (`DecodeDraco`: cgltf turns the extension's
+draco attribute ids into accessor pointers by index), whose values `addPrimitive` reads in place of the accessors'.
+Textures use their plain image if they have one, else their KHR_texture_basisu (KTX2) or EXT_texture_webp image, which
+`image::Import` decodes: a KTX2 color (or linear) texture with a full mip chain keeps its own blocks
+(`ImportKtx2`: Basis Universal transcoded straight to BC7, or BC1, BC3 or BC7 data as it is, with the file's mips;
+`image::Format::kBC7`, which only comes from there; `Image::ownBlocks`: assettest decodes BC7 with bcdec, a header-only
+`ports/bcdec` overlay, and only warns about such images' compression and mips, which are the file's), other KTX2 textures (normal maps and the other swizzled usages) are transcoded to rgba8 and compressed
+as any other, as are WebP images (libwebp, the first frame of an animation); the decoders' versions are part of those files' cache keys, and draco's and
+meshoptimizer's of every gltf model's. KHR_node_visibility hides nodes; morph targets are applied at their default weights (the
 node's, else the mesh's; position and normal deltas). Skins and node animations (translation, rotation, scale; step,
 linear and cubic spline) are drawn moving (`SceneAnimationData`, `ModelDesc::animation`, `gfx/sceneanimation.h`): the
 nodes animations move, and their descendants, keep their meshes in node space, drawn with instances linked to the
@@ -302,11 +314,13 @@ host visible instance and joint buffer per frame (`gModelInstances[frame]`, `gJo
 binds its device local instance buffer in every slot, and the defaults (`gDefaultSkinVerticesUuid`, `gDefaultJointsUuid`)
 stand in for what it doesn't have. Skinned bounds and blend centers are at the rest pose (`RestJoints`,
 `SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
-first plays on load), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
+first plays on load), crossfading from the previous one over 0.3 s (`EvaluateNodes` with two `ScenePose`s and a weight:
+local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Morph
 weight and KHR_animation_pointer channels are ignored with a warning, and a set of files is drawn at rest. Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
-(`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). The views keep no roll,
-so a rolled camera loses it, and the file's aspect ratio gives way to the view's. The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
+(`Views::SetScene`); View > Camera picks another or frames the model (`Views::UseSceneCamera`). A camera's roll is
+`cameraRotation.z` (applied before pitch and yaw), and its aspect ratio (gltf `aspectRatio`, or `xmag / ymag`)
+letterboxes its view in its grid cell (`Views::InternalLayout`; the draw uses `Views::GetViewports`). The Khronos glTF-Sample-Assets `Models/` are the test set (see below; `assettest` takes
 `.gltf`/`.glb`): there, in the image checks, a 4x4-or-smaller mip only warns about its average (one BC1 block can't hold
 more than four colors), and normals below the surface (z < 0, which BC5 can't store) are compared mirrored and warned
 about, since both are properties of the asset rather than importer errors.
@@ -336,8 +350,11 @@ lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual 
 candela, or a default directional light of 2.2 lux), plus a constant ambient radiance (0.3, its specular part by Karis'
 environment brdf fit) that occlusion darkens. The default light and ambient light a white matte surface as the fixed
 light did before there was PBR. Metallic-roughness textures are `Usage::kMetallicRoughness` (BC5: roughness, the file's
-green, in r, and metallic, its blue, in g); obj materials are matte dielectrics (metallic 0, roughness 1), and
-`MaterialData` defaults must set roughness to 1 (zero is a mirror). KHR_materials_unlit draws the base color alone. A model's materials
+green, in r, and metallic, its blue, in g); obj materials are dielectrics whose `Ks` scales the specular
+(`MaterialData::specular`, also KHR_materials_specular's factor; 0 is matte, without even a fresnel rim) and whose `Ns`
+gives the roughness (`sqrt(2 / (Ns + 2))`), and `MaterialData` defaults must set roughness and specular to 1 (zero
+roughness is a mirror). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
 (0-3 are the frames' render targets, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
@@ -345,10 +362,14 @@ most mtl files, but some are normal maps: the importer tells them apart by color
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
 handedness, so the bitangent `cross(n, t) * w` points *up* the image, i.e. along -v in this convention; mirroring node
-and instance transforms flip w). Without them (obj, gltf files without `TANGENT`, or with generated normals, where gltf
-says to ignore them) w is 0, and the fragment shader builds the tangent frame from screen space derivatives instead,
+and instance transforms flip w). gltf triangles with a normal map but no `TANGENT` get MikkTSpace's
+(`GenerateTangents`, the `mikktspace` port: from the normal map's texcoord set, with v flipped back up the image as the
+exporters' MikkTSpace sees it, so that the bitangent points the way gltf's does; a vertex is split where its corners'
+tangents differ, and generated tangents are made perpendicular to their own vertex normal, since degenerate triangles
+get a neighbor's). Without them (obj files, and degenerate corners) w is 0, and the fragment shader builds the tangent
+frame from screen space derivatives instead,
 corrected by the sign of `dot(cross(ddx(p), ddy(p)), n)`, which is negative here since the framebuffer's y
-points down: without it bumps come out inverted. Missing tangents aren't generated (MikkTSpace would need a library).
+points down: without it bumps come out inverted.
 Either frame follows the normal map's texture transform. NormalTangentMirrorTest checks the vertex tangent path: it
 renders right either way, but negating its tangents' w must break it. A quad with a known height map (a dome, which must be lit on the side
 the light comes from) is the quickest way to see a sign error. `InstallModel` switches model, textures and materials in one draw
@@ -364,19 +385,20 @@ library), then loaded from there like any other files; with several models the u
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
 which unzip ignores too. `assettest` takes zip archives as well, extracting them the same way.
 
-`scripts/assettest.sh <zips or dirs>` runs the `assettest` tool (imports every model and image and checks the result:
-index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `--client`
+`scripts/assettest.ps1 <zips or dirs>` (PowerShell, as the other scripts) runs the `assettest` tool (imports every model and image and checks the result:
+index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `-Client`
 also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish), failing
 on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
-profile preset first, then debug with `--client-only` and the same `--work` dir, whose caches it reuses. The client's
+profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
 `RequestExit()`, which posts an empty event.
 
-The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.sh` downloads Morgan McGuire's
+The test sets come from their sources, not from local copies: `scripts/fetch-test-assets.ps1` downloads Morgan McGuire's
 Computer Graphics Archive (obj, about 2.7 GB) and the Khronos glTF-Sample-Assets models (at a pinned commit, about
 2.3 GB) into `resources/test-assets` (gitignored; the client's file dialogs open there; or `$SPEEDO_TEST_ASSETS`), and
 prints the paths to test:
-`scripts/assettest.sh --client $(scripts/fetch-test-assets.sh)`. The archive publishes no versions or checksums and
+`scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
+`pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). The archive publishes no versions or checksums and
 does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
 sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
 `scripts/test-assets/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
@@ -384,7 +406,9 @@ accessors that are sparse, with and without base values; cgltf's `cgltf_accessor
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;
 `InstancingTransforms.gltf`: instances of a single sided, asymmetric triangle under a scaled and moved node, with
 normalized short rotations and a mirroring instance, which must face the camera too; `BlendOrder.gltf`: blended quads
-listed nearest first, whose overlaps must be tinted by the nearer one), and is always part
+listed nearest first, whose overlaps must be tinted by the nearer one; `BlendInstances.gltf`: a
+blended quad instanced in front of and behind another, which a sort per submesh can't order; `ManySamplers.gltf`: 36 quads with a sampler
+each, of every filter and wrap mode, more than the model sampler slots once were), and is always part
 of the printed paths. Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its
@@ -397,7 +421,7 @@ the CornellBox variants, ...), not scenes: each file stands alone at the origin,
 scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
 same size and centered in its cell by its instance transforms (premultiplied by the placement; vertices are copied as
 they are), each file still through its own cache entry, merged as staging data before the one upload. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
-"Open Folder..." loads a directory's, and `assettest.sh` runs the client once per such archive (with the archive's first
+"Open Folder..." loads a directory's, and `assettest.ps1` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145
 for the McGuire set. The glTF sample models are such subdirectories, of encodings of the same model (glTF, glTF-Binary,
@@ -590,6 +614,11 @@ Toolchain-level fixes that removed the need for port patches:
 - mimalloc is built with `MI_USE_CXX=OFF`: as C++ it links the static libc++/libc++abi into its dylib and
   exports them. Note that this generally applies to every C++ dylib here (zmq, cpptrace, TracyClient, slang, ...),
   since the host LLVM only ships static `libc++.a`/`libc++abi.a`.
+
+A port FASTBuild can't build at all can use another generator from its portfile (`vcpkg_cmake_configure(... GENERATOR
+Ninja)`, see `ports/draco`: a shared library linked from object libraries only, and header-only object libraries). Ports
+that link executables with GNU link groups (`-Wl,--start-group`) need a patch on apple platforms: ld64.lld has none, and
+our clang reports itself as `Clang`, not `AppleClang`, which the ports' checks expect (`ports/draco/0001-*`).
 
 FASTBuild generator pitfalls in third-party CMake (see `ports/tracy/0007-*`): a directory as a custom command
 `OUTPUT` fails with `File missing despite success`, and custom commands that `DEPENDS` on a *target* name are not

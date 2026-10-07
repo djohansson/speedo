@@ -236,7 +236,7 @@ static DescriptorSetLayoutCreateDesc<kVk> ToDescriptorSetLayoutCreateDesc(const 
 	}
 	if (const auto& pushConstants = layout.pushConstants)
 		desc.pushConstantRange =
-			PushConstantRange<kVk>{vk::ToVk(pushConstants->stages), pushConstants->offset, pushConstants->size};
+			PushConstantRange<kVk>{.stageFlags=vk::ToVk(pushConstants->stages), .offset=pushConstants->offset, .size=pushConstants->size};
 	return desc;
 }
 
@@ -341,7 +341,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 
 	for (const auto& [set, setLayout] : layout.GetDescriptorSetLayouts())
 	{
-		auto setLayoutHandle = static_cast<DescriptorSetLayoutHandle<kVk>>(setLayout);
+		auto* setLayoutHandle = static_cast<DescriptorSetLayoutHandle<kVk>>(setLayout);
 		auto setStateIt = myDescriptorMap.find(setLayoutHandle);
 		if (setStateIt == myDescriptorMap.end())
 		{
@@ -361,7 +361,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 							static_cast<VkDescriptorSetLayout>(setLayout),
 							myBindPoint,
 							static_cast<VkPipelineLayout>(layout),
-							set}},
+							set,}},
 					((setLayout.GetDesc().flags &
 					VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR) != 0U)
 						? std::nullopt
@@ -380,7 +380,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 					DescriptorSetArray<kVk>(
 						DescriptorSetArrayCreateDesc<kVk>{
 							GetDevice().CreateDeviceObjectCreateDesc("DescriptorSetArray"),
-							myDescriptorPool
+							myDescriptorPool,
 						},
 						setLayout),
 					0);
@@ -402,14 +402,14 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.vertexBindingDescriptionCount = 0,
 		.pVertexBindingDescriptions = nullptr,
 		.vertexAttributeDescriptionCount = 0,
-		.pVertexAttributeDescriptions = nullptr};
+		.pVertexAttributeDescriptions = nullptr,};
 
 	myGraphicsState.inputAssembly = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
 		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-		.primitiveRestartEnable = VK_FALSE};
+		.primitiveRestartEnable = VK_FALSE,};
 
 	myGraphicsState.viewports.clear();
 	myGraphicsState.viewports.emplace_back(VkViewport{.x=0.0F, .y=0.0F, .width=0, .height=0, .minDepth=0.0F, .maxDepth=1.0F});
@@ -424,7 +424,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.viewportCount = static_cast<uint32_t>(myGraphicsState.viewports.size()),
 		.pViewports = myGraphicsState.viewports.data(),
 		.scissorCount = static_cast<uint32_t>(myGraphicsState.scissorRects.size()),
-		.pScissors = myGraphicsState.scissorRects.data()};
+		.pScissors = myGraphicsState.scissorRects.data(),};
 
 	myGraphicsState.rasterization = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -439,7 +439,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.depthBiasConstantFactor = 0.0F,
 		.depthBiasClamp = 0.0F,
 		.depthBiasSlopeFactor = 0.0F,
-		.lineWidth = 1.0F};
+		.lineWidth = 1.0F,};
 
 	myGraphicsState.multisample = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
@@ -450,7 +450,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.minSampleShading = 1.0F,
 		.pSampleMask = nullptr,
 		.alphaToCoverageEnable = VK_FALSE,
-		.alphaToOneEnable = VK_FALSE};
+		.alphaToOneEnable = VK_FALSE,};
 
 	myGraphicsState.depthStencil = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
@@ -464,7 +464,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.front = {},
 		.back = {},
 		.minDepthBounds = 0.0F,
-		.maxDepthBounds = 1.0F};
+		.maxDepthBounds = 1.0F,};
 
 	myGraphicsState.colorBlendAttachments.clear();
 	myGraphicsState.colorBlendAttachments.emplace_back(PipelineColorBlendAttachmentState<kVk>{
@@ -476,7 +476,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
 		.alphaBlendOp = VK_BLEND_OP_ADD,
 		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
-			VK_COLOR_COMPONENT_A_BIT});
+			VK_COLOR_COMPONENT_A_BIT,});
 
 	myGraphicsState.colorBlend = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
@@ -486,7 +486,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.logicOp = VK_LOGIC_OP_COPY,
 		.attachmentCount = static_cast<uint32_t>(myGraphicsState.colorBlendAttachments.size()),
 		.pAttachments = myGraphicsState.colorBlendAttachments.data(),
-		.blendConstants = {0.0F, 0.0F, 0.0F, 0.0F}};
+		.blendConstants = {0.0F, 0.0F, 0.0F, 0.0F},};
 
 	myGraphicsState.dynamicStateDescs.clear();
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_VIEWPORT);
@@ -738,7 +738,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 					.stage=static_cast<VkShaderStageFlagBits>(vk::ToVk(shaderStage)),
 					.module=shader,
 					.pName=entryPointName.c_str(),
-					.pSpecializationInfo=nullptr});
+					.pSpecializationInfo=nullptr,});
 
 				myGraphicsState.shaderStageFlags |= vk::ToVk(shaderStage);
 			}
@@ -756,7 +756,7 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 				.stage = VK_SHADER_STAGE_COMPUTE_BIT,
 				.module = shaderModules.back(),
 				.pName = entryPointName.c_str(),
-				.pSpecializationInfo = nullptr};
+				.pSpecializationInfo = nullptr,};
 			myComputeState.launchParameters = launchParams.value_or(ComputeLaunchParameters{});
 		}
 		break;

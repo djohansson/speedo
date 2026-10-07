@@ -1,15 +1,13 @@
-#include <array>
+#include <core/profiling.h>
 #include <rhi/deviceobject.h>
 #include <rhi/vulkan/utils.h>
 
-#include <core/profiling.h>
-
+#include <array>
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 #include <atomic>
 #include <mutex>
 #include <string>
 #include <utility>
-
 #include <parallel_hashmap/phmap.h>
 #endif
 

@@ -107,11 +107,11 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 
 } // namespace sceneanimation
 
-std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, size_t animation, float time)
+// the nodes' local transforms with an animation at time (wrapped to its duration), or at rest if animation is out of
+// range
+[[nodiscard]] static std::vector<sceneanimation::Trs> EvaluateLocals(const SceneAnimationData& data, size_t animation, float time)
 {
 	using namespace sceneanimation;
-
-	ZoneScopedN("gfx::EvaluateNodes");
 
 	std::vector<Trs> locals(data.nodes.size());
 	for (size_t nodeIt = 0; nodeIt < data.nodes.size(); nodeIt++)
@@ -155,6 +155,12 @@ std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, size_t an
 		}
 	}
 
+	return locals;
+}
+
+// the nodes' world transforms from their local ones
+[[nodiscard]] static std::vector<SceneMatrix> ComposeWorlds(const SceneAnimationData& data, const std::vector<sceneanimation::Trs>& locals)
+{
 	// world = parent's world * local, parents first (the nodes needn't be ordered)
 	std::vector<glm::mat4> worlds(data.nodes.size());
 	std::vector<uint8_t> done(data.nodes.size(), 0);
@@ -184,6 +190,36 @@ std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, size_t an
 	for (size_t nodeIt = 0; nodeIt < worlds.size(); nodeIt++)
 		std::memcpy(result[nodeIt].data(), glm::value_ptr(worlds[nodeIt]), sizeof(SceneMatrix));
 	return result;
+}
+
+std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, size_t animation, float time)
+{
+	ZoneScopedN("gfx::EvaluateNodes");
+
+	return ComposeWorlds(data, EvaluateLocals(data, animation, time));
+}
+
+std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, const ScenePose& pose, const ScenePose& from, float weight)
+{
+	ZoneScopedN("gfx::EvaluateNodes");
+
+	auto rest = data.animations.size();
+	auto locals = EvaluateLocals(data, pose.animation.value_or(rest), pose.time);
+	if (weight < 1.0F)
+	{
+		// each node's translation and scale lerped, and its rotation slerped, from the pose faded out
+		auto fromLocals = EvaluateLocals(data, from.animation.value_or(rest), from.time);
+		auto t = std::clamp(weight, 0.0F, 1.0F);
+		for (size_t nodeIt = 0; nodeIt < locals.size(); nodeIt++)
+		{
+			auto& local = locals[nodeIt];
+			const auto& fromLocal = fromLocals[nodeIt];
+			local.translation = glm::mix(fromLocal.translation, local.translation, t);
+			local.rotation = glm::slerp(fromLocal.rotation, local.rotation, t);
+			local.scale = glm::mix(fromLocal.scale, local.scale, t);
+		}
+	}
+	return ComposeWorlds(data, locals);
 }
 
 void WriteInstances(const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<std::byte> modelInstances)

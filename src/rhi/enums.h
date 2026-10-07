@@ -44,6 +44,8 @@ enum class Format : uint8_t
 	kBC3Srgb,
 	kBC4Unorm,
 	kBC5Unorm,
+	kBC7Unorm,
+	kBC7Srgb,
 };
 
 enum class ImageLayout : uint8_t

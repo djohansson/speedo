@@ -7,7 +7,7 @@ build/*
 install/*
 temp/*
 
-# downloaded by scripts/fetch-test-assets.sh
+# downloaded by scripts/fetch-test-assets.ps1
 resources/test-assets/
 
 *.fdb

@@ -1,4 +1,4 @@
-# Morgan McGuire's Computer Graphics Archive (https://casual-effects.com/data), see scripts/fetch-test-assets.sh
+# Morgan McGuire's Computer Graphics Archive (https://casual-effects.com/data), see scripts/fetch-test-assets.ps1
 # <path under https://casual-effects.com/g3d/data10> <local name> <size> <sha256>, as downloaded on 2026-10-05
 common/model/CornellBox/CornellBox.zip CornellBox.zip 224880 f27eaf47afec74b5236ce3095ac02d4256e8ac8610bfdb5a53560c67c2e0d8f1
 common/model/crytek_sponza/sponza.zip sponza.zip 80113441 da005cbee0be2df2abc8513f3ceb61bcb6f69aac112babcd9c00169a27c2770c

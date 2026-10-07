@@ -21,6 +21,9 @@
 
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
+#include <draco/compression/decode.h>
+#include <meshoptimizer.h>
+#include <mikktspace.h>
 
 #include <xxhash.h>
 
@@ -84,7 +87,167 @@ using DataPtr = std::unique_ptr<cgltf_data, DataDeleter>;
 [[nodiscard]] bool IsSupportedRequiredExtension(std::string_view name)
 {
 	return name == "KHR_mesh_quantization" || name == "KHR_texture_transform" || name.starts_with("KHR_materials_") ||
-		   name == "KHR_lights_punctual" || name == "KHR_node_visibility" || name == "EXT_mesh_gpu_instancing";
+		   name == "KHR_lights_punctual" || name == "KHR_node_visibility" || name == "EXT_mesh_gpu_instancing" ||
+		   name == "KHR_texture_basisu" || name == "EXT_texture_webp" || name == "KHR_draco_mesh_compression" ||
+		   name == "EXT_meshopt_compression" || name == "KHR_meshopt_compression";
+}
+
+// a number or string value of a flat json object (an extension cgltf leaves as json), without its quotes
+[[nodiscard]] std::optional<std::string> JsonValue(std::string_view json, std::string_view key)
+{
+	std::string compact(json);
+	std::erase_if(compact, [](unsigned char c) { return std::isspace(c) != 0; });
+	auto at = compact.find(std::format("\"{}\":", key));
+	if (at == std::string::npos)
+		return std::nullopt;
+	auto begin = at + key.size() + 3;
+	auto end = compact.find_first_of(",}", begin);
+	auto value = compact.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+	if (value.size() >= 2 && value.front() == '"' && value.back() == '"')
+		value = value.substr(1, value.size() - 2);
+	return value;
+}
+
+// buffer views compressed with meshopt (EXT_meshopt_compression, which cgltf parses, or KHR_meshopt_compression,
+// which it leaves as json), decoded into memory that cgltf owns (cgltf_buffer_view::data, freed with the data). an
+// error message if one can't be.
+[[nodiscard]] std::optional<std::string> DecodeMeshopt(cgltf_data& data)
+{
+	for (cgltf_size viewIt = 0; viewIt < data.buffer_views_count; viewIt++)
+	{
+		auto& view = data.buffer_views[viewIt];
+		cgltf_meshopt_compression compression{};
+		std::string filter = "NONE";
+		if (view.has_meshopt_compression)
+		{
+			compression = view.meshopt_compression;
+		}
+		else
+		{
+			const char* json = nullptr;
+			for (cgltf_size extensionIt = 0; extensionIt < view.extensions_count; extensionIt++)
+				if (view.extensions[extensionIt].name != nullptr &&
+					std::string_view(view.extensions[extensionIt].name) == "KHR_meshopt_compression")
+					json = view.extensions[extensionIt].data;
+			if (json == nullptr)
+				continue;
+			auto number = [json](std::string_view key) -> cgltf_size
+			{
+				auto value = JsonValue(json, key);
+				return value ? std::strtoull(value->c_str(), nullptr, 10) : 0;
+			};
+			auto buffer = number("buffer");
+			if (!JsonValue(json, "buffer") || buffer >= data.buffers_count)
+				return std::format("buffer view {}: KHR_meshopt_compression without a valid buffer", viewIt);
+			compression.buffer = &data.buffers[buffer];
+			compression.offset = number("byteOffset");
+			compression.size = number("byteLength");
+			compression.stride = number("byteStride");
+			compression.count = number("count");
+			auto mode = JsonValue(json, "mode").value_or("");
+			compression.mode = mode == "ATTRIBUTES"  ? cgltf_meshopt_compression_mode_attributes
+							 : mode == "TRIANGLES" ? cgltf_meshopt_compression_mode_triangles
+							 : mode == "INDICES"   ? cgltf_meshopt_compression_mode_indices
+												   : cgltf_meshopt_compression_mode_invalid;
+			filter = JsonValue(json, "filter").value_or("NONE");
+		}
+		switch (compression.filter)
+		{
+		case cgltf_meshopt_compression_filter_octahedral: filter = "OCTAHEDRAL"; break;
+		case cgltf_meshopt_compression_filter_quaternion: filter = "QUATERNION"; break;
+		case cgltf_meshopt_compression_filter_exponential: filter = "EXPONENTIAL"; break;
+		default: break;
+		}
+
+		if (compression.buffer == nullptr || compression.buffer->data == nullptr ||
+			compression.offset + compression.size > compression.buffer->size)
+			return std::format("buffer view {}: its meshopt compressed buffer isn't loaded", viewIt);
+
+		const auto* source = static_cast<const unsigned char*>(compression.buffer->data) + compression.offset;
+		auto size = compression.count * compression.stride;
+		std::unique_ptr<void, void (*)(void*)> decoded(std::malloc(std::max<size_t>(size, 1)), std::free);
+		int result = -1;
+		switch (compression.mode)
+		{
+		case cgltf_meshopt_compression_mode_attributes:
+			result = meshopt_decodeVertexBuffer(decoded.get(), compression.count, compression.stride, source, compression.size);
+			break;
+		case cgltf_meshopt_compression_mode_triangles:
+			result = meshopt_decodeIndexBuffer(decoded.get(), compression.count, compression.stride, source, compression.size);
+			break;
+		case cgltf_meshopt_compression_mode_indices:
+			result = meshopt_decodeIndexSequence(decoded.get(), compression.count, compression.stride, source, compression.size);
+			break;
+		default: break;
+		}
+		if (result != 0)
+			return std::format("buffer view {}: its meshopt compressed data doesn't decode", viewIt);
+
+		if (filter == "OCTAHEDRAL")
+			meshopt_decodeFilterOct(decoded.get(), compression.count, compression.stride);
+		else if (filter == "QUATERNION")
+			meshopt_decodeFilterQuat(decoded.get(), compression.count, compression.stride);
+		else if (filter == "EXPONENTIAL")
+			meshopt_decodeFilterExp(decoded.get(), compression.count, compression.stride);
+		else if (filter == "COLOR")
+			meshopt_decodeFilterColor(decoded.get(), compression.count, compression.stride);
+		else if (filter != "NONE")
+			return std::format("buffer view {}: meshopt filter {} isn't supported", viewIt, filter);
+
+		view.data = decoded.release();
+	}
+	return std::nullopt;
+}
+
+// a KHR_draco_mesh_compression primitive, decoded: its triangle list, and the values of its attributes, by the accessor
+// they replace (as many floats per vertex as the accessor has components, normalized integers as floats in [0, 1])
+struct DracoPrimitive
+{
+	std::vector<uint32_t> indices;
+	core::UnorderedMap<const cgltf_accessor*, std::vector<float>> values;
+};
+
+[[nodiscard]] std::expected<DracoPrimitive, std::string> DecodeDraco(const cgltf_primitive& primitive, const cgltf_data& data)
+{
+	const auto& compression = primitive.draco_mesh_compression;
+	const auto* bytes = reinterpret_cast<const char*>(cgltf_buffer_view_data(compression.buffer_view));
+	if (bytes == nullptr)
+		return std::unexpected("its draco compressed buffer isn't loaded");
+
+	draco::DecoderBuffer buffer;
+	buffer.Init(bytes, compression.buffer_view->size);
+	draco::Decoder decoder;
+	auto decoded = decoder.DecodeMeshFromBuffer(&buffer);
+	if (!decoded.ok())
+		return std::unexpected(std::format("its draco data doesn't decode: {}", decoded.status().error_msg_string()));
+	auto mesh = std::move(decoded).value();
+
+	DracoPrimitive result;
+	result.indices.reserve(static_cast<size_t>(mesh->num_faces()) * 3);
+	for (draco::FaceIndex faceIt(0); faceIt < mesh->num_faces(); ++faceIt)
+		for (auto corner : mesh->face(faceIt))
+			result.indices.push_back(corner.value());
+
+	// the extension's attributes name the draco attribute ids (which cgltf turns into accessor pointers by index)
+	for (cgltf_size attributeIt = 0; attributeIt < primitive.attributes_count; attributeIt++)
+	{
+		const auto& attribute = primitive.attributes[attributeIt];
+		for (cgltf_size dracoIt = 0; dracoIt < compression.attributes_count; dracoIt++)
+		{
+			const auto& dracoAttribute = compression.attributes[dracoIt];
+			if (dracoAttribute.name == nullptr || attribute.name == nullptr || std::string_view(dracoAttribute.name) != attribute.name)
+				continue;
+			const auto* source = mesh->GetAttributeByUniqueId(static_cast<uint32_t>(dracoAttribute.data - data.accessors));
+			if (source == nullptr)
+				return std::unexpected(std::format("its draco data has no attribute {}", attribute.name));
+			auto components = cgltf_num_components(attribute.data->type);
+			auto& values = result.values[attribute.data];
+			values.resize(mesh->num_points() * components);
+			for (draco::PointIndex pointIt(0); pointIt < mesh->num_points(); ++pointIt)
+				source->ConvertValue<float>(source->mapped_index(pointIt), static_cast<int8_t>(components), &values[pointIt.value() * components]);
+		}
+	}
+	return result;
 }
 
 // whether KHR_node_visibility hides a node (and so its descendants). cgltf leaves the extension as json.
@@ -227,12 +390,16 @@ using Matrix = std::array<float, 16>;
 	{
 		result.orthographic = true;
 		result.ymag = camera.data.orthographic.ymag;
+		if (camera.data.orthographic.xmag > 0.0F && camera.data.orthographic.ymag > 0.0F)
+			result.aspectRatio = camera.data.orthographic.xmag / camera.data.orthographic.ymag;
 		result.znear = camera.data.orthographic.znear;
 		result.zfar = camera.data.orthographic.zfar;
 	}
 	else
 	{
 		result.yfov = camera.data.perspective.yfov;
+		if (camera.data.perspective.has_aspect_ratio != 0 && camera.data.perspective.aspect_ratio > 0.0F)
+			result.aspectRatio = camera.data.perspective.aspect_ratio;
 		result.znear = camera.data.perspective.znear;
 		result.zfar = camera.data.perspective.has_zfar != 0 ? camera.data.perspective.zfar : 0.0F;
 	}
@@ -333,38 +500,89 @@ using Matrix = std::array<float, 16>;
 
 // the image files of a file's textures: external ones are resolved next to the file, embedded ones (in a buffer view,
 // or a data uri) are written to the embedded image directory, once per image
+// an embedded image's bytes (in a buffer view, or a base64 data uri) and its mime type, or why they can't be read. the
+// buffers must be loaded.
+struct EmbeddedBytes
+{
+	std::vector<std::byte> bytes;
+	std::string mimeType;
+};
+
+[[nodiscard]] std::expected<EmbeddedBytes, std::string> ReadEmbedded(const cgltf_image& image)
+{
+	EmbeddedBytes result{.mimeType = image.mime_type != nullptr ? image.mime_type : ""};
+	if (image.buffer_view != nullptr)
+	{
+		const auto* data = reinterpret_cast<const std::byte*>(cgltf_buffer_view_data(image.buffer_view));
+		if (data == nullptr)
+			return std::unexpected("its buffer isn't loaded");
+		result.bytes.assign(data, data + image.buffer_view->size);
+		return result;
+	}
+	if (image.uri != nullptr && IsDataUri(image.uri))
+	{
+		std::string_view uri(image.uri);
+		auto comma = uri.find(',');
+		auto header = uri.substr(0, comma);
+		if (comma == std::string_view::npos || !header.ends_with(";base64"))
+			return std::unexpected("a data uri that isn't base64");
+		result.mimeType = header.substr(5, header.size() - 5 - 7); // between "data:" and ";base64"
+		auto base64 = uri.substr(comma + 1);
+		auto padding = std::ranges::count(base64.substr(base64.size() >= 2 ? base64.size() - 2 : 0), '=');
+		auto size = ((base64.size() / 4) * 3) - static_cast<size_t>(padding);
+		cgltf_options options{};
+		void* out = nullptr;
+		if (cgltf_load_buffer_base64(&options, size, base64.data(), &out) != cgltf_result_success)
+			return std::unexpected("its data uri doesn't decode");
+		std::unique_ptr<void, void (*)(void*)> decoded(out, std::free);
+		result.bytes.assign(static_cast<const std::byte*>(out), static_cast<const std::byte*>(out) + size);
+		return result;
+	}
+	return std::unexpected("it is neither in a buffer view nor a data uri");
+}
+
+// the image file of each texture, or for an image the gltf file embeds, the gltf file and the image's index (see
+// TextureRef::embeddedImage), which the texture loader reads it from (see EmbeddedImage)
 class Images
 {
 public:
-	Images(const cgltf_data& data, const std::filesystem::path& path, const mesh::ImportOptions& options, mesh::Stats& stats)
+	struct Resolved
+	{
+		std::filesystem::path path; // empty if it can't be loaded
+		std::optional<uint32_t> embeddedImage;
+	};
+
+	Images(const cgltf_data& data, const std::filesystem::path& path, mesh::Stats& stats)
 		: myData(data)
+		, myPath(path)
 		, myBaseDir(path.parent_path())
-		, myStem(path.stem().string())
-		, myEmbeddedDir(options.embeddedImageDirectory)
 		, myStats(stats)
-		, myPaths(data.images_count)
+		, myResolved(data.images_count)
+		, myErrors(data.images_count)
 	{}
 
-	// the file of a texture, or empty (counted as missing) if it has none that can be loaded
-	[[nodiscard]] std::filesystem::path Resolve(const cgltf_texture_view& view, std::string_view material)
+	// a texture's image, or an empty path (counted as missing) if it has none that can be loaded
+	[[nodiscard]] Resolved Resolve(const cgltf_texture_view& view, std::string_view material)
 	{
 		const auto* texture = view.texture;
 		if (texture == nullptr)
 			return {};
 
-		if (texture->image == nullptr)
+		// its plain image if it has one (a fallback for the extensions'), else its KTX2 (KHR_texture_basisu) or WebP
+		// (EXT_texture_webp) image, which image::Import decodes too
+		const auto* image = texture->image != nullptr ? texture->image : texture->basisu_image != nullptr ? texture->basisu_image : texture->webp_image;
+		if (image == nullptr)
 		{
-			const char* extension = texture->has_basisu ? "KHR_texture_basisu" : texture->has_webp ? "EXT_texture_webp" : nullptr;
-			Missing(material, extension != nullptr ? std::format("the texture is only in a format of {}", extension) : "the texture has no image");
+			Missing(material, "the texture has no image");
 			return {};
 		}
 
-		auto index = static_cast<size_t>(texture->image - myData.images);
-		if (!myPaths[index])
-			myPaths[index] = InternalResolve(*texture->image, index);
-		if (myPaths[index]->empty())
+		auto index = static_cast<size_t>(image - myData.images);
+		if (!myResolved[index])
+			myResolved[index] = InternalResolve(*image, index);
+		if (myResolved[index]->path.empty())
 			Missing(material, myErrors[index]);
-		return *myPaths[index];
+		return *myResolved[index];
 	}
 
 private:
@@ -374,129 +592,43 @@ private:
 		myStats.warnings.emplace_back(std::format("material {}: texture not loaded: {}", material, why));
 	}
 
-	[[nodiscard]] static std::string_view ExtensionOf(std::string_view mimeType)
-	{
-		if (mimeType == "image/png")
-			return ".png";
-		if (mimeType == "image/jpeg")
-			return ".jpg";
-		return {};
-	}
-
-	[[nodiscard]] std::filesystem::path InternalResolve(const cgltf_image& image, size_t index)
+	[[nodiscard]] Resolved InternalResolve(const cgltf_image& image, size_t index)
 	{
 		auto& error = myErrors[index];
 
 		if (image.uri != nullptr && !IsDataUri(image.uri))
 		{
 			auto path = myBaseDir / UriPath(image.uri);
-			auto extension = path.extension().string();
-			std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-			if (extension == ".ktx2" || extension == ".webp")
-			{
-				error = std::format("{}: {} images aren't supported", path.filename().string(), extension);
-				return {};
-			}
 			if (std::error_code ec; !std::filesystem::is_regular_file(path, ec))
 			{
 				error = std::format("{} not found", path.string());
 				return {};
 			}
-			return path;
+			return {.path = path};
 		}
 
-		// embedded: in a buffer view (with a mime type), or a base64 data uri (data:<mime type>;base64,<data>)
-		std::string_view mimeType = image.mime_type != nullptr ? image.mime_type : "";
-		std::span<const std::byte> bytes;
-		std::unique_ptr<void, void (*)(void*)> decoded(nullptr, std::free);
-		if (image.buffer_view != nullptr)
+		// embedded: readable, and of a type image::Import decodes
+		auto embedded = ReadEmbedded(image);
+		if (!embedded)
 		{
-			const auto* data = reinterpret_cast<const std::byte*>(cgltf_buffer_view_data(image.buffer_view));
-			if (data == nullptr)
-			{
-				error = "its buffer isn't loaded";
-				return {};
-			}
-			bytes = std::span(data, image.buffer_view->size);
-		}
-		else if (IsDataUri(image.uri))
-		{
-			std::string_view uri(image.uri);
-			auto comma = uri.find(',');
-			auto header = uri.substr(0, comma);
-			if (comma == std::string_view::npos || !header.ends_with(";base64"))
-			{
-				error = "a data uri that isn't base64";
-				return {};
-			}
-			mimeType = header.substr(5, header.size() - 5 - 7); // between "data:" and ";base64"
-			auto base64 = uri.substr(comma + 1);
-			auto padding = std::ranges::count(base64.substr(base64.size() >= 2 ? base64.size() - 2 : 0), '=');
-			auto size = ((base64.size() / 4) * 3) - static_cast<size_t>(padding);
-			cgltf_options options{};
-			void* out = nullptr;
-			if (cgltf_load_buffer_base64(&options, size, base64.data(), &out) != cgltf_result_success)
-			{
-				error = "its data uri doesn't decode";
-				return {};
-			}
-			decoded.reset(out);
-			bytes = std::span(static_cast<const std::byte*>(out), size);
-		}
-		else
-		{
-			error = "it has neither a uri nor a buffer view";
+			error = embedded.error();
 			return {};
 		}
-
-		auto extension = ExtensionOf(mimeType);
-		if (extension.empty())
+		static constexpr std::array<std::string_view, 4> kMimeTypes{"image/png", "image/jpeg", "image/webp", "image/ktx2"};
+		if (!std::ranges::contains(kMimeTypes, embedded->mimeType))
 		{
-			error = std::format("embedded {} images aren't supported", mimeType.empty() ? "untyped" : mimeType);
+			error = std::format("embedded {} images aren't supported", embedded->mimeType.empty() ? "untyped" : embedded->mimeType);
 			return {};
 		}
-
-		if (myEmbeddedDir.empty())
-		{
-			error = "embedded, and there is no directory to extract it to";
-			return {};
-		}
-
-		// named after the content, so that unchanged images are written once
-		auto path = myEmbeddedDir /
-					std::format("{}-{}-{:016x}{}", myStem, index, XXH3_64bits(bytes.data(), bytes.size()), extension);
-		std::error_code ec;
-		if (std::filesystem::is_regular_file(path, ec))
-			return path;
-
-		std::filesystem::create_directories(myEmbeddedDir, ec);
-		auto temporary = path;
-		temporary += ".tmp";
-		{
-			std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-			file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-			if (!file)
-			{
-				error = std::format("failed to write {}", temporary.string());
-				return {};
-			}
-		}
-		std::filesystem::rename(temporary, path, ec);
-		if (ec)
-		{
-			error = std::format("failed to write {}: {}", path.string(), ec.message());
-			return {};
-		}
-		return path;
+		return {.path = myPath, .embeddedImage = static_cast<uint32_t>(index)};
 	}
 
 	const cgltf_data& myData;
+	std::filesystem::path myPath;
 	std::filesystem::path myBaseDir;
-	std::string myStem;
-	std::filesystem::path myEmbeddedDir;
 	mesh::Stats& myStats;
-	std::vector<std::optional<std::filesystem::path>> myPaths; // by image index, once resolved
-	core::UnorderedMap<size_t, std::string> myErrors; // why an image resolved to nothing
+	std::vector<std::optional<Resolved>> myResolved;
+	std::vector<std::string> myErrors;
 };
 
 // an unsigned integer of a component type an index can have
@@ -585,6 +717,101 @@ struct Part
 	std::vector<uint32_t> indices;
 };
 
+// what GenerateTangents gives MikkTSpace (as its user data): the part, and the tangents it gets back, per corner
+struct MikkContext
+{
+	Part* part;
+	uint32_t texCoordSet;
+	std::vector<std::array<float, 4>> cornerTangents;
+};
+
+[[nodiscard]] const VertexP3fN3fTa4fT014fC4f& MikkVertex(const SMikkTSpaceContext* mikk, int face, int corner)
+{
+	const auto* context = static_cast<const MikkContext*>(mikk->m_pUserData);
+	return context->part->vertices[context->part->indices[(static_cast<size_t>(face) * 3) + static_cast<size_t>(corner)]];
+}
+
+// MikkTSpace tangents for a triangle part, from a texcoord set (0 or 1): a tangent per corner, with a vertex split
+// wherever its corners' tangents differ (uv seams, mirrored halves). returns how many vertices it has after.
+size_t GenerateTangents(Part& part, uint32_t texCoordSet)
+{
+	MikkContext context{
+		.part = &part, .texCoordSet = std::min(texCoordSet, 1U), .cornerTangents = std::vector<std::array<float, 4>>(part.indices.size())};
+
+	SMikkTSpaceInterface callbacks{};
+	callbacks.m_getNumFaces = [](const SMikkTSpaceContext* mikk)
+	{ return static_cast<int>(static_cast<const MikkContext*>(mikk->m_pUserData)->part->indices.size() / 3); };
+	callbacks.m_getNumVerticesOfFace = [](const SMikkTSpaceContext*, int) { return 3; };
+	callbacks.m_getPosition = [](const SMikkTSpaceContext* mikk, float out[], int face, int corner) //NOLINT(modernize-avoid-c-arrays)
+	{ std::copy_n(MikkVertex(mikk, face, corner).position, 3, out); };
+	callbacks.m_getNormal = [](const SMikkTSpaceContext* mikk, float out[], int face, int corner) //NOLINT(modernize-avoid-c-arrays)
+	{ std::copy_n(MikkVertex(mikk, face, corner).normal, 3, out); };
+	callbacks.m_getTexCoord = [](const SMikkTSpaceContext* mikk, float out[], int face, int corner) //NOLINT(modernize-avoid-c-arrays)
+	{
+		// with v flipped back up the image, as the exporters' MikkTSpace sees it (gltf's v points down): so that the
+		// bitangent, cross(normal, tangent) * w, points up the image, as gltf's tangents do
+		const auto* context = static_cast<const MikkContext*>(mikk->m_pUserData);
+		const auto* uv = &MikkVertex(mikk, face, corner).texCoord01[2 * context->texCoordSet];
+		out[0] = uv[0];
+		out[1] = 1.0F - uv[1];
+	};
+	callbacks.m_setTSpaceBasic = [](const SMikkTSpaceContext* mikk, const float tangent[], float sign, int face, int corner) //NOLINT(modernize-avoid-c-arrays)
+	{
+		auto* context = static_cast<MikkContext*>(mikk->m_pUserData);
+		// a degenerate corner (no area, or no texcoord gradient) gets no tangent: w = 0, the shader derives the frame
+		auto length = std::sqrt((tangent[0] * tangent[0]) + (tangent[1] * tangent[1]) + (tangent[2] * tangent[2]));
+		context->cornerTangents[(static_cast<size_t>(face) * 3) + static_cast<size_t>(corner)] =
+			std::isfinite(length) && length > 1e-6F
+				? std::array{tangent[0] / length, tangent[1] / length, tangent[2] / length, sign < 0.0F ? -1.0F : 1.0F}
+				: std::array{0.0F, 0.0F, 0.0F, 0.0F};
+	};
+	SMikkTSpaceContext mikk{.m_pInterface = &callbacks, .m_pUserData = &context};
+	if (part.indices.empty() || genTangSpaceDefault(&mikk) == 0)
+		return 0;
+
+	// each vertex once per distinct tangent of its corners
+	std::vector<VertexP3fN3fTa4fT014fC4f> vertices;
+	std::vector<SkinVertex> skinVertices;
+	std::vector<std::vector<std::pair<std::array<float, 4>, uint32_t>>> copies(part.vertices.size());
+	vertices.reserve(part.vertices.size());
+	for (size_t cornerIt = 0; cornerIt < part.indices.size(); cornerIt++)
+	{
+		auto index = part.indices[cornerIt];
+		// perpendicular to the vertex's own normal: a corner of a degenerate triangle gets a neighbor's tangent, whose
+		// normal can differ. what is left of a parallel one is no tangent (w = 0)
+		auto tangent = context.cornerTangents[cornerIt];
+		if (tangent[3] != 0.0F)
+		{
+			const auto& normal = part.vertices[index].normal;
+			auto along = (tangent[0] * normal[0]) + (tangent[1] * normal[1]) + (tangent[2] * normal[2]);
+			for (size_t axis = 0; axis < 3; axis++)
+				tangent[axis] -= along * normal[axis];
+			auto length = std::sqrt((tangent[0] * tangent[0]) + (tangent[1] * tangent[1]) + (tangent[2] * tangent[2]));
+			if (std::isfinite(length) && length > 1e-3F)
+				for (size_t axis = 0; axis < 3; axis++)
+					tangent[axis] /= length;
+			else
+				tangent = {0.0F, 0.0F, 0.0F, 0.0F};
+		}
+		auto& vertexCopies = copies[index];
+		auto it = std::ranges::find_if(vertexCopies, [&tangent](const auto& copy) { return copy.first == tangent; });
+		if (it == vertexCopies.end())
+		{
+			auto vertex = part.vertices[index];
+			std::ranges::copy(tangent, vertex.tangent);
+			vertices.push_back(vertex);
+			if (!part.skinVertices.empty())
+				skinVertices.push_back(part.skinVertices[index]);
+			it = vertexCopies.insert(vertexCopies.end(), {tangent, static_cast<uint32_t>(vertices.size() - 1)});
+		}
+		part.indices[cornerIt] = it->second;
+	}
+	part.vertices = std::move(vertices);
+	if (!part.skinVertices.empty())
+		part.skinVertices = std::move(skinVertices);
+	return part.vertices.size();
+}
+
 } // namespace detail
 
 std::expected<Mesh, std::string> Import(
@@ -611,6 +838,8 @@ std::expected<Mesh, std::string> Import(
 		cgltf_options loadOptions{};
 		if (auto result = cgltf_load_buffers(&loadOptions, &data, path.string().c_str()); result != cgltf_result_success)
 			return std::unexpected(std::format("failed to load the buffers of {}: {}", path.string(), ToString(result)));
+		if (auto error = DecodeMeshopt(data))
+			return std::unexpected(std::format("{}: {}", path.string(), *error));
 	}
 
 	if (auto result = cgltf_validate(&data); result != cgltf_result_success)
@@ -625,7 +854,7 @@ std::expected<Mesh, std::string> Import(
 	{ stats.warnings.push_back(std::format(fmt, std::forward<Args>(args)...)); };
 
 	// materials, and how their vertices take texcoords
-	Images images(data, path, options, stats);
+	Images images(data, path, stats);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
 	mesh.materials.reserve(data.materials_count);
 	for (cgltf_size materialIt = 0; materialIt < data.materials_count; materialIt++)
@@ -653,7 +882,9 @@ std::expected<Mesh, std::string> Import(
 		auto textureRef = [&](const cgltf_texture_view& view)
 		{
 			TextureRef ref;
-			ref.path = images.Resolve(view, material.name).string();
+			auto resolved = images.Resolve(view, material.name);
+			ref.path = resolved.path.string();
+			ref.embeddedImage = resolved.embeddedImage;
 			if (ref.empty())
 				return ref;
 			ref.texCoord = static_cast<uint32_t>(view.has_transform && view.transform.has_texcoord ? view.transform.texcoord : view.texcoord);
@@ -688,6 +919,8 @@ std::expected<Mesh, std::string> Import(
 			material.roughness = 1.0F;
 		}
 		material.unlit = gltfMaterial.unlit != 0;
+		if (gltfMaterial.has_specular)
+			material.specular = std::clamp(gltfMaterial.specular.specular_factor, 0.0F, 1.0F);
 		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
@@ -711,8 +944,18 @@ std::expected<Mesh, std::string> Import(
 		material.doubleSided = gltfMaterial.double_sided != 0;
 	}
 
-	auto materialOf = [&data](const cgltf_primitive& primitive)
-	{ return primitive.material != nullptr ? static_cast<int32_t>(primitive.material - data.materials) : -1; };
+	// primitives without a material get the spec's default one: white, metallic 1, roughness 1, opaque, single sided
+	int32_t defaultMaterial = -1;
+	for (cgltf_size meshIt = 0; meshIt < data.meshes_count && defaultMaterial < 0; meshIt++)
+		for (cgltf_size primitiveIt = 0; primitiveIt < data.meshes[meshIt].primitives_count && defaultMaterial < 0; primitiveIt++)
+			if (data.meshes[meshIt].primitives[primitiveIt].material == nullptr)
+			{
+				defaultMaterial = static_cast<int32_t>(mesh.materials.size());
+				mesh.materials.push_back({.name = "default", .metallic = 1.0F, .roughness = 1.0F, .alphaCutoff = 0.0F});
+				baseColorFactors.push_back({1.0F, 1.0F, 1.0F, 1.0F});
+			}
+	auto materialOf = [&data, defaultMaterial](const cgltf_primitive& primitive)
+	{ return primitive.material != nullptr ? static_cast<int32_t>(primitive.material - data.materials) : defaultMaterial; };
 
 	// the primitives of the scene's nodes, in their world space
 	std::vector<Part> parts;
@@ -797,11 +1040,33 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		const auto vertexCount = positions->count;
-		auto unpack = [vertexCount](const cgltf_accessor* accessor, size_t components) -> std::optional<std::vector<float>>
+		// a draco compressed primitive's attributes and indices are decoded first, and read from there
+		std::optional<DracoPrimitive> draco;
+		if (primitive.has_draco_mesh_compression)
 		{
+			auto decoded = DecodeDraco(primitive, data);
+			if (!decoded)
+			{
+				warn("mesh {}: a primitive is skipped: {}", meshName, decoded.error());
+				skippedPrimitives++;
+				return;
+			}
+			draco = std::move(*decoded);
+		}
+
+		auto unpack = [vertexCount, &draco](const cgltf_accessor* accessor, size_t components) -> std::optional<std::vector<float>>
+		{
+			if (accessor == nullptr || accessor->count != vertexCount)
+				return std::nullopt;
+			if (draco)
+			{
+				auto it = draco->values.find(accessor);
+				if (it == draco->values.end() || it->second.size() != vertexCount * components)
+					return std::nullopt;
+				return it->second;
+			}
 			std::vector<float> values(vertexCount * components);
-			if (accessor == nullptr || accessor->count != vertexCount ||
-				cgltf_accessor_unpack_floats(accessor, values.data(), values.size()) != values.size())
+			if (cgltf_accessor_unpack_floats(accessor, values.data(), values.size()) != values.size())
 				return std::nullopt;
 			return values;
 		};
@@ -865,7 +1130,11 @@ std::expected<Mesh, std::string> Import(
 
 		// the primitive's elements, in its vertices
 		std::vector<uint32_t> elements;
-		if (primitive.indices != nullptr)
+		if (draco)
+		{
+			elements = std::move(draco->indices);
+		}
+		else if (primitive.indices != nullptr)
 		{
 			elements.resize(primitive.indices->count);
 			if (!ReadIndices(*primitive.indices, elements))
@@ -936,7 +1205,9 @@ std::expected<Mesh, std::string> Import(
 		{
 			skinVertices.resize(vertexCount);
 			auto weightValues = jointWeights != nullptr && jointWeights->type == cgltf_type_vec4 ? unpack(jointWeights, 4) : std::nullopt;
-			if (joints == nullptr || joints->type != cgltf_type_vec4 || joints->count != vertexCount || !weightValues)
+			// decoded draco joints are floats, the others are read as they are
+			auto jointValues = draco && joints != nullptr ? unpack(joints, 4) : std::nullopt;
+			if (joints == nullptr || joints->type != cgltf_type_vec4 || joints->count != vertexCount || !weightValues || (draco && !jointValues))
 			{
 				warn("mesh {}: a skinned primitive without readable JOINTS_0 and WEIGHTS_0 is drawn in its bind pose", meshName);
 				part.skin = -1;
@@ -945,7 +1216,10 @@ std::expected<Mesh, std::string> Import(
 			for (size_t vertexIt = 0; vertexIt < skinVertices.size(); vertexIt++)
 			{
 				std::array<cgltf_uint, 4> jointIndices{};
-				cgltf_accessor_read_uint(joints, vertexIt, jointIndices.data(), jointIndices.size());
+				if (jointValues)
+					std::ranges::transform(std::span(*jointValues).subspan(4 * vertexIt, 4), jointIndices.begin(), [](float v) { return static_cast<cgltf_uint>(std::lround(v)); });
+				else
+					cgltf_accessor_read_uint(joints, vertexIt, jointIndices.data(), jointIndices.size());
 				std::array<float, 4> weights{};
 				std::copy_n(&(*weightValues)[4 * vertexIt], 4, weights.begin());
 				auto sum = weights[0] + weights[1] + weights[2] + weights[3];
@@ -1124,19 +1398,35 @@ std::expected<Mesh, std::string> Import(
 			part.vertices = std::move(vertices);
 			part.skinVertices = std::move(skinVertices);
 		}
+
+		// a normal map without tangents in the file: MikkTSpace's, as gltf says, from the normal map's texcoord set
+		if (!tangentValues && material >= 0 && !mesh.materials[material].normalTexture.empty())
+			stats.generatedTangents += GenerateTangents(part, mesh.materials[material].normalTexture.texCoord);
 	};
 
-	// the default scene (or the first), or all root nodes if there are no scenes
+	// the scene asked for, else the default scene (or the first), or all root nodes if there are no scenes
+	for (cgltf_size sceneIt = 0; sceneIt < data.scenes_count; sceneIt++)
+		mesh.scenes.push_back(data.scenes[sceneIt].name != nullptr ? data.scenes[sceneIt].name : std::format("scene {}", sceneIt));
+	const cgltf_scene* scene = nullptr;
+	if (options.scene && *options.scene < data.scenes_count)
+		scene = &data.scenes[*options.scene];
+	else if (options.scene && data.scenes_count > 0)
+		warn("there is no scene {}, {} is loaded", *options.scene, data.scene != nullptr ? "the default one" : "the first");
+	if (scene == nullptr)
+		scene = data.scene != nullptr ? data.scene : data.scenes_count > 0 ? &data.scenes[0] : nullptr;
 	std::vector<const cgltf_node*> roots;
-	if (const auto* scene = data.scene != nullptr ? data.scene : data.scenes_count > 0 ? &data.scenes[0] : nullptr)
+	if (scene != nullptr)
+	{
+		mesh.scene = static_cast<uint32_t>(scene - data.scenes);
 		for (cgltf_size nodeIt = 0; nodeIt < scene->nodes_count; nodeIt++)
 			roots.push_back(scene->nodes[nodeIt]);
+	}
 	else
+	{
 		for (cgltf_size nodeIt = 0; nodeIt < data.nodes_count; nodeIt++)
 			if (data.nodes[nodeIt].parent == nullptr)
 				roots.push_back(&data.nodes[nodeIt]);
-	if (data.scenes_count > 1)
-		warn("{} scenes, only {} is loaded", data.scenes_count, data.scene != nullptr ? "the default one" : "the first");
+	}
 
 	// the nodes animations move (their translation, rotation or scale), and their descendants: their meshes keep their
 	// vertices in the node's space, drawn with instances that follow the node (see SceneAnimationData)
@@ -1267,7 +1557,7 @@ std::expected<Mesh, std::string> Import(
 	if (skippedPrimitives > 0)
 		warn("{} primitives skipped (unreadable data)", skippedPrimitives);
 	// what moves: all the nodes (by their gltf index), and the animations' translation, rotation and scale channels
-	if (!mesh.animation.empty())
+	if (!mesh.animation.Empty())
 	{
 		for (cgltf_size nodeIt = 0; nodeIt < data.nodes_count; nodeIt++)
 		{
@@ -1288,7 +1578,7 @@ std::expected<Mesh, std::string> Import(
 		}
 	}
 	size_t ignoredChannels = 0;
-	for (cgltf_size animationIt = 0; animationIt < data.animations_count && !mesh.animation.empty(); animationIt++)
+	for (cgltf_size animationIt = 0; animationIt < data.animations_count && !mesh.animation.Empty(); animationIt++)
 	{
 		const auto& gltfAnimation = data.animations[animationIt];
 		auto& animation = mesh.animation.animations.emplace_back();
@@ -1333,7 +1623,7 @@ std::expected<Mesh, std::string> Import(
 			animation.channels.push_back(std::move(channel));
 		}
 	}
-	if (data.animations_count > 0 && mesh.animation.empty())
+	if (data.animations_count > 0 && mesh.animation.Empty())
 		warn("{} animations are ignored (they move nothing drawn: morph weights, KHR_animation_pointer)", data.animations_count);
 	if (ignoredChannels > 0)
 		warn("{} animation channels are ignored (morph weights, KHR_animation_pointer, or unreadable)", ignoredChannels);
@@ -1444,6 +1734,25 @@ std::expected<Mesh, std::string> Import(
 	}
 
 	return mesh;
+}
+
+std::expected<std::vector<std::byte>, std::string> EmbeddedImage(const std::filesystem::path& path, uint32_t index)
+{
+	auto parsed = detail::Parse(path);
+	if (!parsed)
+		return std::unexpected(parsed.error());
+	auto& data = **parsed;
+	if (index >= data.images_count)
+		return std::unexpected(std::format("{} has no image {}", path.string(), index));
+
+	cgltf_options options{};
+	if (auto result = cgltf_load_buffers(&options, &data, path.string().c_str()); result != cgltf_result_success)
+		return std::unexpected(std::format("failed to load the buffers of {}: {}", path.string(), detail::ToString(result)));
+
+	auto embedded = detail::ReadEmbedded(data.images[index]);
+	if (!embedded)
+		return std::unexpected(std::format("{}: image {}: {}", path.string(), index, embedded.error()));
+	return std::move(embedded->bytes);
 }
 
 std::optional<std::string> UnsupportedRequiredExtension(const std::filesystem::path& path)
