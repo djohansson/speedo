@@ -106,6 +106,8 @@ struct VertexOutput : IInterpolants
 {
 	VertexP3fN3fTa4fT014fC4f vertex;
 	float4 hPos : SV_Position;
+	// the instance transform's scale (the cube root of its volume scale), for KHR_materials_volume's thickness
+	float modelScale;
 };
 
 // VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)
@@ -235,6 +237,7 @@ VertexMainOutput VertexMain(InputStream input)
 	output.vertex.tangent = float4(mul(linear, tangent), determinant(linear) < 0.0 ? -v.tangent.w : v.tangent.w);
 	output.vertex.texCoord01 = v.texCoord01;
 	output.vertex.color = v.color;
+	output.modelScale = pow(abs(determinant(linear)), 1.0 / 3.0);
 
 	return { output, 1.0 };
 }
@@ -463,6 +466,9 @@ struct Surface
 	// KHR_materials_sheen: its color (black for none) and roughness
 	float3 sheenColor;
 	float sheenRoughness;
+	// KHR_materials_transmission: the light through the dielectric (the scene behind it, by its base color, transmission
+	// factor and volume attenuation), which the specular reflection lets through
+	float3 transmitted;
 };
 
 // how much of what is below a clearcoat layer it reflects instead, seen from view (the spec's approximation, by the
@@ -485,6 +491,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	float3 reflected = reflect(-view, normal);
 	float3 result = surface.occlusion * (surface.diffuseColor * EnvironmentIrradiance(environment, normal) +
 										 environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
+	result += surface.transmitted * (1.0 - environmentSpecular);
 
 	// the sheen over that, which takes its albedo of it, and lit by the environment's light around the normal
 	float sheenMax = max(surface.sheenColor.r, max(surface.sheenColor.g, surface.sheenColor.b));
@@ -566,6 +573,39 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	}
 
 	return result;
+}
+
+// KHR_materials_transmission (and volume, dispersion): the light from behind a surface, along the ray refracted by ior:
+// the opaque scene (SHADER_TYPES_TRANSMISSION_TEXTURE) where the ray leaves the volume (thickness along it; at the
+// surface for thin walls), projected into the view, at a mip for the roughness (as the Khronos sample viewer: by the
+// texture's size and the ior), and the environment where nothing opaque is there. attenuated through the volume.
+float3 TransmittedLight(
+	float3 normal, float3 view, float3 position, float roughness, float ior, float thickness, float3 attenuationColor,
+	float attenuationDistance, uint viewId)
+{
+	float3 ray = refract(-view, normal, 1.0 / max(ior, 1e-4));
+	if (dot(ray, ray) == 0.0) // total internal reflection
+		ray = -view;
+	ray = normalize(ray);
+	float3 exit = position + ray * thickness;
+
+	ViewData viewData = gViewData[gPushConstants.frameIndex][viewId];
+	float4 clip = mul(viewData.viewProjection, float4(exit, 1.0));
+	float2 ndc = clip.xy / clip.w;
+	Texture2D scene = gTextures[SHADER_TYPES_TRANSMISSION_TEXTURE];
+	uint width;
+	uint height;
+	uint levels;
+	scene.GetDimensions(0, width, height, levels);
+	float2 uv = (viewData.viewport.xy + (ndc * 0.5 + 0.5) * viewData.viewport.zw) / float2(width, height);
+	float lod = log2(float(width)) * roughness * saturate(ior * 2.0 - 2.0);
+	float4 behind = scene.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, lod);
+	// premultiplied: the clear color is transparent black
+	float3 light = behind.rgb + (1.0 - behind.a) * EnvironmentRadiance(gEnvironment[0], ray, roughness);
+
+	if (attenuationDistance > 0.0)
+		light *= pow(max(attenuationColor, 1e-6), thickness / attenuationDistance);
+	return light;
 }
 
 // a normal map's normal (x and y in rg, see MaterialData::normalView), by a scale of x and y, with normal the (unit)
@@ -716,6 +756,39 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
+	// KHR_materials_transmission: that much of the dielectric's diffuse is the light through it instead
+	surface.transmitted = 0.0;
+	if ((material.flags & MATERIAL_FLAG_TRANSMISSION) != 0u)
+	{
+		float transmission = material.transmission.x;
+		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
+			transmission *= SampleView(material.transmissionView, v.texCoord01).r;
+		float thickness = material.transmission.y;
+		if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
+			thickness *= SampleView(material.thicknessView, v.texCoord01).r;
+		thickness *= input.modelScale;
+		float ior = material.specularColor.a;
+		float3 light;
+		// KHR_materials_dispersion: each color refracted by its own ior, spread around it
+		float spread = (ior - 1.0) * 0.025 * material.transmission.w;
+		if (spread > 0.0)
+		{
+			float3 iors = float3(ior - spread, ior, ior + spread);
+			for (uint channel = 0; channel < 3; channel++)
+				light[channel] = TransmittedLight(
+					normal, view, v.position, surface.roughness, iors[channel], thickness, material.attenuationColor.rgb,
+					material.transmission.z, viewId)[channel];
+		}
+		else
+		{
+			light = TransmittedLight(
+				normal, view, v.position, surface.roughness, ior, thickness, material.attenuationColor.rgb, material.transmission.z, viewId);
+		}
+		float dielectric = transmission * (1.0 - metallic);
+		surface.transmitted = dielectric * color.rgb * light;
+		surface.diffuseColor *= 1.0 - transmission;
+	}
+
 	// the clearcoat covers the emission too
 	return float4(Shade(surface, view, v.position) + emissive * (1.0 - ClearcoatFresnel(surface, view)), color.a);
 }
@@ -829,7 +902,9 @@ void ComputeMain(
 			float4 color = src.Load(int3(xy, 0));
 
 			// the environment where nothing opaque was drawn, in the view the pixel is in (outside them, e.g. where a view
-			// is letterboxed, the clear color stays): along the ray through the pixel, between two depths of it
+			// is letterboxed, or without the backdrop, a gray): along the ray through the pixel, between two depths of it
+			if (color.a == 0.0)
+				color.rgb = 0.2;
 			if (color.a == 0.0 && gPushConstants.environmentBackdrop != 0u)
 			{
 				for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)

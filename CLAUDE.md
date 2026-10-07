@@ -296,8 +296,8 @@ metallic into one texture's r, g and b, which kMask's luminance would mix. Each 
 sampler as `rhi::SamplerDesc`), which the shader applies: vertices keep both texcoord sets as they are (`texCoord01.xy`,
 `.zw`), materials name a `TextureView` per texture (`gTextureViews`: texture and sampler slot, set, transform; 0 is
 material 0's, deduplicated per model), and `ViewTexCoord`/`SampleView` sample through them (the normal map's tangent
-frame follows its own transformed texcoords). A model's distinct samplers get the 63 sampler slots other than the
-default's (`kModelSamplerSlots`; `ManySamplers.gltf` uses 36), and the previous model's go back to the default. Images embedded in buffers or data uris are named by their model file and
+frame follows its own transformed texcoords). A model's distinct samplers get the 62 sampler slots other than the
+default's and the clamping one's (`kModelSamplerSlots`; `ManySamplers.gltf` uses 36), and the previous model's go back to the default. Images embedded in buffers or data uris are named by their model file and
 index (`TextureRef::embeddedImage`): `LoadTexture` caches them against the model file and, on a miss, reads their
 bytes with `gltf::EmbeddedImage` and decodes them from memory (`image::Import`'s byte overload, which tells the formats
 apart by their signature), so nothing is extracted to disk. Compressed meshes are decoded at import: meshopt (EXT_meshopt_compression, which cgltf
@@ -398,7 +398,20 @@ and Kulla's visibility, as the Khronos sample viewer has it) over that, which sc
 numerically and clamped to 1; lit by the environment's irradiance). KHR_materials_clearcoat adds a dielectric GGX layer
 (f0 0.04) of its strength (`kOcclusion`: the texture's red), roughness (`kMetallicRoughness`: its green) and own normal
 map (`NormalFromMap`, else the geometry's normal) over everything, emission included, which keeps `1 - strength *
-F(n_c . v)`. The `KHR_materials_*` extensions not drawn are named in one import warning. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+F(n_c . v)`. KHR_materials_transmission replaces that much of the dielectric's diffuse with the light from behind
+(`TransmittedLight`, as the Khronos sample viewer): the main pass draws in two phases when the model has transmissive
+(not blended) materials (`MainPassPhase`): the other opaque submeshes, then, after `Draw` blits the color to the
+transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `Image::BlitFrom` and
+`Image::GenerateMips`, which blits each level from the one above with per level barriers), the transmissive and
+blended ones, loading the attachments. The refracted ray (by the ior) leaves the volume after the thickness
+(KHR_materials_volume: factor times the texture's green, times the instance's scale; 0 is thin walled), is projected into
+the view, and samples the texture at `log2(width) * roughness * saturate(2 ior - 2)` through the clamping sampler
+(`SHADER_TYPES_CLAMP_SAMPLER`, a reserved slot, so models get 62); where nothing opaque was drawn the environment along
+the ray fills in by the texture's alpha, which is why the color target is cleared to transparent black (ComputeMain
+draws the gray clear color itself where neither the views nor the backdrop are). The volume attenuates it by
+`attenuationColor^(thickness / attenuationDistance)`, and KHR_materials_dispersion samples each color with its own ior
+(spread by `(ior - 1) * 0.025 * dispersion`). The `KHR_materials_*` extensions not drawn are named in one import
+warning. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16

@@ -74,6 +74,10 @@ extern "C"
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
 // the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u
+// the gTextures slot of the opaque scene, with mips, which transmissive materials refract (see the main pass's phases)
+#define SHADER_TYPES_TRANSMISSION_TEXTURE 13u
+// the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
+#define SHADER_TYPES_CLAMP_SAMPLER 3u
 
 // order independent transparency: the blended fragments, in a list per pixel (gOitHeads: the first node of each pixel's,
 // row by row, PushConstants::framebufferWidth wide; SHADER_TYPES_OIT_NONE ends a list), of nodes in gOitNodes (taken in
@@ -169,6 +173,9 @@ struct TextureView
 #define MATERIAL_FLAG_SHEEN 16384u // a sheen lobe (see sheen)
 #define MATERIAL_FLAG_SHEEN_COLOR_TEXTURE 32768u // sheenColorView: an srgb color times sheen.rgb
 #define MATERIAL_FLAG_SHEEN_ROUGHNESS_TEXTURE 65536u // sheenRoughnessView: the roughness in r, times sheen.a
+#define MATERIAL_FLAG_TRANSMISSION 131072u // transmission (see transmission)
+#define MATERIAL_FLAG_TRANSMISSION_TEXTURE 262144u // transmissionView: the factor in r, times transmission.x
+#define MATERIAL_FLAG_THICKNESS_TEXTURE 524288u // thicknessView: the thickness in r, times transmission.y
 
 struct MaterialData
 {
@@ -182,6 +189,10 @@ struct MaterialData
 	alignas(16) FLOAT4(clearcoat);
 	// KHR_materials_sheen: rgb the color, a the roughness
 	alignas(16) FLOAT4(sheen);
+	// KHR_materials_transmission, volume and dispersion: x the transmission, y the thickness, z the attenuation
+	// distance (0: none), w the dispersion
+	alignas(16) FLOAT4(transmission);
+	alignas(16) FLOAT4(attenuationColor); // rgb
 	alignas(4) UINT(flags);
 	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
 	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
@@ -203,6 +214,8 @@ struct MaterialData
 	alignas(4) UINT(clearcoatNormalView);
 	alignas(4) UINT(sheenColorView);
 	alignas(4) UINT(sheenRoughnessView);
+	alignas(4) UINT(transmissionView);
+	alignas(4) UINT(thicknessView);
 };
 
 struct ModelInstance

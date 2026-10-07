@@ -97,6 +97,12 @@ public:
 		const ClearValue& value = {},
 		const std::optional<ImageSubresourceRange<G>>& range = std::nullopt);
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags = {});
+	// blits source's level 0 (in kTransferSource) to this image's level 0, scaled (linear) to its size. leaves all of this
+	// image's levels in kTransferDestination
+	void BlitFrom(CommandBufferHandle<G> cmd, const Image& source);
+	// fills levels 1 and up from level 0, each blitted (linear) from the one above, with all levels in
+	// kTransferDestination (as BlitFrom leaves them). leaves them in layout
+	void GenerateMips(CommandBufferHandle<G> cmd, ImageLayout layout);
 
 private:
 	Image( // copies buffer in initialData into the target. initialData buffer gets automatically garbage collected when copy has finished.

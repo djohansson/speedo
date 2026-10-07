@@ -893,15 +893,30 @@ std::expected<Mesh, std::string> Import(
 			material.sheenRoughness = std::clamp(sheen.sheen_roughness_factor, 0.0F, 1.0F);
 			material.sheenRoughnessTexture = textureRef(sheen.sheen_roughness_texture);
 		}
+		if (gltfMaterial.has_transmission)
+		{
+			material.transmission = std::clamp(gltfMaterial.transmission.transmission_factor, 0.0F, 1.0F);
+			material.transmissionTexture = textureRef(gltfMaterial.transmission.transmission_texture);
+		}
+		if (gltfMaterial.has_volume)
+		{
+			const auto& volume = gltfMaterial.volume;
+			material.thickness = std::max(volume.thickness_factor, 0.0F);
+			material.thicknessTexture = textureRef(volume.thickness_texture);
+			for (size_t channel = 0; channel < 3; channel++)
+				material.attenuationColor[channel] = std::clamp(volume.attenuation_color[channel], 0.0F, 1.0F);
+			// cgltf's default is FLT_MAX (none), as is the extension's (infinity)
+			material.attenuationDistance =
+				std::isfinite(volume.attenuation_distance) && volume.attenuation_distance < 1e30F ? std::max(volume.attenuation_distance, 0.0F) : 0.0F;
+		}
+		if (gltfMaterial.has_dispersion)
+			material.dispersion = std::max(gltfMaterial.dispersion.dispersion, 0.0F);
 		// an ior of 0 is a perfect reflector's (the dielectric's f0 then 1), as the extension allows
 		if (gltfMaterial.has_ior)
 			material.ior = std::max(gltfMaterial.ior.ior, 0.0F);
 
 		// the extensions the renderer doesn't draw yet, named once per model (see ignoredMaterialExtensions)
 		for (auto [has, name] : std::initializer_list<std::pair<bool, std::string_view>>{
-				 {gltfMaterial.has_transmission != 0, "KHR_materials_transmission"},
-				 {gltfMaterial.has_volume != 0, "KHR_materials_volume"},
-				 {gltfMaterial.has_dispersion != 0, "KHR_materials_dispersion"},
 				 {gltfMaterial.has_anisotropy != 0, "KHR_materials_anisotropy"},
 				 {gltfMaterial.has_iridescence != 0, "KHR_materials_iridescence"},
 				 {gltfMaterial.has_diffuse_transmission != 0, "KHR_materials_diffuse_transmission"}})

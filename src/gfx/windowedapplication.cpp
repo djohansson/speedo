@@ -111,6 +111,24 @@ static uuids::uuid gOitNodesUuid;
 static uuids::uuid gOitCounterUuid;
 static uint32_t gOitWidth = 0;
 static uint32_t gOitNodeCapacity = 0;
+// the opaque scene with mips, which transmissive materials refract (SHADER_TYPES_TRANSMISSION_TEXTURE), sized with the
+// render target
+static uuids::uuid gTransmissionImageUuid;
+static uuids::uuid gTransmissionViewUuid;
+
+// the main pass draws in two phases when the model has transmissive materials: the opaque ones that aren't, then (after
+// the color is copied to the transmission texture) the transmissive and blended ones. else the first draws everything.
+enum class MainPassPhase : uint8_t
+{
+	kOpaque,
+	kTransmissive,
+};
+
+[[nodiscard]] static bool HasTransmission(const Model& model)
+{
+	return std::ranges::any_of(
+		model.GetDesc().materials, [](const ModelMaterial& material) { return material.transmission > 0.0F && !material.blend; });
+}
 static uuids::uuid gSamplersUuid;
 static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
 static uuids::uuid gMaterialsUuid;
@@ -350,12 +368,14 @@ static constexpr uint32_t kModelTextureFirstSlot = 16;
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 static constexpr uint32_t kModelMaterialMaxCount = SHADER_TYPES_MATERIAL_COUNT - 1;
 static constexpr uint32_t kDefaultSamplerId = 2;
-// the sampler slots a model's samplers go in: all but the default's
+// the sampler slots a model's samplers go in: all but the default's and the clamping one's
+// (SHADER_TYPES_CLAMP_SAMPLER)
+static_assert(kDefaultSamplerId != SHADER_TYPES_CLAMP_SAMPLER);
 static constexpr auto kModelSamplerSlots = []
 {
-	std::array<uint32_t, SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 1> slots{};
+	std::array<uint32_t, SHADER_TYPES_GLOBAL_SAMPLER_COUNT - 2> slots{};
 	for (uint32_t slot = 0, slotIt = 0; slot < SHADER_TYPES_GLOBAL_SAMPLER_COUNT; slot++)
-		if (slot != kDefaultSamplerId)
+		if (slot != kDefaultSamplerId && slot != SHADER_TYPES_CLAMP_SAMPLER)
 			slots[slotIt++] = slot;
 	return slots;
 }();
@@ -629,6 +649,8 @@ struct MaterialTextures
 	Texture clearcoatNormal;
 	Texture sheenColor;
 	Texture sheenRoughness;
+	Texture transmission;
+	Texture thickness;
 };
 
 // a material's defaults: white, untextured, rough, dielectric, with the default specular (ior 1.5, white)
@@ -661,7 +683,7 @@ static void InstallModel(
 		for (const auto* texture :
 			 {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion, &material.metallicRoughness,
 			  &material.specular, &material.specularColor, &material.clearcoat, &material.clearcoatRoughness, &material.clearcoatNormal,
-			  &material.sheenColor, &material.sheenRoughness})
+			  &material.sheenColor, &material.sheenRoughness, &material.transmission, &material.thickness})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -814,6 +836,23 @@ static void InstallModel(
 				for (auto [texture, ref, view, flag] : std::array{
 						 std::tuple{&textures[materialIt].sheenColor, &desc.sheenColorTexture, &material.sheenColorView, MATERIAL_FLAG_SHEEN_COLOR_TEXTURE},
 						 std::tuple{&textures[materialIt].sheenRoughness, &desc.sheenRoughnessTexture, &material.sheenRoughnessView, MATERIAL_FLAG_SHEEN_ROUGHNESS_TEXTURE}})
+					if (auto id = viewOf(*texture, *ref))
+					{
+						*view = *id;
+						material.flags |= flag;
+					}
+			}
+			if (desc.transmission > 0.0F)
+			{
+				material.flags |= MATERIAL_FLAG_TRANSMISSION;
+				material.transmission[0] = desc.transmission;
+				material.transmission[1] = desc.thickness;
+				material.transmission[2] = desc.attenuationDistance;
+				material.transmission[3] = desc.dispersion;
+				std::ranges::copy(desc.attenuationColor, material.attenuationColor);
+				for (auto [texture, ref, view, flag] : std::array{
+						 std::tuple{&textures[materialIt].transmission, &desc.transmissionTexture, &material.transmissionView, MATERIAL_FLAG_TRANSMISSION_TEXTURE},
+						 std::tuple{&textures[materialIt].thickness, &desc.thicknessTexture, &material.thicknessView, MATERIAL_FLAG_THICKNESS_TEXTURE}})
 					if (auto id = viewOf(*texture, *ref))
 					{
 						*view = *id;
@@ -1071,6 +1110,13 @@ static void LoadAndInstallModels(
 					 std::tuple{&material.clearcoatTexture, gfx::image::Usage::kOcclusion, &texture.clearcoat},
 					 std::tuple{&material.clearcoatRoughnessTexture, gfx::image::Usage::kMetallicRoughness, &texture.clearcoatRoughness},
 					 std::tuple{&material.clearcoatNormalTexture, gfx::image::Usage::kNormal, &texture.clearcoatNormal}})
+				if (!ref->empty())
+					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+		// the transmission's factor is the texture's red, the thickness the green
+		if (material.transmission > 0.0F)
+			for (auto [ref, usage, result] : std::array{
+					 std::tuple{&material.transmissionTexture, gfx::image::Usage::kOcclusion, &texture.transmission},
+					 std::tuple{&material.thicknessTexture, gfx::image::Usage::kMetallicRoughness, &texture.thickness}})
 				if (!ref->empty())
 					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 		if (std::ranges::any_of(material.sheenColor, [](float c) { return c > 0.0F; }))
@@ -1361,17 +1407,20 @@ static void DrawMainPass(
 	Queue& graphicsQueue,
 	CommandBufferHandle cmd,
 	uint16_t newFrameIndex,
-	uint64_t graphicsTimeline)
+	uint64_t graphicsTimeline,
+	MainPassPhase phase)
 {
 	GPU_SCOPE(cmd, graphicsQueue, draw);
 
 	auto& device = rhi.GetPrimaryDevice();
 	auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);
 
-	renderImageSet.SetLoadOp(LoadOp::kClear, kColorAttachment);
+	// the second phase continues what the first drew
+	auto loadOp = phase == MainPassPhase::kOpaque ? LoadOp::kClear : LoadOp::kLoad;
+	renderImageSet.SetLoadOp(loadOp, kColorAttachment);
 	renderImageSet.SetStoreOp(StoreOp::kStore, kColorAttachment);
 	renderImageSet.Transition(cmd, ImageLayout::kColorAttachment, ImageAspect::kColor, kColorAttachment);
-	renderImageSet.SetLoadOp(LoadOp::kClear, kDepthAttachment, LoadOp::kClear);
+	renderImageSet.SetLoadOp(loadOp, kDepthAttachment, loadOp);
 	renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
 	renderImageSet.Transition(cmd, ImageLayout::kDepthStencilAttachment, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
 
@@ -1418,6 +1467,7 @@ static void DrawMainPass(
 			&model,
 			&viewports,
 			&framePushConstants,
+			phase,
 			grid](uint32_t threadIt)
 			{
 				ZoneScoped;
@@ -1465,7 +1515,7 @@ static void DrawMainPass(
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &viewports, grid](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &viewports, phase, grid](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
@@ -1504,7 +1554,7 @@ static void DrawMainPass(
 						// one draw per submesh (material and topology, see InstallModel for where the materials are): the opaque
 						// ones first, then the blended ones back to front by their centers (each as a whole: the triangles within
 						// one are drawn in their order)
-						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, viewIndex](CommandBufferHandle cmd)
+						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, viewIndex, phase](CommandBufferHandle cmd)
 						{
 							ZoneScopedN("drawModel");
 
@@ -1549,15 +1599,21 @@ static void DrawMainPass(
 							};
 
 							// the opaque submeshes, then the blended ones (in any order, see kTransparentBlend), which depth test
-							// against them
+							// against them. with transmissive ones (see MainPassPhase), those and the blended ones in the second
+							// phase
+							bool split = HasTransmission(model);
 							auto blended = [&materials](const ModelSubmesh& submesh)
 							{ return submesh.material >= 0 && materials[submesh.material].blend; };
+							auto transmissive = [&materials](const ModelSubmesh& submesh)
+							{ return submesh.material >= 0 && materials[submesh.material].transmission > 0.0F; };
 							for (const auto& submesh : model.GetDesc().submeshes)
-								if (!blended(submesh))
+								if (!blended(submesh) &&
+									(split && transmissive(submesh) ? MainPassPhase::kTransmissive : MainPassPhase::kOpaque) == phase)
 									draw(submesh, kOpaqueBlend);
-							for (const auto& submesh : model.GetDesc().submeshes)
-								if (blended(submesh))
-									draw(submesh, kTransparentBlend, kTransparentFragmentShader);
+							if (!split || phase == MainPassPhase::kTransmissive)
+								for (const auto& submesh : model.GetDesc().submeshes)
+									if (blended(submesh))
+										draw(submesh, kTransparentBlend, kTransparentFragmentShader);
 
 							if (bound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
 								pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
@@ -1626,7 +1682,7 @@ void CreateWindowDependentObjects(RHI& rhi)
 			std::move(colorImage), std::move(depthStencilImage));
 		ENSURE(renderImageSet->GetAttachments().size() == kDepthAttachment + 1);
 		// alpha 0: where nothing opaque is drawn (opaque draws write alpha 1), ComputeMain draws the environment
-		renderImageSet->SetClearValue(ClearValue{.color = {0.2F, 0.2F, 0.2F, 0.0F}}, kColorAttachment);
+		renderImageSet->SetClearValue(ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}}, kColorAttachment);
 		gRenderImageSetUuids[frameIt] = renderImageSet->GetUuid();
 	}
 
@@ -1648,6 +1704,30 @@ void CreateWindowDependentObjects(RHI& rhi)
 		create(gOitHeadsUuid, "OIT Heads", std::max<uint64_t>(pixelCount, 1) * sizeof(uint32_t));
 		create(gOitNodesUuid, "OIT Nodes", std::max<uint64_t>(gOitNodeCapacity, 1) * sizeof(OitNode));
 		create(gOitCounterUuid, "OIT Counter", sizeof(uint32_t));
+
+		// the transmission texture, a full mip chain
+		std::vector<ImageMipLevelDesc> mipLevels;
+		for (auto mip = extent; ; mip = {.width = std::max(mip.width / 2, 1U), .height = std::max(mip.height / 2, 1U)})
+		{
+			mipLevels.push_back({.extent = mip});
+			if (mip.width == 1 && mip.height == 1)
+				break;
+		}
+		device.EraseResource(gTransmissionViewUuid);
+		device.EraseResource(gTransmissionImageUuid);
+		auto transmissionImage = device.CreateResource<Image>(ImageCreateDesc{
+			device.CreateDeviceObjectCreateDesc("Transmission"),
+			std::move(mipLevels),
+			Format::kR16G16B16A16Sfloat,
+			ImageTiling::kOptimal,
+			ImageUsage::kTransferSource | ImageUsage::kTransferDestination | ImageUsage::kSampled,
+			MemoryProperty::kDeviceLocal,
+			ImageAspect::kColor,
+			ImageLayout::kUndefined});
+		gTransmissionImageUuid = transmissionImage->GetUuid();
+		gTransmissionViewUuid = device.CreateResource<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc("Transmission View"), *transmissionImage, Format::kR16G16B16A16Sfloat, ImageAspect::kColor})
+									->GetUuid();
 	}
 
 	{
@@ -1674,6 +1754,7 @@ void CreateWindowDependentObjects(RHI& rhi)
 			renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
 			renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
 		}
+		device.GetResource<Image>(gTransmissionImageUuid)->Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 
 		cmd.End();
 
@@ -1692,6 +1773,11 @@ void CreateWindowDependentObjects(RHI& rhi)
 	// with the layouts Draw uses (so Draw's own writes are skipped as unchanged).
 	auto& pipeline = device.GetPipeline();
 	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = *device.GetResource<ImageView>(gTransmissionViewUuid), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_TRANSMISSION_TEXTURE);
 	for (auto [name, uuid] : std::array{
 			 std::pair{"gOitHeads", gOitHeadsUuid}, std::pair{"gOitNodes", gOitNodesUuid}, std::pair{"gOitCounter", gOitCounterUuid}})
 		pipeline.SetDescriptorData(
@@ -2432,14 +2518,18 @@ bool WindowedApplication::Draw()
 				PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kFragmentShader, Access::kShaderRead | Access::kShaderWrite);
 		}
 
-		DrawMainPass(
-			rhi,
-			window,
-			pipeline,
-			graphicsQueue,
-			cmd,
-			newFrameIndex,
-			graphics->timeline);
+		DrawMainPass(rhi, window, pipeline, graphicsQueue, cmd, newFrameIndex, graphics->timeline, MainPassPhase::kOpaque);
+
+		// transmissive materials see the opaque scene behind them: copied, with mips for their roughness
+		if (gModel && HasTransmission(*gModel))
+		{
+			GPU_SCOPE(cmd, graphicsQueue, transmission);
+			renderImageSet.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, kColorAttachment);
+			auto& transmissionImage = *device.GetResource<Image>(gTransmissionImageUuid);
+			transmissionImage.BlitFrom(cmd, *renderImageSet.GetImage(kColorAttachment));
+			transmissionImage.GenerateMips(cmd, ImageLayout::kShaderReadOnly);
+			DrawMainPass(rhi, window, pipeline, graphicsQueue, cmd, newFrameIndex, graphics->timeline, MainPassPhase::kTransmissive);
+		}
 		{
 			GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
@@ -2689,7 +2779,11 @@ WindowedApplication::WindowedApplication(
 	gBlackTextureViewUuid = blackTextureView->GetUuid();
 
 	constexpr float kDefaultSamplerMaxAnisotropy = 16.0F;
-	std::vector<SamplerDesc> samplerDescs{SamplerDesc{.maxAnisotropy = kDefaultSamplerMaxAnisotropy}};
+	// the default, and the clamping one (SHADER_TYPES_CLAMP_SAMPLER)
+	std::vector<SamplerDesc> samplerDescs{
+		SamplerDesc{.maxAnisotropy = kDefaultSamplerMaxAnisotropy},
+		SamplerDesc{
+			.addressModeU = AddressMode::kClampToEdge, .addressModeV = AddressMode::kClampToEdge, .addressModeW = AddressMode::kClampToEdge}};
 	auto samplers = device.CreateResource<SamplerVector>(
 		SamplerVectorCreateDesc{
 			device.CreateDeviceObjectCreateDesc("Samplers"),
@@ -2993,6 +3087,11 @@ WindowedApplication::WindowedApplication(
 		ImageBinding{.sampler = (*device.GetResource<SamplerVector>(gSamplersUuid))[0]},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
 		kDefaultSamplerId);
+	pipeline.SetDescriptorData(
+		"gSamplers",
+		ImageBinding{.sampler = (*device.GetResource<SamplerVector>(gSamplersUuid))[1]},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS,
+		SHADER_TYPES_CLAMP_SAMPLER);
 
 	for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 	{

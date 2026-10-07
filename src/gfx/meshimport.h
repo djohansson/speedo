@@ -74,6 +74,19 @@ struct Material
 	TextureRef sheenColorTexture;
 	float sheenRoughness = 0.0F;
 	TextureRef sheenRoughnessTexture;
+	// KHR_materials_transmission: how much of the dielectric's diffuse lets the scene behind through instead (factor
+	// times the texture's red), refracted by the ior and blurred by the roughness
+	float transmission = 0.0F;
+	TextureRef transmissionTexture;
+	// KHR_materials_volume: the thickness under the surface, in its mesh's space (factor times the texture's green; 0
+	// is thin walled: no refraction offset), and the attenuation of the light through it: attenuationColor after
+	// attenuationDistance (0: none)
+	float thickness = 0.0F;
+	TextureRef thicknessTexture;
+	std::array<float, 3> attenuationColor{1.0F, 1.0F, 1.0F};
+	float attenuationDistance = 0.0F;
+	// KHR_materials_dispersion: the ior's spread over the colors (20 / Abbe number; 0 none)
+	float dispersion = 0.0F;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

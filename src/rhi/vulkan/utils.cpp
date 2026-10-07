@@ -614,10 +614,22 @@ void SetDefaultAccessAndStageMasks(VkImageLayout layout, VkAccessFlags2KHR& outA
 void TransitionImageLayout(
 	VkCommandBuffer commandBuffer,
 	VkImage image,
-	VkFormat format,
+	VkFormat /*format*/,
 	VkImageLayout oldLayout,
 	VkImageLayout newLayout,
 	uint32_t mipLevels,
+	VkImageAspectFlags aspectFlags)
+{
+	TransitionImageLayout(commandBuffer, image, oldLayout, newLayout, 0, mipLevels, aspectFlags);
+}
+
+void TransitionImageLayout(
+	VkCommandBuffer commandBuffer,
+	VkImage image,
+	VkImageLayout oldLayout,
+	VkImageLayout newLayout,
+	uint32_t baseMipLevel,
+	uint32_t levelCount,
 	VkImageAspectFlags aspectFlags)
 {
 	VkImageMemoryBarrier2KHR imageBarrier{.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
@@ -636,8 +648,8 @@ void TransitionImageLayout(
 	imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageBarrier.image = image;
 	imageBarrier.subresourceRange.aspectMask = aspectFlags;
-	imageBarrier.subresourceRange.baseMipLevel = 0UL;
-	imageBarrier.subresourceRange.levelCount = mipLevels;
+	imageBarrier.subresourceRange.baseMipLevel = baseMipLevel;
+	imageBarrier.subresourceRange.levelCount = levelCount;
 	imageBarrier.subresourceRange.baseArrayLayer = 0UL;
 	imageBarrier.subresourceRange.layerCount = 1;
 

@@ -153,6 +153,15 @@ void TransitionImageLayout(
 	VkImageLayout newLayout,
 	uint32_t mipLevels,
 	VkImageAspectFlags aspectFlags);
+// the same for levelCount mip levels from baseMipLevel
+void TransitionImageLayout(
+	VkCommandBuffer commandBuffer,
+	VkImage image,
+	VkImageLayout oldLayout,
+	VkImageLayout newLayout,
+	uint32_t baseMipLevel,
+	uint32_t levelCount,
+	VkImageAspectFlags aspectFlags);
 
 void CopyBufferToImage(
 	VkCommandBuffer commandBuffer,

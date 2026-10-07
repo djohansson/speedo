@@ -71,6 +71,14 @@ struct ModelMaterial
 	TextureRef sheenColorTexture;
 	float sheenRoughness = 0.0F;
 	TextureRef sheenRoughnessTexture;
+	// see mesh::Material::transmission, thickness and dispersion
+	float transmission = 0.0F;
+	TextureRef transmissionTexture;
+	float thickness = 0.0F;
+	TextureRef thicknessTexture;
+	std::array<float, 3> attenuationColor{1.0F, 1.0F, 1.0F};
+	float attenuationDistance = 0.0F;
+	float dispersion = 0.0F;
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale

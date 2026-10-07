@@ -85,6 +85,57 @@ void Image<kVk>::Transition(CommandBufferHandle<kVk> cmd, ImageLayout layout, Im
 }
 
 template <>
+void Image<kVk>::BlitFrom(CommandBufferHandle<kVk> cmd, const Image& source)
+{
+	ZoneScopedN("Image::BlitFrom");
+
+	ENSURE(source.GetDesc().layout == ImageLayout::kTransferSource);
+	Transition(cmd, ImageLayout::kTransferDestination, ImageAspect::kColor);
+
+	const auto& from = source.GetDesc().mipLevels[0].extent;
+	const auto& to = GetDesc().mipLevels[0].extent;
+	VkImageBlit blit{
+		.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+		.srcOffsets = {{0, 0, 0}, {static_cast<int32_t>(from.width), static_cast<int32_t>(from.height), 1}},
+		.dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1},
+		.dstOffsets = {{0, 0, 0}, {static_cast<int32_t>(to.width), static_cast<int32_t>(to.height), 1}}};
+	vkCmdBlitImage(
+		cmd, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+}
+
+template <>
+void Image<kVk>::GenerateMips(CommandBufferHandle<kVk> cmd, ImageLayout layout)
+{
+	ZoneScopedN("Image::GenerateMips");
+
+	ENSURE(GetDesc().layout == ImageLayout::kTransferDestination);
+	auto levelCount = static_cast<uint32_t>(GetDesc().mipLevels.size());
+	for (uint32_t level = 1; level < levelCount; level++)
+	{
+		// the level above becomes the source
+		TransitionImageLayout(
+			cmd, *this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, level - 1, 1, VK_IMAGE_ASPECT_COLOR_BIT);
+		const auto& from = GetDesc().mipLevels[level - 1].extent;
+		const auto& to = GetDesc().mipLevels[level].extent;
+		VkImageBlit blit{
+			.srcSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = level - 1, .baseArrayLayer = 0, .layerCount = 1},
+			.srcOffsets = {{0, 0, 0}, {static_cast<int32_t>(from.width), static_cast<int32_t>(from.height), 1}},
+			.dstSubresource = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = level, .baseArrayLayer = 0, .layerCount = 1},
+			.dstOffsets = {{0, 0, 0}, {static_cast<int32_t>(to.width), static_cast<int32_t>(to.height), 1}}};
+		vkCmdBlitImage(
+			cmd, *this, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, *this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+	}
+	// all but the last are sources now
+	if (levelCount > 1)
+		TransitionImageLayout(
+			cmd, *this, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk::ToVk(layout), 0, levelCount - 1, VK_IMAGE_ASPECT_COLOR_BIT);
+	TransitionImageLayout(
+		cmd, *this, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, vk::ToVk(layout), levelCount - 1, 1, VK_IMAGE_ASPECT_COLOR_BIT);
+	InternalSetImageLayout(layout);
+	InternalSetAspectFlags(ImageAspect::kColor);
+}
+
+template <>
 void Image<kVk>::Clear(
 	CommandBufferHandle<kVk> cmd,
 	const ClearValue& value,

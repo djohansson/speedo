@@ -543,6 +543,10 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			Add(texturesOut, material.sheenColorTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.sheenRoughnessTexture.empty())
 			Add(texturesOut, material.sheenRoughnessTexture, gfx::image::Usage::kAlpha, 1.0F);
+		if (!material.transmissionTexture.empty())
+			Add(texturesOut, material.transmissionTexture, gfx::image::Usage::kOcclusion, 1.0F);
+		if (!material.thicknessTexture.empty())
+			Add(texturesOut, material.thicknessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
 		if (!material.normalTexture.empty())
 			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())
