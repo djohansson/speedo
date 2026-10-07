@@ -392,8 +392,13 @@ srgb texture), at most 1, times the strength (factor times its texture's alpha, 
 strength, mixed with the metal's (f0 the base color, f90 1) by metallic; the environment term is `f0 * A + f90 * B`.
 Specular-glossiness materials (`MATERIAL_FLAG_SPECULAR_GLOSSINESS`) take their specular color as f0 (f90 1), their
 diffuse scaled by 1 minus its largest component, and roughness `1 - glossiness * a` of the specular-glossiness texture
-(in the specular color's slot, `kColor`: srgb rgb, linear alpha). The `KHR_materials_*` extensions not drawn are named
-in one import warning. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+(in the specular color's slot, `kColor`: srgb rgb, linear alpha). KHR_materials_sheen adds a Charlie lobe (Estevez
+and Kulla's visibility, as the Khronos sample viewer has it) over that, which scales the layers below by
+`1 - max(sheen color) * E`, E its directional albedo (`kSheenAlbedo`: a 12x12 table over cos and roughness, integrated
+numerically and clamped to 1; lit by the environment's irradiance). KHR_materials_clearcoat adds a dielectric GGX layer
+(f0 0.04) of its strength (`kOcclusion`: the texture's red), roughness (`kMetallicRoughness`: its green) and own normal
+map (`NormalFromMap`, else the geometry's normal) over everything, emission included, which keeps `1 - strength *
+F(n_c . v)`. The `KHR_materials_*` extensions not drawn are named in one import warning. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16

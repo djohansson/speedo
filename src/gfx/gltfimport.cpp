@@ -874,14 +874,31 @@ std::expected<Mesh, std::string> Import(
 				material.specularColor[channel] = std::max(specular.specular_color_factor[channel], 0.0F);
 			material.specularColorTexture = textureRef(specular.specular_color_texture);
 		}
+		if (gltfMaterial.has_clearcoat)
+		{
+			const auto& clearcoat = gltfMaterial.clearcoat;
+			material.clearcoat = std::clamp(clearcoat.clearcoat_factor, 0.0F, 1.0F);
+			material.clearcoatTexture = textureRef(clearcoat.clearcoat_texture);
+			material.clearcoatRoughness = std::clamp(clearcoat.clearcoat_roughness_factor, 0.0F, 1.0F);
+			material.clearcoatRoughnessTexture = textureRef(clearcoat.clearcoat_roughness_texture);
+			material.clearcoatNormalTexture = textureRef(clearcoat.clearcoat_normal_texture);
+			material.clearcoatNormalScale = clearcoat.clearcoat_normal_texture.scale;
+		}
+		if (gltfMaterial.has_sheen)
+		{
+			const auto& sheen = gltfMaterial.sheen;
+			for (size_t channel = 0; channel < 3; channel++)
+				material.sheenColor[channel] = std::max(sheen.sheen_color_factor[channel], 0.0F);
+			material.sheenColorTexture = textureRef(sheen.sheen_color_texture);
+			material.sheenRoughness = std::clamp(sheen.sheen_roughness_factor, 0.0F, 1.0F);
+			material.sheenRoughnessTexture = textureRef(sheen.sheen_roughness_texture);
+		}
 		// an ior of 0 is a perfect reflector's (the dielectric's f0 then 1), as the extension allows
 		if (gltfMaterial.has_ior)
 			material.ior = std::max(gltfMaterial.ior.ior, 0.0F);
 
 		// the extensions the renderer doesn't draw yet, named once per model (see ignoredMaterialExtensions)
 		for (auto [has, name] : std::initializer_list<std::pair<bool, std::string_view>>{
-				 {gltfMaterial.has_clearcoat != 0, "KHR_materials_clearcoat"},
-				 {gltfMaterial.has_sheen != 0, "KHR_materials_sheen"},
 				 {gltfMaterial.has_transmission != 0, "KHR_materials_transmission"},
 				 {gltfMaterial.has_volume != 0, "KHR_materials_volume"},
 				 {gltfMaterial.has_dispersion != 0, "KHR_materials_dispersion"},

@@ -533,6 +533,16 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			Add(texturesOut, material.specularTexture, gfx::image::Usage::kAlpha, 1.0F);
 		if (!material.specularColorTexture.empty())
 			Add(texturesOut, material.specularColorTexture, gfx::image::Usage::kColor, 1.0F);
+		if (!material.clearcoatTexture.empty())
+			Add(texturesOut, material.clearcoatTexture, gfx::image::Usage::kOcclusion, 1.0F);
+		if (!material.clearcoatRoughnessTexture.empty())
+			Add(texturesOut, material.clearcoatRoughnessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
+		if (!material.clearcoatNormalTexture.empty())
+			Add(texturesOut, material.clearcoatNormalTexture, gfx::image::Usage::kNormal, 1.0F);
+		if (!material.sheenColorTexture.empty())
+			Add(texturesOut, material.sheenColorTexture, gfx::image::Usage::kColor, 1.0F);
+		if (!material.sheenRoughnessTexture.empty())
+			Add(texturesOut, material.sheenRoughnessTexture, gfx::image::Usage::kAlpha, 1.0F);
 		if (!material.normalTexture.empty())
 			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())

@@ -624,6 +624,11 @@ struct MaterialTextures
 	Texture metallicRoughness;
 	Texture specular;
 	Texture specularColor;
+	Texture clearcoat;
+	Texture clearcoatRoughness;
+	Texture clearcoatNormal;
+	Texture sheenColor;
+	Texture sheenRoughness;
 };
 
 // a material's defaults: white, untextured, rough, dielectric, with the default specular (ior 1.5, white)
@@ -655,7 +660,8 @@ static void InstallModel(
 	for (const auto& material : textures)
 		for (const auto* texture :
 			 {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion, &material.metallicRoughness,
-			  &material.specular, &material.specularColor})
+			  &material.specular, &material.specularColor, &material.clearcoat, &material.clearcoatRoughness, &material.clearcoatNormal,
+			  &material.sheenColor, &material.sheenRoughness})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -783,6 +789,36 @@ static void InstallModel(
 			{
 				material.specularColorView = *view;
 				material.flags |= MATERIAL_FLAG_SPECULAR_COLOR_TEXTURE;
+			}
+			if (desc.clearcoat > 0.0F)
+			{
+				material.flags |= MATERIAL_FLAG_CLEARCOAT;
+				material.clearcoat[0] = desc.clearcoat;
+				material.clearcoat[1] = desc.clearcoatRoughness;
+				material.clearcoat[2] = desc.clearcoatNormalScale;
+				for (auto [texture, ref, view, flag] : std::array{
+						 std::tuple{&textures[materialIt].clearcoat, &desc.clearcoatTexture, &material.clearcoatView, MATERIAL_FLAG_CLEARCOAT_TEXTURE},
+						 std::tuple{&textures[materialIt].clearcoatRoughness, &desc.clearcoatRoughnessTexture, &material.clearcoatRoughnessView, MATERIAL_FLAG_CLEARCOAT_ROUGHNESS_TEXTURE},
+						 std::tuple{&textures[materialIt].clearcoatNormal, &desc.clearcoatNormalTexture, &material.clearcoatNormalView, MATERIAL_FLAG_CLEARCOAT_NORMAL_TEXTURE}})
+					if (auto id = viewOf(*texture, *ref))
+					{
+						*view = *id;
+						material.flags |= flag;
+					}
+			}
+			if (std::ranges::any_of(desc.sheenColor, [](float c) { return c > 0.0F; }))
+			{
+				material.flags |= MATERIAL_FLAG_SHEEN;
+				std::ranges::copy(desc.sheenColor, material.sheen);
+				material.sheen[3] = desc.sheenRoughness;
+				for (auto [texture, ref, view, flag] : std::array{
+						 std::tuple{&textures[materialIt].sheenColor, &desc.sheenColorTexture, &material.sheenColorView, MATERIAL_FLAG_SHEEN_COLOR_TEXTURE},
+						 std::tuple{&textures[materialIt].sheenRoughness, &desc.sheenRoughnessTexture, &material.sheenRoughnessView, MATERIAL_FLAG_SHEEN_ROUGHNESS_TEXTURE}})
+					if (auto id = viewOf(*texture, *ref))
+					{
+						*view = *id;
+						material.flags |= flag;
+					}
 			}
 			if (desc.unlit)
 				material.flags |= MATERIAL_FLAG_UNLIT;
@@ -1028,6 +1064,21 @@ static void LoadAndInstallModels(
 		if (!material.specularColorTexture.empty())
 			loads.push_back(
 				{material.specularColorTexture.path, material.specularColorTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.specularColor});
+		// the clearcoat's strength is the texture's red, its roughness the green (as kOcclusion and kMetallicRoughness
+		// keep them), the sheen roughness the alpha
+		if (material.clearcoat > 0.0F)
+			for (auto [ref, usage, result] : std::array{
+					 std::tuple{&material.clearcoatTexture, gfx::image::Usage::kOcclusion, &texture.clearcoat},
+					 std::tuple{&material.clearcoatRoughnessTexture, gfx::image::Usage::kMetallicRoughness, &texture.clearcoatRoughness},
+					 std::tuple{&material.clearcoatNormalTexture, gfx::image::Usage::kNormal, &texture.clearcoatNormal}})
+				if (!ref->empty())
+					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+		if (std::ranges::any_of(material.sheenColor, [](float c) { return c > 0.0F; }))
+			for (auto [ref, usage, result] : std::array{
+					 std::tuple{&material.sheenColorTexture, gfx::image::Usage::kColor, &texture.sheenColor},
+					 std::tuple{&material.sheenRoughnessTexture, gfx::image::Usage::kAlpha, &texture.sheenRoughness}})
+				if (!ref->empty())
+					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 	}
 
 	core::UnorderedMap<std::string, Texture> loaded;

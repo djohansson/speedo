@@ -60,6 +60,20 @@ struct Material
 	// that color's largest component, and whose roughness is 1 - glossiness times the texture's alpha
 	bool specularGlossiness = false;
 	float glossiness = 1.0F;
+	// KHR_materials_clearcoat: a clear dielectric layer (ior 1.5) over the rest, of its strength (factor times the
+	// texture's red), roughness (factor times the texture's green) and own normal map (else the geometry's normal)
+	float clearcoat = 0.0F;
+	TextureRef clearcoatTexture;
+	float clearcoatRoughness = 0.0F;
+	TextureRef clearcoatRoughnessTexture;
+	TextureRef clearcoatNormalTexture;
+	float clearcoatNormalScale = 1.0F;
+	// KHR_materials_sheen: a velvet-like lobe at grazing angles (Charlie), of its color (factor times the srgb
+	// texture; black is none) and roughness (factor times the texture's alpha)
+	std::array<float, 3> sheenColor{};
+	TextureRef sheenColorTexture;
+	float sheenRoughness = 0.0F;
+	TextureRef sheenRoughnessTexture;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

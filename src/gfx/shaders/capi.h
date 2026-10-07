@@ -162,6 +162,13 @@ struct TextureView
 #define MATERIAL_FLAG_SPECULAR_TEXTURE 128u // specularView: the specular strength in r, times specular
 #define MATERIAL_FLAG_SPECULAR_COLOR_TEXTURE 256u // specularColorView: an srgb color times specularColor (and glossiness in a)
 #define MATERIAL_FLAG_SPECULAR_GLOSSINESS 512u // specular-glossiness: specularColor is f0, roughness the glossiness
+#define MATERIAL_FLAG_CLEARCOAT 1024u // a clearcoat layer (see clearcoat)
+#define MATERIAL_FLAG_CLEARCOAT_TEXTURE 2048u // clearcoatView: the strength in r, times clearcoat.x
+#define MATERIAL_FLAG_CLEARCOAT_ROUGHNESS_TEXTURE 4096u // clearcoatRoughnessView: the roughness in r, times clearcoat.y
+#define MATERIAL_FLAG_CLEARCOAT_NORMAL_TEXTURE 8192u // clearcoatNormalView: the layer's normal map, by clearcoat.z
+#define MATERIAL_FLAG_SHEEN 16384u // a sheen lobe (see sheen)
+#define MATERIAL_FLAG_SHEEN_COLOR_TEXTURE 32768u // sheenColorView: an srgb color times sheen.rgb
+#define MATERIAL_FLAG_SHEEN_ROUGHNESS_TEXTURE 65536u // sheenRoughnessView: the roughness in r, times sheen.a
 
 struct MaterialData
 {
@@ -171,6 +178,10 @@ struct MaterialData
 	// rgb: the dielectric specular color (see gfx::mesh::Material::specularColor), or with
 	// MATERIAL_FLAG_SPECULAR_GLOSSINESS the color at normal incidence itself. a: the index of refraction
 	alignas(16) FLOAT4(specularColor);
+	// KHR_materials_clearcoat: x the strength, y the roughness, z the normal map's scale
+	alignas(16) FLOAT4(clearcoat);
+	// KHR_materials_sheen: rgb the color, a the roughness
+	alignas(16) FLOAT4(sheen);
 	alignas(4) UINT(flags);
 	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
 	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
@@ -187,6 +198,11 @@ struct MaterialData
 	alignas(4) FLOAT(specular); // the dielectric specular's strength (see mesh::Material::specular): 1 by default
 	alignas(4) UINT(specularView);
 	alignas(4) UINT(specularColorView);
+	alignas(4) UINT(clearcoatView);
+	alignas(4) UINT(clearcoatRoughnessView);
+	alignas(4) UINT(clearcoatNormalView);
+	alignas(4) UINT(sheenColorView);
+	alignas(4) UINT(sheenRoughnessView);
 };
 
 struct ModelInstance

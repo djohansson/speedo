@@ -60,6 +60,17 @@ struct ModelMaterial
 	float ior = 1.5F;
 	bool specularGlossiness = false;
 	float glossiness = 1.0F;
+	// see mesh::Material::clearcoat and sheenColor
+	float clearcoat = 0.0F;
+	TextureRef clearcoatTexture;
+	float clearcoatRoughness = 0.0F;
+	TextureRef clearcoatRoughnessTexture;
+	TextureRef clearcoatNormalTexture;
+	float clearcoatNormalScale = 1.0F;
+	std::array<float, 3> sheenColor{};
+	TextureRef sheenColorTexture;
+	float sheenRoughness = 0.0F;
+	TextureRef sheenRoughnessTexture;
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale

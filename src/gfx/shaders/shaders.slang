@@ -380,6 +380,70 @@ float3 EnvironmentBrdfApprox(float3 f0, float f90, float roughness, float nDotV)
 	return f0 * ab.x + f90 * ab.y;
 }
 
+// KHR_materials_sheen's lobe: the Charlie distribution and Estevez and Kulla's visibility (as the Khronos sample viewer
+// has them: interpolated by alpha, the visibility at most 1), of a roughness at least 0.07
+float SheenAlpha(float roughness)
+{
+	float clamped = max(roughness, 0.07);
+	return clamped * clamped;
+}
+
+float DistributionCharlie(float nDotH, float roughness)
+{
+	float alpha = SheenAlpha(roughness);
+	float sin2 = max(1.0 - nDotH * nDotH, 0.0);
+	return (2.0 + 1.0 / alpha) * pow(sin2, 0.5 / alpha) / (2.0 * kPi);
+}
+
+float SheenLambda(float cosine, float alpha)
+{
+	float t = (1.0 - alpha) * (1.0 - alpha);
+	float a = lerp(25.3245, 21.5473, t);
+	float b = lerp(3.32435, 3.82987, t);
+	float c = lerp(0.16801, 0.19823, t);
+	float d = lerp(-1.27393, -1.97760, t);
+	float e = lerp(-4.85967, -4.32054, t);
+	float x = cosine < 0.5 ? cosine : 0.5;
+	float l = a / (1.0 + b * pow(x, c)) + d * x + e;
+	if (cosine < 0.5)
+		return exp(l);
+	float x1 = 1.0 - cosine;
+	return exp(2.0 * l - (a / (1.0 + b * pow(x1, c)) + d * x1 + e));
+}
+
+float VisibilitySheen(float nDotL, float nDotV, float roughness)
+{
+	float alpha = SheenAlpha(roughness);
+	return saturate(1.0 / ((1.0 + SheenLambda(nDotV, alpha) + SheenLambda(nDotL, alpha)) * 4.0 * nDotV * nDotL));
+}
+
+// the sheen lobe's directional albedo (white): integrated numerically for cos 0 to 1 (columns) and roughness 0 to 1
+// (rows), 12 each, at most 1 (grazing views of the smoothest sheens exceed it). what the layers below lose to it
+static const float kSheenAlbedo[144] = {
+	1.0000, 0.6230, 0.1468, 0.0241, 0.0024, 0.0001, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+	1.0000, 0.8200, 0.2877, 0.0804, 0.0165, 0.0024, 0.0002, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+	1.0000, 1.0000, 0.6423, 0.3549, 0.1788, 0.0833, 0.0355, 0.0135, 0.0042, 0.0010, 0.0001, 0.0000,
+	1.0000, 0.9785, 0.6775, 0.4508, 0.2882, 0.1790, 0.1070, 0.0607, 0.0317, 0.0144, 0.0049, 0.0007,
+	0.9801, 0.8316, 0.6178, 0.4494, 0.3218, 0.2274, 0.1573, 0.1061, 0.0682, 0.0404, 0.0205, 0.0070,
+	0.7804, 0.6928, 0.5361, 0.4115, 0.3153, 0.2401, 0.1804, 0.1339, 0.0966, 0.0661, 0.0412, 0.0211,
+	0.6296, 0.5733, 0.4550, 0.3625, 0.2906, 0.2324, 0.1844, 0.1456, 0.1131, 0.0850, 0.0601, 0.0381,
+	0.5157, 0.4748, 0.3833, 0.3140, 0.2598, 0.2150, 0.1772, 0.1463, 0.1199, 0.0961, 0.0741, 0.0534,
+	0.4310, 0.3971, 0.3244, 0.2714, 0.2298, 0.1949, 0.1652, 0.1410, 0.1202, 0.1012, 0.0831, 0.0652,
+	0.3704, 0.3396, 0.2801, 0.2379, 0.2049, 0.1771, 0.1532, 0.1341, 0.1178, 0.1030, 0.0886, 0.0741,
+	0.3306, 0.3019, 0.2510, 0.2156, 0.1880, 0.1648, 0.1448, 0.1291, 0.1161, 0.1044, 0.0931, 0.0817,
+	0.3104, 0.2841, 0.2381, 0.2064, 0.1817, 0.1609, 0.1431, 0.1294, 0.1183, 0.1086, 0.0994, 0.0902,
+};
+
+float SheenAlbedo(float cosine, float roughness)
+{
+	float2 at = saturate(float2(cosine, roughness)) * 11.0;
+	uint2 low = min(uint2(at), uint2(10, 10));
+	float2 t = at - float2(low);
+	float a = lerp(kSheenAlbedo[low.y * 12 + low.x], kSheenAlbedo[low.y * 12 + low.x + 1], t.x);
+	float b = lerp(kSheenAlbedo[(low.y + 1) * 12 + low.x], kSheenAlbedo[(low.y + 1) * 12 + low.x + 1], t.x);
+	return lerp(a, b, t.y);
+}
+
 // what Shade lights: the Lambertian diffuse color, and the specular's Fresnel at normal incidence (f0) and at grazing
 // angles (f90): the metallic-roughness model's mix of a dielectric (f0 from the ior, tinted by KHR_materials_specular's
 // color, both scaled by its strength) and a metal (f0 the base color), or a specular-glossiness material's
@@ -391,7 +455,22 @@ struct Surface
 	float roughness;
 	float occlusion;
 	float3 normal;
+	// KHR_materials_clearcoat: a dielectric layer (f0 0.04) of a strength, roughness and normal over the rest, which
+	// keeps what the layer's fresnel leaves; 0 for none
+	float clearcoat;
+	float clearcoatRoughness;
+	float3 clearcoatNormal;
+	// KHR_materials_sheen: its color (black for none) and roughness
+	float3 sheenColor;
+	float sheenRoughness;
 };
+
+// how much of what is below a clearcoat layer it reflects instead, seen from view (the spec's approximation, by the
+// layer's normal)
+float ClearcoatFresnel(Surface surface, float3 view)
+{
+	return surface.clearcoat * FresnelSchlick(float3(0.04), 1.0, max(dot(surface.clearcoatNormal, view), 1e-4)).r;
+}
 
 // the light a surface reflects towards view: from gLights, and the environment (by occlusion). linear, before exposure
 float3 Shade(Surface surface, float3 view, float3 position)
@@ -406,6 +485,22 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	float3 reflected = reflect(-view, normal);
 	float3 result = surface.occlusion * (surface.diffuseColor * EnvironmentIrradiance(environment, normal) +
 										 environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
+
+	// the sheen over that, which takes its albedo of it, and lit by the environment's light around the normal
+	float sheenMax = max(surface.sheenColor.r, max(surface.sheenColor.g, surface.sheenColor.b));
+	float sheenAlbedoView = SheenAlbedo(nDotV, surface.sheenRoughness);
+	if (sheenMax > 0.0)
+		result = result * (1.0 - sheenMax * sheenAlbedoView) +
+				 surface.occlusion * surface.sheenColor * sheenAlbedoView * EnvironmentIrradiance(environment, normal);
+
+	// and the clearcoat over all of it
+	float coatFresnel = ClearcoatFresnel(surface, view);
+	float coatNDotV = max(dot(surface.clearcoatNormal, view), 1e-4);
+	float coatAlpha = max(surface.clearcoatRoughness * surface.clearcoatRoughness, 1e-3);
+	if (surface.clearcoat > 0.0)
+		result = result * (1.0 - coatFresnel) +
+				 surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV) *
+					 EnvironmentRadiance(environment, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness);
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{
@@ -437,19 +532,58 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			}
 		}
 
-		float nDotL = dot(normal, toLight);
-		if (nDotL <= 0.0 || attenuation <= 0.0)
+		if (attenuation <= 0.0)
 			continue;
 
 		float3 halfway = normalize(toLight + view);
-		float nDotH = saturate(dot(normal, halfway));
-		float3 fresnel = FresnelSchlick(surface.f0, surface.f90, saturate(dot(view, halfway)));
-		float3 diffuse = (1.0 - fresnel) * surface.diffuseColor / kPi;
-		float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
-		result += (diffuse + specular) * light.intensity.rgb * attenuation * nDotL;
+		float vDotH = saturate(dot(view, halfway));
+		float3 lit = 0.0;
+		float nDotL = dot(normal, toLight);
+		if (nDotL > 0.0)
+		{
+			float nDotH = saturate(dot(normal, halfway));
+			float3 fresnel = FresnelSchlick(surface.f0, surface.f90, vDotH);
+			float3 diffuse = (1.0 - fresnel) * surface.diffuseColor / kPi;
+			float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
+			lit = (diffuse + specular) * nDotL;
+			if (sheenMax > 0.0)
+			{
+				float scaling = min(1.0 - sheenMax * sheenAlbedoView, 1.0 - sheenMax * SheenAlbedo(nDotL, surface.sheenRoughness));
+				lit = lit * scaling + surface.sheenColor * DistributionCharlie(nDotH, surface.sheenRoughness) *
+										  VisibilitySheen(nDotL, nDotV, surface.sheenRoughness) * nDotL;
+			}
+		}
+		float coatNDotL = dot(surface.clearcoatNormal, toLight);
+		if (surface.clearcoat > 0.0)
+		{
+			lit *= 1.0 - coatFresnel;
+			if (coatNDotL > 0.0)
+				lit += surface.clearcoat * FresnelSchlick(float3(0.04), 1.0, vDotH) *
+					   DistributionGgx(saturate(dot(surface.clearcoatNormal, halfway)), coatAlpha) *
+					   VisibilitySmithGgxCorrelated(coatNDotL, coatNDotV, coatAlpha) * coatNDotL;
+		}
+		result += lit * light.intensity.rgb * attenuation;
 	}
 
 	return result;
+}
+
+// a normal map's normal (x and y in rg, see MaterialData::normalView), by a scale of x and y, with normal the (unit)
+// vertex normal: in the vertex tangents' frame where they are valid (interpolated w stays away from 0, and they aren't
+// nearly parallel to the normal, which some files have), else a frame from screen space derivatives. the frame follows
+// the map's own (transformed) texcoords. faceSign reverses it for back faces.
+float3 NormalFromMap(uint viewId, float scale, float3 normal, float4 tangent, float3 position, float4 texCoord01, float faceSign)
+{
+	TextureView normalView = gTextureViews[viewId];
+	float2 uv = ViewTexCoord(normalView, texCoord01);
+	float2 xy = SampleView(normalView, uv).rg * 2.0 - 1.0;
+	// z is reconstructed from the stored (unit length) normal, then x and y are scaled, as gltf defines
+	// normalTexture.scale: normalize(normal * (scale, scale, 1))
+	float3 tangentSpaceNormal = float3(xy * scale, sqrt(saturate(1.0 - dot(xy, xy))));
+	float3 alongU = tangent.xyz - normal * dot(normal, tangent.xyz);
+	if (abs(tangent.w) > 0.5 && dot(alongU, alongU) > 1e-4 * dot(tangent.xyz, tangent.xyz))
+		return faceSign * normalize(mul(tangentSpaceNormal, TangentFrame(normal, normalize(alongU), tangent.w, normalView)));
+	return normalize(mul(tangentSpaceNormal, CotangentFrame(faceSign * normal, position, uv)));
 }
 
 // a fragment's color and alpha, lit and with emissive added
@@ -486,27 +620,11 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	// color plus emissive
 	bool unlit = dot(v.normal, v.normal) == 0.0 || (material.flags & MATERIAL_FLAG_UNLIT) != 0u;
 	float3 normal = unlit ? float3(0.0, 0.0, 1.0) : normalize(v.normal);
+	float3 geometryNormal = faceSign * normal;
 	if (!unlit && (material.flags & MATERIAL_FLAG_NORMAL_TEXTURE) != 0u)
-	{
-		// the tangent frame follows the normal map's own (transformed) texcoords
-		TextureView normalView = gTextureViews[material.normalView];
-		float2 uv = ViewTexCoord(normalView, v.texCoord01);
-		float2 xy = SampleView(normalView, uv).rg * 2.0 - 1.0;
-		// z is reconstructed from the stored (unit length) normal, then x and y are scaled, as gltf defines
-		// normalTexture.scale: normalize(normal * (scale, scale, 1))
-		float3 tangentSpaceNormal = float3(xy * material.normalScale, sqrt(saturate(1.0 - dot(xy, xy))));
-		// the vertex tangents if the mesh has them (interpolated w stays away from 0) and they aren't (nearly) parallel
-		// to the normal, which some files have, else a derived frame
-		float3 alongU = v.tangent.xyz - normal * dot(normal, v.tangent.xyz);
-		if (abs(v.tangent.w) > 0.5 && dot(alongU, alongU) > 1e-4 * dot(v.tangent.xyz, v.tangent.xyz))
-			normal = faceSign * normalize(mul(tangentSpaceNormal, TangentFrame(normal, normalize(alongU), v.tangent.w, normalView)));
-		else
-			normal = normalize(mul(tangentSpaceNormal, CotangentFrame(faceSign * normal, v.position, uv)));
-	}
+		normal = NormalFromMap(material.normalView, material.normalScale, normal, v.tangent, v.position, v.texCoord01, faceSign);
 	else
-	{
-		normal *= faceSign;
-	}
+		normal = geometryNormal;
 
 	// light the surface gives off, unaffected by the lighting
 	float3 emissive = material.emissive.rgb;
@@ -545,6 +663,36 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	Surface surface;
 	surface.occlusion = occlusion;
 	surface.normal = normal;
+
+	// KHR_materials_clearcoat: its own normal map, else the geometry's normal (not the base's normal map)
+	surface.clearcoat = 0.0;
+	surface.clearcoatRoughness = 0.0;
+	surface.clearcoatNormal = geometryNormal;
+	if ((material.flags & MATERIAL_FLAG_CLEARCOAT) != 0u)
+	{
+		surface.clearcoat = material.clearcoat.x;
+		if ((material.flags & MATERIAL_FLAG_CLEARCOAT_TEXTURE) != 0u)
+			surface.clearcoat *= SampleView(material.clearcoatView, v.texCoord01).r;
+		surface.clearcoatRoughness = material.clearcoat.y;
+		if ((material.flags & MATERIAL_FLAG_CLEARCOAT_ROUGHNESS_TEXTURE) != 0u)
+			surface.clearcoatRoughness *= SampleView(material.clearcoatRoughnessView, v.texCoord01).r;
+		if ((material.flags & MATERIAL_FLAG_CLEARCOAT_NORMAL_TEXTURE) != 0u)
+			surface.clearcoatNormal = NormalFromMap(
+				material.clearcoatNormalView, material.clearcoat.z, normalize(v.normal), v.tangent, v.position, v.texCoord01, faceSign);
+	}
+
+	// KHR_materials_sheen
+	surface.sheenColor = 0.0;
+	surface.sheenRoughness = 0.0;
+	if ((material.flags & MATERIAL_FLAG_SHEEN) != 0u)
+	{
+		surface.sheenColor = material.sheen.rgb;
+		if ((material.flags & MATERIAL_FLAG_SHEEN_COLOR_TEXTURE) != 0u)
+			surface.sheenColor *= SampleView(material.sheenColorView, v.texCoord01).rgb;
+		surface.sheenRoughness = material.sheen.a;
+		if ((material.flags & MATERIAL_FLAG_SHEEN_ROUGHNESS_TEXTURE) != 0u)
+			surface.sheenRoughness *= SampleView(material.sheenRoughnessView, v.texCoord01).r;
+	}
 	if ((material.flags & MATERIAL_FLAG_SPECULAR_GLOSSINESS) != 0u)
 	{
 		// the specular color is f0, and the diffuse keeps what it leaves
@@ -568,7 +716,8 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
-	return float4(Shade(surface, view, v.position) + emissive, color.a);
+	// the clearcoat covers the emission too
+	return float4(Shade(surface, view, v.position) + emissive * (1.0 - ClearcoatFresnel(surface, view)), color.a);
 }
 
 [shader("fragment")]
