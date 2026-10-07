@@ -335,9 +335,9 @@ struct Staged
 	std::string paramsHash;
 	// bump an importer's tag when it changes what it produces
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
-		params.append(std::format("tinyobjloader-{}|objimport-v3", kTinyObjLoaderVersion));
+		params.append(std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v22", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v23", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));

@@ -1,0 +1,5 @@
+# a height map of four domes, as a bump map: lit on the side the light comes from, they are raised, not dented
+newmtl dome
+Kd 0.8 0.8 0.8
+Ks 0 0 0
+bump -bm 4 dome.pgm

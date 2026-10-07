@@ -1,4 +1,5 @@
 #include "objimport.h"
+#include "tangents.h"
 
 #include <core/profiling.h>
 #include <core/utils.h>
@@ -544,6 +545,8 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 			auto material = bucketIt < mesh.materials.size() ? static_cast<int32_t>(bucketIt) : -1;
 			auto& submesh = mesh.submeshes.emplace_back(Submesh{
 				.firstIndex = static_cast<uint32_t>(mesh.indices.size()), .indexCount = 0, .material = material});
+			// the material is part of the vertex key: its vertices are the ones from here on
+			auto firstVertex = static_cast<uint32_t>(mesh.vertices.size());
 
 			for (const auto& triangle : triangles)
 			{
@@ -556,6 +559,25 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 			}
 
 			submesh.indexCount = static_cast<uint32_t>(mesh.indices.size()) - submesh.firstIndex;
+
+			// a normal or bump map: MikkTSpace tangents (as gltf files without them get), for the vertices of this
+			// material, which nothing else shares
+			if (material >= 0 && (!mesh.materials[material].normalTexture.empty() || !mesh.materials[material].bumpTexture.empty()))
+			{
+				std::vector<VertexP3fN3fTa4fT014fC4f> vertices(mesh.vertices.begin() + firstVertex, mesh.vertices.end());
+				auto indices = std::span(mesh.indices).subspan(submesh.firstIndex, submesh.indexCount);
+				for (auto& index : indices)
+					index -= firstVertex;
+				auto sources = mesh::GenerateTangents(vertices, indices, 0);
+				if (!sources.empty())
+				{
+					mesh.vertices.resize(firstVertex);
+					mesh.vertices.insert(mesh.vertices.end(), vertices.begin(), vertices.end());
+					stats.generatedTangents += vertices.size();
+				}
+				for (auto& index : indices)
+					index += firstVertex;
+			}
 
 			std::vector<TriangleRef>().swap(triangles);
 
