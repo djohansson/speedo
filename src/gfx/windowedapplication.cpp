@@ -536,6 +536,7 @@ struct TextureViewKey
 	std::array<uint32_t, 6> transform{};
 	// 1 + the TextureRef::animatedTransform of a texture whose transform animates (its view is its own), else 0
 	uint32_t animated = 0;
+	uint32_t flags = 0; // TextureView::flags
 
 	[[nodiscard]] bool operator==(const TextureViewKey&) const = default;
 };
@@ -549,7 +550,7 @@ struct TextureViewKeyHash
 };
 
 // a view of a texture slot with a sampler slot, as a TextureRef samples it
-[[nodiscard]] static TextureView MakeTextureView(uint32_t textureSlot, uint32_t samplerSlot, const TextureRef& ref)
+[[nodiscard]] static TextureView MakeTextureView(uint32_t textureSlot, uint32_t samplerSlot, const TextureRef& ref, uint32_t flags = 0)
 {
 	const auto& tRef = ref.transform;
 	return TextureView{
@@ -558,7 +559,7 @@ struct TextureViewKeyHash
 		.textureId = textureSlot,
 		.samplerId = samplerSlot,
 		.texCoordSet = ref.texCoord,
-		.padding = 0,};
+		.flags = flags,};
 }
 
 // buffers and images uploaded by the loaders (see Upload), to install
@@ -906,7 +907,7 @@ static void InstallModel(
 		core::UnorderedMap<const Image*, uint32_t> textureSlots;
 		auto slotOf = [&](const Texture& texture) -> std::optional<uint32_t>
 		{
-			const auto& [image, view, upload] = texture;
+			const auto& [image, view, upload, normalYUp] = texture;
 			if (!image)
 				return std::nullopt;
 
@@ -972,7 +973,8 @@ static void InstallModel(
 					.samplerSlot = samplerSlot,
 					.texCoord = ref.texCoord,
 					.transform = std::bit_cast<std::array<uint32_t, 6>>(ref.transform),
-					.animated = static_cast<uint32_t>(ref.animatedTransform + 1)},
+					.animated = static_cast<uint32_t>(ref.animatedTransform + 1),
+					.flags = texture.normalYUp ? TEXTURE_VIEW_FLAG_NORMAL_Y_UP : 0U},
 				0U);
 			if (inserted)
 			{
@@ -984,7 +986,7 @@ static void InstallModel(
 					return std::nullopt;
 				}
 				viewIdIt->second = static_cast<uint32_t>(1 + views.size());
-				views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref));
+				views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref, texture.normalYUp ? TEXTURE_VIEW_FLAG_NORMAL_Y_UP : 0U));
 				if (ref.animatedTransform >= 0)
 					animatedViews.push_back({.view = viewIdIt->second, .target = static_cast<uint32_t>(ref.animatedTransform), .data = views.back()});
 			}
@@ -1595,7 +1597,7 @@ static void LoadAndInstallFolder(RHI& rhi, std::string_view directoryPath, std::
 // loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
 static void LoadAndInstallImage(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
-	auto [image, imageView, upload] = LoadTexture(filePath, progress);
+	auto [image, imageView, upload, normalYUp] = LoadTexture(filePath, progress);
 	if (!image) // cancelled or failed
 		return;
 
@@ -1619,7 +1621,7 @@ static void InstallEnvironment(
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = device.GetPipeline();
-			const auto& [image, view, upload] = environment->texture;
+			const auto& [image, view, upload, normalYUp] = environment->texture;
 
 			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			pipeline.SetDescriptorData(

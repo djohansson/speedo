@@ -819,7 +819,8 @@ VkImageView CreateImageView2D(
 	VkFormat format,
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels,
-	std::string_view debugName)
+	std::string_view debugName,
+	VkComponentMapping components)
 {
 	VkImageViewCreateInfo viewInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
@@ -831,10 +832,7 @@ VkImageView CreateImageView2D(
 	viewInfo.subresourceRange.levelCount = mipLevels;
 	viewInfo.subresourceRange.baseArrayLayer = 0UL;
 	viewInfo.subresourceRange.layerCount = 1;
-	viewInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-	viewInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+	viewInfo.components = components; // identity by default (VK_COMPONENT_SWIZZLE_IDENTITY is 0)
 
 	VkImageView outImageView;
 	VK_CHECK(vkCreateImageView(device, &viewInfo, hostAllocationCallbacks, &outImageView));

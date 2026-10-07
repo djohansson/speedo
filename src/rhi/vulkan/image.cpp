@@ -307,7 +307,12 @@ ImageView<kVk>::ImageView(
 			vk::ToVk(desc.format),
 			vk::ToVk(desc.aspectFlags),
 			desc.levelCount == 0 ? VK_REMAINING_MIP_LEVELS : desc.levelCount,
-			GetDebugName(desc)))
+			GetDebugName(desc),
+			VkComponentMapping{
+				.r = vk::ToVk(desc.components[0]),
+				.g = vk::ToVk(desc.components[1]),
+				.b = vk::ToVk(desc.components[2]),
+				.a = vk::ToVk(desc.components[3])}))
 {}
 
 template <>

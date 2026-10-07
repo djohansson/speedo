@@ -56,6 +56,21 @@ namespace rhi::vk
 	return Format::kUndefined;
 }
 
+[[nodiscard]] constexpr VkComponentSwizzle ToVk(ComponentSwizzle swizzle) noexcept
+{
+	switch (swizzle)
+	{
+	case ComponentSwizzle::kIdentity: return VK_COMPONENT_SWIZZLE_IDENTITY;
+	case ComponentSwizzle::kZero: return VK_COMPONENT_SWIZZLE_ZERO;
+	case ComponentSwizzle::kOne: return VK_COMPONENT_SWIZZLE_ONE;
+	case ComponentSwizzle::kR: return VK_COMPONENT_SWIZZLE_R;
+	case ComponentSwizzle::kG: return VK_COMPONENT_SWIZZLE_G;
+	case ComponentSwizzle::kB: return VK_COMPONENT_SWIZZLE_B;
+	case ComponentSwizzle::kA: return VK_COMPONENT_SWIZZLE_A;
+	}
+	return VK_COMPONENT_SWIZZLE_IDENTITY;
+}
+
 [[nodiscard]] constexpr VkImageLayout ToVk(ImageLayout layout) noexcept
 {
 	switch (layout)

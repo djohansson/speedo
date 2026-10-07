@@ -772,6 +772,8 @@ float3 NormalFromMap(uint viewId, float scale, float3 normal, float4 tangent, fl
 	TextureView normalView = gTextureViews[viewId];
 	float2 uv = ViewTexCoord(normalView, texCoord01);
 	float2 xy = SampleView(normalView, uv).rg * 2.0 - 1.0;
+	if ((normalView.flags & TEXTURE_VIEW_FLAG_NORMAL_Y_UP) != 0u)
+		xy.y = -xy.y;
 	// z is reconstructed from the stored (unit length) normal, then x and y are scaled, as gltf defines
 	// normalTexture.scale: normalize(normal * (scale, scale, 1))
 	float3 tangentSpaceNormal = float3(xy * scale, sqrt(saturate(1.0 - dot(xy, xy))));
@@ -957,7 +959,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 		frameView.textureId = 0;
 		frameView.samplerId = 0;
 		frameView.texCoordSet = 0;
-		frameView.padding = 0;
+		frameView.flags = 0;
 		float2 direction = float2(1.0, 0.0);
 		float strength = material.anisotropy.x;
 		if ((material.flags & MATERIAL_FLAG_ANISOTROPY_TEXTURE) != 0u)

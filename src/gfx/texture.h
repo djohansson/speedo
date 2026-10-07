@@ -20,6 +20,7 @@ struct Texture
 	std::shared_ptr<Image> image;
 	std::shared_ptr<ImageView> view;
 	Upload upload; // of the image, which gpu work that uses it must wait for and acquire it from
+	bool normalYUp = false; // see image::Image::normalYUp
 
 	[[nodiscard]] explicit operator bool() const noexcept { return image != nullptr; }
 };

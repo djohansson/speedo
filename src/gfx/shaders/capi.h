@@ -159,6 +159,10 @@ struct LightData
 
 // a texture as a material samples it (see gfx::TextureRef): gTextures[textureId] with gSamplers[samplerId], at its
 // texcoord set (texCoord01.xy or .zw) transformed: (u', v') = (dot(uTransform.xyz, (u, v, 1)), dot(vTransform.xyz, (u, v, 1)))
+// a normal map whose y points up the image (a KTX2 file's, kept as it is: see gfx::image::Image::normalYUp), which the
+// shader flips to the renderer's convention (y down the image, as sampled)
+#define TEXTURE_VIEW_FLAG_NORMAL_Y_UP 1u
+
 struct TextureView
 {
 	alignas(16) FLOAT4(uTransform);
@@ -166,7 +170,7 @@ struct TextureView
 	alignas(4) UINT(textureId);
 	alignas(4) UINT(samplerId);
 	alignas(4) UINT(texCoordSet); // 0 or 1
-	alignas(4) UINT(padding);
+	alignas(4) UINT(flags); // TEXTURE_VIEW_FLAG_*
 };
 
 // which of a material's textures it has, each sampled through its view (an index into gTextureViews)

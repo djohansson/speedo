@@ -42,7 +42,12 @@ namespace detail
 // uploads a staged image (its mip levels in staging, level 0 first) on the primary device's transfer queue, released to
 // the graphics queue family (see Texture::upload)
 [[nodiscard]] Texture Upload(
-	Device& device, const std::string& name, rhi::Format format, std::span<const image::MipLevel> mipLevels, Buffer&& staging)
+	Device& device,
+	const std::string& name,
+	rhi::Format format,
+	std::span<const image::MipLevel> mipLevels,
+	Buffer&& staging,
+	const std::array<uint8_t, 4>& channels = {0, 1, 2, 3})
 {
 	using namespace rhi;
 
@@ -72,8 +77,15 @@ namespace detail
 
 		core::TaskCreateInfo<void> transferDone;
 		texture.image = std::make_shared<Image>(std::move(desc), std::move(staging), cmd, transferDone);
+		// sampled with the channels where the shader expects them (see image::Image::channels)
+		std::array<ComponentSwizzle, 4> components{};
+		for (size_t channel = 0; channel < 4; channel++)
+			components[channel] = channels[channel] == image::Image::kZero	 ? ComponentSwizzle::kZero
+								  : channels[channel] == image::Image::kOne ? ComponentSwizzle::kOne
+								  : channels[channel] == channel			  ? ComponentSwizzle::kIdentity
+																			  : static_cast<ComponentSwizzle>(std::to_underlying(ComponentSwizzle::kR) + channels[channel]);
 		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
-			device.CreateDeviceObjectCreateDesc(name), *texture.image, texture.image->GetDesc().format, ImageAspect::kColor});
+			device.CreateDeviceObjectCreateDesc(name), *texture.image, texture.image->GetDesc().format, ImageAspect::kColor, 0, components});
 		texture.upload = gfx::Upload{
 			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
 
@@ -207,21 +219,21 @@ Texture LoadTexture(
 	std::string params;
 	std::string paramsHash;
 	params.append(std::format("stb-{}", kStbVersion)); // stb_image, stb_image_resize2 and stb_dxt
-	params.append("|imageimport-v3"); // bump when image::Import changes what it produces
+	params.append("|imageimport-v4"); // bump when image::Import changes what it produces
 	// the decoders of the formats stb_image doesn't read
 	auto extension = std::filesystem::path(filePath).extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	if (extension == ".webp")
 		params.append(std::format("|libwebp-{}", kLibWebpVersion));
 	else if (extension == ".ktx2")
-		params.append(std::format("|ktx-{}|ktx2-direct-v1", kKtxVersion));
+		params.append(std::format("|ktx-{}|ktx2-direct-v2", kKtxVersion));
 	// an image a model embeds is cached against the model's file: any of the decoders may read it
 	if (embeddedImage)
-		params.append(std::format("|embedded-{}|libwebp-{}|ktx-{}|ktx2-direct-v1", *embeddedImage, kLibWebpVersion, kKtxVersion));
+		params.append(std::format("|embedded-{}|libwebp-{}|ktx-{}|ktx2-direct-v2", *embeddedImage, kLibWebpVersion, kKtxVersion));
 	params.append(std::format("|usage-{}", std::to_underlying(options.usage)));
 	if (options.usage == image::Usage::kBump)
 		params.append(std::format("|bump-scale-{}", options.bumpScale));
-	params.append("|cache-v4"); // bump when the serialized layout (image::Image) changes, to invalidate stale caches
+	params.append("|cache-v5"); // bump when the serialized layout (image::Image) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -237,7 +249,9 @@ Texture LoadTexture(
 		return {};
 	}
 
-	return detail::Upload(device, name, detail::FormatOf(layout), layout.mipLevels, std::move(staging));
+	auto texture = detail::Upload(device, name, detail::FormatOf(layout), layout.mipLevels, std::move(staging), layout.channels);
+	texture.normalYUp = layout.normalYUp;
+	return texture;
 }
 
 EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress)

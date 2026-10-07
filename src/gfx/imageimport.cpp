@@ -490,10 +490,16 @@ std::expected<Image, std::string> Import(
 	return Import(*bytes, path.string(), options, allocate, progress, cancelled);
 }
 
-// a KTX2 file's own block compressed mip chain, for a color or linear usage: Basis Universal transcoded to BC7, or BC1,
-// BC3 or BC7 data as it is. nullopt if the file isn't such (another format or usage, or not a full mip chain of one 2d
-// image), which Import then decodes to rgba8 and compresses itself. the transfer function is the usage's: color
-// textures are srgb, as gltf's KTX2 color textures are.
+// a KTX2 file's own block compressed mip chain, rather than decoded and compressed again (a second lossy step):
+//   color and linear textures: Basis Universal transcoded to BC7, or BC1, BC3 or BC7 data as it is (the transfer
+//     function is the usage's: color textures are srgb, as gltf's KTX2 color textures are)
+//   normal maps: Basis Universal transcoded to BC7 (x and y in r and g, as the file has them: Image::normalYUp; Basis's
+//     BC5 takes y from alpha, and BC7 keeps more of UASTC)
+//   occlusion: Basis transcoded to BC4 from r
+//   metallic-roughness: Basis transcoded to BC7, sampled with r from g and g from b (Image::channels), as kMetallicRoughness
+//     keeps them
+// nullopt if the file isn't such (another format or usage, or not a full mip chain of one 2d image), which Import then
+// decodes to rgba8 and compresses itself
 [[nodiscard]] static std::optional<std::expected<Image, std::string>> ImportKtx2(
 	std::span<const std::byte> data,
 	std::string_view name,
@@ -503,8 +509,9 @@ std::expected<Image, std::string> Import(
 	using namespace detail;
 
 	static constexpr std::array<uint8_t, 12> kKtx2{0xab, 'K', 'T', 'X', ' ', '2', '0', 0xbb, '\r', '\n', 0x1a, '\n'};
-	if ((options.usage != Usage::kColor && options.usage != Usage::kLinear) || data.size() < kKtx2.size() ||
-		!std::equal(kKtx2.begin(), kKtx2.end(), reinterpret_cast<const uint8_t*>(data.data())))
+	if ((options.usage != Usage::kColor && options.usage != Usage::kLinear && options.usage != Usage::kNormal &&
+		 options.usage != Usage::kOcclusion && options.usage != Usage::kMetallicRoughness) ||
+		data.size() < kKtx2.size() || !std::equal(kKtx2.begin(), kKtx2.end(), reinterpret_cast<const uint8_t*>(data.data())))
 		return std::nullopt;
 
 	ktxTexture2* texture = nullptr;
@@ -520,11 +527,28 @@ std::expected<Image, std::string> Import(
 	if (texture->numLevels != levelCount || texture->numLayers != 1 || texture->numFaces != 1 || texture->baseDepth != 1)
 		return std::nullopt;
 
-	if (ktxTexture2_NeedsTranscoding(texture))
-		if (auto result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_BC7_RGBA, 0); result != KTX_SUCCESS)
-			return std::unexpected(std::format("failed to transcode {} to BC7: {}", name, ktxErrorString(result)));
+	// the usages other than color and linear only from Basis Universal, transcoded to their formats
+	bool basis = ktxTexture2_NeedsTranscoding(texture);
+	auto target = KTX_TTF_BC7_RGBA;
+	switch (options.usage)
+	{
+	case Usage::kNormal:
+	case Usage::kMetallicRoughness:
+		if (!basis)
+			return std::nullopt;
+		break;
+	case Usage::kOcclusion:
+		if (!basis)
+			return std::nullopt;
+		target = KTX_TTF_BC4_R;
+		break;
+	default: break;
+	}
+	if (basis)
+		if (auto result = ktxTexture2_TranscodeBasis(texture, target, 0); result != KTX_SUCCESS)
+			return std::unexpected(std::format("failed to transcode {}: {}", name, ktxErrorString(result)));
 
-	// VK_FORMAT_BC1_RGB_UNORM_BLOCK and _SRGB, BC3, BC7
+	// VK_FORMAT_BC1_RGB_UNORM_BLOCK and _SRGB, BC3, BC4, BC5, BC7
 	std::optional<Format> format;
 	switch (texture->vkFormat)
 	{
@@ -532,12 +556,23 @@ std::expected<Image, std::string> Import(
 	case 132: format = Format::kBC1; break;
 	case 137:
 	case 138: format = Format::kBC3; break;
+	case 139: format = Format::kBC4; break;
+	case 141: format = Format::kBC5; break;
 	case 145:
 	case 146: format = Format::kBC7; break;
 	default: return std::nullopt;
 	}
+	// what each usage keeps: the formats it can be
+	bool expected = options.usage == Usage::kOcclusion ? *format == Format::kBC4
+					: options.usage == Usage::kNormal || options.usage == Usage::kMetallicRoughness ? *format == Format::kBC7
+																									  : *format != Format::kBC4 && *format != Format::kBC5;
+	if (!expected)
+		return std::nullopt;
 
 	Image image{.channelCount = 4, .format = *format, .usage = options.usage, .ownBlocks = true};
+	if (options.usage == Usage::kMetallicRoughness)
+		image.channels = {1, 2, Image::kZero, Image::kOne};
+	image.normalYUp = options.usage == Usage::kNormal;
 	image.mipLevels.resize(levelCount);
 	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 	{

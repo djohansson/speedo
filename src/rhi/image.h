@@ -4,6 +4,7 @@
 #include <rhi/buffer.h>
 #include <rhi/deviceobject.h>
 
+#include <array>
 #include <optional>
 #include <tuple>
 
@@ -133,6 +134,8 @@ struct ImageViewCreateDesc final : DeviceObjectCreateDesc<G>
 	Format format{};
 	ImageAspect aspectFlags{};
 	uint32_t levelCount = 0; // the mip levels it views, from level 0: 0 for all of the image's
+	// where its r, g, b and a come from (e.g. a texture whose channels the shader expects elsewhere)
+	std::array<ComponentSwizzle, 4> components{};
 };
 
 template <GraphicsApi G>

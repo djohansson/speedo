@@ -175,6 +175,18 @@ enum class Access : uint8_t
 };
 RHI_FLAGS(Access)
 
+// where an image view's channel comes from (see ImageViewCreateDesc::components)
+enum class ComponentSwizzle : uint8_t
+{
+	kIdentity, // the same channel
+	kZero,
+	kOne,
+	kR,
+	kG,
+	kB,
+	kA,
+};
+
 // what the indices of a draw form
 enum class PrimitiveTopology : uint8_t
 {

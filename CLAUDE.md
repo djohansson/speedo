@@ -305,7 +305,12 @@ parses, and KHR_meshopt_compression, read from its json) into `cgltf_buffer_view
 (`DecodeMeshopt`), so accessors read them as usual; draco per primitive (`DecodeDraco`: cgltf turns the extension's
 draco attribute ids into accessor pointers by index), whose values `addPrimitive` reads in place of the accessors'.
 Textures use their plain image if they have one, else their KHR_texture_basisu (KTX2) or EXT_texture_webp image, which
-`image::Import` decodes: a KTX2 color (or linear) texture with a full mip chain keeps its own blocks
+`image::Import` decodes: a KTX2 texture with a full mip chain keeps its own blocks where it can (normal maps: Basis transcoded to BC7, y as the
+file has it, up the image, which the shader flips by `TEXTURE_VIEW_FLAG_NORMAL_Y_UP`, `Image::normalYUp`, since BC7
+blocks can't be flipped and Basis's BC5 takes y from alpha; occlusion: Basis to BC4 from red; metallic-roughness: Basis
+to BC7 with the view swizzled to roughness in r and metallic in g, `Image::channels` and rhi's
+`ImageViewCreateDesc::components`; each at least as good as decoding and compressing again, by `assettest`'s psnr over
+the channels the shader samples), and a color (or linear) one
 (`ImportKtx2`: Basis Universal transcoded straight to BC7, or BC1, BC3 or BC7 data as it is, with the file's mips;
 `image::Format::kBC7`, which only comes from there; `Image::ownBlocks`: assettest decodes BC7 with bcdec, a header-only
 `ports/bcdec` overlay, and only warns about such images' compression and mips, which are the file's), other KTX2 textures (normal maps and the other swizzled usages) are transcoded to rgba8 and compressed

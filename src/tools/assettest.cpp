@@ -772,6 +772,21 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 					bcdec_bc7(compressed.data(), block.data(), 4 * 4);
 				else
 					gfx::image::DecompressBlock(format, compressed, block);
+				// a normal map's y as the shader flips it (see gfx::image::Image::normalYUp)
+				if (image->normalYUp)
+					for (uint32_t pixelIt = 0; pixelIt < 16; pixelIt++)
+						block[(pixelIt * 4) + 1] = static_cast<uint8_t>(255 - block[(pixelIt * 4) + 1]);
+				// sampled with the image's channels (see gfx::image::Image::channels)
+				if (image->channels != std::array<uint8_t, 4>{0, 1, 2, 3})
+					for (uint32_t pixelIt = 0; pixelIt < 16; pixelIt++)
+					{
+						std::array<uint8_t, 4> texel;
+						std::copy_n(&block[pixelIt * 4], 4, texel.begin());
+						for (size_t channel = 0; channel < 4; channel++)
+							block[(pixelIt * 4) + channel] = image->channels[channel] == gfx::image::Image::kZero  ? 0
+															 : image->channels[channel] == gfx::image::Image::kOne ? 255
+																													: texel[image->channels[channel]];
+					}
 				for (uint32_t y = 0; y < 4 && (by * 4) + y < level.height; y++)
 					for (uint32_t x = 0; x < 4 && (bx * 4) + x < level.width; x++)
 						std::copy_n(&block[((y * 4) + x) * 4], 4, &rgba[((((by * 4) + y) * level.width) + (bx * 4) + x) * 4]);
@@ -783,8 +798,12 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	auto level0 = decodeLevel(image->mipLevels[0]);
 	auto pixelCount = static_cast<size_t>(width) * height;
 
-	// the channels the format holds: rgb, r (bc4), or x and y (bc5)
-	size_t channelCount = format == gfx::image::Format::kBC4 ? 1 : format == gfx::image::Format::kBC5 ? 2 : 3;
+	// the channels the shader samples: one for the single channel usages (bc4), x and y of normal maps (whose z is
+	// reconstructed) and of metallic-roughness textures (bc5, or a KTX2 file's bc7 with those swizzled in), else rgb
+	using gfx::image::Usage;
+	size_t channelCount = options.usage == Usage::kMask || options.usage == Usage::kOcclusion || options.usage == Usage::kAlpha ? 1
+						  : options.usage == Usage::kNormal || options.usage == Usage::kBump || options.usage == Usage::kMetallicRoughness ? 2
+																																		   : 3;
 	double squaredError = 0.0;
 	for (size_t i = 0; i < pixelCount; i++)
 	{

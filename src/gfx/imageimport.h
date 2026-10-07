@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -69,6 +70,14 @@ struct Image
 	bool fromHeight = false; // for kBump: the file was a height map
 	// the file's own blocks and mips (a KTX2 file's, see Import), rather than compressed and filtered here
 	bool ownBlocks = false;
+	// where the sampled r, g, b and a come from in the blocks (0 to 3: r, g, b, a; kZero, kOne): the identity, but for
+	// blocks whose channels aren't where the usage keeps them (a KTX2 metallic-roughness texture's, see Import)
+	std::array<uint8_t, 4> channels{0, 1, 2, 3};
+	static constexpr uint8_t kZero = 4;
+	static constexpr uint8_t kOne = 5;
+	// kNormal: y as the file has it, up the image (a KTX2 normal map's blocks, kept as they are), not the usage's
+	// convention: the shader flips it (see TEXTURE_VIEW_FLAG_NORMAL_Y_UP in gfx/shaders/capi.h)
+	bool normalYUp = false;
 	std::vector<MipLevel> mipLevels; // the full chain, down to 1x1
 	size_t size = 0; // in bytes, of all mip levels
 };
