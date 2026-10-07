@@ -272,17 +272,20 @@ fragment input. Double sided materials
 cull mode, `VK_EXT_extended_dynamic_state`, a required device extension), and the fragment shader flips the normal of
 back faces (`SV_IsFrontFace`). Alpha modes become
 `mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
-texture, and for BLEND). BLEND materials (`blend`) are weighted blended order independent transparency (McGuire and
-Bavoil): drawn after a view's opaque submeshes, unsorted, into two more color attachments of the main render target
-(`FragmentOutput`: color, accumulation `R16G16B16A16_SFLOAT` cleared to 0, revealage `R16_SFLOAT` cleared to 1, then
-depth; `RenderTarget::SetClearValue`), which `ComputeMain` composites over the opaque color before tonemapping
-(`gTextures` slots from `SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE`/`SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE`). Each
-draw names a `BlendMode` per color attachment (`GraphicsPipelineVariant::blend`, by the render target's color attachment
-count; opaque: `kOpaque, kNone, kNone`, transparent: `kNone, kAdd, kMultiplyInverse`), and writes depth only if one of
-them is `kOpaque`; every main pass pipeline must be bound with one of those, since a default variant would overwrite
-the transparency targets. The weight is by depth (the paper's equation 10, independent of the scene's units). Overlaps
-come out as weighted averages, the nearer layer weighing only a little more. The pipeline variant (topology and blend
-modes) is a parameter of `BindPipelineAuto`, part of the pipeline cache key. glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
+texture, and for BLEND). BLEND materials (`blend`) are exact order independent transparency, by per pixel linked lists:
+drawn after a view's opaque submeshes, unsorted, with the main layout's second fragment entry point
+(`FragmentTransparent`, `[earlydepthstencil]`: its writes must only happen for fragments that pass the depth test, which
+the opaque `FragmentMain` can't force, since alpha masked fragments must not write depth) and no color writes (every
+`BlendMode` `kNone`, so no depth writes either). Each fragment takes a node (`OitNode`, 12 bytes: premultiplied color as
+R11G11B10, alpha and a 24 bit depth, the next node) from `gOitNodes` by `gOitCounter` and pushes it on its pixel's list
+(`gOitHeads`, `InterlockedExchange`); `ComputeMain` keeps the pixel's 16 nearest layers sorted (insertion) and blends
+them back to front over the opaque color or the backdrop. The buffers are sized with the render target
+(`CreateWindowDependentObjects`: 4 nodes per pixel, past which fragments are dropped) and cleared before each main pass
+(`CommandEncoder::FillBuffer`, between barriers from the previous frame's compute and to the fragment stage). Fragment
+stores and atomics need the device's `fragmentStoresAndAtomics` (the device enables every feature it has). A
+`GraphicsPipelineVariant` names its topology, a blend mode per color attachment (by the render target's color attachment
+count; it writes depth only if one of them is `kOpaque`) and which of the layout's fragment entry points it runs
+(`fragmentShader`, by their order in it: a layout's graphics entry points are all its stages otherwise). The pipeline variant is a parameter of `BindPipelineAuto`, part of the pipeline cache key. glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
 Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the srgb `emissiveTexture`, obj `Ke` and
 `map_Ke`) is added after the lighting, unclamped (CornellBox's lamp, `Ke 17 12 4`, saturates to white); an emissive

@@ -17,6 +17,14 @@ StructuredBuffer<SkinVertex> gSkinVertices;
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<MorphDelta> gMorphDeltas;
 
+// order independent transparency (see OitNode)
+[[vk::binding(3, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+RWStructuredBuffer<uint> gOitHeads;
+[[vk::binding(4, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+RWStructuredBuffer<OitNode> gOitNodes;
+[[vk::binding(5, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+RWStructuredBuffer<uint> gOitCounter;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 
@@ -108,15 +116,24 @@ struct VertexMainOutput
 	float pointSize : SV_PointSize;
 };
 
-// the main pass's color attachments: opaque draws write color (BlendMode::kOpaque, the others kNone), blended ones
-// the weighted blended order independent transparency (McGuire and Bavoil, 2013) targets (color kNone, accumulation
-// kAdd, revealage kMultiplyInverse), which ComputeMain composites over color
+// the main pass's color attachment, which opaque draws write (blended ones go in the per pixel lists instead, see
+// FragmentTransparent)
 struct FragmentOutput
 {
-	float4 color : SV_Target0;
-	float4 accumulation : SV_Target1; // the sum of premultiplied colors and alphas, by their weights
-	float4 revealage : SV_Target2; // r: the product of (1 - alpha), how much of what is behind shows through
+	float4 color : SV_Target;
 };
+
+// non-negative colors as R11G11B10 floats (half floats without their sign and lowest mantissa bits)
+uint PackR11G11B10(float3 color)
+{
+	uint3 bits = f32tof16(clamp(color, 0.0, 65000.0));
+	return ((bits.r >> 4) & 0x7ffu) | (((bits.g >> 4) & 0x7ffu) << 11) | (((bits.b >> 5) & 0x3ffu) << 22);
+}
+
+float3 UnpackR11G11B10(uint packed)
+{
+	return f16tof32(uint3((packed & 0x7ffu) << 4, ((packed >> 11) & 0x7ffu) << 4, ((packed >> 22) & 0x3ffu) << 5));
+}
 
 float3 SignedOctEncode(float3 n)
 {
@@ -523,18 +540,36 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 {
 	float4 color = ShadeFragment(input, isFrontFace);
 
-	// the weight favors the nearer fragments, by depth (McGuire and Bavoil's equation 10, which depends on the depth
-	// range rather than on the scene's units), clamped so that the sum stays within half floats
-	float depth = input.hPos.z;
-	float weight = clamp(color.a * max(1e-2, 3e3 * pow(1.0 - depth, 3.0)), 1e-2, 3e3);
-	float3 premultiplied = min(color.rgb * color.a, 16.0);
-
 	// alpha 1: the color target is cleared to alpha 0, so ComputeMain draws the backdrop where nothing opaque is
 	FragmentOutput output;
 	output.color = float4(color.rgb, 1.0);
-	output.accumulation = float4(premultiplied, color.a) * weight;
-	output.revealage = float4(color.a, 0.0, 0.0, 0.0);
 	return output;
+}
+
+// a blended fragment: pushed on its pixel's list (see OitNode), for ComputeMain to sort and blend. the depth test must
+// come first (it writes the lists, not the attachments), so it does: early fragment tests
+[shader("fragment")]
+[earlydepthstencil]
+void FragmentTransparent(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+	float4 color = ShadeFragment(input, isFrontFace);
+	if (color.a <= 0.0)
+		return;
+
+	uint node;
+	InterlockedAdd(gOitCounter[0], 1u, node);
+	if (node >= gPushConstants.oitNodeCapacity)
+		return;
+
+	uint pixel = uint(input.hPos.y) * gPushConstants.framebufferWidth + uint(input.hPos.x);
+	uint next;
+	InterlockedExchange(gOitHeads[pixel], node, next);
+
+	OitNode result;
+	result.color = PackR11G11B10(color.rgb * saturate(color.a));
+	result.alphaDepth = (uint(saturate(color.a) * 255.0 + 0.5) << 24) | uint(saturate(input.hPos.z) * 16777215.0 + 0.5);
+	result.next = next;
+	gOitNodes[node] = result;
 }
 
 // Khronos PBR Neutral: leaves colors up to about 0.76 nearly as they are (base colors render as themselves under a
@@ -583,8 +618,6 @@ void ComputeMain(
 	uint frameIndex = gPushConstants.frameIndex;
 
 	Texture2D src = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE + frameIndex];
-	Texture2D accumulationTexture = gTextures[SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE + frameIndex];
-	Texture2D revealageTexture = gTextures[SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE + frameIndex];
 	RWTexture2D dst = gRWTextures[frameIndex];
 
 	uint2 dstDim;
@@ -629,11 +662,40 @@ void ComputeMain(
 				}
 			}
 
-			// the blended fragments over the opaque ones: their weighted average color, covering 1 - revealage
-			float4 accumulation = accumulationTexture.Load(int3(xy, 0));
-			float revealage = revealageTexture.Load(int3(xy, 0)).r;
-			float3 average = accumulation.rgb / max(accumulation.a, 1e-5);
-			color.rgb = lerp(average, color.rgb, revealage);
+			// the blended fragments over the rest: the pixel's list, its nearest layers sorted near to far (by insertion),
+			// then blended far to near
+			uint node = gOitHeads[y * gPushConstants.framebufferWidth + x];
+			if (node != SHADER_TYPES_OIT_NONE)
+			{
+				uint layers[SHADER_TYPES_OIT_MAX_LAYERS];
+				uint keys[SHADER_TYPES_OIT_MAX_LAYERS];
+				uint layerCount = 0;
+				for (uint visited = 0; node != SHADER_TYPES_OIT_NONE && node < gPushConstants.oitNodeCapacity && visited < 4096u; visited++)
+				{
+					OitNode current = gOitNodes[node];
+					uint depth = current.alphaDepth & 0xffffffu;
+					if (layerCount < SHADER_TYPES_OIT_MAX_LAYERS || depth < keys[layerCount - 1])
+					{
+						// past the last kept layer if there is room, else over it (the farthest drops out)
+						uint slot = layerCount < SHADER_TYPES_OIT_MAX_LAYERS ? layerCount++ : layerCount - 1;
+						while (slot > 0 && keys[slot - 1] > depth)
+						{
+							keys[slot] = keys[slot - 1];
+							layers[slot] = layers[slot - 1];
+							slot--;
+						}
+						keys[slot] = depth;
+						layers[slot] = node;
+					}
+					node = current.next;
+				}
+				for (uint layerIt = layerCount; layerIt > 0; layerIt--)
+				{
+					OitNode layer = gOitNodes[layers[layerIt - 1]];
+					float alpha = float(layer.alphaDepth >> 24) / 255.0;
+					color.rgb = color.rgb * (1.0 - alpha) + UnpackR11G11B10(layer.color);
+				}
+			}
 
 			float3 mapped = TonemapPbrNeutral(max(color.rgb, 0.0) * gPushConstants.exposure);
 			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));

@@ -59,6 +59,12 @@ void CommandEncoder<kVk>::UpdateBuffer(const Buffer<kVk>& buffer, uint64_t offse
 }
 
 template <>
+void CommandEncoder<kVk>::FillBuffer(const Buffer<kVk>& buffer, uint64_t offset, uint64_t size, uint32_t value) const
+{
+	vkCmdFillBuffer(myCmd, buffer, offset, size == 0 ? VK_WHOLE_SIZE : size, value);
+}
+
+template <>
 void CommandEncoder<kVk>::Barrier(PipelineStage srcStages, Access srcAccess, PipelineStage dstStages, Access dstAccess) const
 {
 	VkMemoryBarrier barrier{

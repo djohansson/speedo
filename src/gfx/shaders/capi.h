@@ -70,13 +70,18 @@ extern "C"
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
 #define SHADER_TYPES_FRAME_INDEX_BITS 2u
 #define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
-// gTextures slots: the frames' render targets (color, then the weighted blended transparency's accumulation and
-// revealage, see FragmentOutput), from these, by frame index
+// gTextures slots: the frames' render targets' color, from this, by frame index
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
-#define SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE SHADER_TYPES_FRAME_COUNT
-#define SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE (2u * SHADER_TYPES_FRAME_COUNT)
 // the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
-#define SHADER_TYPES_ENVIRONMENT_TEXTURE (3u * SHADER_TYPES_FRAME_COUNT)
+#define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u
+
+// order independent transparency: the blended fragments, in a list per pixel (gOitHeads: the first node of each pixel's,
+// row by row, PushConstants::framebufferWidth wide; SHADER_TYPES_OIT_NONE ends a list), of nodes in gOitNodes (taken in
+// order by gOitCounter[0], up to PushConstants::oitNodeCapacity: the fragments past it are dropped), which ComputeMain
+// sorts by depth and blends back to front, at most SHADER_TYPES_OIT_MAX_LAYERS of the nearest per pixel
+#define SHADER_TYPES_OIT_NONE 0xffffffffu
+#define SHADER_TYPES_OIT_MAX_LAYERS 16u
+#define SHADER_TYPES_OIT_NODES_PER_PIXEL 4u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 #define SHADER_TYPES_MATERIAL_INDEX_BITS 10u
@@ -109,6 +114,13 @@ struct EnvironmentData
 	alignas(4) UINT(samplerId);
 	alignas(4) FLOAT(levelCount);
 	alignas(4) FLOAT(padding);
+};
+
+struct OitNode
+{
+	alignas(4) UINT(color); // rgb times alpha, as R11G11B10 floats (r in the low bits)
+	alignas(4) UINT(alphaDepth); // alpha as 8 bit unorm in the high bits, depth (0 near, 1 far) as 24 bit unorm below
+	alignas(4) UINT(next); // the pixel's next node, or SHADER_TYPES_OIT_NONE
 };
 
 struct LightData
@@ -232,6 +244,9 @@ struct PushConstants
 	// else is (the backdrop)
 	alignas(4) UINT(viewCount);
 	alignas(4) UINT(environmentBackdrop);
+	// per frame: the order independent transparency's (see OitNode)
+	alignas(4) UINT(framebufferWidth);
+	alignas(4) UINT(oitNodeCapacity);
 };
 
 #ifdef __cplusplus

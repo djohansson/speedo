@@ -526,8 +526,23 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	VkGraphicsPipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
 	pipelineInfo.pNext = myGraphicsState.dynamicRendering.has_value() ? &myGraphicsState.dynamicRendering.value() : nullptr;
 	pipelineInfo.flags = 0;
-	pipelineInfo.stageCount = static_cast<uint32_t>(myGraphicsState.shaderStages.size());
-	pipelineInfo.pStages = myGraphicsState.shaderStages.data();
+	// the layout's stages, with only the variant's fragment stage of them
+	std::vector<PipelineShaderStageCreateInfo<kVk>> stages;
+	uint32_t fragmentIt = 0;
+	bool fragment = false;
+	for (const auto& stage : myGraphicsState.shaderStages)
+	{
+		if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
+		{
+			if (fragmentIt++ != variant.fragmentShader)
+				continue;
+			fragment = true;
+		}
+		stages.push_back(stage);
+	}
+	ENSUREF(fragment || fragmentIt == 0, "the layout has no fragment entry point {}", variant.fragmentShader);
+	pipelineInfo.stageCount = static_cast<uint32_t>(stages.size());
+	pipelineInfo.pStages = stages.data();
 	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
 	auto inputAssembly = myGraphicsState.inputAssembly;
 	inputAssembly.topology = vk::ToVk(variant.topology);
