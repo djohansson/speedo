@@ -382,6 +382,13 @@ $VSCodeSettings = [ordered] @{
 		"--compile-commands-dir=`${workspaceFolder}/build/$(Get-TargetTriplet)-debug"
 	)
 	'dotnet.defaultSolution' = 'disable'
+	# build outputs, vcpkg packages and the downloaded test assets (several GB) keep the file watcher busy
+	'files.watcherExclude' = [ordered] @{
+		'**/build/**' = $true
+		'**/install/**' = $true
+		'**/temp/**' = $true
+		'**/resources/test-assets/**' = $true
+	}
 }
 
 $CMakePresets | ConvertTo-Json -Depth 4 | Out-File "$PSScriptRoot/CMakeUserPresets.json" -Force
