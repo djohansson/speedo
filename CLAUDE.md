@@ -474,6 +474,12 @@ case warning, glfw3 configure error). Every build dir then misses its dylibs (`L
 @rpath/libcargs.dylib`). Recover with `cmake --preset <name>`, which restores the packages from the binary
 cache. From a shell, always run `cmake --preset <name>` right before building that preset.
 
+## Scripts are PowerShell
+
+Write the repository's scripts in PowerShell (`.ps1`, run with `pwsh` on every platform), not bash, batch or
+python. The only exceptions are the bootstrap scripts `setup_linux.sh`, `setup_osx.sh` and `setup_windows.bat`,
+which have to run before `pwsh` is installed, and should do no more than install it and hand over to `setup.ps1`.
+
 ## `setup.ps1` on Windows: no PowerShell Gallery modules
 
 The Windows setup uses the `winget` CLI and `vswhere.exe` (fixed path under
