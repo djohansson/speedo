@@ -87,6 +87,8 @@ struct ViewData
 {
 	alignas(16) FLOAT4X4(viewProjection);
 	alignas(16) FLOAT4(eyePosition); // xyz: the camera's position, in world space (for the specular lighting)
+	alignas(16) FLOAT4X4(inverseViewProjection); // for the environment backdrop's rays (see ComputeMain)
+	alignas(16) FLOAT4(viewport); // x, y, width, height: where it is drawn in the render target, in pixels
 };
 
 #define SHADER_TYPES_LIGHT_COUNT 256u
@@ -106,7 +108,7 @@ struct EnvironmentData
 	alignas(4) UINT(textureId);
 	alignas(4) UINT(samplerId);
 	alignas(4) FLOAT(levelCount);
-	alignas(4) FLOAT(intensity); // scales its radiance
+	alignas(4) FLOAT(padding);
 };
 
 struct LightData
@@ -222,6 +224,14 @@ struct PushConstants
 	alignas(4) UINT(morphDeltaBase);
 	alignas(4) UINT(morphFirstVertex);
 	alignas(4) UINT(morphWeightBase);
+	// per frame: the environment's (see EnvironmentData) radiance scale, and its rotation about +y in radians (positive
+	// turns it counterclockwise seen from above)
+	alignas(4) FLOAT(environmentIntensity);
+	alignas(4) FLOAT(environmentRotation);
+	// per frame, for ComputeMain: how many views gViewData holds, and whether the environment is drawn where nothing
+	// else is (the backdrop)
+	alignas(4) UINT(viewCount);
+	alignas(4) UINT(environmentBackdrop);
 };
 
 #ifdef __cplusplus

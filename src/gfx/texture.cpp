@@ -334,7 +334,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 
 		// bump environment-vN when environment::Import or Prefilter change what they produce, cache-vN when
 		// environment::Environment's layout does
-		std::string params = std::format("stb-{}|environment-v1|cache-v1", kStbVersion);
+		std::string params = std::format("stb-{}|environment-v2|cache-v1", kStbVersion);
 		std::string paramsHash;
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;

@@ -27,7 +27,7 @@ struct Panorama
 };
 
 // the panorama's widths: a file's is scaled down to this (a 8k panorama is 256 MB as half floats)
-constexpr uint32_t kMaxFileWidth = 1024;
+constexpr uint32_t kMaxFileWidth = 2048;
 constexpr uint32_t kSkyWidth = 256;
 
 // reads a panorama (Radiance .hdr, or anything else stb_image reads, as linear), scaled down to at most maxWidth

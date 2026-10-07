@@ -360,13 +360,20 @@ Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, or a default directional light of 2.2 lux), plus image based lighting that occlusion darkens. The environment
 (`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
-(`environment::Import`, scaled to 1024 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
+(`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
 over a ground, as bright on average as the constant ambient light of 0.3 it replaced). `environment::Prefilter`
 turns it into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split sum with n = v = r, filtered importance
 sampling from a mip pyramid; level 0 is the panorama), the mips of one `R16G16B16A16_SFLOAT` texture
 (`SHADER_TYPES_ENVIRONMENT_TEXTURE`), and the irradiance as 9 spherical harmonics coefficients (`EnvironmentData` in
 `gEnvironment`). `LoadEnvironment` caches a file's (`environment-vN`); `InstallEnvironment` installs it on the draw
-thread. The shader takes the specular's second term from Karis' environment brdf fit. Equirectangular rows near the
+thread. The shader takes the specular's second term from Karis' environment brdf fit. Its intensity and rotation (about
++y) are push constants (`PushConstants::environmentIntensity`/`environmentRotation`, from View > Environment, or
+`SPEEDO_ENVIRONMENT_INTENSITY`/`SPEEDO_ENVIRONMENT_ROTATION` in degrees), applied to every lookup
+(`EnvironmentDirection`). It is the backdrop too: the main color target is cleared to alpha 0 and opaque draws write
+alpha 1, so `ComputeMain` knows where nothing is, finds the view the pixel is in (`ViewData::viewport`, `viewCount`)
+and samples the panorama along the ray through it (`ViewData::inverseViewProjection`, unprojected at depths 0 and 0.5,
+which works for infinite far planes and orthographic views too). Outside the views (letterboxing) the clear color
+stays. Equirectangular rows near the
 poles cover less of the sphere: the pyramid's mips weigh rows by their sine, and a sample's mip goes by the texel's real
 solid angle, otherwise the rough levels drift from the panorama's mean (papermill's by 15%), which `assettest` checks
 (each level's mean within 3%, the irradiance's within 2%, and each level smoother than the one before). Image views
@@ -384,11 +391,12 @@ most mtl files, but some are normal maps: the importer tells them apart by color
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
 handedness, so the bitangent `cross(n, t) * w` points *up* the image, i.e. along -v in this convention; mirroring node
-and instance transforms flip w). gltf triangles with a normal map but no `TANGENT` get MikkTSpace's
-(`GenerateTangents`, the `mikktspace` port: from the normal map's texcoord set, with v flipped back up the image as the
+and instance transforms flip w). gltf triangles with a normal map but no `TANGENT`, and obj faces whose material has a normal or bump map, get
+MikkTSpace's (`mesh::GenerateTangents` in `gfx/tangents.h`, the `mikktspace` port; per obj material, whose vertices no
+other material shares, since the material is part of the obj vertex key: from the normal map's texcoord set, with v flipped back up the image as the
 exporters' MikkTSpace sees it, so that the bitangent points the way gltf's does; a vertex is split where its corners'
 tangents differ, and generated tangents are made perpendicular to their own vertex normal, since degenerate triangles
-get a neighbor's). Without them (obj files, and degenerate corners) w is 0, and the fragment shader builds the tangent
+get a neighbor's). Without them (degenerate corners, and models without normal maps) w is 0, and the fragment shader builds the tangent
 frame from screen space derivatives instead,
 corrected by the sign of `dot(cross(ddx(p), ddy(p)), n)`, which is negative here since the framebuffer's y
 points down: without it bumps come out inverted.
@@ -434,7 +442,8 @@ normalized short rotations and a mirroring instance, which must face the camera 
 listed nearest first (metallic, so they render dark); `BlendInstances.gltf`: a
 blended quad instanced in front of and behind another; `ManySamplers.gltf`: 36 quads with a sampler
 each, of every filter and wrap mode, more than the model sampler slots once were), and is always part
-of the printed paths. Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
+of the printed paths, as is `scripts/test-assets/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
+its texture mirrored, which must both come out raised and lit from above, i.e. from the default light's side). Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its
 (consistent) winding on a quarter of its area, Bistro and bmw have normals that get replaced, and

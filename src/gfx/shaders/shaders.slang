@@ -282,15 +282,26 @@ float4 SampleView(uint viewId, float4 texCoord01)
 
 static const float kPi = 3.14159265358979;
 
-// the environment (see EnvironmentData): where a direction is in its panorama (as gfx::environment::Panorama)
+// the environment (see EnvironmentData): a world direction in the panorama's space, turned back by its rotation
+float3 EnvironmentDirection(float3 d)
+{
+	float angle = -gPushConstants.environmentRotation;
+	float c = cos(angle);
+	float s = sin(angle);
+	return float3(c * d.x + s * d.z, d.y, -s * d.x + c * d.z);
+}
+
+// where a direction (in the panorama's space) is in the panorama (as gfx::environment::Panorama)
 float2 EnvironmentCoordinates(float3 d)
 {
 	return float2(0.5 + atan2(d.x, -d.z) / (2.0 * kPi), acos(clamp(d.y, -1.0, 1.0)) / kPi);
 }
 
-// the radiance a white Lambertian surface of normal n reflects (as gfx::environment::EvaluateIrradiance)
+// the radiance a white Lambertian surface of normal n reflects (as gfx::environment::EvaluateIrradiance), scaled by the
+// intensity
 float3 EnvironmentIrradiance(EnvironmentData environment, float3 n)
 {
+	n = EnvironmentDirection(n);
 	float basis[9] = {
 		0.282095,
 		0.488603 * n.y,
@@ -305,14 +316,16 @@ float3 EnvironmentIrradiance(EnvironmentData environment, float3 n)
 	float3 result = 0.0;
 	for (uint i = 0; i < 9; i++)
 		result += environment.irradiance[i].rgb * basis[i];
-	return max(result, 0.0);
+	return max(result, 0.0) * gPushConstants.environmentIntensity;
 }
 
-// the radiance reflected along r, prefiltered for a roughness (the split sum's first term)
+// the radiance reflected along r, prefiltered for a roughness (the split sum's first term), scaled by the intensity.
+// roughness 0 is the panorama itself, as the backdrop shows it
 float3 EnvironmentRadiance(EnvironmentData environment, float3 r, float roughness)
 {
 	float lod = roughness * (environment.levelCount - 1.0);
-	return gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], EnvironmentCoordinates(r), lod).rgb;
+	float2 uv = EnvironmentCoordinates(EnvironmentDirection(r));
+	return gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], uv, lod).rgb * gPushConstants.environmentIntensity;
 }
 
 // the glTF metallic-roughness brdf (the spec's appendix B): GGX distribution, height correlated Smith visibility, and
@@ -368,7 +381,7 @@ float3 Shade(float3 baseColor, float metallic, float roughness, float specular, 
 		specular * EnvironmentBrdfApprox(float3(0.04), roughness, nDotV), EnvironmentBrdfApprox(baseColor, roughness, nDotV), metallic);
 	EnvironmentData environment = gEnvironment[0];
 	float3 reflected = reflect(-view, normal);
-	float3 result = environment.intensity * occlusion *
+	float3 result = occlusion *
 		(diffuseColor * EnvironmentIrradiance(environment, normal) + environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
 
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
@@ -516,8 +529,9 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	float weight = clamp(color.a * max(1e-2, 3e3 * pow(1.0 - depth, 3.0)), 1e-2, 3e3);
 	float3 premultiplied = min(color.rgb * color.a, 16.0);
 
+	// alpha 1: the color target is cleared to alpha 0, so ComputeMain draws the backdrop where nothing opaque is
 	FragmentOutput output;
-	output.color = color;
+	output.color = float4(color.rgb, 1.0);
 	output.accumulation = float4(premultiplied, color.a) * weight;
 	output.revealage = float4(color.a, 0.0, 0.0, 0.0);
 	return output;
@@ -596,6 +610,25 @@ void ComputeMain(
 			// tonemapped, and then the srgb curve
 			float4 color = src.Load(int3(xy, 0));
 
+			// the environment where nothing opaque was drawn, in the view the pixel is in (outside them, e.g. where a view
+			// is letterboxed, the clear color stays): along the ray through the pixel, between two depths of it
+			if (color.a == 0.0 && gPushConstants.environmentBackdrop != 0u)
+			{
+				for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
+				{
+					ViewData view = gViewData[frameIndex][viewIt];
+					float2 local = (float2(xy) + 0.5 - view.viewport.xy) / view.viewport.zw;
+					if (any(local < 0.0) || any(local >= 1.0))
+						continue;
+					float2 ndc = local * 2.0 - 1.0;
+					float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
+					float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.5, 1.0));
+					float3 ray = normalize(farPoint.xyz / farPoint.w - nearPoint.xyz / nearPoint.w);
+					color.rgb = EnvironmentRadiance(gEnvironment[0], ray, 0.0);
+					break;
+				}
+			}
+
 			// the blended fragments over the opaque ones: their weighted average color, covering 1 - revealage
 			float4 accumulation = accumulationTexture.Load(int3(xy, 0));
 			float revealage = revealageTexture.Load(int3(xy, 0)).r;
@@ -603,7 +636,7 @@ void ComputeMain(
 			color.rgb = lerp(average, color.rgb, revealage);
 
 			float3 mapped = TonemapPbrNeutral(max(color.rgb, 0.0) * gPushConstants.exposure);
-			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), color.a));
+			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
 		}
 	}
 }

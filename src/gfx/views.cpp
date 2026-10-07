@@ -247,6 +247,13 @@ void Views::UpdateBuffers()
 			std::copy_n(&viewProjection[0][0], 16, &views[viewIt].viewProjection[0][0]); //NOLINT(readability-magic-numbers)
 			auto eye = glm::inverse(camera.GetViewMatrix())[3];
 			std::copy_n(&eye[0], 4, views[viewIt].eyePosition);
+			auto inverseViewProjection = glm::inverse(viewProjection);
+			std::copy_n(&inverseViewProjection[0][0], 16, &views[viewIt].inverseViewProjection[0][0]); //NOLINT(readability-magic-numbers)
+			const auto& viewport = camera.GetDesc().viewport;
+			views[viewIt].viewport[0] = viewport.x;
+			views[viewIt].viewport[1] = viewport.y;
+			views[viewIt].viewport[2] = viewport.width;
+			views[viewIt].viewport[3] = viewport.height;
 		}
 		buffer.Flush(0, viewCount * sizeof(ViewData));
 		buffer.Unmap();

@@ -160,6 +160,24 @@ static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
 // the final image is scaled by 2^gExposureStops before tonemapping. set from the ui, read by the draw thread.
 static std::atomic<float> gExposureStops = 0.0F;
+// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the backdrop.
+// set from the ui, read by the draw thread (see PushConstants::environmentIntensity)
+static std::atomic<float> gEnvironmentIntensity = 1.0F;
+static std::atomic<float> gEnvironmentRotationDegrees = 0.0F;
+static std::atomic<bool> gEnvironmentBackdrop = true;
+
+// the push constants every draw (and ComputeMain) of a frame shares
+static PushConstants FramePushConstants(uint16_t frameIndex)
+{
+	return PushConstants{
+		.frameIndex = frameIndex,
+		.lightCount = gLightCount,
+		.exposure = std::exp2(gExposureStops.load(std::memory_order_relaxed)),
+		.environmentIntensity = gEnvironmentIntensity.load(std::memory_order_relaxed),
+		.environmentRotation = glm::radians(gEnvironmentRotationDegrees.load(std::memory_order_relaxed)),
+		.viewCount = std::min<uint32_t>(App().GetViews().GetGrid().x * App().GetViews().GetGrid().y, SHADER_TYPES_VIEW_COUNT),
+		.environmentBackdrop = gEnvironmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U};
+}
 
 // takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
 // (outside of a render pass). textures that are no longer drawn are destroyed from a task added to `callbacks`, which
@@ -1164,8 +1182,7 @@ static void InstallEnvironment(
 			EnvironmentData data{
 				.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE,
 				.samplerId = kDefaultSamplerId,
-				.levelCount = static_cast<float>(environment->levelCount),
-				.intensity = 1.0F};
+				.levelCount = static_cast<float>(environment->levelCount)};
 			for (size_t i = 0; i < environment->irradiance.size(); i++)
 				std::ranges::copy(environment->irradiance[i], data.irradiance[i]);
 			UpdateBufferOnGraphics(
@@ -1272,6 +1289,7 @@ static void DrawMainPass(
 
 	// setup draw parameters
 	const auto grid = App().GetViews().GetGrid();
+	const auto framePushConstants = FramePushConstants(newFrameIndex);
 	uint32_t drawCount = grid.x * grid.y;
 	uint32_t drawThreadCount = 0;
 
@@ -1305,6 +1323,7 @@ static void DrawMainPass(
 			&drawCount,
 			&model,
 			&viewports,
+			&framePushConstants,
 			grid](uint32_t threadIt)
 			{
 				ZoneScoped;
@@ -1345,8 +1364,7 @@ static void DrawMainPass(
 
 				bindState(cmd);
 
-				PushConstants pushConstants{
-					.frameIndex = newFrameIndex, .lightCount = gLightCount, .exposure = std::exp2(gExposureStops.load(std::memory_order_relaxed))};
+				PushConstants pushConstants = framePushConstants;
 
 				ASSERT(deltaX > 0);
 				ASSERT(deltaY > 0);
@@ -1535,6 +1553,8 @@ void CreateWindowDependentObjects(RHI& rhi)
 		auto renderImageSet = device.CreateResource<RenderImageSet>(
 			std::move(colorImage), std::move(accumulationImage), std::move(revealageImage), std::move(depthStencilImage));
 		ENSURE(renderImageSet->GetAttachments().size() == kDepthAttachment + 1);
+		// alpha 0: where nothing opaque is drawn (opaque draws write alpha 1), ComputeMain draws the environment
+		renderImageSet->SetClearValue(ClearValue{.color = {0.2F, 0.2F, 0.2F, 0.0F}}, kColorAttachment);
 		renderImageSet->SetClearValue(ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}}, kAccumulationAttachment);
 		renderImageSet->SetClearValue(ClearValue{.color = {1.0F, 1.0F, 1.0F, 1.0F}}, kRevealageAttachment);
 		gRenderImageSetUuids[frameIt] = renderImageSet->GetUuid();
@@ -1869,6 +1889,11 @@ void WindowedApplication::PrepareDraw()
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
+		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
+		if (const char* rotation = std::getenv("SPEEDO_ENVIRONMENT_ROTATION"); rotation != nullptr && *rotation != '\0')
+			gEnvironmentRotationDegrees.store(std::strtof(rotation, nullptr), std::memory_order_relaxed);
+		if (const char* intensity = std::getenv("SPEEDO_ENVIRONMENT_INTENSITY"); intensity != nullptr && *intensity != '\0')
+			gEnvironmentIntensity.store(std::max(std::strtof(intensity, nullptr), 0.0F), std::memory_order_relaxed);
 		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama, else the procedural sky
 		std::optional<std::string> environmentPath;
 		if (const char* autoLoadEnvironment = std::getenv("SPEEDO_AUTOLOAD_ENVIRONMENT");
@@ -1993,6 +2018,19 @@ void WindowedApplication::PrepareDraw()
 				// what lights the scene (see InstallEnvironment): the procedural sky, or a panorama file
 				std::string current = gEnvironmentName.Read().Get();
 				TextDisabled("%s", current.empty() ? "None" : current.c_str());
+				{
+					float intensity = gEnvironmentIntensity.load(std::memory_order_relaxed);
+					if (DragFloat("Intensity", &intensity, 0.01F, 0.0F, 100.0F, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+						gEnvironmentIntensity.store(intensity, std::memory_order_relaxed);
+					SetItemTooltip("Scales its light. Drag, or double-click to type.");
+					float rotation = gEnvironmentRotationDegrees.load(std::memory_order_relaxed);
+					if (DragFloat("Rotation", &rotation, 0.5F, -180.0F, 180.0F, "%.1f deg", ImGuiSliderFlags_WrapAround))
+						gEnvironmentRotationDegrees.store(rotation, std::memory_order_relaxed);
+					SetItemTooltip("Turns it about the vertical axis. Drag, or double-click to type.");
+					bool backdrop = gEnvironmentBackdrop.load(std::memory_order_relaxed);
+					if (MenuItem("Backdrop", nullptr, &backdrop))
+						gEnvironmentBackdrop.store(backdrop, std::memory_order_relaxed);
+				}
 				Separator();
 				if (MenuItem("Procedural sky"))
 					(void)gLoads.Enqueue(
@@ -2348,10 +2386,13 @@ bool WindowedApplication::Draw()
 
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+			// the backdrop's: the views, the environment and its sampler
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 			pipeline.BindPipelineAuto(cmd);
 
-			PushConstants pushConstants{
-				.frameIndex = newFrameIndex, .lightCount = gLightCount, .exposure = std::exp2(gExposureStops.load(std::memory_order_relaxed))};
+			PushConstants pushConstants = FramePushConstants(newFrameIndex);
 
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
