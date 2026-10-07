@@ -126,6 +126,7 @@ struct ImageViewCreateDesc final : DeviceObjectCreateDesc<G>
 	ImageHandle<G> image{};
 	Format format{};
 	ImageAspect aspectFlags{};
+	uint32_t levelCount = 0; // the mip levels it views, from level 0: 0 for all of the image's
 };
 
 template <GraphicsApi G>

@@ -255,7 +255,7 @@ ImageView<kVk>::ImageView(
 			desc.image,
 			vk::ToVk(desc.format),
 			vk::ToVk(desc.aspectFlags),
-			1,
+			desc.levelCount == 0 ? VK_REMAINING_MIP_LEVELS : desc.levelCount,
 			GetDebugName(desc)))
 {}
 
