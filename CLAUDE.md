@@ -272,12 +272,17 @@ fragment input. Double sided materials
 cull mode, `VK_EXT_extended_dynamic_state`, a required device extension), and the fragment shader flips the normal of
 back faces (`SV_IsFrontFace`). Alpha modes become
 `mesh::Material::alphaCutoff` (`MaterialData::alphaCutoff`, 0 for OPAQUE, which must not alpha test the base color
-texture, and for BLEND). BLEND materials (`blend`) are drawn after the opaque submeshes, an instance at a time, sorted
-back to front per view by `Model::GetCenter` (from `Views::GetEyePositions`): a submesh's `localCenter` at the
-instance's current transform, or for a skinned one its joints' bounds (`ModelDesc::jointBounds`, what each joint
-moves) at the current joint matrices, both as the last `Model::Animate` left them, with the `BlendMode::kAlpha` pipeline variant (source alpha
-over, depth tested but not written). The pipeline variant (`GraphicsPipelineVariant`: topology and blend mode) is a
-parameter of `BindPipelineAuto`, part of the pipeline cache key. glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
+texture, and for BLEND). BLEND materials (`blend`) are weighted blended order independent transparency (McGuire and
+Bavoil): drawn after a view's opaque submeshes, unsorted, into two more color attachments of the main render target
+(`FragmentOutput`: color, accumulation `R16G16B16A16_SFLOAT` cleared to 0, revealage `R16_SFLOAT` cleared to 1, then
+depth; `RenderTarget::SetClearValue`), which `ComputeMain` composites over the opaque color before tonemapping
+(`gTextures` slots from `SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE`/`SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE`). Each
+draw names a `BlendMode` per color attachment (`GraphicsPipelineVariant::blend`, by the render target's color attachment
+count; opaque: `kOpaque, kNone, kNone`, transparent: `kNone, kAdd, kMultiplyInverse`), and writes depth only if one of
+them is `kOpaque`; every main pass pipeline must be bound with one of those, since a default variant would overwrite
+the transparency targets. The weight is by depth (the paper's equation 10, independent of the scene's units). Overlaps
+come out as weighted averages, the nearer layer weighing only a little more. The pipeline variant (topology and blend
+modes) is a parameter of `BindPipelineAuto`, part of the pipeline cache key. glTF texcoords already have v = 0 at the top, so unlike obj they aren't flipped, and
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
 Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the srgb `emissiveTexture`, obj `Ke` and
 `map_Ke`) is added after the lighting, unclamped (CornellBox's lamp, `Ke 17 12 4`, saturates to white); an emissive
@@ -312,7 +317,7 @@ node (`SceneInstanceLink`), and skinned meshes keep their vertices in mesh space
 host visible instance and joint buffer per frame (`gModelInstances[frame]`, `gJointMatrices[frame]`), which
 `Model::Animate` writes on the draw thread after the frame's fence wait, from `EvaluateNodes` on the cpu; a static one
 binds its device local instance buffer in every slot, and the defaults (`gDefaultSkinVerticesUuid`, `gDefaultJointsUuid`, `gDefaultMorphDeltasUuid`, `gDefaultMorphWeightsUuid`)
-stand in for what it doesn't have. Skinned bounds and blend centers are at the rest pose (`RestJoints`,
+stand in for what it doesn't have. Skinned bounds are at the rest pose (`RestJoints`,
 `SkinPosition`): bind space can be far off (CesiumMan's root rotation). View > Animation picks the animation (the
 first plays on load), crossfading from the previous one over 0.3 s (`EvaluateNodes` with two `ScenePose`s and a weight:
 local transforms lerped and slerped, then composed), pauses and restarts it, and `SPEEDO_ANIMATION_TIME=<seconds>` freezes it (for screenshots). Animated
@@ -363,7 +368,7 @@ roughness is a mirror). gltf primitives without a material get the spec's defaul
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
-(0-3 are the frames' render targets, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
+(0-11 are the frames' render targets: color, accumulation and revealage, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
@@ -412,8 +417,8 @@ accessors that are sparse, with and without base values; cgltf's `cgltf_accessor
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;
 `InstancingTransforms.gltf`: instances of a single sided, asymmetric triangle under a scaled and moved node, with
 normalized short rotations and a mirroring instance, which must face the camera too; `BlendOrder.gltf`: blended quads
-listed nearest first, whose overlaps must be tinted by the nearer one; `BlendInstances.gltf`: a
-blended quad instanced in front of and behind another, which a sort per submesh can't order; `ManySamplers.gltf`: 36 quads with a sampler
+listed nearest first (metallic, so they render dark); `BlendInstances.gltf`: a
+blended quad instanced in front of and behind another; `ManySamplers.gltf`: 36 quads with a sampler
 each, of every filter and wrap mode, more than the model sampler slots once were), and is always part
 of the printed paths. Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are

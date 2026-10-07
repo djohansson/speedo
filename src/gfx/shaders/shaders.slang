@@ -105,9 +105,14 @@ struct VertexMainOutput
 	float pointSize : SV_PointSize;
 };
 
+// the main pass's color attachments: opaque draws write color (BlendMode::kOpaque, the others kNone), blended ones
+// the weighted blended order independent transparency (McGuire and Bavoil, 2013) targets (color kNone, accumulation
+// kAdd, revealage kMultiplyInverse), which ComputeMain composites over color
 struct FragmentOutput
 {
-	float4 color : SV_Target;
+	float4 color : SV_Target0;
+	float4 accumulation : SV_Target1; // the sum of premultiplied colors and alphas, by their weights
+	float4 revealage : SV_Target2; // r: the product of (1 - alpha), how much of what is behind shows through
 };
 
 float3 SignedOctEncode(float3 n)
@@ -376,11 +381,10 @@ float3 Shade(float3 baseColor, float metallic, float roughness, float specular, 
 	return result;
 }
 
-[shader("fragment")]
-FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+// a fragment's color and alpha, lit and with emissive added
+float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 {
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
-	FragmentOutput output;
 
 	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
 
@@ -442,8 +446,7 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	if (unlit)
 	{
 		bool unlitMaterial = (material.flags & MATERIAL_FLAG_UNLIT) != 0u;
-		output.color = float4(color.rgb + (unlitMaterial ? float3(0.0) : emissive), color.a);
-		return output;
+		return float4(color.rgb + (unlitMaterial ? float3(0.0) : emissive), color.a);
 	}
 
 	float metallic = material.metallic;
@@ -464,8 +467,24 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
-	output.color = float4(Shade(color.rgb, metallic, roughness, material.specular, occlusion, normal, view, v.position) + emissive, color.a);
+	return float4(Shade(color.rgb, metallic, roughness, material.specular, occlusion, normal, view, v.position) + emissive, color.a);
+}
 
+[shader("fragment")]
+FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+	float4 color = ShadeFragment(input, isFrontFace);
+
+	// the weight favors the nearer fragments, by depth (McGuire and Bavoil's equation 10, which depends on the depth
+	// range rather than on the scene's units), clamped so that the sum stays within half floats
+	float depth = input.hPos.z;
+	float weight = clamp(color.a * max(1e-2, 3e3 * pow(1.0 - depth, 3.0)), 1e-2, 3e3);
+	float3 premultiplied = min(color.rgb * color.a, 16.0);
+
+	FragmentOutput output;
+	output.color = color;
+	output.accumulation = float4(premultiplied, color.a) * weight;
+	output.revealage = float4(color.a, 0.0, 0.0, 0.0);
 	return output;
 }
 
@@ -514,7 +533,9 @@ void ComputeMain(
 {
 	uint frameIndex = gPushConstants.frameIndex;
 
-	Texture2D src = gTextures[frameIndex];
+	Texture2D src = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE + frameIndex];
+	Texture2D accumulationTexture = gTextures[SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE + frameIndex];
+	Texture2D revealageTexture = gTextures[SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE + frameIndex];
 	RWTexture2D dst = gRWTextures[frameIndex];
 
 	uint2 dstDim;
@@ -539,6 +560,13 @@ void ComputeMain(
 			// the render target is linear, the swapchain (a storage image, so not an srgb format) is not: exposed,
 			// tonemapped, and then the srgb curve
 			float4 color = src.Load(int3(xy, 0));
+
+			// the blended fragments over the opaque ones: their weighted average color, covering 1 - revealage
+			float4 accumulation = accumulationTexture.Load(int3(xy, 0));
+			float revealage = revealageTexture.Load(int3(xy, 0)).r;
+			float3 average = accumulation.rgb / max(accumulation.a, 1e-5);
+			color.rgb = lerp(average, color.rgb, revealage);
+
 			float3 mapped = TonemapPbrNeutral(max(color.rgb, 0.0) * gPushConstants.exposure);
 			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), color.a));
 		}

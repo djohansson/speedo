@@ -53,6 +53,7 @@ public:
 
 	void SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp = {}) final;
 	void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) final;
+	void SetClearValue(const ClearValue& value, uint32_t index) final;
 
 	void AddSubpassDescription(SubpassDescription<kVk>&& description);
 	void AddSubpassDependency(SubpassDependency<kVk>&& dependency);
@@ -614,6 +615,14 @@ void RenderTarget<DerivedType, kVk>::SetLoadOp(
 	myAttachmentDescs[index].loadOp = vk::ToVk(loadOp);
 	if (HasStencilComponent(this->GetDesc().imageFormats[index]))
 		myAttachmentDescs[index].stencilLoadOp = vk::ToVk(stencilLoadOp);
+}
+
+template <typename DerivedType>
+void RenderTarget<DerivedType, kVk>::SetClearValue(const ClearValue& value, uint32_t index)
+{
+	ENSURE(index < this->GetDesc().clearValues.size());
+	this->InternalGetDesc().clearValues[index] = value;
+	InternalUpdateAttachments();
 }
 
 template <typename DerivedType>

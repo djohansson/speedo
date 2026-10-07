@@ -18,7 +18,7 @@ struct RenderTargetCreateDesc : DeviceObjectCreateDesc<G>
 	std::vector<ImageLayout> imageLayouts;
 	std::vector<ImageAspect> imageAspectFlags;
 	std::vector<ImageHandle<G>> images;
-	std::vector<ClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depth = 1.0F, .stencil = 0}};
+	std::vector<ClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depth = 1.0F, .stencil = 0}}; // one per image
 	uint32_t layerCount = 1;
 	bool useDynamicRendering = true;
 };
@@ -85,6 +85,8 @@ struct IRenderTarget
 		uint32_t index) = 0;
 
 	virtual void SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp = {}) = 0; //NOLINT(google-default-arguments)
+	// what a kClear load op clears an attachment to
+	virtual void SetClearValue(const ClearValue& value, uint32_t index) = 0;
 	virtual void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) = 0; //NOLINT(google-default-arguments)
 };
 

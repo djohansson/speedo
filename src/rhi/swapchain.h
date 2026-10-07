@@ -96,6 +96,7 @@ public:
 
 	void SetLoadOp(LoadOp loadOp, uint32_t index, LoadOp stencilLoadOp = {}) final;
 	void SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencilStoreOp = {}) final;
+	void SetClearValue(const ClearValue& value, uint32_t index) final;
 
 	[[nodiscard]] auto GetSurface() const noexcept { return mySurface; }
 	// queries the surface's current size. the swapchain's own extent if the surface leaves it to the swapchain.

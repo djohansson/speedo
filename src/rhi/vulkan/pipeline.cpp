@@ -315,8 +315,7 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey(GraphicsPipelineVariant variant
 
 	if (myBindPoint == PipelineBindPoint::kGraphics)
 	{
-		std::array<uint8_t, 2> key{static_cast<uint8_t>(variant.topology), static_cast<uint8_t>(variant.blend)};
-		result = XXH3_64bits_update(gThreadXxhState.get(), key.data(), key.size());
+		result = XXH3_64bits_update(gThreadXxhState.get(), &variant, sizeof(variant));
 		ENSURE(result != XXH_ERROR);
 	}
 
@@ -536,24 +535,42 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	pipelineInfo.pViewportState = &myGraphicsState.viewport;
 	pipelineInfo.pRasterizationState = &myGraphicsState.rasterization;
 	pipelineInfo.pMultisampleState = &myGraphicsState.multisample;
+	// a blend state per color attachment of the render target, by the variant's blend modes
 	auto depthStencil = myGraphicsState.depthStencil;
-	auto colorBlendAttachments = myGraphicsState.colorBlendAttachments;
-	auto colorBlend = myGraphicsState.colorBlend;
-	if (variant.blend == BlendMode::kAlpha)
+	auto colorAttachmentCount = myGraphicsState.dynamicRendering ? myGraphicsState.dynamicRendering->colorAttachmentCount : 1U;
+	ENSURE(colorAttachmentCount <= kMaxColorAttachments);
+	std::vector<PipelineColorBlendAttachmentState<kVk>> colorBlendAttachments(
+		colorAttachmentCount, myGraphicsState.colorBlendAttachments.front());
+	depthStencil.depthWriteEnable = VK_FALSE;
+	for (uint32_t attachmentIt = 0; attachmentIt < colorAttachmentCount; attachmentIt++)
 	{
-		depthStencil.depthWriteEnable = VK_FALSE;
-		for (auto& attachment : colorBlendAttachments)
+		auto& attachment = colorBlendAttachments[attachmentIt];
+		auto factors = [&attachment](VkBlendFactor srcColor, VkBlendFactor dstColor, VkBlendFactor srcAlpha, VkBlendFactor dstAlpha)
 		{
 			attachment.blendEnable = VK_TRUE;
-			attachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-			attachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			attachment.srcColorBlendFactor = srcColor;
+			attachment.dstColorBlendFactor = dstColor;
 			attachment.colorBlendOp = VK_BLEND_OP_ADD;
-			attachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-			attachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			attachment.srcAlphaBlendFactor = srcAlpha;
+			attachment.dstAlphaBlendFactor = dstAlpha;
 			attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+		};
+		switch (variant.blend[attachmentIt])
+		{
+		case BlendMode::kOpaque: depthStencil.depthWriteEnable = VK_TRUE; break;
+		case BlendMode::kAlpha:
+			factors(VK_BLEND_FACTOR_SRC_ALPHA, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+			break;
+		case BlendMode::kNone: attachment.colorWriteMask = 0; break;
+		case BlendMode::kAdd: factors(VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE, VK_BLEND_FACTOR_ONE); break;
+		case BlendMode::kMultiplyInverse:
+			factors(VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR, VK_BLEND_FACTOR_ZERO, VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+			break;
 		}
-		colorBlend.pAttachments = colorBlendAttachments.data();
 	}
+	auto colorBlend = myGraphicsState.colorBlend;
+	colorBlend.attachmentCount = colorAttachmentCount;
+	colorBlend.pAttachments = colorBlendAttachments.data();
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &colorBlend;
 	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;

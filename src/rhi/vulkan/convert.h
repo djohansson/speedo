@@ -26,6 +26,7 @@ namespace rhi::vk
 	case Format::kA2R10G10B10UnormPack32: return VK_FORMAT_A2R10G10B10_UNORM_PACK32;
 	case Format::kA2B10G10R10UnormPack32: return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
 	case Format::kR16G16B16A16Sfloat: return VK_FORMAT_R16G16B16A16_SFLOAT;
+	case Format::kR16Sfloat: return VK_FORMAT_R16_SFLOAT;
 	case Format::kD32Sfloat: return VK_FORMAT_D32_SFLOAT;
 	case Format::kD32SfloatS8Uint: return VK_FORMAT_D32_SFLOAT_S8_UINT;
 	case Format::kD24UnormS8Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
@@ -47,7 +48,7 @@ namespace rhi::vk
 	for (auto candidate : {
 			 Format::kR8G8B8A8Unorm, Format::kR8G8B8A8Srgb, Format::kB8G8R8A8Unorm, Format::kB8G8R8A8Srgb,
 			 Format::kR8G8B8Unorm, Format::kB8G8R8Unorm, Format::kA2R10G10B10UnormPack32,
-			 Format::kA2B10G10R10UnormPack32, Format::kR16G16B16A16Sfloat, Format::kD32Sfloat, Format::kD32SfloatS8Uint, Format::kD24UnormS8Uint,
+			 Format::kA2B10G10R10UnormPack32, Format::kR16G16B16A16Sfloat, Format::kR16Sfloat, Format::kD32Sfloat, Format::kD32SfloatS8Uint, Format::kD24UnormS8Uint,
 			 Format::kBC1RgbUnorm, Format::kBC1RgbSrgb, Format::kBC3Unorm, Format::kBC3Srgb, Format::kBC4Unorm,
 			 Format::kBC5Unorm, Format::kBC7Unorm, Format::kBC7Srgb})
 		if (ToVk(candidate) == format)

@@ -35,6 +35,7 @@ enum class Format : uint8_t
 	kA2R10G10B10UnormPack32,
 	kA2B10G10R10UnormPack32,
 	kR16G16B16A16Sfloat,
+	kR16Sfloat,
 	kD32Sfloat,
 	kD32SfloatS8Uint,
 	kD24UnormS8Uint,
@@ -180,21 +181,30 @@ enum class PrimitiveTopology : uint8_t
 	kPointList,
 };
 
-// how a draw's color output combines with the render target's
+// how a draw's output to a color attachment combines with what the attachment holds
 enum class BlendMode : uint8_t
 {
-	kOpaque, // replaces it, and writes depth
-	kAlpha, // source alpha over: color * a + target * (1 - a). tests depth but doesn't write it, so draw back to front
+	kOpaque, // replaces it
+	kAlpha, // source alpha over: color * a + target * (1 - a)
+	kNone, // leaves it as it is (writes nothing to it)
+	kAdd, // color + target, alpha too (e.g. the accumulation of weighted blended transparency)
+	kMultiplyInverse, // target * (1 - color) (e.g. the revealage of weighted blended transparency)
 };
 
-// what a graphics pipeline is created for, beyond its layout and render target (see Pipeline::BindPipelineAuto)
+// the color attachments a graphics pipeline's blend modes cover (see GraphicsPipelineVariant)
+constexpr size_t kMaxColorAttachments = 4;
+
+// what a graphics pipeline is created for, beyond its layout and render target (see Pipeline::BindPipelineAuto): its
+// topology, and a blend mode per color attachment of the render target. it writes depth only if one of them is
+// kOpaque: the others test depth but don't write it
 struct GraphicsPipelineVariant
 {
 	PrimitiveTopology topology = PrimitiveTopology::kTriangleList;
-	BlendMode blend = BlendMode::kOpaque;
+	std::array<BlendMode, kMaxColorAttachments> blend{};
 
 	bool operator==(const GraphicsPipelineVariant&) const = default;
 };
+static_assert(std::has_unique_object_representations_v<GraphicsPipelineVariant>);
 
 // which winding faces the viewer (see CullMode). a mirroring transform reverses the winding, so its draws use kClockwise
 enum class FrontFace : uint8_t

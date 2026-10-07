@@ -298,8 +298,19 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 	};
 }
 
-// gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain). material 0 is the
-// default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
+// the main render target's color attachments (see FragmentOutput in the shaders), then its depth
+static constexpr uint32_t kColorAttachment = 0;
+static constexpr uint32_t kAccumulationAttachment = 1;
+static constexpr uint32_t kRevealageAttachment = 2;
+static constexpr uint32_t kDepthAttachment = 3;
+// what opaque and blended draws write to them: blended ones are weighted blended order independent transparency, which
+// ComputeMain composites over the opaque color, so they needn't be sorted
+static constexpr std::array kOpaqueBlend{BlendMode::kOpaque, BlendMode::kNone, BlendMode::kNone, BlendMode::kNone};
+static constexpr std::array kTransparentBlend{BlendMode::kNone, BlendMode::kAdd, BlendMode::kMultiplyInverse, BlendMode::kNone};
+static_assert(kOpaqueBlend.size() == kMaxColorAttachments);
+
+// gTextures slots 0 to 3 * SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain: color,
+// accumulation and revealage, see SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE). material 0 is the default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
 static constexpr uint32_t kMaterialTextureId = 15;
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
 static constexpr uint32_t kModelTextureFirstSlot = 16;
@@ -316,7 +327,7 @@ static constexpr auto kModelSamplerSlots = []
 	return slots;
 }();
 static size_t gModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
-static_assert(kMaterialTextureId >= SHADER_TYPES_FRAME_COUNT && kMaterialTextureId < kModelTextureFirstSlot);
+static_assert(kMaterialTextureId >= SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE + SHADER_TYPES_FRAME_COUNT && kMaterialTextureId < kModelTextureFirstSlot);
 
 // the material slot drawn for a submesh of the loaded model
 static uint32_t ModelMaterialSlot(int32_t material)
@@ -1175,12 +1186,15 @@ static void DrawMainPass(
 	auto& device = rhi.GetPrimaryDevice();
 	auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);
 
-	renderImageSet.SetLoadOp(LoadOp::kClear, 0);
-	renderImageSet.SetLoadOp(LoadOp::kClear, renderImageSet.GetAttachments().size() - 1, LoadOp::kClear);
-	renderImageSet.SetStoreOp(StoreOp::kStore, 0);
-	renderImageSet.SetStoreOp(StoreOp::kStore, renderImageSet.GetAttachments().size() - 1, StoreOp::kStore);
-	renderImageSet.Transition(cmd, ImageLayout::kColorAttachment, ImageAspect::kColor, 0);
-	renderImageSet.Transition(cmd, ImageLayout::kDepthStencilAttachment, ImageAspect::kDepth | ImageAspect::kStencil, renderImageSet.GetAttachments().size() - 1);
+	for (uint32_t attachment : {kColorAttachment, kAccumulationAttachment, kRevealageAttachment})
+	{
+		renderImageSet.SetLoadOp(LoadOp::kClear, attachment);
+		renderImageSet.SetStoreOp(StoreOp::kStore, attachment);
+		renderImageSet.Transition(cmd, ImageLayout::kColorAttachment, ImageAspect::kColor, attachment);
+	}
+	renderImageSet.SetLoadOp(LoadOp::kClear, kDepthAttachment, LoadOp::kClear);
+	renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
+	renderImageSet.Transition(cmd, ImageLayout::kDepthStencilAttachment, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
 
 	pipeline.SetRenderTarget(renderImageSet);
 
@@ -1205,9 +1219,7 @@ static void DrawMainPass(
 
 		drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
 
-		// blended submeshes are drawn back to front from each view's camera
-		auto eyes = App().GetViews().GetEyePositions();
-		// and drawn in their viewports: their grid cells, letterboxed to their cameras' aspect ratios
+		// the views are drawn in their viewports: their grid cells, letterboxed to their cameras' aspect ratios
 		auto viewports = App().GetViews().GetViewports();
 
 		constexpr uint32_t kMaxDrawThreads = 128;
@@ -1224,7 +1236,6 @@ static void DrawMainPass(
 			&drawAtomic,
 			&drawCount,
 			&model,
-			&eyes,
 			&viewports,
 			grid](uint32_t threadIt)
 			{
@@ -1261,7 +1272,7 @@ static void DrawMainPass(
 					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 
 					// bind pipeline and buffers
-					pipeline.BindPipelineAuto(cmd);
+					pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
 				};
 
 				bindState(cmd);
@@ -1274,7 +1285,7 @@ static void DrawMainPass(
 
 				while (drawIt < drawCount)
 				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &eyes, &viewports, grid](uint16_t viewIt)
+					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &viewports, grid](uint16_t viewIt)
 					{
 						ZoneScopedN("drawView");
 
@@ -1313,16 +1324,15 @@ static void DrawMainPass(
 						// one draw per submesh (material and topology, see InstallModel for where the materials are): the opaque
 						// ones first, then the blended ones back to front by their centers (each as a whole: the triangles within
 						// one are drawn in their order)
-						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, &eyes, viewIndex](CommandBufferHandle cmd)
+						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, viewIndex](CommandBufferHandle cmd)
 						{
 							ZoneScopedN("drawModel");
 
 							const auto& materials = model.GetDesc().materials;
 							const auto& skins = model.GetDesc().animation.skins;
 							// bindState bound the default (opaque triangle list) pipeline
-							GraphicsPipelineVariant bound{};
-							// a submesh's instances, or only one of them (instance)
-							auto draw = [&](const ModelSubmesh& submesh, BlendMode blend, std::optional<uint32_t> instance = std::nullopt)
+							GraphicsPipelineVariant bound{.blend = kOpaqueBlend};
+							auto draw = [&](const ModelSubmesh& submesh, const std::array<BlendMode, kMaxColorAttachments>& blend)
 							{
 								if (GraphicsPipelineVariant variant{.topology = submesh.topology, .blend = blend}; variant != bound)
 								{
@@ -1354,46 +1364,23 @@ static void DrawMainPass(
 									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
 								};
 								auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
-								if (instance)
-								{
-									drawInstances(
-										*instance, 1, *instance < submesh.firstInstance + unmirrored ? FrontFace::kCounterClockwise : FrontFace::kClockwise);
-									return;
-								}
 								drawInstances(submesh.firstInstance, unmirrored, FrontFace::kCounterClockwise);
 								drawInstances(submesh.firstInstance + unmirrored, submesh.mirroredInstanceCount, FrontFace::kClockwise);
 							};
 
-							// blended submeshes, an instance at a time, sorted by where (the last Animate put) their centers
-							struct Blended
-							{
-								const ModelSubmesh* submesh;
-								uint32_t instance;
-								float distance2;
-							};
-							std::vector<Blended> blended;
-							auto eye = viewIndex < eyes.size() ? eyes[viewIndex] : glm::vec3(0.0F);
+							// the opaque submeshes, then the blended ones (in any order, see kTransparentBlend), which depth test
+							// against them
+							auto blended = [&materials](const ModelSubmesh& submesh)
+							{ return submesh.material >= 0 && materials[submesh.material].blend; };
 							for (const auto& submesh : model.GetDesc().submeshes)
-							{
-								if (submesh.material < 0 || !materials[submesh.material].blend)
-								{
-									draw(submesh, BlendMode::kOpaque);
-									continue;
-								}
-								for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
-								{
-									auto center = model.GetCenter(submesh, instanceIt);
-									auto offset = glm::vec3(center[0], center[1], center[2]) - eye;
-									blended.push_back({&submesh, instanceIt, glm::dot(offset, offset)});
-								}
-							}
+								if (!blended(submesh))
+									draw(submesh, kOpaqueBlend);
+							for (const auto& submesh : model.GetDesc().submeshes)
+								if (blended(submesh))
+									draw(submesh, kTransparentBlend);
 
-							std::ranges::sort(blended, std::greater{}, &Blended::distance2);
-							for (const auto& item : blended)
-								draw(*item.submesh, BlendMode::kAlpha, item.instance);
-
-							if (bound != GraphicsPipelineVariant{})
-								pipeline.BindPipelineAuto(cmd);
+							if (bound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
+								pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
 						};
 
 						drawModel(cmd);
@@ -1438,6 +1425,28 @@ void CreateWindowDependentObjects(RHI& rhi)
 				ImageAspect::kColor,
 				ImageLayout::kUndefined});
 
+		// weighted blended transparency's: premultiplied colors and alphas summed by weight, and revealage
+		auto accumulationImage = Image(
+			ImageCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Main RT Accumulation Image {}", frameIt)),
+				{{.extent = window.GetSwapchain().GetDesc().extent}},
+				Format::kR16G16B16A16Sfloat,
+				ImageTiling::kOptimal,
+				ImageUsage::kColorAttachment | ImageUsage::kSampled,
+				MemoryProperty::kDeviceLocal,
+				ImageAspect::kColor,
+				ImageLayout::kUndefined});
+		auto revealageImage = Image(
+			ImageCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Main RT Revealage Image {}", frameIt)),
+				{{.extent = window.GetSwapchain().GetDesc().extent}},
+				Format::kR16Sfloat,
+				ImageTiling::kOptimal,
+				ImageUsage::kColorAttachment | ImageUsage::kSampled,
+				MemoryProperty::kDeviceLocal,
+				ImageAspect::kColor,
+				ImageLayout::kUndefined});
+
 		auto depthStencilImage = Image(
 			ImageCreateDesc{
 				device.CreateDeviceObjectCreateDesc(std::format("Main RT DepthStencil Image {}", frameIt)),
@@ -1455,8 +1464,12 @@ void CreateWindowDependentObjects(RHI& rhi)
 
 		// one render target per frame, replacing any previous one (e.g. on resize)
 		device.EraseResource(gRenderImageSetUuids[frameIt]);
-		gRenderImageSetUuids[frameIt] =
-			device.CreateResource<RenderImageSet>(std::move(colorImage), std::move(depthStencilImage))->GetUuid();
+		auto renderImageSet = device.CreateResource<RenderImageSet>(
+			std::move(colorImage), std::move(accumulationImage), std::move(revealageImage), std::move(depthStencilImage));
+		ENSURE(renderImageSet->GetAttachments().size() == kDepthAttachment + 1);
+		renderImageSet->SetClearValue(ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}}, kAccumulationAttachment);
+		renderImageSet->SetClearValue(ClearValue{.color = {1.0F, 1.0F, 1.0F, 1.0F}}, kRevealageAttachment);
+		gRenderImageSetUuids[frameIt] = renderImageSet->GetUuid();
 	}
 
 	{
@@ -1476,12 +1489,15 @@ void CreateWindowDependentObjects(RHI& rhi)
 		for (const auto& renderImageSetGuid : std::span(gRenderImageSetUuids).first(frameCount))
 		{
 			auto& renderImageSet = *device.GetResource<RenderImageSet>(renderImageSetGuid);
-			renderImageSet.SetLoadOp(LoadOp::kClear, 0);
-			renderImageSet.SetLoadOp(LoadOp::kClear, renderImageSet.GetAttachments().size() - 1, LoadOp::kClear);
-			renderImageSet.SetStoreOp(StoreOp::kStore, 0);
-			renderImageSet.SetStoreOp(StoreOp::kStore, renderImageSet.GetAttachments().size() - 1, StoreOp::kStore);
-			renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor, 0);
-			renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kDepth | ImageAspect::kStencil, renderImageSet.GetAttachments().size() - 1);
+			for (uint32_t attachment : {kColorAttachment, kAccumulationAttachment, kRevealageAttachment})
+			{
+				renderImageSet.SetLoadOp(LoadOp::kClear, attachment);
+				renderImageSet.SetStoreOp(StoreOp::kStore, attachment);
+				renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor, attachment);
+			}
+			renderImageSet.SetLoadOp(LoadOp::kClear, kDepthAttachment, LoadOp::kClear);
+			renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
+			renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
 		}
 
 		cmd.End();
@@ -1506,14 +1522,18 @@ void CreateWindowDependentObjects(RHI& rhi)
 		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[frameIt]);
 		auto& frame = window.GetSwapchain().GetFrames()[frameIt];
 
-		pipeline.SetDescriptorData(
-			"gTextures",
-			ImageBinding{
-				.sampler={},
-				.imageView=renderImageSet.GetAttachments()[0],
-				.layout=ImageLayout::kShaderReadOnly},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			frameIt);
+		for (auto [attachment, base] : std::array{
+				 std::pair{kColorAttachment, SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE},
+				 std::pair{kAccumulationAttachment, SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE},
+				 std::pair{kRevealageAttachment, SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE}})
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{
+					.sampler={},
+					.imageView=renderImageSet.GetAttachments()[attachment],
+					.layout=ImageLayout::kShaderReadOnly},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				base + frameIt);
 
 		pipeline.SetDescriptorData(
 			"gRWTextures",
@@ -2191,12 +2211,15 @@ bool WindowedApplication::Draw()
 		{
 			GPU_SCOPE(cmd, graphicsQueue, computeMain);
 
-			renderImageSet.SetLoadOp(LoadOp::kLoad, 0);
-			renderImageSet.SetLoadOp(LoadOp::kLoad, renderImageSet.GetAttachments().size() - 1, LoadOp::kClear);
-			renderImageSet.SetStoreOp(StoreOp::kStore, 0);
-			renderImageSet.SetStoreOp(StoreOp::kStore, renderImageSet.GetAttachments().size() - 1, StoreOp::kStore);
-			renderImageSet.Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor, 0);
-			renderImageSet.Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth | ImageAspect::kStencil, renderImageSet.GetAttachments().size() - 1);
+			for (uint32_t attachment : {kColorAttachment, kAccumulationAttachment, kRevealageAttachment})
+			{
+				renderImageSet.SetLoadOp(LoadOp::kLoad, attachment);
+				renderImageSet.SetStoreOp(StoreOp::kStore, attachment);
+				renderImageSet.Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor, attachment);
+			}
+			renderImageSet.SetLoadOp(LoadOp::kLoad, kDepthAttachment, LoadOp::kClear);
+			renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
+			renderImageSet.Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
 
 			swapchain.SetLoadOp(LoadOp::kClear, 0);
 			swapchain.SetStoreOp(StoreOp::kStore, 0);
@@ -2204,14 +2227,18 @@ bool WindowedApplication::Draw()
 
 			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
 
-			pipeline.SetDescriptorData(
-				"gTextures",
-				ImageBinding{
-					.sampler={},
-					.imageView=renderImageSet.GetAttachments()[0],
-					.layout=renderImageSet.GetLayout(0)},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-				newFrameIndex);
+			for (auto [attachment, base] : std::array{
+					 std::pair{kColorAttachment, SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE},
+					 std::pair{kAccumulationAttachment, SHADER_TYPES_OIT_ACCUMULATION_TEXTURE_BASE},
+					 std::pair{kRevealageAttachment, SHADER_TYPES_OIT_REVEALAGE_TEXTURE_BASE}})
+				pipeline.SetDescriptorData(
+					"gTextures",
+					ImageBinding{
+						.sampler={},
+						.imageView=renderImageSet.GetAttachments()[attachment],
+						.layout=renderImageSet.GetLayout(attachment)},
+					DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+					base + newFrameIndex);
 
 			pipeline.SetDescriptorData(
 				"gRWTextures",

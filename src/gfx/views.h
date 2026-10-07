@@ -67,8 +67,6 @@ public:
 	// uploads the views' view projections. call on the draw thread.
 	void UpdateBuffers();
 
-	// where each view's camera is, in world space (e.g. to sort blended draws back to front). any thread.
-	[[nodiscard]] std::vector<glm::vec3> GetEyePositions() const;
 	// where each view draws in the framebuffer: its grid cell, letterboxed to its camera's aspect ratio. any thread.
 	[[nodiscard]] std::vector<ViewportCreateDesc> GetViewports() const;
 

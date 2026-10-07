@@ -131,6 +131,12 @@ void Swapchain<kVk>::SetStoreOp(StoreOp storeOp, uint32_t index, StoreOp stencil
 }
 
 template <>
+void Swapchain<kVk>::SetClearValue(const ClearValue& value, uint32_t index)
+{
+	myFrames[myFrameIndex].SetClearValue(value, index);
+}
+
+template <>
 void Swapchain<kVk>::OnPresentResult(PresentResult result) noexcept
 {
 	if (result == PresentResult::kSuboptimal || result == PresentResult::kOutOfDate)

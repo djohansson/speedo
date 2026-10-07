@@ -44,6 +44,9 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
 		outDesc.images.emplace_back(image);
 	} (0), ...);
 
+	// see RenderTarget::SetClearValue
+	outDesc.clearValues.assign(imageCount, ClearValue{.color = {0.2F, 0.2F, 0.2F, 1.0F}, .depth = 1.0F, .stencil = 0});
+
 	// todo: configure
 	outDesc.layerCount = 1;
 	outDesc.useDynamicRendering = true;

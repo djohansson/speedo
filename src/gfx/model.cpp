@@ -32,48 +32,8 @@ Model::Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noe
 	: myDesc(std::move(desc))
 	, myBuffers(std::move(buffers))
 	, myUpload(upload)
-	, myInstanceTransforms(myDesc.instances)
 	, myJoints(myDesc.animation.jointCount > 0 ? RestJoints(myDesc.animation) : std::vector<SceneMatrix>{})
 {}
-
-std::array<float, 3> Model::GetCenter(const ModelSubmesh& submesh, uint32_t instance) const
-{
-	// skinned: the bounds of what its joints move, where they put it
-	if (submesh.skin >= 0 && std::cmp_less(submesh.skin, myDesc.animation.skins.size()) && !myDesc.jointBounds.empty())
-	{
-		const auto& skin = myDesc.animation.skins[submesh.skin];
-		glm::vec3 min(std::numeric_limits<float>::max());
-		glm::vec3 max(std::numeric_limits<float>::lowest());
-		for (size_t jointIt = 0; jointIt < skin.joints.size(); jointIt++)
-		{
-			auto index = skin.jointBase + jointIt;
-			if (index >= myJoints.size() || index >= myDesc.jointBounds.size() || myDesc.jointBounds[index][0] > myDesc.jointBounds[index][3])
-				continue;
-			const auto& bounds = myDesc.jointBounds[index];
-			auto joint = glm::make_mat4(myJoints[index].data());
-			for (uint32_t corner = 0; corner < 8; corner++)
-			{
-				auto world = glm::vec3(
-					joint * glm::vec4(bounds[(corner & 1U) != 0 ? 3 : 0], bounds[(corner & 2U) != 0 ? 4 : 1], bounds[(corner & 4U) != 0 ? 5 : 2], 1.0F));
-				min = glm::min(min, world);
-				max = glm::max(max, world);
-			}
-		}
-		if (min.x <= max.x)
-		{
-			auto center = 0.5F * (min + max);
-			return {center.x, center.y, center.z};
-		}
-		return submesh.center;
-	}
-
-	if (instance >= myInstanceTransforms.size())
-		return submesh.center;
-	auto center = glm::vec3(
-		glm::make_mat4(myInstanceTransforms[instance].data()) *
-		glm::vec4(submesh.localCenter[0], submesh.localCenter[1], submesh.localCenter[2], 1.0F));
-	return {center.x, center.y, center.z};
-}
 
 std::vector<const Buffer*> Model::GetUploadedBuffers() const
 {
@@ -96,13 +56,6 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 
 	auto worlds = EvaluateNodes(myDesc.animation, pose, from, weight);
 
-	// the cpu's copies, for GetCenter
-	for (const auto& link : myDesc.animation.instanceLinks)
-		if (link.instance < myInstanceTransforms.size() && link.node < worlds.size())
-		{
-			auto transform = glm::make_mat4(worlds[link.node].data()) * glm::make_mat4(link.local.data());
-			std::memcpy(myInstanceTransforms[link.instance].data(), glm::value_ptr(transform), sizeof(SceneMatrix));
-		}
 	if (!myJoints.empty())
 		WriteJoints(myDesc.animation, worlds, myJoints);
 
@@ -306,11 +259,9 @@ struct Staged
 		desc.scene = mesh->scene;
 		desc.cameras = mesh->cameras;
 		desc.lights = mesh->lights;
-		// skinned vertices are where their joints put them at rest
-		auto restJoints = desc.skinned ? RestJoints(mesh->animation) : std::vector<SceneMatrix>{};
 		for (const auto& submesh : mesh->submeshes)
 		{
-			auto& modelSubmesh = desc.submeshes.emplace_back(ModelSubmesh{
+			desc.submeshes.push_back(ModelSubmesh{
 				.firstIndex = submesh.firstIndex,
 				.indexCount = submesh.indexCount,
 				.material = submesh.material,
@@ -323,72 +274,6 @@ struct Staged
 				.morphDeltaBase = submesh.morphDeltaBase,
 				.morphFirstVertex = submesh.morphFirstVertex,
 				.morphWeightBase = submesh.morphWeightBase});
-			if (submesh.indexCount == 0)
-				continue;
-			// in world space: the center of its bounds' corners at each of its instances
-			glm::vec3 min(std::numeric_limits<float>::max());
-			glm::vec3 max(std::numeric_limits<float>::lowest());
-			for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
-			{
-				auto position = glm::make_vec3(mesh->vertices[index].position);
-				if (submesh.skin >= 0 && desc.skinned)
-				{
-					auto skinned = SkinPosition(
-						restJoints, mesh->animation.skins[submesh.skin].jointBase, mesh->skinVertices[index],
-						std::to_array(mesh->vertices[index].position));
-					position = glm::make_vec3(skinned.data());
-				}
-				min = glm::min(min, position);
-				max = glm::max(max, position);
-			}
-			glm::vec3 worldMin(std::numeric_limits<float>::max());
-			glm::vec3 worldMax(std::numeric_limits<float>::lowest());
-			for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
-				for (uint32_t corner = 0; corner < 8; corner++)
-				{
-					glm::vec4 local((corner & 1U) != 0 ? max.x : min.x, (corner & 2U) != 0 ? max.y : min.y, (corner & 4U) != 0 ? max.z : min.z, 1.0F);
-					auto world = glm::vec3(glm::make_mat4(mesh->instances[instanceIt].data()) * local);
-					worldMin = glm::min(worldMin, world);
-					worldMax = glm::max(worldMax, world);
-				}
-			auto center = 0.5F * (worldMin + worldMax);
-			modelSubmesh.center = {center.x, center.y, center.z};
-
-			glm::vec3 localMin(std::numeric_limits<float>::max());
-			glm::vec3 localMax(std::numeric_limits<float>::lowest());
-			for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
-			{
-				auto position = glm::make_vec3(mesh->vertices[index].position);
-				localMin = glm::min(localMin, position);
-				localMax = glm::max(localMax, position);
-				// what each of its joints moves
-				if (submesh.skin >= 0 && desc.skinned)
-				{
-					const auto& skin = mesh->skinVertices[index];
-					auto jointBase = mesh->animation.skins[submesh.skin].jointBase;
-					if (desc.jointBounds.empty())
-					{
-						constexpr auto kMax = std::numeric_limits<float>::max();
-						constexpr auto kMin = std::numeric_limits<float>::lowest();
-						desc.jointBounds.assign(mesh->animation.jointCount, {kMax, kMax, kMax, kMin, kMin, kMin});
-					}
-					for (uint32_t i = 0; i < 4; i++)
-					{
-						auto shift = (i % 2) * 16;
-						auto joint = jointBase + ((skin.joints[i / 2] >> shift) & 0xffffU);
-						if (((skin.weights[i / 2] >> shift) & 0xffffU) == 0 || joint >= desc.jointBounds.size())
-							continue;
-						auto& bounds = desc.jointBounds[joint];
-						for (int axis = 0; axis < 3; axis++)
-						{
-							bounds[axis] = std::min(bounds[axis], position[axis]);
-							bounds[3 + axis] = std::max(bounds[3 + axis], position[axis]);
-						}
-					}
-				}
-			}
-			auto localCenter = 0.5F * (localMin + localMax);
-			modelSubmesh.localCenter = {localCenter.x, localCenter.y, localCenter.z};
 		}
 		for (const auto& material : mesh->materials)
 			desc.materials.push_back({
@@ -456,7 +341,7 @@ struct Staged
 	// a scene asked for is a cache entry of its own, the default scene's is the one without
 	if (scene)
 		params.append(std::format("|scene-{}", *scene));
-	params.append("|cache-v24"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v25"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -534,8 +419,6 @@ struct Staged
 				submesh.morphFirstVertex += merged.desc.vertexCount;
 				submesh.morphWeightBase += weightBase;
 			}
-			for (size_t axis = 0; axis < 3; axis++)
-				submesh.center[axis] = place(submesh.center[axis], axis);
 			merged.desc.submeshes.push_back(submesh);
 		}
 		for (auto transform : desc.instances)
