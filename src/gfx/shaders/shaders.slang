@@ -383,6 +383,101 @@ float3 EnvironmentBrdfApprox(float3 f0, float f90, float roughness, float nDotV)
 	return f0 * ab.x + f90 * ab.y;
 }
 
+// KHR_materials_anisotropy's GGX: the distribution and height correlated visibility with a roughness along t (alphaT)
+// and along b (alphaB), as the Khronos sample viewer has them
+float DistributionGgxAnisotropic(float nDotH, float tDotH, float bDotH, float alphaT, float alphaB)
+{
+	float a2 = alphaT * alphaB;
+	float3 f = float3(alphaB * tDotH, alphaT * bDotH, a2 * nDotH);
+	float w2 = a2 / dot(f, f);
+	return a2 * w2 * w2 / kPi;
+}
+
+float VisibilityGgxAnisotropic(
+	float nDotL, float nDotV, float tDotV, float bDotV, float tDotL, float bDotL, float alphaT, float alphaB)
+{
+	float ggxV = nDotL * length(float3(alphaT * tDotV, alphaB * bDotV, nDotV));
+	float ggxL = nDotV * length(float3(alphaT * tDotL, alphaB * bDotL, nDotL));
+	float sum = ggxV + ggxL;
+	return sum > 0.0 ? 0.5 / sum : 0.0;
+}
+
+// KHR_materials_iridescence's thin film Fresnel (Belcour and Barla, "A Practical Extension to Microfacet Theory for the
+// Modeling of Varying Iridescence"), as the Khronos sample viewer has it: the reflectance of a film of an ior and
+// thickness (nanometers) over a base of f0, seen at cosine from outside (ior outsideIor)
+float IorToFresnel0(float transmittedIor, float incidentIor)
+{
+	float r = (transmittedIor - incidentIor) / (transmittedIor + incidentIor);
+	return r * r;
+}
+
+float3 IorToFresnel0(float3 transmittedIor, float incidentIor)
+{
+	float3 r = (transmittedIor - incidentIor) / (transmittedIor + incidentIor);
+	return r * r;
+}
+
+float3 Fresnel0ToIor(float3 fresnel0)
+{
+	float3 root = sqrt(fresnel0);
+	return (1.0 + root) / (1.0 - root);
+}
+
+// the spectral sensitivity of an optical path difference (nanometers), as rgb (linear rec 709)
+float3 IridescenceSensitivity(float opd, float3 shift)
+{
+	float phase = 2.0 * kPi * opd * 1.0e-9;
+	const float3 val = float3(5.4856e-13, 4.4201e-13, 5.2481e-13);
+	const float3 pos = float3(1.6810e+06, 1.7953e+06, 2.2084e+06);
+	const float3 var = float3(4.3278e+09, 9.3046e+09, 6.6121e+09);
+	float3 xyz = val * sqrt(2.0 * kPi * var) * cos(pos * phase + shift) * exp(-(phase * phase) * var);
+	xyz.x += 9.7470e-14 * sqrt(2.0 * kPi * 4.5282e+09) * cos(2.2399e+06 * phase + shift.x) * exp(-4.5282e+09 * phase * phase);
+	xyz /= 1.0685e-7;
+	return float3(
+		dot(float3(3.2404542, -1.5371385, -0.4985314), xyz),
+		dot(float3(-0.9692660, 1.8760108, 0.0415560), xyz),
+		dot(float3(0.0556434, -0.2040259, 1.0572252), xyz));
+}
+
+float3 IridescenceFresnel(float outsideIor, float filmIor, float cosine, float thickness, float3 baseF0)
+{
+	// the film fades out to the outside's ior as it gets thinner
+	float ior = lerp(outsideIor, filmIor, smoothstep(0.0, 0.03, thickness));
+	float sinTheta2Sq = (outsideIor / ior) * (outsideIor / ior) * (1.0 - cosine * cosine);
+	float cosTheta2Sq = 1.0 - sinTheta2Sq;
+	if (cosTheta2Sq < 0.0) // total internal reflection
+		return 1.0;
+	float cosTheta2 = sqrt(cosTheta2Sq);
+
+	// the first interface
+	float r0 = IorToFresnel0(ior, outsideIor);
+	float r12 = r0 + (1.0 - r0) * pow(saturate(1.0 - cosine), 5.0);
+	float t121 = 1.0 - r12;
+	float phi12 = ior < outsideIor ? kPi : 0.0;
+	float phi21 = kPi - phi12;
+
+	// the second
+	float3 baseIor = Fresnel0ToIor(clamp(baseF0, 0.0, 0.9999));
+	float3 r1 = IorToFresnel0(baseIor, ior);
+	float3 r23 = r1 + (1.0 - r1) * pow(saturate(1.0 - cosTheta2), 5.0);
+	float3 phi23 = select(baseIor < ior, float3(kPi), float3(0.0));
+
+	// the phase shift, and the reflectance's terms
+	float opd = 2.0 * ior * thickness * cosTheta2;
+	float3 phi = phi21 + phi23;
+	float3 r123 = clamp(r12 * r23, 1e-5, 0.9999);
+	float3 rootR123 = sqrt(r123);
+	float3 rs = t121 * t121 * r23 / (1.0 - r123);
+	float3 result = r12 + rs;
+	float3 cm = rs - t121;
+	for (uint m = 1; m <= 2; m++)
+	{
+		cm *= rootR123;
+		result += cm * 2.0 * IridescenceSensitivity(float(m) * opd, float(m) * phi);
+	}
+	return max(result, 0.0);
+}
+
 // KHR_materials_sheen's lobe: the Charlie distribution and Estevez and Kulla's visibility (as the Khronos sample viewer
 // has them: interpolated by alpha, the visibility at most 1), of a roughness at least 0.07
 float SheenAlpha(float roughness)
@@ -469,6 +564,18 @@ struct Surface
 	// KHR_materials_transmission: the light through the dielectric (the scene behind it, by its base color, transmission
 	// factor and volume attenuation), which the specular reflection lets through
 	float3 transmitted;
+	// KHR_materials_anisotropy: the strength (0 for none), and the direction it stretches the specular along (t) and
+	// across it (b), unit vectors perpendicular to the normal
+	float anisotropy;
+	float3 anisotropyT;
+	float3 anisotropyB;
+	// KHR_materials_iridescence: how much of the specular's fresnel is the thin film's (seen from the view)
+	float iridescence;
+	float3 iridescenceFresnel;
+	// KHR_materials_diffuse_transmission: how much of the diffuse is lit from the back instead (0 for none), and its
+	// tint
+	float diffuseTransmission;
+	float3 diffuseTransmissionColor;
 };
 
 // how much of what is below a clearcoat layer it reflects instead, seen from view (the spec's approximation, by the
@@ -486,10 +593,25 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	float alpha = max(roughness * roughness, 1e-3);
 	float nDotV = max(dot(normal, view), 1e-4);
 
-	float3 environmentSpecular = EnvironmentBrdfApprox(surface.f0, surface.f90, roughness, nDotV);
+	float3 environmentSpecular = lerp(
+		EnvironmentBrdfApprox(surface.f0, surface.f90, roughness, nDotV), surface.iridescenceFresnel, surface.iridescence);
 	EnvironmentData environment = gEnvironment[0];
-	float3 reflected = reflect(-view, normal);
-	float3 result = surface.occlusion * (surface.diffuseColor * EnvironmentIrradiance(environment, normal) +
+	// anisotropy bends the normal the environment is reflected about toward the direction across the stretch (as the
+	// Khronos sample viewer)
+	float3 reflectionNormal = normal;
+	if (surface.anisotropy > 0.0)
+	{
+		float3 anisotropicTangent = cross(surface.anisotropyB, view);
+		float3 anisotropicNormal = cross(anisotropicTangent, surface.anisotropyB);
+		float bend = 1.0 - surface.anisotropy * (1.0 - roughness);
+		reflectionNormal = normalize(lerp(anisotropicNormal, normal, bend * bend * bend * bend));
+	}
+	float3 reflected = reflect(-view, reflectionNormal);
+	float3 diffuseEnvironment = EnvironmentIrradiance(environment, normal);
+	if (surface.diffuseTransmission > 0.0)
+		diffuseEnvironment = lerp(
+			diffuseEnvironment, surface.diffuseTransmissionColor * EnvironmentIrradiance(environment, -normal), surface.diffuseTransmission);
+	float3 result = surface.occlusion * (surface.diffuseColor * diffuseEnvironment +
 										 environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
 	result += surface.transmitted * (1.0 - environmentSpecular);
 
@@ -549,9 +671,22 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		if (nDotL > 0.0)
 		{
 			float nDotH = saturate(dot(normal, halfway));
-			float3 fresnel = FresnelSchlick(surface.f0, surface.f90, vDotH);
-			float3 diffuse = (1.0 - fresnel) * surface.diffuseColor / kPi;
-			float3 specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
+			float3 fresnel = lerp(FresnelSchlick(surface.f0, surface.f90, vDotH), surface.iridescenceFresnel, surface.iridescence);
+			float3 diffuse = (1.0 - fresnel) * (1.0 - surface.diffuseTransmission) * surface.diffuseColor / kPi;
+			float3 specular;
+			if (surface.anisotropy > 0.0)
+			{
+				// stretched along t: its roughness there goes from the surface's toward 1 by the strength squared
+				float alphaT = lerp(alpha, 1.0, surface.anisotropy * surface.anisotropy);
+				float3 t = surface.anisotropyT;
+				float3 b = surface.anisotropyB;
+				specular = fresnel * DistributionGgxAnisotropic(nDotH, dot(t, halfway), dot(b, halfway), alphaT, alpha) *
+						   VisibilityGgxAnisotropic(nDotL, nDotV, dot(t, view), dot(b, view), dot(t, toLight), dot(b, toLight), alphaT, alpha);
+			}
+			else
+			{
+				specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
+			}
 			lit = (diffuse + specular) * nDotL;
 			if (sheenMax > 0.0)
 			{
@@ -560,6 +695,9 @@ float3 Shade(Surface surface, float3 view, float3 position)
 										  VisibilitySheen(nDotL, nDotV, surface.sheenRoughness) * nDotL;
 			}
 		}
+		// KHR_materials_diffuse_transmission: lights behind the surface shine through its diffuse
+		if (surface.diffuseTransmission > 0.0 && nDotL < 0.0)
+			lit += surface.diffuseTransmission * surface.diffuseTransmissionColor * surface.diffuseColor / kPi * -nDotL;
 		float coatNDotL = dot(surface.clearcoatNormal, toLight);
 		if (surface.clearcoat > 0.0)
 		{
@@ -606,6 +744,19 @@ float3 TransmittedLight(
 	if (attenuationDistance > 0.0)
 		light *= pow(max(attenuationColor, 1e-6), thickness / attenuationDistance);
 	return light;
+}
+
+// the tangent frame (rows: along +u, along +v as sampled, normal) of a texture view's texcoords at a pixel: the vertex
+// tangents' where they are valid, else one from screen space derivatives (see NormalFromMap)
+float3x3 SurfaceFrame(float3 normal, float4 tangent, float3 position, float4 texCoord01, TextureView view, float faceSign)
+{
+	float3 alongU = tangent.xyz - normal * dot(normal, tangent.xyz);
+	if (abs(tangent.w) > 0.5 && dot(alongU, alongU) > 1e-4 * dot(tangent.xyz, tangent.xyz))
+	{
+		float3x3 frame = TangentFrame(normal, normalize(alongU), tangent.w, view);
+		return float3x3(frame[0], frame[1], faceSign * normal);
+	}
+	return CotangentFrame(faceSign * normal, position, ViewTexCoord(view, texCoord01));
 }
 
 // a normal map's normal (x and y in rg, see MaterialData::normalView), by a scale of x and y, with normal the (unit)
@@ -787,6 +938,71 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 		float dielectric = transmission * (1.0 - metallic);
 		surface.transmitted = dielectric * color.rgb * light;
 		surface.diffuseColor *= 1.0 - transmission;
+	}
+
+	// KHR_materials_anisotropy: the direction in the tangent frame (of the vertex tangents, else derived from the
+	// texture's texcoords), along +u and up the image (glTF's bitangent, -v as sampled), turned by the rotation
+	surface.anisotropy = 0.0;
+	surface.anisotropyT = 0.0;
+	surface.anisotropyB = 0.0;
+	if ((material.flags & MATERIAL_FLAG_ANISOTROPY) != 0u)
+	{
+		TextureView frameView;
+		frameView.uTransform = float4(1.0, 0.0, 0.0, 0.0);
+		frameView.vTransform = float4(0.0, 1.0, 0.0, 0.0);
+		frameView.textureId = 0;
+		frameView.samplerId = 0;
+		frameView.texCoordSet = 0;
+		frameView.padding = 0;
+		float2 direction = float2(1.0, 0.0);
+		float strength = material.anisotropy.x;
+		if ((material.flags & MATERIAL_FLAG_ANISOTROPY_TEXTURE) != 0u)
+		{
+			frameView = gTextureViews[material.anisotropyView];
+			float3 sample = SampleView(frameView, ViewTexCoord(frameView, v.texCoord01)).rgb;
+			direction = sample.rg * 2.0 - 1.0;
+			strength *= sample.b;
+		}
+		direction = float2(
+			material.anisotropy.y * direction.x - material.anisotropy.z * direction.y,
+			material.anisotropy.z * direction.x + material.anisotropy.y * direction.y);
+		float3x3 frame = SurfaceFrame(normalize(v.normal), v.tangent, v.position, v.texCoord01, frameView, faceSign);
+		float3 t = direction.x * frame[0] - direction.y * frame[1];
+		t -= normal * dot(normal, t);
+		if (dot(t, t) > 1e-8)
+		{
+			surface.anisotropy = saturate(strength);
+			surface.anisotropyT = normalize(t);
+			surface.anisotropyB = cross(normal, surface.anisotropyT);
+		}
+	}
+
+	// KHR_materials_iridescence: the film's fresnel over the surface's f0, at the view's angle
+	surface.iridescence = 0.0;
+	surface.iridescenceFresnel = 0.0;
+	if ((material.flags & MATERIAL_FLAG_IRIDESCENCE) != 0u)
+	{
+		surface.iridescence = material.iridescence.x;
+		if ((material.flags & MATERIAL_FLAG_IRIDESCENCE_TEXTURE) != 0u)
+			surface.iridescence *= SampleView(material.iridescenceView, v.texCoord01).r;
+		float thickness = material.iridescence.w;
+		if ((material.flags & MATERIAL_FLAG_IRIDESCENCE_THICKNESS_TEXTURE) != 0u)
+			thickness = lerp(material.iridescence.z, material.iridescence.w, SampleView(material.iridescenceThicknessView, v.texCoord01).r);
+		surface.iridescenceFresnel =
+			IridescenceFresnel(1.0, material.iridescence.y, max(dot(normal, view), 1e-4), thickness, surface.f0);
+	}
+
+	// KHR_materials_diffuse_transmission
+	surface.diffuseTransmission = 0.0;
+	surface.diffuseTransmissionColor = 0.0;
+	if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION) != 0u)
+	{
+		surface.diffuseTransmission = material.diffuseTransmission.a;
+		if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION_TEXTURE) != 0u)
+			surface.diffuseTransmission *= SampleView(material.diffuseTransmissionView, v.texCoord01).r;
+		surface.diffuseTransmissionColor = material.diffuseTransmission.rgb;
+		if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE) != 0u)
+			surface.diffuseTransmissionColor *= SampleView(material.diffuseTransmissionColorView, v.texCoord01).rgb;
 	}
 
 	// the clearcoat covers the emission too

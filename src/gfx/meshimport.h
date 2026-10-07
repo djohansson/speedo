@@ -87,6 +87,26 @@ struct Material
 	float attenuationDistance = 0.0F;
 	// KHR_materials_dispersion: the ior's spread over the colors (20 / Abbe number; 0 none)
 	float dispersion = 0.0F;
+	// KHR_materials_anisotropy: the specular stretched along a direction in the tangent plane, by its strength (factor
+	// times the texture's blue) and direction (the texture's red and green, -1 to 1, along the tangent and bitangent,
+	// else the tangent), turned by rotation (radians, toward the bitangent)
+	float anisotropy = 0.0F;
+	float anisotropyRotation = 0.0F;
+	TextureRef anisotropyTexture;
+	// KHR_materials_iridescence: a thin film's interference over the specular, by its strength (factor times the
+	// texture's red), ior and thickness (nanometers: from min to max by the thickness texture's green, else max)
+	float iridescence = 0.0F;
+	TextureRef iridescenceTexture;
+	float iridescenceIor = 1.3F;
+	float iridescenceThicknessMin = 100.0F;
+	float iridescenceThicknessMax = 400.0F;
+	TextureRef iridescenceThicknessTexture;
+	// KHR_materials_diffuse_transmission: how much of the diffuse is light through a thin surface from its back
+	// (factor times the texture's alpha), tinted by its color (factor times the srgb texture)
+	float diffuseTransmission = 0.0F;
+	TextureRef diffuseTransmissionTexture;
+	std::array<float, 3> diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
+	TextureRef diffuseTransmissionColorTexture;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

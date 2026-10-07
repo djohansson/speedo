@@ -176,6 +176,14 @@ struct TextureView
 #define MATERIAL_FLAG_TRANSMISSION 131072u // transmission (see transmission)
 #define MATERIAL_FLAG_TRANSMISSION_TEXTURE 262144u // transmissionView: the factor in r, times transmission.x
 #define MATERIAL_FLAG_THICKNESS_TEXTURE 524288u // thicknessView: the thickness in r, times transmission.y
+#define MATERIAL_FLAG_ANISOTROPY 1048576u // anisotropy (see anisotropy)
+#define MATERIAL_FLAG_ANISOTROPY_TEXTURE 2097152u // anisotropyView: the direction in rg (0 to 1), the strength in b
+#define MATERIAL_FLAG_IRIDESCENCE 4194304u // iridescence (see iridescence)
+#define MATERIAL_FLAG_IRIDESCENCE_TEXTURE 8388608u // iridescenceView: the factor in r, times iridescence.x
+#define MATERIAL_FLAG_IRIDESCENCE_THICKNESS_TEXTURE 16777216u // iridescenceThicknessView: in r, from iridescence.z to .w
+#define MATERIAL_FLAG_DIFFUSE_TRANSMISSION 33554432u // diffuse transmission (see diffuseTransmission)
+#define MATERIAL_FLAG_DIFFUSE_TRANSMISSION_TEXTURE 67108864u // diffuseTransmissionView: the factor in r, times .a
+#define MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE 134217728u // diffuseTransmissionColorView: srgb, times .rgb
 
 struct MaterialData
 {
@@ -193,6 +201,12 @@ struct MaterialData
 	// distance (0: none), w the dispersion
 	alignas(16) FLOAT4(transmission);
 	alignas(16) FLOAT4(attenuationColor); // rgb
+	// KHR_materials_anisotropy: x the strength, y and z the cosine and sine of the rotation
+	alignas(16) FLOAT4(anisotropy);
+	// KHR_materials_iridescence: x the factor, y the film's ior, z and w the thickness range (nanometers)
+	alignas(16) FLOAT4(iridescence);
+	// KHR_materials_diffuse_transmission: rgb the color, a the factor
+	alignas(16) FLOAT4(diffuseTransmission);
 	alignas(4) UINT(flags);
 	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
 	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
@@ -216,6 +230,11 @@ struct MaterialData
 	alignas(4) UINT(sheenRoughnessView);
 	alignas(4) UINT(transmissionView);
 	alignas(4) UINT(thicknessView);
+	alignas(4) UINT(anisotropyView);
+	alignas(4) UINT(iridescenceView);
+	alignas(4) UINT(iridescenceThicknessView);
+	alignas(4) UINT(diffuseTransmissionView);
+	alignas(4) UINT(diffuseTransmissionColorView);
 };
 
 struct ModelInstance

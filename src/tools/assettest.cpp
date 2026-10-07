@@ -547,6 +547,16 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			Add(texturesOut, material.transmissionTexture, gfx::image::Usage::kOcclusion, 1.0F);
 		if (!material.thicknessTexture.empty())
 			Add(texturesOut, material.thicknessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
+		if (!material.anisotropyTexture.empty())
+			Add(texturesOut, material.anisotropyTexture, gfx::image::Usage::kLinear, 1.0F);
+		if (!material.iridescenceTexture.empty())
+			Add(texturesOut, material.iridescenceTexture, gfx::image::Usage::kOcclusion, 1.0F);
+		if (!material.iridescenceThicknessTexture.empty())
+			Add(texturesOut, material.iridescenceThicknessTexture, gfx::image::Usage::kMetallicRoughness, 1.0F);
+		if (!material.diffuseTransmissionTexture.empty())
+			Add(texturesOut, material.diffuseTransmissionTexture, gfx::image::Usage::kAlpha, 1.0F);
+		if (!material.diffuseTransmissionColorTexture.empty())
+			Add(texturesOut, material.diffuseTransmissionColorTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.normalTexture.empty())
 			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())

@@ -410,8 +410,14 @@ the view, and samples the texture at `log2(width) * roughness * saturate(2 ior -
 the ray fills in by the texture's alpha, which is why the color target is cleared to transparent black (ComputeMain
 draws the gray clear color itself where neither the views nor the backdrop are). The volume attenuates it by
 `attenuationColor^(thickness / attenuationDistance)`, and KHR_materials_dispersion samples each color with its own ior
-(spread by `(ior - 1) * 0.025 * dispersion`). The `KHR_materials_*` extensions not drawn are named in one import
-warning. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+(spread by `(ior - 1) * 0.025 * dispersion`). KHR_materials_anisotropy stretches the GGX lobe along a direction in the
+tangent frame (`SurfaceFrame`: the vertex tangents', else from derivatives; the texture's rg along +u and up the image,
+glTF's bitangent, i.e. -v as sampled; `kLinear`), turned by the rotation: alpha along it `lerp(alpha, 1, strength^2)`,
+and the environment is reflected about a bent normal (as the Khronos sample viewer). KHR_materials_iridescence's thin
+film Fresnel (`IridescenceFresnel`, Belcour and Barla) is evaluated once per pixel at the view's angle over the
+surface's f0 and mixed into the Fresnel of the environment and the lights by its strength. KHR_materials_diffuse_transmission
+lights that much of the diffuse from the back (lights behind the surface, and the irradiance around -n), tinted by its
+color. Every `KHR_materials_*` of the glTF-Sample-Assets is drawn. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16

@@ -79,6 +79,21 @@ struct ModelMaterial
 	std::array<float, 3> attenuationColor{1.0F, 1.0F, 1.0F};
 	float attenuationDistance = 0.0F;
 	float dispersion = 0.0F;
+	// see mesh::Material::anisotropy and iridescence
+	float anisotropy = 0.0F;
+	float anisotropyRotation = 0.0F;
+	TextureRef anisotropyTexture;
+	float iridescence = 0.0F;
+	TextureRef iridescenceTexture;
+	float iridescenceIor = 1.3F;
+	float iridescenceThicknessMin = 100.0F;
+	float iridescenceThicknessMax = 400.0F;
+	TextureRef iridescenceThicknessTexture;
+	// see mesh::Material::diffuseTransmission
+	float diffuseTransmission = 0.0F;
+	TextureRef diffuseTransmissionTexture;
+	std::array<float, 3> diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
+	TextureRef diffuseTransmissionColorTexture;
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale

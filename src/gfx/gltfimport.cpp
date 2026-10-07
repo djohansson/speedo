@@ -796,8 +796,6 @@ std::expected<Mesh, std::string> Import(
 	Images images(data, path, stats);
 	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
 	mesh.materials.reserve(data.materials_count);
-	// the KHR_materials_* extensions the materials use that aren't drawn (they are read past)
-	std::vector<std::string_view> ignoredMaterialExtensions;
 	for (cgltf_size materialIt = 0; materialIt < data.materials_count; materialIt++)
 	{
 		const auto& gltfMaterial = data.materials[materialIt];
@@ -911,17 +909,35 @@ std::expected<Mesh, std::string> Import(
 		}
 		if (gltfMaterial.has_dispersion)
 			material.dispersion = std::max(gltfMaterial.dispersion.dispersion, 0.0F);
+		if (gltfMaterial.has_anisotropy)
+		{
+			const auto& anisotropy = gltfMaterial.anisotropy;
+			material.anisotropy = std::clamp(anisotropy.anisotropy_strength, 0.0F, 1.0F);
+			material.anisotropyRotation = anisotropy.anisotropy_rotation;
+			material.anisotropyTexture = textureRef(anisotropy.anisotropy_texture);
+		}
+		if (gltfMaterial.has_iridescence)
+		{
+			const auto& iridescence = gltfMaterial.iridescence;
+			material.iridescence = std::clamp(iridescence.iridescence_factor, 0.0F, 1.0F);
+			material.iridescenceTexture = textureRef(iridescence.iridescence_texture);
+			material.iridescenceIor = std::max(iridescence.iridescence_ior, 1.0F);
+			material.iridescenceThicknessMin = std::max(iridescence.iridescence_thickness_min, 0.0F);
+			material.iridescenceThicknessMax = std::max(iridescence.iridescence_thickness_max, 0.0F);
+			material.iridescenceThicknessTexture = textureRef(iridescence.iridescence_thickness_texture);
+		}
+		if (gltfMaterial.has_diffuse_transmission)
+		{
+			const auto& diffuseTransmission = gltfMaterial.diffuse_transmission;
+			material.diffuseTransmission = std::clamp(diffuseTransmission.diffuse_transmission_factor, 0.0F, 1.0F);
+			material.diffuseTransmissionTexture = textureRef(diffuseTransmission.diffuse_transmission_texture);
+			for (size_t channel = 0; channel < 3; channel++)
+				material.diffuseTransmissionColor[channel] = std::max(diffuseTransmission.diffuse_transmission_color_factor[channel], 0.0F);
+			material.diffuseTransmissionColorTexture = textureRef(diffuseTransmission.diffuse_transmission_color_texture);
+		}
 		// an ior of 0 is a perfect reflector's (the dielectric's f0 then 1), as the extension allows
 		if (gltfMaterial.has_ior)
 			material.ior = std::max(gltfMaterial.ior.ior, 0.0F);
-
-		// the extensions the renderer doesn't draw yet, named once per model (see ignoredMaterialExtensions)
-		for (auto [has, name] : std::initializer_list<std::pair<bool, std::string_view>>{
-				 {gltfMaterial.has_anisotropy != 0, "KHR_materials_anisotropy"},
-				 {gltfMaterial.has_iridescence != 0, "KHR_materials_iridescence"},
-				 {gltfMaterial.has_diffuse_transmission != 0, "KHR_materials_diffuse_transmission"}})
-			if (has && !std::ranges::contains(ignoredMaterialExtensions, name))
-				ignoredMaterialExtensions.push_back(name);
 		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
@@ -943,13 +959,6 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		material.doubleSided = gltfMaterial.double_sided != 0;
-	}
-	if (!ignoredMaterialExtensions.empty())
-	{
-		std::string names;
-		for (auto name : ignoredMaterialExtensions)
-			names += std::format("{}{}", names.empty() ? "" : ", ", name);
-		warn("material extensions that aren't drawn yet are ignored: {}", names);
 	}
 
 	// primitives without a material get the spec's default one: white, metallic 1, roughness 1, opaque, single sided

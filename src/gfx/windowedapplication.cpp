@@ -651,6 +651,11 @@ struct MaterialTextures
 	Texture sheenRoughness;
 	Texture transmission;
 	Texture thickness;
+	Texture anisotropy;
+	Texture iridescence;
+	Texture iridescenceThickness;
+	Texture diffuseTransmission;
+	Texture diffuseTransmissionColor;
 };
 
 // a material's defaults: white, untextured, rough, dielectric, with the default specular (ior 1.5, white)
@@ -683,7 +688,9 @@ static void InstallModel(
 		for (const auto* texture :
 			 {&material.diffuse, &material.alpha, &material.normal, &material.emissive, &material.occlusion, &material.metallicRoughness,
 			  &material.specular, &material.specularColor, &material.clearcoat, &material.clearcoatRoughness, &material.clearcoatNormal,
-			  &material.sheenColor, &material.sheenRoughness, &material.transmission, &material.thickness})
+			  &material.sheenColor, &material.sheenRoughness, &material.transmission, &material.thickness,
+			  &material.anisotropy, &material.iridescence, &material.iridescenceThickness,
+			  &material.diffuseTransmission, &material.diffuseTransmissionColor})
 			if (texture->image &&
 				std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 				uploads.images.emplace_back(texture->image, texture->upload);
@@ -853,6 +860,48 @@ static void InstallModel(
 				for (auto [texture, ref, view, flag] : std::array{
 						 std::tuple{&textures[materialIt].transmission, &desc.transmissionTexture, &material.transmissionView, MATERIAL_FLAG_TRANSMISSION_TEXTURE},
 						 std::tuple{&textures[materialIt].thickness, &desc.thicknessTexture, &material.thicknessView, MATERIAL_FLAG_THICKNESS_TEXTURE}})
+					if (auto id = viewOf(*texture, *ref))
+					{
+						*view = *id;
+						material.flags |= flag;
+					}
+			}
+			if (desc.anisotropy > 0.0F)
+			{
+				material.flags |= MATERIAL_FLAG_ANISOTROPY;
+				material.anisotropy[0] = desc.anisotropy;
+				material.anisotropy[1] = std::cos(desc.anisotropyRotation);
+				material.anisotropy[2] = std::sin(desc.anisotropyRotation);
+				if (auto id = viewOf(textures[materialIt].anisotropy, desc.anisotropyTexture))
+				{
+					material.anisotropyView = *id;
+					material.flags |= MATERIAL_FLAG_ANISOTROPY_TEXTURE;
+				}
+			}
+			if (desc.iridescence > 0.0F)
+			{
+				material.flags |= MATERIAL_FLAG_IRIDESCENCE;
+				material.iridescence[0] = desc.iridescence;
+				material.iridescence[1] = desc.iridescenceIor;
+				material.iridescence[2] = desc.iridescenceThicknessMin;
+				material.iridescence[3] = desc.iridescenceThicknessMax;
+				for (auto [texture, ref, view, flag] : std::array{
+						 std::tuple{&textures[materialIt].iridescence, &desc.iridescenceTexture, &material.iridescenceView, MATERIAL_FLAG_IRIDESCENCE_TEXTURE},
+						 std::tuple{&textures[materialIt].iridescenceThickness, &desc.iridescenceThicknessTexture, &material.iridescenceThicknessView, MATERIAL_FLAG_IRIDESCENCE_THICKNESS_TEXTURE}})
+					if (auto id = viewOf(*texture, *ref))
+					{
+						*view = *id;
+						material.flags |= flag;
+					}
+			}
+			if (desc.diffuseTransmission > 0.0F)
+			{
+				material.flags |= MATERIAL_FLAG_DIFFUSE_TRANSMISSION;
+				std::ranges::copy(desc.diffuseTransmissionColor, material.diffuseTransmission);
+				material.diffuseTransmission[3] = desc.diffuseTransmission;
+				for (auto [texture, ref, view, flag] : std::array{
+						 std::tuple{&textures[materialIt].diffuseTransmission, &desc.diffuseTransmissionTexture, &material.diffuseTransmissionView, MATERIAL_FLAG_DIFFUSE_TRANSMISSION_TEXTURE},
+						 std::tuple{&textures[materialIt].diffuseTransmissionColor, &desc.diffuseTransmissionColorTexture, &material.diffuseTransmissionColorView, MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE}})
 					if (auto id = viewOf(*texture, *ref))
 					{
 						*view = *id;
@@ -1110,6 +1159,24 @@ static void LoadAndInstallModels(
 					 std::tuple{&material.clearcoatTexture, gfx::image::Usage::kOcclusion, &texture.clearcoat},
 					 std::tuple{&material.clearcoatRoughnessTexture, gfx::image::Usage::kMetallicRoughness, &texture.clearcoatRoughness},
 					 std::tuple{&material.clearcoatNormalTexture, gfx::image::Usage::kNormal, &texture.clearcoatNormal}})
+				if (!ref->empty())
+					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+		// the anisotropy's direction and strength are a linear rgb texture; the iridescence's factor is the red, its
+		// thickness the green
+		if (material.anisotropy > 0.0F && !material.anisotropyTexture.empty())
+			loads.push_back(
+				{material.anisotropyTexture.path, material.anisotropyTexture.embeddedImage, {.usage = gfx::image::Usage::kLinear}, &texture.anisotropy});
+		if (material.iridescence > 0.0F)
+			for (auto [ref, usage, result] : std::array{
+					 std::tuple{&material.iridescenceTexture, gfx::image::Usage::kOcclusion, &texture.iridescence},
+					 std::tuple{&material.iridescenceThicknessTexture, gfx::image::Usage::kMetallicRoughness, &texture.iridescenceThickness}})
+				if (!ref->empty())
+					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+		// the diffuse transmission's factor is the texture's alpha, its color srgb
+		if (material.diffuseTransmission > 0.0F)
+			for (auto [ref, usage, result] : std::array{
+					 std::tuple{&material.diffuseTransmissionTexture, gfx::image::Usage::kAlpha, &texture.diffuseTransmission},
+					 std::tuple{&material.diffuseTransmissionColorTexture, gfx::image::Usage::kColor, &texture.diffuseTransmissionColor}})
 				if (!ref->empty())
 					loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 		// the transmission's factor is the texture's red, the thickness the green
