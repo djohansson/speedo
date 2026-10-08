@@ -838,13 +838,17 @@ float3 TransmittedLight(
 
 	ViewData viewData = gViewData[gPushConstants.frameIndex][viewId];
 	float4 clip = mul(viewData.viewProjection, float4(exit, 1.0));
-	float2 ndc = clip.xy / clip.w;
+	// where the ray leaves the volume, in the view, mirrored back in at its edges: the scene beyond them wasn't drawn,
+	// and clamping repeated the edge's texels (streaks that stretched as the glass neared a corner). mirrored at the view's
+	// own edges (a mirroring sampler would mirror at the texture's: wrong for a grid of views, or letterboxing)
+	float2 local = clip.w > 0.0 ? clip.xy / clip.w * 0.5 + 0.5 : float2(0.5);
+	local = 1.0 - abs(1.0 - abs(local) % 2.0);
 	Texture2D scene = gTextures[SHADER_TYPES_TRANSMISSION_TEXTURE];
 	uint width;
 	uint height;
 	uint levels;
 	scene.GetDimensions(0, width, height, levels);
-	float2 uv = (viewData.viewport.xy + (ndc * 0.5 + 0.5) * viewData.viewport.zw) / float2(width, height);
+	float2 uv = (viewData.viewport.xy + local * viewData.viewport.zw) / float2(width, height);
 	float lod = log2(float(width)) * roughness * saturate(ior * 2.0 - 2.0);
 	float4 behind = scene.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, lod);
 	// premultiplied: the clear color is transparent black

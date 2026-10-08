@@ -9,6 +9,7 @@
 #include <core/uuids_extra.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <array>
 #include <cctype>
 #include <filesystem>
@@ -299,9 +300,12 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 
 	if (!filePath)
 	{
-		// computed each time: it is small
+		// computed each time, at SPEEDO_SKY_WIDTH if set (smaller for automated runs: the default takes seconds)
 		progress = 32;
-		if (prefilter(environment::ProceduralSky()))
+		uint32_t width = environment::kSkyWidth;
+		if (const char* skyWidth = std::getenv("SPEEDO_SKY_WIDTH"); skyWidth != nullptr && *skyWidth != '\0')
+			width = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(skyWidth, nullptr, 10)), 64U, environment::kMaxFileWidth) & ~1U;
+		if (prefilter(environment::ProceduralSky(width)))
 			return {};
 		progress = 255;
 	}

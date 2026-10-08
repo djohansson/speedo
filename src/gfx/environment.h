@@ -28,7 +28,9 @@ struct Panorama
 
 // the panorama's widths: a file's is scaled down to this (a 8k panorama is 256 MB as half floats)
 constexpr uint32_t kMaxFileWidth = 2048;
-constexpr uint32_t kSkyWidth = 256;
+// the sky's (4 s to prefilter in a profile build): its sun disk is 16 texels across, round in the backdrop (at 256 it was
+// 2, a square). the client takes another from SPEEDO_SKY_WIDTH (assettest.ps1's runs: 256)
+constexpr uint32_t kSkyWidth = 2048;
 
 // reads a panorama (Radiance .hdr, or anything else stb_image reads, as linear), scaled down to at most maxWidth
 [[nodiscard]] std::expected<Panorama, std::string> Import(const std::filesystem::path& path, uint32_t maxWidth = kMaxFileWidth);
@@ -37,7 +39,7 @@ constexpr uint32_t kSkyWidth = 256;
 // directional light it replaced: 2.2, the diffuse light of a white surface facing it (0.7) times pi)
 constexpr std::array<float, 3> kSkySunDirection{0.2592F, 0.8639F, 0.4319F}; // normalize(0.3, 1, 0.5)
 constexpr float kSkySunIrradiance = 2.2F;
-constexpr float kSkySunRadius = 0.025F; // radians (1.4 degrees: a few texels of the sky, larger than the real sun's)
+constexpr float kSkySunRadius = 0.025F; // radians (1.4 degrees, larger than the real sun's)
 
 // the default environment, where no file is loaded (and for tests): a sky over a ground, as bright on average as the
 // constant ambient light it replaced (0.3), and a sun
