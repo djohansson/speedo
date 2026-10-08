@@ -88,7 +88,9 @@ constexpr size_t kMaxDominantLights = 4;
 // ExtractDominantLights), which light the scene as directional lights instead
 constexpr uint32_t kLevelCount = 6;
 
-// a panorama prefiltered for the shader: the specular levels, as R16G16B16A16 half floats, which are the mip levels of
+// a panorama prefiltered for the shader (by the kernels of environment.slang: gfx::EnvironmentFilter runs them on the gpu,
+// the tests on the cpu, see src/tools/environmentkernels.h): the specular levels, as R16G16B16A16 half floats, which are
+// the mip levels of
 // one texture (sampled at the roughness's level), and the irradiance as 9 spherical harmonics coefficients (rgb, w
 // unused), divided by pi: what a white Lambertian surface of normal n reflects, sum(irradiance[i] * Y_i(n)), with the
 // basis' constants applied as in EvaluateIrradiance
@@ -103,13 +105,6 @@ struct Environment
 	std::array<std::array<float, 4>, 9> irradiance{};
 	std::vector<DominantLight> dominantLights;
 };
-
-// prefilters a panorama: allocate is called once with the size of the levels, which are written to the memory it
-// returns, level 0 first. returns an error message if cancelled() returns true.
-[[nodiscard]] std::expected<Environment, std::string> Prefilter(
-	const Panorama& panorama,
-	const std::function<std::byte*(size_t size)>& allocate,
-	const std::function<bool()>& cancelled = {});
 
 // the radiance a white Lambertian surface of normal n (unit length) reflects (as the shader evaluates it)
 [[nodiscard]] std::array<float, 3> EvaluateIrradiance(const Environment& environment, const std::array<float, 3>& n);

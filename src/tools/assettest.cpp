@@ -5,6 +5,7 @@
 // asset failed.
 
 #include <gfx/environment.h>
+#include "environmentkernels.h"
 #include <gfx/imageimport.h>
 #include <gfx/gltfimport.h>
 #include <gfx/meshimport.h>
@@ -946,20 +947,26 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 // prefilters an environment panorama and checks the result: every level there and finite, each level's mean radiance as the
 // panorama's (filtering moves light around, it doesn't add or remove any), and the irradiance's mean over the sphere
 // (its constant term) the panorama's mean too
-// expectedLight: the dominant light the panorama was made with (the procedural sky's sun), which the one found must match
+// an environment prefiltered as the client does it: its dominant lights taken out on the cpu, and its levels and
+// irradiance from the gpu's kernels, run on the cpu (see environmentkernels). panorama: a file's, or the procedural sky's
+// (sky: then the kernels draw it from its parameters, without its sun, and its sun is expectedLight, which the dominant
+// light found in its panorama must match)
 Report CheckEnvironment(
-	const gfx::environment::Panorama& panorama, const std::optional<gfx::environment::DominantLight>& expectedLight = std::nullopt)
+	const gfx::environment::Panorama& panorama,
+	const gfx::environment::SkyParameters* sky = nullptr,
+	const std::optional<gfx::environment::DominantLight>& expectedLight = std::nullopt)
 {
 	using namespace gfx::environment;
 
 	Report report;
 	std::vector<std::byte> data;
-	auto environment = Prefilter(panorama, [&data](size_t size) { data.resize(size); return data.data(); });
-	if (!environment)
-	{
-		report.Fail("{}", environment.error());
-		return report;
-	}
+	auto lighting = panorama;
+	auto dominantLights = ExtractDominantLights(lighting);
+	std::optional<Environment> environment = environmentkernels::Prefilter(
+		sky != nullptr ? environmentkernels::Source{.sky = sky, .skyWidth = panorama.width}
+					   : environmentkernels::Source{.original = &panorama, .lighting = &lighting},
+		data);
+	environment->dominantLights = std::move(dominantLights);
 
 	auto luminance = [](const std::array<double, 3>& rgb) { return (0.2126 * rgb[0]) + (0.7152 * rgb[1]) + (0.0722 * rgb[2]); };
 	auto mean = luminance(MeanRadiance(panorama));
@@ -1049,7 +1056,8 @@ Report CheckEnvironment(
 	{
 		const auto& level = environment->levels[levelIt];
 		auto levelMean = luminance(MeanRadiance(level, data));
-		auto error = std::abs(levelMean / (levelIt == 0 ? mean : lightingMean) - 1.0);
+		// level 0 is the panorama, dominant lights included (but the procedural sky's has no sun: the shader draws it)
+		auto error = std::abs(levelMean / (levelIt == 0 && sky == nullptr ? mean : lightingMean) - 1.0);
 		if (!std::isfinite(levelMean))
 			report.Fail("level {} has values that aren't finite", levelIt);
 		else if (error > 0.1)
@@ -1249,7 +1257,7 @@ int main(int argc, char* argv[])
 		auto start = std::chrono::steady_clock::now();
 		gfx::environment::DominantLight skySun{.direction = gfx::environment::kSkySunDirection};
 		skySun.irradiance.fill(gfx::environment::kSkySunIrradiance);
-		auto report = CheckEnvironment(gfx::environment::ProceduralSky(), skySun);
+		auto report = CheckEnvironment(gfx::environment::ProceduralSky(), &gfx::environment::ProceduralSkyParameters(), skySun);
 		Print("procedural sky", report, std::chrono::steady_clock::now() - start);
 		Count(environmentResults, report.result)++;
 

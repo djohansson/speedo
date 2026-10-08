@@ -466,7 +466,7 @@ radius giving the 2.2 lux of the directional light it replaced, `kSkySunDirectio
 evaluates where the sky is seen sharply, `EnvironmentData::skyZenith` and on: the backdrop, and reflections below the first
 prefiltered level's roughness, blending into it; the 256 wide panorama it lights with is blurry anyway, and its sun was a
 square; a 2048 panorama took seconds to prefilter on the cpu at every start). The cpu `ProceduralSky` panorama (its sun
-drawn with 4x4 samples per texel, scaled to exactly that irradiance) is the tests' reference. A panorama's strongest compact light sources are its dominant lights (not
+drawn with 4x4 samples per texel, scaled to exactly that irradiance) tests the dominant light extraction. A panorama's strongest compact light sources are its dominant lights (not
 necessarily a sun: a softbox in neutral.hdr, windows in ennis.hdr and papermill.hdr), which
 `environment::ExtractDominantLights` takes out, up to `kMaxDominantLights` (4), each found in what the ones before left
 (its brightest texel, if 50 times the mean of what is left, and the texels around it within 15 degrees brighter than 2%
@@ -490,9 +490,16 @@ uploads both panoramas; the procedural sky needs nothing (its sun is known, and 
 `gEnvironment` first): the source pyramid (`EnvironmentDownsample`, by solid angle, down to 8 wide), level 0 (the original,
 or the sky's source), the GGX and Charlie levels, and the irradiance (one group, into `gEnvironment[0]`), each kernel over
 a mip as a storage image (`ImageViewCreateDesc::baseLevel`) and dispatched by threads (`CommandEncoder::DispatchThreads`,
-by the reflected group size). Its renders match the cpu reference's (0.01 of 255 on average). The resources of a layout
-of its own start at set 1: set 0 is the push constants' (`[[vk::binding(0, 0)]]` on them, as in `Main`), else they
-share binding 0 with a resource. `environment::Prefilter`, the cpu reference the tests check, turns the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
+by the reflected group size). The resources of a layout of its own start at set 1: set 0 is the push constants'
+(`[[vk::binding(0, 0)]]` on them, as in `Main`), else they share binding 0 with a resource. `assettest` checks the same
+kernels, run on the cpu: slang compiles `environment.slang` to c++ at build time (`slangc -target cpp`, a custom command
+of the assettest target), and `src/tools/environmentkernels*` run it in `EnvironmentFilter::Record`'s order, with cpu
+textures behind the prelude's `ITexture` (trilinear, around in u and clamped in v, as the gpu's sampler) and rows of
+groups on threads. A group's threads run one after another there, so the kernels can't use shared memory or group
+barriers (the irradiance is a thread per coefficient). The generated code and its host (`environmentkernelsbridge.cpp`,
+plain types) compile as c++20: slang's prelude includes `<stdfloat>` from c++23 on, which libc++ lacks. libc++ runs
+`std::execution::par` serially, hence the threads (the old cpu prefilter took 4 s a panorama, the kernels 1 s). The
+kernels turn the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
 sum with n = v = r, filtered importance sampling from a mip pyramid; level 0 is the panorama, dominant lights included:
 the backdrop, and mirrors), the mips of one `R16G16B16A16_SFLOAT` texture
 (`SHADER_TYPES_ENVIRONMENT_TEXTURE`), 6 levels prefiltered with the sheen's Charlie lobe (`Environment::sheenLevels`, from

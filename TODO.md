@@ -10,6 +10,7 @@
 * todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
 * todo: investigate and implement optimization techniques such as clustered forward shading
 	* culling: none at draw time (main pass or shadow views): every view draws every submesh, which is also why at most 4 point and spot lights cast shadows
+* todo: image::CompressLevel (texture compression at import) loops over block rows with std::execution::par, which libc++ runs serially: spread them over threads (as src/tools/environmentkernelsbridge.cpp does), imports would be several times faster
 * todo: frame graph (gfx::FrameGraph) follow-ups
 	* one queue: no async compute or transfer passes, and the passes are recorded in order into one command buffer (only the main pass's views go to secondary command buffers)
 	* the OIT node pool is sized for 4 nodes per pixel of the render target (177 MB at 2560x1440) and lives the whole frame, so nothing aliases it

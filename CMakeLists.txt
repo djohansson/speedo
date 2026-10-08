@@ -354,7 +354,38 @@ endif()
 
 # imports models and images like the client does and checks the results, see src/tools/assettest.cpp and
 # scripts/assettest.ps1
-add_executable(assettest ${SPEEDO_SOURCE_DIR}/tools/assettest.cpp)
+#
+# it runs the environment's prefiltering kernels (src/gfx/shaders/environment.slang) on the cpu, as slang's c++ target
+# compiles them: the same kernels the client runs on the gpu (see src/tools/environmentkernels.cpp)
+set(ENVIRONMENT_KERNELS_SOURCE ${SPEEDO_SOURCE_DIR}/gfx/shaders/environment.slang)
+set(ENVIRONMENT_KERNELS_CPP ${CMAKE_CURRENT_BINARY_DIR}/environmentkernels.generated.cpp)
+set(ENVIRONMENT_KERNELS_ENTRY_POINTS)
+foreach(entry EnvironmentSky EnvironmentDownsample EnvironmentCopy EnvironmentSpecular EnvironmentSheen EnvironmentIrradiance)
+	list(APPEND ENVIRONMENT_KERNELS_ENTRY_POINTS -entry ${entry} -stage compute)
+endforeach()
+add_custom_command(
+	OUTPUT ${ENVIRONMENT_KERNELS_CPP}
+	COMMAND
+		${SLANGC_EXECUTABLE} ${ENVIRONMENT_KERNELS_SOURCE} -I ${SPEEDO_SOURCE_DIR}/gfx/shaders -DSHADERTYPES_H_GPU_TARGET=true
+		-target cpp ${ENVIRONMENT_KERNELS_ENTRY_POINTS} -o ${ENVIRONMENT_KERNELS_CPP}
+	DEPENDS
+		${ENVIRONMENT_KERNELS_SOURCE}
+		${SPEEDO_SOURCE_DIR}/gfx/shaders/capi.h
+		${SPEEDO_SOURCE_DIR}/gfx/shaders/sky.h
+	COMMENT "Compiling the environment kernels to c++"
+	VERBATIM
+)
+# generated: its warnings aren't ours. both it and its host compile as c++20: slang's prelude includes <stdfloat> for
+# c++23 and up, which libc++ doesn't have
+set_source_files_properties(${ENVIRONMENT_KERNELS_CPP} PROPERTIES COMPILE_OPTIONS "-w;-std=c++20")
+set_source_files_properties(${SPEEDO_SOURCE_DIR}/tools/environmentkernelsbridge.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
+add_executable(
+	assettest
+	${SPEEDO_SOURCE_DIR}/tools/assettest.cpp
+	${SPEEDO_SOURCE_DIR}/tools/environmentkernels.cpp
+	${SPEEDO_SOURCE_DIR}/tools/environmentkernelsbridge.cpp
+	${ENVIRONMENT_KERNELS_CPP}
+)
 
 target_compile_features(
 	assettest

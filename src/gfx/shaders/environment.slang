@@ -219,59 +219,48 @@ void EnvironmentSheen(uint3 id : SV_DispatchThreadID)
 	gOutput[id.xy] = float4(weight > 0.0 ? sum / weight : SampleSource(0.0, uv), 1.0);
 }
 
-// the irradiance as 9 spherical harmonics coefficients into gEnvironment[0] (see gfx::environment::Prefilter): the
-// radiance of gInput (a mip of the source at most 128 wide) projected on the basis by each texel's solid angle, convolved
-// with the clamped cosine and divided by pi. one group: each thread sums a share of the texels, then they are added up
-static const uint kIrradianceThreads = 256;
-groupshared float3 gPartial[kIrradianceThreads];
+// the irradiance as 9 spherical harmonics coefficients into gEnvironment[0] (see gfx::environment::EvaluateIrradiance):
+// the radiance of gInput (a mip of the source at most 128 wide) projected on the basis by each texel's solid angle,
+// convolved with the clamped cosine and divided by pi. a thread per coefficient, without shared memory (the tests run the
+// kernels on the cpu, where a group's threads run one after another)
+float ShBasis(uint c, float3 d)
+{
+	switch (c)
+	{
+	case 0: return 0.282095;
+	case 1: return 0.488603 * d.y;
+	case 2: return 0.488603 * d.z;
+	case 3: return 0.488603 * d.x;
+	case 4: return 1.092548 * d.x * d.y;
+	case 5: return 1.092548 * d.y * d.z;
+	case 6: return 0.315392 * (3.0 * d.z * d.z - 1.0);
+	case 7: return 1.092548 * d.x * d.z;
+	default: return 0.546274 * (d.x * d.x - d.y * d.y);
+	}
+}
 
 [shader("compute")]
-[numthreads(kIrradianceThreads, 1, 1)]
+[numthreads(16, 1, 1)]
 void EnvironmentIrradiance(uint3 id : SV_GroupThreadID)
 {
+	uint c = id.x;
+	if (c >= 9)
+		return;
+
 	uint width;
 	uint height;
 	gInput.GetDimensions(width, height);
-
-	float3 sums[9];
-	for (uint c = 0; c < 9; c++)
-		sums[c] = 0.0;
-	for (uint texel = id.x; texel < width * height; texel += kIrradianceThreads)
+	float3 sum = 0.0;
+	for (uint y = 0; y < height; y++)
 	{
-		uint x = texel % width;
-		uint y = texel / width;
 		float v = (float(y) + 0.5) / float(height);
 		float solidAngle = (2.0 * kPi / float(width)) * (kPi / float(height)) * sin(v * kPi);
-		float3 d = Direction(float2((float(x) + 0.5) / float(width), v));
-		float3 radiance = gInput.Load(int3(x, y, 0)).rgb * solidAngle;
-		float basis[9] = {
-			0.282095,
-			0.488603 * d.y,
-			0.488603 * d.z,
-			0.488603 * d.x,
-			1.092548 * d.x * d.y,
-			1.092548 * d.y * d.z,
-			0.315392 * (3.0 * d.z * d.z - 1.0),
-			1.092548 * d.x * d.z,
-			0.546274 * (d.x * d.x - d.y * d.y),
-		};
-		for (uint c = 0; c < 9; c++)
-			sums[c] += radiance * basis[c];
-	}
-
-	const float kBand[9] = {1.0, 2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 0.25, 0.25, 0.25, 0.25, 0.25};
-	for (uint c = 0; c < 9; c++)
-	{
-		gPartial[id.x] = sums[c];
-		GroupMemoryBarrierWithGroupSync();
-		for (uint stride = kIrradianceThreads / 2; stride > 0; stride /= 2)
+		for (uint x = 0; x < width; x++)
 		{
-			if (id.x < stride)
-				gPartial[id.x] += gPartial[id.x + stride];
-			GroupMemoryBarrierWithGroupSync();
+			float3 d = Direction(float2((float(x) + 0.5) / float(width), v));
+			sum += gInput.Load(int3(x, y, 0)).rgb * (solidAngle * ShBasis(c, d));
 		}
-		if (id.x == 0)
-			gEnvironment[0].irradiance[c] = float4(gPartial[0] * kBand[c], 0.0);
-		GroupMemoryBarrierWithGroupSync();
 	}
+	float band = c == 0 ? 1.0 : c < 4 ? 2.0 / 3.0 : 0.25;
+	gEnvironment[0].irradiance[c] = float4(sum * band, 0.0);
 }
