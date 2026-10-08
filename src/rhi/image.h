@@ -146,9 +146,10 @@ struct ImageViewCreateDesc final : DeviceObjectCreateDesc<G>
 	ImageHandle<G> image{};
 	Format format{};
 	ImageAspect aspectFlags{};
-	uint32_t levelCount = 0; // the mip levels it views, from level 0: 0 for all of the image's
+	uint32_t levelCount = 0; // the mip levels it views, from baseLevel: 0 for all of the image's
 	// where its r, g, b and a come from (e.g. a texture whose channels the shader expects elsewhere)
 	std::array<ComponentSwizzle, 4> components{};
+	uint32_t baseLevel = 0; // the first mip level it views (levelCount counts from it), e.g. one level as a storage image
 };
 
 template <GraphicsApi G>

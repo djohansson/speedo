@@ -293,7 +293,7 @@ PipelineLayout<kVk>::~PipelineLayout()
 }
 
 template <>
-uint64_t Pipeline<kVk>::InternalCalculateHashKey(GraphicsPipelineVariant variant) const
+uint64_t Pipeline<kVk>::InternalCalculateHashKey(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant) const
 {
 	ZoneScopedN("Pipeline::InternalCalculateHashKey");
 
@@ -332,6 +332,12 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey(GraphicsPipelineVariant variant
 			result = XXH3_64bits_update(gThreadXxhState.get(), &rendering->stencilAttachmentFormat, sizeof(rendering->stencilAttachmentFormat));
 			ENSURE(result != XXH_ERROR);
 		}
+	}
+
+	if (myBindPoint == PipelineBindPoint::kCompute)
+	{
+		result = XXH3_64bits_update(gThreadXxhState.get(), &computeVariant, sizeof(computeVariant));
+		ENSURE(result != XXH_ERROR);
 	}
 
 	// todo: hash more releveant state for the current bind point... framebuffer, model, etc.
@@ -631,7 +637,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKey)
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKey, ComputePipelineVariant variant)
 {
 	ZoneScopedN("Pipeline::InternalCreateComputePipeline");
 
@@ -640,7 +646,12 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 	const auto& layout = *layoutIt;
 
 	VkComputePipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .pNext=nullptr, .flags=0};
-	pipelineInfo.stage = myComputeState.shaderStage;
+	ENSUREF(
+		variant.entryPoint < myComputeState.shaderStages.size(),
+		"the layout has no compute entry point {} (it has {})",
+		variant.entryPoint,
+		myComputeState.shaderStages.size());
+	pipelineInfo.stage = myComputeState.shaderStages[variant.entryPoint];
 	pipelineInfo.layout = layout;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;
@@ -660,12 +671,12 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 }
 
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant variant)
+PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant)
 {
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
 	auto [keyValIt, insertResult] =
-		myPipelineMap.insert({InternalCalculateHashKey(variant), PipelineHandle<kVk>{}});
+		myPipelineMap.insert({InternalCalculateHashKey(variant, computeVariant), PipelineHandle<kVk>{}});
 	auto& [key, pipelineHandle] = *keyValIt;
 	auto pipelineHandleAtomic = std::atomic_ref(pipelineHandle);
 
@@ -679,7 +690,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant v
 			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key, variant), std::memory_order_release);
 			break;
 		case PipelineBindPoint::kCompute:
-			pipelineHandleAtomic.store(InternalCreateComputePipeline(key), std::memory_order_release);
+			pipelineHandleAtomic.store(InternalCreateComputePipeline(key, computeVariant), std::memory_order_release);
 			break;
 		default:
 			ASSERTF(false, "Not implemented");
@@ -714,6 +725,24 @@ PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd
 	BindPipeline(cmd, myBindPoint, handle);
 	
 	return handle;
+}
+
+template <>
+PipelineHandle<kVk> Pipeline<kVk>::BindPipelineAuto(CommandBufferHandle<kVk> cmd, ComputePipelineVariant variant)
+{
+	ENSURE(myBindPoint == PipelineBindPoint::kCompute);
+	auto* handle = InternalGetPipeline({}, variant);
+
+	BindPipeline(cmd, myBindPoint, handle);
+
+	return handle;
+}
+
+template <>
+const ComputeLaunchParameters& Pipeline<kVk>::GetComputeLaunchParameters(ComputePipelineVariant variant) const
+{
+	ENSURE(myBindPoint == PipelineBindPoint::kCompute && variant.entryPoint < myComputeState.launchParameters.size());
+	return myComputeState.launchParameters[variant.entryPoint];
 }
 
 template <>
@@ -795,23 +824,25 @@ void Pipeline<kVk>::BindLayoutAuto(PipelineLayoutHandle<kVk> layoutHandle, Pipel
 		}
 		break;
 	case PipelineBindPoint::kCompute:
+		// every compute entry point, in the layout's order (see ComputePipelineVariant)
+		myComputeState.shaderStages.clear();
+		myComputeState.launchParameters.clear();
+		for (const auto& shader : shaderModules)
 		{
-			// todo: better handling of multiple compute shaders
-			const auto& [entryPointName, shaderStage, launchParams] = shaderModules.back().GetEntryPoint();
-			ENSURE(shaderStage == ShaderStage::kCompute);
-			myComputeState.shaderStage = {
+			const auto& [entryPointName, shaderStage, launchParams] = shader.GetEntryPoint();
+			if (shaderStage != ShaderStage::kCompute)
+				continue;
+			myComputeState.shaderStages.emplace_back(PipelineShaderStageCreateInfo<kVk>{
 				.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 				.pNext = nullptr,
 				.flags = 0,
 				.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-				.module = shaderModules.back(),
+				.module = shader,
 				.pName = entryPointName.c_str(),
-				.pSpecializationInfo = nullptr,};
-			myComputeState.launchParameters = launchParams.value_or(ComputeLaunchParameters{});
+				.pSpecializationInfo = nullptr,});
+			myComputeState.launchParameters.push_back(launchParams.value_or(ComputeLaunchParameters{}));
 		}
-		break;
-	default:
-		ASSERTF(false, "Not implemented");
+		ENSUREF(!myComputeState.shaderStages.empty(), "the layout has no compute entry point");
 		break;
 	};
 

@@ -903,7 +903,8 @@ VkImageView CreateImageView2D(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels,
 	std::string_view debugName,
-	VkComponentMapping components)
+	VkComponentMapping components,
+	uint32_t baseMipLevel)
 {
 	VkImageViewCreateInfo viewInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
@@ -911,7 +912,7 @@ VkImageView CreateImageView2D(
 	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	viewInfo.format = format;
 	viewInfo.subresourceRange.aspectMask = aspectFlags;
-	viewInfo.subresourceRange.baseMipLevel = 0UL;
+	viewInfo.subresourceRange.baseMipLevel = baseMipLevel;
 	viewInfo.subresourceRange.levelCount = mipLevels;
 	viewInfo.subresourceRange.baseArrayLayer = 0UL;
 	viewInfo.subresourceRange.layerCount = 1;

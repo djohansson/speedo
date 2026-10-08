@@ -4,6 +4,8 @@
 #include <rhi/vulkan/utils.h>
 #include <rhi/vulkan/convert.h>
 
+#include <algorithm>
+
 namespace rhi
 {
 
@@ -50,6 +52,13 @@ template <>
 void CommandEncoder<kVk>::Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const
 {
 	vkCmdDispatch(myCmd, groupCountX, groupCountY, groupCountZ);
+}
+
+template <>
+void CommandEncoder<kVk>::DispatchThreads(const ComputeLaunchParameters& launch, uint32_t threadsX, uint32_t threadsY, uint32_t threadsZ) const
+{
+	auto groups = [](uint32_t threads, uint64_t size) { return static_cast<uint32_t>((threads + std::max<uint64_t>(size, 1) - 1) / std::max<uint64_t>(size, 1)); };
+	Dispatch(groups(threadsX, launch.threadGroupSize[0]), groups(threadsY, launch.threadGroupSize[1]), groups(threadsZ, launch.threadGroupSize[2]));
 }
 
 template <>

@@ -234,7 +234,7 @@ Renderer::Renderer(Device& device)
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-			pipeline.BindPipelineAuto(cmd);
+			pipeline.BindPipelineAuto(cmd, ComputePipelineVariant{});
 
 			auto pushConstants = inputs.pushConstants;
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));

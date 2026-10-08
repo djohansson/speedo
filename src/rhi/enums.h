@@ -228,6 +228,15 @@ struct GraphicsPipelineVariant
 };
 static_assert(std::has_unique_object_representations_v<GraphicsPipelineVariant>);
 
+// which of a layout's compute entry points (by their order in it) a compute pipeline runs (see Pipeline::BindPipelineAuto)
+struct ComputePipelineVariant
+{
+	uint8_t entryPoint = 0;
+
+	bool operator==(const ComputePipelineVariant&) const = default;
+};
+static_assert(std::has_unique_object_representations_v<ComputePipelineVariant>);
+
 // which winding faces the viewer (see CullMode). a mirroring transform reverses the winding, so its draws use kClockwise
 enum class FrontFace : uint8_t
 {

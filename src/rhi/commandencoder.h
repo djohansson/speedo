@@ -1,5 +1,6 @@
 #pragma once
 
+#include <rhi/shaderset.h>
 #include <rhi/types.h>
 
 #include <cstddef>
@@ -31,6 +32,9 @@ public:
 	void BindIndexBuffer(const Buffer<G>& buffer, uint64_t offset, IndexType type) const;
 	void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0, int32_t vertexOffset = 0, uint32_t firstInstance = 0) const;
 	void Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const;
+	// dispatches the bound compute pipeline (whose thread group size launch is, see Pipeline::GetComputeLaunchParameters)
+	// over at least this many threads, in whole groups
+	void DispatchThreads(const ComputeLaunchParameters& launch, uint32_t threadsX, uint32_t threadsY = 1, uint32_t threadsZ = 1) const;
 	// writes data (at most 64 kB, a multiple of 4 bytes) to buffer at offset, in order with the other commands
 	void UpdateBuffer(const Buffer<G>& buffer, uint64_t offset, std::span<const std::byte> data) const;
 	// writes value to every 4 bytes of size bytes of buffer from offset (size 0: to its end). outside of render passes,

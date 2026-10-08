@@ -348,7 +348,8 @@ ImageView<kVk>::ImageView(
 				.r = vk::ToVk(desc.components[0]),
 				.g = vk::ToVk(desc.components[1]),
 				.b = vk::ToVk(desc.components[2]),
-				.a = vk::ToVk(desc.components[3])}))
+				.a = vk::ToVk(desc.components[3])},
+			desc.baseLevel))
 {}
 
 template <>

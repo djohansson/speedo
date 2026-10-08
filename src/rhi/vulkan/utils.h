@@ -222,7 +222,8 @@ void CopyBufferToImage(
 	VkImageAspectFlags aspectFlags,
 	uint32_t mipLevels,
 	std::string_view debugName = {},
-	VkComponentMapping components = {});
+	VkComponentMapping components = {},
+	uint32_t baseMipLevel = 0);
 
 [[nodiscard]] VkFramebuffer CreateFramebuffer(
 	VkDevice device,

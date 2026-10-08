@@ -161,6 +161,11 @@ public:
 	// a graphics pipeline is created per variant (topology and blending, cached): it is a parameter rather than state,
 	// since the draw threads share the pipeline object
 	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd, GraphicsPipelineVariant variant = {}); // todo: make implicit and call internally whenever relevant state changes
+	// a compute pipeline is created per variant (the layout's compute entry point, cached), as a graphics one is
+	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd, ComputePipelineVariant variant);
+	// the thread group size (from the shader's reflection) of one of the bound compute layout's entry points, to dispatch
+	// it by threads (see CommandEncoder::DispatchThreads)
+	[[nodiscard]] const ComputeLaunchParameters& GetComputeLaunchParameters(ComputePipelineVariant variant = {}) const;
 
 	void BindLayoutAuto(PipelineLayoutHandle<G> layout, PipelineBindPoint bindPoint);
 
@@ -230,10 +235,10 @@ private:
 		const BindingsMap<G>& bindingsMap,
 		DescriptorUpdateTemplate<G>& setTemplate);
 
-	[[nodiscard]] uint64_t InternalCalculateHashKey(GraphicsPipelineVariant variant) const;
+	[[nodiscard]] uint64_t InternalCalculateHashKey(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant = {}) const;
 	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey, GraphicsPipelineVariant variant);
-	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey);
-	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(GraphicsPipelineVariant variant);
+	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey, ComputePipelineVariant variant);
+	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant = {});
 	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
 
 	DescriptorMapType myDescriptorMap;
@@ -273,8 +278,9 @@ private:
 
 	struct ComputeState
 	{
-		PipelineShaderStageCreateInfo<G> shaderStage;
-		ComputeLaunchParameters launchParameters;
+		// per compute entry point of the bound layout, in its order (see ComputePipelineVariant)
+		std::vector<PipelineShaderStageCreateInfo<G>> shaderStages;
+		std::vector<ComputeLaunchParameters> launchParameters;
 	} myComputeState{};
 
 	struct RayTracingState
