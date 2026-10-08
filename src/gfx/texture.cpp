@@ -348,7 +348,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 
 		// bump environment-vN when environment::Import or Prefilter change what they produce, cache-vN when
 		// environment::Environment's layout does
-		std::string params = std::format("stb-{}|environment-v3|cache-v2", kStbVersion);
+		std::string params = std::format("stb-{}|environment-v5|cache-v4", kStbVersion);
 		std::string paramsHash;
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;
@@ -384,6 +384,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 		device, std::format("{} sheen", name), Format::kR16G16B16A16Sfloat, sheenLevels, std::move(sheenStaging));
 	result.sheenLevelCount = static_cast<uint32_t>(sheenLevels.size());
 	result.irradiance = layout.irradiance;
+	result.dominantLights = layout.dominantLights;
 	result.levelCount = static_cast<uint32_t>(layout.levels.size());
 	return result;
 }

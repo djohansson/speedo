@@ -458,12 +458,30 @@ percentile, and moves the exposure toward `log2(0.3) - mean` (the procedural sky
 decay of 2 per second; the Exposure slider is added on top.
 Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
-candela, or a default directional light of 2.2 lux), plus image based lighting that occlusion darkens. The environment
+candela, then the environment's dominant lights), plus image based lighting that occlusion darkens. The environment
 (`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
 (`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
-over a ground, as bright on average as the constant ambient light of 0.3 it replaced). `environment::Prefilter`
-turns it into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split sum with n = v = r, filtered importance
-sampling from a mip pyramid; level 0 is the panorama), the mips of one `R16G16B16A16_SFLOAT` texture
+over a ground, as bright on average as the constant ambient light of 0.3 it replaced, and a sun disk of 1.4 degrees
+radius giving the 2.2 lux of the directional light it replaced, `kSkySunDirection`, drawn with 4x4 samples per texel and
+scaled to exactly that irradiance). A panorama's strongest compact light sources are its dominant lights (not
+necessarily a sun: a softbox in neutral.hdr, windows in ennis.hdr and papermill.hdr), which
+`environment::ExtractDominantLights` takes out, up to `kMaxDominantLights` (4), each found in what the ones before left
+(its brightest texel, if 50 times the mean of what is left, and the texels around it within 15 degrees brighter than 2%
+of it, flood filled; they get the mean radiance of the texels bordering them, and the rest is the light's irradiance,
+kept if at least 5% of pi times the whole panorama's mean), then sorted by irradiance (the brightest texel isn't always
+the most light: ennis's second is its window, 2.5 lux against the first's 0.7). They light the scene as directional
+lights instead (`Environment::dominantLights`, `SyncLights`: after the model's lights, turned by the environment's
+rotation and scaled by its intensity, uploaded when they change; before any environment is installed, the procedural
+sky's sun), so they cast shadows (by the shadow budget: a directional light takes a quarter of the atlas) and aren't
+counted twice. View > Environment lists them. Where one of the model's directional lights shines from within 5 degrees of
+one (checked each frame, after the rotation), they are the same light, merged: the model's alone is kept (as authored, maybe animated), and View > Environment says so (and
+turns merging off and on, `gMergeLights`; `SPEEDO_MERGE_LIGHTS=0` starts without). The
+Khronos panoramas' bright sources are clipped, so most come out at 3 to 5% of the mean (field, footprint_court, doge2
+and pisa have none; papermill has 4, all windows); the procedural sky's sun is 37%, and `assettest` checks it is the one
+dominant light found, where and as bright as it was put (and the lighting levels against the panorama's mean less the
+dominant lights' share). `environment::Prefilter` turns the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
+sum with n = v = r, filtered importance sampling from a mip pyramid; level 0 is the panorama, dominant lights included:
+the backdrop, and mirrors), the mips of one `R16G16B16A16_SFLOAT` texture
 (`SHADER_TYPES_ENVIRONMENT_TEXTURE`), 6 levels prefiltered with the sheen's Charlie lobe (`Environment::sheenLevels`, from
 an eighth of the width, `SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE`, `EnvironmentData::sheenLevelCount`), and the irradiance as 9 spherical harmonics coefficients (`EnvironmentData` in
 `gEnvironment`). `LoadEnvironment` caches a file's (`environment-vN`); `InstallEnvironment` installs it on the draw

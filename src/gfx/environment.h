@@ -33,12 +33,40 @@ constexpr uint32_t kSkyWidth = 256;
 // reads a panorama (Radiance .hdr, or anything else stb_image reads, as linear), scaled down to at most maxWidth
 [[nodiscard]] std::expected<Panorama, std::string> Import(const std::filesystem::path& path, uint32_t maxWidth = kMaxFileWidth);
 
-// the default environment, where no file is loaded (and for tests): a sky over a ground, without a sun (the default
-// directional light is one), as bright on average as the constant ambient light it replaced (0.3)
+// the procedural sky's sun: where it is (towards it), and the irradiance it gives a surface facing it (lux, as the
+// directional light it replaced: 2.2, the diffuse light of a white surface facing it (0.7) times pi)
+constexpr std::array<float, 3> kSkySunDirection{0.2592F, 0.8639F, 0.4319F}; // normalize(0.3, 1, 0.5)
+constexpr float kSkySunIrradiance = 2.2F;
+constexpr float kSkySunRadius = 0.025F; // radians (1.4 degrees: a few texels of the sky, larger than the real sun's)
+
+// the default environment, where no file is loaded (and for tests): a sky over a ground, as bright on average as the
+// constant ambient light it replaced (0.3), and a sun
 [[nodiscard]] Panorama ProceduralSky(uint32_t width = kSkyWidth);
 
+// a panorama's dominant light: a strong compact light source (the sun, a lamp, a window), which lights the scene
+// as a directional light (with shadows) instead of as part of the environment. direction: towards it (in the
+// panorama's space), irradiance: what it gives a surface facing it, by color (radiance times solid angle, so in lux for
+// a panorama in nits). none (zero irradiance) for a panorama without one (overcast, interiors lit evenly)
+struct DominantLight
+{
+	std::array<float, 3> direction{0.0F, 1.0F, 0.0F};
+	std::array<float, 3> irradiance{};
+
+	[[nodiscard]] explicit operator bool() const noexcept { return irradiance[0] > 0.0F || irradiance[1] > 0.0F || irradiance[2] > 0.0F; }
+};
+
+// at most this many dominant lights are taken out of a panorama
+constexpr size_t kMaxDominantLights = 4;
+
+// finds a panorama's dominant lights (see DominantLight), the most irradiance first, and takes them out: their texels get the
+// radiance around them. each is far brighter than what is left of the panorama, and gives at least 5% of what the
+// whole panorama gives a surface facing it
+[[nodiscard]] std::vector<DominantLight> ExtractDominantLights(Panorama& panorama, size_t maxCount = kMaxDominantLights);
+
 // prefiltered levels: level i is the panorama filtered for roughness i / (kLevelCount - 1), half the size of the one
-// before (level 0, roughness 0, is the panorama itself)
+// before (level 0, roughness 0, is the panorama itself, dominant lights included: the backdrop, and mirrors). the other
+// levels, the sheen levels and the irradiance are of the panorama without its dominant lights (see
+// ExtractDominantLights), which light the scene as directional lights instead
 constexpr uint32_t kLevelCount = 6;
 
 // a panorama prefiltered for the shader: the specular levels, as R16G16B16A16 half floats, which are the mip levels of
@@ -54,6 +82,7 @@ struct Environment
 	std::vector<image::MipLevel> sheenLevels;
 	size_t size = 0; // in bytes, of all levels
 	std::array<std::array<float, 4>, 9> irradiance{};
+	std::vector<DominantLight> dominantLights;
 };
 
 // prefilters a panorama: allocate is called once with the size of the levels, which are written to the memory it

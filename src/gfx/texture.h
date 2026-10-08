@@ -1,5 +1,6 @@
 #pragma once
 
+#include <gfx/environment.h>
 #include <gfx/gpu.h>
 #include <gfx/imageimport.h>
 #include <gfx/upload.h>
@@ -38,9 +39,10 @@ struct Texture
 	std::optional<uint32_t> embeddedImage = std::nullopt);
 
 // a prefiltered environment uploaded for sampling (see environment::Environment): its levels as the mips of a
-// R16G16B16A16_SFLOAT texture, its sheen levels as another's, and its irradiance
+// R16G16B16A16_SFLOAT texture, its sheen levels as another's, its irradiance, and its dominant lights
 struct EnvironmentTexture
 {
+	std::vector<environment::DominantLight> dominantLights;
 	Texture texture;
 	Texture sheenTexture;
 	uint32_t sheenLevelCount = 0;

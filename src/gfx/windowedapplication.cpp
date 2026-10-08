@@ -207,6 +207,22 @@ static core::ConcurrentAccess<SceneState> gScenes;
 static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
 static std::vector<LightData> gLightData; // gLights' contents, for the shadows (see Renderer)
+// what gLights is made of (see SyncLights): the installed model's lights (draw thread), and the installed environment's
+// dominant lights (draw thread: nullopt until an environment is installed). per dominant light, its irradiance (lux,
+// luminance) and whether the model has the same light, for the ui
+static std::vector<LightData> gSceneLightData;
+static std::optional<std::vector<environment::DominantLight>> gEnvironmentLights;
+struct DominantLightInfo
+{
+	float lux = 0.0F;
+	bool merged = false;
+
+	bool operator==(const DominantLightInfo&) const = default;
+};
+static core::ConcurrentAccess<std::vector<DominantLightInfo>> gEnvironmentLightInfo;
+// whether the dominant light merges with a model's light from the same direction (View > Environment, SPEEDO_MERGE_LIGHTS=0
+// to start without). set from the ui, read by the draw thread
+static std::atomic<bool> gMergeLights = true;
 // whether the lights cast shadows (View > Shadows, SPEEDO_SHADOWS=0 to start without). set from the ui, read by the draw
 // thread.
 static std::atomic<bool> gShadows = true;
@@ -492,18 +508,15 @@ static void UpdateMaterials(
 
 // writes a model's lights to gLights, or the default light if it has none: a directional light from above that, with
 // the ambient light in the shader, lights matte surfaces as before there were lights. call on the draw thread.
-static void UpdateLights(RHI& rhi, QueueTimelineContextData& graphics, std::span<const SceneLight> sceneLights)
+// sets the installed model's lights (none for a model without), for SyncLights to upload. call on the draw thread.
+static void UpdateLights(std::span<const SceneLight> sceneLights)
 {
-	static const SceneLight kDefaultLight{
-		.name = "default",
-		.direction = {-0.2638F, -0.8794F, -0.4397F}, // -normalize(0.3, 1, 0.5)
-		.intensity = 2.2F,}; // lux: 0.7 pi, the diffuse light of a white surface facing it (0.7) times pi
-	if (sceneLights.empty())
-		sceneLights = std::span(&kDefaultLight, 1);
-	if (sceneLights.size() > SHADER_TYPES_LIGHT_COUNT)
+	// the rest are the environment's dominant lights
+	constexpr size_t kModelLightCount = SHADER_TYPES_LIGHT_COUNT - environment::kMaxDominantLights;
+	if (sceneLights.size() > kModelLightCount)
 	{
-		std::println(stderr, "{} lights, only the first {} are used", sceneLights.size(), SHADER_TYPES_LIGHT_COUNT);
-		sceneLights = sceneLights.first(SHADER_TYPES_LIGHT_COUNT);
+		std::println(stderr, "{} lights, only the first {} are used", sceneLights.size(), kModelLightCount);
+		sceneLights = sceneLights.first(kModelLightCount);
 	}
 
 	std::vector<LightData> lights(sceneLights.size());
@@ -524,8 +537,71 @@ static void UpdateLights(RHI& rhi, QueueTimelineContextData& graphics, std::span
 		light.spotScale = 1.0F / std::max(0.001F, std::cos(sceneLight.innerConeAngle) - cosOuter);
 		light.spotOffset = -cosOuter * light.spotScale;
 	}
+	gSceneLightData = std::move(lights);
+}
 
-	UpdateBufferOnGraphics(graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gLightsUuid), 0, std::as_bytes(std::span(lights)));
+// uploads gLights if it changed: the model's lights, then the environment's dominant lights as directional lights
+// (turned and scaled as the environment is: they were taken out of it, see environment::ExtractDominantLights), or
+// before any environment is installed, a light where the procedural sky's sun is. if one of the model's directional
+// lights already shines from where one of them does (within kMergeAngle), they are the same light, merged: the model's
+// (as authored, and maybe animated) is kept alone, unless merging is off (gMergeLights). call on the draw thread.
+static void SyncLights(RHI& rhi, QueueTimelineContextData& graphics)
+{
+	std::vector<LightData> lights = gSceneLightData;
+	std::vector<environment::DominantLight> dominants(1, environment::DominantLight{.direction = environment::kSkySunDirection});
+	dominants.front().irradiance.fill(environment::kSkySunIrradiance);
+	if (gEnvironmentLights)
+		dominants = *gEnvironmentLights;
+
+	// the panorama's space to the world's (the inverse of the shader's EnvironmentDirection)
+	float angle = glm::radians(gEnvironmentRotationDegrees.load(std::memory_order_relaxed));
+	float intensity = gEnvironmentIntensity.load(std::memory_order_relaxed);
+	float c = std::cos(angle);
+	float s = std::sin(angle);
+	constexpr float kMergeAngle = 5.0F; // degrees
+	float cosMerge = std::cos(glm::radians(kMergeAngle));
+	bool merge = gMergeLights.load(std::memory_order_relaxed);
+
+	std::vector<DominantLightInfo> info;
+	for (const auto& dominant : dominants)
+	{
+		const auto& d = dominant.direction;
+		LightData light{};
+		light.direction[0] = -((c * d[0]) + (s * d[2]));
+		light.direction[1] = -d[1];
+		light.direction[2] = -((-s * d[0]) + (c * d[2]));
+		for (size_t channel = 0; channel < 3; channel++)
+			light.intensity[channel] = dominant.irradiance[channel] * intensity;
+		light.type = LIGHT_TYPE_DIRECTIONAL;
+
+		glm::vec3 direction(light.direction[0], light.direction[1], light.direction[2]);
+		bool merged = merge && std::ranges::any_of(
+								   gSceneLightData,
+								   [&direction, cosMerge](const LightData& sceneLight)
+								   {
+									   glm::vec3 sceneDirection(sceneLight.direction[0], sceneLight.direction[1], sceneLight.direction[2]);
+									   return sceneLight.type == LIGHT_TYPE_DIRECTIONAL && glm::length(sceneDirection) > 0.0F &&
+											  glm::dot(glm::normalize(sceneDirection), glm::normalize(direction)) >= cosMerge;
+								   });
+		if (!merged && lights.size() < SHADER_TYPES_LIGHT_COUNT)
+			lights.push_back(light);
+		info.push_back(
+			{.lux = (0.2126F * dominant.irradiance[0]) + (0.7152F * dominant.irradiance[1]) + (0.0722F * dominant.irradiance[2]),
+			 .merged = merged});
+	}
+	// for the ui, when it changed (one lock at a time)
+	bool changed = false;
+	{
+		auto shown = gEnvironmentLightInfo.Read();
+		changed = shown.Get() != info;
+	}
+	if (changed)
+		gEnvironmentLightInfo.Write().Get() = std::move(info);
+
+	auto bytes = std::as_bytes(std::span(lights));
+	if (lights.size() == gLightData.size() && std::ranges::equal(bytes, std::as_bytes(std::span(gLightData))))
+		return;
+	UpdateBufferOnGraphics(graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gLightsUuid), 0, bytes);
 	gLightCount = static_cast<uint32_t>(lights.size());
 	gLightData = std::move(lights);
 }
@@ -892,7 +968,7 @@ static void ApplyPointerValues(RHI& rhi, QueueTimelineContextData& graphics, con
 		if (!std::ranges::equal(lights, gAnimatedLights, same))
 		{
 			gAnimatedLights.assign(lights.begin(), lights.end());
-			UpdateLights(rhi, graphics, lights);
+			UpdateLights(lights);
 		}
 	}
 
@@ -1218,7 +1294,7 @@ static void InstallModel(
 		UpdateMaterials(rhi, graphics, 1, materials);
 		gModelMaterialData = materials;
 		gAnimatedLights.clear();
-		UpdateLights(rhi, graphics, model->GetDesc().lights);
+		UpdateLights(model->GetDesc().lights);
 		// and the values animations set, at rest
 		ApplyPointerValues(rhi, graphics, *model);
 
@@ -1659,6 +1735,7 @@ static void InstallEnvironment(
 			gEnvironmentViewUuid = view->GetUuid();
 			gEnvironmentSheenImageUuid = sheenImage->GetUuid();
 			gEnvironmentSheenViewUuid = sheenView->GetUuid();
+			gEnvironmentLights = environment->dominantLights;
 			gEnvironmentName.Write().Get() = std::move(name);
 		});
 }
@@ -2066,6 +2143,8 @@ void WindowedApplication::PrepareDraw()
 			gAutoExposure.store(true, std::memory_order_relaxed);
 		if (const char* shadows = std::getenv("SPEEDO_SHADOWS"); shadows != nullptr && std::string_view(shadows) == "0")
 			gShadows.store(false, std::memory_order_relaxed);
+		if (const char* merge = std::getenv("SPEEDO_MERGE_LIGHTS"); merge != nullptr && std::string_view(merge) == "0")
+			gMergeLights.store(false, std::memory_order_relaxed);
 		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
 		if (const char* rotation = std::getenv("SPEEDO_ENVIRONMENT_ROTATION"); rotation != nullptr && *rotation != '\0')
 			gEnvironmentRotationDegrees.store(std::strtof(rotation, nullptr), std::memory_order_relaxed);
@@ -2207,6 +2286,30 @@ void WindowedApplication::PrepareDraw()
 					bool backdrop = gEnvironmentBackdrop.load(std::memory_order_relaxed);
 					if (MenuItem("Backdrop", nullptr, &backdrop))
 						gEnvironmentBackdrop.store(backdrop, std::memory_order_relaxed);
+					// its strongest light sources, directional lights (with shadows) rather than part of the environment
+					{
+						auto info = gEnvironmentLightInfo.Read();
+						if (info.Get().empty())
+							TextDisabled("Dominant lights: none");
+						for (size_t lightIt = 0; lightIt < info.Get().size(); lightIt++)
+						{
+							const auto& light = info.Get()[lightIt];
+							if (light.merged)
+								TextDisabled("Dominant light %zu: %.3g lux, the model's own", lightIt + 1, light.lux);
+							else
+								TextDisabled("Dominant light %zu: %.3g lux (x intensity)", lightIt + 1, light.lux);
+							SetItemTooltip(
+								"One of the environment's strongest light sources, which light the scene as directional "
+								"lights (with shadows). Where the model has a directional light from the same direction, "
+								"the model's is used instead, if merging is on.");
+						}
+					}
+					bool merge = gMergeLights.load(std::memory_order_relaxed);
+					if (MenuItem("Merge with the model's lights", nullptr, &merge))
+						gMergeLights.store(merge, std::memory_order_relaxed);
+					SetItemTooltip(
+						"Treats a dominant light and a directional light of the model's within 5 degrees of it as one, "
+						"the model's. Off: both light the scene.");
 				}
 				Separator();
 				if (MenuItem("Procedural sky"))
@@ -2530,6 +2633,8 @@ bool WindowedApplication::Draw()
 			ApplyPointerValues(rhi, *graphics, *gModel);
 		}
 		
+		SyncLights(rhi, *graphics);
+
 		auto cmd = graphicsQueue.GetPool().Commands();
 
 		ZoneScopedN("WindowedApplication::Draw::submit");
@@ -2792,7 +2897,7 @@ WindowedApplication::WindowedApplication(
 		gModelInstancesUuid = modelInstancesBuffer->GetUuid();
 		timelineCallbacks.emplace_back(modelTransfersDone.handle);
 
-		// written when a model is installed (see UpdateLights)
+		// written by SyncLights
 		std::vector<LightData> lightData(SHADER_TYPES_LIGHT_COUNT);
 		core::TaskCreateInfo<void> lightTransfersDone;
 		auto lights = device.CreateResource<Buffer>(

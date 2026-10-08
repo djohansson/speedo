@@ -946,7 +946,9 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 // prefilters an environment panorama and checks the result: every level there and finite, each level's mean radiance as the
 // panorama's (filtering moves light around, it doesn't add or remove any), and the irradiance's mean over the sphere
 // (its constant term) the panorama's mean too
-Report CheckEnvironment(const gfx::environment::Panorama& panorama)
+// expectedLight: the dominant light the panorama was made with (the procedural sky's sun), which the one found must match
+Report CheckEnvironment(
+	const gfx::environment::Panorama& panorama, const std::optional<gfx::environment::DominantLight>& expectedLight = std::nullopt)
 {
 	using namespace gfx::environment;
 
@@ -966,6 +968,49 @@ Report CheckEnvironment(const gfx::environment::Panorama& panorama)
 	{
 		report.Fail("the panorama is black, or not finite");
 		return report;
+	}
+
+	// the dominant lights: taken out of the lighting (all but level 0), whose mean is the panorama's less their share
+	// (their irradiance spread over the sphere)
+	const auto& dominants = environment->dominantLights;
+	auto irradianceOf = [&luminance](const DominantLight& light)
+	{ return luminance({light.irradiance[0], light.irradiance[1], light.irradiance[2]}); };
+	double dominantIrradiance = 0.0;
+	for (const auto& dominant : dominants)
+	{
+		auto irradiance = irradianceOf(dominant);
+		dominantIrradiance += irradiance;
+		report.Info(
+			"dominant light ({:.3f}, {:.3f}, {:.3f}), irradiance {:.4g} ({:.1f}% of the mean)",
+			dominant.direction[0],
+			dominant.direction[1],
+			dominant.direction[2],
+			irradiance,
+			100.0 * irradiance / (4.0 * std::numbers::pi * mean));
+		if (!dominant)
+			report.Fail("a dominant light without irradiance");
+	}
+	auto lightingMean = mean - (dominantIrradiance / (4.0 * std::numbers::pi));
+	if (dominants.size() > kMaxDominantLights)
+		report.Fail("{} dominant lights, at most {}", dominants.size(), kMaxDominantLights);
+	if (!std::isfinite(dominantIrradiance) || lightingMean <= 0.0)
+		report.Fail("the dominant lights' irradiance {:.4g} isn't finite, or more than the panorama has", dominantIrradiance);
+	if (expectedLight)
+	{
+		const auto& expected = *expectedLight;
+		auto expectedIrradiance = irradianceOf(expected);
+		if (dominants.size() != 1)
+			report.Fail("{} dominant lights found, expected one of irradiance {:.4g}", dominants.size(), expectedIrradiance);
+		else
+		{
+			const auto& dominant = dominants.front();
+			auto cosine = (dominant.direction[0] * expected.direction[0]) + (dominant.direction[1] * expected.direction[1]) +
+						  (dominant.direction[2] * expected.direction[2]);
+			if (cosine < std::cos(glm::radians(0.5)))
+				report.Fail("the dominant light is {:.2f} degrees off", glm::degrees(std::acos(std::min(cosine, 1.0F))));
+			else if (auto error = std::abs((irradianceOf(dominant) / expectedIrradiance) - 1.0); error > 0.03)
+				report.Fail("the dominant light's irradiance {:.4g} is off by {:.1f}%", irradianceOf(dominant), error * 100.0);
+		}
 	}
 
 	// how much a level varies (the standard deviation of its luminance, by solid angle): rougher levels are smoother
@@ -1004,7 +1049,7 @@ Report CheckEnvironment(const gfx::environment::Panorama& panorama)
 	{
 		const auto& level = environment->levels[levelIt];
 		auto levelMean = luminance(MeanRadiance(level, data));
-		auto error = std::abs(levelMean / mean - 1.0);
+		auto error = std::abs(levelMean / (levelIt == 0 ? mean : lightingMean) - 1.0);
 		if (!std::isfinite(levelMean))
 			report.Fail("level {} has values that aren't finite", levelIt);
 		else if (error > 0.1)
@@ -1018,7 +1063,7 @@ Report CheckEnvironment(const gfx::environment::Panorama& panorama)
 	{
 		const auto& level = environment->sheenLevels[levelIt];
 		auto levelMean = luminance(MeanRadiance(level, data));
-		auto error = std::abs(levelMean / mean - 1.0);
+		auto error = std::abs(levelMean / lightingMean - 1.0);
 		if (!std::isfinite(levelMean))
 			report.Fail("sheen level {} has values that aren't finite", levelIt);
 		else if (error > 0.1)
@@ -1032,7 +1077,7 @@ Report CheckEnvironment(const gfx::environment::Panorama& panorama)
 	std::array<double, 3> irradianceMean{};
 	for (size_t c = 0; c < 3; c++)
 		irradianceMean[c] = environment->irradiance[0][c] * kY00;
-	if (auto error = std::abs(luminance(irradianceMean) / mean - 1.0); error > 0.02)
+	if (auto error = std::abs(luminance(irradianceMean) / lightingMean - 1.0); error > 0.02)
 		report.Fail("the irradiance's mean {:.4g} is off by {:.1f}%", luminance(irradianceMean), error * 100.0);
 	auto up = EvaluateIrradiance(*environment, {0.0F, 1.0F, 0.0F});
 	auto down = EvaluateIrradiance(*environment, {0.0F, -1.0F, 0.0F});
@@ -1202,7 +1247,9 @@ int main(int argc, char* argv[])
 	if (images)
 	{
 		auto start = std::chrono::steady_clock::now();
-		auto report = CheckEnvironment(gfx::environment::ProceduralSky());
+		gfx::environment::DominantLight skySun{.direction = gfx::environment::kSkySunDirection};
+		skySun.irradiance.fill(gfx::environment::kSkySunIrradiance);
+		auto report = CheckEnvironment(gfx::environment::ProceduralSky(), skySun);
 		Print("procedural sky", report, std::chrono::steady_clock::now() - start);
 		Count(environmentResults, report.result)++;
 
