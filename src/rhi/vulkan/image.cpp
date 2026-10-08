@@ -198,6 +198,42 @@ Image<kVk>::Image(CreateDescType&& desc, ValueType&& data)
 {}
 
 template <>
+Image<kVk>::Image(CreateDescType&& desc, const MemoryBlock<kVk>& memory, uint64_t offset)
+	: Image(
+		std::forward<CreateDescType>(desc),
+		[&desc, &memory, offset]
+		{
+			auto info = ImageCreateInfo2D(
+				desc.mipLevels[0].extent.width,
+				desc.mipLevels[0].extent.height,
+				static_cast<uint32_t>(desc.mipLevels.size()),
+				vk::ToVk(desc.format),
+				vk::ToVk(desc.tiling),
+				vk::ToVk(desc.usageFlags),
+				vk::ToVk(desc.layout));
+			return ValueType{
+				CreateAliasingImage(memory.GetAllocator(), memory.GetAllocation(), offset, info, GetDebugName(desc).c_str()),
+				VK_NULL_HANDLE};
+		}())
+{}
+
+template <>
+MemoryRequirements Image<kVk>::GetMemoryRequirements(const Device<kVk>& device, const CreateDescType& desc)
+{
+	auto requirements = ::GetImageMemoryRequirements(
+		device.GetAllocator(),
+		ImageCreateInfo2D(
+			desc.mipLevels[0].extent.width,
+			desc.mipLevels[0].extent.height,
+			static_cast<uint32_t>(desc.mipLevels.size()),
+			vk::ToVk(desc.format),
+			vk::ToVk(desc.tiling),
+			vk::ToVk(desc.usageFlags),
+			vk::ToVk(desc.layout)));
+	return {.size = requirements.size, .alignment = requirements.alignment, .memoryTypeBits = requirements.memoryTypeBits};
+}
+
+template <>
 Image<kVk>::Image(CreateDescType&& desc)
 	: Image(
 		std::forward<CreateDescType>(desc),

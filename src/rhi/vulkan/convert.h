@@ -234,6 +234,10 @@ namespace rhi::vk
 		flags |= VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 	if (Any(stages & PipelineStage::kHost))
 		flags |= VK_PIPELINE_STAGE_HOST_BIT;
+	if (Any(stages & PipelineStage::kEarlyFragmentTests))
+		flags |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+	if (Any(stages & PipelineStage::kLateFragmentTests))
+		flags |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 	return flags;
 }
 
@@ -254,6 +258,14 @@ namespace rhi::vk
 		flags |= VK_ACCESS_INDEX_READ_BIT;
 	if (Any(access & Access::kHostRead))
 		flags |= VK_ACCESS_HOST_READ_BIT;
+	if (Any(access & Access::kColorAttachmentRead))
+		flags |= VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
+	if (Any(access & Access::kColorAttachmentWrite))
+		flags |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	if (Any(access & Access::kDepthStencilAttachmentRead))
+		flags |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+	if (Any(access & Access::kDepthStencilAttachmentWrite))
+		flags |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 	return flags;
 }
 

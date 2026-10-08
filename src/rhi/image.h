@@ -3,6 +3,7 @@
 #include <core/task.h>
 #include <rhi/buffer.h>
 #include <rhi/deviceobject.h>
+#include <rhi/memory.h>
 
 #include <array>
 #include <optional>
@@ -71,6 +72,11 @@ public:
 	Image(Image&& other) noexcept;
 	explicit Image( // creates uninitialized image
 		CreateDescType&& desc);
+	Image( // creates an uninitialized image placed at offset in memory (see MemoryBlock), which must outlive it. it
+		   // aliases whatever else is placed over the same bytes: see Discard.
+		CreateDescType&& desc,
+		const MemoryBlock<G>& memory,
+		uint64_t offset);
 	Image( // copies a staging buffer (see Buffer::CreateStaging) into the target, mip level by mip level as desc lays them
 		   // out, and releases the staging buffer from timlineCallbackOut. leaves the image in kTransferDestination.
 		CreateDescType&& desc,
@@ -92,6 +98,13 @@ public:
 	friend void Swap(Image& lhs, Image& rhs) noexcept { lhs.Swap(rhs); }
 
 	[[nodiscard]] auto GetMemory() const noexcept { return std::get<1>(myImage); }
+
+	// what an image of desc needs to be placed in a MemoryBlock
+	[[nodiscard]] static MemoryRequirements GetMemoryRequirements(const Device<G>& device, const CreateDescType& desc);
+
+	// forgets the image's contents: its next Transition is from kUndefined, which lets the driver discard them (for an
+	// image placed over memory another resource used since, whose bytes its contents no longer are)
+	void Discard() noexcept { InternalSetImageLayout(ImageLayout::kUndefined); }
 
 	void Clear(
 		CommandBufferHandle<G> cmd,

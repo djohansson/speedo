@@ -367,11 +367,13 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 		if (auto layout = vk::ToVk(this->GetLayout(attachmentIt)); layout != attachmentDesc.initialLayout)
 			attachmentDesc.initialLayout = layout;
 
-		if (auto aspectMask = vk::ToVk(this->GetDesc().imageAspectFlags[attachmentIt]); aspectMask != attachmentRef.aspectMask)
+		// a depth stencil attachment's view is of its depth. compared as such: recreating the view on every transition
+		// destroys it under command buffers that still use it (a render target used by consecutive frames)
+		auto aspectMask = vk::ToVk(this->GetDesc().imageAspectFlags[attachmentIt]);
+		if (aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
+			aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		if (aspectMask != attachmentRef.aspectMask)
 		{
-			if (aspectMask == (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT))
-				aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
 			// todo: investigate if we need to push this on the timeline
 			// todo: store a pool of these to aviud recreating them every time
 			attachmentRef.aspectMask = aspectMask;

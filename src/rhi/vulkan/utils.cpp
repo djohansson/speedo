@@ -746,6 +746,89 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	return std::make_tuple(outImage, outImageMemory);
 }
 
+VkBuffer CreateAliasingBuffer(
+	VmaAllocator allocator, VmaAllocation allocation, VkDeviceSize offset, VkDeviceSize size, VkBufferUsageFlags usage, const char* debugName)
+{
+	VkBufferCreateInfo bufferInfo{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	VkBuffer outBuffer;
+	VK_CHECK(vmaCreateAliasingBuffer2(allocator, allocation, offset, &bufferInfo, &outBuffer));
+
+	VmaAllocatorInfo allocatorInfo;
+	vmaGetAllocatorInfo(allocator, &allocatorInfo);
+	Track(allocatorInfo.device, VK_OBJECT_TYPE_BUFFER, outBuffer, (debugName != nullptr && *debugName != '\0') ? debugName : "Buffer");
+
+	return outBuffer;
+}
+
+VkMemoryRequirements GetBufferMemoryRequirements(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage)
+{
+	VmaAllocatorInfo allocatorInfo;
+	vmaGetAllocatorInfo(allocator, &allocatorInfo);
+
+	VkBufferCreateInfo bufferInfo{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+	bufferInfo.size = size;
+	bufferInfo.usage = usage;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+	// never tracked: it only lives for the query
+	VkBuffer buffer;
+	VK_CHECK(vkCreateBuffer(allocatorInfo.device, &bufferInfo, nullptr, &buffer));
+	VkMemoryRequirements requirements;
+	vkGetBufferMemoryRequirements(allocatorInfo.device, buffer, &requirements);
+	vkDestroyBuffer(allocatorInfo.device, buffer, nullptr);
+
+	return requirements;
+}
+
+VkImageCreateInfo ImageCreateInfo2D(
+	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageLayout initialLayout)
+{
+	VkImageCreateInfo imageInfo{.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.extent = {.width = width, .height = height, .depth = 1};
+	imageInfo.mipLevels = mipLevels;
+	imageInfo.arrayLayers = 1;
+	imageInfo.format = format;
+	imageInfo.tiling = tiling;
+	imageInfo.usage = usage;
+	imageInfo.initialLayout = initialLayout;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	return imageInfo;
+}
+
+VkImage CreateAliasingImage(
+	VmaAllocator allocator, VmaAllocation allocation, VkDeviceSize offset, const VkImageCreateInfo& info, const char* debugName)
+{
+	VkImage outImage;
+	VK_CHECK(vmaCreateAliasingImage2(allocator, allocation, offset, &info, &outImage));
+
+	VmaAllocatorInfo allocatorInfo;
+	vmaGetAllocatorInfo(allocator, &allocatorInfo);
+	Track(allocatorInfo.device, VK_OBJECT_TYPE_IMAGE, outImage, (debugName != nullptr && *debugName != '\0') ? debugName : "Image");
+
+	return outImage;
+}
+
+VkMemoryRequirements GetImageMemoryRequirements(VmaAllocator allocator, const VkImageCreateInfo& info)
+{
+	VmaAllocatorInfo allocatorInfo;
+	vmaGetAllocatorInfo(allocator, &allocatorInfo);
+
+	// never tracked: it only lives for the query
+	VkImage image;
+	VK_CHECK(vkCreateImage(allocatorInfo.device, &info, nullptr, &image));
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements(allocatorInfo.device, image, &requirements);
+	vkDestroyImage(allocatorInfo.device, image, nullptr);
+
+	return requirements;
+}
+
 void DestroyImage(VmaAllocator allocator, VkImage image, VmaAllocation memory)
 {
 	Untrack(VK_OBJECT_TYPE_IMAGE, image);

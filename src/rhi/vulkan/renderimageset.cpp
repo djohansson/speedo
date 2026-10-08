@@ -12,7 +12,7 @@ void RenderImageSet<kVk>::End(CommandBufferHandle<kVk> cmd)
 
 	for (uint32_t imageIt = 0ul; imageIt < GetImageCount(); imageIt++)
 	{
-		auto& image = myImages.get()[imageIt];
+		auto& image = *myImages[imageIt];
 		image.InternalSetImageLayout(vk::FromVk(this->GetAttachmentDescs()[imageIt].finalLayout));
 	}
 }

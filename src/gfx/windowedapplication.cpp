@@ -4,6 +4,7 @@
 #include <gfx/imgui_extra.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
+#include <gfx/renderer.h>
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
@@ -91,7 +92,11 @@ static std::atomic_uint32_t gFrameSubmitCount;
 static std::atomic_uint32_t gFrameSubmitBatchCount;
 // presented frames per second, over (at least) the last half second. written by Draw
 static std::atomic<float> gFramesPerSecond;
-static std::array<uuids::uuid, 3> gRenderImageSetUuids;
+// draws the frames (see Renderer): its frame graph owns what is sized by the swapchain
+static std::unique_ptr<Renderer> gRenderer;
+// the bytes of device memory its transients take, and would take without aliasing. written on resize, for the ui
+static std::atomic_uint64_t gTransientMemory;
+static std::atomic_uint64_t gUnaliasedTransientMemory;
 static std::shared_ptr<Model> gModel; // the loaded model, see InstallModel. only the draw thread uses it
 static uuids::uuid gLoadedImageUuid; // the loaded image and its view, see InstallImage. nil until one is loaded
 static uuids::uuid gLoadedImageViewUuid;
@@ -106,27 +111,6 @@ static uuids::uuid gEnvironmentViewUuid;
 static uuids::uuid gEnvironmentSheenImageUuid;
 static uuids::uuid gEnvironmentSheenViewUuid;
 static core::ConcurrentAccess<std::string> gEnvironmentName;
-// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the render
-// target, gOitWidth wide), nodes (gOitNodeCapacity) and counter, sized with the render target (see
-// CreateWindowDependentObjects), and cleared before each frame's main pass
-static uuids::uuid gOitHeadsUuid;
-static uuids::uuid gOitNodesUuid;
-static uuids::uuid gOitCounterUuid;
-static uint32_t gOitWidth = 0;
-static uint32_t gOitNodeCapacity = 0;
-// the opaque scene with mips, which transmissive materials refract (SHADER_TYPES_TRANSMISSION_TEXTURE), sized with the
-// render target
-static uuids::uuid gTransmissionImageUuid;
-static uuids::uuid gTransmissionViewUuid;
-
-// the main pass draws in two phases when the model has transmissive materials: the opaque ones that aren't, then (after
-// the color is copied to the transmission texture) the transmissive and blended ones. else the first draws everything.
-enum class MainPassPhase : uint8_t
-{
-	kOpaque,
-	kTransmissive,
-};
-
 // the layers a material draws: those on at rest, and those an animation turns on (KHR_animation_pointer: a factor that
 // animates up from 0)
 struct MaterialLayers
@@ -167,14 +151,6 @@ struct MaterialLayers
 	return layers;
 }
 
-[[nodiscard]] static bool HasTransmission(const Model& model)
-{
-	const auto& desc = model.GetDesc();
-	for (size_t materialIt = 0; materialIt < desc.materials.size(); materialIt++)
-		if (!desc.materials[materialIt].blend && LayersOf(desc, materialIt).transmission)
-			return true;
-	return false;
-}
 static uuids::uuid gSamplersUuid;
 static uuids::uuid gModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
 static uuids::uuid gMaterialsUuid;
@@ -259,8 +235,6 @@ static PushConstants FramePushConstants(uint16_t frameIndex)
 		.environmentRotation = glm::radians(gEnvironmentRotationDegrees.load(std::memory_order_relaxed)),
 		.viewCount = std::min<uint32_t>(App().GetViews().GetGrid().x * App().GetViews().GetGrid().y, SHADER_TYPES_VIEW_COUNT),
 		.environmentBackdrop = gEnvironmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
-		.framebufferWidth = gOitWidth,
-		.oitNodeCapacity = gOitNodeCapacity,
 		.tonemapper = gTonemapper.load(std::memory_order_relaxed)};
 }
 
@@ -407,16 +381,6 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 	};
 }
 
-// the main render target's color attachments (see FragmentOutput in the shaders), then its depth
-static constexpr uint32_t kColorAttachment = 0;
-static constexpr uint32_t kDepthAttachment = 1;
-// opaque draws write the color; blended ones nothing (with FragmentTransparent, the layout's second fragment entry point,
-// they go in the per pixel lists of the order independent transparency, see OitNode), so they needn't be sorted
-static constexpr std::array kOpaqueBlend{BlendMode::kOpaque, BlendMode::kNone, BlendMode::kNone, BlendMode::kNone};
-static constexpr std::array kTransparentBlend{BlendMode::kNone, BlendMode::kNone, BlendMode::kNone, BlendMode::kNone};
-static constexpr uint8_t kTransparentFragmentShader = 1;
-static_assert(kOpaqueBlend.size() == kMaxColorAttachments);
-
 // gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain), and
 // SHADER_TYPES_ENVIRONMENT_TEXTURE and SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE the environment's (and
 // SHADER_TYPES_TRANSMISSION_TEXTURE the opaque scene). material 0 is the default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
@@ -424,7 +388,6 @@ static constexpr uint32_t kMaterialTextureId = 15;
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
 static constexpr uint32_t kModelTextureFirstSlot = 16;
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
-static constexpr uint32_t kModelMaterialMaxCount = SHADER_TYPES_MATERIAL_COUNT - 1;
 static constexpr uint32_t kDefaultSamplerId = 2;
 // the sampler slots a model's samplers go in: all but the default's and the clamping one's
 // (SHADER_TYPES_CLAMP_SAMPLER)
@@ -444,11 +407,6 @@ static_assert(
 	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
 	kMaterialTextureId < kModelTextureFirstSlot);
 
-// the material slot drawn for a submesh of the loaded model
-static uint32_t ModelMaterialSlot(int32_t material)
-{
-	return material >= 0 && std::cmp_less(material, kModelMaterialMaxCount) ? static_cast<uint32_t>(material) + 1 : 0;
-}
 
 // the loaded model's textures, by slot (from kModelTextureFirstSlot). nil for slots it doesn't use.
 static std::vector<std::pair<uuids::uuid, uuids::uuid>> gModelTextureUuids; // image, view
@@ -1760,335 +1718,20 @@ static void LoadAndInstallFile(RHI& rhi, std::string_view filePath, std::atomic_
 		std::println(stderr, "Failed to load file {}: not a model, zip archive, environment or image", filePath);
 }
 
-static void DrawMainPass(
-	RHI& rhi,
-	Window& window,
-	Pipeline& pipeline,
-	Queue& graphicsQueue,
-	CommandBufferHandle cmd,
-	uint16_t newFrameIndex,
-	uint64_t graphicsTimeline,
-	MainPassPhase phase)
-{
-	GPU_SCOPE(cmd, graphicsQueue, draw);
-
-	auto& device = rhi.GetPrimaryDevice();
-	auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);
-
-	// the second phase continues what the first drew
-	auto loadOp = phase == MainPassPhase::kOpaque ? LoadOp::kClear : LoadOp::kLoad;
-	renderImageSet.SetLoadOp(loadOp, kColorAttachment);
-	renderImageSet.SetStoreOp(StoreOp::kStore, kColorAttachment);
-	renderImageSet.Transition(cmd, ImageLayout::kColorAttachment, ImageAspect::kColor, kColorAttachment);
-	renderImageSet.SetLoadOp(loadOp, kDepthAttachment, loadOp);
-	renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
-	renderImageSet.Transition(cmd, ImageLayout::kDepthStencilAttachment, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
-
-	pipeline.SetRenderTarget(renderImageSet);
-
-	auto renderTargetInfo = renderImageSet.Begin(cmd, SubpassContents::kSecondaryCommandBuffers);
-
-	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
-
-	// setup draw parameters
-	const auto grid = App().GetViews().GetGrid();
-	const auto framePushConstants = FramePushConstants(newFrameIndex);
-	uint32_t drawCount = grid.x * grid.y;
-	uint32_t drawThreadCount = 0;
-
-	std::atomic_uint32_t drawAtomic = 0UL;
-
-	// draw views using secondary command buffers
-	// todo: generalize this to other types of draws
-	if (gModel)
-	{
-		auto& model = *gModel;
-
-		ZoneScopedN("WindowedApplication::Draw::drawViews");
-
-		drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
-
-		// the views are drawn in their viewports: their grid cells, letterboxed to their cameras' aspect ratios
-		auto viewports = App().GetViews().GetViewports();
-
-		constexpr uint32_t kMaxDrawThreads = 128;
-		std::array<uint32_t, kMaxDrawThreads> seq;
-		std::iota(seq.begin(), seq.begin() + drawThreadCount, 0);
-		std::for_each_n(
-			seq.begin(),
-			drawThreadCount,
-			[&pipeline,
-			&graphicsQueue,
-			&renderTargetInfo,
-			&renderImageSet,
-			&newFrameIndex,
-			&drawAtomic,
-			&drawCount,
-			&model,
-			&viewports,
-			&framePushConstants,
-			phase,
-			grid](uint32_t threadIt)
-			{
-				ZoneScoped;
-
-				auto drawIt = drawAtomic++;
-				if (drawIt >= drawCount)
-					return;
-
-				auto zoneNameStr = std::format("Window::drawPartition thread:{}", threadIt);
-
-				ZoneName(zoneNameStr.c_str(), zoneNameStr.size());
-
-				const auto extent = renderImageSet.GetExtent();
-				uint32_t deltaX = extent.width / grid.x;
-				uint32_t deltaY = extent.height / grid.y;
-
-				auto cmd = graphicsQueue.GetPool().SecondaryCommands(threadIt + 1, renderTargetInfo);
-				CommandEncoder encoder(cmd);
-
-				auto bindState = [&pipeline, &model, &encoder](CommandBufferHandle cmd)
-				{
-					ZoneScopedN("bindState");
-
-					// vertices are pulled from gVertexBuffer by SV_VertexID, so there is no vertex input state to bind
-					encoder.BindIndexBuffer(model.GetIndexBuffer(), 0, IndexType::kUint32);
-
-					// bind descriptor sets
-					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
-					pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-
-					// bind pipeline and buffers
-					pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
-				};
-
-				bindState(cmd);
-
-				PushConstants pushConstants = framePushConstants;
-
-				ASSERT(deltaX > 0);
-				ASSERT(deltaY > 0);
-
-				while (drawIt < drawCount)
-				{
-					auto drawView = [&pushConstants, &pipeline, &model, &cmd, &encoder, &deltaX, &deltaY, &viewports, phase, grid](uint16_t viewIt)
-					{
-						ZoneScopedN("drawView");
-
-						uint32_t col = viewIt % grid.x;
-						uint32_t row = viewIt / grid.x;
-
-						{
-							ZoneScopedN("setViewportAndScissor");
-
-							ASSERT(deltaX > 0);
-							ASSERT(deltaY > 0);
-
-							auto posX = static_cast<int32_t>(col * deltaX);
-							auto posY = static_cast<int32_t>(row * deltaY);
-							auto width = deltaX;
-							auto height = deltaY;
-							if (viewIt < viewports.size() && viewports[viewIt].width > 0 && viewports[viewIt].height > 0)
-							{
-								posX = viewports[viewIt].x;
-								posY = viewports[viewIt].y;
-								width = viewports[viewIt].width;
-								height = viewports[viewIt].height;
-							}
-							encoder.SetViewport(Viewport{
-								.x = static_cast<float>(posX),
-								.y = static_cast<float>(posY),
-								.width = static_cast<float>(width),
-								.height = static_cast<float>(height),
-								.minDepth = 0.0F,
-								.maxDepth = 1.0F});
-							encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
-						}
-
-						uint16_t viewIndex = viewIt;
-
-						// one draw per submesh (material and topology, see InstallModel for where the materials are): the opaque
-						// ones first, then the blended ones back to front by their centers (each as a whole: the triangles within
-						// one are drawn in their order)
-						auto drawModel = [&pushConstants, &pipeline, &model, &encoder, viewIndex, phase](CommandBufferHandle cmd)
-						{
-							ZoneScopedN("drawModel");
-
-							const auto& materials = model.GetDesc().materials;
-							const auto& skins = model.GetDesc().animation.skins;
-							// bindState bound the default (opaque triangle list) pipeline
-							GraphicsPipelineVariant bound{.blend = kOpaqueBlend};
-							auto draw = [&](const ModelSubmesh& submesh, const std::array<BlendMode, kMaxColorAttachments>& blend, uint8_t fragmentShader = 0)
-							{
-								if (GraphicsPipelineVariant variant{.topology = submesh.topology, .blend = blend, .fragmentShader = fragmentShader}; variant != bound)
-								{
-									bound = variant;
-									pipeline.BindPipelineAuto(cmd, variant);
-								}
-
-								// double sided materials' back faces are drawn too (the cull mode is dynamic state)
-								bool doubleSided = submesh.material >= 0 && materials[submesh.material].doubleSided;
-								encoder.SetCullMode(doubleSided ? CullMode::kNone : CullMode::kBack);
-
-								pushConstants.viewAndMaterialId =
-									(static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | ModelMaterialSlot(submesh.material);
-
-								// its instances (gModelInstances from modelInstanceId, by SV_InstanceID), the mirroring ones last and
-								// separately: they reverse the winding, so their front faces are clockwise (dynamic state too)
-								auto drawInstances = [&](uint32_t firstInstance, uint32_t instanceCount, FrontFace frontFace)
-								{
-									if (instanceCount == 0)
-										return;
-									encoder.SetFrontFace(frontFace);
-									pushConstants.modelInstanceId = firstInstance;
-									pushConstants.jointBase = submesh.skin >= 0 ? skins[submesh.skin].jointBase : SHADER_TYPES_NOT_SKINNED;
-									pushConstants.morphTargetCount = submesh.morphTargetCount;
-									pushConstants.morphDeltaBase = submesh.morphDeltaBase;
-									pushConstants.morphFirstVertex = submesh.morphFirstVertex;
-									pushConstants.morphWeightBase = submesh.morphWeightBase;
-									pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-									encoder.DrawIndexed(submesh.indexCount, instanceCount, submesh.firstIndex);
-								};
-								auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
-								drawInstances(submesh.firstInstance, unmirrored, FrontFace::kCounterClockwise);
-								drawInstances(submesh.firstInstance + unmirrored, submesh.mirroredInstanceCount, FrontFace::kClockwise);
-							};
-
-							// the opaque submeshes, then the blended ones (in any order, see kTransparentBlend), which depth test
-							// against them. with transmissive ones (see MainPassPhase), those and the blended ones in the second
-							// phase
-							bool split = HasTransmission(model);
-							auto blended = [&materials](const ModelSubmesh& submesh)
-							{ return submesh.material >= 0 && materials[submesh.material].blend; };
-							auto transmissive = [&materials](const ModelSubmesh& submesh)
-							{ return submesh.material >= 0 && materials[submesh.material].transmission > 0.0F; };
-							for (const auto& submesh : model.GetDesc().submeshes)
-								if (!blended(submesh) &&
-									(split && transmissive(submesh) ? MainPassPhase::kTransmissive : MainPassPhase::kOpaque) == phase)
-									draw(submesh, kOpaqueBlend);
-							if (!split || phase == MainPassPhase::kTransmissive)
-								for (const auto& submesh : model.GetDesc().submeshes)
-									if (blended(submesh))
-										draw(submesh, kTransparentBlend, kTransparentFragmentShader);
-
-							if (bound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
-								pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
-						};
-
-						drawModel(cmd);
-					};
-
-					drawView(drawIt);
-
-					drawIt = drawAtomic++;
-				}
-
-				cmd.End();
-			});
-	}
-
-	for (uint32_t threadIt = 1UL; threadIt <= drawThreadCount; threadIt++)
-		graphicsQueue.Execute(threadIt, graphicsTimeline);
-
-	renderImageSet.End(cmd);
-}
-
 void CreateWindowDependentObjects(RHI& rhi)
 {
 	ZoneScopedN("CreateWindowDependentObjects");
 	
 	auto& device = rhi.GetPrimaryDevice();
 	auto& window = rhi.GetWindow(GetCurrentWindow());
+	auto& pipeline = device.GetPipeline();
 	auto frameCount = window.GetSwapchain().GetFrames().size();
-	ENSURE(frameCount <= gRenderImageSetUuids.size());
-	
-	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
-	{
-		auto colorImage = Image(
-			ImageCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("Main RT Color Image {}", frameIt)),
-				{{.extent = window.GetSwapchain().GetDesc().extent}},
-				// linear: shading and blending happen in linear space, and ComputeMain applies the srgb curve when it
-				// copies the result to the swapchain. vulkan requires this format to support all of the usages below.
-				Format::kR16G16B16A16Sfloat,
-				ImageTiling::kOptimal,
-				ImageUsage::kColorAttachment | ImageUsage::kTransferSource | ImageUsage::kSampled | ImageUsage::kStorage,
-				MemoryProperty::kDeviceLocal,
-				ImageAspect::kColor,
-				ImageLayout::kUndefined});
+	ENSURE(frameCount <= SHADER_TYPES_FRAME_COUNT);
 
-		auto depthStencilImage = Image(
-			ImageCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("Main RT DepthStencil Image {}", frameIt)),
-				{{.extent = window.GetSwapchain().GetDesc().extent}},
-				device.FindSupportedFormat(
-					std::array{Format::kD32SfloatS8Uint, Format::kD24UnormS8Uint},
-					ImageTiling::kOptimal,
-					FormatFeature::kDepthStencilAttachment | FormatFeature::kTransferSource |
-						FormatFeature::kTransferDestination),
-				ImageTiling::kOptimal,
-				ImageUsage::kDepthStencilAttachment | ImageUsage::kSampled,
-				MemoryProperty::kDeviceLocal,
-				ImageAspect::kDepth | ImageAspect::kStencil,
-				ImageLayout::kUndefined});
-
-		// one render target per frame, replacing any previous one (e.g. on resize)
-		device.EraseResource(gRenderImageSetUuids[frameIt]);
-		auto renderImageSet = device.CreateResource<RenderImageSet>(
-			std::move(colorImage), std::move(depthStencilImage));
-		ENSURE(renderImageSet->GetAttachments().size() == kDepthAttachment + 1);
-		// alpha 0: where nothing opaque is drawn (opaque draws write alpha 1), ComputeMain draws the environment
-		renderImageSet->SetClearValue(ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}}, kColorAttachment);
-		gRenderImageSetUuids[frameIt] = renderImageSet->GetUuid();
-	}
-
-	// the order independent transparency's lists, for the render target's pixels (replacing any previous ones)
-	{
-		auto extent = window.GetSwapchain().GetDesc().extent;
-		auto pixelCount = static_cast<uint64_t>(extent.width) * extent.height;
-		gOitWidth = extent.width;
-		gOitNodeCapacity = static_cast<uint32_t>(std::min<uint64_t>(pixelCount * SHADER_TYPES_OIT_NODES_PER_PIXEL, SHADER_TYPES_OIT_NONE - 1));
-		auto create = [&device](uuids::uuid& uuid, std::string_view name, uint64_t size)
-		{
-			device.EraseResource(uuid);
-			uuid = device.CreateResource<Buffer>(BufferCreateDesc{
-				device.CreateDeviceObjectCreateDesc(name),
-				size,
-				BufferUsage::kStorage | BufferUsage::kTransferDestination,
-				MemoryProperty::kDeviceLocal})->GetUuid();
-		};
-		create(gOitHeadsUuid, "OIT Heads", std::max<uint64_t>(pixelCount, 1) * sizeof(uint32_t));
-		create(gOitNodesUuid, "OIT Nodes", std::max<uint64_t>(gOitNodeCapacity, 1) * sizeof(OitNode));
-		create(gOitCounterUuid, "OIT Counter", sizeof(uint32_t));
-
-		// the transmission texture, a full mip chain
-		std::vector<ImageMipLevelDesc> mipLevels;
-		for (auto mip = extent; ; mip = {.width = std::max(mip.width / 2, 1U), .height = std::max(mip.height / 2, 1U)})
-		{
-			mipLevels.push_back({.extent = mip});
-			if (mip.width == 1 && mip.height == 1)
-				break;
-		}
-		device.EraseResource(gTransmissionViewUuid);
-		device.EraseResource(gTransmissionImageUuid);
-		auto transmissionImage = device.CreateResource<Image>(ImageCreateDesc{
-			device.CreateDeviceObjectCreateDesc("Transmission"),
-			std::move(mipLevels),
-			Format::kR16G16B16A16Sfloat,
-			ImageTiling::kOptimal,
-			ImageUsage::kTransferSource | ImageUsage::kTransferDestination | ImageUsage::kSampled,
-			MemoryProperty::kDeviceLocal,
-			ImageAspect::kColor,
-			ImageLayout::kUndefined});
-		gTransmissionImageUuid = transmissionImage->GetUuid();
-		gTransmissionViewUuid = device.CreateResource<ImageView>(ImageViewCreateDesc{
-			device.CreateDeviceObjectCreateDesc("Transmission View"), *transmissionImage, Format::kR16G16B16A16Sfloat, ImageAspect::kColor})
-									->GetUuid();
-	}
+	// the render target, the transparency's lists and the transmission texture: the renderer's frame graph's
+	gRenderer->Resize(device, pipeline, window.GetSwapchain().GetDesc().extent);
+	gTransientMemory = gRenderer->GetGraph().GetTransientMemorySize();
+	gUnaliasedTransientMemory = gRenderer->GetGraph().GetUnaliasedTransientMemorySize();
 
 	{
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
@@ -2104,17 +1747,7 @@ void CreateWindowDependentObjects(RHI& rhi)
 			frame.SetStoreOp(StoreOp::kStore, 0);
 		}
 
-		for (const auto& renderImageSetGuid : std::span(gRenderImageSetUuids).first(frameCount))
-		{
-			auto& renderImageSet = *device.GetResource<RenderImageSet>(renderImageSetGuid);
-			renderImageSet.SetLoadOp(LoadOp::kClear, kColorAttachment);
-			renderImageSet.SetStoreOp(StoreOp::kStore, kColorAttachment);
-			renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor, kColorAttachment);
-			renderImageSet.SetLoadOp(LoadOp::kClear, kDepthAttachment, LoadOp::kClear);
-			renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
-			renderImageSet.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
-		}
-		device.GetResource<Image>(gTransmissionImageUuid)->Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
+		gRenderer->Prepare(cmd);
 
 		cmd.End();
 
@@ -2131,41 +1764,20 @@ void CreateWindowDependentObjects(RHI& rhi)
 	// Draw only writes the current frame's element of these arrays, but a dirty set is updated as a whole: after a
 	// resize the other frames' elements would still reference the destroyed views. so write all of them up front,
 	// with the layouts Draw uses (so Draw's own writes are skipped as unchanged).
-	auto& pipeline = device.GetPipeline();
 	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
 	pipeline.SetDescriptorData(
-		"gTextures",
-		ImageBinding{.sampler = {}, .imageView = *device.GetResource<ImageView>(gTransmissionViewUuid), .layout = ImageLayout::kShaderReadOnly},
-		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-		SHADER_TYPES_TRANSMISSION_TEXTURE);
-	for (auto [name, uuid] : std::array{
-			 std::pair{"gOitHeads", gOitHeadsUuid}, std::pair{"gOitNodes", gOitNodesUuid}, std::pair{"gOitCounter", gOitCounterUuid},
-			 std::pair{"gExposureHistogram", gExposureHistogramUuid}})
-		pipeline.SetDescriptorData(
-			name, BufferBinding{.buffer = *device.GetResource<Buffer>(uuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		"gExposureHistogram",
+		BufferBinding{.buffer = *device.GetResource<Buffer>(gExposureHistogramUuid), .offset = 0},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 	for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
-	{
-		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[frameIt]);
-		auto& frame = window.GetSwapchain().GetFrames()[frameIt];
-
-		pipeline.SetDescriptorData(
-			"gTextures",
-			ImageBinding{
-				.sampler={},
-				.imageView=renderImageSet.GetAttachments()[kColorAttachment],
-				.layout=ImageLayout::kShaderReadOnly},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE + frameIt);
-
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{
 				.sampler={},
-				.imageView=frame.GetAttachments()[0],
+				.imageView=window.GetSwapchain().GetFrames()[frameIt].GetAttachments()[0],
 				.layout=ImageLayout::kGeneral},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 			frameIt);
-	}
 }
 
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
@@ -2225,6 +1837,14 @@ void WindowedApplication::PrepareDraw()
 					"Submit Batches: %llu (%u/frame)",
 					static_cast<unsigned long long>(Queue::GetSubmitBatchCount()),
 					gFrameSubmitBatchCount.load(std::memory_order_relaxed));
+
+				// the frame graph's transients (see FrameGraph), in shared memory
+				Separator();
+				constexpr double kMiB = 1024.0 * 1024.0;
+				Text(
+					"Transient Memory: %.1f MiB (%.1f MiB unaliased)",
+					static_cast<double>(gTransientMemory.load(std::memory_order_relaxed)) / kMiB,
+					static_cast<double>(gUnaliasedTransientMemory.load(std::memory_order_relaxed)) / kMiB);
 			}
 			End();
 		}
@@ -2898,159 +2518,39 @@ bool WindowedApplication::Draw()
 			ApplyPointerValues(rhi, *graphics, *gModel);
 		}
 		
-		auto& renderImageSet = *device.GetResource<RenderImageSet>(gRenderImageSetUuids[newFrameIndex]);
-
 		auto cmd = graphicsQueue.GetPool().Commands();
-
-		//NOLINTBEGIN(bugprone-suspicious-stringview-data-usage)
 
 		ZoneScopedN("WindowedApplication::Draw::submit");
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
-		// empty transparency lists, once the previous frame's ComputeMain has read them
-		{
-			CommandEncoder encoder(cmd);
-			encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderRead, PipelineStage::kTransfer, Access::kTransferWrite);
-			encoder.FillBuffer(*device.GetResource<Buffer>(gOitHeadsUuid), 0, 0, SHADER_TYPES_OIT_NONE);
-			encoder.FillBuffer(*device.GetResource<Buffer>(gOitCounterUuid), 0, 0, 0);
-			encoder.Barrier(
-				PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kFragmentShader, Access::kShaderRead | Access::kShaderWrite);
-		}
+		// which materials are transmissive (the main pass's second phase), counting those an animation turns on
+		std::vector<bool> transmissive;
+		if (gModel)
+			for (size_t materialIt = 0; materialIt < gModel->GetDesc().materials.size(); materialIt++)
+				transmissive.push_back(LayersOf(gModel->GetDesc(), materialIt).transmission);
 
-		DrawMainPass(rhi, window, pipeline, graphicsQueue, cmd, newFrameIndex, graphics->timeline, MainPassPhase::kOpaque);
-
-		// transmissive materials see the opaque scene behind them: copied, with mips for their roughness
-		if (gModel && HasTransmission(*gModel))
-		{
-			GPU_SCOPE(cmd, graphicsQueue, transmission);
-			renderImageSet.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, kColorAttachment);
-			auto& transmissionImage = *device.GetResource<Image>(gTransmissionImageUuid);
-			transmissionImage.BlitFrom(cmd, *renderImageSet.GetImage(kColorAttachment));
-			transmissionImage.GenerateMips(cmd, ImageLayout::kShaderReadOnly);
-			DrawMainPass(rhi, window, pipeline, graphicsQueue, cmd, newFrameIndex, graphics->timeline, MainPassPhase::kTransmissive);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, computeMain);
-
-			// the transparency lists the main pass wrote, and the frame's exposure histogram, emptied for ComputeMain to
-			// count into
-			{
-				CommandEncoder encoder(cmd);
-				encoder.Barrier(PipelineStage::kFragmentShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
-				constexpr auto kHistogramSize = SHADER_TYPES_EXPOSURE_BINS * sizeof(uint32_t);
-				encoder.FillBuffer(
-					*device.GetResource<Buffer>(gExposureHistogramUuid), newFrameIndex * kHistogramSize, kHistogramSize, 0);
-				encoder.Barrier(
-					PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
-			}
-
-			renderImageSet.SetLoadOp(LoadOp::kLoad, kColorAttachment);
-			renderImageSet.SetStoreOp(StoreOp::kStore, kColorAttachment);
-			renderImageSet.Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor, kColorAttachment);
-			renderImageSet.SetLoadOp(LoadOp::kLoad, kDepthAttachment, LoadOp::kClear);
-			renderImageSet.SetStoreOp(StoreOp::kStore, kDepthAttachment, StoreOp::kStore);
-			renderImageSet.Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth | ImageAspect::kStencil, kDepthAttachment);
-
-			swapchain.SetLoadOp(LoadOp::kClear, 0);
-			swapchain.SetStoreOp(StoreOp::kStore, 0);
-			swapchain.Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor, 0);
-
-			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
-
-			pipeline.SetDescriptorData(
-				"gTextures",
-				ImageBinding{
-					.sampler={},
-					.imageView=renderImageSet.GetAttachments()[kColorAttachment],
-					.layout=renderImageSet.GetLayout(kColorAttachment)},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-				SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE + newFrameIndex);
-
-			pipeline.SetDescriptorData(
-				"gRWTextures",
-				ImageBinding{
-					.sampler={},
-					.imageView=swapchain.GetAttachments()[0],
-					.layout=swapchain.GetLayout(0)},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-				newFrameIndex);
-
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
-			// the backdrop's: the views, the environment and its sampler; and the transparency lists
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-			pipeline.BindPipelineAuto(cmd);
-
-			PushConstants pushConstants = FramePushConstants(newFrameIndex);
-
-			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-
-			// cover the whole swapchain image: ComputeMain has 16x16 threads per group, each copying a 16x16 pixel bucket
-			constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
-			auto dstExtent = swapchain.GetExtent();
-			CommandEncoder(cmd).Dispatch(
-				(dstExtent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
-				(dstExtent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
-				1U);
-			// for the cpu to read the histogram once the frame is done (see UpdateAutoExposure)
-			CommandEncoder(cmd).Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kHost, Access::kHostRead);
-		}
-		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, copy);
-
-		// 	renderImageSet.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
-		// 	window.Copy(
-		// 		cmd,
-		// 		renderImageSet,
-		// 		{ImageAspect::kColor, 0, 0, 1},
-		// 		0,
-		// 		{ImageAspect::kColor, 0, 0, 1},
-		// 		0);
-		// }
-		// {
-		// 	GPU_SCOPE(cmd, graphicsQueue, blit);
-
-		// 	renderImageSet.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
-		// 	window.Blit(
-		// 		cmd,
-		// 		renderImageSet,
-		// 		{ImageAspect::kColor, 0, 0, 1},
-		// 		0,
-		// 		{ImageAspect::kColor, 0, 0, 1},
-		// 		0,
-		// 		Filter::kNearest);
-		// }
 		std::vector<core::TaskHandle> graphicsCallbacks;
-		{
-			GPU_SCOPE(cmd, graphicsQueue, imguiTextures);
-
-			IMGUIPrepareFrame(cmd, graphicsCallbacks);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, imgui);
-
-			swapchain.SetLoadOp(LoadOp::kLoad, 0);
-			swapchain.SetStoreOp(StoreOp::kStore, 0);
-			swapchain.Transition(cmd, ImageLayout::kColorAttachment, ImageAspect::kColor, 0);
-			
-			pipeline.SetRenderTarget(newFrame);
-			
-			swapchain.Begin(cmd, SubpassContents::kInline);
-			IMGUIDraw(cmd);
-			swapchain.End(cmd);
-		}
-		{
-			GPU_SCOPE(cmd, graphicsQueue, Transition);
-			
-			swapchain.Transition(cmd, ImageLayout::kPresent, ImageAspect::kColor, 0);
-		}
+		const auto& views = App().GetViews();
+		gRenderer->Record(
+			cmd,
+			pipeline,
+			FrameInputs{
+				.frameIndex = static_cast<uint16_t>(newFrameIndex),
+				.pushConstants = FramePushConstants(newFrameIndex),
+				.model = gModel.get(),
+				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
+				.grid = views.GetGrid(),
+				.viewports = views.GetViewports(),
+				.swapchain = &swapchain,
+				.swapchainFrame = &newFrame,
+				.exposureHistogram = &*device.GetResource<Buffer>(gExposureHistogramUuid),
+				.graphicsQueue = &graphicsQueue,
+				.graphicsTimeline = graphics->timeline,
+				.prepareUi = [&graphicsCallbacks](CommandBufferHandle cmd) { IMGUIPrepareFrame(cmd, graphicsCallbacks); },
+				.drawUi = [](CommandBufferHandle cmd) { IMGUIDraw(cmd); }});
 
 		cmd.End();
-		//NOLINTEND(bugprone-suspicious-stringview-data-usage)
 
 		auto presentInfo = swapchain.PreparePresent();
 
@@ -3536,6 +3036,7 @@ WindowedApplication::WindowedApplication(
 
 	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
 
+	gRenderer = std::make_unique<Renderer>(device);
 	CreateWindowDependentObjects(rhi);
 }
 
@@ -3610,6 +3111,7 @@ void WindowedApplication::Shutdown()
 
 	// what holds gpu objects, before the rhi they belong to
 	gModel.reset();
+	gRenderer.reset();
 	myViews.reset();
 	myRHI.reset();
 }

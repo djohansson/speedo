@@ -219,6 +219,47 @@ Consequences:
   not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
   visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
 
+## The frame graph: passes declare, the graph synchronizes
+
+A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
+once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
+stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Main,
+Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Uploads, UI,
+Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+
+- **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
+  frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
+  hazards and an `Image::Transition`/`IRenderTarget::Transition` per layout change (whose masks come from the layouts).
+  So a disabled pass (`SetEnabled`: the transmission passes without transmissive materials) changes nothing else.
+  Layouts are the image's own tracked ones: a callback may leave an image elsewhere (`GenerateMips` leaves
+  `kShaderReadOnly`), and the next transition starts from there.
+- **Transients** (`CreateImage`/`CreateBuffer`: the main color and depth, the transmission texture, the OIT lists) are
+  created by `Compile` for the frame's extent (again on resize, with the gpu idle) with the usages their uses imply,
+  and placed in `rhi::MemoryBlock`s (images and buffers apart, per memory type set), largest first at the lowest offset
+  overlapping no placed transient whose pass lifetime overlaps (`Image`/`Buffer`'s placing constructors,
+  `vmaCreateAliasing*2`; requirements from a temporary resource, since Vulkan 1.2 has no desc query). Their contents
+  don't outlive the frame: the first use in a frame must write them (`Compile` checks: no read, no `kLoad`), and is
+  preceded by `Image::Discard` and a barrier from whatever last used the same bytes. Views exist for sampled or storage
+  transients only. The Statistics window shows the bytes, aliased and not.
+- **Imported** resources (the swapchain, the exposure histograms) are bound each frame (`Bind`); passes writing them are
+  never culled (others: only if something needed reads what they write, or `SideEffects`).
+- **Raster passes** declare attachments (`ColorAttachment`/`DepthAttachment` with load and store ops): all transients
+  (the graph makes a `RenderImageSet` over the shared images, one per attachment list) or all of one bound render target
+  (the swapchain). The graph sets the ops, begins it (inline or secondary contents) around the callback and ends it.
+  `RenderImageSet` shares its images (`std::shared_ptr<Image>`), rather than owning them. One render target now serves consecutive
+  frames (there used to be one per frame index), so nothing it holds may be recreated while earlier frames' command
+  buffers reference it: `InternalUpdateAttachments` recreated the depth view on every transition (it compared the
+  aspect before reducing depth and stencil to depth), and KosmicKrisp crashed resetting the command pool (an
+  `objc_release` of the freed view, at random in debug). A pass's gpu profiling scope goes in `PassBuilder::Wrap`, which
+  records around the render target: one begun for secondary command buffers can hold no timestamps.
+- **Draws** are data: `BuildDrawList` turns the model into `DrawItem`s for a main pass phase (pipeline variant, cull mode,
+  front face, material slot, instance range, skin and morph bases), and `RecordDrawList` records them for a view, which
+  the main pass does per view in the queue pool's secondary command buffers.
+
+Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
+does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
+removed, so it can't vouch for them; compare renders instead (identical before and after the graph).
+
 ## Descriptor sets: redundant updates consume the pool
 
 Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index
@@ -279,9 +320,9 @@ the opaque `FragmentMain` can't force, since alpha masked fragments must not wri
 `BlendMode` `kNone`, so no depth writes either). Each fragment takes a node (`OitNode`, 12 bytes: premultiplied color as
 R11G11B10, alpha and a 24 bit depth, the next node) from `gOitNodes` by `gOitCounter` and pushes it on its pixel's list
 (`gOitHeads`, `InterlockedExchange`); `ComputeMain` keeps the pixel's 16 nearest layers sorted (insertion) and blends
-them back to front over the opaque color or the backdrop. The buffers are sized with the render target
-(`CreateWindowDependentObjects`: 4 nodes per pixel, past which fragments are dropped) and cleared before each main pass
-(`CommandEncoder::FillBuffer`, between barriers from the previous frame's compute and to the fragment stage). Fragment
+them back to front over the opaque color or the backdrop. The buffers are the frame graph's transients, sized with the
+render target (4 nodes per pixel, past which fragments are dropped), and cleared before each main pass
+(`CommandEncoder::FillBuffer`, in a pass of its own). Fragment
 stores and atomics need the device's `fragmentStoresAndAtomics` (the device enables every feature it has). A
 `GraphicsPipelineVariant` names its topology, a blend mode per color attachment (by the render target's color attachment
 count; it writes depth only if one of them is `kOpaque`) and which of the layout's fragment entry points it runs
@@ -441,7 +482,7 @@ numerically and clamped to 1; lit by the environment's sheen levels along the re
 map (`NormalFromMap`, else the geometry's normal) over everything, emission included, which keeps `1 - strength *
 F(n_c . v)`. KHR_materials_transmission replaces that much of the dielectric's diffuse with the light from behind
 (`TransmittedLight`, as the Khronos sample viewer): the main pass draws in two phases when the model has transmissive
-(not blended) materials (`MainPassPhase`): the other opaque submeshes, then, after `Draw` blits the color to the
+(not blended) materials (`MainPassPhase`): the other opaque submeshes, then, after the Transmission pass blits the color to the
 transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `Image::BlitFrom` and
 `Image::GenerateMips`, which blits each level from the one above with per level barriers), the transmissive and
 blended ones, loading the attachments. The refracted ray (by the ior) leaves the volume after the thickness

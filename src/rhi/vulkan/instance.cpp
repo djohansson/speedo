@@ -415,7 +415,8 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 		requiredLayers.emplace_back(kValidationLayerName);
 
 		static constexpr VkBool32 kSettingValidateCore = VK_TRUE;
-		static constexpr VkBool32 kSettingValidateSync = VK_FALSE;
+		// synchronization validation (missing or wrong barriers) is slow: on with SPEEDO_VALIDATE_SYNC set
+		static const VkBool32 kSettingValidateSync = std::getenv("SPEEDO_VALIDATE_SYNC") != nullptr ? VK_TRUE : VK_FALSE;
 		static constexpr VkBool32 kSettingThreadSafety = VK_TRUE;
 		static constexpr std::array<const char*, 1> kSettingDebugAction = {"VK_DBG_LAYER_ACTION_LOG_MSG"};
 		static constexpr std::array<const char*, 4> kSettingReportFlags = {"info", "warn", "perf", "error"};

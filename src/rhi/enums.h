@@ -159,10 +159,12 @@ enum class PipelineStage : uint16_t
 	kAllCommands = 1U << 7U,
 	kBottomOfPipe = 1U << 8U,
 	kHost = 1U << 9U, // the host's reads and writes of mapped memory
+	kEarlyFragmentTests = 1U << 10U, // depth and stencil tests (and attachment loads) before fragment shading
+	kLateFragmentTests = 1U << 11U, // the same after it (and attachment stores)
 };
 RHI_FLAGS(PipelineStage)
 
-enum class Access : uint8_t
+enum class Access : uint16_t
 {
 	kNone = 0,
 	kShaderRead = 1U << 0U,
@@ -172,6 +174,10 @@ enum class Access : uint8_t
 	kHostWrite = 1U << 4U,
 	kIndexRead = 1U << 5U,
 	kHostRead = 1U << 6U,
+	kColorAttachmentRead = 1U << 7U,
+	kColorAttachmentWrite = 1U << 8U,
+	kDepthStencilAttachmentRead = 1U << 9U,
+	kDepthStencilAttachmentWrite = 1U << 10U,
 };
 RHI_FLAGS(Access)
 

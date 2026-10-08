@@ -4,6 +4,7 @@
 #include <span>
 
 #include <rhi/deviceobject.h>
+#include <rhi/memory.h>
 
 #include <core/task.h>
 
@@ -44,6 +45,10 @@ public:
 	Buffer(Buffer&& other) noexcept;
 	explicit Buffer( // creates uninitialized buffer
 		CreateDescType&& desc);
+	Buffer( // creates an uninitialized buffer placed at offset in memory (see MemoryBlock), which must outlive it
+		CreateDescType&& desc,
+		const MemoryBlock<G>& memory,
+		uint64_t offset);
 	Buffer( // copies initialData into the target, using a temporary internal staging buffer if needed.
 		CreateDescType&& desc,
 		const void* initialData,
@@ -76,6 +81,9 @@ public:
 
 	[[nodiscard]] const auto& GetBuffer() const noexcept { return std::get<0>(myBuffer); }
 	[[nodiscard]] const auto& GetMemory() const noexcept { return std::get<1>(myBuffer); }
+
+	// what a buffer of desc needs to be placed in a MemoryBlock
+	[[nodiscard]] static MemoryRequirements GetMemoryRequirements(const Device<G>& device, const CreateDescType& desc);
 
 	// for host visible buffers: the buffer's memory, until Unmap. Flush makes host writes to a range of it visible to
 	// the device when the memory isn't host coherent.

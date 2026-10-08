@@ -4,24 +4,22 @@ namespace rhi
 namespace renderimageset
 {
 
-template <GraphicsApi G, typename... Images>
-RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
+template <GraphicsApi G>
+RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(std::span<const std::shared_ptr<Image<G>>> images)
 {
 	RenderTargetCreateDesc<G> outDesc{};
 	outDesc.uuid = uuids::NewUuid();
 
-	auto imageCount = sizeof...(images);
+	ENSUREF(!images.empty(), "colorImages cannot be empty");
 
-	ENSUREF(imageCount, "colorImages cannot be empty");
+	outDesc.imageFormats.reserve(images.size());
+	outDesc.imageLayouts.reserve(images.size());
+	outDesc.imageAspectFlags.reserve(images.size());
+	outDesc.images.reserve(images.size());
 
-	outDesc.imageFormats.reserve(imageCount);
-	outDesc.imageLayouts.reserve(imageCount);
-	outDesc.imageAspectFlags.reserve(imageCount);
-	outDesc.images.reserve(imageCount);
-
-	([&](size_t index)
+	for (size_t index = 0; index < images.size(); index++)
 	{
-		const auto& image = images;
+		const auto& image = *images[index];
 		auto extent = image.GetDesc().mipLevels[0].extent;
 
 		// the render target lives on the same instance/device as its images
@@ -42,10 +40,10 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
 		outDesc.imageLayouts.emplace_back(image.GetDesc().layout);
 		outDesc.imageAspectFlags.emplace_back(image.GetDesc().imageAspectFlags);
 		outDesc.images.emplace_back(image);
-	} (0), ...);
+	}
 
 	// see RenderTarget::SetClearValue
-	outDesc.clearValues.assign(imageCount, ClearValue{.color = {0.2F, 0.2F, 0.2F, 1.0F}, .depth = 1.0F, .stencil = 0});
+	outDesc.clearValues.assign(images.size(), ClearValue{.color = {0.2F, 0.2F, 0.2F, 1.0F}, .depth = 1.0F, .stencil = 0});
 
 	// todo: configure
 	outDesc.layerCount = 1;
@@ -57,21 +55,22 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(const Images&... images)
 } // namespace renderimageset
 
 template <GraphicsApi G>
+RenderImageSet<G>::RenderImageSet(std::vector<std::shared_ptr<Image<G>>> images)
+	: SuperType(renderimageset::CreateRenderTargetCreateDesc<G>(std::span<const std::shared_ptr<Image<G>>>(images)))
+	, myImages(std::move(images))
+{}
+
+template <GraphicsApi G>
 template <typename... Images>
+	requires(std::same_as<std::remove_cvref_t<Images>, Image<G>> && ...)
 RenderImageSet<G>::RenderImageSet(Images&&... images)
-	: SuperType(renderimageset::CreateRenderTargetCreateDesc<G>(images...)) // reads the images before they are moved below
-	, myImages(std::make_shared<Image<G>[sizeof...(images)]>()) //NOLINT(modernize-avoid-c-arrays)
-	, myImageCount(sizeof...(images))
-{
-	size_t index = 0;
-	((myImages.get()[index++] = std::forward<Images>(images)), ...); //NOLINT(modernize-avoid-c-arrays)
-}
+	: RenderImageSet(std::vector<std::shared_ptr<Image<G>>>{std::make_shared<Image<G>>(std::forward<Images>(images))...})
+{}
 
 template <GraphicsApi G>
 RenderImageSet<G>::RenderImageSet(RenderImageSet&& other) noexcept
 	: SuperType(std::forward<RenderImageSet>(other))
 	, myImages(std::exchange(other.myImages, {}))
-	, myImageCount(std::exchange(other.myImageCount, {}))
 {}
 
 template <GraphicsApi G>
@@ -83,7 +82,6 @@ RenderImageSet<G>& RenderImageSet<G>::operator=(RenderImageSet&& other) noexcept
 {
 	SuperType::operator=(std::forward<RenderImageSet>(other));
 	myImages = std::exchange(other.myImages, {});
-	myImageCount = std::exchange(other.myImageCount, {});
 	return *this;
 }
 
@@ -92,22 +90,19 @@ void RenderImageSet<G>::Swap(RenderImageSet& rhs) noexcept
 {
 	SuperType::Swap(rhs);
 	std::swap(myImages, rhs.myImages);
-	std::swap(myImageCount, rhs.myImageCount);
 }
 
 template <GraphicsApi G>
 ImageLayout RenderImageSet<G>::GetLayout(uint32_t index) const
 {
-	auto& image = myImages.get()[index];
-	return image.GetDesc().layout;
+	return myImages[index]->GetDesc().layout;
 }
 
 template <GraphicsApi G>
 void RenderImageSet<G>::Transition(
 	CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index)
 {
-	auto& image = myImages.get()[index];
-	image.Transition(cmd, layout, aspectFlags);
+	myImages[index]->Transition(cmd, layout, aspectFlags);
 	
 	this->InternalGetDesc().imageAspectFlags[index] = aspectFlags;
 	this->InternalUpdateAttachments();

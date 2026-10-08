@@ -36,6 +36,23 @@ Buffer<kVk>::Buffer(
 {}
 
 template <>
+Buffer<kVk>::Buffer(CreateDescType&& desc, const MemoryBlock<kVk>& memory, uint64_t offset)
+	: Buffer(
+		std::forward<CreateDescType>(desc),
+		ValueType{
+			CreateAliasingBuffer(
+				memory.GetAllocator(), memory.GetAllocation(), offset, desc.size, vk::ToVk(desc.usageFlags), GetDebugName(desc).c_str()),
+			VK_NULL_HANDLE})
+{}
+
+template <>
+MemoryRequirements Buffer<kVk>::GetMemoryRequirements(const Device<kVk>& device, const CreateDescType& desc)
+{
+	auto requirements = ::GetBufferMemoryRequirements(device.GetAllocator(), desc.size, vk::ToVk(desc.usageFlags));
+	return {.size = requirements.size, .alignment = requirements.alignment, .memoryTypeBits = requirements.memoryTypeBits};
+}
+
+template <>
 Buffer<kVk>::Buffer(
 	CreateDescType&& desc)
 	: Buffer(

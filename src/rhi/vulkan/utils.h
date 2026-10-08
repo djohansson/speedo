@@ -132,6 +132,17 @@ void CopyBuffer(
 	VkMemoryPropertyFlags memoryFlags,
 	const char* debugName);
 
+// a buffer or 2d image placed at offset in allocation (which they don't own: Destroy* them with a null allocation), and
+// what such an image or buffer needs of the memory, from a temporary one
+[[nodiscard]] VkBuffer CreateAliasingBuffer(
+	VmaAllocator allocator, VmaAllocation allocation, VkDeviceSize offset, VkDeviceSize size, VkBufferUsageFlags usage, const char* debugName);
+[[nodiscard]] VkMemoryRequirements GetBufferMemoryRequirements(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage);
+[[nodiscard]] VkImageCreateInfo ImageCreateInfo2D(
+	uint32_t width, uint32_t height, uint32_t mipLevels, VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage, VkImageLayout initialLayout);
+[[nodiscard]] VkImage CreateAliasingImage(
+	VmaAllocator allocator, VmaAllocation allocation, VkDeviceSize offset, const VkImageCreateInfo& info, const char* debugName);
+[[nodiscard]] VkMemoryRequirements GetImageMemoryRequirements(VmaAllocator allocator, const VkImageCreateInfo& info);
+
 // destroy what the Create* functions in this file created (they track the objects, see Track)
 void DestroyBuffer(VmaAllocator allocator, VkBuffer buffer, VmaAllocation memory);
 void DestroyImage(VmaAllocator allocator, VkImage image, VmaAllocation memory);

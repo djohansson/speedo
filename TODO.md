@@ -7,7 +7,6 @@
 	* alpha blending: exact per pixel linked lists, but with fixed budgets: 4 nodes per pixel on average (fragments past them are dropped, e.g. in full screen glass several layers deep), and the 16 nearest layers of a pixel blended. no adaptive growth of the node pool, and no MSAA
 	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
-* todo: generalize drawcall submission & move out of windowedapplication class. frame graph implementation?
 * todo: implement shadow rendering: cascaded shadow maps for directional lights, cube maps for point and spot lights, PCF filtering (PCSS optional), a budget of shadow casting lights
 	* directional lights
 	* point lights
@@ -31,6 +30,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: generalize drawcall submission & move out of windowedapplication class: a frame graph (gfx::FrameGraph: barriers and layout transitions from what passes declare, culling, transients placed in shared memory by lifetime), gfx::Renderer (the frame's passes) and draw lists (gfx::DrawList)
 * done: tonemapping: auto exposure (a histogram from ComputeMain, read back) and a choice of tonemappers (PBR Neutral, ACES, AgX, Reinhard, linear)
 * done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible
 * done: instrumentation and timing information

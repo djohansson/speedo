@@ -41,5 +41,8 @@ using SemaphoreHandle = ::SemaphoreHandle<rhi::kGraphicsApi>;
 using ImGuiRenderer = rhi::ImGuiRenderer<rhi::kGraphicsApi>;
 using BufferBinding = rhi::BufferBinding<rhi::kGraphicsApi>;
 using ImageBinding = rhi::ImageBinding<rhi::kGraphicsApi>;
+using IRenderTarget = rhi::IRenderTarget<rhi::kGraphicsApi>;
+using RenderTargetBeginInfo = rhi::RenderTargetBeginInfo<rhi::kGraphicsApi>;
+using MemoryBlock = rhi::MemoryBlock<rhi::kGraphicsApi>;
 
 } // namespace gfx
