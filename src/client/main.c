@@ -460,6 +460,17 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
 
+	// SPEEDO_BACKGROUND=1 (automated runs, see scripts/assettest.ps1): the window opens behind the others, without taking
+	// the focus, so that test runs don't interrupt whoever is working
+	const char* backgroundSetting = getenv("SPEEDO_BACKGROUND");
+	bool background = backgroundSetting != NULL && strcmp(backgroundSetting, "1") == 0;
+	if (background)
+	{
+		glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
+		glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
+		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+	}
+
 	GLFWwindow* window  = glfwCreateWindow(
 		(int)inOutState->width,
 		(int)inOutState->height,
@@ -472,6 +483,17 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 #if defined(__APPLE__)
 	DisableMacNativeFullscreen(window);
 #endif
+
+	if (background)
+	{
+#if defined(__APPLE__)
+		// shown behind every other window (glfw's show orders it to the front)
+		id nsWindow = glfwGetCocoaWindow(window);
+		((void (*)(id, SEL, id))objc_msgSend)(nsWindow, sel_registerName("orderBack:"), NULL);
+#else
+		glfwShowWindow(window);
+#endif
+	}
 
 	glfwGetWindowContentScale(window, &inOutState->xscale, &inOutState->yscale);
 

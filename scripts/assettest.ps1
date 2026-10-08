@@ -202,6 +202,11 @@ if ($Client)
 	{
 		$env:SPEEDO_AUTOLOAD_EXIT = '30'
 	}
+	# its windows open behind the others, without taking the focus (the runs would interrupt whoever is working)
+	if (-not $env:SPEEDO_BACKGROUND)
+	{
+		$env:SPEEDO_BACKGROUND = '1'
+	}
 	$timeout = if ($env:ASSETTEST_CLIENT_TIMEOUT) { [int]$env:ASSETTEST_CLIENT_TIMEOUT } else { 600 }
 	$caffeinate = if ($IsMacOS) { Get-Command caffeinate -ErrorAction SilentlyContinue } else { $null }
 
