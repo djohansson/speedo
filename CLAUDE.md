@@ -460,8 +460,7 @@ Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, then the environment's dominant lights), plus image based lighting that occlusion darkens. The environment
 (`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
-(`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (2048 wide, 4 s to prefilter: at 256 its sun was a square of 2 texels, at 1024 still
-faceted; `SPEEDO_SKY_WIDTH` sets another, 256 in `assettest.ps1`'s client runs; a sky
+(`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
 over a ground, as bright on average as the constant ambient light of 0.3 it replaced, and a sun disk of 1.4 degrees
 radius giving the 2.2 lux of the directional light it replaced, `kSkySunDirection`, drawn with 4x4 samples per texel and
 scaled to exactly that irradiance). A panorama's strongest compact light sources are its dominant lights (not
@@ -527,8 +526,7 @@ transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `Im
 `Image::GenerateMips`, which blits each level from the one above with per level barriers), the transmissive and
 blended ones, loading the attachments. The refracted ray (by the ior) leaves the volume after the thickness
 (KHR_materials_volume: factor times the texture's green, times the instance's scale; 0 is thin walled), is projected into
-the view (mirrored back in at the view's own edges: beyond them nothing was drawn, and clamping streaked the edge's
-texels, stretching as glass neared a corner; shortening the offset to stay inside didn't help), and samples the texture at `log2(width) * roughness * saturate(2 ior - 2)` through the clamping sampler
+the view, and samples the texture at `log2(width) * roughness * saturate(2 ior - 2)` through the clamping sampler
 (`SHADER_TYPES_CLAMP_SAMPLER`, a reserved slot, so models get 62); where nothing opaque was drawn the environment along
 the ray fills in by the texture's alpha, which is why the color target is cleared to transparent black (ComputeMain
 draws the gray clear color itself where neither the views nor the backdrop are). The volume attenuates it by

@@ -202,11 +202,6 @@ if ($Client)
 	{
 		$env:SPEEDO_AUTOLOAD_EXIT = '30'
 	}
-	# a small procedural sky (the default environment): the client's own takes seconds to prefilter, on every run
-	if (-not $env:SPEEDO_SKY_WIDTH)
-	{
-		$env:SPEEDO_SKY_WIDTH = '256'
-	}
 	$timeout = if ($env:ASSETTEST_CLIENT_TIMEOUT) { [int]$env:ASSETTEST_CLIENT_TIMEOUT } else { 600 }
 	$caffeinate = if ($IsMacOS) { Get-Command caffeinate -ErrorAction SilentlyContinue } else { $null }
 
