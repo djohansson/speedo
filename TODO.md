@@ -2,14 +2,11 @@
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
 	* animation: node (translation, rotation, scale) and morph weight animations and skins move, and every KHR_animation_pointer target of the core spec and the extensions drawn (node transforms, weights and visibility, material values, texture transforms, lights, cameras). a set of files with an animated base color loses it (it isn't baked into the vertex colors). joint normals use the joint matrices directly (non-uniform scale on joints skews them). the model's bounds (which frame the views) cover its animations' poses, but not morph targets away from rest. one animation plays at a time (switching crossfades over 0.3 s), without layering or additive blending. a set of files is drawn at rest
-	* lights: punctual lights only, every light shades every pixel (no culling or clustering), no shadows. image based lighting's specular is the split sum with n = v = r, looked up along the dominant direction (no stretched reflections at grazing angles), and the backdrop is the 2048 wide panorama, unfiltered (no depth of field or blur control)
+	* lights: punctual lights only, every light shades every pixel (no culling or clustering). shadows: no PCSS (a fixed 4x4 texel filter), fitted to the first view only (other views beyond its cascades are unshadowed), at most 4 shadowed point and spot lights, and no culling per shadow view (each draws the whole scene); the environment casts none. image based lighting's specular is the split sum with n = v = r, looked up along the dominant direction (no stretched reflections at grazing angles), and the backdrop is the 2048 wide panorama, unfiltered (no depth of field or blur control)
 	* shading models: metallic-roughness, specular-glossiness, unlit, and every KHR_materials_* extension of the glTF-Sample-Assets (specular, ior, clearcoat, sheen, transmission, volume, dispersion, anisotropy, iridescence, diffuse_transmission, emissive_strength), as the Khronos sample viewer approximates them. transmission sees only the opaque scene (not other transmissive or blended surfaces), punctual lights don't shine through it, and a flattened mesh's volume thickness ignores its node's scale (only instance transforms scale it) obj materials map Ks and Ns to specular and roughness (their Ks color, Ka, Tf, Ni and illum are ignored)
 	* alpha blending: exact per pixel linked lists, but with fixed budgets: 4 nodes per pixel on average (fragments past them are dropped, e.g. in full screen glass several layers deep), and the 16 nearest layers of a pixel blended. no adaptive growth of the node pool, and no MSAA
 	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
-* todo: implement shadow rendering: cascaded shadow maps for directional lights, cube maps for point and spot lights, PCF filtering (PCSS optional), a budget of shadow casting lights
-	* directional lights
-	* point lights
 * todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
 * todo: investigate and implement optimization techniques such as clustered forward shading
 * todo: move window class from rhi into gfx or app support library. same for imguirenderer.
@@ -30,6 +27,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: shadows: a depth atlas (4096, frame graph transient) of 4 cascades per directional light, a cube of 6 faces per point light and a view per spot light, filtered (3x3 bilinear PCF), lights by priority until the atlas is full
 * done: generalize drawcall submission & move out of windowedapplication class: a frame graph (gfx::FrameGraph: barriers and layout transitions from what passes declare, culling, transients placed in shared memory by lifetime), gfx::Renderer (the frame's passes) and draw lists (gfx::DrawList)
 * done: tonemapping: auto exposure (a histogram from ComputeMain, read back) and a choice of tonemappers (PBR Neutral, ACES, AgX, Reinhard, linear)
 * done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible

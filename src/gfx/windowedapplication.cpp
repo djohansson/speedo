@@ -206,6 +206,10 @@ static core::ConcurrentAccess<SceneState> gScenes;
 // gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
 static uuids::uuid gLightsUuid;
 static uint32_t gLightCount = 0;
+static std::vector<LightData> gLightData; // gLights' contents, for the shadows (see Renderer)
+// whether the lights cast shadows (View > Shadows, SPEEDO_SHADOWS=0 to start without). set from the ui, read by the draw
+// thread.
+static std::atomic<bool> gShadows = true;
 // the final image is scaled by 2^gExposureStops before tonemapping (with auto exposure, on top of what it picks). set
 // from the ui, read by the draw thread.
 static std::atomic<float> gExposureStops = 0.0F;
@@ -235,7 +239,8 @@ static PushConstants FramePushConstants(uint16_t frameIndex)
 		.environmentRotation = glm::radians(gEnvironmentRotationDegrees.load(std::memory_order_relaxed)),
 		.viewCount = std::min<uint32_t>(App().GetViews().GetGrid().x * App().GetViews().GetGrid().y, SHADER_TYPES_VIEW_COUNT),
 		.environmentBackdrop = gEnvironmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
-		.tonemapper = gTonemapper.load(std::memory_order_relaxed)};
+		.tonemapper = gTonemapper.load(std::memory_order_relaxed),
+		.shadowView = SHADER_TYPES_NO_SHADOW};
 }
 
 // takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
@@ -522,6 +527,7 @@ static void UpdateLights(RHI& rhi, QueueTimelineContextData& graphics, std::span
 
 	UpdateBufferOnGraphics(graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(gLightsUuid), 0, std::as_bytes(std::span(lights)));
 	gLightCount = static_cast<uint32_t>(lights.size());
+	gLightData = std::move(lights);
 }
 
 // writes texture views, starting at slot first (see UpdateBufferOnGraphics). call on the draw thread.
@@ -2058,6 +2064,8 @@ void WindowedApplication::PrepareDraw()
 		}
 		if (const char* autoExposure = std::getenv("SPEEDO_AUTO_EXPOSURE"); autoExposure != nullptr && std::string_view(autoExposure) == "1")
 			gAutoExposure.store(true, std::memory_order_relaxed);
+		if (const char* shadows = std::getenv("SPEEDO_SHADOWS"); shadows != nullptr && std::string_view(shadows) == "0")
+			gShadows.store(false, std::memory_order_relaxed);
 		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
 		if (const char* rotation = std::getenv("SPEEDO_ENVIRONMENT_ROTATION"); rotation != nullptr && *rotation != '\0')
 			gEnvironmentRotationDegrees.store(std::strtof(rotation, nullptr), std::memory_order_relaxed);
@@ -2311,6 +2319,10 @@ void WindowedApplication::PrepareDraw()
 				SetItemTooltip("Adapts the exposure to the scene's brightness over time.");
 				if (autoExposure)
 					TextDisabled("Auto: %+.2f EV", gAutoExposureStops.load(std::memory_order_relaxed));
+				bool shadows = gShadows.load(std::memory_order_relaxed);
+				if (MenuItem("Shadows", nullptr, &shadows))
+					gShadows.store(shadows, std::memory_order_relaxed);
+				SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
 				if (BeginMenu("Tonemapper"))
 				{
 					static constexpr std::array<std::pair<const char*, uint32_t>, 5> kTonemappers{{
@@ -2532,6 +2544,15 @@ bool WindowedApplication::Draw()
 
 		std::vector<core::TaskHandle> graphicsCallbacks;
 		const auto& views = App().GetViews();
+		// the shadows are fitted to the first view's camera
+		shadows::ShadowCamera shadowCamera;
+		if (auto camera = views.GetCamera(0))
+		{
+			shadowCamera.view = camera->GetViewMatrix();
+			shadowCamera.inverseViewProjection = glm::inverse(camera->GetProjectionMatrix() * camera->GetViewMatrix());
+			shadowCamera.nearPlane = camera->GetDesc().nearPlane;
+			shadowCamera.farPlane = camera->GetDesc().farPlane;
+		}
 		gRenderer->Record(
 			cmd,
 			pipeline,
@@ -2542,6 +2563,10 @@ bool WindowedApplication::Draw()
 				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
 				.grid = views.GetGrid(),
 				.viewports = views.GetViewports(),
+				.lights = gLightData,
+				.shadows = gShadows.load(std::memory_order_relaxed),
+				.camera = shadowCamera,
+				.sceneBounds = gModel ? gModel->GetDesc().bounds : Bounds3f{},
 				.swapchain = &swapchain,
 				.swapchainFrame = &newFrame,
 				.exposureHistogram = &*device.GetResource<Buffer>(gExposureHistogramUuid),
@@ -2949,6 +2974,7 @@ WindowedApplication::WindowedApplication(
 					{"VertexMain", SLANG_STAGE_VERTEX},
 					{"FragmentMain", SLANG_STAGE_FRAGMENT},
 					{"FragmentTransparent", SLANG_STAGE_FRAGMENT}, // see kTransparentFragmentShader
+					{"FragmentShadow", SLANG_STAGE_FRAGMENT}, // see kShadowFragmentShader
 					{"ComputeMain", SLANG_STAGE_COMPUTE},
 				},
 				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,

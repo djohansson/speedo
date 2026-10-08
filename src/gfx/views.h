@@ -74,6 +74,9 @@ public:
 	// where each view draws in the framebuffer: its grid cell, letterboxed to its camera's aspect ratio. any thread.
 	[[nodiscard]] std::vector<ViewportCreateDesc> GetViewports() const;
 
+	// a view's camera (a copy), if there is that view. any thread.
+	[[nodiscard]] std::optional<Camera> GetCamera(size_t view) const;
+
 private:
 	void InternalLayout();
 

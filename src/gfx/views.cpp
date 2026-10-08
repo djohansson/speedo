@@ -256,6 +256,14 @@ void Views::SetMoveSpeed(float speed) noexcept
 	myMoveSpeed.store(std::clamp(speed, kMinSpeed, kMaxSpeed), std::memory_order_relaxed);
 }
 
+std::optional<Camera> Views::GetCamera(size_t view) const
+{
+	auto cameras = myCameras.Read();
+	if (view >= cameras.Get().size())
+		return std::nullopt;
+	return cameras.Get()[view];
+}
+
 void Views::UpdateBuffers()
 {
 	ZoneScopedN("Views::UpdateBuffers");

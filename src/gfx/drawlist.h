@@ -21,6 +21,9 @@ constexpr uint32_t kDepthAttachment = 1;
 constexpr std::array kOpaqueBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 constexpr std::array kTransparentBlend{rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 constexpr uint8_t kTransparentFragmentShader = 1;
+// the shadow pass's fragments: depth only, cut out by alpha masks (FragmentShadow, the layout's third fragment entry
+// point). with no color attachments, a kOpaque first blend mode is what makes the pipeline write depth
+constexpr uint8_t kShadowFragmentShader = 2;
 static_assert(kOpaqueBlend.size() == rhi::kMaxColorAttachments);
 
 // the materials of the loaded model are 1 and up in gMaterialData (0 is the default material)
@@ -72,6 +75,10 @@ struct DrawList
 // transmissive(material) says whether a material is.
 [[nodiscard]] DrawList BuildDrawList(
 	const Model& model, MainPassPhase phase, bool twoPhases, const std::function<bool(size_t material)>& transmissive);
+
+// a model's draws for the shadow pass: the triangles of the submeshes that cast shadows (opaque or alpha masked, not
+// blended or transmissive)
+[[nodiscard]] DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t material)>& transmissive);
 
 // records a draw list for a view (in its viewport, set by the caller): binds the pipeline variants it needs, from the
 // default (opaque triangle list) one, which the caller bound and gets back

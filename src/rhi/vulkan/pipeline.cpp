@@ -317,6 +317,21 @@ uint64_t Pipeline<kVk>::InternalCalculateHashKey(GraphicsPipelineVariant variant
 	{
 		result = XXH3_64bits_update(gThreadXxhState.get(), &variant, sizeof(variant));
 		ENSURE(result != XXH_ERROR);
+
+		// and the render target's attachment formats: the same variant needs a pipeline per render target layout (e.g.
+		// the main pass's, and the depth only shadow atlas's)
+		if (const auto& rendering = myGraphicsState.dynamicRendering)
+		{
+			result = XXH3_64bits_update(gThreadXxhState.get(), &rendering->colorAttachmentCount, sizeof(rendering->colorAttachmentCount));
+			ENSURE(result != XXH_ERROR);
+			result = XXH3_64bits_update(
+				gThreadXxhState.get(), rendering->pColorAttachmentFormats, rendering->colorAttachmentCount * sizeof(VkFormat));
+			ENSURE(result != XXH_ERROR);
+			result = XXH3_64bits_update(gThreadXxhState.get(), &rendering->depthAttachmentFormat, sizeof(rendering->depthAttachmentFormat));
+			ENSURE(result != XXH_ERROR);
+			result = XXH3_64bits_update(gThreadXxhState.get(), &rendering->stencilAttachmentFormat, sizeof(rendering->stencilAttachmentFormat));
+			ENSURE(result != XXH_ERROR);
+		}
 	}
 
 	// todo: hash more releveant state for the current bind point... framebuffer, model, etc.
@@ -583,6 +598,9 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 			break;
 		}
 	}
+	// depth only (e.g. shadows): the first blend mode says whether it writes depth
+	if (colorAttachmentCount == 0 && variant.blend[0] == BlendMode::kOpaque)
+		depthStencil.depthWriteEnable = VK_TRUE;
 	auto colorBlend = myGraphicsState.colorBlend;
 	colorBlend.attachmentCount = colorAttachmentCount;
 	colorBlend.pAttachments = colorBlendAttachments.data();

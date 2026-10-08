@@ -54,6 +54,24 @@ Renderer::Renderer(Device& device)
 		{.name = "OIT Nodes", .sizeOf = [](Extent2d extent) { return std::max<uint64_t>(OitNodeCapacity(extent), 1) * sizeof(OitNode); }});
 	myOitCounter = myGraph.CreateBuffer({.name = "OIT Counter", .size = sizeof(uint32_t)});
 	mySwapchain = myGraph.ImportImage("Swapchain");
+	myShadowAtlas = myGraph.CreateImage(
+		{.name = "Shadow Atlas",
+		 .format = Format::kD32Sfloat,
+		 .aspect = ImageAspect::kDepth,
+		 .extent = {.width = shadows::kAtlasSize, .height = shadows::kAtlasSize}});
+	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+	{
+		myShadowViewBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Shadow Views {}", frameIt)),
+			SHADER_TYPES_SHADOW_VIEW_COUNT * sizeof(ShadowData),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myLightShadowBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Light Shadows {}", frameIt)),
+			SHADER_TYPES_LIGHT_COUNT * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+	}
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
 
 	constexpr auto kOitAccess = Access::kShaderRead | Access::kShaderWrite;
@@ -79,6 +97,55 @@ Renderer::Renderer(Device& device)
 			encoder.FillBuffer(context.graph.GetBuffer(myOitCounter), 0, 0, 0);
 		});
 
+	// the lights' shadows: each of their views in its tile of the atlas
+	myShadowPass = myGraph.AddPass(
+		"Shadows",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.DepthAttachment(myShadowAtlas, LoadOp::kClear);
+			builder.Wrap(
+				[this](CommandBufferHandle cmd, const std::function<void()>& record)
+				{
+					GPU_SCOPE(cmd, *myInputs->graphicsQueue, shadows);
+					record();
+				});
+		},
+		[this](FrameGraph::PassContext& context)
+		{
+			const auto& inputs = *myInputs;
+			auto& pipeline = *myPipeline;
+			auto cmd = context.cmd;
+			CommandEncoder encoder(cmd);
+
+			pipeline.SetRenderTarget(*context.target);
+			pipeline.BindLayoutAuto(pipeline.GetDevice().GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			encoder.BindIndexBuffer(*myShadowDrawList.indexBuffer, 0, IndexType::kUint32);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+			pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
+
+			auto pushConstants = inputs.pushConstants;
+			for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+			{
+				const auto& tile = myShadowPlan.tiles[viewIt];
+				encoder.SetViewport(Viewport{
+					.x = static_cast<float>(tile.x),
+					.y = static_cast<float>(tile.y),
+					.width = static_cast<float>(tile.size),
+					.height = static_cast<float>(tile.size),
+					.minDepth = 0.0F,
+					.maxDepth = 1.0F});
+				encoder.SetScissor(rhi::Rect{
+					.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
+				pushConstants.shadowView = viewIt;
+				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0);
+			}
+		});
+
 	// the main pass: the views, each in its viewport. alpha 0 where nothing opaque is drawn (opaque draws write alpha 1):
 	// there ComputeMain draws the environment
 	auto mainPass = [&](MainPassPhase phase)
@@ -91,6 +158,7 @@ Renderer::Renderer(Device& device)
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, load);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
+				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				if (phase == MainPassPhase::kTransmissive)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
@@ -228,6 +296,8 @@ Renderer::Renderer(Device& device)
 		[](FrameGraph::PassContext& /*context*/) {});
 }
 
+Renderer::~Renderer() = default;
+
 void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 {
 	ZoneScopedN("Renderer::Resize");
@@ -251,6 +321,24 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myTransmission), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_TRANSMISSION_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowAtlas), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_SHADOW_ATLAS_TEXTURE);
+	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+	{
+		pipeline.SetDescriptorData(
+			"gShadowViews",
+			BufferBinding{.buffer = myShadowViewBuffers[frameIt], .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+		pipeline.SetDescriptorData(
+			"gLightShadows",
+			BufferBinding{.buffer = myLightShadowBuffers[frameIt], .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+	}
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
 		pipeline.SetDescriptorData(
@@ -259,8 +347,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 
 void Renderer::Prepare(CommandBufferHandle cmd)
 {
-	// the transmission texture is only written in frames with transmissive materials, but bound in every one
+	// the transmission texture is only written in frames with transmissive materials, but bound in every one (as is the
+	// shadow atlas, in frames with shadows)
 	myGraph.GetImage(myTransmission).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
+	myGraph.GetImage(myShadowAtlas).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
 }
 
 void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameInputs& inputs)
@@ -287,6 +377,34 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
 			? BuildDrawList(*frame.model, phase, myTwoPhases, frame.transmissive ? frame.transmissive : [](size_t) { return false; })
 			: DrawList{};
+	// the shadows: planned for the frame, and written for the shader to read once the frame's previous use of its
+	// buffers is done (the caller waited for its fence)
+	myShadowPlan = frame.shadows && frame.model != nullptr
+		? shadows::Plan(frame.lights.first(std::min<size_t>(frame.lights.size(), SHADER_TYPES_LIGHT_COUNT)), frame.camera, frame.sceneBounds)
+		: shadows::ShadowPlan{};
+	myShadowPlan.lightShadows.resize(SHADER_TYPES_LIGHT_COUNT, SHADER_TYPES_NO_SHADOW);
+	ENSURE(myShadowPlan.views.size() <= SHADER_TYPES_SHADOW_VIEW_COUNT);
+	{
+		auto& views = myShadowViewBuffers[frame.frameIndex];
+		auto memory = views.Map();
+		std::ranges::copy(std::as_bytes(std::span(myShadowPlan.views)), memory.begin());
+		if (!myShadowPlan.views.empty())
+			views.Flush(0, myShadowPlan.views.size() * sizeof(ShadowData));
+		views.Unmap();
+		auto& lightShadows = myLightShadowBuffers[frame.frameIndex];
+		memory = lightShadows.Map();
+		std::ranges::copy(std::as_bytes(std::span(myShadowPlan.lightShadows)), memory.begin());
+		lightShadows.Flush(0, myShadowPlan.lightShadows.size() * sizeof(uint32_t));
+		lightShadows.Unmap();
+	}
+	myShadowDrawList = !myShadowPlan.views.empty()
+		? BuildShadowDrawList(*frame.model, frame.transmissive ? frame.transmissive : [](size_t) { return false; })
+		: DrawList{};
+	bool shadowsDrawn = !myShadowDrawList.Empty();
+	frame.pushConstants.shadows = shadowsDrawn ? 1U : 0U;
+	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
+	myGraph.SetEnabled(myShadowPass, shadowsDrawn);
+
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
 

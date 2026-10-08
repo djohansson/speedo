@@ -77,6 +77,25 @@ DrawList BuildDrawList(
 	return list;
 }
 
+DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t material)>& transmissive)
+{
+	ZoneScopedN("gfx::BuildShadowDrawList");
+
+	auto list = BuildDrawList(model, MainPassPhase::kOpaque, false, transmissive);
+	const auto& materials = model.GetDesc().materials;
+	std::erase_if(
+		list.items,
+		[&](const DrawItem& item)
+		{
+			auto material = static_cast<int32_t>(item.materialSlot) - 1;
+			return item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0 ||
+				   (material >= 0 && std::cmp_less(material, materials.size()) && transmissive(static_cast<size_t>(material)));
+		});
+	for (auto& item : list.items)
+		item.variant.fragmentShader = kShadowFragmentShader;
+	return list;
+}
+
 void RecordDrawList(CommandBufferHandle cmd, Pipeline& pipeline, const DrawList& list, PushConstants pushConstants, uint16_t viewIndex)
 {
 	ZoneScopedN("gfx::RecordDrawList");

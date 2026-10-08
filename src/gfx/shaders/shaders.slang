@@ -62,6 +62,12 @@ StructuredBuffer<float> gMorphWeights[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(4, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<EnvironmentData> gEnvironment;
 
+// the shadows' views, and each light's first (see ShadowData)
+[[vk::binding(5, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<ShadowData> gShadowViews[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(6, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<uint> gLightShadows[SHADER_TYPES_FRAME_COUNT];
+
 // a vertex moved by its submesh's morph targets: each target's deltas (see MorphDelta) times the target's weight
 void Morph(uint vertexId, uint frameIndex, inout float3 position, inout float3 normal, inout float3 tangent)
 {
@@ -233,7 +239,11 @@ VertexMainOutput VertexMain(InputStream input)
 	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
 	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(normal, 0.0)).xyz;
 
-	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
+	// the shadow pass draws from its shadow views instead
+	float4x4 viewProjection = gPushConstants.shadowView != SHADER_TYPES_NO_SHADOW
+		? gShadowViews[frameIndex][gPushConstants.shadowView].viewProjection
+		: view.viewProjection;
+	output.hPos = mul(viewProjection, float4(worldPosition, 1.0));
 	output.vertex.position = worldPosition;
 	output.vertex.normal = worldNormal;
 	// a mirroring transform flips the handedness of the tangent frame
@@ -599,7 +609,76 @@ struct Surface
 	// tint
 	float diffuseTransmission;
 	float3 diffuseTransmissionColor;
+	// the geometry's normal, facing the viewer (for the shadows' normal offset)
+	float3 geometryNormal;
 };
+
+// how much of a light reaches a point, from its shadow views (see ShadowData): 1 without any. the point is pushed off its
+// surface along the geometry's normal by up to 3 texels of the view it is looked up in (normal offset), against acne,
+// and filtered over 4x4 texels (percentage closer filtering: 3x3 bilinear lookups, each four comparisons)
+float ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geometryNormal, float3 toLight)
+{
+	if (gPushConstants.shadows == 0u)
+		return 1.0;
+	uint frameIndex = gPushConstants.frameIndex;
+	uint first = gLightShadows[frameIndex][lightIndex];
+	if (first == SHADER_TYPES_NO_SHADOW)
+		return 1.0;
+
+	uint viewIndex = first;
+	if (light.type == LIGHT_TYPE_POINT)
+	{
+		// the cube face the point is in
+		float3 d = position - light.positionRange.xyz;
+		float3 a = abs(d);
+		uint face = a.x >= a.y && a.x >= a.z ? (d.x >= 0.0 ? 0u : 1u) : a.y >= a.z ? (d.y >= 0.0 ? 2u : 3u) : (d.z >= 0.0 ? 4u : 5u);
+		viewIndex = first + face;
+	}
+
+	Texture2D atlas = gTextures[SHADER_TYPES_SHADOW_ATLAS_TEXTURE];
+	float2 atlasSize;
+	atlas.GetDimensions(atlasSize.x, atlasSize.y);
+	float2 texel = 1.0 / atlasSize;
+
+	uint viewCount = light.type == LIGHT_TYPE_DIRECTIONAL ? SHADER_TYPES_SHADOW_CASCADE_COUNT : 1u;
+	for (uint cascade = 0; cascade < viewCount; cascade++)
+	{
+		ShadowData shadow = gShadowViews[frameIndex][viewIndex + cascade];
+		float texelSize = shadow.params.x;
+		if (shadow.params.y > 0.0)
+			texelSize *= length(position - light.positionRange.xyz);
+		// far enough for the filter's reach (2 texels) at the angle the surface makes with the light
+		float nDotL = saturate(dot(geometryNormal, toLight));
+		float3 offsetPosition = position + geometryNormal * (texelSize * (1.0 + 2.0 * sqrt(1.0 - nDotL * nDotL)));
+		float4 clip = mul(shadow.viewProjection, float4(offsetPosition, 1.0));
+		if (clip.w <= 0.0)
+			continue;
+		float3 ndc = clip.xyz / clip.w;
+		float2 local = ndc.xy * 0.5 + 0.5;
+		// a cascade covers the point if its filter stays inside the tile: else the next (farther) one
+		float2 margin = 2.5 * texel / shadow.atlasRect.zw;
+		if (any(local < margin) || any(local > 1.0 - margin) || ndc.z > 1.0)
+			continue;
+		if (ndc.z < 0.0)
+			return 1.0; // nearer the light than anything the view saw
+
+		float2 uv = shadow.atlasRect.xy + local * shadow.atlasRect.zw;
+		float lit = 0.0;
+		for (int y = -1; y <= 1; y++)
+			for (int x = -1; x <= 1; x++)
+			{
+				float2 st = (uv + float2(x, y) * texel) * atlasSize - 0.5;
+				float2 base = floor(st);
+				float2 f = st - base;
+				// the four texels around: x (0, 1), y (1, 1), z (1, 0), w (0, 0)
+				float4 stored = atlas.GatherRed(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], (base + 1.0) * texel);
+				float4 visible = select(stored >= ndc.z, float4(1.0), float4(0.0));
+				lit += lerp(lerp(visible.w, visible.z, f.x), lerp(visible.x, visible.y, f.x), f.y);
+			}
+		return lit / 9.0;
+	}
+	return 1.0;
+}
 
 // how much of what is below a clearcoat layer it reflects instead, seen from view (the spec's approximation, by the
 // layer's normal)
@@ -688,6 +767,9 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			}
 		}
 
+		if (attenuation <= 0.0)
+			continue;
+		attenuation *= ShadowFactor(lightIt, light, position, surface.geometryNormal, toLight);
 		if (attenuation <= 0.0)
 			continue;
 
@@ -883,6 +965,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	Surface surface;
 	surface.occlusion = occlusion;
 	surface.normal = normal;
+	surface.geometryNormal = geometryNormal;
 
 	// KHR_materials_clearcoat: its own normal map, else the geometry's normal (not the base's normal map)
 	surface.clearcoat = 0.0;
@@ -1047,6 +1130,20 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	FragmentOutput output;
 	output.color = float4(color.rgb, 1.0);
 	return output;
+}
+
+// a fragment of the shadow pass: depth only, but cut out where the material is (alpha mask)
+[shader("fragment")]
+void FragmentShadow(VertexOutput input)
+{
+	VertexP3fN3fTa4fT014fC4f v = input.vertex;
+	MaterialData material = gMaterialData[gPushConstants.viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u)];
+	if (material.alphaCutoff <= 0.0)
+		return;
+	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u && SampleView(material.baseColorView, v.texCoord01).a < material.alphaCutoff)
+		discard;
+	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && SampleView(material.alphaView, v.texCoord01).r < material.alphaCutoff)
+		discard;
 }
 
 // a blended fragment: pushed on its pixel's list (see OitNode), for ComputeMain to sort and blend. the depth test must

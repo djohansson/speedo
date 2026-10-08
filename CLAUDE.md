@@ -260,6 +260,27 @@ Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `V
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
 removed, so it can't vouch for them; compare renders instead (identical before and after the graph).
 
+## Shadows
+
+The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 512 texel cells; a frame
+graph transient, `SHADER_TYPES_SHADOW_ATLAS_TEXTURE`), planned on the cpu each frame (`shadows::Plan`, in
+`Renderer::Record`, after the frame's fence): directional lights first (4 cascades of 2x2 cells, Zhang's practical
+splits over the first view's frustum up to the scene's bounds, each a bounding sphere seen along the light, depth from
+the scene's nearest caster, snapped to whole texels), then point lights (6 cube faces of a cell, a little wider than 90
+degrees so the filter near a face's edge stays in it) and spot lights (2x2 cells, the outer cone plus a margin), by
+brightness at the camera, all of a light's tiles or none, until the atlas is full (at most `kMaxLocalShadows` point and
+spot lights). The views go in `gShadowViews[frame]` (`ShadowData`: view projection, atlas rectangle, texel size) and each
+light's first in `gLightShadows[frame]`, host visible buffers per frame index. The Shadows pass draws each view in its
+tile with `BuildShadowDrawList` (opaque and alpha masked triangles; not blended or transmissive), `VertexMain` taking the
+view from `PushConstants::shadowView` and `FragmentShadow` (the layout's third fragment entry point) cutting out alpha
+masks. A pipeline without color attachments writes depth if its variant's first blend mode is `kOpaque`, and pipelines
+are cached per render target attachment formats too (the shadow pass made the main pass's default variant for the depth
+only target, so the main pass drew nothing). `ShadowFactor` in the light loop picks the cascade (the nearest whose
+filter stays in its tile) or face, offsets the point along the geometry's normal by 1 to 3 texels by the angle to the
+light (1.5 alone left acne, a gray cast on lit faces, since the filter reaches 2 texels), and filters 3x3 bilinear
+lookups (`GatherRed`, four comparisons each). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without).
+`scripts/test-assets/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
+
 ## Descriptor sets: redundant updates consume the pool
 
 Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index

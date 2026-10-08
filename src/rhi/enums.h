@@ -216,7 +216,7 @@ constexpr size_t kMaxColorAttachments = 4;
 
 // what a graphics pipeline is created for, beyond its layout and render target (see Pipeline::BindPipelineAuto): its
 // topology, a blend mode per color attachment of the render target (it writes depth only if one of them is kOpaque:
-// the others test depth but don't write it), and which of the layout's fragment entry points it runs (by their order
+// the others test depth but don't write it; without color attachments, if the first is), and which of the layout's fragment entry points it runs (by their order
 // in it), for layouts with several
 struct GraphicsPipelineVariant
 {

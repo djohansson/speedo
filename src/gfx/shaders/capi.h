@@ -72,6 +72,8 @@ extern "C"
 #define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
 // gTextures slots: the frames' render targets' color, from this, by frame index
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
+// the gTextures slot of the shadow atlas (see ShadowData)
+#define SHADER_TYPES_SHADOW_ATLAS_TEXTURE 11u
 // the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u
 // the gTextures slot of the opaque scene, with mips, which transmissive materials refract (see the main pass's phases)
@@ -117,6 +119,14 @@ struct ViewData
 };
 
 #define SHADER_TYPES_LIGHT_COUNT 256u
+
+// shadows: each shadowed light's views into the shadow atlas (one depth texture, SHADER_TYPES_SHADOW_ATLAS_TEXTURE), per
+// frame: gShadowViews[frame], from the light's first, gLightShadows[frame][light] (SHADER_TYPES_NO_SHADOW for a light
+// without). a directional light has SHADER_TYPES_SHADOW_CASCADE_COUNT views (cascades, nearest first), a point light 6
+// (the cube's faces: +x, -x, +y, -y, +z, -z), a spot light 1
+#define SHADER_TYPES_SHADOW_VIEW_COUNT 64u
+#define SHADER_TYPES_SHADOW_CASCADE_COUNT 4u
+#define SHADER_TYPES_NO_SHADOW 0xffffffffu
 #define SHADER_TYPES_NOT_SKINNED 0xffffffffu
 
 #define LIGHT_TYPE_DIRECTIONAL 0u
@@ -155,6 +165,16 @@ struct LightData
 	alignas(4) FLOAT(spotOffset);
 	alignas(4) UINT(type);
 	alignas(4) UINT(padding);
+};
+
+// a view a light's shadow is drawn from: world to clip space (depth 0 to 1), drawn in a tile of the atlas
+struct ShadowData
+{
+	alignas(16) FLOAT4X4(viewProjection);
+	alignas(16) FLOAT4(atlasRect); // xy: the tile's corner in the atlas, zw: its size (texture coordinates)
+	// x: a texel's size in world units (orthographic), or per unit of distance from the light (perspective). y: 1 for a
+	// perspective view, else 0. zw: unused
+	alignas(16) FLOAT4(params);
 };
 
 #define SHADER_TYPES_TEXTURE_VIEW_INDEX_BITS 12u
@@ -326,6 +346,10 @@ struct PushConstants
 	alignas(4) UINT(oitNodeCapacity);
 	// per frame, for ComputeMain: which tonemapper (TONEMAPPER_*)
 	alignas(4) UINT(tonemapper);
+	// per draw: the shadow view (gShadowViews[frame]) a draw of the shadow pass is seen from, else SHADER_TYPES_NO_SHADOW
+	// (the view of viewAndMaterialId). per frame: whether lights cast their shadows
+	alignas(4) UINT(shadowView);
+	alignas(4) UINT(shadows);
 };
 
 #ifdef __cplusplus
