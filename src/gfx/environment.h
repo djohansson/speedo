@@ -37,10 +37,29 @@ constexpr uint32_t kSkyWidth = 256;
 // directional light it replaced: 2.2, the diffuse light of a white surface facing it (0.7) times pi)
 constexpr std::array<float, 3> kSkySunDirection{0.2592F, 0.8639F, 0.4319F}; // normalize(0.3, 1, 0.5)
 constexpr float kSkySunIrradiance = 2.2F;
-constexpr float kSkySunRadius = 0.025F; // radians (1.4 degrees: a few texels of the sky, larger than the real sun's)
+constexpr float kSkySunRadius = 0.025F; // radians (1.4 degrees, larger than the real sun's)
+
+// the procedural sky, as ProceduralSky draws it and the shader evaluates it where it is seen sharply (the backdrop, mirror
+// reflections; see EnvironmentData): its colors, scaled so that the sky is as bright on average as the ambient light it
+// replaced (0.3), and its sun disk, of a radiance giving kSkySunIrradiance
+struct SkyParameters
+{
+	std::array<float, 3> zenith{};
+	std::array<float, 3> horizon{};
+	std::array<float, 3> ground{};
+	std::array<float, 3> sunDirection{}; // towards it
+	float sunCosRadius = 1.0F;
+	float sunRadiance = 0.0F;
+};
+[[nodiscard]] const SkyParameters& ProceduralSkyParameters();
+
+// the procedural sky's radiance (without its sun) in a direction (unit length), as the shader's SkyRadiance
+[[nodiscard]] std::array<float, 3> SkyRadiance(const SkyParameters& sky, const std::array<float, 3>& direction);
 
 // the default environment, where no file is loaded (and for tests): a sky over a ground, as bright on average as the
-// constant ambient light it replaced (0.3), and a sun
+// constant ambient light it replaced (0.3), and a sun (see SkyParameters). a small panorama: what lights the scene is
+// blurry (the prefiltered levels, the irradiance; the sun is a directional light), and the shader draws what is seen
+// sharply itself
 [[nodiscard]] Panorama ProceduralSky(uint32_t width = kSkyWidth);
 
 // a panorama's dominant light: a strong compact light source (the sun, a lamp, a window), which lights the scene

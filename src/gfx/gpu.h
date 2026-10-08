@@ -38,6 +38,7 @@ using SamplerVectorCreateDesc = rhi::SamplerVectorCreateDesc<rhi::kGraphicsApi>;
 using CommandEncoder = rhi::CommandEncoder<rhi::kGraphicsApi>;
 using CommandBufferHandle = ::CommandBufferHandle<rhi::kGraphicsApi>;
 using SemaphoreHandle = ::SemaphoreHandle<rhi::kGraphicsApi>;
+using PipelineLayoutHandle = ::PipelineLayoutHandle<rhi::kGraphicsApi>;
 using ImGuiRenderer = rhi::ImGuiRenderer<rhi::kGraphicsApi>;
 using BufferBinding = rhi::BufferBinding<rhi::kGraphicsApi>;
 using ImageBinding = rhi::ImageBinding<rhi::kGraphicsApi>;

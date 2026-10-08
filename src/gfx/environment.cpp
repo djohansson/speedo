@@ -270,39 +270,78 @@ std::expected<Panorama, std::string> Import(const std::filesystem::path& path, u
 	return panorama;
 }
 
+const SkyParameters& ProceduralSkyParameters()
+{
+	static const SkyParameters kSky = []
+	{
+		SkyParameters sky{
+			.zenith = {0.25F, 0.40F, 0.75F},
+			.horizon = {0.80F, 0.82F, 0.85F},
+			.ground = {0.30F, 0.27F, 0.24F},
+			.sunCosRadius = std::cos(kSkySunRadius)};
+		auto direction = glm::normalize(glm::vec3(kSkySunDirection[0], kSkySunDirection[1], kSkySunDirection[2]));
+		sky.sunDirection = {direction.x, direction.y, direction.z};
+		// the disk's radiance: its irradiance over its solid angle
+		sky.sunRadiance = kSkySunIrradiance / (2.0F * detail::kPi * (1.0F - sky.sunCosRadius));
+
+		// as bright on average as the ambient light was (by solid angle, over a grid of directions)
+		constexpr uint32_t kWidth = 512;
+		constexpr uint32_t kHeight = kWidth / 2;
+		double sum = 0.0;
+		double weight = 0.0;
+		for (uint32_t y = 0; y < kHeight; y++)
+			for (uint32_t x = 0; x < kWidth; x++)
+			{
+				auto d = detail::Direction(
+					(static_cast<float>(x) + 0.5F) / static_cast<float>(kWidth), (static_cast<float>(y) + 0.5F) / static_cast<float>(kHeight));
+				auto color = SkyRadiance(sky, {d.x, d.y, d.z});
+				double w = detail::RowWeight(y, kHeight);
+				sum += ((0.2126 * color[0]) + (0.7152 * color[1]) + (0.0722 * color[2])) * w;
+				weight += w;
+			}
+		auto scale = static_cast<float>(0.3 / (sum / weight));
+		for (auto* color : {&sky.zenith, &sky.horizon, &sky.ground})
+			for (auto& channel : *color)
+				channel *= scale;
+		return sky;
+	}();
+	return kSky;
+}
+
+std::array<float, 3> SkyRadiance(const SkyParameters& sky, const std::array<float, 3>& direction)
+{
+	// the sky fades from the horizon up, the ground darkens towards the nadir, with a soft edge between them
+	float up = direction[1];
+	glm::vec3 zenith(sky.zenith[0], sky.zenith[1], sky.zenith[2]);
+	glm::vec3 horizon(sky.horizon[0], sky.horizon[1], sky.horizon[2]);
+	glm::vec3 groundColor(sky.ground[0], sky.ground[1], sky.ground[2]);
+	glm::vec3 above = glm::mix(horizon, zenith, std::sqrt(std::max(up, 0.0F)));
+	glm::vec3 below = groundColor * (1.0F - (0.4F * std::sqrt(std::max(-up, 0.0F))));
+	glm::vec3 color = glm::mix(below, above, glm::smoothstep(-0.02F, 0.02F, up));
+	return {color.x, color.y, color.z};
+}
+
 Panorama ProceduralSky(uint32_t width)
 {
 	ZoneScopedN("gfx::environment::ProceduralSky");
 
+	const auto& sky = ProceduralSkyParameters();
 	Panorama panorama{.width = width, .height = width / 2};
 	panorama.rgb.resize(static_cast<size_t>(panorama.width) * panorama.height * 3);
-	const glm::vec3 kZenith(0.25F, 0.40F, 0.75F);
-	const glm::vec3 kHorizon(0.80F, 0.82F, 0.85F);
-	const glm::vec3 kGround(0.30F, 0.27F, 0.24F);
 	for (uint32_t y = 0; y < panorama.height; y++)
 		for (uint32_t x = 0; x < panorama.width; x++)
 		{
 			auto d = detail::Direction(
 				(static_cast<float>(x) + 0.5F) / static_cast<float>(panorama.width),
 				(static_cast<float>(y) + 0.5F) / static_cast<float>(panorama.height));
-			// the sky fades from the horizon up, the ground darkens towards the nadir, with a soft edge between them
-			glm::vec3 sky = glm::mix(kHorizon, kZenith, std::pow(std::max(d.y, 0.0F), 0.5F));
-			glm::vec3 ground = kGround * (1.0F - (0.4F * std::pow(std::max(-d.y, 0.0F), 0.5F)));
-			glm::vec3 color = glm::mix(ground, sky, glm::smoothstep(-0.02F, 0.02F, d.y));
-			std::memcpy(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3], &color[0], sizeof(float) * 3);
+			auto color = SkyRadiance(sky, {d.x, d.y, d.z});
+			std::memcpy(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3], color.data(), sizeof(float) * 3);
 		}
-
-	// as bright on average as the ambient light was
-	auto mean = MeanRadiance(panorama);
-	auto luminance = (0.2126 * mean[0]) + (0.7152 * mean[1]) + (0.0722 * mean[2]);
-	auto scale = static_cast<float>(0.3 / luminance);
-	for (auto& value : panorama.rgb)
-		value *= scale;
 
 	// the sun: a disk, its texels covered in part where its edge crosses them (4x4 samples each), then scaled to give
 	// exactly its irradiance (radiance times the texels' solid angles)
-	auto sunDirection = glm::normalize(glm::vec3(kSkySunDirection[0], kSkySunDirection[1], kSkySunDirection[2]));
-	float cosRadius = std::cos(kSkySunRadius);
+	auto sunDirection = glm::vec3(sky.sunDirection[0], sky.sunDirection[1], sky.sunDirection[2]);
+	float cosRadius = sky.sunCosRadius;
 	float cosReach = std::cos(kSkySunRadius + (4.0F * detail::kPi / static_cast<float>(panorama.height)));
 	constexpr uint32_t kSamples = 4;
 	std::vector<std::pair<size_t, float>> covered; // texel, coverage

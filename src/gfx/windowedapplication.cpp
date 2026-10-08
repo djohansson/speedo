@@ -1,5 +1,6 @@
 #include <core/task.h>
 #include <gfx/capi.h>
+#include <gfx/environmentfilter.h>
 #include <gfx/gpu.h>
 #include <gfx/imgui_extra.h>
 #include <gfx/meshimport.h>
@@ -94,6 +95,8 @@ static std::atomic_uint32_t gFrameSubmitBatchCount;
 static std::atomic<float> gFramesPerSecond;
 // draws the frames (see Renderer): its frame graph owns what is sized by the swapchain
 static std::unique_ptr<Renderer> gRenderer;
+// prefilters the environments on the gpu (see InstallEnvironment)
+static std::unique_ptr<EnvironmentFilter> gEnvironmentFilter;
 // the bytes of device memory its transients take, and would take without aliasing. written on resize, for the ui
 static std::atomic_uint64_t gTransientMemory;
 static std::atomic_uint64_t gUnaliasedTransientMemory;
@@ -1691,19 +1694,58 @@ static void InstallEnvironment(
 {
 	ZoneScopedN("WindowedApplication::InstallEnvironment");
 
+	// a file's panoramas are uploaded (the procedural sky has none)
+	Uploads uploads;
+	for (const auto* texture : {&environment->original, &environment->lighting})
+		if (*texture)
+			uploads.images.emplace_back(texture->image, texture->upload);
 	TransitionThenBind(
 		rhi,
 		graphics,
-		Uploads{
-			.images =
-				{{environment->texture.image, environment->texture.upload},
-				 {environment->sheenTexture.image, environment->sheenTexture.upload}}},
+		uploads,
 		[&rhi, environment, name = std::move(name)](QueueTimelineContextData& graphics) mutable
 		{
 			auto& device = rhi.GetPrimaryDevice();
 			auto& pipeline = device.GetPipeline();
 			const auto& [image, view, upload, normalYUp] = environment->texture;
 			const auto& [sheenImage, sheenView, sheenUpload, sheenNormalYUp] = environment->sheenTexture;
+			auto& environmentBuffer = *device.GetResource<Buffer>(gEnvironmentUuid);
+
+			EnvironmentData data{
+				.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE,
+				.samplerId = kDefaultSamplerId,
+				.levelCount = static_cast<float>(environment->levelCount),
+				.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
+			if (const auto& sky = environment->sky)
+			{
+				std::ranges::copy(sky->zenith, data.skyZenith);
+				data.skyZenith[3] = 1.0F;
+				std::ranges::copy(sky->horizon, data.skyHorizon);
+				std::ranges::copy(sky->ground, data.skyGround);
+				std::ranges::copy(sky->sunDirection, data.skySun);
+				data.skySun[3] = sky->sunCosRadius;
+				data.skySunRadiance[0] = sky->sunRadiance;
+			}
+			// the irradiance is the filter's to write, after the rest
+			UpdateBufferOnGraphics(graphics, environmentBuffer, 0, std::as_bytes(std::span(&data, 1)));
+
+			// prefiltered on the gpu, before the frames that sample it (the same queue)
+			{
+				auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+				auto cmd = graphicsQueue.GetPool().Commands();
+				auto used = gEnvironmentFilter->Record(cmd, pipeline, *environment, environmentBuffer);
+				cmd.End();
+				graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
+					.waitSemaphores = {graphics.semaphore},
+					.waitDstStageMasks = {PipelineStage::kAllCommands},
+					.waitSemaphoreValues = {graphics.timeline},
+					.signalSemaphores = {graphics.semaphore},
+					.signalSemaphoreValues = {++graphics.timeline},});
+				graphicsSubmits |= graphicsQueue.Submit();
+				// what the filter reads (the source, a file's panoramas) and its views, until the gpu is done
+				RetireAfterGraphicsWork(graphics, std::move(used));
+				RetireAfterGraphicsWork(graphics, std::make_shared<std::shared_ptr<const EnvironmentTexture>>(environment));
+			}
 
 			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			pipeline.SetDescriptorData(
@@ -1716,16 +1758,6 @@ static void InstallEnvironment(
 				ImageBinding{.sampler = {}, .imageView = *sheenView, .layout = sheenImage->GetDesc().layout},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 				SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE);
-
-			EnvironmentData data{
-				.textureId = SHADER_TYPES_ENVIRONMENT_TEXTURE,
-				.samplerId = kDefaultSamplerId,
-				.levelCount = static_cast<float>(environment->levelCount),
-				.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
-			for (size_t i = 0; i < environment->irradiance.size(); i++)
-				std::ranges::copy(environment->irradiance[i], data.irradiance[i]);
-			UpdateBufferOnGraphics(
-				graphics, *device.GetResource<Buffer>(gEnvironmentUuid), 0, std::as_bytes(std::span(&data, 1)));
 
 			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentImageUuid, image));
 			RetireAfterGraphicsWork(graphics, device.ReplaceResource(gEnvironmentViewUuid, view));
@@ -3088,6 +3120,10 @@ WindowedApplication::WindowedApplication(
 
 	pipeline.BindLayoutAuto(mainShaderLayoutPairIt->second, PipelineBindPoint::kGraphics);
 
+	// (registering its layout can rehash the layout map: mainShaderLayoutPairIt is stale after it)
+	gEnvironmentFilter = std::make_unique<EnvironmentFilter>(device, pipeline, shaderLoader, shaderIncludePath / "environment.slang");
+	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+
 	pipeline.SetDescriptorData(
 		"gMaterialData",
 		BufferBinding{.buffer = *device.GetResource<Buffer>(gMaterialsUuid), .offset = 0},
@@ -3243,6 +3279,7 @@ void WindowedApplication::Shutdown()
 	// what holds gpu objects, before the rhi they belong to
 	gModel.reset();
 	gRenderer.reset();
+	gEnvironmentFilter.reset();
 	myViews.reset();
 	myRHI.reset();
 }

@@ -3,6 +3,7 @@ module speedo;
 __include types;
 
 #include "capi.h"
+#include "sky.h"
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL)]]
 [[vk::push_constant]]
@@ -353,13 +354,28 @@ float3 EnvironmentIrradiance(EnvironmentData environment, float3 n)
 	return max(result, 0.0) * gPushConstants.environmentIntensity;
 }
 
+// the procedural sky's radiance in a direction (in the panorama's space), sun included (see EnvironmentData::skyZenith):
+// as gfx::environment::SkyRadiance, and the sun's disk, its edge soft over a fifth of its radius (a pixel or two)
+float3 SkyRadiance(EnvironmentData environment, float3 d)
+{
+	float3 color = SkyGradient(environment, d);
+	float radius = acos(environment.skySun.w);
+	float angle = acos(clamp(dot(d, environment.skySun.xyz), -1.0, 1.0));
+	return color + environment.skySunRadiance.x * (1.0 - smoothstep(radius * 0.9, radius * 1.1, angle));
+}
+
 // the radiance reflected along r, prefiltered for a roughness (the split sum's first term), scaled by the intensity.
-// roughness 0 is the panorama itself, as the backdrop shows it
+// roughness 0 is the panorama itself, as the backdrop shows it. the procedural sky is evaluated where it is sharper
+// than its panorama: below the first prefiltered level's roughness, blending into it
 float3 EnvironmentRadiance(EnvironmentData environment, float3 r, float roughness)
 {
 	float lod = roughness * (environment.levelCount - 1.0);
-	float2 uv = EnvironmentCoordinates(EnvironmentDirection(r));
-	return gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], uv, lod).rgb * gPushConstants.environmentIntensity;
+	float3 d = EnvironmentDirection(r);
+	float2 uv = EnvironmentCoordinates(d);
+	float3 sampled = gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], uv, lod).rgb;
+	if (environment.skyZenith.w > 0.0 && lod < 1.0)
+		sampled = lerp(SkyRadiance(environment, d), sampled, lod);
+	return sampled * gPushConstants.environmentIntensity;
 }
 
 // the radiance the sheen (KHR_materials_sheen's Charlie lobe) reflects along r for a sheen roughness, scaled by the
@@ -838,17 +854,23 @@ float3 TransmittedLight(
 
 	ViewData viewData = gViewData[gPushConstants.frameIndex][viewId];
 	float4 clip = mul(viewData.viewProjection, float4(exit, 1.0));
-	float2 ndc = clip.xy / clip.w;
+	// where the ray leaves the volume, in the view. beyond the view's edges the scene wasn't drawn (clamping streaked the
+	// edge's texels), so towards them, over its last 5%, the environment along the ray takes over: plausible rather than
+	// right, but steady
+	float2 local = clip.w > 0.0 ? clip.xy / clip.w * 0.5 + 0.5 : float2(-1.0);
+	float2 edge = min(local, 1.0 - local);
+	float inside = saturate(min(edge.x, edge.y) / 0.05);
 	Texture2D scene = gTextures[SHADER_TYPES_TRANSMISSION_TEXTURE];
 	uint width;
 	uint height;
 	uint levels;
 	scene.GetDimensions(0, width, height, levels);
-	float2 uv = (viewData.viewport.xy + (ndc * 0.5 + 0.5) * viewData.viewport.zw) / float2(width, height);
+	float2 uv = (viewData.viewport.xy + saturate(local) * viewData.viewport.zw) / float2(width, height);
 	float lod = log2(float(width)) * roughness * saturate(ior * 2.0 - 2.0);
 	float4 behind = scene.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, lod);
 	// premultiplied: the clear color is transparent black
-	float3 light = behind.rgb + (1.0 - behind.a) * EnvironmentRadiance(gEnvironment[0], ray, roughness);
+	float3 environment = EnvironmentRadiance(gEnvironment[0], ray, roughness);
+	float3 light = lerp(environment, behind.rgb + (1.0 - behind.a) * environment, inside);
 
 	if (attenuationDistance > 0.0)
 		light *= pow(max(attenuationColor, 1e-6), thickness / attenuationDistance);

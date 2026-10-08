@@ -38,22 +38,30 @@ struct Texture
 	const image::Options& options = {},
 	std::optional<uint32_t> embeddedImage = std::nullopt);
 
-// a prefiltered environment uploaded for sampling (see environment::Environment): its levels as the mips of a
-// R16G16B16A16_SFLOAT texture, its sheen levels as another's, its irradiance, and its dominant lights
+// an environment for the gpu to prefilter (see EnvironmentFilter, and environment::Environment for what the levels
+// are): its levels as the mips of a R16G16B16A16_SFLOAT texture and its sheen levels as another's (storage images,
+// written by the filter), the source pyramid it filters from, and its dominant lights. a file's panoramas (the original,
+// dominant lights included, and the lighting one without them) are uploaded for it; the procedural sky has none (the
+// filter draws it from its parameters, which the shader evaluates too: see EnvironmentData)
 struct EnvironmentTexture
 {
 	std::vector<environment::DominantLight> dominantLights;
+	std::optional<environment::SkyParameters> sky;
 	Texture texture;
 	Texture sheenTexture;
-	uint32_t sheenLevelCount = 0;
-	std::array<std::array<float, 4>, 9> irradiance{};
+	std::shared_ptr<Image> source; // its pyramid, down to 8 texels wide
+	std::shared_ptr<ImageView> sourceView; // all of its mips
+	Texture original; // a file's
+	Texture lighting;
 	uint32_t levelCount = 0;
+	uint32_t sheenLevelCount = 0;
 
 	[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(texture); }
 };
 
-// loads an environment panorama file (e.g. Radiance .hdr) through the asset cache, or the procedural sky (see
-// environment::ProceduralSky) without one, prefilters it and uploads it as LoadTexture does. empty if cancelled or failed.
+// loads an environment panorama file (e.g. Radiance .hdr) through the asset cache (decoded, its dominant lights taken
+// out), or the procedural sky (see environment::ProceduralSky) without one, for the gpu to prefilter (see
+// EnvironmentFilter). empty if cancelled or failed.
 [[nodiscard]] EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress);
 
 } // namespace gfx

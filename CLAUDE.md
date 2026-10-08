@@ -462,8 +462,11 @@ candela, then the environment's dominant lights), plus image based lighting that
 (`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
 (`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
 over a ground, as bright on average as the constant ambient light of 0.3 it replaced, and a sun disk of 1.4 degrees
-radius giving the 2.2 lux of the directional light it replaced, `kSkySunDirection`, drawn with 4x4 samples per texel and
-scaled to exactly that irradiance). A panorama's strongest compact light sources are its dominant lights (not
+radius giving the 2.2 lux of the directional light it replaced, `kSkySunDirection` (`SkyParameters`, which the shader
+evaluates where the sky is seen sharply, `EnvironmentData::skyZenith` and on: the backdrop, and reflections below the first
+prefiltered level's roughness, blending into it; the 256 wide panorama it lights with is blurry anyway, and its sun was a
+square; a 2048 panorama took seconds to prefilter on the cpu at every start). The cpu `ProceduralSky` panorama (its sun
+drawn with 4x4 samples per texel, scaled to exactly that irradiance) is the tests' reference. A panorama's strongest compact light sources are its dominant lights (not
 necessarily a sun: a softbox in neutral.hdr, windows in ennis.hdr and papermill.hdr), which
 `environment::ExtractDominantLights` takes out, up to `kMaxDominantLights` (4), each found in what the ones before left
 (its brightest texel, if 50 times the mean of what is left, and the texels around it within 15 degrees brighter than 2%
@@ -479,13 +482,22 @@ turns merging off and on, `gMergeLights`; `SPEEDO_MERGE_LIGHTS=0` starts without
 Khronos panoramas' bright sources are clipped, so most come out at 3 to 5% of the mean (field, footprint_court, doge2
 and pisa have none; papermill has 4, all windows); the procedural sky's sun is 37%, and `assettest` checks it is the one
 dominant light found, where and as bright as it was put (and the lighting levels against the panorama's mean less the
-dominant lights' share). `environment::Prefilter` turns the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
+dominant lights' share). The client prefilters on the gpu (`gfx::EnvironmentFilter`, `environment.slang`, a layout of its
+own, "Environment", kernels selected by `ComputePipelineVariant`): `LoadEnvironment` decodes a file and takes its dominant
+lights out on the cpu (cached, `environment-vN`: the original and lighting panoramas as half floats, and the lights), and
+uploads both panoramas; the procedural sky needs nothing (its sun is known, and the source is drawn by `EnvironmentSky`).
+`InstallEnvironment` then records the filter on the draw thread (after the uploads are acquired, writing the rest of
+`gEnvironment` first): the source pyramid (`EnvironmentDownsample`, by solid angle, down to 8 wide), level 0 (the original,
+or the sky's source), the GGX and Charlie levels, and the irradiance (one group, into `gEnvironment[0]`), each kernel over
+a mip as a storage image (`ImageViewCreateDesc::baseLevel`) and dispatched by threads (`CommandEncoder::DispatchThreads`,
+by the reflected group size). Its renders match the cpu reference's (0.01 of 255 on average). The resources of a layout
+of its own start at set 1: set 0 is the push constants' (`[[vk::binding(0, 0)]]` on them, as in `Main`), else they
+share binding 0 with a resource. `environment::Prefilter`, the cpu reference the tests check, turns the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
 sum with n = v = r, filtered importance sampling from a mip pyramid; level 0 is the panorama, dominant lights included:
 the backdrop, and mirrors), the mips of one `R16G16B16A16_SFLOAT` texture
 (`SHADER_TYPES_ENVIRONMENT_TEXTURE`), 6 levels prefiltered with the sheen's Charlie lobe (`Environment::sheenLevels`, from
 an eighth of the width, `SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE`, `EnvironmentData::sheenLevelCount`), and the irradiance as 9 spherical harmonics coefficients (`EnvironmentData` in
-`gEnvironment`). `LoadEnvironment` caches a file's (`environment-vN`); `InstallEnvironment` installs it on the draw
-thread. The shader takes the specular's second term from Karis' environment brdf fit, and looks the base and clearcoat
+`gEnvironment`). The shader takes the specular's second term from Karis' environment brdf fit, and looks the base and clearcoat
 specular up along Frostbite's dominant direction (`DominantDirection`: leaned from the reflection toward the normal by
 roughness, which keeps rough grazing reflections from skimming the horizon). The Charlie lobe can't be importance
 sampled the usual way (Estevez and Kulla's half vectors): at low roughness its weight is near the horizon, where most
@@ -526,7 +538,10 @@ transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `Im
 `Image::GenerateMips`, which blits each level from the one above with per level barriers), the transmissive and
 blended ones, loading the attachments. The refracted ray (by the ior) leaves the volume after the thickness
 (KHR_materials_volume: factor times the texture's green, times the instance's scale; 0 is thin walled), is projected into
-the view, and samples the texture at `log2(width) * roughness * saturate(2 ior - 2)` through the clamping sampler
+the view (fading to the environment along the ray over the view's last 5% and beyond it, where nothing was drawn:
+clamping streaked the edge's texels, stretching as glass neared a corner; offsets shortened to stay inside, or mirrored
+in, looked no better, and a guard band costs too much), and samples the texture at
+`log2(width) * roughness * saturate(2 ior - 2)` through the clamping sampler
 (`SHADER_TYPES_CLAMP_SAMPLER`, a reserved slot, so models get 62); where nothing opaque was drawn the environment along
 the ray fills in by the texture's alpha, which is why the color target is cleared to transparent black (ComputeMain
 draws the gray clear color itself where neither the views nor the backdrop are). The volume attenuates it by
@@ -574,7 +589,9 @@ which unzip ignores too. `assettest` takes zip archives as well, extracting them
 
 `scripts/assettest.ps1 <zips or dirs>` (PowerShell, as the other scripts) runs the `assettest` tool (imports every model and image and checks the result:
 index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `-Client`
-also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish), failing
+also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish, and
+`SPEEDO_BACKGROUND=1` opens its window behind the others without taking the focus, so the runs don't interrupt whoever
+is working), failing
 on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
 profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through

@@ -145,6 +145,25 @@ struct EnvironmentData
 	alignas(4) FLOAT(levelCount);
 	// the same for KHR_materials_sheen's Charlie lobe, in SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE (sampled with samplerId)
 	alignas(4) FLOAT(sheenLevelCount);
+	// the procedural sky (gfx::environment::SkyParameters), which the shader evaluates where it is seen sharply (the
+	// backdrop, mirror reflections) rather than sampling the panorama's few texels: rgb of its colors, and skyZenith.w 1
+	// if the environment is the procedural sky (else 0, and none of these are used). skySun: xyz towards the sun (in the
+	// panorama's space), w the cosine of its radius; skySunRadiance.x its disk's radiance
+	alignas(16) FLOAT4(skyZenith);
+	alignas(16) FLOAT4(skyHorizon);
+	alignas(16) FLOAT4(skyGround);
+	alignas(16) FLOAT4(skySun);
+	alignas(16) FLOAT4(skySunRadiance);
+};
+
+// the environment's prefiltering kernels (the Environment layout, environment.slang): the roughness of the level written,
+// and the source's mip count (its pyramid, down to 8 texels wide)
+struct EnvironmentFilterConstants
+{
+	alignas(4) FLOAT(roughness);
+	alignas(4) UINT(sourceLevelCount);
+	alignas(4) UINT(padding0);
+	alignas(4) UINT(padding1);
 };
 
 struct OitNode
