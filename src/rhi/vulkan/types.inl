@@ -320,6 +320,9 @@ template <GraphicsApi G>
 using FenceHandle = std::conditional_t<G == kVk, VkFence, std::nullptr_t>;
 
 template <GraphicsApi G>
+using QueryPoolHandle = std::conditional_t<G == kVk, VkQueryPool, std::nullptr_t>;
+
+template <GraphicsApi G>
 using SemaphoreHandle = std::conditional_t<G == kVk, VkSemaphore, std::nullptr_t>;
 
 

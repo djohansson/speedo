@@ -551,6 +551,11 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	std::vector<PipelineShaderStageCreateInfo<kVk>> stages;
 	uint32_t fragmentIt = 0;
 	bool fragment = false;
+	// the variant's specialization constant 0, for every stage (one without it ignores it)
+	uint32_t specializationValue = variant.specialization;
+	VkSpecializationMapEntry specializationEntry{.constantID = 0, .offset = 0, .size = sizeof(specializationValue)};
+	VkSpecializationInfo specialization{
+		.mapEntryCount = 1, .pMapEntries = &specializationEntry, .dataSize = sizeof(specializationValue), .pData = &specializationValue};
 	for (const auto& stage : myGraphicsState.shaderStages)
 	{
 		if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
@@ -560,6 +565,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 			fragment = true;
 		}
 		stages.push_back(stage);
+		stages.back().pSpecializationInfo = &specialization;
 	}
 	ENSUREF(fragment || fragmentIt == 0, "the layout has no fragment entry point {}", variant.fragmentShader);
 	pipelineInfo.stageCount = static_cast<uint32_t>(stages.size());

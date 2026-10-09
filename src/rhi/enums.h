@@ -223,6 +223,8 @@ struct GraphicsPipelineVariant
 	PrimitiveTopology topology = PrimitiveTopology::kTriangleList;
 	std::array<BlendMode, kMaxColorAttachments> blend{};
 	uint8_t fragmentShader = 0;
+	// the value of the shaders' specialization constant 0 (what it means is the shaders' business; 0 by default)
+	uint16_t specialization = 0;
 
 	bool operator==(const GraphicsPipelineVariant&) const = default;
 };
@@ -333,6 +335,7 @@ struct DeviceLimits
 {
 	uint64_t maxStorageBufferRange = 0; // in bytes
 	uint32_t maxPerStageSampledImages = 0;
+	float timestampPeriod = 0.0F; // nanoseconds per timestamp tick (see QueryPool)
 };
 
 // the shader stages a shader, binding or push constant range is used in

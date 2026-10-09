@@ -86,7 +86,8 @@ DeviceLimits Device<kVk>::GetLimits() const
 	const auto& limits = GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice()).deviceProperties.properties.limits;
 	return DeviceLimits{
 		.maxStorageBufferRange = limits.maxStorageBufferRange,
-		.maxPerStageSampledImages = limits.maxPerStageDescriptorSampledImages};
+		.maxPerStageSampledImages = limits.maxPerStageDescriptorSampledImages,
+		.timestampPeriod = limits.timestampPeriod};
 }
 
 template <>
