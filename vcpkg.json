@@ -46,6 +46,7 @@
         "concurrentqueue",
         "cppzmq",
         "cpptrace",
+        "libdeflate",
         {
           "name": "mimalloc",
           "features": [

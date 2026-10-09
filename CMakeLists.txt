@@ -86,6 +86,7 @@ find_package(Ktx CONFIG REQUIRED)
 find_package(draco CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(mikktspace CONFIG REQUIRED)
+find_package(libdeflate CONFIG REQUIRED)
 
 if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
 	find_program(MINJECT NAMES minject.exe minject32.exe HINTS ENV PATH REQUIRED)
@@ -114,6 +115,8 @@ target_include_directories(
 )
 target_link_libraries(
 	core
+	PRIVATE
+		$<IF:$<TARGET_EXISTS:libdeflate::libdeflate_shared>,libdeflate::libdeflate_shared,libdeflate::libdeflate_static>
 	PUBLIC
 		SHA-Intrinsics
 		cpptrace::cpptrace
@@ -400,7 +403,7 @@ target_link_libraries(
 ###############################################################################
 
 # compares ways of reading files (std streams, stdio, core's memory mapped files), warm and cold, and times the
-# importers (--import), see src/tools/filebench.cpp
+# importers (--import) and core::zip (--zip), see src/tools/filebench.cpp
 add_executable(filebench ${SPEEDO_SOURCE_DIR}/tools/filebench.cpp)
 target_compile_features(
 	filebench

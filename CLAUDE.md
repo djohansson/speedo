@@ -214,6 +214,15 @@ parsing (2 to 3% faster).
 
 ## Choosing a lock
 
+Zip entries are inflated with libdeflate (`core::zip::Inflate`, raw deflate straight into the entry's file, mapped at
+its known size) and checked with its crc-32 (`core::zip::Crc32`, the cpu's crc instructions), by a worker per executor
+thread taking entries in turn (`core::zip::ExtractAll`, which waits with `TaskExecutor::Join`, so it may run in a task;
+directories are created first, on the calling thread). Compared on San_Miguel.zip (511 MiB, 1.8 GiB inflated), libdeflate
+inflated in 1.01 s where stb_image's decoder took 2.65 s (zlib 2.33, miniz 2.05, zlib-ng 1.63), and its crc-32 in 24 ms
+where the byte-at-a-time table the extractor had took 3.2 s. Extracting it takes 1.0 s on 14 threads (1.7 s on one): one
+entry, the 1.1 GB obj, is most of it, and a deflate stream inflates in order. `filebench --zip <archives>` times all of
+that.
+
 Measured on this machine (M4 Pro): `core::UpgradableSharedMutex` is the cheapest uncontended (~4-7 ns) and is the
 only one with upgrade locks, but every unlock wakes all waiters, so it degrades badly under contention (8 threads
 on one exclusive lock: ~430 ns vs `std::mutex`'s ~17 ns). So: `std::mutex` for exclusive-only locks
@@ -646,8 +655,8 @@ File > "Open File..." loads models, zip archives, environments (`.hdr`) and imag
 (`LoadAndInstallFile`), and "Open Folder..." a directory's models; View > Environment picks the procedural sky or opens
 a panorama. `SPEEDO_AUTOLOAD_MODEL`, `SPEEDO_AUTOLOAD_IMAGE` and `SPEEDO_AUTOLOAD_ENVIRONMENT` take paths absolute or
 relative to the resource directory (without an environment, the procedural sky loads, as one of the autoloads). Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
-once into `<user profile>/archives/<name>-<hash of path, size and time>` with `gfx::zip` (stb_image's inflate, no zip
-library), then loaded from there like any other files; with several models the user picks one. The extractor reads
+once into `<user profile>/archives/<name>-<hash of path, size and time>` with `core::zip` (`core/zip.h`: our own
+reader, libdeflate's inflate and crc-32), then loaded from there like any other files; with several models the user picks one. The extractor reads
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
 which unzip ignores too. `assettest` takes zip archives as well, extracting them the same way.
 

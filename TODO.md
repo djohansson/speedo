@@ -34,6 +34,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: zip extraction moved to core (core::zip): inflating with libdeflate (2.6x stb_image's) straight into the mapped files, checked with libdeflate's crc-32 (130x the table it had), entries spread over the task executor's threads; timed by filebench --zip
 * done: file loading through core's memory mapped files (core::file::Map, with a read-ahead hint, and Write): the zip extractor, the image, environment, obj and gltf importers and assettest, measured with src/tools/filebench
 * done: a sun in the procedural sky, and every environment's strongest light sources (its dominant lights, up to 4) extracted as directional lights (matching direction, rotation, intensity and shadows), merged with the model's directional lights from the same direction (optional)
 * done: IBL accuracy: the sheen lit by an environment prefiltered with its Charlie lobe, and the base and clearcoat specular looked up along the dominant direction

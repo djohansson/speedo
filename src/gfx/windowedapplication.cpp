@@ -11,7 +11,7 @@
 #include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
 #include <gfx/windowedapplication.h>
-#include <gfx/ziparchive.h>
+#include <core/zip.h>
 #include <rhi/capi.h>
 #include <rhi/renderimageset.h>
 
@@ -1580,7 +1580,8 @@ static std::optional<std::filesystem::path> ExtractArchive(const std::filesystem
 	// a previous extraction that didn't finish
 	std::filesystem::remove_all(directory, error);
 
-	auto result = gfx::zip::ExtractAll(archive, directory, &progress, [&app] { return app->IsExitRequested(); });
+	auto result = core::zip::ExtractAll(
+		archive, directory, &app->GetExecutor(), &progress, [&app] { return app->IsExitRequested(); });
 	if (!result)
 	{
 		if (!app->IsExitRequested())

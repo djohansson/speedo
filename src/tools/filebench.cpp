@@ -2,9 +2,11 @@
 // buffer of the file's size), stdio, and core's memory mapped files (mio), read in place or copied out. each method hashes
 // the bytes it read (XXH3), so every page is touched, and the hashes must agree.
 //
-// usage: filebench [--iterations <n>] [--work <dir>] [--sizes <MiB>,...] [--import] [files...]
+// usage: filebench [--iterations <n>] [--work <dir>] [--sizes <MiB>,...] [--import | --zip] [files...]
 //
-// with --import, it times the gfx importers on the files given instead (models, panoramas, images; warm).
+// with --import, it times the gfx importers on the files given instead (models, panoramas, images; warm). with --zip,
+// it times core::zip on the zip archives given: inflating their deflated entries (libdeflate), their crc-32s, and
+// extracting them whole into --work, on one thread and on a task executor's.
 //
 // without files, it writes files of --sizes (default 1, 16 and 256 MiB) of random bytes into --work (default the system's
 // temporary directory). each method runs warm (the file in the page cache, read once before timing) and cold (evicted
@@ -13,7 +15,10 @@
 //
 // it uses the std streams and stdio on purpose: they are what is measured (see CLAUDE.md, "File I/O").
 
+#include <core/file.h>
 #include <core/mio_extra.h>
+#include <core/taskexecutor.h>
+#include <core/zip.h>
 #include <gfx/environment.h>
 #include <gfx/imageimport.h>
 #include <gfx/meshimport.h>
@@ -21,6 +26,7 @@
 #include <xxhash.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstddef>
@@ -38,6 +44,8 @@
 #include <random>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(__APPLE__) || defined(__linux__)
@@ -275,6 +283,117 @@ struct Result
 	return 0;
 }
 
+// --zip: inflates the deflated entries of archives (core::zip's libdeflate), computes their crc-32s, and extracts the
+// archives whole into work, on one thread and on a task executor's (warm: the archive is mapped and read once before)
+template <typename F>
+[[nodiscard]] double Median(unsigned iterations, F&& run)
+{
+	std::vector<double> seconds;
+	for (unsigned iteration = 0; iteration < iterations; iteration++)
+	{
+		auto start = std::chrono::steady_clock::now();
+		run();
+		seconds.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+	}
+	std::ranges::sort(seconds);
+	return seconds[seconds.size() / 2];
+}
+
+[[nodiscard]] int ZipFiles(const std::vector<std::filesystem::path>& archives, const std::filesystem::path& work, unsigned iterations)
+{
+	core::TaskExecutor executor(std::max(1U, std::thread::hardware_concurrency()));
+
+	std::println("{} iterations, medians, warm", iterations);
+	for (const auto& archive : archives)
+	{
+		auto entries = core::zip::List(archive);
+		auto file = core::file::Map(archive);
+		if (!entries || !file)
+		{
+			std::println(stderr, "{}: {}", archive.string(), entries ? file.error().message() : entries.error());
+			return 1;
+		}
+		std::span<const std::byte> bytes(file->data(), file->size());
+		std::vector<core::zip::EntryData> deflated;
+		uint64_t compressedSize = 0;
+		uint64_t size = 0;
+		uint64_t totalSize = 0;
+		for (const auto& entry : *entries)
+		{
+			if (entry.IsDirectory())
+				continue;
+			auto located = core::zip::Locate(bytes, entry);
+			if (!located)
+			{
+				std::println(stderr, "{}: {}", archive.string(), located.error());
+				return 1;
+			}
+			totalSize += located->size;
+			if (located->method != core::zip::kMethodDeflated)
+				continue;
+			compressedSize += located->compressed.size();
+			size += located->size;
+			deflated.push_back(*located);
+		}
+		std::println(
+			"\n{}: {} deflated entries, {:.1f} MiB compressed, {:.1f} MiB inflated", archive.string(), deflated.size(),
+			static_cast<double>(compressedSize) / (1 << 20), static_cast<double>(size) / (1 << 20));
+
+		// each entry into its own buffer, checked, then timed
+		std::vector<std::byte> inflated(size);
+		std::vector<std::span<std::byte>> outputs;
+		size_t offset = 0;
+		for (const auto& entry : deflated)
+		{
+			std::span<std::byte> target(inflated.data() + offset, entry.size);
+			if (!core::zip::Inflate(entry.compressed, target) || core::zip::Crc32(target) != entry.crc)
+			{
+				std::println(stderr, "{}: an entry inflated wrong", archive.string());
+				return 1;
+			}
+			outputs.push_back(target);
+			offset += entry.size;
+		}
+		auto inflate = Median(iterations, [&]
+		{
+			for (size_t entryIt = 0; entryIt < deflated.size(); entryIt++)
+				(void)core::zip::Inflate(deflated[entryIt].compressed, outputs[entryIt]);
+		});
+		auto crc = Median(iterations, [&]
+		{
+			for (const auto& output : outputs)
+				(void)core::zip::Crc32(output);
+		});
+
+		// extracted whole: files written (to the page cache), one thread against all of them
+		auto directory = work / "extracted";
+		auto extract = [&](core::TaskExecutor* on)
+		{
+			return Median(iterations, [&]
+			{
+				std::error_code error;
+				std::filesystem::remove_all(directory, error);
+				if (auto result = core::zip::ExtractAll(archive, directory, on); !result)
+					std::println(stderr, "{}", result.error());
+			});
+		};
+		auto serial = extract(nullptr);
+		auto parallel = extract(&executor);
+		std::error_code error;
+		std::filesystem::remove_all(directory, error);
+
+		auto row = [](std::string_view name, double seconds, uint64_t bytes)
+		{
+			std::println("  {:<36} {:>10.1f} ms {:>10.0f} MB/s", name, seconds * 1e3, static_cast<double>(bytes) / seconds / 1e6);
+		};
+		row("inflate (libdeflate), MB/s inflated", inflate, size);
+		row("crc-32 (libdeflate)", crc, size);
+		row("ExtractAll, one thread", serial, totalSize);
+		row(std::format("ExtractAll, {} threads", std::max(1U, std::thread::hardware_concurrency())), parallel, totalSize);
+	}
+	return 0;
+}
+
 } // namespace filebench
 
 int main(int argc, char* argv[])
@@ -286,6 +405,7 @@ int main(int argc, char* argv[])
 	std::vector<size_t> sizesMiB{1, 16, 256};
 	std::vector<std::filesystem::path> files;
 	bool importFiles = false;
+	bool zipFiles = false;
 	for (int argIt = 1; argIt < argc; argIt++)
 	{
 		std::string_view arg(argv[argIt]);
@@ -305,9 +425,11 @@ int main(int argc, char* argv[])
 		}
 		else if (arg == "--import")
 			importFiles = true;
+		else if (arg == "--zip")
+			zipFiles = true;
 		else if (arg == "--help" || arg == "-h")
 		{
-			std::println("usage: filebench [--iterations <n>] [--work <dir>] [--sizes <MiB>,...] [--import] [files...]");
+			std::println("usage: filebench [--iterations <n>] [--work <dir>] [--sizes <MiB>,...] [--import | --zip] [files...]");
 			return 0;
 		}
 		else
@@ -316,6 +438,8 @@ int main(int argc, char* argv[])
 
 	if (importFiles)
 		return ImportFiles(files, iterations);
+	if (zipFiles)
+		return ZipFiles(files, work, iterations);
 
 	std::error_code error;
 	std::filesystem::create_directories(work, error);

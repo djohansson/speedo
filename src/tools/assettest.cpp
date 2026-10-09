@@ -9,7 +9,8 @@
 #include <gfx/imageimport.h>
 #include <gfx/gltfimport.h>
 #include <gfx/meshimport.h>
-#include <gfx/ziparchive.h>
+#include <core/taskexecutor.h>
+#include <core/zip.h>
 
 #define BCDEC_IMPLEMENTATION
 #define BCDEC_STATIC
@@ -37,6 +38,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <thread>
 #include <vector>
 
 namespace
@@ -1111,6 +1113,8 @@ int main(int argc, char* argv[])
 	bool models = true;
 	bool images = true;
 	bool archiveFailed = false;
+	// extracts the zip archives given, an entry per thread (see core::zip::ExtractAll)
+	core::TaskExecutor zipExecutor(std::max(1U, std::thread::hardware_concurrency()));
 	std::vector<std::filesystem::path> modelFiles;
 	std::vector<std::filesystem::path> environmentFiles;
 	ImageChecks imageFiles;
@@ -1138,7 +1142,7 @@ int main(int argc, char* argv[])
 			std::error_code error;
 			std::filesystem::remove_all(directory, error);
 			auto start = std::chrono::steady_clock::now();
-			if (auto result = gfx::zip::ExtractAll(path, directory); !result)
+			if (auto result = core::zip::ExtractAll(path, directory, &zipExecutor); !result)
 			{
 				std::println("FAIL {}\n    {}", path.string(), result.error());
 				archiveFailed = true;
