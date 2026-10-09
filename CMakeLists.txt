@@ -375,10 +375,8 @@ add_custom_command(
 	COMMENT "Compiling the environment kernels to c++"
 	VERBATIM
 )
-# generated: its warnings aren't ours. both it and its host compile as c++20: slang's prelude includes <stdfloat> for
-# c++23 and up, which libc++ doesn't have
-set_source_files_properties(${ENVIRONMENT_KERNELS_CPP} PROPERTIES COMPILE_OPTIONS "-w;-std=c++20")
-set_source_files_properties(${SPEEDO_SOURCE_DIR}/tools/environmentkernelsbridge.cpp PROPERTIES COMPILE_OPTIONS "-std=c++20")
+# generated: its warnings aren't ours
+set_source_files_properties(${ENVIRONMENT_KERNELS_CPP} PROPERTIES COMPILE_OPTIONS "-w")
 add_executable(
 	assettest
 	${SPEEDO_SOURCE_DIR}/tools/assettest.cpp

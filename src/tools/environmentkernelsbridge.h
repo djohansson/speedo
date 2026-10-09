@@ -6,9 +6,9 @@
 #include <cstdint>
 #include <vector>
 
-// environment.slang's kernels run on the cpu (see environmentkernels.h), behind an interface of plain types: the
-// generated code and slang's prelude compile as c++20 (the prelude wants <stdfloat> from c++23 on, which libc++ lacks),
-// which the gfx headers don't.
+// environment.slang's kernels run on the cpu (see environmentkernels.h), behind an interface of plain types: slang's
+// prelude, which the generated code and this side include, declares many names globally (half, Vector, uint3, ...),
+// kept away from the gfx and glm headers of the other side.
 namespace environmentkernels::bridge
 {
 

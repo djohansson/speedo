@@ -496,8 +496,10 @@ kernels, run on the cpu: slang compiles `environment.slang` to c++ at build time
 of the assettest target), and `src/tools/environmentkernels*` run it in `EnvironmentFilter::Record`'s order, with cpu
 textures behind the prelude's `ITexture` (trilinear, around in u and clamped in v, as the gpu's sampler) and rows of
 groups on threads. A group's threads run one after another there, so the kernels can't use shared memory or group
-barriers (the irradiance is a thread per coefficient). The generated code and its host (`environmentkernelsbridge.cpp`,
-plain types) compile as c++20: slang's prelude includes `<stdfloat>` from c++23 on, which libc++ lacks. libc++ runs
+barriers (the irradiance is a thread per coefficient). The prelude's global names (`half`, `Vector`, ...) stay behind
+`environmentkernelsbridge.cpp` (plain types), away from the gfx headers. It included `<stdfloat>` for c++23 and up,
+which libc++ lacks in every language mode: `ports/shader-slang/0005-*` includes it only if `__has_include` finds it (to
+go to the fork, as 0001 to 0004 did). libc++ runs
 `std::execution::par` serially, hence the threads (the old cpu prefilter took 4 s a panorama, the kernels 1 s). The
 kernels turn the panorama without its dominant lights into 6 levels of GGX prefiltered radiance (roughness `i / 5`, the split
 sum with n = v = r, filtered importance sampling from a mip pyramid; level 0 is the panorama, dominant lights included:

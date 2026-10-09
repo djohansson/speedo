@@ -3,11 +3,13 @@ vcpkg_from_github(
 	REPO djohansson/slang
 	REF fdfc25ca9b55e7f98074210974cf1c2d43da302b
 	SHA512 a78ca2d5598c968d2a3173aab28d3c5528d6b9e90416029869eea508654adc72eeeff3d845c618e45be3d002a1020be626356306a5031421e2df6662e83fb2bf
-	# PATCHES
+	# 0001 to 0004 are in the fork; 0005 is to go there
+	PATCHES
 	# 	0001-fix-fastbuild-duplicate-neural-shader-targets.patch
 	# 	0002-fix-fastbuild-missing-capability-defs-target.patch
 	# 	0003-fix-fastbuild-capability-generator-build-order.patch
 	# 	0004-fix-fastbuild-static-build-glsl-module-install.patch
+		0005-prelude-stdfloat-only-if-available.patch
 	HEAD_REF vcpkg-integration
 )
 
