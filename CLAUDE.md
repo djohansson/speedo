@@ -223,6 +223,12 @@ Consequences:
   compute lock inside `Draw()` is only taken when `dedicatedCompute`): `UpgradableSharedMutex` is
   not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
   visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
+- Each queue has two command pools, swapped and reset per use (`SwapAndResetPool`), *without*
+  `VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT`: on KosmicKrisp that frees the pool's Metal command allocators, which
+  never get `reset` (their command buffers give the memory back on completion), and freeing one Metal hasn't had back
+  yet aborts in `-[IOGPUMetalDeviceShmemPool dealloc]` (`_allocatedSize == 0`), even after the fences were waited on.
+  It took switching models with a cold pipeline cache to show (DamagedHelmet, then AnimationPointerUVs: one run in
+  three).
 
 ## The frame graph: passes declare, the graph synchronizes
 

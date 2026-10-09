@@ -234,7 +234,11 @@ void CommandPool<kVk>::Reset()
 {
 	ZoneScopedN("CommandPool::reset");
 
-	constexpr bool kUseReleaseResources = true;
+	// keep the pool's memory for the next frame: releasing it frees KosmicKrisp's Metal command allocators, and freeing one
+	// whose memory Metal hasn't taken back from its command buffers yet aborts (IOGPUMetalDeviceShmemPool's
+	// `_allocatedSize == 0` assert), though the fences of everything recorded from it were waited on. it hit one in
+	// three runs that loaded DamagedHelmet, then AnimationPointerUVs, with a cold pipeline cache (profile build)
+	constexpr bool kUseReleaseResources = false;
 
 	if ((GetDesc().flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) != 0U)
 	{
