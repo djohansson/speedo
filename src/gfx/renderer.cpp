@@ -7,7 +7,10 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <numeric>
+#include <print>
+#include <string_view>
 
 namespace gfx
 {
@@ -294,9 +297,31 @@ Renderer::Renderer(Device& device)
 			builder.SideEffects();
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
+
+	// the passes' gpu timings (see GetPassTimings)
+	myGraph.EnableTimings(device, SHADER_TYPES_FRAME_COUNT);
+	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
+	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
 
-Renderer::~Renderer() = default;
+Renderer::~Renderer()
+{
+	// the medians of the passes' timings, for experiments (SPEEDO_GPU_TIMINGS=1)
+	if (!myCollectedTimings.empty())
+	{
+		std::println("gpu pass timings (median ms over the frames that ran them):");
+		for (auto& [name, samples] : myCollectedTimings)
+		{
+			std::ranges::sort(samples);
+			std::println("  {}: {:.3f} ({} frames)", name, samples[samples.size() / 2], samples.size());
+		}
+	}
+}
+
+std::vector<std::pair<std::string, double>> Renderer::GetPassTimings() const
+{
+	return myPassTimings.Read().Get();
+}
 
 void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 {
@@ -359,6 +384,24 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	ENSURE(inputs.swapchain && inputs.swapchainFrame && inputs.exposureHistogram && inputs.graphicsQueue);
 
+	// the passes' timings from the last time this frame index ran (its fence has been waited for)
+	if (auto timings = myGraph.ReadTimings(inputs.frameIndex); !timings.empty())
+	{
+		std::vector<std::pair<std::string, double>> named;
+		for (const auto& [name, milliseconds] : timings)
+		{
+			named.emplace_back(std::string(name), milliseconds);
+			if (myCollectTimings)
+			{
+				auto it = std::ranges::find(myCollectedTimings, name, [](const auto& entry) { return std::string_view(entry.first); });
+				if (it == myCollectedTimings.end())
+					it = myCollectedTimings.insert(myCollectedTimings.end(), {std::string(name), {}});
+				it->second.push_back(milliseconds);
+			}
+		}
+		myPassTimings.Write().Get() = std::move(named);
+	}
+
 	FrameInputs frame = inputs;
 	frame.pushConstants.framebufferWidth = myGraph.GetExtent().width;
 	frame.pushConstants.oitNodeCapacity = myOitNodeCapacity;
@@ -375,7 +418,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	}
 	for (auto phase : {MainPassPhase::kOpaque, MainPassPhase::kTransmissive})
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
-			? BuildDrawList(*frame.model, phase, myTwoPhases, frame.transmissive ? frame.transmissive : [](size_t) { return false; })
+			? BuildDrawList(
+				  *frame.model, phase, myTwoPhases, frame.transmissive ? frame.transmissive : [](size_t) { return false; }, frame.specialization)
 			: DrawList{};
 	// the shadows: planned for the frame, and written for the shader to read once the frame's previous use of its
 	// buffers is done (the caller waited for its fence)
@@ -410,7 +454,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	myGraph.Bind(mySwapchain, *frame.swapchain, 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
-	myGraph.Execute(cmd);
+	myGraph.Execute(cmd, inputs.frameIndex);
 
 	myInputs = nullptr;
 	myPipeline = nullptr;

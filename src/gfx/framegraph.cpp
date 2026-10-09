@@ -596,7 +596,44 @@ void FrameGraph::InternalBarriers(CommandBufferHandle cmd, Pass& pass, uint32_t 
 		InternalTransition(cmd, myResources[index], layout);
 }
 
-void FrameGraph::Execute(CommandBufferHandle cmd)
+void FrameGraph::EnableTimings([[maybe_unused]] Device& device, [[maybe_unused]] uint32_t frameCount)
+{
+	// a profiling aid: only in builds that profile (without it, Execute writes no timestamps)
+#if (SPEEDO_PROFILING_LEVEL > 0)
+	myTimestampPeriod = device.GetLimits().timestampPeriod;
+	myTimingPools.clear();
+	for (uint32_t frame = 0; frame < frameCount; frame++)
+		myTimingPools.emplace_back(QueryPoolCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("FrameGraph Timings {}", frame)),
+			static_cast<uint32_t>(std::max<size_t>(myPasses.size(), 1) * 2)});
+	myTimedPasses.assign(frameCount, {});
+#endif
+}
+
+std::vector<FrameGraph::PassTiming> FrameGraph::ReadTimings(uint32_t frame) const
+{
+	if (frame >= myTimingPools.size() || myTimedPasses[frame].empty())
+		return {};
+	const auto& passes = myTimedPasses[frame];
+	std::vector<uint64_t> timestamps(passes.size() * 2);
+	if (!myTimingPools[frame].Read(0, timestamps))
+		return {};
+	// only plausible pairs: some backends only write timestamps where their own command encoders begin or end (Metal),
+	// so others are 0 or repeated
+	std::vector<PassTiming> timings;
+	for (size_t passIt = 0; passIt < passes.size(); passIt++)
+	{
+		auto begin = timestamps[passIt * 2];
+		auto end = timestamps[(passIt * 2) + 1];
+		if (begin == 0 || end < begin)
+			continue;
+		timings.push_back(
+			{.name = myPasses[passes[passIt]].name, .milliseconds = static_cast<double>(end - begin) * myTimestampPeriod * 1e-6});
+	}
+	return timings;
+}
+
+void FrameGraph::Execute(CommandBufferHandle cmd, std::optional<uint32_t> timingFrame)
 {
 	ZoneScopedN("FrameGraph::Execute");
 
@@ -604,6 +641,15 @@ void FrameGraph::Execute(CommandBufferHandle cmd)
 
 	for (auto& resource : myResources)
 		resource.usedThisFrame = false;
+
+	// the timestamps of this frame index: written in the order the passes run
+	const QueryPool* timing = timingFrame && *timingFrame < myTimingPools.size() ? &myTimingPools[*timingFrame] : nullptr;
+	std::vector<uint32_t>* timedPasses = timing != nullptr ? &myTimedPasses[*timingFrame] : nullptr;
+	if (timing != nullptr)
+	{
+		timing->Reset(cmd, 0, static_cast<uint32_t>(myPasses.size() * 2));
+		timedPasses->clear();
+	}
 
 	for (uint32_t passIt = 0; passIt < myPasses.size(); passIt++)
 	{
@@ -614,10 +660,19 @@ void FrameGraph::Execute(CommandBufferHandle cmd)
 		ZoneScoped;
 		ZoneName(pass.name.c_str(), pass.name.size());
 
+		// outside the pass's render target (one begun for secondary command buffers can hold no timestamps)
+		auto timed = static_cast<uint32_t>(timedPasses != nullptr ? timedPasses->size() : 0);
+		if (timing != nullptr)
+		{
+			timing->WriteTimestamp(cmd, timed * 2);
+			timedPasses->push_back(passIt);
+		}
 		if (pass.wrap)
 			pass.wrap(cmd, [this, cmd, &pass, passIt] { InternalRecord(cmd, pass, passIt); });
 		else
 			InternalRecord(cmd, pass, passIt);
+		if (timing != nullptr)
+			timing->WriteTimestamp(cmd, (timed * 2) + 1);
 	}
 }
 

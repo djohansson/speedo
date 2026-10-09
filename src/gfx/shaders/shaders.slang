@@ -9,6 +9,17 @@ __include types;
 [[vk::push_constant]]
 ConstantBuffer<PushConstants> gPushConstants;
 
+// the layer groups (SHADER_TYPES_LAYERS_*) this pipeline is specialized without: their code compiles away. 0 in the
+// generic pipelines, which draw any material
+[vk::constant_id(0)]
+const uint kSkippedLayers = 0;
+
+// whether a material's layer can be drawn by this pipeline
+bool Layer(MaterialData material, uint flag)
+{
+	return (kSkippedLayers & SHADER_TYPES_LAYERS_EXTENDED) == 0u && (material.flags & flag) != 0u;
+}
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<VertexP3fN3fTa4fT014fC4f> gVertexBuffer;
 
@@ -993,7 +1004,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	surface.clearcoat = 0.0;
 	surface.clearcoatRoughness = 0.0;
 	surface.clearcoatNormal = geometryNormal;
-	if ((material.flags & MATERIAL_FLAG_CLEARCOAT) != 0u)
+	if (Layer(material, MATERIAL_FLAG_CLEARCOAT))
 	{
 		surface.clearcoat = material.clearcoat.x;
 		if ((material.flags & MATERIAL_FLAG_CLEARCOAT_TEXTURE) != 0u)
@@ -1009,7 +1020,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	// KHR_materials_sheen
 	surface.sheenColor = 0.0;
 	surface.sheenRoughness = 0.0;
-	if ((material.flags & MATERIAL_FLAG_SHEEN) != 0u)
+	if (Layer(material, MATERIAL_FLAG_SHEEN))
 	{
 		surface.sheenColor = material.sheen.rgb;
 		if ((material.flags & MATERIAL_FLAG_SHEEN_COLOR_TEXTURE) != 0u)
@@ -1043,7 +1054,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 
 	// KHR_materials_transmission: that much of the dielectric's diffuse is the light through it instead
 	surface.transmitted = 0.0;
-	if ((material.flags & MATERIAL_FLAG_TRANSMISSION) != 0u)
+	if (Layer(material, MATERIAL_FLAG_TRANSMISSION))
 	{
 		float transmission = material.transmission.x;
 		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
@@ -1079,7 +1090,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	surface.anisotropy = 0.0;
 	surface.anisotropyT = 0.0;
 	surface.anisotropyB = 0.0;
-	if ((material.flags & MATERIAL_FLAG_ANISOTROPY) != 0u)
+	if (Layer(material, MATERIAL_FLAG_ANISOTROPY))
 	{
 		TextureView frameView;
 		frameView.uTransform = float4(1.0, 0.0, 0.0, 0.0);
@@ -1114,7 +1125,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	// KHR_materials_iridescence: the film's fresnel over the surface's f0, at the view's angle
 	surface.iridescence = 0.0;
 	surface.iridescenceFresnel = 0.0;
-	if ((material.flags & MATERIAL_FLAG_IRIDESCENCE) != 0u)
+	if (Layer(material, MATERIAL_FLAG_IRIDESCENCE))
 	{
 		surface.iridescence = material.iridescence.x;
 		if ((material.flags & MATERIAL_FLAG_IRIDESCENCE_TEXTURE) != 0u)
@@ -1129,7 +1140,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	// KHR_materials_diffuse_transmission
 	surface.diffuseTransmission = 0.0;
 	surface.diffuseTransmissionColor = 0.0;
-	if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION) != 0u)
+	if (Layer(material, MATERIAL_FLAG_DIFFUSE_TRANSMISSION))
 	{
 		surface.diffuseTransmission = material.diffuseTransmission.a;
 		if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION_TEXTURE) != 0u)

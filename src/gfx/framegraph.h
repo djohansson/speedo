@@ -6,6 +6,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <string>
 #include <variant>
 #include <vector>
@@ -152,8 +153,21 @@ public:
 	void Bind(ImageId image, Image& bound);
 	void Bind(BufferId buffer, Buffer& bound);
 
-	// records the enabled passes, after their barriers
-	void Execute(CommandBufferHandle cmd);
+	// times the passes on the gpu (timestamps around each, per frame index, see ReadTimings). call after adding them.
+	// only in builds that profile (SPEEDO_PROFILING_LEVEL > 0: debug and profile): a no-op otherwise
+	void EnableTimings(Device& device, uint32_t frameCount);
+
+	// records the enabled passes, after their barriers (timed in timingFrame's slot, if timings are enabled)
+	void Execute(CommandBufferHandle cmd, std::optional<uint32_t> timingFrame = std::nullopt);
+
+	// how long each pass took on the gpu the last time a frame of this index ran (in milliseconds, by name, in order):
+	// call once the gpu is done with that frame (after its fence), before executing it again. empty if not available
+	struct PassTiming
+	{
+		std::string_view name;
+		double milliseconds = 0.0;
+	};
+	[[nodiscard]] std::vector<PassTiming> ReadTimings(uint32_t frame) const;
 
 	[[nodiscard]] Image& GetImage(ImageId image) const;
 	[[nodiscard]] const ImageView& GetView(ImageId image) const; // all of a sampled or storage transient's mips
@@ -230,6 +244,10 @@ private:
 	std::vector<Resource> myResources;
 	std::vector<Pass> myPasses;
 	std::vector<MemoryBlock> myBlocks;
+	// per frame index: the timestamps (two per pass), and which passes wrote them the last time
+	std::vector<QueryPool> myTimingPools;
+	std::vector<std::vector<uint32_t>> myTimedPasses;
+	double myTimestampPeriod = 0.0; // nanoseconds per tick
 	rhi::Extent2d myExtent{};
 	bool myCompiled = false;
 	uint64_t myTransientMemorySize = 0;

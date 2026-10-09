@@ -6,6 +6,7 @@
 #include <rhi/image.h>
 #include <rhi/imguirenderer.h>
 #include <rhi/pipeline.h>
+#include <rhi/querypool.h>
 #include <rhi/renderimageset.h>
 #include <rhi/rhi.h>
 #include <rhi/sampler.h>
@@ -26,6 +27,7 @@ using ImageView = rhi::ImageView<rhi::kGraphicsApi>;
 using ImageViewCreateDesc = rhi::ImageViewCreateDesc<rhi::kGraphicsApi>;
 using Window = rhi::Window<rhi::kGraphicsApi>;
 using Semaphore = rhi::Semaphore<rhi::kGraphicsApi>;
+using QueryPool = rhi::QueryPool<rhi::kGraphicsApi>;
 using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<rhi::kGraphicsApi>;
 using Queue = rhi::Queue<rhi::kGraphicsApi>;
 using QueueDeviceSyncInfo = rhi::QueueDeviceSyncInfo<rhi::kGraphicsApi>;

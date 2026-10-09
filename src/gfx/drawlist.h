@@ -72,9 +72,14 @@ struct DrawList
 // materials are) its instances, the mirroring ones separately (they reverse the winding: clockwise front faces); the
 // opaque submeshes first, then the blended ones (in any order, see kTransparentBlend), which depth test against them.
 // with transmissive ones (two phases, see MainPassPhase), those and the blended ones in the second phase.
-// transmissive(material) says whether a material is.
+// transmissive(material) says whether a material is, and specialization(material) the layer groups its pipeline can
+// skip (SHADER_TYPES_LAYERS_*, see GraphicsPipelineVariant::specialization: none for the generic pipelines)
 [[nodiscard]] DrawList BuildDrawList(
-	const Model& model, MainPassPhase phase, bool twoPhases, const std::function<bool(size_t material)>& transmissive);
+	const Model& model,
+	MainPassPhase phase,
+	bool twoPhases,
+	const std::function<bool(size_t material)>& transmissive,
+	const std::function<uint16_t(size_t material)>& specialization = {});
 
 // a model's draws for the shadow pass: the triangles of the submeshes that cast shadows (opaque or alpha masked, not
 // blended or transmissive)

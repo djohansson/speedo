@@ -18,7 +18,11 @@ uint32_t ModelMaterialSlot(int32_t material)
 }
 
 DrawList BuildDrawList(
-	const Model& model, MainPassPhase phase, bool twoPhases, const std::function<bool(size_t material)>& transmissive)
+	const Model& model,
+	MainPassPhase phase,
+	bool twoPhases,
+	const std::function<bool(size_t material)>& transmissive,
+	const std::function<uint16_t(size_t material)>& specialization)
 {
 	ZoneScopedN("gfx::BuildDrawList");
 
@@ -34,7 +38,13 @@ DrawList BuildDrawList(
 		DrawItem item{
 			.firstIndex = submesh.firstIndex,
 			.indexCount = submesh.indexCount,
-			.variant = {.topology = submesh.topology, .blend = blend, .fragmentShader = fragmentShader},
+			.variant =
+				{.topology = submesh.topology,
+				 .blend = blend,
+				 .fragmentShader = fragmentShader,
+				 .specialization = specialization ? (submesh.material >= 0 ? specialization(static_cast<size_t>(submesh.material))
+																		   : static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED))
+												  : uint16_t{0}},
 			.cullMode = doubleSided ? CullMode::kNone : CullMode::kBack,
 			.materialSlot = ModelMaterialSlot(submesh.material),
 			.jointBase = submesh.skin >= 0 ? skins[submesh.skin].jointBase : SHADER_TYPES_NOT_SKINNED,

@@ -1953,6 +1953,13 @@ void WindowedApplication::PrepareDraw()
 					static_cast<unsigned long long>(Queue::GetSubmitBatchCount()),
 					gFrameSubmitBatchCount.load(std::memory_order_relaxed));
 
+				// the frame graph's passes, on the gpu (see FrameGraph::ReadTimings): only where the backend writes their timestamps
+				// (KosmicKrisp: at the beginning and end of its own command encoders)
+				Separator();
+				if (gRenderer)
+					for (const auto& [name, milliseconds] : gRenderer->GetPassTimings())
+						Text("%s: %.3f ms", name.c_str(), milliseconds);
+
 				// the frame graph's transients (see FrameGraph), in shared memory
 				Separator();
 				constexpr double kMiB = 1024.0 * 1024.0;
@@ -2673,11 +2680,20 @@ bool WindowedApplication::Draw()
 
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
-		// which materials are transmissive (the main pass's second phase), counting those an animation turns on
+		// which materials are transmissive (the main pass's second phase), counting those an animation turns on, and which
+		// layer groups their pipelines can skip (unless SPEEDO_SHADER_TIERS=0: the generic pipelines for all)
+		static const bool kTiers = [] { const char* tiers = std::getenv("SPEEDO_SHADER_TIERS"); return tiers == nullptr || std::string_view(tiers) != "0"; }();
 		std::vector<bool> transmissive;
+		std::vector<uint16_t> specialization;
 		if (gModel)
 			for (size_t materialIt = 0; materialIt < gModel->GetDesc().materials.size(); materialIt++)
-				transmissive.push_back(LayersOf(gModel->GetDesc(), materialIt).transmission);
+			{
+				auto layers = LayersOf(gModel->GetDesc(), materialIt);
+				transmissive.push_back(layers.transmission);
+				bool extended = layers.clearcoat || layers.sheen || layers.transmission || layers.anisotropy || layers.iridescence ||
+								layers.diffuseTransmission;
+				specialization.push_back(kTiers && !extended ? static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED) : uint16_t{0});
+			}
 
 		std::vector<core::TaskHandle> graphicsCallbacks;
 		const auto& views = App().GetViews();
@@ -2698,6 +2714,9 @@ bool WindowedApplication::Draw()
 				.pushConstants = FramePushConstants(newFrameIndex),
 				.model = gModel.get(),
 				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
+				.specialization = kTiers ? std::function<uint16_t(size_t)>([&specialization](size_t material)
+										 { return material < specialization.size() ? specialization[material] : uint16_t{0}; })
+										 : std::function<uint16_t(size_t)>{},
 				.grid = views.GetGrid(),
 				.viewports = views.GetViewports(),
 				.lights = gLightData,

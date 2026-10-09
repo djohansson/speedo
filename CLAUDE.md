@@ -260,6 +260,23 @@ Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `V
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
 removed, so it can't vouch for them; compare renders instead (identical before and after the graph).
 
+## GPU timings and shader tiers
+
+`FrameGraph::EnableTimings` (only with `SPEEDO_PROFILING_LEVEL > 0`: debug and profile) writes a timestamp pair (rhi
+`QueryPool`, `DeviceLimits::timestampPeriod`) around each pass, per frame index; `Renderer` reads a frame's after its
+fence (`ReadTimings`), shows them in the Statistics window, and with `SPEEDO_GPU_TIMINGS=1` prints each pass's median at
+exit. KosmicKrisp only writes timestamps where its own Metal command encoders begin and end: passes inside one encoder
+read 0, ones outside any are unwritten (dropped), and only some frames have them at all (about 15%). The GPU's clock
+drifts between runs, so compare a pass against a pass the change doesn't touch (e.g. Main against Shadows).
+
+Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' specialization constant 0, `kSkippedLayers` in
+`shaders.slang`, the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `SHADER_TYPES_LAYERS_EXTENDED`
+(clearcoat, sheen, transmission, anisotropy, iridescence, diffuse transmission, gated by `Layer()`) is skipped for the
+draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
+uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
+across runs). `SPEEDO_SHADER_TIERS=0` draws with the generic pipelines. Pipelines are still created on first use (15 to
+50 ms each, cold, on KosmicKrisp).
+
 ## Shadows
 
 The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 512 texel cells; a frame

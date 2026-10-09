@@ -10,7 +10,11 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <core/concurrentaccess.h>
+
 #include <functional>
+#include <string>
+#include <utility>
 #include <memory>
 #include <span>
 #include <vector>
@@ -28,6 +32,8 @@ struct FrameInputs
 	// the scene: the model (or none), and which of its materials are transmissive (drawn in the main pass's second phase)
 	const Model* model = nullptr;
 	std::function<bool(size_t material)> transmissive;
+	// and which layer groups each material's pipeline can skip (see BuildDrawList): none, the generic ones, if empty
+	std::function<uint16_t(size_t material)> specialization;
 	// the views: their grid, and each one's viewport (its cell, letterboxed to its camera's aspect ratio)
 	glm::uvec2 grid{1, 1};
 	std::vector<ViewportCreateDesc> viewports;
@@ -74,6 +80,9 @@ public:
 
 	[[nodiscard]] const FrameGraph& GetGraph() const noexcept { return myGraph; }
 
+	// how long each pass took on the gpu, the last time it was read (milliseconds, by name). any thread.
+	[[nodiscard]] std::vector<std::pair<std::string, double>> GetPassTimings() const;
+
 private:
 	void InternalDrawMainPass(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, MainPassPhase phase);
 
@@ -101,6 +110,11 @@ private:
 	const FrameInputs* myInputs = nullptr;
 	Pipeline* myPipeline = nullptr;
 	uint32_t myOitNodeCapacity = 0;
+
+	// the passes' gpu timings, for the ui, and with SPEEDO_GPU_TIMINGS=1 every frame's, whose medians the destructor prints
+	core::ConcurrentAccess<std::vector<std::pair<std::string, double>>> myPassTimings;
+	bool myCollectTimings = false;
+	std::vector<std::pair<std::string, std::vector<double>>> myCollectedTimings;
 
 	// the frame's draw lists, per phase
 	bool myTwoPhases = false;
