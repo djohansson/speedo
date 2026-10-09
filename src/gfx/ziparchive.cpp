@@ -1,5 +1,6 @@
 #include "ziparchive.h"
 
+#include <core/file.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -8,7 +9,6 @@
 #include <optional>
 #include <cstring>
 #include <format>
-#include <fstream>
 #include <span>
 
 #include <stb_image.h> // its zlib decoder; the implementation is in imageimport.cpp
@@ -62,12 +62,38 @@ template <typename T>
 	return crc ^ 0xffffffffU;
 }
 
-[[nodiscard]] bool ReadAt(std::ifstream& file, uint64_t offset, std::span<char> out)
+// the archive's bytes at offset, or nothing if they are past its end
+[[nodiscard]] std::optional<std::span<const char>> At(std::span<const char> archive, uint64_t offset, uint64_t size)
 {
-	file.clear();
-	file.seekg(static_cast<std::streamoff>(offset));
-	file.read(out.data(), static_cast<std::streamsize>(out.size()));
-	return file.good() || (file.eof() && file.gcount() == static_cast<std::streamsize>(out.size()));
+	if (offset > archive.size() || size > archive.size() - offset)
+		return std::nullopt;
+	return archive.subspan(offset, size);
+}
+
+[[nodiscard]] bool ReadAt(std::span<const char> archive, uint64_t offset, std::span<char> out)
+{
+	auto bytes = At(archive, offset, out.size());
+	if (!bytes)
+		return false;
+	std::ranges::copy(*bytes, out.begin());
+	return true;
+}
+
+// the archive mapped (see core::file::Map), and its bytes
+struct MappedArchive
+{
+	core::file::MappedFile file;
+	std::span<const char> bytes;
+};
+
+[[nodiscard]] std::expected<MappedArchive, std::string> MapArchive(const std::filesystem::path& archive)
+{
+	auto file = core::file::Map(archive);
+	if (!file)
+		return std::unexpected(std::format("failed to open {}: {}", archive.string(), file.error().message()));
+	MappedArchive mapped{.file = std::move(*file)};
+	mapped.bytes = std::span(reinterpret_cast<const char*>(mapped.file.data()), mapped.file.size());
+	return mapped;
 }
 
 // the path an entry is extracted to below directory, or nothing if it would land outside it (an absolute path, or
@@ -98,14 +124,11 @@ std::expected<std::vector<Entry>, std::string> List(const std::filesystem::path&
 
 	ZoneScopedN("zip::List");
 
-	std::ifstream file(archive, std::ios::binary);
-	if (!file)
-		return std::unexpected(std::format("failed to open {}", archive.string()));
-
-	std::error_code error;
-	auto fileSize = std::filesystem::file_size(archive, error);
-	if (error)
-		return std::unexpected(std::format("failed to read {}: {}", archive.string(), error.message()));
+	auto mapped = MapArchive(archive);
+	if (!mapped)
+		return std::unexpected(mapped.error());
+	auto file = mapped->bytes;
+	uint64_t fileSize = file.size();
 
 	// the end of central directory record is in the last 22 bytes, plus a comment of up to 64 kB
 	constexpr uint64_t kEndRecordSize = 22;
@@ -227,9 +250,10 @@ std::expected<void, std::string> ExtractAll(
 	if (!entries)
 		return std::unexpected(entries.error());
 
-	std::ifstream file(archive, std::ios::binary);
-	if (!file)
-		return std::unexpected(std::format("failed to open {}", archive.string()));
+	auto mapped = MapArchive(archive);
+	if (!mapped)
+		return std::unexpected(mapped.error());
+	auto file = mapped->bytes;
 
 	uint64_t totalSize = 0;
 	for (const auto& entry : *entries)
@@ -241,8 +265,7 @@ std::expected<void, std::string> ExtractAll(
 		return std::unexpected(std::format("failed to create {}: {}", directory.string(), error.message()));
 
 	uint64_t extractedSize = 0;
-	std::vector<char> compressed;
-	std::vector<char> data;
+	std::vector<char> inflated;
 	for (const auto& entry : *entries)
 	{
 		if (cancelled && cancelled())
@@ -290,23 +313,25 @@ std::expected<void, std::string> ExtractAll(
 		if (size > INT_MAX || compressedSize > INT_MAX)
 			return std::unexpected(std::format("{}: {} is too large ({} bytes)", archive.string(), entry.name, size));
 
-		compressed.resize(compressedSize);
-		if (!ReadAt(file, dataOffset, compressed))
+		auto compressed = At(file, dataOffset, compressedSize);
+		if (!compressed)
 			return std::unexpected(std::format("{}: failed to read {}", archive.string(), entry.name));
 
+		// stored data is written from the archive as it is
+		std::span<const char> data = *compressed;
 		if (method == kMethodStored)
 		{
 			if (compressedSize != size)
 				return std::unexpected(std::format("{}: corrupt sizes for {}", archive.string(), entry.name));
-			std::swap(data, compressed);
 		}
 		else
 		{
-			data.resize(size);
+			inflated.resize(size);
 			auto decoded = size == 0 ? 0 : stbi_zlib_decode_noheader_buffer(
-				data.data(), static_cast<int>(data.size()), compressed.data(), static_cast<int>(compressed.size()));
+				inflated.data(), static_cast<int>(inflated.size()), compressed->data(), static_cast<int>(compressed->size()));
 			if (decoded != static_cast<int>(size))
 				return std::unexpected(std::format("{}: failed to inflate {}", archive.string(), entry.name));
+			data = inflated;
 		}
 
 		if (Crc32(data) != crc)
@@ -314,10 +339,8 @@ std::expected<void, std::string> ExtractAll(
 
 		auto target = directory / *path;
 		std::filesystem::create_directories(target.parent_path(), error);
-		std::ofstream out(target, std::ios::binary | std::ios::trunc);
-		out.write(data.data(), static_cast<std::streamsize>(data.size()));
-		if (!out)
-			return std::unexpected(std::format("failed to write {}", target.string()));
+		if (auto written = core::file::Write(target, std::as_bytes(data)); !written)
+			return std::unexpected(std::format("failed to write {}: {}", target.string(), written.error().message()));
 
 		extractedSize += entry.size; // as totalSize counts
 		if (progress != nullptr && totalSize > 0)

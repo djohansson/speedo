@@ -10,6 +10,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 // the environment the scene is lit by (image based lighting): a panorama of the radiance around it, prefiltered for the
@@ -32,6 +33,9 @@ constexpr uint32_t kSkyWidth = 256;
 
 // reads a panorama (Radiance .hdr, or anything else stb_image reads, as linear), scaled down to at most maxWidth
 [[nodiscard]] std::expected<Panorama, std::string> Import(const std::filesystem::path& path, uint32_t maxWidth = kMaxFileWidth);
+// the same, from a file's bytes (name is for messages)
+[[nodiscard]] std::expected<Panorama, std::string> Import(
+	std::span<const std::byte> data, std::string_view name, uint32_t maxWidth = kMaxFileWidth);
 
 // the procedural sky's sun: where it is (towards it), and the irradiance it gives a surface facing it (lux, as the
 // directional light it replaced: 2.2, the diffuse light of a white surface facing it (0.7) times pi)

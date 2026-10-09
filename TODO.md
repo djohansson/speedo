@@ -10,6 +10,7 @@
 * todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
 * todo: investigate and implement optimization techniques such as clustered forward shading
 	* culling: none at draw time (main pass or shadow views): every view draws every submesh, which is also why at most 4 point and spot lights cast shadows
+* todo: file loading leftovers (see CLAUDE.md, "File I/O"): Model::Load's source load op still lets mesh::Import map the file again (the obj and gltf importers take paths, for their mtl files and buffers); slang reads the shader sources itself (an ISlangFileSystem could hand it mapped files); core::file::Map has no read-ahead hint on windows (PrefetchVirtualMemory)
 * todo: image::CompressLevel (texture compression at import) loops over block rows with std::execution::par, which libc++ runs serially: spread them over threads (as src/tools/environmentkernelsbridge.cpp does), imports would be several times faster
 * todo: frame graph (gfx::FrameGraph) follow-ups
 	* one queue: no async compute or transfer passes, and the passes are recorded in order into one command buffer (only the main pass's views go to secondary command buffers)
@@ -33,6 +34,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: file loading through core's memory mapped files (core::file::Map, with a read-ahead hint, and Write): the zip extractor, the image, environment, obj and gltf importers and assettest, measured with src/tools/filebench
 * done: a sun in the procedural sky, and every environment's strongest light sources (its dominant lights, up to 4) extracted as directional lights (matching direction, rotation, intensity and shadows), merged with the model's directional lights from the same direction (optional)
 * done: IBL accuracy: the sheen lit by an environment prefiltered with its Charlie lobe, and the base and clearcoat specular looked up along the dominant direction
 * done: GLTF animation leftovers: KHR_animation_pointer for cameras and lights, emissive strength and anisotropy rotation, the bounds over the animations, layers animated up from 0

@@ -18,6 +18,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/packing.hpp>
 
+#include <core/file.h>
 #include <core/utils.h>
 
 #include <algorithm>
@@ -30,7 +31,6 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
-#include <fstream>
 #include <numbers>
 #include <optional>
 #include <print>
@@ -675,10 +675,13 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 	}
 	else
 	{
-		std::ifstream file(path, std::ios::binary);
-		std::vector<char> chars((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-		bytes.resize(chars.size());
-		std::memcpy(bytes.data(), chars.data(), chars.size());
+		auto file = core::file::Map(path);
+		if (!file)
+		{
+			report.Fail("failed to read {}: {}", path.string(), file.error().message());
+			return report;
+		}
+		bytes.assign(file->begin(), file->end());
 	}
 	auto name = embeddedImage ? std::format("{}#image{}", path.string(), *embeddedImage) : path.string();
 

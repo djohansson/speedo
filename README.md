@@ -21,6 +21,7 @@ and ennis panoramas from glTF-Sample-Environments.*
 | `client`    | The viewer. A window with a menu bar, one or more views of the loaded scene, and tools for inspecting it. |
 | `server`    | A small companion process the client talks to over ZeroMQ. It is the start of a distributed task system and does little yet. |
 | `assettest` | A command line tool that imports every model, image and environment it's given and checks the results. It's the main automated test. |
+| `filebench` | A benchmark of the ways to read a file (std streams, stdio, memory mapping), warm and cold, and of the importers (`--import <files>`). |
 
 ### Using the client
 

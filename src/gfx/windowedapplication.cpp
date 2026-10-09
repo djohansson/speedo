@@ -1,3 +1,4 @@
+#include <core/file.h>
 #include <core/task.h>
 #include <gfx/capi.h>
 #include <gfx/environmentfilter.h>
@@ -34,7 +35,6 @@
 #include <cstddef>
 #include <cstring>
 #include <format>
-#include <fstream>
 #include <functional>
 #include <mutex>
 #include <limits>
@@ -1589,7 +1589,9 @@ static std::optional<std::filesystem::path> ExtractArchive(const std::filesystem
 		return std::nullopt;
 	}
 
-	std::ofstream(marker).put('\n');
+	static constexpr std::array kMarker{std::byte{'\n'}};
+	if (auto written = core::file::Write(marker, kMarker); !written)
+		std::println(stderr, "Failed to write {}: {}", marker.string(), written.error().message());
 
 	return directory;
 }

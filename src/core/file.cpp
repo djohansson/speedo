@@ -3,11 +3,17 @@
 #include <core/application.h>
 #include <core/assert.h>//NOLINT(modernize-deprecated-headers)
 
+#include <algorithm>
+#include <cstring>
 #include <ctime>
 #include <chrono>
 #include <iostream>
 
 #include <core/uuids_extra.h>
+
+#if defined(__APPLE__) || defined(__linux__)
+#include <fcntl.h>
+#endif
 
 namespace core
 {
@@ -266,6 +272,64 @@ std::expected<Record, std::error_code> LoadAsset(
 		return result->cacheFileInfo;
 	else
 		return std::unexpected(result.error());
+}
+
+std::expected<MappedFile, std::error_code> Map(const std::filesystem::path& filePath)
+{
+	ZoneScoped;
+
+	std::error_code error;
+	auto size = std::filesystem::file_size(filePath, error);
+	if (error)
+		return std::unexpected(error);
+	if (size == 0)
+		return MappedFile{};
+
+	MappedFile file;
+	file.map(filePath.string(), error);
+	if (error)
+		return std::unexpected(error);
+
+	// read-ahead of the whole file: mapped pages are otherwise faulted in one at a time
+#if defined(__APPLE__)
+	radvisory advisory{.ra_offset = 0, .ra_count = static_cast<int>(std::min<uint64_t>(size, INT32_MAX))};
+	::fcntl(file.file_handle(), F_RDADVISE, &advisory);
+#elif defined(__linux__)
+	::posix_fadvise(file.file_handle(), 0, 0, POSIX_FADV_WILLNEED);
+#endif
+
+	return file;
+}
+
+std::expected<void, std::error_code> Write(const std::filesystem::path& filePath, std::span<const std::byte> data)
+{
+	ZoneScoped;
+
+	std::error_code error;
+	{
+		mio_extra::resizeable_mmap_sink<std::byte> file;
+		file.map(filePath.string(), error); // creates it
+		if (error)
+			return std::unexpected(error);
+
+		if (!data.empty())
+		{
+			if (auto resized = file.resize(data.size()); !resized)
+				return std::unexpected(resized.error());
+			std::memcpy(file.data(), data.data(), data.size());
+			file.sync(error);
+			if (error)
+				return std::unexpected(error);
+		}
+	}
+
+	// shorter than the file it replaces
+	if (std::filesystem::file_size(filePath, error) != data.size() && !error)
+		std::filesystem::resize_file(filePath, data.size(), error);
+	if (error)
+		return std::unexpected(error);
+
+	return {};
 }
 
 } // namespace file

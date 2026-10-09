@@ -399,6 +399,25 @@ target_link_libraries(
 
 ###############################################################################
 
+# compares ways of reading files (std streams, stdio, core's memory mapped files), warm and cold, and times the
+# importers (--import), see src/tools/filebench.cpp
+add_executable(filebench ${SPEEDO_SOURCE_DIR}/tools/filebench.cpp)
+target_compile_features(
+	filebench
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	filebench
+	PRIVATE
+		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		core
+		gfx
+		xxHash::xxhash
+)
+
+###############################################################################
+
 install(
 	TARGETS
 		core

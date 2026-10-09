@@ -1,6 +1,7 @@
 #include "gltfimport.h"
 #include "tangents.h"
 
+#include <core/file.h>
 #include <core/profiling.h>
 #include <core/utils.h>
 
@@ -11,7 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
-#include <fstream>
+#include <mutex>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -68,9 +69,55 @@ using DataPtr = std::unique_ptr<cgltf_data, DataDeleter>;
 	}
 }
 
-[[nodiscard]] std::expected<DataPtr, std::string> Parse(const std::filesystem::path& path)
+// cgltf's file callbacks: the gltf file and its buffers are mapped (core::file::Map) rather than read with stdio, and
+// unmapped when cgltf releases them (cgltf_free releases the buffers too, with the callbacks the data was parsed with)
+std::mutex gMappedFilesMutex;
+core::UnorderedMap<const void*, core::file::MappedFile> gMappedFiles;
+
+cgltf_result ReadMapped(
+	const cgltf_memory_options* /*memoryOptions*/, const cgltf_file_options* /*fileOptions*/, const char* path, cgltf_size* size, void** data)
+{
+	auto file = core::file::Map(std::filesystem::path(path));
+	if (!file)
+		return file.error() == std::errc::no_such_file_or_directory ? cgltf_result_file_not_found : cgltf_result_io_error;
+
+	// an empty file maps to nothing, which nothing needs to release
+	static std::byte gEmpty{};
+	*size = file->size();
+	*data = file->empty() ? &gEmpty : const_cast<std::byte*>(file->data()); //NOLINT(cppcoreguidelines-pro-type-const-cast) cgltf only reads it
+	if (!file->empty())
+	{
+		std::lock_guard lock(gMappedFilesMutex);
+		gMappedFiles.emplace(*data, std::move(*file));
+	}
+	return cgltf_result_success;
+}
+
+void ReleaseMapped(const cgltf_memory_options* /*memoryOptions*/, const cgltf_file_options* /*fileOptions*/, void* data)
+{
+	core::file::MappedFile file;
+	{
+		std::lock_guard lock(gMappedFilesMutex);
+		if (auto it = gMappedFiles.find(data); it != gMappedFiles.end())
+		{
+			file = std::move(it->second);
+			gMappedFiles.erase(it);
+		}
+	}
+	// unmapped here, outside the lock
+}
+
+[[nodiscard]] cgltf_options Options()
 {
 	cgltf_options options{};
+	options.file.read = ReadMapped;
+	options.file.release = ReleaseMapped;
+	return options;
+}
+
+[[nodiscard]] std::expected<DataPtr, std::string> Parse(const std::filesystem::path& path)
+{
+	cgltf_options options = Options();
 	cgltf_data* data = nullptr;
 	if (auto result = cgltf_parse_file(&options, path.string().c_str(), &data); result != cgltf_result_success)
 		return std::unexpected(std::format("failed to parse {}: {}", path.string(), ToString(result)));
@@ -1148,7 +1195,7 @@ std::expected<Mesh, std::string> Import(
 	{
 		ZoneScopedN("gltf::Import::buffers");
 
-		cgltf_options loadOptions{};
+		cgltf_options loadOptions = detail::Options();
 		if (auto result = cgltf_load_buffers(&loadOptions, &data, path.string().c_str()); result != cgltf_result_success)
 			return std::unexpected(std::format("failed to load the buffers of {}: {}", path.string(), ToString(result)));
 		if (auto error = DecodeMeshopt(data))
@@ -2456,7 +2503,7 @@ std::expected<std::vector<std::byte>, std::string> EmbeddedImage(const std::file
 	if (index >= data.images_count)
 		return std::unexpected(std::format("{} has no image {}", path.string(), index));
 
-	cgltf_options options{};
+	cgltf_options options = detail::Options();
 	if (auto result = cgltf_load_buffers(&options, &data, path.string().c_str()); result != cgltf_result_success)
 		return std::unexpected(std::format("failed to load the buffers of {}: {}", path.string(), detail::ToString(result)));
 

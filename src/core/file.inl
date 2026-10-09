@@ -110,11 +110,10 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;
-		mio::basic_mmap_source<uint8_t> file;
-		std::error_code error;
-		file.map(filePath.string(), error);
-		if (error)
-			return std::unexpected(error);
+		auto mapped = Map(filePath);
+		if (!mapped)
+			return std::unexpected(mapped.error());
+		std::span file(reinterpret_cast<const uint8_t*>(mapped->data()), mapped->size());
 
 		// in chunks, to report progress: hashing large assets takes a while
 		static constexpr size_t kChunkSize = size_t{4} << 20U;
@@ -126,7 +125,7 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 			if (progress.cancelled && progress.cancelled())
 				return std::unexpected(std::make_error_code(std::errc::operation_canceled));
 
-			hasher.process(file.cbegin() + offset, file.cbegin() + chunkEnd);
+			hasher.process(file.begin() + offset, file.begin() + chunkEnd);
 			if (progress.value != nullptr && progress.end > progressBegin)
 				progress.value->store(
 					static_cast<uint8_t>(progressBegin + ((progress.end - progressBegin) * chunkEnd / file.size())),
@@ -164,12 +163,11 @@ std::expected<T, std::error_code> LoadObject(const std::filesystem::path& filePa
 	if (!std::filesystem::exists(fileStatus) || !std::filesystem::is_regular_file(fileStatus))
 		return std::unexpected(std::make_error_code(std::errc::no_such_file_or_directory));
 
-	auto file = mio::basic_mmap_source<std::byte>();
-	file.map(filePath.string(), error);
-	if (error)
-		return std::unexpected(error);
+	auto file = Map(filePath);
+	if (!file)
+		return std::unexpected(file.error());
 
-	return LoadObject<T>(std::span<const std::byte>(file.data(), file.size()));
+	return LoadObject<T>(std::span<const std::byte>(file->data(), file->size()));
 }
 
 template <typename T>
@@ -205,13 +203,11 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 
 	if (fileInfo)
 	{
-		auto file = mio::basic_mmap_source<std::byte>();
-		std::error_code error;
-		file.map(fileInfo->path, error);
-		if (error)
-			return std::unexpected(error);
+		auto file = Map(fileInfo->path);
+		if (!file)
+			return std::unexpected(file.error());
 
-		auto inStream = zpp::bits::in(file);
+		auto inStream = zpp::bits::in(*file);
 
 		//ASSERT(in.position() == file.size());
 

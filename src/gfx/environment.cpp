@@ -1,5 +1,6 @@
 #include "environment.h"
 
+#include <core/file.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -60,17 +61,27 @@ std::array<float, 9> ShBasis(const glm::vec3& d)
 
 std::expected<Panorama, std::string> Import(const std::filesystem::path& path, uint32_t maxWidth)
 {
+	auto file = core::file::Map(path);
+	if (!file)
+		return std::unexpected(std::format("{}: can't read the panorama: {}", path.string(), file.error().message()));
+	return Import(std::span<const std::byte>(file->data(), file->size()), path.string(), maxWidth);
+}
+
+std::expected<Panorama, std::string> Import(std::span<const std::byte> data, std::string_view name, uint32_t maxWidth)
+{
 	ZoneScopedN("gfx::environment::Import");
 
 	int width = 0;
 	int height = 0;
 	int channelCount = 0;
 	std::unique_ptr<float, decltype(&stbi_image_free)> pixels(
-		stbi_loadf(path.string().c_str(), &width, &height, &channelCount, 3), &stbi_image_free);
+		stbi_loadf_from_memory(
+			reinterpret_cast<const stbi_uc*>(data.data()), static_cast<int>(data.size()), &width, &height, &channelCount, 3),
+		&stbi_image_free);
 	if (!pixels)
-		return std::unexpected(std::format("{}: can't read the panorama: {}", path.string(), stbi_failure_reason()));
+		return std::unexpected(std::format("{}: can't read the panorama: {}", name, stbi_failure_reason()));
 	if (width != 2 * height)
-		return std::unexpected(std::format("{}: a panorama is twice as wide as high, not {}x{}", path.string(), width, height));
+		return std::unexpected(std::format("{}: a panorama is twice as wide as high, not {}x{}", name, width, height));
 
 	Panorama panorama{.width = static_cast<uint32_t>(width), .height = static_cast<uint32_t>(height)};
 	if (panorama.width > maxWidth)
@@ -81,7 +92,7 @@ std::expected<Panorama, std::string> Import(const std::filesystem::path& path, u
 		if (stbir_resize_float_linear(
 				pixels.get(), width, height, 0, panorama.rgb.data(), static_cast<int>(panorama.width), static_cast<int>(panorama.height), 0,
 				STBIR_RGB) == nullptr)
-			return std::unexpected(std::format("{}: can't scale the panorama", path.string()));
+			return std::unexpected(std::format("{}: can't scale the panorama", name));
 	}
 	else
 	{

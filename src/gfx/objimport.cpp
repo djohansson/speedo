@@ -1,6 +1,7 @@
 #include "objimport.h"
 #include "tangents.h"
 
+#include <core/file.h>
 #include <core/profiling.h>
 #include <core/utils.h>
 
@@ -9,6 +10,10 @@
 #include <cctype>
 #include <cmath>
 #include <format>
+#include <istream>
+#include <map>
+#include <span>
+#include <streambuf>
 #include <optional>
 #include <system_error>
 
@@ -154,6 +159,49 @@ using Vec3 = std::array<double, 3>;
 [[nodiscard]] double Length(const Vec3& a) { return std::sqrt(Dot(a, a)); }
 [[nodiscard]] bool IsFinite(const Vec3& a) { return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]); }
 
+// an istream's buffer over bytes in memory (a mapped file): tinyobj parses from istreams
+class MemoryBuffer final : public std::streambuf
+{
+public:
+	explicit MemoryBuffer(std::span<const std::byte> bytes)
+	{
+		// the get area is only read
+		auto* begin = const_cast<char*>(reinterpret_cast<const char*>(bytes.data())); //NOLINT(cppcoreguidelines-pro-type-const-cast)
+		setg(begin, begin, begin + bytes.size());
+	}
+};
+
+// tinyobj's MaterialFileReader, reading the mtl files mapped (core::file::Map) rather than through ifstreams
+class MappedMaterialReader final : public tinyobj::MaterialReader
+{
+public:
+	explicit MappedMaterialReader(std::filesystem::path directory) : myDirectory(std::move(directory)) {}
+
+	bool operator()(
+		const std::string& matId,
+		std::vector<tinyobj::material_t>* materials,
+		std::map<std::string, int>* matMap, //NOLINT(misc-include-cleaner) tinyobj's interface
+		std::string* warn,
+		std::string* err) override
+	{
+		auto path = myDirectory / matId;
+		auto file = core::file::Map(path);
+		if (!file)
+		{
+			if (warn != nullptr)
+				warn->append(std::format("Material file [ {} ] not found in a path : {}\n", matId, myDirectory.string()));
+			return false;
+		}
+		MemoryBuffer buffer(std::span<const std::byte>(file->data(), file->size()));
+		std::istream stream(&buffer);
+		tinyobj::LoadMtl(matMap, materials, &stream, warn, err);
+		return true;
+	}
+
+private:
+	std::filesystem::path myDirectory;
+};
+
 } // namespace detail
 
 std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const std::function<bool()>& cancelled)
@@ -164,30 +212,41 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 
 	auto isCancelled = [&cancelled] { return cancelled && cancelled(); };
 
-	tinyobj::ObjReaderConfig config;
-	config.triangulate = true;
-	config.vertex_color = true;
-	config.mtl_search_path = path.parent_path().string();
-
-	tinyobj::ObjReader reader;
+	// as tinyobj::ObjReader::ParseFromFile, but from the files mapped (its mtl files by MappedMaterialReader)
+	struct
+	{
+		tinyobj::attrib_t attrib;
+		std::vector<tinyobj::shape_t> shapes;
+		std::vector<tinyobj::material_t> materials;
+		std::string warning;
+		std::string error;
+	} reader;
 	{
 		ZoneScopedN("obj::Import::parse");
 
-		if (!reader.ParseFromFile(path.string(), config))
-			return std::unexpected(std::format("failed to parse {}: {}", path.string(), reader.Error()));
+		auto file = core::file::Map(path);
+		if (!file)
+			return std::unexpected(std::format("failed to read {}: {}", path.string(), file.error().message()));
+		MemoryBuffer buffer(std::span<const std::byte>(file->data(), file->size()));
+		std::istream stream(&buffer);
+		MappedMaterialReader materialReader(path.parent_path());
+		if (!tinyobj::LoadObj(
+				&reader.attrib, &reader.shapes, &reader.materials, &reader.warning, &reader.error, &stream, &materialReader,
+				/*triangulate*/ true, /*default_vcols_fallback*/ true))
+			return std::unexpected(std::format("failed to parse {}: {}", path.string(), reader.error));
 	}
 
 	if (isCancelled())
 		return std::unexpected("cancelled");
 
-	const auto& attrib = reader.GetAttrib();
-	const auto& shapes = reader.GetShapes();
-	const auto& objMaterials = reader.GetMaterials();
+	const auto& attrib = reader.attrib;
+	const auto& shapes = reader.shapes;
+	const auto& objMaterials = reader.materials;
 
 	Mesh mesh;
 	auto& stats = mesh.stats;
 
-	for (std::string_view warnings = reader.Warning(); !warnings.empty();)
+	for (std::string_view warnings = reader.warning; !warnings.empty();)
 	{
 		auto end = warnings.find('\n');
 		if (auto line = warnings.substr(0, end); !line.empty())

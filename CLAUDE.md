@@ -191,6 +191,27 @@ vector of the keys. Composite keys are small structs with a defaulted `operator=
 `using is_avalanching = void;`, a `has_unique_object_representations` static_assert), floats stored by their bits so
 that equal keys hash equal (see `TextureViewKey`, `obj::detail::VertexKey`).
 
+## File I/O: core's memory mapped files, not the standard library's streams
+
+Read and write files through core (`core/file.h`): `core::file::Map` (a whole file mapped for reading) and
+`core::file::Write`, or `LoadBinary`/`SaveBinary` and the zpp::bits serializers over them (`InputSerializer`/
+`OutputSerializer`), not `std::ifstream`/`std::ofstream`, `fopen`/`fread` or a library's own file loading. Hand third-party
+decoders the mapped bytes rather than a path: stb's `_from_memory` functions, `image::Import`/`Decode` and
+`environment::Import`'s byte overloads, cgltf's `options.file` callbacks (`gltf::detail::Options`, which map the gltf file
+and its buffers and unmap them when cgltf releases them), tinyobj's `LoadObj` from an istream over the mapped bytes
+(`obj::detail::MemoryBuffer`, a streambuf over memory, and `MappedMaterialReader` for the mtl files). The zip extractor
+maps the archive and writes entries with `Write`. `LoadAsset` maps an asset's source file before calling its source load
+op: read the file from the serializer it gets (`in.remaining_data()`), as `LoadTexture` and `LoadEnvironment` do, rather
+than opening it again. `src/tools/filebench.cpp` is the one exception, since std streams and stdio are what it measures.
+
+`Map` asks the os to read the whole file ahead (`fcntl(F_RDADVISE)` on macos, `posix_fadvise(POSIX_FADV_WILLNEED)` on
+linux; nothing on windows yet): without it a cold mapped file is read a page fault at a time, which `filebench` measured at
+0.6 GB/s against `read()`'s 7 on macos (256 MiB, M4 Pro; `MADV_SEQUENTIAL` doesn't help, `MADV_WILLNEED` only doubles
+it). With it, mapping matches `read()` cold and warm (13 to 18 GB/s from the page cache). `std::istreambuf_iterator`
+reads, which the image importer used, run at 0.5 GB/s either way. `filebench --import <files>` times the importers:
+the change took a 9 MB png's decode from 77 to 58 ms and an 80 MB hdr's from 244 to 227; mesh imports are bound by
+parsing (2 to 3% faster).
+
 ## Choosing a lock
 
 Measured on this machine (M4 Pro): `core::UpgradableSharedMutex` is the cheapest uncontended (~4-7 ns) and is the

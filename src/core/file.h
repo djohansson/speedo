@@ -8,6 +8,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 #include <system_error>
 #include <variant>
@@ -77,6 +78,16 @@ public:
 private:
 	Record myInfo;
 };
+
+using MappedFile = mio::basic_mmap_source<std::byte>;
+
+// maps a file whole for reading (an empty file maps to nothing, size 0), and asks the os to read all of it ahead: a cold
+// file mapped without that is read a page fault at a time, ten times slower than read() on macos (see
+// src/tools/filebench.cpp)
+[[nodiscard]] std::expected<MappedFile, std::error_code> Map(const std::filesystem::path& filePath);
+
+// writes data to filePath, creating or replacing it
+[[nodiscard]] std::expected<void, std::error_code> Write(const std::filesystem::path& filePath, std::span<const std::byte> data);
 
 using InputSerializer = zpp::bits::in<mio::basic_mmap_source<std::byte>>;
 using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink<std::byte>, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;

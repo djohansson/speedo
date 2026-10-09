@@ -176,7 +176,8 @@ Texture LoadTexture(
 		return {};
 	};
 
-	auto loadImage = [&](auto& /*todo: use me: in*/) -> std::error_code
+	// in: the file, mapped by LoadAsset (unless the image is embedded in a model, whose file it is)
+	auto loadImage = [&](auto& in) -> std::error_code
 	{
 		progress = 32;
 
@@ -196,7 +197,8 @@ Texture LoadTexture(
 		}
 		else
 		{
-			result = image::Import(std::filesystem::path(filePath), options, allocate, &progress, cancelled);
+			auto bytes = in.remaining_data();
+			result = image::Import(std::span<const std::byte>(bytes.data(), bytes.size()), filePath, options, allocate, &progress, cancelled);
 		}
 
 		if (mapped)
@@ -380,10 +382,12 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 			}
 			return {};
 		};
-		auto loadEnvironment = [&](auto& /*todo: use me: in*/) -> std::error_code
+		// in: the file, mapped by LoadAsset
+		auto loadEnvironment = [&](auto& in) -> std::error_code
 		{
 			progress = 32;
-			auto panorama = environment::Import(std::filesystem::path(*filePath));
+			auto bytes = in.remaining_data();
+			auto panorama = environment::Import(std::span<const std::byte>(bytes.data(), bytes.size()), *filePath);
 			if (!panorama)
 			{
 				std::println(stderr, "{}", panorama.error());

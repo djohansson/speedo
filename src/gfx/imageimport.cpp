@@ -1,5 +1,6 @@
 #include "imageimport.h"
 
+#include <core/file.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -9,7 +10,6 @@
 #include <cstring>
 #include <execution>
 #include <format>
-#include <fstream>
 #include <iterator>
 #include <memory>
 #include <numeric>
@@ -346,16 +346,13 @@ void DecodeColors(std::span<const std::byte, 4> endpoints, bool fourColors, std:
 	return pixels;
 }
 
-// a file's bytes, or an error message
-[[nodiscard]] static std::expected<std::vector<std::byte>, std::string> ReadFile(const std::filesystem::path& path)
+// a file's bytes (mapped), or an error message
+[[nodiscard]] static std::expected<core::file::MappedFile, std::string> ReadFile(const std::filesystem::path& path)
 {
-	std::ifstream file(path, std::ios::binary);
+	auto file = core::file::Map(path);
 	if (!file)
-		return std::unexpected(std::format("failed to open {}", path.string()));
-	std::vector<char> chars((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-	std::vector<std::byte> bytes(chars.size());
-	std::memcpy(bytes.data(), chars.data(), chars.size());
-	return bytes;
+		return std::unexpected(std::format("failed to open {}: {}", path.string(), file.error().message()));
+	return std::move(*file);
 }
 
 std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, const Options& options)
@@ -363,7 +360,7 @@ std::expected<Pixels, std::string> Decode(const std::filesystem::path& path, con
 	auto bytes = ReadFile(path);
 	if (!bytes)
 		return std::unexpected(bytes.error());
-	return Decode(*bytes, path.string(), options);
+	return Decode(std::span<const std::byte>(bytes->data(), bytes->size()), path.string(), options);
 }
 
 std::expected<Pixels, std::string> Decode(std::span<const std::byte> data, std::string_view name, const Options& options)
@@ -487,7 +484,7 @@ std::expected<Image, std::string> Import(
 	auto bytes = ReadFile(path);
 	if (!bytes)
 		return std::unexpected(bytes.error());
-	return Import(*bytes, path.string(), options, allocate, progress, cancelled);
+	return Import(std::span<const std::byte>(bytes->data(), bytes->size()), path.string(), options, allocate, progress, cancelled);
 }
 
 // a KTX2 file's own block compressed mip chain, rather than decoded and compressed again (a second lossy step):
