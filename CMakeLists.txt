@@ -126,6 +126,34 @@ target_link_libraries(
 
 ###############################################################################
 
+# windows and the window system: the windowed application base (its window, main thread work, exit wake-ups), the file
+# dialogs and imgui's platform side, between core and rhi (whose surfaces are made for the platform's windows)
+file(GLOB PLATFORM_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/platform/*.cpp)
+add_library(platform STATIC ${PLATFORM_SOURCE_FILES})
+
+target_compile_features(
+	platform
+	PUBLIC
+		cxx_std_26
+)
+target_include_directories(
+	platform
+	PUBLIC
+		$<BUILD_INTERFACE:${SPEEDO_SOURCE_DIR}>
+		$<INSTALL_INTERFACE:include/speedo>
+)
+target_link_libraries(
+	platform
+	PUBLIC
+		core
+	PRIVATE
+		glfw
+		imgui::imgui
+		nfd::nfd
+)
+
+###############################################################################
+
 file(GLOB_RECURSE GFX_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
 add_library(gfx STATIC ${GFX_SOURCE_FILES})
 
@@ -176,8 +204,8 @@ target_link_libraries(
 	gfx
 	PUBLIC
 		core
+		platform
 		rhi
-		nfd::nfd
 		xxHash::xxhash
 		imgui::imgui
 		glm::glm
@@ -217,9 +245,12 @@ target_link_libraries(
 	rhi
 	PUBLIC
 		core
+		platform
 		xxHash::xxhash
 		imgui::imgui
 		Vulkan::Vulkan
+	PRIVATE
+		glfw # vulkan surfaces of the platform's (glfw) windows
 )
 
 ###############################################################################
@@ -425,6 +456,7 @@ install(
 	TARGETS
 		core
 		gfx
+		platform
 		rhi
 		serverlib
 		clientlib

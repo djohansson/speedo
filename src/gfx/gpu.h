@@ -10,7 +10,7 @@
 #include <rhi/renderimageset.h>
 #include <rhi/rhi.h>
 #include <rhi/sampler.h>
-#include <rhi/window.h>
+#include <rhi/swapchain.h>
 
 // the rhi types gfx uses, for the build's graphics api, so that gfx itself needn't be templated on it
 namespace gfx
@@ -25,7 +25,7 @@ using ImageCreateDesc = rhi::ImageCreateDesc<rhi::kGraphicsApi>;
 using ImageMipLevelDesc = rhi::ImageMipLevelDesc<rhi::kGraphicsApi>;
 using ImageView = rhi::ImageView<rhi::kGraphicsApi>;
 using ImageViewCreateDesc = rhi::ImageViewCreateDesc<rhi::kGraphicsApi>;
-using Window = rhi::Window<rhi::kGraphicsApi>;
+using Swapchain = rhi::Swapchain<rhi::kGraphicsApi>;
 using Semaphore = rhi::Semaphore<rhi::kGraphicsApi>;
 using QueryPool = rhi::QueryPool<rhi::kGraphicsApi>;
 using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<rhi::kGraphicsApi>;

@@ -8,7 +8,6 @@ void WindowedApplication::InternalDialogueAsync(Dialogue dialogue, LoadOp loadOp
 	
 	auto app = std::static_pointer_cast<WindowedApplication>(Application::Get());
 	ENSURE(app);
-	auto& rhi = app->GetRHI();
 
 	// only the dialogue needs the main thread. the load is queued to run in the thread pool once the dialogue has
 	// returned: on the main thread it would stall window event processing (input, resizes, quitting) while it runs.
@@ -26,15 +25,15 @@ void WindowedApplication::InternalDialogueAsync(Dialogue dialogue, LoadOp loadOp
 				{ return loadOp(openFilePath, progress); });
 		}); // captured rather than passed as arguments: CreateTask stores lvalue arguments by reference
 
-	rhi.mainCalls.enqueue(openFileTask);
+	app->mainCalls.enqueue(openFileTask);
 }
 
 template <typename LoadOp>
-void WindowedApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<FileFilter>& filterList, LoadOp loadOp)
+void WindowedApplication::InternalOpenFileDialogueAsync(std::string&& resourcePathString, const std::vector<platform::FileFilter>& filterList, LoadOp loadOp)
 {
 	InternalDialogueAsync(
 		[resourcePathString = std::move(resourcePathString), filterList = std::vector(filterList)]() mutable
-		{ return OpenFileDialogue(std::move(resourcePathString), filterList); },
+		{ return platform::OpenFileDialogue(std::move(resourcePathString), filterList); },
 		std::move(loadOp));
 }
 
@@ -42,7 +41,7 @@ template <typename LoadOp>
 void WindowedApplication::InternalOpenFolderDialogueAsync(std::string&& startPathString, LoadOp loadOp)
 {
 	InternalDialogueAsync(
-		[startPathString = std::move(startPathString)]() mutable { return OpenFolderDialogue(std::move(startPathString)); },
+		[startPathString = std::move(startPathString)]() mutable { return platform::OpenFolderDialogue(std::move(startPathString)); },
 		std::move(loadOp));
 }
 

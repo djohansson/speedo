@@ -10,6 +10,9 @@
 #	define RHI_API
 #endif
 
+// the windows rhi draws to (WindowHandle) are the platform's
+#include <platform/capi.h>
+
 #ifdef __cplusplus
 #include <cstddef>
 #include <cstdint>
@@ -25,20 +28,6 @@ enum GraphicsApi : uint8_t
 	kVk = 0
 };
 
-typedef uintptr_t WindowHandle;//NOLINT(modernize-use-using)
-struct WindowState
-{
-	float xscale;	 // content x scale factor
-	float yscale;	 // content y scale factor
-	uint32_t x;		 // screen x position. multiply by xscale to get framebuffer x position
-	uint32_t y;		 // screen y position multiply by yscale to get framebuffer y position
-	uint32_t width;	 // screen width. multiply by xscale to get framebuffer width
-	uint32_t height; // screen height. multiply by yscale to get framebuffer height
-	uint32_t fullscreenRefresh : 16;
-	uint32_t fullscreenMonitor : 15;
-	uint32_t fullscreenEnabled : 1;
-};
-
 struct SourceLocationData
 {
 	const char* name;
@@ -47,10 +36,6 @@ struct SourceLocationData
 	uint32_t line;
 	uint32_t color;
 };
-
-typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(modernize-use-using)
-typedef void (*DestroyWindowFunc)(WindowHandle window);//NOLINT(modernize-use-using)
-static const WindowHandle kInvalidWindowHandle = 0;//NOLINT(modernize-use-nullptr)
 
 
 #ifdef __cplusplus

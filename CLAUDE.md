@@ -2,17 +2,26 @@
 
 Notes for working in this codebase, distilled from real build failures.
 
-## Layering: core ← rhi ← gfx ← client
+## Layering: core ← platform ← rhi ← gfx ← client
 
-- `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchain,
-  `Window`), templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
+- `platform` is the window system: the windows (`platform::Window`: a native handle, its `WindowState` and whether it is
+  minimized; `WindowHandle`/`WindowState`/`CreateWindowFunc` in `platform/capi.h`, with `GetCurrentWindow`/
+  `SetCurrentWindow` and the C entry points the client's glfw callbacks call), `platform::WindowedApplication` (makes the
+  window with the client's `CreateWindowFunc`, runs `mainCalls` on the main thread in `Main`, wakes the main loop on
+  `RequestExit`, tracks minimizing in `OnResizeFramebuffer`), the file dialogs (`platform/filedialog.h`, nfd) and imgui's
+  platform side (`platform::imgui`, imgui's glfw backend). It links glfw, nfd and imgui privately, and knows nothing of
+  graphics: the server, which has no windows, doesn't link it.
+- `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
+  templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
   by its first member, so before its members are created and after they are destroyed).
-- `gfx` is everything above it: importers (`obj::Import`, `image::Import`, `zip`), `Model`, `LoadTexture`, cameras and
-  `Views`, and `gfx::WindowedApplication` (the windowed, drawing application the client derives from). gfx code is
+  The RHI is made for a window the platform already made (`RHIInitializationData::window`): its surface picks the
+  devices that can present to it, and it keeps a swapchain per window (`RHI::GetSwapchain(WindowHandle)`).
+- `gfx` is everything above it: importers (`obj::Import`, `image::Import`), `Model`, `LoadTexture`, cameras and
+  `Views`, and `gfx::WindowedApplication` (the windowed, drawing application the client derives from, a
+  `platform::WindowedApplication`). gfx code is
   not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
-  build), and contains no backend code: no Vulkan calls, enums or types. gfx also owns the current window
-  (`GetCurrentWindow`/`SetCurrentWindow` in `gfx/capi.h`) and the file dialog (`gfx/filedialog.h`).
+  build), and contains no backend code: no Vulkan calls, enums or types.
 - rhi's public API speaks its own vocabulary, `rhi/enums.h` (`Format`, `ImageLayout`, `ImageAspect`, `ImageUsage`,
   `BufferUsage`, `PipelineStage`, `Access`, `LoadOp`, `SamplerDesc`, `Extent2d`, `ClearValue`, `PresentResult`,
   ...), converted at the backend boundary with `rhi::vk::ToVk`/`FromVk` (`rhi/vulkan/convert.h`, backend sources
@@ -21,10 +30,11 @@ Notes for working in this codebase, distilled from real build failures.
   dispatch, buffer updates, memory barriers); secondary command buffers inheriting a render target come from
   `CommandPool::SecondaryCommands`; descriptor values are `BufferBinding<G>`/`ImageBinding<G>`, which `Pipeline`
   stores in Vulkan's form (the update templates read them in place).
-- ImGui's renderer is rhi's `ImGuiRenderer<G>` (`rhi/imguirenderer.h`): the imgui Vulkan backend plus imgui's
-  textures, which it creates and uploads itself on the ui thread and records on the draw thread. gfx owns the imgui
-  context, the glfw platform backend (`ImGui_ImplGlfw_InitForOther`) and the triple buffer of draw data snapshots
-  between the two threads.
+- ImGui's renderer is rhi's `ImGuiRenderer<G>` (`rhi/imguirenderer.h`, drawing into a swapchain's frames): the imgui
+  Vulkan backend plus imgui's textures, which it creates and uploads itself on the ui thread and records on the draw
+  thread. Its platform side is `platform::imgui` (`Init`, `NewFrame`, `Shutdown`). gfx owns the imgui context (made
+  before `platform::imgui::Init`, destroyed after `Shutdown`) and the triple buffer of draw data snapshots between the
+  two threads.
 - Shaders are gfx's: the slang sources and the C header they share with the C++ code (`gfx/shaders/`), and
   `gfx::ShaderLoader`, which compiles them for `rhi::kShaderFormat` and reflects their bindings into a neutral
   `rhi::ShaderSet` (`rhi/shaderset.h`: binaries, entry points, and per set the bindings and push constants). rhi
@@ -203,6 +213,15 @@ and its buffers and unmap them when cgltf releases them), tinyobj's `LoadObj` fr
 maps the archive and writes entries with `Write`. `LoadAsset` maps an asset's source file before calling its source load
 op: read the file from the serializer it gets (`in.remaining_data()`), as `LoadTexture` and `LoadEnvironment` do, rather
 than opening it again. `src/tools/filebench.cpp` is the one exception, since std streams and stdio are what it measures.
+
+Zip entries are inflated with libdeflate (`core::zip::Inflate`, raw deflate straight into the entry's file, mapped at
+its known size) and checked with its crc-32 (`core::zip::Crc32`, the cpu's crc instructions), by a worker per executor
+thread taking entries in turn (`core::zip::ExtractAll`, which waits with `TaskExecutor::Join`, so it may run in a task;
+directories are created first, on the calling thread). Compared on San_Miguel.zip (511 MiB, 1.8 GiB inflated), libdeflate
+inflated in 1.01 s where stb_image's decoder took 2.65 s (zlib 2.33, miniz 2.05, zlib-ng 1.63), and its crc-32 in 24 ms
+where the byte-at-a-time table the extractor had took 3.2 s. Extracting it takes 1.0 s on 14 threads (1.7 s on one): one
+entry, the 1.1 GB obj, is most of it, and a deflate stream inflates in order. `filebench --zip <archives>` times all of
+that.
 
 `Map` asks the os to read the whole file ahead (`fcntl(F_RDADVISE)` on macos, `posix_fadvise(POSIX_FADV_WILLNEED)` on
 linux; nothing on windows yet): without it a cold mapped file is read a page fault at a time, which `filebench` measured at

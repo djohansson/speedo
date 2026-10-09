@@ -1,12 +1,11 @@
 #pragma once
 
-#include <gfx/filedialog.h>
 #include <gfx/gpu.h>
 #include <gfx/views.h>
 
-#include <rhi/capi.h>
+#include <platform/filedialog.h>
+#include <platform/windowedapplication.h>
 
-#include <core/application.h>
 #include <core/loadqueue.h>
 #include <core/inputstate.h>
 
@@ -20,19 +19,16 @@
 namespace gfx
 {
 
-// an application drawing graphics in a window, on the build's graphics api (see gfx/gpu.h): it owns the rhi, draws
-// the loaded model with its materials through the window's views, and runs the user interface
-class WindowedApplication : public core::Application
+// an application drawing graphics in its window (see platform::WindowedApplication), on the build's graphics api (see
+// gfx/gpu.h): it owns the rhi, draws the loaded model with its materials through the window's views, and runs the user
+// interface
+class WindowedApplication : public platform::WindowedApplication
 {	
 public:
 	~WindowedApplication() override;
-	
-	[[nodiscard]] virtual bool Main();
 
-	// also wakes the main loop, which sleeps in glfwWaitEvents() until the next window event
-	void RequestExit() noexcept override;
-
-	void OnResizeFramebuffer(WindowHandle window, int width, int height);
+	// recreates the swapchain and what is sized after it (unless minimized)
+	void OnResizeFramebuffer(WindowHandle window, int width, int height) override;
 	void OnInputStateChanged(const core::InputState& input);
 	
 	// call as soon as you want the application to redraw itself, e.g. after changing the scene or camera
@@ -49,10 +45,6 @@ public:
 	// instance/device through Application::Get(), which returns null once the application is being destroyed.
 	void Shutdown();
 
-	[[nodiscard]] WindowState* GetWindowState(WindowHandle window);
-	[[nodiscard]] uint32_t GetWindowCount() const noexcept;
-	[[nodiscard]] WindowHandle GetWindow(uint32_t index) const noexcept;
-
 	[[nodiscard]] RHI& GetRHI() noexcept { return *myRHI; }
 	[[nodiscard]] const RHI& GetRHI() const noexcept { return *myRHI; }
 	[[nodiscard]] Views& GetViews() noexcept { return *myViews; }
@@ -67,7 +59,7 @@ private:
 	template <typename LoadOp>
 	void InternalOpenFileDialogueAsync(
 		std::string&& resourcePathString,
-		const std::vector<FileFilter>& filterList,
+		const std::vector<platform::FileFilter>& filterList,
 		LoadOp loadOp);
 	template <typename LoadOp>
 	void InternalOpenFolderDialogueAsync(std::string&& startPathString, LoadOp loadOp);

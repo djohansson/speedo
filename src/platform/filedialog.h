@@ -4,7 +4,7 @@
 #include <tuple>
 #include <vector>
 
-namespace gfx
+namespace platform
 {
 
 // mirrors nfdu8filteritem_t, so the nfd header stays in the implementation
@@ -22,4 +22,4 @@ struct FileFilter
 // and its path. call on the main thread.
 [[nodiscard]] std::tuple<bool, std::string> OpenFolderDialogue(std::string&& startPathString);
 
-} // namespace gfx
+} // namespace platform

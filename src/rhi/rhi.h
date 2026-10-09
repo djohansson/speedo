@@ -6,7 +6,7 @@
 #include <rhi/rhibase.h>
 #include <rhi/shaderset.h>
 #include <rhi/types.h>
-#include <rhi/window.h>
+#include <rhi/swapchain.h>
 
 #include <core/assert.h>
 
@@ -16,16 +16,13 @@
 namespace rhi
 {
 
-inline constexpr int kDefaultWindowWidth = 1280;
-inline constexpr int kDefaultWindowHeight = 720;
-
 struct RHIInitializationData
 {
 	std::string_view name;
-	CreateWindowFunc createWindowFunc{};
-	WindowState windowState{.x = 0, .y = 0, .width = kDefaultWindowWidth, .height = kDefaultWindowHeight, .fullscreenEnabled = 0U};
-	WindowHandle windowHandle{};
-	SurfaceHandle<kVk> surface{};
+	// the window drawn to (the platform's, see platform::Window): its surface picks the devices that can present to it,
+	// and gets a swapchain
+	WindowHandle window{};
+	SurfaceHandle<kVk> surface{}; // the window's, made by the constructor
 	// the descriptors the primary device's pipeline allocates its descriptor sets from, per type
 	std::vector<DescriptorPoolSize> descriptorPoolSizes;
 };
@@ -77,10 +74,14 @@ public:
 	[[nodiscard]] auto& GetInstance() noexcept { return myInstance; }
 	[[nodiscard]] const auto& GetInstance() const noexcept { return myInstance; }
 	
-	[[nodiscard]] auto& GetWindows() noexcept { return myWindows; }
-	[[nodiscard]] const auto& GetWindows() const noexcept { return myWindows; }
-	[[nodiscard]] Window<G>& GetWindow(WindowHandle handle) { return *std::ranges::find_if(myWindows, [handle](const auto& window){ return window == handle; }); }
-	[[nodiscard]] const Window<G>& GetWindow(WindowHandle handle) const { return *std::ranges::find_if(myWindows, [handle](const auto& window){ return window == handle; }); }
+	// the swapchain drawn to window
+	[[nodiscard]] Swapchain<G>& GetSwapchain(WindowHandle window) { return const_cast<Swapchain<G>&>(std::as_const(*this).GetSwapchain(window)); }
+	[[nodiscard]] const Swapchain<G>& GetSwapchain(WindowHandle window) const
+	{
+		auto swapchainIt = std::ranges::find(mySwapchains, window, &WindowSwapchain::window);
+		ASSERTF(swapchainIt != mySwapchains.end(), "Window {} has no swapchain", window);
+		return swapchainIt->swapchain;
+	}
 
 	[[nodiscard]] auto& GetDevice(DeviceHandle<G> handle) noexcept { return const_cast<Device<G>&>(std::as_const(*this).GetDevice(handle)); }
 	[[nodiscard]] const auto& GetDevice(DeviceHandle<G> handle) const noexcept
@@ -97,8 +98,12 @@ private:
 	detail::RHIRegistration<G> myRegistration{this}; // first: constructed before, and destroyed after, the rest
 	Instance<G> myInstance;
 	std::vector<Device<G>> myDevices;
-	std::vector<Window<G>> myWindows;
-	CreateWindowFunc myCreateWindowFunc;
+	struct WindowSwapchain
+	{
+		WindowHandle window{};
+		Swapchain<G> swapchain;
+	};
+	std::vector<WindowSwapchain> mySwapchains;
 };
 
 } // namespace rhi

@@ -1,11 +1,11 @@
 #include "filedialog.h"
 
-#include <gfx/capi.h>
+#include <platform/capi.h>
 
 #include <nfd.h>
 #include <nfd_glfw3.h>
 
-namespace gfx
+namespace platform
 {
 
 std::tuple<bool, std::string>
@@ -51,4 +51,4 @@ std::tuple<bool, std::string> OpenFolderDialogue(std::string&& startPathString)
 	return {false, {}};
 }
 
-} // namespace gfx
+} // namespace platform

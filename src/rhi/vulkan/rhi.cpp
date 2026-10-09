@@ -206,8 +206,7 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 	{
 		using namespace detail;
 
-		initData.windowHandle = initData.createWindowFunc(&initData.windowState);
-		initData.surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.windowHandle);
+		initData.surface = CreateSurface(instance, &instance.GetHostAllocationCallbacks(), initData.window);
 
 		return DetectAndCreateDevices(instance, initData.surface);
 	}(myInstance),}
@@ -222,16 +221,9 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 		device.InternalCreatePipeline(std::vector(initData.descriptorPoolSizes));
 	}
 
-	myWindows.emplace_back(
-		WindowCreateDesc<kVk>{
-			GetPrimaryDevice().CreateDeviceObjectCreateDesc("Window"),
-			initData.windowHandle,
-			{initData.windowState.xscale, initData.windowState.yscale},
-			initData.windowState.fullscreenEnabled > 0,
-		},
-		DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface),
-		WindowState{initData.windowState}
-	);
+	mySwapchains.push_back({
+		.window = initData.window,
+		.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface))});
 
 	//(std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
 }

@@ -1,6 +1,5 @@
 #include <core/file.h>
 #include <core/task.h>
-#include <gfx/capi.h>
 #include <gfx/environmentfilter.h>
 #include <gfx/gpu.h>
 #include <gfx/imgui_extra.h>
@@ -12,6 +11,8 @@
 #include <gfx/texture.h>
 #include <gfx/windowedapplication.h>
 #include <core/zip.h>
+#include <platform/capi.h>
+#include <platform/imguiplatform.h>
 #include <rhi/capi.h>
 #include <rhi/renderimageset.h>
 
@@ -19,9 +20,6 @@
 #include <xxhash.h>
 
 #include <imgui.h>
-#include <imgui_impl_glfw.h>
-
-#include <GLFW/glfw3.h>
 
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -56,8 +54,6 @@ bool WindowedApplication::gShowAbout = false;
 bool WindowedApplication::gShowDemoWindow = false;
 bool WindowedApplication::gShowFps = false;
 bool WindowedApplication::gShowTps = false;
-
-static std::optional<WindowHandle> gCurrentWindow{};
 
 namespace windowedapplication
 {
@@ -285,7 +281,8 @@ static void IMGUIDraw(CommandBufferHandle cmd)
 }
 
 static void IMGUIInit(
-	Window& window,
+	const platform::Window& window,
+	Swapchain& swapchain,
 	RHI& rhi,
 	Queue& graphicsQueue,
 	uint32_t graphicsQueueCount,
@@ -312,8 +309,8 @@ static void IMGUIInit(
 	float dpiScaleX = 1.0F;
 	float dpiScaleY = 1.0F;
 #else
-	float dpiScaleX = window.GetDesc().contentScale.x;
-	float dpiScaleY = window.GetDesc().contentScale.y;
+	float dpiScaleX = window.GetState().xscale;
+	float dpiScaleY = window.GetState().yscale;
 #endif
 
 	imguiIO.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
@@ -323,7 +320,7 @@ static void IMGUIInit(
 	ImFontConfig config;
 	config.OversampleH = 2;
 	config.OversampleV = 2;
-	config.RasterizerDensity = std::max(window.GetDesc().contentScale.x, window.GetDesc().contentScale.y);
+	config.RasterizerDensity = std::max(window.GetState().xscale, window.GetState().yscale);
 	config.PixelSnapH = false;
 
 	imguiIO.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
@@ -356,8 +353,8 @@ static void IMGUIInit(
 
 	// we allow up to queue count in-flight renders per frame due to triple buffering. passed in rather than read here,
 	// since the caller already holds the graphics queue write lock.
-	gIMGUIRenderer = std::make_unique<ImGuiRenderer>(rhi.GetPrimaryDevice(), window, graphicsQueue, graphicsQueueCount);
-	ImGui_ImplGlfw_InitForOther(reinterpret_cast<GLFWwindow*>(GetCurrentWindow()), true);
+	gIMGUIRenderer = std::make_unique<ImGuiRenderer>(rhi.GetPrimaryDevice(), swapchain, graphicsQueue, graphicsQueueCount);
+	platform::imgui::Init(window);
 
 	// IMNODES_NAMESPACE::CreateContext();
 	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
@@ -371,7 +368,7 @@ static void ShutdownImgui()
 	// IMNODES_NAMESPACE::DestroyContext();
 
 	gIMGUIRenderer.reset();
-	ImGui_ImplGlfw_Shutdown();
+	platform::imgui::Shutdown();
 
 	// snapshot draw lists are registered with the context's shared data, and must be gone before it is destroyed
 	for (auto& frame : gIMGUIFrames)
@@ -1841,13 +1838,13 @@ void CreateWindowDependentObjects(RHI& rhi)
 	ZoneScopedN("CreateWindowDependentObjects");
 	
 	auto& device = rhi.GetPrimaryDevice();
-	auto& window = rhi.GetWindow(GetCurrentWindow());
+	auto& swapchain = rhi.GetSwapchain(GetCurrentWindow());
 	auto& pipeline = device.GetPipeline();
-	auto frameCount = window.GetSwapchain().GetFrames().size();
+	auto frameCount = swapchain.GetFrames().size();
 	ENSURE(frameCount <= SHADER_TYPES_FRAME_COUNT);
 
 	// the render target, the transparency's lists and the transmission texture: the renderer's frame graph's
-	gRenderer->Resize(device, pipeline, window.GetSwapchain().GetDesc().extent);
+	gRenderer->Resize(device, pipeline, swapchain.GetDesc().extent);
 	gTransientMemory = gRenderer->GetGraph().GetTransientMemorySize();
 	gUnaliasedTransientMemory = gRenderer->GetGraph().GetUnaliasedTransientMemorySize();
 
@@ -1859,7 +1856,7 @@ void CreateWindowDependentObjects(RHI& rhi)
 
 		// no layout transitions for the swapchain images here: they may only be used once acquired. Draw transitions
 		// each acquired image from its tracked layout (UNDEFINED for a new swapchain).
-		for (auto& frame : window.GetSwapchain().GetFrames())
+		for (auto& frame : swapchain.GetFrames())
 		{
 			frame.SetLoadOp(LoadOp::kClear, 0);
 			frame.SetStoreOp(StoreOp::kStore, 0);
@@ -1892,7 +1889,7 @@ void CreateWindowDependentObjects(RHI& rhi)
 			"gRWTextures",
 			ImageBinding{
 				.sampler={},
-				.imageView=window.GetSwapchain().GetFrames()[frameIt].GetAttachments()[0],
+				.imageView=swapchain.GetFrames()[frameIt].GetAttachments()[0],
 				.layout=ImageLayout::kGeneral},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 			frameIt);
@@ -1900,18 +1897,25 @@ void CreateWindowDependentObjects(RHI& rhi)
 
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
 // returns false if the surface has no area (minimized), in which case nothing is recreated.
-bool RecreateWindowDependentObjects(RHI& rhi, Window& window)
+bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
 {
 	ZoneScopedN("RecreateWindowDependentObjects");
 
 	auto& device = rhi.GetPrimaryDevice();
+	auto& swapchain = rhi.GetSwapchain(window);
 
-	auto extent = window.GetSwapchain().QuerySurfaceExtent();
+	auto extent = swapchain.QuerySurfaceExtent();
 	if (extent.width == 0 || extent.height == 0)
 		return false;
 
 	device.WaitIdle();
-	window.OnResizeFramebuffer(static_cast<int>(extent.width), static_cast<int>(extent.height));
+	swapchain.CreateSwapchain();
+
+	// the window's size in screen coordinates, as its framebuffer's (the swapchain's) over its content scale
+	auto& state = window.GetState();
+	state.width = static_cast<uint32_t>(static_cast<float>(swapchain.GetDesc().extent.width) / state.xscale);
+	state.height = static_cast<uint32_t>(static_cast<float>(swapchain.GetDesc().extent.height) / state.yscale);
+
 	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
 	App().GetViews().UpdateBuffers();
 	CreateWindowDependentObjects(rhi);
@@ -1931,7 +1935,7 @@ void WindowedApplication::PrepareDraw()
 	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();
 
-	ImGui_ImplGlfw_NewFrame(); // will poll glfw input events and update input state
+	platform::imgui::NewFrame(); // polls the window's input into imgui's io
 	gIMGUIRenderer->NewFrame();
 	NewFrame();
 
@@ -2131,7 +2135,6 @@ void WindowedApplication::PrepareDraw()
 	}
 
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
-	auto& window = rhi.GetWindow(GetCurrentWindow());
 
 	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.ps1)
 	auto dialogPath = [&resourcePath]
@@ -2222,12 +2225,12 @@ void WindowedApplication::PrepareDraw()
 			{
 				// models, zip archives (of models), environments and images: what is loaded depends on the file's type
 				static const std::string kAllExtensions = std::format("obj,gltf,glb,zip,{},{}", kEnvironmentExtensions, kImageExtensions);
-				static const std::vector<FileFilter> kFilterList = {
-					FileFilter{.name = "Models, zip archives, environments and images", .spec = kAllExtensions.c_str()},
-					FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"},
-					FileFilter{.name = "Zip archives", .spec = "zip"},
-					FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions},
-					FileFilter{.name = "Images", .spec = kImageExtensions},
+				static const std::vector<platform::FileFilter> kFilterList = {
+					platform::FileFilter{.name = "Models, zip archives, environments and images", .spec = kAllExtensions.c_str()},
+					platform::FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"},
+					platform::FileFilter{.name = "Zip archives", .spec = "zip"},
+					platform::FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions},
+					platform::FileFilter{.name = "Images", .spec = kImageExtensions},
 				};
 				InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
 					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
@@ -2241,7 +2244,7 @@ void WindowedApplication::PrepareDraw()
 			}
 			// if (MenuItem("Open Scene..."))
 			// {
-			// 	static const std::vector<FileFilter> filterList = {
+			// 	static const std::vector<platform::FileFilter> filterList = {
 			// 		FileFilter{.name = "Scene files", .spec = "gltf,glb"}
 			// 	};
 
@@ -2360,8 +2363,8 @@ void WindowedApplication::PrepareDraw()
 						[&rhi](std::atomic_uint8_t& progress) { LoadAndInstallEnvironment(rhi, std::nullopt, progress); });
 				if (MenuItem("Open Environment..."))
 				{
-					static const std::vector<FileFilter> kFilterList = {
-						FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions}};
+					static const std::vector<platform::FileFilter> kFilterList = {
+						platform::FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions}};
 					InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
 						[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
 						{ LoadAndInstallEnvironment(rhi, std::string(filePath), progressOut); });
@@ -2529,29 +2532,6 @@ void WindowedApplication::PrepareDraw()
 	}
 }
 
-void WindowedApplication::RequestExit() noexcept
-{
-	Application::RequestExit();
-	glfwPostEmptyEvent(); // thread safe
-}
-
-bool WindowedApplication::Main()
-{
-	using namespace windowedapplication;
-	
-	ZoneScopedN("WindowedApplication::Main");
-
-	auto& rhi = GetRHI();
-
-	core::TaskHandle mainCall;
-	while (rhi.mainCalls.try_dequeue(mainCall))
-	{
-		GetExecutor().Call(mainCall);
-	}
-
-	return !IsExitRequested();
-}
-
 void WindowedApplication::OnInputStateChanged(const core::InputState& input)
 {
 	using namespace windowedapplication;
@@ -2590,8 +2570,8 @@ bool WindowedApplication::Draw()
 	auto& rhi = GetRHI();
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
-	auto& window = rhi.GetWindow(GetCurrentWindow());
-	auto& swapchain = window.GetSwapchain();
+	auto& window = GetWindow(GetCurrentWindow());
+	auto& swapchain = rhi.GetSwapchain(window);
 	auto& pipeline = rhi.GetPrimaryDevice().GetPipeline();
 	auto& executor = GetExecutor();
 
@@ -2833,25 +2813,22 @@ bool WindowedApplication::Draw()
 
 WindowedApplication::WindowedApplication(
 	std::string_view appName, core::Environment&& env, CreateWindowFunc createWindowFunc)
-	: Application(std::forward<std::string_view>(appName), std::forward<core::Environment>(env))
+	: platform::WindowedApplication(appName, std::forward<core::Environment>(env), createWindowFunc)
 	, myRHI(std::make_unique<RHI>(RHIInitializationData{
 		  .name = appName,
-		  .createWindowFunc = createWindowFunc,
+		  .window = GetCurrentWindow(), // the window the platform made: the one we draw in
 		  .descriptorPoolSizes = windowedapplication::DescriptorPoolSizes()}))
 {
 	using namespace windowedapplication;
 
-	// the window the rhi created is the one we draw in
-	SetCurrentWindow(GetRHI().GetWindows().front());
-
 	auto& rhi = GetRHI();
 	auto& instance = rhi.GetInstance();
 	auto& device = rhi.GetPrimaryDevice();
-	auto& window = rhi.GetWindow(GetCurrentWindow());
+	auto& window = GetWindow(GetCurrentWindow());
+	auto& swapchain = rhi.GetSwapchain(window);
 	auto& pipeline = device.GetPipeline();
 
-	myViews = std::make_unique<Views>(
-		device, glm::uvec2(window.GetSwapchain().GetDesc().extent.width, window.GetSwapchain().GetDesc().extent.height));
+	myViews = std::make_unique<Views>(device, glm::uvec2(swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height));
 
 	std::vector<core::TaskHandle> timelineCallbacks;
 
@@ -2897,7 +2874,7 @@ WindowedApplication::WindowedApplication(
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 		
-		IMGUIInit(window, rhi, graphicsQueue, graphics->queues.Capacity(), myImGuiIniSettings);
+		IMGUIInit(window, swapchain, rhi, graphicsQueue, graphics->queues.Capacity(), myImGuiIniSettings);
 
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -3320,56 +3297,14 @@ void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, in
 
 	ZoneScopedN("WindowedApplication::OnResizeFramebuffer");
 
-	auto& rhi = GetRHI();
-	auto& rhiWindow = rhi.GetWindow(window);
-
 	// minimizing reports 0x0: keep the swapchain, and have Draw skip frames until the window is restored
-	rhiWindow.SetMinimized(width <= 0 || height <= 0);
-	if (rhiWindow.IsMinimized())
+	platform::WindowedApplication::OnResizeFramebuffer(window, width, height);
+	auto& platformWindow = GetWindow(window);
+	if (platformWindow.IsMinimized())
 		return;
 
 	// the swapchain is sized after the surface (which already has this size) rather than width/height
-	RecreateWindowDependentObjects(rhi, rhiWindow);
-}
-
-WindowState* WindowedApplication::GetWindowState(WindowHandle window)
-{
-	return &GetRHI().GetWindow(window).GetState();
-}
-
-uint32_t WindowedApplication::GetWindowCount() const noexcept
-{
-	return GetRHI().GetWindows().size();
-}
-
-WindowHandle WindowedApplication::GetWindow(uint32_t index) const noexcept
-{
-	return *std::next(GetRHI().GetWindows().begin(), index);
+	RecreateWindowDependentObjects(GetRHI(), platformWindow);
 }
 
 } // namespace gfx
-
-WindowHandle GetCurrentWindow(void)
-{
-	return gfx::gCurrentWindow.value_or(kInvalidWindowHandle);
-}
-
-void SetCurrentWindow(WindowHandle window)
-{
-	if (!gfx::gCurrentWindow.has_value())
-		gfx::gCurrentWindow = window;
-}
-
-void ResizeFramebuffer(WindowHandle window, int width, int height)
-{
-	if (auto app = std::static_pointer_cast<gfx::WindowedApplication>(core::Application::Get()); app)
-		app->OnResizeFramebuffer(window, width, height);
-}
-
-WindowState* GetWindowState(WindowHandle window)
-{
-	if (auto app = std::static_pointer_cast<gfx::WindowedApplication>(core::Application::Get()); app)
-		return app->GetWindowState(window);
-
-	return nullptr;
-}

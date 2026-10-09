@@ -16,7 +16,7 @@
 	* one queue: no async compute or transfer passes, and the passes are recorded in order into one command buffer (only the main pass's views go to secondary command buffers)
 	* the OIT node pool is sized for 4 nodes per pixel of the render target (177 MB at 2560x1440) and lives the whole frame, so nothing aliases it
 	* sync validation (SPEEDO_VALIDATE_SYNC=1) sees no hazards on the partially bound descriptors, so it can't check the graph's barriers
-* todo: move window class from rhi into gfx or app support library. same for imguirenderer.
+* todo: imguirenderer: rhi::ImGuiRenderer is imgui's vulkan backend and its textures, which could live with gfx's imgui context instead (gfx would need the backend's vulkan calls, which it mustn't have, so likely a renderer api of rhi's instead)
 * todo: split some of the bulkier rhi files such as pipeline and command into separate files.
 * todo: multi window/swapchain capability
 * todo: (maybe) use Scatter/Gather I/O
@@ -34,6 +34,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: the platform library (core ← platform ← rhi ← gfx): windows (platform::Window), the windowed application base (main thread work, exit wake-ups), the file dialogs and imgui's platform side; rhi keeps a swapchain per window instead of rhi::Window
 * done: zip extraction moved to core (core::zip): inflating with libdeflate (2.6x stb_image's) straight into the mapped files, checked with libdeflate's crc-32 (130x the table it had), entries spread over the task executor's threads; timed by filebench --zip
 * done: file loading through core's memory mapped files (core::file::Map, with a read-ahead hint, and Write): the zip extractor, the image, environment, obj and gltf importers and assettest, measured with src/tools/filebench
 * done: a sun in the procedural sky, and every environment's strongest light sources (its dominant lights, up to 4) extracted as directional lights (matching direction, rotation, intensity and shadows), merged with the model's directional lights from the same direction (optional)

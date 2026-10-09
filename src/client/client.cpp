@@ -416,9 +416,8 @@ void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 
 	// the app owns the vulkan surfaces/swapchains of these windows, so destroy it before the native windows
 	std::vector<WindowHandle> windows;
-	windows.reserve(appPtrRef->GetWindowCount());
-	for (uint32_t windowIt = 0; windowIt < appPtrRef->GetWindowCount(); windowIt++)
-		windows.emplace_back(appPtrRef->GetWindow(windowIt));
+	for (const auto& window : appPtrRef->GetWindows())
+		windows.emplace_back(window.GetHandle());
 
 	appPtrRef->Shutdown();
 

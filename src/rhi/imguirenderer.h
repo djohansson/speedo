@@ -17,12 +17,12 @@ template <GraphicsApi G>
 class Device;
 
 template <GraphicsApi G>
-class Window;
+class Swapchain;
 
 template <GraphicsApi G>
 class Queue;
 
-// draws imgui into a window's frames: imgui's renderer backend for the graphics api, plus imgui's textures, which it
+// draws imgui into a swapchain's frames: imgui's renderer backend for the graphics api, plus imgui's textures, which it
 // creates, uploads and destroys itself (rather than leaving that to the backend, which would submit to, and wait for,
 // the queue the draw thread uses). the imgui context (and the platform backend) belong to the caller, and must
 // outlive it.
@@ -34,7 +34,7 @@ class ImGuiRenderer final
 {
 public:
 	// framesInFlight: how many frames the queue may have in flight, so how many sets of buffers imgui needs
-	ImGuiRenderer(Device<G>& device, Window<G>& window, Queue<G>& queue, uint32_t framesInFlight);
+	ImGuiRenderer(Device<G>& device, Swapchain<G>& swapchain, Queue<G>& queue, uint32_t framesInFlight);
 	ImGuiRenderer(const ImGuiRenderer&) = delete;
 	ImGuiRenderer(ImGuiRenderer&&) noexcept = delete;
 	// destroys all textures, so the gpu must be done with them (idle, with all timeline callbacks run)
@@ -52,7 +52,7 @@ public:
 	// frame drawnSequence on are destroyed from a task added to callbacks, which must run once the gpu has completed
 	// the submission of cmd. call on the draw thread, before Render.
 	void PrepareFrame(CommandBufferHandle<G> cmd, uint64_t drawnSequence, std::vector<core::TaskHandle>& callbacks);
-	// records drawData into cmd, inside a render target begun on one of the window's frames. draw thread.
+	// records drawData into cmd, inside a render target begun on one of the swapchain's frames. draw thread.
 	void Render(ImDrawData& drawData, CommandBufferHandle<G> cmd);
 
 private:

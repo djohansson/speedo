@@ -6,7 +6,7 @@
 #include <rhi/imguirenderer.h>
 #include <rhi/queue.h>
 #include <rhi/rhi.h>
-#include <rhi/window.h>
+#include <rhi/swapchain.h>
 #include <rhi/vulkan/utils.h>
 
 #include <algorithm>
@@ -146,13 +146,12 @@ struct ImGuiRenderer<kVk>::State
 };
 
 template <>
-ImGuiRenderer<kVk>::ImGuiRenderer(Device<kVk>& device, Window<kVk>& window, Queue<kVk>& queue, uint32_t framesInFlight)
+ImGuiRenderer<kVk>::ImGuiRenderer(Device<kVk>& device, Swapchain<kVk>& swapchain, Queue<kVk>& queue, uint32_t framesInFlight)
 	: myState(std::make_unique<State>(device))
 {
 	ZoneScopedN("ImGuiRenderer()");
 
 	auto& instance = device.GetInstance();
-	auto& swapchain = window.GetSwapchain();
 	const auto& surfaceCapabilities =
 		instance.GetSwapchainInfo(device.GetPhysicalDevice(), swapchain.GetDesc().surface).capabilities;
 
