@@ -286,8 +286,6 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 		)
 
 		$LaunchEnvironment = [ordered] @{
-			SPEEDO_AUTOLOAD_MODEL = "gallery.obj"
-			SPEEDO_AUTOLOAD_IMAGE = "gallery.jpg"
 			MIMALLOC_SHOW_STATS = "$($Config -eq 'debug' ? '1' : '0')"
 			MIMALLOC_VERBOSE = "$($Config -eq 'debug' ? '1' : '0')"
 			MIMALLOC_SHOW_ERRORS = "$($Config -eq 'debug' ? '1' : '0')"
