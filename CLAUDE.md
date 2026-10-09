@@ -18,8 +18,17 @@ Notes for working in this codebase, distilled from real build failures.
   The RHI is made for a window the platform already made (`RHIInitializationData::window`): its surface picks the
   devices that can present to it, and it keeps a swapchain per window (`RHI::GetSwapchain(WindowHandle)`).
 - `gfx` is everything above it: importers (`obj::Import`, `image::Import`), `Model`, `LoadTexture`, cameras and
-  `Views`, and `gfx::WindowedApplication` (the windowed, drawing application the client derives from, a
-  `platform::WindowedApplication`). gfx code is
+  `Views`, `gfx::Scene` and `gfx::WindowedApplication` (the windowed, drawing application the client derives from, a
+  `platform::WindowedApplication`). `gfx::Scene` (`gfx/scene.h`) is what is drawn and how it is lit: the installed
+  model, image and environment, their materials, textures, lights and animation, the default resources standing in for
+  what they don't have, and the `Renderer`. Its loads (`LoadModels`, `LoadImage`, `LoadEnvironment`) run in load tasks
+  and install on the draw thread; `Update` and `Record` are the draw thread's per frame; the ui changes its `Settings`
+  and reads its animation, scenes and statistics. Its state is an `Impl` in `scene.cpp` (what were the application's
+  file statics), whose lambdas capture `this`: the application destroys the scene in `Shutdown`, after the tasks and
+  draw calls that may use it. The application keeps the frame loop (fences, present, frame statistics), imgui (its
+  context and the draw data handoff), the ui and the load policy (archives, folders, autoloads).
+  `gfx/graphicsqueue.h` has the draw thread's graphics queue helpers (`UpdateBufferOnGraphics`,
+  `TransitionThenBind`, `RetireAfterGraphicsWork`). gfx code is
   not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
   build), and contains no backend code: no Vulkan calls, enums or types.
 - rhi's public API speaks its own vocabulary, `rhi/enums.h` (`Format`, `ImageLayout`, `ImageAspect`, `ImageUsage`,

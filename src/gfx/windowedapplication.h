@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/gpu.h>
+#include <gfx/scene.h>
 #include <gfx/views.h>
 
 #include <platform/filedialog.h>
@@ -48,6 +49,7 @@ public:
 	[[nodiscard]] RHI& GetRHI() noexcept { return *myRHI; }
 	[[nodiscard]] const RHI& GetRHI() const noexcept { return *myRHI; }
 	[[nodiscard]] Views& GetViews() noexcept { return *myViews; }
+	[[nodiscard]] Scene& GetScene() noexcept { return *myScene; }
 
 protected:
 	WindowedApplication(
@@ -70,6 +72,7 @@ private:
 	
 	std::unique_ptr<RHI> myRHI;
 	std::unique_ptr<Views> myViews; // of the window
+	std::unique_ptr<Scene> myScene; // drawn through the views
 	std::string myImGuiIniSettings;
 	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
