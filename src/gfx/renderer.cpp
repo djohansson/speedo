@@ -530,7 +530,7 @@ void Renderer::InternalDrawMainPass(FrameGraph::PassContext& context, Pipeline& 
 				.maxDepth = 1.0F});
 			encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
 
-			RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt);
+			RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, inputs.runInBackground);
 		}
 
 		cmd.End();

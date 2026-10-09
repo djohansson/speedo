@@ -4,7 +4,9 @@
 
 #include <core/profiling.h>
 
+#include <algorithm>
 #include <span>
+#include <tuple>
 #include <utility>
 
 namespace gfx
@@ -76,13 +78,28 @@ DrawList BuildDrawList(
 		return twoPhases && submesh.material >= 0 && transmissive(static_cast<size_t>(submesh.material)) ? MainPassPhase::kTransmissive
 																										  : MainPassPhase::kOpaque;
 	};
+	// each group by pipeline variant, for fewer pipeline switches: the opaque submeshes depth test, and the blended ones
+	// are order independent (see FragmentTransparent), so their order doesn't matter
+	auto byVariant = [&list](size_t first)
+	{
+		std::ranges::stable_sort(
+			std::span(list.items).subspan(first),
+			[](const DrawItem& a, const DrawItem& b)
+			{
+				return std::tie(a.variant.specialization, a.variant.topology, a.variant.fragmentShader) <
+					   std::tie(b.variant.specialization, b.variant.topology, b.variant.fragmentShader);
+			});
+	};
 	for (const auto& submesh : desc.submeshes)
 		if (!blended(submesh) && phaseOf(submesh) == phase)
 			add(submesh, kOpaqueBlend, 0);
+	byVariant(0);
+	auto opaqueCount = list.items.size();
 	if (!twoPhases || phase == MainPassPhase::kTransmissive)
 		for (const auto& submesh : desc.submeshes)
 			if (blended(submesh))
 				add(submesh, kTransparentBlend, kTransparentFragmentShader);
+	byVariant(opaqueCount);
 
 	return list;
 }
@@ -106,7 +123,13 @@ DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t
 	return list;
 }
 
-void RecordDrawList(CommandBufferHandle cmd, Pipeline& pipeline, const DrawList& list, PushConstants pushConstants, uint16_t viewIndex)
+void RecordDrawList(
+	CommandBufferHandle cmd,
+	Pipeline& pipeline,
+	const DrawList& list,
+	PushConstants pushConstants,
+	uint16_t viewIndex,
+	const std::function<void(std::function<void()> job)>& createInBackground)
 {
 	ZoneScopedN("gfx::RecordDrawList");
 
@@ -114,10 +137,22 @@ void RecordDrawList(CommandBufferHandle cmd, Pipeline& pipeline, const DrawList&
 	GraphicsPipelineVariant bound{.blend = kOpaqueBlend};
 	for (const auto& item : list.items)
 	{
-		if (item.variant != bound)
+		auto variant = item.variant;
+		if (variant.specialization != 0 && createInBackground)
 		{
-			bound = item.variant;
-			pipeline.BindPipelineAuto(cmd, item.variant);
+			// the generic pipeline until the specialized one exists (its creation takes tens of milliseconds)
+			auto request = pipeline.RequestGraphicsPipeline(variant);
+			if (request.handle == nullptr)
+			{
+				if (request.create)
+					createInBackground(std::move(request.create));
+				variant.specialization = 0;
+			}
+		}
+		if (variant != bound)
+		{
+			bound = variant;
+			pipeline.BindPipelineAuto(cmd, variant);
 		}
 		encoder.SetCullMode(item.cullMode);
 		encoder.SetFrontFace(item.frontFace);

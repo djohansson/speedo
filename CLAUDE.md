@@ -201,7 +201,12 @@ used (descriptor set state in `Pipeline`) and as `ConcurrentAccess`'s default, w
 uncontended (at 2-3 threads it and `std::shared_mutex` trade wins). Don't lock what can't change: `MemoryPool`'s
 `GetPointer`/`GetHandle` are plain address arithmetic on fixed storage. The `TaskExecutor` wakes idle threads with
 an atomic wake count (`myWakeCount`) rather than a condition variable: submitting takes no lock, and a thread
-can't miss a wake between finding the queue empty and waiting.
+can't miss a wake between finding the queue empty and waiting. `Pipeline`'s pipeline map is a `std::mutex` and a condition variable
+(`PipelineMapSync`): it is only touched when a draw changes pipeline variant (draws are sorted by variant), a few times
+per view and phase, so an exclusive lock costs microseconds per frame; an upgrade lock would gain nothing. The code before
+took no lock, waiting on the map entry with `std::atomic_ref`, which was only safe while one thread bound pipelines: the
+map isn't safe to insert into concurrently, and rehashing moves its entries. Recording isn't expected to go wide enough for
+a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move and could be waited on again) to pay.
 
 ## Queues: aliased queue types share one lock
 
@@ -274,8 +279,14 @@ Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' speciali
 (clearcoat, sheen, transmission, anisotropy, iridescence, diffuse transmission, gated by `Layer()`) is skipped for the
 draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
 uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
-across runs). `SPEEDO_SHADER_TIERS=0` draws with the generic pipelines. Pipelines are still created on first use (15 to
-50 ms each, cold, on KosmicKrisp).
+across runs; single runs are noisy, one pair showed almost no difference). `SPEEDO_SHADER_TIERS=0` draws with the
+generic pipelines. Pipelines take 15 to 50 ms each to create cold on KosmicKrisp, so a specialized one is never waited
+for: `RecordDrawList` asks `Pipeline::RequestGraphicsPipeline`, which returns it if it exists, or the first time a job
+creating it from a copy of the current graphics state (`GraphicsSnapshot`, its pointers aimed at its own storage), which
+runs on the task executor (`FrameInputs::runInBackground`) while the generic pipeline draws. The pipeline map is guarded
+by a mutex and a condition variable (`PipelineMapSync`): a null handle is a pipeline being created, which
+`BindPipelineAuto` waits for. Each phase's draws are sorted by pipeline variant (opaque ones depth test, blended ones are
+order independent), so pipelines switch once per variant.
 
 ## Shadows
 

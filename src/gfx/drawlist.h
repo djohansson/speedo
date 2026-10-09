@@ -86,8 +86,15 @@ struct DrawList
 [[nodiscard]] DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t material)>& transmissive);
 
 // records a draw list for a view (in its viewport, set by the caller): binds the pipeline variants it needs, from the
-// default (opaque triangle list) one, which the caller bound and gets back
+// default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
+// GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
+// draws, and createInBackground gets the job creating it (see Pipeline::RequestGraphicsPipeline), the first time
 void RecordDrawList(
-	CommandBufferHandle cmd, Pipeline& pipeline, const DrawList& list, PushConstants pushConstants, uint16_t viewIndex);
+	CommandBufferHandle cmd,
+	Pipeline& pipeline,
+	const DrawList& list,
+	PushConstants pushConstants,
+	uint16_t viewIndex,
+	const std::function<void(std::function<void()> job)>& createInBackground = {});
 
 } // namespace gfx

@@ -2729,7 +2729,13 @@ bool WindowedApplication::Draw()
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [&graphicsCallbacks](CommandBufferHandle cmd) { IMGUIPrepareFrame(cmd, graphicsCallbacks); },
-				.drawUi = [](CommandBufferHandle cmd) { IMGUIDraw(cmd); }});
+				.drawUi = [](CommandBufferHandle cmd) { IMGUIDraw(cmd); },
+				.runInBackground =
+					[this](std::function<void()> job)
+				{
+					auto [task, future] = core::CreateTask(std::move(job));
+					GetExecutor().Submit(std::span(&task, 1));
+				}});
 
 		cmd.End();
 

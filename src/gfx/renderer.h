@@ -55,6 +55,8 @@ struct FrameInputs
 	// the ui: records its uploads (outside of a render pass), and its draws (in the swapchain's)
 	std::function<void(CommandBufferHandle cmd)> prepareUi;
 	std::function<void(CommandBufferHandle cmd)> drawUi;
+	// runs a job on another thread (creating a pipeline in the background, see RecordDrawList), if given
+	std::function<void(std::function<void()> job)> runInBackground;
 };
 
 // draws frames: the lights' shadows (see gfx/shadows.h), the main pass (in two phases with transmissive materials), the order independent transparency's
