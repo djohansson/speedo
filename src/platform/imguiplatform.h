@@ -3,7 +3,7 @@
 #include <platform/capi.h>
 
 // imgui's platform side: input, the cursor and the display size from the window system (imgui's glfw backend). the
-// imgui context is its user's to create first, and to destroy after Shutdown (see gfx::WindowedApplication); the
+// imgui context is its user's to create first, and to destroy after Shutdown (see client::WindowedApplication); the
 // renderer side is rhi's (rhi::ImGuiRenderer).
 namespace platform::imgui
 {

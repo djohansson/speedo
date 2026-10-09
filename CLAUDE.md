@@ -18,18 +18,23 @@ Notes for working in this codebase, distilled from real build failures.
   The RHI is made for a window the platform already made (`RHIInitializationData::window`): its surface picks the
   devices that can present to it, and it keeps a swapchain per window (`RHI::GetSwapchain(WindowHandle)`).
 - `gfx` is everything above it: importers (`obj::Import`, `image::Import`), `Model`, `LoadTexture`, cameras and
-  `Views`, `gfx::Scene` and `gfx::WindowedApplication` (the windowed, drawing application the client derives from, a
-  `platform::WindowedApplication`). `gfx::Scene` (`gfx/scene.h`) is what is drawn and how it is lit: the installed
-  model, image and environment, their materials, textures, lights and animation, the default resources standing in for
-  what they don't have, and the `Renderer`. Its loads (`LoadModels`, `LoadImage`, `LoadEnvironment`) run in load tasks
-  and install on the draw thread; `Update` and `Record` are the draw thread's per frame; the ui changes its `Settings`
-  and reads its animation, scenes and statistics. Its state is an `Impl` in `scene.cpp` (what were the application's
-  file statics), whose lambdas capture `this`: the application destroys the scene in `Shutdown`, after the tasks and
-  draw calls that may use it. The application keeps the frame loop (fences, present, frame statistics), imgui (its
-  context and the draw data handoff), the ui and the load policy (archives, folders, autoloads).
-  `gfx/graphicsqueue.h` has the draw thread's graphics queue helpers (`UpdateBufferOnGraphics`,
-  `TransitionThenBind`, `RetireAfterGraphicsWork`). gfx code is
-  not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
+  `Views`, the renderer and frame graph, `gfx::Scene` and `gfx::ImGuiLayer`. `gfx::Scene` (`gfx/scene.h`) is what is
+  drawn and how it is lit: the installed model, image and environment, their materials, textures, lights and animation,
+  the default resources standing in for what they don't have, and the `Renderer`. Its loads (`LoadModels`,
+  `LoadImage`, `LoadEnvironment`) run in load tasks and install on the draw thread; `Update` and `Record` are the draw
+  thread's per frame; the ui changes its `Settings` and reads its animation, scenes and statistics. Its state is an
+  `Impl` in `scene.cpp` (what were the application's file statics), whose lambdas capture `this`: the application
+  destroys the scene in `Shutdown`, after the tasks and draw calls that may use it. `gfx::ImGuiLayer` is the ui's imgui:
+  its context, fonts and style, its platform binding and renderer, and the triple buffer handing a frame's draw data
+  from the ui thread (`BeginFrame`/`EndFrame`) to the draw thread (`PrepareFrame`/`Draw`). `gfx/graphicsqueue.h` has
+  the draw thread's graphics queue helpers (`UpdateBufferOnGraphics`, `TransitionThenBind`, `RetireAfterGraphicsWork`).
+- `client` is the application: `client::WindowedApplication` (a `platform::WindowedApplication`; `client/
+  windowedapplication.*`) owns the rhi, the views, the scene and the imgui layer, and keeps the frame loop (`Draw`:
+  fences, pool resets, draw calls, present, frame statistics), the ui (`PrepareDraw`'s menus and windows) and the load
+  policy (files by type, zip archives extracted into the user profile, folders, the autoload variables).
+  `client::Client` adds the server connection and the tick and draw task chains. It names gfx's aliases, which
+  conflict with rhi's templates under both using-directives, with using-declarations in `namespace client`.
+- gfx code is not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
   build), and contains no backend code: no Vulkan calls, enums or types.
 - rhi's public API speaks its own vocabulary, `rhi/enums.h` (`Format`, `ImageLayout`, `ImageAspect`, `ImageUsage`,
   `BufferUsage`, `PipelineStage`, `Access`, `LoadOp`, `SamplerDesc`, `Extent2d`, `ClearValue`, `PresentResult`,

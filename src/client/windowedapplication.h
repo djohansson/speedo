@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/gpu.h>
+#include <gfx/imguilayer.h>
 #include <gfx/scene.h>
 #include <gfx/views.h>
 
@@ -17,12 +18,11 @@
 #include <string>
 #include <string_view>
 
-namespace gfx
+namespace client
 {
 
-// an application drawing graphics in its window (see platform::WindowedApplication), on the build's graphics api (see
-// gfx/gpu.h): it owns the rhi, draws the loaded model with its materials through the window's views, and runs the user
-// interface
+// the client's windowed application (see platform::WindowedApplication): it owns the rhi, draws the scene (gfx::Scene)
+// through the window's views, and runs the user interface (gfx::ImGuiLayer), the frame loop and the loads
 class WindowedApplication : public platform::WindowedApplication
 {	
 public:
@@ -46,10 +46,10 @@ public:
 	// instance/device through Application::Get(), which returns null once the application is being destroyed.
 	void Shutdown();
 
-	[[nodiscard]] RHI& GetRHI() noexcept { return *myRHI; }
-	[[nodiscard]] const RHI& GetRHI() const noexcept { return *myRHI; }
-	[[nodiscard]] Views& GetViews() noexcept { return *myViews; }
-	[[nodiscard]] Scene& GetScene() noexcept { return *myScene; }
+	[[nodiscard]] gfx::RHI& GetRHI() noexcept { return *myRHI; }
+	[[nodiscard]] const gfx::RHI& GetRHI() const noexcept { return *myRHI; }
+	[[nodiscard]] gfx::Views& GetViews() noexcept { return *myViews; }
+	[[nodiscard]] gfx::Scene& GetScene() noexcept { return *myScene; }
 
 protected:
 	WindowedApplication(
@@ -70,9 +70,10 @@ private:
 	template <typename Dialogue, typename LoadOp>
 	void InternalDialogueAsync(Dialogue dialogue, LoadOp loadOp);
 	
-	std::unique_ptr<RHI> myRHI;
-	std::unique_ptr<Views> myViews; // of the window
-	std::unique_ptr<Scene> myScene; // drawn through the views
+	std::unique_ptr<gfx::RHI> myRHI;
+	std::unique_ptr<gfx::Views> myViews; // of the window
+	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
+	std::unique_ptr<gfx::ImGuiLayer> myImGui; // the user interface
 	std::string myImGuiIniSettings;
 	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress
@@ -82,6 +83,6 @@ private:
 	static bool gShowTps; //NOLINT(readability-identifier-naming)
 };
 
-} // namespace gfx
+} // namespace client
 
 #include "windowedapplication.inl"

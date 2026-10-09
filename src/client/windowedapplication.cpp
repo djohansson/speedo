@@ -3,6 +3,7 @@
 #include <gfx/environmentfilter.h>
 #include <gfx/gpu.h>
 #include <gfx/graphicsqueue.h>
+#include <gfx/imguilayer.h>
 #include <gfx/imgui_extra.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
@@ -11,7 +12,7 @@
 #include <gfx/shaderloader.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/texture.h>
-#include <gfx/windowedapplication.h>
+#include <client/windowedapplication.h>
 #include <core/zip.h>
 #include <platform/capi.h>
 #include <platform/imguiplatform.h>
@@ -45,10 +46,19 @@
 
 //#include <imnodes.h>
 
-namespace gfx
+namespace client
 {
 
+using namespace gfx;
 using namespace rhi;
+using QueueTimelineContext = gfx::QueueTimelineContext;
+using CommandBufferHandle = gfx::CommandBufferHandle;
+using Queue = gfx::Queue;
+using QueueDeviceSyncInfo = gfx::QueueDeviceSyncInfo;
+using Semaphore = gfx::Semaphore;
+using SemaphoreCreateDesc = gfx::SemaphoreCreateDesc;
+using SemaphoreHandle = gfx::SemaphoreHandle;
+using RHI = gfx::RHI;
 
 std::mutex WindowedApplication::gDrawMutex{};
 core::LoadQueue WindowedApplication::gLoads{};
@@ -67,152 +77,11 @@ namespace windowedapplication
 	return *app;
 }
 
-// imgui draw data is handed from PrepareDraw (tick task) to IMGUIDraw (draw task) through a triple buffer:
-// PrepareDraw snapshots into its write frame and publishes it as the pending one, the draw thread takes the pending
-// frame as its read frame. each frame's snapshot owns its draw lists, so neither thread touches the other's.
-struct IMGUIFrame
-{
-	imgui_extra::ImDrawDataSnapshot snapshot;
-	ImDrawData drawData;
-	uint64_t sequence = 0; // PrepareDraw count when published
-};
-static std::array<IMGUIFrame, 3> gIMGUIFrames;
-static constexpr uint8_t kIMGUIFrameFresh = 0x80; // set on gIMGUIPendingFrame when published but not yet taken
-static uint8_t gIMGUIWriteFrame = 0; // PrepareDraw only
-static uint8_t gIMGUIReadFrame = 1; // draw thread only
-static std::atomic_uint8_t gIMGUIPendingFrame = 2;
-static uint64_t gIMGUIFrameSequence = 0; // PrepareDraw only
-
-// imgui's renderer, see ImGuiRenderer for which thread calls what
-static std::unique_ptr<ImGuiRenderer> gIMGUIRenderer;
-
 // gpu submits (and their batches) between the last two presented frames, from any thread. written by Draw
 static std::atomic_uint32_t gFrameSubmitCount;
 static std::atomic_uint32_t gFrameSubmitBatchCount;
 // presented frames per second, over (at least) the last half second. written by Draw
 static std::atomic<float> gFramesPerSecond;
-// takes the latest imgui frame published by PrepareDraw and records the texture uploads it depends on into `cmd`
-// (outside of a render pass). textures that are no longer drawn are destroyed from a task added to `callbacks`, which
-// must run once the gpu has completed the submission of `cmd`. call on the draw thread, before IMGUIDraw.
-static void IMGUIPrepareFrame(CommandBufferHandle cmd, std::vector<core::TaskHandle>& callbacks)
-{
-	ZoneScopedN("WindowedApplication::IMGUIPrepareFrame");
-
-	// take the frame before the texture uploads: a frame is published after the uploads it depends on were queued.
-	// keep drawing the previous frame if no new one was published.
-	if ((gIMGUIPendingFrame.load(std::memory_order_relaxed) & kIMGUIFrameFresh) != 0)
-		gIMGUIReadFrame = gIMGUIPendingFrame.exchange(gIMGUIReadFrame, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
-
-	gIMGUIRenderer->PrepareFrame(cmd, gIMGUIFrames[gIMGUIReadFrame].sequence, callbacks);
-}
-
-static void IMGUIDraw(CommandBufferHandle cmd)
-{
-	ZoneScopedN("WindowedApplication::IMGUIDraw");
-
-	gIMGUIRenderer->Render(gIMGUIFrames[gIMGUIReadFrame].drawData, cmd);
-}
-
-static void IMGUIInit(
-	const platform::Window& window,
-	Swapchain& swapchain,
-	RHI& rhi,
-	Queue& graphicsQueue,
-	uint32_t graphicsQueueCount,
-	std::string_view imguiIniSettings)
-{
-	ZoneScopedN("WindowedApplication::IMGUIInit");
-
-	using namespace ImGui;
-	using namespace windowedapplication;
-
-	IMGUI_CHECKVERSION();
-	CreateContext();
-	auto& imguiIO = GetIO();
-	imguiIO.IniFilename = nullptr;
-
-	//imguiIO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	//imguiIO.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-	//imguiIO.FontGlobalScale = 1.0f;
-	//imguiIO.FontAllowUserScaling = true;
-
-	LoadIniSettingsFromMemory(imguiIniSettings.data(), imguiIniSettings.size());
-
-#if defined(__OSX__)
-	float dpiScaleX = 1.0F;
-	float dpiScaleY = 1.0F;
-#else
-	float dpiScaleX = window.GetState().xscale;
-	float dpiScaleY = window.GetState().yscale;
-#endif
-
-	imguiIO.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
-
-	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
-
-	ImFontConfig config;
-	config.OversampleH = 2;
-	config.OversampleV = 2;
-	config.RasterizerDensity = std::max(window.GetState().xscale, window.GetState().yscale);
-	config.PixelSnapH = false;
-
-	imguiIO.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
-
-	std::filesystem::path fontPath(std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]));
-	fontPath /= "fonts";
-	fontPath /= "foo";
-
-	constexpr std::array<const char*, 6> kFonts{{
-		"Cousine-Regular.ttf",
-		"DroidSans.ttf",
-		"Karla-Regular.ttf",
-		"ProggyClean.ttf",
-		"ProggyTiny.ttf",
-		"Roboto-Medium.ttf",
-	}};
-
-	constexpr float kDefaultFontSize = 16.0F;
-	ImFont* defaultFont = nullptr;
-	for (const auto* font : kFonts)
-	{
-		fontPath.replace_filename(font);
-		defaultFont = imguiIO.Fonts->AddFontFromFileTTF(
-			fontPath.generic_string().c_str(), kDefaultFontSize * std::max(dpiScaleX, dpiScaleY), &config);
-	}
-
-	// Setup style
-	StyleColorsClassic();
-	imguiIO.FontDefault = defaultFont;
-
-	// we allow up to queue count in-flight renders per frame due to triple buffering. passed in rather than read here,
-	// since the caller already holds the graphics queue write lock.
-	gIMGUIRenderer = std::make_unique<ImGuiRenderer>(rhi.GetPrimaryDevice(), swapchain, graphicsQueue, graphicsQueueCount);
-	platform::imgui::Init(window);
-
-	// IMNODES_NAMESPACE::CreateContext();
-	// IMNODES_NAMESPACE::LoadCurrentEditorStateFromIniString(
-	//	myNodeGraph.layout.c_str(), myNodeGraph.layout.size());
-}
-
-static void ShutdownImgui()
-{
-	// size_t count;
-	// myNodeGraph.layout.assign(IMNODES_NAMESPACE::SaveCurrentEditorStateToIniString(&count));
-	// IMNODES_NAMESPACE::DestroyContext();
-
-	gIMGUIRenderer.reset();
-	platform::imgui::Shutdown();
-
-	// snapshot draw lists are registered with the context's shared data, and must be gone before it is destroyed
-	for (auto& frame : gIMGUIFrames)
-	{
-		frame.drawData.Clear();
-		frame.snapshot.Clear();
-	}
-
-	ImGui::DestroyContext();
-}
-
 static void LoadAndInstallModel(RHI& rhi, std::string_view filePath, std::atomic_uint8_t& progress)
 {
 	App().GetScene().LoadModels({std::string(filePath)}, progress);
@@ -430,9 +299,7 @@ void WindowedApplication::PrepareDraw()
 	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();
 
-	platform::imgui::NewFrame(); // polls the window's input into imgui's io
-	gIMGUIRenderer->NewFrame();
-	NewFrame();
+	myImGui->BeginFrame();
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	static bool gShowStatistics = false;
@@ -1003,28 +870,7 @@ void WindowedApplication::PrepareDraw()
 		EndMainMenuBar();
 	}
 
-	Render();
-
-	// process texture creates/updates/destroys here rather than in the render thread: the snapshot below
-	// outlives this frame, and imgui frees ImTextureData (e.g. when the font atlas grows) on the next NewFrame().
-	gIMGUIRenderer->UpdateTextures(++gIMGUIFrameSequence);
-
-	if (auto *data = GetDrawData())
-	{
-		auto& [snapshot, drawData, sequence] = gIMGUIFrames[gIMGUIWriteFrame];
-		snapshot.SnapUsingSwap(data, &drawData, GetTime());
-		sequence = gIMGUIFrameSequence;
-
-		// detach the snapshot from imgui-owned texture data: resolve texture refs to their (already uploaded)
-		// backend ids, and drop the texture list so RenderDrawData in the render thread doesn't touch it.
-		for (ImDrawList* drawList : drawData.CmdLists)
-			for (ImDrawCmd& drawCmd : drawList->CmdBuffer)
-				drawCmd.TexRef = ImTextureRef(drawCmd.GetTexID());
-		drawData.Textures = nullptr;
-
-		// publish, and continue with the previous pending frame (whether or not the draw thread took it)
-		gIMGUIWriteFrame = gIMGUIPendingFrame.exchange(gIMGUIWriteFrame | kIMGUIFrameFresh, std::memory_order_acq_rel) & ~kIMGUIFrameFresh;
-	}
+	myImGui->EndFrame();
 }
 
 void WindowedApplication::OnInputStateChanged(const core::InputState& input)
@@ -1140,8 +986,8 @@ bool WindowedApplication::Draw()
 				.swapchainFrame = &newFrame,
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
-				.prepareUi = [&graphicsCallbacks](CommandBufferHandle cmd) { IMGUIPrepareFrame(cmd, graphicsCallbacks); },
-				.drawUi = [](CommandBufferHandle cmd) { IMGUIDraw(cmd); },
+				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
+				.drawUi = [this](CommandBufferHandle cmd) { myImGui->Draw(cmd); },
 				.runInBackground =
 					[this](std::function<void()> job)
 				{
@@ -1264,7 +1110,7 @@ WindowedApplication::WindowedApplication(
 	{
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 		auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
-		IMGUIInit(window, swapchain, rhi, graphicsQueue, graphics->queues.Capacity(), myImGuiIniSettings);
+		myImGui = std::make_unique<ImGuiLayer>(window, swapchain, rhi, graphicsQueue, graphics->queues.Capacity(), myImGuiIniSettings);
 	}
 }
 
@@ -1335,7 +1181,7 @@ void WindowedApplication::Shutdown()
 			settled = false;
 	}
 
-	ShutdownImgui();
+	myImGui.reset();
 
 	// what holds gpu objects, before the rhi they belong to
 	myScene.reset();
@@ -1361,4 +1207,4 @@ void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, in
 	RecreateWindowDependentObjects(GetRHI(), platformWindow);
 }
 
-} // namespace gfx
+} // namespace client

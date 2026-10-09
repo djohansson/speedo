@@ -311,6 +311,8 @@ target_include_directories(
 )
 target_link_libraries(
 	clientlib
+	PUBLIC
+		gfx
 	PRIVATE
 		serverlib # todo: redesign so that we can remove this (quite unsafe) dependency
 )

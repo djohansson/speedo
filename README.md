@@ -196,8 +196,8 @@ window also shows GPU time per render pass, the frame graph's memory, and counts
 | `src/core` | Foundations: the task executor, futures, memory pools, file and path helpers, the application base class. |
 | `src/platform` | The window system: windows, the windowed application base (its main loop's work, exit wake-ups), file dialogs, imgui's platform side. |
 | `src/rhi` | The graphics abstraction over Vulkan: devices, queues, command buffers, buffers, images, pipelines, the swapchain. |
-| `src/gfx` | Everything above the rhi: importers, models, textures, environments, cameras and views, the frame graph and renderer, the shaders (`src/gfx/shaders`, Slang), and the windowed application. |
-| `src/client`, `src/server` | The two programs. |
+| `src/gfx` | Everything above the rhi: importers, models, textures, environments, cameras and views, the frame graph and renderer, the shaders (`src/gfx/shaders`, Slang), the scene, and the imgui layer. |
+| `src/client`, `src/server` | The two programs: the client's windowed application (frame loop, user interface, loading) and its connection to the server. |
 | `src/tools` | `assettest`. |
 | `scripts/` | Setup, test and asset scripts, CMake toolchains and vcpkg triplets. Scripts are PowerShell, run with `pwsh` on every platform. |
 | `ports/` | vcpkg overlay ports: patched versions of dependencies. |

@@ -17,7 +17,7 @@ inline constexpr uint32_t kDefaultWindowHeight = 720;
 
 // an application with windows: it makes its window (createWindowFunc, e.g. with glfw) and runs the main thread's work
 // (mainCalls), which the window system and its dialogues need. what is drawn in the windows is the derived class's
-// (see gfx::WindowedApplication).
+// (see client::WindowedApplication).
 class WindowedApplication : public core::Application
 {
 public:

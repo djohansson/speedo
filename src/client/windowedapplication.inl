@@ -1,4 +1,4 @@
-namespace gfx
+namespace client
 {
 
 template <typename Dialogue, typename LoadOp>
@@ -45,4 +45,4 @@ void WindowedApplication::InternalOpenFolderDialogueAsync(std::string&& startPat
 		std::move(loadOp));
 }
 
-} // namespace gfx
+} // namespace client
