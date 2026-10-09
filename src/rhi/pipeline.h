@@ -8,6 +8,10 @@
 #include <rhi/shader.h>
 #include <rhi/types.h>
 
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -163,6 +167,16 @@ public:
 	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd, GraphicsPipelineVariant variant = {}); // todo: make implicit and call internally whenever relevant state changes
 	// a compute pipeline is created per variant (the layout's compute entry point, cached), as a graphics one is
 	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd, ComputePipelineVariant variant);
+
+	// a graphics pipeline for the bound layout and render target, as BindPipelineAuto would create it, without waiting
+	// for it: its handle if it exists; else none, and the first time it is asked for, a job that creates it from a copy of
+	// the current state (to run on any thread: until it has, BindPipelineAuto for the variant waits for it)
+	struct GraphicsPipelineRequest
+	{
+		PipelineHandle<G> handle{};
+		std::function<void()> create;
+	};
+	[[nodiscard]] GraphicsPipelineRequest RequestGraphicsPipeline(GraphicsPipelineVariant variant);
 	// the thread group size (from the shader's reflection) of one of the bound compute layout's entry points, to dispatch
 	// it by threads (see CommandEncoder::DispatchThreads)
 	[[nodiscard]] const ComputeLaunchParameters& GetComputeLaunchParameters(ComputePipelineVariant variant = {}) const;
@@ -236,7 +250,11 @@ private:
 		DescriptorUpdateTemplate<G>& setTemplate);
 
 	[[nodiscard]] uint64_t InternalCalculateHashKey(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant = {}) const;
-	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(uint64_t hashKey, GraphicsPipelineVariant variant);
+	// the graphics state a pipeline is created from, copied (see the backend)
+	struct GraphicsSnapshot;
+	[[nodiscard]] std::shared_ptr<const GraphicsSnapshot> InternalSnapshotGraphicsState() const;
+	[[nodiscard]] PipelineHandle<G> InternalCreateGraphicsPipeline(
+		uint64_t hashKey, GraphicsPipelineVariant variant, const GraphicsSnapshot& snapshot) const;
 	[[nodiscard]] PipelineHandle<G> InternalCreateComputePipeline(uint64_t hashKey, ComputePipelineVariant variant);
 	[[nodiscard]] PipelineHandle<G> InternalGetPipeline(GraphicsPipelineVariant variant, ComputePipelineVariant computeVariant = {});
 	[[nodiscard]] auto InternalGetLayout() const noexcept { return myCurrentLayoutIt; }
@@ -247,7 +265,15 @@ private:
 	DescriptorPoolHandle<G> myDescriptorPool{};
 
 	// todo: move pipeline map & cache to its own class, and pass in reference to it.
-	PipelineMapType myPipelineMap; 
+	PipelineMapType myPipelineMap; // a null handle while it is being created
+	// guards myPipelineMap: draw threads and creation jobs (see RequestGraphicsPipeline) use it. created signals a handle
+	// stored
+	struct PipelineMapSync
+	{
+		std::mutex mutex;
+		std::condition_variable created;
+	};
+	std::unique_ptr<PipelineMapSync> myPipelineMapSync = std::make_unique<PipelineMapSync>();
 	PipelineCacheHandle<G> myCache{};
 
 	// auto api shared state

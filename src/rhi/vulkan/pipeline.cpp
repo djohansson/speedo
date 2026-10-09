@@ -535,17 +535,57 @@ void Pipeline<kVk>::InternalResetDescriptorPool()
 	vkResetDescriptorPool(GetDevice(), myDescriptorPool, 0);
 }
 
+// a copy of the graphics state, its pointers aimed at the copy's own storage (so never copied or moved itself), and the
+// layout and render pass it is for: what a pipeline is created from, on any thread
 template <>
-PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashKey, GraphicsPipelineVariant variant)
+struct Pipeline<kVk>::GraphicsSnapshot
+{
+	GraphicsState state;
+	PipelineLayoutHandle<kVk> layout{};
+	RenderPassHandle<kVk> renderPass{};
+	std::vector<VkFormat> colorFormats;
+	std::string name;
+
+	GraphicsSnapshot(const GraphicsState& source, PipelineLayoutHandle<kVk> layoutHandle, RenderPassHandle<kVk> pass, std::string pipelineName)
+		: state(source)
+		, layout(layoutHandle)
+		, renderPass(pass)
+		, name(std::move(pipelineName))
+	{
+		state.viewport.pViewports = state.viewports.data();
+		state.viewport.pScissors = state.scissorRects.data();
+		state.dynamicState.pDynamicStates = state.dynamicStateDescs.data();
+		state.colorBlend.pAttachments = state.colorBlendAttachments.data();
+		if (state.dynamicRendering)
+		{
+			const auto& rendering = *state.dynamicRendering;
+			colorFormats.assign(rendering.pColorAttachmentFormats, rendering.pColorAttachmentFormats + rendering.colorAttachmentCount);
+			state.dynamicRendering->pColorAttachmentFormats = colorFormats.data();
+		}
+	}
+	GraphicsSnapshot(const GraphicsSnapshot&) = delete;
+	GraphicsSnapshot& operator=(const GraphicsSnapshot&) = delete;
+};
+
+template <>
+std::shared_ptr<const Pipeline<kVk>::GraphicsSnapshot> Pipeline<kVk>::InternalSnapshotGraphicsState() const
+{
+	const auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	return std::make_shared<const GraphicsSnapshot>(
+		myGraphicsState, static_cast<PipelineLayoutHandle<kVk>>(*layoutIt), std::get<0>(myRenderTarget), GetName());
+}
+
+template <>
+PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
+	uint64_t hashKey, GraphicsPipelineVariant variant, const GraphicsSnapshot& snapshot) const
 {
 	ZoneScopedN("Pipeline::InternalCreateGraphicsPipeline");
 
-	const auto layoutIt = InternalGetLayout();
-	ENSURE(layoutIt != myPipelineLayouts.end());
-	const auto& layout = *layoutIt;
+	const auto& graphicsState = snapshot.state;
 
 	VkGraphicsPipelineCreateInfo pipelineInfo{.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-	pipelineInfo.pNext = myGraphicsState.dynamicRendering.has_value() ? &myGraphicsState.dynamicRendering.value() : nullptr;
+	pipelineInfo.pNext = graphicsState.dynamicRendering.has_value() ? &graphicsState.dynamicRendering.value() : nullptr;
 	pipelineInfo.flags = 0;
 	// the layout's stages, with only the variant's fragment stage of them
 	std::vector<PipelineShaderStageCreateInfo<kVk>> stages;
@@ -556,7 +596,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	VkSpecializationMapEntry specializationEntry{.constantID = 0, .offset = 0, .size = sizeof(specializationValue)};
 	VkSpecializationInfo specialization{
 		.mapEntryCount = 1, .pMapEntries = &specializationEntry, .dataSize = sizeof(specializationValue), .pData = &specializationValue};
-	for (const auto& stage : myGraphicsState.shaderStages)
+	for (const auto& stage : graphicsState.shaderStages)
 	{
 		if (stage.stage == VK_SHADER_STAGE_FRAGMENT_BIT)
 		{
@@ -570,19 +610,19 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	ENSUREF(fragment || fragmentIt == 0, "the layout has no fragment entry point {}", variant.fragmentShader);
 	pipelineInfo.stageCount = static_cast<uint32_t>(stages.size());
 	pipelineInfo.pStages = stages.data();
-	pipelineInfo.pVertexInputState = &myGraphicsState.vertexInput;
-	auto inputAssembly = myGraphicsState.inputAssembly;
+	pipelineInfo.pVertexInputState = &graphicsState.vertexInput;
+	auto inputAssembly = graphicsState.inputAssembly;
 	inputAssembly.topology = vk::ToVk(variant.topology);
 	pipelineInfo.pInputAssemblyState = &inputAssembly;
-	pipelineInfo.pViewportState = &myGraphicsState.viewport;
-	pipelineInfo.pRasterizationState = &myGraphicsState.rasterization;
-	pipelineInfo.pMultisampleState = &myGraphicsState.multisample;
+	pipelineInfo.pViewportState = &graphicsState.viewport;
+	pipelineInfo.pRasterizationState = &graphicsState.rasterization;
+	pipelineInfo.pMultisampleState = &graphicsState.multisample;
 	// a blend state per color attachment of the render target, by the variant's blend modes
-	auto depthStencil = myGraphicsState.depthStencil;
-	auto colorAttachmentCount = myGraphicsState.dynamicRendering ? myGraphicsState.dynamicRendering->colorAttachmentCount : 1U;
+	auto depthStencil = graphicsState.depthStencil;
+	auto colorAttachmentCount = graphicsState.dynamicRendering ? graphicsState.dynamicRendering->colorAttachmentCount : 1U;
 	ENSURE(colorAttachmentCount <= kMaxColorAttachments);
 	std::vector<PipelineColorBlendAttachmentState<kVk>> colorBlendAttachments(
-		colorAttachmentCount, myGraphicsState.colorBlendAttachments.front());
+		colorAttachmentCount, graphicsState.colorBlendAttachments.front());
 	depthStencil.depthWriteEnable = VK_FALSE;
 	for (uint32_t attachmentIt = 0; attachmentIt < colorAttachmentCount; attachmentIt++)
 	{
@@ -613,14 +653,14 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 	// depth only (e.g. shadows): the first blend mode says whether it writes depth
 	if (colorAttachmentCount == 0 && variant.blend[0] == BlendMode::kOpaque)
 		depthStencil.depthWriteEnable = VK_TRUE;
-	auto colorBlend = myGraphicsState.colorBlend;
+	auto colorBlend = graphicsState.colorBlend;
 	colorBlend.attachmentCount = colorAttachmentCount;
 	colorBlend.pAttachments = colorBlendAttachments.data();
 	pipelineInfo.pDepthStencilState = &depthStencil;
 	pipelineInfo.pColorBlendState = &colorBlend;
-	pipelineInfo.pDynamicState = &myGraphicsState.dynamicState;
-	pipelineInfo.layout = layout;
-	pipelineInfo.renderPass = std::get<0>(myRenderTarget);
+	pipelineInfo.pDynamicState = &graphicsState.dynamicState;
+	pipelineInfo.layout = snapshot.layout;
+	pipelineInfo.renderPass = snapshot.renderPass;
 	// render targets create exactly one subpass per render pass (and ignore it with dynamic rendering). a pipeline is
 	// only compatible with the subpass it was created for, so multi-subpass passes would need the current subpass
 	// index tracked in the graphics state and included in the pipeline hash, rather than a loop here.
@@ -637,7 +677,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(uint64_t hashK
 		&GetInstance().GetHostAllocationCallbacks(),
 		&pipelineHandle));
 
-	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Graphics Pipeline {}", GetName(), hashKey));
+	Track(GetDevice(), VK_OBJECT_TYPE_PIPELINE, pipelineHandle, std::format("{} Graphics Pipeline {}", snapshot.name, hashKey));
 
 	return pipelineHandle;
 }
@@ -681,37 +721,70 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant v
 {
 	ZoneScopedN("Pipeline::InternalGetPipeline");
 
-	auto [keyValIt, insertResult] =
-		myPipelineMap.insert({InternalCalculateHashKey(variant, computeVariant), PipelineHandle<kVk>{}});
-	auto& [key, pipelineHandle] = *keyValIt;
-	auto pipelineHandleAtomic = std::atomic_ref(pipelineHandle);
-
-	if (insertResult)
+	auto key = InternalCalculateHashKey(variant, computeVariant);
+	auto& sync = *myPipelineMapSync;
+	std::unique_lock lock(sync.mutex);
+	auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{});
+	if (!inserted)
 	{
-		ZoneScopedN("Pipeline::InternalGetPipeline::store");
+		// created, or being created (here, or by a job from RequestGraphicsPipeline): wait for it
+		if (it->second == nullptr)
+		{
+			ZoneScopedN("Pipeline::InternalGetPipeline::wait");
+			sync.created.wait(lock, [this, key] { return myPipelineMap.at(key) != nullptr; });
+		}
+		return myPipelineMap.at(key);
+	}
 
+	// create it, without holding the lock (others asking for it wait above)
+	lock.unlock();
+	PipelineHandle<kVk> handle{};
+	{
+		ZoneScopedN("Pipeline::InternalGetPipeline::create");
 		switch (myBindPoint)
 		{
 		case PipelineBindPoint::kGraphics:
-			pipelineHandleAtomic.store(InternalCreateGraphicsPipeline(key, variant), std::memory_order_release);
+			handle = InternalCreateGraphicsPipeline(key, variant, *InternalSnapshotGraphicsState());
 			break;
 		case PipelineBindPoint::kCompute:
-			pipelineHandleAtomic.store(InternalCreateComputePipeline(key, computeVariant), std::memory_order_release);
+			handle = InternalCreateComputePipeline(key, computeVariant);
 			break;
 		default:
 			ASSERTF(false, "Not implemented");
 		}
-
-		pipelineHandleAtomic.notify_all();
 	}
-	else
+	lock.lock();
+	myPipelineMap.at(key) = handle;
+	sync.created.notify_all();
+	return handle;
+}
+
+template <>
+Pipeline<kVk>::GraphicsPipelineRequest Pipeline<kVk>::RequestGraphicsPipeline(GraphicsPipelineVariant variant)
+{
+	ZoneScopedN("Pipeline::RequestGraphicsPipeline");
+
+	ENSURE(myBindPoint == PipelineBindPoint::kGraphics);
+	auto key = InternalCalculateHashKey(variant);
+	auto& sync = *myPipelineMapSync;
 	{
-		ZoneScopedN("Pipeline::InternalGetPipeline::wait");
-
-		pipelineHandleAtomic.wait(nullptr, std::memory_order_acquire);
+		std::unique_lock lock(sync.mutex);
+		auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{});
+		if (!inserted)
+			return {.handle = it->second, .create = {}};
 	}
 
-	return pipelineHandleAtomic;
+	// the first ask: a job creating it from the state as it is now
+	return {
+		.handle = {},
+		.create = [this, key, variant, snapshot = InternalSnapshotGraphicsState()]
+		{
+			auto handle = InternalCreateGraphicsPipeline(key, variant, *snapshot);
+			auto& sync = *myPipelineMapSync;
+			std::unique_lock lock(sync.mutex);
+			myPipelineMap.at(key) = handle;
+			sync.created.notify_all();
+		}};
 }
 
 template <>
@@ -1092,6 +1165,7 @@ void Pipeline<kVk>::Swap(Pipeline& rhs) noexcept
 	std::swap(myDescriptorMap, rhs.myDescriptorMap);
 	std::swap(myDescriptorPool, rhs.myDescriptorPool);
 	std::swap(myPipelineMap, rhs.myPipelineMap);
+	std::swap(myPipelineMapSync, rhs.myPipelineMapSync);
 	std::swap(myCache, rhs.myCache);
 	std::swap(myBindPoint, rhs.myBindPoint);
 	std::swap(myRenderTarget, rhs.myRenderTarget);
@@ -1137,6 +1211,9 @@ Pipeline<kVk>::~Pipeline()
 
 	for (const auto& pipelineIt : myPipelineMap)
 	{
+		// null: requested (see RequestGraphicsPipeline), but its job never ran
+		if (pipelineIt.second == VK_NULL_HANDLE)
+			continue;
 		Untrack(VK_OBJECT_TYPE_PIPELINE, pipelineIt.second);
 		vkDestroyPipeline(
 			GetDevice(),
