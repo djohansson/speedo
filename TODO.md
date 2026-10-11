@@ -9,7 +9,6 @@
 	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
 * todo: the glTF-Sample-Assets materials not drawn yet (compared against the samples' reference screenshots)
 	* KHR_materials_volume_scatter (ScatteringSkull): scattering inside the volume (multiscatterColorFactor, scatterAnisotropy). the skull's turquoise is its multiscatter color, so it comes out opaque grey. a rasterizer needs an approximation: diffuse transmission tinted by the multiscatter color, or a screen space subsurface blur. its diffuse transmission isn't attenuated by its volume either (when a material has both)
-	* KHR_materials_variants (DragonAttenuation, DragonDispersion's "Surface Color", ToyCar, SheenChair, MaterialsVariantsShoe, GlamVelvetSofa, ChronographWatch, CarConcept, StainedGlassLamp): the default materials are drawn, as the spec allows, but there is no way to switch: import the variants, and a View menu to pick one
 	* what only ray or path tracing matches (TransmissionRoughnessTest, AttenuationTest and DispersionTest's screenshots are path traced, ScatteringSkull's from Substance Stager, TrafficCone's from a ray tracer): one refraction through an estimated thickness, so no internal or total internal reflection (DispersionTest's bright faces), and no transmissive surface seen through another
 	* not settled: DiffuseTransmissionTeacup's cup looked more mirror-like than the reference's satin porcelain (no matching camera angle to compare)
 * todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
@@ -39,6 +38,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: KHR_materials_variants: chosen at import, as a scene is (mesh::ImportOptions::variant, a cache entry of its own), from View > Variant or SPEEDO_AUTOLOAD_VARIANT
 * done: KHR_materials_retroreflection (TrafficCone): the base lobe also evaluated from the view mirrored about the normal, blended in by the weight; the environment's retroreflective lookup is along the view
 * done: KHR_materials_volume thickness scales with its node: a scaled node with a volume material is drawn as an instance of it instead of flattened (DragonAttenuation was deep red, DragonDispersion near black)
 * done: the platform library (core ← platform ← rhi ← gfx): windows (platform::Window), the windowed application base (main thread work, exit wake-ups), the file dialogs and imgui's platform side; rhi keeps a swapchain per window instead of rhi::Window

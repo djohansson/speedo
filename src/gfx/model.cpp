@@ -250,7 +250,7 @@ struct Staged
 // loads a model file through the asset cache into staging buffers, filled before the upload takes the transfer
 // queue's lock. nothing if cancelled or failed (the reason is printed to stderr).
 [[nodiscard]] static std::optional<Staged> LoadStaged(
-	Device& device, std::string_view filePath, std::atomic_uint8_t& progress, std::optional<size_t> scene)
+	Device& device, std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& importOptions)
 {
 	using namespace rhi;
 
@@ -292,8 +292,6 @@ struct Staged
 		skinStaging = {};
 		morphStaging = {};
 	};
-
-	mesh::ImportOptions importOptions{.scene = scene};
 
 	auto loadBin = [&](auto& inStream) -> std::error_code
 	{
@@ -388,6 +386,8 @@ struct Staged
 		desc.morphWeights = mesh->morphWeights;
 		desc.scenes = mesh->scenes;
 		desc.scene = mesh->scene;
+		desc.variants = mesh->variants;
+		desc.variant = mesh->variant;
 		desc.cameras = mesh->cameras;
 		desc.lights = mesh->lights;
 		for (const auto& submesh : mesh->submeshes)
@@ -507,10 +507,12 @@ struct Staged
 		params.append(std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion));
 	else
 		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v32", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
-	// a scene asked for is a cache entry of its own, the default scene's is the one without
-	if (scene)
-		params.append(std::format("|scene-{}", *scene));
-	params.append("|cache-v33"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	// a scene or variant asked for is a cache entry of its own, the default ones' is the one without
+	if (importOptions.scene)
+		params.append(std::format("|scene-{}", *importOptions.scene));
+	if (importOptions.variant)
+		params.append(std::format("|variant-{}", *importOptions.variant));
+	params.append("|cache-v34"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -834,7 +836,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 } // namespace model
 
-std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress, std::optional<size_t> scene)
+std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -842,7 +844,7 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
-	auto staged = model::LoadStaged(device, filePath, progress, scene);
+	auto staged = model::LoadStaged(device, filePath, progress, options);
 	if (!staged) // cancelled or failed
 		return {};
 	return model::UploadStaged(device, std::move(*staged));
@@ -874,7 +876,7 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 		}
 
 		std::atomic_uint8_t fileProgress = 0;
-		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, std::nullopt);
+		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {});
 		if (!staged) // cancelled or failed
 			return {};
 		models.push_back(std::move(*staged));

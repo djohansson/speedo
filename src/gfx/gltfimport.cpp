@@ -1554,8 +1554,28 @@ std::expected<Mesh, std::string> Import(
 				mesh.materials.push_back({.name = "default", .metallic = 1.0F, .roughness = 1.0F, .alphaCutoff = 0.0F});
 				baseColorFactors.push_back({1.0F, 1.0F, 1.0F, 1.0F});
 			}
-	auto materialOf = [&data, defaultMaterial](const cgltf_primitive& primitive)
-	{ return primitive.material != nullptr ? static_cast<int32_t>(primitive.material - data.materials) : defaultMaterial; };
+	// KHR_materials_variants: a variant's material for the primitives it maps, else their own
+	for (cgltf_size variantIt = 0; variantIt < data.variants_count; variantIt++)
+		mesh.variants.push_back(data.variants[variantIt].name != nullptr ? data.variants[variantIt].name : std::format("variant {}", variantIt));
+	std::optional<cgltf_size> variant;
+	if (options.variant && *options.variant < data.variants_count)
+	{
+		variant = *options.variant;
+		mesh.variant = static_cast<uint32_t>(*variant);
+	}
+	else if (options.variant)
+	{
+		warn("there is no variant {}, the default materials are loaded", *options.variant);
+	}
+	auto materialOf = [&data, defaultMaterial, variant](const cgltf_primitive& primitive)
+	{
+		const cgltf_material* material = primitive.material;
+		if (variant)
+			for (cgltf_size mappingIt = 0; mappingIt < primitive.mappings_count; mappingIt++)
+				if (primitive.mappings[mappingIt].variant == *variant)
+					material = primitive.mappings[mappingIt].material;
+		return material != nullptr ? static_cast<int32_t>(material - data.materials) : defaultMaterial;
+	};
 
 	// the primitives of the scene's nodes, in their world space
 	std::vector<Part> parts;

@@ -1012,7 +1012,11 @@ struct Scene::Impl
 			{
 				auto scenes = myScenes.Write();
 				scenes.Get() = SceneState{
-					.filePath = model->GetDesc().name, .names = model->GetDesc().scenes, .current = model->GetDesc().scene};
+					.filePath = model->GetDesc().name,
+					.names = model->GetDesc().scenes,
+					.current = model->GetDesc().scene,
+					.variants = model->GetDesc().variants,
+					.variant = model->GetDesc().variant};
 			}
 
 			// its first animation plays, from the start (SPEEDO_ANIMATION_TIME: paused at that time, e.g. for tests)
@@ -1085,10 +1089,10 @@ struct Scene::Impl
 	// install them, unless the load was cancelled. call from a load (see gLoads).
 	// scene: a gltf file's scene to load (one file only), else its default one
 	void LoadAndInstallModels(
-		RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, std::optional<size_t> scene = std::nullopt)
+		RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {})
 	{
-		auto model = scene && filePaths.size() == 1
-						 ? Model::Load(filePaths.front(), progress, scene)
+		auto model = (options.scene || options.variant) && filePaths.size() == 1
+						 ? Model::Load(filePaths.front(), progress, options)
 						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
 		if (!model) // cancelled or failed
 			return;
@@ -1882,9 +1886,9 @@ std::vector<DescriptorPoolSize> Scene::DescriptorPoolSizes()
 	return gfx::DescriptorPoolSizes();
 }
 
-void Scene::LoadModels(const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, std::optional<size_t> scene)
+void Scene::LoadModels(const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options)
 {
-	myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, scene);
+	myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options);
 }
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)

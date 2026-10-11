@@ -194,6 +194,10 @@ struct Mesh
 	// files without scenes (whose root nodes are loaded)
 	std::vector<std::string> scenes;
 	uint32_t scene = 0;
+	// gltf KHR_materials_variants: the file's variants (their names), and which one was loaded (none: the default
+	// materials)
+	std::vector<std::string> variants;
+	std::optional<uint32_t> variant;
 	std::vector<SceneCamera> cameras; // gltf: the cameras of the scene's nodes, in the order they are visited
 	std::vector<SceneLight> lights; // gltf KHR_lights_punctual: the lights of the scene's nodes
 	// what moves: the nodes animations move or skins use, with the instances that follow them (see SceneAnimationData)
@@ -217,6 +221,9 @@ struct ImportOptions
 {
 	// gltf: the scene to load (an index into the file's scenes), else its default scene, or the first
 	std::optional<size_t> scene;
+	// gltf KHR_materials_variants: the variant whose materials the primitives take (an index into the file's variants),
+	// else their own (the default materials)
+	std::optional<size_t> variant;
 };
 
 // whether path is a model file Import takes, by its extension (.obj, .gltf, .glb)

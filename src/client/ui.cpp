@@ -236,16 +236,18 @@ void WindowedApplication::PrepareDraw()
 
 		// queued as separate loads, which run concurrently
 		// a zip archive loads all of its models, side by side
-		std::optional<size_t> autoLoadScene;
+		mesh::ImportOptions autoLoadOptions;
 		if (const char* scene = std::getenv("SPEEDO_AUTOLOAD_SCENE"); scene != nullptr && *scene != '\0')
-			autoLoadScene = std::strtoull(scene, nullptr, 10);
+			autoLoadOptions.scene = std::strtoull(scene, nullptr, 10);
+		if (const char* variant = std::getenv("SPEEDO_AUTOLOAD_VARIANT"); variant != nullptr && *variant != '\0')
+			autoLoadOptions.variant = std::strtoull(variant, nullptr, 10);
 		if (const char* autoLoadModel = std::getenv("SPEEDO_AUTOLOAD_MODEL"); autoLoadModel != nullptr && *autoLoadModel != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
 				autoLoadModel,
-				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadScene](std::atomic_uint8_t& progress)
+				[&rhi, path = (resourcePath / autoLoadModel).string(), autoLoadOptions](std::atomic_uint8_t& progress)
 				{
-					if (autoLoadScene && mesh::IsModelFile(path))
-						App().GetScene().LoadModels({path}, progress, autoLoadScene);
+					if ((autoLoadOptions.scene || autoLoadOptions.variant) && mesh::IsModelFile(path))
+						App().GetScene().LoadModels({path}, progress, autoLoadOptions);
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
@@ -461,8 +463,37 @@ void WindowedApplication::PrepareDraw()
 					if (MenuItem(scenes.names[sceneIt].c_str(), nullptr, scenes.current == sceneIt) && scenes.current != sceneIt)
 						(void)gLoads.Enqueue(
 							std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), scenes.names[sceneIt]),
-							[&rhi, path = scenes.filePath, sceneIt](std::atomic_uint8_t& progress)
-							{ App().GetScene().LoadModels({path}, progress, sceneIt); });
+							[&rhi, path = scenes.filePath, sceneIt, variant = scenes.variant](std::atomic_uint8_t& progress)
+							{
+								App().GetScene().LoadModels(
+									{path}, progress, {.scene = sceneIt, .variant = variant ? std::optional<size_t>(*variant) : std::nullopt});
+							});
+					PopID();
+				}
+				ImGui::EndMenu();
+			}
+			if (BeginMenu("Variant"))
+			{
+				// the installed gltf file's material variants (KHR_materials_variants): choosing one loads the file again
+				// with its materials, in the scene shown
+				Scene::SceneState scenes = App().GetScene().GetScenes().Read().Get();
+				if (scenes.variants.empty())
+					TextDisabled("No variants");
+				auto load = [&scenes](std::optional<size_t> variant, std::string_view name)
+				{
+					(void)gLoads.Enqueue(
+						std::format("{} ({})", std::filesystem::path(scenes.filePath).filename().string(), name),
+						[path = scenes.filePath, scene = scenes.current, variant](std::atomic_uint8_t& progress)
+						{ App().GetScene().LoadModels({path}, progress, {.scene = scene, .variant = variant}); });
+				};
+				if (!scenes.variants.empty() && MenuItem("Default", nullptr, !scenes.variant) && scenes.variant)
+					load(std::nullopt, "default materials");
+				for (size_t variantIt = 0; variantIt < scenes.variants.size(); variantIt++)
+				{
+					PushID(static_cast<int>(variantIt));
+					bool current = scenes.variant == variantIt;
+					if (MenuItem(scenes.variants[variantIt].c_str(), nullptr, current) && !current)
+						load(variantIt, scenes.variants[variantIt]);
 					PopID();
 				}
 				ImGui::EndMenu();

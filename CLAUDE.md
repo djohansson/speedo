@@ -414,7 +414,9 @@ Assets outside `RootPath` are cached under `<user profile>/external/<absolute pa
 
 glTF: a scene (`mesh::ImportOptions::scene`, else the default one, or the first; the file's scenes are
 `ModelDesc::scenes`, and View > Scene, or `SPEEDO_AUTOLOAD_SCENE=<index>`, loads the file again with another, as a
-cache entry of its own) is flattened into one mesh with the node transforms applied (a mirroring one reverses the
+cache entry of its own; so does a `KHR_materials_variants` variant, `mesh::ImportOptions::variant`, which gives each
+primitive its variant's material when it maps one: `ModelDesc::variants`, View > Variant or
+`SPEEDO_AUTOLOAD_VARIANT=<index>`, the default materials without) is flattened into one mesh with the node transforms applied (a mirroring one reverses the
 winding *and* must flip the cofactor normal matrix back, which `NegativeScaleTest` catches). `EXT_mesh_gpu_instancing`
 is drawn instanced instead: the node's primitives once, in its space, and a transform per instance (the node's times
 the instance's translation * rotation * scale) in `Mesh::instances`/`ModelDesc::instances`, which each submesh names a
@@ -662,7 +664,7 @@ and the environment is reflected about a bent normal (as the Khronos sample view
 film Fresnel (`IridescenceFresnel`, Belcour and Barla) is evaluated once per pixel at the view's angle over the
 surface's f0 and mixed into the Fresnel of the environment and the lights by its strength. KHR_materials_diffuse_transmission
 lights that much of the diffuse from the back (lights behind the surface, and the irradiance around -n), tinted by its
-color. KHR_materials_retroreflection (the minimal retroreflective microfacet model) blends the base lobe (`BaseLobe`: diffuse and specular, not sheen, clearcoat or transmission) with the same lobe seen from the view mirrored about the normal, `2 (n.v) n - v`, by its weight (factor times the texture's red, `kOcclusion`), which turns the specular back towards the light; the environment's retroreflective lookup is along the view itself (the mirrored view's reflection), and n.v, so the split sum's terms, don't change. It is one of the extended layers (`SHADER_TYPES_LAYERS_EXTENDED`). Every `KHR_materials_*` of the glTF-Sample-Assets is drawn except `KHR_materials_volume_scatter` (ScatteringSkull), and `KHR_materials_variants` draws the default materials only (see TODO.md). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+color. KHR_materials_retroreflection (the minimal retroreflective microfacet model) blends the base lobe (`BaseLobe`: diffuse and specular, not sheen, clearcoat or transmission) with the same lobe seen from the view mirrored about the normal, `2 (n.v) n - v`, by its weight (factor times the texture's red, `kOcclusion`), which turns the specular back towards the light; the environment's retroreflective lookup is along the view itself (the mirrored view's reflection), and n.v, so the split sum's terms, don't change. It is one of the extended layers (`SHADER_TYPES_LAYERS_EXTENDED`). Every `KHR_materials_*` of the glTF-Sample-Assets is drawn except `KHR_materials_volume_scatter` (ScatteringSkull), and `KHR_materials_variants` is chosen at import (see above). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16

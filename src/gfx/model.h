@@ -2,6 +2,7 @@
 
 #include <gfx/bounds.h>
 #include <gfx/gpu.h>
+#include <gfx/meshimport.h>
 #include <gfx/scenecamera.h>
 #include <gfx/scenelight.h>
 #include <gfx/sceneanimation.h>
@@ -118,6 +119,9 @@ struct ModelDesc
 	// the file's scenes and which one this is (see mesh::Mesh::scenes). none for a set of several files
 	std::vector<std::string> scenes;
 	uint32_t scene = 0;
+	// the file's material variants and which one this is (see mesh::Mesh::variants). none for a set of several files
+	std::vector<std::string> variants;
+	std::optional<uint32_t> variant;
 	// the file's cameras (see mesh::Mesh::cameras). none for a set of several files (see Model::Load)
 	std::vector<SceneCamera> cameras;
 	// the file's lights (see mesh::Mesh::lights). none for a set of several files, which get the default light
@@ -200,9 +204,9 @@ public:
 	// uploads it on the
 	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
 	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
-	// scene: a gltf file's scene to load (see mesh::ImportOptions::scene), else its default one.
+	// options: a gltf file's scene and material variant to load (see mesh::ImportOptions), else its default ones.
 	[[nodiscard]] static std::shared_ptr<Model> Load(
-		std::string_view filePath, std::atomic_uint8_t& progress, std::optional<size_t> scene = std::nullopt);
+		std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {});
 	// loads several model files (each through its own cache entry) as one, side by side in a grid in the xy plane, each
 	// scaled to the same size and centered in its cell: for sets of variants, such as an archive's models, or the
 	// encodings of a gltf model. files the importers don't support (see mesh::Unsupported) are skipped. null if any

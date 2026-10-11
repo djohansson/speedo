@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/gpu.h>
+#include <gfx/meshimport.h>
 #include <gfx/shaders/capi.h>
 
 #include <core/concurrentaccess.h>
@@ -77,13 +78,15 @@ public:
 		}
 	};
 
-	// the installed model's file and its scenes (a gltf file's, see ModelDesc::scenes), for View > Scene. the draw
-	// thread sets it, the ui thread reads it.
+	// the installed model's file, its scenes and its material variants (a gltf file's, see ModelDesc::scenes and
+	// variants), for View > Scene and View > Variant. the draw thread sets it, the ui thread reads it.
 	struct SceneState
 	{
 		std::string filePath;
 		std::vector<std::string> names;
 		uint32_t current = 0;
+		std::vector<std::string> variants;
+		std::optional<uint32_t> variant; // none: the default materials
 	};
 
 	// one of the installed environment's dominant lights, for the ui: its irradiance (lux, luminance) and whether the
@@ -124,9 +127,9 @@ public:
 	[[nodiscard]] static std::vector<rhi::DescriptorPoolSize> DescriptorPoolSizes();
 
 	// load, and have the draw thread install, unless the load is cancelled. call from a load task (see core::LoadQueue).
-	// a model, or several side by side as one (see Model::Load), with its materials' textures. scene: a gltf file's
-	// scene to load (one file only), else its default one
-	void LoadModels(const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, std::optional<size_t> scene = std::nullopt);
+	// a model, or several side by side as one (see Model::Load), with its materials' textures. options: a gltf file's
+	// scene and material variant to load (one file only), else its default ones
+	void LoadModels(const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {});
 	// an image, on the default material (material 0)
 	void LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);
 	// an environment panorama (or without one, the procedural sky)
