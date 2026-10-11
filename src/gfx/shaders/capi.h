@@ -73,6 +73,11 @@ extern "C"
 // gTextures slots: the frames' render targets' color, from this, by frame index
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
 // the gTextures slot of the shadow atlas (see ShadowData)
+// KHR_materials_volume_scatter: the scattering light of the scattering materials' front surfaces (rgb; a: the material
+// index plus 1, 0 where there is none), and their depth, from the Scatter pass, which the main pass blurs (see
+// SubsurfaceScattering)
+#define SHADER_TYPES_SCATTER_TEXTURE 9u
+#define SHADER_TYPES_SCATTER_DEPTH_TEXTURE 10u
 #define SHADER_TYPES_SHADOW_ATLAS_TEXTURE 11u
 // the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u
@@ -251,6 +256,8 @@ struct TextureView
 #define MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE 134217728u // diffuseTransmissionColorView: srgb, times .rgb
 #define MATERIAL_FLAG_RETROREFLECTION 268435456u // retroreflection (see retroreflection)
 #define MATERIAL_FLAG_RETROREFLECTION_TEXTURE 536870912u // retroreflectionView: the weight in r, times retroreflection
+#define MATERIAL_FLAG_VOLUME_SCATTER 1073741824u // subsurface scattering (see multiscatterColor)
+#define MATERIAL_FLAG_VOLUME_SCATTER_TEXTURE 2147483648u // multiscatterColorView: an srgb color times multiscatterColor.rgb
 
 struct MaterialData
 {
@@ -305,6 +312,10 @@ struct MaterialData
 	// KHR_materials_retroreflection: the blend from the specular lobe to its retroreflective one (see Shade)
 	alignas(4) FLOAT(retroreflection);
 	alignas(4) UINT(retroreflectionView);
+	// KHR_materials_volume_scatter: rgb the multiple scattering albedo (with the volume's attenuation, which is the
+	// extinction, see SingleScatterAlbedo)
+	alignas(16) FLOAT4(multiscatterColor);
+	alignas(4) UINT(multiscatterColorView);
 };
 
 struct ModelInstance
@@ -379,6 +390,8 @@ struct PushConstants
 	// (the view of viewAndMaterialId). per frame: whether lights cast their shadows
 	alignas(4) UINT(shadowView);
 	alignas(4) UINT(shadows);
+	// per frame: whether the scatter pass drew (SHADER_TYPES_SCATTER_TEXTURE holds this frame's scattering light)
+	alignas(4) UINT(scatter);
 };
 
 #ifdef __cplusplus

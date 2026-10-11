@@ -32,6 +32,8 @@ struct FrameInputs
 	// the scene: the model (or none), and which of its materials are transmissive (drawn in the main pass's second phase)
 	const Model* model = nullptr;
 	std::function<bool(size_t material)> transmissive;
+	// which scatter light under their surface (KHR_materials_volume_scatter: drawn first into the scatter pass's target too)
+	std::function<bool(size_t material)> scatters;
 	// and which layer groups each material's pipeline can skip (see BuildDrawList): none, the generic ones, if empty
 	std::function<uint16_t(size_t material)> specialization;
 	// the views: their grid, and each one's viewport (its cell, letterboxed to its camera's aspect ratio)
@@ -59,7 +61,7 @@ struct FrameInputs
 	std::function<void(std::function<void()> job)> runInBackground;
 };
 
-// draws frames: the lights' shadows (see gfx/shadows.h), the main pass (in two phases with transmissive materials), the order independent transparency's
+// draws frames: the lights' shadows (see gfx/shadows.h), the light under scattering materials' surfaces, the main pass (in two phases with transmissive materials), the order independent transparency's
 // resolve, tonemapping and the backdrop in ComputeMain, and the ui, as a FrameGraph whose transients are the main render
 // target, the transparency's lists and the transmission texture.
 class Renderer final
@@ -86,12 +88,14 @@ public:
 	[[nodiscard]] std::vector<std::pair<std::string, double>> GetPassTimings() const;
 
 private:
-	void InternalDrawMainPass(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, MainPassPhase phase);
+	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, const DrawList& list);
 
 	FrameGraph myGraph;
 	FrameGraph::ImageId myColor;
 	FrameGraph::ImageId myDepth;
 	FrameGraph::ImageId myTransmission;
+	FrameGraph::ImageId myScatter;
+	FrameGraph::ImageId myScatterDepth;
 	FrameGraph::ImageId mySwapchain;
 	FrameGraph::ImageId myShadowAtlas;
 	FrameGraph::BufferId myOitHeads;
@@ -101,6 +105,7 @@ private:
 	FrameGraph::PassId myTransmissionPass;
 	FrameGraph::PassId myTransmissivePhase;
 	FrameGraph::PassId myShadowPass;
+	FrameGraph::PassId myScatterPass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;
@@ -121,6 +126,7 @@ private:
 	// the frame's draw lists, per phase
 	bool myTwoPhases = false;
 	std::array<DrawList, 2> myDrawLists;
+	DrawList myScatterDrawList;
 };
 
 } // namespace gfx

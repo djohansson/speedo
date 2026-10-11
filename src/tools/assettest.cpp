@@ -572,6 +572,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			Add(texturesOut, material.diffuseTransmissionColorTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.retroreflectionTexture.empty())
 			Add(texturesOut, material.retroreflectionTexture, gfx::image::Usage::kOcclusion, 1.0F);
+		if (!material.multiscatterColorTexture.empty())
+			Add(texturesOut, material.multiscatterColorTexture, gfx::image::Usage::kColor, 1.0F);
 		if (!material.normalTexture.empty())
 			Add(texturesOut, material.normalTexture, gfx::image::Usage::kNormal, 1.0F);
 		else if (!material.bumpTexture.empty())

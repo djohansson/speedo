@@ -123,6 +123,26 @@ DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t
 	return list;
 }
 
+DrawList BuildScatterDrawList(
+	const Model& model, const std::function<bool(size_t material)>& scatters, const std::function<uint16_t(size_t material)>& specialization)
+{
+	ZoneScopedN("gfx::BuildScatterDrawList");
+
+	auto list = BuildDrawList(model, MainPassPhase::kOpaque, false, [](size_t) { return false; }, specialization);
+	const auto& materials = model.GetDesc().materials;
+	std::erase_if(
+		list.items,
+		[&](const DrawItem& item)
+		{
+			auto material = static_cast<int32_t>(item.materialSlot) - 1;
+			return item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0 || material < 0 ||
+				   std::cmp_greater_equal(material, materials.size()) || !scatters(static_cast<size_t>(material));
+		});
+	for (auto& item : list.items)
+		item.variant.fragmentShader = kScatterFragmentShader;
+	return list;
+}
+
 void RecordDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,

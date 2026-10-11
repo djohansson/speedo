@@ -111,6 +111,12 @@ struct Material
 	// texture's red): a blend between the ordinary and the retroreflective lobe, not an intensity
 	float retroreflection = 0.0F;
 	TextureRef retroreflectionTexture;
+	// KHR_materials_volume_scatter: subsurface scattering, with the volume's attenuation as the extinction; the multiple
+	// scattering albedo (factor times the srgb texture). drawn as the Khronos sample viewer does, as a diffusion of the
+	// diffuse transmission's light (the phase function's anisotropy isn't read: a diffusion has none)
+	bool volumeScatter = false;
+	std::array<float, 3> multiscatterColor{0.0F, 0.0F, 0.0F};
+	TextureRef multiscatterColorTexture;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

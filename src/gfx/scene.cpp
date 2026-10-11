@@ -57,6 +57,7 @@ struct MaterialLayers
 	bool iridescence = false;
 	bool diffuseTransmission = false;
 	bool retroreflection = false;
+	bool volumeScatter = false;
 };
 
 
@@ -70,7 +71,8 @@ struct MaterialLayers
 		.anisotropy = material.anisotropy > 0.0F,
 		.iridescence = material.iridescence > 0.0F,
 		.diffuseTransmission = material.diffuseTransmission > 0.0F,
-		.retroreflection = material.retroreflection > 0.0F};
+		.retroreflection = material.retroreflection > 0.0F,
+		.volumeScatter = material.volumeScatter};
 	for (const auto& target : desc.animation.pointerTargets)
 	{
 		if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index != materialIndex)
@@ -209,6 +211,7 @@ struct MaterialTextures
 	Texture diffuseTransmission;
 	Texture diffuseTransmissionColor;
 	Texture retroreflection;
+	Texture multiscatterColor;
 };
 
 
@@ -656,7 +659,7 @@ struct Scene::Impl
 				  &material.specular, &material.specularColor, &material.clearcoat, &material.clearcoatRoughness, &material.clearcoatNormal,
 				  &material.sheenColor, &material.sheenRoughness, &material.transmission, &material.thickness,
 				  &material.anisotropy, &material.iridescence, &material.iridescenceThickness,
-				  &material.diffuseTransmission, &material.diffuseTransmissionColor, &material.retroreflection})
+				  &material.diffuseTransmission, &material.diffuseTransmissionColor, &material.retroreflection, &material.multiscatterColor})
 				if (texture->image &&
 					std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 					uploads.images.emplace_back(texture->image, texture->upload);
@@ -825,18 +828,24 @@ struct Scene::Impl
 				{
 					material.flags |= MATERIAL_FLAG_TRANSMISSION;
 					material.transmission[0] = desc.transmission;
+					material.transmission[3] = desc.dispersion;
+					if (auto id = viewOf(textures[materialIt].transmission, desc.transmissionTexture))
+					{
+						material.transmissionView = *id;
+						material.flags |= MATERIAL_FLAG_TRANSMISSION_TEXTURE;
+					}
+				}
+				// the volume: what transmission refracts through, and what diffuse transmission and scattering light through
+				if (layers.transmission || layers.diffuseTransmission || layers.volumeScatter)
+				{
 					material.transmission[1] = desc.thickness;
 					material.transmission[2] = desc.attenuationDistance;
-					material.transmission[3] = desc.dispersion;
 					std::ranges::copy(desc.attenuationColor, material.attenuationColor);
-					for (auto [texture, ref, view, flag] : std::array{
-							 std::tuple{&textures[materialIt].transmission, &desc.transmissionTexture, &material.transmissionView, MATERIAL_FLAG_TRANSMISSION_TEXTURE},
-							 std::tuple{&textures[materialIt].thickness, &desc.thicknessTexture, &material.thicknessView, MATERIAL_FLAG_THICKNESS_TEXTURE}})
-						if (auto id = viewOf(*texture, *ref))
-						{
-							*view = *id;
-							material.flags |= flag;
-						}
+					if (auto id = viewOf(textures[materialIt].thickness, desc.thicknessTexture))
+					{
+						material.thicknessView = *id;
+						material.flags |= MATERIAL_FLAG_THICKNESS_TEXTURE;
+					}
 				}
 				if (layers.anisotropy)
 				{
@@ -879,6 +888,16 @@ struct Scene::Impl
 							*view = *id;
 							material.flags |= flag;
 						}
+				}
+				if (layers.volumeScatter)
+				{
+					material.flags |= MATERIAL_FLAG_VOLUME_SCATTER;
+					std::ranges::copy(desc.multiscatterColor, material.multiscatterColor);
+					if (auto id = viewOf(textures[materialIt].multiscatterColor, desc.multiscatterColorTexture))
+					{
+						material.multiscatterColorView = *id;
+						material.flags |= MATERIAL_FLAG_VOLUME_SCATTER_TEXTURE;
+					}
 				}
 				if (layers.retroreflection)
 				{
@@ -1173,16 +1192,17 @@ struct Scene::Impl
 						 std::tuple{&material.diffuseTransmissionColorTexture, gfx::image::Usage::kColor, &texture.diffuseTransmissionColor}})
 					if (!ref->empty())
 						loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+			// the multiple scattering albedo is an srgb color
+			if (layers.volumeScatter && !material.multiscatterColorTexture.empty())
+				loads.push_back({material.multiscatterColorTexture.path, material.multiscatterColorTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.multiscatterColor});
 			// the retroreflection's weight is the texture's red
 			if (layers.retroreflection && !material.retroreflectionTexture.empty())
 				loads.push_back({material.retroreflectionTexture.path, material.retroreflectionTexture.embeddedImage, {.usage = gfx::image::Usage::kOcclusion}, &texture.retroreflection});
 			// the transmission's factor is the texture's red, the thickness the green
-			if (layers.transmission)
-				for (auto [ref, usage, result] : std::array{
-						 std::tuple{&material.transmissionTexture, gfx::image::Usage::kOcclusion, &texture.transmission},
-						 std::tuple{&material.thicknessTexture, gfx::image::Usage::kMetallicRoughness, &texture.thickness}})
-					if (!ref->empty())
-						loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+			if (layers.transmission && !material.transmissionTexture.empty())
+				loads.push_back({material.transmissionTexture.path, material.transmissionTexture.embeddedImage, {.usage = gfx::image::Usage::kOcclusion}, &texture.transmission});
+			if ((layers.transmission || layers.diffuseTransmission || layers.volumeScatter) && !material.thicknessTexture.empty())
+				loads.push_back({material.thicknessTexture.path, material.thicknessTexture.embeddedImage, {.usage = gfx::image::Usage::kMetallicRoughness}, &texture.thickness});
 			if (layers.sheen)
 				for (auto [ref, usage, result] : std::array{
 						 std::tuple{&material.sheenColorTexture, gfx::image::Usage::kColor, &texture.sheenColor},
@@ -1690,6 +1710,7 @@ struct Scene::Impl
 						{"FragmentMain", SLANG_STAGE_FRAGMENT},
 						{"FragmentTransparent", SLANG_STAGE_FRAGMENT}, // see kTransparentFragmentShader
 						{"FragmentShadow", SLANG_STAGE_FRAGMENT}, // see kShadowFragmentShader
+						{"FragmentScatter", SLANG_STAGE_FRAGMENT}, // see kScatterFragmentShader
 						{"ComputeMain", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
@@ -1828,14 +1849,17 @@ struct Scene::Impl
 		// layer groups their pipelines can skip (unless SPEEDO_SHADER_TIERS=0: the generic pipelines for all)
 		static const bool kTiers = [] { const char* tiers = std::getenv("SPEEDO_SHADER_TIERS"); return tiers == nullptr || std::string_view(tiers) != "0"; }();
 		std::vector<bool> transmissive;
+		std::vector<bool> scatters;
 		std::vector<uint16_t> specialization;
 		if (myModel)
 			for (size_t materialIt = 0; materialIt < myModel->GetDesc().materials.size(); materialIt++)
 			{
 				auto layers = LayersOf(myModel->GetDesc(), materialIt);
 				transmissive.push_back(layers.transmission);
+				// drawn into the scatter buffer too (unless the pipelines skip the extended layers, see Layer)
+				scatters.push_back(layers.volumeScatter);
 				bool extended = layers.clearcoat || layers.sheen || layers.transmission || layers.anisotropy || layers.iridescence ||
-								layers.diffuseTransmission || layers.retroreflection;
+								layers.diffuseTransmission || layers.retroreflection || layers.volumeScatter;
 				specialization.push_back(kTiers && !extended ? static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED) : uint16_t{0});
 			}
 
@@ -1857,6 +1881,7 @@ struct Scene::Impl
 				.pushConstants = FramePushConstants(target.frameIndex),
 				.model = myModel.get(),
 				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
+				.scatters = [&scatters](size_t material) { return material < scatters.size() && scatters[material]; },
 				.specialization = kTiers ? std::function<uint16_t(size_t)>([&specialization](size_t material)
 										 { return material < specialization.size() ? specialization[material] : uint16_t{0}; })
 										 : std::function<uint16_t(size_t)>{},

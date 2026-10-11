@@ -710,6 +710,38 @@ float ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geo
 	return 1.0;
 }
 
+// the direction from position towards a light (toLight), and how much of its intensity reaches there: by distance (inverse
+// square, windowed to 0 at the range, KHR_lights_punctual's recommendation), a spot light's cone, and its shadows
+float LightAttenuation(uint lightIndex, LightData light, float3 position, float3 geometryNormal, out float3 toLight)
+{
+	float attenuation = 1.0;
+	if (light.type == LIGHT_TYPE_DIRECTIONAL)
+	{
+		toLight = -light.direction.xyz;
+	}
+	else
+	{
+		float3 offset = light.positionRange.xyz - position;
+		float distance2 = max(dot(offset, offset), 1e-8);
+		toLight = offset * rsqrt(distance2);
+		attenuation = 1.0 / distance2;
+		if (light.positionRange.w > 0.0)
+		{
+			float ratio = sqrt(distance2) / light.positionRange.w;
+			float window = saturate(1.0 - ratio * ratio * ratio * ratio);
+			attenuation *= window * window;
+		}
+		if (light.type == LIGHT_TYPE_SPOT)
+		{
+			float cone = saturate(dot(light.direction.xyz, -toLight) * light.spotScale + light.spotOffset);
+			attenuation *= cone * cone;
+		}
+	}
+	if (attenuation <= 0.0)
+		return 0.0;
+	return attenuation * ShadowFactor(lightIndex, light, position, geometryNormal, toLight);
+}
+
 // the base layers' light (the diffuse, and the specular: GGX, height correlated Smith, Schlick; anisotropic if the surface
 // is) from a light along toLight, seen from view, per unit of irradiance (times n.l). without sheen, clearcoat or
 // transmission
@@ -809,36 +841,8 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
 	{
 		LightData light = gLights[lightIt];
-
 		float3 toLight;
-		float attenuation = 1.0;
-		if (light.type == LIGHT_TYPE_DIRECTIONAL)
-		{
-			toLight = -light.direction.xyz;
-		}
-		else
-		{
-			// inverse square, windowed to 0 at the range (KHR_lights_punctual's recommendation)
-			float3 offset = light.positionRange.xyz - position;
-			float distance2 = max(dot(offset, offset), 1e-8);
-			toLight = offset * rsqrt(distance2);
-			attenuation = 1.0 / distance2;
-			if (light.positionRange.w > 0.0)
-			{
-				float ratio = sqrt(distance2) / light.positionRange.w;
-				float window = saturate(1.0 - ratio * ratio * ratio * ratio);
-				attenuation *= window * window;
-			}
-			if (light.type == LIGHT_TYPE_SPOT)
-			{
-				float cone = saturate(dot(light.direction.xyz, -toLight) * light.spotScale + light.spotOffset);
-				attenuation *= cone * cone;
-			}
-		}
-
-		if (attenuation <= 0.0)
-			continue;
-		attenuation *= ShadowFactor(lightIt, light, position, surface.geometryNormal, toLight);
+		float attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
 		if (attenuation <= 0.0)
 			continue;
 
@@ -878,6 +882,157 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	}
 
 	return result;
+}
+
+// KHR_materials_volume_scatter, as the Khronos sample renderer: the light scattering in a volume is diffused under its
+// surface. the scatter pass draws the light entering it (ScatterLight, by the single scattering albedo), which the main
+// pass blurs over the surface with Burley's diffusion profile (SubsurfaceScattering), its radius the attenuation distance
+// times the multiscatter color. light through the volume from behind is attenuated by it, and what isn't scattered there
+// (1 - single scattering albedo) is the diffuse transmission's as before.
+
+// the single scattering albedo for a multiscatter color (the extension's fit)
+float3 SingleScatterAlbedo(float3 multiscatter)
+{
+	float3 s = 4.09712 + 4.20863 * multiscatter - sqrt(9.59217 + 41.6808 * multiscatter + 17.7126 * multiscatter * multiscatter);
+	return 1.0 - s * s;
+}
+
+// what a volume lets through over a thickness (KHR_materials_volume): attenuationColor at attenuationDistance (0: none)
+float3 VolumeAttenuation(float3 attenuationColor, float attenuationDistance, float thickness)
+{
+	return attenuationDistance > 0.0 ? pow(attenuationColor, thickness / attenuationDistance) : float3(1.0);
+}
+
+// the diffuse light entering a scattering surface (from the front, and from behind through the volume), which isn't
+// reflected by its specular (or sheen), times the diffuse transmission and its color
+float3 ScatterLight(Surface surface, float3 view, float3 position, float3 singleScatter, float3 throughVolume)
+{
+	float3 normal = surface.normal;
+	float nDotV = max(dot(normal, view), 1e-4);
+	float sheenMax = max(surface.sheenColor.r, max(surface.sheenColor.g, surface.sheenColor.b));
+	float sheenAlbedoView = SheenAlbedo(nDotV, surface.sheenRoughness);
+	float3 behind = throughVolume * (1.0 - singleScatter);
+
+	EnvironmentData environment = gEnvironment[0];
+	float3 result = (EnvironmentIrradiance(environment, normal) + EnvironmentIrradiance(environment, -normal) * behind) * singleScatter *
+					(1.0 - EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV)) * (1.0 - sheenMax * sheenAlbedoView);
+
+	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
+	{
+		LightData light = gLights[lightIt];
+		float3 toLight;
+		float attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
+		if (attenuation <= 0.0)
+			continue;
+
+		// from behind: the specular it isn't reflected by is the light's mirrored about the surface
+		float nDotL = dot(normal, toLight);
+		float3 lit = nDotL >= 0.0 ? float3(nDotL) : -nDotL * behind;
+		float3 halfway = normalize((nDotL >= 0.0 ? toLight : toLight - 2.0 * nDotL * normal) + view);
+		lit *= 1.0 - FresnelSchlick(surface.f0, surface.f90, saturate(dot(view, halfway)));
+		if (sheenMax > 0.0)
+			lit *= min(1.0 - sheenMax * sheenAlbedoView, 1.0 - sheenMax * SheenAlbedo(abs(nDotL), surface.sheenRoughness));
+		result += lit * singleScatter / kPi * light.intensity.rgb * attenuation;
+	}
+
+	return result * surface.diffuseTransmission * surface.diffuseTransmissionColor;
+}
+
+// Burley's diffusion profile (as Blender has it, with a white albedo) for a radius: its scale, and its value at a distance
+float3 BurleySetup(float3 radius)
+{
+	return 0.25 / kPi * radius / 1.04;
+}
+
+float3 BurleyEval(float3 d, float r)
+{
+	float3 e = exp(-r / (3.0 * d));
+	return (e * e * e + e) / (4.0 * d);
+}
+
+// the profile's samples for a radius of 1 (the sample renderer's: golden angle spiral, radii importance sampled), the
+// offset in xy and the reciprocal of its pdf in z
+static const uint kScatterSampleCount = 55;
+static const float kScatterMinRadius = 0.001395;
+static const float3 kScatterSamples[kScatterSampleCount] = {
+	float3(-0.001395, 0.000000, 0.969751), float3(0.003123, -0.002861, 0.993903), float3(-0.000625, 0.007120, 1.019123),
+	float3(-0.006166, -0.008043, 1.045482), float3(0.012998, 0.002299, 1.073049), float3(-0.013792, 0.008773, 1.101902),
+	float3(0.005083, -0.018907, 1.132126), float3(0.010555, 0.020322, 1.163813), float3(-0.024718, -0.009027, 1.197063),
+	float3(0.027573, -0.011382, 1.231983), float3(-0.014176, 0.030294, 1.268692), float3(-0.011125, -0.035470, 1.307319),
+	float3(0.035487, 0.020565, 1.348003), float3(-0.043928, 0.009657, 1.390899), float3(0.028220, -0.040140, 1.436176),
+	float3(0.006849, 0.052850, 1.484019), float3(-0.044088, -0.037158, 1.534633), float3(0.062123, -0.002569, 1.588244),
+	float3(-0.047388, 0.047157, 1.645099), float3(0.003312, -0.071624, 1.705477), float3(0.049160, 0.058910, 1.769685),
+	float3(-0.081214, -0.010927, 1.838064), float3(0.071718, -0.049899, 1.910997), float3(-0.020414, 0.090743, 1.988915),
+	float3(-0.049164, -0.085798, 2.072299), float3(0.100042, 0.031916, 2.161696), float3(-0.101130, 0.046725, 2.257721),
+	float3(0.045587, -0.108929, 2.361080), float3(0.042332, 0.117693, 2.472575), float3(-0.117201, -0.061598, 2.593131),
+	float3(0.135465, -0.035708, 2.723815), float3(-0.080140, 0.124636, 2.865865), float3(-0.026540, -0.154427, 3.020733),
+	float3(0.130985, 0.101442, 3.190127), float3(-0.174572, 0.014463, 3.376072), float3(0.125786, -0.135971, 3.580996),
+	float3(-0.000956, 0.195913, 3.807830), float3(-0.139277, -0.153533, 4.060153), float3(0.218506, 0.020251, 4.342384),
+	float3(-0.185167, 0.140535, 4.660052), float3(0.044111, -0.242474, 5.020170), float3(0.139309, 0.221377, 5.431781),
+	float3(-0.268066, -0.073466, 5.906755), float3(0.263190, -0.135065, 6.461003), float3(-0.109652, 0.295769, 7.116369),
+	float3(-0.127115, -0.312254, 7.903692), float3(0.326537, 0.154752, 8.867933), float3(-0.371441, 0.114519, 10.077632),
+	float3(0.212370, -0.362371, 11.641928), float3(0.095862, 0.446412, 13.746795), float3(-0.407964, -0.289799, 16.736521),
+	float3(0.550705, -0.068633, 21.327610), float3(-0.406411, 0.477468, 29.298947), float3(-0.026714, -0.732532, 46.613892),
+	float3(0.657416, 0.667109, 113.316758)
+};
+
+// where a pixel of the scatter pass's target is, in world space (from its depth, in its view)
+float3 ScatterPosition(ViewData view, float2 pixel, float depth)
+{
+	float2 ndc = (pixel + 0.5 - view.viewport.xy) / view.viewport.zw * 2.0 - 1.0;
+	float4 position = mul(view.inverseViewProjection, float4(ndc, depth, 1.0));
+	return position.xyz / position.w;
+}
+
+// the scattering light (ScatterLight) of the surface at a pixel, blurred over its radius (per color) by Burley's profile:
+// from the scatter pass's samples of the same material, weighed by their distance in world space. false if the scatter
+// pass didn't draw this surface there
+bool SubsurfaceScattering(float2 pixel, uint viewId, uint materialId, float3 radius, out float3 light)
+{
+	light = 0.0;
+	if (gPushConstants.scatter == 0u)
+		return false;
+	Texture2D scatter = gTextures[SHADER_TYPES_SCATTER_TEXTURE];
+	Texture2D scatterDepth = gTextures[SHADER_TYPES_SCATTER_DEPTH_TEXTURE];
+	int2 center = int2(pixel);
+	float4 centerSample = scatter.Load(int3(center, 0));
+	if (centerSample.a != float(materialId + 1u))
+		return false;
+	light = centerSample.rgb;
+
+	float maxRadius = max(radius.r, max(radius.g, radius.b));
+	if (maxRadius <= 0.0)
+		return true;
+	ViewData view = gViewData[gPushConstants.frameIndex][viewId];
+	float centerDepth = scatterDepth.Load(int3(center, 0)).r;
+	float3 centerPosition = ScatterPosition(view, float2(center), centerDepth);
+	float metersPerPixel = distance(centerPosition, ScatterPosition(view, float2(center) + float2(1.0, 0.0), centerDepth));
+	float maxRadiusPixels = maxRadius / max(metersPerPixel, 1e-12);
+	// within a pixel: the pixel is all of it
+	if (maxRadiusPixels <= 1.0)
+		return true;
+
+	float3 d = BurleySetup(max(float3(kScatterMinRadius), radius / maxRadius) * maxRadius);
+	float2 low = view.viewport.xy;
+	float2 high = view.viewport.xy + view.viewport.zw;
+	float3 total = 0.0;
+	float3 totalWeight = 0.0;
+	for (uint sampleIt = 0; sampleIt < kScatterSampleCount; sampleIt++)
+	{
+		float3 profileSample = kScatterSamples[sampleIt];
+		float2 at = floor(pixel + profileSample.xy * maxRadiusPixels);
+		if (any(at < low) || any(at >= high))
+			continue;
+		float4 neighbor = scatter.Load(int3(int2(at), 0));
+		if (neighbor.a != centerSample.a)
+			continue;
+		float3 position = ScatterPosition(view, at, scatterDepth.Load(int3(int2(at), 0)).r);
+		float3 weight = BurleyEval(d, distance(position, centerPosition)) * profileSample.z;
+		total += weight * neighbor.rgb;
+		totalWeight += weight;
+	}
+	light = total / max(totalWeight, 1e-4);
+	return true;
 }
 
 // KHR_materials_transmission (and volume, dispersion): the light from behind a surface, along the ray refracted by ior:
@@ -952,8 +1107,9 @@ float3 NormalFromMap(uint viewId, float scale, float3 normal, float4 tangent, fl
 	return normalize(mul(tangentSpaceNormal, CotangentFrame(faceSign * normal, position, uv)));
 }
 
-// a fragment's color and alpha, lit and with emissive added
-float4 ShadeFragment(VertexOutput input, bool isFrontFace)
+// a fragment's color and alpha, lit and with emissive added. for the scatter pass (scatterPass): the light entering a
+// scattering material (ScatterLight), and its material + 1 in alpha
+float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = false)
 {
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
 
@@ -1000,6 +1156,8 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 	// KHR_materials_unlit: the base color alone. lines and points without normals: plus emissive
 	if (unlit)
 	{
+		if (scatterPass)
+			return float4(0.0, 0.0, 0.0, float(materialId + 1u));
 		bool unlitMaterial = (material.flags & MATERIAL_FLAG_UNLIT) != 0u;
 		return float4(color.rgb + (unlitMaterial ? float3(0.0) : emissive), color.a);
 	}
@@ -1085,9 +1243,10 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 
 	// KHR_materials_transmission: that much of the dielectric's diffuse is the light through it instead
 	surface.transmitted = 0.0;
+	float transmission = 0.0;
 	if (Layer(material, MATERIAL_FLAG_TRANSMISSION))
 	{
-		float transmission = material.transmission.x;
+		transmission = material.transmission.x;
 		if ((material.flags & MATERIAL_FLAG_TRANSMISSION_TEXTURE) != 0u)
 			transmission *= SampleView(material.transmissionView, v.texCoord01).r;
 		float thickness = material.transmission.y;
@@ -1180,6 +1339,15 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 		if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE) != 0u)
 			surface.diffuseTransmissionColor *= SampleView(material.diffuseTransmissionColorView, v.texCoord01).rgb;
 	}
+	// the light through the volume (KHR_materials_volume) from behind, attenuated over its thickness
+	float3 throughVolume = 1.0;
+	if (surface.diffuseTransmission > 0.0)
+	{
+		float thickness = material.transmission.y;
+		if ((material.flags & MATERIAL_FLAG_THICKNESS_TEXTURE) != 0u)
+			thickness *= SampleView(material.thicknessView, v.texCoord01).r;
+		throughVolume = VolumeAttenuation(material.attenuationColor.rgb, material.transmission.z, thickness * input.modelScale);
+	}
 
 	// KHR_materials_retroreflection
 	surface.retroreflection = 0.0;
@@ -1190,8 +1358,30 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 			surface.retroreflection *= SampleView(material.retroreflectionView, v.texCoord01).r;
 	}
 
+	// KHR_materials_volume_scatter: what enters the surface comes out blurred (see SubsurfaceScattering), and of what
+	// comes through it from behind, only what isn't scattered
+	float3 scattered = 0.0;
+	if (Layer(material, MATERIAL_FLAG_VOLUME_SCATTER) && surface.diffuseTransmission > 0.0)
+	{
+		float3 multiscatter = material.multiscatterColor.rgb;
+		if ((material.flags & MATERIAL_FLAG_VOLUME_SCATTER_TEXTURE) != 0u)
+			multiscatter *= SampleView(material.multiscatterColorView, v.texCoord01).rgb;
+		float3 singleScatter = SingleScatterAlbedo(multiscatter);
+		if (scatterPass)
+			return float4(ScatterLight(surface, view, v.position, singleScatter, throughVolume), float(materialId + 1u));
+		if (!SubsurfaceScattering(input.hPos.xy, viewId, materialId, material.transmission.z * multiscatter, scattered))
+			scattered = ScatterLight(surface, view, v.position, singleScatter, throughVolume);
+		scattered *= (1.0 - metallic) * (1.0 - surface.iridescence) * (1.0 - transmission) * (1.0 - ClearcoatFresnel(surface, view));
+		throughVolume *= 1.0 - singleScatter;
+	}
+	else if (scatterPass)
+	{
+		return float4(0.0, 0.0, 0.0, float(materialId + 1u));
+	}
+	surface.diffuseTransmissionColor *= throughVolume;
+
 	// the clearcoat covers the emission too
-	return float4(Shade(surface, view, v.position) + emissive * (1.0 - ClearcoatFresnel(surface, view)), color.a);
+	return float4(Shade(surface, view, v.position) + scattered + emissive * (1.0 - ClearcoatFresnel(surface, view)), color.a);
 }
 
 [shader("fragment")]
@@ -1202,6 +1392,15 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	// alpha 1: the color target is cleared to alpha 0, so ComputeMain draws the backdrop where nothing opaque is
 	FragmentOutput output;
 	output.color = float4(color.rgb, 1.0);
+	return output;
+}
+
+// a fragment of the scatter pass: the light entering a scattering material, and the material (+ 1) in alpha
+[shader("fragment")]
+FragmentOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+	FragmentOutput output;
+	output.color = ShadeFragment(input, isFrontFace, true);
 	return output;
 }
 

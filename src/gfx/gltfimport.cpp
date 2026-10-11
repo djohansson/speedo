@@ -1485,33 +1485,58 @@ std::expected<Mesh, std::string> Import(
 				material.diffuseTransmissionColor[channel] = std::max(diffuseTransmission.diffuse_transmission_color_factor[channel], 0.0F);
 			material.diffuseTransmissionColorTexture = textureRef(diffuseTransmission.diffuse_transmission_color_texture);
 		}
-		// KHR_materials_retroreflection, which cgltf leaves as json: a factor, and a texture (by its index and texcoord)
-		for (cgltf_size extensionIt = 0; extensionIt < gltfMaterial.extensions_count; extensionIt++)
+		// extensions cgltf leaves as json: their numbers, and textures (by index and texcoord; a transform isn't read)
+		auto extensionJson = [&gltfMaterial](std::string_view name) -> std::optional<std::string_view>
 		{
-			const auto& extension = gltfMaterial.extensions[extensionIt];
-			if (extension.name == nullptr || extension.data == nullptr ||
-				std::string_view(extension.name) != "KHR_materials_retroreflection")
-				continue;
-			std::string_view json(extension.data);
-			if (auto factor = JsonValue(json, "retroreflectionFactor"))
-				material.retroreflection = std::clamp(std::strtof(factor->c_str(), nullptr), 0.0F, 1.0F);
-			if (auto at = json.find("\"retroreflectionTexture\""); at != std::string_view::npos)
+			for (cgltf_size extensionIt = 0; extensionIt < gltfMaterial.extensions_count; extensionIt++)
 			{
-				auto texture = json.substr(at);
-				auto index = JsonValue(texture, "index");
-				auto textureIndex = index ? std::strtoull(index->c_str(), nullptr, 10) : data.textures_count;
-				if (textureIndex < data.textures_count)
+				const auto& extension = gltfMaterial.extensions[extensionIt];
+				if (extension.name != nullptr && extension.data != nullptr && std::string_view(extension.name) == name)
+					return std::string_view(extension.data);
+			}
+			return std::nullopt;
+		};
+		auto jsonTexture = [&](std::string_view json, std::string_view key) -> TextureRef
+		{
+			auto at = json.find(std::format("\"{}\"", key));
+			if (at == std::string_view::npos)
+				return {};
+			auto texture = json.substr(at);
+			auto index = JsonValue(texture, "index");
+			auto textureIndex = index ? std::strtoull(index->c_str(), nullptr, 10) : data.textures_count;
+			if (textureIndex >= data.textures_count)
+				return {};
+			cgltf_texture_view view{};
+			view.texture = &data.textures[textureIndex];
+			if (auto texCoord = JsonValue(texture, "texCoord"))
+				view.texcoord = static_cast<cgltf_int>(std::strtol(texCoord->c_str(), nullptr, 10));
+			view.scale = 1.0F;
+			if (texture.substr(0, texture.find('}')).contains("KHR_texture_transform"))
+				warn("material {}: the {} transform isn't read", material.name, key);
+			return textureRef(view);
+		};
+		// KHR_materials_retroreflection: a factor, and a texture
+		if (auto json = extensionJson("KHR_materials_retroreflection"))
+		{
+			if (auto factor = JsonValue(*json, "retroreflectionFactor"))
+				material.retroreflection = std::clamp(std::strtof(factor->c_str(), nullptr), 0.0F, 1.0F);
+			material.retroreflectionTexture = jsonTexture(*json, "retroreflectionTexture");
+		}
+		// KHR_materials_volume_scatter: the multiple scattering albedo, a color factor and texture
+		if (auto json = extensionJson("KHR_materials_volume_scatter"))
+		{
+			material.volumeScatter = true;
+			if (auto at = json->find("\"multiscatterColorFactor\""); at != std::string_view::npos)
+			{
+				auto values = json->substr(json->find('[', at) + 1);
+				for (size_t channel = 0; channel < 3 && !values.empty(); channel++)
 				{
-					cgltf_texture_view view{};
-					view.texture = &data.textures[textureIndex];
-					if (auto texCoord = JsonValue(texture, "texCoord"))
-						view.texcoord = static_cast<cgltf_int>(std::strtol(texCoord->c_str(), nullptr, 10));
-					view.scale = 1.0F;
-					if (texture.contains("KHR_texture_transform"))
-						warn("material {}: the retroreflection texture's transform isn't read", material.name);
-					material.retroreflectionTexture = textureRef(view);
+					material.multiscatterColor[channel] = std::clamp(std::strtof(std::string(values).c_str(), nullptr), 0.0F, 1.0F);
+					auto comma = values.find(',');
+					values = comma == std::string_view::npos ? std::string_view{} : values.substr(comma + 1);
 				}
 			}
+			material.multiscatterColorTexture = jsonTexture(*json, "multiscatterColorTexture");
 		}
 		// an ior of 0 is a perfect reflector's (the dielectric's f0 then 1), as the extension allows
 		if (gltfMaterial.has_ior)

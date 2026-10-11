@@ -49,6 +49,10 @@ Renderer::Renderer(Device& device)
 		 .aspect = ImageAspect::kDepth | ImageAspect::kStencil});
 	// the opaque scene with mips, which transmissive materials refract (SHADER_TYPES_TRANSMISSION_TEXTURE)
 	myTransmission = myGraph.CreateImage({.name = "Transmission", .format = Format::kR16G16B16A16Sfloat, .mipChain = true});
+	// the light scattering materials diffuse into their volume, and the material (+ 1, 0 is none) in alpha, which the
+	// main pass blurs over their surfaces (SHADER_TYPES_SCATTER_TEXTURE), and their depth (SHADER_TYPES_SCATTER_DEPTH_TEXTURE)
+	myScatter = myGraph.CreateImage({.name = "Scatter", .format = Format::kR16G16B16A16Sfloat});
+	myScatterDepth = myGraph.CreateImage({.name = "Scatter Depth", .format = Format::kD32Sfloat, .aspect = ImageAspect::kDepth});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -149,6 +153,25 @@ Renderer::Renderer(Device& device)
 			}
 		});
 
+	// the scattering materials' surfaces, lit as the light entering them (FragmentScatter), which the main pass blurs
+	// over them by their volume's radius (see SubsurfaceScattering in the shaders)
+	myScatterPass = myGraph.AddPass(
+		"Scatter",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.ColorAttachment(myScatter, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
+			builder.DepthAttachment(myScatterDepth, LoadOp::kClear);
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
+			builder.Wrap(
+				[this](CommandBufferHandle cmd, const std::function<void()>& record)
+				{
+					GPU_SCOPE(cmd, *myInputs->graphicsQueue, scatter);
+					record();
+				});
+		},
+		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myPipeline, *myInputs, myScatterDrawList); });
+
 	// the main pass: the views, each in its viewport. alpha 0 where nothing opaque is drawn (opaque draws write alpha 1):
 	// there ComputeMain draws the environment
 	auto mainPass = [&](MainPassPhase phase)
@@ -164,6 +187,8 @@ Renderer::Renderer(Device& device)
 				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				if (phase == MainPassPhase::kTransmissive)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.Use(myScatter, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.Use(myScatterDepth, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 				// the profiling scope's timestamps outside the render target: begun for secondary command buffers, it can
 				// hold nothing else
@@ -174,7 +199,8 @@ Renderer::Renderer(Device& device)
 						record();
 					});
 			},
-			[this, phase](FrameGraph::PassContext& context) { InternalDrawMainPass(context, *myPipeline, *myInputs, phase); });
+			[this, phase](FrameGraph::PassContext& context)
+			{ InternalDrawViews(context, *myPipeline, *myInputs, myDrawLists[std::to_underlying(phase)]); });
 	};
 	mainPass(MainPassPhase::kOpaque);
 
@@ -351,6 +377,13 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myShadowAtlas), .layout = ImageLayout::kShaderReadOnly},
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_SHADOW_ATLAS_TEXTURE);
+	for (auto [image, slot] : std::array{
+			 std::pair{myScatter, SHADER_TYPES_SCATTER_TEXTURE}, std::pair{myScatterDepth, SHADER_TYPES_SCATTER_DEPTH_TEXTURE}})
+		pipeline.SetDescriptorData(
+			"gTextures",
+			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			slot);
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		pipeline.SetDescriptorData(
@@ -372,10 +405,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 
 void Renderer::Prepare(CommandBufferHandle cmd)
 {
-	// the transmission texture is only written in frames with transmissive materials, but bound in every one (as is the
-	// shadow atlas, in frames with shadows)
+	// the transmission texture is only written in frames with transmissive materials, but bound in every one (as are the
+	// shadow atlas, in frames with shadows, and the scatter targets, in frames with scattering materials)
 	myGraph.GetImage(myTransmission).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myShadowAtlas).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
+	myGraph.GetImage(myScatter).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
+	myGraph.GetImage(myScatterDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
 }
 
 void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameInputs& inputs)
@@ -449,6 +484,13 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn);
 
+	// the scattering materials' light, if any are drawn
+	myScatterDrawList = frame.model != nullptr && frame.scatters
+		? BuildScatterDrawList(*frame.model, frame.scatters, frame.specialization)
+		: DrawList{};
+	frame.pushConstants.scatter = myScatterDrawList.Empty() ? 0U : 1U;
+	myGraph.SetEnabled(myScatterPass, !myScatterDrawList.Empty());
+
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
 
@@ -460,7 +502,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myPipeline = nullptr;
 }
 
-void Renderer::InternalDrawMainPass(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, MainPassPhase phase)
+void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, const DrawList& list)
 {
 	auto& graphicsQueue = *inputs.graphicsQueue;
 	auto& device = pipeline.GetDevice();
@@ -468,8 +510,7 @@ void Renderer::InternalDrawMainPass(FrameGraph::PassContext& context, Pipeline& 
 	pipeline.SetRenderTarget(*context.target);
 	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 
-	const auto& list = myDrawLists[std::to_underlying(phase)];
-	if (inputs.model == nullptr)
+	if (inputs.model == nullptr || list.indexBuffer == nullptr)
 		return;
 
 	ZoneScopedN("Renderer::drawViews");

@@ -459,6 +459,9 @@ struct Staged
 				.diffuseTransmissionColorTexture = material.diffuseTransmissionColorTexture,
 				.retroreflection = material.retroreflection,
 				.retroreflectionTexture = material.retroreflectionTexture,
+				.volumeScatter = material.volumeScatter,
+				.multiscatterColor = material.multiscatterColor,
+				.multiscatterColorTexture = material.multiscatterColorTexture,
 				.unlit = material.unlit,
 				.bumpTexture = material.bumpTexture,
 				.bumpScale = material.bumpScale,
@@ -506,13 +509,13 @@ struct Staged
 	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
 		params.append(std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion));
 	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v32", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
+		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v33", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene or variant asked for is a cache entry of its own, the default ones' is the one without
 	if (importOptions.scene)
 		params.append(std::format("|scene-{}", *importOptions.scene));
 	if (importOptions.variant)
 		params.append(std::format("|variant-{}", *importOptions.variant));
-	params.append("|cache-v34"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v35"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

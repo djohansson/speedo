@@ -98,6 +98,10 @@ struct ModelMaterial
 	// see mesh::Material::retroreflection
 	float retroreflection = 0.0F;
 	TextureRef retroreflectionTexture;
+	// see mesh::Material::volumeScatter
+	bool volumeScatter = false;
+	std::array<float, 3> multiscatterColor{0.0F, 0.0F, 0.0F};
+	TextureRef multiscatterColorTexture;
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
 	float bumpScale = 1.0F; // for a bump texture that is a height map: see image::Options::bumpScale
