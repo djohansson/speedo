@@ -1485,6 +1485,34 @@ std::expected<Mesh, std::string> Import(
 				material.diffuseTransmissionColor[channel] = std::max(diffuseTransmission.diffuse_transmission_color_factor[channel], 0.0F);
 			material.diffuseTransmissionColorTexture = textureRef(diffuseTransmission.diffuse_transmission_color_texture);
 		}
+		// KHR_materials_retroreflection, which cgltf leaves as json: a factor, and a texture (by its index and texcoord)
+		for (cgltf_size extensionIt = 0; extensionIt < gltfMaterial.extensions_count; extensionIt++)
+		{
+			const auto& extension = gltfMaterial.extensions[extensionIt];
+			if (extension.name == nullptr || extension.data == nullptr ||
+				std::string_view(extension.name) != "KHR_materials_retroreflection")
+				continue;
+			std::string_view json(extension.data);
+			if (auto factor = JsonValue(json, "retroreflectionFactor"))
+				material.retroreflection = std::clamp(std::strtof(factor->c_str(), nullptr), 0.0F, 1.0F);
+			if (auto at = json.find("\"retroreflectionTexture\""); at != std::string_view::npos)
+			{
+				auto texture = json.substr(at);
+				auto index = JsonValue(texture, "index");
+				auto textureIndex = index ? std::strtoull(index->c_str(), nullptr, 10) : data.textures_count;
+				if (textureIndex < data.textures_count)
+				{
+					cgltf_texture_view view{};
+					view.texture = &data.textures[textureIndex];
+					if (auto texCoord = JsonValue(texture, "texCoord"))
+						view.texcoord = static_cast<cgltf_int>(std::strtol(texCoord->c_str(), nullptr, 10));
+					view.scale = 1.0F;
+					if (texture.contains("KHR_texture_transform"))
+						warn("material {}: the retroreflection texture's transform isn't read", material.name);
+					material.retroreflectionTexture = textureRef(view);
+				}
+			}
+		}
 		// an ior of 0 is a perfect reflector's (the dielectric's f0 then 1), as the extension allows
 		if (gltfMaterial.has_ior)
 			material.ior = std::max(gltfMaterial.ior.ior, 0.0F);
@@ -2201,7 +2229,19 @@ std::expected<Mesh, std::string> Import(
 			if (node->has_mesh_gpu_instancing && !transforms && !std::exchange(instancingWarned, true))
 				warn("mesh {}: its instances (EXT_mesh_gpu_instancing) can't be read, it is drawn once", meshName);
 			bool moving = instances.skin < 0 && nodeMoves(node);
-			if (moving || (transforms && !transforms->empty()))
+			// a volume's thickness (KHR_materials_volume) is in the mesh's units, so it scales with the node: the shader
+			// scales it by its instance's transform, so a scaled node with a volume material is drawn as an instance of
+			// it rather than flattened (DragonAttenuation's dragon, at a quarter of its size, came out four times as thick)
+			bool scaledVolume = false;
+			if (instances.skin < 0 && !moving && !transforms)
+			{
+				bool hasVolume = false;
+				for (cgltf_size primitiveIt = 0; primitiveIt < node->mesh->primitives_count; primitiveIt++)
+					if (const auto* material = node->mesh->primitives[primitiveIt].material; material != nullptr && material->has_volume)
+						hasVolume = true;
+				scaledVolume = hasVolume && std::abs(std::cbrt(std::abs(Determinant(world))) - 1.0) > 1e-4;
+			}
+			if (moving || scaledVolume || (transforms && !transforms->empty()))
 			{
 				// each instance's transform within the node, and at rest in world space
 				auto locals = transforms && !transforms->empty() ? std::move(*transforms) : std::vector<Matrix>{gfx::mesh::kIdentityTransform};

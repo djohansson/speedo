@@ -646,7 +646,7 @@ F(n_c . v)`. KHR_materials_transmission replaces that much of the dielectric's d
 transmission texture (`SHADER_TYPES_TRANSMISSION_TEXTURE`, a full mip chain: `Image::BlitFrom` and
 `Image::GenerateMips`, which blits each level from the one above with per level barriers), the transmissive and
 blended ones, loading the attachments. The refracted ray (by the ior) leaves the volume after the thickness
-(KHR_materials_volume: factor times the texture's green, times the instance's scale; 0 is thin walled), is projected into
+(KHR_materials_volume: factor times the texture's green, times the instance's scale; 0 is thin walled. the thickness is in the mesh's units, so a scaled node with a volume material is drawn as an instance of it, not flattened, for its instance to carry the scale: DragonAttenuation's dragon, under a node scaled by a quarter, came out deep red, four times as thick), is projected into
 the view (fading to the environment along the ray over the view's last 5% and beyond it, where nothing was drawn:
 clamping streaked the edge's texels, stretching as glass neared a corner; offsets shortened to stay inside, or mirrored
 in, looked no better, and a guard band costs too much), and samples the texture at
@@ -662,7 +662,7 @@ and the environment is reflected about a bent normal (as the Khronos sample view
 film Fresnel (`IridescenceFresnel`, Belcour and Barla) is evaluated once per pixel at the view's angle over the
 surface's f0 and mixed into the Fresnel of the environment and the lights by its strength. KHR_materials_diffuse_transmission
 lights that much of the diffuse from the back (lights behind the surface, and the irradiance around -n), tinted by its
-color. Every `KHR_materials_*` of the glTF-Sample-Assets is drawn. gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
+color. KHR_materials_retroreflection (the minimal retroreflective microfacet model) blends the base lobe (`BaseLobe`: diffuse and specular, not sheen, clearcoat or transmission) with the same lobe seen from the view mirrored about the normal, `2 (n.v) n - v`, by its weight (factor times the texture's red, `kOcclusion`), which turns the specular back towards the light; the environment's retroreflective lookup is along the view itself (the mirrored view's reflection), and n.v, so the split sum's terms, don't change. It is one of the extended layers (`SHADER_TYPES_LAYERS_EXTENDED`). Every `KHR_materials_*` of the glTF-Sample-Assets is drawn except `KHR_materials_volume_scatter` (ScatteringSkull), and `KHR_materials_variants` draws the default materials only (see TODO.md). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16

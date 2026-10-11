@@ -107,6 +107,10 @@ struct Material
 	TextureRef diffuseTransmissionTexture;
 	std::array<float, 3> diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
 	TextureRef diffuseTransmissionColorTexture;
+	// KHR_materials_retroreflection: how much of the specular lobe is turned back towards the light (factor times the
+	// texture's red): a blend between the ordinary and the retroreflective lobe, not an intensity
+	float retroreflection = 0.0F;
+	TextureRef retroreflectionTexture;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
 	float bumpScale = 1.0F; // the bump texture's -bm option

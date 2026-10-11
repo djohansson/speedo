@@ -249,6 +249,8 @@ struct TextureView
 #define MATERIAL_FLAG_DIFFUSE_TRANSMISSION 33554432u // diffuse transmission (see diffuseTransmission)
 #define MATERIAL_FLAG_DIFFUSE_TRANSMISSION_TEXTURE 67108864u // diffuseTransmissionView: the factor in r, times .a
 #define MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE 134217728u // diffuseTransmissionColorView: srgb, times .rgb
+#define MATERIAL_FLAG_RETROREFLECTION 268435456u // retroreflection (see retroreflection)
+#define MATERIAL_FLAG_RETROREFLECTION_TEXTURE 536870912u // retroreflectionView: the weight in r, times retroreflection
 
 struct MaterialData
 {
@@ -300,6 +302,9 @@ struct MaterialData
 	alignas(4) UINT(iridescenceThicknessView);
 	alignas(4) UINT(diffuseTransmissionView);
 	alignas(4) UINT(diffuseTransmissionColorView);
+	// KHR_materials_retroreflection: the blend from the specular lobe to its retroreflective one (see Shade)
+	alignas(4) FLOAT(retroreflection);
+	alignas(4) UINT(retroreflectionView);
 };
 
 struct ModelInstance

@@ -636,6 +636,9 @@ struct Surface
 	// tint
 	float diffuseTransmission;
 	float3 diffuseTransmissionColor;
+	// KHR_materials_retroreflection: the blend from the specular (and the diffuse it leaves) seen from the view to the
+	// same seen from the view mirrored about the normal, which turns the lobe back towards the light (0 for none)
+	float retroreflection;
 	// the geometry's normal, facing the viewer (for the shadows' normal offset)
 	float3 geometryNormal;
 };
@@ -707,6 +710,36 @@ float ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geo
 	return 1.0;
 }
 
+// the base layers' light (the diffuse, and the specular: GGX, height correlated Smith, Schlick; anisotropic if the surface
+// is) from a light along toLight, seen from view, per unit of irradiance (times n.l). without sheen, clearcoat or
+// transmission
+float3 BaseLobe(Surface surface, float3 view, float3 toLight, float nDotL)
+{
+	float3 normal = surface.normal;
+	float alpha = max(surface.roughness * surface.roughness, 1e-3);
+	float nDotV = max(dot(normal, view), 1e-4);
+	float3 halfway = normalize(toLight + view);
+	float vDotH = saturate(dot(view, halfway));
+	float nDotH = saturate(dot(normal, halfway));
+	float3 fresnel = lerp(FresnelSchlick(surface.f0, surface.f90, vDotH), surface.iridescenceFresnel, surface.iridescence);
+	float3 diffuse = (1.0 - fresnel) * (1.0 - surface.diffuseTransmission) * surface.diffuseColor / kPi;
+	float3 specular;
+	if (surface.anisotropy > 0.0)
+	{
+		// stretched along t: its roughness there goes from the surface's toward 1 by the strength squared
+		float alphaT = lerp(alpha, 1.0, surface.anisotropy * surface.anisotropy);
+		float3 t = surface.anisotropyT;
+		float3 b = surface.anisotropyB;
+		specular = fresnel * DistributionGgxAnisotropic(nDotH, dot(t, halfway), dot(b, halfway), alphaT, alpha) *
+				   VisibilityGgxAnisotropic(nDotL, nDotV, dot(t, view), dot(b, view), dot(t, toLight), dot(b, toLight), alphaT, alpha);
+	}
+	else
+	{
+		specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
+	}
+	return diffuse + specular;
+}
+
 // how much of what is below a clearcoat layer it reflects instead, seen from view (the spec's approximation, by the
 // layer's normal)
 float ClearcoatFresnel(Surface surface, float3 view)
@@ -736,12 +769,21 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		reflectionNormal = normalize(lerp(anisotropicNormal, normal, bend * bend * bend * bend));
 	}
 	float3 reflected = DominantDirection(reflectionNormal, reflect(-view, reflectionNormal), roughness);
+	// KHR_materials_retroreflection: the view mirrored about the normal, whose reflection is the view itself, so the
+	// retroreflective lobe sees the environment behind the viewer (the split sum's terms are the same: n.v is)
+	float3 retroView = 2.0 * nDotV * normal - view;
+	float3 environmentRadiance = EnvironmentRadiance(environment, reflected, roughness);
+	if (surface.retroreflection > 0.0)
+		environmentRadiance = lerp(
+			environmentRadiance,
+			EnvironmentRadiance(environment, DominantDirection(reflectionNormal, view, roughness), roughness),
+			surface.retroreflection);
 	float3 diffuseEnvironment = EnvironmentIrradiance(environment, normal);
 	if (surface.diffuseTransmission > 0.0)
 		diffuseEnvironment = lerp(
 			diffuseEnvironment, surface.diffuseTransmissionColor * EnvironmentIrradiance(environment, -normal), surface.diffuseTransmission);
 	float3 result = surface.occlusion * (surface.diffuseColor * diffuseEnvironment +
-										 environmentSpecular * EnvironmentRadiance(environment, reflected, roughness));
+										 environmentSpecular * environmentRadiance);
 	result += surface.transmitted * (1.0 - environmentSpecular);
 
 	// the sheen over that, which takes its albedo of it, lit by the environment prefiltered for its lobe
@@ -807,23 +849,12 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		if (nDotL > 0.0)
 		{
 			float nDotH = saturate(dot(normal, halfway));
-			float3 fresnel = lerp(FresnelSchlick(surface.f0, surface.f90, vDotH), surface.iridescenceFresnel, surface.iridescence);
-			float3 diffuse = (1.0 - fresnel) * (1.0 - surface.diffuseTransmission) * surface.diffuseColor / kPi;
-			float3 specular;
-			if (surface.anisotropy > 0.0)
-			{
-				// stretched along t: its roughness there goes from the surface's toward 1 by the strength squared
-				float alphaT = lerp(alpha, 1.0, surface.anisotropy * surface.anisotropy);
-				float3 t = surface.anisotropyT;
-				float3 b = surface.anisotropyB;
-				specular = fresnel * DistributionGgxAnisotropic(nDotH, dot(t, halfway), dot(b, halfway), alphaT, alpha) *
-						   VisibilityGgxAnisotropic(nDotL, nDotV, dot(t, view), dot(b, view), dot(t, toLight), dot(b, toLight), alphaT, alpha);
-			}
-			else
-			{
-				specular = fresnel * DistributionGgx(nDotH, alpha) * VisibilitySmithGgxCorrelated(nDotL, nDotV, alpha);
-			}
-			lit = (diffuse + specular) * nDotL;
+			lit = BaseLobe(surface, view, toLight, nDotL);
+			// KHR_materials_retroreflection (the minimal retroreflective microfacet model): the same lobe seen from the
+			// view mirrored about the normal, which peaks where the light is the viewer
+			if (surface.retroreflection > 0.0)
+				lit = lerp(lit, BaseLobe(surface, retroView, toLight, nDotL), surface.retroreflection);
+			lit *= nDotL;
 			if (sheenMax > 0.0)
 			{
 				float scaling = min(1.0 - sheenMax * sheenAlbedoView, 1.0 - sheenMax * SheenAlbedo(nDotL, surface.sheenRoughness));
@@ -1148,6 +1179,15 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace)
 		surface.diffuseTransmissionColor = material.diffuseTransmission.rgb;
 		if ((material.flags & MATERIAL_FLAG_DIFFUSE_TRANSMISSION_COLOR_TEXTURE) != 0u)
 			surface.diffuseTransmissionColor *= SampleView(material.diffuseTransmissionColorView, v.texCoord01).rgb;
+	}
+
+	// KHR_materials_retroreflection
+	surface.retroreflection = 0.0;
+	if (Layer(material, MATERIAL_FLAG_RETROREFLECTION))
+	{
+		surface.retroreflection = material.retroreflection;
+		if ((material.flags & MATERIAL_FLAG_RETROREFLECTION_TEXTURE) != 0u)
+			surface.retroreflection *= SampleView(material.retroreflectionView, v.texCoord01).r;
 	}
 
 	// the clearcoat covers the emission too

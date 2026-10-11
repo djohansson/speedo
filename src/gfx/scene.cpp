@@ -56,6 +56,7 @@ struct MaterialLayers
 	bool anisotropy = false;
 	bool iridescence = false;
 	bool diffuseTransmission = false;
+	bool retroreflection = false;
 };
 
 
@@ -68,7 +69,8 @@ struct MaterialLayers
 		.transmission = material.transmission > 0.0F,
 		.anisotropy = material.anisotropy > 0.0F,
 		.iridescence = material.iridescence > 0.0F,
-		.diffuseTransmission = material.diffuseTransmission > 0.0F};
+		.diffuseTransmission = material.diffuseTransmission > 0.0F,
+		.retroreflection = material.retroreflection > 0.0F};
 	for (const auto& target : desc.animation.pointerTargets)
 	{
 		if (target.kind != ScenePointerTarget::Kind::kMaterial || target.index != materialIndex)
@@ -206,6 +208,7 @@ struct MaterialTextures
 	Texture iridescenceThickness;
 	Texture diffuseTransmission;
 	Texture diffuseTransmissionColor;
+	Texture retroreflection;
 };
 
 
@@ -653,7 +656,7 @@ struct Scene::Impl
 				  &material.specular, &material.specularColor, &material.clearcoat, &material.clearcoatRoughness, &material.clearcoatNormal,
 				  &material.sheenColor, &material.sheenRoughness, &material.transmission, &material.thickness,
 				  &material.anisotropy, &material.iridescence, &material.iridescenceThickness,
-				  &material.diffuseTransmission, &material.diffuseTransmissionColor})
+				  &material.diffuseTransmission, &material.diffuseTransmissionColor, &material.retroreflection})
 				if (texture->image &&
 					std::ranges::none_of(uploads.images, [&texture](const auto& image) { return image.first == texture->image; }))
 					uploads.images.emplace_back(texture->image, texture->upload);
@@ -876,6 +879,16 @@ struct Scene::Impl
 							*view = *id;
 							material.flags |= flag;
 						}
+				}
+				if (layers.retroreflection)
+				{
+					material.flags |= MATERIAL_FLAG_RETROREFLECTION;
+					material.retroreflection = desc.retroreflection;
+					if (auto id = viewOf(textures[materialIt].retroreflection, desc.retroreflectionTexture))
+					{
+						material.retroreflectionView = *id;
+						material.flags |= MATERIAL_FLAG_RETROREFLECTION_TEXTURE;
+					}
 				}
 				if (desc.unlit)
 					material.flags |= MATERIAL_FLAG_UNLIT;
@@ -1156,6 +1169,9 @@ struct Scene::Impl
 						 std::tuple{&material.diffuseTransmissionColorTexture, gfx::image::Usage::kColor, &texture.diffuseTransmissionColor}})
 					if (!ref->empty())
 						loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
+			// the retroreflection's weight is the texture's red
+			if (layers.retroreflection && !material.retroreflectionTexture.empty())
+				loads.push_back({material.retroreflectionTexture.path, material.retroreflectionTexture.embeddedImage, {.usage = gfx::image::Usage::kOcclusion}, &texture.retroreflection});
 			// the transmission's factor is the texture's red, the thickness the green
 			if (layers.transmission)
 				for (auto [ref, usage, result] : std::array{
@@ -1815,7 +1831,7 @@ struct Scene::Impl
 				auto layers = LayersOf(myModel->GetDesc(), materialIt);
 				transmissive.push_back(layers.transmission);
 				bool extended = layers.clearcoat || layers.sheen || layers.transmission || layers.anisotropy || layers.iridescence ||
-								layers.diffuseTransmission;
+								layers.diffuseTransmission || layers.retroreflection;
 				specialization.push_back(kTiers && !extended ? static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED) : uint16_t{0});
 			}
 
