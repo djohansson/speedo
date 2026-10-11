@@ -28,10 +28,13 @@ Notes for working in this codebase, distilled from real build failures.
   its context, fonts and style, its platform binding and renderer, and the triple buffer handing a frame's draw data
   from the ui thread (`BeginFrame`/`EndFrame`) to the draw thread (`PrepareFrame`/`Draw`). `gfx/graphicsqueue.h` has
   the draw thread's graphics queue helpers (`UpdateBufferOnGraphics`, `TransitionThenBind`, `RetireAfterGraphicsWork`).
-- `client` is the application: `client::WindowedApplication` (a `platform::WindowedApplication`; `client/
-  windowedapplication.*`) owns the rhi, the views, the scene and the imgui layer, and keeps the frame loop (`Draw`:
-  fences, pool resets, draw calls, present, frame statistics), the ui (`PrepareDraw`'s menus and windows) and the load
-  policy (files by type, zip archives extracted into the user profile, folders, the autoload variables).
+- `client` is the application: `client::WindowedApplication` (a `platform::WindowedApplication`) owns the rhi, the
+  views, the scene and the imgui layer, and keeps the frame loop (`client/windowedapplication.cpp`: `Draw`, fences,
+  pool resets, draw calls, present, frame statistics; construction, resizes and `Shutdown`), the ui (`client/ui.cpp`:
+  `PrepareDraw`'s menus and windows, and the autoload variables) and the load policy (`client/loading.cpp`: files by
+  type, zip archives extracted into the user profile, folders). What the three share is in
+  `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
+  the dialogs filter by and the load functions.
   `client::Client` adds the server connection and the tick and draw task chains. It names gfx's aliases, which
   conflict with rhi's templates under both using-directives, with using-declarations in `namespace client`.
 - gfx code is not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
