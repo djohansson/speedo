@@ -107,7 +107,7 @@ struct Header
 [[nodiscard]] std::optional<std::filesystem::path> FindScreenshot(const std::filesystem::path& model)
 {
 	for (const auto& directory : {model.parent_path(), model.parent_path().parent_path()})
-		for (const char* name : {"screenshot.jpg", "screenshot.png", "screenshot.jpeg", "screenshot.webp"})
+		for (const char* name : {"screenshot.jpg", "screenshot.png", "screenshot.jpeg", "screenshot.webp", "screenshot.gif"})
 		{
 			auto candidate = directory / "screenshot" / name;
 			if (std::error_code error; std::filesystem::is_regular_file(candidate, error))

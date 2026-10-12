@@ -68,14 +68,14 @@ struct Entry
 }
 
 // what a listing gathers: a folder's subfolders and files, or with recursive the files below it (no folders), of the
-// kinds shown
+// kinds shown. by default every model below the folder: the quickest way to step through what can be previewed
 struct ListOptions
 {
-	bool recursive = false;
+	bool recursive = true;
 	bool models = true;
-	bool archives = true;
-	bool images = true;
-	bool environments = true;
+	bool archives = false;
+	bool images = false;
+	bool environments = false;
 
 	bool operator==(const ListOptions&) const = default;
 
@@ -270,10 +270,10 @@ void WindowedApplication::InternalDrawBrowser()
 			state.directory = resourcePath / browse;
 			gShowBrowser = true;
 		}
-		// SPEEDO_BROWSE_RECURSIVE=1: with subfolders included, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>
-		// the kinds listed
-		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && std::string_view(recursive) == "1")
-			state.options.recursive = true;
+		// SPEEDO_BROWSE_RECURSIVE=0: without subfolders, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas> the
+		// kinds listed (by default every model below the folder)
+		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && *recursive != '\0')
+			state.options.recursive = std::string_view(recursive) != "0";
 		if (const char* kinds = std::getenv("SPEEDO_BROWSE_KINDS"); kinds != nullptr && *kinds != '\0')
 		{
 			std::string_view list(kinds);
@@ -478,82 +478,94 @@ void WindowedApplication::InternalDrawBrowser()
 				}
 			}
 
-			for (size_t entryIt = 0; entryIt < state.entries.size(); entryIt++)
-			{
-				const auto& entry = state.entries[entryIt];
-				PushID(static_cast<int>(entryIt));
-				if (entryIt % static_cast<size_t>(columns) != 0)
-					SameLine();
-				ImVec2 corner = GetCursorScreenPos();
-				bool selected = state.selected[entryIt];
-				if (Selectable("##tile", selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(tile, tile + labelHeight)))
-				{
-					const auto& io = GetIO();
-					if (io.KeyShift && state.anchor)
+			// only the rows in view: tiles out of view must not ask for their thumbnails (they would all count as just drawn,
+			// and with more than the atlas holds, each new one would evict one in view, which flickered), nor be built
+			auto columnCount = static_cast<size_t>(columns);
+			ImGuiListClipper clipper;
+			clipper.Begin(
+				static_cast<int>((state.entries.size() + columnCount - 1) / columnCount), tile + labelHeight + GetStyle().ItemSpacing.y);
+			if (state.scrollTo)
+				clipper.IncludeItemByIndex(static_cast<int>(*state.scrollTo / columnCount));
+			while (clipper.Step())
+				for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
+					for (size_t entryIt = static_cast<size_t>(row) * columnCount;
+						 entryIt < std::min(state.entries.size(), (static_cast<size_t>(row) + 1) * columnCount);
+						 entryIt++)
 					{
-						auto [first, last] = std::minmax(*state.anchor, entryIt);
-						if (!io.KeyCtrl && !io.KeySuper)
-							state.selected.assign(state.entries.size(), false);
-						for (size_t rangeIt = first; rangeIt <= last; rangeIt++)
-							state.selected[rangeIt] = true;
-					}
-					else if (io.KeyCtrl || io.KeySuper)
-					{
-						state.selected[entryIt] = !selected;
-						state.anchor = entryIt;
-					}
-					else
-					{
-						state.selected.assign(state.entries.size(), false);
-						state.selected[entryIt] = true;
-						state.anchor = entryIt;
-					}
-					if (IsMouseDoubleClicked(ImGuiMouseButton_Left))
-					{
-						if (entry.kind == Kind::kFolder)
-							enter = entryIt;
-						else
-							openNow = entryIt;
-					}
-				}
-				if (state.scrollTo == entryIt)
-				{
-					SetScrollHereY(0.5F);
-					state.scrollTo.reset();
-				}
-				if (IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-					SetTooltip("%s", entry.relative.c_str());
+						const auto& entry = state.entries[entryIt];
+						PushID(static_cast<int>(entryIt));
+						if (entryIt % static_cast<size_t>(columns) != 0)
+							SameLine();
+						ImVec2 corner = GetCursorScreenPos();
+						bool selected = state.selected[entryIt];
+						if (Selectable("##tile", selected, ImGuiSelectableFlags_AllowDoubleClick, ImVec2(tile, tile + labelHeight)))
+						{
+							const auto& io = GetIO();
+							if (io.KeyShift && state.anchor)
+							{
+								auto [first, last] = std::minmax(*state.anchor, entryIt);
+								if (!io.KeyCtrl && !io.KeySuper)
+									state.selected.assign(state.entries.size(), false);
+								for (size_t rangeIt = first; rangeIt <= last; rangeIt++)
+									state.selected[rangeIt] = true;
+							}
+							else if (io.KeyCtrl || io.KeySuper)
+							{
+								state.selected[entryIt] = !selected;
+								state.anchor = entryIt;
+							}
+							else
+							{
+								state.selected.assign(state.entries.size(), false);
+								state.selected[entryIt] = true;
+								state.anchor = entryIt;
+							}
+							if (IsMouseDoubleClicked(ImGuiMouseButton_Left))
+							{
+								if (entry.kind == Kind::kFolder)
+									enter = entryIt;
+								else
+									openNow = entryIt;
+							}
+						}
+						if (state.scrollTo == entryIt)
+						{
+							SetScrollHereY(0.5F);
+							state.scrollTo.reset();
+						}
+						if (IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+							SetTooltip("%s", entry.relative.c_str());
 
-				// the thumbnail (fitted to the tile), else an icon of its kind; and the name under it, clipped to the tile
-				constexpr float kPad = 8.0F;
-				ImVec2 iconMin(corner.x + kPad, corner.y + kPad);
-				ImVec2 iconMax(corner.x + tile - kPad, corner.y + tile - kPad);
-				auto source = ThumbnailSource(entry.kind);
-				auto thumbnail = source ? myThumbnails->Get(entry.path, *source) : std::nullopt;
-				if (thumbnail)
-				{
-					auto [min, max] = Fit(iconMin, iconMax, thumbnail->aspect);
-					drawList->AddImage(thumbnail->texture, min, max, thumbnail->uv0, thumbnail->uv1);
-				}
-				else
-				{
-					drawList->AddRectFilled(iconMin, iconMax, Color(entry.kind), 6.0F);
-					const char* label = Label(entry);
-					ImVec2 labelSize = CalcTextSize(label);
-					drawList->AddText(
-						ImVec2((iconMin.x + iconMax.x - labelSize.x) * 0.5F, (iconMin.y + iconMax.y - labelSize.y) * 0.5F),
-						IM_COL32(255, 255, 255, 230),
-						label);
-				}
-				drawList->PushClipRect(ImVec2(corner.x, corner.y + tile), ImVec2(corner.x + tile, corner.y + tile + labelHeight), true);
-				ImVec2 nameSize = CalcTextSize(entry.name.c_str());
-				drawList->AddText(
-					ImVec2(corner.x + std::max(0.0F, (tile - nameSize.x) * 0.5F), corner.y + tile),
-					GetColorU32(ImGuiCol_Text),
-					entry.name.c_str());
-				drawList->PopClipRect();
-				PopID();
-			}
+						// the thumbnail (fitted to the tile), else an icon of its kind; and the name under it, clipped to the tile
+						constexpr float kPad = 8.0F;
+						ImVec2 iconMin(corner.x + kPad, corner.y + kPad);
+						ImVec2 iconMax(corner.x + tile - kPad, corner.y + tile - kPad);
+						auto source = ThumbnailSource(entry.kind);
+						auto thumbnail = source ? myThumbnails->Get(entry.path, *source) : std::nullopt;
+						if (thumbnail)
+						{
+							auto [min, max] = Fit(iconMin, iconMax, thumbnail->aspect);
+							drawList->AddImage(thumbnail->texture, min, max, thumbnail->uv0, thumbnail->uv1);
+						}
+						else
+						{
+							drawList->AddRectFilled(iconMin, iconMax, Color(entry.kind), 6.0F);
+							const char* label = Label(entry);
+							ImVec2 labelSize = CalcTextSize(label);
+							drawList->AddText(
+								ImVec2((iconMin.x + iconMax.x - labelSize.x) * 0.5F, (iconMin.y + iconMax.y - labelSize.y) * 0.5F),
+								IM_COL32(255, 255, 255, 230),
+								label);
+						}
+						drawList->PushClipRect(ImVec2(corner.x, corner.y + tile), ImVec2(corner.x + tile, corner.y + tile + labelHeight), true);
+						ImVec2 nameSize = CalcTextSize(entry.name.c_str());
+						drawList->AddText(
+							ImVec2(corner.x + std::max(0.0F, (tile - nameSize.x) * 0.5F), corner.y + tile),
+							GetColorU32(ImGuiCol_Text),
+							entry.name.c_str());
+						drawList->PopClipRect();
+						PopID();
+					}
 			if (enter)
 				navigate(state.entries[*enter].path);
 			else if (openNow)

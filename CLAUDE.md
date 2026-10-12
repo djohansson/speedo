@@ -41,12 +41,15 @@ Notes for working in this codebase, distilled from real build failures.
   files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
   click selection, double click (or enter) to open or enter, and the arrow keys to step through them (scrolled into
   view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
-  and checkboxes filter by kind (models, archives, images, panoramas); listings run on the task executor (a big tree takes
+  and checkboxes filter by kind (models, archives, images, panoramas): by default every model below `resources/test-assets`
+  (else the resource dir); only the rows in view are built (`ImGuiListClipper`), and only they ask for thumbnails (all
+  of them asking each frame made every one count as just drawn, and past the atlas's 256 slots each new thumbnail evicted
+  one in view: they flickered); listings run on the task executor (a big tree takes
   a while), a newer one dropping an older one's result; it previews the entry last clicked if it is a model or a panorama
   (one preview load at a time, the latest selection's next; a model after a panorama brings the procedural sky back), and
   opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
   several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
-  `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_RECURSIVE=1`,
+  `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_RECURSIVE=0`,
   `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
   startup, for tests and screenshots. Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
   one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 16x16, reused least
