@@ -37,6 +37,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: View > Lights: the lights listed and drawn over the views (markers, spot cones, point ranges, shadow frusta), SPEEDO_SHOW_LIGHTS=1
 * done: volume scatter's profile scaled by each pixel's multiscatter color (texture included), with ScatterTexture.gltf to test it
 * done: volume scatter's blur denoised: the sample pattern turned by a 4x4 tile, cancelled by an edge aware 4x4 mean (interleaved sampling)
 * done: volume scatter by the extension's definitions: the multiscatter color as the albedo, occlusion, the profile from the mean free path, thickness from a back face depth pass, and the blur in a compute pass of its own

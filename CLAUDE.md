@@ -378,7 +378,14 @@ are cached per render target attachment formats too (the shadow pass made the ma
 only target, so the main pass drew nothing). `ShadowFactor` in the light loop picks the cascade (the nearest whose
 filter stays in its tile) or face, offsets the point along the geometry's normal by 1 to 3 texels by the angle to the
 light (1.5 alone left acne, a gray cast on lit faces, since the filter reaches 2 texels), and filters 3x3 bilinear
-lookups (`GatherRed`, four comparisons each). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without).
+lookups (`GatherRed`, four comparisons each). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
+then the environment's dominant lights, or the procedural sky's sun, unless merged: a model sun more than 5 degrees from
+the sky's makes two sets of shadows) and draws them over the views as an imgui overlay (no shader or pipeline of its own):
+the renderer keeps a copy of a frame's lights, shadow views and scene bounds while it is open (`FrameInputs::captureLights`,
+`Renderer::GetLightCapture`), `gfx::BuildLightGizmos` turns it into world space lines (a directional light's arrow into the
+scene's center, spot cones, point ranges, each shadow view's frustum: its clip space box through the inverse view
+projection) and markers, and the ui projects them with each view's camera, a directional light's marker where it is in the
+sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
 `scripts/test-assets/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
 
 ## Descriptor sets: redundant updates consume the pool

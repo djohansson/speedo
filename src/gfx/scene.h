@@ -37,6 +37,9 @@ public:
 		std::atomic<bool> mergeLights = true;
 		// whether the lights cast shadows (View > Shadows, SPEEDO_SHADOWS=0 to start without)
 		std::atomic<bool> shadows = true;
+		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
+		// ui's light gizmos (View > Lights)
+		std::atomic<bool> captureLights = false;
 		// the final image is scaled by 2^exposureStops before tonemapping (with auto exposure, on top of what it picks)
 		std::atomic<float> exposureStops = 0.0F;
 		std::atomic<bool> autoExposure = false;

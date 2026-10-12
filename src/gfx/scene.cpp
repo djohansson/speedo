@@ -1890,6 +1890,8 @@ struct Scene::Impl
 				.grid = views.GetGrid(),
 				.viewports = views.GetViewports(),
 				.lights = myLightData,
+				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
+				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),
 				.shadows = mySettings.shadows.load(std::memory_order_relaxed),
 				.camera = shadowCamera,
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},

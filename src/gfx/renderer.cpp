@@ -417,6 +417,11 @@ Renderer::~Renderer()
 	}
 }
 
+LightCapture Renderer::GetLightCapture() const
+{
+	return myLightCapture.Read().Get();
+}
+
 std::vector<std::pair<std::string, double>> Renderer::GetPassTimings() const
 {
 	return myPassTimings.Read().Get();
@@ -564,6 +569,16 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		std::ranges::copy(std::as_bytes(std::span(myShadowPlan.lightShadows)), memory.begin());
 		lightShadows.Flush(0, myShadowPlan.lightShadows.size() * sizeof(uint32_t));
 		lightShadows.Unmap();
+	}
+	if (frame.captureLights)
+	{
+		auto capture = myLightCapture.Write();
+		auto& lights = capture.Get();
+		lights.lights.assign(frame.lights.begin(), frame.lights.end());
+		lights.modelLightCount = frame.modelLightCount;
+		lights.shadowViews = myShadowPlan.views;
+		lights.lightShadows = myShadowPlan.lightShadows;
+		lights.sceneBounds = frame.sceneBounds;
 	}
 	myShadowDrawList = !myShadowPlan.views.empty()
 		? BuildShadowDrawList(*frame.model, frame.transmissive ? frame.transmissive : [](size_t) { return false; })

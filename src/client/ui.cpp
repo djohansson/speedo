@@ -1,6 +1,16 @@
 #include "windowedapplicationdetail.h"
 
+#include <gfx/lightgizmos.h>
+
 #include <imgui.h>
+
+#include <glm/mat4x4.hpp>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <format>
+#include <numbers>
 
 namespace client
 {
@@ -57,6 +67,152 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 #endif
+
+	// the scene's lights (View > Lights): listed, and drawn over the views (see gfx::BuildLightGizmos)
+	static bool gShowLights = []
+	{
+		const char* show = std::getenv("SPEEDO_SHOW_LIGHTS");
+		return show != nullptr && std::string_view(show) == "1";
+	}();
+	App().GetScene().GetSettings().captureLights.store(gShowLights, std::memory_order_relaxed);
+	if (gShowLights)
+	{
+		static bool gLightMarkers = true;
+		static bool gShadowFrusta = true;
+		static std::optional<size_t> gSelectedLight;
+		auto capture = App().GetScene().GetRenderer().GetLightCapture();
+		if (gSelectedLight && *gSelectedLight >= capture.lights.size())
+			gSelectedLight.reset();
+
+		if (Begin("Lights", &gShowLights, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			Checkbox("Markers", &gLightMarkers);
+			SameLine();
+			Checkbox("Shadow Frusta", &gShadowFrusta);
+			SetItemTooltip("Each shadow view's frustum: a directional light's cascades, a point light's cube faces, a spot light's view.");
+			TextDisabled("The model's lights, then the environment's dominant lights (merged ones aren't drawn).");
+			if (Selectable("All", !gSelectedLight))
+				gSelectedLight.reset();
+			for (size_t lightIt = 0; lightIt < capture.lights.size(); lightIt++)
+			{
+				const auto& light = capture.lights[lightIt];
+				static constexpr std::array kTypeNames{"Directional", "Point", "Spot"};
+				const char* type = light.type < kTypeNames.size() ? kTypeNames[light.type] : "?";
+				float luminance = (0.2126F * light.intensity[0]) + (0.7152F * light.intensity[1]) + (0.0722F * light.intensity[2]);
+				uint32_t first = lightIt < capture.lightShadows.size() ? capture.lightShadows[lightIt] : SHADER_TYPES_NO_SHADOW;
+				auto label = std::format(
+					"#{} {} ({}): {:.3g} {}, {}",
+					lightIt,
+					type,
+					lightIt < capture.modelLightCount ? "model" : "environment",
+					luminance,
+					light.type == LIGHT_TYPE_DIRECTIONAL ? "lux" : "cd",
+					first == SHADER_TYPES_NO_SHADOW ? std::string("no shadows") : std::format("{} shadow views", gfx::ShadowViewCount(light.type)));
+				PushID(static_cast<int>(lightIt));
+				float brightest = std::max({light.intensity[0], light.intensity[1], light.intensity[2], 1e-6F});
+				ColorButton(
+					"##color",
+					ImVec4(light.intensity[0] / brightest, light.intensity[1] / brightest, light.intensity[2] / brightest, 1.0F),
+					ImGuiColorEditFlags_NoTooltip,
+					ImVec2(GetTextLineHeight(), GetTextLineHeight()));
+				SameLine();
+				if (Selectable(label.c_str(), gSelectedLight == lightIt))
+					gSelectedLight = lightIt;
+				PopID();
+			}
+		}
+		End();
+
+		// over each view: its camera's projection into its viewport (framebuffer pixels, imgui's coordinates are points)
+		auto gizmos = gfx::BuildLightGizmos(capture, {.shadowFrusta = gShadowFrusta, .light = gSelectedLight});
+		auto* drawList = GetBackgroundDrawList();
+		ImVec2 scale = GetIO().DisplayFramebufferScale;
+		auto viewports = myViews->GetViewports();
+		for (size_t viewIt = 0; viewIt < viewports.size(); viewIt++)
+		{
+			auto camera = myViews->GetCamera(viewIt);
+			if (!camera)
+				continue;
+			const auto& viewport = viewports[viewIt];
+			glm::mat4 viewProjection = camera->GetProjectionMatrix() * camera->GetViewMatrix();
+			auto toScreen = [&viewport, scale](glm::vec4 clip)
+			{
+				glm::vec2 ndc = glm::vec2(clip) / clip.w;
+				return ImVec2(
+					(static_cast<float>(viewport.x) + ((ndc.x * 0.5F) + 0.5F) * static_cast<float>(viewport.width)) / scale.x,
+					(static_cast<float>(viewport.y) + ((ndc.y * 0.5F) + 0.5F) * static_cast<float>(viewport.height)) / scale.y);
+			};
+			constexpr float kNearW = 1e-3F; // in front of the camera
+			drawList->PushClipRect(
+				ImVec2(static_cast<float>(viewport.x) / scale.x, static_cast<float>(viewport.y) / scale.y),
+				ImVec2(static_cast<float>(viewport.x + viewport.width) / scale.x, static_cast<float>(viewport.y + viewport.height) / scale.y),
+				true);
+			for (const auto& line : gizmos.lines)
+			{
+				glm::vec4 from = viewProjection * glm::vec4(line.from, 1.0F);
+				glm::vec4 to = viewProjection * glm::vec4(line.to, 1.0F);
+				if (from.w < kNearW && to.w < kNearW)
+					continue;
+				// clipped to what is in front of the camera
+				if (from.w < kNearW)
+					from += (to - from) * ((kNearW - from.w) / (to.w - from.w));
+				else if (to.w < kNearW)
+					to += (from - to) * ((kNearW - to.w) / (from.w - to.w));
+				drawList->AddLine(
+					toScreen(from), toScreen(to), ColorConvertFloat4ToU32(ImVec4(line.color.x, line.color.y, line.color.z, line.color.w)), 1.5F);
+			}
+			if (gLightMarkers)
+				for (const auto& marker : gizmos.markers)
+				{
+					// a directional light where it is in the sky (at infinity), kept at the view's edge when it is out of
+					// it, dimmed if behind the camera
+					bool directional = marker.type == LIGHT_TYPE_DIRECTIONAL;
+					glm::vec4 clip = viewProjection * glm::vec4(marker.position, directional ? 0.0F : 1.0F);
+					float alpha = 1.0F;
+					if (directional)
+					{
+						glm::vec2 ndc = glm::vec2(clip) / std::max(std::abs(clip.w), kNearW);
+						if (clip.w < kNearW)
+						{
+							ndc = -glm::vec2(clip);
+							alpha = 0.4F;
+						}
+						float extent = std::max({std::abs(ndc.x), std::abs(ndc.y), 1e-6F});
+						constexpr float kEdge = 0.92F;
+						if (clip.w < kNearW || extent > kEdge)
+							ndc *= kEdge / extent;
+						clip = glm::vec4(ndc, 0.0F, 1.0F);
+					}
+					else if (clip.w < kNearW)
+						continue;
+					ImVec2 at = toScreen(clip);
+					ImU32 color = ColorConvertFloat4ToU32(ImVec4(marker.color.x, marker.color.y, marker.color.z, alpha));
+					constexpr ImU32 kOutline = IM_COL32(0, 0, 0, 220);
+					constexpr float kRadius = 7.0F;
+					// a sun with rays, a bulb, or a spot's cone
+					if (marker.type == LIGHT_TYPE_DIRECTIONAL)
+						for (int rayIt = 0; rayIt < 8; rayIt++)
+						{
+							float angle = static_cast<float>(rayIt) * std::numbers::pi_v<float> / 4.0F;
+							ImVec2 direction(std::cos(angle), std::sin(angle));
+							drawList->AddLine(
+								ImVec2(at.x + direction.x * kRadius * 1.4F, at.y + direction.y * kRadius * 1.4F),
+								ImVec2(at.x + direction.x * kRadius * 2.1F, at.y + direction.y * kRadius * 2.1F),
+								color,
+								2.0F);
+						}
+					else if (marker.type == LIGHT_TYPE_SPOT)
+						drawList->AddTriangleFilled(
+							ImVec2(at.x, at.y + kRadius * 0.4F), ImVec2(at.x - kRadius * 1.3F, at.y + kRadius * 2.2F),
+							ImVec2(at.x + kRadius * 1.3F, at.y + kRadius * 2.2F), color);
+					drawList->AddCircleFilled(at, kRadius, color);
+					drawList->AddCircle(at, kRadius, kOutline, 0, 1.5F);
+					auto label = std::format("#{}", marker.light);
+					drawList->AddText(ImVec2(at.x + kRadius * 2.3F, at.y - kRadius), IM_COL32(255, 255, 255, 230), label.c_str());
+				}
+			drawList->PopClipRect();
+		}
+	}
 
 	// the models of an archive with several (see LoadAndInstallArchive)
 	static std::optional<ArchiveChoice> gShownArchiveChoice;
@@ -596,6 +752,9 @@ void WindowedApplication::PrepareDraw()
 					ImGui::EndMenu();
 				}
 			}
+			if (MenuItem("Lights...", nullptr, gShowLights))
+				gShowLights = !gShowLights;
+			SetItemTooltip("Lists the lights, and draws them over the views: where they are (a directional light outside the scene, shining in), spot cones, point light ranges and the shadow views' frusta.");
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			{
 				if (MenuItem("Statistics..."))

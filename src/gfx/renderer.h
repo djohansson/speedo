@@ -4,6 +4,7 @@
 #include <gfx/drawlist.h>
 #include <gfx/framegraph.h>
 #include <gfx/gpu.h>
+#include <gfx/lightgizmos.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/shadows.h>
 
@@ -42,6 +43,8 @@ struct FrameInputs
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
+	size_t modelLightCount = 0; // the first of lights are the model's, the rest the environment's (see LightCapture)
+	bool captureLights = false; // keep a copy of them and their shadow views (see Renderer::GetLightCapture)
 	bool shadows = true;
 	shadows::ShadowCamera camera;
 	Bounds3f sceneBounds;
@@ -87,6 +90,9 @@ public:
 	// how long each pass took on the gpu, the last time it was read (milliseconds, by name). any thread.
 	[[nodiscard]] std::vector<std::pair<std::string, double>> GetPassTimings() const;
 
+	// the lights and shadow views of the last frame recorded with FrameInputs::captureLights, for debugging. any thread.
+	[[nodiscard]] LightCapture GetLightCapture() const;
+
 private:
 	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, const DrawList& list);
 
@@ -127,6 +133,7 @@ private:
 
 	// the passes' gpu timings, for the ui, and with SPEEDO_GPU_TIMINGS=1 every frame's, whose medians the destructor prints
 	core::ConcurrentAccess<std::vector<std::pair<std::string, double>>> myPassTimings;
+	core::ConcurrentAccess<LightCapture> myLightCapture;
 	bool myCollectTimings = false;
 	std::vector<std::pair<std::string, std::vector<double>>> myCollectedTimings;
 
