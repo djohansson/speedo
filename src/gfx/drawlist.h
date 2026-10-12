@@ -24,8 +24,10 @@ constexpr uint8_t kTransparentFragmentShader = 1;
 // the shadow pass's fragments: depth only, cut out by alpha masks (FragmentShadow, the layout's third fragment entry
 // point). with no color attachments, a kOpaque first blend mode is what makes the pipeline write depth
 constexpr uint8_t kShadowFragmentShader = 2;
-// the scatter pass's fragments: the light entering scattering materials (FragmentScatter, the fourth)
+// the scatter pass's fragments: the light entering scattering materials (FragmentScatter, the fourth), and their
+// multiscatter color, in its two color attachments
 constexpr uint8_t kScatterFragmentShader = 3;
+constexpr std::array kScatterBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 static_assert(kOpaqueBlend.size() == rhi::kMaxColorAttachments);
 
 // the materials of the loaded model are 1 and up in gMaterialData (0 is the default material)

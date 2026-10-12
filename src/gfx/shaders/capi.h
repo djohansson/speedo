@@ -79,6 +79,9 @@ extern "C"
 // index plus 1, 0 where there is none), and their depth, from the Scatter pass, which the Scatter Blur pass blurs (see
 // SubsurfaceScattering), into the noisy light (the Scatter Blur pass, ComputeScatter), which the Scatter Denoise pass
 // (ComputeScatterDenoise) filters into the light the main pass adds: each written as a storage image in gRWTextures
+// the multiscatter color per pixel of the Scatter pass (its second color attachment): the albedo the blur's profile is
+// scaled by
+#define SHADER_TYPES_SCATTER_ALBEDO_TEXTURE 5u
 #define SHADER_TYPES_SCATTER_NOISY_TEXTURE 6u
 #define SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE 5u
 #define SHADER_TYPES_SCATTER_LIGHT_TEXTURE 7u

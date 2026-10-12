@@ -900,6 +900,15 @@ float3 VolumeAttenuation(float3 attenuationColor, float attenuationDistance, flo
 	return attenuationDistance > 0.0 ? pow(attenuationColor, thickness / attenuationDistance) : float3(1.0);
 }
 
+// a scattering material's multiscatter color at a point: the factor times the texture
+float3 MultiscatterColor(MaterialData material, float4 texCoord01)
+{
+	float3 multiscatter = material.multiscatterColor.rgb;
+	if ((material.flags & MATERIAL_FLAG_VOLUME_SCATTER_TEXTURE) != 0u)
+		multiscatter *= SampleView(material.multiscatterColorView, texCoord01).rgb;
+	return multiscatter;
+}
+
 // the diffuse light coming out of a scattering surface: what enters it from the front, in the albedo (the multiscatter
 // color; the environment's by occlusion), and what comes through the volume from behind (throughVolume), less what the
 // specular (or sheen) reflects, times the diffuse transmission and its color
@@ -997,14 +1006,14 @@ float ScatterThickness(float2 pixel, uint viewId, float3 position)
 }
 
 // the diffusion profile's scale (BurleyScale, per color) of a scattering material: the extinction (KHR_materials_volume's
-// attenuation, at most 10 attenuation distances per color) gives the mean free path, the multiscatter color the albedo.
-// none without a volume
-float3 ScatterProfileScale(MaterialData material)
+// attenuation, at most 10 attenuation distances per color) gives the mean free path, the multiscatter color (the pixel's,
+// textured) the albedo. none without a volume
+float3 ScatterProfileScale(MaterialData material, float3 albedo)
 {
 	if (material.transmission.z <= 0.0)
 		return 0.0;
 	float3 extinction = max(-log(max(material.attenuationColor.rgb, 1e-4)), 0.1) / material.transmission.z;
-	return BurleyScale(1.0 / extinction, material.multiscatterColor.rgb);
+	return BurleyScale(1.0 / extinction, albedo);
 }
 
 // the scattering light (ScatterLight) at a pixel of the scatter pass's target, blurred by its material's diffusion
@@ -1081,7 +1090,9 @@ void ComputeScatter(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 light = centerSample.rgb;
 	ViewData view;
 	if (centerSample.a > 0.0 && ViewAt(pixel, view))
-		light = SubsurfaceScattering(pixel, view, centerSample, ScatterProfileScale(gMaterialData[uint(centerSample.a) - 1u]));
+		light = SubsurfaceScattering(
+			pixel, view, centerSample,
+			ScatterProfileScale(gMaterialData[uint(centerSample.a) - 1u], gTextures[SHADER_TYPES_SCATTER_ALBEDO_TEXTURE].Load(int3(pixel, 0)).rgb));
 	result[pixel] = float4(light, centerSample.a);
 }
 
@@ -1472,9 +1483,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	float3 scattered = 0.0;
 	if (Layer(material, MATERIAL_FLAG_VOLUME_SCATTER) && surface.diffuseTransmission > 0.0)
 	{
-		float3 multiscatter = material.multiscatterColor.rgb;
-		if ((material.flags & MATERIAL_FLAG_VOLUME_SCATTER_TEXTURE) != 0u)
-			multiscatter *= SampleView(material.multiscatterColorView, v.texCoord01).rgb;
+		float3 multiscatter = MultiscatterColor(material, v.texCoord01);
 		if (scatterPass)
 		{
 			// the thickness along the view, measured where the back faces were drawn, else the material's
@@ -1510,12 +1519,22 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	return output;
 }
 
-// a fragment of the scatter pass: the light entering a scattering material, and the material (+ 1) in alpha
-[shader("fragment")]
-FragmentOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+// the scatter pass's color attachments: the light, and the multiscatter color
+struct ScatterOutput
 {
-	FragmentOutput output;
+	float4 color : SV_Target0;
+	float4 albedo : SV_Target1;
+};
+
+// a fragment of the scatter pass: the light entering a scattering material, and the material (+ 1) in alpha, and its
+// multiscatter color, which the blur's profile is scaled by
+[shader("fragment")]
+ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+	ScatterOutput output;
 	output.color = ShadeFragment(input, isFrontFace, true);
+	MaterialData material = gMaterialData[gPushConstants.viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u)];
+	output.albedo = float4(MultiscatterColor(material, input.vertex.texCoord01), 1.0);
 	return output;
 }
 

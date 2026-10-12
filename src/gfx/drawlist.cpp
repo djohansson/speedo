@@ -139,7 +139,10 @@ DrawList BuildScatterDrawList(
 				   std::cmp_greater_equal(material, materials.size()) || !scatters(static_cast<size_t>(material));
 		});
 	for (auto& item : list.items)
+	{
 		item.variant.fragmentShader = kScatterFragmentShader;
+		item.variant.blend = kScatterBlend;
+	}
 	return list;
 }
 

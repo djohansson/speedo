@@ -53,6 +53,9 @@ Renderer::Renderer(Device& device)
 	// main pass blurs over their surfaces (SHADER_TYPES_SCATTER_TEXTURE), and their depth (SHADER_TYPES_SCATTER_DEPTH_TEXTURE)
 	myScatter = myGraph.CreateImage({.name = "Scatter", .format = Format::kR16G16B16A16Sfloat});
 	myScatterDepth = myGraph.CreateImage({.name = "Scatter Depth", .format = Format::kD32Sfloat, .aspect = ImageAspect::kDepth});
+	// and their multiscatter color, which the blur's profile is scaled by (SHADER_TYPES_SCATTER_ALBEDO_TEXTURE): srgb, for
+	// the dark ones' precision
+	myScatterAlbedo = myGraph.CreateImage({.name = "Scatter Albedo", .format = Format::kR8G8B8A8Srgb});
 	// and the depth of their nearest back faces, which their thickness is measured by (SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE)
 	myScatterBackDepth = myGraph.CreateImage({.name = "Scatter Back Depth", .format = Format::kD32Sfloat, .aspect = ImageAspect::kDepth});
 	// the scattering light blurred, with noise (SHADER_TYPES_SCATTER_NOISY_TEXTURE), and denoised
@@ -182,6 +185,7 @@ Renderer::Renderer(Device& device)
 		[this](FrameGraph::PassBuilder& builder)
 		{
 			builder.ColorAttachment(myScatter, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
+			builder.ColorAttachment(myScatterAlbedo, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 			builder.DepthAttachment(myScatterDepth, LoadOp::kClear);
 			builder.Use(myScatterBackDepth, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
@@ -220,6 +224,7 @@ Renderer::Renderer(Device& device)
 		{
 			builder.Use(myScatter, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myScatterDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myScatterAlbedo, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myScatterNoisy, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, scatterKernel](FrameGraph::PassContext& context)
@@ -449,6 +454,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myScatter, SHADER_TYPES_SCATTER_TEXTURE},
 			 std::pair{myScatterDepth, SHADER_TYPES_SCATTER_DEPTH_TEXTURE},
 			 std::pair{myScatterBackDepth, SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE},
+			 std::pair{myScatterAlbedo, SHADER_TYPES_SCATTER_ALBEDO_TEXTURE},
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_TEXTURE},
 			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_TEXTURE}})
 		pipeline.SetDescriptorData(
@@ -491,6 +497,7 @@ void Renderer::Prepare(CommandBufferHandle cmd)
 	myGraph.GetImage(myScatter).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myScatterDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
 	myGraph.GetImage(myScatterBackDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
+	myGraph.GetImage(myScatterAlbedo).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myScatterNoisy).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myScatterLight).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 }

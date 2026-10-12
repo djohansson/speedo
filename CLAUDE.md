@@ -684,7 +684,11 @@ same material only, weighed by their world space distance. The pattern is turned
 (fixed, it made copies of the image; turned by interleaved gradient noise, faint stripes), which Scatter Denoise
 (`ComputeScatterDenoise`, the third compute entry point) cancels: interleaved sampling, each pixel the mean of its 4x4
 tile's neighbors on the same surface (same material, within 8 times their screen distance in world space), as many
-samples as the 16 pixels took; the multiscatter texture tints the light but not the profile, which has no texcoords there.
+samples as the 16 pixels took; the profile's albedo is each pixel's multiscatter color, factor times texture, which the Scatter pass writes as its second
+color attachment (`SHADER_TYPES_SCATTER_ALBEDO_TEXTURE`, srgb; `kScatterBlend`), since the blur has no texcoords: a darker
+texel absorbs sooner, so it diffuses less (up to 4 times), which `ScatterTexture.gltf` shows (a slab of bright and dark
+stripes between slabs of each color, whose stripes must look like them; the material's factor alone smeared the dark
+stripes into the bright). It cost nothing measurable, so it isn't a specialization.
 The main pass adds it (`SHADER_TYPES_SCATTER_LIGHT_TEXTURE`, else, where the scatter pass didn't draw the surface,
 `ScatterLight` in place) times `(1 - metallic) (1 - iridescence) (1 - transmission) (1 - clearcoat fresnel)`; all of the
 diffuse transmission's light is the scattering's. The volume (thickness, attenuation) is filled for diffuse transmission
@@ -751,7 +755,8 @@ accessors that are sparse, with and without base values; cgltf's `cgltf_accessor
 normalized short rotations and a mirroring instance, which must face the camera too; `BlendOrder.gltf`: blended quads
 listed nearest first (metallic, so they render dark); `BlendInstances.gltf`: a
 blended quad instanced in front of and behind another; `ManySamplers.gltf`: 36 quads with a sampler
-each, of every filter and wrap mode, more than the model sampler slots once were), and is always part
+each, of every filter and wrap mode, more than the model sampler slots once were; `ScatterTexture.gltf`: volume scatter's
+multiscatter texture, see above), and is always part
 of the printed paths, as is `scripts/test-assets/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
 its texture mirrored, which must both come out raised and lit from above, i.e. from the default light's side). Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are

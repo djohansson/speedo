@@ -96,6 +96,7 @@ private:
 	FrameGraph::ImageId myTransmission;
 	FrameGraph::ImageId myScatter;
 	FrameGraph::ImageId myScatterDepth;
+	FrameGraph::ImageId myScatterAlbedo;
 	FrameGraph::ImageId myScatterBackDepth;
 	FrameGraph::ImageId myScatterNoisy;
 	FrameGraph::ImageId myScatterLight;
