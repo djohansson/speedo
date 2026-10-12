@@ -741,7 +741,17 @@ also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it ex
 `SPEEDO_BACKGROUND=1` opens its window behind the others without taking the focus, so the runs don't interrupt whoever
 is working), failing
 on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
-profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. The client's
+profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. Both run in
+parallel: `assettest` checks its models and images on every thread (`CheckInOrder`: results printed in the serial order;
+`--jobs N`), and the script runs `-Jobs` clients at once (default 4), each worker with a user profile of its own
+(`<work>/user-<n>`: clients write pipeline caches, shader intermediates and asset caches there), a model always to the
+same worker (FNV-1a of its label), so its caches stay warm; on macos a new worker profile is an APFS clone (`cp -c`) of
+`<work>/user`, the serial runs' profile. Results print in the serial order. That took the full regression from about 30
+minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client, the script also used to wait a second in `caffeinate -u -t 1` to wake the
+display; it wakes it once now.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
+(`scripts/test-assets/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute); the full sets run
+before committing. `assettest.ps1` takes `.hdr` panoramas as inputs too, and runs a directory of one model's encodings
+given directly (a glTF sample model: its files all named after it) as one set, as when its parent is given. The client's
 main loop sleeps in `glfwWaitEvents()`, so anything that must end it from another thread goes through
 `RequestExit()`, which posts an empty event.
 

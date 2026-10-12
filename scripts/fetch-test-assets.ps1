@@ -21,6 +21,9 @@ what no downloaded model covers, e.g. sparse index accessors, or bump map tangen
 resources/test-assets (which git ignores, and the client's file dialogs open in). Files already there (and verified)
 are kept, so running it again only fetches what is missing.
 
+-Quick prints only the quick tier's paths (scripts/test-assets/quick.txt: a model or two per feature, for iterating),
+after fetching the sets as above.
+
 Prints the paths to pass to scripts/assettest.ps1 (progress and errors go to stderr), e.g.
   scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)
 Exits with 1 if anything failed.
@@ -32,7 +35,8 @@ param(
 	[string] $Dir,
 	[switch] $McGuire,
 	[switch] $Gltf,
-	[switch] $Environments
+	[switch] $Environments,
+	[switch] $Quick
 )
 
 $ErrorActionPreference = 'Stop'
@@ -239,6 +243,27 @@ if ($Environments)
 	}
 }
 
+if ($Quick)
+{
+	$paths.Clear()
+	foreach ($line in Get-Content (Join-Path $root 'scripts/test-assets/quick.txt'))
+	{
+		if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#'))
+		{
+			continue
+		}
+		$path = Join-Path $Dir $line.Trim()
+		if (Test-Path -LiteralPath $path)
+		{
+			$paths.Add($path)
+		}
+		else
+		{
+			Write-Message "quick tier: $path is missing"
+			$failed = $true
+		}
+	}
+}
 $paths.Add((Join-Path $root 'resources/test-models/gltf'))
 $paths.Add((Join-Path $root 'resources/test-models/obj'))
 

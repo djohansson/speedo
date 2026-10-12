@@ -1,0 +1,49 @@
+# the quick tier: fetch-test-assets.ps1 -Quick prints these (under the test asset dir) and the hand-made models in
+# resources/test-models, for iterating: a model or two per feature. run the full sets before committing.
+# materials: the KHR_materials_* extensions
+glTF-Sample-Assets/Models/MetalRoughSpheres
+glTF-Sample-Assets/Models/ClearCoatTest
+glTF-Sample-Assets/Models/SheenChair
+glTF-Sample-Assets/Models/TransmissionTest
+glTF-Sample-Assets/Models/DragonAttenuation
+glTF-Sample-Assets/Models/DispersionTest
+glTF-Sample-Assets/Models/IridescenceLamp
+glTF-Sample-Assets/Models/AnisotropyBarnLamp
+glTF-Sample-Assets/Models/DiffuseTransmissionPlant
+glTF-Sample-Assets/Models/ScatteringSkull
+glTF-Sample-Assets/Models/SpecularTest
+glTF-Sample-Assets/Models/IORTestGrid
+glTF-Sample-Assets/Models/EmissiveStrengthTest
+glTF-Sample-Assets/Models/UnlitTest
+glTF-Sample-Assets/Models/TrafficCone
+glTF-Sample-Assets/Models/MaterialsVariantsShoe
+glTF-Sample-Assets/Models/AlphaBlendModeTest
+# textures: transforms, samplers, texcoord sets, KTX2 and WebP
+glTF-Sample-Assets/Models/TextureTransformTest
+glTF-Sample-Assets/Models/TextureSettingsTest
+glTF-Sample-Assets/Models/MultiUVTest
+glTF-Sample-Assets/Models/StainedGlassLamp
+glTF-Sample-Assets/Models/CarConcept
+# geometry: normal maps and tangents, mirroring, primitive modes, sparse accessors, instancing, vertex colors
+glTF-Sample-Assets/Models/NormalTangentMirrorTest
+glTF-Sample-Assets/Models/NegativeScaleTest
+glTF-Sample-Assets/Models/MeshPrimitiveModes
+glTF-Sample-Assets/Models/SimpleSparseAccessor
+glTF-Sample-Assets/Models/SimpleInstancing
+glTF-Sample-Assets/Models/VertexColorTest
+# compression: Draco, meshopt, quantization
+glTF-Sample-Assets/Models/Avocado
+glTF-Sample-Assets/Models/BrainStem
+# animation: skins, morph targets, interpolation, animation pointers; cameras and lights
+glTF-Sample-Assets/Models/CesiumMan
+glTF-Sample-Assets/Models/AnimatedMorphCube
+glTF-Sample-Assets/Models/InterpolationTest
+glTF-Sample-Assets/Models/AnimationPointerUVs
+glTF-Sample-Assets/Models/Cameras
+glTF-Sample-Assets/Models/LightsPunctualLamp
+# obj: a set of variants side by side, and scenes with textures, bump maps and alpha masks
+mcguire/CornellBox.zip
+mcguire/sponza.zip
+mcguire/sibenik.zip
+# an environment with dominant lights
+glTF-Sample-Environments/neutral.hdr

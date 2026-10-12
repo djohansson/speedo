@@ -16,6 +16,14 @@ load failures, failed asserts or validation errors (validation needs a debug pre
 run (which is slow with a debug preset). The client needs a vulkan driver: set VK_DRIVER_FILES etc. as for running it
 by hand. On macOS the display is woken and kept awake while the client runs (glfw finds no monitors while it sleeps).
 
+Client runs go -Jobs at once (default 4), each worker with a user profile dir of its own under <work> (user-1 to
+user-N), and a model always to the same worker (by a hash of its name), whose caches stay warm. On macOS a new worker's
+dir starts as a copy-on-write clone of <work>/user if that exists (the profile dir of serial runs), warm too. Results are printed in
+the order of a serial run. assettest checks its models and images on all of the cpu's threads.
+
+Inputs are directories, zip archives and panoramas (.hdr). scripts/fetch-test-assets.ps1 -Quick prints a smaller set,
+a model or two per feature, for iterating.
+
 The preset defaults to the first configured release preset (else any) in build/. The client exits SPEEDO_AUTOLOAD_EXIT
 (default 30) frames after its loads have finished, and is killed after ASSETTEST_CLIENT_TIMEOUT (default 600) seconds.
 
@@ -24,11 +32,14 @@ Exits with 1 if anything failed. Logs are kept under <work>/logs.
 .EXAMPLE
 scripts/assettest.ps1 -ClientOnly -Preset arm64-osx-clang-debug -Work /tmp/work (scripts/fetch-test-assets.ps1)
 #>
+# the named parameters aren't positional: everything else is an input
+[CmdletBinding(PositionalBinding = $false)]
 param(
 	[switch] $Client,
 	[switch] $ClientOnly,
 	[string] $Preset,
 	[string] $Work,
+	[int] $Jobs = 4,
 	[Parameter(ValueFromRemainingArguments = $true)] [string[]] $Inputs
 )
 
@@ -39,10 +50,11 @@ if ($ClientOnly)
 	$Client = $true
 }
 $check = -not $ClientOnly
+$Jobs = [Math]::Max(1, $Jobs)
 
 if (-not $Inputs -or $Inputs.Count -eq 0)
 {
-	[Console]::Error.WriteLine('usage: scripts/assettest.ps1 [-Client | -ClientOnly] [-Preset <name>] [-Work <dir>] <zip or directory>...')
+	[Console]::Error.WriteLine('usage: scripts/assettest.ps1 [-Client | -ClientOnly] [-Preset <name>] [-Work <dir>] [-Jobs <n>] <zip, panorama or directory>...')
 	exit 2
 }
 
@@ -131,6 +143,7 @@ function Get-FirstImage([string] $Directory, [switch] $Shallow)
 $dirs = [System.Collections.Generic.List[string]]::new()
 $setArchives = [System.Collections.Generic.List[string]]::new() # zip archives of several models (sets of variants), which the client loads as one, side by side
 $setFolders = [System.Collections.Generic.List[string]]::new() # the same for the subdirectories of a directory, e.g. a gltf sample model's encodings
+$environmentFiles = [System.Collections.Generic.List[string]]::new() # panoramas given on their own
 foreach ($item in $Inputs)
 {
 	if (Test-Path -LiteralPath $item -PathType Container)
@@ -138,6 +151,16 @@ foreach ($item in $Inputs)
 		$dir = (Get-Item -LiteralPath $item).ResolvedTarget
 		if (-not $dir) { $dir = (Resolve-Path -LiteralPath $item).Path }
 		$dirs.Add($dir)
+		# a directory of a model's encodings given directly (a gltf sample model: its files, in subdirectories, all named
+		# after it): one run, as when its parent is given
+		$encodings = @(Get-Models $dir)
+		$name = Split-Path $dir -Leaf
+		if (@(Get-Models $dir -Shallow).Count -eq 0 -and $encodings.Count -gt 1 -and
+			@($encodings | Where-Object { [IO.Path]::GetFileNameWithoutExtension($_) -ne $name }).Count -eq 0)
+		{
+			$setFolders.Add($dir)
+			continue
+		}
 		foreach ($sub in Get-ChildItem -LiteralPath $dir -Directory)
 		{
 			if (@(Get-Models $sub.FullName).Count -gt 1)
@@ -145,6 +168,10 @@ foreach ($item in $Inputs)
 				$setFolders.Add($sub.FullName)
 			}
 		}
+	}
+	elseif ($item -like '*.hdr' -and (Test-Path -LiteralPath $item -PathType Leaf))
+	{
+		$environmentFiles.Add((Resolve-Path -LiteralPath $item).Path)
 	}
 	elseif ($item -like '*.zip' -and (Test-Path -LiteralPath $item -PathType Leaf))
 	{
@@ -172,7 +199,7 @@ foreach ($item in $Inputs)
 	}
 	else
 	{
-		[Console]::Error.WriteLine("not a zip archive or directory: $item")
+		[Console]::Error.WriteLine("not a zip archive, panorama (.hdr) or directory: $item")
 		exit 2
 	}
 }
@@ -181,7 +208,7 @@ $failed = $false
 
 if ($check)
 {
-	& $assettest @dirs | Tee-Object -FilePath (Join-Path $Work 'logs/assettest.log')
+	& $assettest @dirs @environmentFiles | Tee-Object -FilePath (Join-Path $Work 'logs/assettest.log')
 	if ($LASTEXITCODE -ne 0)
 	{
 		$failed = $true
@@ -213,73 +240,147 @@ if ($Client)
 	$script:pass = 0
 	$script:fail = 0
 
-	# runs the client on a model (a file, or a zip archive), drawn with image on the default material if given, and lit by
-	# an environment panorama if given (else the procedural sky)
-	function Invoke-Client([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '')
+	# the client runs, queued by Add-ClientRun and run by Invoke-ClientRuns: $Jobs at once, each worker with a user profile
+	# of its own (<work>/user-<n>: clients write their pipeline cache, shader intermediates and asset caches there), a
+	# run always going to the same worker (by a hash of its label), whose caches stay warm from one test to the next
+	$script:runs = [System.Collections.Generic.List[object]]::new()
+
+	# queues a client run on a model (a file, or a zip archive), drawn with image on the default material if given, and lit
+	# by an environment panorama if given (else the procedural sky)
+	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '')
 	{
-		$log = Join-Path $Work "logs/client-$Label.log"
-		$errorLog = "$log.stderr"
-
-		# glfw finds no monitors while the display sleeps (on macos), and the client then fails to start: wake it, and
-		# keep it awake while the client runs
-		if ($caffeinate)
+		# FNV-1a, stable across runs (string hash codes are randomized per process)
+		[uint32] $hash = 2166136261
+		foreach ($byte in [Text.Encoding]::UTF8.GetBytes($Label))
 		{
-			& $caffeinate -u -t 1
+			$hash = [uint32](([uint64]($hash -bxor $byte) * 16777619) % 4294967296)
 		}
+		$script:runs.Add([pscustomobject]@{
+			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; Worker = [int]($hash % [uint32]$Jobs) + 1
+			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $Work "logs/client-$Label.log"); Done = $false; Lines = @()
+		})
+	}
 
-		$start = Get-Date
-		$env:SPEEDO_AUTOLOAD_MODEL = $Model
-		$env:SPEEDO_AUTOLOAD_IMAGE = $Image
-		$env:SPEEDO_AUTOLOAD_ENVIRONMENT = $Environment
+	function Start-ClientRun($Run)
+	{
+		$Run.Start = Get-Date
+		$env:SPEEDO_AUTOLOAD_MODEL = $Run.Model
+		$env:SPEEDO_AUTOLOAD_IMAGE = $Run.Image
+		$env:SPEEDO_AUTOLOAD_ENVIRONMENT = $Run.Environment
 		try
 		{
-			$process = Start-Process -FilePath $clientExe -ArgumentList '-u', "`"$(Join-Path $Work 'user')`"" -PassThru -NoNewWindow `
-				-RedirectStandardOutput $log -RedirectStandardError $errorLog
+			$user = Join-Path $Work "user-$($Run.Worker)"
+			$Run.Process = Start-Process -FilePath $clientExe -ArgumentList '-u', "`"$user`"" -PassThru -NoNewWindow `
+				-RedirectStandardOutput $Run.Log -RedirectStandardError "$($Run.Log).stderr"
 		}
 		finally
 		{
 			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT -ErrorAction SilentlyContinue
 		}
-		$null = $process.Handle # keeps the exit code available after the process exits (windows)
-		$awake = if ($caffeinate) { Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $process.Id -PassThru } else { $null }
+		$null = $Run.Process.Handle # keeps the exit code available after the process exits (windows)
+		# glfw finds no monitors while the display sleeps (on macos), and the client then fails to start: keep it awake
+		# while the client runs
+		$Run.Awake = if ($caffeinate) { Start-Process -FilePath $caffeinate.Source -ArgumentList '-d', '-i', '-w', $Run.Process.Id -PassThru } else { $null }
+	}
 
-		$timedOut = -not $process.WaitForExit($timeout * 1000)
-		if ($timedOut)
+	# collects a finished (or timed out) run's result into its lines
+	function Complete-ClientRun($Run, [bool] $TimedOut)
+	{
+		if ($TimedOut)
 		{
-			$process.Kill($true)
-			$process.WaitForExit()
+			$Run.Process.Kill($true)
+			$Run.Process.WaitForExit()
 		}
-		if ($awake -and -not $awake.HasExited)
+		if ($Run.Awake -and -not $Run.Awake.HasExited)
 		{
-			$awake.Kill()
+			$Run.Awake.Kill()
 		}
 
 		# one log: what the client printed to stdout, then to stderr
-		if (Test-Path -LiteralPath $errorLog)
+		$log = $Run.Log
+		if (Test-Path -LiteralPath "$log.stderr")
 		{
-			Get-Content -LiteralPath $errorLog | Add-Content -LiteralPath $log
-			Remove-Item -LiteralPath $errorLog
+			Get-Content -LiteralPath "$log.stderr" | Add-Content -LiteralPath $log
+			Remove-Item -LiteralPath "$log.stderr"
 		}
-		if ($timedOut)
+		if ($TimedOut)
 		{
 			Add-Content -LiteralPath $log "timed out after ${timeout}s"
 		}
-		$status = $process.ExitCode
-		$seconds = [int]((Get-Date) - $start).TotalSeconds
+		$status = $Run.Process.ExitCode
+		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
+		$name = if ($Run.Model) { $Run.Model } else { $Run.Environment }
 
 		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
 			ForEach-Object { '{0,7} {1}' -f $_.Count, $_.Name })
 		if ($status -ne 0 -or $problems.Count -gt 0)
 		{
-			Write-Output "FAIL client $(if ($Model) { $Model } else { $Environment }) (exit $status, ${seconds}s, log: $log)"
-			$problems | ForEach-Object { Write-Output "    $_" }
+			$Run.Lines = @("FAIL client $name (exit $status, ${seconds}s, log: $log)") + @($problems | ForEach-Object { "    $_" })
 			$script:fail++
 		}
 		else
 		{
-			Write-Output "PASS client $(if ($Model) { $Model } else { $Environment }) (${seconds}s)"
+			$Run.Lines = @("PASS client $name (${seconds}s)")
 			$script:pass++
+		}
+		$Run.Done = $true
+	}
+
+	# runs the queued runs, one at a time per worker, and prints their results in the order they were queued
+	function Invoke-ClientRuns
+	{
+		# a new worker's profile starts as a copy of the serial runs' (<work>/user), on macos as a clone (copy-on-write, so
+		# it takes no time or space until it changes), so that its caches are warm
+		$shared = Join-Path $Work 'user'
+		foreach ($worker in 1..$Jobs)
+		{
+			$user = Join-Path $Work "user-$worker"
+			if ($IsMacOS -and -not (Test-Path -LiteralPath $user) -and (Test-Path -LiteralPath $shared))
+			{
+				& cp -c -R $shared $user
+			}
+		}
+
+		# wake the display once (each run then keeps it awake)
+		if ($caffeinate)
+		{
+			& $caffeinate -u -t 1
+		}
+		$queues = @{}
+		foreach ($run in $script:runs)
+		{
+			if (-not $queues.ContainsKey($run.Worker))
+			{
+				$queues[$run.Worker] = [System.Collections.Generic.Queue[object]]::new()
+			}
+			$queues[$run.Worker].Enqueue($run)
+		}
+		$running = @{}
+		$printed = 0
+		while ($printed -lt $script:runs.Count)
+		{
+			foreach ($worker in @($queues.Keys))
+			{
+				$run = $running[$worker]
+				if ($run -and ($run.Process.HasExited -or ((Get-Date) - $run.Start).TotalSeconds -gt $timeout))
+				{
+					Complete-ClientRun $run (-not $run.Process.HasExited)
+					$running.Remove($worker)
+					$run = $null
+				}
+				if (-not $run -and $queues[$worker].Count -gt 0)
+				{
+					$running[$worker] = $queues[$worker].Dequeue()
+					Start-ClientRun $running[$worker]
+				}
+			}
+			while ($printed -lt $script:runs.Count -and $script:runs[$printed].Done)
+			{
+				$script:runs[$printed].Lines | ForEach-Object { Write-Output $_ }
+				$printed++
+			}
+			Start-Sleep -Milliseconds 50
 		}
 	}
 
@@ -291,12 +392,12 @@ if ($Client)
 		$name = [IO.Path]::GetFileNameWithoutExtension($archive)
 		$dir = Join-Path $Work "assets/$name"
 		$setDirs.Add($dir)
-		Invoke-Client $archive (Get-FirstImage $dir) $name
+		Add-ClientRun $archive (Get-FirstImage $dir) $name
 	}
 	foreach ($folder in $setFolders)
 	{
 		$setDirs.Add($folder)
-		Invoke-Client $folder '' ((Split-Path $folder -Leaf) -replace ' ', '_')
+		Add-ClientRun $folder '' ((Split-Path $folder -Leaf) -replace ' ', '_')
 	}
 
 	$models = Sort-Ordinal @($dirs | ForEach-Object { Get-Models $_ })
@@ -310,16 +411,19 @@ if ($Client)
 		# an obj model's textures can be missing, so it is drawn with an image next to it on the default material
 		$dir = Split-Path $model
 		$image = if ([IO.Path]::GetExtension($model) -eq '.obj') { Get-FirstImage $dir -Shallow } else { '' }
-		Invoke-Client $model $image ("{0}-{1}" -f (Split-Path $dir -Leaf), ((Split-Path $model -Leaf) -replace ' ', '_'))
+		Add-ClientRun $model $image ("{0}-{1}" -f (Split-Path $dir -Leaf), ((Split-Path $model -Leaf) -replace ' ', '_'))
 	}
 
 	# the environment panoramas, each on its own
-	$environments = Sort-Ordinal @($dirs | ForEach-Object {
-		Get-ChildItem -LiteralPath $_ -File -Recurse -Filter '*.hdr' | Where-Object { -not $_.Name.StartsWith('._') } | ForEach-Object FullName })
+	$environments = Sort-Ordinal @(@($dirs | ForEach-Object {
+		Get-ChildItem -LiteralPath $_ -File -Recurse -Filter '*.hdr' | Where-Object { -not $_.Name.StartsWith('._') } | ForEach-Object FullName }) +
+		$environmentFiles)
 	foreach ($environment in $environments)
 	{
-		Invoke-Client '' '' ("environment-{0}" -f [IO.Path]::GetFileNameWithoutExtension($environment)) $environment
+		Add-ClientRun '' '' ("environment-{0}" -f [IO.Path]::GetFileNameWithoutExtension($environment)) $environment
 	}
+
+	Invoke-ClientRuns
 
 	Write-Output "client: $script:pass pass, $script:fail fail."
 	if ($script:fail -gt 0)

@@ -163,6 +163,10 @@ pwsh scripts/assettest.ps1 -Client -Preset arm64-osx-clang-profile -Work <work d
   imports everything and is slow, later runs are much faster.
 - **The full regression:** run the `profile` preset first, then `debug` with `-ClientOnly` and the same `-Work`
   directory. Validation only runs in debug, which imports slowly, so it reuses the caches profile filled.
+- **Speed:** `assettest` uses every CPU thread, and the script runs four clients at once (`-Jobs <n>` to change it).
+  For quick checks while iterating, `scripts/fetch-test-assets.ps1 -Quick` prints a smaller set, a model or two per
+  feature (`scripts/test-assets/quick.txt`), which runs in about a minute:
+  `scripts/assettest.ps1 -Client -Preset arm64-osx-clang-profile -Work <work dir> (scripts/fetch-test-assets.ps1 -Quick)`.
 - **Background windows:** the client windows it opens stay behind your other windows and don't take focus, so you can
   keep working while it runs.
 - **Results:** each group of checks ends in a pass/warn/fail summary. Warnings are known problems in the source assets.

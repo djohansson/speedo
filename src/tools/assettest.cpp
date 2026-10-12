@@ -25,13 +25,18 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iterator>
+#include <mutex>
 #include <numbers>
 #include <optional>
 #include <print>
@@ -1110,12 +1115,50 @@ void Print(const std::filesystem::path& path, const Report& report, std::chrono:
 		std::println("    {}", note);
 }
 
+// runs check(i) for each i below count on jobs threads, and hands the results to report(i, result) on the calling
+// thread in order, as soon as each is in: the report reads as a serial run's (the checks don't share state)
+template <typename ResultType>
+void CheckInOrder(
+	size_t count, unsigned jobs, const std::function<ResultType(size_t)>& check, const std::function<void(size_t, ResultType&)>& report)
+{
+	std::vector<std::optional<ResultType>> results(count);
+	std::mutex mutex;
+	std::condition_variable done;
+	std::atomic_size_t next = 0;
+	std::vector<std::jthread> workers;
+	for (size_t workerIt = 0; workerIt < std::min<size_t>(jobs, count); workerIt++)
+		workers.emplace_back(
+			[&]
+			{
+				for (size_t index = next++; index < count; index = next++)
+				{
+					auto result = check(index);
+					{
+						std::scoped_lock lock(mutex);
+						results[index] = std::move(result);
+					}
+					done.notify_one();
+				}
+			});
+	for (size_t index = 0; index < count; index++)
+	{
+		std::unique_lock lock(mutex);
+		done.wait(lock, [&results, index] { return results[index].has_value(); });
+		auto result = std::move(*results[index]);
+		results[index].reset();
+		lock.unlock();
+		report(index, result);
+	}
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
 {
 	bool models = true;
 	bool images = true;
+	// how many models or images are checked at once (--jobs N): a thread each, by default the hardware's
+	unsigned jobs = std::max(1U, std::thread::hardware_concurrency());
 	bool archiveFailed = false;
 	// extracts the zip archives given, an entry per thread (see core::zip::ExtractAll)
 	core::TaskExecutor zipExecutor(std::max(1U, std::thread::hardware_concurrency()));
@@ -1134,6 +1177,11 @@ int main(int argc, char* argv[])
 		if (arg == "--images-only")
 		{
 			models = false;
+			continue;
+		}
+		if (arg == "--jobs" && argIt + 1 < argc)
+		{
+			jobs = std::max(1, std::atoi(argv[++argIt])); //NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 			continue;
 		}
 
@@ -1209,19 +1257,35 @@ int main(int argc, char* argv[])
 		// by the directory above theirs and their (lower case) name: the encodings of a model
 		core::UnorderedMap<std::string, std::vector<std::pair<std::filesystem::path, ModelSummary>>> encodings;
 
-		for (const auto& path : modelFiles)
+		struct ModelCheck
 		{
-			auto start = std::chrono::steady_clock::now();
+			Report report;
 			ImageChecks textures;
 			std::optional<ModelSummary> summary;
-			auto report = CheckModel(path, textures, summary);
-			Print(path, report, std::chrono::steady_clock::now() - start);
-			Count(modelResults, report.result)++;
-			if (images)
-				imageFiles.insert(textures.begin(), textures.end());
-			if (auto model = path.parent_path().parent_path(); summary && Lower(model.filename().string()) == Lower(path.stem().string()))
-				encodings[(model / Lower(path.stem().string())).string()].emplace_back(path, *summary);
-		}
+			std::chrono::duration<double> time{};
+		};
+		CheckInOrder<ModelCheck>(
+			modelFiles.size(),
+			jobs,
+			[&modelFiles](size_t index)
+			{
+				auto start = std::chrono::steady_clock::now();
+				ModelCheck check;
+				check.report = CheckModel(modelFiles[index], check.textures, check.summary);
+				check.time = std::chrono::steady_clock::now() - start;
+				return check;
+			},
+			[&](size_t index, ModelCheck& check)
+			{
+				const auto& path = modelFiles[index];
+				Print(path, check.report, check.time);
+				Count(modelResults, check.report.result)++;
+				if (images)
+					imageFiles.insert(check.textures.begin(), check.textures.end());
+				if (auto model = path.parent_path().parent_path();
+					check.summary && Lower(model.filename().string()) == Lower(path.stem().string()))
+					encodings[(model / Lower(path.stem().string())).string()].emplace_back(path, *check.summary);
+			});
 
 		// in order, for a stable report
 		std::vector<std::string> models;
@@ -1251,14 +1315,23 @@ int main(int argc, char* argv[])
 		for (const auto& [key, check] : imageFiles)
 			checks.push_back(check);
 		std::ranges::sort(checks);
-		for (const auto& [path, embeddedImage, usage, bumpScale] : checks)
-		{
-			auto start = std::chrono::steady_clock::now();
-			auto report = CheckImage(path, embeddedImage, {.usage = usage, .bumpScale = bumpScale});
-			Print(embeddedImage ? std::filesystem::path(std::format("{}#image{}", path.string(), *embeddedImage)) : path, report,
-				  std::chrono::steady_clock::now() - start);
-			Count(imageResults, report.result)++;
-		}
+		CheckInOrder<std::pair<Report, std::chrono::duration<double>>>(
+			checks.size(),
+			jobs,
+			[&checks](size_t index)
+			{
+				const auto& [path, embeddedImage, usage, bumpScale] = checks[index];
+				auto start = std::chrono::steady_clock::now();
+				auto report = CheckImage(path, embeddedImage, {.usage = usage, .bumpScale = bumpScale});
+				return std::pair{std::move(report), std::chrono::duration<double>(std::chrono::steady_clock::now() - start)};
+			},
+			[&](size_t index, std::pair<Report, std::chrono::duration<double>>& check)
+			{
+				const auto& [path, embeddedImage, usage, bumpScale] = checks[index];
+				Print(embeddedImage ? std::filesystem::path(std::format("{}#image{}", path.string(), *embeddedImage)) : path, check.first,
+					  check.second);
+				Count(imageResults, check.first.result)++;
+			});
 	}
 
 	// the procedural sky (the client's default environment), and the environment files
