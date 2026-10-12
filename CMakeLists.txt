@@ -94,7 +94,7 @@ endif()
 
 ###############################################################################
 
-file(GLOB CORE_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/core/*.cpp)
+file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/core/*.cpp)
 add_library(core STATIC	${CORE_SOURCE_FILES})
 target_compile_features(
 	core
@@ -128,7 +128,7 @@ target_link_libraries(
 
 # windows and the window system: the windowed application base (its window, main thread work, exit wake-ups), the file
 # dialogs and imgui's platform side, between core and rhi (whose surfaces are made for the platform's windows)
-file(GLOB PLATFORM_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/platform/*.cpp)
+file(GLOB PLATFORM_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/platform/*.cpp)
 add_library(platform STATIC ${PLATFORM_SOURCE_FILES})
 
 target_compile_features(
@@ -154,7 +154,7 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB_RECURSE GFX_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
+file(GLOB_RECURSE GFX_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
 add_library(gfx STATIC ${GFX_SOURCE_FILES})
 
 target_compile_features(
@@ -221,7 +221,7 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB_RECURSE RHI_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/rhi/*.cpp)
+file(GLOB_RECURSE RHI_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/rhi/*.cpp)
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
 
 target_compile_features(
@@ -255,7 +255,7 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB SERVERLIB_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/server/*.cpp)
+file(GLOB SERVERLIB_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/server/*.cpp)
 add_library(serverlib STATIC ${SERVERLIB_SOURCE_FILES})
 
 set_property(
@@ -289,7 +289,7 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB CLIENTLIB_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/client/*.cpp)
+file(GLOB CLIENTLIB_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/client/*.cpp)
 add_library(clientlib STATIC ${CLIENTLIB_SOURCE_FILES})
 
 set_property(
@@ -319,7 +319,7 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB SERVER_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/server/*.c)
+file(GLOB SERVER_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/server/*.c)
 add_executable(server ${SERVER_SOURCE_FILES})
 
 target_compile_features(
@@ -352,7 +352,7 @@ endif()
 
 ###############################################################################
 
-file(GLOB CLIENT_SOURCE_FILES ${SPEEDO_SOURCE_DIR}/client/*.c)
+file(GLOB CLIENT_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/client/*.c)
 add_executable(client ${CLIENT_SOURCE_FILES})
 
 target_compile_features(
