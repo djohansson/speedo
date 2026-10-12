@@ -8,9 +8,9 @@ Notes for working in this codebase, distilled from real build failures.
   minimized; `WindowHandle`/`WindowState`/`CreateWindowFunc` in `platform/capi.h`, with `GetCurrentWindow`/
   `SetCurrentWindow` and the C entry points the client's glfw callbacks call), `platform::WindowedApplication` (makes the
   window with the client's `CreateWindowFunc`, runs `mainCalls` on the main thread in `Main`, wakes the main loop on
-  `RequestExit`, tracks minimizing in `OnResizeFramebuffer`), the file dialogs (`platform/filedialog.h`, nfd) and imgui's
-  platform side (`platform::imgui`, imgui's glfw backend). It links glfw, nfd and imgui privately, and knows nothing of
-  graphics: the server, which has no windows, doesn't link it.
+  `RequestExit`, tracks minimizing in `OnResizeFramebuffer`) and imgui's platform side (`platform::imgui`, imgui's glfw
+  backend). It links glfw and imgui privately, and knows nothing of graphics (no native file dialogs: the client's file
+  browser replaced nfd's): the server, which has no windows, doesn't link it.
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
@@ -37,7 +37,7 @@ Notes for working in this codebase, distilled from real build failures.
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
   views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`. The browser itself
-  (File > Browse..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`) lists a folder's subfolders and the
+  (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`) lists a folder's subfolders and the
   files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
   click selection, double click (or enter) to open or enter, and the arrow keys to step through them (scrolled into
   view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
@@ -49,7 +49,7 @@ Notes for working in this codebase, distilled from real build failures.
   (one preview load at a time, the latest selection's next; a model after a panorama brings the procedural sky back), and
   opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
   several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
-  `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_RECURSIVE=0`,
+  `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
   `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
   startup, for tests and screenshots. Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
   one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 16x16, reused least
@@ -790,9 +790,9 @@ thread step, after the textures are transitioned: every change to `gTextures` ta
 and the pool only holds 128 copies of that 1024 slot array. Installing a model also sets the views to its first camera,
 or frames them on its bounds (`Views::SetScene`, `Views::FrameBounds`).
 
-File > "Open File..." loads models, zip archives, environments (`.hdr`) and images, by their type
-(`LoadAndInstallFile`), and "Browse..." opens the file browser (several of a folder's models at once, side by side or as
-authored); View > Environment picks the procedural sky or opens
+File > "Open..." is the file browser, which loads models, zip archives, environments (`.hdr`) and images, by their type
+(`LoadAndInstallFile`), and several models at once (side by side or as authored); View > Environment > Open
+Environment... is the same browser for panoramas only (`BrowserPurpose::kEnvironment`, with listing options of its own); View > Environment picks the procedural sky or opens
 a panorama. `SPEEDO_AUTOLOAD_MODEL`, `SPEEDO_AUTOLOAD_IMAGE` and `SPEEDO_AUTOLOAD_ENVIRONMENT` take paths absolute or
 relative to the resource directory (without an environment, the procedural sky loads, as one of the autoloads). Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `core::zip` (`core/zip.h`: our own
@@ -824,7 +824,7 @@ The test sets come from their sources, not from local copies: `scripts/fetch-tes
 Computer Graphics Archive (obj, about 2.7 GB), the Khronos glTF-Sample-Assets models (at a pinned commit, about
 2.3 GB) and the Khronos glTF-Sample-Environments panoramas (about 400 MB; Git LFS files, downloaded from GitHub's LFS
 media server at a pinned commit and checked against `scripts/test-assets/environments.txt`, the sizes and sha256s of
-their LFS pointers; `assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) into `resources/test-assets` (gitignored; the client's file dialogs open there; or `$SPEEDO_TEST_ASSETS`), and
+their LFS pointers; `assettest` checks each, and `assettest.ps1 -Client` runs the client once per panorama) into `resources/test-assets` (gitignored; the client's file browser opens there; or `$SPEEDO_TEST_ASSETS`), and
 prints the paths to test:
 `scripts/assettest.ps1 -Client (scripts/fetch-test-assets.ps1)` (from pwsh; from another shell,
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). The archive publishes no versions or checksums and
@@ -878,8 +878,8 @@ kernel api); other headers keep `<windows.h>` out (see `core/profiling.h`).
 forwarding references, so an **lvalue argument is stored as a reference**, not copied. The task
 usually runs later, so passing a local or a function parameter as an lvalue leaves a dangling
 reference (typically read back as mimalloc's freed-memory pattern `0xdfdf...`). Pass arguments that
-must outlive the call as rvalues — `std::move(x)` or an explicit copy like `std::vector(x)` — as
-`WindowedApplication::InternalOpenFileDialogueAsync` does. Only pass lvalues when the reference is
+must outlive the call as rvalues — `std::move(x)` or an explicit copy like `std::vector(x)` — or capture them by
+value in the callable, as `core::LoadQueue::Enqueue` does. Only pass lvalues when the reference is
 intended and the referee outlives the task (e.g. the `Rpc` tasks' socket/poller, which are members
 of the client/server object).
 

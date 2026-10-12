@@ -80,7 +80,6 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(slang CONFIG REQUIRED)
 find_package(Cargs CONFIG REQUIRED)
 find_package(mimalloc CONFIG REQUIRED)
-find_package(nfd CONFIG REQUIRED)
 find_package(WebP CONFIG REQUIRED)
 find_package(Ktx CONFIG REQUIRED)
 find_package(draco CONFIG REQUIRED)
@@ -138,7 +137,6 @@ target_link_libraries(
 # windows and the window system: the windowed application base (its window, main thread work, exit wake-ups), the file
 # dialogs and imgui's platform side, between core and rhi (whose surfaces are made for the platform's windows)
 set(PLATFORM_SOURCE_FILES
-	${SPEEDO_SOURCE_DIR}/platform/filedialog.cpp
 	${SPEEDO_SOURCE_DIR}/platform/imguiplatform.cpp
 	${SPEEDO_SOURCE_DIR}/platform/windowedapplication.cpp)
 add_library(platform STATIC ${PLATFORM_SOURCE_FILES})
@@ -161,7 +159,6 @@ target_link_libraries(
 	PRIVATE
 		glfw
 		imgui::imgui
-		nfd::nfd
 )
 
 ###############################################################################

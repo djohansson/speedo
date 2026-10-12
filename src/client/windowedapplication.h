@@ -8,7 +8,6 @@
 #include "preview.h"
 #include "thumbnails.h"
 
-#include <platform/filedialog.h>
 #include <platform/windowedapplication.h>
 
 #include <core/loadqueue.h>
@@ -68,21 +67,10 @@ protected:
 		CreateWindowFunc createWindowFunc);
 
 private:
-	// the file browser (File > Browse...): folders and the files the client loads as tiles, with multi-select, the
+	// the file browser (File > Open...): folders and the files the client loads as tiles, with multi-select, the
 	// selection previewed off-screen (see Preview), and opened side by side or as authored. ui thread, in PrepareDraw
 	void InternalDrawBrowser();
 
-	template <typename LoadOp>
-	void InternalOpenFileDialogueAsync(
-		std::string&& resourcePathString,
-		const std::vector<platform::FileFilter>& filterList,
-		LoadOp loadOp);
-	template <typename LoadOp>
-	void InternalOpenFolderDialogueAsync(std::string&& startPathString, LoadOp loadOp);
-	// shows dialogue() (returning whether something was chosen, and its path) on the main thread, and queues
-	// loadOp(path, progress) as a load (see gLoads) if something was
-	template <typename Dialogue, typename LoadOp>
-	void InternalDialogueAsync(Dialogue dialogue, LoadOp loadOp);
 	
 	std::unique_ptr<gfx::RHI> myRHI;
 	std::unique_ptr<gfx::Views> myViews; // of the window
@@ -108,4 +96,3 @@ private:
 
 } // namespace client
 
-#include "windowedapplication.inl"

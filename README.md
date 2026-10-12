@@ -25,8 +25,8 @@ and ennis panoramas from glTF-Sample-Environments.*
 
 ### Using the client
 
-- **File > Open File...** loads models (`.gltf`, `.glb`, `.obj`), zip archives of models, environments (`.hdr`) and
-  images. **File > Browse...** opens a file browser with thumbnails: it previews the model, image or panorama you click (or step to with the
+- **File > Open...** opens a file browser with thumbnails for models (`.gltf`, `.glb`, `.obj`), zip archives of
+  models, environments (`.hdr`) and images: it previews the model, image or panorama you click (or step to with the
   arrow keys), can list every file below a folder at once ("Include subfolders") filtered by kind, and opens one or
   several files (several models side by side, or as authored when they are parts of one scene).
 - **Moving around:** hold the left mouse button and drag to look around, use `W`/`A`/`S`/`D` to move, and the scroll
@@ -200,7 +200,7 @@ window also shows GPU time per render pass, the frame graph's memory, and counts
 | Path | Contents |
 |------|----------|
 | `src/core` | Foundations: the task executor, futures, memory pools, file and path helpers, the application base class. |
-| `src/platform` | The window system: windows, the windowed application base (its main loop's work, exit wake-ups), file dialogs, imgui's platform side. |
+| `src/platform` | The window system: windows, the windowed application base (its main loop's work, exit wake-ups), imgui's platform side. |
 | `src/rhi` | The graphics abstraction over Vulkan: devices, queues, command buffers, buffers, images, pipelines, the swapchain. |
 | `src/gfx` | Everything above the rhi: importers, models, textures, environments, cameras and views, the frame graph and renderer, the shaders (`src/gfx/shaders`, Slang), the scene, and the imgui layer. |
 | `src/client`, `src/server` | The two programs: the client's windowed application (frame loop, user interface, loading) and its connection to the server. |

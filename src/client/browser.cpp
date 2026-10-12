@@ -3,6 +3,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cctype>
 #include <cstdlib>
@@ -167,7 +168,12 @@ struct State
 	std::optional<size_t> scrollTo; // the entry the arrow keys moved to, scrolled into view when drawn
 	bool sideBySide = true;
 	bool listed = false;
-	ListOptions options;
+	ListOptions options; // the current purpose's (see BrowserPurpose)
+	windowedapplication::BrowserPurpose purpose = windowedapplication::BrowserPurpose::kFiles;
+	// each purpose's, while another's are current: an environment's lists every panorama below the folder
+	std::array<ListOptions, 2> purposeOptions{
+		ListOptions{},
+		ListOptions{.recursive = true, .models = false, .archives = false, .images = false, .environments = true}};
 	std::shared_ptr<Listing> listing; // the listing in progress, if any (a newer one replaces it, which drops its result)
 
 	// the preview (see Preview): its image's texture, what it shows, and what it should. one load at a time, the
@@ -270,6 +276,9 @@ void WindowedApplication::InternalDrawBrowser()
 			state.directory = resourcePath / browse;
 			gShowBrowser = true;
 		}
+		// SPEEDO_BROWSE_ENVIRONMENT=1: for an environment (as View > Environment > Open Environment...)
+		if (const char* environment = std::getenv("SPEEDO_BROWSE_ENVIRONMENT"); environment != nullptr && std::string_view(environment) == "1")
+			gBrowserPurpose = BrowserPurpose::kEnvironment;
 		// SPEEDO_BROWSE_RECURSIVE=0: without subfolders, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas> the
 		// kinds listed (by default every model below the folder)
 		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && *recursive != '\0')
@@ -289,6 +298,16 @@ void WindowedApplication::InternalDrawBrowser()
 		SetPreviewVisible(false);
 		return;
 	}
+
+	// a new purpose: its own options, and a new listing
+	if (gBrowserPurpose != state.purpose)
+	{
+		state.purposeOptions[static_cast<size_t>(state.purpose)] = state.options;
+		state.purpose = gBrowserPurpose;
+		state.options = state.purposeOptions[static_cast<size_t>(state.purpose)];
+		state.listed = false;
+	}
+	const bool environment = state.purpose == BrowserPurpose::kEnvironment;
 
 	auto navigate = [&state](std::filesystem::path directory)
 	{
@@ -391,7 +410,7 @@ void WindowedApplication::InternalDrawBrowser()
 		open();
 
 	SetNextWindowSize(ImVec2(1000, 640), ImGuiCond_FirstUseEver);
-	if (Begin("Browse", &gShowBrowser))
+	if (Begin(environment ? "Open Environment###Browser" : "Open###Browser", &gShowBrowser))
 	{
 		// where: up, and the path's parts, each a way back
 		if (Button("Up") && state.directory.has_parent_path() && state.directory.parent_path() != state.directory)
@@ -419,6 +438,7 @@ void WindowedApplication::InternalDrawBrowser()
 		Checkbox("Include subfolders", &options.recursive);
 		SetItemTooltip("Lists the files in every folder below this one, rather than its folders.");
 		SameLine();
+		BeginDisabled(environment);
 		Checkbox("Models", &options.models);
 		SameLine();
 		Checkbox("Archives", &options.archives);
@@ -426,6 +446,7 @@ void WindowedApplication::InternalDrawBrowser()
 		Checkbox("Images", &options.images);
 		SameLine();
 		Checkbox("Panoramas", &options.environments);
+		EndDisabled();
 		if (options != state.options)
 		{
 			state.options = options;
@@ -680,15 +701,18 @@ void WindowedApplication::InternalDrawBrowser()
 				files++;
 				models += state.entries[entryIt].kind == Kind::kModel ? 1 : 0;
 			}
-		if (Button("Select All Models"))
-			for (size_t entryIt = 0; entryIt < state.entries.size(); entryIt++)
-				state.selected[entryIt] = state.entries[entryIt].kind == Kind::kModel;
-		SameLine();
-		BeginDisabled(models < 2);
-		Checkbox("Side by side", &state.sideBySide);
-		EndDisabled();
-		SetItemTooltip("Several models: side by side, each scaled to the same size (a set of variants), or as authored, each where it is (the parts of one scene).");
-		SameLine();
+		if (!environment)
+		{
+			if (Button("Select All Models"))
+				for (size_t entryIt = 0; entryIt < state.entries.size(); entryIt++)
+					state.selected[entryIt] = state.entries[entryIt].kind == Kind::kModel;
+			SameLine();
+			BeginDisabled(models < 2);
+			Checkbox("Side by side", &state.sideBySide);
+			EndDisabled();
+			SetItemTooltip("Several models: side by side, each scaled to the same size (a set of variants), or as authored, each where it is (the parts of one scene).");
+			SameLine();
+		}
 		BeginDisabled(files == 0);
 		if (Button("Open"))
 			open();

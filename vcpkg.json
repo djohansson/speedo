@@ -112,7 +112,6 @@
           "name": "meshoptimizer",
           "default-features": false
         },
-        "nativefiledialog-extended",
         "parallel-hashmap",
         "shader-slang",
         "stb",

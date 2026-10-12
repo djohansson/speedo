@@ -372,13 +372,6 @@ void WindowedApplication::PrepareDraw()
 
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 
-	// the file dialogs open in the test asset sets, if they have been fetched (see scripts/fetch-test-assets.ps1)
-	auto dialogPath = [&resourcePath]
-	{
-		std::error_code error;
-		auto testAssets = resourcePath / "test-assets";
-		return (std::filesystem::is_directory(testAssets, error) ? testAssets : resourcePath).string();
-	};
 
 	// automation: SPEEDO_AUTOLOAD_MODEL (a model, or a zip archive or directory, whose models are loaded side by side)
 	// and SPEEDO_AUTOLOAD_IMAGE (an image, on the default material) name files to load at startup, absolute or relative to
@@ -459,33 +452,12 @@ void WindowedApplication::PrepareDraw()
 	{
 		if (BeginMenu("File"))
 		{
-			if (MenuItem("Open File..."))
+			if (MenuItem("Open...", nullptr, gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
 			{
-				// models, zip archives (of models), environments and images: what is loaded depends on the file's type
-				static const std::string kAllExtensions = std::format("obj,gltf,glb,zip,{},{}", kEnvironmentExtensions, kImageExtensions);
-				static const std::vector<platform::FileFilter> kFilterList = {
-					platform::FileFilter{.name = "Models, zip archives, environments and images", .spec = kAllExtensions.c_str()},
-					platform::FileFilter{.name = "Models (Wavefront OBJ, glTF)", .spec = "obj,gltf,glb"},
-					platform::FileFilter{.name = "Zip archives", .spec = "zip"},
-					platform::FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions},
-					platform::FileFilter{.name = "Images", .spec = kImageExtensions},
-				};
-				InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
-					[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
-					{ LoadAndInstallFile(rhi, filePath, progressOut, ArchiveModels::kChoose); });
+				gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles);
+				gBrowserPurpose = BrowserPurpose::kFiles;
 			}
-			if (MenuItem("Browse...", nullptr, gShowBrowser))
-				gShowBrowser = !gShowBrowser;
-			SetItemTooltip("Browse folders for models, archives, images and panoramas: preview them, and open one or several (side by side, or as authored).");
-			// if (MenuItem("Open Scene..."))
-			// {
-			// 	static const std::vector<platform::FileFilter> filterList = {
-			// 		FileFilter{.name = "Scene files", .spec = "gltf,glb"}
-			// 	};
-
-			// 	InternalOpenFileDialogueAsync((resourcePath / "scenes").string(), filterList, 
-			// 		[&scene = Scene{}](std::string_view filePath, std::atomic_uint8_t& progress){ scene::LoadScene(scene, filePath, progress); });
-			// }
+			SetItemTooltip("Opens models, zip archives, images and panoramas from the file browser: preview them, and open one or several (side by side, or as authored).");
 			Separator();
 			if (MenuItem("Exit", "CTRL+Q"))
 				core::Application::Get()->RequestExit();
@@ -598,11 +570,9 @@ void WindowedApplication::PrepareDraw()
 						[&rhi](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(std::nullopt, progress); });
 				if (MenuItem("Open Environment..."))
 				{
-					static const std::vector<platform::FileFilter> kFilterList = {
-						platform::FileFilter{.name = "Environments (Radiance HDR panoramas)", .spec = kEnvironmentExtensions}};
-					InternalOpenFileDialogueAsync(dialogPath(), kFilterList,
-						[&rhi](std::string_view filePath, std::atomic_uint8_t& progressOut)
-						{ App().GetScene().LoadEnvironment(std::string(filePath), progressOut); });
+					// the file browser, listing panoramas only
+					gBrowserPurpose = BrowserPurpose::kEnvironment;
+					gShowBrowser = true;
 				}
 				ImGui::EndMenu();
 			}
