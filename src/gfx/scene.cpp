@@ -303,15 +303,8 @@ struct Scene::Impl
 
 	// draws the frames (see Renderer): its frame graph owns what is sized by the swapchain
 	std::unique_ptr<Renderer> myRenderer;
-	// an off-screen scene's output (see Scene(rhi, pipeline, views, extent)): its image, and the render target over it,
-	// whose attachment view the ui samples. none for the window's scene, which draws into the swapchain
-	struct OffscreenOutput
-	{
-		Extent2d extent{};
-		std::shared_ptr<Image> image;
-		std::unique_ptr<RenderImageSet> target;
-	};
-	std::optional<OffscreenOutput> myOffscreen;
+	// where the scene's frames go: the window's swapchain, or an image (see RenderOutput)
+	RenderOutput& myOutput;
 	// prefilters the environments on the gpu (see InstallEnvironment)
 	std::unique_ptr<EnvironmentFilter> myEnvironmentFilter;
 	// the bytes of device memory its transients take, and would take without aliasing. written on resize, for the ui
@@ -1367,35 +1360,17 @@ struct Scene::Impl
 		rhi.drawCalls.enqueue(installTask);
 	}
 
-	// (re)creates what is sized after the output: the window's swapchain, or the off-screen image (made here, at its
-	// extent). call with the gpu idle
+	// (re)creates what is sized after the output (see RenderOutput), which its owner has (re)created. call with the gpu
+	// idle
 	void CreateOutputDependentObjects(RHI& rhi)
 	{
 		ZoneScopedN("CreateOutputDependentObjects");
 		
 		auto& device = rhi.GetPrimaryDevice();
 		auto& pipeline = myPipeline;
-		auto* swapchain = myOffscreen ? nullptr : &rhi.GetSwapchain(GetCurrentWindow());
-		auto frameCount = swapchain ? swapchain->GetFrames().size() : SHADER_TYPES_FRAME_COUNT;
+		auto frameCount = myOutput.GetFrameCount();
 		ENSURE(frameCount <= SHADER_TYPES_FRAME_COUNT);
-		auto extent = swapchain ? swapchain->GetDesc().extent : myOffscreen->extent;
-
-		// the off-screen image: written by ComputeMain as a storage image, then sampled by the ui (srgb encoded, as the
-		// swapchain's unorm image is)
-		if (myOffscreen)
-		{
-			myOffscreen->target.reset();
-			myOffscreen->image = std::make_shared<Image>(ImageCreateDesc{
-				device.CreateDeviceObjectCreateDesc("Offscreen Output"),
-				{{.extent = extent}},
-				Format::kR8G8B8A8Unorm,
-				ImageTiling::kOptimal,
-				ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kColorAttachment,
-				MemoryProperty::kDeviceLocal,
-				ImageAspect::kColor,
-				ImageLayout::kUndefined});
-			myOffscreen->target = std::make_unique<RenderImageSet>(std::vector{myOffscreen->image});
-		}
+		auto extent = myOutput.GetExtent();
 
 		// the render target, the transparency's lists and the transmission texture: the renderer's frame graph's
 		myRenderer->Resize(device, pipeline, extent);
@@ -1408,17 +1383,7 @@ struct Scene::Impl
 			
 			auto cmd = graphicsQueue.GetPool().Commands();
 
-			// no layout transitions for the swapchain images here: they may only be used once acquired. Draw transitions
-			// each acquired image from its tracked layout (UNDEFINED for a new swapchain).
-			if (swapchain)
-				for (auto& frame : swapchain->GetFrames())
-				{
-					frame.SetLoadOp(LoadOp::kClear, 0);
-					frame.SetStoreOp(StoreOp::kStore, 0);
-				}
-			// the off-screen image is sampled before it is first drawn (the ui shows it from the start)
-			if (myOffscreen)
-				myOffscreen->target->Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor, 0);
+			myOutput.Prepare(cmd);
 
 			myRenderer->Prepare(cmd);
 
@@ -1447,19 +1412,18 @@ struct Scene::Impl
 				"gRWTextures",
 				ImageBinding{
 					.sampler={},
-					.imageView=swapchain ? swapchain->GetFrames()[frameIt].GetAttachments()[0] : myOffscreen->target->GetAttachments()[0],
+					.imageView=myOutput.GetFrameView(frameIt),
 					.layout=ImageLayout::kGeneral},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				frameIt);
 	}
 
-	Impl(RHI& rhi, Pipeline& pipeline, Views& views, std::optional<Extent2d> offscreenExtent)
+	Impl(RHI& rhi, Pipeline& pipeline, Views& views, RenderOutput& output)
 		: myRHI(rhi)
 		, myPipeline(pipeline)
 		, myViews(views)
+		, myOutput(output)
 	{
-		if (offscreenExtent)
-			myOffscreen = OffscreenOutput{.extent = *offscreenExtent};
 		auto& device = rhi.GetPrimaryDevice();
 
 		std::vector<core::TaskHandle> timelineCallbacks;
@@ -1840,7 +1804,7 @@ struct Scene::Impl
 
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 
-		myRenderer = std::make_unique<Renderer>(device, myOffscreen ? RenderOutput::kImage : RenderOutput::kSwapchain);
+		myRenderer = std::make_unique<Renderer>(device, myOutput);
 		CreateOutputDependentObjects(rhi);
 	}
 
@@ -1931,8 +1895,6 @@ struct Scene::Impl
 				.shadows = mySettings.shadows.load(std::memory_order_relaxed),
 				.camera = shadowCamera,
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
-				.output = myOffscreen ? myOffscreen->target.get() : target.swapchain,
-				.swapchainFrame = myOffscreen ? nullptr : target.swapchainFrame,
 				.exposureHistogram = &*device.GetResource<Buffer>(myExposureHistogramUuid),
 				.graphicsQueue = target.graphicsQueue,
 				.graphicsTimeline = target.graphicsTimeline,
@@ -1942,9 +1904,8 @@ struct Scene::Impl
 	}
 };
 
-Scene::Scene(RHI& rhi, Pipeline& pipeline, Views& views) : myImpl(std::make_unique<Impl>(rhi, pipeline, views, std::nullopt)) {}
-Scene::Scene(RHI& rhi, Pipeline& pipeline, Views& views, Extent2d extent)
-	: myImpl(std::make_unique<Impl>(rhi, pipeline, views, extent))
+Scene::Scene(RHI& rhi, Pipeline& pipeline, Views& views, RenderOutput& output)
+	: myImpl(std::make_unique<Impl>(rhi, pipeline, views, output))
 {}
 
 Scene::~Scene() = default;
@@ -1971,27 +1932,7 @@ void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uin
 
 void Scene::Resize()
 {
-	ENSURE(!myImpl->myOffscreen);
 	myImpl->CreateOutputDependentObjects(myImpl->myRHI);
-}
-
-void Scene::Resize(Extent2d extent)
-{
-	ENSURE(myImpl->myOffscreen);
-	myImpl->myOffscreen->extent = extent;
-	myImpl->CreateOutputDependentObjects(myImpl->myRHI);
-}
-
-ImageViewHandle Scene::GetOutputView() const
-{
-	ENSURE(myImpl->myOffscreen);
-	return myImpl->myOffscreen->target->GetAttachments()[0];
-}
-
-Extent2d Scene::GetOutputExtent() const
-{
-	ENSURE(myImpl->myOffscreen);
-	return myImpl->myOffscreen->extent;
 }
 
 void Scene::Update(QueueTimelineContextData& graphics, uint32_t frameIndex)

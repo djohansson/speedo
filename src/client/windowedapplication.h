@@ -72,6 +72,7 @@ private:
 	
 	std::unique_ptr<gfx::RHI> myRHI;
 	std::unique_ptr<gfx::Views> myViews; // of the window
+	std::unique_ptr<gfx::SwapchainOutput> myOutput; // the window's swapchain, which the scene draws into
 	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
 	std::unique_ptr<gfx::ImGuiLayer> myImGui; // the user interface
 	std::string myImGuiIniSettings;

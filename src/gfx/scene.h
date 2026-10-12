@@ -2,6 +2,7 @@
 
 #include <gfx/gpu.h>
 #include <gfx/meshimport.h>
+#include <gfx/renderoutput.h>
 #include <gfx/shaders/capi.h>
 
 #include <core/concurrentaccess.h>
@@ -106,26 +107,19 @@ public:
 	struct FrameTarget
 	{
 		uint16_t frameIndex = 0;
-		// the swapchain (its current image), and its frame. an off-screen scene draws into its own image instead, and
-		// ignores them and the ui's callbacks
-		IRenderTarget* swapchain = nullptr;
-		IRenderTarget* swapchainFrame = nullptr;
 		Queue* graphicsQueue = nullptr;
 		uint64_t graphicsTimeline = 0;
-		// record the ui's texture uploads and draws (see Renderer's FrameInputs)
+		// record the ui's texture uploads and draws, over a window's frames (see SwapchainOutput)
 		std::function<void(CommandBufferHandle cmd)> prepareUi;
 		std::function<void(CommandBufferHandle cmd)> drawUi;
 		// runs a job on the task executor (pipelines created in the background)
 		std::function<void(std::function<void()> job)> runInBackground;
 	};
 
-	// creates the default resources and the pipeline layouts, binds them, and sizes the renderer after the current
-	// window's swapchain. views must outlive the scene.
-	// draws with pipeline (its descriptor sets hold the scene's bindings, so each scene needs its own), into views'
-	// viewports
-	Scene(RHI& rhi, Pipeline& pipeline, Views& views);
-	// an off-screen scene: draws into an image of its own (see GetOutputView), of extent, rather than the window
-	Scene(RHI& rhi, Pipeline& pipeline, Views& views, rhi::Extent2d extent);
+	// creates the default resources and the pipeline layouts, binds them, and sizes the renderer after output. draws with
+	// pipeline (its descriptor sets hold the scene's bindings, so each scene needs its own), into views' viewports, and
+	// into output (the window's swapchain, or an image: see RenderOutput). views and output must outlive the scene.
+	Scene(RHI& rhi, Pipeline& pipeline, Views& views, RenderOutput& output);
 	~Scene();
 
 	Scene(const Scene&) = delete;
@@ -143,17 +137,9 @@ public:
 	// an environment panorama (or without one, the procedural sky)
 	void LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress);
 
-	// resizes what is sized after the current window's swapchain (its render targets), after the swapchain was
-	// (re)created. call with the gpu idle, holding the draw lock.
+	// resizes what is sized after the output (its render targets), after the output was (re)created (the window's
+	// swapchain, or ImageOutput::Resize). call with the gpu idle, holding the draw lock.
 	void Resize();
-	// an off-screen scene's: (re)creates its image at extent, and what is sized after it. call with the gpu idle, holding
-	// the draw lock. its output view changes
-	void Resize(rhi::Extent2d extent);
-
-	// an off-screen scene's image, as a view the ui can sample (in kShaderReadOnly once a frame is done, srgb encoded in a
-	// unorm format, as the swapchain's), and its extent. the view changes with Resize
-	[[nodiscard]] ImageViewHandle GetOutputView() const;
-	[[nodiscard]] rhi::Extent2d GetOutputExtent() const;
 
 	// updates the frame's buffers for the frame about to be recorded, after its fence: the exposure histogram it read,
 	// the animation and what it moves, and the lights. draw thread.

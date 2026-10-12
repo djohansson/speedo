@@ -304,12 +304,16 @@ stages and accesses), with an execute callback that records only its own command
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Uploads, UI,
 Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
-A renderer draws into the window's swapchain (`RenderOutput::kSwapchain`: the UI passes and Present end its frame) or
-into an image (`kImage`: no UI, an Output pass leaves the image in `kShaderReadOnly` for the UI to sample).
-`FrameInputs::output` is either. An off-screen scene (`Scene(rhi, pipeline, views, extent)`, its own pipeline and views)
-makes the image itself (RGBA8 unorm, storage, sampled and color attachment, srgb encoded as the swapchain's) with a
-`RenderImageSet` over it, binds it as ComputeMain's output in every frame slot, transitions it to `kShaderReadOnly`
-before its first frame, and recreates it on `Resize(extent)`; `GetOutputView()` is what the UI samples.
+Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
+rather than branching on: its extent, frame count and per frame storage views (ComputeMain's output, bound up front),
+the target a frame is drawn into, `Prepare` after it is (re)created, and the passes that end a frame
+(`AddFinalPasses`, which see the frame being recorded through `RecordingFrame`). `SwapchainOutput` is a window's
+swapchain (looked up each time, since the rhi recreates it): the UI Uploads, UI and Present passes end its frames, and
+`Prepare` sets its frames' load and store ops. `ImageOutput` is an image (RGBA8 unorm, storage, sampled and color
+attachment, srgb encoded as the swapchain's) with a `RenderImageSet` over it, one for every frame index (frames are
+serial on the graphics queue): an Output pass leaves it in `kShaderReadOnly` for the UI to sample (`GetView()`), as
+`Prepare` does before its first frame; its owner recreates it (`Resize(extent)`) and then has the scene resize. The
+output's owner keeps it alive longer than the scene.
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the

@@ -152,8 +152,6 @@ bool WindowedApplication::Draw()
 			cmd,
 			Scene::FrameTarget{
 				.frameIndex = static_cast<uint16_t>(newFrameIndex),
-				.swapchain = &swapchain,
-				.swapchainFrame = &newFrame,
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
@@ -275,7 +273,8 @@ WindowedApplication::WindowedApplication(
 
 	myViews = std::make_unique<Views>(device, glm::uvec2(swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height));
 
-	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews);
+	myOutput = std::make_unique<gfx::SwapchainOutput>(rhi, GetCurrentWindow());
+	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews, *myOutput);
 
 	{
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
@@ -355,6 +354,7 @@ void WindowedApplication::Shutdown()
 
 	// what holds gpu objects, before the rhi they belong to
 	myScene.reset();
+	myOutput.reset();
 	myViews.reset();
 	myRHI.reset();
 }

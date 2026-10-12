@@ -35,8 +35,8 @@ constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
 
 } // namespace renderer
 
-Renderer::Renderer(Device& device, RenderOutput output)
-	: myOutputKind(output)
+Renderer::Renderer(Device& device, RenderOutput& output)
+	: myRenderOutput(output)
 {
 	using namespace renderer;
 
@@ -70,7 +70,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 	myOitNodes = myGraph.CreateBuffer(
 		{.name = "OIT Nodes", .sizeOf = [](Extent2d extent) { return std::max<uint64_t>(OitNodeCapacity(extent), 1) * sizeof(OitNode); }});
 	myOitCounter = myGraph.CreateBuffer({.name = "OIT Counter", .size = sizeof(uint32_t)});
-	myOutput = myGraph.ImportImage(output == RenderOutput::kSwapchain ? "Swapchain" : "Output");
+	myOutput = myGraph.ImportImage("Output");
 	myShadowAtlas = myGraph.CreateImage(
 		{.name = "Shadow Atlas",
 		 .format = Format::kD32Sfloat,
@@ -123,14 +123,14 @@ Renderer::Renderer(Device& device, RenderOutput output)
 			builder.Wrap(
 				[this](CommandBufferHandle cmd, const std::function<void()>& record)
 				{
-					GPU_SCOPE(cmd, *myInputs->graphicsQueue, shadows);
+					GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, shadows);
 					record();
 				});
 		},
 		[this](FrameGraph::PassContext& context)
 		{
-			const auto& inputs = *myInputs;
-			auto& pipeline = *myPipeline;
+			const auto& inputs = *myFrame.inputs;
+			auto& pipeline = *myFrame.pipeline;
 			auto cmd = context.cmd;
 			CommandEncoder encoder(cmd);
 
@@ -173,11 +173,11 @@ Renderer::Renderer(Device& device, RenderOutput output)
 			builder.Wrap(
 				[this](CommandBufferHandle cmd, const std::function<void()>& record)
 				{
-					GPU_SCOPE(cmd, *myInputs->graphicsQueue, scatterBack);
+					GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, scatterBack);
 					record();
 				});
 		},
-		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myPipeline, *myInputs, myScatterBackDrawList); });
+		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myScatterBackDrawList); });
 
 	// the scattering materials' surfaces, lit as the light entering them (FragmentScatter), which the main pass blurs
 	// over them by their volume's radius (see SubsurfaceScattering in the shaders)
@@ -194,17 +194,17 @@ Renderer::Renderer(Device& device, RenderOutput output)
 			builder.Wrap(
 				[this](CommandBufferHandle cmd, const std::function<void()>& record)
 				{
-					GPU_SCOPE(cmd, *myInputs->graphicsQueue, scatter);
+					GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, scatter);
 					record();
 				});
 		},
-		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myPipeline, *myInputs, myScatterDrawList); });
+		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myScatterDrawList); });
 
 	// the scattering light blurred over the surfaces by their diffusion profile, once per pixel (ComputeScatter), then
 	// denoised (ComputeScatterDenoise): Main layout compute kernels over the render target
 	auto scatterKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant kernel)
 	{
-		auto& pipeline = *myPipeline;
+		auto& pipeline = *myFrame.pipeline;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
@@ -214,7 +214,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		pipeline.BindPipelineAuto(cmd, kernel);
-		auto pushConstants = myInputs->pushConstants;
+		auto pushConstants = myFrame.inputs->pushConstants;
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 		auto extent = myGraph.GetExtent();
 		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(kernel), extent.width, extent.height);
@@ -230,7 +230,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		},
 		[this, scatterKernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myInputs->graphicsQueue, scatterBlur);
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, scatterBlur);
 			scatterKernel(context.cmd, ComputePipelineVariant{.entryPoint = 1});
 		});
 	myScatterDenoisePass = myGraph.AddPass(
@@ -243,7 +243,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		},
 		[this, scatterKernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myInputs->graphicsQueue, scatterDenoise);
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, scatterDenoise);
 			scatterKernel(context.cmd, ComputePipelineVariant{.entryPoint = 2});
 		});
 
@@ -269,12 +269,12 @@ Renderer::Renderer(Device& device, RenderOutput output)
 				builder.Wrap(
 					[this](CommandBufferHandle cmd, const std::function<void()>& record)
 					{
-						GPU_SCOPE(cmd, *myInputs->graphicsQueue, draw);
+						GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, draw);
 						record();
 					});
 			},
 			[this, phase](FrameGraph::PassContext& context)
-			{ InternalDrawViews(context, *myPipeline, *myInputs, myDrawLists[std::to_underlying(phase)]); });
+			{ InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myDrawLists[std::to_underlying(phase)]); });
 	};
 	mainPass(MainPassPhase::kOpaque);
 
@@ -288,7 +288,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		},
 		[this](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myInputs->graphicsQueue, transmission);
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, transmission);
 			auto& transmission = context.graph.GetImage(myTransmission);
 			transmission.BlitFrom(context.cmd, context.graph.GetImage(myColor));
 			transmission.GenerateMips(context.cmd, ImageLayout::kShaderReadOnly);
@@ -303,7 +303,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		{
 			constexpr auto kHistogramSize = SHADER_TYPES_EXPOSURE_BINS * sizeof(uint32_t);
 			CommandEncoder(context.cmd).FillBuffer(
-				context.graph.GetBuffer(myExposureHistogram), myInputs->frameIndex * kHistogramSize, kHistogramSize, 0);
+				context.graph.GetBuffer(myExposureHistogram), myFrame.inputs->frameIndex * kHistogramSize, kHistogramSize, 0);
 		});
 
 	// the backdrop, the transparency's resolve, exposure and tonemapping, into the swapchain image
@@ -318,15 +318,18 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		},
 		[this](FrameGraph::PassContext& context)
 		{
-			const auto& inputs = *myInputs;
-			auto& pipeline = *myPipeline;
+			const auto& inputs = *myFrame.inputs;
+			auto& pipeline = *myFrame.pipeline;
 			auto cmd = context.cmd;
 			GPU_SCOPE(cmd, *inputs.graphicsQueue, computeMain);
 
 			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 			pipeline.SetDescriptorData(
 				"gRWTextures",
-				ImageBinding{.sampler = {}, .imageView = inputs.output->GetAttachments()[0], .layout = inputs.output->GetLayout(0)},
+				ImageBinding{
+					.sampler = {},
+					.imageView = myRenderOutput.GetTarget(inputs.frameIndex).GetAttachments()[0],
+					.layout = myRenderOutput.GetTarget(inputs.frameIndex).GetLayout(0)},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				inputs.frameIndex);
 
@@ -343,7 +346,7 @@ Renderer::Renderer(Device& device, RenderOutput output)
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
 			// cover the whole swapchain image
-			auto extent = inputs.output->GetExtent();
+			auto extent = myRenderOutput.GetTarget(inputs.frameIndex).GetExtent();
 			CommandEncoder(cmd).Dispatch(
 				(extent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
 				(extent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
@@ -360,58 +363,8 @@ Renderer::Renderer(Device& device, RenderOutput output)
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
 
-	if (output == RenderOutput::kSwapchain)
-	{
-		// the ui: its texture uploads, then its draws over the frame
-		myGraph.AddPass(
-			"UI Uploads",
-			[](FrameGraph::PassBuilder& builder) { builder.SideEffects(); },
-			[this](FrameGraph::PassContext& context)
-			{
-				GPU_SCOPE(context.cmd, *myInputs->graphicsQueue, imguiTextures);
-				if (myInputs->prepareUi)
-					myInputs->prepareUi(context.cmd);
-			});
-		myGraph.AddPass(
-			"UI",
-			[this](FrameGraph::PassBuilder& builder)
-			{
-				builder.ColorAttachment(myOutput, LoadOp::kLoad);
-				builder.Wrap(
-					[this](CommandBufferHandle cmd, const std::function<void()>& record)
-					{
-						GPU_SCOPE(cmd, *myInputs->graphicsQueue, imgui);
-						record();
-					});
-			},
-			[this](FrameGraph::PassContext& context)
-			{
-				myPipeline->SetRenderTarget(*myInputs->swapchainFrame);
-				if (myInputs->drawUi)
-					myInputs->drawUi(context.cmd);
-			});
-
-		myGraph.AddPass(
-			"Present",
-			[this](FrameGraph::PassBuilder& builder)
-			{
-				builder.Use(myOutput, ResourceUse::Present());
-				builder.SideEffects();
-			},
-			[](FrameGraph::PassContext& /*context*/) {});
-	}
-	else
-	{
-		// the image, for sampling (by the ui) once the frame is done
-		myGraph.AddPass(
-			"Output",
-			[this](FrameGraph::PassBuilder& builder)
-			{
-				builder.Use(myOutput, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				builder.SideEffects();
-			},
-			[](FrameGraph::PassContext& /*context*/) {});
-	}
+	// what ends the frame: the window's ui and present, or an image's hand-off to sampling
+	output.AddFinalPasses(myGraph, myOutput, myFrame);
 
 	// the passes' gpu timings (see GetPassTimings)
 	myGraph.EnableTimings(device, SHADER_TYPES_FRAME_COUNT);
@@ -527,7 +480,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 {
 	ZoneScopedN("Renderer::Record");
 
-	ENSURE(inputs.output && (inputs.swapchainFrame || myOutputKind == RenderOutput::kImage) && inputs.exposureHistogram && inputs.graphicsQueue);
+	ENSURE(inputs.exposureHistogram && inputs.graphicsQueue);
 
 	// the passes' timings from the last time this frame index ran (its fence has been waited for)
 	if (auto timings = myGraph.ReadTimings(inputs.frameIndex); !timings.empty())
@@ -550,8 +503,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	FrameInputs frame = inputs;
 	frame.pushConstants.framebufferWidth = myGraph.GetExtent().width;
 	frame.pushConstants.oitNodeCapacity = myOitNodeCapacity;
-	myInputs = &frame;
-	myPipeline = &pipeline;
+	myFrame.inputs = &frame;
+	myFrame.pipeline = &pipeline;
 
 	// the scene's draws: in two phases if it has transmissive materials
 	myTwoPhases = false;
@@ -618,12 +571,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
 
-	myGraph.Bind(myOutput, *frame.output, 0);
+	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.frameIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
 	myGraph.Execute(cmd, inputs.frameIndex);
 
-	myInputs = nullptr;
-	myPipeline = nullptr;
+	myFrame.inputs = nullptr;
+	myFrame.pipeline = nullptr;
 }
 
 void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, const DrawList& list)
