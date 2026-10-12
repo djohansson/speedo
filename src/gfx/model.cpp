@@ -543,10 +543,11 @@ struct Staged
 		.morphStaging = std::move(morphStaging)};
 }
 
-// the models side by side, in a grid in the xy plane (facing +z, the cameras' default view), as one: their indices and
-// vertices in new staging buffers, and their materials and instances. each is scaled (uniformly, so its normals stay) to the same size
-// and centered in its cell: the files of a set needn't share a scale (sphere.zip's spheres have radius 1 and 115).
-[[nodiscard]] static std::optional<Staged> Merge(Device& device, std::vector<Staged>&& models, std::string name)
+// the models as one: their indices and vertices in new staging buffers, and their materials and instances. side by
+// side (ModelArrangement::kSideBySide), in a grid in the xy plane (facing +z, the cameras' default view), each scaled
+// (uniformly, so its normals stay) to the same size and centered in its cell: the files of a set needn't share a scale
+// (sphere.zip's spheres have radius 1 and 115). or as authored, each where it is
+[[nodiscard]] static std::optional<Staged> Merge(Device& device, std::vector<Staged>&& models, std::string name, ModelArrangement arrangement)
 {
 	ZoneScopedN("gfx::Model::Merge");
 
@@ -573,6 +574,11 @@ struct Staged
 		auto scale = extent > 0.0F ? 1.0F / extent : 1.0F;
 		std::array<float, 3> offset{
 			(column * kCell) - (center.x * scale), (-row * kCell) - (center.y * scale), -center.z * scale};
+		if (arrangement == ModelArrangement::kAsAuthored)
+		{
+			scale = 1.0F;
+			offset = {0.0F, 0.0F, 0.0F};
+		}
 		auto place = [&](float value, size_t axis) { return (value * scale) + offset[axis]; };
 
 		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
@@ -854,7 +860,7 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	return model::UploadStaged(device, std::move(*staged));
 }
 
-std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress)
+std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -895,7 +901,7 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 	auto name = filePaths.size() == 1
 					? std::string(filePaths.front())
 					: std::format("{} ({} models)", std::filesystem::path(filePaths.front()).parent_path().string(), filePaths.size());
-	auto merged = model::Merge(device, std::move(models), std::move(name));
+	auto merged = model::Merge(device, std::move(models), std::move(name), arrangement);
 	if (!merged)
 		return {};
 

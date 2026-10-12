@@ -1112,11 +1112,15 @@ struct Scene::Impl
 	// install them, unless the load was cancelled. call from a load (see gLoads).
 	// scene: a gltf file's scene to load (one file only), else its default one
 	void LoadAndInstallModels(
-		RHI& rhi, const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {})
+		RHI& rhi,
+		const std::vector<std::string>& filePaths,
+		std::atomic_uint8_t& progress,
+		const mesh::ImportOptions& options = {},
+		ModelArrangement arrangement = ModelArrangement::kSideBySide)
 	{
 		auto model = (options.scene || options.variant) && filePaths.size() == 1
 						 ? Model::Load(filePaths.front(), progress, options)
-						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress);
+						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement);
 		if (!model) // cancelled or failed
 			return;
 
@@ -1918,9 +1922,10 @@ std::vector<DescriptorPoolSize> Scene::DescriptorPoolSizes()
 	return gfx::DescriptorPoolSizes();
 }
 
-void Scene::LoadModels(const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options)
+void Scene::LoadModels(
+	const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, ModelArrangement arrangement)
 {
-	myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options);
+	myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement);
 }
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)

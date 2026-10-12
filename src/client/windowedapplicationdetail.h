@@ -104,6 +104,9 @@ enum class ArchiveModels : uint8_t
 	kAll, // all of them, side by side
 };
 
+// whether the file browser (File > Browse..., see WindowedApplication::InternalDrawBrowser) is open. ui thread
+inline bool gShowBrowser = false;
+
 // the environment panorama files gfx::Scene::LoadEnvironment takes, as a file dialog filter spec
 inline constexpr const char* kEnvironmentExtensions = "hdr";
 

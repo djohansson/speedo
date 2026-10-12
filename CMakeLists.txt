@@ -348,6 +348,7 @@ target_link_libraries(
 ###############################################################################
 
 set(CLIENTLIB_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/client/browser.cpp
 	${SPEEDO_SOURCE_DIR}/client/client.cpp
 	${SPEEDO_SOURCE_DIR}/client/loading.cpp
 	${SPEEDO_SOURCE_DIR}/client/preview.cpp

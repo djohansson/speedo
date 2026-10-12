@@ -67,6 +67,10 @@ protected:
 		CreateWindowFunc createWindowFunc);
 
 private:
+	// the file browser (File > Browse...): folders and the files the client loads as tiles, with multi-select, the
+	// selection previewed off-screen (see Preview), and opened side by side or as authored. ui thread, in PrepareDraw
+	void InternalDrawBrowser();
+
 	template <typename LoadOp>
 	void InternalOpenFileDialogueAsync(
 		std::string&& resourcePathString,

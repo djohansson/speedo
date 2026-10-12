@@ -150,6 +150,15 @@ struct ModelBuffers
 	std::vector<Buffer> morphWeights; // per frame, host visible: ModelDesc::morphWeights' count of weights, if any
 };
 
+// how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
+// each scaled to the same size and centered in its cell (sets of variants, whose files needn't share a scale), or as
+// authored, each at its own coordinates (the parts of one scene)
+enum class ModelArrangement : uint8_t
+{
+	kSideBySide,
+	kAsAuthored,
+};
+
 // a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time
 class Model final
 {
@@ -211,11 +220,13 @@ public:
 	// options: a gltf file's scene and material variant to load (see mesh::ImportOptions), else its default ones.
 	[[nodiscard]] static std::shared_ptr<Model> Load(
 		std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {});
-	// loads several model files (each through its own cache entry) as one, side by side in a grid in the xy plane, each
-	// scaled to the same size and centered in its cell: for sets of variants, such as an archive's models, or the
-	// encodings of a gltf model. files the importers don't support (see mesh::Unsupported) are skipped. null if any
-	// load is cancelled or fails.
-	[[nodiscard]] static std::shared_ptr<Model> Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress);
+	// loads several model files (each through its own cache entry) as one, arranged (see ModelArrangement): side by side
+	// for sets of variants, such as an archive's models, or the encodings of a gltf model. files the importers don't
+	// support (see mesh::Unsupported) are skipped. null if any load is cancelled or fails.
+	[[nodiscard]] static std::shared_ptr<Model> Load(
+		std::span<const std::string_view> filePaths,
+		std::atomic_uint8_t& progress,
+		ModelArrangement arrangement = ModelArrangement::kSideBySide);
 
 private:
 	ModelDesc myDesc;

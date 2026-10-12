@@ -2,6 +2,7 @@
 
 #include <gfx/gpu.h>
 #include <gfx/meshimport.h>
+#include <gfx/model.h>
 #include <gfx/renderoutput.h>
 #include <gfx/shaders/capi.h>
 
@@ -131,7 +132,12 @@ public:
 	// load, and have the draw thread install, unless the load is cancelled. call from a load task (see core::LoadQueue).
 	// a model, or several side by side as one (see Model::Load), with its materials' textures. options: a gltf file's
 	// scene and material variant to load (one file only), else its default ones
-	void LoadModels(const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {});
+	// several files are arranged as arrangement says (see ModelArrangement)
+	void LoadModels(
+		const std::vector<std::string>& filePaths,
+		std::atomic_uint8_t& progress,
+		const mesh::ImportOptions& options = {},
+		ModelArrangement arrangement = ModelArrangement::kSideBySide);
 	// an image, on the default material (material 0)
 	void LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);
 	// an environment panorama (or without one, the procedural sky)

@@ -36,8 +36,15 @@ Notes for working in this codebase, distilled from real build failures.
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
-  views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture` (for now opened by
-  `SPEEDO_PREVIEW_MODEL=<path>`, which it loads). The ui requests it (`RequestPreview`); `Draw` makes it under the draw
+  views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`. The browser itself
+  (File > Browse..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`) lists a folder's subfolders and the
+  files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
+  click selection and double click to open or enter; it previews the entry last clicked if it is a model or a panorama
+  (one preview load at a time, the latest selection's next; a model after a panorama brings the procedural sky back), and
+  opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
+  several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
+  `SPEEDO_BROWSE_SELECT=<name>[;<name>...]` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at startup, for
+  tests and screenshots. The ui requests it (`RequestPreview`); `Draw` makes it under the draw
   lock, before taking the graphics queue's (the scene's constructor takes that), and publishes it (`GetPreview`). In the
   frames the ui shows it (`SetPreviewVisible`), `Draw` updates and records it before the window's scene (see "Command
   buffers: the frame's is shared" for the crash its update once caused). It is kept until `Shutdown`: its loads install from draw calls and timeline callbacks (an image's transition
@@ -766,7 +773,8 @@ and the pool only holds 128 copies of that 1024 slot array. Installing a model a
 or frames them on its bounds (`Views::SetScene`, `Views::FrameBounds`).
 
 File > "Open File..." loads models, zip archives, environments (`.hdr`) and images, by their type
-(`LoadAndInstallFile`), and "Open Folder..." a directory's models; View > Environment picks the procedural sky or opens
+(`LoadAndInstallFile`), and "Browse..." opens the file browser (several of a folder's models at once, side by side or as
+authored); View > Environment picks the procedural sky or opens
 a panorama. `SPEEDO_AUTOLOAD_MODEL`, `SPEEDO_AUTOLOAD_IMAGE` and `SPEEDO_AUTOLOAD_ENVIRONMENT` take paths absolute or
 relative to the resource directory (without an environment, the procedural sky loads, as one of the autoloads). Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `core::zip` (`core/zip.h`: our own
@@ -826,7 +834,7 @@ the CornellBox variants, ...), not scenes: each file stands alone at the origin,
 scale. `Model::Load(filePaths)` loads them as one model, side by side in a grid facing the camera, each scaled to the
 same size and centered in its cell by its instance transforms (premultiplied by the placement; vertices are copied as
 they are), each file still through its own cache entry, merged as staging data before the one upload. Autoloading a zip or a directory loads all of its models that way, opening a zip offers it next to choosing one,
-"Open Folder..." loads a directory's, and `assettest.ps1` runs the client once per such archive (with the archive's first
+the browser's Open loads several selected models so (or as authored), and `assettest.ps1` runs the client once per such archive (with the archive's first
 image on the default material: sphere.zip's models name materials its mtl file doesn't have), and once per
 subdirectory with several models of a directory it is given, rather than once per file: 38 client runs instead of 145
 for the McGuire set. The glTF sample models are such subdirectories, of encodings of the same model (glTF, glTF-Binary,
