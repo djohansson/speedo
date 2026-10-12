@@ -42,6 +42,9 @@ struct QueueDeviceSyncInfo
 	// These will be passed on and stored internally in the queue to be called after the queue has finished executing the command buffers on the device.
 	// They will then be called and deleted through manually calling the Queue::SubmitCallbacks from the host.
 	std::vector<core::TaskHandle> callbacks;
+	// submits the pool's one-shot command buffers (CommandPool::OneShotCommands, all ended), rather than the frame's
+	// (CommandPool::Commands, which it ends): leaves a frame recording meanwhile alone
+	bool oneShot = false;
 };
 
 template <GraphicsApi G>

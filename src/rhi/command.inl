@@ -5,8 +5,10 @@ template <GraphicsApi G>
 CommandBufferAccessScope<G>
 CommandPool<G>::Commands(const CommandBufferAccessScopeDesc<G>& beginInfo)
 {
+	// a new one if none is recording (or the one there was ended: never hand out an ended buffer)
 	//NOLINTBEGIN(bugprone-unchecked-optional-access)
-	if (!myRecordingCommands[beginInfo.level].has_value() || myRecordingCommands[beginInfo.level].value().GetDesc() != beginInfo)
+	if (!myRecordingCommands[beginInfo.level].has_value() || myRecordingCommands[beginInfo.level].value().GetDesc() != beginInfo ||
+		!myRecordingCommands[beginInfo.level].value().IsRecording())
 		return InternalBeginScope(beginInfo);
 	//NOLINTEND(bugprone-unchecked-optional-access)
 	
@@ -28,6 +30,20 @@ CommandBufferAccessScope<G>::CommandBufferAccessScope(
 	, myArray(array)
 	, myIndex(myDesc.scopedBeginEnd ? myArray->Begin(beginInfo) : 0)
 {}
+
+template <GraphicsApi G>
+void CommandBufferAccessScope<G>::End() const
+{
+	// the scope itself, and the pool's copy if it is the pool's recording one: anyone else holding it would record on
+	// into the ended buffer (KosmicKrisp crashes creating its next encoder). record what is submitted right away with
+	// CommandPool::OneShotCommands instead
+	ENSUREF(
+		!myRefCount || *myRefCount <= 2,
+		"ending a command buffer others are recording into ({} holders): use CommandPool::OneShotCommands for what is "
+		"submitted right away",
+		*myRefCount);
+	myArray->End(myIndex);
+}
 
 template <GraphicsApi G>
 CommandBufferAccessScope<G>::CommandBufferAccessScope(const CommandBufferAccessScope& other) noexcept

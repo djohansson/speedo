@@ -19,7 +19,7 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
-	auto cmd = graphicsQueue.GetPool().Commands();
+	auto cmd = graphicsQueue.GetPool().OneShotCommands();
 	cmd.End();
 
 	std::vector<core::TaskHandle> callbacks;
@@ -31,7 +31,8 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
 		.signalSemaphoreValues = {++graphics.timeline},
-		.callbacks = std::move(callbacks),});
+		.callbacks = std::move(callbacks),
+		.oneShot = true});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -46,7 +47,7 @@ void UpdateBufferOnGraphics(
 
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
-	auto cmd = graphicsQueue.GetPool().Commands();
+	auto cmd = graphicsQueue.GetPool().OneShotCommands();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, UpdateBuffer); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
@@ -69,7 +70,8 @@ void UpdateBufferOnGraphics(
 		.waitDstStageMasks = {PipelineStage::kAllCommands},
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
-		.signalSemaphoreValues = {++graphics.timeline},});
+		.signalSemaphoreValues = {++graphics.timeline},
+		.oneShot = true});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -110,7 +112,7 @@ void TransitionThenBind(
 		}
 	};
 
-	auto cmd = graphicsQueue.GetPool().Commands();
+	auto cmd = graphicsQueue.GetPool().OneShotCommands();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
@@ -147,6 +149,7 @@ void TransitionThenBind(
 	syncInfo.signalSemaphores = {graphics.semaphore};
 	syncInfo.signalSemaphoreValues = {++graphics.timeline};
 	syncInfo.callbacks.emplace_back(transitionDoneTask);
+	syncInfo.oneShot = true;
 	graphicsQueue.EnqueueSubmit(std::move(syncInfo));
 
 	graphicsSubmits |= graphicsQueue.Submit();

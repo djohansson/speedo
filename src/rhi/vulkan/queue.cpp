@@ -367,9 +367,12 @@ QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&
 {
 	ZoneScopedN("Queue::PrepareSubmit");
 
-	GetPool().InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+	bool oneShot = syncInfo.oneShot;
+	if (!oneShot)
+		GetPool().InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
-	auto& pendingCommands = GetPool().InternalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
+	auto& pendingCommands =
+		oneShot ? GetPool().InternalGetOneShotCommands() : GetPool().InternalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
 
 	if (pendingCommands.empty())
 		return {};

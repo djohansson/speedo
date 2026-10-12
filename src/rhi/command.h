@@ -132,7 +132,10 @@ public:
 	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
 
 	void Begin() { myIndex = myArray->Begin(myDesc); }
-	void End() const { myArray->End(myIndex); }
+	// ends the command buffer: only while no one else holds it (the pool's own reference aside, see
+	// CommandPool::Commands), since they would go on recording into an ended buffer
+	void End() const;
+	[[nodiscard]] bool IsRecording() const { return myArray->Recording(myIndex); }
 
 private:
 	void* operator new(size_t);
@@ -181,7 +184,13 @@ public:
 
 	void Reset();
 
+	// the primary command buffer recording, shared: while one is recording (until it is ended, or submitted), every
+	// caller gets it, so only its owner (the one recording a frame) may end it. see OneShotCommands for commands that are
+	// recorded and submitted right away
 	[[nodiscard]] CommandBufferAccessScope<G> Commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
+	// a primary command buffer of the caller's own, from a list of their own: never shared, so it can be ended and
+	// submitted (QueueDeviceSyncInfo::oneShot) without touching a buffer recording a frame, whenever
+	[[nodiscard]] CommandBufferAccessScope<G> OneShotCommands();
 	// begins a secondary command buffer at level (1 and up) for recording inside the render target begun with
 	// renderTarget (see IRenderTarget::Begin with SubpassContents::kSecondaryCommandBuffers). its commands are run by
 	// Queue::Execute.
@@ -196,6 +205,7 @@ private:
 	[[nodiscard]] CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
 	void InternalEndCommands(uint8_t level);
 	void InternalEnqueueOnePending(uint8_t level);
+	[[nodiscard]] CommandBufferArray<G> InternalNewArray(uint8_t level);
 	void InternalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
 
 	[[nodiscard]] auto& InternalGetPendingCommands() noexcept { return myPendingCommands; }
@@ -204,6 +214,7 @@ private:
 		return myPendingCommands;
 	}
 
+	[[nodiscard]] auto& InternalGetOneShotCommands() noexcept { return myOneShotCommands; }
 	[[nodiscard]] auto& InternalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
 	[[nodiscard]] const auto& InternalGetSubmittedCommands() const noexcept
 	{
@@ -215,6 +226,7 @@ private:
 	std::vector<CommandBufferListType<G>> mySubmittedCommands;
 	std::vector<CommandBufferListType<G>> myFreeCommands;
 	std::vector<std::optional<CommandBufferAccessScope<G>>> myRecordingCommands;
+	CommandBufferListType<G> myOneShotCommands; // primary, see OneShotCommands
 };
 
 } // namespace rhi

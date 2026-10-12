@@ -75,7 +75,7 @@ namespace detail
 		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
 		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
-		auto cmd = transferQueue.GetPool().Commands();
+		auto cmd = transferQueue.GetPool().OneShotCommands();
 
 		core::TaskCreateInfo<void> transferDone;
 		texture.image = std::make_shared<Image>(std::move(desc), std::move(staging), cmd, transferDone);
@@ -106,7 +106,8 @@ namespace detail
 			.waitSemaphoreValues = {},
 			.signalSemaphores = {transfer->semaphore},
 			.signalSemaphoreValues = {texture.upload.value},
-			.callbacks = std::move(transferTimelineCallbacks)});
+			.callbacks = std::move(transferTimelineCallbacks),
+			.oneShot = true});
 
 		transferSubmits |= transferQueue.Submit();
 	}

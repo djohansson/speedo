@@ -39,11 +39,8 @@ Notes for working in this codebase, distilled from real build failures.
   views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture` (for now opened by
   `SPEEDO_PREVIEW_MODEL=<path>`, which it loads). The ui requests it (`RequestPreview`); `Draw` makes it under the draw
   lock, before taking the graphics queue's (the scene's constructor takes that), and publishes it (`GetPreview`). In the
-  frames the ui shows it (`SetPreviewVisible`), `Draw` updates it with the window's scene, before the frame's command
-  buffer is begun, and records it first: `Scene::Update` can submit (`UpdateBufferOnGraphics` ends the command buffer
-  recording and submits it, and `CommandPool::Commands()` returns the one recording, so an update after the frame's
-  buffer was begun ended it, and the frame recorded into an ended buffer: KosmicKrisp crashed creating a compute
-  encoder). It is kept until `Shutdown`: its loads install from draw calls and timeline callbacks (an image's transition
+  frames the ui shows it (`SetPreviewVisible`), `Draw` updates and records it before the window's scene (see "Command
+  buffers: the frame's is shared" for the crash its update once caused). It is kept until `Shutdown`: its loads install from draw calls and timeline callbacks (an image's transition
   queues another draw call), which only the shutdown's settling waits for, so destroying it earlier isn't safe.
   `client::Client` adds the server connection and the tick and draw task chains. It names gfx's aliases, which
   conflict with rhi's templates under both using-directives, with using-declarations in `namespace client`.
@@ -283,6 +280,23 @@ per view and phase, so an exclusive lock costs microseconds per frame; an upgrad
 took no lock, waiting on the map entry with `std::atomic_ref`, which was only safe while one thread bound pipelines: the
 map isn't safe to insert into concurrently, and rehashing moves its entries. Recording isn't expected to go wide enough for
 a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move and could be waited on again) to pay.
+
+## Command buffers: the frame's is shared
+
+`CommandPool::Commands()` returns the primary command buffer recording, shared (reference counted): while one is
+recording, every caller gets the same one, and ending it ends it for all of them. So only its owner (`Draw`, recording
+the frame) ends it, and anything recorded and submitted right away (uploads, transitions, `UpdateBufferOnGraphics`,
+`TransitionThenBind`, the loaders' staging copies) uses `CommandPool::OneShotCommands()`, a buffer of its own from a list
+of its own, submitted with `QueueDeviceSyncInfo::oneShot` (which submits only those, leaving a frame recording meanwhile
+alone). `CommandBufferAccessScope::End()` checks that no one else holds the buffer (beyond the pool's own reference), and
+`Commands()` never hands out an ended one. It was found through the file browser's preview: its `Scene::Update` ran after
+the frame's buffer was begun, `UpdateBufferOnGraphics` ended that buffer to submit its upload, and the frame went on
+recording into an ended buffer: KosmicKrisp crashed creating a compute encoder, only in profile builds (debug's timing
+didn't hit it), and validation never saw it. With the check, the same mistake stops at the `End()`. Why two kinds of
+buffer rather than a fix: the sharing is the problem (any holder of the frame's buffer can end it under the others), and
+the clean fix, command buffers as move-only values with one owner that ends and submits them, touches most recording
+code. One-shot buffers and the check are the interim (TODO.md has the move-only plan): new code that records and
+submits on its own takes `OneShotCommands()`, and only the frame's owner calls `End()` on `Commands()`'s buffer.
 
 ## Queues: aliased queue types share one lock
 

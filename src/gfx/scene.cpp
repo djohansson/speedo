@@ -1303,7 +1303,7 @@ struct Scene::Impl
 				// prefiltered on the gpu, before the frames that sample it (the same queue)
 				{
 					auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
-					auto cmd = graphicsQueue.GetPool().Commands();
+					auto cmd = graphicsQueue.GetPool().OneShotCommands();
 					auto used = myEnvironmentFilter->Record(cmd, pipeline, *environment, environmentBuffer);
 					cmd.End();
 					graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
@@ -1311,7 +1311,8 @@ struct Scene::Impl
 						.waitDstStageMasks = {PipelineStage::kAllCommands},
 						.waitSemaphoreValues = {graphics.timeline},
 						.signalSemaphores = {graphics.semaphore},
-						.signalSemaphoreValues = {++graphics.timeline},});
+						.signalSemaphoreValues = {++graphics.timeline},
+						.oneShot = true});
 					graphicsSubmits |= graphicsQueue.Submit();
 					// what the filter reads (the source, a file's panoramas) and its views, until the gpu is done
 					RetireAfterGraphicsWork(graphics, std::move(used));
@@ -1381,7 +1382,7 @@ struct Scene::Impl
 			auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 			auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 			
-			auto cmd = graphicsQueue.GetPool().Commands();
+			auto cmd = graphicsQueue.GetPool().OneShotCommands();
 
 			myOutput.Prepare(cmd);
 
@@ -1394,7 +1395,8 @@ struct Scene::Impl
 				.waitDstStageMasks = {},
 				.waitSemaphoreValues = {},
 				.signalSemaphores = {graphics->semaphore},
-				.signalSemaphoreValues = {++graphics->timeline}});
+				.signalSemaphoreValues = {++graphics->timeline},
+				.oneShot = true});
 
 			graphicsSubmits |= graphicsQueue.Submit();
 		}
@@ -1470,7 +1472,7 @@ struct Scene::Impl
 			auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
 			auto& [graphicsQueue, graphicsSubmits] = graphics->queues.Get();
 			
-			auto cmd = graphicsQueue.GetPool().Commands();
+			auto cmd = graphicsQueue.GetPool().OneShotCommands();
 
 			blackTexture->Transition(cmd, ImageLayout::kTransferDestination);
 			blackTexture->Clear(cmd, {.color = {0.0F, 0.0F, 0.0F, 1.0F}});
@@ -1639,7 +1641,8 @@ struct Scene::Impl
 				.waitSemaphoreValues = {},
 				.signalSemaphores = {graphics->semaphore},
 				.signalSemaphoreValues = {++graphics->timeline},
-				.callbacks = std::move(timelineCallbacks)});
+				.callbacks = std::move(timelineCallbacks),
+				.oneShot = true});
 
 			graphicsSubmits |= graphicsQueue.Submit();
 		}

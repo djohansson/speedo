@@ -195,6 +195,7 @@ void CommandPool<kVk>::Swap(CommandPool& other) noexcept
 	std::swap(mySubmittedCommands, other.mySubmittedCommands);
 	std::swap(myFreeCommands, other.myFreeCommands);
 	std::swap(myRecordingCommands, other.myRecordingCommands);
+	std::swap(myOneShotCommands, other.myOneShotCommands);
 }
 
 template <>
@@ -211,6 +212,7 @@ CommandPool<kVk>::~CommandPool()
 
 	// members are only destroyed after this body has run, so free the command buffers before their pool goes away
 	myRecordingCommands.clear();
+	myOneShotCommands.clear();
 	myPendingCommands.clear();
 	mySubmittedCommands.clear();
 	myFreeCommands.clear();
@@ -264,6 +266,18 @@ void CommandPool<kVk>::Reset()
 }
 
 template <>
+CommandBufferArray<kVk> CommandPool<kVk>::InternalNewArray(uint8_t level)
+{
+	return CommandBufferArray<kVk>(
+		CommandBufferArrayCreateDesc<kVk>{
+			SuperType::CreateDeviceObjectCreateDesc(std::format("{}CommandBufferArray", level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary")),
+			myPool,
+			level,
+			static_cast<uint8_t>((GetDesc().flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) == 0U),
+			1});
+}
+
+template <>
 void CommandPool<kVk>::InternalEnqueueOnePending(uint8_t level)
 {
 	ZoneScopedN("CommandPool::InternalEnqueueOnePending");
@@ -275,24 +289,7 @@ void CommandPool<kVk>::InternalEnqueueOnePending(uint8_t level)
 	}
 	else
 	{
-		// char stringBuffer[32];
-
-		// std::format_to_n(
-		// 	stringBuffer,
-		// 	std::size(stringBuffer),
-		// 	"{0}{1}",
-		// 	level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary",
-		// 	"CommandBufferArray");
-
-		myPendingCommands[level].emplace_back(std::make_tuple(
-			CommandBufferArray<kVk>(
-				CommandBufferArrayCreateDesc<kVk>{
-					SuperType::CreateDeviceObjectCreateDesc(std::format("{}CommandBufferArray", level == VK_COMMAND_BUFFER_LEVEL_PRIMARY ? "Primary" : "Secondary")),
-					myPool,
-					level,
-					static_cast<uint8_t>((GetDesc().flags & VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT) == 0U),
-					1}),
-			0));
+		myPendingCommands[level].emplace_back(std::make_tuple(InternalNewArray(level), 0));
 	}
 }
 
@@ -407,6 +404,20 @@ CommandPool<kVk>::SecondaryCommands(uint8_t level, const RenderTargetBeginInfo<k
 	beginInfo.level = level;
 
 	return Commands(beginInfo);
+}
+
+template <>
+CommandBufferAccessScope<kVk> CommandPool<kVk>::OneShotCommands()
+{
+	constexpr uint8_t kPrimary = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	if (myOneShotCommands.empty() || std::get<0>(myOneShotCommands.back()).Full())
+	{
+		if (!myFreeCommands[kPrimary].empty())
+			myOneShotCommands.splice(myOneShotCommands.end(), myFreeCommands[kPrimary], myFreeCommands[kPrimary].begin());
+		else
+			myOneShotCommands.emplace_back(std::make_tuple(InternalNewArray(kPrimary), 0));
+	}
+	return CommandBufferAccessScope<kVk>(CommandBufferAccessScopeDesc<kVk>{}, &std::get<0>(myOneShotCommands.back()));
 }
 
 } // namespace rhi
