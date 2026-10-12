@@ -40,6 +40,9 @@ public:
 	// writes value to every 4 bytes of size bytes of buffer from offset (size 0: to its end). outside of render passes,
 	// on a buffer with BufferUsage::kTransferDestination
 	void FillBuffer(const Buffer<G>& buffer, uint64_t offset, uint64_t size, uint32_t value) const;
+	// copies a color image's first mip level, in kTransferSource, into buffer (with BufferUsage::kTransferDestination),
+	// tightly packed rows from its start. outside of render passes
+	void CopyImageToBuffer(const Image<G>& image, const Buffer<G>& buffer) const;
 	// makes the memory accesses (srcAccess) of the commands before, in srcStages, visible to the accesses (dstAccess) of
 	// the commands after, in dstStages, which wait for them
 	void Barrier(PipelineStage srcStages, Access srcAccess, PipelineStage dstStages, Access dstAccess) const;

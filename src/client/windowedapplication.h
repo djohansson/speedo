@@ -6,6 +6,7 @@
 #include <gfx/views.h>
 
 #include "preview.h"
+#include "thumbnails.h"
 
 #include <platform/filedialog.h>
 #include <platform/windowedapplication.h>
@@ -89,6 +90,10 @@ private:
 	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
 	std::unique_ptr<gfx::ImGuiLayer> myImGui; // the user interface
 	std::unique_ptr<Preview> myPreview; // made on the draw thread once requested (see RequestPreview)
+	// the browser's thumbnails, and its image preview (one big slot): made with its first frame, ui thread. destroyed after
+	// imgui's renderer, which destroys their textures
+	std::unique_ptr<Thumbnails> myThumbnails;
+	std::unique_ptr<Thumbnails> myImagePreview;
 	std::atomic_bool myPreviewRequested = false;
 	std::atomic_bool myPreviewReady = false;
 	std::atomic_bool myPreviewVisible = false;

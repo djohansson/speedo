@@ -177,7 +177,31 @@ struct State
 	std::filesystem::path previewShown;
 	bool previewEnvironment = false; // a file's panorama, rather than the procedural sky
 	std::shared_ptr<std::atomic_bool> previewLoading = std::make_shared<std::atomic_bool>(false);
+	uint32_t previewReadyFrames = 0; // the frames the focused model's preview has been drawn in, loaded
 };
+
+// what a kind's thumbnail is made from (archives have none: their icon)
+[[nodiscard]] std::optional<Thumbnails::Source> ThumbnailSource(Kind kind)
+{
+	switch (kind)
+	{
+	case Kind::kModel: return Thumbnails::Source::kModel;
+	case Kind::kImage: return Thumbnails::Source::kImage;
+	case Kind::kEnvironment: return Thumbnails::Source::kEnvironment;
+	default: return std::nullopt;
+	}
+}
+
+// the largest rectangle of aspect (width over height) inside min to max, centered
+[[nodiscard]] std::pair<ImVec2, ImVec2> Fit(ImVec2 min, ImVec2 max, float aspect)
+{
+	float width = max.x - min.x;
+	float height = max.y - min.y;
+	float fitWidth = std::min(width, height * aspect);
+	float fitHeight = fitWidth / std::max(aspect, 1e-3F);
+	ImVec2 center((min.x + max.x) * 0.5F, (min.y + max.y) * 0.5F);
+	return {ImVec2(center.x - (fitWidth * 0.5F), center.y - (fitHeight * 0.5F)), ImVec2(center.x + (fitWidth * 0.5F), center.y + (fitHeight * 0.5F))};
+}
 
 [[nodiscard]] const char* Label(const Entry& entry)
 {
@@ -309,6 +333,19 @@ void WindowedApplication::InternalDrawBrowser()
 			}
 		}
 	}
+
+	// the thumbnails: the tiles' (160 pixels, cached in the user profile), and the image preview's (one, not cached)
+	if (!myThumbnails)
+	{
+		auto userProfilePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]);
+		constexpr uint32_t kThumbnailSize = 160;
+		constexpr uint32_t kAtlasSlots = 16;
+		myThumbnails = std::make_unique<Thumbnails>(kThumbnailSize, kAtlasSlots, kAtlasSlots, userProfilePath / "thumbnails");
+		constexpr uint32_t kImagePreviewSize = 768;
+		myImagePreview = std::make_unique<Thumbnails>(kImagePreviewSize, 1, 1, std::filesystem::path());
+	}
+	myThumbnails->Update();
+	myImagePreview->Update();
 
 	// the preview: made by the draw thread once asked for, then lit by the procedural sky
 	RequestPreview();
@@ -487,17 +524,27 @@ void WindowedApplication::InternalDrawBrowser()
 				if (IsItemHovered(ImGuiHoveredFlags_DelayNormal))
 					SetTooltip("%s", entry.relative.c_str());
 
-				// the icon (a thumbnail later), and the name under it, clipped to the tile
+				// the thumbnail (fitted to the tile), else an icon of its kind; and the name under it, clipped to the tile
 				constexpr float kPad = 8.0F;
 				ImVec2 iconMin(corner.x + kPad, corner.y + kPad);
 				ImVec2 iconMax(corner.x + tile - kPad, corner.y + tile - kPad);
-				drawList->AddRectFilled(iconMin, iconMax, Color(entry.kind), 6.0F);
-				const char* label = Label(entry);
-				ImVec2 labelSize = CalcTextSize(label);
-				drawList->AddText(
-					ImVec2((iconMin.x + iconMax.x - labelSize.x) * 0.5F, (iconMin.y + iconMax.y - labelSize.y) * 0.5F),
-					IM_COL32(255, 255, 255, 230),
-					label);
+				auto source = ThumbnailSource(entry.kind);
+				auto thumbnail = source ? myThumbnails->Get(entry.path, *source) : std::nullopt;
+				if (thumbnail)
+				{
+					auto [min, max] = Fit(iconMin, iconMax, thumbnail->aspect);
+					drawList->AddImage(thumbnail->texture, min, max, thumbnail->uv0, thumbnail->uv1);
+				}
+				else
+				{
+					drawList->AddRectFilled(iconMin, iconMax, Color(entry.kind), 6.0F);
+					const char* label = Label(entry);
+					ImVec2 labelSize = CalcTextSize(label);
+					drawList->AddText(
+						ImVec2((iconMin.x + iconMax.x - labelSize.x) * 0.5F, (iconMin.y + iconMax.y - labelSize.y) * 0.5F),
+						IM_COL32(255, 255, 255, 230),
+						label);
+				}
 				drawList->PushClipRect(ImVec2(corner.x, corner.y + tile), ImVec2(corner.x + tile, corner.y + tile + labelHeight), true);
 				ImVec2 nameSize = CalcTextSize(entry.name.c_str());
 				drawList->AddText(
@@ -552,8 +599,34 @@ void WindowedApplication::InternalDrawBrowser()
 					});
 			}
 
+			// a model without a bundled screenshot gets its thumbnail from the preview, once it has been drawn a while
+			bool previewReady = focus && focus->kind == Kind::kModel && state.previewShown == focus->path && !state.previewLoading->load();
+			state.previewReadyFrames = previewReady ? state.previewReadyFrames + 1 : 0;
+			constexpr uint32_t kCaptureAfterFrames = 20;
+			if (previewReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->Missing(focus->path))
+				preview->RequestCapture(
+					[thumbnails = myThumbnails.get(), path = focus->path](std::vector<uint8_t> rgba, uint32_t width, uint32_t height)
+					{ thumbnails->Put(path, std::move(rgba), width, height); });
+
 			float side = std::max(GetContentRegionAvail().x, 1.0F);
-			if (state.texture != ImTextureID_Invalid && !state.previewShown.empty())
+			auto imagePreview = focus && focus->kind == Kind::kImage ? myImagePreview->Get(focus->path, Thumbnails::Source::kImage)
+																	 : std::nullopt;
+			if (focus && focus->kind == Kind::kImage)
+			{
+				// an image: itself, fitted to the panel
+				ImVec2 corner = GetCursorScreenPos();
+				Dummy(ImVec2(side, side));
+				if (imagePreview)
+				{
+					auto [min, max] = Fit(corner, ImVec2(corner.x + side, corner.y + side), imagePreview->aspect);
+					GetWindowDrawList()->AddImage(imagePreview->texture, min, max, imagePreview->uv0, imagePreview->uv1);
+				}
+				else
+				{
+					GetWindowDrawList()->AddText(ImVec2(corner.x + 8.0F, corner.y + 8.0F), IM_COL32(255, 255, 255, 230), "Loading...");
+				}
+			}
+			else if (state.texture != ImTextureID_Invalid && !state.previewShown.empty())
 			{
 				ImVec2 corner = GetCursorScreenPos();
 				ImGui::Image(ImTextureRef(state.texture), ImVec2(side, side));
@@ -563,7 +636,7 @@ void WindowedApplication::InternalDrawBrowser()
 			else
 			{
 				Dummy(ImVec2(side, side * 0.25F));
-				TextDisabled("Select a model or a panorama to preview it.");
+				TextDisabled("Select a model, an image or a panorama to preview it.");
 			}
 
 			// what is selected

@@ -81,6 +81,8 @@ public:
 
 	// the view the ui samples, in kShaderReadOnly once a frame is done (and before the first: see Prepare)
 	[[nodiscard]] ImageViewHandle GetView() const;
+	// the image itself (e.g. to read it back, between frames, leaving it in kShaderReadOnly)
+	[[nodiscard]] Image& GetImage() noexcept { return *myImage; }
 
 	[[nodiscard]] rhi::Extent2d GetExtent() const final { return myExtent; }
 	[[nodiscard]] uint32_t GetFrameCount() const final;

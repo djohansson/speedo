@@ -5,7 +5,14 @@
 #include <gfx/scene.h>
 #include <gfx/views.h>
 
+#include <core/task.h>
+
+#include <cstdint>
+#include <functional>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <vector>
 
 namespace client
 {
@@ -28,12 +35,25 @@ public:
 	[[nodiscard]] gfx::Views& GetViews() noexcept { return *myViews; }
 	[[nodiscard]] gfx::ImageOutput& GetOutput() noexcept { return *myOutput; }
 
+	// reads back the next frame drawn (rgba8, srgb encoded as the ui shows it), handing it to done on the task executor
+	// once the gpu is done with it (e.g. a thumbnail of what is previewed). one at a time: a newer request replaces one
+	// not recorded yet. any thread
+	using CaptureDone = std::function<void(std::vector<uint8_t> rgba, uint32_t width, uint32_t height)>;
+	void RequestCapture(CaptureDone done);
+	// records the requested capture, if any, after the frame was recorded into cmd (outside of render passes), with the
+	// task reading it back added to callbacks (run once the gpu is done with cmd's submission). draw thread
+	void RecordCapture(CommandBufferHandle<rhi::kGraphicsApi> cmd, std::vector<core::TaskHandle>& callbacks);
+
 private:
 	// destroyed in reverse: the scene first, then what it draws with and into
 	std::unique_ptr<gfx::Pipeline> myPipeline;
 	std::unique_ptr<gfx::Views> myViews;
 	std::unique_ptr<gfx::ImageOutput> myOutput;
 	std::unique_ptr<gfx::Scene> myScene;
+
+	gfx::Device& myDevice;
+	std::mutex myCaptureMutex;
+	std::optional<CaptureDone> myCapture; // guarded by myCaptureMutex
 };
 
 } // namespace client

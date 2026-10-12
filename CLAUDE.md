@@ -48,7 +48,18 @@ Notes for working in this codebase, distilled from real build failures.
   several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_RECURSIVE=1`,
   `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
-  startup, for tests and screenshots. The ui requests it (`RequestPreview`); `Draw` makes it under the draw
+  startup, for tests and screenshots. Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
+  one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 16x16, reused least
+  recently drawn first: imgui's 1024 descriptor sets wouldn't hold a texture each), made on the task executor (4 at a
+  time, newest asked for first, skipped once scrolled away): an image decoded (`image::Decode`) and scaled down, a
+  panorama imported small and tonemapped, a model's bundled screenshot (`<model>/screenshot/screenshot.*`, as the
+  glTF-Sample-Assets have), else, for a model without one, a capture of its preview once drawn 20 frames
+  (`Preview::RequestCapture`: the draw thread copies the preview's image to a host visible buffer after recording it,
+  `CommandEncoder::CopyImageToBuffer`, and a graphics timeline callback hands the pixels over); cached on disk under
+  `<user profile>/thumbnails` by path, size and time (`THM1`: a header, then the pixels). Being a user texture, the
+  atlas's updates are reset each frame by its owner (imgui does that for its own atlases only: `Thumbnails::Update`),
+  and queued with `ImTextureDataQueueUpload`. A second `Thumbnails` of one 768 pixel slot, not cached, is the image
+  preview. The ui requests it (`RequestPreview`); `Draw` makes it under the draw
   lock, before taking the graphics queue's (the scene's constructor takes that), and publishes it (`GetPreview`). In the
   frames the ui shows it (`SetPreviewVisible`), `Draw` updates and records it before the window's scene (see "Command
   buffers: the frame's is shared" for the crash its update once caused). It is kept until `Shutdown`: its loads install from draw calls and timeline callbacks (an image's transition

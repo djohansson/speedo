@@ -170,6 +170,7 @@ bool WindowedApplication::Draw()
 
 		// the preview first: its image is sampled by the ui, drawn over the window's frame below
 		if (drawPreview)
+		{
 			myPreview->GetScene().Record(
 				cmd,
 				Scene::FrameTarget{
@@ -177,6 +178,9 @@ bool WindowedApplication::Draw()
 					.graphicsQueue = &graphicsQueue,
 					.graphicsTimeline = graphics->timeline,
 					.runInBackground = runInBackground});
+			// a read back of it, if asked for (a model's thumbnail)
+			myPreview->RecordCapture(cmd, graphicsCallbacks);
+		}
 
 		myScene->Record(
 			cmd,
@@ -376,6 +380,8 @@ void WindowedApplication::Shutdown()
 	}
 
 	myImGui.reset();
+	myThumbnails.reset();
+	myImagePreview.reset();
 
 	// what holds gpu objects, before the rhi they belong to
 	myPreview.reset();
