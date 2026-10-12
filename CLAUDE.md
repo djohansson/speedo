@@ -761,6 +761,15 @@ triangle, vertex, material, submesh and texture counts, and bounds within 1% (qu
 some differ in the source files: ABeautifulGame's glb is another export (1152 fewer triangles), and StainedGlassLamp's
 JPG-PNG variant has 8 materials instead of 13.
 
+## Gotcha: `<windows.h>` macros
+
+`core/file.h` includes `<windows.h>` (mio's), so everything reading files sees it, and its macros rename our code:
+`LoadImage` becomes `LoadImageW` in the files that include it (a link error, `gfx::Scene::LoadImageW`, where the
+definition didn't), and a function like macro named like one of its types rewrites the SDK (`capi.h`'s scalars are
+`FLOAT1`/`UINT1`/`INT1` because `UINT(name)` turned `typedef UINT (CALLBACK *YIELDPROC)` into an error in
+`mciapi.h`). `core/mio_extra.h` includes mio with `WIN32_LEAN_AND_MEAN`, `NOUSER` and `NOGDI` (mio needs only the
+kernel api); other headers keep `<windows.h>` out (see `core/profiling.h`).
+
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 
 `CreateTask(callable, args...)` keeps `args` in a `std::tuple<Args...>` with `Args` deduced as
@@ -949,6 +958,14 @@ Toolchain-level fixes that removed the need for port patches:
 - mimalloc is built with `MI_USE_CXX=OFF`: as C++ it links the static libc++/libc++abi into its dylib and
   exports them. Note that this generally applies to every C++ dylib here (zmq, cpptrace, TracyClient, slang, ...),
   since the host LLVM only ships static `libc++.a`/`libc++abi.a`.
+- pdbs: vcpkg's `vcpkg_copy_pdbs` needs `dumpbin`, which isn't on the path for a chainloaded toolchain, and many
+  ports install pdbs only under CMake's `MSVC` check, so on Windows no package had any. `x64-windows-clang.cmake`
+  replaces the function (llvm-readobj for the path, llvm-pdbutil to check the guid) and runs it after every portfile
+  (`VCPKG_POST_PORTFILE_INCLUDES`, `scripts/cmake/copy-pdbs.cmake`). The guid check catches targets sharing a pdb
+  path: tidy-html5's `tidy.exe` overwrites `tidy.dll`'s, so that one has none.
+- Ports that check `MSVC` take their Linux paths under our GNU style clang on Windows too: slang split its debug
+  info with objcopy and strip (`SLANG_ENABLE_SPLIT_DEBUG_INFO=OFF`), and zstd, pugixml and draco need static
+  linkage. miniz is static too: only slang uses it, for archive formats we don't use.
 
 A port FASTBuild can't build at all can use another generator from its portfile (`vcpkg_cmake_configure(... GENERATOR
 Ninja)`, see `ports/draco`: a shared library linked from object libraries only, and header-only object libraries). Ports

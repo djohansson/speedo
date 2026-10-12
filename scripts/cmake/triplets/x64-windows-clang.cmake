@@ -54,9 +54,74 @@ if(PORT STREQUAL "draco")
 	# collides with the static one on windows ("multiple rules generate draco.lib"). link statically.
 	set(VCPKG_LIBRARY_LINKAGE static)
 endif()
+if(PORT STREQUAL "miniz")
+	# only slang uses it (zip and riff-deflate archives, which we don't use): no dll of its own to ship
+	set(VCPKG_LIBRARY_LINKAGE static)
+endif()
 if(PORT STREQUAL "ktx")
 	# its astc-encoder adds -ffp-model=precise -Werror, which overrides -ffast-math's complex range and so fails with
 	# -Woverriding-complex-range
 	string(APPEND VCPKG_C_FLAGS " -Wno-overriding-complex-range")
 	string(APPEND VCPKG_CXX_FLAGS " -Wno-overriding-complex-range")
 endif()
+
+# vcpkg_copy_pdbs reads each dll's pdb path with dumpbin, which isn't on the path here (vcpkg loads no visual studio
+# environment for a chainloaded toolchain), so no package got its pdbs. this replaces it (the triplet is included after
+# vcpkg's scripts) with llvm-readobj, which reads the same path (lld writes it absolute, into the buildtree). it also
+# runs after every portfile: many ports install their pdbs from cmake only under its MSVC check (glfw3, spirv-tools,
+# vulkan-loader, ...) and don't call it themselves
+set(VCPKG_POST_PORTFILE_INCLUDES "${CMAKE_CURRENT_LIST_DIR}/../copy-pdbs.cmake")
+function(vcpkg_copy_pdbs)
+	cmake_parse_arguments(PARSE_ARGV 0 "arg" "" "" "BUILD_PATHS")
+	if(NOT DEFINED arg_BUILD_PATHS)
+		set(arg_BUILD_PATHS "${CURRENT_PACKAGES_DIR}/bin/*.dll" "${CURRENT_PACKAGES_DIR}/debug/bin/*.dll")
+	endif()
+	if(NOT VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
+		return()
+	endif()
+	find_program(z_llvm_readobj llvm-readobj PATHS "$ENV{LLVM_TOOLS_BINARY_DIR}" NO_DEFAULT_PATH REQUIRED)
+	find_program(z_llvm_pdbutil llvm-pdbutil PATHS "$ENV{LLVM_TOOLS_BINARY_DIR}" NO_DEFAULT_PATH REQUIRED)
+	file(GLOB_RECURSE dlls ${arg_BUILD_PATHS})
+	set(dlls_without_matching_pdbs "")
+	foreach(dll IN LISTS dlls)
+		execute_process(
+			COMMAND "${z_llvm_readobj}" --coff-debug-directory "${dll}"
+			OUTPUT_VARIABLE debug_directory
+			ERROR_QUIET
+			RESULT_VARIABLE error_code)
+		if(error_code EQUAL "0" AND NOT debug_directory MATCHES "PDBGUID")
+			continue() # built without one (mimalloc-redirect.dll, which mimalloc ships prebuilt)
+		endif()
+		set(pdb "")
+		if(error_code EQUAL "0" AND debug_directory MATCHES "PDBGUID: ({[^}]+})")
+			set(guid "${CMAKE_MATCH_1}")
+			# (${CMAKE_MATCH_1} expands before MATCHES runs, so it can't be tested in the same if)
+			set(candidate "")
+			if(debug_directory MATCHES "PDBFileName: ([^\r\n]+[.][Pp][Dd][Bb])")
+				set(candidate "${CMAKE_MATCH_1}")
+			endif()
+			if(candidate AND EXISTS "${candidate}")
+				# some ports (miniz) link both configs to one pdb path: copy it only for the dll it belongs to
+				execute_process(
+					COMMAND "${z_llvm_pdbutil}" dump -summary "${candidate}"
+					OUTPUT_VARIABLE summary
+					ERROR_QUIET
+					RESULT_VARIABLE error_code)
+				string(FIND "${summary}" "GUID: ${guid}" guid_position)
+				if(error_code EQUAL "0" AND NOT guid_position EQUAL "-1")
+					set(pdb "${candidate}")
+				endif()
+			endif()
+		endif()
+		if(pdb)
+			cmake_path(GET dll PARENT_PATH dll_dir)
+			file(COPY "${pdb}" DESTINATION "${dll_dir}")
+		else()
+			list(APPEND dlls_without_matching_pdbs "${dll}")
+		endif()
+	endforeach()
+	if(NOT dlls_without_matching_pdbs STREQUAL "")
+		list(JOIN dlls_without_matching_pdbs "\n    " message)
+		message(WARNING "Could not find a matching pdb file for:\n    ${message}\n")
+	endif()
+endfunction()
