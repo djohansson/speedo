@@ -131,6 +131,12 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	std::vector<std::shared_ptr<ImageView>> sourceMips;
 	for (uint32_t level = 0; level < sourceLevelCount; level++)
 		sourceMips.push_back(mipView(source, level));
+	// every image binding to this run's images before the first dispatch: a dirty set is updated as a whole, and the
+	// previous run's views (another panorama's) are destroyed by now. the sky's first kernel reads no input, and gSource
+	// is only set for the levels below, so they still named the previous run's (a validation error, loading a panorama
+	// and then the sky into one scene, as the file browser's preview does)
+	pipeline.SetDescriptorData("gInput", general(*sourceMips[0]), kSet);
+	pipeline.SetDescriptorData("gSource", ImageBinding{.sampler = {}, .imageView = *environment.sourceView, .layout = ImageLayout::kGeneral}, kSet);
 	if (environment.lighting)
 		dispatch(kCopy, environment.lighting.view.get(), *sourceMips[0], extentOf(source, 0), 0.0F);
 	else
