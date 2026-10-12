@@ -106,7 +106,8 @@ public:
 	struct FrameTarget
 	{
 		uint16_t frameIndex = 0;
-		// the swapchain (its current image), and its frame
+		// the swapchain (its current image), and its frame. an off-screen scene draws into its own image instead, and
+		// ignores them and the ui's callbacks
 		IRenderTarget* swapchain = nullptr;
 		IRenderTarget* swapchainFrame = nullptr;
 		Queue* graphicsQueue = nullptr;
@@ -123,6 +124,8 @@ public:
 	// draws with pipeline (its descriptor sets hold the scene's bindings, so each scene needs its own), into views'
 	// viewports
 	Scene(RHI& rhi, Pipeline& pipeline, Views& views);
+	// an off-screen scene: draws into an image of its own (see GetOutputView), of extent, rather than the window
+	Scene(RHI& rhi, Pipeline& pipeline, Views& views, rhi::Extent2d extent);
 	~Scene();
 
 	Scene(const Scene&) = delete;
@@ -143,6 +146,14 @@ public:
 	// resizes what is sized after the current window's swapchain (its render targets), after the swapchain was
 	// (re)created. call with the gpu idle, holding the draw lock.
 	void Resize();
+	// an off-screen scene's: (re)creates its image at extent, and what is sized after it. call with the gpu idle, holding
+	// the draw lock. its output view changes
+	void Resize(rhi::Extent2d extent);
+
+	// an off-screen scene's image, as a view the ui can sample (in kShaderReadOnly once a frame is done, srgb encoded in a
+	// unorm format, as the swapchain's), and its extent. the view changes with Resize
+	[[nodiscard]] ImageViewHandle GetOutputView() const;
+	[[nodiscard]] rhi::Extent2d GetOutputExtent() const;
 
 	// updates the frame's buffers for the frame about to be recorded, after its fence: the exposure histogram it read,
 	// the animation and what it moves, and the lights. draw thread.

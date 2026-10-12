@@ -304,6 +304,13 @@ stages and accesses), with an execute callback that records only its own command
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Uploads, UI,
 Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
+A renderer draws into the window's swapchain (`RenderOutput::kSwapchain`: the UI passes and Present end its frame) or
+into an image (`kImage`: no UI, an Output pass leaves the image in `kShaderReadOnly` for the UI to sample).
+`FrameInputs::output` is either. An off-screen scene (`Scene(rhi, pipeline, views, extent)`, its own pipeline and views)
+makes the image itself (RGBA8 unorm, storage, sampled and color attachment, srgb encoded as the swapchain's) with a
+`RenderImageSet` over it, binds it as ComputeMain's output in every frame slot, transitions it to `kShaderReadOnly`
+before its first frame, and recreates it on `Resize(extent)`; `GetOutputView()` is what the UI samples.
+
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
   hazards and an `Image::Transition`/`IRenderTarget::Transition` per layout change (whose masks come from the layouts).

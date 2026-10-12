@@ -35,7 +35,8 @@ constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
 
 } // namespace renderer
 
-Renderer::Renderer(Device& device)
+Renderer::Renderer(Device& device, RenderOutput output)
+	: myOutputKind(output)
 {
 	using namespace renderer;
 
@@ -69,7 +70,7 @@ Renderer::Renderer(Device& device)
 	myOitNodes = myGraph.CreateBuffer(
 		{.name = "OIT Nodes", .sizeOf = [](Extent2d extent) { return std::max<uint64_t>(OitNodeCapacity(extent), 1) * sizeof(OitNode); }});
 	myOitCounter = myGraph.CreateBuffer({.name = "OIT Counter", .size = sizeof(uint32_t)});
-	mySwapchain = myGraph.ImportImage("Swapchain");
+	myOutput = myGraph.ImportImage(output == RenderOutput::kSwapchain ? "Swapchain" : "Output");
 	myShadowAtlas = myGraph.CreateImage(
 		{.name = "Shadow Atlas",
 		 .format = Format::kD32Sfloat,
@@ -313,7 +314,7 @@ Renderer::Renderer(Device& device)
 			builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
 			builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(mySwapchain, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this](FrameGraph::PassContext& context)
 		{
@@ -325,7 +326,7 @@ Renderer::Renderer(Device& device)
 			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 			pipeline.SetDescriptorData(
 				"gRWTextures",
-				ImageBinding{.sampler = {}, .imageView = inputs.swapchain->GetAttachments()[0], .layout = inputs.swapchain->GetLayout(0)},
+				ImageBinding{.sampler = {}, .imageView = inputs.output->GetAttachments()[0], .layout = inputs.output->GetLayout(0)},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				inputs.frameIndex);
 
@@ -342,7 +343,7 @@ Renderer::Renderer(Device& device)
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
 			// cover the whole swapchain image
-			auto extent = inputs.swapchain->GetExtent();
+			auto extent = inputs.output->GetExtent();
 			CommandEncoder(cmd).Dispatch(
 				(extent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
 				(extent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
@@ -359,43 +360,58 @@ Renderer::Renderer(Device& device)
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
 
-	// the ui: its texture uploads, then its draws over the frame
-	myGraph.AddPass(
-		"UI Uploads",
-		[](FrameGraph::PassBuilder& builder) { builder.SideEffects(); },
-		[this](FrameGraph::PassContext& context)
-		{
-			GPU_SCOPE(context.cmd, *myInputs->graphicsQueue, imguiTextures);
-			if (myInputs->prepareUi)
-				myInputs->prepareUi(context.cmd);
-		});
-	myGraph.AddPass(
-		"UI",
-		[this](FrameGraph::PassBuilder& builder)
-		{
-			builder.ColorAttachment(mySwapchain, LoadOp::kLoad);
-			builder.Wrap(
-				[this](CommandBufferHandle cmd, const std::function<void()>& record)
-				{
-					GPU_SCOPE(cmd, *myInputs->graphicsQueue, imgui);
-					record();
-				});
-		},
-		[this](FrameGraph::PassContext& context)
-		{
-			myPipeline->SetRenderTarget(*myInputs->swapchainFrame);
-			if (myInputs->drawUi)
-				myInputs->drawUi(context.cmd);
-		});
+	if (output == RenderOutput::kSwapchain)
+	{
+		// the ui: its texture uploads, then its draws over the frame
+		myGraph.AddPass(
+			"UI Uploads",
+			[](FrameGraph::PassBuilder& builder) { builder.SideEffects(); },
+			[this](FrameGraph::PassContext& context)
+			{
+				GPU_SCOPE(context.cmd, *myInputs->graphicsQueue, imguiTextures);
+				if (myInputs->prepareUi)
+					myInputs->prepareUi(context.cmd);
+			});
+		myGraph.AddPass(
+			"UI",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.ColorAttachment(myOutput, LoadOp::kLoad);
+				builder.Wrap(
+					[this](CommandBufferHandle cmd, const std::function<void()>& record)
+					{
+						GPU_SCOPE(cmd, *myInputs->graphicsQueue, imgui);
+						record();
+					});
+			},
+			[this](FrameGraph::PassContext& context)
+			{
+				myPipeline->SetRenderTarget(*myInputs->swapchainFrame);
+				if (myInputs->drawUi)
+					myInputs->drawUi(context.cmd);
+			});
 
-	myGraph.AddPass(
-		"Present",
-		[this](FrameGraph::PassBuilder& builder)
-		{
-			builder.Use(mySwapchain, ResourceUse::Present());
-			builder.SideEffects();
-		},
-		[](FrameGraph::PassContext& /*context*/) {});
+		myGraph.AddPass(
+			"Present",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myOutput, ResourceUse::Present());
+				builder.SideEffects();
+			},
+			[](FrameGraph::PassContext& /*context*/) {});
+	}
+	else
+	{
+		// the image, for sampling (by the ui) once the frame is done
+		myGraph.AddPass(
+			"Output",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myOutput, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.SideEffects();
+			},
+			[](FrameGraph::PassContext& /*context*/) {});
+	}
 
 	// the passes' gpu timings (see GetPassTimings)
 	myGraph.EnableTimings(device, SHADER_TYPES_FRAME_COUNT);
@@ -511,7 +527,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 {
 	ZoneScopedN("Renderer::Record");
 
-	ENSURE(inputs.swapchain && inputs.swapchainFrame && inputs.exposureHistogram && inputs.graphicsQueue);
+	ENSURE(inputs.output && (inputs.swapchainFrame || myOutputKind == RenderOutput::kImage) && inputs.exposureHistogram && inputs.graphicsQueue);
 
 	// the passes' timings from the last time this frame index ran (its fence has been waited for)
 	if (auto timings = myGraph.ReadTimings(inputs.frameIndex); !timings.empty())
@@ -602,7 +618,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
 
-	myGraph.Bind(mySwapchain, *frame.swapchain, 0);
+	myGraph.Bind(myOutput, *frame.output, 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
 	myGraph.Execute(cmd, inputs.frameIndex);
 

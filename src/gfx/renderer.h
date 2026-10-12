@@ -48,8 +48,9 @@ struct FrameInputs
 	bool shadows = true;
 	shadows::ShadowCamera camera;
 	Bounds3f sceneBounds;
-	// where the frame goes: the swapchain (its current image), and its frame, which the ui's pipelines are made for
-	IRenderTarget* swapchain = nullptr;
+	// where the frame goes: the swapchain's current image, or the image of an off-screen renderer (see RenderOutput); and
+	// for the swapchain its frame, which the ui's pipelines are made for
+	IRenderTarget* output = nullptr;
 	IRenderTarget* swapchainFrame = nullptr;
 	// the exposure histograms (SHADER_TYPES_EXPOSURE_BINS per frame index), host visible: ComputeMain counts into the
 	// frame's, which the host reads once the frame is done
@@ -67,10 +68,18 @@ struct FrameInputs
 // draws frames: the lights' shadows (see gfx/shadows.h), the light under scattering materials' surfaces, the main pass (in two phases with transmissive materials), the order independent transparency's
 // resolve, tonemapping and the backdrop in ComputeMain, and the ui, as a FrameGraph whose transients are the main render
 // target, the transparency's lists and the transmission texture.
+// where a renderer's frames go: the window's swapchain (with the ui drawn over them, then presented), or an image, left
+// for sampling (an off-screen view, e.g. shown in the ui)
+enum class RenderOutput : uint8_t
+{
+	kSwapchain,
+	kImage,
+};
+
 class Renderer final
 {
 public:
-	explicit Renderer(Device& device);
+	explicit Renderer(Device& device, RenderOutput output = RenderOutput::kSwapchain);
 	~Renderer();
 
 	// (re)creates the transients for the swapchain's extent (the gpu must be done with the previous ones) and points the
@@ -106,7 +115,8 @@ private:
 	FrameGraph::ImageId myScatterBackDepth;
 	FrameGraph::ImageId myScatterNoisy;
 	FrameGraph::ImageId myScatterLight;
-	FrameGraph::ImageId mySwapchain;
+	RenderOutput myOutputKind = RenderOutput::kSwapchain;
+	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
 	FrameGraph::BufferId myOitHeads;
 	FrameGraph::BufferId myOitNodes;
