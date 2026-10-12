@@ -94,7 +94,16 @@ endif()
 
 ###############################################################################
 
-file(GLOB CORE_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/core/*.cpp)
+set(CORE_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/core/application.cpp
+	${SPEEDO_SOURCE_DIR}/core/eventhandlers.cpp
+	${SPEEDO_SOURCE_DIR}/core/file.cpp
+	${SPEEDO_SOURCE_DIR}/core/math.cpp
+	${SPEEDO_SOURCE_DIR}/core/nodegraph.cpp
+	${SPEEDO_SOURCE_DIR}/core/task.cpp
+	${SPEEDO_SOURCE_DIR}/core/taskexecutor.cpp
+	${SPEEDO_SOURCE_DIR}/core/upgradablesharedmutex.cpp
+	${SPEEDO_SOURCE_DIR}/core/zip.cpp)
 add_library(core STATIC	${CORE_SOURCE_FILES})
 target_compile_features(
 	core
@@ -128,7 +137,10 @@ target_link_libraries(
 
 # windows and the window system: the windowed application base (its window, main thread work, exit wake-ups), the file
 # dialogs and imgui's platform side, between core and rhi (whose surfaces are made for the platform's windows)
-file(GLOB PLATFORM_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/platform/*.cpp)
+set(PLATFORM_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/platform/filedialog.cpp
+	${SPEEDO_SOURCE_DIR}/platform/imguiplatform.cpp
+	${SPEEDO_SOURCE_DIR}/platform/windowedapplication.cpp)
 add_library(platform STATIC ${PLATFORM_SOURCE_FILES})
 
 target_compile_features(
@@ -154,7 +166,30 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB_RECURSE GFX_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/gfx/*.cpp)
+set(GFX_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/gfx/camera.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/drawlist.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/environment.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/environmentfilter.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/framegraph.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/gltfimport.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/graphicsqueue.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/imageimport.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/imgui_extra.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/imguilayer.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/lightgizmos.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/meshimport.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/model.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/objimport.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/renderer.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/renderoutput.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/scene.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/sceneanimation.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/shaderloader.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/shadows.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/tangents.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/texture.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/views.cpp)
 add_library(gfx STATIC ${GFX_SOURCE_FILES})
 
 target_compile_features(
@@ -221,7 +256,29 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB_RECURSE RHI_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/rhi/*.cpp)
+set(RHI_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/buffer.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/command.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/commandencoder.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/descriptorset.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/device.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/deviceobject.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/fence.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/frame.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/image.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/imguirenderer.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/instance.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/memory.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipeline.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/querypool.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/queue.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/renderimageset.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/rhi.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/sampler.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/semaphore.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/shader.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/swapchain.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/utils.cpp)
 add_library(rhi STATIC ${RHI_SOURCE_FILES})
 
 target_compile_features(
@@ -255,7 +312,8 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB SERVERLIB_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/server/*.cpp)
+set(SERVERLIB_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/server/server.cpp)
 add_library(serverlib STATIC ${SERVERLIB_SOURCE_FILES})
 
 set_property(
@@ -289,7 +347,11 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB CLIENTLIB_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/client/*.cpp)
+set(CLIENTLIB_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/client/client.cpp
+	${SPEEDO_SOURCE_DIR}/client/loading.cpp
+	${SPEEDO_SOURCE_DIR}/client/ui.cpp
+	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp)
 add_library(clientlib STATIC ${CLIENTLIB_SOURCE_FILES})
 
 set_property(
@@ -319,7 +381,8 @@ target_link_libraries(
 
 ###############################################################################
 
-file(GLOB SERVER_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/server/*.c)
+set(SERVER_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/server/main.c)
 add_executable(server ${SERVER_SOURCE_FILES})
 
 target_compile_features(
@@ -352,7 +415,8 @@ endif()
 
 ###############################################################################
 
-file(GLOB CLIENT_SOURCE_FILES CONFIGURE_DEPENDS ${SPEEDO_SOURCE_DIR}/client/*.c)
+set(CLIENT_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/client/main.c)
 add_executable(client ${CLIENT_SOURCE_FILES})
 
 target_compile_features(

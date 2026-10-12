@@ -859,14 +859,12 @@ case warning, glfw3 configure error). Every build dir then misses its dylibs (`L
 @rpath/libcargs.dylib`). Recover with `cmake --preset <name>`, which restores the packages from the binary
 cache. From a shell, always run `cmake --preset <name>` right before building that preset.
 
-The source GLOBs in `CMakeLists.txt` are `CONFIGURE_DEPENDS` (the FASTBuild generator honors it: its `rebuild-bff`
-step), so adding or removing a source file re-runs the configure from the next build, by itself. Through a build preset
-(`cmake --build --preset <name>`, which VS Code's CMake Tools uses: build presets inherit their configure preset's
-environment) that is safe and quick (0.4 s, vcpkg untouched; tried by adding and removing a file in `gfx`). A bare
-`cmake --build build/<preset>` from a shell re-runs it without that environment and breaks the shared `install/` tree as
-above (tried: vcpkg removed the packages and failed rebuilding draco), and now a new source file is enough to trigger it:
-from a shell, build with `--preset`, or run `cmake --preset <name>` first. Without `CONFIGURE_DEPENDS`, a build dir that
-wasn't reconfigured after a file was added failed to link (`undefined symbol` for what the new file defines).
+The source files are listed explicitly in `CMakeLists.txt` (`CORE_SOURCE_FILES`, `GFX_SOURCE_FILES`, ...): add a new
+`.cpp` there. That changes `CMakeLists.txt`, which reconfigures the build dir (VS Code's CMake Tools does it with the
+preset's environment). They were GLOBs, which only a configure re-reads, so a build dir that wasn't reconfigured after a
+file was added failed to link (`undefined symbol` for what the new file defines); `CONFIGURE_DEPENDS` didn't fix that with
+the FASTBuild generator: it picked up one new file, but twice its glob check didn't run, or the regenerate it triggered
+(`cmake --regenerate-during-build`) did nothing.
 
 ## Scripts are PowerShell
 
