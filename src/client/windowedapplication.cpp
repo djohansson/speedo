@@ -275,7 +275,7 @@ WindowedApplication::WindowedApplication(
 
 	myViews = std::make_unique<Views>(device, glm::uvec2(swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height));
 
-	myScene = std::make_unique<Scene>(rhi, *myViews);
+	myScene = std::make_unique<Scene>(rhi, pipeline, *myViews);
 
 	{
 		auto graphics = device.GetQueue(kQueueTypeGraphics).Write();

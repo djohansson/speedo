@@ -452,7 +452,6 @@ void Device<kVk>::Swap(Device& other) noexcept
 	std::swap(myQueueFamilyDescs, other.myQueueFamilyDescs);
 	std::swap(myQueues, other.myQueues);
 	std::swap(myPipeline, other.myPipeline);
-	std::swap(myPipelineLayoutHandles, other.myPipelineLayoutHandles);
 	std::swap(myResources, other.myResources);
 }
 
@@ -490,7 +489,6 @@ Device<kVk>::~Device()
 	// members are only destroyed after this body has run, so release everything that owns device memory/objects
 	// before the allocator and device go away
 	myResources.clear();
-	myPipelineLayoutHandles.clear();
 	myPipeline = Pipeline<kVk>{};
 	myQueues.clear();
 

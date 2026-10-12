@@ -854,16 +854,28 @@ void Pipeline<kVk>::PushConstants(CommandBufferHandle<kVk> cmd, std::span<const 
 }
 
 template <>
-PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(const ShaderSet& shaderSet)
+PipelineLayoutHandle<kVk> Pipeline<kVk>::CreateLayout(std::string_view name, const ShaderSet& shaderSet)
 {
+	ENSUREF(!myLayoutNames.contains(std::string(name)), "pipeline layout {} exists", name);
+
 	const auto& [layoutIt, wasInserted] = myPipelineLayouts.emplace(
 		PipelineLayout<kVk>(
 			PipelineLayoutCreateDesc<kVk>{
-				SuperType::CreateDeviceObjectCreateDesc("PipelineLayout"),
+				SuperType::CreateDeviceObjectCreateDesc(name),
 			},
 			shaderSet));
 
-	return static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
+	auto handle = static_cast<PipelineLayoutHandle<kVk>>(*layoutIt);
+	myLayoutNames.emplace(std::string(name), handle);
+	return handle;
+}
+
+template <>
+PipelineLayoutHandle<kVk> Pipeline<kVk>::GetLayoutHandle(std::string_view name) const
+{
+	auto nameIt = myLayoutNames.find(std::string(name));
+	ENSUREF(nameIt != myLayoutNames.end(), "no pipeline layout {}", name);
+	return nameIt->second;
 }
 
 template <>
@@ -1170,6 +1182,7 @@ void Pipeline<kVk>::Swap(Pipeline& rhs) noexcept
 	std::swap(myBindPoint, rhs.myBindPoint);
 	std::swap(myRenderTarget, rhs.myRenderTarget);
 	std::swap(myPipelineLayouts, rhs.myPipelineLayouts);
+	std::swap(myLayoutNames, rhs.myLayoutNames);
 	std::swap(myCurrentLayoutIt, rhs.myCurrentLayoutIt);
 	std::swap(myGraphicsState, rhs.myGraphicsState);
 	std::swap(myComputeState, rhs.myComputeState);

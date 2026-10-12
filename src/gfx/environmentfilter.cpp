@@ -39,23 +39,24 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 {
 	ZoneScopedN("EnvironmentFilter::EnvironmentFilter");
 
-	myLayout = pipeline.CreateLayout(loader.Load(
-		source,
-		{
-			.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
-			.entryPoints =
-				{
-					{"EnvironmentSky", SLANG_STAGE_COMPUTE},
-					{"EnvironmentDownsample", SLANG_STAGE_COMPUTE},
-					{"EnvironmentCopy", SLANG_STAGE_COMPUTE},
-					{"EnvironmentSpecular", SLANG_STAGE_COMPUTE},
-					{"EnvironmentSheen", SLANG_STAGE_COMPUTE},
-					{"EnvironmentIrradiance", SLANG_STAGE_COMPUTE},
-				},
-			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
-			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-		}));
-	device.GetPipelineLayoutHandles().emplace(std::hash<std::string_view>{}("Environment"), myLayout);
+	myLayout = pipeline.CreateLayout(
+		"Environment",
+		loader.Load(
+			source,
+			{
+				.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
+				.entryPoints =
+					{
+						{"EnvironmentSky", SLANG_STAGE_COMPUTE},
+						{"EnvironmentDownsample", SLANG_STAGE_COMPUTE},
+						{"EnvironmentCopy", SLANG_STAGE_COMPUTE},
+						{"EnvironmentSpecular", SLANG_STAGE_COMPUTE},
+						{"EnvironmentSheen", SLANG_STAGE_COMPUTE},
+						{"EnvironmentIrradiance", SLANG_STAGE_COMPUTE},
+					},
+				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
+				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+			}));
 
 	mySampler = std::make_unique<SamplerVector>(SamplerVectorCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Environment Filter Sampler"),

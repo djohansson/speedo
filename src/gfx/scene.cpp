@@ -296,6 +296,8 @@ static void ApplyMaterialProperty(MaterialData& data, const ModelMaterial& desc,
 struct Scene::Impl
 {
 	RHI& myRHI;
+	// the pipeline the scene draws with: its descriptor sets hold the scene's bindings, so another scene needs one of its own
+	Pipeline& myPipeline;
 	Views& myViews;
 	Settings mySettings;
 
@@ -669,10 +671,10 @@ struct Scene::Impl
 		TransitionThenBind(rhi, graphics, uploads, [this, &rhi, model, textures = std::move(textures)](QueueTimelineContextData& graphics)
 		{
 			auto& device = rhi.GetPrimaryDevice();
-			auto& pipeline = device.GetPipeline();
+			auto& pipeline = myPipeline;
 			const auto& blackView = *device.GetResource<ImageView>(myBlackTextureViewUuid);
 
-			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 
 			// each texture once, in the slots from kModelTextureFirstSlot. the previous model's slots go back to black.
 			std::vector<std::pair<uuids::uuid, uuids::uuid>> textureUuids;
@@ -1078,9 +1080,9 @@ struct Scene::Impl
 		TransitionThenBind(rhi, graphics, Uploads{.images = {{image, upload}}}, [this, &rhi, image, imageView](QueueTimelineContextData& graphics)
 		{
 			auto& device = rhi.GetPrimaryDevice();
-			auto& pipeline = device.GetPipeline();
+			auto& pipeline = myPipeline;
 
-			pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			pipeline.SetDescriptorData(
 				"gTextures",
 				ImageBinding{.sampler = {}, .imageView = *imageView, .layout = image->GetDesc().layout},
@@ -1273,7 +1275,7 @@ struct Scene::Impl
 			[this, &rhi, environment, name = std::move(name)](QueueTimelineContextData& graphics) mutable
 			{
 				auto& device = rhi.GetPrimaryDevice();
-				auto& pipeline = device.GetPipeline();
+				auto& pipeline = myPipeline;
 				const auto& [image, view, upload, normalYUp] = environment->texture;
 				const auto& [sheenImage, sheenView, sheenUpload, sheenNormalYUp] = environment->sheenTexture;
 				auto& environmentBuffer = *device.GetResource<Buffer>(myEnvironmentUuid);
@@ -1314,7 +1316,7 @@ struct Scene::Impl
 					RetireAfterGraphicsWork(graphics, std::make_shared<std::shared_ptr<const EnvironmentTexture>>(environment));
 				}
 
-				pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+				pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 				pipeline.SetDescriptorData(
 					"gTextures",
 					ImageBinding{.sampler = {}, .imageView = *view, .layout = image->GetDesc().layout},
@@ -1362,7 +1364,7 @@ struct Scene::Impl
 		
 		auto& device = rhi.GetPrimaryDevice();
 		auto& swapchain = rhi.GetSwapchain(GetCurrentWindow());
-		auto& pipeline = device.GetPipeline();
+		auto& pipeline = myPipeline;
 		auto frameCount = swapchain.GetFrames().size();
 		ENSURE(frameCount <= SHADER_TYPES_FRAME_COUNT);
 
@@ -1402,7 +1404,7 @@ struct Scene::Impl
 		// Draw only writes the current frame's element of these arrays, but a dirty set is updated as a whole: after a
 		// resize the other frames' elements would still reference the destroyed views. so write all of them up front,
 		// with the layouts Draw uses (so Draw's own writes are skipped as unchanged).
-		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 		pipeline.SetDescriptorData(
 			"gExposureHistogram",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myExposureHistogramUuid), .offset = 0},
@@ -1418,12 +1420,12 @@ struct Scene::Impl
 				frameIt);
 	}
 
-	Impl(RHI& rhi, Views& views)
+	Impl(RHI& rhi, Pipeline& pipeline, Views& views)
 		: myRHI(rhi)
+		, myPipeline(pipeline)
 		, myViews(views)
 	{
 		auto& device = rhi.GetPrimaryDevice();
-		auto& pipeline = device.GetPipeline();
 
 		std::vector<core::TaskHandle> timelineCallbacks;
 
@@ -1650,18 +1652,18 @@ struct Scene::Impl
 
 		auto shaderSourceFile = shaderIncludePath / "shaders.slang";
 
-		const auto& [zPrepassShaderLayoutPairIt, zPrepassShaderLayoutWasInserted] = device.GetPipelineLayoutHandles().emplace(
-			std::hash<std::string_view>{}("VertexZPrepass"),
-			pipeline.CreateLayout(shaderLoader.Load(
+		auto zPrepassLayout = pipeline.CreateLayout(
+			"VertexZPrepass",
+			shaderLoader.Load(
 				shaderSourceFile,
 				{
 					.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
 					.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-				})));
+				}));
 
-		pipeline.BindLayoutAuto(zPrepassShaderLayoutPairIt->second, PipelineBindPoint::kGraphics);
+		pipeline.BindLayoutAuto(zPrepassLayout, PipelineBindPoint::kGraphics);
 
 		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 		{
@@ -1699,9 +1701,9 @@ struct Scene::Impl
 				i);
 		}
 
-		const auto& [mainShaderLayoutPairIt, mainShaderLayoutWasInserted] = device.GetPipelineLayoutHandles().emplace(
-			std::hash<std::string_view>{}("Main"),
-			pipeline.CreateLayout(shaderLoader.Load(
+		auto mainLayout = pipeline.CreateLayout(
+			"Main",
+			shaderLoader.Load(
 				shaderSourceFile,
 				{
 					.sourceLanguage = SLANG_SOURCE_LANGUAGE_SLANG,
@@ -1717,13 +1719,12 @@ struct Scene::Impl
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
-				})));
+				}));
 
-		pipeline.BindLayoutAuto(mainShaderLayoutPairIt->second, PipelineBindPoint::kGraphics);
+		pipeline.BindLayoutAuto(mainLayout, PipelineBindPoint::kGraphics);
 
-		// (registering its layout can rehash the layout map: mainShaderLayoutPairIt is stale after it)
 		myEnvironmentFilter = std::make_unique<EnvironmentFilter>(device, pipeline, shaderLoader, shaderIncludePath / "environment.slang");
-		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 
 		pipeline.SetDescriptorData(
 			"gMaterialData",
@@ -1802,7 +1803,7 @@ struct Scene::Impl
 				i);
 		}
 
-		pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 
 		myRenderer = std::make_unique<Renderer>(device);
 		CreateWindowDependentObjects(rhi);
@@ -1845,7 +1846,7 @@ struct Scene::Impl
 	void Record(CommandBufferHandle cmd, const FrameTarget& target)
 	{
 		auto& device = myRHI.GetPrimaryDevice();
-		auto& pipeline = device.GetPipeline();
+		auto& pipeline = myPipeline;
 
 		// which materials are transmissive (the main pass's second phase), counting those an animation turns on, and which
 		// layer groups their pipelines can skip (unless SPEEDO_SHADER_TIERS=0: the generic pipelines for all)
@@ -1906,7 +1907,7 @@ struct Scene::Impl
 	}
 };
 
-Scene::Scene(RHI& rhi, Views& views) : myImpl(std::make_unique<Impl>(rhi, views)) {}
+Scene::Scene(RHI& rhi, Pipeline& pipeline, Views& views) : myImpl(std::make_unique<Impl>(rhi, pipeline, views)) {}
 
 Scene::~Scene() = default;
 

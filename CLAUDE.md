@@ -811,15 +811,14 @@ of the client/server object).
 This is easy to miss with lambdas: a captureless lambda passed by reference happens to work (there's
 nothing to read), but it breaks as soon as a capture is added.
 
-## `size_t`-keyed maps expecting hashed names
+## Pipelines own their layouts, by name
 
-`Device::GetPipelineLayoutHandles()` (and similar name-keyed lookup tables) key on
-`size_t` name hashes, not strings — see `GetPipelineLayoutHandle(std::string_view)` in
-`src/rhi/device.h` which does `std::hash<std::string_view>{}(name)`. When inserting into
-one of these maps directly (e.g. via `.emplace(...)`), hash the string first; passing a
-raw string literal compiles a `pair<size_t, T>` construction attempt that only fails at
-template-instantiation depth deep inside `<vector>`/`<unordered_dense.h>`, far from the
-actual mistake.
+A pipeline layout belongs to the `rhi::Pipeline` that created it: `CreateLayout(name, shaderSet)` registers it under its
+name, and `GetLayoutHandle(name)` finds it (`"Main"`, `"VertexZPrepass"`, `"Environment"`); binding another pipeline's
+layout trips `BindLayoutAuto`'s ENSURE. A pipeline's descriptor sets are its own too, and hold one value per binding, so
+two scenes can't share one: each `gfx::Scene` is given the pipeline it draws with (`Scene(rhi, pipeline, views)`; the
+window's scene uses `Device::GetPipeline()`), and creates its layouts in it. (The device used to keep a map of layout
+handles by name hash, which handed out the first pipeline's layouts.)
 
 ## Always configure via `cmake --preset <name>`, never a hand-reconstructed command
 

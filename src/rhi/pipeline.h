@@ -143,7 +143,10 @@ public:
 	// pushes data at offset into the current layout, with the stage flags of the push constant ranges it overlaps
 	void PushConstants(CommandBufferHandle<G> cmd, std::span<const std::byte> data, uint32_t offset = 0) const;
 
-	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(const ShaderSet& shaderSet);
+	// creates a layout of the pipeline's own, by name (a pipeline's descriptor sets and layouts are its own: another
+	// pipeline has its own of the same name). GetLayoutHandle finds it by that name
+	[[maybe_unused]] PipelineLayoutHandle<G> CreateLayout(std::string_view name, const ShaderSet& shaderSet);
+	[[nodiscard]] PipelineLayoutHandle<G> GetLayoutHandle(std::string_view name) const;
 
 	// "manual" api
 
@@ -280,6 +283,7 @@ private:
 	PipelineBindPoint myBindPoint{};
 	RenderTargetPassHandle<G> myRenderTarget;
 	PipelineLayoutSetType myPipelineLayouts;
+	core::UnorderedMap<std::string, PipelineLayoutHandle<G>> myLayoutNames;
 	typename PipelineLayoutSetType::iterator myCurrentLayoutIt{};
 	// end auto api shared state
 

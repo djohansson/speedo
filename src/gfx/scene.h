@@ -120,7 +120,9 @@ public:
 
 	// creates the default resources and the pipeline layouts, binds them, and sizes the renderer after the current
 	// window's swapchain. views must outlive the scene.
-	Scene(RHI& rhi, Views& views);
+	// draws with pipeline (its descriptor sets hold the scene's bindings, so each scene needs its own), into views'
+	// viewports
+	Scene(RHI& rhi, Pipeline& pipeline, Views& views);
 	~Scene();
 
 	Scene(const Scene&) = delete;

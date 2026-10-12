@@ -35,7 +35,6 @@ struct ObjectTraits<Device<G>>
 template <GraphicsApi G>
 class Device final : public Object<Device<G>>
 {
-	using PipelineLayoutHandleMapType = core::UnorderedMap<size_t, PipelineLayoutHandle<G>>;
 	// resources are keyed by their own uuid (unique among live objects, see ObjectCreateDesc): hash and compare
 	// them by it, and look them up by a plain uuid
 	struct ResourceHash
@@ -86,11 +85,6 @@ public:
 	// hold locks on more than one queue type at once unless you know they are distinct, or it will self-deadlock.
 	[[nodiscard]] QueueTimelineContext<G>& GetQueue(QueueType type) const { return *myQueues.at(type); }
 
-	[[nodiscard]] auto GetPipelineLayoutHandle(size_t nameHash) const { return myPipelineLayoutHandles.at(nameHash); }
-	[[nodiscard]] auto GetPipelineLayoutHandle(std::string_view name) const { return myPipelineLayoutHandles.at(std::hash<std::string_view>{}(name)); }
-	[[nodiscard]] auto& GetPipelineLayoutHandles() noexcept { return myPipelineLayoutHandles; }
-	[[nodiscard]] const auto& GetPipelineLayoutHandles() const noexcept { return myPipelineLayoutHandles; }
-	
 	[[nodiscard]] auto& GetPipeline() noexcept { return myPipeline; }
 	[[nodiscard]] const auto& GetPipeline() const noexcept { return myPipeline; }
 
@@ -139,7 +133,6 @@ private:
 	// shared_ptr so that aliased queue types share the same ConcurrentAccess (and thus the same mutex), not just the data
 	core::UnorderedMap<QueueType, std::shared_ptr<QueueTimelineContext<G>>> myQueues;
 	Pipeline<G> myPipeline;
-	PipelineLayoutHandleMapType myPipelineLayoutHandles;
 	ResourceSetType myResources;
 };
 

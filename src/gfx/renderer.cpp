@@ -134,7 +134,7 @@ Renderer::Renderer(Device& device)
 			CommandEncoder encoder(cmd);
 
 			pipeline.SetRenderTarget(*context.target);
-			pipeline.BindLayoutAuto(pipeline.GetDevice().GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 			encoder.BindIndexBuffer(*myShadowDrawList.indexBuffer, 0, IndexType::kUint32);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
@@ -204,7 +204,7 @@ Renderer::Renderer(Device& device)
 	auto scatterKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant kernel)
 	{
 		auto& pipeline = *myPipeline;
-		pipeline.BindLayoutAuto(pipeline.GetDevice().GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
@@ -322,7 +322,7 @@ Renderer::Renderer(Device& device)
 			auto cmd = context.cmd;
 			GPU_SCOPE(cmd, *inputs.graphicsQueue, computeMain);
 
-			pipeline.BindLayoutAuto(pipeline.GetDevice().GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 			pipeline.SetDescriptorData(
 				"gRWTextures",
 				ImageBinding{.sampler = {}, .imageView = inputs.swapchain->GetAttachments()[0], .layout = inputs.swapchain->GetLayout(0)},
@@ -438,7 +438,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 
 	// a dirty set is updated as a whole, so every frame's slot is written up front, with the layouts the passes leave
 	// them in (so that later writes of the same are skipped as unchanged)
-	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+	pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 		pipeline.SetDescriptorData(
 			"gTextures",
@@ -616,7 +616,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	auto& device = pipeline.GetDevice();
 
 	pipeline.SetRenderTarget(*context.target);
-	pipeline.BindLayoutAuto(device.GetPipelineLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+	pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 
 	if (inputs.model == nullptr || list.indexBuffer == nullptr)
 		return;
