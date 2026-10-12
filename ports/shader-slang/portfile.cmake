@@ -49,6 +49,10 @@ if(VCPKG_TARGET_IS_WINDOWS)
 	list(APPEND _shader_slang_configure_options
 		-DVISUAL_STUDIO_PATH=${_shader_slang_visual_studio_path}
 		-DVISUAL_STUDIO_VCTOOLS_VERSION=${_shader_slang_visual_studio_vctools_version}
+		# slang checks MSVC, which our GNU style clang++ isn't, and would split the debug info out of the dlls with
+		# objcopy and strip as on linux: pointless for a PE dll with a pdb, and strip fails on a dll still locked
+		# after the link (permission denied)
+		-DSLANG_ENABLE_SPLIT_DEBUG_INFO=OFF
 	)
 endif()
 
@@ -73,5 +77,16 @@ file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
 set(TOOLS slangc slangd slangi)
 vcpkg_copy_tools(TOOL_NAMES ${TOOLS} AUTO_CLEAN)
+if(VCPKG_TARGET_IS_WINDOWS)
+	# vcpkg_copy_tools only copies the dlls the tools import: slang loads these at run time from beside the
+	# executable (on windows there is no rpath to bin), and slangc crashes without slang-glsl-module.dll, even on -v
+	file(GLOB _shader_slang_runtime_modules
+		"${CURRENT_PACKAGES_DIR}/bin/slang-glsl-module.dll"
+		"${CURRENT_PACKAGES_DIR}/bin/slang-glslang.dll"
+		"${CURRENT_PACKAGES_DIR}/bin/slang-rt.dll"
+		"${CURRENT_PACKAGES_DIR}/bin/slang-standard-module-*"
+	)
+	file(COPY ${_shader_slang_runtime_modules} DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}")
+endif()
 
 vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

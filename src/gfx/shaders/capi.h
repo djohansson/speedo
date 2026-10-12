@@ -16,18 +16,20 @@ extern "C"
 #endif
 #endif
 
+// the scalars are FLOAT1, UINT1 and INT1, not FLOAT, UINT and INT: windows.h writes its typedefs of those names as
+// `UINT (CALLBACK *YIELDPROC)(...)`, which a function like macro of the same name rewrites
 #if !defined(SHADERTYPES_H_GPU_TARGET)
 #	define FLOAT4X4(name) float name[4][4]
 #	define FLOAT4_ARRAY(name, count) float name[count][4]
 #	define FLOAT4(name) float name[4]
 #	define FLOAT3(name) float name[3]
 #	define FLOAT2(name) float name[2]
-#	define FLOAT(name) float name
-#	define UINT(name) uint32_t name
+#	define FLOAT1(name) float name
+#	define UINT1(name) uint32_t name
 #	define UINT2(name) uint32_t name[2]
 #	define UINT3(name) uint32_t name[3]
 #	define UINT4(name) uint32_t name[4]
-#	define INT(name) int32_t name
+#	define INT1(name) int32_t name
 #	define INT2(name) int32_t name[2]
 #	define INT3(name) int32_t name[3]
 #	define INT4(name) int32_t name[4]
@@ -42,12 +44,12 @@ extern "C"
 #	define FLOAT4(name) float4 name
 #	define FLOAT3(name) float3 name
 #	define FLOAT2(name) float2 name
-#	define FLOAT(name) float name
-#	define UINT(name) uint name
+#	define FLOAT1(name) float name
+#	define UINT1(name) uint name
 #	define UINT2(name) uint2 name
 #	define UINT3(name) uint3 name
 #	define UINT4(name) uint4 name
-#	define INT(name) int name
+#	define INT1(name) int name
 #	define INT2(name) int2 name
 #	define INT3(name) int3 name
 #	define INT4(name) int4 name
@@ -145,11 +147,11 @@ struct EnvironmentData
 	// the irradiance divided by pi, as spherical harmonics (bands 0 to 2, rgb): what a white Lambertian surface reflects
 	alignas(16) FLOAT4_ARRAY(irradiance, 9);
 	// the prefiltered panorama (equirectangular, +y up, -z at its center): mip i for roughness i / (levelCount - 1)
-	alignas(4) UINT(textureId);
-	alignas(4) UINT(samplerId);
-	alignas(4) FLOAT(levelCount);
+	alignas(4) UINT1(textureId);
+	alignas(4) UINT1(samplerId);
+	alignas(4) FLOAT1(levelCount);
 	// the same for KHR_materials_sheen's Charlie lobe, in SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE (sampled with samplerId)
-	alignas(4) FLOAT(sheenLevelCount);
+	alignas(4) FLOAT1(sheenLevelCount);
 	// the procedural sky (gfx::environment::SkyParameters), which the shader evaluates where it is seen sharply (the
 	// backdrop, mirror reflections) rather than sampling the panorama's few texels: rgb of its colors, and skyZenith.w 1
 	// if the environment is the procedural sky (else 0, and none of these are used). skySun: xyz towards the sun (in the
@@ -165,17 +167,17 @@ struct EnvironmentData
 // and the source's mip count (its pyramid, down to 8 texels wide)
 struct EnvironmentFilterConstants
 {
-	alignas(4) FLOAT(roughness);
-	alignas(4) UINT(sourceLevelCount);
-	alignas(4) UINT(padding0);
-	alignas(4) UINT(padding1);
+	alignas(4) FLOAT1(roughness);
+	alignas(4) UINT1(sourceLevelCount);
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
 };
 
 struct OitNode
 {
-	alignas(4) UINT(color); // rgb times alpha, as R11G11B10 floats (r in the low bits)
-	alignas(4) UINT(alphaDepth); // alpha as 8 bit unorm in the high bits, depth (0 near, 1 far) as 24 bit unorm below
-	alignas(4) UINT(next); // the pixel's next node, or SHADER_TYPES_OIT_NONE
+	alignas(4) UINT1(color); // rgb times alpha, as R11G11B10 floats (r in the low bits)
+	alignas(4) UINT1(alphaDepth); // alpha as 8 bit unorm in the high bits, depth (0 near, 1 far) as 24 bit unorm below
+	alignas(4) UINT1(next); // the pixel's next node, or SHADER_TYPES_OIT_NONE
 };
 
 struct LightData
@@ -185,10 +187,10 @@ struct LightData
 	// rgb: its color times its intensity, in lux (directional) or candela (point, spot). linear
 	alignas(16) FLOAT4(intensity);
 	// spot: the cone's attenuation, saturate(dot(direction, -l) * x + y)^2. type: LIGHT_TYPE_*
-	alignas(4) FLOAT(spotScale);
-	alignas(4) FLOAT(spotOffset);
-	alignas(4) UINT(type);
-	alignas(4) UINT(padding);
+	alignas(4) FLOAT1(spotScale);
+	alignas(4) FLOAT1(spotOffset);
+	alignas(4) UINT1(type);
+	alignas(4) UINT1(padding);
 };
 
 // a view a light's shadow is drawn from: world to clip space (depth 0 to 1), drawn in a tile of the atlas
@@ -214,10 +216,10 @@ struct TextureView
 {
 	alignas(16) FLOAT4(uTransform);
 	alignas(16) FLOAT4(vTransform);
-	alignas(4) UINT(textureId);
-	alignas(4) UINT(samplerId);
-	alignas(4) UINT(texCoordSet); // 0 or 1
-	alignas(4) UINT(flags); // TEXTURE_VIEW_FLAG_*
+	alignas(4) UINT1(textureId);
+	alignas(4) UINT1(samplerId);
+	alignas(4) UINT1(texCoordSet); // 0 or 1
+	alignas(4) UINT1(flags); // TEXTURE_VIEW_FLAG_*
 };
 
 // which of a material's textures it has, each sampled through its view (an index into gTextureViews)
@@ -281,41 +283,41 @@ struct MaterialData
 	alignas(16) FLOAT4(iridescence);
 	// KHR_materials_diffuse_transmission: rgb the color, a the factor
 	alignas(16) FLOAT4(diffuseTransmission);
-	alignas(4) UINT(flags);
-	alignas(4) FLOAT(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
-	alignas(4) FLOAT(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
-	alignas(4) UINT(baseColorView);
-	alignas(4) UINT(alphaView);
-	alignas(4) UINT(normalView);
-	alignas(4) UINT(emissiveView);
-	alignas(4) UINT(occlusionView);
+	alignas(4) UINT1(flags);
+	alignas(4) FLOAT1(alphaCutoff); // fragments with a lower texture alpha are discarded: 0 for opaque materials
+	alignas(4) FLOAT1(normalScale); // scales the normal map's x and y (gltf normalTexture.scale)
+	alignas(4) UINT1(baseColorView);
+	alignas(4) UINT1(alphaView);
+	alignas(4) UINT1(normalView);
+	alignas(4) UINT1(emissiveView);
+	alignas(4) UINT1(occlusionView);
 	// the glTF metallic-roughness model: 0 to 1 each (perceptual roughness, squared for the brdf). 1 and 0 for obj
 	// materials, which are matte. with MATERIAL_FLAG_SPECULAR_GLOSSINESS, roughness is the glossiness
-	alignas(4) FLOAT(metallic);
-	alignas(4) FLOAT(roughness);
-	alignas(4) UINT(metallicRoughnessView);
-	alignas(4) FLOAT(specular); // the dielectric specular's strength (see mesh::Material::specular): 1 by default
-	alignas(4) UINT(specularView);
-	alignas(4) UINT(specularColorView);
-	alignas(4) UINT(clearcoatView);
-	alignas(4) UINT(clearcoatRoughnessView);
-	alignas(4) UINT(clearcoatNormalView);
-	alignas(4) UINT(sheenColorView);
-	alignas(4) UINT(sheenRoughnessView);
-	alignas(4) UINT(transmissionView);
-	alignas(4) UINT(thicknessView);
-	alignas(4) UINT(anisotropyView);
-	alignas(4) UINT(iridescenceView);
-	alignas(4) UINT(iridescenceThicknessView);
-	alignas(4) UINT(diffuseTransmissionView);
-	alignas(4) UINT(diffuseTransmissionColorView);
+	alignas(4) FLOAT1(metallic);
+	alignas(4) FLOAT1(roughness);
+	alignas(4) UINT1(metallicRoughnessView);
+	alignas(4) FLOAT1(specular); // the dielectric specular's strength (see mesh::Material::specular): 1 by default
+	alignas(4) UINT1(specularView);
+	alignas(4) UINT1(specularColorView);
+	alignas(4) UINT1(clearcoatView);
+	alignas(4) UINT1(clearcoatRoughnessView);
+	alignas(4) UINT1(clearcoatNormalView);
+	alignas(4) UINT1(sheenColorView);
+	alignas(4) UINT1(sheenRoughnessView);
+	alignas(4) UINT1(transmissionView);
+	alignas(4) UINT1(thicknessView);
+	alignas(4) UINT1(anisotropyView);
+	alignas(4) UINT1(iridescenceView);
+	alignas(4) UINT1(iridescenceThicknessView);
+	alignas(4) UINT1(diffuseTransmissionView);
+	alignas(4) UINT1(diffuseTransmissionColorView);
 	// KHR_materials_retroreflection: the blend from the specular lobe to its retroreflective one (see Shade)
-	alignas(4) FLOAT(retroreflection);
-	alignas(4) UINT(retroreflectionView);
+	alignas(4) FLOAT1(retroreflection);
+	alignas(4) UINT1(retroreflectionView);
 	// KHR_materials_volume_scatter: rgb the multiple scattering albedo (with the volume's attenuation, which is the
 	// extinction, see SingleScatterAlbedo)
 	alignas(16) FLOAT4(multiscatterColor);
-	alignas(4) UINT(multiscatterColorView);
+	alignas(4) UINT1(multiscatterColorView);
 };
 
 struct ModelInstance
@@ -357,41 +359,41 @@ struct MorphDelta
 struct PushConstants
 {
 	// per frame
-	alignas(4) UINT(frameIndex);
+	alignas(4) UINT1(frameIndex);
 	// per view
 	// per material
-	alignas(4) UINT(viewAndMaterialId);
+	alignas(4) UINT1(viewAndMaterialId);
 	// per draw: the first of its instances in gModelInstances (the model's instance buffer), offset by SV_InstanceID
-	alignas(4) UINT(modelInstanceId);
+	alignas(4) UINT1(modelInstanceId);
 	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
-	alignas(4) UINT(lightCount);
-	alignas(4) FLOAT(exposure);
+	alignas(4) UINT1(lightCount);
+	alignas(4) FLOAT1(exposure);
 	// per draw: where its skin's joint matrices start in gJointMatrices, or SHADER_TYPES_NOT_SKINNED
-	alignas(4) UINT(jointBase);
+	alignas(4) UINT1(jointBase);
 	// per draw: its morph targets (see MorphDelta), none if morphTargetCount is 0
-	alignas(4) UINT(morphTargetCount);
-	alignas(4) UINT(morphDeltaBase);
-	alignas(4) UINT(morphFirstVertex);
-	alignas(4) UINT(morphWeightBase);
+	alignas(4) UINT1(morphTargetCount);
+	alignas(4) UINT1(morphDeltaBase);
+	alignas(4) UINT1(morphFirstVertex);
+	alignas(4) UINT1(morphWeightBase);
 	// per frame: the environment's (see EnvironmentData) radiance scale, and its rotation about +y in radians (positive
 	// turns it counterclockwise seen from above)
-	alignas(4) FLOAT(environmentIntensity);
-	alignas(4) FLOAT(environmentRotation);
+	alignas(4) FLOAT1(environmentIntensity);
+	alignas(4) FLOAT1(environmentRotation);
 	// per frame, for ComputeMain: how many views gViewData holds, and whether the environment is drawn where nothing
 	// else is (the backdrop)
-	alignas(4) UINT(viewCount);
-	alignas(4) UINT(environmentBackdrop);
+	alignas(4) UINT1(viewCount);
+	alignas(4) UINT1(environmentBackdrop);
 	// per frame: the order independent transparency's (see OitNode)
-	alignas(4) UINT(framebufferWidth);
-	alignas(4) UINT(oitNodeCapacity);
+	alignas(4) UINT1(framebufferWidth);
+	alignas(4) UINT1(oitNodeCapacity);
 	// per frame, for ComputeMain: which tonemapper (TONEMAPPER_*)
-	alignas(4) UINT(tonemapper);
+	alignas(4) UINT1(tonemapper);
 	// per draw: the shadow view (gShadowViews[frame]) a draw of the shadow pass is seen from, else SHADER_TYPES_NO_SHADOW
 	// (the view of viewAndMaterialId). per frame: whether lights cast their shadows
-	alignas(4) UINT(shadowView);
-	alignas(4) UINT(shadows);
+	alignas(4) UINT1(shadowView);
+	alignas(4) UINT1(shadows);
 	// per frame: whether the scatter pass drew (SHADER_TYPES_SCATTER_TEXTURE holds this frame's scattering light)
-	alignas(4) UINT(scatter);
+	alignas(4) UINT1(scatter);
 };
 
 #ifdef __cplusplus

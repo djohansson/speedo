@@ -17,7 +17,7 @@
 #else
 #if defined(__WINDOWS__)
 // declared directly rather than via <windows.h>, which this widely included header would otherwise pull in everywhere
-// (its macros clash with ours, e.g. capi.h's UINT(name) rewriting the SDK's `typedef UINT (CALLBACK *YIELDPROC)`).
+// (its macros clash with ours, e.g. min and max).
 // matches the SDK declaration (WINBASEAPI BOOL WINAPI IsDebuggerPresent(VOID)), so including both is fine.
 extern "C" __declspec(dllimport) int __stdcall IsDebuggerPresent(void);
 namespace std

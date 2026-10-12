@@ -6,7 +6,38 @@
 #include <string>
 #include <system_error>
 
-#include <mio/mmap.hpp>
+// mio includes <windows.h>, which core/file.h passes on to everything reading files: only its kernel part, which mio
+// uses, since winuser.h's macros rename our functions (LoadImage to LoadImageW: gfx::Scene's then link only where it
+// wasn't included) and mmsystem.h's typedefs are rewritten by gfx/shaders/capi.h's macros
+#if defined(_WIN32) && !defined(_WINDOWS_)
+#	ifndef WIN32_LEAN_AND_MEAN
+#		define WIN32_LEAN_AND_MEAN
+#		define SPEEDO_MIO_LEAN_AND_MEAN
+#	endif
+#	ifndef NOUSER
+#		define NOUSER
+#		define SPEEDO_MIO_NOUSER
+#	endif
+#	ifndef NOGDI
+#		define NOGDI
+#		define SPEEDO_MIO_NOGDI
+#	endif
+#	include <mio/mmap.hpp>
+#	ifdef SPEEDO_MIO_LEAN_AND_MEAN
+#		undef WIN32_LEAN_AND_MEAN
+#		undef SPEEDO_MIO_LEAN_AND_MEAN
+#	endif
+#	ifdef SPEEDO_MIO_NOUSER
+#		undef NOUSER
+#		undef SPEEDO_MIO_NOUSER
+#	endif
+#	ifdef SPEEDO_MIO_NOGDI
+#		undef NOGDI
+#		undef SPEEDO_MIO_NOGDI
+#	endif
+#else
+#	include <mio/mmap.hpp>
+#endif
 
 //NOLINTBEGIN(readability-identifier-naming)
 
