@@ -214,6 +214,52 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 
+	// the file browser's preview (see Preview): an off-screen scene, shown as an image. for now opened with
+	// SPEEDO_PREVIEW_MODEL=<path> (absolute, or relative to the resource dir), which it loads
+	static bool gShowPreview = []
+	{
+		const char* model = std::getenv("SPEEDO_PREVIEW_MODEL");
+		return model != nullptr && *model != '\0';
+	}();
+	static ImTextureID gPreviewTexture = ImTextureID_Invalid;
+	if (gShowPreview)
+	{
+		RequestPreview();
+		auto* preview = GetPreview();
+		if (preview && gPreviewTexture == ImTextureID_Invalid)
+		{
+			gPreviewTexture = myImGui->AddTexture(preview->GetOutput().GetView());
+			(void)gLoads.Enqueue(
+				"Preview: procedural sky",
+				[preview](std::atomic_uint8_t& progress) { preview->GetScene().LoadEnvironment(std::nullopt, progress); });
+			if (const char* model = std::getenv("SPEEDO_PREVIEW_MODEL"); model != nullptr && *model != '\0')
+			{
+				auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
+				(void)gLoads.Enqueue(
+					std::format("Preview: {}", model),
+					[preview, path = (resourcePath / model).string()](std::atomic_uint8_t& progress)
+					{ preview->GetScene().LoadModels({path}, progress); });
+			}
+		}
+		SetNextWindowSize(ImVec2(420, 460), ImGuiCond_FirstUseEver);
+		if (Begin("Preview", &gShowPreview))
+		{
+			if (gPreviewTexture != ImTextureID_Invalid)
+			{
+				// square, as large as the window allows
+				ImVec2 available = GetContentRegionAvail();
+				float side = std::max(std::min(available.x, available.y), 1.0F);
+				ImGui::Image(ImTextureRef(gPreviewTexture), ImVec2(side, side));
+			}
+			else
+			{
+				TextDisabled("Starting...");
+			}
+		}
+		End();
+	}
+	SetPreviewVisible(gShowPreview && gPreviewTexture != ImTextureID_Invalid);
+
 	// the models of an archive with several (see LoadAndInstallArchive)
 	static std::optional<ArchiveChoice> gShownArchiveChoice;
 	if (!gShownArchiveChoice)

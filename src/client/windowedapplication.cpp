@@ -93,6 +93,15 @@ bool WindowedApplication::Draw()
 	if (swapchain.NeedsRecreate() && !RecreateWindowDependentObjects(rhi, window))
 		return false;
 
+	// the file browser's preview, once the ui asks for it: made here, outside of the graphics queue's lock (its scene
+	// takes it), and published to the ui thread
+	if (!myPreview && myPreviewRequested.load(std::memory_order_relaxed))
+	{
+		constexpr rhi::Extent2d kPreviewExtent{.width = 768, .height = 768};
+		myPreview = std::make_unique<Preview>(rhi, kPreviewExtent);
+		myPreviewReady.store(true, std::memory_order_release);
+	}
+
 	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
 
 	// one lock at a time: queue types may alias the same context (and mutex), see Device::GetQueue
@@ -140,6 +149,11 @@ bool WindowedApplication::Draw()
 		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
 		// (see the fences above)
 		myScene->Update(*graphics, newFrameIndex);
+		// the same for the preview, if it is drawn this frame. both before the frame's command buffer is begun: updates
+		// submit command buffers of their own (see UpdateBufferOnGraphics), which ends the one recording
+		bool drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed);
+		if (drawPreview)
+			myPreview->GetScene().Update(*graphics, newFrameIndex);
 
 		auto cmd = graphicsQueue.GetPool().Commands();
 
@@ -148,6 +162,22 @@ bool WindowedApplication::Draw()
 		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
 		std::vector<core::TaskHandle> graphicsCallbacks;
+		auto runInBackground = [this](std::function<void()> job)
+		{
+			auto [task, future] = core::CreateTask(std::move(job));
+			GetExecutor().Submit(std::span(&task, 1));
+		};
+
+		// the preview first: its image is sampled by the ui, drawn over the window's frame below
+		if (drawPreview)
+			myPreview->GetScene().Record(
+				cmd,
+				Scene::FrameTarget{
+					.frameIndex = static_cast<uint16_t>(newFrameIndex),
+					.graphicsQueue = &graphicsQueue,
+					.graphicsTimeline = graphics->timeline,
+					.runInBackground = runInBackground});
+
 		myScene->Record(
 			cmd,
 			Scene::FrameTarget{
@@ -156,12 +186,7 @@ bool WindowedApplication::Draw()
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
 				.drawUi = [this](CommandBufferHandle cmd) { myImGui->Draw(cmd); },
-				.runInBackground =
-					[this](std::function<void()> job)
-				{
-					auto [task, future] = core::CreateTask(std::move(job));
-					GetExecutor().Submit(std::span(&task, 1));
-				}});
+				.runInBackground = runInBackground});
 
 		cmd.End();
 
@@ -353,6 +378,7 @@ void WindowedApplication::Shutdown()
 	myImGui.reset();
 
 	// what holds gpu objects, before the rhi they belong to
+	myPreview.reset();
 	myScene.reset();
 	myOutput.reset();
 	myViews.reset();

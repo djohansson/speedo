@@ -5,12 +5,15 @@
 #include <gfx/scene.h>
 #include <gfx/views.h>
 
+#include "preview.h"
+
 #include <platform/filedialog.h>
 #include <platform/windowedapplication.h>
 
 #include <core/loadqueue.h>
 #include <core/inputstate.h>
 
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -51,6 +54,12 @@ public:
 	[[nodiscard]] gfx::Views& GetViews() noexcept { return *myViews; }
 	[[nodiscard]] gfx::Scene& GetScene() noexcept { return *myScene; }
 
+	// the file browser's preview (see Preview): requested by the ui, made by the next Draw, null until then. recorded in
+	// the frames the ui marks it visible in. ui thread
+	void RequestPreview() noexcept { myPreviewRequested.store(true, std::memory_order_relaxed); }
+	[[nodiscard]] Preview* GetPreview() noexcept { return myPreviewReady.load(std::memory_order_acquire) ? myPreview.get() : nullptr; }
+	void SetPreviewVisible(bool visible) noexcept { myPreviewVisible.store(visible, std::memory_order_relaxed); }
+
 protected:
 	WindowedApplication(
 		std::string_view name,
@@ -75,6 +84,10 @@ private:
 	std::unique_ptr<gfx::SwapchainOutput> myOutput; // the window's swapchain, which the scene draws into
 	std::unique_ptr<gfx::Scene> myScene; // drawn through the views
 	std::unique_ptr<gfx::ImGuiLayer> myImGui; // the user interface
+	std::unique_ptr<Preview> myPreview; // made on the draw thread once requested (see RequestPreview)
+	std::atomic_bool myPreviewRequested = false;
+	std::atomic_bool myPreviewReady = false;
+	std::atomic_bool myPreviewVisible = false;
 	std::string myImGuiIniSettings;
 	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress

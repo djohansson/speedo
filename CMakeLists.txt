@@ -350,6 +350,7 @@ target_link_libraries(
 set(CLIENTLIB_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/client/client.cpp
 	${SPEEDO_SOURCE_DIR}/client/loading.cpp
+	${SPEEDO_SOURCE_DIR}/client/preview.cpp
 	${SPEEDO_SOURCE_DIR}/client/ui.cpp
 	${SPEEDO_SOURCE_DIR}/client/windowedapplication.cpp)
 add_library(clientlib STATIC ${CLIENTLIB_SOURCE_FILES})

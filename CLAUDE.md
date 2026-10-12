@@ -35,6 +35,16 @@ Notes for working in this codebase, distilled from real build failures.
   type, zip archives extracted into the user profile, folders). What the three share is in
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
+  The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
+  views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture` (for now opened by
+  `SPEEDO_PREVIEW_MODEL=<path>`, which it loads). The ui requests it (`RequestPreview`); `Draw` makes it under the draw
+  lock, before taking the graphics queue's (the scene's constructor takes that), and publishes it (`GetPreview`). In the
+  frames the ui shows it (`SetPreviewVisible`), `Draw` updates it with the window's scene, before the frame's command
+  buffer is begun, and records it first: `Scene::Update` can submit (`UpdateBufferOnGraphics` ends the command buffer
+  recording and submits it, and `CommandPool::Commands()` returns the one recording, so an update after the frame's
+  buffer was begun ended it, and the frame recorded into an ended buffer: KosmicKrisp crashed creating a compute
+  encoder). It is kept until `Shutdown`: its loads install from draw calls and timeline callbacks (an image's transition
+  queues another draw call), which only the shutdown's settling waits for, so destroying it earlier isn't safe.
   `client::Client` adds the server connection and the tick and draw task chains. It names gfx's aliases, which
   conflict with rhi's templates under both using-directives, with using-declarations in `namespace client`.
 - gfx code is not templated on the backend: it names rhi types through the aliases in `gfx/gpu.h` (`rhi::kGraphicsApi`, one per
@@ -313,7 +323,11 @@ swapchain (looked up each time, since the rhi recreates it): the UI Uploads, UI 
 attachment, srgb encoded as the swapchain's) with a `RenderImageSet` over it, one for every frame index (frames are
 serial on the graphics queue): an Output pass leaves it in `kShaderReadOnly` for the UI to sample (`GetView()`), as
 `Prepare` does before its first frame; its owner recreates it (`Resize(extent)`) and then has the scene resize. The
-output's owner keeps it alive longer than the scene.
+output's owner keeps it alive longer than the scene. The UI shows a GPU image it doesn't own through
+`ImGuiLayer::AddTexture(view)` (an `ImTextureID` for `ImGui::Image`; the view must be in `kShaderReadOnly` whenever a
+frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both on the ui thread: the descriptor set is
+released as imgui's own textures are, once the draw thread has drawn a ui frame published after the removal and the gpu
+is done with it, and freed back on the ui thread (the backend's pool, 1024 sets, is the ui thread's).
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
