@@ -386,7 +386,7 @@ the renderer keeps a copy of a frame's lights, shadow views and scene bounds whi
 scene's center, spot cones, point ranges, each shadow view's frustum: its clip space box through the inverse view
 projection) and markers, and the ui projects them with each view's camera, a directional light's marker where it is in the
 sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
-`scripts/test-assets/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
+`resources/test-models/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
 
 ## Descriptor sets: redundant updates consume the pool
 
@@ -526,7 +526,7 @@ strength's) whenever either animates, since the shader's emissive is their produ
 its cosine and sine. A layer whose factor animates up from 0 is on (`LayersOf`: its textures load, its flags are set,
 and transmission draws in the second phase). `AnimatedBounds` grows a model's bounds by its animations' poses (each
 sampled 30 times a second, at most 600: the linked instances' vertex bounds and the per joint bounds of skinned
-vertices), so the views frame all of it. `scripts/test-assets/gltf/AnimatedCameraLight.gltf` animates a camera's node
+vertices), so the views frame all of it. `resources/test-models/gltf/AnimatedCameraLight.gltf` animates a camera's node
 and yfov, a light's color and intensity, and an emissive strength. A set of files is drawn at rest (morph
 targets at their default weights). Cameras are imported (`SceneCamera`, `ModelDesc::cameras`: world position and forward,
 perspective field of view or orthographic height, near and far; none for a set of files) and the views use the first
@@ -755,7 +755,7 @@ prints the paths to test:
 `pwsh scripts/assettest.ps1 -Client $(pwsh scripts/fetch-test-assets.ps1)`). The archive publishes no versions or checksums and
 does change (several files differ from a 2019 copy), so `scripts/test-assets/mcguire.txt` pins each file's size and
 sha256: a changed file is kept as `.unverified` and reported until the manifest is updated, after checking what changed.
-`scripts/test-assets/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
+`resources/test-models/gltf` holds hand-made models for what no downloaded one covers (`SparseIndices.gltf`: index
 accessors that are sparse, with and without base values; cgltf's `cgltf_accessor_read_index` and
 `cgltf_accessor_unpack_indices` refuse sparse accessors, so `gltf::ReadIndices` applies them;
 `InstancingTransforms.gltf`: instances of a single sided, asymmetric triangle under a scaled and moved node, with
@@ -764,7 +764,7 @@ listed nearest first (metallic, so they render dark); `BlendInstances.gltf`: a
 blended quad instanced in front of and behind another; `ManySamplers.gltf`: 36 quads with a sampler
 each, of every filter and wrap mode, more than the model sampler slots once were; `ScatterTexture.gltf`: volume scatter's
 multiscatter texture, see above), and is always part
-of the printed paths, as is `scripts/test-assets/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
+of the printed paths, as is `resources/test-models/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
 its texture mirrored, which must both come out raised and lit from above, i.e. from the default light's side). Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its

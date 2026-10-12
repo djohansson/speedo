@@ -16,7 +16,7 @@ the .hdr files the glTF Sample Viewer lights with), at the commit pinned below (
 <dir>/glTF-Sample-Environments. They are Git LFS files, so they are downloaded one by one from GitHub's LFS media
 server and checked against the size and sha256 of their LFS pointers, in scripts/test-assets/environments.txt.
 
-Without any of them, all are fetched. The hand-made models in scripts/test-assets/gltf and scripts/test-assets/obj (for
+Without any of them, all are fetched. The hand-made models in resources/test-models/gltf and resources/test-models/obj (for
 what no downloaded model covers, e.g. sparse index accessors, or bump map tangents) are always printed too. The dir defaults to $env:SPEEDO_TEST_ASSETS, or
 resources/test-assets (which git ignores, and the client's file dialogs open in). Files already there (and verified)
 are kept, so running it again only fetches what is missing.
@@ -239,8 +239,8 @@ if ($Environments)
 	}
 }
 
-$paths.Add((Join-Path $root 'scripts/test-assets/gltf'))
-$paths.Add((Join-Path $root 'scripts/test-assets/obj'))
+$paths.Add((Join-Path $root 'resources/test-models/gltf'))
+$paths.Add((Join-Path $root 'resources/test-models/obj'))
 
 $paths | Write-Output
 exit [int]$failed

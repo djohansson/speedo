@@ -138,7 +138,7 @@ pwsh scripts/fetch-test-assets.ps1
 
 Downloads are pinned to a commit or checked against the checksums in `scripts/test-assets/`. Re-running the script
 only fetches what's missing or changed. It prints the paths to test, which also include the hand-made models in
-`scripts/test-assets/` for cases no downloaded asset covers.
+`resources/test-models/` for cases no downloaded asset covers.
 
 ### The asset regression
 
