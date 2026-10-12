@@ -94,6 +94,10 @@ struct DrawList
 	const std::function<bool(size_t material)>& scatters,
 	const std::function<uint16_t(size_t material)>& specialization = {});
 
+// the scatter pass's draws, for their back faces' depth (FragmentShadow, the front faces culled): single sided ones only,
+// since a double sided surface's nearest back face is its front
+[[nodiscard]] DrawList BuildScatterBackDrawList(const DrawList& scatter);
+
 // records a draw list for a view (in its viewport, set by the caller): binds the pipeline variants it needs, from the
 // default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
 // GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one

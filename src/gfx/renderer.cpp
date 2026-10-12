@@ -53,6 +53,10 @@ Renderer::Renderer(Device& device)
 	// main pass blurs over their surfaces (SHADER_TYPES_SCATTER_TEXTURE), and their depth (SHADER_TYPES_SCATTER_DEPTH_TEXTURE)
 	myScatter = myGraph.CreateImage({.name = "Scatter", .format = Format::kR16G16B16A16Sfloat});
 	myScatterDepth = myGraph.CreateImage({.name = "Scatter Depth", .format = Format::kD32Sfloat, .aspect = ImageAspect::kDepth});
+	// and the depth of their nearest back faces, which their thickness is measured by (SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE)
+	myScatterBackDepth = myGraph.CreateImage({.name = "Scatter Back Depth", .format = Format::kD32Sfloat, .aspect = ImageAspect::kDepth});
+	// the scattering light blurred (SHADER_TYPES_SCATTER_LIGHT_TEXTURE), which the main pass adds
+	myScatterLight = myGraph.CreateImage({.name = "Scatter Light", .format = Format::kR16G16B16A16Sfloat});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -153,6 +157,22 @@ Renderer::Renderer(Device& device)
 			}
 		});
 
+	// the scattering materials' back faces, depth only: how thick they are where the Scatter pass sees them
+	myScatterBackPass = myGraph.AddPass(
+		"Scatter Back",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.DepthAttachment(myScatterBackDepth, LoadOp::kClear);
+			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
+			builder.Wrap(
+				[this](CommandBufferHandle cmd, const std::function<void()>& record)
+				{
+					GPU_SCOPE(cmd, *myInputs->graphicsQueue, scatterBack);
+					record();
+				});
+		},
+		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myPipeline, *myInputs, myScatterBackDrawList); });
+
 	// the scattering materials' surfaces, lit as the light entering them (FragmentScatter), which the main pass blurs
 	// over them by their volume's radius (see SubsurfaceScattering in the shaders)
 	myScatterPass = myGraph.AddPass(
@@ -161,6 +181,7 @@ Renderer::Renderer(Device& device)
 		{
 			builder.ColorAttachment(myScatter, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 			builder.DepthAttachment(myScatterDepth, LoadOp::kClear);
+			builder.Use(myScatterBackDepth, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			builder.Wrap(
@@ -171,6 +192,37 @@ Renderer::Renderer(Device& device)
 				});
 		},
 		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myPipeline, *myInputs, myScatterDrawList); });
+
+	// the scattering light blurred over the surfaces by their diffusion profile, once per pixel (ComputeScatter)
+	myScatterBlurPass = myGraph.AddPass(
+		"Scatter Blur",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myScatter, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myScatterDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myScatterLight, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this](FrameGraph::PassContext& context)
+		{
+			auto& pipeline = *myPipeline;
+			auto cmd = context.cmd;
+			GPU_SCOPE(cmd, *myInputs->graphicsQueue, scatterBlur);
+
+			constexpr ComputePipelineVariant kScatterBlur{.entryPoint = 1};
+			pipeline.BindLayoutAuto(pipeline.GetDevice().GetPipelineLayoutHandle("Main"), PipelineBindPoint::kCompute);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+			pipeline.BindPipelineAuto(cmd, kScatterBlur);
+			auto pushConstants = myInputs->pushConstants;
+			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+			auto extent = myGraph.GetExtent();
+			CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(kScatterBlur), extent.width, extent.height);
+		});
 
 	// the main pass: the views, each in its viewport. alpha 0 where nothing opaque is drawn (opaque draws write alpha 1):
 	// there ComputeMain draws the environment
@@ -187,8 +239,7 @@ Renderer::Renderer(Device& device)
 				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				if (phase == MainPassPhase::kTransmissive)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				builder.Use(myScatter, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				builder.Use(myScatterDepth, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 				// the profiling scope's timestamps outside the render target: begun for secondary command buffers, it can
 				// hold nothing else
@@ -378,12 +429,20 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 		SHADER_TYPES_SHADOW_ATLAS_TEXTURE);
 	for (auto [image, slot] : std::array{
-			 std::pair{myScatter, SHADER_TYPES_SCATTER_TEXTURE}, std::pair{myScatterDepth, SHADER_TYPES_SCATTER_DEPTH_TEXTURE}})
+			 std::pair{myScatter, SHADER_TYPES_SCATTER_TEXTURE},
+			 std::pair{myScatterDepth, SHADER_TYPES_SCATTER_DEPTH_TEXTURE},
+			 std::pair{myScatterBackDepth, SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE},
+			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			slot);
+	pipeline.SetDescriptorData(
+		"gRWTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myScatterLight), .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+		SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE);
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		pipeline.SetDescriptorData(
@@ -411,6 +470,8 @@ void Renderer::Prepare(CommandBufferHandle cmd)
 	myGraph.GetImage(myShadowAtlas).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
 	myGraph.GetImage(myScatter).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 	myGraph.GetImage(myScatterDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
+	myGraph.GetImage(myScatterBackDepth).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kDepth);
+	myGraph.GetImage(myScatterLight).Transition(cmd, ImageLayout::kShaderReadOnly, ImageAspect::kColor);
 }
 
 void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameInputs& inputs)
@@ -488,8 +549,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myScatterDrawList = frame.model != nullptr && frame.scatters
 		? BuildScatterDrawList(*frame.model, frame.scatters, frame.specialization)
 		: DrawList{};
+	myScatterBackDrawList = BuildScatterBackDrawList(myScatterDrawList);
 	frame.pushConstants.scatter = myScatterDrawList.Empty() ? 0U : 1U;
 	myGraph.SetEnabled(myScatterPass, !myScatterDrawList.Empty());
+	myGraph.SetEnabled(myScatterBackPass, !myScatterDrawList.Empty());
+	myGraph.SetEnabled(myScatterBlurPass, !myScatterDrawList.Empty());
 
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);

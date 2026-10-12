@@ -143,6 +143,20 @@ DrawList BuildScatterDrawList(
 	return list;
 }
 
+DrawList BuildScatterBackDrawList(const DrawList& scatter)
+{
+	DrawList list{.indexBuffer = scatter.indexBuffer};
+	for (auto item : scatter.items)
+	{
+		if (item.cullMode != CullMode::kBack)
+			continue;
+		item.cullMode = CullMode::kFront;
+		item.variant.fragmentShader = kShadowFragmentShader;
+		list.items.push_back(item);
+	}
+	return list;
+}
+
 void RecordDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,

@@ -96,6 +96,8 @@ private:
 	FrameGraph::ImageId myTransmission;
 	FrameGraph::ImageId myScatter;
 	FrameGraph::ImageId myScatterDepth;
+	FrameGraph::ImageId myScatterBackDepth;
+	FrameGraph::ImageId myScatterLight;
 	FrameGraph::ImageId mySwapchain;
 	FrameGraph::ImageId myShadowAtlas;
 	FrameGraph::BufferId myOitHeads;
@@ -105,7 +107,9 @@ private:
 	FrameGraph::PassId myTransmissionPass;
 	FrameGraph::PassId myTransmissivePhase;
 	FrameGraph::PassId myShadowPass;
+	FrameGraph::PassId myScatterBackPass;
 	FrameGraph::PassId myScatterPass;
+	FrameGraph::PassId myScatterBlurPass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;
@@ -126,6 +130,7 @@ private:
 	// the frame's draw lists, per phase
 	bool myTwoPhases = false;
 	std::array<DrawList, 2> myDrawLists;
+	DrawList myScatterBackDrawList;
 	DrawList myScatterDrawList;
 };
 

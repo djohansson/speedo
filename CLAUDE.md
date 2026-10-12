@@ -300,7 +300,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Uploads, UI,
 Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -664,17 +664,29 @@ and the environment is reflected about a bent normal (as the Khronos sample view
 film Fresnel (`IridescenceFresnel`, Belcour and Barla) is evaluated once per pixel at the view's angle over the
 surface's f0 and mixed into the Fresnel of the environment and the lights by its strength. KHR_materials_diffuse_transmission
 lights that much of the diffuse from the back (lights behind the surface, and the irradiance around -n), tinted by its
-color. KHR_materials_retroreflection (the minimal retroreflective microfacet model) blends the base lobe (`BaseLobe`: diffuse and specular, not sheen, clearcoat or transmission) with the same lobe seen from the view mirrored about the normal, `2 (n.v) n - v`, by its weight (factor times the texture's red, `kOcclusion`), which turns the specular back towards the light; the environment's retroreflective lookup is along the view itself (the mirrored view's reflection), and n.v, so the split sum's terms, don't change. It is one of the extended layers (`SHADER_TYPES_LAYERS_EXTENDED`). KHR_materials_volume_scatter is the Khronos sample renderer's screen space subsurface scattering: the Scatter pass
-draws the scattering materials' triangles (`BuildScatterDrawList`, `FragmentScatter`, the layout's fourth fragment entry
-point) into transients of their own (`SHADER_TYPES_SCATTER_TEXTURE`, the material + 1 in alpha, and
-`SHADER_TYPES_SCATTER_DEPTH_TEXTURE`): the diffuse light entering them (`ScatterLight`: from the front, and from behind
-attenuated by the volume and by 1 minus the single scattering albedo, `SingleScatterAlbedo` of the multiscatter color,
-times the diffuse transmission and its color, less the specular's fresnel). The main pass blurs it over the surface
-(`SubsurfaceScattering`: Burley's profile, 55 importance sampled offsets precomputed as the renderer does, scaled by the
-attenuation distance times the multiscatter color in pixels at the surface, weighed by world space distance, only samples of
-the same material), else (`PushConstants::scatter` 0, or the pixel isn't that surface: blended) evaluates it in place,
-and keeps only the unscattered part of the diffuse transmission's back light. The volume (thickness, attenuation) is
-filled for diffuse transmission and scattering materials too, and attenuates the diffuse transmission's back light.
+color. KHR_materials_retroreflection (the minimal retroreflective microfacet model) blends the base lobe (`BaseLobe`: diffuse and specular, not sheen, clearcoat or transmission) with the same lobe seen from the view mirrored about the normal, `2 (n.v) n - v`, by its weight (factor times the texture's red, `kOcclusion`), which turns the specular back towards the light; the environment's retroreflective lookup is along the view itself (the mirrored view's reflection), and n.v, so the split sum's terms, don't change. It is one of the extended layers (`SHADER_TYPES_LAYERS_EXTENDED`). KHR_materials_volume_scatter is screen space subsurface scattering, after the Khronos sample renderer's but by the
+extension's definitions (the renderer's own approximation drew ScatteringSkull pale, flat and barely blurred). Three passes
+over the scattering materials' triangles (`BuildScatterDrawList`): Scatter Back draws their back faces' depth
+(`BuildScatterBackDrawList`: single sided ones, front faces culled, `FragmentShadow`;
+`SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE`); Scatter (`FragmentScatter`, the layout's fourth fragment entry point) draws
+the light coming out of them (`ScatterLight`): what enters from the front in the multiscatter color (the albedo of all of
+the scattering, which the path tracers' single scattering albedo, `1 - (4.09712 + ...)^2`, is made to produce: tinting by
+that is what made it pale), the environment's by occlusion, plus what comes through from behind, attenuated over the
+thickness along the view to the nearest back face (the thickness map where there is none: ScatteringSkull's says about 1 m
+on a 0.34 m skull), times the diffuse transmission and its color, less the specular's fresnel
+(`SHADER_TYPES_SCATTER_TEXTURE`, the material + 1 in alpha, and `SHADER_TYPES_SCATTER_DEPTH_TEXTURE`); Scatter Blur
+(`ComputeScatter`, the layout's second compute entry point, once per pixel: in the main pass's fragments it cost every
+overdrawn one, nearly doubling Main) blurs it by Christensen and Burley's profile, scaled per color by the mean free path
+(the reciprocal of the extinction, `-ln(attenuationColor) / attenuationDistance`, at most 10 attenuation distances) and the
+multiscatter albedo (`BurleyScale`, the searchlight fit; the renderer's attenuation distance times the multiscatter color
+through Blender's radius convention was a tenth of that), from the 55 samples precomputed as the renderer does, turned per
+pixel by interleaved gradient noise (fixed, they made copies of the image), samples of the same material only, weighed by
+their world space distance; the multiscatter texture tints the light but not the profile, which has no texcoords there.
+The main pass adds it (`SHADER_TYPES_SCATTER_LIGHT_TEXTURE`, else, where the scatter pass didn't draw the surface,
+`ScatterLight` in place) times `(1 - metallic) (1 - iridescence) (1 - transmission) (1 - clearcoat fresnel)`; all of the
+diffuse transmission's light is the scattering's. The volume (thickness, attenuation) is filled for diffuse transmission
+and scattering materials too, and attenuates the diffuse transmission's back light. What it can't do: light crossing
+more than the profile's reach, caustics, and the volume's own shadowing.
 Every `KHR_materials_*` of the glTF-Sample-Assets is drawn, and `KHR_materials_variants` is chosen at import (see above). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha

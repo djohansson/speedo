@@ -74,12 +74,17 @@ extern "C"
 #define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
 // gTextures slots: the frames' render targets' color, from this, by frame index
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
-// the gTextures slot of the shadow atlas (see ShadowData)
-// KHR_materials_volume_scatter: the scattering light of the scattering materials' front surfaces (rgb; a: the material
-// index plus 1, 0 where there is none), and their depth, from the Scatter pass, which the main pass blurs (see
-// SubsurfaceScattering)
+// KHR_materials_volume_scatter: the depth of the scattering materials' nearest back faces, from the Scatter Back pass,
+// which the Scatter pass measures their thickness by; the scattering light of their front surfaces (rgb; a: the material
+// index plus 1, 0 where there is none), and their depth, from the Scatter pass, which the Scatter Blur pass blurs (see
+// SubsurfaceScattering), and that light blurred (the Scatter Blur pass, ComputeScatter: written as a storage image
+// in gRWTextures, then read by the main pass)
+#define SHADER_TYPES_SCATTER_LIGHT_TEXTURE 7u
+#define SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE 4u
+#define SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE 8u
 #define SHADER_TYPES_SCATTER_TEXTURE 9u
 #define SHADER_TYPES_SCATTER_DEPTH_TEXTURE 10u
+// the gTextures slot of the shadow atlas (see ShadowData)
 #define SHADER_TYPES_SHADOW_ATLAS_TEXTURE 11u
 // the gTextures slot of the environment's prefiltered panorama (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_TEXTURE 12u

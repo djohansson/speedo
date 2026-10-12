@@ -37,6 +37,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: volume scatter by the extension's definitions: the multiscatter color as the albedo, occlusion, the profile from the mean free path, thickness from a back face depth pass, and the blur in a compute pass of its own
 * done: KHR_materials_volume_scatter (ScatteringSkull): the sample renderer's screen space subsurface scattering, a Scatter pass of the light entering scattering materials, blurred over their surfaces by Burley's profile in the main pass; the volume now attenuates diffuse transmission too
 * done: KHR_materials_variants: chosen at import, as a scene is (mesh::ImportOptions::variant, a cache entry of its own), from View > Variant or SPEEDO_AUTOLOAD_VARIANT
 * done: KHR_materials_retroreflection (TrafficCone): the base lobe also evaluated from the view mirrored about the normal, blended in by the weight; the environment's retroreflective lookup is along the view
