@@ -35,7 +35,8 @@ enum class Kind : uint8_t
 struct Entry
 {
 	std::filesystem::path path;
-	std::string name;
+	std::string name; // the file's
+	std::string relative; // its path from the folder listed (its name, unless subfolders are included)
 	Kind kind = Kind::kFolder;
 	uintmax_t size = 0;
 };
@@ -66,22 +67,77 @@ struct Entry
 	return std::nullopt;
 }
 
-// a directory's folders, then its files the client loads, each by name (case insensitive). hidden ones are left out
-[[nodiscard]] std::vector<Entry> List(const std::filesystem::path& directory)
+// what a listing gathers: a folder's subfolders and files, or with recursive the files below it (no folders), of the
+// kinds shown
+struct ListOptions
+{
+	bool recursive = false;
+	bool models = true;
+	bool archives = true;
+	bool images = true;
+	bool environments = true;
+
+	bool operator==(const ListOptions&) const = default;
+
+	[[nodiscard]] bool Shows(Kind kind) const
+	{
+		switch (kind)
+		{
+		case Kind::kFolder: return !recursive;
+		case Kind::kModel: return models;
+		case Kind::kArchive: return archives;
+		case Kind::kImage: return images;
+		case Kind::kEnvironment: return environments;
+		}
+		return false;
+	}
+};
+
+// a directory's entries (see ListOptions): folders first, then files, each by their path from it (case insensitive).
+// hidden ones (and macOS resource forks) are left out
+[[nodiscard]] std::vector<Entry> List(const std::filesystem::path& directory, const ListOptions& options)
 {
 	std::vector<Entry> entries;
-	std::error_code error;
-	for (const auto& entry : std::filesystem::directory_iterator(directory, std::filesystem::directory_options::skip_permission_denied, error))
+	auto add = [&entries, &directory, &options](const std::filesystem::directory_entry& entry)
 	{
-		auto name = entry.path().filename().string();
-		if (name.starts_with('.') || name == "__MACOSX")
-			continue;
 		auto kind = KindOf(entry);
-		if (!kind)
-			continue;
-		std::error_code sizeError;
-		auto size = *kind == Kind::kFolder ? 0 : entry.file_size(sizeError);
-		entries.push_back({.path = entry.path(), .name = std::move(name), .kind = *kind, .size = sizeError ? 0 : size});
+		if (!kind || !options.Shows(*kind))
+			return;
+		std::error_code error;
+		auto size = *kind == Kind::kFolder ? 0 : entry.file_size(error);
+		entries.push_back(
+			{.path = entry.path(),
+			 .name = entry.path().filename().string(),
+			 .relative = entry.path().lexically_relative(directory).string(),
+			 .kind = *kind,
+			 .size = error ? 0 : size});
+	};
+	auto hidden = [](const std::filesystem::path& path)
+	{
+		auto name = path.filename().string();
+		return name.starts_with('.') || name == "__MACOSX";
+	};
+	std::error_code error;
+	constexpr auto kOptions = std::filesystem::directory_options::skip_permission_denied;
+	if (options.recursive)
+	{
+		for (auto it = std::filesystem::recursive_directory_iterator(directory, kOptions, error);
+			 !error && it != std::filesystem::recursive_directory_iterator();
+			 it.increment(error))
+		{
+			if (hidden(it->path()))
+			{
+				it.disable_recursion_pending();
+				continue;
+			}
+			add(*it);
+		}
+	}
+	else
+	{
+		for (const auto& entry : std::filesystem::directory_iterator(directory, kOptions, error))
+			if (!hidden(entry.path()))
+				add(entry);
 	}
 	std::ranges::sort(
 		entries,
@@ -89,10 +145,17 @@ struct Entry
 		{
 			if ((a.kind == Kind::kFolder) != (b.kind == Kind::kFolder))
 				return a.kind == Kind::kFolder;
-			return Lower(a.name) < Lower(b.name);
+			return Lower(a.relative) < Lower(b.relative);
 		});
 	return entries;
 }
+
+// a listing made on the task executor (a big tree takes a while), handed to the ui thread once done
+struct Listing
+{
+	std::atomic_bool done = false;
+	std::vector<Entry> entries;
+};
 
 // the browser's state, ui thread only
 struct State
@@ -101,8 +164,11 @@ struct State
 	std::vector<Entry> entries;
 	std::vector<bool> selected;
 	std::optional<size_t> anchor; // the entry last clicked: what is previewed, and where shift-click ranges start
+	std::optional<size_t> scrollTo; // the entry the arrow keys moved to, scrolled into view when drawn
 	bool sideBySide = true;
 	bool listed = false;
+	ListOptions options;
+	std::shared_ptr<Listing> listing; // the listing in progress, if any (a newer one replaces it, which drops its result)
 
 	// the preview (see Preview): its image's texture, what it shows, and what it should. one load at a time, the
 	// latest selection's next
@@ -166,7 +232,7 @@ void WindowedApplication::InternalDrawBrowser()
 	auto& rhi = GetRHI();
 
 	// where it starts: SPEEDO_BROWSE=<dir> (absolute, or relative to the resource dir) opens it there at startup, with
-	// SPEEDO_BROWSE_SELECT=<name>[;<name>...] selected, and SPEEDO_BROWSE_OPEN=side-by-side or as-authored opens them
+	// SPEEDO_BROWSE_SELECT=<path>[;<path>...] selected (paths from the folder, see Entry::relative), and SPEEDO_BROWSE_OPEN=side-by-side or as-authored opens them
 	// (automated tests and screenshots); else where the file dialogs open
 	if (static bool gStarted = false; !gStarted)
 	{
@@ -179,6 +245,18 @@ void WindowedApplication::InternalDrawBrowser()
 		{
 			state.directory = resourcePath / browse;
 			gShowBrowser = true;
+		}
+		// SPEEDO_BROWSE_RECURSIVE=1: with subfolders included, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>
+		// the kinds listed
+		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && std::string_view(recursive) == "1")
+			state.options.recursive = true;
+		if (const char* kinds = std::getenv("SPEEDO_BROWSE_KINDS"); kinds != nullptr && *kinds != '\0')
+		{
+			std::string_view list(kinds);
+			state.options.models = list.contains("models");
+			state.options.archives = list.contains("archives");
+			state.options.images = list.contains("images");
+			state.options.environments = list.contains("panoramas");
 		}
 	}
 
@@ -195,21 +273,34 @@ void WindowedApplication::InternalDrawBrowser()
 	};
 	if (!state.listed)
 	{
-		state.entries = List(state.directory);
+		state.listed = true;
+		state.listing = std::make_shared<Listing>();
+		auto [task, future] = core::CreateTask(
+			[listing = state.listing, directory = state.directory, options = state.options]
+			{
+				listing->entries = List(directory, options);
+				listing->done.store(true, std::memory_order_release);
+			});
+		GetExecutor().Submit(std::span(&task, 1));
+	}
+	if (state.listing && state.listing->done.load(std::memory_order_acquire))
+	{
+		state.entries = std::move(state.listing->entries);
+		state.listing.reset();
 		state.selected.assign(state.entries.size(), false);
 		state.anchor.reset();
-		state.listed = true;
 		if (static bool gSelected = false; !gSelected)
 		{
 			gSelected = true;
 			if (const char* select = std::getenv("SPEEDO_BROWSE_SELECT"); select != nullptr && *select != '\0')
 				for (auto name : std::string_view(select) | std::views::split(';'))
-					if (auto it = std::ranges::find(state.entries, std::string_view(name.begin(), name.end()), &Entry::name);
+					if (auto it = std::ranges::find(state.entries, std::string_view(name.begin(), name.end()), &Entry::relative);
 						it != state.entries.end())
 					{
 						auto index = static_cast<size_t>(it - state.entries.begin());
 						state.selected[index] = true;
 						state.anchor = index;
+						state.scrollTo = index;
 					}
 			if (const char* openNow = std::getenv("SPEEDO_BROWSE_OPEN"); openNow != nullptr && *openNow != '\0')
 			{
@@ -285,6 +376,30 @@ void WindowedApplication::InternalDrawBrowser()
 			PopID();
 		}
 
+		// what is listed: with subfolders, every file below the folder (to step through without entering them), of the kinds
+		// checked
+		auto options = state.options;
+		Checkbox("Include subfolders", &options.recursive);
+		SetItemTooltip("Lists the files in every folder below this one, rather than its folders.");
+		SameLine();
+		Checkbox("Models", &options.models);
+		SameLine();
+		Checkbox("Archives", &options.archives);
+		SameLine();
+		Checkbox("Images", &options.images);
+		SameLine();
+		Checkbox("Panoramas", &options.environments);
+		if (options != state.options)
+		{
+			state.options = options;
+			state.listed = false;
+		}
+		SameLine();
+		if (state.listing)
+			TextDisabled("Listing...");
+		else
+			TextDisabled("%zu entries", state.entries.size());
+
 		const float footer = GetFrameHeightWithSpacing() + GetStyle().ItemSpacing.y;
 		const float previewWidth = std::min(380.0F, GetContentRegionAvail().x * 0.4F);
 
@@ -299,6 +414,33 @@ void WindowedApplication::InternalDrawBrowser()
 			auto* drawList = GetWindowDrawList();
 			std::optional<size_t> enter;
 			std::optional<size_t> openNow;
+
+			// the arrow keys step through the entries (left and right by one, up and down by a row), enter opens
+			if (IsWindowFocused() && !state.entries.empty())
+			{
+				auto count = static_cast<std::ptrdiff_t>(state.entries.size());
+				std::ptrdiff_t step = IsKeyPressed(ImGuiKey_LeftArrow)	 ? -1
+									  : IsKeyPressed(ImGuiKey_RightArrow) ? 1
+									  : IsKeyPressed(ImGuiKey_UpArrow)	 ? -columns
+									  : IsKeyPressed(ImGuiKey_DownArrow)	 ? columns
+																		 : 0;
+				if (step != 0)
+				{
+					auto index = state.anchor ? std::clamp(static_cast<std::ptrdiff_t>(*state.anchor) + step, std::ptrdiff_t{0}, count - 1) : 0;
+					state.selected.assign(state.entries.size(), false);
+					state.selected[static_cast<size_t>(index)] = true;
+					state.anchor = static_cast<size_t>(index);
+					state.scrollTo = static_cast<size_t>(index);
+				}
+				if (IsKeyPressed(ImGuiKey_Enter) && state.anchor)
+				{
+					if (state.entries[*state.anchor].kind == Kind::kFolder)
+						enter = *state.anchor;
+					else
+						openNow = *state.anchor;
+				}
+			}
+
 			for (size_t entryIt = 0; entryIt < state.entries.size(); entryIt++)
 			{
 				const auto& entry = state.entries[entryIt];
@@ -337,8 +479,13 @@ void WindowedApplication::InternalDrawBrowser()
 							openNow = entryIt;
 					}
 				}
+				if (state.scrollTo == entryIt)
+				{
+					SetScrollHereY(0.5F);
+					state.scrollTo.reset();
+				}
 				if (IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-					SetTooltip("%s", entry.name.c_str());
+					SetTooltip("%s", entry.relative.c_str());
 
 				// the icon (a thumbnail later), and the name under it, clipped to the tile
 				constexpr float kPad = 8.0F;
@@ -430,7 +577,7 @@ void WindowedApplication::InternalDrawBrowser()
 				}
 			if (focus)
 			{
-				TextWrapped("%s", focus->name.c_str());
+				TextWrapped("%s", focus->relative.c_str());
 				if (focus->kind != Kind::kFolder)
 					TextDisabled("%s, %s", Label(*focus), SizeText(focus->size).c_str());
 			}

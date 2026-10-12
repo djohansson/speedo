@@ -39,12 +39,16 @@ Notes for working in this codebase, distilled from real build failures.
   views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`. The browser itself
   (File > Browse..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`) lists a folder's subfolders and the
   files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
-  click selection and double click to open or enter; it previews the entry last clicked if it is a model or a panorama
+  click selection, double click (or enter) to open or enter, and the arrow keys to step through them (scrolled into
+  view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
+  and checkboxes filter by kind (models, archives, images, panoramas); listings run on the task executor (a big tree takes
+  a while), a newer one dropping an older one's result; it previews the entry last clicked if it is a model or a panorama
   (one preview load at a time, the latest selection's next; a model after a panorama brings the procedural sky back), and
   opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
   several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
-  `SPEEDO_BROWSE_SELECT=<name>[;<name>...]` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at startup, for
-  tests and screenshots. The ui requests it (`RequestPreview`); `Draw` makes it under the draw
+  `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_RECURSIVE=1`,
+  `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
+  startup, for tests and screenshots. The ui requests it (`RequestPreview`); `Draw` makes it under the draw
   lock, before taking the graphics queue's (the scene's constructor takes that), and publishes it (`GetPreview`). In the
   frames the ui shows it (`SetPreviewVisible`), `Draw` updates and records it before the window's scene (see "Command
   buffers: the frame's is shared" for the crash its update once caused). It is kept until `Shutdown`: its loads install from draw calls and timeline callbacks (an image's transition
