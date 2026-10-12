@@ -155,6 +155,17 @@ void ImGuiLayer::PrepareFrame(CommandBufferHandle cmd, std::vector<core::TaskHan
 	myRenderer->PrepareFrame(cmd, myFrames[myReadFrame].sequence, callbacks);
 }
 
+ImTextureID ImGuiLayer::AddTexture(ImageViewHandle view)
+{
+	return static_cast<ImTextureID>(myRenderer->AddTexture(view));
+}
+
+void ImGuiLayer::RemoveTexture(ImTextureID id)
+{
+	// the frame being built is published as the next sequence, and doesn't draw it
+	myRenderer->RemoveTexture(static_cast<uint64_t>(id), myFrameSequence + 1);
+}
+
 void ImGuiLayer::Draw(CommandBufferHandle cmd)
 {
 	ZoneScopedN("ImGuiLayer::Draw");

@@ -55,6 +55,13 @@ public:
 	// records drawData into cmd, inside a render target begun on one of the swapchain's frames. draw thread.
 	void Render(ImDrawData& drawData, CommandBufferHandle<G> cmd);
 
+	// an image the caller owns, shown in imgui (ImGui::Image) through the texture id returned: view must be in
+	// kShaderReadOnly whenever a frame drawing it runs, and outlive the frames that do. RemoveTexture releases the id: no
+	// ui frame from firstUndrawnSequence on may draw it, and frames before may still be drawn (it is released once the
+	// gpu is done with them, see PrepareFrame). call both on the ui thread.
+	[[nodiscard]] uint64_t AddTexture(ImageViewHandle<G> view);
+	void RemoveTexture(uint64_t textureId, uint64_t firstUndrawnSequence);
+
 private:
 	struct State;
 	std::unique_ptr<State> myState;

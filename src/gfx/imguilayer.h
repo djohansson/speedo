@@ -53,6 +53,12 @@ public:
 	// records the frame's draws into cmd, inside the swapchain frame's render target. draw thread.
 	void Draw(CommandBufferHandle cmd);
 
+	// an image the caller owns, shown with ImGui::Image(id): view must be in kShaderReadOnly whenever a frame drawing it
+	// runs (as an ImageOutput's is), and outlive the frames that do. RemoveTexture releases the id once no frame drawing it
+	// remains: the frame being built must not draw it. ui thread
+	[[nodiscard]] ImTextureID AddTexture(ImageViewHandle view);
+	void RemoveTexture(ImTextureID id);
+
 private:
 	struct Frame
 	{

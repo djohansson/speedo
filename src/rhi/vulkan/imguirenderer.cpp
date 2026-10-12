@@ -50,6 +50,15 @@ struct ImGuiRenderer<kVk>::State
 	// the queue is only FIFO per producer, and the ui thread is whichever thread the tick task lands on (one at a time)
 	core::ProducerToken textureOpsProducer{textureOps};
 	std::vector<imguirenderer::TextureOp> deferredTextureDestroys; // draw thread only
+	// the caller's textures (AddTexture) to release once no frame drawing them remains: queued by the ui thread, held
+	// by the draw thread until then
+	struct UserTextureRemoval
+	{
+		VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
+		uint64_t sequence = 0; // the first ui frame not drawing it
+	};
+	core::ConcurrentQueue<UserTextureRemoval> userTextureRemovals;
+	std::vector<UserTextureRemoval> deferredUserTextureRemovals; // draw thread only
 	core::ConcurrentQueue<VkDescriptorSet> retiredDescriptorSets; // freed on the ui thread
 
 	explicit State(Device<kVk>& device) : device(device) {}
@@ -162,8 +171,10 @@ ImGuiRenderer<kVk>::ImGuiRenderer(Device<kVk>& device, Swapchain<kVk>& swapchain
 	initInfo.QueueFamily = queue.GetDesc().queueFamilyIndex;
 	initInfo.Queue = queue; // required, but only used for texture uploads, which we do ourselves (see Texture)
 	initInfo.PipelineCache = device.GetPipeline().GetCache();
-	// a pool of the backend's own, used only on the ui thread: the pipeline's pool is used by the draw thread
-	initInfo.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE;
+	// a pool of the backend's own, used only on the ui thread (the pipeline's pool is used by the draw thread): a set per
+	// texture, imgui's and the caller's (AddTexture: off-screen views, thumbnails)
+	constexpr uint32_t kTextureCount = 1024;
+	initInfo.DescriptorPoolSize = std::max<uint32_t>(IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE, kTextureCount);
 	initInfo.MinImageCount = surfaceCapabilities.minImageCount;
 	// how many sets of buffers imgui keeps: as many as frames in flight, and at least as many as swapchain images
 	initInfo.ImageCount = std::max<uint32_t>(
@@ -199,6 +210,13 @@ ImGuiRenderer<kVk>::~ImGuiRenderer()
 	for (auto& deferred : state.deferredTextureDestroys)
 		State::Destroy(deferred.texture);
 	state.deferredTextureDestroys.clear();
+
+	State::UserTextureRemoval removal;
+	while (state.userTextureRemovals.try_dequeue(removal))
+		ImGui_ImplVulkan_RemoveTexture(removal.descriptorSet);
+	for (auto& deferred : state.deferredUserTextureRemovals)
+		ImGui_ImplVulkan_RemoveTexture(deferred.descriptorSet);
+	state.deferredUserTextureRemovals.clear();
 
 	VkDescriptorSet descriptorSet;
 	while (state.retiredDescriptorSets.try_dequeue(descriptorSet))
@@ -264,6 +282,22 @@ void ImGuiRenderer<kVk>::PrepareFrame(
 		stagingBuffers.emplace_back(std::move(textureOp.staging));
 	}
 
+	// the same for the caller's textures (see RemoveTexture)
+	State::UserTextureRemoval removal;
+	while (state.userTextureRemovals.try_dequeue(removal))
+		state.deferredUserTextureRemovals.push_back(removal);
+	std::vector<VkDescriptorSet> userDescriptorSets;
+	std::erase_if(
+		state.deferredUserTextureRemovals,
+		[&userDescriptorSets, drawnSequence](const State::UserTextureRemoval& deferred)
+		{
+			if (deferred.sequence > drawnSequence)
+				return false;
+
+			userDescriptorSets.push_back(deferred.descriptorSet);
+			return true;
+		});
+
 	// a texture destroyed on the ui thread may still be referenced by frames published before that, and so by the frame
 	// drawn here. from a frame published at or after its destroy on, it is never drawn again, and this submission
 	// completes after all earlier ones (the graphics timeline orders them).
@@ -279,12 +313,15 @@ void ImGuiRenderer<kVk>::PrepareFrame(
 			return true;
 		});
 
-	if (stagingBuffers.empty() && textures.empty())
+	if (stagingBuffers.empty() && textures.empty() && userDescriptorSets.empty())
 		return;
 
 	callbacks.emplace_back(
 		core::CreateTask(
-			[&state, stagingBuffers = std::make_shared<std::vector<Buffer<kVk>>>(std::move(stagingBuffers)), textures = std::move(textures)]() mutable
+			[&state,
+			 stagingBuffers = std::make_shared<std::vector<Buffer<kVk>>>(std::move(stagingBuffers)),
+			 textures = std::move(textures),
+			 userDescriptorSets = std::move(userDescriptorSets)]() mutable
 			{
 				stagingBuffers->clear();
 
@@ -292,7 +329,22 @@ void ImGuiRenderer<kVk>::PrepareFrame(
 				for (auto& texture : textures)
 					state.retiredDescriptorSets.enqueue(texture->descriptorSet);
 				textures.clear();
+				for (auto descriptorSet : userDescriptorSets)
+					state.retiredDescriptorSets.enqueue(descriptorSet);
 			}).handle);
+}
+
+template <>
+uint64_t ImGuiRenderer<kVk>::AddTexture(ImageViewHandle<kVk> view)
+{
+	return reinterpret_cast<uint64_t>(ImGui_ImplVulkan_AddTexture(view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+}
+
+template <>
+void ImGuiRenderer<kVk>::RemoveTexture(uint64_t textureId, uint64_t firstUndrawnSequence)
+{
+	myState->userTextureRemovals.enqueue(
+		State::UserTextureRemoval{.descriptorSet = reinterpret_cast<VkDescriptorSet>(textureId), .sequence = firstUndrawnSequence});
 }
 
 template <>
