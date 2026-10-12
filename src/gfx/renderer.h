@@ -97,6 +97,7 @@ private:
 	FrameGraph::ImageId myScatter;
 	FrameGraph::ImageId myScatterDepth;
 	FrameGraph::ImageId myScatterBackDepth;
+	FrameGraph::ImageId myScatterNoisy;
 	FrameGraph::ImageId myScatterLight;
 	FrameGraph::ImageId mySwapchain;
 	FrameGraph::ImageId myShadowAtlas;
@@ -110,6 +111,7 @@ private:
 	FrameGraph::PassId myScatterBackPass;
 	FrameGraph::PassId myScatterPass;
 	FrameGraph::PassId myScatterBlurPass;
+	FrameGraph::PassId myScatterDenoisePass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;

@@ -77,8 +77,10 @@ extern "C"
 // KHR_materials_volume_scatter: the depth of the scattering materials' nearest back faces, from the Scatter Back pass,
 // which the Scatter pass measures their thickness by; the scattering light of their front surfaces (rgb; a: the material
 // index plus 1, 0 where there is none), and their depth, from the Scatter pass, which the Scatter Blur pass blurs (see
-// SubsurfaceScattering), and that light blurred (the Scatter Blur pass, ComputeScatter: written as a storage image
-// in gRWTextures, then read by the main pass)
+// SubsurfaceScattering), into the noisy light (the Scatter Blur pass, ComputeScatter), which the Scatter Denoise pass
+// (ComputeScatterDenoise) filters into the light the main pass adds: each written as a storage image in gRWTextures
+#define SHADER_TYPES_SCATTER_NOISY_TEXTURE 6u
+#define SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE 5u
 #define SHADER_TYPES_SCATTER_LIGHT_TEXTURE 7u
 #define SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE 4u
 #define SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE 8u

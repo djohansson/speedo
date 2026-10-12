@@ -1009,7 +1009,8 @@ float3 ScatterProfileScale(MaterialData material)
 
 // the scattering light (ScatterLight) at a pixel of the scatter pass's target, blurred by its material's diffusion
 // profile: from the samples of the same material around it, weighed by their distance in world space, the pattern turned
-// per pixel (noise rather than copies of the image)
+// by the pixel's place in a 4x4 tile (interleaved sampling: noise rather than copies of the image, which
+// ComputeScatterDenoise's 4x4 filter cancels)
 float3 SubsurfaceScattering(int2 center, ViewData view, float4 centerSample, float3 scale)
 {
 	Texture2D scatter = gTextures[SHADER_TYPES_SCATTER_TEXTURE];
@@ -1026,8 +1027,9 @@ float3 SubsurfaceScattering(int2 center, ViewData view, float4 centerSample, flo
 		return centerSample.rgb;
 
 	float3 d = max(scale, kScatterMinRadius * maxScale);
-	// interleaved gradient noise
-	float angle = 2.0 * kPi * frac(52.9829189 * frac(dot(float2(center), float2(0.06711056, 0.00583715))));
+	// each of a 4x4 tile's pixels turned by its own sixteenth of a turn, in an order that spreads neighbors apart
+	static const uint kTileOrder[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+	float angle = 2.0 * kPi / 16.0 * float(kTileOrder[(uint(center.y) & 3u) * 4u + (uint(center.x) & 3u)]);
 	float2x2 turn = float2x2(cos(angle), -sin(angle), sin(angle), cos(angle));
 	float2 low = view.viewport.xy;
 	float2 high = view.viewport.xy + view.viewport.zw;
@@ -1050,9 +1052,44 @@ float3 SubsurfaceScattering(int2 center, ViewData view, float4 centerSample, flo
 	return total / max(totalWeight, 1e-4);
 }
 
-// the Scatter Blur pass: the scattering light blurred, per pixel of the scatter pass's target (by the view it is in)
+// the view a pixel of the render target is in, if any
+bool ViewAt(int2 pixel, out ViewData view)
+{
+	for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
+	{
+		view = gViewData[gPushConstants.frameIndex][viewIt];
+		float2 local = (float2(pixel) + 0.5 - view.viewport.xy) / view.viewport.zw;
+		if (all(local >= 0.0) && all(local < 1.0))
+			return true;
+	}
+	view = gViewData[gPushConstants.frameIndex][0];
+	return false;
+}
+
+// the Scatter Blur pass: the scattering light blurred, per pixel of the scatter pass's target (by the view it is in),
+// with the noise of its tiled pattern, which ComputeScatterDenoise filters out
 [numthreads(8, 8, 1)]
 void ComputeScatter(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	RWTexture2D result = gRWTextures[SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE];
+	uint2 extent;
+	result.GetDimensions(extent.x, extent.y);
+	int2 pixel = int2(dispatchThreadId.xy);
+	if (any(dispatchThreadId.xy >= extent))
+		return;
+	float4 centerSample = gTextures[SHADER_TYPES_SCATTER_TEXTURE].Load(int3(pixel, 0));
+	float3 light = centerSample.rgb;
+	ViewData view;
+	if (centerSample.a > 0.0 && ViewAt(pixel, view))
+		light = SubsurfaceScattering(pixel, view, centerSample, ScatterProfileScale(gMaterialData[uint(centerSample.a) - 1u]));
+	result[pixel] = float4(light, centerSample.a);
+}
+
+// the Scatter Denoise pass: the blurred light averaged over the 4x4 tile around each pixel, which holds every turn of the
+// pattern once (as many samples as 16 pixels took), of the neighbors on the same surface: the same material, and in world
+// space no farther than 8 times as far as they are on screen (for slopes) from the pixel. at edges fewer turns remain
+[numthreads(8, 8, 1)]
+void ComputeScatterDenoise(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
 	RWTexture2D result = gRWTextures[SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE];
 	uint2 extent;
@@ -1060,24 +1097,38 @@ void ComputeScatter(uint3 dispatchThreadId : SV_DispatchThreadID)
 	int2 pixel = int2(dispatchThreadId.xy);
 	if (any(dispatchThreadId.xy >= extent))
 		return;
-	float4 centerSample = gTextures[SHADER_TYPES_SCATTER_TEXTURE].Load(int3(pixel, 0));
-	float3 light = 0.0;
-	if (centerSample.a > 0.0)
+	Texture2D noisy = gTextures[SHADER_TYPES_SCATTER_NOISY_TEXTURE];
+	Texture2D scatterDepth = gTextures[SHADER_TYPES_SCATTER_DEPTH_TEXTURE];
+	float4 center = noisy.Load(int3(pixel, 0));
+	ViewData view;
+	if (center.a <= 0.0 || !ViewAt(pixel, view))
 	{
-		light = centerSample.rgb;
-		uint frameIndex = gPushConstants.frameIndex;
-		for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
-		{
-			ViewData view = gViewData[frameIndex][viewIt];
-			float2 local = (float2(pixel) + 0.5 - view.viewport.xy) / view.viewport.zw;
-			if (any(local < 0.0) || any(local >= 1.0))
-				continue;
-			MaterialData material = gMaterialData[uint(centerSample.a) - 1u];
-			light = SubsurfaceScattering(pixel, view, centerSample, ScatterProfileScale(material));
-			break;
-		}
+		result[pixel] = center;
+		return;
 	}
-	result[pixel] = float4(light, centerSample.a);
+	float centerDepth = scatterDepth.Load(int3(pixel, 0)).r;
+	float3 centerPosition = ScatterPosition(view, float2(pixel), centerDepth);
+	float metersPerPixel = distance(centerPosition, ScatterPosition(view, float2(pixel) + float2(1.0, 0.0), centerDepth));
+	float2 low = view.viewport.xy;
+	float2 high = view.viewport.xy + view.viewport.zw;
+	float3 total = 0.0;
+	float count = 0.0;
+	for (int y = -1; y <= 2; y++)
+		for (int x = -1; x <= 2; x++)
+		{
+			int2 at = pixel + int2(x, y);
+			if (any(float2(at) < low) || any(float2(at) >= high))
+				continue;
+			float4 neighbor = noisy.Load(int3(at, 0));
+			if (neighbor.a != center.a)
+				continue;
+			float3 position = ScatterPosition(view, float2(at), scatterDepth.Load(int3(at, 0)).r);
+			if (distance(position, centerPosition) > 8.0 * metersPerPixel * length(float2(x, y)) + 1e-6)
+				continue;
+			total += neighbor.rgb;
+			count += 1.0;
+		}
+	result[pixel] = float4(total / count, center.a);
 }
 
 // the blurred scattering light at a pixel (the Scatter Blur pass's), if the scatter pass drew this material there

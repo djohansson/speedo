@@ -300,7 +300,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Uploads, UI,
 Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -679,9 +679,12 @@ on a 0.34 m skull), times the diffuse transmission and its color, less the specu
 overdrawn one, nearly doubling Main) blurs it by Christensen and Burley's profile, scaled per color by the mean free path
 (the reciprocal of the extinction, `-ln(attenuationColor) / attenuationDistance`, at most 10 attenuation distances) and the
 multiscatter albedo (`BurleyScale`, the searchlight fit; the renderer's attenuation distance times the multiscatter color
-through Blender's radius convention was a tenth of that), from the 55 samples precomputed as the renderer does, turned per
-pixel by interleaved gradient noise (fixed, they made copies of the image), samples of the same material only, weighed by
-their world space distance; the multiscatter texture tints the light but not the profile, which has no texcoords there.
+through Blender's radius convention was a tenth of that), from the 55 samples precomputed as the renderer does, samples of the
+same material only, weighed by their world space distance. The pattern is turned by the pixel's place in a 4x4 tile
+(fixed, it made copies of the image; turned by interleaved gradient noise, faint stripes), which Scatter Denoise
+(`ComputeScatterDenoise`, the third compute entry point) cancels: interleaved sampling, each pixel the mean of its 4x4
+tile's neighbors on the same surface (same material, within 8 times their screen distance in world space), as many
+samples as the 16 pixels took; the multiscatter texture tints the light but not the profile, which has no texcoords there.
 The main pass adds it (`SHADER_TYPES_SCATTER_LIGHT_TEXTURE`, else, where the scatter pass didn't draw the surface,
 `ScatterLight` in place) times `(1 - metallic) (1 - iridescence) (1 - transmission) (1 - clearcoat fresnel)`; all of the
 diffuse transmission's light is the scattering's. The volume (thickness, attenuation) is filled for diffuse transmission

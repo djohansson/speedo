@@ -1713,6 +1713,7 @@ struct Scene::Impl
 						{"FragmentScatter", SLANG_STAGE_FRAGMENT}, // see kScatterFragmentShader
 						{"ComputeMain", SLANG_STAGE_COMPUTE},
 						{"ComputeScatter", SLANG_STAGE_COMPUTE}, // see the Scatter Blur pass
+						{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
