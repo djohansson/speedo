@@ -138,6 +138,9 @@ Texture LoadTexture(
 	auto app = core::Application::Get();
 	ENSURE(app);
 	auto cancelled = [&app] { return app->IsExitRequested(); };
+	// compressed on the executor's threads (a load task waits for them, helping out meanwhile)
+	auto importOptions = options;
+	importOptions.executor = &app->GetExecutor();
 
 	// the compressed mip chain, in a staging buffer: filled here, before the upload takes the transfer queue's lock
 	image::Image layout;
@@ -200,12 +203,12 @@ Texture LoadTexture(
 		if (embeddedImage)
 		{
 			auto bytes = gltf::EmbeddedImage(std::filesystem::path(filePath), *embeddedImage);
-			result = bytes ? image::Import(*bytes, name, options, allocate, &progress, cancelled) : std::unexpected(bytes.error());
+			result = bytes ? image::Import(*bytes, name, importOptions, allocate, &progress, cancelled) : std::unexpected(bytes.error());
 		}
 		else
 		{
 			auto bytes = in.remaining_data();
-			result = image::Import(std::span<const std::byte>(bytes.data(), bytes.size()), filePath, options, allocate, &progress, cancelled);
+			result = image::Import(std::span<const std::byte>(bytes.data(), bytes.size()), filePath, importOptions, allocate, &progress, cancelled);
 		}
 
 		if (mapped)

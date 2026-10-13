@@ -283,7 +283,10 @@ linux; nothing on windows yet): without it a cold mapped file is read a page fau
 it). With it, mapping matches `read()` cold and warm (13 to 18 GB/s from the page cache). `std::istreambuf_iterator`
 reads, which the image importer used, run at 0.5 GB/s either way. `filebench --import <files>` times the importers:
 the change took a 9 MB png's decode from 77 to 58 ms and an 80 MB hdr's from 244 to 227; mesh imports are bound by
-parsing (2 to 3% faster).
+parsing (2 to 3% faster). For an image it also times the whole import (decoded, mipmapped and compressed) on one thread
+and with an executor compressing: `image::Options::executor` spreads `CompressLevel`'s block rows over it with
+`TaskExecutor::ForEach` (`LoadTexture` passes the application's; `std::execution::par` did nothing, libc++ runs it
+serially), which took a 2048 Bistro texture's compression from 62 to 23 ms; the decode and the mip resizes are serial.
 
 ## Choosing a lock
 

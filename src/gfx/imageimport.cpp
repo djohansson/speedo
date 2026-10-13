@@ -1,6 +1,7 @@
 #include "imageimport.h"
 
 #include <core/file.h>
+#include <core/taskexecutor.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -8,11 +9,9 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
-#include <execution>
 #include <format>
 #include <iterator>
 #include <memory>
-#include <numeric>
 
 #include <ktx.h>
 #include <webp/decode.h>
@@ -55,13 +54,15 @@ constexpr uint32_t kRgba = 4;
 }
 
 // compresses rgba pixels to blocks of format, row by row (bc4 from r, bc5 from r and g). pixels outside the image (in
-// the blocks along the right and bottom edges when the extent isn't a multiple of 4) repeat the last row and column.
+// the blocks along the right and bottom edges when the extent isn't a multiple of 4) repeat the last row and column. the
+// rows are spread over executor's threads if there is one (std::execution::par did nothing: libc++ runs it serially)
 [[nodiscard]] bool CompressLevel(
 	const uint8_t* src,
 	uint32_t width,
 	uint32_t height,
 	Format format,
 	std::byte* dst,
+	core::TaskExecutor* executor,
 	const std::function<bool()>& cancelled)
 {
 	ZoneScopedN("image::CompressLevel");
@@ -70,65 +71,65 @@ constexpr uint32_t kRgba = 4;
 	auto blockRowCount = BlockCount(height);
 	auto blockSize = BlockSize(format);
 
-	std::vector<uint32_t> blockRows(blockRowCount);
-	std::ranges::iota(blockRows, 0U);
-
 	std::atomic_bool stopped = false;
-	std::for_each(
-		std::execution::par,
-		blockRows.begin(),
-		blockRows.end(),
-		[&](uint32_t blockRowIt)
+	auto compressRow = [&](size_t blockRowIndex)
+	{
+		auto blockRowIt = static_cast<uint32_t>(blockRowIndex);
+		if (stopped.load(std::memory_order_relaxed))
+			return;
+
+		if (cancelled && cancelled())
 		{
-			if (stopped.load(std::memory_order_relaxed))
-				return;
+			stopped = true;
+			return;
+		}
 
-			if (cancelled && cancelled())
+		std::array<uint8_t, kBlockDim * kBlockDim * kRgba> block;
+		std::array<uint8_t, kBlockDim * kBlockDim * 2> channels;
+		for (uint32_t blockColIt = 0; blockColIt < blockColCount; blockColIt++)
+		{
+			for (uint32_t y = 0; y < kBlockDim; y++)
 			{
-				stopped = true;
-				return;
-			}
-
-			std::array<uint8_t, kBlockDim * kBlockDim * kRgba> block;
-			std::array<uint8_t, kBlockDim * kBlockDim * 2> channels;
-			for (uint32_t blockColIt = 0; blockColIt < blockColCount; blockColIt++)
-			{
-				for (uint32_t y = 0; y < kBlockDim; y++)
+				auto row = std::min((blockRowIt * kBlockDim) + y, height - 1);
+				for (uint32_t x = 0; x < kBlockDim; x++)
 				{
-					auto row = std::min((blockRowIt * kBlockDim) + y, height - 1);
-					for (uint32_t x = 0; x < kBlockDim; x++)
-					{
-						auto col = std::min((blockColIt * kBlockDim) + x, width - 1);
-						std::copy_n(&src[((static_cast<size_t>(row) * width) + col) * kRgba], kRgba, &block[((y * kBlockDim) + x) * kRgba]);
-					}
-				}
-
-				auto* out = reinterpret_cast<unsigned char*>(
-					dst + ((static_cast<size_t>(blockRowIt) * blockColCount) + blockColIt) * blockSize);
-				switch (format)
-				{
-				case Format::kBC1:
-				case Format::kBC3:
-					stb_compress_dxt_block(out, block.data(), format == Format::kBC3 ? 1 : 0, STB_DXT_HIGHQUAL);
-					break;
-				case Format::kBC4:
-					for (uint32_t pixelIt = 0; pixelIt < kBlockDim * kBlockDim; pixelIt++)
-						channels[pixelIt] = block[pixelIt * kRgba];
-					stb_compress_bc4_block(out, channels.data());
-					break;
-				case Format::kBC5:
-					for (uint32_t pixelIt = 0; pixelIt < kBlockDim * kBlockDim; pixelIt++)
-					{
-						channels[pixelIt * 2] = block[pixelIt * kRgba];
-						channels[(pixelIt * 2) + 1] = block[(pixelIt * kRgba) + 1];
-					}
-					stb_compress_bc5_block(out, channels.data());
-					break;
-				case Format::kBC7: // only from KTX2 files (see ImportKtx2), never compressed here
-					break;
+					auto col = std::min((blockColIt * kBlockDim) + x, width - 1);
+					std::copy_n(&src[((static_cast<size_t>(row) * width) + col) * kRgba], kRgba, &block[((y * kBlockDim) + x) * kRgba]);
 				}
 			}
-		});
+
+			auto* out = reinterpret_cast<unsigned char*>(
+				dst + ((static_cast<size_t>(blockRowIt) * blockColCount) + blockColIt) * blockSize);
+			switch (format)
+			{
+			case Format::kBC1:
+			case Format::kBC3:
+				stb_compress_dxt_block(out, block.data(), format == Format::kBC3 ? 1 : 0, STB_DXT_HIGHQUAL);
+				break;
+			case Format::kBC4:
+				for (uint32_t pixelIt = 0; pixelIt < kBlockDim * kBlockDim; pixelIt++)
+					channels[pixelIt] = block[pixelIt * kRgba];
+				stb_compress_bc4_block(out, channels.data());
+				break;
+			case Format::kBC5:
+				for (uint32_t pixelIt = 0; pixelIt < kBlockDim * kBlockDim; pixelIt++)
+				{
+					channels[pixelIt * 2] = block[pixelIt * kRgba];
+					channels[(pixelIt * 2) + 1] = block[(pixelIt * kRgba) + 1];
+				}
+				stb_compress_bc5_block(out, channels.data());
+				break;
+			case Format::kBC7: // only from KTX2 files (see ImportKtx2), never compressed here
+				break;
+			}
+		}
+	};
+
+	if (executor != nullptr && blockRowCount > 1)
+		executor->ForEach(blockRowCount, compressRow);
+	else
+		for (uint32_t blockRowIt = 0; blockRowIt < blockRowCount; blockRowIt++)
+			compressRow(blockRowIt);
 
 	return !stopped;
 }
@@ -680,7 +681,7 @@ std::expected<Image, std::string> Import(
 			std::swap(previous, current);
 		}
 
-		if (!CompressLevel(previous.data(), level.width, level.height, image.format, dst + level.offset, cancelled))
+		if (!CompressLevel(previous.data(), level.width, level.height, image.format, dst + level.offset, options.executor, cancelled))
 			return std::unexpected("cancelled");
 
 		pixelsDone += static_cast<size_t>(level.width) * level.height;

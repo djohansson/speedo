@@ -1,4 +1,13 @@
 # TODO
+* plan (in this order):
+	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Sponza and Bistro)
+		1. bounds per submesh (and per instance, for instanced nodes), kept with the model
+		2. frustum culling in the draw lists, per view and per shadow view (cascades, cube faces, spot views)
+		3. more shadowed point and spot lights than 4, once the shadow views draw only what they see
+		4. clustered light assignment (lights binned per screen tile and depth slice, the fragment shader looping over its cluster's), as its own step
+	2. command buffers as move-only values (see below), before more passes or async compute add recording paths
+	3. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
+	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
 	* animation: node (translation, rotation, scale) and morph weight animations and skins move, and every KHR_animation_pointer target of the core spec and the extensions drawn (node transforms, weights and visibility, material values, texture transforms, lights, cameras). a set of files with an animated base color loses it (it isn't baked into the vertex colors). joint normals use the joint matrices directly (non-uniform scale on joints skews them). the model's bounds (which frame the views) cover its animations' poses and its morph targets' reach. one animation plays at a time (switching crossfades over 0.3 s), without layering or additive blending. a set of files is drawn at rest
@@ -12,9 +21,8 @@
 	* not settled: DiffuseTransmissionTeacup's cup looked more mirror-like than the reference's satin porcelain (no matching camera angle to compare)
 * todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
 * todo: investigate and implement optimization techniques such as clustered forward shading
-	* culling: none at draw time (main pass or shadow views): every view draws every submesh, which is also why at most 4 point and spot lights cast shadows
+	* culling: none at draw time (main pass or shadow views): every view draws every submesh, which is also why at most 4 point and spot lights cast shadows (the plan's first item)
 * todo: file loading leftovers (see CLAUDE.md, "File I/O"): Model::Load's source load op still lets mesh::Import map the file again (the obj and gltf importers take paths, for their mtl files and buffers); slang reads the shader sources itself (an ISlangFileSystem could hand it mapped files); core::file::Map has no read-ahead hint on windows (PrefetchVirtualMemory)
-* todo: image::CompressLevel (texture compression at import) loops over block rows with std::execution::par, which libc++ runs serially: spread them over threads (as src/tools/environmentkernelsbridge.cpp does), imports would be several times faster
 * todo: frame graph (gfx::FrameGraph) follow-ups
 	* one queue: no async compute or transfer passes, and the passes are recorded in order into one command buffer (only the main pass's views go to secondary command buffers)
 	* the OIT node pool is sized for 4 nodes per pixel of the render target (177 MB at 2560x1440) and lives the whole frame, so nothing aliases it
@@ -32,7 +40,6 @@
 * todo: remove all use of preprocessor macros, and replace with constexpr functions so that we can migrate to using modules.
 * todo: add CI using github agent vm running on TrueNAS
 * todo: vcpkg: set up binary cache using some sort of artifact store. possibly running on local TrueNAS with proper auth/exposure. Or on my Backblaze account.
-* todo: enable ubsan, asan & tsan on supported platforms
 * todo: add ConcurrencyGroup:s to cmake:s fastbuild integration to work around issues with lld-link eating way too much memory during LTO
 * todo: area lights (e.g. rectangle and disk lights, LTC shading; glTF has none, so they need a source) and their shadows
 
@@ -40,6 +47,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: image::CompressLevel spreads its block rows over the task executor (std::execution::par ran serially under libc++): compressing a 2048 texture took 23 ms instead of 62 (filebench --import), the decode and mip resizes are serial still
 * done: View > Lights: the lights listed and drawn over the views (markers, spot cones, point ranges, shadow frusta), SPEEDO_SHOW_LIGHTS=1
 * done: volume scatter's profile scaled by each pixel's multiscatter color (texture included), with ScatterTexture.gltf to test it
 * done: volume scatter's blur denoised: the sample pattern turned by a 4x4 tile, cancelled by an edge aware 4x4 mean (interleaved sampling)

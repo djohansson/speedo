@@ -4,7 +4,8 @@
 //
 // usage: filebench [--iterations <n>] [--work <dir>] [--sizes <MiB>,...] [--import | --zip] [files...]
 //
-// with --import, it times the gfx importers on the files given instead (models, panoramas, images; warm). with --zip,
+// with --import, it times the gfx importers on the files given instead (models, panoramas, images; warm; an image's
+// import, decoded, mipmapped and compressed, on one thread and with a task executor compressing). with --zip,
 // it times core::zip on the zip archives given: inflating their deflated entries (libdeflate), their crc-32s, and
 // extracting them whole into --work, on one thread and on a task executor's.
 //
@@ -249,36 +250,59 @@ struct Result
 	return Result{.medianSeconds = seconds[seconds.size() / 2], .hash = hash};
 }
 
-// --import: times the gfx importers on files (models, panoramas, images), warm (each imported once before timing)
+// --import: times the gfx importers on files (models, panoramas, images), warm (each imported once before timing). an
+// image is decoded alone, then imported (decoded, mipmapped and compressed) on one thread and with an executor compressing
 [[nodiscard]] int ImportFiles(const std::vector<std::filesystem::path>& files, unsigned iterations)
 {
+	core::TaskExecutor executor(std::max(1U, std::thread::hardware_concurrency()));
+	std::vector<std::byte> compressed;
+	auto allocate = [&compressed](size_t size)
+	{
+		compressed.resize(size);
+		return compressed.data();
+	};
+
 	std::println("{} iterations, medians, warm", iterations);
 	for (const auto& file : files)
 	{
 		auto extension = file.extension().string();
 		std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		std::function<std::optional<std::string>()> import;
+		std::vector<std::pair<std::string, std::function<std::optional<std::string>()>>> imports;
 		if (gfx::mesh::IsModelFile(file))
-			import = [&file] { auto mesh = gfx::mesh::Import(file); return mesh ? std::nullopt : std::optional(mesh.error()); };
+			imports.emplace_back("import", [&file] { auto mesh = gfx::mesh::Import(file); return mesh ? std::nullopt : std::optional(mesh.error()); });
 		else if (extension == ".hdr")
-			import = [&file] { auto panorama = gfx::environment::Import(file); return panorama ? std::nullopt : std::optional(panorama.error()); };
+			imports.emplace_back("import", [&file] { auto panorama = gfx::environment::Import(file); return panorama ? std::nullopt : std::optional(panorama.error()); });
 		else
-			import = [&file] { auto pixels = gfx::image::Decode(file, {}); return pixels ? std::nullopt : std::optional(pixels.error()); };
+		{
+			imports.emplace_back("decode", [&file] { auto pixels = gfx::image::Decode(file, {}); return pixels ? std::nullopt : std::optional(pixels.error()); });
+			auto import = [&file, &allocate](core::TaskExecutor* on)
+			{
+				gfx::image::Options options;
+				options.executor = on;
+				auto image = gfx::image::Import(file, options, allocate);
+				return image ? std::nullopt : std::optional(image.error());
+			};
+			imports.emplace_back("import, 1 thread", [import] { return import(nullptr); });
+			imports.emplace_back(std::format("import, {} threads", std::max(1U, std::thread::hardware_concurrency())), [import, &executor] { return import(&executor); });
+		}
 
-		if (auto failed = import())
+		for (const auto& [label, import] : imports)
 		{
-			std::println(stderr, "{}", *failed);
-			return 1;
+			if (auto failed = import())
+			{
+				std::println(stderr, "{}", *failed);
+				return 1;
+			}
+			std::vector<double> seconds;
+			for (unsigned iteration = 0; iteration < iterations; iteration++)
+			{
+				auto start = std::chrono::steady_clock::now();
+				(void)import();
+				seconds.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+			}
+			std::ranges::sort(seconds);
+			std::println("  {:>10.2f} ms  {} ({})", seconds[seconds.size() / 2] * 1e3, file.string(), label);
 		}
-		std::vector<double> seconds;
-		for (unsigned iteration = 0; iteration < iterations; iteration++)
-		{
-			auto start = std::chrono::steady_clock::now();
-			(void)import();
-			seconds.push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
-		}
-		std::ranges::sort(seconds);
-		std::println("  {:>10.2f} ms  {}", seconds[seconds.size() / 2] * 1e3, file.string());
 	}
 	return 0;
 }

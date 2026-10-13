@@ -12,6 +12,11 @@
 #include <string_view>
 #include <vector>
 
+namespace core
+{
+class TaskExecutor;
+}
+
 namespace gfx::image
 {
 
@@ -52,6 +57,8 @@ struct Options
 	// for kBump, if the image is a height map: how deep its full range is, in 1/64ths of the image's width (the mtl -bm
 	// option)
 	float bumpScale = 1.0F;
+	// where Import compresses the mip levels' block rows (none: on the calling thread). not part of what it produces
+	core::TaskExecutor* executor = nullptr;
 };
 
 struct MipLevel
