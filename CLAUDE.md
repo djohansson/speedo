@@ -9,8 +9,12 @@ Notes for working in this codebase, distilled from real build failures.
   `SetCurrentWindow` and the C entry points the client's glfw callbacks call), `platform::WindowedApplication` (makes
   the window with the client's `CreateWindowFunc`, runs `mainCalls` on the main thread in `Main`, wakes the main loop on
   `RequestExit`, tracks minimizing in `OnResizeFramebuffer`) and imgui's platform side (`platform::imgui`, imgui's glfw
-  backend). It links glfw and imgui privately, and knows nothing of graphics (no native file dialogs: the client's file
-  browser replaced nfd's): the server, which has no windows, doesn't link it. Alt+Enter goes fullscreen as
+  backend; its input callbacks are installed by `platform::imgui::Init` rather than the backend: they run on the main
+  thread, in `glfwWaitEvents`, and fill imgui's input queue, an `ImVector`, which `ImGui::NewFrame` consumes on the ui
+  thread, so each calls the window's own callback, then the backend's under a mutex that `NewFrame` returns held until
+  `ImGui::NewFrame` is done; unlocked, the two once crashed in `FindLatestInputEvent` with an index out of range). It
+  links glfw and imgui privately, and knows nothing of graphics (no native file dialogs: the client's file browser
+  replaced nfd's): the server, which has no windows, doesn't link it. Alt+Enter goes fullscreen as
   `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or `SPEEDO_FULLSCREEN`): exclusive
   (`glfwSetWindowMonitor`, the default), borderless (an undecorated window covering the monitor, on every platform; on
   macOS with the menu bar and dock hidden, and composited) or, on macOS, native (its own space). Exclusive and native

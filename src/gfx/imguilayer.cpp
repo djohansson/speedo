@@ -191,7 +191,8 @@ ImGuiLayer::~ImGuiLayer()
 
 void ImGuiLayer::BeginFrame()
 {
-	platform::imgui::NewFrame(); // polls the window's input into imgui's io
+	// polls the window's input into imgui's io, locked against the window's callbacks until imgui has consumed it
+	auto inputLock = platform::imgui::NewFrame();
 	myRenderer->NewFrame();
 	ImGui::NewFrame();
 }
