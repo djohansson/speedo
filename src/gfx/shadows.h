@@ -17,14 +17,14 @@ namespace gfx::shadows
 {
 
 constexpr uint32_t kAtlasSize = 4096; // texels, square
-constexpr uint32_t kCellSize = 512; // the atlas is a grid of these
+constexpr uint32_t kCellSize = 128; // the atlas is a grid of these: the smallest tile
 constexpr uint32_t kCellsPerRow = kAtlasSize / kCellSize;
-constexpr uint32_t kCascadeCells = 2; // a cascade's tile is 2x2 cells (1024 texels), as is a spot light's
-constexpr uint32_t kSpotCells = 2;
-constexpr uint32_t kPointFaceCells = 1; // a point light's faces 512 texels each
-// at most this many point and spot lights cast shadows (the nearest and brightest): each of their views draws the whole
-// scene (there is no culling per view)
-constexpr uint32_t kMaxLocalShadows = 4;
+// the tiles' sizes, in cells (powers of two): a cascade's 8 (1024 texels), at most; a spot light's and a point light's
+// faces by how big the light's range looks from the camera, at most 8 (a spot's 1024 texels) and 4 (a face's 512), at
+// least one cell. a light whose tiles don't fit gets them halved until they do (all of a light's tiles or none)
+constexpr uint32_t kCascadeCells = 8;
+constexpr uint32_t kSpotCells = 8;
+constexpr uint32_t kPointFaceCells = 4;
 
 // what the shadows are fitted to: the camera (the first view), and the scene's bounds (what casts shadows)
 struct ShadowCamera
@@ -51,8 +51,9 @@ struct ShadowPlan
 };
 
 // plans the shadows of lights (as the shader sees them) for a camera and the scene's bounds. lights beyond the budget
-// (the atlas is full) cast none: directional lights go first (by intensity), then the others by how bright they are
-// at the camera.
+// (the atlas is full, or SHADER_TYPES_SHADOW_VIEW_COUNT views) cast none: directional lights go first (by intensity),
+// then the others by how bright they are at the camera. point and spot lights whose range is out of the camera's view
+// light nothing seen, and get none
 [[nodiscard]] ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, const Bounds3f& sceneBounds);
 
 } // namespace gfx::shadows

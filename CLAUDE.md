@@ -459,14 +459,22 @@ installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,
 
 ## Shadows
 
-The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 512 texel cells; a frame
+The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 128 texel cells; a frame
 graph transient, `SHADER_TYPES_SHADOW_ATLAS_TEXTURE`), planned on the cpu each frame (`shadows::Plan`, in
-`Renderer::Record`, after the frame's fence): directional lights first (4 cascades of 2x2 cells, Zhang's practical
+`Renderer::Record`, after the frame's fence): directional lights first (4 cascades of 1024 texels, Zhang's practical
 splits over the first view's frustum up to the scene's bounds, each a bounding sphere seen along the light, depth from
-the scene's nearest caster, snapped to whole texels), then point lights (6 cube faces of a cell, a little wider than 90
-degrees so the filter near a face's edge stays in it) and spot lights (2x2 cells, the outer cone plus a margin), by
-brightness at the camera, all of a light's tiles or none, until the atlas is full (at most `kMaxLocalShadows` point and
-spot lights). The views go in `gShadowViews[frame]` (`ShadowData`: view projection, atlas rectangle, texel size) and each
+the scene's nearest caster, snapped to whole texels), then point lights (6 cube faces, a little wider than 90 degrees so
+the filter near a face's edge stays in it) and spot lights (the outer cone plus a margin), by brightness at the camera.
+A point or spot light whose range is outside the camera's frustum lights nothing seen and gets none. The others' tiles
+are sized by how big their range looks from the camera (`CellsFor`: its share of the view's height; at most 512 texels a
+face, 1024 a spot), then budgeted: while they need more than the atlas, the lowest priority light of those with the
+biggest tiles gets them halved (down to one cell; the cascades keep theirs), and once all are one cell the lowest
+priority ones go without. The tiles are placed biggest first (aligned power of two squares then pack without gaps), all
+of a light's or none, up to `SHADER_TYPES_SHADOW_VIEW_COUNT` (256) views. It used to stop at 4 point and spot lights,
+each a fixed size, while every shadow view drew the whole scene (before culling): `ManyLights.gltf` (24 point and 8 spot
+lights between pillars) shows all of them shadowed, the Shadows pass taking 0.46 ms (0.31 with 4), the main pass 5.6
+(4.3: each pixel filters a shadow per light in reach, 4 to 9 here). A light's tile size changes by octaves as the camera
+moves, which shows as its shadow sharpening or softening at once. The views go in `gShadowViews[frame]` (`ShadowData`: view projection, atlas rectangle, texel size) and each
 light's first in `gLightShadows[frame]`, host visible buffers per frame index. The Shadows pass draws each view in its
 tile with `BuildShadowDrawList` (opaque and alpha masked triangles; not blended or transmissive), `VertexMain` taking the
 view from `PushConstants::shadowView` and `FragmentShadow` (the layout's third fragment entry point) cutting out alpha
@@ -873,7 +881,8 @@ normalized short rotations and a mirroring instance, which must face the camera 
 listed nearest first (metallic, so they render dark); `BlendInstances.gltf`: a
 blended quad instanced in front of and behind another; `ManySamplers.gltf`: 36 quads with a sampler
 each, of every filter and wrap mode, more than the model sampler slots once were; `ScatterTexture.gltf`: volume scatter's
-multiscatter texture, see above), and is always part
+multiscatter texture, see above; `ManyLights.gltf`: 24 point and 8 spot lights between pillars, more shadowed lights than
+the atlas holds at full size, best seen with `SPEEDO_ENVIRONMENT_INTENSITY=0.05`), and is always part
 of the printed paths, as is `resources/test-models/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
 its texture mirrored, which must both come out raised and lit from above, i.e. from the default light's side). Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are

@@ -2,10 +2,13 @@
 
 #include <core/profiling.h>
 
+#include <gfx/frustum.h>
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <numeric>
 #include <optional>
@@ -87,22 +90,40 @@ private:
 	std::array<bool, kCellsPerRow * kCellsPerRow> myTaken{};
 };
 
-// the tiles of a light, all or none
+// the tiles of a light, all or none: count squares of cells cells, else of half that, down to one cell
 [[nodiscard]] std::optional<std::vector<ShadowPlan::Tile>> AllocateAll(Allocator& allocator, uint32_t count, uint32_t cells)
 {
-	std::vector<ShadowPlan::Tile> tiles;
-	for (uint32_t i = 0; i < count; i++)
+	for (; cells >= 1; cells /= 2)
 	{
-		auto tile = allocator.Allocate(cells);
-		if (!tile)
+		std::vector<ShadowPlan::Tile> tiles;
+		for (uint32_t i = 0; i < count; i++)
 		{
-			for (const auto& taken : tiles)
-				allocator.Release(taken);
-			return std::nullopt;
+			auto tile = allocator.Allocate(cells);
+			if (!tile)
+				break;
+			tiles.push_back(*tile);
 		}
-		tiles.push_back(*tile);
+		if (tiles.size() == count)
+			return tiles;
+		for (const auto& taken : tiles)
+			allocator.Release(taken);
 	}
-	return tiles;
+	return std::nullopt;
+}
+
+// the cells a tile of a light whose range (a sphere at position, of radius reach) looks size big from the camera
+// needs, at most maxCells: a power of two, by its share of the view's height (a light filling the view gets maxCells,
+// one a quarter of it a quarter of that)
+[[nodiscard]] uint32_t CellsFor(const glm::mat4& projection, const glm::mat4& view, const glm::vec3& position, float reach, uint32_t maxCells)
+{
+	float distance = -(view * glm::vec4(position, 1.0F)).z;
+	bool orthographic = projection[2][3] == 0.0F;
+	// the sphere's radius over the view's half height there (see the projection's y scale)
+	float share = reach * std::abs(projection[1][1]) / (orthographic ? 1.0F : std::max(distance, 1e-4F));
+	if (!orthographic && distance <= reach)
+		share = 1.0F; // the camera is in the light's range
+	auto cells = static_cast<float>(maxCells) * std::min(share, 1.0F);
+	return std::clamp(std::bit_floor(static_cast<uint32_t>(std::max(cells, 1.0F))), 1U, maxCells);
 }
 
 [[nodiscard]] glm::vec4 AtlasRect(const ShadowPlan::Tile& tile)
@@ -247,12 +268,30 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 	};
 	std::ranges::stable_sort(order, [&](size_t a, size_t b) { return priority(a) > priority(b); });
 
-	Allocator allocator;
-	uint32_t localShadows = 0;
+	// what the camera sees: a light whose range is outside it lights nothing seen
+	auto viewProjection = glm::inverse(camera.inverseViewProjection);
+	auto projection = viewProjection * glm::inverse(camera.view);
+	auto frustum = Frustum::FromViewProjection(viewProjection);
+
+	// the candidates, by priority: each light's views and the size of their tiles (in cells) it would like
+	struct Candidate
+	{
+		size_t index = 0;
+		glm::vec3 position{};
+		glm::vec3 direction{};
+		float reach = 0.0F;
+		uint32_t tileCount = 0;
+		uint32_t cells = 0;
+	};
+	std::vector<Candidate> candidates;
+	uint32_t viewTotal = 0;
 	for (auto index : order)
 	{
 		const auto& light = lights[index];
-		if (Luminance(light.intensity) <= 0.0F || (light.type != LIGHT_TYPE_DIRECTIONAL && localShadows >= kMaxLocalShadows))
+		if (Luminance(light.intensity) <= 0.0F)
+			continue;
+		uint32_t tileCount = light.type == LIGHT_TYPE_DIRECTIONAL ? SHADER_TYPES_SHADOW_CASCADE_COUNT : light.type == LIGHT_TYPE_POINT ? 6 : 1;
+		if (viewTotal + tileCount > SHADER_TYPES_SHADOW_VIEW_COUNT)
 			continue;
 
 		glm::vec3 position(light.positionRange[0], light.positionRange[1], light.positionRange[2]);
@@ -263,25 +302,74 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 			reach = std::max(reach, glm::distance(corner, position));
 		if (light.positionRange[3] > 0.0F)
 			reach = std::min(reach, light.positionRange[3]);
-		if (light.type != LIGHT_TYPE_DIRECTIONAL && reach <= 0.0F)
-			continue;
+		uint32_t cells = kCascadeCells;
+		if (light.type != LIGHT_TYPE_DIRECTIONAL)
+		{
+			if (reach <= 0.0F)
+				continue;
+			Bounds3f range;
+			range.SetMin(position - glm::vec3(reach));
+			range.SetMax(position + glm::vec3(reach));
+			if (frustum.Excludes(range))
+				continue;
+			cells = CellsFor(projection, camera.view, position, reach, light.type == LIGHT_TYPE_POINT ? kPointFaceCells : kSpotCells);
+		}
+		candidates.push_back({index, position, direction, reach, tileCount, cells});
+		viewTotal += tileCount;
+	}
 
+	// the budget: while they need more cells than the atlas has, the lowest priority light of those with the biggest
+	// tiles gets them halved (the cascades keep theirs), and once all are one cell, the lowest priority light goes
+	auto cellTotal = [&candidates]
+	{
+		uint32_t total = 0;
+		for (const auto& candidate : candidates)
+			total += candidate.tileCount * candidate.cells * candidate.cells;
+		return total;
+	};
+	auto local = [&lights](const Candidate& candidate) { return lights[candidate.index].type != LIGHT_TYPE_DIRECTIONAL; };
+	while (!candidates.empty() && cellTotal() > kCellsPerRow * kCellsPerRow)
+	{
+		uint32_t biggest = 0;
+		for (const auto& candidate : candidates)
+			if (local(candidate))
+				biggest = std::max(biggest, candidate.cells);
+		if (biggest > 1)
+		{
+			auto it = std::find_if(
+				candidates.rbegin(), candidates.rend(), [&](const Candidate& candidate) { return local(candidate) && candidate.cells == biggest; });
+			it->cells /= 2;
+		}
+		else
+			candidates.pop_back();
+	}
+
+	// the tiles, biggest first: aligned squares of powers of two then pack the atlas without gaps
+	std::vector<size_t> bySize(candidates.size());
+	std::iota(bySize.begin(), bySize.end(), 0);
+	std::ranges::stable_sort(bySize, [&candidates](size_t a, size_t b) { return candidates[a].cells > candidates[b].cells; });
+	std::vector<std::optional<std::vector<ShadowPlan::Tile>>> tiles(candidates.size());
+	Allocator allocator;
+	for (auto candidateIt : bySize)
+		tiles[candidateIt] = AllocateAll(allocator, candidates[candidateIt].tileCount, candidates[candidateIt].cells);
+
+	// the views, by priority
+	for (size_t candidateIt = 0; candidateIt < candidates.size(); candidateIt++)
+	{
+		if (!tiles[candidateIt])
+			continue;
+		const auto& [index, position, direction, reach, tileCount, cells] = candidates[candidateIt];
+		const auto& light = lights[index];
+		const auto& lightTiles = *tiles[candidateIt];
 		auto first = static_cast<uint32_t>(plan.views.size());
 		if (light.type == LIGHT_TYPE_DIRECTIONAL)
 		{
-			auto tiles = AllocateAll(allocator, SHADER_TYPES_SHADOW_CASCADE_COUNT, kCascadeCells);
-			if (!tiles)
-				continue;
-			Cascades(direction, camera, sceneCorners, *tiles, plan.views);
-			plan.tiles.insert(plan.tiles.end(), tiles->begin(), tiles->end());
+			Cascades(direction, camera, sceneCorners, lightTiles, plan.views);
 		}
 		else if (light.type == LIGHT_TYPE_POINT)
 		{
-			auto tiles = AllocateAll(allocator, 6, kPointFaceCells);
-			if (!tiles)
-				continue;
 			// each face a little wider than 90 degrees, so that the filter of a point near a face's edge stays inside it
-			float faceTexels = static_cast<float>(kPointFaceCells * kCellSize);
+			float faceTexels = static_cast<float>(lightTiles.front().size);
 			float fov = 2.0F * std::atan(1.0F + (8.0F / faceTexels));
 			static const std::array<std::pair<glm::vec3, glm::vec3>, 6> kFaces{{
 				{{1.0F, 0.0F, 0.0F}, {0.0F, -1.0F, 0.0F}},
@@ -292,23 +380,18 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 				{{0.0F, 0.0F, -1.0F}, {0.0F, -1.0F, 0.0F}},
 			}};
 			for (size_t face = 0; face < kFaces.size(); face++)
-				plan.views.push_back(PerspectiveView(position, kFaces[face].first, kFaces[face].second, fov, reach, (*tiles)[face]));
-			plan.tiles.insert(plan.tiles.end(), tiles->begin(), tiles->end());
+				plan.views.push_back(PerspectiveView(position, kFaces[face].first, kFaces[face].second, fov, reach, lightTiles[face]));
 		}
 		else
 		{
-			auto tiles = AllocateAll(allocator, 1, kSpotCells);
-			if (!tiles)
-				continue;
 			// the cone (its outer angle: the attenuation's 0, see LightData::spotOffset), a little wider for the filter
 			float cosOuter = light.spotScale > 0.0F ? -light.spotOffset / light.spotScale : 0.0F;
 			float outer = std::acos(std::clamp(cosOuter, -1.0F, 1.0F));
 			float fov = std::min((2.0F * outer) + glm::radians(4.0F), glm::radians(170.0F));
-			plan.views.push_back(PerspectiveView(position, direction, UpFor(direction), fov, reach, tiles->front()));
-			plan.tiles.push_back(tiles->front());
+			plan.views.push_back(PerspectiveView(position, direction, UpFor(direction), fov, reach, lightTiles.front()));
 		}
+		plan.tiles.insert(plan.tiles.end(), lightTiles.begin(), lightTiles.end());
 		plan.lightShadows[index] = first;
-		localShadows += light.type != LIGHT_TYPE_DIRECTIONAL ? 1U : 0U;
 	}
 
 	return plan;

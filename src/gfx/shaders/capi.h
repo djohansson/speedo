@@ -141,7 +141,7 @@ struct ViewData
 // frame: gShadowViews[frame], from the light's first, gLightShadows[frame][light] (SHADER_TYPES_NO_SHADOW for a light
 // without). a directional light has SHADER_TYPES_SHADOW_CASCADE_COUNT views (cascades, nearest first), a point light 6
 // (the cube's faces: +x, -x, +y, -y, +z, -z), a spot light 1
-#define SHADER_TYPES_SHADOW_VIEW_COUNT 64u
+#define SHADER_TYPES_SHADOW_VIEW_COUNT 256u
 #define SHADER_TYPES_SHADOW_CASCADE_COUNT 4u
 #define SHADER_TYPES_NO_SHADOW 0xffffffffu
 #define SHADER_TYPES_NOT_SKINNED 0xffffffffu
