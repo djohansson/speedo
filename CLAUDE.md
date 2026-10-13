@@ -493,6 +493,24 @@ projection) and markers, and the ui projects them with each view's camera, a dir
 sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
 `resources/test-models/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
 
+## Clustered lighting
+
+Each fragment loops over only the lights that may reach it (`ClusterLights` in the shaders, for `Shade` and
+`ScatterLight`). Each view's frustum is a grid of clusters (`SHADER_TYPES_CLUSTER_TILES_X` by `_Y` tiles of normalized
+device coordinates, 16 by 9, and `SHADER_TYPES_CLUSTER_SLICES` slices of depth, 24, logarithmic: `log2(1 + d / unit)` of the
+distance from the near plane, over 1023 units to the scene's farthest point or the far plane). `clusters::Plan`
+(`gfx/clusters.h`, in `Renderer::Record` after the shadows' plan) bins the lights on the cpu each frame: a directional
+light, or one without a range, into every cluster; a point or spot light into the box of clusters around its range's
+sphere (its corners projected, the whole screen if one is behind the eye; a light outside the frustum into none),
+widened by a thousandth of a tile or slice against rounding. Per frame index, host visible: `gClusterViews` (a
+`ClusterView` per view: the view projection it was planned with, which the shader takes the tile from, since
+`Views::UpdateBuffers` may already have written a newer one to the view's buffers; the depth plane and slicing),
+`gClusters` (per cluster its first index and count) and `gClusterLights` (the indices, at most
+`SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`: a view whose lights don't fit gets `enabled` 0, and loops over all lights).
+View > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of
+main pass per frame (ManyLights with 223 more lights out of reach: 20.7 ms, clustered 5.2, as without them; ManyLights
+itself 5.8 to 5.2, orthographic 6.3 to 5.3; Bistro with one light 4.10 to 4.15). Renders with and without are identical.
+
 ## Descriptor sets: redundant updates consume the pool
 
 Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index

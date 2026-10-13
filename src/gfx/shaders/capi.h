@@ -213,6 +213,33 @@ struct ShadowData
 	alignas(16) FLOAT4(params);
 };
 
+// clustered lighting: each view's frustum is a grid of clusters, SHADER_TYPES_CLUSTER_TILES_X by _Y tiles of the screen
+// (by normalized device coordinates) and SHADER_TYPES_CLUSTER_SLICES slices of depth (logarithmic, see ClusterView), each
+// with the lights that may reach it: gClusters[frame][view * SHADER_TYPES_CLUSTER_COUNT + cluster] is its first index
+// into gClusterLights[frame] and its count, planned on the cpu each frame (see gfx/clusters.h). a fragment loops over
+// its cluster's lights only, or over all of gLights where its view has no clusters (ClusterView::enabled 0)
+#define SHADER_TYPES_CLUSTER_TILES_X 16u
+#define SHADER_TYPES_CLUSTER_TILES_Y 9u
+#define SHADER_TYPES_CLUSTER_SLICES 24u
+#define SHADER_TYPES_CLUSTER_COUNT (SHADER_TYPES_CLUSTER_TILES_X * SHADER_TYPES_CLUSTER_TILES_Y * SHADER_TYPES_CLUSTER_SLICES)
+// the light indices gClusterLights holds per frame (past them, the views loop over all lights)
+#define SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT (1u << 18)
+
+// how a view's clusters cut its frustum (gClusterViews[frame][view])
+struct ClusterView
+{
+	// the view projection the clusters were planned with, which the shader finds a point's tile by: the views' own
+	// buffers may already hold a newer one (see Views::UpdateBuffers)
+	alignas(16) FLOAT4X4(viewProjection);
+	// xyz: the view's forward direction (unit length), w: so that dot(xyz, p) + w is a point's distance from the near
+	// plane, which is sliced as floor(log2(1 + distance * depthInverseUnit) * depthScale)
+	alignas(16) FLOAT4(depthPlane);
+	alignas(4) FLOAT1(depthInverseUnit);
+	alignas(4) FLOAT1(depthScale);
+	alignas(4) UINT1(enabled); // 0: no clusters (the view loops over all lights)
+	alignas(4) UINT1(padding);
+};
+
 #define SHADER_TYPES_TEXTURE_VIEW_INDEX_BITS 12u
 #define SHADER_TYPES_TEXTURE_VIEW_COUNT (1u << SHADER_TYPES_TEXTURE_VIEW_INDEX_BITS)
 

@@ -165,6 +165,7 @@ target_link_libraries(
 
 set(GFX_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/gfx/camera.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/clusters.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/drawlist.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/environment.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/environmentfilter.cpp

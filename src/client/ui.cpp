@@ -425,6 +425,8 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().shadows.store(false, std::memory_order_relaxed);
 		if (const char* culling = std::getenv("SPEEDO_CULLING"); culling != nullptr && std::string_view(culling) == "0")
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
+		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
+			App().GetScene().GetSettings().clusteredLights.store(false, std::memory_order_relaxed);
 		if (const char* merge = std::getenv("SPEEDO_MERGE_LIGHTS"); merge != nullptr && std::string_view(merge) == "0")
 			App().GetScene().GetSettings().mergeLights.store(false, std::memory_order_relaxed);
 		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
@@ -745,6 +747,10 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Culling", nullptr, &culling))
 					App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);
 				SetItemTooltip("Skips the chunks of the model outside each view's frustum, and each shadow view's.");
+				bool clusteredLights = App().GetScene().GetSettings().clusteredLights.load(std::memory_order_relaxed);
+				if (MenuItem("Clustered Lights", nullptr, &clusteredLights))
+					App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
+				SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
 				if (BeginMenu("Tonemapper"))
 				{
 					static constexpr std::array<std::pair<const char*, uint32_t>, 5> kTonemappers{{

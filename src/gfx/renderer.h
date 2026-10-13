@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/camera.h>
+#include <gfx/clusters.h>
 #include <gfx/drawlist.h>
 #include <gfx/framegraph.h>
 #include <gfx/gpu.h>
@@ -44,6 +45,8 @@ struct FrameInputs
 	// each view's view projection, which its draws are culled by (and the shadow views by theirs), if culling
 	std::vector<glm::mat4> viewProjections;
 	bool culling = true;
+	// whether the lights are binned into clusters per view, each fragment looping over its cluster's (else over all)
+	bool clusteredLights = true;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -127,6 +130,11 @@ private:
 	std::vector<Buffer> myShadowViewBuffers;
 	std::vector<Buffer> myLightShadowBuffers;
 	shadows::ShadowPlan myShadowPlan;
+	// per frame index: the clusters' views, ranges and light indices (gClusterViews, gClusters, gClusterLights), host
+	// visible
+	std::vector<Buffer> myClusterViewBuffers;
+	std::vector<Buffer> myClusterBuffers;
+	std::vector<Buffer> myClusterLightBuffers;
 	DrawList myShadowDrawList;
 
 	// what Record's passes (and the output's) read of the frame they record

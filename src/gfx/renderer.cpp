@@ -91,6 +91,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			SHADER_TYPES_LIGHT_COUNT * sizeof(uint32_t),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
+		myClusterViewBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Cluster Views {}", frameIt)),
+			SHADER_TYPES_VIEW_COUNT * sizeof(ClusterView),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myClusterBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Clusters {}", frameIt)),
+			SHADER_TYPES_VIEW_COUNT * SHADER_TYPES_CLUSTER_COUNT * 2 * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myClusterLightBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Cluster Lights {}", frameIt)),
+			SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
 	}
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
 
@@ -459,6 +474,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			BufferBinding{.buffer = myLightShadowBuffers[frameIt], .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
+		for (auto [name, buffers] : std::array{
+				 std::pair{"gClusterViews", &myClusterViewBuffers},
+				 std::pair{"gClusters", &myClusterBuffers},
+				 std::pair{"gClusterLights", &myClusterLightBuffers}})
+			pipeline.SetDescriptorData(
+				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
@@ -542,6 +563,24 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		std::ranges::copy(std::as_bytes(std::span(myShadowPlan.lightShadows)), memory.begin());
 		lightShadows.Flush(0, myShadowPlan.lightShadows.size() * sizeof(uint32_t));
 		lightShadows.Unmap();
+	}
+	// the lights' clusters per view, written as the shadows are
+	{
+		auto lights = frame.lights.first(std::min<size_t>(frame.lights.size(), SHADER_TYPES_LIGHT_COUNT));
+		auto plan = frame.clusteredLights ? clusters::Plan(lights, frame.viewProjections, frame.sceneBounds)
+										  : clusters::ClusterPlan{.views = std::vector<ClusterView>(SHADER_TYPES_VIEW_COUNT)};
+		auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
+		{
+			if (bytes.empty())
+				return;
+			auto memory = buffer.Map();
+			std::ranges::copy(bytes, memory.begin());
+			buffer.Flush(0, bytes.size());
+			buffer.Unmap();
+		};
+		write(myClusterViewBuffers[frame.frameIndex], std::as_bytes(std::span(plan.views)));
+		write(myClusterBuffers[frame.frameIndex], std::as_bytes(std::span(plan.ranges)));
+		write(myClusterLightBuffers[frame.frameIndex], std::as_bytes(std::span(plan.lights)));
 	}
 	if (frame.captureLights)
 	{

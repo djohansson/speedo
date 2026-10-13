@@ -80,6 +80,15 @@ StructuredBuffer<ShadowData> gShadowViews[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(6, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<uint> gLightShadows[SHADER_TYPES_FRAME_COUNT];
 
+// clustered lighting (see SHADER_TYPES_CLUSTER_COUNT): per view its clusters' slicing, per cluster its range of light
+// indices, and the indices
+[[vk::binding(7, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<ClusterView> gClusterViews[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(8, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<uint2> gClusters[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(9, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<uint> gClusterLights[SHADER_TYPES_FRAME_COUNT];
+
 // a vertex moved by its submesh's morph targets: each target's deltas (see MorphDelta) times the target's weight
 void Morph(uint vertexId, uint frameIndex, inout float3 position, inout float3 normal, inout float3 tangent)
 {
@@ -712,6 +721,30 @@ float ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geo
 
 // the direction from position towards a light (toLight), and how much of its intensity reaches there: by distance (inverse
 // square, windowed to 0 at the range, KHR_lights_punctual's recommendation), a spot light's cone, and its shadows
+// the lights that may reach position, in the push constants' view: its cluster's, as a range of gClusterLights (true),
+// or all of gLights if the view has no clusters (false: first 0, count the light count)
+bool ClusterLights(float3 position, out uint first, out uint count)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	uint viewId = gPushConstants.viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
+	ClusterView cluster = gClusterViews[frameIndex][viewId];
+	first = 0;
+	count = gPushConstants.lightCount;
+	if (cluster.enabled == 0)
+		return false;
+
+	float4 clip = mul(cluster.viewProjection, float4(position, 1.0));
+	float2 tiles = float2(SHADER_TYPES_CLUSTER_TILES_X, SHADER_TYPES_CLUSTER_TILES_Y);
+	uint2 tile = uint2(clamp(floor((clip.xy / clip.w * 0.5 + 0.5) * tiles), 0.0, tiles - 1.0));
+	float distance = max(dot(cluster.depthPlane.xyz, position) + cluster.depthPlane.w, 0.0);
+	uint slice = uint(clamp(floor(log2(1.0 + distance * cluster.depthInverseUnit) * cluster.depthScale), 0.0, float(SHADER_TYPES_CLUSTER_SLICES - 1)));
+	uint2 range = gClusters[frameIndex][viewId * SHADER_TYPES_CLUSTER_COUNT +
+										 (slice * SHADER_TYPES_CLUSTER_TILES_Y + tile.y) * SHADER_TYPES_CLUSTER_TILES_X + tile.x];
+	first = range.x;
+	count = range.y;
+	return true;
+}
+
 float LightAttenuation(uint lightIndex, LightData light, float3 position, float3 geometryNormal, out float3 toLight)
 {
 	float attenuation = 1.0;
@@ -840,8 +873,12 @@ float3 Shade(Surface surface, float3 view, float3 position)
 						 DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness),
 						 surface.clearcoatRoughness);
 
-	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
+	uint clusterFirst;
+	uint clusterCount;
+	bool clustered = ClusterLights(position, clusterFirst, clusterCount);
+	for (uint clusterIt = 0; clusterIt < clusterCount; clusterIt++)
 	{
+		uint lightIt = clustered ? gClusterLights[gPushConstants.frameIndex][clusterFirst + clusterIt] : clusterIt;
 		LightData light = gLights[lightIt];
 		float3 toLight;
 		float attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);
@@ -926,8 +963,12 @@ float3 ScatterLight(Surface surface, float3 view, float3 position, float3 albedo
 	float3 result = (surface.occlusion * EnvironmentIrradiance(environment, normal) * albedo + EnvironmentIrradiance(environment, -normal) * behind) *
 					(1.0 - EnvironmentBrdfApprox(surface.f0, surface.f90, surface.roughness, nDotV)) * (1.0 - sheenMax * sheenAlbedoView);
 
-	for (uint lightIt = 0; lightIt < gPushConstants.lightCount; lightIt++)
+	uint clusterFirst;
+	uint clusterCount;
+	bool clustered = ClusterLights(position, clusterFirst, clusterCount);
+	for (uint clusterIt = 0; clusterIt < clusterCount; clusterIt++)
 	{
+		uint lightIt = clustered ? gClusterLights[gPushConstants.frameIndex][clusterFirst + clusterIt] : clusterIt;
 		LightData light = gLights[lightIt];
 		float3 toLight;
 		float attenuation = LightAttenuation(lightIt, light, position, surface.geometryNormal, toLight);

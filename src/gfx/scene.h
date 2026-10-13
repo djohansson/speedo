@@ -41,6 +41,9 @@ public:
 		std::atomic<bool> shadows = true;
 		// whether the views skip the draws outside their frustum (View > Culling, SPEEDO_CULLING=0 to start without)
 		std::atomic<bool> culling = true;
+		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,
+		// SPEEDO_CLUSTERED_LIGHTS=0 to start without: over all of them)
+		std::atomic<bool> clusteredLights = true;
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;

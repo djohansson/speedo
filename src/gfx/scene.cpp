@@ -1915,6 +1915,7 @@ struct Scene::Impl
 				.viewports = views.GetViewports(),
 				.viewProjections = views.GetViewProjections(),
 				.culling = mySettings.culling.load(std::memory_order_relaxed),
+				.clusteredLights = mySettings.clusteredLights.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),
