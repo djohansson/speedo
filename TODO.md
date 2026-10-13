@@ -43,6 +43,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: every window frosted and rounded as macOS's (dialogs too), with a macOS dark palette for the controls
 * done: the menu bar, menus, popups and tooltips as macOS's: translucent and rounded over their backdrop blurred (ImGuiLayer collects the panels with each frame, the UI Blur X and Y passes blur them back)
 * done: borderless fullscreen on every platform
 * done: exclusive fullscreen on macOS again (the default; native and borderless selectable in View > Presentation, with the swapchain's present mode): KosmicKrisp's flicker scanned out directly is gone with mesa main

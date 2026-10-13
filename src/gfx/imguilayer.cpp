@@ -5,7 +5,6 @@
 #include <platform/imguiplatform.h>
 
 #include <algorithm>
-#include <cstring>
 #include <array>
 #include <filesystem>
 #include <string>
@@ -58,9 +57,17 @@ ImGuiLayer::ImGuiLayer(
 
 	imguiIO.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
-	// menus and popups as macOS's: rounded, with a faint border (scaled with the rest below; their colors further down)
-	GetStyle().PopupRounding = 8.0F;
-	GetStyle().PopupBorderSize = 1.0F;
+	// windows, menus and popups as macOS's: rounded, with a faint border, as are the widgets (scaled with the rest below;
+	// their colors further down)
+	auto& style = GetStyle();
+	style.WindowRounding = 10.0F;
+	style.PopupRounding = 8.0F;
+	style.PopupBorderSize = 1.0F;
+	style.ChildRounding = 6.0F;
+	style.FrameRounding = 5.0F;
+	style.GrabRounding = 4.0F;
+	style.ScrollbarRounding = 6.0F;
+	style.TabRounding = 5.0F;
 	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
 
 	ImFontConfig config;
@@ -109,15 +116,48 @@ ImGuiLayer::ImGuiLayer(
 
 	// Setup style
 	StyleColorsClassic();
-	// the frosted panels' (see EndFrame): translucent over their blurred backdrop, with a faint edge, and macOS's blue for
-	// the item under the mouse and the open menu's
+	// the frosted panels' (see EndFrame): windows, title bars, menus and popups translucent over their blurred backdrop,
+	// with a faint edge, and macOS's blue for the item under the mouse and the open menu's
 	auto& colors = GetStyle().Colors;
 	colors[ImGuiCol_MenuBarBg] = ImVec4(0.10F, 0.10F, 0.12F, 0.45F);
 	colors[ImGuiCol_PopupBg] = ImVec4(0.12F, 0.12F, 0.14F, 0.55F);
+	colors[ImGuiCol_WindowBg] = ImVec4(0.12F, 0.12F, 0.14F, 0.60F);
+	colors[ImGuiCol_ChildBg] = ImVec4(0.0F, 0.0F, 0.0F, 0.0F);
+	colors[ImGuiCol_TitleBg] = ImVec4(0.14F, 0.14F, 0.17F, 0.65F);
+	colors[ImGuiCol_TitleBgActive] = ImVec4(0.17F, 0.17F, 0.21F, 0.75F);
+	colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.12F, 0.12F, 0.14F, 0.60F);
 	colors[ImGuiCol_Border] = ImVec4(1.0F, 1.0F, 1.0F, 0.14F);
-	colors[ImGuiCol_Header] = ImVec4(0.04F, 0.40F, 0.92F, 0.80F); // an open menu's item
-	colors[ImGuiCol_HeaderHovered] = ImVec4(0.04F, 0.40F, 0.92F, 0.90F);
-	colors[ImGuiCol_HeaderActive] = ImVec4(0.04F, 0.40F, 0.92F, 1.0F);
+	const ImVec4 blue(0.04F, 0.40F, 0.92F, 1.0F);
+	auto white = [](float alpha) { return ImVec4(1.0F, 1.0F, 1.0F, alpha); };
+	auto tinted = [](ImVec4 color, float alpha) { return ImVec4(color.x, color.y, color.z, alpha); };
+	colors[ImGuiCol_Header] = tinted(blue, 0.80F); // an open menu's item, a selected row
+	colors[ImGuiCol_HeaderHovered] = tinted(blue, 0.90F);
+	colors[ImGuiCol_HeaderActive] = blue;
+	// the controls: a faint white over the panel, macOS's blue while pressed or dragged
+	colors[ImGuiCol_Button] = white(0.10F);
+	colors[ImGuiCol_ButtonHovered] = white(0.18F);
+	colors[ImGuiCol_ButtonActive] = blue;
+	colors[ImGuiCol_FrameBg] = white(0.08F);
+	colors[ImGuiCol_FrameBgHovered] = white(0.14F);
+	colors[ImGuiCol_FrameBgActive] = white(0.20F);
+	colors[ImGuiCol_CheckMark] = white(0.92F);
+	colors[ImGuiCol_SliderGrab] = white(0.45F);
+	colors[ImGuiCol_SliderGrabActive] = blue;
+	colors[ImGuiCol_ScrollbarBg] = white(0.0F);
+	colors[ImGuiCol_ScrollbarGrab] = white(0.22F);
+	colors[ImGuiCol_ScrollbarGrabHovered] = white(0.32F);
+	colors[ImGuiCol_ScrollbarGrabActive] = white(0.42F);
+	colors[ImGuiCol_Separator] = white(0.12F);
+	colors[ImGuiCol_SeparatorHovered] = tinted(blue, 0.70F);
+	colors[ImGuiCol_SeparatorActive] = blue;
+	colors[ImGuiCol_ResizeGrip] = white(0.10F);
+	colors[ImGuiCol_ResizeGripHovered] = white(0.20F);
+	colors[ImGuiCol_ResizeGripActive] = blue;
+	colors[ImGuiCol_Tab] = white(0.08F);
+	colors[ImGuiCol_TabHovered] = tinted(blue, 0.80F);
+	colors[ImGuiCol_TabSelected] = tinted(blue, 0.60F);
+	colors[ImGuiCol_TextSelectedBg] = tinted(blue, 0.35F);
+	colors[ImGuiCol_PlotHistogram] = tinted(blue, 0.90F);
 	imguiIO.FontDefault = defaultFont;
 
 	// we allow up to queue count in-flight renders per frame due to triple buffering. passed in rather than read here,
@@ -170,24 +210,25 @@ void ImGuiLayer::EndFrame()
 		snapshot.SnapUsingSwap(data, &drawData, ImGui::GetTime());
 		sequence = myFrameSequence;
 
-		// the frosted panels, as macOS's: the main menu bar's window (BeginMainMenuBar's), and the menus, popups and
-		// tooltips open (not modals), in pixels of the framebuffer, with their windows' corners
+		// the frosted panels, as macOS's: every top level window shown with a background (the main menu bar's, dialogs,
+		// menus, popups, tooltips; child windows are inside theirs, and a window without a background would show the blur
+		// alone), collapsed ones by their title bar, in pixels of the framebuffer, with their windows' corners
 		blurRects.clear();
 		const auto& io = ImGui::GetIO();
 		for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows)
 		{
-			if (!window->Active || window->Hidden)
+			if (!window->Active || window->Hidden || (window->Flags & ImGuiWindowFlags_NoBackground) != 0)
 				continue;
-			bool frosted = (window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_Tooltip)) != 0 &&
-						   (window->Flags & ImGuiWindowFlags_Modal) == 0;
-			frosted = frosted || std::strcmp(window->Name, "##MainMenuBar") == 0;
-			if (!frosted)
+			bool topLevel = (window->Flags & ImGuiWindowFlags_ChildWindow) == 0 ||
+							(window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_Tooltip)) != 0;
+			if (!topLevel)
 				continue;
+			float height = window->Collapsed ? window->TitleBarHeight : window->Size.y;
 			UiBlurRect rect{};
 			rect.rect[0] = window->Pos.x * io.DisplayFramebufferScale.x;
 			rect.rect[1] = window->Pos.y * io.DisplayFramebufferScale.y;
 			rect.rect[2] = (window->Pos.x + window->Size.x) * io.DisplayFramebufferScale.x;
-			rect.rect[3] = (window->Pos.y + window->Size.y) * io.DisplayFramebufferScale.y;
+			rect.rect[3] = (window->Pos.y + height) * io.DisplayFramebufferScale.y;
 			rect.radius = window->WindowRounding * io.DisplayFramebufferScale.y;
 			blurRects.push_back(rect);
 		}

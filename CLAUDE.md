@@ -398,12 +398,15 @@ frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both o
 released as imgui's own textures are, once the draw thread has drawn a ui frame published after the removal and the gpu
 is done with it, and freed back on the ui thread (the backend's pool, 1024 sets, is the ui thread's).
 
-The ui's frosted panels, as macOS's: the main menu bar and the menus, popups and tooltips open (not modals) are
-translucent (`MenuBarBg` and `PopupBg` with alpha, popups rounded with a faint border, macOS's blue for the hovered and
-open items: `ImGuiLayer`'s style) over their backdrop blurred. `ImGuiLayer::EndFrame` collects their windows' rectangles
-and corners (in framebuffer pixels: `UiBlurRect`) with the frame's draw data, so a panel and its blur are of the same ui
-frame; `Draw` takes the frame (`TakeFrame`) before recording and hands them to the scene (`FrameTarget::uiBlurRects`).
-`ComputeMain` also writes its finished linear color within the blur's reach of a panel to a transient
+The ui's frosted panels, as macOS's: every top level window shown with a background (the main menu bar's, the dialogs
+such as the file browser and Lights, menus, popups, tooltips; not child windows, which are inside theirs, nor windows
+without a background, which would show the blur alone; a collapsed one by its title bar) is translucent (`WindowBg`,
+`TitleBg*`, `MenuBarBg` and `PopupBg` with alpha) and rounded, over its backdrop blurred, with the controls in a macOS
+dark palette: faint white buttons, fields and scrollbars, macOS's blue for what is hovered, open, selected or pressed,
+rounded frames (all `ImGuiLayer`'s style). `ImGuiLayer::EndFrame` collects their windows' rectangles and corners (in
+framebuffer pixels: `UiBlurRect`) with the frame's draw data, so a panel and its blur are of the same ui frame; `Draw`
+takes the frame (`TakeFrame`) before recording and hands them to the scene (`FrameTarget::uiBlurRects`). `ComputeMain`
+also writes its finished linear color within the blur's reach of a panel to a transient
 (`SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE`), and the UI Blur X and Y passes (`uiblur.slang`: a 24 pixel gaussian, then a
 little more saturation, as macOS's vibrancy) write it back over the output inside each panel's rounded rectangle,
 antialiased (the most coverage of any panel, so overlapping panels write the same), before the UI pass. Each pass is one
@@ -411,7 +414,10 @@ dispatch of a thread per pixel of the panels in turn (`UiBlurRect::firstThreadX`
 over the blur's reach above and below each too). The swapchain images aren't sampled images, and reading them as storage
 images needs `shaderStorageImageReadWithoutFormat`, hence the copy. `BeginMainMenuBar`'s window draws its own `WindowBg`
 (85% opaque in the classic style) under the bar: the ui clears it. ImGui draws menu items' highlights square (macOS's
-are rounded and inset). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for screenshots.
+are rounded and inset), and what the ui draws itself behind the windows (the light gizmos, a background draw list) shows
+through them sharp, not blurred. A full window of blur (the browser, 2400 by 1600 pixels) cost no measurable frame time
+(3000 frames of Bistro unthrottled, 4.38 s either way). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for
+screenshots.
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
