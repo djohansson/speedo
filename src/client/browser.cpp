@@ -632,8 +632,11 @@ void WindowedApplication::InternalDrawBrowser()
 					});
 			}
 
-			// a model without a bundled screenshot gets its thumbnail from the preview, once it has been drawn a while
-			bool previewReady = focus && focus->kind == Kind::kModel && state.previewShown == focus->path && !state.previewLoading->load();
+			// a model without a bundled screenshot gets its thumbnail from the preview, once it has been drawn a while. the
+			// frames count from its install (the scene's file path), not the load's end: the load returns before the draw
+			// thread installs it, and installs nothing if it fails, so the previous model would be captured as this one's
+			bool previewReady = preview && focus && focus->kind == Kind::kModel && state.previewShown == focus->path && !state.previewLoading->load() &&
+								preview->GetScene().GetScenes().Read().Get().filePath == focus->path.string();
 			state.previewReadyFrames = previewReady ? state.previewReadyFrames + 1 : 0;
 			constexpr uint32_t kCaptureAfterFrames = 20;
 			if (previewReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->Missing(focus->path))
