@@ -407,17 +407,18 @@ rounded frames (all `ImGuiLayer`'s style). `ImGuiLayer::EndFrame` collects their
 framebuffer pixels: `UiBlurRect`) with the frame's draw data, so a panel and its blur are of the same ui frame; `Draw`
 takes the frame (`TakeFrame`) before recording and hands them to the scene (`FrameTarget::uiBlurRects`). `ComputeMain`
 also writes its finished linear color within the blur's reach of a panel to a transient
-(`SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE`), and the UI Blur X and Y passes (`uiblur.slang`: a 24 pixel gaussian, then a
-little more saturation, as macOS's vibrancy) write it back over the output inside each panel's rounded rectangle,
-antialiased (the most coverage of any panel, so overlapping panels write the same), before the UI pass. Each pass is one
-dispatch of a thread per pixel of the panels in turn (`UiBlurRect::firstThreadX`/`Y`, filled in by the renderer; X's
-over the blur's reach above and below each too). The swapchain images aren't sampled images, and reading them as storage
-images needs `shaderStorageImageReadWithoutFormat`, hence the copy. `BeginMainMenuBar`'s window draws its own `WindowBg`
-(85% opaque in the classic style) under the bar: the ui clears it. ImGui draws menu items' highlights square (macOS's
-are rounded and inset), and what the ui draws itself behind the windows (the light gizmos, a background draw list) shows
-through them sharp, not blurred. A full window of blur (the browser, 2400 by 1600 pixels) cost no measurable frame time
-(3000 frames of Bistro unthrottled, 4.38 s either way). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for
-screenshots.
+(`SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE`), and the UI Blur X and Y passes (`uiblur.slang`: a 24 pixel gaussian in 25 reads
+per pass, the taps paired into one linear filtered read between each two, at the offset weighing them as the gaussian
+does, then a little more saturation, as macOS's vibrancy; the same image as 49 reads, to 3 in 255) write it back over
+the output inside each panel's rounded rectangle, antialiased (the most coverage of any panel, so overlapping panels
+write the same), before the UI pass. Each pass is one dispatch of a thread per pixel of the panels in turn
+(`UiBlurRect::firstThreadX`/`Y`, filled in by the renderer; X's over the blur's reach above and below each too). The
+swapchain images aren't sampled images, and reading them as storage images needs `shaderStorageImageReadWithoutFormat`,
+hence the copy. `BeginMainMenuBar`'s window draws its own `WindowBg` (85% opaque in the classic style) under the bar:
+the ui clears it. ImGui draws menu items' highlights square (macOS's are rounded and inset), and what the ui draws
+itself behind the windows (the light gizmos, a background draw list) shows through them sharp, not blurred. A full
+window of blur (the browser, 2400 by 1600 pixels) cost no measurable frame time (3000 frames of Bistro unthrottled, 4.38
+s either way). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for screenshots.
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
@@ -927,7 +928,7 @@ parallel: `assettest` checks its models and images on every thread (`CheckInOrde
 `--jobs N`), and the script runs `-Jobs` clients at once (default 4), each worker with a user profile of its own
 (`<work>/user-<n>`: clients write pipeline caches, shader intermediates and asset caches there), a model always to the
 same worker (FNV-1a of its label), so its caches stay warm; on macos a new worker profile is an APFS clone (`cp -c`) of
-`<work>/user`, the serial runs' profile. Results print in the serial order. That took the full regression from about 30
+`<work>/user`, the serial runs' profile. Results print in the serial order, and the logs are kept per preset (`<work>/logs/<preset>`: a debug run after a profile one overwrote its logs, so a profile failure couldn't be read). That took the full regression from about 30
 minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client, the script also used to wait a second in `caffeinate -u -t 1` to wake the
 display; it wakes it once now.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead
 (`scripts/test-assets/quick.txt`: a model or two per feature, plus the hand-made ones; about a minute); the full sets run

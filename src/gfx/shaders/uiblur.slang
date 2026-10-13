@@ -12,6 +12,28 @@ float UiBlurWeight(int offset)
 	return exp(-0.5 * float(offset * offset) / (sigma * sigma));
 }
 
+// the blur along one axis in reads of a linear filtered texture (clamped at its edges): the center, then the taps in
+// pairs (1 and 2, 3 and 4, ... on either side), each pair one read between them, at the offset weighing the two as the
+// gaussian does, with their weight: kUiBlurRadius + 1 reads instead of 2 kUiBlurRadius + 1. step is a pixel along the
+// axis, in texture coordinates
+float3 UiBlur(Texture2D texture, float2 center, float2 step)
+{
+	SamplerState clamped = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
+	float weights = UiBlurWeight(0);
+	float3 sum = texture.SampleLevel(clamped, center, 0.0).rgb * weights;
+	for (int tap = 1; tap <= kUiBlurRadius; tap += 2)
+	{
+		float near = UiBlurWeight(tap);
+		float far = tap + 1 <= kUiBlurRadius ? UiBlurWeight(tap + 1) : 0.0;
+		float weight = near + far;
+		float offset = float(tap) + far / weight;
+		sum += (texture.SampleLevel(clamped, center + step * offset, 0.0).rgb +
+				texture.SampleLevel(clamped, center - step * offset, 0.0).rgb) * weight;
+		weights += 2.0 * weight;
+	}
+	return sum / weights;
+}
+
 // whether a pixel is within the blur's reach of a panel: where ComputeMain writes the source
 bool UiBlurReaches(uint2 pixel)
 {
@@ -77,16 +99,8 @@ void ComputeUiBlurX(uint3 dispatchThreadId : SV_DispatchThreadID)
 	if (!UiBlurPixel(dispatchThreadId.x, true, pixel) || any(pixel < 0) || any(pixel >= int2(size)))
 		return;
 
-	float3 sum = 0.0;
-	float weights = 0.0;
-	for (int offset = -kUiBlurRadius; offset <= kUiBlurRadius; offset++)
-	{
-		int x = clamp(pixel.x + offset, 0, int(size.x) - 1);
-		float weight = UiBlurWeight(offset);
-		sum += source.Load(int3(x, pixel.y, 0)).rgb * weight;
-		weights += weight;
-	}
-	gRWTextures[SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE].Store(uint2(pixel), float4(sum / weights, 1.0));
+	float3 blurred = UiBlur(source, (float2(pixel) + 0.5) / float2(size), float2(1.0 / float(size.x), 0.0));
+	gRWTextures[SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE].Store(uint2(pixel), float4(blurred, 1.0));
 }
 
 // the UI Blur Y pass: those rows blurred along y, over the output inside each panel's rounded rectangle
@@ -105,16 +119,7 @@ void ComputeUiBlurY(uint3 dispatchThreadId : SV_DispatchThreadID)
 	if (coverage <= 0.0)
 		return;
 
-	float3 sum = 0.0;
-	float weights = 0.0;
-	for (int offset = -kUiBlurRadius; offset <= kUiBlurRadius; offset++)
-	{
-		int y = clamp(pixel.y + offset, 0, int(size.y) - 1);
-		float weight = UiBlurWeight(offset);
-		sum += rows.Load(int3(pixel.x, y, 0)).rgb * weight;
-		weights += weight;
-	}
-	float3 color = sum / weights;
+	float3 color = UiBlur(rows, (float2(pixel) + 0.5) / float2(size), float2(0.0, 1.0 / float(size.y)));
 	// macOS's vibrancy: the colors behind come through a little stronger
 	float luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
 	color = saturate(lerp(float3(luminance), color, 1.3));

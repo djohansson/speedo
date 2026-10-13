@@ -27,7 +27,7 @@ a model or two per feature, for iterating.
 The preset defaults to the first configured release preset (else any) in build/. The client exits SPEEDO_AUTOLOAD_EXIT
 (default 30) frames after its loads have finished, and is killed after ASSETTEST_CLIENT_TIMEOUT (default 600) seconds.
 
-Exits with 1 if anything failed. Logs are kept under <work>/logs.
+Exits with 1 if anything failed. Logs are kept under <work>/logs/<preset>.
 
 .EXAMPLE
 scripts/assettest.ps1 -ClientOnly -Preset arm64-osx-clang-debug -Work /tmp/work (scripts/fetch-test-assets.ps1)
@@ -115,7 +115,9 @@ if (-not $Work)
 {
 	$Work = Join-Path ([IO.Path]::GetTempPath()) ("assettest." + [IO.Path]::GetRandomFileName())
 }
-New-Item -ItemType Directory -Force -Path (Join-Path $Work 'assets'), (Join-Path $Work 'logs') | Out-Null
+# the logs per preset (logs/<preset>), so that a later run of another preset (debug after profile) keeps them
+$logs = Join-Path $Work "logs/$Preset"
+New-Item -ItemType Directory -Force -Path (Join-Path $Work 'assets'), $logs | Out-Null
 $Work = (Resolve-Path $Work).Path
 Write-Output "work dir: $Work"
 
@@ -208,7 +210,7 @@ $failed = $false
 
 if ($check)
 {
-	& $assettest @dirs @environmentFiles | Tee-Object -FilePath (Join-Path $Work 'logs/assettest.log')
+	& $assettest @dirs @environmentFiles | Tee-Object -FilePath (Join-Path $logs 'assettest.log')
 	if ($LASTEXITCODE -ne 0)
 	{
 		$failed = $true
@@ -257,7 +259,7 @@ if ($Client)
 		}
 		$script:runs.Add([pscustomobject]@{
 			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; Worker = [int]($hash % [uint32]$Jobs) + 1
-			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $Work "logs/client-$Label.log"); Done = $false; Lines = @()
+			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
 		})
 	}
 
