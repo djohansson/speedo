@@ -7,9 +7,20 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <string>
+#include <string_view>
+
+#include <imgui_freetype.h>
 
 namespace gfx
 {
+
+namespace
+{
+
+constexpr float kDefaultFontSize = 16.0F;
+
+} // namespace
 
 ImGuiLayer::ImGuiLayer(
 	const platform::Window& window,
@@ -55,26 +66,40 @@ ImGuiLayer::ImGuiLayer(
 
 	imguiIO.Fonts->Flags |= ImFontAtlasFlags_NoPowerOfTwoHeight;
 
-	std::filesystem::path fontPath(std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]));
-	fontPath /= "fonts";
-	fontPath /= "foo";
+	auto fontDirectory = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]) / "fonts";
+	const float fontSize = kDefaultFontSize * std::max(dpiScaleX, dpiScaleY);
 
-	constexpr std::array<const char*, 6> kFonts{{
-		"Cousine-Regular.ttf",
-		"DroidSans.ttf",
-		"Karla-Regular.ttf",
-		"ProggyClean.ttf",
-		"ProggyTiny.ttf",
-		"Roboto-Medium.ttf",
-	}};
+	// Roboto, and what it lacks from the fonts merged into it, in order (imgui loads glyphs as they are first drawn, so a
+	// fallback costs nothing until it is used): Twemoji's color emoji (COLR layers, which imgui's freetype loader draws
+	// with LoadColor; before the symbols, which have some of the same characters in one color), Noto's symbols, and a
+	// CJK font of the system's if it has one (too big to bundle)
+	ImFont* defaultFont = imguiIO.Fonts->AddFontFromFileTTF((fontDirectory / "Roboto-Medium.ttf").generic_string().c_str(), fontSize, &config);
 
-	constexpr float kDefaultFontSize = 16.0F;
-	ImFont* defaultFont = nullptr;
-	for (const auto* font : kFonts)
+	ImFontConfig merge = config;
+	merge.MergeMode = true;
 	{
-		fontPath.replace_filename(font);
-		defaultFont = imguiIO.Fonts->AddFontFromFileTTF(
-			fontPath.generic_string().c_str(), kDefaultFontSize * std::max(dpiScaleX, dpiScaleY), &config);
+		ImFontConfig emoji = merge;
+		emoji.FontLoaderFlags |= ImGuiFreeTypeLoaderFlags_LoadColor;
+		imguiIO.Fonts->AddFontFromFileTTF((fontDirectory / "Twemoji.Mozilla.ttf").generic_string().c_str(), fontSize, &emoji);
+	}
+	imguiIO.Fonts->AddFontFromFileTTF((fontDirectory / "NotoSansSymbols2-Regular.ttf").generic_string().c_str(), fontSize, &merge);
+
+	constexpr std::array<std::string_view, 6> kCjkFonts{{
+		"C:/Windows/Fonts/msyh.ttc", // Microsoft YaHei
+		"C:/Windows/Fonts/YuGothM.ttc", // Yu Gothic
+		"/System/Library/Fonts/PingFang.ttc",
+		"/System/Library/Fonts/Hiragino Sans GB.ttc",
+		"/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", // debian, ubuntu
+		"/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc", // fedora
+	}};
+	for (auto cjk : kCjkFonts)
+	{
+		std::error_code error;
+		if (std::filesystem::exists(cjk, error))
+		{
+			imguiIO.Fonts->AddFontFromFileTTF(std::string(cjk).c_str(), fontSize, &merge);
+			break;
+		}
 	}
 
 	// Setup style
