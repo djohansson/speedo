@@ -810,11 +810,13 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			environmentRadiance,
 			EnvironmentRadiance(environment, DominantDirection(reflectionNormal, view, roughness), roughness),
 			surface.retroreflection);
-	float3 diffuseEnvironment = EnvironmentIrradiance(environment, normal);
+	// KHR_materials_diffuse_transmission: that much of the diffuse is lit from the back instead, tinted by the
+	// transmission color alone (the spec's diffuse_btdf(diffuseTransmissionColor): not the base color)
+	float3 diffuseEnvironment = surface.diffuseColor * EnvironmentIrradiance(environment, normal);
 	if (surface.diffuseTransmission > 0.0)
 		diffuseEnvironment = lerp(
 			diffuseEnvironment, surface.diffuseTransmissionColor * EnvironmentIrradiance(environment, -normal), surface.diffuseTransmission);
-	float3 result = surface.occlusion * (surface.diffuseColor * diffuseEnvironment +
+	float3 result = surface.occlusion * (diffuseEnvironment +
 										 environmentSpecular * environmentRadiance);
 	result += surface.transmitted * (1.0 - environmentSpecular);
 
@@ -868,7 +870,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		}
 		// KHR_materials_diffuse_transmission: lights behind the surface shine through its diffuse
 		if (surface.diffuseTransmission > 0.0 && nDotL < 0.0)
-			lit += surface.diffuseTransmission * surface.diffuseTransmissionColor * surface.diffuseColor / kPi * -nDotL;
+			lit += surface.diffuseTransmission * surface.diffuseTransmissionColor / kPi * -nDotL;
 		float coatNDotL = dot(surface.clearcoatNormal, toLight);
 		if (surface.clearcoat > 0.0)
 		{
@@ -1502,7 +1504,8 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	{
 		return float4(0.0, 0.0, 0.0, float(materialId + 1u));
 	}
-	surface.diffuseTransmissionColor *= throughVolume;
+	// the light through the surface is the dielectric's, of the diffuse that transmission leaves
+	surface.diffuseTransmissionColor *= throughVolume * (1.0 - metallic) * (1.0 - transmission);
 
 	// the clearcoat covers the emission too
 	return float4(Shade(surface, view, v.position) + scattered + emissive * (1.0 - ClearcoatFresnel(surface, view)), color.a);
