@@ -123,7 +123,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 16;
+static constexpr uint32_t kModelTextureFirstSlot = 18; // after the menu bar blur's (SHADER_TYPES_MENU_BAR_ROWS_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -147,6 +147,7 @@ static_assert(
 	kMaterialTextureId != SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE && kMaterialTextureId != SHADER_TYPES_TRANSMISSION_TEXTURE &&
 	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
 	kMaterialTextureId < kModelTextureFirstSlot);
+static_assert(SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_MENU_BAR_ROWS_TEXTURE < kModelTextureFirstSlot);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes
@@ -377,7 +378,8 @@ struct Scene::Impl
 			.viewCount = std::min<uint32_t>(myViews.GetGrid().x * myViews.GetGrid().y, SHADER_TYPES_VIEW_COUNT),
 			.environmentBackdrop = mySettings.environmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
 			.tonemapper = mySettings.tonemapper.load(std::memory_order_relaxed),
-			.shadowView = SHADER_TYPES_NO_SHADOW};
+			.shadowView = SHADER_TYPES_NO_SHADOW,
+			.menuBarHeight = mySettings.menuBarHeight.load(std::memory_order_relaxed)};
 	}
 
 
@@ -1739,6 +1741,8 @@ struct Scene::Impl
 						{"ComputeMain", SLANG_STAGE_COMPUTE},
 						{"ComputeScatter", SLANG_STAGE_COMPUTE}, // see the Scatter Blur pass
 						{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
+						{"ComputeMenuBarBlurX", SLANG_STAGE_COMPUTE}, // see the Menu Bar Blur passes
+						{"ComputeMenuBarBlurY", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

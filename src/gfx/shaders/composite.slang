@@ -108,6 +108,10 @@ void ComputeMain(
 
 			float3 mapped = Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);
 			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
+
+			// the menu bar's backdrop: the rows under it and the blur's reach below, linear, for the Menu Bar Blur passes
+			if (gPushConstants.menuBarHeight != 0u && y < gPushConstants.menuBarHeight + SHADER_TYPES_MENU_BAR_BLUR_RADIUS)
+				gRWTextures[SHADER_TYPES_MENU_BAR_SOURCE_RW_TEXTURE].Store(xy, float4(saturate(mapped), 1.0));
 		}
 	}
 

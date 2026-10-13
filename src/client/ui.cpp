@@ -487,8 +487,26 @@ void WindowedApplication::PrepareDraw()
 		if ((*gAutoLoadExitFrames)-- == 0)
 			core::Application::Get()->RequestExit();
 
-	if (BeginMainMenuBar())
+	// the menu bar, as macOS's: translucent over its backdrop, which the renderer blurs (the Menu Bar Blur passes, by its
+	// height in pixels), a little taller, with a faint edge below
+	PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.10F, 0.10F, 0.12F, 0.45F));
+	PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0F, 0.0F, 0.0F, 0.0F)); // the bar's window, under its menu bar
+	PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(GetStyle().FramePadding.x, GetStyle().FramePadding.y * 1.75F));
+	PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
+	bool menuBar = BeginMainMenuBar();
+	App().GetScene().GetSettings().menuBarHeight.store(
+		menuBar ? static_cast<uint32_t>(std::ceil(GetWindowHeight() * GetIO().DisplayFramebufferScale.y)) : 0U,
+		std::memory_order_relaxed);
+	if (menuBar)
 	{
+		auto* drawList = GetWindowDrawList();
+		drawList->PushClipRectFullScreen();
+		drawList->AddLine(
+			ImVec2(GetWindowPos().x, GetWindowPos().y + GetWindowHeight() - 0.5F),
+			ImVec2(GetWindowPos().x + GetWindowWidth(), GetWindowPos().y + GetWindowHeight() - 0.5F),
+			IM_COL32(255, 255, 255, 40));
+		drawList->PopClipRect();
+
 		if (BeginMenu("File"))
 		{
 			if (MenuItem("Open...", nullptr, gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
@@ -837,6 +855,8 @@ void WindowedApplication::PrepareDraw()
 
 		EndMainMenuBar();
 	}
+	PopStyleVar(2);
+	PopStyleColor(2);
 
 	myImGui->EndFrame();
 }

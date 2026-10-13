@@ -44,6 +44,9 @@ public:
 		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,
 		// SPEEDO_CLUSTERED_LIGHTS=0 to start without: over all of them)
 		std::atomic<bool> clusteredLights = true;
+		// the height in pixels of the ui's menu bar over the top of the frame, whose backdrop is blurred (see
+		// PushConstants::menuBarHeight). 0: none
+		std::atomic<uint32_t> menuBarHeight = 0;
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;

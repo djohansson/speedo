@@ -23,3 +23,4 @@ __include types;
 #include "fragment.slang"
 #include "tonemap.slang"
 #include "composite.slang"
+#include "menubar.slang"

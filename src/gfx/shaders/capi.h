@@ -97,6 +97,14 @@ extern "C"
 #define SHADER_TYPES_TRANSMISSION_TEXTURE 13u
 // the gTextures slot of the environment's panorama prefiltered for sheen (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE 14u
+// the menu bar's frosted backdrop (see the Menu Bar Blur passes): the composited rows under it (and the blur's reach
+// below), which ComputeMain writes, blurred along x (ComputeMenuBarBlurX), then along y into the output
+// (ComputeMenuBarBlurY), a gaussian of this radius in pixels
+#define SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE 16u
+#define SHADER_TYPES_MENU_BAR_SOURCE_RW_TEXTURE 6u
+#define SHADER_TYPES_MENU_BAR_ROWS_TEXTURE 17u
+#define SHADER_TYPES_MENU_BAR_ROWS_RW_TEXTURE 7u
+#define SHADER_TYPES_MENU_BAR_BLUR_RADIUS 24u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
 #define SHADER_TYPES_CLAMP_SAMPLER 3u
 
@@ -428,6 +436,9 @@ struct PushConstants
 	alignas(4) UINT1(shadows);
 	// per frame: whether the scatter pass drew (SHADER_TYPES_SCATTER_TEXTURE holds this frame's scattering light)
 	alignas(4) UINT1(scatter);
+	// per frame: the height in pixels of the ui's menu bar at the top of the output, whose backdrop is blurred (see
+	// SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE). 0: none
+	alignas(4) UINT1(menuBarHeight);
 };
 
 #ifdef __cplusplus

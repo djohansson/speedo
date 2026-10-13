@@ -66,6 +66,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// (SHADER_TYPES_SCATTER_LIGHT_TEXTURE), which the main pass adds
 	myScatterNoisy = myGraph.CreateImage({.name = "Scatter Noisy", .format = Format::kR16G16B16A16Sfloat});
 	myScatterLight = myGraph.CreateImage({.name = "Scatter Light", .format = Format::kR16G16B16A16Sfloat});
+	// the menu bar's backdrop, before and after its blur along x (SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE): the frame's size
+	// (only the rows under the bar are used), placed over the transients the frame is done with by then
+	myMenuBarSource = myGraph.CreateImage({.name = "Menu Bar Source", .format = Format::kR16G16B16A16Sfloat});
+	myMenuBarRows = myGraph.CreateImage({.name = "Menu Bar Rows", .format = Format::kR16G16B16A16Sfloat});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -221,7 +225,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 
 	// the scattering light blurred over the surfaces by their diffusion profile, once per pixel (ComputeScatter), then
 	// denoised (ComputeScatterDenoise): Main layout compute kernels over the render target
-	auto scatterKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant kernel)
+	auto kernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, uint32_t width, uint32_t height)
 	{
 		auto& pipeline = *myFrame.pipeline;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
@@ -232,11 +236,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-		pipeline.BindPipelineAuto(cmd, kernel);
+		pipeline.BindPipelineAuto(cmd, variant);
 		auto pushConstants = myFrame.inputs->pushConstants;
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
+	};
+	auto scatterKernel = [this, kernel](CommandBufferHandle cmd, ComputePipelineVariant variant)
+	{
 		auto extent = myGraph.GetExtent();
-		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(kernel), extent.width, extent.height);
+		kernel(cmd, variant, extent.width, extent.height);
 	};
 	myScatterBlurPass = myGraph.AddPass(
 		"Scatter Blur",
@@ -334,6 +342,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
 			builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myMenuBarSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this](FrameGraph::PassContext& context)
 		{
@@ -381,6 +390,40 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.SideEffects();
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
+
+	// the menu bar's frosted backdrop (as macOS's): the output under it blurred, along x then y, before the ui draws its
+	// translucent bar over it. only while there is one (PushConstants::menuBarHeight)
+	myMenuBarBlurXPass = myGraph.AddPass(
+		"Menu Bar Blur X",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myMenuBarSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myMenuBarRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, menuBarBlurX);
+			auto extent = myGraph.GetExtent();
+			kernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = 3},
+				extent.width,
+				std::min(myFrame.inputs->pushConstants.menuBarHeight + SHADER_TYPES_MENU_BAR_BLUR_RADIUS, extent.height));
+		});
+	myMenuBarBlurYPass = myGraph.AddPass(
+		"Menu Bar Blur Y",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myMenuBarRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, menuBarBlurY);
+			auto extent = myGraph.GetExtent();
+			kernel(
+				context.cmd, ComputePipelineVariant{.entryPoint = 4}, extent.width, std::min(myFrame.inputs->pushConstants.menuBarHeight, extent.height));
+		});
 
 	// what ends the frame: the window's ui and present, or an image's hand-off to sampling
 	output.AddFinalPasses(myGraph, myOutput, myFrame);
@@ -449,14 +492,19 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myScatterBackDepth, SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE},
 			 std::pair{myScatterAlbedo, SHADER_TYPES_SCATTER_ALBEDO_TEXTURE},
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_TEXTURE},
-			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_TEXTURE}})
+			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_TEXTURE},
+			 std::pair{myMenuBarSource, SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE},
+			 std::pair{myMenuBarRows, SHADER_TYPES_MENU_BAR_ROWS_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			slot);
 	for (auto [image, slot] : std::array{
-			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE}, std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE}})
+			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE},
+			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE},
+			 std::pair{myMenuBarSource, SHADER_TYPES_MENU_BAR_SOURCE_RW_TEXTURE},
+			 std::pair{myMenuBarRows, SHADER_TYPES_MENU_BAR_ROWS_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -610,6 +658,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myScatterBackPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterBlurPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterDenoisePass, !myScatterDrawList.Empty());
+	myGraph.SetEnabled(myMenuBarBlurXPass, frame.pushConstants.menuBarHeight != 0U);
+	myGraph.SetEnabled(myMenuBarBlurYPass, frame.pushConstants.menuBarHeight != 0U);
 
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);

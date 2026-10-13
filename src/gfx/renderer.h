@@ -111,6 +111,10 @@ private:
 	FrameGraph::ImageId myScatterBackDepth;
 	FrameGraph::ImageId myScatterNoisy;
 	FrameGraph::ImageId myScatterLight;
+	// the menu bar's backdrop: the output's rows under it (linear), and those blurred along x (see
+	// SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE)
+	FrameGraph::ImageId myMenuBarSource;
+	FrameGraph::ImageId myMenuBarRows;
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
@@ -125,6 +129,8 @@ private:
 	FrameGraph::PassId myScatterPass;
 	FrameGraph::PassId myScatterBlurPass;
 	FrameGraph::PassId myScatterDenoisePass;
+	FrameGraph::PassId myMenuBarBlurXPass;
+	FrameGraph::PassId myMenuBarBlurYPass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;

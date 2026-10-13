@@ -105,7 +105,7 @@ Notes for working in this codebase, distilled from real build failures.
   binding partially bound). What the app's descriptor sets need from the pool comes in through
   `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes. The main layout's module,
   `shaders.slang`, is parts by area (`bindings`, `common`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
-  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`), which it includes textually after
+  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `menubar`), which it includes textually after
   `capi.h` and `sky.h`: one translation unit, so the header's declarations exist once (each part including it as a part
   of the module, `__include` and `implementing`, declared its structs again: ambiguous). A part may use what any other
   declares, in any order. Slang's dependency list names every part, so editing one recompiles. Entry points are chosen
@@ -380,8 +380,8 @@ Consequences:
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
-Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Uploads, UI,
-Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, Menu Bar Blur X and Y, UI
+Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
 rather than branching on: its extent, frame count and per frame storage views (ComputeMain's output, bound up front),
@@ -397,6 +397,16 @@ output's owner keeps it alive longer than the scene. The UI shows a GPU image it
 frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both on the ui thread: the descriptor set is
 released as imgui's own textures are, once the draw thread has drawn a ui frame published after the removal and the gpu
 is done with it, and freed back on the ui thread (the backend's pool, 1024 sets, is the ui thread's).
+
+The ui's menu bar is drawn as macOS's: translucent (`ImGuiCol_MenuBarBg` with alpha, and the bar's window background
+cleared: `BeginMainMenuBar` makes a window as tall as the bar, whose `WindowBg`, 85% opaque in the classic style, hid
+what was behind), a little taller, without a top border, over its backdrop blurred: the ui reports the bar's height in
+pixels (`Scene::Settings::menuBarHeight`, `PushConstants::menuBarHeight`), `ComputeMain` also writes its finished linear
+color for those rows and the blur's reach below them to a transient (`SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE`), and the
+Menu Bar Blur X and Y passes (`menubar.slang`: a gaussian of 24 pixels, then a little more saturation, as macOS's
+vibrancy) write it back over the output under the bar, before the UI pass. The swapchain images aren't sampled images,
+and reading them as storage images needs `shaderStorageImageReadWithoutFormat`, hence the copy. The passes are off
+without a bar (the preview's scene).
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
@@ -863,8 +873,8 @@ more than the profile's reach, caustics, and the volume's own shadowing.
 Every `KHR_materials_*` of the glTF-Sample-Assets is drawn, and `KHR_materials_variants` is chosen at import (see above). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
 (`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 16
-(0-3 are the frames' render targets, 12 the environment's, 15 the texture of material 0 that opening an image loads). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 18
+(0-3 are the frames' render targets, 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

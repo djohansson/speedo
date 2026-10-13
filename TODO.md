@@ -43,6 +43,8 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: the menu bar as macOS's: translucent over its backdrop blurred (ComputeMain copies the rows under it, the Menu Bar Blur X and Y passes blur them back)
+* done: borderless fullscreen on every platform
 * done: exclusive fullscreen on macOS again (the default; native and borderless selectable in View > Presentation, with the swapchain's present mode): KosmicKrisp's flicker scanned out directly is gone with mesa main
 * done: the main shader module in parts by area (shaders.slang includes bindings, vertex, ibl, brdf, lights, shading, ... textually)
 * done: spot lights bounded by their cone (gfx::LightReach), not their range's sphere, in the clusters and the shadow budget (ManyLights 5.2 to 4.9 ms)
