@@ -155,6 +155,11 @@ struct Submesh
 	uint32_t morphDeltaBase = 0;
 	uint32_t morphFirstVertex = 0;
 	uint32_t morphWeightBase = 0;
+	// where it is drawn (see Chunk): its vertices' bounds at each of its instances, in world space, which a view whose
+	// frustum it is outside of can skip. unless it moves: skinned, morphed, or its instances follow nodes that animations
+	// move (or hide), which are drawn whatever their bounds
+	Bounds3f bounds;
+	bool moves = false;
 };
 
 // a column major 4x4 transform, from a submesh's vertices to world space
@@ -246,6 +251,18 @@ struct ImportOptions
 // the other files an import of path reads, which a change to must reimport it: an obj file's material files, a gltf
 // file's external buffers (images are loaded separately)
 [[nodiscard]] std::vector<std::filesystem::path> Dependencies(const std::filesystem::path& path);
+
+// at most this many triangles in a chunk (see Chunk). each draw costs about a microsecond of gpu time on KosmicKrisp, so
+// smaller chunks cull finer but cost more where they are seen: on Bistro, 16384 (272 draws for its 2.8 M triangles)
+// beat 4096 (776) with everything in view and lost little from the street (see CLAUDE.md, "Culling")
+inline constexpr uint32_t kChunkTriangles = 16384;
+
+// splits mesh's submeshes into chunks for culling, and gives each its bounds (Submesh::bounds and moves). the importers
+// make one submesh per material, which can span a whole scene (a building's bricks): the triangles of each one that
+// doesn't move are ordered by place (meshopt_spatialSortRemap of their centroids) and cut into runs of at most
+// maxTriangles, each a submesh like the one it came from, its triangles back in the file's order (which keeps their
+// vertex reuse). lines, points and what moves stay whole. the submeshes stay ordered by material and contiguous
+void Chunk(Mesh& mesh, uint32_t maxTriangles = kChunkTriangles);
 
 // the image files a model's materials name (an obj's textures, a gltf file's external images): with Dependencies, every
 // file a model's render depends on (e.g. for keying a thumbnail of it)

@@ -1913,6 +1913,8 @@ struct Scene::Impl
 										 : std::function<uint16_t(size_t)>{},
 				.grid = views.GetGrid(),
 				.viewports = views.GetViewports(),
+				.viewProjections = views.GetViewProjections(),
+				.culling = mySettings.culling.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

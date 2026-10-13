@@ -222,6 +222,46 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		mesh->vertices.size(), mesh->materials.size(), mesh->submeshes.size(),
 		mesh->hasNormals ? "file" : "generated", mesh->hasTangents ? "file" : stats.generatedTangents > 0 ? "generated" : "derived", mesh->hasTexCoords ? "yes" : "no", mesh->hasColors ? "yes" : "no");
 
+	// split into chunks for culling, as the client does: the checks below see what it draws. each chunk that doesn't move
+	// must lie within its bounds at each of its instances, or a view could cull it while it is in sight
+	{
+		auto submeshCount = mesh->submeshes.size();
+		gfx::mesh::Chunk(*mesh);
+		auto moving = std::ranges::count_if(mesh->submeshes, [](const gfx::mesh::Submesh& submesh) { return submesh.moves; });
+		report.Info("{} chunks of {} submeshes ({} move: not culled)", mesh->submeshes.size(), submeshCount, moving);
+
+		size_t outside = 0;
+		for (const auto& submesh : mesh->submeshes)
+		{
+			if (submesh.moves || submesh.firstIndex + submesh.indexCount > mesh->indices.size() ||
+				submesh.firstInstance + submesh.instanceCount > mesh->instances.size())
+				continue;
+			auto epsilon = 1e-4F * std::max(1.0F, submesh.bounds.Radius());
+			for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
+			{
+				const auto& transform = mesh->instances[instanceIt];
+				for (auto index : std::span(mesh->indices).subspan(submesh.firstIndex, submesh.indexCount))
+				{
+					if (index >= mesh->vertices.size())
+						continue;
+					const auto& position = mesh->vertices[index].position;
+					Bounds3f::VectorType point;
+					for (glm::length_t axis = 0; axis < 3; axis++)
+						point[axis] = (transform[axis] * position[0]) + (transform[4 + axis] * position[1]) +
+									  (transform[8 + axis] * position[2]) + transform[12 + axis];
+					auto min = submesh.bounds.GetMin();
+					auto max = submesh.bounds.GetMax();
+					bool inside = true;
+					for (glm::length_t axis = 0; axis < 3; axis++)
+						inside = inside && point[axis] >= min[axis] - epsilon && point[axis] <= max[axis] + epsilon;
+					outside += inside ? 0 : 1;
+				}
+			}
+		}
+		if (outside > 0)
+			report.Fail("{} chunk vertices outside their chunk's bounds", outside);
+	}
+
 	if (mesh->instances.size() > 1)
 		report.Info("{} instances (EXT_mesh_gpu_instancing, or of moving nodes)", mesh->instances.size() - 1);
 	if (const auto& animation = mesh->animation; !animation.Empty())

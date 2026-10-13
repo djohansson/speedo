@@ -130,6 +130,22 @@ void Views::FrameBounds(const Bounds3f& bounds)
 	UpdateBuffers();
 }
 
+void Views::Place(const glm::vec3& eye, const glm::vec3& rotation)
+{
+	{
+		auto cameras = myCameras.Write();
+		for (auto& camera : cameras.Get())
+		{
+			auto& desc = camera.GetDesc();
+			desc.position = -eye;
+			desc.cameraRotation = rotation;
+			camera.UpdateAll();
+		}
+	}
+
+	UpdateBuffers();
+}
+
 void Views::SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras)
 {
 	bool hasCameras = !cameras.empty();
@@ -256,6 +272,11 @@ void Views::SetMoveSpeed(float speed) noexcept
 	myMoveSpeed.store(std::clamp(speed, kMinSpeed, kMaxSpeed), std::memory_order_relaxed);
 }
 
+std::vector<glm::mat4> Views::GetViewProjections() const
+{
+	return myViewProjections.Read().Get();
+}
+
 std::optional<Camera> Views::GetCamera(size_t view) const
 {
 	auto cameras = myCameras.Read();
@@ -270,6 +291,13 @@ void Views::UpdateBuffers()
 
 	auto cameras = myCameras.Read();
 	auto viewCount = std::min<size_t>(cameras.Get().size(), SHADER_TYPES_VIEW_COUNT);
+
+	{
+		auto viewProjections = myViewProjections.Write();
+		viewProjections.Get().resize(viewCount);
+		for (size_t viewIt = 0; viewIt < viewCount; viewIt++)
+			viewProjections.Get()[viewIt] = cameras.Get()[viewIt].GetProjectionMatrix() * cameras.Get()[viewIt].GetViewMatrix();
+	}
 
 	for (auto& buffer : myBuffers)
 	{

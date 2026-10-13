@@ -39,6 +39,8 @@ public:
 		std::atomic<bool> mergeLights = true;
 		// whether the lights cast shadows (View > Shadows, SPEEDO_SHADOWS=0 to start without)
 		std::atomic<bool> shadows = true;
+		// whether the views skip the draws outside their frustum (View > Culling, SPEEDO_CULLING=0 to start without)
+		std::atomic<bool> culling = true;
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;

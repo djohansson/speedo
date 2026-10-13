@@ -5,10 +5,13 @@
 #include <core/assert.h>
 #include <core/profiling.h>
 
+#include <glm/gtc/type_ptr.hpp>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdlib>
 #include <numeric>
+#include <optional>
 #include <print>
 #include <string_view>
 
@@ -159,7 +162,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				encoder.SetScissor(rhi::Rect{
 					.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
 				pushConstants.shadowView = viewIt;
-				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0);
+				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, inputs.culling ? &frustum : nullptr);
 			}
 		});
 
@@ -648,7 +652,10 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 				.maxDepth = 1.0F});
 			encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
 
-			RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, inputs.runInBackground);
+			std::optional<Frustum> frustum;
+			if (inputs.culling && viewIt < inputs.viewProjections.size())
+				frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
+			RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, frustum ? &*frustum : nullptr, inputs.runInBackground);
 		}
 
 		cmd.End();

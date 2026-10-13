@@ -37,6 +37,8 @@ struct ModelSubmesh
 	uint32_t morphDeltaBase = 0;
 	uint32_t morphFirstVertex = 0;
 	uint32_t morphWeightBase = 0;
+	Bounds3f bounds; // see mesh::Submesh::bounds
+	bool moves = false;
 };
 
 // textures are empty (see TextureRef) if the material has none

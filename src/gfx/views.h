@@ -49,6 +49,10 @@ public:
 	// moves every camera back from bounds (looking down -z) until all of it is in view, fits the near and far planes to
 	// its size, and sets the movement speed after it (see GetMoveSpeed). call on the draw thread.
 	void FrameBounds(const Bounds3f& bounds);
+	// places every view's camera at eye (world space), turned by rotation (pitch, yaw and roll, in radians: see
+	// CameraCreateDesc::cameraRotation), keeping its projection (e.g. SPEEDO_CAMERA, for measurements and screenshots).
+	// any thread
+	void Place(const glm::vec3& eye, const glm::vec3& rotation);
 
 	// the installed model's bounds and cameras (see ModelDesc::cameras): sets the views to its first camera, or frames
 	// the bounds if it has none. call on the draw thread.
@@ -77,11 +81,16 @@ public:
 	// a view's camera (a copy), if there is that view. any thread.
 	[[nodiscard]] std::optional<Camera> GetCamera(size_t view) const;
 
+	// the views' view projections as UpdateBuffers last uploaded them (what the gpu draws with: the views cull by them).
+	// any thread.
+	[[nodiscard]] std::vector<glm::mat4> GetViewProjections() const;
+
 private:
 	void InternalLayout();
 
 	std::vector<Buffer> myBuffers;
 	core::ConcurrentAccess<std::vector<gfx::Camera>> myCameras;
+	core::ConcurrentAccess<std::vector<glm::mat4>> myViewProjections; // see GetViewProjections
 	glm::uvec2 myFramebufferExtent{};
 	glm::uvec2 myGrid{1, 1};
 	std::optional<size_t> myActiveCamera;

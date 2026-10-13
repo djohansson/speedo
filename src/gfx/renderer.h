@@ -41,6 +41,9 @@ struct FrameInputs
 	// the views: their grid, and each one's viewport (its cell, letterboxed to its camera's aspect ratio)
 	glm::uvec2 grid{1, 1};
 	std::vector<ViewportCreateDesc> viewports;
+	// each view's view projection, which its draws are culled by (and the shadow views by theirs), if culling
+	std::vector<glm::mat4> viewProjections;
+	bool culling = true;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;

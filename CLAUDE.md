@@ -432,6 +432,31 @@ by a mutex and a condition variable (`PipelineMapSync`): a null handle is a pipe
 `BindPipelineAuto` waits for. Each phase's draws are sorted by pipeline variant (opaque ones depth test, blended ones are
 order independent), so pipelines switch once per variant.
 
+## Culling: chunks, and frustums per view
+
+The importers make one submesh per material, which can span a whole scene (Bistro: 2.8 M triangles in 132 submeshes, a
+material's walls on every side of the camera), so a submesh's bounds cull nothing. `mesh::Chunk` (`gfx/meshimport.h`,
+run by `Model`'s load after `mesh::Import`, and by `assettest`) cuts each static triangle submesh into chunks of at most
+`kChunkTriangles` (16384): the triangles' centroids ordered along a space filling curve (`meshopt_spatialSortRemap`), cut
+into even runs, each run's triangles back in the file's order (their vertex reuse). A chunk is a submesh like the one it
+came from (material, instances, ...), with its bounds: its vertices at each of its instances, in world space
+(`Submesh::bounds`). What moves (skinned, morphed, or instances that follow animated nodes: `Submesh::moves`) stays whole and
+is never culled. The chunk size is part of the model cache key (`chunks-N`). `assettest` reports the chunks and fails a
+chunk whose vertices leave its bounds; its encodings comparison counts the submeshes before chunking.
+
+`RecordDrawList` takes the view's `gfx::Frustum` (`gfx/frustum.h`: six planes from a view projection, Gribb and Hartmann;
+an infinite far plane comes out as zeros, which culls nothing) and skips the draws whose bounds are outside a plane. The
+main pass culls by `FrameInputs::viewProjections` (what `Views::UpdateBuffers` last uploaded, `GetViewProjections`, so
+the cpu culls by what the gpu draws with), the shadow pass by each shadow view's (no depth clamp, so a caster in front of
+a shadow view's near plane casts nothing anyway). View > Culling (`SPEEDO_CULLING=0`) turns it off. Each draw costs about a
+microsecond of gpu time on KosmicKrisp (Bistro framed, nothing culled: Main 3.72 ms unchunked, 4.34 in chunks of 4096), so
+`RecordDrawList` sets cull mode, front face and push constants only where they change (a submesh's chunks share them), and
+the chunks are big. Bistro's gpu time (Main + Shadows), before and with chunks of 16384 culled: 11.9 to 10.9 ms looking
+down a street through an arch, 11.0 to 7.8 in a shopping street, 9.1 to 7.3 framed (the shadow views gain most: each
+cascade skips what it doesn't see); chunks of 4096 were 7.5 in the street but 7.5 framed. `SPEEDO_CAMERA=x,y,z,pitch,yaw`
+(degrees; positive pitch looks down, positive yaw turns from -z towards +x) places the views once the autoloads have
+installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,0,-62`, `564,170,-2436,0,30`, and framed.
+
 ## Shadows
 
 The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 512 texel cells; a frame

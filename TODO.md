@@ -1,17 +1,16 @@
 # TODO
 * plan (in this order):
-	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Sponza and Bistro)
-		1. bounds per submesh (and per instance, for instanced nodes), kept with the model
-		2. frustum culling in the draw lists, per view and per shadow view (cascades, cube faces, spot views)
-		3. more shadowed point and spot lights than 4, once the shadow views draw only what they see
-		4. clustered light assignment (lights binned per screen tile and depth slice, the fragment shader looping over its cluster's), as its own step
+	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
+		1. more shadowed point and spot lights than 4, once the shadow views draw only what they see
+		2. clustered light assignment (lights binned per screen tile and depth slice, the fragment shader looping over its cluster's), as its own step
+		later: gpu driven culling (a compute pass writing indirect draws: per instance, and no cost per draw for chunks out of view), then occlusion culling, from the same chunks
 	2. command buffers as move-only values (see below), before more passes or async compute add recording paths
 	3. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
 	* animation: node (translation, rotation, scale) and morph weight animations and skins move, and every KHR_animation_pointer target of the core spec and the extensions drawn (node transforms, weights and visibility, material values, texture transforms, lights, cameras). a set of files with an animated base color loses it (it isn't baked into the vertex colors). joint normals use the joint matrices directly (non-uniform scale on joints skews them). the model's bounds (which frame the views) cover its animations' poses and its morph targets' reach. one animation plays at a time (switching crossfades over 0.3 s), without layering or additive blending. a set of files is drawn at rest
-	* lights: punctual lights only, every light shades every pixel (no culling or clustering). shadows: no PCSS (a fixed 4x4 texel filter), fitted to the first view only (other views beyond its cascades are unshadowed), at most 4 shadowed point and spot lights, and no culling per shadow view (each draws the whole scene); the environment casts none beyond its dominant lights (its strongest light sources, up to 4, extracted as directional lights; the Khronos panoramas' are clipped, so weak). image based lighting's specular is the split sum with n = v = r, looked up along the dominant direction (no stretched reflections at grazing angles), and the backdrop is the 2048 wide panorama, unfiltered (no depth of field or blur control)
+	* lights: punctual lights only, every light shades every pixel (no culling or clustering). shadows: no PCSS (a fixed 4x4 texel filter), fitted to the first view only (other views beyond its cascades are unshadowed), at most 4 shadowed point and spot lights (shadow views cull by their frustums, see CLAUDE.md "Culling"); the environment casts none beyond its dominant lights (its strongest light sources, up to 4, extracted as directional lights; the Khronos panoramas' are clipped, so weak). image based lighting's specular is the split sum with n = v = r, looked up along the dominant direction (no stretched reflections at grazing angles), and the backdrop is the 2048 wide panorama, unfiltered (no depth of field or blur control)
 	* shading models: metallic-roughness, specular-glossiness, unlit, and the KHR_materials_* extensions of the glTF-Sample-Assets (specular, ior, clearcoat, sheen, transmission, volume, volume_scatter, dispersion, anisotropy, iridescence, diffuse_transmission, emissive_strength, retroreflection, variants), as the Khronos sample viewer approximates them. transmission sees only the opaque scene (not other transmissive or blended surfaces), and punctual lights don't shine through it. obj materials map Ks and Ns to specular and roughness (their Ks color, Ka, Tf, Ni and illum are ignored)
 	* alpha blending: exact per pixel linked lists, but with fixed budgets: 4 nodes per pixel on average (fragments past them are dropped, e.g. in full screen glass several layers deep), and the 16 nearest layers of a pixel blended. no adaptive growth of the node pool, and no MSAA
 	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
@@ -21,7 +20,7 @@
 	* not settled: DiffuseTransmissionTeacup's cup looked more mirror-like than the reference's satin porcelain (no matching camera angle to compare)
 * todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
 * todo: investigate and implement optimization techniques such as clustered forward shading
-	* culling: none at draw time (main pass or shadow views): every view draws every submesh, which is also why at most 4 point and spot lights cast shadows (the plan's first item)
+	* culling: frustum culling of chunks on the cpu (see CLAUDE.md, "Culling"); nothing that moves is culled, nor are instanced submeshes by instance (one draw's instances share bounds). no occlusion culling
 * todo: file loading leftovers (see CLAUDE.md, "File I/O"): Model::Load's source load op still lets mesh::Import map the file again (the obj and gltf importers take paths, for their mtl files and buffers); slang reads the shader sources itself (an ISlangFileSystem could hand it mapped files); core::file::Map has no read-ahead hint on windows (PrefetchVirtualMemory)
 * todo: frame graph (gfx::FrameGraph) follow-ups
 	* one queue: no async compute or transfer passes, and the passes are recorded in order into one command buffer (only the main pass's views go to secondary command buffers)
@@ -47,6 +46,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: culling: submeshes cut into spatial chunks of 16384 triangles with their bounds (mesh::Chunk), skipped per view and per shadow view outside its frustum (gfx::Frustum); fewer redundant state changes per draw. Bistro's gpu time from the street 11.0 to 7.8 ms, framed 9.1 to 7.3. SPEEDO_CAMERA for repeatable viewpoints
 * done: image::CompressLevel spreads its block rows over the task executor (std::execution::par ran serially under libc++): compressing a 2048 texture took 23 ms instead of 62 (filebench --import), the decode and mip resizes are serial still
 * done: View > Lights: the lights listed and drawn over the views (markers, spot cones, point ranges, shadow frusta), SPEEDO_SHOW_LIGHTS=1
 * done: volume scatter's profile scaled by each pixel's multiscatter color (texture included), with ScatterTexture.gltf to test it

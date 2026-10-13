@@ -374,6 +374,9 @@ struct Staged
 			return std::make_error_code(std::errc::invalid_argument);
 		}
 
+		// a draw per chunk of each submesh, which the views cull
+		mesh::Chunk(*mesh);
+
 		progress = 128;
 
 		desc.bounds = mesh->bounds;
@@ -405,7 +408,9 @@ struct Staged
 				.morphTargetCount = submesh.morphTargetCount,
 				.morphDeltaBase = submesh.morphDeltaBase,
 				.morphFirstVertex = submesh.morphFirstVertex,
-				.morphWeightBase = submesh.morphWeightBase});
+				.morphWeightBase = submesh.morphWeightBase,
+				.bounds = submesh.bounds,
+				.moves = submesh.moves});
 		}
 		for (const auto& material : mesh->materials)
 			desc.materials.push_back({
@@ -511,7 +516,8 @@ struct Staged
 		params.append(std::format("|scene-{}", *importOptions.scene));
 	if (importOptions.variant)
 		params.append(std::format("|variant-{}", *importOptions.variant));
-	params.append("|cache-v35"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append(std::format("|chunks-{}", mesh::kChunkTriangles));
+	params.append("|cache-v36"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -589,6 +595,11 @@ struct Staged
 				submesh.material += materialBase;
 			submesh.firstInstance += instanceBase;
 			submesh.skin = -1; // a set is drawn at rest (see ModelDesc::animation), its morph targets at their default weights
+			// placed as its instances are (see place, below)
+			auto min = submesh.bounds.GetMin();
+			auto max = submesh.bounds.GetMax();
+			submesh.bounds.SetMin(Bounds3f::VectorType(place(min.x, 0), place(min.y, 1), place(min.z, 2)));
+			submesh.bounds.SetMax(Bounds3f::VectorType(place(max.x, 0), place(max.y, 1), place(max.z, 2)));
 			if (submesh.morphTargetCount > 0)
 			{
 				submesh.morphDeltaBase += merged.desc.morphDeltaCount;

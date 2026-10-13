@@ -5,6 +5,8 @@
 #include <core/profiling.h>
 
 #include <algorithm>
+#include <cstring>
+#include <optional>
 #include <span>
 #include <tuple>
 #include <utility>
@@ -53,7 +55,9 @@ DrawList BuildDrawList(
 			.morphTargetCount = submesh.morphTargetCount,
 			.morphDeltaBase = submesh.morphDeltaBase,
 			.morphFirstVertex = submesh.morphFirstVertex,
-			.morphWeightBase = submesh.morphWeightBase};
+			.morphWeightBase = submesh.morphWeightBase,
+			.bounds = submesh.bounds,
+			.cullable = !submesh.moves};
 
 		auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
 		if (unmirrored > 0)
@@ -166,14 +170,22 @@ void RecordDrawList(
 	const DrawList& list,
 	PushConstants pushConstants,
 	uint16_t viewIndex,
+	const Frustum* frustum,
 	const std::function<void(std::function<void()> job)>& createInBackground)
 {
 	ZoneScopedN("gfx::RecordDrawList");
 
 	CommandEncoder encoder(cmd);
 	GraphicsPipelineVariant bound{.blend = kOpaqueBlend};
+	// the state the draw before set (none yet: a secondary command buffer starts without dynamic state)
+	std::optional<CullMode> cullMode;
+	std::optional<FrontFace> frontFace;
+	std::optional<PushConstants> pushed;
 	for (const auto& item : list.items)
 	{
+		if (frustum != nullptr && item.cullable && frustum->Excludes(item.bounds))
+			continue;
+
 		auto variant = item.variant;
 		if (variant.specialization != 0 && createInBackground)
 		{
@@ -190,9 +202,20 @@ void RecordDrawList(
 		{
 			bound = variant;
 			pipeline.BindPipelineAuto(cmd, variant);
+			// push constants outlive a pipeline bind with the same layout, as here, but variants switch rarely enough (the
+			// draws are sorted by them) not to rely on it
+			pushed.reset();
 		}
-		encoder.SetCullMode(item.cullMode);
-		encoder.SetFrontFace(item.frontFace);
+		if (cullMode != item.cullMode)
+		{
+			cullMode = item.cullMode;
+			encoder.SetCullMode(item.cullMode);
+		}
+		if (frontFace != item.frontFace)
+		{
+			frontFace = item.frontFace;
+			encoder.SetFrontFace(item.frontFace);
+		}
 
 		pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | item.materialSlot;
 		pushConstants.modelInstanceId = item.firstInstance;
@@ -201,7 +224,12 @@ void RecordDrawList(
 		pushConstants.morphDeltaBase = item.morphDeltaBase;
 		pushConstants.morphFirstVertex = item.morphFirstVertex;
 		pushConstants.morphWeightBase = item.morphWeightBase;
-		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+		// compared bytewise: both are copies of the caller's, padding included
+		if (!pushed || std::memcmp(&*pushed, &pushConstants, sizeof(PushConstants)) != 0)
+		{
+			pushed = pushConstants;
+			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+		}
 		encoder.DrawIndexed(item.indexCount, item.instanceCount, item.firstIndex);
 	}
 

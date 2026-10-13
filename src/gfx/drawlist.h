@@ -1,5 +1,7 @@
 #pragma once
 
+#include <gfx/bounds.h>
+#include <gfx/frustum.h>
 #include <gfx/gpu.h>
 #include <gfx/shaders/capi.h>
 
@@ -61,6 +63,9 @@ struct DrawItem
 	uint32_t morphDeltaBase = 0;
 	uint32_t morphFirstVertex = 0;
 	uint32_t morphWeightBase = 0;
+	// where it is drawn (its chunk's bounds, see mesh::Chunk), and whether a view may skip it by them: not if it moves
+	Bounds3f bounds;
+	bool cullable = false;
 };
 
 // what a view draws of the scene, in order, from one index buffer
@@ -100,8 +105,9 @@ struct DrawList
 // since a double sided surface's nearest back face is its front
 [[nodiscard]] DrawList BuildScatterBackDrawList(const DrawList& scatter);
 
-// records a draw list for a view (in its viewport, set by the caller): binds the pipeline variants it needs, from the
-// default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
+// records a draw list for a view (in its viewport, set by the caller): the draws not outside frustum (if given), with
+// their state and push constants set only where they change from the draw before (chunks of a submesh share them). binds
+// the pipeline variants it needs, from the default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
 // GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
 // draws, and createInBackground gets the job creating it (see Pipeline::RequestGraphicsPipeline), the first time
 void RecordDrawList(
@@ -110,6 +116,7 @@ void RecordDrawList(
 	const DrawList& list,
 	PushConstants pushConstants,
 	uint16_t viewIndex,
+	const Frustum* frustum = nullptr,
 	const std::function<void(std::function<void()> job)>& createInBackground = {});
 
 } // namespace gfx
