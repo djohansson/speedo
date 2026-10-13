@@ -94,7 +94,13 @@ Notes for working in this codebase, distilled from real build failures.
   `rhi::ShaderSet` (`rhi/shaderset.h`: binaries, entry points, and per set the bindings and push constants). rhi
   doesn't link slang. `Pipeline::CreateLayout` turns a `ShaderSet` into the backend's descriptor set layouts (every
   binding partially bound). What the app's descriptor sets need from the pool comes in through
-  `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes.
+  `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes. The main layout's module,
+  `shaders.slang`, is parts by area (`bindings`, `common`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
+  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`), which it includes textually after
+  `capi.h` and `sky.h`: one translation unit, so the header's declarations exist once (each part including it as a part
+  of the module, `__include` and `implementing`, declared its structs again: ambiguous). A part may use what any other
+  declares, in any order. Slang's dependency list names every part, so editing one recompiles. Entry points are chosen
+  by name and stage (`ShaderLoader`), not by their `[shader(...)]` attributes; one had strayed onto `TonemapAces`.
 - The backend's type aliases (`DescriptorType<G>`, `PushConstantRange<G>`, ...) are in the *global* namespace (see
   `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
@@ -426,7 +432,7 @@ read 0, ones outside any are unwritten (dropped), and only some frames have them
 drifts between runs, so compare a pass against a pass the change doesn't touch (e.g. Main against Shadows).
 
 Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' specialization constant 0, `kSkippedLayers` in
-`shaders.slang`, the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `SHADER_TYPES_LAYERS_EXTENDED`
+`bindings.slang`, the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `SHADER_TYPES_LAYERS_EXTENDED`
 (clearcoat, sheen, transmission, anisotropy, iridescence, diffuse transmission, gated by `Layer()`) is skipped for the
 draws of materials without any of them (`LayersOf`, counting animated layers), so a plain PBR material doesn't pay the
 uber-shader's register allocation for them: Sponza's main pass took 13 to 23% less (its time over the shadow pass's,
