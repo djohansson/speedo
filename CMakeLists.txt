@@ -527,6 +527,28 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(target server client assettest filebench)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
+
+	# the modules slang loads at run time from beside the executable (the build copies only the dlls it imports):
+	# without them, compiling the shaders (a new user profile, or a changed shader) fails to load spirv-opt
+	set(SLANG_BIN_DIR "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/$<IF:$<CONFIG:debug>,debug/bin,bin>")
+	file(GLOB SLANG_STANDARD_MODULE_DIRS LIST_DIRECTORIES true RELATIVE "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+		"${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/slang-standard-module-*")
+	foreach(target client assettest filebench)
+		add_custom_command(
+			TARGET ${target} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				${SLANG_BIN_DIR}/slang-glslang.dll ${SLANG_BIN_DIR}/slang-glsl-module.dll ${SLANG_BIN_DIR}/slang-rt.dll
+				$<TARGET_FILE_DIR:${target}>
+			VERBATIM
+		)
+		foreach(moduleDir ${SLANG_STANDARD_MODULE_DIRS})
+			add_custom_command(
+				TARGET ${target} POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different ${SLANG_BIN_DIR}/${moduleDir} $<TARGET_FILE_DIR:${target}>/${moduleDir}
+				VERBATIM
+			)
+		endforeach()
+	endforeach()
 endif()
 
 ###############################################################################

@@ -3,6 +3,7 @@
 #include <core/application.h>
 #include <core/profiling.h>
 #include <core/task.h>
+#include <core/taskexecutor.h>
 #include <gfx/environment.h>
 #include <gfx/environmentfilter.h>
 #include <gfx/gpu.h>
@@ -39,6 +40,7 @@
 #include <optional>
 #include <print>
 #include <span>
+#include <thread>
 #include <utility>
 
 namespace gfx
@@ -1219,26 +1221,68 @@ struct Scene::Impl
 						loads.push_back({ref->path, ref->embeddedImage, {.usage = usage}, result});
 		}
 
-		core::UnorderedMap<std::string, Texture> loaded;
-		progress = 0;
+		// each distinct texture once (its cache entry is keyed the same way, so no two loads write the same files),
+		// loaded by workers taking them in turn: one per executor thread, joined by this load (helping meanwhile), as
+		// core::zip::ExtractAll does
+		core::UnorderedMap<std::string, size_t> distinctIndex;
+		std::vector<const TextureLoad*> distinct;
+		std::vector<size_t> loadDistinct(loads.size());
 		for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
 		{
 			const auto& load = loads[loadIt];
 			auto key = std::format(
 				"{}|{}|{}|{}", load.path, load.embeddedImage.value_or(~0U), std::to_underlying(load.options.usage), load.options.bumpScale);
-			auto [it, inserted] = loaded.try_emplace(std::move(key));
+			auto [it, inserted] = distinctIndex.try_emplace(std::move(key), distinct.size());
 			if (inserted)
-			{
-				if (core::Application::Get()->IsExitRequested())
-					return;
-
-				std::atomic_uint8_t textureProgress = 0;
-				it->second = LoadTexture(load.path, textureProgress, load.options, load.embeddedImage);
-			}
-			*load.result = it->second;
-
-			progress = static_cast<uint8_t>(255 * (loadIt + 1) / loads.size());
+				distinct.push_back(&load);
+			loadDistinct[loadIt] = it->second;
 		}
+
+		std::vector<Texture> loaded(distinct.size());
+		progress = 0;
+		{
+			struct State
+			{
+				const std::vector<const TextureLoad*>& distinct;
+				std::vector<Texture>& loaded;
+				std::atomic_uint8_t& progress;
+				std::atomic_size_t next = 0;
+				std::atomic_size_t done = 0;
+
+				void Work()
+				{
+					for (size_t textureIt = next++; textureIt < distinct.size(); textureIt = next++)
+					{
+						if (core::Application::Get()->IsExitRequested())
+							return;
+
+						const auto& load = *distinct[textureIt];
+						std::atomic_uint8_t textureProgress = 0;
+						loaded[textureIt] = LoadTexture(load.path, textureProgress, load.options, load.embeddedImage);
+						progress = static_cast<uint8_t>(255 * ++done / distinct.size());
+					}
+				}
+			} state{.distinct = distinct, .loaded = loaded, .progress = progress};
+
+			auto& executor = core::Application::Get()->GetExecutor();
+			auto workerCount = std::min<size_t>(std::max(1U, std::thread::hardware_concurrency()), distinct.size());
+			std::vector<core::Future<void>> futures;
+			std::vector<core::TaskHandle> handles;
+			for (size_t workerIt = 0; workerIt < workerCount; workerIt++)
+			{
+				auto [handle, future] = core::CreateTask([&state] { state.Work(); });
+				handles.push_back(handle);
+				futures.push_back(std::move(future));
+			}
+			executor.Submit(handles);
+			for (auto& future : futures)
+				(void)executor.Join(std::move(future));
+		}
+		if (core::Application::Get()->IsExitRequested())
+			return;
+
+		for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
+			*loads[loadIt].result = loaded[loadDistinct[loadIt]];
 
 		if (loaded.size() > kModelTextureMaxCount)
 			std::println(stderr, "{}: {} textures, only the first {} are used", filePath, loaded.size(), kModelTextureMaxCount);
