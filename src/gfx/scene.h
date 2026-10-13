@@ -14,6 +14,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -44,9 +45,6 @@ public:
 		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,
 		// SPEEDO_CLUSTERED_LIGHTS=0 to start without: over all of them)
 		std::atomic<bool> clusteredLights = true;
-		// the height in pixels of the ui's menu bar over the top of the frame, whose backdrop is blurred (see
-		// PushConstants::menuBarHeight). 0: none
-		std::atomic<uint32_t> menuBarHeight = 0;
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;
@@ -121,6 +119,9 @@ public:
 		// record the ui's texture uploads and draws, over a window's frames (see SwapchainOutput)
 		std::function<void(CommandBufferHandle cmd)> prepareUi;
 		std::function<void(CommandBufferHandle cmd)> drawUi;
+		// the ui's frosted panels, whose backdrop is blurred (see UiBlurRect: their rectangles and corners, in pixels of the
+		// output; the threads are the renderer's to fill in). of the ui frame drawUi draws
+		std::span<const UiBlurRect> uiBlurRects;
 		// runs a job on the task executor (pipelines created in the background)
 		std::function<void(std::function<void()> job)> runInBackground;
 	};

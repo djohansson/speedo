@@ -105,7 +105,7 @@ Notes for working in this codebase, distilled from real build failures.
   binding partially bound). What the app's descriptor sets need from the pool comes in through
   `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes. The main layout's module,
   `shaders.slang`, is parts by area (`bindings`, `common`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
-  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `menubar`), which it includes textually after
+  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `uiblur`), which it includes textually after
   `capi.h` and `sky.h`: one translation unit, so the header's declarations exist once (each part including it as a part
   of the module, `__include` and `implementing`, declared its structs again: ambiguous). A part may use what any other
   declares, in any order. Slang's dependency list names every part, so editing one recompiles. Entry points are chosen
@@ -380,8 +380,8 @@ Consequences:
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
-Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, Menu Bar Blur X and Y, UI
-Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
+UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
 rather than branching on: its extent, frame count and per frame storage views (ComputeMain's output, bound up front),
@@ -398,15 +398,20 @@ frame drawing it runs, as an `ImageOutput`'s is) and `RemoveTexture(id)`, both o
 released as imgui's own textures are, once the draw thread has drawn a ui frame published after the removal and the gpu
 is done with it, and freed back on the ui thread (the backend's pool, 1024 sets, is the ui thread's).
 
-The ui's menu bar is drawn as macOS's: translucent (`ImGuiCol_MenuBarBg` with alpha, and the bar's window background
-cleared: `BeginMainMenuBar` makes a window as tall as the bar, whose `WindowBg`, 85% opaque in the classic style, hid
-what was behind), a little taller, without a top border, over its backdrop blurred: the ui reports the bar's height in
-pixels (`Scene::Settings::menuBarHeight`, `PushConstants::menuBarHeight`), `ComputeMain` also writes its finished linear
-color for those rows and the blur's reach below them to a transient (`SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE`), and the
-Menu Bar Blur X and Y passes (`menubar.slang`: a gaussian of 24 pixels, then a little more saturation, as macOS's
-vibrancy) write it back over the output under the bar, before the UI pass. The swapchain images aren't sampled images,
-and reading them as storage images needs `shaderStorageImageReadWithoutFormat`, hence the copy. The passes are off
-without a bar (the preview's scene).
+The ui's frosted panels, as macOS's: the main menu bar and the menus, popups and tooltips open (not modals) are
+translucent (`MenuBarBg` and `PopupBg` with alpha, popups rounded with a faint border, macOS's blue for the hovered and
+open items: `ImGuiLayer`'s style) over their backdrop blurred. `ImGuiLayer::EndFrame` collects their windows' rectangles
+and corners (in framebuffer pixels: `UiBlurRect`) with the frame's draw data, so a panel and its blur are of the same ui
+frame; `Draw` takes the frame (`TakeFrame`) before recording and hands them to the scene (`FrameTarget::uiBlurRects`).
+`ComputeMain` also writes its finished linear color within the blur's reach of a panel to a transient
+(`SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE`), and the UI Blur X and Y passes (`uiblur.slang`: a 24 pixel gaussian, then a
+little more saturation, as macOS's vibrancy) write it back over the output inside each panel's rounded rectangle,
+antialiased (the most coverage of any panel, so overlapping panels write the same), before the UI pass. Each pass is one
+dispatch of a thread per pixel of the panels in turn (`UiBlurRect::firstThreadX`/`Y`, filled in by the renderer; X's
+over the blur's reach above and below each too). The swapchain images aren't sampled images, and reading them as storage
+images needs `shaderStorageImageReadWithoutFormat`, hence the copy. `BeginMainMenuBar`'s window draws its own `WindowBg`
+(85% opaque in the classic style) under the bar: the ui clears it. ImGui draws menu items' highlights square (macOS's
+are rounded and inset). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for screenshots.
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the

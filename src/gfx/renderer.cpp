@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdlib>
 #include <numeric>
 #include <optional>
@@ -66,10 +67,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// (SHADER_TYPES_SCATTER_LIGHT_TEXTURE), which the main pass adds
 	myScatterNoisy = myGraph.CreateImage({.name = "Scatter Noisy", .format = Format::kR16G16B16A16Sfloat});
 	myScatterLight = myGraph.CreateImage({.name = "Scatter Light", .format = Format::kR16G16B16A16Sfloat});
-	// the menu bar's backdrop, before and after its blur along x (SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE): the frame's size
-	// (only the rows under the bar are used), placed over the transients the frame is done with by then
-	myMenuBarSource = myGraph.CreateImage({.name = "Menu Bar Source", .format = Format::kR16G16B16A16Sfloat});
-	myMenuBarRows = myGraph.CreateImage({.name = "Menu Bar Rows", .format = Format::kR16G16B16A16Sfloat});
+	// the ui's frosted panels' backdrop, before and after its blur along x (SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE): the
+	// frame's size (only the panels and the blur's reach around them are used), placed over the transients the frame is
+	// done with by then
+	myUiBlurSource = myGraph.CreateImage({.name = "UI Blur Source", .format = Format::kR16G16B16A16Sfloat});
+	myUiBlurRows = myGraph.CreateImage({.name = "UI Blur Rows", .format = Format::kR16G16B16A16Sfloat});
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -108,6 +110,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myClusterLightBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Cluster Lights {}", frameIt)),
 			SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myUiBlurRectBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("UI Blur Rects {}", frameIt)),
+			SHADER_TYPES_UI_BLUR_RECT_COUNT * sizeof(UiBlurRect),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 	}
@@ -342,7 +349,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
 			builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
-			builder.Use(myMenuBarSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this](FrameGraph::PassContext& context)
 		{
@@ -391,38 +398,33 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
 
-	// the menu bar's frosted backdrop (as macOS's): the output under it blurred, along x then y, before the ui draws its
-	// translucent bar over it. only while there is one (PushConstants::menuBarHeight)
-	myMenuBarBlurXPass = myGraph.AddPass(
-		"Menu Bar Blur X",
+	// the ui's frosted panels (the menu bar, menus and popups, as macOS's): the output under them blurred, along x then y,
+	// before the ui draws its translucent panels over it. a thread per pixel of each panel (see UiBlurRect), only while
+	// there are any
+	myUiBlurXPass = myGraph.AddPass(
+		"UI Blur X",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			builder.Use(myMenuBarSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myMenuBarRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myUiBlurSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUiBlurRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, menuBarBlurX);
-			auto extent = myGraph.GetExtent();
-			kernel(
-				context.cmd,
-				ComputePipelineVariant{.entryPoint = 3},
-				extent.width,
-				std::min(myFrame.inputs->pushConstants.menuBarHeight + SHADER_TYPES_MENU_BAR_BLUR_RADIUS, extent.height));
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, uiBlurX);
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = 3}, myUiBlurThreadsX, 1);
 		});
-	myMenuBarBlurYPass = myGraph.AddPass(
-		"Menu Bar Blur Y",
+	myUiBlurYPass = myGraph.AddPass(
+		"UI Blur Y",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			builder.Use(myMenuBarRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUiBlurSource, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUiBlurRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, menuBarBlurY);
-			auto extent = myGraph.GetExtent();
-			kernel(
-				context.cmd, ComputePipelineVariant{.entryPoint = 4}, extent.width, std::min(myFrame.inputs->pushConstants.menuBarHeight, extent.height));
+			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, uiBlurY);
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = 4}, myUiBlurThreadsY, 1);
 		});
 
 	// what ends the frame: the window's ui and present, or an image's hand-off to sampling
@@ -493,8 +495,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myScatterAlbedo, SHADER_TYPES_SCATTER_ALBEDO_TEXTURE},
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_TEXTURE},
 			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_TEXTURE},
-			 std::pair{myMenuBarSource, SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE},
-			 std::pair{myMenuBarRows, SHADER_TYPES_MENU_BAR_ROWS_TEXTURE}})
+			 std::pair{myUiBlurSource, SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE},
+			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
@@ -503,8 +505,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 	for (auto [image, slot] : std::array{
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE},
 			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE},
-			 std::pair{myMenuBarSource, SHADER_TYPES_MENU_BAR_SOURCE_RW_TEXTURE},
-			 std::pair{myMenuBarRows, SHADER_TYPES_MENU_BAR_ROWS_RW_TEXTURE}})
+			 std::pair{myUiBlurSource, SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE},
+			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -525,7 +527,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		for (auto [name, buffers] : std::array{
 				 std::pair{"gClusterViews", &myClusterViewBuffers},
 				 std::pair{"gClusters", &myClusterBuffers},
-				 std::pair{"gClusterLights", &myClusterLightBuffers}})
+				 std::pair{"gClusterLights", &myClusterLightBuffers},
+				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers}})
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
@@ -658,8 +661,43 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myScatterBackPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterBlurPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterDenoisePass, !myScatterDrawList.Empty());
-	myGraph.SetEnabled(myMenuBarBlurXPass, frame.pushConstants.menuBarHeight != 0U);
-	myGraph.SetEnabled(myMenuBarBlurYPass, frame.pushConstants.menuBarHeight != 0U);
+	// the ui's frosted panels: clipped to the frame, each a run of the UI Blur passes' threads, a pixel each (X's over
+	// the blur's reach above and below too)
+	{
+		auto extent = myGraph.GetExtent();
+		std::vector<UiBlurRect> rects;
+		myUiBlurThreadsX = 0;
+		myUiBlurThreadsY = 0;
+		for (auto rect : frame.uiBlurRects)
+		{
+			if (rects.size() == SHADER_TYPES_UI_BLUR_RECT_COUNT)
+				break;
+			rect.rect[0] = std::clamp(std::floor(rect.rect[0]), 0.0F, static_cast<float>(extent.width));
+			rect.rect[1] = std::clamp(std::floor(rect.rect[1]), 0.0F, static_cast<float>(extent.height));
+			rect.rect[2] = std::clamp(std::ceil(rect.rect[2]), 0.0F, static_cast<float>(extent.width));
+			rect.rect[3] = std::clamp(std::ceil(rect.rect[3]), 0.0F, static_cast<float>(extent.height));
+			auto width = static_cast<uint32_t>(rect.rect[2] - rect.rect[0]);
+			auto height = static_cast<uint32_t>(rect.rect[3] - rect.rect[1]);
+			if (width == 0 || height == 0)
+				continue;
+			rect.firstThreadX = myUiBlurThreadsX;
+			rect.firstThreadY = myUiBlurThreadsY;
+			myUiBlurThreadsX += width * (height + (2 * SHADER_TYPES_UI_BLUR_RADIUS));
+			myUiBlurThreadsY += width * height;
+			rects.push_back(rect);
+		}
+		if (!rects.empty())
+		{
+			auto& buffer = myUiBlurRectBuffers[frame.frameIndex];
+			auto memory = buffer.Map();
+			std::ranges::copy(std::as_bytes(std::span(rects)), memory.begin());
+			buffer.Flush(0, rects.size() * sizeof(UiBlurRect));
+			buffer.Unmap();
+		}
+		frame.pushConstants.uiBlurRectCount = static_cast<uint32_t>(rects.size());
+		myGraph.SetEnabled(myUiBlurXPass, !rects.empty());
+		myGraph.SetEnabled(myUiBlurYPass, !rects.empty());
+	}
 
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);

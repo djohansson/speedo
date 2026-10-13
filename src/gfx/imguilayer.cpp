@@ -5,12 +5,14 @@
 #include <platform/imguiplatform.h>
 
 #include <algorithm>
+#include <cstring>
 #include <array>
 #include <filesystem>
 #include <string>
 #include <string_view>
 
 #include <imgui_freetype.h>
+#include <imgui_internal.h> // ImGuiWindow, for the frosted panels (see EndFrame)
 
 namespace gfx
 {
@@ -56,6 +58,9 @@ ImGuiLayer::ImGuiLayer(
 
 	imguiIO.DisplayFramebufferScale = ImVec2(dpiScaleX, dpiScaleY);
 
+	// menus and popups as macOS's: rounded, with a faint border (scaled with the rest below; their colors further down)
+	GetStyle().PopupRounding = 8.0F;
+	GetStyle().PopupBorderSize = 1.0F;
 	GetStyle().ScaleAllSizes(std::max(dpiScaleX, dpiScaleY));
 
 	ImFontConfig config;
@@ -104,6 +109,15 @@ ImGuiLayer::ImGuiLayer(
 
 	// Setup style
 	StyleColorsClassic();
+	// the frosted panels' (see EndFrame): translucent over their blurred backdrop, with a faint edge, and macOS's blue for
+	// the item under the mouse and the open menu's
+	auto& colors = GetStyle().Colors;
+	colors[ImGuiCol_MenuBarBg] = ImVec4(0.10F, 0.10F, 0.12F, 0.45F);
+	colors[ImGuiCol_PopupBg] = ImVec4(0.12F, 0.12F, 0.14F, 0.55F);
+	colors[ImGuiCol_Border] = ImVec4(1.0F, 1.0F, 1.0F, 0.14F);
+	colors[ImGuiCol_Header] = ImVec4(0.04F, 0.40F, 0.92F, 0.80F); // an open menu's item
+	colors[ImGuiCol_HeaderHovered] = ImVec4(0.04F, 0.40F, 0.92F, 0.90F);
+	colors[ImGuiCol_HeaderActive] = ImVec4(0.04F, 0.40F, 0.92F, 1.0F);
 	imguiIO.FontDefault = defaultFont;
 
 	// we allow up to queue count in-flight renders per frame due to triple buffering. passed in rather than read here,
@@ -152,9 +166,31 @@ void ImGuiLayer::EndFrame()
 
 	if (auto *data = ImGui::GetDrawData())
 	{
-		auto& [snapshot, drawData, sequence] = myFrames[myWriteFrame];
+		auto& [snapshot, drawData, sequence, blurRects] = myFrames[myWriteFrame];
 		snapshot.SnapUsingSwap(data, &drawData, ImGui::GetTime());
 		sequence = myFrameSequence;
+
+		// the frosted panels, as macOS's: the main menu bar's window (BeginMainMenuBar's), and the menus, popups and
+		// tooltips open (not modals), in pixels of the framebuffer, with their windows' corners
+		blurRects.clear();
+		const auto& io = ImGui::GetIO();
+		for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows)
+		{
+			if (!window->Active || window->Hidden)
+				continue;
+			bool frosted = (window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_Tooltip)) != 0 &&
+						   (window->Flags & ImGuiWindowFlags_Modal) == 0;
+			frosted = frosted || std::strcmp(window->Name, "##MainMenuBar") == 0;
+			if (!frosted)
+				continue;
+			UiBlurRect rect{};
+			rect.rect[0] = window->Pos.x * io.DisplayFramebufferScale.x;
+			rect.rect[1] = window->Pos.y * io.DisplayFramebufferScale.y;
+			rect.rect[2] = (window->Pos.x + window->Size.x) * io.DisplayFramebufferScale.x;
+			rect.rect[3] = (window->Pos.y + window->Size.y) * io.DisplayFramebufferScale.y;
+			rect.radius = window->WindowRounding * io.DisplayFramebufferScale.y;
+			blurRects.push_back(rect);
+		}
 
 		// detach the snapshot from imgui-owned texture data: resolve texture refs to their (already uploaded)
 		// backend ids, and drop the texture list so RenderDrawData in the render thread doesn't touch it.
@@ -168,14 +204,19 @@ void ImGuiLayer::EndFrame()
 	}
 }
 
+std::span<const UiBlurRect> ImGuiLayer::TakeFrame()
+{
+	// before the texture uploads (PrepareFrame): a frame is published after the uploads it depends on were queued. keep
+	// drawing the previous frame if no new one was published.
+	if ((myPendingFrame.load(std::memory_order_relaxed) & kFrameFresh) != 0)
+		myReadFrame = myPendingFrame.exchange(myReadFrame, std::memory_order_acq_rel) & ~kFrameFresh;
+
+	return myFrames[myReadFrame].blurRects;
+}
+
 void ImGuiLayer::PrepareFrame(CommandBufferHandle cmd, std::vector<core::TaskHandle>& callbacks)
 {
 	ZoneScopedN("ImGuiLayer::PrepareFrame");
-
-	// take the frame before the texture uploads: a frame is published after the uploads it depends on were queued.
-	// keep drawing the previous frame if no new one was published.
-	if ((myPendingFrame.load(std::memory_order_relaxed) & kFrameFresh) != 0)
-		myReadFrame = myPendingFrame.exchange(myReadFrame, std::memory_order_acq_rel) & ~kFrameFresh;
 
 	myRenderer->PrepareFrame(cmd, myFrames[myReadFrame].sequence, callbacks);
 }

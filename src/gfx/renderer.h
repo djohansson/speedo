@@ -64,6 +64,8 @@ struct FrameInputs
 	// the ui: records its uploads (outside of a render pass), and its draws (in the swapchain's)
 	std::function<void(CommandBufferHandle cmd)> prepareUi;
 	std::function<void(CommandBufferHandle cmd)> drawUi;
+	// the ui's frosted panels (see Scene::FrameTarget::uiBlurRects)
+	std::span<const UiBlurRect> uiBlurRects;
 	// runs a job on another thread (creating a pipeline in the background, see RecordDrawList), if given
 	std::function<void(std::function<void()> job)> runInBackground;
 };
@@ -111,10 +113,10 @@ private:
 	FrameGraph::ImageId myScatterBackDepth;
 	FrameGraph::ImageId myScatterNoisy;
 	FrameGraph::ImageId myScatterLight;
-	// the menu bar's backdrop: the output's rows under it (linear), and those blurred along x (see
-	// SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE)
-	FrameGraph::ImageId myMenuBarSource;
-	FrameGraph::ImageId myMenuBarRows;
+	// the ui's frosted panels' backdrop: the output under them and within the blur's reach (linear), and that blurred
+	// along x (see SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE)
+	FrameGraph::ImageId myUiBlurSource;
+	FrameGraph::ImageId myUiBlurRows;
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
@@ -129,8 +131,8 @@ private:
 	FrameGraph::PassId myScatterPass;
 	FrameGraph::PassId myScatterBlurPass;
 	FrameGraph::PassId myScatterDenoisePass;
-	FrameGraph::PassId myMenuBarBlurXPass;
-	FrameGraph::PassId myMenuBarBlurYPass;
+	FrameGraph::PassId myUiBlurXPass;
+	FrameGraph::PassId myUiBlurYPass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;
@@ -141,6 +143,10 @@ private:
 	std::vector<Buffer> myClusterViewBuffers;
 	std::vector<Buffer> myClusterBuffers;
 	std::vector<Buffer> myClusterLightBuffers;
+	// per frame index: the ui's frosted panels (gUiBlurRects), host visible, and the UI Blur passes' thread counts
+	std::vector<Buffer> myUiBlurRectBuffers;
+	uint32_t myUiBlurThreadsX = 0;
+	uint32_t myUiBlurThreadsY = 0;
 	DrawList myShadowDrawList;
 
 	// what Record's passes (and the output's) read of the frame they record

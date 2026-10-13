@@ -194,6 +194,8 @@ bool WindowedApplication::Draw()
 			myPreview->RecordCapture(cmd, graphicsCallbacks);
 		}
 
+		// the ui's frame to draw over the window's: taken now, for its frosted panels' blur, recorded before the ui
+		auto uiBlurRects = myImGui->TakeFrame();
 		myScene->Record(
 			cmd,
 			Scene::FrameTarget{
@@ -202,6 +204,7 @@ bool WindowedApplication::Draw()
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
 				.drawUi = [this](CommandBufferHandle cmd) { myImGui->Draw(cmd); },
+				.uiBlurRects = uiBlurRects,
 				.runInBackground = runInBackground});
 
 		auto presentInfo = swapchain.PreparePresent();

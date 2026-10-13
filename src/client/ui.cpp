@@ -9,12 +9,33 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <format>
+#include <string>
 #include <tuple>
 #include <numbers>
 
 namespace client
 {
+
+namespace ui
+{
+
+// SPEEDO_OPEN_MENUS=<label>[/<label>...]: the menus of these labels are held open (each where its parent menu is), to
+// show them in screenshots without clicking (which would bring the window to the front)
+[[nodiscard]] bool BeginMenu(const char* label)
+{
+	static const std::string kOpenMenus = []
+	{
+		const char* menus = std::getenv("SPEEDO_OPEN_MENUS");
+		return menus != nullptr ? std::format("/{}/", menus) : std::string();
+	}();
+	if (!kOpenMenus.empty() && kOpenMenus.find(std::format("/{}/", label)) != std::string::npos)
+		ImGui::OpenPopup(ImGui::GetID(label));
+	return ImGui::BeginMenu(label);
+}
+
+} // namespace ui
 
 void WindowedApplication::PrepareDraw()
 {
@@ -487,17 +508,13 @@ void WindowedApplication::PrepareDraw()
 		if ((*gAutoLoadExitFrames)-- == 0)
 			core::Application::Get()->RequestExit();
 
-	// the menu bar, as macOS's: translucent over its backdrop, which the renderer blurs (the Menu Bar Blur passes, by its
-	// height in pixels), a little taller, with a faint edge below
-	PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.10F, 0.10F, 0.12F, 0.45F));
-	PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0F, 0.0F, 0.0F, 0.0F)); // the bar's window, under its menu bar
+	// the menu bar, as macOS's: translucent over its backdrop, which the renderer blurs (a frosted panel, see
+	// ImGuiLayer::TakeFrame), a little taller, without a border, with a faint edge below. its window would draw its own
+	// background under the menu bar's (WindowBg, 85% opaque)
+	PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0F, 0.0F, 0.0F, 0.0F));
 	PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(GetStyle().FramePadding.x, GetStyle().FramePadding.y * 1.75F));
 	PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
-	bool menuBar = BeginMainMenuBar();
-	App().GetScene().GetSettings().menuBarHeight.store(
-		menuBar ? static_cast<uint32_t>(std::ceil(GetWindowHeight() * GetIO().DisplayFramebufferScale.y)) : 0U,
-		std::memory_order_relaxed);
-	if (menuBar)
+	if (BeginMainMenuBar())
 	{
 		auto* drawList = GetWindowDrawList();
 		drawList->PushClipRectFullScreen();
@@ -507,7 +524,7 @@ void WindowedApplication::PrepareDraw()
 			IM_COL32(255, 255, 255, 40));
 		drawList->PopClipRect();
 
-		if (BeginMenu("File"))
+		if (ui::BeginMenu("File"))
 		{
 			if (MenuItem("Open...", nullptr, gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
 			{
@@ -521,11 +538,11 @@ void WindowedApplication::PrepareDraw()
 
 			ImGui::EndMenu();
 		}
-		if (BeginMenu("View"))
+		if (ui::BeginMenu("View"))
 		{
 			// if (MenuItem("Node Editor..."))
 			// 	showNodeEditor = !showNodeEditor;
-			if (BeginMenu("Layout"))
+			if (ui::BeginMenu("Layout"))
 			{
 				// the views' grid is owned by the draw thread (see Views::OnResizeGrid), so track the
 				// requested one here. nothing else changes the grid, so the window's is current when this is initialized.
@@ -574,7 +591,7 @@ void WindowedApplication::PrepareDraw()
 					rhi.drawCalls.enqueue(resizeTask);
 				}
 			}
-			if (BeginMenu("Presentation"))
+			if (ui::BeginMenu("Presentation"))
 			{
 				// how the window goes fullscreen (alt+enter) and presents (see FULLSCREEN_MODE_* and Swapchain::Configure):
 				// to compare them, e.g. a driver's direct scanout on macOS
@@ -624,7 +641,7 @@ void WindowedApplication::PrepareDraw()
 				SetItemTooltip("The swapchain is recreated before the next frame.");
 				ImGui::EndMenu();
 			}
-			if (BeginMenu("Environment"))
+			if (ui::BeginMenu("Environment"))
 			{
 				// what lights the scene (see InstallEnvironment): the procedural sky, or a panorama file
 				std::string current = App().GetScene().GetEnvironmentName().Read().Get();
@@ -679,7 +696,7 @@ void WindowedApplication::PrepareDraw()
 				}
 				ImGui::EndMenu();
 			}
-			if (BeginMenu("Scene"))
+			if (ui::BeginMenu("Scene"))
 			{
 				// the installed gltf file's scenes: choosing one loads the file again with it
 				Scene::SceneState scenes = App().GetScene().GetScenes().Read().Get();
@@ -700,7 +717,7 @@ void WindowedApplication::PrepareDraw()
 				}
 				ImGui::EndMenu();
 			}
-			if (BeginMenu("Variant"))
+			if (ui::BeginMenu("Variant"))
 			{
 				// the installed gltf file's material variants (KHR_materials_variants): choosing one loads the file again
 				// with its materials, in the scene shown
@@ -726,7 +743,7 @@ void WindowedApplication::PrepareDraw()
 				}
 				ImGui::EndMenu();
 			}
-			if (BeginMenu("Animation"))
+			if (ui::BeginMenu("Animation"))
 			{
 				// the installed model's animations (see Model::Animate)
 				auto animation = App().GetScene().GetAnimation().Write();
@@ -746,7 +763,7 @@ void WindowedApplication::PrepareDraw()
 				}
 				ImGui::EndMenu();
 			}
-			if (BeginMenu("Camera"))
+			if (ui::BeginMenu("Camera"))
 			{
 				// the installed model's cameras (see Views::SetScene), applied on the draw thread
 				auto useCamera = [this, &rhi](std::optional<size_t> camera)
@@ -816,7 +833,7 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Clustered Lights", nullptr, &clusteredLights))
 					App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
 				SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
-				if (BeginMenu("Tonemapper"))
+				if (ui::BeginMenu("Tonemapper"))
 				{
 					static constexpr std::array<std::pair<const char*, uint32_t>, 5> kTonemappers{{
 						{"Khronos PBR Neutral", TONEMAPPER_PBR_NEUTRAL},
@@ -843,7 +860,7 @@ void WindowedApplication::PrepareDraw()
 #endif
 			ImGui::EndMenu();
 		}
-		if (BeginMenu("About"))
+		if (ui::BeginMenu("About"))
 		{
 			if (MenuItem("Show IMGUI Demo..."))
 				gShowDemoWindow = !gShowDemoWindow;
@@ -856,7 +873,7 @@ void WindowedApplication::PrepareDraw()
 		EndMainMenuBar();
 	}
 	PopStyleVar(2);
-	PopStyleColor(2);
+	PopStyleColor();
 
 	myImGui->EndFrame();
 }

@@ -2,6 +2,7 @@
 
 #include <gfx/gpu.h>
 #include <gfx/imgui_extra.h>
+#include <gfx/shaders/capi.h>
 
 #include <platform/window.h>
 
@@ -11,6 +12,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -46,9 +48,14 @@ public:
 	void BeginFrame();
 	void EndFrame();
 
-	// takes the latest frame published by EndFrame and records the texture uploads it depends on into `cmd` (outside of
-	// a render pass). textures that are no longer drawn are destroyed from a task added to `callbacks`, which must run
-	// once the gpu has completed the submission of `cmd`. draw thread, before Draw.
+	// takes the latest frame published by EndFrame (else keeps the one before), to prepare and draw, and returns its
+	// frosted panels: the main menu bar and the menus, popups and tooltips open, whose backdrop the renderer blurs (see
+	// UiBlurRect: in pixels of the framebuffer, their threads not filled in). valid until the next TakeFrame. draw thread,
+	// before the frame is recorded
+	[[nodiscard]] std::span<const UiBlurRect> TakeFrame();
+	// records the texture uploads the frame TakeFrame took depends on into `cmd` (outside of a render pass). textures that
+	// are no longer drawn are destroyed from a task added to `callbacks`, which must run once the gpu has completed the
+	// submission of `cmd`. draw thread, before Draw.
 	void PrepareFrame(CommandBufferHandle cmd, std::vector<core::TaskHandle>& callbacks);
 	// records the frame's draws into cmd, inside the swapchain frame's render target. draw thread.
 	void Draw(CommandBufferHandle cmd);
@@ -65,6 +72,7 @@ private:
 		imgui_extra::ImDrawDataSnapshot snapshot;
 		ImDrawData drawData;
 		uint64_t sequence = 0; // EndFrame count when published
+		std::vector<UiBlurRect> blurRects; // see TakeFrame
 	};
 	static constexpr uint8_t kFrameFresh = 0x80; // set on myPendingFrame when published but not yet taken
 

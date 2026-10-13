@@ -97,14 +97,16 @@ extern "C"
 #define SHADER_TYPES_TRANSMISSION_TEXTURE 13u
 // the gTextures slot of the environment's panorama prefiltered for sheen (see EnvironmentData)
 #define SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE 14u
-// the menu bar's frosted backdrop (see the Menu Bar Blur passes): the composited rows under it (and the blur's reach
-// below), which ComputeMain writes, blurred along x (ComputeMenuBarBlurX), then along y into the output
-// (ComputeMenuBarBlurY), a gaussian of this radius in pixels
-#define SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE 16u
-#define SHADER_TYPES_MENU_BAR_SOURCE_RW_TEXTURE 6u
-#define SHADER_TYPES_MENU_BAR_ROWS_TEXTURE 17u
-#define SHADER_TYPES_MENU_BAR_ROWS_RW_TEXTURE 7u
-#define SHADER_TYPES_MENU_BAR_BLUR_RADIUS 24u
+// the ui's frosted panels (the menu bar, menus and popups, as macOS's: see UiBlurRect and the UI Blur passes): the
+// output under them and the blur's reach around them, which ComputeMain writes, blurred along x (ComputeUiBlurX), then
+// along y into the output (ComputeUiBlurY), a gaussian of this radius in pixels
+#define SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE 16u
+#define SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE 6u
+#define SHADER_TYPES_UI_BLUR_ROWS_TEXTURE 17u
+#define SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE 7u
+#define SHADER_TYPES_UI_BLUR_RADIUS 24u
+#define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
+#define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
 #define SHADER_TYPES_CLAMP_SAMPLER 3u
 
@@ -232,6 +234,18 @@ struct ShadowData
 #define SHADER_TYPES_CLUSTER_COUNT (SHADER_TYPES_CLUSTER_TILES_X * SHADER_TYPES_CLUSTER_TILES_Y * SHADER_TYPES_CLUSTER_SLICES)
 // the light indices gClusterLights holds per frame (past them, the views loop over all lights)
 #define SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT (1u << 18)
+
+// a frosted panel of the ui (gUiBlurRects[frame], PushConstants::uiBlurRectCount of them): where the output's backdrop is
+// blurred, a rectangle with rounded corners in pixels of the output. the UI Blur passes run a thread per pixel of each
+// (ComputeUiBlurX over it and the blur's reach above and below, ComputeUiBlurY over it), from its first thread
+struct UiBlurRect
+{
+	alignas(16) FLOAT4(rect); // xy: its top left corner, zw: its bottom right (exclusive), in pixels
+	alignas(4) FLOAT1(radius); // its corners' radius, in pixels
+	alignas(4) UINT1(firstThreadX); // ascending with the panels: each panel's threads follow the one's before
+	alignas(4) UINT1(firstThreadY);
+	alignas(4) UINT1(padding);
+};
 
 // how a view's clusters cut its frustum (gClusterViews[frame][view])
 struct ClusterView
@@ -436,9 +450,8 @@ struct PushConstants
 	alignas(4) UINT1(shadows);
 	// per frame: whether the scatter pass drew (SHADER_TYPES_SCATTER_TEXTURE holds this frame's scattering light)
 	alignas(4) UINT1(scatter);
-	// per frame: the height in pixels of the ui's menu bar at the top of the output, whose backdrop is blurred (see
-	// SHADER_TYPES_MENU_BAR_SOURCE_TEXTURE). 0: none
-	alignas(4) UINT1(menuBarHeight);
+	// per frame: how many of gUiBlurRects[frame] the ui's frosted panels take (0: none)
+	alignas(4) UINT1(uiBlurRectCount);
 };
 
 #ifdef __cplusplus
