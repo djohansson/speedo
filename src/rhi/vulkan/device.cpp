@@ -190,7 +190,6 @@ void Device<kVk>::InternalCreateQueues()
 							CreateDeviceObjectCreateDesc(std::format("Graphics Queue {}", queueIt)),
 							queueIt,
 							queueFamilyIt,
-							15,
 							static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
 						}
 					);
@@ -209,7 +208,6 @@ void Device<kVk>::InternalCreateQueues()
 							CreateDeviceObjectCreateDesc(std::format("Compute Queue {}", queueIt)),
 							queueIt,
 							queueFamilyIt,
-							1,
 							static_cast<uint32_t>(queueFamily.timestampValidBits > 0)
 						}
 					);
@@ -228,7 +226,6 @@ void Device<kVk>::InternalCreateQueues()
 							CreateDeviceObjectCreateDesc(std::format("Transfer Queue {}", queueIt)),
 							queueIt,
 							queueFamilyIt,
-							1,
 							VK_FALSE, // requires VK_QUEUE_GRAPHICS_BIT or VK_QUEUE_COMPUTE_BIT
 						}
 					);

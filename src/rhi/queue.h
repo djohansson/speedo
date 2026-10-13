@@ -42,9 +42,6 @@ struct QueueDeviceSyncInfo
 	// These will be passed on and stored internally in the queue to be called after the queue has finished executing the command buffers on the device.
 	// They will then be called and deleted through manually calling the Queue::SubmitCallbacks from the host.
 	std::vector<core::TaskHandle> callbacks;
-	// submits the pool's one-shot command buffers (CommandPool::OneShotCommands, all ended), rather than the frame's
-	// (CommandPool::Commands, which it ends): leaves a frame recording meanwhile alone
-	bool oneShot = false;
 };
 
 template <GraphicsApi G>
@@ -109,8 +106,7 @@ template <GraphicsApi G>
 struct QueueCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	uint32_t queueIndex = 0UL;
-	uint32_t queueFamilyIndex : 27;
-	uint32_t levelCount : 4;
+	uint32_t queueFamilyIndex : 31;
 	uint32_t supportsProfiling : 1;
 };
 
@@ -141,8 +137,12 @@ public:
 	void Swap(Queue& rhs) noexcept;
 	friend void Swap(Queue& lhs, Queue& rhs) noexcept { lhs.Swap(rhs); }
 
-	template <typename T, typename... Ts>
-	void EnqueueSubmit(T&& first, Ts&&... rest);
+	// queues a submission of commands (each ended if it is still recording, and handed back to its pool), with syncInfo's
+	// waits, signals and callbacks. commands may be empty: a submission that only waits and signals. Submit sends what is
+	// queued
+	void EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo, std::vector<CommandBuffer<G>>&& commands);
+	void EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo, CommandBuffer<G>&& commands);
+	void EnqueueSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 	[[nodiscard]] QueueHostSyncInfo<G> Submit();
 
 	template <typename T, typename... Ts>
@@ -150,7 +150,6 @@ public:
 	// presentResult (optional) receives the vkQueuePresentKHR result, e.g. to recreate an out of date swapchain
 	[[maybe_unused]] QueueHostSyncInfo<G> Present(PresentResult* presentResult = nullptr);
 
-	void Execute(uint8_t level, uint64_t timelineValue);
 
 	void WaitIdle() const;
 	
@@ -159,6 +158,9 @@ public:
 	[[nodiscard]] auto& GetPool() noexcept { return myPools[0]; }
 	[[nodiscard]] const auto& GetPool() const noexcept { return myPools[0]; }
 
+	// switches to the other of the queue's two pools, and resets it (see CommandPool::Reset): once the gpu is done with
+	// everything recorded from it, i.e. after the fences of the submits before the previous switch. no command buffer of
+	// either pool may be held over it
 	void SwapAndResetPool();
 
 	// totals over all queues: gpu submits (vkQueueSubmit calls), and the submit batches (VkSubmitInfos) they carried
@@ -174,7 +176,6 @@ private:
 		CreateDescType&& queueDesc,
 		QueueHandle<G>&& handle);
 
-	[[nodiscard]] QueueSubmitInfo<G> InternalPrepareSubmit(QueueDeviceSyncInfo<G>&& syncInfo);
 	[[nodiscard]] std::shared_ptr<void> InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 
 	QueueHandle<G> myQueue{};

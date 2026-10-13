@@ -47,9 +47,7 @@ Queue<kVk>::Queue(
 				{
 					SuperType::CreateDeviceObjectCreateDesc("CommandPool 0"),
 					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT|VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-					GetDesc().queueFamilyIndex,
-					GetDesc().levelCount,
-					GetDesc().supportsProfiling
+					GetDesc().queueFamilyIndex
 				}
 			),
 			CommandPool<kVk>(
@@ -57,9 +55,7 @@ Queue<kVk>::Queue(
 				{
 					SuperType::CreateDeviceObjectCreateDesc("CommandPool 1"),
 					VK_COMMAND_POOL_CREATE_TRANSIENT_BIT|VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-					GetDesc().queueFamilyIndex,
-					GetDesc().levelCount,
-					GetDesc().supportsProfiling
+					GetDesc().queueFamilyIndex
 				}
 			)
 		}
@@ -92,7 +88,7 @@ Queue<kVk>::Queue(
 			GetDevice().GetPhysicalDevice(),
 			GetDevice(),
 			myQueue,
-			GetPool().Commands(CommandBufferAccessScopeDesc<kVk>(false)),
+			GetPool().Allocate(),
 			nullptr,
 			nullptr);
 #endif
@@ -363,53 +359,35 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 }
 
 template <>
-QueueSubmitInfo<kVk> Queue<kVk>::InternalPrepareSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo)
+void Queue<kVk>::EnqueueSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo, std::vector<CommandBuffer<kVk>>&& commands)
 {
-	ZoneScopedN("Queue::PrepareSubmit");
+	ZoneScopedN("Queue::EnqueueSubmit");
 
-	bool oneShot = syncInfo.oneShot;
-	if (!oneShot)
-		GetPool().InternalEndCommands(VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-
-	auto& pendingCommands =
-		oneShot ? GetPool().InternalGetOneShotCommands() : GetPool().InternalGetPendingCommands()[VK_COMMAND_BUFFER_LEVEL_PRIMARY];
-
-	if (pendingCommands.empty())
-		return {};
-
-	QueueSubmitInfo<kVk> submitInfo{std::forward<QueueDeviceSyncInfo<kVk>>(syncInfo), {}, 0};
-	submitInfo.commandBuffers.reserve(pendingCommands.size() * CommandBufferArray<kVk>::Capacity());
-
-	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
+	QueueSubmitInfo<kVk> submitInfo{std::move(syncInfo), {}, 0};
+	submitInfo.commandBuffers.reserve(commands.size());
+	for (auto& command : commands)
 	{
-		ENSURE(!cmdArray.RecordingFlags());
-		auto cmdCount = cmdArray.Head();
-		std::copy_n(cmdArray.Data(), cmdCount, std::back_inserter(submitInfo.commandBuffers));
+		ENSURE(!command.IsSecondary());
+		submitInfo.commandBuffers.push_back(command.Release());
 	}
+	if (!submitInfo.signalSemaphoreValues.empty())
+		submitInfo.timelineValue = *std::ranges::max_element(submitInfo.signalSemaphoreValues);
 
-	const auto [minSignalValue, maxSignalValue] = std::ranges::minmax_element(
-		submitInfo.signalSemaphoreValues);
-
-	submitInfo.timelineValue = *maxSignalValue;
-
-	GetPool().InternalEnqueueSubmitted(std::move(pendingCommands), VK_COMMAND_BUFFER_LEVEL_PRIMARY, *maxSignalValue);
-	
-	return submitInfo;
+	myPendingSubmits.emplace_back(std::move(submitInfo));
 }
 
 template <>
-void Queue<kVk>::Execute(uint8_t level, uint64_t timelineValue)
+void Queue<kVk>::EnqueueSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo, CommandBuffer<kVk>&& commands)
 {
-	ZoneScopedN("Queue::Execute");
+	std::vector<CommandBuffer<kVk>> list;
+	list.push_back(std::move(commands));
+	EnqueueSubmit(std::move(syncInfo), std::move(list));
+}
 
-	GetPool().InternalEndCommands(level);
-
-	auto& pendingCommands = GetPool().InternalGetPendingCommands()[level];
-
-	for (const auto& [cmdArray, cmdTimelineValue] : pendingCommands)
-		vkCmdExecuteCommands(GetPool().Commands(), cmdArray.Head(), cmdArray.Data());
-
-	GetPool().InternalEnqueueSubmitted(std::move(pendingCommands), level, timelineValue);
+template <>
+void Queue<kVk>::EnqueueSubmit(QueueDeviceSyncInfo<kVk>&& syncInfo)
+{
+	EnqueueSubmit(std::move(syncInfo), std::vector<CommandBuffer<kVk>>{});
 }
 
 } // namespace rhi

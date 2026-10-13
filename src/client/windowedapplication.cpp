@@ -144,13 +144,14 @@ bool WindowedApplication::Draw()
 		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
 		// (see the fences above)
 		myScene->Update(*graphics, newFrameIndex);
-		// the same for the preview, if it is drawn this frame. both before the frame's command buffer is begun: updates
-		// submit command buffers of their own (see UpdateBufferOnGraphics), which ends the one recording
+		// the same for the preview, if it is drawn this frame (updates submit command buffers of their own, see
+		// UpdateBufferOnGraphics, ordered before the frame's)
 		bool drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed);
 		if (drawPreview)
 			myPreview->GetScene().Update(*graphics, newFrameIndex);
 
-		auto cmd = graphicsQueue.GetPool().Commands();
+		// the frame's command buffer: recorded into by the scenes and the ui (which borrow it), and submitted below
+		auto cmd = graphicsQueue.GetPool().Begin();
 
 		ZoneScopedN("WindowedApplication::Draw::submit");
 
@@ -187,8 +188,6 @@ bool WindowedApplication::Draw()
 				.drawUi = [this](CommandBufferHandle cmd) { myImGui->Draw(cmd); },
 				.runInBackground = runInBackground});
 
-		cmd.End();
-
 		auto presentInfo = swapchain.PreparePresent();
 
 		SemaphoreHandle acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;
@@ -220,7 +219,8 @@ bool WindowedApplication::Draw()
 			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue, 1},
 			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphoreHandle},
 			.signalSemaphoreValues = {++graphics->timeline, 1},
-			.callbacks = std::move(graphicsCallbacks)});
+			.callbacks = std::move(graphicsCallbacks)},
+			std::move(cmd));
 
 		graphicsSubmits |= graphicsQueue.Submit();
 

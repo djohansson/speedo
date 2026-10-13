@@ -792,7 +792,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		auto transfer = device.GetQueue(kQueueTypeTransfer).Write();
 		auto& [transferQueue, transferSubmits] = transfer->queues.Get();
 
-		auto cmd = transferQueue.GetPool().OneShotCommands();
+		auto cmd = transferQueue.GetPool().Begin();
 
 		std::vector<core::TaskHandle> timelineCallbacks;
 		auto upload = [&](std::string_view what, uint64_t size, BufferUsage usage, Buffer&& staging)
@@ -842,8 +842,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			.waitSemaphoreValues = {transferSubmits.maxTimelineValue},
 			.signalSemaphores = {transfer->semaphore},
 			.signalSemaphoreValues = {uploadInfo.value},
-			.callbacks = std::move(timelineCallbacks),
-			.oneShot = true});
+			.callbacks = std::move(timelineCallbacks)},
+			std::move(cmd));
 
 		transferSubmits |= transferQueue.Submit();
 	}

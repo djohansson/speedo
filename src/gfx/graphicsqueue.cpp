@@ -19,9 +19,6 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
-	auto cmd = graphicsQueue.GetPool().OneShotCommands();
-	cmd.End();
-
 	std::vector<core::TaskHandle> callbacks;
 	callbacks.emplace_back(core::CreateTask([resource = std::move(resource)] {}).handle);
 
@@ -31,8 +28,7 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
 		.signalSemaphoreValues = {++graphics.timeline},
-		.callbacks = std::move(callbacks),
-		.oneShot = true});
+		.callbacks = std::move(callbacks)});
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -47,7 +43,7 @@ void UpdateBufferOnGraphics(
 
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
-	auto cmd = graphicsQueue.GetPool().OneShotCommands();
+	auto cmd = graphicsQueue.GetPool().Begin();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, UpdateBuffer); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
@@ -70,8 +66,8 @@ void UpdateBufferOnGraphics(
 		.waitDstStageMasks = {PipelineStage::kAllCommands},
 		.waitSemaphoreValues = {graphics.timeline},
 		.signalSemaphores = {graphics.semaphore},
-		.signalSemaphoreValues = {++graphics.timeline},
-		.oneShot = true});
+		.signalSemaphoreValues = {++graphics.timeline}},
+		std::move(cmd));
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
@@ -112,7 +108,7 @@ void TransitionThenBind(
 		}
 	};
 
-	auto cmd = graphicsQueue.GetPool().OneShotCommands();
+	auto cmd = graphicsQueue.GetPool().Begin();
 	{
 		GPU_SCOPE(cmd, graphicsQueue, Transition); //NOLINT(bugprone-suspicious-stringview-data-usage)
 
@@ -149,8 +145,7 @@ void TransitionThenBind(
 	syncInfo.signalSemaphores = {graphics.semaphore};
 	syncInfo.signalSemaphoreValues = {++graphics.timeline};
 	syncInfo.callbacks.emplace_back(transitionDoneTask);
-	syncInfo.oneShot = true;
-	graphicsQueue.EnqueueSubmit(std::move(syncInfo));
+	graphicsQueue.EnqueueSubmit(std::move(syncInfo), std::move(cmd));
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace rhi
 {
@@ -15,6 +16,9 @@ class Buffer;
 
 template <GraphicsApi G>
 class Image;
+
+template <GraphicsApi G>
+class CommandBuffer;
 
 // records commands into a command buffer, in rhi's neutral terms. it doesn't own the command buffer: construct one
 // wherever a command buffer is at hand.
@@ -46,6 +50,9 @@ public:
 	// makes the memory accesses (srcAccess) of the commands before, in srcStages, visible to the accesses (dstAccess) of
 	// the commands after, in dstStages, which wait for them
 	void Barrier(PipelineStage srcStages, Access srcAccess, PipelineStage dstStages, Access dstAccess) const;
+	// runs secondary command buffers (see CommandPool::BeginSecondary), inside the render target they were begun for:
+	// takes them, each ended if it is still recording and handed back to its pool
+	void ExecuteCommands(std::vector<CommandBuffer<G>>&& secondaries) const;
 
 	// queue family ownership transfer, for a resource written on a queue of one family (srcFamily) and then used on a
 	// queue of another (dstFamily): resources are exclusive to one family at a time. record the release on the source

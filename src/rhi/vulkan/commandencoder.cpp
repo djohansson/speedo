@@ -1,4 +1,5 @@
 #include <rhi/buffer.h>
+#include <rhi/command.h>
 #include <rhi/commandencoder.h>
 #include <rhi/image.h>
 #include <rhi/vulkan/utils.h>
@@ -65,6 +66,24 @@ template <>
 void CommandEncoder<kVk>::UpdateBuffer(const Buffer<kVk>& buffer, uint64_t offset, std::span<const std::byte> data) const
 {
 	vkCmdUpdateBuffer(myCmd, buffer, offset, data.size(), data.data());
+}
+
+template <>
+void CommandEncoder<kVk>::ExecuteCommands(std::vector<CommandBuffer<kVk>>&& secondaries) const
+{
+	ZoneScopedN("CommandEncoder::ExecuteCommands");
+
+	if (secondaries.empty())
+		return;
+
+	std::vector<CommandBufferHandle<kVk>> handles;
+	handles.reserve(secondaries.size());
+	for (auto& secondary : secondaries)
+	{
+		ENSURE(secondary.IsSecondary());
+		handles.push_back(secondary.Release());
+	}
+	vkCmdExecuteCommands(myCmd, static_cast<uint32_t>(handles.size()), handles.data());
 }
 
 template <>

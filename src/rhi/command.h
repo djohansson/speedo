@@ -4,158 +4,63 @@
 #include <rhi/rendertarget.h>
 #include <rhi/types.h>
 
-#include <array>
-#include <list>
-#include <memory>
-#include <optional>
+#include <cstdint>
+#include <vector>
 
 namespace rhi
 {
 
 template <GraphicsApi G>
-class Queue;
-
-template <GraphicsApi G>
-class CommandBufferArray;
-
-template <GraphicsApi G>
 class CommandPool;
 
+// a command buffer being recorded, with a single owner. what records into it borrows its handle (it converts to a
+// CommandBufferHandle); only its owner can end it, and submit it (Queue::EnqueueSubmit) or execute it
+// (CommandEncoder::ExecuteCommands, a secondary one), which take it. made by its pool (CommandPool::Begin,
+// BeginSecondary) and used under the lock of the queue owning the pool, and not kept past the pool's next reset
+// (Queue::SwapAndResetPool checks)
 template <GraphicsApi G>
-struct CommandBufferArrayCreateDesc final : DeviceObjectCreateDesc<G>
-{
-	CommandPoolHandle<G> pool{};
-	uint8_t level : 6; // 0: primary, >= 1: secondary
-	uint8_t useResetCommandBuffers : 1;
-	uint8_t useReleaseResourcesOnReset : 1;
-};
-
-template <GraphicsApi G>
-struct ObjectTraits<CommandBufferArray<G>>
-{
-	using CreateDescType = CommandBufferArrayCreateDesc<G>;
-};
-
-template <GraphicsApi G>
-class CommandBufferArray final : public DeviceObject<CommandBufferArray<G>>
-{
-	static constexpr uint32_t kHeadBitCount = 2;
-	static constexpr size_t kCommandBufferCount = (1 << kHeadBitCount);
-
-public:
-	using SuperType = DeviceObject<CommandBufferArray<G>>;
-	using CreateDescType = ObjectTraits<CommandBufferArray<G>>::CreateDescType;
-
-	constexpr CommandBufferArray() noexcept = default;
-	explicit CommandBufferArray(CreateDescType&& desc);
-	CommandBufferArray(CommandBufferArray&& other) noexcept;
-	~CommandBufferArray();
-
-	[[maybe_unused]] CommandBufferArray& operator=(CommandBufferArray&& other) noexcept;
-	[[nodiscard]] CommandBufferHandle<G> operator[](uint8_t index) const { return myArray[index]; }
-
-	void Swap(CommandBufferArray& rhs) noexcept;
-	friend void Swap(CommandBufferArray& lhs, CommandBufferArray& rhs) noexcept { lhs.Swap(rhs); }
-
-	[[nodiscard]] static consteval auto Capacity() { return kCommandBufferCount; }
-
-	[[nodiscard]] uint8_t Begin(const CommandBufferBeginInfo<G>& beginInfo);
-	void End(uint8_t index);
-
-	void Reset();
-
-	[[nodiscard]] uint8_t Head() const noexcept { return myBits.head; }
-	[[nodiscard]] const CommandBufferHandle<G>* Data() const noexcept
-	{
-		ENSURE(!RecordingFlags());
-		return myArray.data();
-	}
-
-	[[nodiscard]] bool Recording(uint8_t index) const noexcept
-	{
-		return myBits.recordingFlags & (1 << index);
-	}
-	[[nodiscard]] uint8_t RecordingFlags() const noexcept { return myBits.recordingFlags; }
-
-	[[nodiscard]] bool Full() const noexcept { return (Head() + 1) >= Capacity(); }
-
-private:
-	explicit CommandBufferArray(
-		CreateDescType&& desc,
-		std::array<CommandBufferHandle<G>, kCommandBufferCount>&& array);
-
-	std::array<CommandBufferHandle<G>, kCommandBufferCount> myArray{};
-	struct Bits
-	{
-		uint8_t head : kHeadBitCount;
-		uint8_t recordingFlags : kCommandBufferCount;
-	} myBits{0, 0};
-};
-
-template <GraphicsApi G>
-struct CommandBufferAccessScopeDesc final : public CommandBufferBeginInfo<G>
-{
-	CommandBufferAccessScopeDesc(bool scopedBeginEnd = true) noexcept;//NOLINT(google-explicit-constructor)
-	CommandBufferAccessScopeDesc(const CommandBufferAccessScopeDesc<G>& other) noexcept;
-
-	[[maybe_unused]] CommandBufferAccessScopeDesc<G>& operator=(const CommandBufferAccessScopeDesc<G>& other) noexcept;
-	[[nodiscard]] bool operator==(const CommandBufferAccessScopeDesc<G>& other) const noexcept;
-
-	CommandBufferInheritanceInfo<kVk> inheritance{};
-	uint8_t level : 6; // 0: primary, >= 1: secondary
-	uint8_t scopedBeginEnd : 1;
-};
-
-template <GraphicsApi G>
-class CommandBufferAccessScope final
+class CommandBuffer final
 {
 public:
-	using CreateDescType = CommandBufferAccessScopeDesc<G>;
+	constexpr CommandBuffer() noexcept = default;
+	// a begun command buffer of pool's: see CommandPool::Begin
+	CommandBuffer(CommandPool<G>& pool, CommandBufferHandle<G> handle, bool secondary) noexcept;
+	CommandBuffer(CommandBuffer&& other) noexcept;
+	CommandBuffer(const CommandBuffer&) = delete;
+	// dropped without being submitted (an error path), it is ended and handed back to its pool unrun, which validation
+	// builds warn about
+	~CommandBuffer();
 
-	constexpr CommandBufferAccessScope() noexcept = default;
-	CommandBufferAccessScope(
-		const CreateDescType& beginInfo,
-		CommandBufferArray<G>* array);
-	CommandBufferAccessScope(const CommandBufferAccessScope& other) noexcept;
-	CommandBufferAccessScope(CommandBufferAccessScope&& other) noexcept;
-	~CommandBufferAccessScope();
+	[[maybe_unused]] CommandBuffer& operator=(CommandBuffer&& other) noexcept;
+	CommandBuffer& operator=(const CommandBuffer&) = delete;
 
-	[[maybe_unused]] CommandBufferAccessScope<G>& operator=(CommandBufferAccessScope<G>&& other) noexcept;
-	[[nodiscard]] operator auto() const { return (*myArray)[myIndex]; }//NOLINT(google-explicit-constructor)
+	[[nodiscard]] operator CommandBufferHandle<G>() const noexcept { return myHandle; } //NOLINT(google-explicit-constructor)
 
-	void Swap(CommandBufferAccessScope<G>& rhs) noexcept;
-	friend void Swap(CommandBufferAccessScope<G>& lhs, CommandBufferAccessScope<G>& rhs) noexcept
-	{
-		lhs.Swap(rhs);
-	}
+	[[nodiscard]] bool IsValid() const noexcept { return myHandle != nullptr; }
+	[[nodiscard]] bool IsRecording() const noexcept { return myRecording; }
+	[[nodiscard]] bool IsSecondary() const noexcept { return mySecondary; }
 
-	[[nodiscard]] const auto& GetDesc() const noexcept { return myDesc; }
+	// ends recording (Release does it too, if it is still recording)
+	void End();
 
-	void Begin() { myIndex = myArray->Begin(myDesc); }
-	// ends the command buffer: only while no one else holds it (the pool's own reference aside, see
-	// CommandPool::Commands), since they would go on recording into an ended buffer
-	void End() const;
-	[[nodiscard]] bool IsRecording() const { return myArray->Recording(myIndex); }
+	// ends it if it is still recording, hands it back to its pool (which reuses it once it is reset, i.e. once the gpu is
+	// done with it) and returns its handle, to be submitted or executed right away. it is empty afterwards
+	[[nodiscard]] CommandBufferHandle<G> Release();
 
 private:
-	void* operator new(size_t);
-	void* operator new[](size_t);
-	CommandBufferAccessScopeDesc<G> myDesc{};
-	std::shared_ptr<uint32_t> myRefCount;
-	CommandBufferArray<G>* myArray = nullptr;
-	uint8_t myIndex = 0;
-};
+	void InternalSwap(CommandBuffer& other) noexcept;
 
-template <GraphicsApi G>
-using CommandBufferListType = std::list<std::tuple<CommandBufferArray<G>, uint64_t>>;
+	CommandPool<G>* myPool = nullptr;
+	CommandBufferHandle<G> myHandle{};
+	bool mySecondary = false;
+	bool myRecording = false;
+};
 
 template <GraphicsApi G>
 struct CommandPoolCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	CommandPoolCreateFlags<G> flags{};
-	uint32_t queueFamilyIndex : 27;
-	uint32_t levelCount : 4;
-	uint32_t supportsProfiling : 1;
+	uint32_t queueFamilyIndex = 0;
 };
 
 template <GraphicsApi G>
@@ -164,6 +69,9 @@ struct ObjectTraits<CommandPool<G>>
 	using CreateDescType = CommandPoolCreateDesc<G>;
 };
 
+// a queue's command buffers (see Queue::GetPool): handed out one at a time (CommandBuffer), taken back once submitted,
+// and made reusable all at once by Reset (when the gpu is done with everything recorded from it). allocated as needed,
+// several at a time, and kept until the pool goes
 template <GraphicsApi G>
 class CommandPool final : public DeviceObject<CommandPool<G>>
 {
@@ -182,51 +90,36 @@ public:
 	void Swap(CommandPool& rhs) noexcept;
 	friend void Swap(CommandPool& lhs, CommandPool& rhs) noexcept { lhs.Swap(rhs); }
 
+	// makes every command buffer handed out reusable: with none still held (each submitted or dropped) and the gpu done
+	// with them
 	void Reset();
 
-	// the primary command buffer recording, shared: while one is recording (until it is ended, or submitted), every
-	// caller gets it, so only its owner (the one recording a frame) may end it. see OneShotCommands for commands that are
-	// recorded and submitted right away
-	[[nodiscard]] CommandBufferAccessScope<G> Commands(const CommandBufferAccessScopeDesc<G>& beginInfo = {});
-	// a primary command buffer of the caller's own, from a list of their own: never shared, so it can be ended and
-	// submitted (QueueDeviceSyncInfo::oneShot) without touching a buffer recording a frame, whenever
-	[[nodiscard]] CommandBufferAccessScope<G> OneShotCommands();
-	// begins a secondary command buffer at level (1 and up) for recording inside the render target begun with
-	// renderTarget (see IRenderTarget::Begin with SubpassContents::kSecondaryCommandBuffers). its commands are run by
-	// Queue::Execute.
-	[[nodiscard]] CommandBufferAccessScope<G> SecondaryCommands(uint8_t level, const RenderTargetBeginInfo<G>& renderTarget);
+	// a primary command buffer, begun (one time submit)
+	[[nodiscard]] CommandBuffer<G> Begin();
+	// a secondary command buffer, begun for recording inside the render target begun with renderTarget (see
+	// IRenderTarget::Begin with SubpassContents::kSecondaryCommandBuffers). its commands run where
+	// CommandEncoder::ExecuteCommands puts them
+	[[nodiscard]] CommandBuffer<G> BeginSecondary(const RenderTargetBeginInfo<G>& renderTarget);
+	// a primary command buffer's handle, not begun, for one use by the caller before the pool's next reset (e.g. a
+	// profiler's setup, which records and submits it itself)
+	[[nodiscard]] CommandBufferHandle<G> Allocate();
+
+	// takes back a command buffer handed out (see CommandBuffer::Release), to reuse once the pool is reset
+	void Retire(CommandBufferHandle<G> handle, bool secondary);
+
+	// how many command buffers are handed out and not yet taken back
+	[[nodiscard]] uint32_t GetOutstandingCount() const noexcept { return myOutstanding; }
 
 private:
-	friend class Queue<G>;
-	CommandPool(
-		CreateDescType&& desc,
-		CommandPoolHandle<G>&& pool);
+	CommandPool(CreateDescType&& desc, CommandPoolHandle<G>&& pool);
 
-	[[nodiscard]] CommandBufferAccessScope<G> InternalBeginScope(const CommandBufferAccessScopeDesc<G>& beginInfo);
-	void InternalEndCommands(uint8_t level);
-	void InternalEnqueueOnePending(uint8_t level);
-	[[nodiscard]] CommandBufferArray<G> InternalNewArray(uint8_t level);
-	void InternalEnqueueSubmitted(CommandBufferListType<G>&& cbList, uint8_t level, uint64_t timelineValue);
-
-	[[nodiscard]] auto& InternalGetPendingCommands() noexcept { return myPendingCommands; }
-	[[nodiscard]] const auto& InternalGetPendingCommands() const noexcept
-	{
-		return myPendingCommands;
-	}
-
-	[[nodiscard]] auto& InternalGetOneShotCommands() noexcept { return myOneShotCommands; }
-	[[nodiscard]] auto& InternalGetSubmittedCommands() noexcept { return mySubmittedCommands; }
-	[[nodiscard]] const auto& InternalGetSubmittedCommands() const noexcept
-	{
-		return mySubmittedCommands;
-	}
+	[[nodiscard]] CommandBufferHandle<G> InternalTake(bool secondary);
 
 	CommandPoolHandle<G> myPool{};
-	std::vector<CommandBufferListType<G>> myPendingCommands;
-	std::vector<CommandBufferListType<G>> mySubmittedCommands;
-	std::vector<CommandBufferListType<G>> myFreeCommands;
-	std::vector<std::optional<CommandBufferAccessScope<G>>> myRecordingCommands;
-	CommandBufferListType<G> myOneShotCommands; // primary, see OneShotCommands
+	// per kind (primary, secondary): ready to begin, and handed out since the last reset
+	std::array<std::vector<CommandBufferHandle<G>>, 2> myFree;
+	std::array<std::vector<CommandBufferHandle<G>>, 2> myUsed;
+	uint32_t myOutstanding = 0;
 };
 
 } // namespace rhi

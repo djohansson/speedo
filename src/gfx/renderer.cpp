@@ -636,72 +636,62 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	ZoneScopedN("Renderer::drawViews");
 
 	const auto grid = inputs.grid;
-	uint32_t drawCount = grid.x * grid.y;
-	uint32_t drawThreadCount = std::min<uint32_t>(drawCount, graphicsQueue.GetPool().GetDesc().levelCount);
-	std::atomic_uint32_t drawAtomic = 0;
+	uint32_t viewCount = grid.x * grid.y;
 	const auto extent = context.target->GetExtent();
 	uint32_t deltaX = extent.width / grid.x;
 	uint32_t deltaY = extent.height / grid.y;
 	ASSERT(deltaX > 0);
 	ASSERT(deltaY > 0);
 
-	// the views, in secondary command buffers
-	for (uint32_t threadIt = 0; threadIt < drawThreadCount; threadIt++)
+	// the views, in a secondary command buffer run inside the pass's render target
+	auto cmd = graphicsQueue.GetPool().BeginSecondary(*context.beginInfo);
+	CommandEncoder encoder(cmd);
+
+	// vertices are pulled from gVertexBuffer by SV_VertexID, so there is no vertex input state to bind
+	encoder.BindIndexBuffer(*list.indexBuffer, 0, IndexType::kUint32);
+	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
+
+	for (uint32_t drawIt = 0; drawIt < viewCount; drawIt++)
 	{
-		auto drawIt = drawAtomic++;
-		if (drawIt >= drawCount)
-			break;
+		ZoneScopedN("Renderer::drawView");
 
-		auto cmd = graphicsQueue.GetPool().SecondaryCommands(threadIt + 1, *context.beginInfo);
-		CommandEncoder encoder(cmd);
-
-		// vertices are pulled from gVertexBuffer by SV_VertexID, so there is no vertex input state to bind
-		encoder.BindIndexBuffer(*list.indexBuffer, 0, IndexType::kUint32);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-		pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
-
-		for (; drawIt < drawCount; drawIt = drawAtomic++)
+		// the view's viewport: its grid cell, letterboxed to its camera's aspect ratio
+		auto viewIt = static_cast<uint16_t>(drawIt);
+		auto posX = static_cast<int32_t>((viewIt % grid.x) * deltaX);
+		auto posY = static_cast<int32_t>((viewIt / grid.x) * deltaY);
+		auto width = deltaX;
+		auto height = deltaY;
+		if (viewIt < inputs.viewports.size() && inputs.viewports[viewIt].width > 0 && inputs.viewports[viewIt].height > 0)
 		{
-			ZoneScopedN("Renderer::drawView");
-
-			// the view's viewport: its grid cell, letterboxed to its camera's aspect ratio
-			auto viewIt = static_cast<uint16_t>(drawIt);
-			auto posX = static_cast<int32_t>((viewIt % grid.x) * deltaX);
-			auto posY = static_cast<int32_t>((viewIt / grid.x) * deltaY);
-			auto width = deltaX;
-			auto height = deltaY;
-			if (viewIt < inputs.viewports.size() && inputs.viewports[viewIt].width > 0 && inputs.viewports[viewIt].height > 0)
-			{
-				posX = inputs.viewports[viewIt].x;
-				posY = inputs.viewports[viewIt].y;
-				width = inputs.viewports[viewIt].width;
-				height = inputs.viewports[viewIt].height;
-			}
-			encoder.SetViewport(Viewport{
-				.x = static_cast<float>(posX),
-				.y = static_cast<float>(posY),
-				.width = static_cast<float>(width),
-				.height = static_cast<float>(height),
-				.minDepth = 0.0F,
-				.maxDepth = 1.0F});
-			encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
-
-			std::optional<Frustum> frustum;
-			if (inputs.culling && viewIt < inputs.viewProjections.size())
-				frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
-			RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, frustum ? &*frustum : nullptr, inputs.runInBackground);
+			posX = inputs.viewports[viewIt].x;
+			posY = inputs.viewports[viewIt].y;
+			width = inputs.viewports[viewIt].width;
+			height = inputs.viewports[viewIt].height;
 		}
+		encoder.SetViewport(Viewport{
+			.x = static_cast<float>(posX),
+			.y = static_cast<float>(posY),
+			.width = static_cast<float>(width),
+			.height = static_cast<float>(height),
+			.minDepth = 0.0F,
+			.maxDepth = 1.0F});
+		encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
 
-		cmd.End();
+		std::optional<Frustum> frustum;
+		if (inputs.culling && viewIt < inputs.viewProjections.size())
+			frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
+		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, frustum ? &*frustum : nullptr, inputs.runInBackground);
 	}
 
-	for (uint32_t threadIt = 1; threadIt <= drawThreadCount; threadIt++)
-		graphicsQueue.Execute(threadIt, inputs.graphicsTimeline);
+	std::vector<CommandBuffer> secondaries;
+	secondaries.push_back(std::move(cmd));
+	CommandEncoder(context.cmd).ExecuteCommands(std::move(secondaries));
 }
 
 } // namespace gfx

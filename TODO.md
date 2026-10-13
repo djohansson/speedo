@@ -3,8 +3,7 @@
 	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
 		1. clustering's leftovers: spot lights binned by their range's sphere (not their cone); the binning on the cpu (fine to 256 lights: a compute pass if it shows)
 		later: gpu driven culling (a compute pass writing indirect draws: per instance, and no cost per draw for chunks out of view), then occlusion culling, from the same chunks
-	2. command buffers as move-only values (see below), before more passes or async compute add recording paths
-	3. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
+	2. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
@@ -29,7 +28,6 @@
 * todo: split some of the bulkier rhi files such as pipeline and command into separate files.
 * todo: (maybe) CMAKE_SUPPRESS_REGENERATION: the FASTBuild generator re-runs cmake from inside a build when CMakeLists.txt changed (its rebuild-bff step), without the preset's environment when the build wasn't started through a preset; that is the path that breaks the shared install/ tree (see CLAUDE.md), and once left a build dir without its CMakeCache.txt ("not a CMake build directory": fixed by cmake --preset). suppressing it removes that path, at the cost of running Configure by hand after CMakeLists.txt changes outside VS Code's editor (a git pull, scripted edits): until then a build uses the old file lists
 * todo: the file browser: the preview can't be orbited (it frames the model, or uses its camera); zip archives have no thumbnail or preview; long paths overflow the breadcrumb row; long names are clipped (the tooltip has them); the thumbnail cache is never pruned (a changed file or shader leaves the old entries behind)
-* todo: command buffers as move-only values instead of CommandPool::OneShotCommands. today CommandPool::Commands() hands out the recording primary command buffer as a shared, reference counted CommandBufferAccessScope that any holder can End(); ending it under another holder made that holder record into an ended buffer (the preview's crash, see CLAUDE.md "Command buffers: the frame's is shared"). OneShotCommands (a second, never shared list, submitted with QueueDeviceSyncInfo::oneShot) and the holder count check in End() work around it, but two kinds of buffer and a submit flag are a patch over the sharing, not a fix. instead: Commands() returns a move-only scope with a single owner, which records and is ended and submitted by it (EnqueueSubmit taking the scopes it submits, rather than the pool's pending list); the frame's buffer is passed explicitly to whatever records into it (scenes, the ui, Queue::Execute for secondaries), and anything submitted on its own takes a buffer of its own. then no buffer can be ended under someone else, and oneShot goes away. touches most recording code; related to the earlier idea of merging CommandBufferAccessScope and CommandEncoder (stopped over friend declarations: keep it a public api)
 * todo: multi window/swapchain capability
 * todo: (maybe) use Scatter/Gather I/O
 * todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
@@ -45,6 +43,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: command buffers are move-only values with one owner (rhi::CommandBuffer): begun from the pool, lent as handles, ended and handed back by EnqueueSubmit or CommandEncoder::ExecuteCommands; Commands(), OneShotCommands, the oneShot flag and CommandBufferArray are gone
 * done: the views are uploaded per frame (Views::Upload, the recording frame's buffer only), so a frame culls by the camera it draws with
 * done: clustered lighting: lights binned on the cpu into 16x9x24 clusters per view, each fragment looping over its cluster's (ManyLights with 255 lights: 20.7 to 5.2 ms)
 * done: shadows for every point and spot light in view: the atlas in 128 texel cells, tiles sized by how big the light looks, halved by priority until they fit, placed biggest first (ManyLights.gltf: 32 shadowed lights)

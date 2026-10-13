@@ -30,6 +30,7 @@ using Semaphore = rhi::Semaphore<rhi::kGraphicsApi>;
 using QueryPool = rhi::QueryPool<rhi::kGraphicsApi>;
 using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<rhi::kGraphicsApi>;
 using Queue = rhi::Queue<rhi::kGraphicsApi>;
+using CommandBuffer = rhi::CommandBuffer<rhi::kGraphicsApi>;
 using QueueDeviceSyncInfo = rhi::QueueDeviceSyncInfo<rhi::kGraphicsApi>;
 using QueueTimelineContextData = rhi::QueueTimelineContextData<rhi::kGraphicsApi>;
 using QueueTimelineContext = rhi::QueueTimelineContext<rhi::kGraphicsApi>;

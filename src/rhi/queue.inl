@@ -60,6 +60,9 @@ void Queue<G>::SwapAndResetPool()
 	ENSURE(myPendingPresent.swapchains.empty());
 	ENSURE(myPendingPresent.imageIndices.empty());
 	ENSURE(myPendingPresent.results.empty());
+	ENSUREF(
+		myPools[0].GetOutstandingCount() == 0 && myPools[1].GetOutstandingCount() == 0,
+		"command buffers held over a pool switch: submit (or drop) them first");
 
 	myPools[0].Swap(myPools[1]);
 	myPools[0].Reset();
