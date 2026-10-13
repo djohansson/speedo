@@ -560,17 +560,18 @@ void WindowedApplication::PrepareDraw()
 			{
 				// how the window goes fullscreen (alt+enter) and presents (see FULLSCREEN_MODE_* and Swapchain::Configure):
 				// to compare them, e.g. a driver's direct scanout on macOS
-#if defined(__APPLE__)
 				auto& windowState = GetWindow(GetCurrentWindow()).GetState();
 				SeparatorText("Fullscreen (Alt+Enter)");
 				for (auto [label, mode] : std::array{
 						 std::pair{"Exclusive", FULLSCREEN_MODE_EXCLUSIVE},
 						 std::pair{"Borderless", FULLSCREEN_MODE_BORDERLESS},
-						 std::pair{"Native", FULLSCREEN_MODE_NATIVE}})
+#if defined(__APPLE__)
+						 std::pair{"Native", FULLSCREEN_MODE_NATIVE},
+#endif
+					 })
 					if (MenuItem(label, nullptr, windowState.fullscreenMode == mode))
 						windowState.fullscreenMode = mode;
-				SetItemTooltip("Exclusive and native let macOS scan the frames out directly; borderless stays composited (for drivers that flicker scanned out). Takes effect the next time the window goes fullscreen.");
-#endif
+				SetItemTooltip("Exclusive takes the monitor (on macOS, native too: scanned out directly); borderless is a window covering it, which stays composited. Takes effect the next time the window goes fullscreen.");
 				// what the swapchain has, of what the surface supports (none listed until the first frame)
 				auto presentation = UnpackPresentation(myPresentation.load(std::memory_order_relaxed));
 				SeparatorText("Swapchain");

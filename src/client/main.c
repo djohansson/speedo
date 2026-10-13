@@ -225,33 +225,32 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 	static int gWindowedWidth = 0;
 	static int gWindowedHeight = 0;
 
-#if defined(__APPLE__)
 	// how it went fullscreen, to leave the same way (windowState's mode may have changed since, see View > Presentation)
-	static uint32_t gMacFullscreenEntered = FULLSCREEN_MODE_BORDERLESS;
-	uint32_t macFullscreen = windowState->fullscreenEnabled ? gMacFullscreenEntered : windowState->fullscreenMode;
+	static uint32_t gFullscreenEntered = FULLSCREEN_MODE_EXCLUSIVE;
+	uint32_t fullscreenMode = windowState->fullscreenEnabled ? gFullscreenEntered : windowState->fullscreenMode;
 	if (!windowState->fullscreenEnabled)
-		gMacFullscreenEntered = macFullscreen;
-	if (macFullscreen == FULLSCREEN_MODE_NATIVE)
+		gFullscreenEntered = fullscreenMode;
+
+#if defined(__APPLE__)
+	if (fullscreenMode == FULLSCREEN_MODE_NATIVE)
 	{
 		// asynchronous: the window resizes as it moves to its space (or back), which the resize callbacks follow
 		((void (*)(id, SEL, id))objc_msgSend)(glfwGetCocoaWindow(window), sel_registerName("toggleFullScreen:"), nil);
 		windowState->fullscreenEnabled = !windowState->fullscreenEnabled;
 		return;
 	}
-	bool isFullscreen = windowState->fullscreenEnabled; // the borderless window has no monitor
-#else
-	bool isFullscreen = glfwGetWindowMonitor(window) != NULL;
 #endif
 
-	if (isFullscreen)
+	if (windowState->fullscreenEnabled)
 	{
-#if defined(__APPLE__)
-		if (macFullscreen == FULLSCREEN_MODE_BORDERLESS)
+		if (fullscreenMode == FULLSCREEN_MODE_BORDERLESS)
 		{
+#if defined(__APPLE__)
 			SetMacPresentationOptions(kMacPresentationDefault);
+#endif
 			glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
 		}
-#endif
+		// for the borderless window (which has no monitor) too: it places the window
 		glfwSetWindowMonitor(
 			window,
 			NULL,
@@ -282,27 +281,28 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 			windowState->width = mode->width;
 			windowState->height = mode->height;
 
-#if defined(__APPLE__)
-			if (macFullscreen == FULLSCREEN_MODE_BORDERLESS)
+			if (fullscreenMode == FULLSCREEN_MODE_BORDERLESS)
 			{
+				// an undecorated window covering the monitor (and, on windows, its taskbar), in the monitor's mode
 				int monitorX, monitorY;
 				glfwGetMonitorPos(primaryMonitor, &monitorX, &monitorY);
 
+#if defined(__APPLE__)
 				SetMacPresentationOptions(kMacPresentationHideDock | kMacPresentationHideMenuBar);
+#endif
 				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
 				glfwSetWindowPos(window, monitorX, monitorY);
 				glfwSetWindowSize(window, mode->width, mode->height);
 			}
 			else
-#endif
-			glfwSetWindowMonitor(
-				window,
-				primaryMonitor,
-				(int)windowState->x,
-				(int)windowState->y,
-				(int)windowState->width,
-				(int)windowState->height,
-				mode->refreshRate); // not 0: glfw picks the mode closest to the requested rate, i.e. the lowest one
+				glfwSetWindowMonitor(
+					window,
+					primaryMonitor,
+					(int)windowState->x,
+					(int)windowState->y,
+					(int)windowState->width,
+					(int)windowState->height,
+					mode->refreshRate); // not 0: glfw picks the mode closest to the requested rate, i.e. the lowest one
 
 			windowState->fullscreenRefresh = mode->refreshRate;
 			windowState->fullscreenEnabled = true;
@@ -479,15 +479,16 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 
 	ENSURE(window != NULL);
 
-#if defined(__APPLE__)
-	// SPEEDO_FULLSCREEN=exclusive (the default), borderless (see above, for drivers that flicker scanned out directly) or
-	// native: how alt+enter goes fullscreen until View > Presentation picks another
+	// SPEEDO_FULLSCREEN=exclusive (the default), borderless (see SetMacPresentationOptions: composited, for drivers that
+	// flicker scanned out) or native (macOS only, else exclusive): how alt+enter goes fullscreen until View > Presentation
+	// picks another
 	const char* fullscreenMode = getenv("SPEEDO_FULLSCREEN");
-	inOutState->fullscreenMode = fullscreenMode != NULL && strcmp(fullscreenMode, "borderless") == 0 ? FULLSCREEN_MODE_BORDERLESS
-		: fullscreenMode != NULL && strcmp(fullscreenMode, "native") == 0                        ? FULLSCREEN_MODE_NATIVE
-																								 : FULLSCREEN_MODE_EXCLUSIVE;
-#else
 	inOutState->fullscreenMode = FULLSCREEN_MODE_EXCLUSIVE;
+	if (fullscreenMode != NULL && strcmp(fullscreenMode, "borderless") == 0)
+		inOutState->fullscreenMode = FULLSCREEN_MODE_BORDERLESS;
+#if defined(__APPLE__)
+	if (fullscreenMode != NULL && strcmp(fullscreenMode, "native") == 0)
+		inOutState->fullscreenMode = FULLSCREEN_MODE_NATIVE;
 #endif
 
 	if (background)
