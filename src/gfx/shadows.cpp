@@ -3,6 +3,7 @@
 #include <core/profiling.h>
 
 #include <gfx/frustum.h>
+#include <gfx/lightbounds.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -307,12 +308,15 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 		{
 			if (reach <= 0.0F)
 				continue;
+			// what it can light (a spot light's cone, not its whole range): out of view, it lights nothing seen
+			auto sphere = *LightReach(light, reach);
 			Bounds3f range;
-			range.SetMin(position - glm::vec3(reach));
-			range.SetMax(position + glm::vec3(reach));
+			range.SetMin(sphere.center - glm::vec3(sphere.radius));
+			range.SetMax(sphere.center + glm::vec3(sphere.radius));
 			if (frustum.Excludes(range))
 				continue;
-			cells = CellsFor(projection, camera.view, position, reach, light.type == LIGHT_TYPE_POINT ? kPointFaceCells : kSpotCells);
+			cells = CellsFor(
+				projection, camera.view, sphere.center, sphere.radius, light.type == LIGHT_TYPE_POINT ? kPointFaceCells : kSpotCells);
 		}
 		candidates.push_back({index, position, direction, reach, tileCount, cells});
 		viewTotal += tileCount;
@@ -385,8 +389,7 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 		else
 		{
 			// the cone (its outer angle: the attenuation's 0, see LightData::spotOffset), a little wider for the filter
-			float cosOuter = light.spotScale > 0.0F ? -light.spotOffset / light.spotScale : 0.0F;
-			float outer = std::acos(std::clamp(cosOuter, -1.0F, 1.0F));
+			float outer = std::acos(SpotCosOuter(light));
 			float fov = std::min((2.0F * outer) + glm::radians(4.0F), glm::radians(170.0F));
 			plan.views.push_back(PerspectiveView(position, direction, UpFor(direction), fov, reach, lightTiles.front()));
 		}

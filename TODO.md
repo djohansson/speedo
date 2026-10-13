@@ -1,7 +1,7 @@
 # TODO
 * plan (in this order):
 	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
-		1. clustering's leftovers: spot lights binned by their range's sphere (not their cone); the binning on the cpu (fine to 256 lights: a compute pass if it shows)
+		later: lights binned on the cpu (fine to 256 lights: a compute pass if it shows); a spot light without a range reaches every cluster
 		later: gpu driven culling (a compute pass writing indirect draws: per instance, and no cost per draw for chunks out of view), then occlusion culling, from the same chunks
 	2. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
@@ -43,6 +43,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: spot lights bounded by their cone (gfx::LightReach), not their range's sphere, in the clusters and the shadow budget (ManyLights 5.2 to 4.9 ms)
 * done: command buffers are move-only values with one owner (rhi::CommandBuffer): begun from the pool, lent as handles, ended and handed back by EnqueueSubmit or CommandEncoder::ExecuteCommands; Commands(), OneShotCommands, the oneShot flag and CommandBufferArray are gone
 * done: the views are uploaded per frame (Views::Upload, the recording frame's buffer only), so a frame culls by the camera it draws with
 * done: clustered lighting: lights binned on the cpu into 16x9x24 clusters per view, each fragment looping over its cluster's (ManyLights with 255 lights: 20.7 to 5.2 ms)

@@ -24,9 +24,10 @@ struct ClusterPlan
 };
 
 // bins lights (as the shader sees them) into the clusters of each view. a directional light, or one without a range,
-// reaches every cluster; a point or spot light the clusters its range (a sphere: a box around it, conservatively) may
-// touch, in the view's frustum. depth is sliced from the near plane to the scene's farthest point (or the far plane).
-// views whose lights don't fit in SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT get none (enabled 0: they loop over all lights)
+// reaches every cluster; a point light the clusters its range (a sphere: a box around it, conservatively) may touch,
+// in the view's frustum, and a spot light those its cone may (the cone's bounding sphere, see LightReach). depth is
+// sliced from the near plane to the scene's farthest point (or the far plane). views whose lights don't fit in
+// SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT get none (enabled 0: they loop over all lights)
 [[nodiscard]] ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> viewProjections, const Bounds3f& sceneBounds);
 
 } // namespace gfx::clusters

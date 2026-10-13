@@ -1,6 +1,7 @@
 #include "clusters.h"
 
 #include <gfx/frustum.h>
+#include <gfx/lightbounds.h>
 
 #include <core/profiling.h>
 
@@ -91,11 +92,12 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 			auto& box = boxes[lightIt];
 			box = {0, kTilesX - 1, 0, kTilesY - 1, 0, kSlices - 1};
 			reaches[lightIt] = true;
-			float radius = light.positionRange[3];
-			if (light.type == LIGHT_TYPE_DIRECTIONAL || radius <= 0.0F)
+			// what it can light: a point light's range, a spot light's cone in it (see LightReach)
+			if (light.type == LIGHT_TYPE_DIRECTIONAL || light.positionRange[3] <= 0.0F)
 				continue;
-
-			glm::vec3 center(light.positionRange[0], light.positionRange[1], light.positionRange[2]);
+			auto reach = *LightReach(light, light.positionRange[3]);
+			glm::vec3 center = reach.center;
+			float radius = reach.radius;
 			Bounds3f sphere;
 			sphere.SetMin(center - glm::vec3(radius));
 			sphere.SetMax(center + glm::vec3(radius));

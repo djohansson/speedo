@@ -514,19 +514,21 @@ sky (the direction at w = 0), at the view's edge when it is out of it, dimmed wh
 
 Each fragment loops over only the lights that may reach it (`ClusterLights` in the shaders, for `Shade` and
 `ScatterLight`). Each view's frustum is a grid of clusters (`SHADER_TYPES_CLUSTER_TILES_X` by `_Y` tiles of normalized
-device coordinates, 16 by 9, and `SHADER_TYPES_CLUSTER_SLICES` slices of depth, 24, logarithmic: `log2(1 + d / unit)` of the
-distance from the near plane, over 1023 units to the scene's farthest point or the far plane). `clusters::Plan`
+device coordinates, 16 by 9, and `SHADER_TYPES_CLUSTER_SLICES` slices of depth, 24, logarithmic: `log2(1 + d / unit)` of
+the distance from the near plane, over 1023 units to the scene's farthest point or the far plane). `clusters::Plan`
 (`gfx/clusters.h`, in `Renderer::Record` after the shadows' plan) bins the lights on the cpu each frame: a directional
-light, or one without a range, into every cluster; a point or spot light into the box of clusters around its range's
-sphere (its corners projected, the whole screen if one is behind the eye; a light outside the frustum into none),
-widened by a thousandth of a tile or slice against rounding. Per frame index, host visible: `gClusterViews` (a
-`ClusterView` per view: the depth plane and slicing; the tile comes from the view's own view projection, which is the
-one the clusters were planned with, see `Views::Upload`),
-`gClusters` (per cluster its first index and count) and `gClusterLights` (the indices, at most
+light, or one without a range, into every cluster; a point light into the box of clusters around its range's sphere, a
+spot light around its cone's (`LightReach` in `gfx/lightbounds.h`: the cone capped by the range, in its smallest
+bounding sphere, Wronski's; shadows skip and size spot lights by it too) (its corners projected, the whole screen if one
+is behind the eye; a light outside the frustum into none), widened by a thousandth of a tile or slice against rounding.
+Per frame index, host visible: `gClusterViews` (a `ClusterView` per view: the depth plane and slicing; the tile comes
+from the view's own view projection, which is the one the clusters were planned with, see `Views::Upload`), `gClusters`
+(per cluster its first index and count) and `gClusterLights` (the indices, at most
 `SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`: a view whose lights don't fit gets `enabled` 0, and loops over all lights).
 View > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of
 main pass per frame (ManyLights with 223 more lights out of reach: 20.7 ms, clustered 5.2, as without them; ManyLights
-itself 5.8 to 5.2, orthographic 6.3 to 5.3; Bistro with one light 4.10 to 4.15). Renders with and without are identical.
+itself 5.8 to 5.2, 4.9 with its spot lights bounded by their cones, orthographic 6.3 to 5.3; Bistro with one light 4.10
+to 4.15). Renders with and without are identical.
 
 ## Descriptor sets: redundant updates consume the pool
 
