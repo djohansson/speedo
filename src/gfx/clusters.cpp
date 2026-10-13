@@ -80,7 +80,6 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 			range = std::min(range, glm::dot(glm::vec3(farPlane), onNear) + farPlane.w);
 		}
 		range = std::max(range, 1e-4F);
-		std::copy_n(&viewProjection[0][0], 16, &view.viewProjection[0][0]); //NOLINT(readability-magic-numbers)
 		std::copy_n(&nearPlane[0], 4, view.depthPlane);
 		view.depthInverseUnit = kDepthUnits / range;
 		view.depthScale = static_cast<float>(kSlices) / std::log2(1.0F + kDepthUnits);

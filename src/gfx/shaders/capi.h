@@ -228,9 +228,6 @@ struct ShadowData
 // how a view's clusters cut its frustum (gClusterViews[frame][view])
 struct ClusterView
 {
-	// the view projection the clusters were planned with, which the shader finds a point's tile by: the views' own
-	// buffers may already hold a newer one (see Views::UpdateBuffers)
-	alignas(16) FLOAT4X4(viewProjection);
 	// xyz: the view's forward direction (unit length), w: so that dot(xyz, p) + w is a point's distance from the near
 	// plane, which is sliced as floor(log2(1 + distance * depthInverseUnit) * depthScale)
 	alignas(16) FLOAT4(depthPlane);

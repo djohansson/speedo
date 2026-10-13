@@ -3,9 +3,8 @@
 	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
 		1. clustering's leftovers: spot lights binned by their range's sphere (not their cone); the binning on the cpu (fine to 256 lights: a compute pass if it shows)
 		later: gpu driven culling (a compute pass writing indirect draws: per instance, and no cost per draw for chunks out of view), then occlusion culling, from the same chunks
-	2. Views::UpdateBuffers writes every frame index's view buffer, including frames in flight: the gpu may draw with a newer camera than the cpu culled by (a chunk at the screen's edge missing for a frame while the camera turns). write the recording frame's buffer only, from the matrices it culls with (clustering keeps its own copy, see ClusterView::viewProjection)
-	3. command buffers as move-only values (see below), before more passes or async compute add recording paths
-	4. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
+	2. command buffers as move-only values (see below), before more passes or async compute add recording paths
+	3. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
@@ -46,6 +45,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: the views are uploaded per frame (Views::Upload, the recording frame's buffer only), so a frame culls by the camera it draws with
 * done: clustered lighting: lights binned on the cpu into 16x9x24 clusters per view, each fragment looping over its cluster's (ManyLights with 255 lights: 20.7 to 5.2 ms)
 * done: shadows for every point and spot light in view: the atlas in 128 texel cells, tiles sized by how big the light looks, halved by priority until they fit, placed biggest first (ManyLights.gltf: 32 shadowed lights)
 * done: culling: submeshes cut into spatial chunks of 16384 triangles with their bounds (mesh::Chunk), skipped per view and per shadow view outside its frustum (gfx::Frustum); fewer redundant state changes per draw. Bistro's gpu time from the street 11.0 to 7.8 ms, framed 9.1 to 7.3. SPEEDO_CAMERA for repeatable viewpoints

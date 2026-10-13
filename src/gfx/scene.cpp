@@ -1889,15 +1889,21 @@ struct Scene::Impl
 				specialization.push_back(kTiers && !extended ? static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED) : uint16_t{0});
 			}
 
-		const auto& views = myViews;
-		// the shadows are fitted to the first view's camera
+		// the views as this frame draws them (the cameras may move while it records): what it culls by and fits its
+		// shadows (to the first view) and clusters to
+		auto& views = myViews;
+		auto cameras = views.Upload(target.frameIndex);
+		std::vector<glm::mat4> viewProjections;
+		for (const auto& camera : cameras)
+			viewProjections.push_back(camera.GetProjectionMatrix() * camera.GetViewMatrix());
 		shadows::ShadowCamera shadowCamera;
-		if (auto camera = views.GetCamera(0))
+		if (!cameras.empty())
 		{
-			shadowCamera.view = camera->GetViewMatrix();
-			shadowCamera.inverseViewProjection = glm::inverse(camera->GetProjectionMatrix() * camera->GetViewMatrix());
-			shadowCamera.nearPlane = camera->GetDesc().nearPlane;
-			shadowCamera.farPlane = camera->GetDesc().farPlane;
+			const auto& camera = cameras.front();
+			shadowCamera.view = camera.GetViewMatrix();
+			shadowCamera.inverseViewProjection = glm::inverse(viewProjections.front());
+			shadowCamera.nearPlane = camera.GetDesc().nearPlane;
+			shadowCamera.farPlane = camera.GetDesc().farPlane;
 		}
 		myRenderer->Record(
 			cmd,
@@ -1913,7 +1919,7 @@ struct Scene::Impl
 										 : std::function<uint16_t(size_t)>{},
 				.grid = views.GetGrid(),
 				.viewports = views.GetViewports(),
-				.viewProjections = views.GetViewProjections(),
+				.viewProjections = std::move(viewProjections),
 				.culling = mySettings.culling.load(std::memory_order_relaxed),
 				.clusteredLights = mySettings.clusteredLights.load(std::memory_order_relaxed),
 				.lights = myLightData,

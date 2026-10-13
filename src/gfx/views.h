@@ -43,7 +43,7 @@ public:
 	// changes the grid. call on the draw thread.
 	void OnResizeGrid(glm::uvec2 grid);
 	// moves the active view's camera (the one under the mouse, or being dragged) by the input, and scales the movement
-	// speed with the scroll wheel. the views then need uploading (see UpdateBuffers).
+	// speed with the scroll wheel (the next frame uploads it, see Upload).
 	void OnInputStateChanged(const core::InputState& input);
 
 	// moves every camera back from bounds (looking down -z) until all of it is in view, fits the near and far planes to
@@ -72,8 +72,11 @@ public:
 	[[nodiscard]] float GetMoveSpeed() const noexcept { return myMoveSpeed.load(std::memory_order_relaxed); }
 	void SetMoveSpeed(float speed) noexcept;
 
-	// uploads the views' view projections. call on the draw thread.
-	void UpdateBuffers();
+	// writes the views (ViewData: view projections, eyes, viewports) to frameIndex's buffer from the cameras as they are
+	// now, and returns those cameras: what the frame draws with, so what it culls by and fits its shadows and clusters
+	// to. the other frame indices' buffers may still be in use. call on the draw thread, recording that frame (after its
+	// fence)
+	[[nodiscard]] std::vector<Camera> Upload(uint32_t frameIndex);
 
 	// where each view draws in the framebuffer: its grid cell, letterboxed to its camera's aspect ratio. any thread.
 	[[nodiscard]] std::vector<ViewportCreateDesc> GetViewports() const;
@@ -81,16 +84,11 @@ public:
 	// a view's camera (a copy), if there is that view. any thread.
 	[[nodiscard]] std::optional<Camera> GetCamera(size_t view) const;
 
-	// the views' view projections as UpdateBuffers last uploaded them (what the gpu draws with: the views cull by them).
-	// any thread.
-	[[nodiscard]] std::vector<glm::mat4> GetViewProjections() const;
-
 private:
 	void InternalLayout();
 
 	std::vector<Buffer> myBuffers;
 	core::ConcurrentAccess<std::vector<gfx::Camera>> myCameras;
-	core::ConcurrentAccess<std::vector<glm::mat4>> myViewProjections; // see GetViewProjections
 	glm::uvec2 myFramebufferExtent{};
 	glm::uvec2 myGrid{1, 1};
 	std::optional<size_t> myActiveCamera;

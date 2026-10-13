@@ -733,7 +733,7 @@ bool ClusterLights(float3 position, out uint first, out uint count)
 	if (cluster.enabled == 0)
 		return false;
 
-	float4 clip = mul(cluster.viewProjection, float4(position, 1.0));
+	float4 clip = mul(gViewData[frameIndex][viewId].viewProjection, float4(position, 1.0));
 	float2 tiles = float2(SHADER_TYPES_CLUSTER_TILES_X, SHADER_TYPES_CLUSTER_TILES_Y);
 	uint2 tile = uint2(clamp(floor((clip.xy / clip.w * 0.5 + 0.5) * tiles), 0.0, tiles - 1.0));
 	float distance = max(dot(cluster.depthPlane.xyz, position) + cluster.depthPlane.w, 0.0);

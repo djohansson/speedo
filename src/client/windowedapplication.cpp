@@ -35,7 +35,6 @@ bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
 	state.height = static_cast<uint32_t>(static_cast<float>(swapchain.GetDesc().extent.height) / state.yscale);
 
 	App().GetViews().OnResizeFramebuffer({extent.width, extent.height});
-	App().GetViews().UpdateBuffers();
 	App().GetScene().Resize();
 
 	return true;
@@ -59,13 +58,9 @@ void WindowedApplication::OnInputStateChanged(const core::InputState& input)
 		imguiIO.WantSaveIniSettings = false;
 	}
 
+	// the next frame uploads the views it moved (see Views::Upload)
 	if (!imguiIO.WantCaptureMouse && !imguiIO.WantCaptureKeyboard)
-	{
 		myViews->OnInputStateChanged(input);
-
-		auto [updateTask, updateFuture] = core::CreateTask([this] { myViews->UpdateBuffers(); });
-		GetRHI().drawCalls.enqueue(updateTask);
-	}
 }
 
 bool WindowedApplication::Draw()

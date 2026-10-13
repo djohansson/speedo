@@ -432,6 +432,16 @@ by a mutex and a condition variable (`PipelineMapSync`): a null handle is a pipe
 `BindPipelineAuto` waits for. Each phase's draws are sorted by pipeline variant (opaque ones depth test, blended ones are
 order independent), so pipelines switch once per variant.
 
+## Views: uploaded per frame
+
+`Views` (`gfx/views.h`) keeps a camera per view, which the input, resizes, the grid, framing and the scene's cameras
+change from any thread, and a view buffer per frame index (`gViewData[frame]`). `Upload(frameIndex)` writes only the
+recording frame's buffer, from the cameras as they are then, and returns those cameras: `Scene` calls it while recording
+(after the frame's fence), and culls, fits the shadows and plans the clusters by them, so the cpu and the gpu see one
+camera. It replaced `UpdateBuffers`, which wrote every frame index's buffer whenever a camera changed, including frames
+still in flight, so a frame could draw with a newer camera than it had been culled by (a chunk at the screen's edge
+missing for a frame while the camera turned). Nothing else uploads the views: a change shows in the next frame.
+
 ## Culling: chunks, and frustums per view
 
 The importers make one submesh per material, which can span a whole scene (Bistro: 2.8 M triangles in 132 submeshes, a
@@ -446,8 +456,8 @@ chunk whose vertices leave its bounds; its encodings comparison counts the subme
 
 `RecordDrawList` takes the view's `gfx::Frustum` (`gfx/frustum.h`: six planes from a view projection, Gribb and Hartmann;
 an infinite far plane comes out as zeros, which culls nothing) and skips the draws whose bounds are outside a plane. The
-main pass culls by `FrameInputs::viewProjections` (what `Views::UpdateBuffers` last uploaded, `GetViewProjections`, so
-the cpu culls by what the gpu draws with), the shadow pass by each shadow view's (no depth clamp, so a caster in front of
+main pass culls by `FrameInputs::viewProjections` (the cameras `Views::Upload` wrote to the frame's view buffer, so the
+cpu culls by what the gpu draws with), the shadow pass by each shadow view's (no depth clamp, so a caster in front of
 a shadow view's near plane casts nothing anyway). View > Culling (`SPEEDO_CULLING=0`) turns it off. Each draw costs about a
 microsecond of gpu time on KosmicKrisp (Bistro framed, nothing culled: Main 3.72 ms unchunked, 4.34 in chunks of 4096), so
 `RecordDrawList` sets cull mode, front face and push constants only where they change (a submesh's chunks share them), and
@@ -503,8 +513,8 @@ distance from the near plane, over 1023 units to the scene's farthest point or t
 light, or one without a range, into every cluster; a point or spot light into the box of clusters around its range's
 sphere (its corners projected, the whole screen if one is behind the eye; a light outside the frustum into none),
 widened by a thousandth of a tile or slice against rounding. Per frame index, host visible: `gClusterViews` (a
-`ClusterView` per view: the view projection it was planned with, which the shader takes the tile from, since
-`Views::UpdateBuffers` may already have written a newer one to the view's buffers; the depth plane and slicing),
+`ClusterView` per view: the depth plane and slicing; the tile comes from the view's own view projection, which is the
+one the clusters were planned with, see `Views::Upload`),
 `gClusters` (per cluster its first index and count) and `gClusterLights` (the indices, at most
 `SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`: a view whose lights don't fit gets `enabled` 0, and loops over all lights).
 View > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of

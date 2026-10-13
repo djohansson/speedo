@@ -27,7 +27,6 @@ Preview::Preview(gfx::RHI& rhi, rhi::Extent2d extent)
 	myViews = std::make_unique<gfx::Views>(device, glm::uvec2(extent.width, extent.height));
 	myOutput = std::make_unique<gfx::ImageOutput>(device, extent);
 	myScene = std::make_unique<gfx::Scene>(rhi, *myPipeline, *myViews, *myOutput);
-	myViews->UpdateBuffers();
 }
 
 Preview::~Preview() = default;

@@ -549,13 +549,9 @@ void WindowedApplication::PrepareDraw()
 
 				if (anyChanged)
 				{
-					// also upload the new views: otherwise that only happens on the next input change
+					// the grid is the draw thread's (see Views::OnResizeGrid)
 					auto [resizeTask, resizeFuture] = core::CreateTask(
-						[this, grid = splitScreenGrid]
-						{
-							myViews->OnResizeGrid({grid.width, grid.height});
-							myViews->UpdateBuffers();
-						});
+						[this, grid = splitScreenGrid] { myViews->OnResizeGrid({grid.width, grid.height}); });
 					rhi.drawCalls.enqueue(resizeTask);
 				}
 			}

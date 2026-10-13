@@ -125,25 +125,18 @@ void Views::FrameBounds(const Bounds3f& bounds)
 	InternalLayout();
 
 	SetMoveSpeed(0.25F * radius);
-
-	// the views are otherwise only uploaded when the input changes them
-	UpdateBuffers();
 }
 
 void Views::Place(const glm::vec3& eye, const glm::vec3& rotation)
 {
+	auto cameras = myCameras.Write();
+	for (auto& camera : cameras.Get())
 	{
-		auto cameras = myCameras.Write();
-		for (auto& camera : cameras.Get())
-		{
-			auto& desc = camera.GetDesc();
-			desc.position = -eye;
-			desc.cameraRotation = rotation;
-			camera.UpdateAll();
-		}
+		auto& desc = camera.GetDesc();
+		desc.position = -eye;
+		desc.cameraRotation = rotation;
+		camera.UpdateAll();
 	}
-
-	UpdateBuffers();
 }
 
 void Views::SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras)
@@ -180,7 +173,6 @@ void Views::UseSceneCamera(std::optional<size_t> cameraIndex)
 
 	InternalApplySceneCamera(*sceneCamera, bounds);
 	SetMoveSpeed(0.25F * std::max(bounds.Radius(), 1e-3F));
-	UpdateBuffers();
 }
 
 void Views::UpdateSceneCameras(std::span<const SceneCamera> cameras)
@@ -202,7 +194,6 @@ void Views::UpdateSceneCameras(std::span<const SceneCamera> cameras)
 		return;
 
 	InternalApplySceneCamera(*sceneCamera, bounds);
-	UpdateBuffers();
 }
 
 void Views::InternalApplySceneCamera(const SceneCamera& camera, const Bounds3f& bounds)
@@ -272,11 +263,6 @@ void Views::SetMoveSpeed(float speed) noexcept
 	myMoveSpeed.store(std::clamp(speed, kMinSpeed, kMaxSpeed), std::memory_order_relaxed);
 }
 
-std::vector<glm::mat4> Views::GetViewProjections() const
-{
-	return myViewProjections.Read().Get();
-}
-
 std::optional<Camera> Views::GetCamera(size_t view) const
 {
 	auto cameras = myCameras.Read();
@@ -285,42 +271,36 @@ std::optional<Camera> Views::GetCamera(size_t view) const
 	return cameras.Get()[view];
 }
 
-void Views::UpdateBuffers()
+std::vector<Camera> Views::Upload(uint32_t frameIndex)
 {
-	ZoneScopedN("Views::UpdateBuffers");
+	ZoneScopedN("Views::Upload");
 
-	auto cameras = myCameras.Read();
-	auto viewCount = std::min<size_t>(cameras.Get().size(), SHADER_TYPES_VIEW_COUNT);
+	auto cameras = myCameras.Read().Get();
+	auto viewCount = std::min<size_t>(cameras.size(), SHADER_TYPES_VIEW_COUNT);
 
+	auto& buffer = myBuffers[frameIndex];
+	auto memory = buffer.Map();
+	auto* views = reinterpret_cast<ViewData*>(memory.data());
+	for (size_t viewIt = 0; viewIt < viewCount; viewIt++)
 	{
-		auto viewProjections = myViewProjections.Write();
-		viewProjections.Get().resize(viewCount);
-		for (size_t viewIt = 0; viewIt < viewCount; viewIt++)
-			viewProjections.Get()[viewIt] = cameras.Get()[viewIt].GetProjectionMatrix() * cameras.Get()[viewIt].GetViewMatrix();
+		const auto& camera = cameras[viewIt];
+		auto viewProjection = camera.GetProjectionMatrix() * camera.GetViewMatrix();
+		std::copy_n(&viewProjection[0][0], 16, &views[viewIt].viewProjection[0][0]); //NOLINT(readability-magic-numbers)
+		auto eye = glm::inverse(camera.GetViewMatrix())[3];
+		std::copy_n(&eye[0], 4, views[viewIt].eyePosition);
+		auto inverseViewProjection = glm::inverse(viewProjection);
+		std::copy_n(&inverseViewProjection[0][0], 16, &views[viewIt].inverseViewProjection[0][0]); //NOLINT(readability-magic-numbers)
+		const auto& viewport = camera.GetDesc().viewport;
+		views[viewIt].viewport[0] = viewport.x;
+		views[viewIt].viewport[1] = viewport.y;
+		views[viewIt].viewport[2] = viewport.width;
+		views[viewIt].viewport[3] = viewport.height;
 	}
+	buffer.Flush(0, viewCount * sizeof(ViewData));
+	buffer.Unmap();
 
-	for (auto& buffer : myBuffers)
-	{
-		auto memory = buffer.Map();
-		auto* views = reinterpret_cast<ViewData*>(memory.data());
-		for (size_t viewIt = 0; viewIt < viewCount; viewIt++)
-		{
-			const auto& camera = cameras.Get()[viewIt];
-			auto viewProjection = camera.GetProjectionMatrix() * camera.GetViewMatrix();
-			std::copy_n(&viewProjection[0][0], 16, &views[viewIt].viewProjection[0][0]); //NOLINT(readability-magic-numbers)
-			auto eye = glm::inverse(camera.GetViewMatrix())[3];
-			std::copy_n(&eye[0], 4, views[viewIt].eyePosition);
-			auto inverseViewProjection = glm::inverse(viewProjection);
-			std::copy_n(&inverseViewProjection[0][0], 16, &views[viewIt].inverseViewProjection[0][0]); //NOLINT(readability-magic-numbers)
-			const auto& viewport = camera.GetDesc().viewport;
-			views[viewIt].viewport[0] = viewport.x;
-			views[viewIt].viewport[1] = viewport.y;
-			views[viewIt].viewport[2] = viewport.width;
-			views[viewIt].viewport[3] = viewport.height;
-		}
-		buffer.Flush(0, viewCount * sizeof(ViewData));
-		buffer.Unmap();
-	}
+	cameras.resize(viewCount);
+	return cameras;
 }
 
 void Views::OnInputStateChanged(const core::InputState& input)
