@@ -21,5 +21,8 @@ namespace gfx::obj
 // the material files an import of path may read: all .mtl files next to it (tinyobjloader doesn't report which ones
 // the obj file names, so this errs on the side of too many)
 [[nodiscard]] std::vector<std::filesystem::path> MaterialFiles(const std::filesystem::path& path);
+// the texture files an obj file's material files name (map_*, bump, norm, disp, decal, refl: their last token, the
+// options before it skipped; backslashes as separators), sorted
+[[nodiscard]] std::vector<std::filesystem::path> TextureFiles(const std::filesystem::path& path);
 
 } // namespace gfx::obj

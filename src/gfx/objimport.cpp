@@ -15,6 +15,9 @@
 #include <span>
 #include <streambuf>
 #include <optional>
+#include <ranges>
+#include <string>
+#include <string_view>
 #include <system_error>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -664,6 +667,44 @@ std::vector<std::filesystem::path> MaterialFiles(const std::filesystem::path& pa
 	}
 
 	std::ranges::sort(files);
+
+	return files;
+}
+
+std::vector<std::filesystem::path> TextureFiles(const std::filesystem::path& path)
+{
+	std::vector<std::filesystem::path> files;
+	for (const auto& materialFile : MaterialFiles(path))
+	{
+		auto mapped = core::file::Map(materialFile);
+		if (!mapped)
+			continue;
+		std::string_view text(reinterpret_cast<const char*>(mapped->data()), mapped->size());
+		for (auto line : text | std::views::split('\n'))
+		{
+			std::string_view row(line.begin(), line.end());
+			while (!row.empty() && (row.back() == '\r' || row.back() == ' ' || row.back() == '\t'))
+				row.remove_suffix(1);
+			auto start = row.find_first_not_of(" \t");
+			if (start == std::string_view::npos)
+				continue;
+			row.remove_prefix(start);
+			auto keywordEnd = row.find_first_of(" \t");
+			if (keywordEnd == std::string_view::npos)
+				continue;
+			auto keyword = row.substr(0, keywordEnd);
+			if (!keyword.starts_with("map_") && keyword != "bump" && keyword != "norm" && keyword != "disp" && keyword != "decal" &&
+				keyword != "refl")
+				continue;
+			auto nameStart = row.find_last_of(" \t");
+			std::string name(row.substr(nameStart + 1));
+			std::ranges::replace(name, '\\', '/');
+			files.push_back(materialFile.parent_path() / name);
+		}
+	}
+
+	std::ranges::sort(files);
+	files.erase(std::ranges::unique(files).begin(), files.end());
 
 	return files;
 }

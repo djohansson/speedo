@@ -2630,4 +2630,23 @@ std::vector<std::filesystem::path> BufferFiles(const std::filesystem::path& path
 	return files;
 }
 
+std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path)
+{
+	std::vector<std::filesystem::path> files;
+
+	auto parsed = detail::Parse(path);
+	if (!parsed)
+		return files;
+
+	const auto& data = **parsed;
+	for (cgltf_size imageIt = 0; imageIt < data.images_count; imageIt++)
+		if (const char* uri = data.images[imageIt].uri; uri != nullptr && !detail::IsDataUri(uri))
+			files.push_back(path.parent_path() / detail::UriPath(uri));
+
+	std::ranges::sort(files);
+	files.erase(std::ranges::unique(files).begin(), files.end());
+
+	return files;
+}
+
 } // namespace gfx::gltf

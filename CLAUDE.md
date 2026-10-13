@@ -59,7 +59,12 @@ Notes for working in this codebase, distilled from real build failures.
   glTF-Sample-Assets have), else, for a model without one, a capture of its preview once drawn 20 frames
   (`Preview::RequestCapture`: the draw thread copies the preview's image to a host visible buffer after recording it,
   `CommandEncoder::CopyImageToBuffer`, and a graphics timeline callback hands the pixels over); cached on disk under
-  `<user profile>/thumbnails` by path, size and time (`THM1`: a header, then the pixels). Being a user texture, the
+  `<user profile>/thumbnails` (`THM1`: a header, then the pixels), keyed by what each is made from, so that changing any
+  of it makes a new one: the file's path, size and time (an image's, a panorama's, a screenshot's), and for a capture
+  also the files its render reads (`mesh::Dependencies`, and `mesh::ImageFiles`: the textures a gltf's uris or an mtl's
+  maps name), the importers' versions (`Model::ImportVersion`, `TextureImportVersion`: the tags their caches are keyed
+  by too) and the client's look (`RenderVersion` in `thumbnails.cpp`: a hash of the shader sources under `RootPath`, plus a
+  `renderer-vN` tag to bump when C++ changes how a model is drawn). Old entries are left behind. Being a user texture, the
   atlas's updates are reset each frame by its owner (imgui does that for its own atlases only: `Thumbnails::Update`),
   and queued with `ImTextureDataQueueUpload`. A second `Thumbnails` of one 768 pixel slot, not cached, is the image
   preview. The ui requests it (`RequestPreview`); `Draw` makes it under the draw

@@ -67,4 +67,14 @@ std::vector<std::filesystem::path> Dependencies(const std::filesystem::path& pat
 	}
 }
 
+std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path)
+{
+	switch (detail::FormatOf(path))
+	{
+	case detail::Format::kObj: return obj::TextureFiles(path);
+	case detail::Format::kGltf: return gltf::ImageFiles(path);
+	default: return {};
+	}
+}
+
 } // namespace gfx::mesh

@@ -504,13 +504,8 @@ struct Staged
 		return {};
 	};
 
-	std::string params;
+	std::string params = Model::ImportVersion(filePath);
 	std::string paramsHash;
-	// bump an importer's tag when it changes what it produces
-	if (auto extension = std::filesystem::path(filePath).extension().string(); extension == ".obj" || extension == ".OBJ")
-		params.append(std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion));
-	else
-		params.append(std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v33", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion));
 	// a scene or variant asked for is a cache entry of its own, the default ones' is the one without
 	if (importOptions.scene)
 		params.append(std::format("|scene-{}", *importOptions.scene));
@@ -859,6 +854,16 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	if (!staged) // cancelled or failed
 		return {};
 	return model::UploadStaged(device, std::move(*staged));
+}
+
+std::string Model::ImportVersion(std::string_view filePath)
+{
+	// bump an importer's tag when it changes what it produces
+	auto extension = std::filesystem::path(filePath).extension().string();
+	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (extension == ".obj")
+		return std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion);
+	return std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v33", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion);
 }
 
 std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement)

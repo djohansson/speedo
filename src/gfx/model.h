@@ -220,6 +220,10 @@ public:
 	// options: a gltf file's scene and material variant to load (see mesh::ImportOptions), else its default ones.
 	[[nodiscard]] static std::shared_ptr<Model> Load(
 		std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {});
+	// what a model file is imported with (its importer's version and its decoders'): part of its cache key, and of
+	// anything derived from how it looks (e.g. its thumbnail)
+	[[nodiscard]] static std::string ImportVersion(std::string_view filePath);
+
 	// loads several model files (each through its own cache entry) as one, arranged (see ModelArrangement): side by side
 	// for sets of variants, such as an archive's models, or the encodings of a gltf model. files the importers don't
 	// support (see mesh::Unsupported) are skipped. null if any load is cancelled or fails.

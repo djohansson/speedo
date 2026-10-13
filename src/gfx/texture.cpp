@@ -117,6 +117,12 @@ namespace detail
 
 } // namespace detail
 
+std::string TextureImportVersion()
+{
+	// stb_image, stb_image_resize2 and stb_dxt; bump imageimport when image::Import changes what it produces
+	return std::format("stb-{}|imageimport-v4", kStbVersion);
+}
+
 Texture LoadTexture(
 	std::string_view filePath, std::atomic_uint8_t& progress, const image::Options& options, std::optional<uint32_t> embeddedImage)
 {
@@ -221,10 +227,8 @@ Texture LoadTexture(
 		return {};
 	};
 
-	std::string params;
+	std::string params = TextureImportVersion();
 	std::string paramsHash;
-	params.append(std::format("stb-{}", kStbVersion)); // stb_image, stb_image_resize2 and stb_dxt
-	params.append("|imageimport-v4"); // bump when image::Import changes what it produces
 	// the decoders of the formats stb_image doesn't read
 	auto extension = std::filesystem::path(filePath).extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });

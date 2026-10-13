@@ -32,6 +32,10 @@ struct Texture
 // layout of the upload, so the caller must transition it before sampling from it. returns an empty texture if the load was cancelled because the
 // application is exiting, or failed (the reason is printed to stderr).
 // embeddedImage: an image the gltf file at filePath embeds (see TextureRef::embeddedImage), else filePath is the image
+// what textures are imported with (the importer's version and its decoders'): part of their cache keys, and of anything
+// derived from how they look (e.g. a model's thumbnail)
+[[nodiscard]] std::string TextureImportVersion();
+
 [[nodiscard]] Texture LoadTexture(
 	std::string_view filePath,
 	std::atomic_uint8_t& progress,

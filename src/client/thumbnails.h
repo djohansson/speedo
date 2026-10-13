@@ -87,14 +87,25 @@ private:
 		bool queued = false; // in myWaiting
 	};
 
-	// made on the task executor: from the cache, else the source (cached then)
+	// made on the task executor: from the cache, else the source (cached then). the cache is keyed by what the thumbnail
+	// is made from, so a change to any of it makes a new one: the file (an image's, a panorama's, a model's screenshot),
+	// or for a model's capture its file, the files its render reads, its importer, and renderVersion
 	static std::optional<std::vector<uint8_t>> Make(
-		const std::filesystem::path& path, Source source, uint32_t slotSize, const std::filesystem::path& cacheDirectory, uint32_t& width, uint32_t& height);
+		const std::filesystem::path& path,
+		Source source,
+		uint32_t slotSize,
+		const std::filesystem::path& cacheDirectory,
+		const std::string& renderVersion,
+		uint32_t& width,
+		uint32_t& height);
 
 	uint32_t mySlotSize;
 	uint32_t myColumns;
 	uint32_t myRows;
 	std::filesystem::path myCacheDirectory;
+	// how what the client draws looks (the shader sources, the texture importer, a renderer tag): part of a captured
+	// thumbnail's key
+	std::string myRenderVersion;
 	std::unique_ptr<ImTextureData> myAtlas;
 
 	// ui thread

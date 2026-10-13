@@ -247,4 +247,8 @@ struct ImportOptions
 // file's external buffers (images are loaded separately)
 [[nodiscard]] std::vector<std::filesystem::path> Dependencies(const std::filesystem::path& path);
 
+// the image files a model's materials name (an obj's textures, a gltf file's external images): with Dependencies, every
+// file a model's render depends on (e.g. for keying a thumbnail of it)
+[[nodiscard]] std::vector<std::filesystem::path> ImageFiles(const std::filesystem::path& path);
+
 } // namespace gfx::mesh
