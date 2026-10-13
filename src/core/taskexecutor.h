@@ -25,6 +25,12 @@ public:
 	template <typename R>
 	[[maybe_unused]] std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
+	// calls body(index) for each index below count, on worker tasks (one per thread, at most count) taking the indices in
+	// turn, and returns once all are done, helping out processing the ready queue meanwhile (so it may be called from
+	// within a task). body runs on any thread, concurrently with itself; to stop early, it can skip the indices left
+	template <typename Fn>
+	void ForEach(size_t count, Fn&& body);
+
 	// help out processing the thread pools ready queue one task at a time
 	void JoinOne();
 

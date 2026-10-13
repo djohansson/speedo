@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -870,28 +871,50 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
-	// each file through its own cache entry: the progress of each is a share of the whole. in a set, files the
-	// importers don't support (e.g. other encodings of a gltf model, see mesh::Unsupported) are left out.
-	std::vector<model::Staged> models;
-	models.reserve(filePaths.size());
-	for (size_t fileIt = 0; fileIt < filePaths.size(); fileIt++)
+	// each file through its own cache entry, a set's on the executor's threads (see TaskExecutor::ForEach), kept in
+	// their order (the arrangement's): the progress is the share of files done. in a set, files the importers don't
+	// support (e.g. other encodings of a gltf model, see mesh::Unsupported) are left out; one that fails (or is
+	// cancelled) fails the whole
+	std::vector<std::optional<model::Staged>> loaded(filePaths.size());
+	std::atomic_bool failed = false;
+	std::atomic_size_t done = 0;
+	auto loadFile = [&](size_t fileIt)
 	{
+		if (failed)
+			return;
+
 		if (filePaths.size() > 1)
 		{
 			if (auto reason = mesh::Unsupported(std::filesystem::path(filePaths[fileIt])))
 			{
 				std::println(stderr, "Skipped model {}: {}", filePaths[fileIt], *reason);
-				continue;
+				progress = static_cast<uint8_t>(255 * ++done / filePaths.size());
+				return;
 			}
 		}
 
 		std::atomic_uint8_t fileProgress = 0;
 		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {});
 		if (!staged) // cancelled or failed
-			return {};
-		models.push_back(std::move(*staged));
-		progress = static_cast<uint8_t>(255 * (fileIt + 1) / filePaths.size());
-	}
+		{
+			failed = true;
+			return;
+		}
+		loaded[fileIt] = std::move(*staged);
+		progress = static_cast<uint8_t>(255 * ++done / filePaths.size());
+	};
+	if (filePaths.size() == 1)
+		loadFile(0);
+	else
+		core::Application::Get()->GetExecutor().ForEach(filePaths.size(), loadFile);
+	if (failed)
+		return {};
+
+	std::vector<model::Staged> models;
+	models.reserve(filePaths.size());
+	for (auto& staged : loaded)
+		if (staged)
+			models.push_back(std::move(*staged));
 	if (models.empty())
 	{
 		std::println(stderr, "Failed to load model {}: none of its files are supported", filePaths.front());
