@@ -872,6 +872,13 @@ definition didn't), and a function like macro named like one of its types rewrit
 `mciapi.h`). `core/mio_extra.h` includes mio with `WIN32_LEAN_AND_MEAN`, `NOUSER` and `NOGDI` (mio needs only the
 kernel api); other headers keep `<windows.h>` out (see `core/profiling.h`).
 
+Narrow strings are UTF-8 on Windows too: the executables' manifest (`src/windows.manifest`) sets the process's ANSI code
+page to UTF-8, which libc++'s `path::string()` and the narrow file APIs (mio, the importers) convert with. With the
+system's (1252) it threw on the glTF sample `Unicode❤♻Test` when the file browser listed it. lld-link can't merge a
+manifest without libxml2 or mt.exe, so it is a resource (`src/windows.rc`), and `CMakeLists.txt` turns CMake's
+`/MANIFEST:EMBED` (in `Windows-Clang.cmake`'s link rule, after the target's flags) into `/MANIFEST:NO`. A new
+executable target needs `windows.rc` in its sources.
+
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 
 `CreateTask(callable, args...)` keeps `args` in a `std::tuple<Args...>` with `Args` deduced as

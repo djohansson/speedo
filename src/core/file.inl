@@ -98,11 +98,17 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 	if (!timestamp)
 		return std::unexpected(timestamp.error());
 
+	// the error code overload: libc++ stats the file again, which fails if it went away since the status above (the
+	// throwing one terminated the client from the file browser)
+	auto size = std::filesystem::file_size(filePath, error);
+	if (error)
+		return std::unexpected(error);
+
 	auto fileInfo = Record{
 		filePath.string(),
 		timestamp.value(),
 		{},
-		std::filesystem::file_size(filePath)};
+		size};
 
 	if constexpr (Sha256ChecksumEnable)
 	{

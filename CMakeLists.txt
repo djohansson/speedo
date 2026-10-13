@@ -516,6 +516,19 @@ target_link_libraries(
 		xxHash::xxhash
 )
 
+# the executables' narrow strings are UTF-8 on windows too (windows.manifest sets the process's ANSI code page):
+# libc++'s path::string() threw on file names the system's code page can't represent. lld-link can merge a manifest into
+# the one it makes only with libxml2 or mt.exe, so the executables embed it as a resource (windows.rc), and the link rule
+# (CMake's Windows-Clang.cmake, which ends in /MANIFEST:EMBED after the target's flags) makes none
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+	foreach(lang C CXX)
+		string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${lang}_LINK_EXECUTABLE "${CMAKE_${lang}_LINK_EXECUTABLE}")
+	endforeach()
+	foreach(target server client assettest filebench)
+		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
+	endforeach()
+endif()
+
 ###############################################################################
 
 install(
