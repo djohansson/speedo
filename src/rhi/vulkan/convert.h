@@ -404,6 +404,29 @@ namespace rhi::vk
 }
 
 // the result of an acquire or present
+[[nodiscard]] constexpr VkPresentModeKHR ToVk(PresentationMode mode) noexcept
+{
+	switch (mode)
+	{
+	case PresentationMode::kFifoRelaxed: return VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+	case PresentationMode::kMailbox: return VK_PRESENT_MODE_MAILBOX_KHR;
+	case PresentationMode::kImmediate: return VK_PRESENT_MODE_IMMEDIATE_KHR;
+	default: return VK_PRESENT_MODE_FIFO_KHR;
+	}
+}
+
+// the modes rhi has no name for (shared demand refresh, ...) as fifo
+[[nodiscard]] constexpr PresentationMode FromVk(VkPresentModeKHR mode) noexcept
+{
+	switch (mode)
+	{
+	case VK_PRESENT_MODE_FIFO_RELAXED_KHR: return PresentationMode::kFifoRelaxed;
+	case VK_PRESENT_MODE_MAILBOX_KHR: return PresentationMode::kMailbox;
+	case VK_PRESENT_MODE_IMMEDIATE_KHR: return PresentationMode::kImmediate;
+	default: return PresentationMode::kFifo;
+	}
+}
+
 [[nodiscard]] constexpr PresentResult ToPresentResult(VkResult result) noexcept
 {
 	switch (result)

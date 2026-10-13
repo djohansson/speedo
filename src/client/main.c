@@ -193,9 +193,10 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 }
 
 #if defined(__APPLE__)
-// exclusive fullscreen (glfwSetWindowMonitor) lets macOS scan the swapchain images out directly, which flickers
-// (frames shown out of order) with the vulkan driver even though the rendered frames are correct. a borderless window
-// covering the monitor, with the menu bar and dock hidden, stays composited and doesn't.
+// borderless fullscreen (FULLSCREEN_MODE_BORDERLESS): a window covering the monitor, with the menu bar and dock hidden,
+// stays composited. exclusive and native fullscreen let macOS scan the swapchain images out directly, which flickered
+// (frames shown out of order) with KosmicKrisp from mesa 26.2; with mesa main (8fc4981) all three work, and exclusive is
+// the default
 static void SetMacPresentationOptions(unsigned long options)
 {
 	id app = ((id (*)(Class, SEL))objc_msgSend)(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
@@ -208,23 +209,6 @@ enum
 	kMacPresentationHideDock = 1UL << 1, // NSApplicationPresentationHideDock
 	kMacPresentationHideMenuBar = 1UL << 3, // NSApplicationPresentationHideMenuBar
 };
-
-// native fullscreen (the green title bar button) moves the window to its own space and scans it out directly too,
-// with the same flicker. opting out turns the button into zoom. glfw resets the collection behavior in places
-// (e.g. when leaving glfwSetWindowMonitor), so this is reapplied after those.
-static void DisableMacNativeFullscreen(GLFWwindow* window)
-{
-	enum
-	{
-		kCollectionBehaviorFullScreenPrimary = 1UL << 7, // NSWindowCollectionBehaviorFullScreenPrimary
-		kCollectionBehaviorFullScreenNone = 1UL << 9, // NSWindowCollectionBehaviorFullScreenNone
-	};
-
-	id nsWindow = glfwGetCocoaWindow(window);
-	unsigned long behavior = ((unsigned long (*)(id, SEL))objc_msgSend)(nsWindow, sel_registerName("collectionBehavior"));
-	behavior = (behavior & ~(unsigned long)kCollectionBehaviorFullScreenPrimary) | kCollectionBehaviorFullScreenNone;
-	((void (*)(id, SEL, unsigned long))objc_msgSend)(nsWindow, sel_registerName("setCollectionBehavior:"), behavior);
-}
 #endif
 
 static void OnWindowFullscreenChanged(GLFWwindow* window)
@@ -242,6 +226,18 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 	static int gWindowedHeight = 0;
 
 #if defined(__APPLE__)
+	// how it went fullscreen, to leave the same way (windowState's mode may have changed since, see View > Presentation)
+	static uint32_t gMacFullscreenEntered = FULLSCREEN_MODE_BORDERLESS;
+	uint32_t macFullscreen = windowState->fullscreenEnabled ? gMacFullscreenEntered : windowState->fullscreenMode;
+	if (!windowState->fullscreenEnabled)
+		gMacFullscreenEntered = macFullscreen;
+	if (macFullscreen == FULLSCREEN_MODE_NATIVE)
+	{
+		// asynchronous: the window resizes as it moves to its space (or back), which the resize callbacks follow
+		((void (*)(id, SEL, id))objc_msgSend)(glfwGetCocoaWindow(window), sel_registerName("toggleFullScreen:"), nil);
+		windowState->fullscreenEnabled = !windowState->fullscreenEnabled;
+		return;
+	}
 	bool isFullscreen = windowState->fullscreenEnabled; // the borderless window has no monitor
 #else
 	bool isFullscreen = glfwGetWindowMonitor(window) != NULL;
@@ -250,8 +246,11 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 	if (isFullscreen)
 	{
 #if defined(__APPLE__)
-		SetMacPresentationOptions(kMacPresentationDefault);
-		glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
+		if (macFullscreen == FULLSCREEN_MODE_BORDERLESS)
+		{
+			SetMacPresentationOptions(kMacPresentationDefault);
+			glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
+		}
 #endif
 		glfwSetWindowMonitor(
 			window,
@@ -261,9 +260,6 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 			gWindowedWidth,
 			gWindowedHeight,
 			GLFW_DONT_CARE);
-#if defined(__APPLE__)
-		DisableMacNativeFullscreen(window);
-#endif
 		
 		windowState->fullscreenRefresh = 0;
 		windowState->fullscreenEnabled = false;
@@ -287,14 +283,18 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 			windowState->height = mode->height;
 
 #if defined(__APPLE__)
-			int monitorX, monitorY;
-			glfwGetMonitorPos(primaryMonitor, &monitorX, &monitorY);
+			if (macFullscreen == FULLSCREEN_MODE_BORDERLESS)
+			{
+				int monitorX, monitorY;
+				glfwGetMonitorPos(primaryMonitor, &monitorX, &monitorY);
 
-			SetMacPresentationOptions(kMacPresentationHideDock | kMacPresentationHideMenuBar);
-			glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
-			glfwSetWindowPos(window, monitorX, monitorY);
-			glfwSetWindowSize(window, mode->width, mode->height);
-#else
+				SetMacPresentationOptions(kMacPresentationHideDock | kMacPresentationHideMenuBar);
+				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
+				glfwSetWindowPos(window, monitorX, monitorY);
+				glfwSetWindowSize(window, mode->width, mode->height);
+			}
+			else
+#endif
 			glfwSetWindowMonitor(
 				window,
 				primaryMonitor,
@@ -303,7 +303,6 @@ static void OnWindowFullscreenChanged(GLFWwindow* window)
 				(int)windowState->width,
 				(int)windowState->height,
 				mode->refreshRate); // not 0: glfw picks the mode closest to the requested rate, i.e. the lowest one
-#endif
 
 			windowState->fullscreenRefresh = mode->refreshRate;
 			windowState->fullscreenEnabled = true;
@@ -481,7 +480,14 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 	ENSURE(window != NULL);
 
 #if defined(__APPLE__)
-	DisableMacNativeFullscreen(window);
+	// SPEEDO_FULLSCREEN=exclusive (the default), borderless (see above, for drivers that flicker scanned out directly) or
+	// native: how alt+enter goes fullscreen until View > Presentation picks another
+	const char* fullscreenMode = getenv("SPEEDO_FULLSCREEN");
+	inOutState->fullscreenMode = fullscreenMode != NULL && strcmp(fullscreenMode, "borderless") == 0 ? FULLSCREEN_MODE_BORDERLESS
+		: fullscreenMode != NULL && strcmp(fullscreenMode, "native") == 0                        ? FULLSCREEN_MODE_NATIVE
+																								 : FULLSCREEN_MODE_EXCLUSIVE;
+#else
+	inOutState->fullscreenMode = FULLSCREEN_MODE_EXCLUSIVE;
 #endif
 
 	if (background)

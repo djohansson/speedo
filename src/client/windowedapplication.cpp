@@ -84,9 +84,25 @@ bool WindowedApplication::Draw()
 	if (window.IsMinimized())
 		return false;
 
+	// the presentation the ui asked for (View > Presentation), applied by recreating the swapchain below
+	if (auto request = myPresentationRequest.exchange(0, std::memory_order_relaxed); request != 0)
+	{
+		auto presentation = UnpackPresentation(request);
+		swapchain.Configure(presentation.mode, presentation.imageCount);
+	}
+
 	// e.g. a fullscreen switch can leave the swapchain at the previous size without a matching resize event
 	if (swapchain.NeedsRecreate() && !RecreateWindowDependentObjects(rhi, window))
 		return false;
+	auto [minImageCount, maxImageCount] = swapchain.GetImageCountLimits();
+	myPresentation.store(
+		PackPresentation(Presentation{
+			.mode = swapchain.GetPresentationMode(),
+			.imageCount = swapchain.GetImageCount(),
+			.modes = swapchain.GetPresentationModes(),
+			.minImageCount = minImageCount,
+			.maxImageCount = maxImageCount}),
+		std::memory_order_relaxed);
 
 	// the file browser's preview, once the ui asks for it: made here, outside of the graphics queue's lock (its scene
 	// takes it), and published to the ui thread

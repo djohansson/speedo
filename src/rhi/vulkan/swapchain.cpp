@@ -2,6 +2,7 @@
 #include <rhi/device.h>
 #include <rhi/rhi.h>
 #include <rhi/swapchain.h>
+#include <rhi/vulkan/convert.h>
 #include <rhi/vulkan/utils.h>
 
 #include <algorithm>
@@ -239,6 +240,42 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 	VK_CHECK(result);
 
 	return true;
+}
+
+template <>
+void Swapchain<kVk>::Configure(PresentationMode mode, uint32_t imageCount)
+{
+	const auto& info = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface());
+	if (std::ranges::find(info.presentModes, vk::ToVk(mode)) != info.presentModes.end())
+		InternalGetDesc().presentMode = vk::ToVk(mode);
+	imageCount = std::max(imageCount, info.capabilities.minImageCount);
+	if (info.capabilities.maxImageCount != 0)
+		imageCount = std::min(imageCount, info.capabilities.maxImageCount);
+	InternalGetDesc().images.resize(imageCount); // their handles: CreateSwapchain gets them
+	myNeedsRecreate = true;
+}
+
+template <>
+PresentationMode Swapchain<kVk>::GetPresentationMode() const
+{
+	return vk::FromVk(GetDesc().presentMode);
+}
+
+template <>
+uint32_t Swapchain<kVk>::GetPresentationModes() const
+{
+	uint32_t modes = 0;
+	for (auto mode : GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface()).presentModes)
+		if (auto presentation = vk::FromVk(mode); vk::ToVk(presentation) == mode)
+			modes |= 1U << static_cast<uint32_t>(presentation);
+	return modes;
+}
+
+template <>
+std::pair<uint32_t, uint32_t> Swapchain<kVk>::GetImageCountLimits() const
+{
+	const auto& capabilities = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface()).capabilities;
+	return {capabilities.minImageCount, capabilities.maxImageCount};
 }
 
 template <>

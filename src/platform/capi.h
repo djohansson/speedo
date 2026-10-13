@@ -30,7 +30,14 @@ struct WindowState
 	uint32_t fullscreenRefresh : 16;
 	uint32_t fullscreenMonitor : 15;
 	uint32_t fullscreenEnabled : 1;
+	// how alt+enter goes fullscreen next (FULLSCREEN_MODE_*): on macOS, chosen in the ui (View > Presentation) or with
+	// SPEEDO_FULLSCREEN; elsewhere always exclusive
+	uint32_t fullscreenMode;
 };
+
+#define FULLSCREEN_MODE_BORDERLESS 0u // a window covering the monitor, the menu bar and dock hidden: composited
+#define FULLSCREEN_MODE_EXCLUSIVE 1u // glfwSetWindowMonitor: the default
+#define FULLSCREEN_MODE_NATIVE 2u // macOS's own fullscreen space (toggleFullScreen:, the title bar's green button)
 
 typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(modernize-use-using)
 typedef void (*DestroyWindowFunc)(WindowHandle window);//NOLINT(modernize-use-using)

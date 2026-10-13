@@ -85,6 +85,34 @@ private:
 	std::atomic_bool myPreviewRequested = false;
 	std::atomic_bool myPreviewReady = false;
 	std::atomic_bool myPreviewVisible = false;
+	// the window's presentation (View > Presentation): what the ui asked for, which Draw applies to the swapchain before
+	// its next frame (Swapchain::Configure), and what the swapchain has, with what the surface supports (the modes' bits,
+	// and the image counts). packed by PackPresentation, 8 bits each (none: 0)
+	struct Presentation
+	{
+		rhi::PresentationMode mode = rhi::PresentationMode::kFifo;
+		uint32_t imageCount = 0;
+		uint32_t modes = 0;
+		uint32_t minImageCount = 0;
+		uint32_t maxImageCount = 0; // 0: no limit
+	};
+	std::atomic_uint64_t myPresentationRequest = 0;
+	std::atomic_uint64_t myPresentation = 0;
+	[[nodiscard]] static constexpr uint64_t PackPresentation(const Presentation& presentation) noexcept
+	{
+		return (1ULL << 63) | (static_cast<uint64_t>(presentation.modes & 0xffU) << 32) |
+			   (static_cast<uint64_t>(presentation.mode) << 24) | ((presentation.maxImageCount & 0xffU) << 16) |
+			   ((presentation.minImageCount & 0xffU) << 8) | (presentation.imageCount & 0xffU);
+	}
+	[[nodiscard]] static constexpr Presentation UnpackPresentation(uint64_t packed) noexcept
+	{
+		return {
+			.mode = static_cast<rhi::PresentationMode>((packed >> 24) & 0xffU),
+			.imageCount = static_cast<uint32_t>(packed & 0xffU),
+			.modes = static_cast<uint32_t>((packed >> 32) & 0xffU),
+			.minImageCount = static_cast<uint32_t>((packed >> 8) & 0xffU),
+			.maxImageCount = static_cast<uint32_t>((packed >> 16) & 0xffU)};
+	}
 	std::string myImGuiIniSettings;
 	static std::mutex gDrawMutex; //NOLINT(readability-identifier-naming) only ever locked exclusively
 	static core::LoadQueue gLoads; //NOLINT(readability-identifier-naming) asset loads, shown with their progress

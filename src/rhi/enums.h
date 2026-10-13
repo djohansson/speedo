@@ -392,4 +392,14 @@ enum class PresentResult : uint8_t
 	kError,
 };
 
+// how a swapchain hands its images to the display (see Swapchain::Configure)
+enum class PresentationMode : uint8_t
+{
+	kFifo, // in order, one per vertical blank: always supported
+	kFifoRelaxed, // as fifo, but a frame that misses its vertical blank is shown at once (may tear then)
+	kMailbox, // one per vertical blank, the newest: a newer frame replaces the one waiting (no tearing)
+	kImmediate, // at once, without waiting for the vertical blank (may tear)
+	kCount,
+};
+
 } // namespace rhi

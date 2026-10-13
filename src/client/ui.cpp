@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <format>
+#include <tuple>
 #include <numbers>
 
 namespace client
@@ -554,6 +555,55 @@ void WindowedApplication::PrepareDraw()
 						[this, grid = splitScreenGrid] { myViews->OnResizeGrid({grid.width, grid.height}); });
 					rhi.drawCalls.enqueue(resizeTask);
 				}
+			}
+			if (BeginMenu("Presentation"))
+			{
+				// how the window goes fullscreen (alt+enter) and presents (see FULLSCREEN_MODE_* and Swapchain::Configure):
+				// to compare them, e.g. a driver's direct scanout on macOS
+#if defined(__APPLE__)
+				auto& windowState = GetWindow(GetCurrentWindow()).GetState();
+				SeparatorText("Fullscreen (Alt+Enter)");
+				for (auto [label, mode] : std::array{
+						 std::pair{"Exclusive", FULLSCREEN_MODE_EXCLUSIVE},
+						 std::pair{"Borderless", FULLSCREEN_MODE_BORDERLESS},
+						 std::pair{"Native", FULLSCREEN_MODE_NATIVE}})
+					if (MenuItem(label, nullptr, windowState.fullscreenMode == mode))
+						windowState.fullscreenMode = mode;
+				SetItemTooltip("Exclusive and native let macOS scan the frames out directly; borderless stays composited (for drivers that flicker scanned out). Takes effect the next time the window goes fullscreen.");
+#endif
+				// what the swapchain has, of what the surface supports (none listed until the first frame)
+				auto presentation = UnpackPresentation(myPresentation.load(std::memory_order_relaxed));
+				SeparatorText("Swapchain");
+				for (auto [label, option, tooltip] : std::array{
+						 std::tuple{"FIFO", rhi::PresentationMode::kFifo, "In order, one frame per vertical blank."},
+						 std::tuple{"FIFO Relaxed", rhi::PresentationMode::kFifoRelaxed, "As FIFO, but a late frame is shown at once (may tear then)."},
+						 std::tuple{"Mailbox", rhi::PresentationMode::kMailbox, "One frame per vertical blank, the newest: no tearing, lowest latency."},
+						 std::tuple{"Immediate", rhi::PresentationMode::kImmediate, "At once, without waiting for the vertical blank (may tear)."}})
+				{
+					if ((presentation.modes & (1U << static_cast<uint32_t>(option))) == 0)
+						continue;
+					if (MenuItem(label, nullptr, presentation.mode == option))
+					{
+						auto request = presentation;
+						request.mode = option;
+						myPresentationRequest.store(PackPresentation(request), std::memory_order_relaxed);
+					}
+					SetItemTooltip("%s", tooltip);
+				}
+				// the image counts the surface takes (no limit: two more than the least)
+				auto maxImageCount = presentation.maxImageCount != 0 ? presentation.maxImageCount : presentation.minImageCount + 2;
+				for (uint32_t count = presentation.minImageCount; count != 0 && count <= maxImageCount; count++)
+				{
+					bool only = presentation.minImageCount == maxImageCount;
+					if (MenuItem(std::format("{} images{}", count, only ? " (all the surface takes)" : "").c_str(), nullptr, presentation.imageCount == count, !only))
+					{
+						auto request = presentation;
+						request.imageCount = count;
+						myPresentationRequest.store(PackPresentation(request), std::memory_order_relaxed);
+					}
+				}
+				SetItemTooltip("The swapchain is recreated before the next frame.");
+				ImGui::EndMenu();
 			}
 			if (BeginMenu("Environment"))
 			{

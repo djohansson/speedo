@@ -6,11 +6,20 @@ Notes for working in this codebase, distilled from real build failures.
 
 - `platform` is the window system: the windows (`platform::Window`: a native handle, its `WindowState` and whether it is
   minimized; `WindowHandle`/`WindowState`/`CreateWindowFunc` in `platform/capi.h`, with `GetCurrentWindow`/
-  `SetCurrentWindow` and the C entry points the client's glfw callbacks call), `platform::WindowedApplication` (makes the
-  window with the client's `CreateWindowFunc`, runs `mainCalls` on the main thread in `Main`, wakes the main loop on
+  `SetCurrentWindow` and the C entry points the client's glfw callbacks call), `platform::WindowedApplication` (makes
+  the window with the client's `CreateWindowFunc`, runs `mainCalls` on the main thread in `Main`, wakes the main loop on
   `RequestExit`, tracks minimizing in `OnResizeFramebuffer`) and imgui's platform side (`platform::imgui`, imgui's glfw
   backend). It links glfw and imgui privately, and knows nothing of graphics (no native file dialogs: the client's file
-  browser replaced nfd's): the server, which has no windows, doesn't link it.
+  browser replaced nfd's): the server, which has no windows, doesn't link it. Alt+Enter goes fullscreen as
+  `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or `SPEEDO_FULLSCREEN`): exclusive
+  (`glfwSetWindowMonitor`, the default), or on macOS native (its own space) or borderless (a window covering the
+  monitor, the menu bar and dock hidden, which stays composited). Exclusive and native let macOS scan the swapchain out
+  directly, which flickered with KosmicKrisp from mesa 26.2 (frames out of order), so borderless was the only mode for a
+  while; with mesa main (8fc4981) all three work. The same menu sets the swapchain's presentation
+  (`Swapchain::Configure`: `rhi::PresentationMode`, FIFO, FIFO relaxed, mailbox or immediate, of those the surface has,
+  and an image count, applied by `Draw`, which recreates the swapchain; KosmicKrisp has FIFO and immediate, and takes
+  exactly 3 images; at startup the swapchain takes mailbox, else FIFO relaxed, else FIFO), as `SPEEDO_PRESENT_MODE` and
+  `SPEEDO_SWAPCHAIN_IMAGES` do at startup.
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered

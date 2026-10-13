@@ -7,6 +7,7 @@
 #include <rhi/types.h>
 
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace rhi
@@ -111,6 +112,15 @@ public:
 	[[nodiscard]] auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
 	void CreateSwapchain();
+	// how the swapchain presents (its mode, if the surface has it, and how many images, within the surface's limits), for
+	// the next CreateSwapchain, which it asks for (NeedsRecreate). on the thread that draws
+	void Configure(PresentationMode mode, uint32_t imageCount);
+	[[nodiscard]] PresentationMode GetPresentationMode() const;
+	// the modes the surface supports, as bits (1 << PresentationMode)
+	[[nodiscard]] uint32_t GetPresentationModes() const;
+	// how many images the surface takes: at least first, at most second (0: no limit)
+	[[nodiscard]] std::pair<uint32_t, uint32_t> GetImageCountLimits() const;
+	[[nodiscard]] uint32_t GetImageCount() const noexcept { return static_cast<uint32_t>(this->GetDesc().images.size()); }
 
 	// set when an acquire or present reports the swapchain out of date or suboptimal (e.g. after a fullscreen switch,
 	// which doesn't always come with a framebuffer resize event of the final size). cleared by CreateSwapchain.

@@ -5,10 +5,14 @@
 
 #include <core/assert.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <format>
 #include <iostream>
+#include <print>
+#include <string_view>
 #include <tuple>
 #include <vector>
 
@@ -187,6 +191,36 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 			break;
 		}
 	}
+
+	// overrides, for trying out presentation (e.g. macOS's direct scanout in fullscreen): SPEEDO_PRESENT_MODE=fifo,
+	// fifo_relaxed, mailbox or immediate (if the surface has it), SPEEDO_SWAPCHAIN_IMAGES=<count> (within the surface's
+	// limits)
+	if (const char* presentMode = std::getenv("SPEEDO_PRESENT_MODE"); presentMode != nullptr)
+	{
+		std::string_view name(presentMode);
+		auto mode = name == "immediate" ? VK_PRESENT_MODE_IMMEDIATE_KHR
+			: name == "mailbox"         ? VK_PRESENT_MODE_MAILBOX_KHR
+			: name == "fifo_relaxed"    ? VK_PRESENT_MODE_FIFO_RELAXED_KHR
+										: VK_PRESENT_MODE_FIFO_KHR;
+		if (std::ranges::find(swapchainInfo.presentModes, mode) != swapchainInfo.presentModes.end())
+			config.presentMode = mode;
+		else
+			std::println(stderr, "SPEEDO_PRESENT_MODE={}: the surface doesn't support it", presentMode);
+	}
+	if (const char* imageCount = std::getenv("SPEEDO_SWAPCHAIN_IMAGES"); imageCount != nullptr)
+	{
+		auto count = std::max<uint32_t>(static_cast<uint32_t>(std::strtoul(imageCount, nullptr, 10)), swapchainInfo.capabilities.minImageCount);
+		if (swapchainInfo.capabilities.maxImageCount != 0)
+			count = std::min(count, swapchainInfo.capabilities.maxImageCount);
+		config.images.resize(count);
+	}
+	std::println(
+		"swapchain: {} images (the surface takes {} to {}), {}", config.images.size(), swapchainInfo.capabilities.minImageCount,
+		swapchainInfo.capabilities.maxImageCount,
+		config.presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR		 ? "immediate"
+		: config.presentMode == VK_PRESENT_MODE_MAILBOX_KHR	  ? "mailbox"
+		: config.presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR ? "fifo relaxed"
+																 : "fifo");
 
 	return config;
 };

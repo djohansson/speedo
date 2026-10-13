@@ -24,7 +24,7 @@ WindowedApplication::WindowedApplication(std::string_view name, core::Environmen
 {
 	ENSURE(createWindowFunc != nullptr);
 
-	WindowState state{.x = 0, .y = 0, .width = kDefaultWindowWidth, .height = kDefaultWindowHeight, .fullscreenEnabled = 0U};
+	WindowState state{.x = 0, .y = 0, .width = kDefaultWindowWidth, .height = kDefaultWindowHeight, .fullscreenEnabled = 0U, .fullscreenMode = FULLSCREEN_MODE_EXCLUSIVE};
 	auto handle = createWindowFunc(&state);
 	ENSURE(handle != kInvalidWindowHandle);
 	myWindows.emplace_back(handle, state);
