@@ -8,12 +8,20 @@ a client/server split.
 
 It runs on macOS (Apple Silicon, through KosmicKrisp or MoltenVK), Windows and Linux, and builds with clang everywhere.
 
-![ToyCar: a clearcoated toy car on sheen velvet, lit by the footprint_court panorama](docs/screenshots/toycar.jpg)
+![CarConcept: a clearcoated concept car with transmissive glass, on a rooftop helipad at sunset](docs/screenshots/carconcept.jpg)
 
-![IridescentDishWithOlives: olives seen through an iridescent glass dome, lit by the ennis panorama](docs/screenshots/iridescent-dish.jpg)
+![ChronographWatch: a gold watch with a glass face, in the forecourt of a theatre at dusk](docs/screenshots/chronographwatch.jpg)
 
-*Khronos glTF sample models ToyCar and IridescentDishWithOlives, through their own cameras, lit by the footprint_court
-and ennis panoramas from glTF-Sample-Environments.*
+![DamagedHelmet: a worn sci-fi helmet with an emissive visor, in a ruin overgrown with greenery](docs/screenshots/damagedhelmet.jpg)
+
+*Khronos glTF sample models CarConcept, ChronographWatch and DamagedHelmet, lit by the helipad, footprint_court and
+papermill panoramas from glTF-Sample-Environments.*
+
+<!-- made with the profile client: SPEEDO_AUTOLOAD_MODEL=test-assets/glTF-Sample-Assets/Models/<model>/glTF/<model>.gltf,
+SPEEDO_AUTOLOAD_ENVIRONMENT=test-assets/glTF-Sample-Environments/<panorama>.hdr, SPEEDO_ANIMATION_TIME=0 and
+SPEEDO_CAMERA=2.312,1.522,2.892,15.141,-41.082 (CarConcept), 2.210,1.534,3.820,14.439,-20.556 (ChronographWatch),
+1.168,0.273,1.448,7.723,-35.538 (DamagedHelmet); the window captured once the ui had faded, without its title bar and
+rounded corners, scaled to 1600 wide -->
 
 ## What's in the box
 
