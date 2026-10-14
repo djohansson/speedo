@@ -446,8 +446,10 @@ void WindowedApplication::PrepareDraw()
 	static std::vector<core::Future<void>> gAutoLoads;
 	static std::optional<uint32_t> gAutoLoadExitFrames;
 	// SPEEDO_CAMERA=<x>,<y>,<z>,<pitch>,<yaw> (world space, degrees): where the views look from once the autoloads are
-	// installed (the model's install frames them first), for measurements and screenshots
+	// installed (the model's install frames them first), for measurements and screenshots; SPEEDO_CAMERA=frame frames the
+	// model, as View > Camera > Frame model (a model with cameras starts looking through its first)
 	static std::optional<std::array<float, 5>> gAutoCamera;
+	static bool gAutoFrame = false;
 	static bool gAutoCameraAfterModel = false; // wait for the model's install (on the draw thread), which frames the views
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
 	{
@@ -513,7 +515,13 @@ void WindowedApplication::PrepareDraw()
 				{ App().GetScene().LoadImage(path, progress); }));
 		if (const char* autoLoadExit = std::getenv("SPEEDO_AUTOLOAD_EXIT"); autoLoadExit != nullptr && *autoLoadExit != '\0')
 			gAutoLoadExitFrames = static_cast<uint32_t>(std::strtoul(autoLoadExit, nullptr, 10));
-		if (const char* camera = std::getenv("SPEEDO_CAMERA"); camera != nullptr && *camera != '\0')
+		if (const char* camera = std::getenv("SPEEDO_CAMERA"); camera != nullptr && std::string_view(camera) == "frame")
+		{
+			gAutoFrame = true;
+			const char* model = std::getenv("SPEEDO_AUTOLOAD_MODEL");
+			gAutoCameraAfterModel = model != nullptr && *model != '\0';
+		}
+		else if (camera != nullptr && *camera != '\0')
 		{
 			std::array<float, 5> values{};
 			const char* it = camera;
@@ -537,12 +545,22 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 
-	if (gAutoCamera && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
+	if ((gAutoCamera || gAutoFrame) && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
 		(!gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty()))
 	{
-		const auto& values = *gAutoCamera;
-		myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
+		if (gAutoFrame)
+		{
+			// on the draw thread, as the Camera menu does
+			auto [task, future] = core::CreateTask([this] { myViews->UseSceneCamera(std::nullopt); });
+			rhi.drawCalls.enqueue(task);
+		}
+		else
+		{
+			const auto& values = *gAutoCamera;
+			myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
+		}
 		gAutoCamera.reset();
+		gAutoFrame = false;
 	}
 
 	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later

@@ -585,6 +585,8 @@ down a street through an arch, 11.0 to 7.8 in a shopping street, 9.1 to 7.3 fram
 cascade skips what it doesn't see); chunks of 4096 were 7.5 in the street but 7.5 framed. `SPEEDO_CAMERA=x,y,z,pitch,yaw`
 (degrees; positive pitch looks down, positive yaw turns from -z towards +x) places the views once the autoloads have
 installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,0,-62`, `564,170,-2436,0,30`, and framed.
+It keeps the near and far planes of the camera the views had (a model's own camera's, e.g. a chase camera's far plane of
+1 m in DiffuseTransmissionPlant); `SPEEDO_CAMERA=frame` frames the model instead, as View > Camera > Frame model.
 
 ## Shadows
 
@@ -611,7 +613,9 @@ masks. A pipeline without color attachments writes depth if its variant's first 
 are cached per render target attachment formats too (the shadow pass made the main pass's default variant for the depth
 only target, so the main pass drew nothing). `ShadowFactor` in the light loop picks the cascade (the nearest whose
 filter stays in its tile) or face, offsets the point along the geometry's normal by 1 to 3 texels by the angle to the
-light (1.5 alone left acne, a gray cast on lit faces, since the filter reaches 2 texels), and filters 3x3 bilinear
+light (1.5 alone left acne, a gray cast on lit faces, since the filter reaches 2 texels), on the side facing the light
+(a leaf lit from behind, diffuse transmission's or the scattering's light, pushed away from it was behind itself as the
+light sees it: DiffuseTransmissionPlant's fireflies shone through leaves in a star, where the cube faces meet), and filters 3x3 bilinear
 lookups (`GatherRed`, four comparisons each). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
 then the environment's dominant lights, or the procedural sky's sun, unless merged: a model sun more than 5 degrees from
 the sky's makes two sets of shadows) and draws them over the views as an imgui overlay (no shader or pipeline of its own):

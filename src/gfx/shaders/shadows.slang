@@ -34,9 +34,14 @@ float ShadowFactor(uint lightIndex, LightData light, float3 position, float3 geo
 		float texelSize = shadow.params.x;
 		if (shadow.params.y > 0.0)
 			texelSize *= length(position - light.positionRange.xyz);
-		// far enough for the filter's reach (2 texels) at the angle the surface makes with the light
-		float nDotL = saturate(dot(geometryNormal, toLight));
-		float3 offsetPosition = position + geometryNormal * (texelSize * (1.0 + 2.0 * sqrt(1.0 - nDotL * nDotL)));
+		// far enough for the filter's reach (2 texels) at the angle the surface makes with the light, off the side facing
+		// it: a surface lit from behind (diffuse transmission, the scattering's light from behind) pushed the other way was
+		// behind itself as the light sees it, and shadowed its own transmitted light in the pattern of the point light's
+		// cube faces (a star where they meet)
+		float nDotL = dot(geometryNormal, toLight);
+		float3 offsetNormal = nDotL >= 0.0 ? geometryNormal : -geometryNormal;
+		nDotL = min(abs(nDotL), 1.0);
+		float3 offsetPosition = position + offsetNormal * (texelSize * (1.0 + 2.0 * sqrt(1.0 - nDotL * nDotL)));
 		float4 clip = mul(shadow.viewProjection, float4(offsetPosition, 1.0));
 		if (clip.w <= 0.0)
 			continue;
