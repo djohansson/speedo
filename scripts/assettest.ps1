@@ -106,9 +106,11 @@ else
 {
 	$env:PATH = "$lib$separator$env:PATH"
 }
+# the validation layer's manifest (debug clients require the layer): on Windows next to its dll, with the other dlls
+# (the vulkan-validationlayers port's layer_path), elsewhere in share/vulkan/explicit_layer.d
 if (-not $env:VK_LAYER_PATH)
 {
-	$env:VK_LAYER_PATH = Join-Path $installDir 'share/vulkan/explicit_layer.d'
+	$env:VK_LAYER_PATH = if ($IsWindows) { $lib } else { Join-Path $installDir 'share/vulkan/explicit_layer.d' }
 }
 
 if (-not $Work)
