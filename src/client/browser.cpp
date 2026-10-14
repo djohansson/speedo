@@ -507,8 +507,9 @@ void WindowedApplication::InternalDrawBrowser()
 			std::optional<size_t> enter;
 			std::optional<size_t> openNow;
 
-			// the arrow keys step through the entries (left and right by one, up and down by a row), enter opens
-			if (IsWindowFocused() && !state.entries.empty())
+			// the arrow keys step through the entries (left and right by one, up and down by a row), enter opens: while the
+			// browser has the focus, any part of it (it gets it when it opens, this list only when clicked)
+			if (IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !state.entries.empty())
 			{
 				auto count = static_cast<std::ptrdiff_t>(state.entries.size());
 				std::ptrdiff_t step = IsKeyPressed(ImGuiKey_LeftArrow)	 ? -1

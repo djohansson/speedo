@@ -137,7 +137,9 @@ void WindowedApplication::PrepareDraw()
 					 &loading,
 					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
 						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
-						 ImGuiWindowFlags_AlwaysAutoResize))
+						 ImGuiWindowFlags_AlwaysAutoResize |
+						 // appearing, it would take the focus (the browser's, whose previews load through here)
+						 ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav))
 	{
 		constexpr uint8_t kProgressMax = 255;
 		constexpr float kProgressBarWidth = 160.0F;
