@@ -14,6 +14,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/packing.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 // the implementations are in imageimport.cpp
 #include <stb_image.h>
@@ -115,8 +116,7 @@ const SkyParameters& ProceduralSkyParameters()
 			.horizon = {0.80F, 0.82F, 0.85F},
 			.ground = {0.30F, 0.27F, 0.24F},
 			.sunCosRadius = std::cos(kSkySunRadius)};
-		auto direction = glm::normalize(glm::vec3(kSkySunDirection[0], kSkySunDirection[1], kSkySunDirection[2]));
-		sky.sunDirection = {direction.x, direction.y, direction.z};
+		sky.sunDirection = glm::normalize(kSkySunDirection);
 		// the disk's radiance: its irradiance over its solid angle
 		sky.sunRadiance = kSkySunIrradiance / (2.0F * detail::kPi * (1.0F - sky.sunCosRadius));
 
@@ -130,31 +130,26 @@ const SkyParameters& ProceduralSkyParameters()
 			{
 				auto d = detail::Direction(
 					(static_cast<float>(x) + 0.5F) / static_cast<float>(kWidth), (static_cast<float>(y) + 0.5F) / static_cast<float>(kHeight));
-				auto color = SkyRadiance(sky, {d.x, d.y, d.z});
+				auto color = SkyRadiance(sky, d);
 				double w = detail::RowWeight(y, kHeight);
-				sum += ((0.2126 * color[0]) + (0.7152 * color[1]) + (0.0722 * color[2])) * w;
+				sum += glm::dot(glm::dvec3(color), glm::dvec3(0.2126, 0.7152, 0.0722)) * w;
 				weight += w;
 			}
 		auto scale = static_cast<float>(0.3 / (sum / weight));
 		for (auto* color : {&sky.zenith, &sky.horizon, &sky.ground})
-			for (auto& channel : *color)
-				channel *= scale;
+			*color *= scale;
 		return sky;
 	}();
 	return kSky;
 }
 
-std::array<float, 3> SkyRadiance(const SkyParameters& sky, const std::array<float, 3>& direction)
+glm::vec3 SkyRadiance(const SkyParameters& sky, const glm::vec3& direction)
 {
 	// the sky fades from the horizon up, the ground darkens towards the nadir, with a soft edge between them
-	float up = direction[1];
-	glm::vec3 zenith(sky.zenith[0], sky.zenith[1], sky.zenith[2]);
-	glm::vec3 horizon(sky.horizon[0], sky.horizon[1], sky.horizon[2]);
-	glm::vec3 groundColor(sky.ground[0], sky.ground[1], sky.ground[2]);
-	glm::vec3 above = glm::mix(horizon, zenith, std::sqrt(std::max(up, 0.0F)));
-	glm::vec3 below = groundColor * (1.0F - (0.4F * std::sqrt(std::max(-up, 0.0F))));
-	glm::vec3 color = glm::mix(below, above, glm::smoothstep(-0.02F, 0.02F, up));
-	return {color.x, color.y, color.z};
+	float up = direction.y;
+	glm::vec3 above = glm::mix(sky.horizon, sky.zenith, std::sqrt(std::max(up, 0.0F)));
+	glm::vec3 below = sky.ground * (1.0F - (0.4F * std::sqrt(std::max(-up, 0.0F))));
+	return glm::mix(below, above, glm::smoothstep(-0.02F, 0.02F, up));
 }
 
 Panorama ProceduralSky(uint32_t width)
@@ -170,13 +165,13 @@ Panorama ProceduralSky(uint32_t width)
 			auto d = detail::Direction(
 				(static_cast<float>(x) + 0.5F) / static_cast<float>(panorama.width),
 				(static_cast<float>(y) + 0.5F) / static_cast<float>(panorama.height));
-			auto color = SkyRadiance(sky, {d.x, d.y, d.z});
-			std::memcpy(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3], color.data(), sizeof(float) * 3);
+			auto color = SkyRadiance(sky, d);
+			std::memcpy(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3], glm::value_ptr(color), sizeof(float) * 3);
 		}
 
 	// the sun: a disk, its texels covered in part where its edge crosses them (4x4 samples each), then scaled to give
 	// exactly its irradiance (radiance times the texels' solid angles)
-	auto sunDirection = glm::vec3(sky.sunDirection[0], sky.sunDirection[1], sky.sunDirection[2]);
+	auto sunDirection = sky.sunDirection;
 	float cosRadius = sky.sunCosRadius;
 	float cosReach = std::cos(kSkySunRadius + (4.0F * detail::kPi / static_cast<float>(panorama.height)));
 	constexpr uint32_t kSamples = 4;
@@ -340,9 +335,7 @@ DominantLight ExtractDominantLight(Panorama& panorama, float referenceMean)
 		std::memcpy(&panorama.rgb[texel * 3], &background[0], sizeof(float) * 3);
 
 	auto lightDirection = glm::normalize(glm::vec3(weightedDirection));
-	return DominantLight{
-		.direction = {lightDirection.x, lightDirection.y, lightDirection.z},
-		.irradiance = {static_cast<float>(irradiance.x), static_cast<float>(irradiance.y), static_cast<float>(irradiance.z)}};
+	return DominantLight{.direction = lightDirection, .irradiance = glm::vec3(irradiance)};
 }
 
 } // namespace detail
@@ -353,7 +346,7 @@ std::vector<DominantLight> ExtractDominantLights(Panorama& panorama, size_t maxC
 
 	// each found in what the ones before left (by its brightest texel), against the whole panorama's mean
 	auto mean = MeanRadiance(panorama);
-	auto referenceMean = static_cast<float>((0.2126 * mean[0]) + (0.7152 * mean[1]) + (0.0722 * mean[2]));
+	auto referenceMean = static_cast<float>(glm::dot(mean, glm::dvec3(0.2126, 0.7152, 0.0722)));
 	std::vector<DominantLight> lights;
 	while (lights.size() < maxCount)
 	{
@@ -364,22 +357,21 @@ std::vector<DominantLight> ExtractDominantLights(Panorama& panorama, size_t maxC
 	}
 	// by irradiance: the one found first has the brightest texel, but not necessarily the most light (a window's)
 	auto luminance = [](const DominantLight& light)
-	{ return (0.2126F * light.irradiance[0]) + (0.7152F * light.irradiance[1]) + (0.0722F * light.irradiance[2]); };
+	{ return glm::dot(light.irradiance, glm::vec3(0.2126F, 0.7152F, 0.0722F)); };
 	std::ranges::stable_sort(lights, [&luminance](const DominantLight& a, const DominantLight& b) { return luminance(a) > luminance(b); });
 	return lights;
 }
 
-std::array<float, 3> EvaluateIrradiance(const Environment& environment, const std::array<float, 3>& n)
+glm::vec3 EvaluateIrradiance(const Environment& environment, const glm::vec3& n)
 {
-	auto basis = detail::ShBasis(glm::vec3(n[0], n[1], n[2]));
+	auto basis = detail::ShBasis(n);
 	glm::vec3 result(0.0F);
 	for (size_t i = 0; i < 9; i++)
-		result += glm::vec3(environment.irradiance[i][0], environment.irradiance[i][1], environment.irradiance[i][2]) * basis[i];
-	result = glm::max(result, glm::vec3(0.0F));
-	return {result.x, result.y, result.z};
+		result += glm::make_vec3(environment.irradiance[i].data()) * basis[i];
+	return glm::max(result, glm::vec3(0.0F));
 }
 
-std::array<double, 3> MeanRadiance(const Panorama& panorama)
+glm::dvec3 MeanRadiance(const Panorama& panorama)
 {
 	glm::dvec3 sum(0.0);
 	double weight = 0.0;
@@ -389,15 +381,14 @@ std::array<double, 3> MeanRadiance(const Panorama& panorama)
 		for (uint32_t x = 0; x < panorama.width; x++)
 		{
 			const float* p = &panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3];
-			sum += glm::dvec3(p[0], p[1], p[2]) * solidAngle;
+			sum += glm::dvec3(glm::make_vec3(p)) * solidAngle;
 			weight += solidAngle;
 		}
 	}
-	sum /= weight;
-	return {sum.x, sum.y, sum.z};
+	return sum / weight;
 }
 
-std::array<double, 3> MeanRadiance(const image::MipLevel& level, std::span<const std::byte> data)
+glm::dvec3 MeanRadiance(const image::MipLevel& level, std::span<const std::byte> data)
 {
 	Panorama panorama{.width = level.width, .height = level.height};
 	panorama.rgb.resize(static_cast<size_t>(level.width) * level.height * 3);

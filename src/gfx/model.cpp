@@ -9,6 +9,7 @@
 #include <core/profiling.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
@@ -186,7 +187,7 @@ static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
 				(corner & 4U) != 0 ? box.second.z : box.first.z, 1.0F);
 			auto world = glm::vec3(transform * local);
 			if (std::isfinite(world.x) && std::isfinite(world.y) && std::isfinite(world.z))
-				bounds.Merge(std::array{world.x, world.y, world.z});
+				bounds.Merge(world);
 		}
 	};
 
@@ -204,12 +205,12 @@ static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
 			auto worlds = EvaluateNodes(animation, animationIt, std::max(time, 0.0F));
 			for (const auto& link : animation.instanceLinks)
 				if (link.instance < instanceBoxes.size() && link.node < worlds.size())
-					addBox(instanceBoxes[link.instance], glm::make_mat4(worlds[link.node].data()) * glm::make_mat4(link.local.data()));
+					addBox(instanceBoxes[link.instance], worlds[link.node] * link.local);
 			if (!joints.empty())
 			{
 				WriteJoints(animation, worlds, joints);
 				for (size_t jointIt = 0; jointIt < joints.size(); jointIt++)
-					addBox(jointBoxes[jointIt], glm::make_mat4(joints[jointIt].data()));
+					addBox(jointBoxes[jointIt], joints[jointIt]);
 			}
 		}
 	}
@@ -517,7 +518,7 @@ struct Staged
 	if (importOptions.variant)
 		params.append(std::format("|variant-{}", *importOptions.variant));
 	params.append(std::format("|chunks-{}", mesh::kChunkTriangles));
-	params.append("|cache-v36"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v37"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -574,14 +575,15 @@ struct Staged
 		auto size = desc.bounds.Size();
 		auto extent = std::max({size.x, size.y, size.z});
 		auto scale = extent > 0.0F ? 1.0F / extent : 1.0F;
-		std::array<float, 3> offset{
-			(column * kCell) - (center.x * scale), (-row * kCell) - (center.y * scale), -center.z * scale};
+		glm::vec3 offset{(column * kCell) - (center.x * scale), (-row * kCell) - (center.y * scale), -center.z * scale};
 		if (arrangement == ModelArrangement::kAsAuthored)
 		{
 			scale = 1.0F;
-			offset = {0.0F, 0.0F, 0.0F};
+			offset = glm::vec3(0.0F);
 		}
-		auto place = [&](float value, size_t axis) { return (value * scale) + offset[axis]; };
+		auto place = [&](const glm::vec3& point) { return (point * scale) + offset; };
+		// the placement, a uniform scale and an offset
+		auto placement = glm::translate(glm::mat4(1.0F), offset) * glm::scale(glm::mat4(1.0F), glm::vec3(scale));
 
 		auto materialBase = static_cast<int32_t>(merged.desc.materials.size());
 		auto instanceBase = static_cast<uint32_t>(merged.desc.instances.size());
@@ -596,10 +598,8 @@ struct Staged
 			submesh.firstInstance += instanceBase;
 			submesh.skin = -1; // a set is drawn at rest (see ModelDesc::animation), its morph targets at their default weights
 			// placed as its instances are (see place, below)
-			auto min = submesh.bounds.GetMin();
-			auto max = submesh.bounds.GetMax();
-			submesh.bounds.SetMin(Bounds3f::VectorType(place(min.x, 0), place(min.y, 1), place(min.z, 2)));
-			submesh.bounds.SetMax(Bounds3f::VectorType(place(max.x, 0), place(max.y, 1), place(max.z, 2)));
+			submesh.bounds.SetMin(place(submesh.bounds.GetMin()));
+			submesh.bounds.SetMax(place(submesh.bounds.GetMax()));
 			if (submesh.morphTargetCount > 0)
 			{
 				submesh.morphDeltaBase += merged.desc.morphDeltaCount;
@@ -608,19 +608,11 @@ struct Staged
 			}
 			merged.desc.submeshes.push_back(submesh);
 		}
-		for (auto transform : desc.instances)
-		{
-			// the placement (a uniform scale and an offset) times the transform, column major
-			for (size_t col = 0; col < 4; col++)
-				for (size_t row = 0; row < 3; row++)
-					transform[(col * 4) + row] = (scale * transform[(col * 4) + row]) + (offset[row] * transform[(col * 4) + 3]);
-			merged.desc.instances.push_back(transform);
-		}
+		for (const auto& transform : desc.instances)
+			merged.desc.instances.push_back(placement * transform);
 
-		auto min = desc.bounds.GetMin();
-		auto max = desc.bounds.GetMax();
-		auto placedMin = Bounds3f::VectorType(place(min.x, 0), place(min.y, 1), place(min.z, 2));
-		auto placedMax = Bounds3f::VectorType(place(max.x, 0), place(max.y, 1), place(max.z, 2));
+		auto placedMin = place(desc.bounds.GetMin());
+		auto placedMax = place(desc.bounds.GetMax());
 		if (modelIt == 0)
 		{
 			merged.desc.bounds.SetMin(placedMin);
@@ -628,8 +620,8 @@ struct Staged
 		}
 		else
 		{
-			merged.desc.bounds.Merge(std::array{placedMin.x, placedMin.y, placedMin.z});
-			merged.desc.bounds.Merge(std::array{placedMax.x, placedMax.y, placedMax.z});
+			merged.desc.bounds.Merge(placedMin);
+			merged.desc.bounds.Merge(placedMax);
 		}
 
 		merged.desc.indexCount += desc.indexCount;
@@ -704,7 +696,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 	auto* instances = reinterpret_cast<ModelInstance*>(memory.data());
 	for (size_t instanceIt = 0; instanceIt < desc.instances.size(); instanceIt++)
 	{
-		auto transform = glm::make_mat4(desc.instances[instanceIt].data());
+		const auto& transform = desc.instances[instanceIt];
 		auto inverseTranspose = glm::transpose(glm::inverse(transform));
 		std::memcpy(&instances[instanceIt].modelTransform[0][0], glm::value_ptr(transform), sizeof(float) * 16);
 		std::memcpy(&instances[instanceIt].inverseTransposeModelTransform[0][0], glm::value_ptr(inverseTranspose), sizeof(float) * 16);
@@ -873,8 +865,8 @@ std::string Model::ImportVersion(std::string_view filePath)
 	auto extension = std::filesystem::path(filePath).extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	if (extension == ".obj")
-		return std::format("tinyobjloader-{}|objimport-v4", kTinyObjLoaderVersion);
-	return std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v33", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion);
+		return std::format("tinyobjloader-{}|objimport-v5", kTinyObjLoaderVersion);
+	return std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v34", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion);
 }
 
 std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement)

@@ -21,6 +21,8 @@
 #include <system_error>
 
 #define TINYOBJLOADER_IMPLEMENTATION
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <tiny_obj_loader.h>
 
 #include <xxhash.h>
@@ -132,7 +134,7 @@ static_assert(std::has_unique_object_representations_v<VertexKey>, "VertexKey is
 // a face around a position whose normal is generated
 struct AdjacentFace
 {
-	std::array<float, 3> normal{}; // not normalized: its length is twice the face's area
+	glm::vec3 normal{0.0F}; // not normalized: its length is twice the face's area
 	uint32_t smoothingGroup = 0;
 };
 
@@ -151,16 +153,7 @@ struct TriangleRef
 	uint32_t part = 0;
 };
 
-using Vec3 = std::array<double, 3>;
-
-[[nodiscard]] Vec3 Sub(const Vec3& a, const Vec3& b) { return {a[0] - b[0], a[1] - b[1], a[2] - b[2]}; }
-[[nodiscard]] Vec3 Cross(const Vec3& a, const Vec3& b)
-{
-	return {(a[1] * b[2]) - (a[2] * b[1]), (a[2] * b[0]) - (a[0] * b[2]), (a[0] * b[1]) - (a[1] * b[0])};
-}
-[[nodiscard]] double Dot(const Vec3& a, const Vec3& b) { return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]); }
-[[nodiscard]] double Length(const Vec3& a) { return std::sqrt(Dot(a, a)); }
-[[nodiscard]] bool IsFinite(const Vec3& a) { return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]); }
+[[nodiscard]] bool IsFinite(const glm::dvec3& a) { return !glm::any(glm::isnan(a)) && !glm::any(glm::isinf(a)); }
 
 // an istream's buffer over bytes in memory (a mapped file): tinyobj parses from istreams
 class MemoryBuffer final : public std::streambuf
@@ -277,12 +270,12 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 	{
 		auto& material = mesh.materials.emplace_back();
 		material.name = objMaterial.name;
-		std::ranges::copy(objMaterial.diffuse, material.diffuse.begin());
+		material.diffuse = glm::make_vec3(objMaterial.diffuse);
 		material.dissolve = objMaterial.dissolve;
 		material.diffuseTexture.path = resolveTexture(objMaterial.diffuse_texname, objMaterial.name).string();
 		material.alphaTexture.path = resolveTexture(objMaterial.alpha_texname, objMaterial.name).string();
 		material.normalTexture.path = resolveTexture(objMaterial.normal_texname, objMaterial.name).string();
-		std::ranges::copy(objMaterial.emission, material.emissive.begin());
+		material.emissive = glm::make_vec3(objMaterial.emission);
 		material.emissiveTexture.path = resolveTexture(objMaterial.emissive_texname, objMaterial.name).string();
 		material.bumpTexture.path = resolveTexture(objMaterial.bump_texname, objMaterial.name).string();
 		material.bumpScale = objMaterial.bump_texopt.bump_multiplier;
@@ -297,11 +290,11 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 
 	auto position = [&attrib](int32_t index)
 	{
-		return Vec3{attrib.vertices[3UL * index], attrib.vertices[(3UL * index) + 1], attrib.vertices[(3UL * index) + 2]};
+		return glm::dvec3(glm::make_vec3(&attrib.vertices[3UL * index]));
 	};
 	auto normal = [&attrib](int32_t index)
 	{
-		return Vec3{attrib.normals[3UL * index], attrib.normals[(3UL * index) + 1], attrib.normals[(3UL * index) + 2]};
+		return glm::dvec3(glm::make_vec3(&attrib.normals[3UL * index]));
 	};
 
 	// normals that can't be used (zero length or non-finite) are treated as missing, and generated
@@ -309,7 +302,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 	for (size_t normalIt = 0; normalIt < normalCount; normalIt++)
 	{
 		auto n = normal(static_cast<int32_t>(normalIt));
-		normalValid[normalIt] = IsFinite(n) && Length(n) > 0.0;
+		normalValid[normalIt] = IsFinite(n) && glm::length(n) > 0.0;
 	}
 
 	auto hasNormal = [&normalValid, normalCount](int32_t index)
@@ -326,9 +319,9 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 
 	auto faceNormalOf = [&position](const std::array<tinyobj::index_t, 3>& corners)
 	{
-		return Cross(
-			Sub(position(corners[1].vertex_index), position(corners[0].vertex_index)),
-			Sub(position(corners[2].vertex_index), position(corners[0].vertex_index)));
+		return glm::cross(
+			position(corners[1].vertex_index) - position(corners[0].vertex_index),
+			position(corners[2].vertex_index) - position(corners[0].vertex_index));
 	};
 
 	// parts are flipped (once we know which) by swapping the last two corners of their triangles
@@ -390,7 +383,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 					trianglesByMaterial[material >= 0 ? material : mesh.materials.size()].push_back(triangle);
 
 					auto faceNormal = faceNormalOf(corners);
-					auto area = Length(faceNormal);
+					auto area = glm::length(faceNormal);
 					if (!std::isfinite(area) || area == 0.0)
 					{
 						stats.degenerateTriangles++;
@@ -399,16 +392,11 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 
 					if (std::ranges::all_of(corners, [&hasNormal](const auto& corner) { return hasNormal(corner.normal_index); }))
 					{
-						Vec3 vertexNormals{};
+						glm::dvec3 vertexNormals(0.0);
 						for (const auto& corner : corners)
-						{
-							auto n = normal(corner.normal_index);
-							auto length = Length(n);
-							for (size_t i = 0; i < 3; i++)
-								vertexNormals[i] += n[i] / length;
-						}
+							vertexNormals += glm::normalize(normal(corner.normal_index));
 						partNormalArea[part] += area;
-						if (Dot(faceNormal, vertexNormals) > 0.0)
+						if (glm::dot(faceNormal, vertexNormals) > 0.0)
 							partAgreeingArea[part] += area;
 						continue;
 					}
@@ -464,12 +452,12 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 					continue;
 
 				auto faceNormal = faceNormalOf(corners);
-				auto area = Length(faceNormal);
+				auto area = glm::length(faceNormal);
 				if (!std::isfinite(area) || area == 0.0)
 					continue;
 
 				AdjacentFace face{
-					.normal = {static_cast<float>(faceNormal[0]), static_cast<float>(faceNormal[1]), static_cast<float>(faceNormal[2])},
+					.normal = glm::vec3(faceNormal),
 					.smoothingGroup = smoothingGroupOf(triangle)};
 				for (const auto& corner : corners)
 					adjacentFaces[next[corner.vertex_index]++] = face;
@@ -479,22 +467,21 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 
 	// the area weighted sum of the face normals around a corner's position that are in its smoothing group, or for
 	// group 0 within the crease angle of its own face
-	auto generateNormal = [&](int32_t positionIndex, const Vec3& faceNormal, uint32_t smoothingGroup)
+	auto generateNormal = [&](int32_t positionIndex, const glm::dvec3& faceNormal, uint32_t smoothingGroup)
 	{
-		Vec3 sum{};
-		auto faceLength = Length(faceNormal);
+		glm::dvec3 sum(0.0);
+		auto faceLength = glm::length(faceNormal);
 		for (auto faceIt = adjacentFaceOffsets[positionIndex]; faceIt < adjacentFaceOffsets[positionIndex + 1]; faceIt++)
 		{
 			const auto& face = adjacentFaces[faceIt];
 			if (face.smoothingGroup != smoothingGroup)
 				continue;
 
-			Vec3 n{face.normal[0], face.normal[1], face.normal[2]};
-			if (smoothingGroup == 0 && faceLength > 0.0 && Dot(n, faceNormal) < kCreaseAngleCos * Length(n) * faceLength)
+			glm::dvec3 n(face.normal);
+			if (smoothingGroup == 0 && faceLength > 0.0 && glm::dot(n, faceNormal) < kCreaseAngleCos * glm::length(n) * faceLength)
 				continue;
 
-			for (size_t i = 0; i < 3; i++)
-				sum[i] += n[i];
+			sum += n;
 		}
 		return sum;
 	};
@@ -509,12 +496,12 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 
 		bool firstVertex = true;
 
-		auto addVertex = [&](const tinyobj::index_t& corner, const Vec3& faceNormal, int32_t material, uint32_t smoothingGroup) -> uint32_t
+		auto addVertex = [&](const tinyobj::index_t& corner, const glm::dvec3& faceNormal, int32_t material, uint32_t smoothingGroup) -> uint32_t
 		{
 			bool fileNormal = hasNormal(corner.normal_index);
 			bool fileTexCoord = corner.texcoord_index >= 0 && static_cast<size_t>(corner.texcoord_index) < texCoordCount;
 
-			Vec3 n;
+			glm::dvec3 n;
 			if (fileNormal)
 			{
 				n = normal(corner.normal_index);
@@ -522,12 +509,10 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 			else
 			{
 				n = generateNormal(corner.vertex_index, faceNormal, smoothingGroup);
-				if (!(Length(n) > 0.0)) // only around degenerate faces
-					n = {0.0, 1.0, 0.0};
+				if (!(glm::length(n) > 0.0)) // only around degenerate faces
+					n = glm::dvec3(0.0, 1.0, 0.0);
 			}
-			auto length = Length(n);
-			std::array<float, 3> unitNormal{
-				static_cast<float>(n[0] / length), static_cast<float>(n[1] / length), static_cast<float>(n[2] / length)};
+			auto unitNormal = glm::vec3(n / glm::length(n));
 
 			VertexKey key{
 				.position = corner.vertex_index,
@@ -546,11 +531,12 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 			if (!IsFinite(p))
 			{
 				stats.nonFiniteValues++;
-				p = {};
+				p = glm::dvec3(0.0);
 			}
-			std::ranges::transform(p, vertex.position, [](double v) { return static_cast<float>(v); });
+			auto position32 = glm::vec3(p);
+			std::copy_n(glm::value_ptr(position32), 3, vertex.position);
 
-			std::ranges::copy(unitNormal, vertex.normal);
+			std::copy_n(glm::value_ptr(unitNormal), 3, vertex.normal);
 			if (!fileNormal)
 			{
 				stats.generatedNormals++;
@@ -571,28 +557,25 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const
 				vertex.texCoord01[1] = 1.0F - v;
 			}
 
-			std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};
+			glm::vec4 color(1.0F);
 			if (mesh.hasColors && (static_cast<size_t>(corner.vertex_index) * 3) + 2 < attrib.colors.size())
-				for (size_t i = 0; i < 3; i++)
-					color[i] = attrib.colors[(3UL * corner.vertex_index) + i];
+				color = glm::vec4(glm::make_vec3(&attrib.colors[3UL * corner.vertex_index]), 1.0F);
 			if (material >= 0)
 			{
 				const auto& m = mesh.materials[material];
-				for (size_t i = 0; i < 3; i++)
-					color[i] *= m.diffuse[i];
-				color[3] = m.dissolve;
+				color = glm::vec4(glm::vec3(color) * m.diffuse, m.dissolve);
 			}
-			std::ranges::copy(color, vertex.color);
+			std::copy_n(glm::value_ptr(color), 4, vertex.color);
 
 			if (firstVertex)
 			{
-				mesh.bounds.SetMin(Bounds3f::VectorType(vertex.position[0], vertex.position[1], vertex.position[2]));
+				mesh.bounds.SetMin(glm::make_vec3(vertex.position));
 				mesh.bounds.SetMax(mesh.bounds.GetMin());
 				firstVertex = false;
 			}
 			else
 			{
-				mesh.bounds.Merge(std::to_array(vertex.position));
+				mesh.bounds.Merge(glm::make_vec3(vertex.position));
 			}
 
 			return it->second;

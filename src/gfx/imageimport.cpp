@@ -13,6 +13,7 @@
 #include <iterator>
 #include <memory>
 
+#include <glm/glm.hpp>
 #include <ktx.h>
 #include <webp/decode.h>
 #include <webp/demux.h>
@@ -164,14 +165,12 @@ void EncodeNormal(float x, float y, float z, uint8_t* rgba) noexcept
 	if (channelCount < 3 || pixelCount == 0)
 		return false;
 
-	std::array<double, 3> mean{};
+	glm::dvec3 mean(0.0);
 	for (size_t pixelIt = 0; pixelIt < pixelCount; pixelIt++)
-		for (size_t ch = 0; ch < 3; ch++)
-			mean[ch] += rgba[(pixelIt * kRgba) + ch];
-	for (auto& m : mean)
-		m /= 255.0 * static_cast<double>(pixelCount);
+		mean += glm::dvec3(rgba[pixelIt * kRgba], rgba[(pixelIt * kRgba) + 1], rgba[(pixelIt * kRgba) + 2]);
+	mean /= 255.0 * static_cast<double>(pixelCount);
 
-	return mean[2] > 0.6 && std::abs(mean[0] - 0.5) < 0.15 && std::abs(mean[1] - 0.5) < 0.15;
+	return mean.z > 0.6 && std::abs(mean.x - 0.5) < 0.15 && std::abs(mean.y - 0.5) < 0.15;
 }
 
 // scales every pixel's normal back to unit length

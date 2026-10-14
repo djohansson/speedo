@@ -49,7 +49,7 @@ struct ModelMaterial
 	TextureRef alphaTexture; // a mask, alpha tested
 	TextureRef normalTexture; // a normal map, used rather than bumpTexture if there are both
 	float normalScale = 1.0F; // see mesh::Material::normalScale
-	std::array<float, 3> emissive{0.0F, 0.0F, 0.0F}; // see mesh::Material::emissive
+	glm::vec3 emissive{0.0F, 0.0F, 0.0F}; // see mesh::Material::emissive
 	TextureRef emissiveTexture;
 	TextureRef occlusionTexture; // see mesh::Material::occlusionTexture
 	float occlusionStrength = 1.0F;
@@ -58,7 +58,7 @@ struct ModelMaterial
 	TextureRef metallicRoughnessTexture;
 	float specular = 1.0F; // see mesh::Material::specular, and the fields below
 	TextureRef specularTexture;
-	std::array<float, 3> specularColor{1.0F, 1.0F, 1.0F};
+	glm::vec3 specularColor{1.0F, 1.0F, 1.0F};
 	TextureRef specularColorTexture;
 	float ior = 1.5F;
 	bool specularGlossiness = false;
@@ -70,7 +70,7 @@ struct ModelMaterial
 	TextureRef clearcoatRoughnessTexture;
 	TextureRef clearcoatNormalTexture;
 	float clearcoatNormalScale = 1.0F;
-	std::array<float, 3> sheenColor{};
+	glm::vec3 sheenColor{};
 	TextureRef sheenColorTexture;
 	float sheenRoughness = 0.0F;
 	TextureRef sheenRoughnessTexture;
@@ -79,7 +79,7 @@ struct ModelMaterial
 	TextureRef transmissionTexture;
 	float thickness = 0.0F;
 	TextureRef thicknessTexture;
-	std::array<float, 3> attenuationColor{1.0F, 1.0F, 1.0F};
+	glm::vec3 attenuationColor{1.0F, 1.0F, 1.0F};
 	float attenuationDistance = 0.0F;
 	float dispersion = 0.0F;
 	// see mesh::Material::anisotropy and iridescence
@@ -95,14 +95,14 @@ struct ModelMaterial
 	// see mesh::Material::diffuseTransmission
 	float diffuseTransmission = 0.0F;
 	TextureRef diffuseTransmissionTexture;
-	std::array<float, 3> diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
+	glm::vec3 diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
 	TextureRef diffuseTransmissionColorTexture;
 	// see mesh::Material::retroreflection
 	float retroreflection = 0.0F;
 	TextureRef retroreflectionTexture;
 	// see mesh::Material::volumeScatter
 	bool volumeScatter = false;
-	std::array<float, 3> multiscatterColor{0.0F, 0.0F, 0.0F};
+	glm::vec3 multiscatterColor{0.0F, 0.0F, 0.0F};
 	TextureRef multiscatterColorTexture;
 	bool unlit = false;
 	TextureRef bumpTexture; // a height map or a normal map
@@ -121,7 +121,7 @@ struct ModelDesc
 	std::vector<ModelSubmesh> submeshes;
 	std::vector<ModelMaterial> materials;
 	// column major instance transforms (see mesh::Mesh::instances), in the model's instance buffer (gModelInstances)
-	std::vector<std::array<float, 16>> instances;
+	std::vector<glm::mat4> instances;
 	// the file's scenes and which one this is (see mesh::Mesh::scenes). none for a set of several files
 	std::vector<std::string> scenes;
 	uint32_t scene = 0;

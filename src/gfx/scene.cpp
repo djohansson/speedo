@@ -67,7 +67,7 @@ struct MaterialLayers
 	const auto& material = desc.materials[materialIndex];
 	MaterialLayers layers{
 		.clearcoat = material.clearcoat > 0.0F,
-		.sheen = std::ranges::any_of(material.sheenColor, [](float c) { return c > 0.0F; }),
+		.sheen = glm::any(glm::greaterThan(material.sheenColor, glm::vec3(0.0F))),
 		.transmission = material.transmission > 0.0F,
 		.anisotropy = material.anisotropy > 0.0F,
 		.iridescence = material.iridescence > 0.0F,
@@ -411,11 +411,11 @@ struct Scene::Impl
 		{
 			const auto& sceneLight = sceneLights[lightIt];
 			auto& light = lights[lightIt];
-			std::ranges::copy(sceneLight.position, light.positionRange);
+			std::copy_n(glm::value_ptr(sceneLight.position), 3, light.positionRange);
 			light.positionRange[3] = sceneLight.range;
-			std::ranges::copy(sceneLight.direction, light.direction);
-			for (size_t channel = 0; channel < 3; channel++)
-				light.intensity[channel] = sceneLight.color[channel] * sceneLight.intensity;
+			std::copy_n(glm::value_ptr(sceneLight.direction), 3, light.direction);
+			auto intensity = sceneLight.color * sceneLight.intensity;
+			std::copy_n(glm::value_ptr(intensity), 3, light.intensity);
 			light.type = sceneLight.type == SceneLight::Type::kPoint  ? LIGHT_TYPE_POINT
 					   : sceneLight.type == SceneLight::Type::kSpot ? LIGHT_TYPE_SPOT
 																	  : LIGHT_TYPE_DIRECTIONAL;
@@ -437,7 +437,7 @@ struct Scene::Impl
 	{
 		std::vector<LightData> lights = mySceneLightData;
 		std::vector<environment::DominantLight> dominants(1, environment::DominantLight{.direction = environment::kSkySunDirection});
-		dominants.front().irradiance.fill(environment::kSkySunIrradiance);
+		dominants.front().irradiance = glm::vec3(environment::kSkySunIrradiance);
 		if (myEnvironmentLights)
 			dominants = *myEnvironmentLights;
 
@@ -778,11 +778,11 @@ struct Scene::Impl
 				const auto& desc = descMaterials[materialIt];
 				std::ranges::fill(material.color, 1.0F);
 				material.alphaCutoff = desc.alphaCutoff;
-				std::ranges::copy(desc.emissive, material.emissive);
+				std::copy_n(glm::value_ptr(desc.emissive), 3, material.emissive);
 				material.metallic = desc.metallic;
 				material.roughness = desc.roughness;
 				material.specular = desc.specular;
-				std::ranges::copy(desc.specularColor, material.specularColor);
+				std::copy_n(glm::value_ptr(desc.specularColor), 3, material.specularColor);
 				material.specularColor[3] = desc.ior;
 				if (desc.specularGlossiness)
 				{
@@ -819,7 +819,7 @@ struct Scene::Impl
 				if (layers.sheen)
 				{
 					material.flags |= MATERIAL_FLAG_SHEEN;
-					std::ranges::copy(desc.sheenColor, material.sheen);
+					std::copy_n(glm::value_ptr(desc.sheenColor), 3, material.sheen);
 					material.sheen[3] = desc.sheenRoughness;
 					for (auto [texture, ref, view, flag] : std::array{
 							 std::tuple{&textures[materialIt].sheenColor, &desc.sheenColorTexture, &material.sheenColorView, MATERIAL_FLAG_SHEEN_COLOR_TEXTURE},
@@ -846,7 +846,7 @@ struct Scene::Impl
 				{
 					material.transmission[1] = desc.thickness;
 					material.transmission[2] = desc.attenuationDistance;
-					std::ranges::copy(desc.attenuationColor, material.attenuationColor);
+					std::copy_n(glm::value_ptr(desc.attenuationColor), 3, material.attenuationColor);
 					if (auto id = viewOf(textures[materialIt].thickness, desc.thicknessTexture))
 					{
 						material.thicknessView = *id;
@@ -884,7 +884,7 @@ struct Scene::Impl
 				if (layers.diffuseTransmission)
 				{
 					material.flags |= MATERIAL_FLAG_DIFFUSE_TRANSMISSION;
-					std::ranges::copy(desc.diffuseTransmissionColor, material.diffuseTransmission);
+					std::copy_n(glm::value_ptr(desc.diffuseTransmissionColor), 3, material.diffuseTransmission);
 					material.diffuseTransmission[3] = desc.diffuseTransmission;
 					for (auto [texture, ref, view, flag] : std::array{
 							 std::tuple{&textures[materialIt].diffuseTransmission, &desc.diffuseTransmissionTexture, &material.diffuseTransmissionView, MATERIAL_FLAG_DIFFUSE_TRANSMISSION_TEXTURE},
@@ -898,7 +898,7 @@ struct Scene::Impl
 				if (layers.volumeScatter)
 				{
 					material.flags |= MATERIAL_FLAG_VOLUME_SCATTER;
-					std::ranges::copy(desc.multiscatterColor, material.multiscatterColor);
+					std::copy_n(glm::value_ptr(desc.multiscatterColor), 3, material.multiscatterColor);
 					if (auto id = viewOf(textures[materialIt].multiscatterColor, desc.multiscatterColorTexture))
 					{
 						material.multiscatterColorView = *id;
@@ -1160,7 +1160,7 @@ struct Scene::Impl
 				loads.push_back(
 					{material.bumpTexture.path, material.bumpTexture.embeddedImage, {.usage = gfx::image::Usage::kBump, .bumpScale = material.bumpScale}, &texture.normal});
 			// the texture scales emissive, so it is only worth loading if that isn't black (obj map_Ke usually comes with Ke 0)
-			if (!material.emissiveTexture.empty() && std::ranges::any_of(material.emissive, [](float value) { return value > 0.0F; }))
+			if (!material.emissiveTexture.empty() && glm::any(glm::greaterThan(material.emissive, glm::vec3(0.0F))))
 				loads.push_back(
 					{material.emissiveTexture.path, material.emissiveTexture.embeddedImage, {.usage = gfx::image::Usage::kColor}, &texture.emissive});
 			if (!material.occlusionTexture.empty())
@@ -1311,11 +1311,11 @@ struct Scene::Impl
 					.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
 				if (const auto& sky = environment->sky)
 				{
-					std::ranges::copy(sky->zenith, data.skyZenith);
+					std::copy_n(glm::value_ptr(sky->zenith), 3, data.skyZenith);
 					data.skyZenith[3] = 1.0F;
-					std::ranges::copy(sky->horizon, data.skyHorizon);
-					std::ranges::copy(sky->ground, data.skyGround);
-					std::ranges::copy(sky->sunDirection, data.skySun);
+					std::copy_n(glm::value_ptr(sky->horizon), 3, data.skyHorizon);
+					std::copy_n(glm::value_ptr(sky->ground), 3, data.skyGround);
+					std::copy_n(glm::value_ptr(sky->sunDirection), 3, data.skySun);
 					data.skySun[3] = sky->sunCosRadius;
 					data.skySunRadiance[0] = sky->sunRadiance;
 				}
@@ -1613,7 +1613,7 @@ struct Scene::Impl
 			myDefaultSkinVerticesUuid = skinVertices->GetUuid();
 			timelineCallbacks.emplace_back(skinTransfersDone.handle);
 
-			std::array<std::array<float, 16>, 1> defaultJoints{gfx::mesh::kIdentityTransform};
+			std::array<glm::mat4, 1> defaultJoints{gfx::mesh::kIdentityTransform};
 			core::TaskCreateInfo<void> jointTransfersDone;
 			auto joints = device.CreateResource<Buffer>(
 				BufferCreateDesc{

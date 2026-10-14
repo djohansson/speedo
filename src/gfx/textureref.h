@@ -2,6 +2,8 @@
 
 #include <rhi/enums.h>
 
+#include <glm/vec2.hpp>
+
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -36,11 +38,11 @@ struct TextureRef
 };
 
 // KHR_texture_transform's offset, rotation (radians) and scale as TextureRef::transform: translation * rotation * scale
-[[nodiscard]] inline std::array<float, 6> TextureTransform(const std::array<float, 2>& offset, float rotation, const std::array<float, 2>& scale)
+[[nodiscard]] inline std::array<float, 6> TextureTransform(const glm::vec2& offset, float rotation, const glm::vec2& scale)
 {
 	auto c = std::cos(rotation);
 	auto s = std::sin(rotation);
-	return {c * scale[0], s * scale[1], offset[0], -s * scale[0], c * scale[1], offset[1]};
+	return {c * scale.x, s * scale.y, offset.x, -s * scale.x, c * scale.y, offset.y};
 }
 
 } // namespace gfx

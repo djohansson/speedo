@@ -7,6 +7,11 @@
 #include <gfx/textureref.h>
 #include <gfx/shaders/capi.h>
 
+#include <core/glm_extra.h>
+
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
+
 #include <array>
 #include <cstdint>
 #include <expected>
@@ -25,7 +30,7 @@ struct Material
 {
 	std::string name;
 	// the color, already multiplied into the vertex colors: obj Kd and d (or 1 - Tr), gltf baseColorFactor
-	std::array<float, 3> diffuse{1.0F, 1.0F, 1.0F};
+	glm::vec3 diffuse{1.0F, 1.0F, 1.0F};
 	float dissolve = 1.0F;
 	// the textures the material names (see TextureRef), empty if it names none
 	TextureRef diffuseTexture; // obj map_Kd, gltf baseColorTexture
@@ -34,7 +39,7 @@ struct Material
 	float normalScale = 1.0F; // gltf normalTexture.scale: scales the normal map's x and y (0 flattens it)
 	// light the surface gives off, added after lighting: obj Ke, gltf emissiveFactor (times KHR_materials_emissive_strength),
 	// times the emissive texture's color if there is one. linear, and may be above 1.
-	std::array<float, 3> emissive{0.0F, 0.0F, 0.0F};
+	glm::vec3 emissive{0.0F, 0.0F, 0.0F};
 	TextureRef emissiveTexture; // obj map_Ke, gltf emissiveTexture
 	// gltf occlusionTexture: ambient occlusion in its red channel, which darkens the ambient (indirect) light, by strength
 	TextureRef occlusionTexture;
@@ -52,7 +57,7 @@ struct Material
 	// the dielectric specular's color at normal incidence is ((ior - 1) / (ior + 1))^2 (0.04 for the default 1.5,
 	// KHR_materials_ior) times this color (KHR_materials_specular's specularColorFactor, times its srgb
 	// specularColorTexture), at most 1, times the strength
-	std::array<float, 3> specularColor{1.0F, 1.0F, 1.0F};
+	glm::vec3 specularColor{1.0F, 1.0F, 1.0F};
 	TextureRef specularColorTexture;
 	float ior = 1.5F;
 	// KHR_materials_pbrSpecularGlossiness, for materials without metallic-roughness: a dielectric whose specular color at
@@ -70,7 +75,7 @@ struct Material
 	float clearcoatNormalScale = 1.0F;
 	// KHR_materials_sheen: a velvet-like lobe at grazing angles (Charlie), of its color (factor times the srgb
 	// texture; black is none) and roughness (factor times the texture's alpha)
-	std::array<float, 3> sheenColor{};
+	glm::vec3 sheenColor{};
 	TextureRef sheenColorTexture;
 	float sheenRoughness = 0.0F;
 	TextureRef sheenRoughnessTexture;
@@ -83,7 +88,7 @@ struct Material
 	// attenuationDistance (0: none)
 	float thickness = 0.0F;
 	TextureRef thicknessTexture;
-	std::array<float, 3> attenuationColor{1.0F, 1.0F, 1.0F};
+	glm::vec3 attenuationColor{1.0F, 1.0F, 1.0F};
 	float attenuationDistance = 0.0F;
 	// KHR_materials_dispersion: the ior's spread over the colors (20 / Abbe number; 0 none)
 	float dispersion = 0.0F;
@@ -105,7 +110,7 @@ struct Material
 	// (factor times the texture's alpha), tinted by its color (factor times the srgb texture)
 	float diffuseTransmission = 0.0F;
 	TextureRef diffuseTransmissionTexture;
-	std::array<float, 3> diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
+	glm::vec3 diffuseTransmissionColor{1.0F, 1.0F, 1.0F};
 	TextureRef diffuseTransmissionColorTexture;
 	// KHR_materials_retroreflection: how much of the specular lobe is turned back towards the light (factor times the
 	// texture's red): a blend between the ordinary and the retroreflective lobe, not an intensity
@@ -115,7 +120,7 @@ struct Material
 	// scattering albedo (factor times the srgb texture). drawn as the Khronos sample viewer does, as a diffusion of the
 	// diffuse transmission's light (the phase function's anisotropy isn't read: a diffusion has none)
 	bool volumeScatter = false;
-	std::array<float, 3> multiscatterColor{0.0F, 0.0F, 0.0F};
+	glm::vec3 multiscatterColor{0.0F, 0.0F, 0.0F};
 	TextureRef multiscatterColorTexture;
 	bool unlit = false; // gltf KHR_materials_unlit: drawn in its base color
 	TextureRef bumpTexture; // obj map_bump, bump: a height map, or sometimes a normal map
@@ -163,8 +168,8 @@ struct Submesh
 };
 
 // a column major 4x4 transform, from a submesh's vertices to world space
-using Transform = std::array<float, 16>;
-inline constexpr Transform kIdentityTransform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+using Transform = glm::mat4;
+inline const Transform kIdentityTransform{1.0F};
 
 // what the import found in the file, and what it had to repair
 struct Stats

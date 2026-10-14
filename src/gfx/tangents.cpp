@@ -7,6 +7,8 @@
 #include <cmath>
 #include <utility>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <mikktspace.h>
 
 namespace gfx::mesh
@@ -21,7 +23,7 @@ struct MikkContext
 	const std::vector<VertexP3fN3fTa4fT014fC4f>* vertices;
 	std::span<uint32_t> indices;
 	uint32_t texCoordSet;
-	std::vector<std::array<float, 4>> cornerTangents;
+	std::vector<glm::vec4> cornerTangents;
 };
 
 [[nodiscard]] const VertexP3fN3fTa4fT014fC4f& MikkVertex(const SMikkTSpaceContext* mikk, int face, int corner)
@@ -42,7 +44,7 @@ std::vector<uint32_t> GenerateTangents(std::vector<VertexP3fN3fTa4fT014fC4f>& ve
 		.vertices = &vertices,
 		.indices = indices,
 		.texCoordSet = std::min(texCoordSet, 1U),
-		.cornerTangents = std::vector<std::array<float, 4>>(indices.size())};
+		.cornerTangents = std::vector<glm::vec4>(indices.size())};
 
 	SMikkTSpaceInterface callbacks{};
 	callbacks.m_getNumFaces = [](const SMikkTSpaceContext* mikk)
@@ -65,11 +67,10 @@ std::vector<uint32_t> GenerateTangents(std::vector<VertexP3fN3fTa4fT014fC4f>& ve
 	{
 		auto* context = static_cast<MikkContext*>(mikk->m_pUserData);
 		// a degenerate corner (no area, or no texcoord gradient) gets no tangent: w = 0, the shader derives the frame
-		auto length = std::sqrt((tangent[0] * tangent[0]) + (tangent[1] * tangent[1]) + (tangent[2] * tangent[2]));
+		auto t = glm::make_vec3(tangent);
+		auto length = glm::length(t);
 		context->cornerTangents[(static_cast<size_t>(face) * 3) + static_cast<size_t>(corner)] =
-			std::isfinite(length) && length > 1e-6F
-				? std::array{tangent[0] / length, tangent[1] / length, tangent[2] / length, sign < 0.0F ? -1.0F : 1.0F}
-				: std::array{0.0F, 0.0F, 0.0F, 0.0F};
+			std::isfinite(length) && length > 1e-6F ? glm::vec4(t / length, sign < 0.0F ? -1.0F : 1.0F) : glm::vec4(0.0F);
 	};
 	SMikkTSpaceContext mikk{.m_pInterface = &callbacks, .m_pUserData = &context};
 	if (indices.empty() || genTangSpaceDefault(&mikk) == 0)
@@ -78,7 +79,7 @@ std::vector<uint32_t> GenerateTangents(std::vector<VertexP3fN3fTa4fT014fC4f>& ve
 	// each vertex once per distinct tangent of its corners
 	std::vector<VertexP3fN3fTa4fT014fC4f> result;
 	std::vector<uint32_t> sources;
-	std::vector<std::vector<std::pair<std::array<float, 4>, uint32_t>>> copies(vertices.size());
+	std::vector<std::vector<std::pair<glm::vec4, uint32_t>>> copies(vertices.size());
 	result.reserve(vertices.size());
 	sources.reserve(vertices.size());
 	for (size_t cornerIt = 0; cornerIt < indices.size(); cornerIt++)
@@ -87,25 +88,19 @@ std::vector<uint32_t> GenerateTangents(std::vector<VertexP3fN3fTa4fT014fC4f>& ve
 		// perpendicular to the vertex's own normal: a corner of a degenerate triangle gets a neighbor's tangent, whose
 		// normal can differ. what is left of a parallel one is no tangent (w = 0)
 		auto tangent = context.cornerTangents[cornerIt];
-		if (tangent[3] != 0.0F)
+		if (tangent.w != 0.0F)
 		{
-			const auto& normal = vertices[index].normal;
-			auto along = (tangent[0] * normal[0]) + (tangent[1] * normal[1]) + (tangent[2] * normal[2]);
-			for (size_t axis = 0; axis < 3; axis++)
-				tangent[axis] -= along * normal[axis];
-			auto length = std::sqrt((tangent[0] * tangent[0]) + (tangent[1] * tangent[1]) + (tangent[2] * tangent[2]));
-			if (std::isfinite(length) && length > 1e-3F)
-				for (size_t axis = 0; axis < 3; axis++)
-					tangent[axis] /= length;
-			else
-				tangent = {0.0F, 0.0F, 0.0F, 0.0F};
+			auto normal = glm::make_vec3(vertices[index].normal);
+			auto perpendicular = glm::vec3(tangent) - (glm::dot(glm::vec3(tangent), normal) * normal);
+			auto length = glm::length(perpendicular);
+			tangent = std::isfinite(length) && length > 1e-3F ? glm::vec4(perpendicular / length, tangent.w) : glm::vec4(0.0F);
 		}
 		auto& vertexCopies = copies[index];
 		auto it = std::ranges::find_if(vertexCopies, [&tangent](const auto& copy) { return copy.first == tangent; });
 		if (it == vertexCopies.end())
 		{
 			auto vertex = vertices[index];
-			std::ranges::copy(tangent, vertex.tangent);
+			std::copy_n(glm::value_ptr(tangent), 4, vertex.tangent);
 			result.push_back(vertex);
 			sources.push_back(index);
 			it = vertexCopies.insert(vertexCopies.end(), {tangent, static_cast<uint32_t>(result.size() - 1)});

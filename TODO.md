@@ -75,6 +75,7 @@
 * done: tonemapping: auto exposure (a histogram from ComputeMain, read back) and a choice of tonemappers (PBR Neutral, ACES, AgX, Reinhard, linear)
 * done: separate IMGUI and client abstractions more clearly. avoid referencing IMGUI:s windowdata members where possible
 * done: instrumentation and timing information
+* done: glm for the math types (the importers' Vec3 and matrix helpers, and the imported colors, transforms, lights, cameras and environment), arrays only for shader layouts
 * done: one path for gpu timings: rhi::GpuProfiler per queue feeds both Tracy's gpu zones (its C api, in place of TracyVkCtx) and the frame graph's pass timings
 * done: organize secondary command buffers into some sort of pool, and schedule them on a couple of worker threads
 * done: move stuff from headers into compilation units

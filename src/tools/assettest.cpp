@@ -18,6 +18,7 @@
 
 #include <glm/glm.hpp>
 #include <glm/gtc/packing.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <core/file.h>
 #include <core/utils.h>
@@ -122,9 +123,8 @@ bool IsImage(const std::filesystem::path& path)
 // environment panoramas (see gfx::environment), which the client loads as such rather than as images
 bool IsEnvironment(const std::filesystem::path& path) { return Lower(path.extension().string()) == ".hdr"; }
 
-using Vec3 = std::array<double, 3>;
-
-Vec3 ToVec3(const float (&v)[3]) { return {v[0], v[1], v[2]}; } //NOLINT(modernize-avoid-c-arrays)
+// a vertex's three floats in double precision
+glm::dvec3 ToDvec3(const float* v) { return glm::dvec3(glm::make_vec3(v)); }
 
 // an image (a file, or an image the gltf file at the path embeds, see TextureRef::embeddedImage), with the usage it is
 // checked for, and its bump scale for kBump
@@ -157,8 +157,8 @@ struct ModelSummary
 	size_t materials = 0;
 	size_t submeshes = 0;
 	size_t textures = 0; // texture slots the materials use
-	Vec3 min{};
-	Vec3 max{};
+	glm::dvec3 min{0.0};
+	glm::dvec3 max{0.0};
 };
 
 Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, std::optional<ModelSummary>& summaryOut)
@@ -209,10 +209,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		for (const auto& material : mesh->materials)
 			for (const auto* texture : {&material.diffuseTexture, &material.alphaTexture, &material.normalTexture, &material.bumpTexture})
 				summary.textures += texture->empty() ? 0 : 1;
-		auto min = mesh->bounds.GetMin();
-		auto max = mesh->bounds.GetMax();
-		summary.min = {min.x, min.y, min.z};
-		summary.max = {max.x, max.y, max.z};
+		summary.min = glm::dvec3(mesh->bounds.GetMin());
+		summary.max = glm::dvec3(mesh->bounds.GetMax());
 	}
 
 	report.Info(
@@ -245,10 +243,7 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 					if (index >= mesh->vertices.size())
 						continue;
 					const auto& position = mesh->vertices[index].position;
-					Bounds3f::VectorType point;
-					for (glm::length_t axis = 0; axis < 3; axis++)
-						point[axis] = (transform[axis] * position[0]) + (transform[4 + axis] * position[1]) +
-									  (transform[8 + axis] * position[2]) + transform[12 + axis];
+					auto point = Bounds3f::VectorType(transform * glm::vec4(glm::make_vec3(position), 1.0F));
 					auto min = submesh.bounds.GetMin();
 					auto max = submesh.bounds.GetMax();
 					bool inside = true;
@@ -276,8 +271,11 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		{
 			double difference = 0.0;
 			for (size_t nodeIt = 0; nodeIt < std::min(a.size(), b.size()); nodeIt++)
-				for (size_t i = 0; i < 16; i++)
-					difference = std::max(difference, static_cast<double>(std::abs(a[nodeIt][i] - b[nodeIt][i])));
+				for (glm::length_t col = 0; col < 4; col++)
+				{
+					auto column = glm::abs(a[nodeIt][col] - b[nodeIt][col]);
+					difference = std::max(difference, static_cast<double>(std::max({column.x, column.y, column.z, column.w})));
+				}
 			return difference;
 		};
 		auto rest = gfx::EvaluateNodes(animation, animation.animations.size(), 0.0F);
@@ -288,7 +286,11 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			{
 				auto time = fraction * clip.duration;
 				auto worlds = gfx::EvaluateNodes(animation, animationIt, time);
-				if (std::ranges::any_of(worlds, [](const auto& m) { return std::ranges::any_of(m, [](float v) { return !std::isfinite(v); }); }))
+				auto finite = [](const gfx::SceneMatrix& m)
+				{
+					return std::ranges::all_of(std::span(glm::value_ptr(m), 16), [](float v) { return std::isfinite(v); });
+				};
+				if (!std::ranges::all_of(worlds, finite))
 				{
 					report.Fail("animation {} ({}) has non-finite transforms at {:.2f}s", animationIt, clip.name, time);
 					break;
@@ -393,18 +395,18 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		if (std::ranges::any_of(values, [](float v) { return !std::isfinite(v); }))
 			nonFinite++;
 
-		auto n = ToVec3(vertex.normal);
-		auto normalLength = std::sqrt((n[0] * n[0]) + (n[1] * n[1]) + (n[2] * n[2]));
+		auto n = ToDvec3(vertex.normal);
+		auto normalLength = glm::length(n);
 		if (std::abs(normalLength - 1.0) > 1e-3 && (inTriangles[vertexIt] || normalLength != 0.0))
 			badNormals++;
 
 		if (vertex.tangent[3] != 0.0F)
 		{
-			Vec3 t{vertex.tangent[0], vertex.tangent[1], vertex.tangent[2]};
-			auto length = std::sqrt((t[0] * t[0]) + (t[1] * t[1]) + (t[2] * t[2]));
+			auto t = ToDvec3(vertex.tangent);
+			auto length = glm::length(t);
 			if (std::abs(length - 1.0) > 1e-3 || std::abs(vertex.tangent[3]) != 1.0F)
 				badTangents++;
-			else if (std::abs((t[0] * n[0]) + (t[1] * n[1]) + (t[2] * n[2])) > 0.5)
+			else if (std::abs(glm::dot(t, n)) > 0.5)
 				skewedTangents++;
 		}
 	}
@@ -429,29 +431,20 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		const auto& v0 = mesh->vertices[triangleIndices[i]];
 		const auto& v1 = mesh->vertices[triangleIndices[i + 1]];
 		const auto& v2 = mesh->vertices[triangleIndices[i + 2]];
-		auto p0 = ToVec3(v0.position);
-		auto p1 = ToVec3(v1.position);
-		auto p2 = ToVec3(v2.position);
-		Vec3 e1{p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]};
-		Vec3 e2{p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]};
-		Vec3 c{(e1[1] * e2[2]) - (e1[2] * e2[1]), (e1[2] * e2[0]) - (e1[0] * e2[2]), (e1[0] * e2[1]) - (e1[1] * e2[0])};
-		auto area = std::sqrt((c[0] * c[0]) + (c[1] * c[1]) + (c[2] * c[2]));
+		auto p0 = ToDvec3(v0.position);
+		auto c = glm::cross(ToDvec3(v1.position) - p0, ToDvec3(v2.position) - p0);
+		auto area = glm::length(c);
 		if (!(area > 0.0))
 			continue;
 
-		auto center = mesh->bounds.Center();
-		Vec3 q0{p0[0] - center.x, p0[1] - center.y, p0[2] - center.z};
-		signedVolume += ((q0[0] * c[0]) + (q0[1] * c[1]) + (q0[2] * c[2])) / 6.0;
+		signedVolume += glm::dot(p0 - glm::dvec3(mesh->bounds.Center()), c) / 6.0;
 
-		Vec3 n{};
-		for (const auto* v : {&v0, &v1, &v2})
-			for (size_t k = 0; k < 3; k++)
-				n[k] += v->normal[k];
+		auto n = ToDvec3(v0.normal) + ToDvec3(v1.normal) + ToDvec3(v2.normal);
 		total += area;
-		if ((c[0] * n[0]) + (c[1] * n[1]) + (c[2] * n[2]) > 0.0)
+		if (glm::dot(c, n) > 0.0)
 			agreeing += area;
 
-		for (size_t k = 0; k < 3; k++)
+		for (glm::length_t k = 0; k < 3; k++)
 		{
 			auto cosine = c[k] / area;
 			if (cosine > 0.9)
@@ -467,10 +460,9 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 	// skinned ones in their mesh's (by their joints at rest).
 	if (!mesh->vertices.empty())
 	{
-		std::vector<std::array<double, 3>> positions(mesh->vertices.size());
+		std::vector<glm::dvec3> positions(mesh->vertices.size());
 		for (size_t vertexIt = 0; vertexIt < mesh->vertices.size(); vertexIt++)
-			for (size_t axis = 0; axis < 3; axis++)
-				positions[vertexIt][axis] = mesh->vertices[vertexIt].position[axis];
+			positions[vertexIt] = ToDvec3(mesh->vertices[vertexIt].position);
 		auto restJoints = mesh->skinVertices.empty() ? std::vector<gfx::SceneMatrix>{} : gfx::RestJoints(mesh->animation);
 		for (const auto& submesh : mesh->submeshes)
 		{
@@ -481,12 +473,10 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			{
 				if (index >= positions.size())
 					continue;
-				auto position = std::to_array(mesh->vertices[index].position);
+				auto position = glm::make_vec3(mesh->vertices[index].position);
 				if (submesh.skin >= 0 && !mesh->skinVertices.empty())
 					position = gfx::SkinPosition(restJoints, mesh->animation.skins[submesh.skin].jointBase, mesh->skinVertices[index], position);
-				for (size_t axis = 0; axis < 3; axis++)
-					positions[index][axis] = (transform[axis] * position[0]) + (transform[4 + axis] * position[1]) +
-											 (transform[8 + axis] * position[2]) + transform[12 + axis];
+				positions[index] = glm::dvec3(transform * glm::vec4(position, 1.0F));
 			}
 		}
 
@@ -496,17 +486,16 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 			std::ranges::nth_element(values, middle);
 			return *middle;
 		};
-		Vec3 median{};
+		glm::dvec3 median(0.0);
 		std::vector<double> values(positions.size());
-		for (size_t axis = 0; axis < 3; axis++)
+		for (glm::length_t axis = 0; axis < 3; axis++)
 		{
 			std::ranges::transform(positions, values.begin(), [axis](const auto& position) { return position[axis]; });
 			median[axis] = medianOf(values);
 		}
 		std::ranges::transform(positions, values.begin(), [&median](const auto& position)
 		{
-			Vec3 d{position[0] - median[0], position[1] - median[1], position[2] - median[2]};
-			return std::sqrt((d[0] * d[0]) + (d[1] * d[1]) + (d[2] * d[2]));
+			return glm::distance(position, median);
 		});
 		auto medianDistance = medianOf(values);
 		constexpr double kStrayFactor = 100.0; // large ground planes and backdrops reach about 20 (mori_knob)
@@ -662,14 +651,12 @@ Report CheckEncodings(const std::vector<std::pair<std::filesystem::path, ModelSu
 
 	// within 1% of the extent: quantized encodings (KHR_mesh_quantization) round positions
 	const auto& first = encodings.front().second;
-	double extent = 0.0;
-	for (size_t axis = 0; axis < 3; axis++)
-		extent = std::max(extent, first.max[axis] - first.min[axis]);
+	auto size = first.max - first.min;
+	double extent = std::max({0.0, size.x, size.y, size.z});
 	for (const auto& [path, summary] : encodings)
 	{
-		double offBy = 0.0;
-		for (size_t axis = 0; axis < 3; axis++)
-			offBy = std::max({offBy, std::abs(summary.min[axis] - first.min[axis]), std::abs(summary.max[axis] - first.max[axis])});
+		auto off = glm::max(glm::abs(summary.min - first.min), glm::abs(summary.max - first.max));
+		double offBy = std::max({0.0, off.x, off.y, off.z});
 		if (offBy > 0.01 * extent)
 			report.Warn("{}'s bounds differ from {}'s by {:.3g} ({:.1f}% of the extent)", variant(path), variant(encodings.front().first), offBy, 100.0 * offBy / extent);
 	}
@@ -889,20 +876,15 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 		size_t belowSurface = 0;
 		for (size_t i = 0; i < pixelCount; i++)
 		{
-			std::array<double, 3> a{};
-			std::array<double, 3> b{};
-			for (size_t ch = 0; ch < 3; ch++)
-			{
-				a[ch] = decodeSigned(level0[(i * 4) + ch]);
-				b[ch] = decodeSigned(pixels[(i * 4) + ch]);
-			}
-			if (b[2] < 0.0)
+			glm::dvec3 a(decodeSigned(level0[i * 4]), decodeSigned(level0[(i * 4) + 1]), decodeSigned(level0[(i * 4) + 2]));
+			glm::dvec3 b(decodeSigned(pixels[i * 4]), decodeSigned(pixels[(i * 4) + 1]), decodeSigned(pixels[(i * 4) + 2]));
+			if (b.z < 0.0)
 			{
 				belowSurface++;
-				b[2] = -b[2];
+				b.z = -b.z;
 			}
-			auto dot = (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
-			auto lengths = std::sqrt(((a[0] * a[0]) + (a[1] * a[1]) + (a[2] * a[2])) * ((b[0] * b[0]) + (b[1] * b[1]) + (b[2] * b[2])));
+			auto dot = glm::dot(a, b);
+			auto lengths = glm::length(a) * glm::length(b);
 			auto angle = std::acos(std::clamp(lengths > 0.0 ? dot / lengths : 1.0, -1.0, 1.0)) * 180.0 / std::numbers::pi;
 			angleSum += angle;
 			maxAngle = std::max(maxAngle, angle);
@@ -1022,7 +1004,7 @@ Report CheckEnvironment(
 		data);
 	environment->dominantLights = std::move(dominantLights);
 
-	auto luminance = [](const std::array<double, 3>& rgb) { return (0.2126 * rgb[0]) + (0.7152 * rgb[1]) + (0.0722 * rgb[2]); };
+	auto luminance = [](const glm::dvec3& rgb) { return glm::dot(rgb, glm::dvec3(0.2126, 0.7152, 0.0722)); };
 	auto mean = luminance(MeanRadiance(panorama));
 	report.Info("{}x{}, mean radiance {:.4g}", panorama.width, panorama.height, mean);
 	if (!(mean > 0.0) || !std::isfinite(mean))
@@ -1035,7 +1017,7 @@ Report CheckEnvironment(
 	// (their irradiance spread over the sphere)
 	const auto& dominants = environment->dominantLights;
 	auto irradianceOf = [&luminance](const DominantLight& light)
-	{ return luminance({light.irradiance[0], light.irradiance[1], light.irradiance[2]}); };
+	{ return luminance(light.irradiance); };
 	double dominantIrradiance = 0.0;
 	for (const auto& dominant : dominants)
 	{
@@ -1043,9 +1025,9 @@ Report CheckEnvironment(
 		dominantIrradiance += irradiance;
 		report.Info(
 			"dominant light ({:.3f}, {:.3f}, {:.3f}), irradiance {:.4g} ({:.1f}% of the mean)",
-			dominant.direction[0],
-			dominant.direction[1],
-			dominant.direction[2],
+			dominant.direction.x,
+			dominant.direction.y,
+			dominant.direction.z,
 			irradiance,
 			100.0 * irradiance / (4.0 * std::numbers::pi * mean));
 		if (!dominant)
@@ -1065,8 +1047,7 @@ Report CheckEnvironment(
 		else
 		{
 			const auto& dominant = dominants.front();
-			auto cosine = (dominant.direction[0] * expected.direction[0]) + (dominant.direction[1] * expected.direction[1]) +
-						  (dominant.direction[2] * expected.direction[2]);
+			auto cosine = glm::dot(dominant.direction, expected.direction);
 			if (cosine < std::cos(glm::radians(0.5)))
 				report.Fail("the dominant light is {:.2f} degrees off", glm::degrees(std::acos(std::min(cosine, 1.0F))));
 			else if (auto error = std::abs((irradianceOf(dominant) / expectedIrradiance) - 1.0); error > 0.03)
@@ -1087,7 +1068,7 @@ Report CheckEnvironment(
 			for (uint32_t x = 0; x < level.width; x++)
 			{
 				const auto* texel = &texels[(static_cast<size_t>(y) * level.width + x) * 4];
-				auto l = luminance({glm::unpackHalf1x16(texel[0]), glm::unpackHalf1x16(texel[1]), glm::unpackHalf1x16(texel[2])});
+				auto l = luminance(glm::dvec3(glm::unpackHalf1x16(texel[0]), glm::unpackHalf1x16(texel[1]), glm::unpackHalf1x16(texel[2])));
 				sum += l * w;
 				sum2 += l * l * w;
 				weight += w;
@@ -1136,14 +1117,12 @@ Report CheckEnvironment(
 
 	// the constant band, times its basis function, is the mean over the sphere
 	constexpr double kY00 = 0.282095;
-	std::array<double, 3> irradianceMean{};
-	for (size_t c = 0; c < 3; c++)
-		irradianceMean[c] = environment->irradiance[0][c] * kY00;
+	auto irradianceMean = glm::dvec3(glm::make_vec3(environment->irradiance[0].data())) * kY00;
 	if (auto error = std::abs(luminance(irradianceMean) / lightingMean - 1.0); error > 0.02)
 		report.Fail("the irradiance's mean {:.4g} is off by {:.1f}%", luminance(irradianceMean), error * 100.0);
-	auto up = EvaluateIrradiance(*environment, {0.0F, 1.0F, 0.0F});
-	auto down = EvaluateIrradiance(*environment, {0.0F, -1.0F, 0.0F});
-	report.Info("irradiance up {:.4g}, down {:.4g}", luminance({up[0], up[1], up[2]}), luminance({down[0], down[1], down[2]}));
+	auto up = EvaluateIrradiance(*environment, glm::vec3(0.0F, 1.0F, 0.0F));
+	auto down = EvaluateIrradiance(*environment, glm::vec3(0.0F, -1.0F, 0.0F));
+	report.Info("irradiance up {:.4g}, down {:.4g}", luminance(up), luminance(down));
 
 	return report;
 }
@@ -1380,7 +1359,7 @@ int main(int argc, char* argv[])
 	{
 		auto start = std::chrono::steady_clock::now();
 		gfx::environment::DominantLight skySun{.direction = gfx::environment::kSkySunDirection};
-		skySun.irradiance.fill(gfx::environment::kSkySunIrradiance);
+		skySun.irradiance = glm::vec3(gfx::environment::kSkySunIrradiance);
 		auto report = CheckEnvironment(gfx::environment::ProceduralSky(), &gfx::environment::ProceduralSkyParameters(), skySun);
 		Print("procedural sky", report, std::chrono::steady_clock::now() - start);
 		Count(environmentResults, report.result)++;

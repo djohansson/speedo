@@ -4,6 +4,8 @@
 
 #include <core/profiling.h>
 
+#include <glm/gtc/type_ptr.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <format>
@@ -49,7 +51,7 @@ enum class Format : uint8_t
 	local.SetMin(Bounds3f::VectorType(std::numeric_limits<float>::max()));
 	local.SetMax(Bounds3f::VectorType(std::numeric_limits<float>::lowest()));
 	for (auto index : indices)
-		local.Merge(std::to_array(mesh.vertices[index].position));
+		local.Merge(glm::make_vec3(mesh.vertices[index].position));
 
 	Bounds3f world;
 	bool first = true;
@@ -58,10 +60,7 @@ enum class Format : uint8_t
 		const auto& transform = mesh.instances[instanceIt];
 		for (const auto& corner : local.Corners())
 		{
-			Bounds3f::VectorType point;
-			for (glm::length_t axis = 0; axis < 3; axis++)
-				point[axis] = (transform[axis] * corner.x) + (transform[4 + axis] * corner.y) + (transform[8 + axis] * corner.z) +
-							  transform[12 + axis];
+			auto point = Bounds3f::VectorType(transform * glm::vec4(corner, 1.0F));
 			if (first)
 			{
 				world.SetMin(point);

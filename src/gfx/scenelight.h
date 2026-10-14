@@ -1,5 +1,7 @@
 #pragma once
 
+#include <glm/vec3.hpp>
+
 #include <array>
 #include <cstdint>
 #include <string>
@@ -19,9 +21,9 @@ struct SceneLight
 
 	std::string name;
 	Type type = Type::kDirectional;
-	std::array<float, 3> position{}; // point, spot
-	std::array<float, 3> direction{0.0F, 0.0F, -1.0F}; // directional, spot: where it shines, unit length
-	std::array<float, 3> color{1.0F, 1.0F, 1.0F}; // linear
+	glm::vec3 position{0.0F}; // point, spot
+	glm::vec3 direction{0.0F, 0.0F, -1.0F}; // directional, spot: where it shines, unit length
+	glm::vec3 color{1.0F}; // linear
 	float intensity = 1.0F; // lux (directional) or candela (point, spot)
 	float range = 0.0F; // point, spot: 0 for none
 	float innerConeAngle = 0.0F; // spot, in radians

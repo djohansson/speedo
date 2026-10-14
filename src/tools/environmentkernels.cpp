@@ -2,6 +2,7 @@
 #include "environmentkernelsbridge.h"
 
 #include <glm/gtc/packing.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
 #include <utility>
@@ -25,11 +26,11 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 	else if (source.sky != nullptr)
 	{
 		const auto& sky = *source.sky;
-		std::copy_n(sky.zenith.data(), 3, environmentData.skyZenith);
+		std::copy_n(glm::value_ptr(sky.zenith), 3, environmentData.skyZenith);
 		environmentData.skyZenith[3] = 1.0F;
-		std::copy_n(sky.horizon.data(), 3, environmentData.skyHorizon);
-		std::copy_n(sky.ground.data(), 3, environmentData.skyGround);
-		std::copy_n(sky.sunDirection.data(), 3, environmentData.skySun);
+		std::copy_n(glm::value_ptr(sky.horizon), 3, environmentData.skyHorizon);
+		std::copy_n(glm::value_ptr(sky.ground), 3, environmentData.skyGround);
+		std::copy_n(glm::value_ptr(sky.sunDirection), 3, environmentData.skySun);
 		environmentData.skySun[3] = sky.sunCosRadius;
 		environmentData.skySunRadiance[0] = sky.sunRadiance;
 	}

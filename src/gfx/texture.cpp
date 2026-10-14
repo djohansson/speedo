@@ -335,7 +335,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 		const auto& sky = environment::ProceduralSkyParameters();
 		result.sky = sky;
 		environment::DominantLight sun{.direction = sky.sunDirection};
-		sun.irradiance.fill(environment::kSkySunIrradiance);
+		sun.irradiance = glm::vec3(environment::kSkySunIrradiance);
 		result.dominantLights = {sun};
 	}
 	else
@@ -417,7 +417,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 
 		// bump environment-vN when environment::Import or ExtractDominantLights change what they produce, cache-vN when
 		// what is cached does
-		std::string params = std::format("stb-{}|environment-v6|cache-v5", kStbVersion);
+		std::string params = std::format("stb-{}|environment-v6|cache-v6", kStbVersion);
 		std::string paramsHash;
 		static constexpr size_t kSha2Size = 32;
 		std::array<uint8_t, kSha2Size> sha2;

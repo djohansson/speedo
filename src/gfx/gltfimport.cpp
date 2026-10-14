@@ -25,6 +25,10 @@
 #define CGLTF_IMPLEMENTATION
 #include <cgltf.h>
 #include <draco/compression/decode.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <meshoptimizer.h>
 
 #include <xxhash.h>
@@ -318,55 +322,39 @@ struct DracoPrimitive
 	return false;
 }
 
-using Vec3 = std::array<double, 3>;
+[[nodiscard]] bool IsFinite(const glm::dvec3& a) { return !glm::any(glm::isnan(a)) && !glm::any(glm::isinf(a)); }
 
-[[nodiscard]] Vec3 Sub(const Vec3& a, const Vec3& b) { return {a[0] - b[0], a[1] - b[1], a[2] - b[2]}; }
-[[nodiscard]] Vec3 Cross(const Vec3& a, const Vec3& b)
+// a vector into a vertex's floats (its first three)
+void Store(float* out, const glm::dvec3& v)
 {
-	return {(a[1] * b[2]) - (a[2] * b[1]), (a[2] * b[0]) - (a[0] * b[2]), (a[0] * b[1]) - (a[1] * b[0])};
+	auto f = glm::vec3(v);
+	std::copy_n(glm::value_ptr(f), 3, out);
 }
-[[nodiscard]] double Dot(const Vec3& a, const Vec3& b) { return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]); }
-[[nodiscard]] double Length(const Vec3& a) { return std::sqrt(Dot(a, a)); }
-[[nodiscard]] bool IsFinite(const Vec3& a) { return std::isfinite(a[0]) && std::isfinite(a[1]) && std::isfinite(a[2]); }
 
 // a column major 4x4 matrix, as gltf stores them
-using Matrix = std::array<float, 16>;
+using Matrix = glm::mat4;
 
-[[nodiscard]] Vec3 TransformPoint(const Matrix& m, const Vec3& p)
-{
-	return {
-		(m[0] * p[0]) + (m[4] * p[1]) + (m[8] * p[2]) + m[12],
-		(m[1] * p[0]) + (m[5] * p[1]) + (m[9] * p[2]) + m[13],
-		(m[2] * p[0]) + (m[6] * p[1]) + (m[10] * p[2]) + m[14]};
-}
+[[nodiscard]] glm::dvec3 TransformPoint(const Matrix& m, const glm::dvec3& p) { return glm::dvec3(glm::dmat4(m) * glm::dvec4(p, 1.0)); }
 
 // the inverse transpose of the upper 3x3 scaled by the determinant (which keeps it finite for singular matrices): its
-// cofactor matrix. a negative determinant (a mirroring transform) flips the normals it transforms, see TransformNormal.
-[[nodiscard]] std::array<double, 9> NormalMatrix(const Matrix& m)
+// cofactor matrix. a negative determinant (a mirroring transform) flips the normals it transforms
+[[nodiscard]] glm::dmat3 NormalMatrix(const Matrix& m)
 {
-	auto a = [&m](int row, int col) { return static_cast<double>(m[(col * 4) + row]); };
-	return {
-		(a(1, 1) * a(2, 2)) - (a(1, 2) * a(2, 1)), (a(1, 2) * a(2, 0)) - (a(1, 0) * a(2, 2)), (a(1, 0) * a(2, 1)) - (a(1, 1) * a(2, 0)),
-		(a(0, 2) * a(2, 1)) - (a(0, 1) * a(2, 2)), (a(0, 0) * a(2, 2)) - (a(0, 2) * a(2, 0)), (a(0, 1) * a(2, 0)) - (a(0, 0) * a(2, 1)),
-		(a(0, 1) * a(1, 2)) - (a(0, 2) * a(1, 1)), (a(0, 2) * a(1, 0)) - (a(0, 0) * a(1, 2)), (a(0, 0) * a(1, 1)) - (a(0, 1) * a(1, 0))};
+	auto a = [&m](int row, int col) { return static_cast<double>(m[col][row]); };
+	glm::dmat3 cofactors{};
+	for (int row = 0; row < 3; row++)
+		for (int col = 0; col < 3; col++)
+		{
+			auto r0 = (row + 1) % 3;
+			auto r1 = (row + 2) % 3;
+			auto c0 = (col + 1) % 3;
+			auto c1 = (col + 2) % 3;
+			cofactors[col][row] = (a(r0, c0) * a(r1, c1)) - (a(r0, c1) * a(r1, c0));
+		}
+	return cofactors;
 }
 
-[[nodiscard]] double Determinant(const Matrix& m)
-{
-	auto a = [&m](int row, int col) { return static_cast<double>(m[(col * 4) + row]); };
-	return (a(0, 0) * ((a(1, 1) * a(2, 2)) - (a(1, 2) * a(2, 1)))) - (a(0, 1) * ((a(1, 0) * a(2, 2)) - (a(1, 2) * a(2, 0)))) +
-		   (a(0, 2) * ((a(1, 0) * a(2, 1)) - (a(1, 1) * a(2, 0))));
-}
-
-[[nodiscard]] Matrix Multiply(const Matrix& a, const Matrix& b)
-{
-	Matrix product{};
-	for (int col = 0; col < 4; col++)
-		for (int row = 0; row < 4; row++)
-			for (int k = 0; k < 4; k++)
-				product[(col * 4) + row] += a[(k * 4) + row] * b[(col * 4) + k];
-	return product;
-}
+[[nodiscard]] double Determinant(const Matrix& m) { return glm::determinant(glm::dmat3(m)); }
 
 // EXT_mesh_gpu_instancing: each instance's transform in its node's space, translation * rotation * scale (each
 // attribute optional; normalized integer rotations are unpacked by cgltf). nullopt if an attribute can't be read.
@@ -397,21 +385,11 @@ using Matrix = std::array<float, 16>;
 	std::vector<Matrix> transforms(count);
 	for (size_t i = 0; i < count; i++)
 	{
-		const auto* t = &translations[3 * i];
-		const auto* q = &rotations[4 * i];
-		const auto* scale = &scales[3 * i];
-		auto length = std::sqrt((q[0] * q[0]) + (q[1] * q[1]) + (q[2] * q[2]) + (q[3] * q[3]));
-		auto inverse = length > 0.0F ? 1.0F / length : 0.0F;
-		auto x = q[0] * inverse;
-		auto y = q[1] * inverse;
-		auto z = q[2] * inverse;
-		auto w = length > 0.0F ? q[3] * inverse : 1.0F;
-
-		transforms[i] = {
-			(1.0F - (2.0F * ((y * y) + (z * z)))) * scale[0], 2.0F * ((x * y) + (z * w)) * scale[0], 2.0F * ((x * z) - (y * w)) * scale[0], 0.0F,
-			2.0F * ((x * y) - (z * w)) * scale[1], (1.0F - (2.0F * ((x * x) + (z * z)))) * scale[1], 2.0F * ((y * z) + (x * w)) * scale[1], 0.0F,
-			2.0F * ((x * z) + (y * w)) * scale[2], 2.0F * ((y * z) - (x * w)) * scale[2], (1.0F - (2.0F * ((x * x) + (y * y)))) * scale[2], 0.0F,
-			t[0], t[1], t[2], 1.0F};
+		auto q = glm::make_quat(&rotations[4 * i]);
+		auto length = glm::length(q);
+		q = length > 0.0F ? q / length : glm::identity<glm::quat>();
+		transforms[i] = glm::translate(Matrix(1.0F), glm::make_vec3(&translations[3 * i])) * glm::mat4_cast(q) *
+						glm::scale(Matrix(1.0F), glm::make_vec3(&scales[3 * i]));
 	}
 	return transforms;
 }
@@ -422,22 +400,22 @@ using Matrix = std::array<float, 16>;
 	const auto& camera = *node.camera;
 
 	Matrix world{};
-	cgltf_node_transform_world(&node, world.data());
-	auto unit = [](Vec3 v) -> std::array<float, 3>
+	cgltf_node_transform_world(&node, glm::value_ptr(world));
+	auto unit = [](glm::dvec3 v) -> glm::vec3
 	{
-		auto length = Length(v);
+		auto length = glm::length(v);
 		if (!(length > 0.0) || !IsFinite(v))
-			return {0.0F, 0.0F, 0.0F};
-		return {static_cast<float>(v[0] / length), static_cast<float>(v[1] / length), static_cast<float>(v[2] / length)};
+			return glm::vec3(0.0F);
+		return glm::vec3(v / length);
 	};
 
 	SceneCamera result{
 		.name = camera.name != nullptr ? camera.name
 				: node.name != nullptr ? node.name
 									   : std::format("camera {}", &camera - data.cameras),
-		.position = {world[12], world[13], world[14]},
-		.forward = unit({-world[8], -world[9], -world[10]}),
-		.up = unit({world[4], world[5], world[6]}),
+		.position = glm::vec3(world[3]),
+		.forward = unit(-glm::dvec3(world[2])),
+		.up = unit(glm::dvec3(world[1])),
 		.node = static_cast<int32_t>(&node - data.nodes),
 		.source = static_cast<uint32_t>(&camera - data.cameras)};
 	if (camera.type == cgltf_camera_type_orthographic)
@@ -466,51 +444,35 @@ using Matrix = std::array<float, 16>;
 	const auto& light = *node.light;
 
 	Matrix world{};
-	cgltf_node_transform_world(&node, world.data());
-	Vec3 direction{-world[8], -world[9], -world[10]};
-	auto length = Length(direction);
+	cgltf_node_transform_world(&node, glm::value_ptr(world));
+	auto direction = -glm::dvec3(world[2]);
+	auto length = glm::length(direction);
 
 	SceneLight result{
 		.name = light.name != nullptr ? light.name : node.name != nullptr ? node.name : std::format("light {}", &light - data.lights),
 		.type = light.type == cgltf_light_type_point  ? SceneLight::Type::kPoint
 				: light.type == cgltf_light_type_spot ? SceneLight::Type::kSpot
 													  : SceneLight::Type::kDirectional,
-		.position = {world[12], world[13], world[14]},
-		.color = {light.color[0], light.color[1], light.color[2]},
+		.position = glm::vec3(world[3]),
+		.color = glm::make_vec3(light.color),
 		.intensity = light.intensity,
 		.range = light.range,
 		.innerConeAngle = light.spot_inner_cone_angle,
 		.outerConeAngle = light.spot_outer_cone_angle,
 		.source = static_cast<uint32_t>(&light - data.lights)};
 	if (length > 0.0 && IsFinite(direction))
-		for (size_t axis = 0; axis < 3; axis++)
-			result.direction[axis] = static_cast<float>(direction[axis] / length);
+		result.direction = glm::vec3(direction / length);
 	return result;
 }
 
 // by the upper 3x3 only, for directions such as tangents
-[[nodiscard]] Vec3 TransformDirection(const Matrix& m, const Vec3& v)
-{
-	return {
-		(m[0] * v[0]) + (m[4] * v[1]) + (m[8] * v[2]),
-		(m[1] * v[0]) + (m[5] * v[1]) + (m[9] * v[2]),
-		(m[2] * v[0]) + (m[6] * v[1]) + (m[10] * v[2])};
-}
-
-[[nodiscard]] Vec3 TransformNormal(const std::array<double, 9>& n, const Vec3& v)
-{
-	// rows of the cofactor matrix
-	return {
-		(n[0] * v[0]) + (n[1] * v[1]) + (n[2] * v[2]),
-		(n[3] * v[0]) + (n[4] * v[1]) + (n[5] * v[2]),
-		(n[6] * v[0]) + (n[7] * v[1]) + (n[8] * v[2])};
-}
+[[nodiscard]] glm::dvec3 TransformDirection(const Matrix& m, const glm::dvec3& v) { return glm::dmat3(m) * v; }
 
 // KHR_texture_transform as a 2x3 matrix (see TextureRef::transform): offset * rotation * scale, with the rotation as
 // the extension defines it (counter-clockwise in uv space, whose v points down)
 [[nodiscard]] std::array<float, 6> TransformMatrix(const cgltf_texture_transform& t)
 {
-	return TextureTransform({t.offset[0], t.offset[1]}, t.rotation, {t.scale[0], t.scale[1]});
+	return TextureTransform(glm::make_vec2(t.offset), t.rotation, glm::make_vec2(t.scale));
 }
 
 // a gltf sampler as rhi's (default: repeat, linear with mipmaps, anisotropic, as the spec suggests for no sampler)
@@ -1343,7 +1305,7 @@ std::expected<Mesh, std::string> Import(
 
 	// materials, and how their vertices take texcoords
 	Images images(data, path, stats);
-	std::vector<std::array<float, 4>> baseColorFactors(data.materials_count);
+	std::vector<glm::vec4> baseColorFactors(data.materials_count);
 	mesh.materials.reserve(data.materials_count);
 	for (cgltf_size materialIt = 0; materialIt < data.materials_count; materialIt++)
 	{
@@ -1359,13 +1321,13 @@ std::expected<Mesh, std::string> Import(
 			baseColorTexture = &gltfMaterial.pbr_specular_glossiness.diffuse_texture;
 			baseColorFactor = gltfMaterial.pbr_specular_glossiness.diffuse_factor;
 		}
-		std::array<float, 4> factor{1.0F, 1.0F, 1.0F, 1.0F};
+		glm::vec4 factor(1.0F);
 		if (gltfMaterial.has_pbr_metallic_roughness || gltfMaterial.has_pbr_specular_glossiness)
-			std::copy_n(baseColorFactor, 4, factor.begin());
+			factor = glm::make_vec4(baseColorFactor);
 		// an animated base color factor is the material's (MaterialData::color), not baked into the vertex colors
-		baseColorFactors[materialIt] = animatedBaseColor[materialIt] != 0 ? std::array{1.0F, 1.0F, 1.0F, 1.0F} : factor;
-		std::copy_n(factor.begin(), 3, material.diffuse.begin());
-		material.dissolve = factor[3];
+		baseColorFactors[materialIt] = animatedBaseColor[materialIt] != 0 ? glm::vec4(1.0F) : factor;
+		material.diffuse = glm::vec3(factor);
+		material.dissolve = factor.w;
 
 		// each texture with its texcoord set, transform and sampler, which the shader applies (see TextureRef)
 		auto textureRef = [&](const cgltf_texture_view& view)
@@ -1403,7 +1365,7 @@ std::expected<Mesh, std::string> Import(
 			material.metallic = 0.0F;
 			material.glossiness = specularGlossiness.glossiness_factor;
 			material.roughness = 1.0F - specularGlossiness.glossiness_factor;
-			std::copy_n(specularGlossiness.specular_factor, 3, material.specularColor.begin());
+			material.specularColor = glm::make_vec3(specularGlossiness.specular_factor);
 			material.specularColorTexture = textureRef(specularGlossiness.specular_glossiness_texture);
 		}
 		else
@@ -1418,8 +1380,7 @@ std::expected<Mesh, std::string> Import(
 			const auto& specular = gltfMaterial.specular;
 			material.specular = std::clamp(specular.specular_factor, 0.0F, 1.0F);
 			material.specularTexture = textureRef(specular.specular_texture);
-			for (size_t channel = 0; channel < 3; channel++)
-				material.specularColor[channel] = std::max(specular.specular_color_factor[channel], 0.0F);
+			material.specularColor = glm::max(glm::make_vec3(specular.specular_color_factor), 0.0F);
 			material.specularColorTexture = textureRef(specular.specular_color_texture);
 		}
 		if (gltfMaterial.has_clearcoat)
@@ -1435,8 +1396,7 @@ std::expected<Mesh, std::string> Import(
 		if (gltfMaterial.has_sheen)
 		{
 			const auto& sheen = gltfMaterial.sheen;
-			for (size_t channel = 0; channel < 3; channel++)
-				material.sheenColor[channel] = std::max(sheen.sheen_color_factor[channel], 0.0F);
+			material.sheenColor = glm::max(glm::make_vec3(sheen.sheen_color_factor), 0.0F);
 			material.sheenColorTexture = textureRef(sheen.sheen_color_texture);
 			material.sheenRoughness = std::clamp(sheen.sheen_roughness_factor, 0.0F, 1.0F);
 			material.sheenRoughnessTexture = textureRef(sheen.sheen_roughness_texture);
@@ -1451,8 +1411,7 @@ std::expected<Mesh, std::string> Import(
 			const auto& volume = gltfMaterial.volume;
 			material.thickness = std::max(volume.thickness_factor, 0.0F);
 			material.thicknessTexture = textureRef(volume.thickness_texture);
-			for (size_t channel = 0; channel < 3; channel++)
-				material.attenuationColor[channel] = std::clamp(volume.attenuation_color[channel], 0.0F, 1.0F);
+			material.attenuationColor = glm::clamp(glm::make_vec3(volume.attenuation_color), 0.0F, 1.0F);
 			// cgltf's default is FLT_MAX (none), as is the extension's (infinity)
 			material.attenuationDistance =
 				std::isfinite(volume.attenuation_distance) && volume.attenuation_distance < 1e30F ? std::max(volume.attenuation_distance, 0.0F) : 0.0F;
@@ -1481,8 +1440,7 @@ std::expected<Mesh, std::string> Import(
 			const auto& diffuseTransmission = gltfMaterial.diffuse_transmission;
 			material.diffuseTransmission = std::clamp(diffuseTransmission.diffuse_transmission_factor, 0.0F, 1.0F);
 			material.diffuseTransmissionTexture = textureRef(diffuseTransmission.diffuse_transmission_texture);
-			for (size_t channel = 0; channel < 3; channel++)
-				material.diffuseTransmissionColor[channel] = std::max(diffuseTransmission.diffuse_transmission_color_factor[channel], 0.0F);
+			material.diffuseTransmissionColor = glm::max(glm::make_vec3(diffuseTransmission.diffuse_transmission_color_factor), 0.0F);
 			material.diffuseTransmissionColorTexture = textureRef(diffuseTransmission.diffuse_transmission_color_texture);
 		}
 		// extensions cgltf leaves as json: their numbers, and textures (by index and texcoord; a transform isn't read)
@@ -1529,7 +1487,7 @@ std::expected<Mesh, std::string> Import(
 			if (auto at = json->find("\"multiscatterColorFactor\""); at != std::string_view::npos)
 			{
 				auto values = json->substr(json->find('[', at) + 1);
-				for (size_t channel = 0; channel < 3 && !values.empty(); channel++)
+				for (glm::length_t channel = 0; channel < 3 && !values.empty(); channel++)
 				{
 					material.multiscatterColor[channel] = std::clamp(std::strtof(std::string(values).c_str(), nullptr), 0.0F, 1.0F);
 					auto comma = values.find(',');
@@ -1544,8 +1502,7 @@ std::expected<Mesh, std::string> Import(
 		material.normalTexture = textureRef(gltfMaterial.normal_texture);
 		material.normalScale = gltfMaterial.normal_texture.scale;
 		auto emissiveStrength = gltfMaterial.has_emissive_strength ? gltfMaterial.emissive_strength.emissive_strength : 1.0F;
-		for (size_t channel = 0; channel < 3; channel++)
-			material.emissive[channel] = gltfMaterial.emissive_factor[channel] * emissiveStrength;
+		material.emissive = glm::make_vec3(gltfMaterial.emissive_factor) * emissiveStrength;
 		material.emissiveTexture = textureRef(gltfMaterial.emissive_texture);
 		material.occlusionTexture = textureRef(gltfMaterial.occlusion_texture);
 		material.occlusionStrength = gltfMaterial.occlusion_texture.scale; // cgltf keeps the strength as scale
@@ -1577,7 +1534,7 @@ std::expected<Mesh, std::string> Import(
 			{
 				defaultMaterial = static_cast<int32_t>(mesh.materials.size());
 				mesh.materials.push_back({.name = "default", .metallic = 1.0F, .roughness = 1.0F, .alphaCutoff = 0.0F});
-				baseColorFactors.push_back({1.0F, 1.0F, 1.0F, 1.0F});
+				baseColorFactors.push_back(glm::vec4(1.0F));
 			}
 	// KHR_materials_variants: a variant's material for the primitives it maps, else their own
 	for (cgltf_size variantIt = 0; variantIt < data.variants_count; variantIt++)
@@ -1837,12 +1794,12 @@ std::expected<Mesh, std::string> Import(
 		}
 
 		auto material = materialOf(primitive);
-		auto factor = material >= 0 ? baseColorFactors[material] : std::array<float, 4>{1.0F, 1.0F, 1.0F, 1.0F};
+		auto factor = material >= 0 ? baseColorFactors[material] : glm::vec4(1.0F);
 
 		bool mirrored = Determinant(world) < 0.0;
 		auto normalMatrix = NormalMatrix(world);
 		if (mirrored)
-			std::ranges::transform(normalMatrix, normalMatrix.begin(), [](double v) { return -v; });
+			normalMatrix = -normalMatrix;
 
 		auto& part = parts.emplace_back(Part{
 			.material = material,
@@ -1875,13 +1832,13 @@ std::expected<Mesh, std::string> Import(
 					std::ranges::transform(std::span(*jointValues).subspan(4 * vertexIt, 4), jointIndices.begin(), [](float v) { return static_cast<cgltf_uint>(std::lround(v)); });
 				else
 					cgltf_accessor_read_uint(joints, vertexIt, jointIndices.data(), jointIndices.size());
-				std::array<float, 4> weights{};
-				std::copy_n(&(*weightValues)[4 * vertexIt], 4, weights.begin());
-				auto sum = weights[0] + weights[1] + weights[2] + weights[3];
+				auto weights = glm::make_vec4(&(*weightValues)[4 * vertexIt]);
+				auto sum = weights.x + weights.y + weights.z + weights.w;
 				auto& skinVertex = skinVertices[vertexIt];
 				for (size_t i = 0; i < 4; i++)
 				{
-					auto weight = sum > 0.0F && std::isfinite(sum) ? std::clamp(weights[i] / sum, 0.0F, 1.0F) : (i == 0 ? 1.0F : 0.0F);
+					auto weight = sum > 0.0F && std::isfinite(sum) ? std::clamp(weights[static_cast<glm::length_t>(i)] / sum, 0.0F, 1.0F)
+																   : (i == 0 ? 1.0F : 0.0F);
 					auto unorm = static_cast<uint32_t>(std::lround(weight * 65535.0F));
 					auto joint = std::min<cgltf_uint>(jointIndices[i], 0xffffU);
 					skinVertex.joints[i / 2] |= joint << ((i % 2) * 16);
@@ -1897,24 +1854,21 @@ std::expected<Mesh, std::string> Import(
 		{
 			auto& vertex = vertices[vertexIt];
 
-			Vec3 p{(*positionValues)[3 * vertexIt], (*positionValues)[(3 * vertexIt) + 1], (*positionValues)[(3 * vertexIt) + 2]};
-			p = TransformPoint(world, p);
+			auto p = TransformPoint(world, glm::make_vec3(&(*positionValues)[3 * vertexIt]));
 			if (!IsFinite(p))
 			{
 				stats.nonFiniteValues++;
-				p = {};
+				p = glm::dvec3(0.0);
 			}
-			std::ranges::transform(p, vertex.position, [](double v) { return static_cast<float>(v); });
+			Store(vertex.position, p);
 
 			if (normalValues)
 			{
-				Vec3 n{(*normalValues)[3 * vertexIt], (*normalValues)[(3 * vertexIt) + 1], (*normalValues)[(3 * vertexIt) + 2]};
-				n = TransformNormal(normalMatrix, n);
-				if (auto length = Length(n); IsFinite(n) && length > 0.0)
+				auto n = normalMatrix * glm::dvec3(glm::make_vec3(&(*normalValues)[3 * vertexIt]));
+				if (auto length = glm::length(n); IsFinite(n) && length > 0.0)
 				{
 					normalValid[vertexIt] = true;
-					for (size_t i = 0; i < 3; i++)
-						vertex.normal[i] = static_cast<float>(n[i] / length);
+					Store(vertex.normal, n / length);
 				}
 			}
 
@@ -1924,11 +1878,10 @@ std::expected<Mesh, std::string> Import(
 			{
 				const auto* t = &(*tangentValues)[4 * vertexIt];
 				auto w = t[3];
-				Vec3 tangent = TransformDirection(world, Vec3{t[0], t[1], t[2]});
-				if (auto length = Length(tangent); IsFinite(tangent) && length > 0.0 && std::isfinite(w) && w != 0.0F)
+				auto tangent = TransformDirection(world, glm::make_vec3(t));
+				if (auto length = glm::length(tangent); IsFinite(tangent) && length > 0.0 && std::isfinite(w) && w != 0.0F)
 				{
-					for (size_t i = 0; i < 3; i++)
-						vertex.tangent[i] = static_cast<float>(tangent[i] / length);
+					Store(vertex.tangent, tangent / length);
 					vertex.tangent[3] = (w < 0.0F) != mirrored ? -1.0F : 1.0F;
 				}
 				else
@@ -1953,12 +1906,12 @@ std::expected<Mesh, std::string> Import(
 				vertex.texCoord01[(2 * set) + 1] = v;
 			}
 
-			std::array<float, 4> color{1.0F, 1.0F, 1.0F, 1.0F};
+			glm::vec4 color(1.0F);
 			if (colorValues)
 				for (size_t i = 0; i < colorComponents; i++)
-					color[i] = (*colorValues)[(colorComponents * vertexIt) + i];
-			for (size_t i = 0; i < 4; i++)
-				vertex.color[i] = color[i] * factor[i];
+					color[static_cast<glm::length_t>(i)] = (*colorValues)[(colorComponents * vertexIt) + i];
+			color *= factor;
+			std::copy_n(glm::value_ptr(color), 4, vertex.color);
 		}
 
 		// the animated morph targets' deltas, a row per vertex, transformed as the vertex is: positions' and tangents' by
@@ -1970,21 +1923,17 @@ std::expected<Mesh, std::string> Import(
 			auto targets = static_cast<size_t>(instances.morphTargets);
 			morphDeltas.resize(vertexCount * targets);
 			auto at = [](const std::vector<float>& values, size_t vertexIt, size_t stride)
-			{ return Vec3{values[stride * vertexIt], values[(stride * vertexIt) + 1], values[(stride * vertexIt) + 2]}; };
-			auto store = [](float* out, const Vec3& v, double scale)
-			{
-				for (size_t axis = 0; axis < 3; axis++)
-					out[axis] = static_cast<float>(v[axis] * scale);
-			};
+			{ return glm::dvec3(glm::make_vec3(&values[stride * vertexIt])); };
+			auto store = [](float* out, const glm::dvec3& v, double scale) { Store(out, v * scale); };
 			for (size_t vertexIt = 0; vertexIt < vertexCount; vertexIt++)
 			{
 				double normalScale = 0.0;
 				if (normalValues)
-					if (auto length = Length(TransformNormal(normalMatrix, at(*normalValues, vertexIt, 3))); length > 0.0)
+					if (auto length = glm::length(normalMatrix * at(*normalValues, vertexIt, 3)); length > 0.0)
 						normalScale = 1.0 / length;
 				double tangentScale = 0.0;
 				if (tangentValues)
-					if (auto length = Length(TransformDirection(world, at(*tangentValues, vertexIt, 4))); length > 0.0)
+					if (auto length = glm::length(TransformDirection(world, at(*tangentValues, vertexIt, 4))); length > 0.0)
 						tangentScale = 1.0 / length;
 				for (size_t targetIt = 0; targetIt < targets; targetIt++)
 				{
@@ -1993,7 +1942,7 @@ std::expected<Mesh, std::string> Import(
 					if (positions)
 						store(delta.position, TransformDirection(world, at(*positions, vertexIt, 3)), 1.0);
 					if (normals)
-						store(delta.normal, TransformNormal(normalMatrix, at(*normals, vertexIt, 3)), normalScale);
+						store(delta.normal, normalMatrix * at(*normals, vertexIt, 3), normalScale);
 					if (tangents)
 						store(delta.tangent, TransformDirection(world, at(*tangents, vertexIt, 3)), tangentScale);
 				}
@@ -2026,8 +1975,8 @@ std::expected<Mesh, std::string> Import(
 
 		auto faceNormalOf = [&vertices](const std::array<uint32_t, 3>& t)
 		{
-			auto position = [&vertices](uint32_t i) { return Vec3{vertices[i].position[0], vertices[i].position[1], vertices[i].position[2]}; };
-			return Cross(Sub(position(t[1]), position(t[0])), Sub(position(t[2]), position(t[0])));
+			auto position = [&vertices](uint32_t i) { return glm::dvec3(glm::make_vec3(vertices[i].position)); };
+			return glm::cross(position(t[1]) - position(t[0]), position(t[2]) - position(t[0]));
 		};
 
 		std::vector<bool> repaired(vertexCount, false);
@@ -2044,7 +1993,7 @@ std::expected<Mesh, std::string> Import(
 
 			stats.triangleCount++;
 			auto faceNormal = faceNormalOf(triangle);
-			auto area = Length(faceNormal);
+			auto area = glm::length(faceNormal);
 			bool degenerate = !std::isfinite(area) || area == 0.0;
 			if (degenerate)
 				stats.degenerateTriangles++;
@@ -2052,11 +2001,11 @@ std::expected<Mesh, std::string> Import(
 			if (!normalValues)
 			{
 				// flat: three vertices of its own
-				Vec3 n = degenerate ? Vec3{0.0, 1.0, 0.0} : Vec3{faceNormal[0] / area, faceNormal[1] / area, faceNormal[2] / area};
+				auto n = degenerate ? glm::dvec3(0.0, 1.0, 0.0) : faceNormal / area;
 				for (auto corner : triangle)
 				{
 					auto vertex = vertices[corner];
-					std::ranges::transform(n, vertex.normal, [](double v) { return static_cast<float>(v); });
+					Store(vertex.normal, n);
 					part.indices.push_back(static_cast<uint32_t>(part.vertices.size()));
 					part.vertices.push_back(vertex);
 					if (!skinVertices.empty())
@@ -2075,18 +2024,17 @@ std::expected<Mesh, std::string> Import(
 					continue;
 				repaired[corner] = true;
 				stats.repairedNormals++;
-				Vec3 n = degenerate ? Vec3{0.0, 1.0, 0.0} : Vec3{faceNormal[0] / area, faceNormal[1] / area, faceNormal[2] / area};
-				std::ranges::transform(n, vertices[corner].normal, [](double v) { return static_cast<float>(v); });
+				auto n = degenerate ? glm::dvec3(0.0, 1.0, 0.0) : faceNormal / area;
+				Store(vertices[corner].normal, n);
 			}
 
 			if (!degenerate)
 			{
-				Vec3 vertexNormals{};
+				glm::dvec3 vertexNormals(0.0);
 				for (auto corner : triangle)
-					for (size_t i = 0; i < 3; i++)
-						vertexNormals[i] += vertices[corner].normal[i];
+					vertexNormals += glm::dvec3(glm::make_vec3(vertices[corner].normal));
 				normalArea += area;
-				if (Dot(faceNormal, vertexNormals) > 0.0)
+				if (glm::dot(faceNormal, vertexNormals) > 0.0)
 					agreeingArea += area;
 			}
 
@@ -2189,7 +2137,7 @@ std::expected<Mesh, std::string> Import(
 			std::vector<float> values(accessor->count * 16);
 			if (cgltf_accessor_unpack_floats(accessor, values.data(), values.size()) == values.size())
 				for (size_t jointIt = 0; jointIt < std::min<size_t>(accessor->count, skin.joints.size()); jointIt++)
-					std::copy_n(&values[jointIt * 16], 16, skin.inverseBindMatrices[jointIt].begin());
+					skin.inverseBindMatrices[jointIt] = glm::make_mat4(&values[jointIt * 16]);
 		}
 		mesh.animation.jointCount += static_cast<uint32_t>(skin.joints.size());
 
@@ -2240,7 +2188,7 @@ std::expected<Mesh, std::string> Import(
 			if (node->skin != nullptr)
 				instances.skin = skinOf(*node->skin);
 			else
-				cgltf_node_transform_world(node, world.data());
+				cgltf_node_transform_world(node, glm::value_ptr(world));
 
 			// a node's morph target weights override its mesh's defaults
 			auto weights = node->weights_count > 0 ? std::span<const cgltf_float>(node->weights, node->weights_count)
@@ -2293,7 +2241,7 @@ std::expected<Mesh, std::string> Import(
 				std::vector<size_t> order(locals.size());
 				std::iota(order.begin(), order.end(), 0);
 				auto mirrored = std::ranges::stable_partition(
-					order, [&](size_t i) { return Determinant(Multiply(world, locals[i])) >= 0.0; });
+					order, [&](size_t i) { return Determinant(world * locals[i]) >= 0.0; });
 				instances.firstInstance = static_cast<uint32_t>(mesh.instances.size());
 				instances.instanceCount = static_cast<uint32_t>(order.size());
 				instances.mirroredInstanceCount = static_cast<uint32_t>(mirrored.size());
@@ -2302,7 +2250,7 @@ std::expected<Mesh, std::string> Import(
 					if (moving)
 						mesh.animation.instanceLinks.push_back(SceneInstanceLink{
 							.instance = static_cast<uint32_t>(mesh.instances.size()), .node = nodeIndex, .local = locals[i]});
-					mesh.instances.push_back(Multiply(world, locals[i]));
+					mesh.instances.push_back(world * locals[i]);
 				}
 				world = gfx::mesh::kIdentityTransform;
 			}
@@ -2328,14 +2276,14 @@ std::expected<Mesh, std::string> Import(
 			if (gltfNode.has_matrix)
 			{
 				node.hasMatrix = true;
-				std::copy_n(gltfNode.matrix, 16, node.matrix.begin());
+				node.matrix = glm::make_mat4(gltfNode.matrix);
 			}
 			if (gltfNode.has_translation)
-				std::copy_n(gltfNode.translation, 3, node.translation.begin());
+				node.translation = glm::make_vec3(gltfNode.translation);
 			if (gltfNode.has_rotation)
-				std::copy_n(gltfNode.rotation, 4, node.rotation.begin());
+				node.rotation = glm::make_quat(gltfNode.rotation);
 			if (gltfNode.has_scale)
-				std::copy_n(gltfNode.scale, 3, node.scale.begin());
+				node.scale = glm::make_vec3(gltfNode.scale);
 		}
 	}
 	size_t ignoredChannels = 0;
@@ -2490,11 +2438,11 @@ std::expected<Mesh, std::string> Import(
 				mesh.indices.push_back(vertexOffset + index);
 			mesh.submeshes.back().indexCount += static_cast<uint32_t>(part.indices.size());
 
-			auto addToBounds = [&mesh, &firstVertex](const std::array<float, 3>& position)
+			auto addToBounds = [&mesh, &firstVertex](const glm::vec3& position)
 			{
 				if (std::exchange(firstVertex, false))
 				{
-					mesh.bounds.SetMin(Bounds3f::VectorType(position[0], position[1], position[2]));
+					mesh.bounds.SetMin(position);
 					mesh.bounds.SetMax(mesh.bounds.GetMin());
 				}
 				else
@@ -2506,7 +2454,7 @@ std::expected<Mesh, std::string> Import(
 			// each way
 			auto reach = [&part](size_t vertexIt, auto&& visit)
 			{
-				auto position = std::to_array(part.vertices[vertexIt].position);
+				auto position = glm::make_vec3(part.vertices[vertexIt].position);
 				visit(position);
 				if (part.morphTargets == 0)
 					return;
@@ -2514,12 +2462,9 @@ std::expected<Mesh, std::string> Import(
 				auto high = position;
 				for (uint32_t targetIt = 0; targetIt < part.morphTargets; targetIt++)
 				{
-					const auto& delta = part.morphDeltas[(vertexIt * part.morphTargets) + targetIt].position;
-					for (size_t axis = 0; axis < 3; axis++)
-					{
-						low[axis] += std::min(delta[axis], 0.0F);
-						high[axis] += std::max(delta[axis], 0.0F);
-					}
+					auto delta = glm::make_vec3(part.morphDeltas[(vertexIt * part.morphTargets) + targetIt].position);
+					low += glm::min(delta, 0.0F);
+					high += glm::max(delta, 0.0F);
 				}
 				visit(low);
 				visit(high);
@@ -2538,25 +2483,21 @@ std::expected<Mesh, std::string> Import(
 			else if (!part.vertices.empty())
 			{
 				// the corners of its bounds at each instance
-				std::array<double, 3> min{std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
-				std::array<double, 3> max{std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest(), std::numeric_limits<double>::lowest()};
+				glm::dvec3 min(std::numeric_limits<double>::max());
+				glm::dvec3 max(std::numeric_limits<double>::lowest());
 				for (size_t vertexIt = 0; vertexIt < part.vertices.size(); vertexIt++)
 					reach(
 						vertexIt,
-						[&](const auto& position)
+						[&](const glm::vec3& position)
 						{
-							for (size_t axis = 0; axis < 3; axis++)
-							{
-								min[axis] = std::min<double>(min[axis], position[axis]);
-								max[axis] = std::max<double>(max[axis], position[axis]);
-							}
+							min = glm::min(min, glm::dvec3(position));
+							max = glm::max(max, glm::dvec3(position));
 						});
 				for (uint32_t instanceIt = part.firstInstance; instanceIt < part.firstInstance + part.instanceCount; instanceIt++)
 					for (uint32_t corner = 0; corner < 8; corner++)
 					{
-						Vec3 p{(corner & 1U) != 0 ? max[0] : min[0], (corner & 2U) != 0 ? max[1] : min[1], (corner & 4U) != 0 ? max[2] : min[2]};
-						auto q = TransformPoint(mesh.instances[instanceIt], p);
-						addToBounds({static_cast<float>(q[0]), static_cast<float>(q[1]), static_cast<float>(q[2])});
+						glm::dvec3 p{(corner & 1U) != 0 ? max.x : min.x, (corner & 2U) != 0 ? max.y : min.y, (corner & 4U) != 0 ? max.z : min.z};
+						addToBounds(glm::vec3(TransformPoint(mesh.instances[instanceIt], p)));
 					}
 			}
 			mesh.vertices.insert(mesh.vertices.end(), part.vertices.begin(), part.vertices.end());

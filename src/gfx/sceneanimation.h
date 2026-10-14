@@ -4,6 +4,12 @@
 #include <gfx/scenelight.h>
 #include <gfx/shaders/capi.h>
 
+#include <core/glm_extra.h>
+
+#include <glm/gtc/quaternion.hpp>
+#include <glm/mat4x4.hpp>
+#include <glm/vec3.hpp>
+
 #include <array>
 #include <cstdint>
 #include <optional>
@@ -19,18 +25,18 @@ namespace gfx
 // everything that doesn't move is flattened at import as before.
 
 // a column major 4x4 transform
-using SceneMatrix = std::array<float, 16>;
+using SceneMatrix = glm::mat4;
 
 // a node of the hierarchy: its parent (an index into SceneAnimationData::nodes, or -1 for a root) and its rest
 // transform, translation * rotation * scale (or a matrix, which animations don't target)
 struct SceneNode
 {
 	int32_t parent = -1;
-	std::array<float, 3> translation{};
-	std::array<float, 4> rotation{0.0F, 0.0F, 0.0F, 1.0F}; // a quaternion, xyzw
-	std::array<float, 3> scale{1.0F, 1.0F, 1.0F};
+	glm::vec3 translation{0.0F};
+	glm::quat rotation{glm::identity<glm::quat>()};
+	glm::vec3 scale{1.0F};
 	bool hasMatrix = false;
-	SceneMatrix matrix{};
+	SceneMatrix matrix{1.0F};
 };
 
 // the joints a skinned mesh's vertices are weighted to: joint matrix j = world(joints[j]) * inverseBindMatrices[j],
@@ -82,7 +88,7 @@ struct SceneInstanceLink
 {
 	uint32_t instance = 0;
 	uint32_t node = 0;
-	SceneMatrix local{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+	SceneMatrix local{1.0F};
 };
 
 // a node whose mesh's morph targets an animation moves (by its weights): its weights are weightCount floats from
@@ -288,7 +294,7 @@ void WriteJoints(const SceneAnimationData& data, std::span<const SceneMatrix> wo
 
 // a skinned vertex's position by its joints (as the vertex shader does): the sum of its weights times its joints'
 // matrices (at jointBase + its joint indices in joints) times position
-[[nodiscard]] std::array<float, 3> SkinPosition(
-	std::span<const SceneMatrix> joints, uint32_t jointBase, const SkinVertex& skin, const std::array<float, 3>& position);
+[[nodiscard]] glm::vec3 SkinPosition(
+	std::span<const SceneMatrix> joints, uint32_t jointBase, const SkinVertex& skin, const glm::vec3& position);
 
 } // namespace gfx

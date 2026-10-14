@@ -266,6 +266,22 @@ Related gotchas hit while getting shutdown right:
   helpers, not `vmaDestroy*`/`vkDestroy*`. VMA's device memory blocks are tracked through its device memory
   callbacks.
 
+## Math: glm, not arrays
+
+Vectors, matrices and quaternions are glm's (`glm::vec3`, `glm::mat4`, `glm::quat`; `glm::dvec3`/`glm::dmat4` where
+the importers keep double precision), not `std::array<float, N>` aliases with hand-written `Dot`/`Cross`/`Multiply`
+helpers: colors and transforms in `mesh::Material`, `ModelMaterial`, `mesh::Transform`/`SceneMatrix`, the scene nodes'
+translation, rotation and scale, `SceneLight`, `SceneCamera`, the environment's sky and dominant lights. Arrays stay
+where a layout is fixed elsewhere: the structs `capi.h` shares with the shaders (copied with `glm::value_ptr`),
+`TextureRef::transform` (the shader's two rows), rhi's public API (no glm), and lists that aren't vectors (spherical
+harmonics coefficients, per channel statistics). glm here doesn't zero vectors by default (no `GLM_FORCE_CTOR_INIT`):
+initialize them (`glm::vec3 v{0.0F}`), and a quaternion `glm::identity<glm::quat>()`, since `{}` is zero rather than the
+identity. glm's quaternions store x, y, z, w, as gltf does (`glm::make_quat`). zpp::bits serializes glm's vectors and
+quaternions by their members, but not a matrix (its columns are private): `core/glm_extra.h` serializes matrices column
+by column, so a header whose serialized structs hold one includes it. Changing an imported type from arrays to glm
+changed the caches' last bits (glm sums products pairwise), so the importer tags were bumped; renders came out the same
+but for a few pixels of skinned models, by 3 of 255 at most.
+
 ## Associative containers: core's, not the standard library's
 
 Don't use `std::map`, `std::set`, `std::unordered_map` or `std::unordered_set` (tools included): use `core::UnorderedMap`

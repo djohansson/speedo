@@ -118,10 +118,7 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 	for (size_t nodeIt = 0; nodeIt < data.nodes.size(); nodeIt++)
 	{
 		const auto& node = data.nodes[nodeIt];
-		locals[nodeIt] = {
-			.translation = glm::make_vec3(node.translation.data()),
-			.rotation = ToQuat(node.rotation.data()),
-			.scale = glm::make_vec3(node.scale.data())};
+		locals[nodeIt] = {.translation = node.translation, .rotation = node.rotation, .scale = node.scale};
 	}
 
 	if (animation < data.animations.size())
@@ -133,25 +130,16 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 			if (channel.node >= locals.size() || data.nodes[channel.node].hasMatrix)
 				continue;
 
+			// sampled into the values as they are stored: a quaternion's xyzw, as the channel's
 			auto& local = locals[channel.node];
-			std::array<float, 4> value{};
 			switch (channel.path)
 			{
-			case SceneAnimationChannel::Path::kTranslation:
-				value = {local.translation.x, local.translation.y, local.translation.z, 0.0F};
-				Sample(channel, clipTime, 3, value.data());
-				local.translation = glm::make_vec3(value.data());
-				break;
+			case SceneAnimationChannel::Path::kTranslation: Sample(channel, clipTime, 3, glm::value_ptr(local.translation)); break;
 			case SceneAnimationChannel::Path::kRotation:
-				value = {local.rotation.x, local.rotation.y, local.rotation.z, local.rotation.w};
-				Sample(channel, clipTime, 4, value.data());
-				local.rotation = glm::normalize(ToQuat(value.data()));
+				Sample(channel, clipTime, 4, glm::value_ptr(local.rotation));
+				local.rotation = glm::normalize(local.rotation);
 				break;
-			case SceneAnimationChannel::Path::kScale:
-				value = {local.scale.x, local.scale.y, local.scale.z, 0.0F};
-				Sample(channel, clipTime, 3, value.data());
-				local.scale = glm::make_vec3(value.data());
-				break;
+			case SceneAnimationChannel::Path::kScale: Sample(channel, clipTime, 3, glm::value_ptr(local.scale)); break;
 			case SceneAnimationChannel::Path::kWeights: // see EvaluateWeights
 			case SceneAnimationChannel::Path::kPointer: // see EvaluatePointers
 				break;
@@ -166,7 +154,7 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 [[nodiscard]] static std::vector<SceneMatrix> ComposeWorlds(const SceneAnimationData& data, const std::vector<sceneanimation::Trs>& locals)
 {
 	// world = parent's world * local, parents first (the nodes needn't be ordered)
-	std::vector<glm::mat4> worlds(data.nodes.size());
+	std::vector<SceneMatrix> worlds(data.nodes.size());
 	std::vector<uint8_t> done(data.nodes.size(), 0);
 	std::vector<size_t> chain;
 	for (size_t nodeIt = 0; nodeIt < data.nodes.size(); nodeIt++)
@@ -181,7 +169,7 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 		{
 			const auto& node = data.nodes[*it];
 			const auto& local = locals[*it];
-			glm::mat4 matrix = node.hasMatrix ? glm::make_mat4(node.matrix.data())
+			glm::mat4 matrix = node.hasMatrix ? node.matrix
 											  : glm::translate(glm::mat4(1.0F), local.translation) * glm::mat4_cast(local.rotation) *
 													glm::scale(glm::mat4(1.0F), local.scale);
 			worlds[*it] = node.parent >= 0 && done[node.parent] != 0 ? worlds[node.parent] * matrix : matrix;
@@ -190,10 +178,7 @@ static void Sample(const SceneAnimationChannel& channel, float time, size_t comp
 		chain.clear();
 	}
 
-	std::vector<SceneMatrix> result(worlds.size());
-	for (size_t nodeIt = 0; nodeIt < worlds.size(); nodeIt++)
-		std::memcpy(result[nodeIt].data(), glm::value_ptr(worlds[nodeIt]), sizeof(SceneMatrix));
-	return result;
+	return worlds;
 }
 
 std::vector<SceneMatrix> EvaluateNodes(const SceneAnimationData& data, size_t animation, float time)
@@ -336,7 +321,7 @@ void ApplyLightPointers(const SceneAnimationData& data, std::span<const float> p
 				continue;
 			switch (LightProperty{target.property})
 			{
-			case LightProperty::kColor: std::copy_n(v.begin(), std::min<size_t>(3, v.size()), light.color.begin()); break;
+			case LightProperty::kColor: std::copy_n(v.begin(), std::min<size_t>(3, v.size()), glm::value_ptr(light.color)); break;
 			case LightProperty::kIntensity: light.intensity = v[0]; break;
 			case LightProperty::kRange: light.range = v[0]; break;
 			case LightProperty::kInnerConeAngle: light.innerConeAngle = v[0]; break;
@@ -384,12 +369,12 @@ void WriteCameras(std::span<const SceneMatrix> worlds, std::span<SceneCamera> ca
 	{
 		if (!camera.animated || camera.node < 0 || std::cmp_greater_equal(camera.node, worlds.size()))
 			continue;
-		auto world = glm::make_mat4(worlds[camera.node].data());
-		std::copy_n(glm::value_ptr(world[3]), 3, camera.position.begin());
+		const auto& world = worlds[camera.node];
+		camera.position = glm::vec3(world[3]);
 		if (auto forward = -glm::vec3(world[2]); glm::length(forward) > 0.0F)
-			std::copy_n(glm::value_ptr(glm::normalize(forward)), 3, camera.forward.begin());
+			camera.forward = glm::normalize(forward);
 		if (auto up = glm::vec3(world[1]); glm::length(up) > 0.0F)
-			std::copy_n(glm::value_ptr(glm::normalize(up)), 3, camera.up.begin());
+			camera.up = glm::normalize(up);
 	}
 }
 
@@ -402,11 +387,11 @@ void WriteLights(
 		if (link.node >= worlds.size() || link.light >= restLights.size() || link.light >= lights.size())
 			continue;
 		auto light = restLights[link.light];
-		auto world = glm::make_mat4(worlds[link.node].data());
+		const auto& world = worlds[link.node];
 		auto direction = -glm::vec3(world[2]);
-		std::copy_n(glm::value_ptr(world[3]), 3, light.position.begin());
+		light.position = glm::vec3(world[3]);
 		if (auto length = glm::length(direction); length > 0.0F)
-			std::copy_n(glm::value_ptr(direction / length), 3, light.direction.begin());
+			light.direction = direction / length;
 		if (!visible.empty() && link.node < visible.size() && visible[link.node] == 0)
 			light.intensity = 0.0F;
 		lights[link.light] = std::move(light);
@@ -425,7 +410,7 @@ void WriteInstances(
 		// hidden: collapsed to a point, which draws nothing
 		auto transform = !visible.empty() && link.node < visible.size() && visible[link.node] == 0
 							 ? glm::mat4(0.0F)
-							 : glm::make_mat4(worlds[link.node].data()) * glm::make_mat4(link.local.data());
+							 : worlds[link.node] * link.local;
 		auto inverseTranspose = transform == glm::mat4(0.0F) ? transform : glm::transpose(glm::inverse(transform));
 		ModelInstance instance;
 		std::memcpy(&instance.modelTransform[0][0], glm::value_ptr(transform), sizeof(SceneMatrix));
@@ -436,25 +421,24 @@ void WriteInstances(
 
 std::vector<SceneMatrix> RestJoints(const SceneAnimationData& data)
 {
-	std::vector<SceneMatrix> joints(data.jointCount, SceneMatrix{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1});
+	std::vector<SceneMatrix> joints(data.jointCount, SceneMatrix(1.0F));
 	WriteJoints(data, EvaluateNodes(data, data.animations.size(), 0.0F), joints);
 	return joints;
 }
 
-std::array<float, 3> SkinPosition(
-	std::span<const SceneMatrix> joints, uint32_t jointBase, const SkinVertex& skin, const std::array<float, 3>& position)
+glm::vec3 SkinPosition(std::span<const SceneMatrix> joints, uint32_t jointBase, const SkinVertex& skin, const glm::vec3& position)
 {
 	glm::vec4 result(0.0F);
-	auto p = glm::vec4(position[0], position[1], position[2], 1.0F);
+	auto p = glm::vec4(position, 1.0F);
 	for (uint32_t i = 0; i < 4; i++)
 	{
 		auto shift = (i % 2) * 16;
 		auto joint = (skin.joints[i / 2] >> shift) & 0xffffU;
 		auto weight = static_cast<float>((skin.weights[i / 2] >> shift) & 0xffffU) / 65535.0F;
 		if (weight > 0.0F && jointBase + joint < joints.size())
-			result += weight * (glm::make_mat4(joints[jointBase + joint].data()) * p);
+			result += weight * (joints[jointBase + joint] * p);
 	}
-	return {result.x, result.y, result.z};
+	return glm::vec3(result);
 }
 
 void WriteJoints(const SceneAnimationData& data, std::span<const SceneMatrix> worlds, std::span<SceneMatrix> joints)
@@ -468,10 +452,8 @@ void WriteJoints(const SceneAnimationData& data, std::span<const SceneMatrix> wo
 			auto index = skin.jointBase + jointIt;
 			if (index >= joints.size() || skin.joints[jointIt] >= worlds.size())
 				continue;
-			auto inverseBind = jointIt < skin.inverseBindMatrices.size() ? glm::make_mat4(skin.inverseBindMatrices[jointIt].data())
-																		  : glm::mat4(1.0F);
-			auto joint = glm::make_mat4(worlds[skin.joints[jointIt]].data()) * inverseBind;
-			std::memcpy(joints[index].data(), glm::value_ptr(joint), sizeof(SceneMatrix));
+			auto inverseBind = jointIt < skin.inverseBindMatrices.size() ? skin.inverseBindMatrices[jointIt] : SceneMatrix(1.0F);
+			joints[index] = worlds[skin.joints[jointIt]] * inverseBind;
 		}
 	}
 }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <array>
-#include <tuple>
 
 #include <glm/glm.hpp>
 
@@ -92,14 +91,6 @@ struct Bounds
 	{
 		myMin = glm::min(myMin, static_cast<VectorType>(point));
 		myMax = glm::max(myMax, static_cast<VectorType>(point));
-	}
-
-	constexpr void Merge(const std::array<ScalarType, N> point) noexcept
-	{
-		auto pointVec = std::make_from_tuple<VectorType>(point);
-		
-		myMin = glm::min(myMin, pointVec);
-		myMax = glm::max(myMax, pointVec);
 	}
 
 	template <typename U = ScalarType>
