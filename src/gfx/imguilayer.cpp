@@ -233,15 +233,19 @@ void ImGuiLayer::EndFrame()
 		const auto& io = ImGui::GetIO();
 		for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows)
 		{
-			if (!window->Active || window->Hidden)
+			if (!window->Active)
 				continue;
 			bool topLevel = (window->Flags & ImGuiWindowFlags_ChildWindow) == 0 ||
 							(window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_Tooltip)) != 0;
 			if (!topLevel)
 				continue;
+			// a window begun with the ui faded out entirely is up, but hidden (imgui doesn't draw windows begun at a style
+			// alpha of 0): it must still bring the ui back, or one opened by a shortcut stays invisible
 			bool fading = window->BeginOrderWithinContext >= myFadeFirstWindow;
 			if (fading && std::string_view(window->Name) != "##MainMenuBar")
 				myShowedFadingWindows = true;
+			if (window->Hidden)
+				continue;
 			float opacity = fading ? myFadeOpacity : 1.0F;
 			if ((window->Flags & ImGuiWindowFlags_NoBackground) != 0 || opacity <= 0.0F)
 				continue;
