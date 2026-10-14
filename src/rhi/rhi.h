@@ -3,12 +3,12 @@
 #include <rhi/capi.h>
 #include <rhi/device.h>
 #include <rhi/instance.h>
-#include <rhi/rhibase.h>
 #include <rhi/shaderset.h>
 #include <rhi/types.h>
 #include <rhi/swapchain.h>
 
 #include <core/assert.h>
+#include <core/task.h>
 
 #include <string_view>
 #include <utility>
@@ -60,9 +60,13 @@ public:
 } // namespace detail
 
 template <GraphicsApi G>
-class RHI final : public RHIBase 
+class RHI final
 {
 public:
+	// tasks to be called once on the draw thread (e.g. installing what was loaded). first: constructed before, and
+	// destroyed after, the rest
+	mutable core::ConcurrentQueue<core::TaskHandle> drawCalls;
+
 	explicit RHI(RHIInitializationData&& initData);
 	RHI(const RHI&) = delete;
 	RHI(RHI&& other) noexcept = delete;
@@ -95,7 +99,7 @@ public:
 	[[nodiscard]] const auto& GetPrimaryDevice() const noexcept { return myDevices.front(); }
 
 private:
-	detail::RHIRegistration<G> myRegistration{this}; // first: constructed before, and destroyed after, the rest
+	detail::RHIRegistration<G> myRegistration{this}; // first after drawCalls: constructed before, and destroyed after, the rest
 	Instance<G> myInstance;
 	std::vector<Device<G>> myDevices;
 	struct WindowSwapchain
