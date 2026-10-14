@@ -616,7 +616,10 @@ filter stays in its tile) or face, offsets the point along the geometry's normal
 light (1.5 alone left acne, a gray cast on lit faces, since the filter reaches 2 texels), on the side facing the light
 (a leaf lit from behind, diffuse transmission's or the scattering's light, pushed away from it was behind itself as the
 light sees it: DiffuseTransmissionPlant's fireflies shone through leaves in a star, where the cube faces meet), and filters 3x3 bilinear
-lookups (`GatherRed`, four comparisons each). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
+lookups (`GatherRed`, four comparisons each). The rule holds for whatever replaces this, shadow maps or rays: a point
+pushed off its surface goes to the side its query goes to (a shadow test's light, a reflected ray's viewer, a refracted
+or transmitted ray's far side), not along the normal regardless, which faces the viewer on double sided materials; on
+the wrong side, the surface occludes or hits itself (missing transmitted light, black speckles in refractions). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
 then the environment's dominant lights, or the procedural sky's sun, unless merged: a model sun more than 5 degrees from
 the sky's makes two sets of shadows) and draws them over the views as an imgui overlay (no shader or pipeline of its own):
 the renderer keeps a copy of a frame's lights, shadow views and scene bounds while it is open (`FrameInputs::captureLights`,
