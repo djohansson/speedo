@@ -667,23 +667,29 @@ void FrameGraph::Execute(CommandBufferHandle cmd, std::optional<uint32_t> timing
 		ZoneScoped;
 		ZoneName(pass.name.c_str(), pass.name.size());
 
-		// outside the pass's render target (one begun for secondary command buffers can hold no timestamps)
+		// the pass's timestamps: inside its render target if it has one with inline contents (at the top and bottom of the
+		// pipe: KosmicKrisp samples the render encoder's stages there, the pass's own work), else around it (one begun for
+		// secondary command buffers can hold no timestamps; KosmicKrisp writes those from a compute encoder, whose samples
+		// read 0, or one from long before, when the encoder also holds dispatches: ComputeMain's, the UI pass's begin)
 		auto timed = static_cast<uint32_t>(timedPasses != nullptr ? timedPasses->size() : 0);
+		bool inside = timing != nullptr && !pass.attachments.empty() && pass.contents == SubpassContents::kInline;
+		const QueryPool* insideTiming = inside ? timing : nullptr;
 		if (timing != nullptr)
 		{
-			timing->WriteTimestamp(cmd, timed * 2);
+			if (!inside)
+				timing->WriteTimestamp(cmd, timed * 2);
 			timedPasses->push_back(passIt);
 		}
 		if (pass.wrap)
-			pass.wrap(cmd, [this, cmd, &pass, passIt] { InternalRecord(cmd, pass, passIt); });
+			pass.wrap(cmd, [this, cmd, &pass, passIt, insideTiming, timed] { InternalRecord(cmd, pass, passIt, insideTiming, timed); });
 		else
-			InternalRecord(cmd, pass, passIt);
-		if (timing != nullptr)
+			InternalRecord(cmd, pass, passIt, insideTiming, timed);
+		if (timing != nullptr && !inside)
 			timing->WriteTimestamp(cmd, (timed * 2) + 1);
 	}
 }
 
-void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex)
+void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex, const QueryPool* timing, uint32_t timed)
 {
 	InternalBarriers(cmd, pass, passIndex);
 
@@ -725,7 +731,11 @@ void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t pa
 
 	context.target = target;
 	context.beginInfo = &target->Begin(cmd, pass.contents);
+	if (timing != nullptr)
+		timing->WriteTimestamp(cmd, timed * 2, PipelineStage::kTopOfPipe);
 	pass.execute(context);
+	if (timing != nullptr)
+		timing->WriteTimestamp(cmd, (timed * 2) + 1, PipelineStage::kBottomOfPipe);
 	target->End(cmd);
 }
 

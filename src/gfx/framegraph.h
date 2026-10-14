@@ -237,7 +237,9 @@ private:
 	void InternalCull();
 	void InternalCreateTransients(Device& device);
 	void InternalBarriers(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex);
-	void InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex);
+	// records a pass: its barriers, and the callback (in its render target, if it has one). timing (if any): the pass's
+	// timestamps (timed * 2 and the next), written inside its render target (see Execute)
+	void InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex, const QueryPool* timing = nullptr, uint32_t timed = 0);
 	void InternalTransition(CommandBufferHandle cmd, Resource& resource, rhi::ImageLayout layout);
 	[[nodiscard]] rhi::ImageLayout InternalLayout(const Resource& resource) const;
 

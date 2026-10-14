@@ -2,6 +2,7 @@
 #include <rhi/instance.h>
 #include <rhi/querypool.h>
 #include <rhi/rhi.h>
+#include <rhi/vulkan/convert.h>
 #include <rhi/vulkan/utils.h>
 
 #include <algorithm>
@@ -74,9 +75,9 @@ void QueryPool<kVk>::Reset(CommandBufferHandle<kVk> cmd, uint32_t first, uint32_
 }
 
 template <>
-void QueryPool<kVk>::WriteTimestamp(CommandBufferHandle<kVk> cmd, uint32_t index) const
+void QueryPool<kVk>::WriteTimestamp(CommandBufferHandle<kVk> cmd, uint32_t index, PipelineStage stage) const
 {
-	vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, myPool, index);
+	vkCmdWriteTimestamp(cmd, static_cast<VkPipelineStageFlagBits>(vk::ToVk(stage)), myPool, index);
 }
 
 template <>

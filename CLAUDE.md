@@ -469,10 +469,18 @@ grew with the run time (its begin stale, its end current), and reading without a
 whole range) dropped every pass of most frames, so the Statistics window flickered. `ReadTimings` keeps a pass only if
 both of its timestamps are available and plausible: begun not before the end of the last pass taken that frame (the
 passes run in order, so an older value is stale), not 0, ended not before begun, under 250 ms (on KosmicKrisp the UI
-pass is never timed). The Statistics window (View > Statistics, or `SPEEDO_SHOW_STATISTICS=1`; in debug and profile
-builds, the vulkan object counts in debug only) shows each pass's moving average over the frames that timed it (factor
-0.1), for 2 seconds after it was last timed; `SPEEDO_GPU_TIMINGS` prints the raw frames' medians. The GPU's clock drifts
-between runs, so compare a pass against a pass the change doesn't touch (e.g. Main against Shadows).
+pass's begin was never real, see below). Where the timestamps go matters there: outside a render pass KosmicKrisp writes
+them from a compute encoder (Metal 4's counter heap, resolved when the encoder ends), and once that encoder also holds
+dispatches its samples read 0 (`ComputeMain`, the UI blur passes), and the last before the UI render pass a value about
+a second old. Inside a render pass with inline contents it samples the render encoder's stages: so a raster pass
+recorded inline gets its timestamps inside its render target (`InternalRecord`: top of pipe after it begins, bottom of
+pipe before it ends, `QueryPool::WriteTimestamp`'s stage), its own work, and the others around it (one begun for
+secondary command buffers, as the main pass's, can hold none). The UI pass reads 0.015 ms with the menu bar alone, 0.09
+with the file browser's grid, and Shadows 3.67 rather than 3.9 (without the transitions around it). The Statistics
+window (View > Statistics, or `SPEEDO_SHOW_STATISTICS=1`; in debug and profile builds, the vulkan object counts in debug
+only) shows each pass's moving average over the frames that timed it (factor 0.1), for 2 seconds after it was last
+timed; `SPEEDO_GPU_TIMINGS` prints the raw frames' medians. The GPU's clock drifts between runs, so compare a pass
+against a pass the change doesn't touch (e.g. Main against Shadows).
 
 Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' specialization constant 0, `kSkippedLayers` in
 `bindings.slang`, the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `SHADER_TYPES_LAYERS_EXTENDED`

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rhi/deviceobject.h>
+#include <rhi/enums.h>
 #include <rhi/types.h>
 
 #include <cstdint>
@@ -47,8 +48,11 @@ public:
 
 	// records the reset of count timestamps from first (outside of render passes, before they are written again)
 	void Reset(CommandBufferHandle<G> cmd, uint32_t first, uint32_t count) const;
-	// records writing a timestamp once the commands before have completed
-	void WriteTimestamp(CommandBufferHandle<G> cmd, uint32_t index) const;
+	// records writing a timestamp once the commands before have reached stage (bottom of pipe: completed). inside a render
+	// pass with inline contents, top of pipe and bottom of pipe time the pass's own work: KosmicKrisp samples a render
+	// encoder's stages there, where outside one it writes from a compute encoder, whose samples read 0 or stale once
+	// the encoder holds other work (see FrameGraph::Execute)
+	void WriteTimestamp(CommandBufferHandle<G> cmd, uint32_t index, PipelineStage stage = PipelineStage::kBottomOfPipe) const;
 	// the timestamps from first, each if it was written since its reset (doesn't wait). a backend may leave some unwritten:
 	// KosmicKrisp only writes them where its own Metal command encoders begin and end, and an unwritten one's value is
 	// undefined (it read back as one written frames before)
