@@ -281,9 +281,11 @@ where a layout is fixed elsewhere: the structs `capi.h` shares with the shaders 
 `TextureRef::transform` (the shader's two rows), rhi's public API (no glm), and lists that aren't vectors (spherical
 harmonics coefficients, per channel statistics). glm here doesn't zero vectors by default (no `GLM_FORCE_CTOR_INIT`):
 initialize them (`glm::vec3 v{0.0F}`), and a quaternion `glm::identity<glm::quat>()`, since `{}` is zero rather than the
-identity. glm's quaternions store x, y, z, w, as gltf does (`glm::make_quat`). zpp::bits serializes glm's vectors and
-quaternions by their members, but not a matrix (its columns are private): `core/glm_extra.h` serializes matrices column
-by column, so a header whose serialized structs hold one includes it. Changing an imported type from arrays to glm
+identity. glm's quaternions store x, y, z, w, as gltf does (`glm::make_quat`). zpp::bits serializes glm's vectors by their
+members, but not a matrix (its columns are private) or a quaternion (`GLM_FORCE_XYZW_ONLY` doesn't reach it: wherever glm
+detects language extensions, `_MSC_EXTENSIONS` with clang on Windows, its members are an anonymous union, which structured
+bindings can't bind): `core/glm_extra.h` serializes matrices column by column and quaternions as x, y, z, w (their
+members' order, so the caches' layout is the same), so a header whose serialized structs hold one includes it. Changing an imported type from arrays to glm
 changed the caches' last bits (glm sums products pairwise), so the importer tags were bumped; renders came out the same
 but for a few pixels of skinned models, by 3 of 255 at most.
 
