@@ -15,5 +15,6 @@ resources/test-assets/
 *.dmg
 *.DS_Store
 *.cap
+*.rdc
 
 CMakeUserPresets.json
