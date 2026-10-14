@@ -463,8 +463,14 @@ up (a shortcut's, a load's choice). `ImGuiLayer::Fade(opacity)` fades the window
 blur's coverage); the ones begun before keep theirs, so the client draws what stays first: the loading bars, the FPS and
 TPS overlay and the move speed. Which windows are whose comes from imgui's begin order (`BeginOrderWithinContext`
 against the active window count when `Fade` ran), not their names. `ShowedFadingWindows` says whether the last frame had
-a faded window other than the main menu bar, which keeps the ui up. Faded windows still take input: the invisible menu
-bar is under the mouse when it fades back in.
+a faded window other than the main menu bar, which keeps the ui up; it counts hidden windows too, since imgui hides a
+window begun at a style alpha of 0 (a browser opened by its shortcut once the ui had faded out stayed open, invisible,
+and the next press closed it). Faded windows still take input: the invisible menu bar is under the mouse when it fades
+back in.
+
+The menus' shortcuts (Ctrl, cmd on macOS: Open, Open Environment, Exit, the layouts) are checked in `PrepareDraw` with
+`ImGui::Shortcut(..., ImGuiInputFlags_RouteGlobal)`: a `MenuItem`'s shortcut is only a label. Escape closes the focused
+window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s default route is the focused window's).
 
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the

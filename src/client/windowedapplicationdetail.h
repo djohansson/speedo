@@ -104,6 +104,15 @@ enum class ArchiveModels : uint8_t
 	kAll, // all of them, side by side
 };
 
+// escape closes the window being built (called between its Begin and End) while it, or a child of it, has the focus:
+// Shortcut's default route is the focused window's. a menu or popup open over it takes escape first, as does an active
+// text field. ui thread
+inline void CloseOnEscape(bool& open)
+{
+	if (ImGui::Shortcut(ImGuiKey_Escape))
+		open = false;
+}
+
 // whether the file browser (File > Open..., see WindowedApplication::InternalDrawBrowser) is open. ui thread
 inline bool gShowBrowser = false;
 // what it is open for: files of any kind (File > Open...), or an environment (View > Environment > Open

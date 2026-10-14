@@ -15,6 +15,13 @@
 #include <tuple>
 #include <numbers>
 
+// a menu item's shortcut label, by the platform's name for ImGuiMod_Ctrl (cmd on macOS, see PrepareDraw)
+#if defined(__APPLE__)
+#	define SHORTCUT_LABEL(key) "Cmd+" key
+#else
+#	define SHORTCUT_LABEL(key) "Ctrl+" key
+#endif
+
 namespace client
 {
 
@@ -176,6 +183,7 @@ void WindowedApplication::PrepareDraw()
 		{
 			if (Begin("Statistics", &gShowStatistics, ImGuiWindowFlags_AlwaysAutoResize))
 			{
+				CloseOnEscape(gShowStatistics);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 				for (const auto& [name, count] : GetObjectCounts<kGraphicsApi>())
 					Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
@@ -230,6 +238,7 @@ void WindowedApplication::PrepareDraw()
 
 		if (Begin("Lights", &gShowLights, ImGuiWindowFlags_AlwaysAutoResize))
 		{
+			CloseOnEscape(gShowLights);
 			Checkbox("Markers", &gLightMarkers);
 			SameLine();
 			Checkbox("Shadow Frusta", &gShadowFrusta);
@@ -404,7 +413,8 @@ void WindowedApplication::PrepareDraw()
 		}
 		SameLine();
 
-		if (chosen || all || Button("Cancel"))
+		// escape cancels too (see CloseOnEscape)
+		if (chosen || all || Button("Cancel") || Shortcut(ImGuiKey_Escape))
 		{
 			gShownArchiveChoice.reset();
 			CloseCurrentPopup();
@@ -415,8 +425,10 @@ void WindowedApplication::PrepareDraw()
 	if (gShowDemoWindow)
 		ShowDemoWindow(&gShowDemoWindow);
 
-	if (gShowAbout && Begin("About client", &gShowAbout))
+	if (gShowAbout)
 	{
+		if (Begin("About client", &gShowAbout))
+			CloseOnEscape(gShowAbout);
 		End();
 	}
 
@@ -536,6 +548,43 @@ void WindowedApplication::PrepareDraw()
 		if ((*gAutoLoadExitFrames)-- == 0)
 			core::Application::Get()->RequestExit();
 
+	// the views' grid is owned by the draw thread (see Views::OnResizeGrid), so track the requested one here. nothing else
+	// changes the grid, so the window's is current when this is initialized
+	static Extent2d gSplitScreenGrid{.width = myViews->GetGrid().x, .height = myViews->GetGrid().y};
+	auto setSplitScreenGrid = [this, &rhi](uint32_t width, uint32_t height)
+	{
+		if (gSplitScreenGrid.width == width && gSplitScreenGrid.height == height)
+			return;
+		gSplitScreenGrid = {.width = width, .height = height};
+		auto [resizeTask, resizeFuture] = core::CreateTask(
+			[this, grid = gSplitScreenGrid] { myViews->OnResizeGrid({grid.width, grid.height}); });
+		rhi.drawCalls.enqueue(resizeTask);
+	};
+
+	// the menus' shortcuts: the labels MenuItem shows are only text. global routes, so they work whichever window has
+	// the focus, unless its active item takes the chord (a text field's ctrl+a). ImGuiMod_Ctrl is cmd on macOS
+	// (io.ConfigMacOSXBehaviors swaps them), as the labels say
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, ImGuiInputFlags_RouteGlobal))
+	{
+		gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles);
+		gBrowserPurpose = BrowserPurpose::kFiles;
+	}
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_E, ImGuiInputFlags_RouteGlobal))
+	{
+		gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment);
+		gBrowserPurpose = BrowserPurpose::kEnvironment;
+	}
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
+		core::Application::Get()->RequestExit();
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_1, ImGuiInputFlags_RouteGlobal))
+		setSplitScreenGrid(1, 1);
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_2, ImGuiInputFlags_RouteGlobal))
+		setSplitScreenGrid(1, 2);
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_3, ImGuiInputFlags_RouteGlobal))
+		setSplitScreenGrid(2, 1);
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_4, ImGuiInputFlags_RouteGlobal))
+		setSplitScreenGrid(2, 2);
+
 	// the menu bar, as macOS's: translucent over its backdrop, which the renderer blurs (a frosted panel, see
 	// ImGuiLayer::TakeFrame), a little taller, without a border, with a faint edge below. its window would draw its own
 	// background under the menu bar's (WindowBg, 85% opaque)
@@ -555,14 +604,14 @@ void WindowedApplication::PrepareDraw()
 
 		if (ui::BeginMenu("File"))
 		{
-			if (MenuItem("Open...", nullptr, gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
+			if (MenuItem("Open...", SHORTCUT_LABEL("O"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
 			{
 				gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles);
 				gBrowserPurpose = BrowserPurpose::kFiles;
 			}
 			SetItemTooltip("Opens models, zip archives, images and panoramas from the file browser: preview them, and open one or several (side by side, or as authored).");
 			Separator();
-			if (MenuItem("Exit", "CTRL+Q"))
+			if (MenuItem("Exit", SHORTCUT_LABEL("Q")))
 				core::Application::Get()->RequestExit();
 
 			ImGui::EndMenu();
@@ -573,52 +622,15 @@ void WindowedApplication::PrepareDraw()
 			// 	showNodeEditor = !showNodeEditor;
 			if (ui::BeginMenu("Layout"))
 			{
-				// the views' grid is owned by the draw thread (see Views::OnResizeGrid), so track the
-				// requested one here. nothing else changes the grid, so the window's is current when this is initialized.
-				static Extent2d gSplitScreenGrid{.width = myViews->GetGrid().x, .height = myViews->GetGrid().y};
-				Extent2d& splitScreenGrid = gSplitScreenGrid;
-
-				//static bool hasChanged = 
-				bool selected1x1 = splitScreenGrid.width == 1 && splitScreenGrid.height == 1;
-				bool selected1x2 = splitScreenGrid.width == 1 && splitScreenGrid.height == 2;
-				bool selected2x1 = splitScreenGrid.width == 2 && splitScreenGrid.height == 1;
-				bool selected2x2 = splitScreenGrid.width == 2 && splitScreenGrid.height == 2;
-				bool anyChanged = false;
-
-				if (MenuItem("1x1", "Ctrl+1", &selected1x1) && selected1x1)
-				{
-					splitScreenGrid.width = 1;
-					splitScreenGrid.height = 1;
-					anyChanged = true;
-				}
-				else if (MenuItem("1x2", "Ctrl+2", &selected1x2) && selected1x2)
-				{
-					splitScreenGrid.width = 1;
-					splitScreenGrid.height = 2;
-					anyChanged = true;
-				}
-				else if (MenuItem("2x1", "Ctrl+3", &selected2x1) && selected2x1)
-				{
-					splitScreenGrid.width = 2;
-					splitScreenGrid.height = 1;
-					anyChanged = true;
-				}
-				else if (MenuItem("2x2", "Ctrl+4", &selected2x2) && selected2x2)
-				{
-					splitScreenGrid.width = 2;
-					splitScreenGrid.height = 2;
-					anyChanged = true;
-				}
+				for (auto [label, shortcut, width, height] : std::array{
+						 std::tuple{"1x1", SHORTCUT_LABEL("1"), 1U, 1U},
+						 std::tuple{"1x2", SHORTCUT_LABEL("2"), 1U, 2U},
+						 std::tuple{"2x1", SHORTCUT_LABEL("3"), 2U, 1U},
+						 std::tuple{"2x2", SHORTCUT_LABEL("4"), 2U, 2U}})
+					if (MenuItem(label, shortcut, gSplitScreenGrid.width == width && gSplitScreenGrid.height == height))
+						setSplitScreenGrid(width, height);
 
 				ImGui::EndMenu();
-
-				if (anyChanged)
-				{
-					// the grid is the draw thread's (see Views::OnResizeGrid)
-					auto [resizeTask, resizeFuture] = core::CreateTask(
-						[this, grid = splitScreenGrid] { myViews->OnResizeGrid({grid.width, grid.height}); });
-					rhi.drawCalls.enqueue(resizeTask);
-				}
 			}
 			if (ui::BeginMenu("Presentation"))
 			{
@@ -717,11 +729,11 @@ void WindowedApplication::PrepareDraw()
 					(void)gLoads.Enqueue(
 						"Procedural sky",
 						[&rhi](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(std::nullopt, progress); });
-				if (MenuItem("Open Environment..."))
+				if (MenuItem("Open Environment...", SHORTCUT_LABEL("E"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment))
 				{
 					// the file browser, listing panoramas only
+					gShowBrowser = !(gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment);
 					gBrowserPurpose = BrowserPurpose::kEnvironment;
-					gShowBrowser = true;
 				}
 				ImGui::EndMenu();
 			}

@@ -430,9 +430,22 @@ void WindowedApplication::InternalDrawBrowser()
 	if (std::exchange(gOpenOnStart, false))
 		open();
 
-	SetNextWindowSize(ImVec2(1000, 640), ImGuiCond_FirstUseEver);
+	// centered in the window below the menu bar, at three quarters of it, each time it opens (moving or resizing it holds
+	// until it is closed)
+	{
+		constexpr float kWindowFraction = 0.75F;
+		const auto* viewport = GetMainViewport();
+		SetNextWindowPos(
+			ImVec2(viewport->WorkPos.x + (0.5F * viewport->WorkSize.x), viewport->WorkPos.y + (0.5F * viewport->WorkSize.y)),
+			ImGuiCond_Appearing,
+			ImVec2(0.5F, 0.5F));
+		SetNextWindowSize(ImVec2(viewport->WorkSize.x * kWindowFraction, viewport->WorkSize.y * kWindowFraction), ImGuiCond_Appearing);
+	}
 	if (Begin(environment ? "Open Environment###Browser" : "Open###Browser", &gShowBrowser))
 	{
+		// escape closes it while it (or one of its children) has the focus (see CloseOnEscape)
+		CloseOnEscape(gShowBrowser);
+
 		// where: up, and the path's parts, each a way back
 		if (Button("Up") && state.directory.has_parent_path() && state.directory.parent_path() != state.directory)
 			navigate(state.directory.parent_path());
