@@ -46,8 +46,8 @@ bool UiBlurReaches(uint2 pixel)
 	return false;
 }
 
-// how much of a pixel the panels cover, antialiased at their rounded corners and edges: the most of any, so that
-// overlapping panels' threads write the same
+// how much of a pixel the panels cover, antialiased at their rounded corners and edges, times their opacity: the most of
+// any, so that overlapping panels' threads write the same
 float UiBlurCoverage(int2 pixel)
 {
 	float2 center = float2(pixel) + 0.5;
@@ -59,7 +59,7 @@ float UiBlurCoverage(int2 pixel)
 		float radius = min(rect.radius, min(halfSize.x, halfSize.y));
 		float2 q = abs(center - (rect.rect.xy + halfSize)) - (halfSize - radius);
 		float distance = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
-		coverage = max(coverage, saturate(0.5 - distance));
+		coverage = max(coverage, saturate(0.5 - distance) * rect.opacity);
 	}
 	return coverage;
 }

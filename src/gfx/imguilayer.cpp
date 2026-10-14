@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -195,6 +196,18 @@ void ImGuiLayer::BeginFrame()
 	auto inputLock = platform::imgui::NewFrame();
 	myRenderer->NewFrame();
 	ImGui::NewFrame();
+
+	myFadeOpacity = 1.0F;
+	myFadeFirstWindow = std::numeric_limits<int>::max();
+	ImGui::GetStyle().Alpha = 1.0F;
+}
+
+void ImGuiLayer::Fade(float opacity)
+{
+	myFadeOpacity = std::clamp(opacity, 0.0F, 1.0F);
+	myFadeFirstWindow = ImGui::GetCurrentContext()->WindowsActiveCount;
+	// what is drawn from here on: imgui multiplies every color by it
+	ImGui::GetStyle().Alpha = myFadeOpacity;
 }
 
 void ImGuiLayer::EndFrame()
@@ -213,16 +226,24 @@ void ImGuiLayer::EndFrame()
 
 		// the frosted panels, as macOS's: every top level window shown with a background (the main menu bar's, dialogs,
 		// menus, popups, tooltips; child windows are inside theirs, and a window without a background would show the blur
-		// alone), collapsed ones by their title bar, in pixels of the framebuffer, with their windows' corners
+		// alone), collapsed ones by their title bar, in pixels of the framebuffer, with their windows' corners, as opaque
+		// as their window (see Fade)
 		blurRects.clear();
+		myShowedFadingWindows = false;
 		const auto& io = ImGui::GetIO();
 		for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows)
 		{
-			if (!window->Active || window->Hidden || (window->Flags & ImGuiWindowFlags_NoBackground) != 0)
+			if (!window->Active || window->Hidden)
 				continue;
 			bool topLevel = (window->Flags & ImGuiWindowFlags_ChildWindow) == 0 ||
 							(window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_ChildMenu | ImGuiWindowFlags_Tooltip)) != 0;
 			if (!topLevel)
+				continue;
+			bool fading = window->BeginOrderWithinContext >= myFadeFirstWindow;
+			if (fading && std::string_view(window->Name) != "##MainMenuBar")
+				myShowedFadingWindows = true;
+			float opacity = fading ? myFadeOpacity : 1.0F;
+			if ((window->Flags & ImGuiWindowFlags_NoBackground) != 0 || opacity <= 0.0F)
 				continue;
 			float height = window->Collapsed ? window->TitleBarHeight : window->Size.y;
 			UiBlurRect rect{};
@@ -231,6 +252,7 @@ void ImGuiLayer::EndFrame()
 			rect.rect[2] = (window->Pos.x + window->Size.x) * io.DisplayFramebufferScale.x;
 			rect.rect[3] = (window->Pos.y + height) * io.DisplayFramebufferScale.y;
 			rect.radius = window->WindowRounding * io.DisplayFramebufferScale.y;
+			rect.opacity = opacity;
 			blurRects.push_back(rect);
 		}
 

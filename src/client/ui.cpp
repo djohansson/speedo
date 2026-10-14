@@ -49,6 +49,119 @@ void WindowedApplication::PrepareDraw()
 
 	myImGui->BeginFrame();
 
+	// ticks per second: PrepareDraw runs once per tick, measured like the frame rate (see Draw)
+	static float gTicksPerSecond = 0.0F;
+	{
+		using namespace std::chrono_literals;
+		static auto gTpsTime = std::chrono::steady_clock::now();
+		static uint32_t gTpsTickCount = 0;
+		gTpsTickCount++;
+		if (auto now = std::chrono::steady_clock::now(); now - gTpsTime >= 500ms)
+		{
+			gTicksPerSecond = static_cast<float>(gTpsTickCount) / std::chrono::duration<float>(now - gTpsTime).count();
+			gTpsTickCount = 0;
+			gTpsTime = now;
+		}
+	}
+
+	// frame/tick rate overlay in the top right corner, below the menu bar
+	if (gShowFps || gShowTps)
+	{
+		constexpr float kFpsOverlayPadding = 10.0F;
+		constexpr float kFpsOverlayBgAlpha = 0.35F;
+		const auto* viewport = GetMainViewport();
+		SetNextWindowPos(
+			ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kFpsOverlayPadding, viewport->WorkPos.y + kFpsOverlayPadding),
+			ImGuiCond_Always,
+			ImVec2(1.0F, 0.0F));
+		SetNextWindowBgAlpha(kFpsOverlayBgAlpha);
+		if (Begin(
+				"Rates",
+				nullptr,
+				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+					ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
+		{
+			if (gShowFps)
+			{
+				float fps = gFramesPerSecond.load(std::memory_order_relaxed);
+				Text("%.0f FPS (%.2f ms)", fps, fps > 0.0F ? 1000.0F / fps : 0.0F);
+			}
+			if (gShowTps)
+				Text("%.0f TPS (%.2f ms)", gTicksPerSecond, gTicksPerSecond > 0.0F ? 1000.0F / gTicksPerSecond : 0.0F);
+		}
+		End();
+	}
+
+	// the move speed for a moment after it changes (with the mouse wheel, or a newly framed model), at the bottom
+	{
+		using namespace std::chrono_literals;
+		static float gShownMoveSpeed = myViews->GetMoveSpeed();
+		static auto gMoveSpeedChanged = std::chrono::steady_clock::time_point{};
+		auto now = std::chrono::steady_clock::now();
+		if (auto moveSpeed = myViews->GetMoveSpeed(); moveSpeed != gShownMoveSpeed)
+		{
+			gShownMoveSpeed = moveSpeed;
+			gMoveSpeedChanged = now;
+		}
+		if (now - gMoveSpeedChanged < 1500ms)
+		{
+			constexpr float kOverlayPadding = 10.0F;
+			constexpr float kOverlayBgAlpha = 0.35F;
+			const auto* viewport = GetMainViewport();
+			SetNextWindowPos(
+				ImVec2(viewport->WorkPos.x + (0.5F * viewport->WorkSize.x), viewport->WorkPos.y + viewport->WorkSize.y - kOverlayPadding),
+				ImGuiCond_Always,
+				ImVec2(0.5F, 1.0F));
+			SetNextWindowBgAlpha(kOverlayBgAlpha);
+			if (Begin(
+					"Move speed",
+					nullptr,
+					ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+						ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
+				Text("Move speed: %.3g units/s", gShownMoveSpeed);
+			End();
+		}
+	}
+
+	// one row per load in progress
+	if (bool loading = !gLoads.Empty() &&
+				 Begin(
+					 "Loading",
+					 &loading,
+					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
+						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
+						 ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		constexpr uint8_t kProgressMax = 255;
+		constexpr float kProgressBarWidth = 160.0F;
+		gLoads.ForEach([](const core::LoadQueue::Load& load)
+		{
+			ProgressBar((1.F / kProgressMax) * static_cast<float>(load.progress), ImVec2(kProgressBarWidth, 0));
+			SameLine();
+			TextUnformatted(load.name.c_str());
+		});
+		End();
+	}
+
+	static float gMenuBarHeight = 0.0F; // in imgui's coordinates, as the menu bar drew last frame
+	// the ui fades out when it isn't in use: when the mouse isn't over the menu bar and no other window, menu or popup is
+	// up, after a moment, and back in when it is (or one comes up, from a shortcut, a load's choice, ...). the overlays
+	// above stay as they are. the windows are last frame's, the menu bar's height too
+	{
+		constexpr float kFadeInSeconds = 0.15F;
+		constexpr float kFadeOutSeconds = 0.5F;
+		constexpr float kHoldSeconds = 1.0F; // in use this recently counts as in use
+		static float gFade = 1.0F; // 0: faded out, 1: shown
+		static float gIdleSeconds = 0.0F;
+		const auto& io = GetIO();
+		bool overMenuBar = IsMousePosValid() && io.MousePos.y >= 0.0F && io.MousePos.y < gMenuBarHeight;
+		bool inUse = overMenuBar || myImGui->ShowedFadingWindows() || IsAnyItemActive();
+		gIdleSeconds = inUse ? 0.0F : gIdleSeconds + io.DeltaTime;
+		gFade = gIdleSeconds < kHoldSeconds ? std::min(gFade + (io.DeltaTime / kFadeInSeconds), 1.0F)
+											: std::max(gFade - (io.DeltaTime / kFadeOutSeconds), 0.0F);
+		myImGui->Fade(gFade * gFade * (3.0F - (2.0F * gFade))); // eased
+	}
+
 	// View > Statistics (SPEEDO_SHOW_STATISTICS=1 at startup), in the builds that profile (debug and profile): the pass
 	// timings (the frame graph's, written in those builds only), submits and transient memory, and in debug the vulkan
 	// objects (tracked by validation builds only)
@@ -307,100 +420,6 @@ void WindowedApplication::PrepareDraw()
 		End();
 	}
 
-	// ticks per second: PrepareDraw runs once per tick, measured like the frame rate (see Draw)
-	static float gTicksPerSecond = 0.0F;
-	{
-		using namespace std::chrono_literals;
-		static auto gTpsTime = std::chrono::steady_clock::now();
-		static uint32_t gTpsTickCount = 0;
-		gTpsTickCount++;
-		if (auto now = std::chrono::steady_clock::now(); now - gTpsTime >= 500ms)
-		{
-			gTicksPerSecond = static_cast<float>(gTpsTickCount) / std::chrono::duration<float>(now - gTpsTime).count();
-			gTpsTickCount = 0;
-			gTpsTime = now;
-		}
-	}
-
-	// frame/tick rate overlay in the top right corner, below the menu bar
-	if (gShowFps || gShowTps)
-	{
-		constexpr float kFpsOverlayPadding = 10.0F;
-		constexpr float kFpsOverlayBgAlpha = 0.35F;
-		const auto* viewport = GetMainViewport();
-		SetNextWindowPos(
-			ImVec2(viewport->WorkPos.x + viewport->WorkSize.x - kFpsOverlayPadding, viewport->WorkPos.y + kFpsOverlayPadding),
-			ImGuiCond_Always,
-			ImVec2(1.0F, 0.0F));
-		SetNextWindowBgAlpha(kFpsOverlayBgAlpha);
-		if (Begin(
-				"Rates",
-				nullptr,
-				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-					ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
-		{
-			if (gShowFps)
-			{
-				float fps = gFramesPerSecond.load(std::memory_order_relaxed);
-				Text("%.0f FPS (%.2f ms)", fps, fps > 0.0F ? 1000.0F / fps : 0.0F);
-			}
-			if (gShowTps)
-				Text("%.0f TPS (%.2f ms)", gTicksPerSecond, gTicksPerSecond > 0.0F ? 1000.0F / gTicksPerSecond : 0.0F);
-		}
-		End();
-	}
-
-	// the move speed for a moment after it changes (with the mouse wheel, or a newly framed model), at the bottom
-	{
-		using namespace std::chrono_literals;
-		static float gShownMoveSpeed = myViews->GetMoveSpeed();
-		static auto gMoveSpeedChanged = std::chrono::steady_clock::time_point{};
-		auto now = std::chrono::steady_clock::now();
-		if (auto moveSpeed = myViews->GetMoveSpeed(); moveSpeed != gShownMoveSpeed)
-		{
-			gShownMoveSpeed = moveSpeed;
-			gMoveSpeedChanged = now;
-		}
-		if (now - gMoveSpeedChanged < 1500ms)
-		{
-			constexpr float kOverlayPadding = 10.0F;
-			constexpr float kOverlayBgAlpha = 0.35F;
-			const auto* viewport = GetMainViewport();
-			SetNextWindowPos(
-				ImVec2(viewport->WorkPos.x + (0.5F * viewport->WorkSize.x), viewport->WorkPos.y + viewport->WorkSize.y - kOverlayPadding),
-				ImGuiCond_Always,
-				ImVec2(0.5F, 1.0F));
-			SetNextWindowBgAlpha(kOverlayBgAlpha);
-			if (Begin(
-					"Move speed",
-					nullptr,
-					ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-						ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
-				Text("Move speed: %.3g units/s", gShownMoveSpeed);
-			End();
-		}
-	}
-
-	// one row per load in progress
-	if (bool loading = !gLoads.Empty() &&
-				 Begin(
-					 "Loading",
-					 &loading,
-					 ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDecoration |
-						 ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoSavedSettings |
-						 ImGuiWindowFlags_AlwaysAutoResize))
-	{
-		constexpr uint8_t kProgressMax = 255;
-		constexpr float kProgressBarWidth = 160.0F;
-		gLoads.ForEach([](const core::LoadQueue::Load& load)
-		{
-			ProgressBar((1.F / kProgressMax) * static_cast<float>(load.progress), ImVec2(kProgressBarWidth, 0));
-			SameLine();
-			TextUnformatted(load.name.c_str());
-		});
-		End();
-	}
-
 	auto resourcePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["ResourcePath"]);
 
 
@@ -525,6 +544,7 @@ void WindowedApplication::PrepareDraw()
 	PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0F);
 	if (BeginMainMenuBar())
 	{
+		gMenuBarHeight = GetWindowHeight();
 		auto* drawList = GetWindowDrawList();
 		drawList->PushClipRectFullScreen();
 		drawList->AddLine(

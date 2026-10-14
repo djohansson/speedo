@@ -32,6 +32,8 @@ and ennis panoramas from glTF-Sample-Environments.*
   several files (several models side by side, or as authored when they are parts of one scene).
 - **Moving around:** hold the left mouse button and drag to look around, use `W`/`A`/`S`/`D` to move, and the scroll
   wheel to change the move speed. `Alt+Enter` toggles fullscreen.
+- **The interface fades away** when it isn't in use, leaving the scene: move the mouse to the top of the window to bring
+  the menu bar back. Open windows and menus keep it up; the loading bars and the FPS overlay always show.
 - **View** is where most of the settings live:
   - the views layout (`Ctrl+1` to `Ctrl+4`: one view, two side by side or stacked, or four)
   - presentation: the fullscreen mode (exclusive, borderless, or on macOS a space of its own), and the swapchain's

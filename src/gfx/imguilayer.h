@@ -48,6 +48,14 @@ public:
 	void BeginFrame();
 	void EndFrame();
 
+	// fades the windows begun from here on this frame, and their frosted backdrops, to opacity (0: invisible, 1: as
+	// styled), through imgui's style alpha: the ones begun before keep theirs (overlays that stay, such as progress bars).
+	// they still take input. ui thread, between BeginFrame and EndFrame
+	void Fade(float opacity);
+	// whether the last frame (EndFrame) showed a window begun after Fade other than the main menu bar: a dialog, a menu, a
+	// popup or a tooltip. ui thread
+	[[nodiscard]] bool ShowedFadingWindows() const noexcept { return myShowedFadingWindows; }
+
 	// takes the latest frame published by EndFrame (else keeps the one before), to prepare and draw, and returns its
 	// frosted panels: the main menu bar and the menus, popups and tooltips open, whose backdrop the renderer blurs (see
 	// UiBlurRect: in pixels of the framebuffer, their threads not filled in). valid until the next TakeFrame. draw thread,
@@ -81,6 +89,11 @@ private:
 	uint8_t myReadFrame = 1; // draw thread only
 	std::atomic_uint8_t myPendingFrame = 2;
 	uint64_t myFrameSequence = 0; // ui thread only
+	// the frame's fade (see Fade): its opacity, and the begin order (see ImGuiWindow::BeginOrderWithinContext) of the
+	// first window it applies to. ui thread only
+	float myFadeOpacity = 1.0F;
+	int myFadeFirstWindow = 0;
+	bool myShowedFadingWindows = false;
 
 	// imgui's renderer, see ImGuiRenderer for which thread calls what
 	std::unique_ptr<ImGuiRenderer> myRenderer;

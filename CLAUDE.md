@@ -449,6 +449,16 @@ itself behind the windows (the light gizmos, a background draw list) shows throu
 window of blur (the browser, 2400 by 1600 pixels) cost no measurable frame time (3000 frames of Bistro unthrottled, 4.38
 s either way). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for screenshots.
 
+The ui fades out when it isn't in use (`PrepareDraw`): a second after the mouse leaves the menu bar with no other window,
+menu, popup or tooltip up, over half a second, and back in over 0.15 s when the mouse is over the menu bar or one comes
+up (a shortcut's, a load's choice). `ImGuiLayer::Fade(opacity)` fades the windows begun after it, by imgui's style alpha
+(its colors are multiplied by it as they are drawn), and their frosted backdrops (`UiBlurRect::opacity` scales the
+blur's coverage); the ones begun before keep theirs, so the client draws what stays first: the loading bars, the FPS and
+TPS overlay and the move speed. Which windows are whose comes from imgui's begin order (`BeginOrderWithinContext`
+against the active window count when `Fade` ran), not their names. `ShowedFadingWindows` says whether the last frame had
+a faded window other than the main menu bar, which keeps the ui up. Faded windows still take input: the invisible menu
+bar is under the mouse when it fades back in.
+
 - **Barriers come from tracked state, at run time.** `Execute` keeps each resource's last write and the reads since (across
   frames too, which are serial on the graphics queue), and before each pass emits one batched memory barrier for the
   hazards and an `Image::Transition`/`IRenderTarget::Transition` per layout change (whose masks come from the layouts).
