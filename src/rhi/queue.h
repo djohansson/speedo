@@ -3,6 +3,7 @@
 #include <rhi/command.h>
 #include <rhi/object.h>
 #include <rhi/fence.h>
+#include <rhi/gpuprofiler.h>
 #include <rhi/capi.h>
 #include <rhi/semaphore.h>
 #include <rhi/types.h>
@@ -167,16 +168,18 @@ public:
 	[[nodiscard]] static uint64_t GetSubmitCount() noexcept { return gSubmitCount.load(std::memory_order_relaxed); }
 	[[nodiscard]] static uint64_t GetSubmitBatchCount() noexcept { return gSubmitBatchCount.load(std::memory_order_relaxed); }
 
+	// the queue's gpu scopes (see GpuProfiler, GPU_SCOPE): null in builds that don't profile, or for a queue family
+	// without timestamps
+	[[nodiscard]] GpuProfiler<G>* GetProfiler() const noexcept { return myProfiler.get(); }
 	template <SourceLocationData Location>
-	[[nodiscard]] std::shared_ptr<void> CreateGpuScope(CommandBufferHandle<G> cmd);
-	void CollectGpuScope(CommandBufferHandle<G> cmd);
+	[[nodiscard]] typename GpuProfiler<G>::Scope CreateGpuScope(CommandBufferHandle<G> cmd);
 
 private:
 	Queue(
 		CreateDescType&& queueDesc,
 		QueueHandle<G>&& handle);
 
-	[[nodiscard]] std::shared_ptr<void> InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
+	[[nodiscard]] typename GpuProfiler<G>::Scope InternalGpuScope(CommandBufferHandle<G> cmd, const SourceLocationData& srcLoc);
 
 	QueueHandle<G> myQueue{};
 	std::array<CommandPool<G>, 2> myPools;
@@ -186,9 +189,7 @@ private:
 	using TimelineCallbackData = std::tuple<std::vector<core::TaskHandle>, uint64_t>;
 	mutable core::ConcurrentQueue<TimelineCallbackData> myTimelineCallbacks;
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	void* myProfilingContext = nullptr;
-#endif
+	std::unique_ptr<GpuProfiler<G>> myProfiler;
 
 	static inline std::atomic_uint64_t gSubmitCount = 0; //NOLINT(readability-identifier-naming)
 	static inline std::atomic_uint64_t gSubmitBatchCount = 0; //NOLINT(readability-identifier-naming)
@@ -211,10 +212,8 @@ using QueueTimelineContext = core::ConcurrentAccess<std::shared_ptr<QueueTimelin
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
 #	define GPU_SCOPE(cmd, queue, tag) auto COUNTED_VAR_DECLARE(tag) = (queue).CreateGpuScope<SOURCE_LOCATION_DATA(tag)>(cmd)
-#	define GPU_SCOPE_COLLECT(cmd, queue) (queue).CollectGpuScope(cmd)
 #else
 #	define GPU_SCOPE(cmd, queue, tag) {}
-#	define GPU_SCOPE_COLLECT(cmd, queue) {}
 #endif
 
 } // namespace rhi

@@ -4,7 +4,6 @@
 #include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
-#include <tracy/TracyVulkan.hpp>
 
 namespace rhi
 {
@@ -61,8 +60,6 @@ Queue<kVk>::Queue(
 		}
 	)
 {
-	using namespace tracy;
-
 	static_assert(
 		static_cast<uint32_t>(kQueueFamilyFlagBitsGraphics) ==
 		static_cast<uint32_t>(VK_QUEUE_GRAPHICS_BIT));
@@ -83,14 +80,15 @@ Queue<kVk>::Queue(
 		static_cast<uint32_t>(VK_QUEUE_VIDEO_ENCODE_BIT_KHR));
 
 #if (SPEEDO_PROFILING_LEVEL > 0)
+	// a ring of 4096 timestamps (a frame writes about 40): KosmicKrisp's query pools are Metal counter heaps, of at most
+	// 4096 samples
 	if (GetDesc().supportsProfiling)
-		myProfilingContext = CreateVkContext(
-			GetDevice().GetPhysicalDevice(),
-			GetDevice(),
+		myProfiler = std::make_unique<GpuProfiler<kVk>>(
+			QueryPool<kVk>(QueryPoolCreateDesc<kVk>{
+				SuperType::CreateDeviceObjectCreateDesc(std::format("{} Profiler", GetDesc().name)), 4096}),
 			myQueue,
 			GetPool().Allocate(),
-			nullptr,
-			nullptr);
+			GetDesc().name);
 #endif
 }
 
@@ -122,7 +120,7 @@ void Queue<kVk>::Swap(Queue& other) noexcept
 	std::swap(myScratchMemory, other.myScratchMemory);
 	std::swap(myTimelineCallbacks, other.myTimelineCallbacks);
 #if (SPEEDO_PROFILING_LEVEL > 0)
-	std::swap(myProfilingContext, other.myProfilingContext);
+	std::swap(myProfiler, other.myProfiler);
 #endif
 }
 
@@ -135,14 +133,9 @@ Queue<kVk>::Queue(Queue<kVk>&& other) noexcept
 template <>
 Queue<kVk>::~Queue()
 {
-	using namespace tracy;
-
 	ZoneScopedN("Queue::~Queue()");
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	if (myProfilingContext != nullptr)
-		DestroyVkContext(static_cast<TracyVkCtx>(myProfilingContext));
-#endif
+	myProfiler.reset();
 
 	ASSERT(myTimelineCallbacks.size_approx() == 0);
 
@@ -159,37 +152,13 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 }
 
 template <>
-void Queue<kVk>::CollectGpuScope(CommandBufferHandle<kVk> cmd)
-{
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	if (myProfilingContext != nullptr)
-		TracyVkCollect(static_cast<TracyVkCtx>(myProfilingContext), cmd);
-#endif
-}
-
-template <>
-std::shared_ptr<void>
-Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationData& srcLoc)
+GpuProfiler<kVk>::Scope Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationData& srcLoc)
 {
 	if (gVkCmdSetCheckpointNV != nullptr)
 		gVkCmdSetCheckpointNV(cmd, srcLoc.name);
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	static_assert(sizeof(SourceLocationData) == sizeof(tracy::SourceLocationData));
-	static_assert(offsetof(SourceLocationData, name) == offsetof(tracy::SourceLocationData, name));
-	static_assert(offsetof(SourceLocationData, function) == offsetof(tracy::SourceLocationData, function));
-	static_assert(offsetof(SourceLocationData, file) == offsetof(tracy::SourceLocationData, file));
-	static_assert(offsetof(SourceLocationData, line) == offsetof(tracy::SourceLocationData, line));
-	static_assert(offsetof(SourceLocationData, color) == offsetof(tracy::SourceLocationData, color));
-	if (myProfilingContext != nullptr)
-	{
-		return std::make_shared<tracy::VkCtxScope>(
-			static_cast<TracyVkCtx>(myProfilingContext),
-			reinterpret_cast<const tracy::SourceLocationData*>(&srcLoc),
-			cmd,
-			true);
-	}
-#endif
+	if (myProfiler)
+		return myProfiler->Begin(cmd, srcLoc);
 
 	return {};
 }

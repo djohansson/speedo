@@ -60,7 +60,6 @@ void SwapchainOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId outp
 		[](FrameGraph::PassBuilder& builder) { builder.SideEffects(); },
 		[&frame](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *frame.inputs->graphicsQueue, imguiTextures);
 			if (frame.inputs->prepareUi)
 				frame.inputs->prepareUi(context.cmd);
 		});
@@ -69,12 +68,6 @@ void SwapchainOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId outp
 		[output, &frame](FrameGraph::PassBuilder& builder)
 		{
 			builder.ColorAttachment(output, LoadOp::kLoad);
-			builder.Wrap(
-				[&frame](CommandBufferHandle cmd, const std::function<void()>& record)
-				{
-					GPU_SCOPE(cmd, *frame.inputs->graphicsQueue, imgui);
-					record();
-				});
 		},
 		[this, &frame](FrameGraph::PassContext& context)
 		{

@@ -48,6 +48,8 @@ public:
 
 	// records the reset of count timestamps from first (outside of render passes, before they are written again)
 	void Reset(CommandBufferHandle<G> cmd, uint32_t first, uint32_t count) const;
+	// resets count timestamps from first, from the host (once the gpu is done with them: Vulkan 1.2's host query reset)
+	void Reset(uint32_t first, uint32_t count) const;
 	// records writing a timestamp once the commands before have reached stage (bottom of pipe: completed). inside a render
 	// pass with inline contents, top of pipe and bottom of pipe time the pass's own work: KosmicKrisp samples a render
 	// encoder's stages there, where outside one it writes from a compute encoder, whose samples read 0 or stale once

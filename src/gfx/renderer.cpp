@@ -149,12 +149,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassBuilder& builder)
 		{
 			builder.DepthAttachment(myShadowAtlas, LoadOp::kClear);
-			builder.Wrap(
-				[this](CommandBufferHandle cmd, const std::function<void()>& record)
-				{
-					GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, shadows);
-					record();
-				});
 		},
 		[this](FrameGraph::PassContext& context)
 		{
@@ -200,12 +194,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.DepthAttachment(myScatterBackDepth, LoadOp::kClear);
 			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
-			builder.Wrap(
-				[this](CommandBufferHandle cmd, const std::function<void()>& record)
-				{
-					GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, scatterBack);
-					record();
-				});
 		},
 		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myScatterBackDrawList); });
 
@@ -221,12 +209,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myScatterBackDepth, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
-			builder.Wrap(
-				[this](CommandBufferHandle cmd, const std::function<void()>& record)
-				{
-					GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, scatter);
-					record();
-				});
 		},
 		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myScatterDrawList); });
 
@@ -264,7 +246,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, scatterKernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, scatterBlur);
 			scatterKernel(context.cmd, ComputePipelineVariant{.entryPoint = 1});
 		});
 	myScatterDenoisePass = myGraph.AddPass(
@@ -277,7 +258,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, scatterKernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, scatterDenoise);
 			scatterKernel(context.cmd, ComputePipelineVariant{.entryPoint = 2});
 		});
 
@@ -298,14 +278,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
-				// the profiling scope's timestamps outside the render target: begun for secondary command buffers, it can
-				// hold nothing else
-				builder.Wrap(
-					[this](CommandBufferHandle cmd, const std::function<void()>& record)
-					{
-						GPU_SCOPE(cmd, *myFrame.inputs->graphicsQueue, draw);
-						record();
-					});
 			},
 			[this, phase](FrameGraph::PassContext& context)
 			{ InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myDrawLists[std::to_underlying(phase)]); });
@@ -322,7 +294,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, transmission);
 			auto& transmission = context.graph.GetImage(myTransmission);
 			transmission.BlitFrom(context.cmd, context.graph.GetImage(myColor));
 			transmission.GenerateMips(context.cmd, ImageLayout::kShaderReadOnly);
@@ -356,7 +327,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			const auto& inputs = *myFrame.inputs;
 			auto& pipeline = *myFrame.pipeline;
 			auto cmd = context.cmd;
-			GPU_SCOPE(cmd, *inputs.graphicsQueue, computeMain);
 
 			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 			pipeline.SetDescriptorData(
@@ -410,7 +380,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, uiBlurX);
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = 3}, myUiBlurThreadsX, 1);
 		});
 	myUiBlurYPass = myGraph.AddPass(
@@ -423,7 +392,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			GPU_SCOPE(context.cmd, *myFrame.inputs->graphicsQueue, uiBlurY);
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = 4}, myUiBlurThreadsY, 1);
 		});
 
@@ -431,7 +399,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	output.AddFinalPasses(myGraph, myOutput, myFrame);
 
 	// the passes' gpu timings (see GetPassTimings)
-	myGraph.EnableTimings(device, SHADER_TYPES_FRAME_COUNT);
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -558,14 +525,15 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	ENSURE(inputs.exposureHistogram && inputs.graphicsQueue);
 
-	// the passes' timings from the last time this frame index ran (its fence has been waited for): the ui's smoothed (an
-	// exponential moving average over the frames that timed a pass, which may be few: see FrameGraph::ReadTimings), and
-	// shown until a pass hasn't been timed for a while, so that the list doesn't flicker
+	// the passes' timings collected since the last frame (see GpuProfiler::Collect, in the frame loop): the ui's smoothed
+	// (an exponential moving average over the frames that timed a pass, which may be few: the backend may not write every
+	// timestamp), and shown until a pass hasn't been timed for a while, so that the list doesn't flicker
+	if (auto* profiler = inputs.graphicsQueue->GetProfiler())
 	{
 		constexpr double kSmoothing = 0.1;
 		constexpr uint64_t kShownRecords = 240; // 2 seconds at 120 frames a second
 		myRecordCount++;
-		for (const auto& [name, milliseconds] : myGraph.ReadTimings(inputs.frameIndex))
+		for (const auto& [name, milliseconds] : profiler->TakeTimings(myGraph.GetTimingGroup()))
 		{
 			auto it = std::ranges::find(mySmoothedTimings, name, [](const auto& timing) { return std::string_view(timing.name); });
 			if (it == mySmoothedTimings.end())
@@ -716,7 +684,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.frameIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
-	myGraph.Execute(cmd, inputs.frameIndex);
+	myGraph.Execute(cmd, inputs.graphicsQueue->GetProfiler());
 
 	myFrame.inputs = nullptr;
 	myFrame.pipeline = nullptr;

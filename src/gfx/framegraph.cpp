@@ -103,11 +103,6 @@ void FrameGraph::PassBuilder::SideEffects()
 	myGraph.myPasses[myPass].sideEffects = true;
 }
 
-void FrameGraph::PassBuilder::Wrap(WrapFunction wrap)
-{
-	myGraph.myPasses[myPass].wrap = std::move(wrap);
-}
-
 FrameGraph::~FrameGraph()
 {
 	// what is placed in the blocks goes before them
@@ -596,51 +591,22 @@ void FrameGraph::InternalBarriers(CommandBufferHandle cmd, Pass& pass, uint32_t 
 		InternalTransition(cmd, myResources[index], layout);
 }
 
-void FrameGraph::EnableTimings([[maybe_unused]] Device& device, [[maybe_unused]] uint32_t frameCount)
+namespace framegraph
 {
-	// a profiling aid: only in builds that profile (without it, Execute writes no timestamps)
-#if (SPEEDO_PROFILING_LEVEL > 0)
-	myTimestampPeriod = device.GetLimits().timestampPeriod;
-	myTimingPools.clear();
-	for (uint32_t frame = 0; frame < frameCount; frame++)
-		myTimingPools.emplace_back(QueryPoolCreateDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("FrameGraph Timings {}", frame)),
-			static_cast<uint32_t>(std::max<size_t>(myPasses.size(), 1) * 2)});
-	myTimedPasses.assign(frameCount, {});
-#endif
-}
 
-std::vector<FrameGraph::PassTiming> FrameGraph::ReadTimings(uint32_t frame) const
+// a pass's gpu scope, named after it
+GpuProfiler::Scope BeginPassScope(
+	GpuProfiler* profiler, CommandBufferHandle cmd, std::string_view name, uint64_t group, rhi::PipelineStage stage)
 {
-	if (frame >= myTimingPools.size() || myTimedPasses[frame].empty())
+	static constexpr SourceLocationData kLocation = SOURCE_LOCATION_DATA(pass);
+	if (profiler == nullptr)
 		return {};
-	const auto& passes = myTimedPasses[frame];
-	std::vector<std::optional<uint64_t>> timestamps(passes.size() * 2);
-	myTimingPools[frame].Read(0, timestamps);
-	// only the passes whose two timestamps were written this time. some backends only write them where their own command
-	// encoders begin or end (Metal: KosmicKrisp), leaving the others with an undefined value, and KosmicKrisp reports
-	// those as available too, 0 or one written frames before (the UI pass's time grew with the run time). so a pass's
-	// timestamps must also be plausible: begun not before the passes before it ended (the passes run in order, so an
-	// older value is stale), ended not before begun, within a quarter of a second
-	constexpr double kMaxMilliseconds = 250.0;
-	std::vector<PassTiming> timings;
-	uint64_t floor = 0; // the end of the last pass taken
-	for (size_t passIt = 0; passIt < passes.size(); passIt++)
-	{
-		const auto& begin = timestamps[passIt * 2];
-		const auto& end = timestamps[(passIt * 2) + 1];
-		if (!begin || !end || *begin == 0 || *begin < floor || *end < *begin)
-			continue;
-		auto milliseconds = static_cast<double>(*end - *begin) * myTimestampPeriod * 1e-6;
-		if (milliseconds > kMaxMilliseconds)
-			continue;
-		floor = *end;
-		timings.push_back({.name = myPasses[passes[passIt]].name, .milliseconds = milliseconds});
-	}
-	return timings;
+	return profiler->Begin(cmd, name, kLocation, group, stage);
 }
 
-void FrameGraph::Execute(CommandBufferHandle cmd, std::optional<uint32_t> timingFrame)
+} // namespace framegraph
+
+void FrameGraph::Execute(CommandBufferHandle cmd, GpuProfiler* profiler)
 {
 	ZoneScopedN("FrameGraph::Execute");
 
@@ -648,15 +614,6 @@ void FrameGraph::Execute(CommandBufferHandle cmd, std::optional<uint32_t> timing
 
 	for (auto& resource : myResources)
 		resource.usedThisFrame = false;
-
-	// the timestamps of this frame index: written in the order the passes run
-	const QueryPool* timing = timingFrame && *timingFrame < myTimingPools.size() ? &myTimingPools[*timingFrame] : nullptr;
-	std::vector<uint32_t>* timedPasses = timing != nullptr ? &myTimedPasses[*timingFrame] : nullptr;
-	if (timing != nullptr)
-	{
-		timing->Reset(cmd, 0, static_cast<uint32_t>(myPasses.size() * 2));
-		timedPasses->clear();
-	}
 
 	for (uint32_t passIt = 0; passIt < myPasses.size(); passIt++)
 	{
@@ -667,29 +624,20 @@ void FrameGraph::Execute(CommandBufferHandle cmd, std::optional<uint32_t> timing
 		ZoneScoped;
 		ZoneName(pass.name.c_str(), pass.name.size());
 
-		// the pass's timestamps: inside its render target if it has one with inline contents (at the top and bottom of the
+		// the pass's scope: inside its render target if it has one with inline contents (at the top and bottom of the
 		// pipe: KosmicKrisp samples the render encoder's stages there, the pass's own work), else around it (one begun for
 		// secondary command buffers can hold no timestamps; KosmicKrisp writes those from a compute encoder, whose samples
 		// read 0, or one from long before, when the encoder also holds dispatches: ComputeMain's, the UI pass's begin)
-		auto timed = static_cast<uint32_t>(timedPasses != nullptr ? timedPasses->size() : 0);
-		bool inside = timing != nullptr && !pass.attachments.empty() && pass.contents == SubpassContents::kInline;
-		const QueryPool* insideTiming = inside ? timing : nullptr;
-		if (timing != nullptr)
-		{
-			if (!inside)
-				timing->WriteTimestamp(cmd, timed * 2);
-			timedPasses->push_back(passIt);
-		}
-		if (pass.wrap)
-			pass.wrap(cmd, [this, cmd, &pass, passIt, insideTiming, timed] { InternalRecord(cmd, pass, passIt, insideTiming, timed); });
-		else
-			InternalRecord(cmd, pass, passIt, insideTiming, timed);
-		if (timing != nullptr && !inside)
-			timing->WriteTimestamp(cmd, (timed * 2) + 1);
+		bool inside = !pass.attachments.empty() && pass.contents == SubpassContents::kInline;
+		GpuProfiler* insideProfiler = inside ? profiler : nullptr;
+		auto scope = framegraph::BeginPassScope(
+			inside ? nullptr : profiler, cmd, pass.name, myTimingGroup, rhi::PipelineStage::kBottomOfPipe);
+		InternalRecord(cmd, pass, passIt, insideProfiler);
+		scope.End();
 	}
 }
 
-void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex, const QueryPool* timing, uint32_t timed)
+void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex, GpuProfiler* profiler)
 {
 	InternalBarriers(cmd, pass, passIndex);
 
@@ -731,11 +679,9 @@ void FrameGraph::InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t pa
 
 	context.target = target;
 	context.beginInfo = &target->Begin(cmd, pass.contents);
-	if (timing != nullptr)
-		timing->WriteTimestamp(cmd, timed * 2, PipelineStage::kTopOfPipe);
+	auto scope = framegraph::BeginPassScope(profiler, cmd, pass.name, myTimingGroup, PipelineStage::kTopOfPipe);
 	pass.execute(context);
-	if (timing != nullptr)
-		timing->WriteTimestamp(cmd, (timed * 2) + 1, PipelineStage::kBottomOfPipe);
+	scope.End(PipelineStage::kBottomOfPipe);
 	target->End(cmd);
 }
 

@@ -75,6 +75,13 @@ void QueryPool<kVk>::Reset(CommandBufferHandle<kVk> cmd, uint32_t first, uint32_
 }
 
 template <>
+void QueryPool<kVk>::Reset(uint32_t first, uint32_t count) const
+{
+	if (count > 0)
+		vkResetQueryPool(GetDevice(), myPool, first, count);
+}
+
+template <>
 void QueryPool<kVk>::WriteTimestamp(CommandBufferHandle<kVk> cmd, uint32_t index, PipelineStage stage) const
 {
 	vkCmdWriteTimestamp(cmd, static_cast<VkPipelineStageFlagBits>(vk::ToVk(stage)), myPool, index);

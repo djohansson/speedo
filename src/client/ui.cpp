@@ -79,7 +79,7 @@ void WindowedApplication::PrepareDraw()
 					static_cast<unsigned long long>(Queue::GetSubmitBatchCount()),
 					gFrameSubmitBatchCount.load(std::memory_order_relaxed));
 
-				// the frame graph's passes, on the gpu (see FrameGraph::ReadTimings): only where the backend writes their timestamps
+				// the frame graph's passes, on the gpu (see GpuProfiler::Collect): only where the backend writes their timestamps
 				// (KosmicKrisp: at the beginning and end of its own command encoders)
 				Separator();
 				if (myScene)

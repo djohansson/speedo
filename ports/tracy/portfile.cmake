@@ -9,7 +9,6 @@ vcpkg_from_github(
         fix-vendor-versions.patch
         fix-imgui-patch.patch
         downgrade-capstone-5.patch # tracy wants capstone-6-alpha but vcpkg ships the most recent production capstone, 5.0.6 as of 2026-02-04
-        vk-query-count.patch
         0001-msvc-flags.patch
         0002-clang-NO_CHARCONV.patch
         0003-compile-with-cxx17.patch

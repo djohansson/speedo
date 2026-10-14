@@ -148,6 +148,10 @@ bool WindowedApplication::Draw()
 			fence.Wait();
 
 		graphicsSubmits = {};
+
+		// the queue's gpu scopes the gpu is done with, for Tracy and the renderers' pass timings (see Renderer::Record)
+		if (auto* profiler = graphicsQueue.GetProfiler())
+			profiler->Collect();
 		graphicsQueue.SwapAndResetPool();
 		
 		core::TaskHandle drawCall;
@@ -170,8 +174,6 @@ bool WindowedApplication::Draw()
 		auto cmd = graphicsQueue.GetPool().Begin();
 
 		ZoneScopedN("WindowedApplication::Draw::submit");
-
-		GPU_SCOPE_COLLECT(cmd, graphicsQueue);
 
 		std::vector<core::TaskHandle> graphicsCallbacks;
 		auto runInBackground = [this](std::function<void()> job)

@@ -447,8 +447,8 @@ s either way). `SPEEDO_OPEN_MENUS=View/Presentation` holds menus open, for scree
   frames (there used to be one per frame index), so nothing it holds may be recreated while earlier frames' command
   buffers reference it: `InternalUpdateAttachments` recreated the depth view on every transition (it compared the
   aspect before reducing depth and stencil to depth), and KosmicKrisp crashed resetting the command pool (an
-  `objc_release` of the freed view, at random in debug). A pass's gpu profiling scope goes in `PassBuilder::Wrap`, which
-  records around the render target: one begun for secondary command buffers can hold no timestamps.
+  `objc_release` of the freed view, at random in debug). Each pass is a gpu scope of its own (see "GPU timings"):
+  don't add a `GPU_SCOPE` in a pass's callback.
 - **Draws** are data: `BuildDrawList` turns the model into `DrawItem`s for a main pass phase (pipeline variant, cull mode,
   front face, material slot, instance range, skin and morph bases), and `RecordDrawList` records them for a view, which
   the main pass does per view in the queue pool's secondary command buffers.
@@ -459,23 +459,29 @@ removed, so it can't vouch for them; compare renders instead (identical before a
 
 ## GPU timings and shader tiers
 
-`FrameGraph::EnableTimings` (only with `SPEEDO_PROFILING_LEVEL > 0`: debug and profile) writes a timestamp pair (rhi
-`QueryPool`, `DeviceLimits::timestampPeriod`) around each pass, per frame index; `Renderer` reads a frame's after its
-fence (`ReadTimings`), shows them in the Statistics window, and with `SPEEDO_GPU_TIMINGS=1` prints each pass's median at
-exit. KosmicKrisp only writes timestamps where its own Metal command encoders begin and end: passes inside one encoder
-read 0, and the others are unwritten, which it reports as available (`VK_QUERY_RESULT_WITH_AVAILABILITY_BIT`, which
-`QueryPool::Read` asks for, per timestamp) with 0 or a value written frames before. Taking those, the UI pass's time
-grew with the run time (its begin stale, its end current), and reading without availability (`VK_NOT_READY` for the
-whole range) dropped every pass of most frames, so the Statistics window flickered. `ReadTimings` keeps a pass only if
-both of its timestamps are available and plausible: begun not before the end of the last pass taken that frame (the
-passes run in order, so an older value is stale), not 0, ended not before begun, under 250 ms (on KosmicKrisp the UI
-pass's begin was never real, see below). Where the timestamps go matters there: outside a render pass KosmicKrisp writes
-them from a compute encoder (Metal 4's counter heap, resolved when the encoder ends), and once that encoder also holds
-dispatches its samples read 0 (`ComputeMain`, the UI blur passes), and the last before the UI render pass a value about
-a second old. Inside a render pass with inline contents it samples the render encoder's stages: so a raster pass
-recorded inline gets its timestamps inside its render target (`InternalRecord`: top of pipe after it begins, bottom of
-pipe before it ends, `QueryPool::WriteTimestamp`'s stage), its own work, and the others around it (one begun for
-secondary command buffers, as the main pass's, can hold none). The UI pass reads 0.015 ms with the menu bar alone, 0.09
+Gpu work is timed by one path: each queue's `rhi::GpuProfiler` (`rhi/gpuprofiler.h`, `Queue::GetProfiler`; only with
+`SPEEDO_PROFILING_LEVEL > 0`: debug and profile, else null), a ring of 4096 timestamps (KosmicKrisp's query pools are
+Metal counter heaps of at most 4096) in the order they were recorded. A scope (`Begin`, ended when dropped or by
+`Scope::End`) writes a timestamp at each end and opens and closes a Tracy gpu zone at record time (Tracy's C api: a
+context of the queue's, `___tracy_emit_gpu_new_context` with a first timestamp, uncalibrated, as `TracyVkCtx` was).
+`GPU_SCOPE(cmd, queue, tag)` is one with a static name; the frame graph opens one per pass, named after it and in the
+graph's timing group (`FrameGraph::GetTimingGroup`), so its callbacks have none of their own. `Collect` (in `Draw`,
+after the frame's fences) reads what the gpu is done with (up to the first timestamp that isn't, and never half a
+grouped scope), gives Tracy every one, frees them from the host (`vkResetQueryPool`, Vulkan 1.2), and keeps each grouped
+scope's duration, which `Renderer::Record` takes (`TakeTimings`), shows in the Statistics window, and with
+`SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit. A timestamp is plausible if it is not 0, not before the one
+before it in its command buffer, and not more than 250 ms after it: Tracy gets the one before in place of the others,
+and a grouped scope is timed only if both of its are plausible. KosmicKrisp only writes timestamps where its own Metal
+command encoders begin and end: passes inside one encoder read 0, and the others are unwritten, which it reports as
+available (`VK_QUERY_RESULT_WITH_AVAILABILITY_BIT`, which `QueryPool::Read` asks for, per timestamp) with 0 or a value
+written frames before. Taking those, the UI pass's time grew with the run time (its begin stale, its end current), and
+reading without availability (`VK_NOT_READY` for the whole range) dropped every pass of most frames, so the Statistics
+window flickered. Where the timestamps go matters there: outside a render pass KosmicKrisp writes them from a compute
+encoder (Metal 4's counter heap, resolved when the encoder ends), and once that encoder also holds dispatches its
+samples read 0 (`ComputeMain`, the UI blur passes), and the last before the UI render pass a value about a second old.
+Inside a render pass with inline contents it samples the render encoder's stages: so a raster pass recorded inline has
+its scope inside its render target (`InternalRecord`: top of pipe after it begins, bottom of pipe before it ends), its
+own work, and the others around it (one begun for secondary command buffers, as the main pass's, can hold none). The UI pass reads 0.015 ms with the menu bar alone, 0.09
 with the file browser's grid, and Shadows 3.67 rather than 3.9 (without the transitions around it). The Statistics
 window (View > Statistics, or `SPEEDO_SHOW_STATISTICS=1`; in debug and profile builds, the vulkan object counts in debug
 only) shows each pass's moving average over the frames that timed it (factor 0.1), for 2 seconds after it was last

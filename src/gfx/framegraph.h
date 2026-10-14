@@ -92,7 +92,6 @@ public:
 	};
 	using ExecuteFunction = std::function<void(PassContext& context)>;
 	// records around a pass: calls record (the pass's barriers, render target and execute callback) in between
-	using WrapFunction = std::function<void(CommandBufferHandle cmd, const std::function<void()>& record)>;
 
 	// declares what a pass uses (called once, from AddPass)
 	class PassBuilder
@@ -116,9 +115,6 @@ public:
 		void Contents(rhi::SubpassContents contents);
 		// keeps the pass even if nothing in the graph reads what it writes (writes to imported resources do that already)
 		void SideEffects();
-		// records commands around the pass, outside its render target: e.g. a gpu profiling scope, which a render target
-		// begun for secondary command buffers can't hold
-		void Wrap(WrapFunction wrap);
 
 	private:
 		friend class FrameGraph;
@@ -153,21 +149,12 @@ public:
 	void Bind(ImageId image, Image& bound);
 	void Bind(BufferId buffer, Buffer& bound);
 
-	// times the passes on the gpu (timestamps around each, per frame index, see ReadTimings). call after adding them.
-	// only in builds that profile (SPEEDO_PROFILING_LEVEL > 0: debug and profile): a no-op otherwise
-	void EnableTimings(Device& device, uint32_t frameCount);
+	// records the enabled passes, after their barriers, each a gpu scope of profiler's (if any: the queue's, see
+	// Queue::GetProfiler), named after it, in the graph's timing group
+	void Execute(CommandBufferHandle cmd, GpuProfiler* profiler = nullptr);
 
-	// records the enabled passes, after their barriers (timed in timingFrame's slot, if timings are enabled)
-	void Execute(CommandBufferHandle cmd, std::optional<uint32_t> timingFrame = std::nullopt);
-
-	// how long each pass took on the gpu the last time a frame of this index ran (in milliseconds, by name, in order):
-	// call once the gpu is done with that frame (after its fence), before executing it again. empty if not available
-	struct PassTiming
-	{
-		std::string_view name;
-		double milliseconds = 0.0;
-	};
-	[[nodiscard]] std::vector<PassTiming> ReadTimings(uint32_t frame) const;
+	// the group the passes' scopes are timed in: how long each took on the gpu is the profiler's TakeTimings of it
+	[[nodiscard]] uint64_t GetTimingGroup() const noexcept { return myTimingGroup; }
 
 	[[nodiscard]] Image& GetImage(ImageId image) const;
 	[[nodiscard]] const ImageView& GetView(ImageId image) const; // all of a sampled or storage transient's mips
@@ -226,7 +213,6 @@ private:
 		std::vector<Attachment> attachments; // color first, then depth
 		rhi::SubpassContents contents = rhi::SubpassContents::kInline;
 		ExecuteFunction execute;
-		WrapFunction wrap;
 		bool sideEffects = false;
 		bool enabled = true;
 		bool live = true;
@@ -237,19 +223,16 @@ private:
 	void InternalCull();
 	void InternalCreateTransients(Device& device);
 	void InternalBarriers(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex);
-	// records a pass: its barriers, and the callback (in its render target, if it has one). timing (if any): the pass's
-	// timestamps (timed * 2 and the next), written inside its render target (see Execute)
-	void InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex, const QueryPool* timing = nullptr, uint32_t timed = 0);
+	// records a pass: its barriers, and the callback (in its render target, if it has one). profiler (if any): the pass's
+	// scope, begun and ended inside its render target (see Execute)
+	void InternalRecord(CommandBufferHandle cmd, Pass& pass, uint32_t passIndex, GpuProfiler* profiler = nullptr);
 	void InternalTransition(CommandBufferHandle cmd, Resource& resource, rhi::ImageLayout layout);
 	[[nodiscard]] rhi::ImageLayout InternalLayout(const Resource& resource) const;
 
 	std::vector<Resource> myResources;
 	std::vector<Pass> myPasses;
 	std::vector<MemoryBlock> myBlocks;
-	// per frame index: the timestamps (two per pass), and which passes wrote them the last time
-	std::vector<QueryPool> myTimingPools;
-	std::vector<std::vector<uint32_t>> myTimedPasses;
-	double myTimestampPeriod = 0.0; // nanoseconds per tick
+	uint64_t myTimingGroup = GpuProfiler::NewGroup();
 	rhi::Extent2d myExtent{};
 	bool myCompiled = false;
 	uint64_t myTransientMemorySize = 0;
