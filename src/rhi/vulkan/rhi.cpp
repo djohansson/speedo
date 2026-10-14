@@ -73,7 +73,8 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 		}
 	}
 
-	std::ranges::sort(
+	// stable: of devices of a type, the first enumerated
+	std::ranges::stable_sort(
 		graphicsDeviceCandidates,
 		[&instance, &physicalDevices](const auto& lhs, const auto& rhs)
 		{
@@ -100,18 +101,20 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 
 	ENSUREF(!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU!");
 
+	// the best candidate only: everything draws on the primary device (GetPrimaryDevice), and each device made its own
+	// queues and pipeline for nothing. RenderDoc refuses a second logical device (a discrete gpu and an integrated one
+	// that can both present: "RenderDoc does not support multiple simultaneous logical devices")
+	const auto& [physicalDeviceIt, queueFamilyIt] = graphicsDeviceCandidates.front();
 	std::vector<Device<kVk>> devices;
-	devices.reserve(graphicsDeviceCandidates.size());
-	for (const auto& [physicalDeviceIt, queueFamilyIt] : graphicsDeviceCandidates)
-		devices.emplace_back(
-			DeviceCreateDesc<kVk>{
-				ObjectCreateDesc<kVk>{
-					.uuid = uuids::NewUuid(),
-					.instance = instance,
-					.name = std::format("Device {}", physicalDeviceIt),},
-				physicalDevices[physicalDeviceIt],
-			},
-			instance);
+	devices.emplace_back(
+		DeviceCreateDesc<kVk>{
+			ObjectCreateDesc<kVk>{
+				.uuid = uuids::NewUuid(),
+				.instance = instance,
+				.name = std::format("Device {}", physicalDeviceIt),},
+			physicalDevices[physicalDeviceIt],
+		},
+		instance);
 
 	return devices;
 }
