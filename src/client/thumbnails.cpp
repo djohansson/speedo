@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <iterator>
 #include <print>
 #include <span>
 #include <utility>
@@ -359,12 +360,14 @@ void Thumbnails::Update()
 		myAtlas->UpdateRect.w = myAtlas->UpdateRect.h = 0;
 	}
 
-	// the thumbnails made since, each into a free slot, else the one drawn longest ago (whose thumbnail is made again,
-	// from the cache, when it is seen again)
-	std::vector<Made> made;
+	// the thumbnails made since (after the ones still waiting for a slot), each into a free slot, else the one drawn
+	// longest ago (whose thumbnail is made again, from the cache, when it is seen again), unless that one is in view: it
+	// would be made again at once and take another in view, and with more in view than the atlas holds they flickered
+	std::vector<Made> made = std::exchange(myUnplaced, {});
 	{
 		std::scoped_lock lock(myShared->mutex);
-		made.swap(myShared->made);
+		std::ranges::move(myShared->made, std::back_inserter(made));
+		myShared->made.clear();
 	}
 	for (auto& result : made)
 	{
@@ -389,6 +392,15 @@ void Thumbnails::Update()
 			auto free = std::ranges::find_if(mySlotOwners, [](const std::string& owner) { return owner.empty(); });
 			slot = free != mySlotOwners.end() ? static_cast<uint32_t>(free - mySlotOwners.begin())
 											  : static_cast<uint32_t>(std::ranges::min_element(mySlotUsed) - mySlotUsed.begin());
+			// drawn last frame (or just placed): in view. this one waits while it is seen too, else it is made again when it is
+			if (!mySlotOwners[slot].empty() && mySlotUsed[slot] + 1 >= myFrame)
+			{
+				if (myFrame - entry.lastSeen <= 1)
+					myUnplaced.push_back(std::move(result));
+				else
+					entry.state = Entry::State::kWaiting;
+				continue;
+			}
 			if (!mySlotOwners[slot].empty())
 				if (auto owner = myEntries.find(mySlotOwners[slot]); owner != myEntries.end())
 				{

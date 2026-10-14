@@ -56,8 +56,9 @@ Notes for working in this codebase, distilled from real build failures.
   view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
   and checkboxes filter by kind (models, archives, images, panoramas): by default every model and zip archive below `resources/test-assets`
   (else the resource dir); only the rows in view are built (`ImGuiListClipper`), and only they ask for thumbnails (all
-  of them asking each frame made every one count as just drawn, and past the atlas's 256 slots each new thumbnail evicted
-  one in view: they flickered); listings run on the task executor (a big tree takes
+  of them asking each frame made every one count as just drawn, and past the atlas's slots each new thumbnail evicted
+  one in view: they flickered; a slot drawn last frame is never taken now, a thumbnail waits for one rather, and the
+  atlas holds more than a browser filling a 4K window shows, about 300 tiles, which the 256 slots it had didn't); listings run on the task executor (a big tree takes
   a while), a newer one dropping an older one's result; it previews the entry last clicked if it is a model, a zip archive (its
   models side by side, extracted as opening it does: `ExtractArchive`, `FindModels`) or a panorama (one preview load at
   a time, the latest selection's next; a model after a panorama brings the procedural sky back), and shows it only once it
@@ -69,7 +70,7 @@ Notes for working in this codebase, distilled from real build failures.
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
   `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
   startup, for tests and screenshots. Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
-  one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 16x16, reused least
+  one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 24x24, reused least
   recently drawn first: imgui's 1024 descriptor sets wouldn't hold a texture each), made on the task executor (4 at a
   time, newest asked for first, skipped once scrolled away): an image decoded (`image::Decode`) and scaled down, a
   panorama imported small and tonemapped, a model's bundled screenshot (`<model>/screenshot/screenshot.*`, as the

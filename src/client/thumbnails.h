@@ -114,6 +114,7 @@ private:
 	std::deque<std::string> myWaiting; // newest first: what was asked for last is likely what is seen
 	std::vector<std::string> mySlotOwners; // per slot, the key holding it (empty: free)
 	std::vector<uint64_t> mySlotUsed; // per slot, the frame it was last drawn in
+	std::vector<Made> myUnplaced; // made, but every slot it could take was in view (see Update)
 	uint64_t myFrame = 0;
 
 	// shared with the tasks making thumbnails

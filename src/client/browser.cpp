@@ -379,7 +379,8 @@ void WindowedApplication::InternalDrawBrowser()
 	{
 		auto userProfilePath = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["UserProfilePath"]);
 		constexpr uint32_t kThumbnailSize = 160;
-		constexpr uint32_t kAtlasSlots = 16;
+		// 576 slots (a 3840 pixel texture): more than the tiles in view of a browser filling a 4K window (about 300)
+		constexpr uint32_t kAtlasSlots = 24;
 		myThumbnails = std::make_unique<Thumbnails>(kThumbnailSize, kAtlasSlots, kAtlasSlots, userProfilePath / "thumbnails");
 		constexpr uint32_t kImagePreviewSize = 768;
 		myImagePreview = std::make_unique<Thumbnails>(kImagePreviewSize, 1, 1, std::filesystem::path());
