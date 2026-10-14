@@ -282,6 +282,15 @@ by column, so a header whose serialized structs hold one includes it. Changing a
 changed the caches' last bits (glm sums products pairwise), so the importer tags were bumped; renders came out the same
 but for a few pixels of skinned models, by 3 of 255 at most.
 
+glm runs without its intrinsics, on purpose: the compiler already targets the best instruction sets
+(`clang.toolchain.cmake`: `-march=native+crc+crypto` on arm64, `-march=x86-64-v3`, AVX2 and FMA, on x64), and vectorizes
+glm's scalar code (on the M4 a `mat4 * mat4` or `mat4 * vec4` is whole columns of `fmul.4s`/`fadd.4s`, as glm's NEON
+code would be). glm's own SIMD paths would cost more than they give: `GLM_FORCE_XYZW_ONLY` turns them off (without it,
+vectors are anonymous unions, which zpp::bits can't serialize by members), and they only apply to aligned types
+(`GLM_FORCE_DEFAULT_ALIGNED_GENTYPES` pads a `vec3` to 16 bytes, changing the caches' layouts and every `vec3` array).
+If a glm heavy loop ever shows in a profile, use `glm::aligned_vec4`/`aligned_mat4` there. `-march=native` ties the
+macOS binaries to the build machine's cpu: anything distributed needs a fixed one (e.g. `-mcpu=apple-m1`).
+
 ## Associative containers: core's, not the standard library's
 
 Don't use `std::map`, `std::set`, `std::unordered_map` or `std::unordered_set` (tools included): use `core::UnorderedMap`
