@@ -54,12 +54,16 @@ Notes for working in this codebase, distilled from real build failures.
   files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
   click selection, double click (or enter) to open or enter, and the arrow keys to step through them (scrolled into
   view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
-  and checkboxes filter by kind (models, archives, images, panoramas): by default every model below `resources/test-assets`
+  and checkboxes filter by kind (models, archives, images, panoramas): by default every model and zip archive below `resources/test-assets`
   (else the resource dir); only the rows in view are built (`ImGuiListClipper`), and only they ask for thumbnails (all
   of them asking each frame made every one count as just drawn, and past the atlas's 256 slots each new thumbnail evicted
   one in view: they flickered); listings run on the task executor (a big tree takes
-  a while), a newer one dropping an older one's result; it previews the entry last clicked if it is a model or a panorama
-  (one preview load at a time, the latest selection's next; a model after a panorama brings the procedural sky back), and
+  a while), a newer one dropping an older one's result; it previews the entry last clicked if it is a model, a zip archive (its
+  models side by side, extracted as opening it does: `ExtractArchive`, `FindModels`) or a panorama (one preview load at
+  a time, the latest selection's next; a model after a panorama brings the procedural sky back), and shows it only once it
+  is the focused entry's: the scene's file path is the name `Scene::LoadModels` returned for it (a model's path, or a set's
+  name); until then an empty square ("Loading..."), and nothing for an entry without a preview (a folder), or an archive
+  without models ("Nothing to preview"): the last preview stayed up, which looked like the new entry's; and
   opens the selection: one model as it is, several as one (`ModelArrangement`: side by side, the grid `Model::Load` of
   several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
@@ -69,7 +73,8 @@ Notes for working in this codebase, distilled from real build failures.
   recently drawn first: imgui's 1024 descriptor sets wouldn't hold a texture each), made on the task executor (4 at a
   time, newest asked for first, skipped once scrolled away): an image decoded (`image::Decode`) and scaled down, a
   panorama imported small and tonemapped, a model's bundled screenshot (`<model>/screenshot/screenshot.*`, as the
-  glTF-Sample-Assets have), else, for a model without one, a capture of its preview once drawn 20 frames
+  glTF-Sample-Assets have), else, for a model without one or a zip archive (`Source::kArchive`, keyed by the archive and
+  both importers' versions), a capture of its preview once drawn 20 frames
   (`Preview::RequestCapture`: the draw thread copies the preview's image to a host visible buffer after recording it,
   `CommandEncoder::CopyImageToBuffer`, and a graphics timeline callback hands the pixels over); cached on disk under
   `<user profile>/thumbnails` (`THM1`: a header, then the pixels), keyed by what each is made from, so that changing any

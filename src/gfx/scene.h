@@ -141,8 +141,10 @@ public:
 	// load, and have the draw thread install, unless the load is cancelled. call from a load task (see core::LoadQueue).
 	// a model, or several side by side as one (see Model::Load), with its materials' textures. options: a gltf file's
 	// scene and material variant to load (one file only), else its default ones
-	// several files are arranged as arrangement says (see ModelArrangement)
-	void LoadModels(
+	// several files are arranged as arrangement says (see ModelArrangement). returns the name of the model installed (see
+	// SceneState::filePath: a file's path, or for several their directory and count), or nothing if the load failed or was
+	// cancelled: it is installed once the draw thread has run the install
+	std::optional<std::string> LoadModels(
 		const std::vector<std::string>& filePaths,
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <format>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -69,12 +70,13 @@ struct Entry
 }
 
 // what a listing gathers: a folder's subfolders and files, or with recursive the files below it (no folders), of the
-// kinds shown. by default every model below the folder: the quickest way to step through what can be previewed
+// kinds shown. by default every model and zip archive below the folder: the quickest way to step through what can be
+// previewed
 struct ListOptions
 {
 	bool recursive = true;
 	bool models = true;
-	bool archives = false;
+	bool archives = true;
 	bool images = false;
 	bool environments = false;
 
@@ -158,6 +160,17 @@ struct Listing
 	std::vector<Entry> entries;
 };
 
+// the preview's load in progress, shared with its task
+struct PreviewLoad
+{
+	std::atomic_bool loading = false;
+	std::mutex mutex;
+	// what it installs in the preview scene, once it is known (see Scene::LoadModels: a model's path, or a set's name),
+	// and whether there was nothing to show (an archive without models, or a load that failed). guarded by mutex
+	std::optional<std::string> model;
+	bool empty = false;
+};
+
 // the browser's state, ui thread only
 struct State
 {
@@ -176,22 +189,30 @@ struct State
 		ListOptions{.recursive = true, .models = false, .archives = false, .images = false, .environments = true}};
 	std::shared_ptr<Listing> listing; // the listing in progress, if any (a newer one replaces it, which drops its result)
 
-	// the preview (see Preview): its image's texture, what it shows, and what it should. one load at a time, the
-	// latest selection's next
+	// the preview (see Preview): its image's texture, what it shows (the file last loaded into it), and what it should (the
+	// focused entry, if it has a preview). one load at a time, the latest selection's next
 	ImTextureID texture = ImTextureID_Invalid;
 	std::optional<std::filesystem::path> previewWanted;
 	std::filesystem::path previewShown;
 	bool previewEnvironment = false; // a file's panorama, rather than the procedural sky
-	std::shared_ptr<std::atomic_bool> previewLoading = std::make_shared<std::atomic_bool>(false);
+	std::shared_ptr<PreviewLoad> previewLoad = std::make_shared<PreviewLoad>();
 	uint32_t previewReadyFrames = 0; // the frames the focused model's preview has been drawn in, loaded
 };
 
-// what a kind's thumbnail is made from (archives have none: their icon)
+// whether a kind has a preview in the preview scene: a model, a zip archive's models, or a panorama (an image is drawn as
+// it is, see the image preview)
+[[nodiscard]] bool HasScenePreview(Kind kind)
+{
+	return kind == Kind::kModel || kind == Kind::kArchive || kind == Kind::kEnvironment;
+}
+
+// what a kind's thumbnail is made from (folders have none: their icon)
 [[nodiscard]] std::optional<Thumbnails::Source> ThumbnailSource(Kind kind)
 {
 	switch (kind)
 	{
 	case Kind::kModel: return Thumbnails::Source::kModel;
+	case Kind::kArchive: return Thumbnails::Source::kArchive;
 	case Kind::kImage: return Thumbnails::Source::kImage;
 	case Kind::kEnvironment: return Thumbnails::Source::kEnvironment;
 	default: return std::nullopt;
@@ -280,7 +301,7 @@ void WindowedApplication::InternalDrawBrowser()
 		if (const char* environment = std::getenv("SPEEDO_BROWSE_ENVIRONMENT"); environment != nullptr && std::string_view(environment) == "1")
 			gBrowserPurpose = BrowserPurpose::kEnvironment;
 		// SPEEDO_BROWSE_RECURSIVE=0: without subfolders, and SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas> the
-		// kinds listed (by default every model below the folder)
+		// kinds listed (by default every model and zip archive below the folder)
 		if (const char* recursive = std::getenv("SPEEDO_BROWSE_RECURSIVE"); recursive != nullptr && *recursive != '\0')
 			state.options.recursive = std::string_view(recursive) != "0";
 		if (const char* kinds = std::getenv("SPEEDO_BROWSE_KINDS"); kinds != nullptr && *kinds != '\0')
@@ -599,47 +620,85 @@ void WindowedApplication::InternalDrawBrowser()
 		EndChild();
 		SameLine();
 
-		// the preview: the entry last clicked, if a model or a panorama, drawn off-screen (one load at a time: the latest
-		// selection's goes next)
+		// the preview: the entry last clicked, if a model, a zip archive's models or a panorama, drawn off-screen (one load at
+		// a time: the latest selection's goes next)
 		BeginChild("Preview", ImVec2(0, -footer), ImGuiChildFlags_Borders);
 		{
 			const Entry* focus = state.listed && state.anchor && *state.anchor < state.entries.size() ? &state.entries[*state.anchor] : nullptr;
-			if (focus && (focus->kind == Kind::kModel || focus->kind == Kind::kEnvironment))
+			// nothing wanted when the focused entry has no preview (a folder, an image), so the last one isn't shown for it
+			if (!focus || !HasScenePreview(focus->kind))
+				state.previewWanted.reset();
+			else
 				state.previewWanted = focus->path;
-			if (preview && !state.previewLoading->load() && state.previewWanted && *state.previewWanted != state.previewShown)
+			auto& load = *state.previewLoad;
+			if (preview && !load.loading.load() && state.previewWanted && *state.previewWanted != state.previewShown)
 			{
 				auto path = *state.previewWanted;
-				bool environment = Lower(path.extension().string()) == ".hdr";
+				auto extension = Lower(path.extension().string());
+				bool environment = extension == ".hdr";
+				bool archive = extension == ".zip";
 				bool restoreSky = !environment && state.previewEnvironment;
 				state.previewShown = path;
 				state.previewEnvironment = environment;
-				state.previewLoading->store(true);
+				{
+					std::scoped_lock lock(load.mutex);
+					load.model.reset();
+					load.empty = false;
+				}
+				load.loading.store(true);
 				(void)gLoads.Enqueue(
 					std::format("Preview: {}", path.filename().string()),
-					[preview, path = path.string(), environment, restoreSky, loading = state.previewLoading](std::atomic_uint8_t& progress)
+					[preview, path, environment, archive, restoreSky, load = state.previewLoad](std::atomic_uint8_t& progress)
 					{
+						std::optional<std::string> model;
 						if (environment)
 						{
-							preview->GetScene().LoadEnvironment(path, progress);
+							preview->GetScene().LoadEnvironment(path.string(), progress);
 						}
 						else
 						{
 							if (restoreSky)
 								preview->GetScene().LoadEnvironment(std::nullopt, progress);
-							preview->GetScene().LoadModels({path}, progress);
+							// an archive's models side by side, extracted (once, as opening it does)
+							std::vector<std::string> models;
+							if (!archive)
+								models.push_back(path.string());
+							else if (auto directory = ExtractArchive(path, progress))
+								for (const auto& found : FindModels(*directory))
+									models.push_back(found.string());
+							if (!models.empty())
+								model = preview->GetScene().LoadModels(models, progress);
 						}
-						loading->store(false);
+						{
+							std::scoped_lock lock(load->mutex);
+							load->empty = !environment && !model;
+							load->model = std::move(model);
+						}
+						load->loading.store(false);
 					});
 			}
 
-			// a model without a bundled screenshot gets its thumbnail from the preview, once it has been drawn a while. the
-			// frames count from its install (the scene's file path), not the load's end: the load returns before the draw
-			// thread installs it, and installs nothing if it fails, so the previous model would be captured as this one's
-			bool previewReady = preview && focus && focus->kind == Kind::kModel && state.previewShown == focus->path && !state.previewLoading->load() &&
-								preview->GetScene().GetScenes().Read().Get().filePath == focus->path.string();
-			state.previewReadyFrames = previewReady ? state.previewReadyFrames + 1 : 0;
+			// whether the preview shows the focused entry: its load done, and a model's (or an archive's) installed, which
+			// the scene's file path says (the load returns before the draw thread installs it)
+			std::optional<std::string> loadedModel;
+			bool loadedEmpty = false;
+			{
+				std::scoped_lock lock(load.mutex);
+				loadedModel = load.model;
+				loadedEmpty = load.empty;
+			}
+			bool focusLoaded = preview && focus && HasScenePreview(focus->kind) && state.previewShown == focus->path && !load.loading.load();
+			bool previewReady =
+				focusLoaded && (focus->kind == Kind::kEnvironment ||
+								(loadedModel && preview->GetScene().GetScenes().Read().Get().filePath == *loadedModel));
+
+			// a model without a bundled screenshot, or an archive, gets its thumbnail from the preview, once it has been
+			// drawn a while (counted from its install: a failed load installs nothing, and the previous model would be
+			// captured as this one's)
+			bool captureReady = previewReady && focus->kind != Kind::kEnvironment;
+			state.previewReadyFrames = captureReady ? state.previewReadyFrames + 1 : 0;
 			constexpr uint32_t kCaptureAfterFrames = 20;
-			if (previewReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->Missing(focus->path))
+			if (captureReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->Missing(focus->path))
 				preview->RequestCapture(
 					[thumbnails = myThumbnails.get(), path = focus->path](std::vector<uint8_t> rgba, uint32_t width, uint32_t height)
 					{ thumbnails->Put(path, std::move(rgba), width, height); });
@@ -662,17 +721,26 @@ void WindowedApplication::InternalDrawBrowser()
 					GetWindowDrawList()->AddText(ImVec2(corner.x + 8.0F, corner.y + 8.0F), IM_COL32(255, 255, 255, 230), "Loading...");
 				}
 			}
-			else if (state.texture != ImTextureID_Invalid && !state.previewShown.empty())
+			else if (focus && HasScenePreview(focus->kind) && state.texture != ImTextureID_Invalid)
 			{
+				// the preview once it shows the focused entry; until then an empty square, rather than what it showed before
 				ImVec2 corner = GetCursorScreenPos();
-				ImGui::Image(ImTextureRef(state.texture), ImVec2(side, side));
-				if (state.previewLoading->load() || (state.previewWanted && *state.previewWanted != state.previewShown))
-					GetWindowDrawList()->AddText(ImVec2(corner.x + 8.0F, corner.y + 8.0F), IM_COL32(255, 255, 255, 230), "Loading...");
+				if (previewReady)
+					ImGui::Image(ImTextureRef(state.texture), ImVec2(side, side));
+				else
+					Dummy(ImVec2(side, side));
+				if (!previewReady)
+					GetWindowDrawList()->AddText(
+						ImVec2(corner.x + 8.0F, corner.y + 8.0F),
+						IM_COL32(255, 255, 255, 230),
+						focusLoaded && loadedEmpty ? "No models to preview." : "Loading...");
 			}
 			else
 			{
 				Dummy(ImVec2(side, side * 0.25F));
-				TextDisabled("Select a model, an image or a panorama to preview it.");
+				PushStyleColor(ImGuiCol_Text, GetStyleColorVec4(ImGuiCol_TextDisabled));
+				TextWrapped("Select a model, a zip archive, an image or a panorama to preview it.");
+				PopStyleColor();
 			}
 
 			// what is selected

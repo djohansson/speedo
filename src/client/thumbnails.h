@@ -30,6 +30,7 @@ public:
 		kImage, // the image
 		kEnvironment, // the panorama, tonemapped
 		kModel, // the screenshot next to it (glTF-Sample-Assets: <model>/screenshot/screenshot.*), else a capture (Put)
+		kArchive, // a zip archive of models: a capture of its preview (Put)
 	};
 
 	// where a thumbnail is in the atlas, and its aspect ratio (width over height)
@@ -89,7 +90,7 @@ private:
 
 	// made on the task executor: from the cache, else the source (cached then). the cache is keyed by what the thumbnail
 	// is made from, so a change to any of it makes a new one: the file (an image's, a panorama's, a model's screenshot),
-	// or for a model's capture its file, the files its render reads, its importer, and renderVersion
+	// or for a capture its file (a model, or a zip archive), the files its render reads, its importers, and renderVersion
 	static std::optional<std::vector<uint8_t>> Make(
 		const std::filesystem::path& path,
 		Source source,

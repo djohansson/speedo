@@ -1113,7 +1113,7 @@ struct Scene::Impl
 	// loads a model (or several, side by side as one, see Model::Load) and its materials' textures, and has the draw thread
 	// install them, unless the load was cancelled. call from a load (see gLoads).
 	// scene: a gltf file's scene to load (one file only), else its default one
-	void LoadAndInstallModels(
+	std::optional<std::string> LoadAndInstallModels(
 		RHI& rhi,
 		const std::vector<std::string>& filePaths,
 		std::atomic_uint8_t& progress,
@@ -1124,7 +1124,7 @@ struct Scene::Impl
 						 ? Model::Load(filePaths.front(), progress, options)
 						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement);
 		if (!model) // cancelled or failed
-			return;
+			return std::nullopt;
 
 		const auto& filePath = model->GetDesc().name; // or the models' directory, for several
 
@@ -1253,7 +1253,7 @@ struct Scene::Impl
 				progress = static_cast<uint8_t>(255 * ++done / distinct.size());
 			});
 		if (core::Application::Get()->IsExitRequested())
-			return;
+			return std::nullopt;
 
 		for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
 			*loads[loadIt].result = loaded[loadDistinct[loadIt]];
@@ -1265,6 +1265,7 @@ struct Scene::Impl
 			[this, &rhi, model, textures = std::move(textures)](QueueTimelineContextData* graphics) mutable
 			{ InstallModel(rhi, *graphics, model, std::move(textures)); });
 		rhi.drawCalls.enqueue(installTask);
+		return filePath;
 	}
 
 	// loads an image and has the draw thread install it, unless the load was cancelled. call from a load (see gLoads).
@@ -1952,10 +1953,10 @@ std::vector<DescriptorPoolSize> Scene::DescriptorPoolSizes()
 	return gfx::DescriptorPoolSizes();
 }
 
-void Scene::LoadModels(
+std::optional<std::string> Scene::LoadModels(
 	const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, ModelArrangement arrangement)
 {
-	myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement);
+	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement);
 }
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)

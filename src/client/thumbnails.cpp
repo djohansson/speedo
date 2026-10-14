@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -69,6 +70,17 @@ struct Header
 // in renderVersion), and what draws them (the shaders, in renderVersion). a change to any of them is a new key
 [[nodiscard]] std::string CaptureKey(const std::filesystem::path& path, std::string_view renderVersion)
 {
+	// a zip archive holds everything its models' renders read, and they may be either kind
+	auto extension = path.extension().string();
+	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	if (extension == ".zip")
+		return std::format(
+			"capture|{}|{}|{}|{}",
+			Stamp(path),
+			gfx::Model::ImportVersion("model.obj"),
+			gfx::Model::ImportVersion("model.gltf"),
+			renderVersion);
+
 	auto key = std::format("capture|{}|{}|{}", Stamp(path), gfx::Model::ImportVersion(path.string()), renderVersion);
 	for (const auto& files : {gfx::mesh::Dependencies(path), gfx::mesh::ImageFiles(path)})
 		for (const auto& file : files)
@@ -209,9 +221,10 @@ std::optional<std::vector<uint8_t>> Thumbnails::Make(
 	// what it is made from: an image or a panorama, the file; a model, its screenshot, else its preview's capture (see
 	// CaptureKey: only ever cached, made by Put)
 	auto screenshot = source == Source::kModel ? FindScreenshot(path) : std::nullopt;
-	auto key = source != Source::kModel ? std::format("{}|{}", std::to_underlying(source), Stamp(path))
-			   : screenshot			? std::format("screenshot|{}", Stamp(*screenshot))
-									: CaptureKey(path, renderVersion);
+	auto key = source == Source::kArchive ? CaptureKey(path, renderVersion)
+			   : source != Source::kModel ? std::format("{}|{}", std::to_underlying(source), Stamp(path))
+			   : screenshot				? std::format("screenshot|{}", Stamp(*screenshot))
+										: CaptureKey(path, renderVersion);
 	auto cachePath = CachePath(key, slotSize, cacheDirectory);
 	if (cachePath)
 		if (auto mapped = core::file::Map(*cachePath); mapped && mapped->size() >= sizeof(Header))
@@ -230,6 +243,7 @@ std::optional<std::vector<uint8_t>> Thumbnails::Make(
 	std::vector<uint8_t> rgba;
 	switch (source)
 	{
+	case Source::kArchive: return std::nullopt; // a capture, only ever cached
 	case Source::kModel:
 	{
 		if (!screenshot)

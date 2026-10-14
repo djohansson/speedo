@@ -27,9 +27,10 @@ and ennis panoramas from glTF-Sample-Environments.*
 ### Using the client
 
 - **File > Open...** opens a file browser with thumbnails for models (`.gltf`, `.glb`, `.obj`), zip archives of
-  models, environments (`.hdr`) and images: it previews the model, image or panorama you click (or step to with the
-  arrow keys), can list every file below a folder at once ("Include subfolders") filtered by kind, and opens one or
-  several files (several models side by side, or as authored when they are parts of one scene).
+  models, environments (`.hdr`) and images: it previews the model, zip archive (its models side by side), image or
+  panorama you click (or step to with the arrow keys), can list every file below a folder at once ("Include subfolders")
+  filtered by kind (models and archives by default), and opens one or several files (several models side by side, or as
+  authored when they are parts of one scene).
 - **Moving around:** hold the left mouse button and drag to look around, use `W`/`A`/`S`/`D` to move, and the scroll
   wheel to change the move speed. `Alt+Enter` toggles fullscreen.
 - **The interface fades away** when it isn't in use, leaving the scene: move the mouse to the top of the window to bring
