@@ -463,8 +463,16 @@ removed, so it can't vouch for them; compare renders instead (identical before a
 `QueryPool`, `DeviceLimits::timestampPeriod`) around each pass, per frame index; `Renderer` reads a frame's after its
 fence (`ReadTimings`), shows them in the Statistics window, and with `SPEEDO_GPU_TIMINGS=1` prints each pass's median at
 exit. KosmicKrisp only writes timestamps where its own Metal command encoders begin and end: passes inside one encoder
-read 0, ones outside any are unwritten (dropped), and only some frames have them at all (about 15%). The GPU's clock
-drifts between runs, so compare a pass against a pass the change doesn't touch (e.g. Main against Shadows).
+read 0, and the others are unwritten, which it reports as available (`VK_QUERY_RESULT_WITH_AVAILABILITY_BIT`, which
+`QueryPool::Read` asks for, per timestamp) with 0 or a value written frames before. Taking those, the UI pass's time
+grew with the run time (its begin stale, its end current), and reading without availability (`VK_NOT_READY` for the
+whole range) dropped every pass of most frames, so the Statistics window flickered. `ReadTimings` keeps a pass only if
+both of its timestamps are available and plausible: begun not before the end of the last pass taken that frame (the
+passes run in order, so an older value is stale), not 0, ended not before begun, under 250 ms (on KosmicKrisp the UI
+pass is never timed). The Statistics window (View > Statistics, or `SPEEDO_SHOW_STATISTICS=1`; in debug and profile
+builds, the vulkan object counts in debug only) shows each pass's moving average over the frames that timed it (factor
+0.1), for 2 seconds after it was last timed; `SPEEDO_GPU_TIMINGS` prints the raw frames' medians. The GPU's clock drifts
+between runs, so compare a pass against a pass the change doesn't touch (e.g. Main against Shadows).
 
 Shader tiers: `GraphicsPipelineVariant::specialization` is the shaders' specialization constant 0, `kSkippedLayers` in
 `bindings.slang`, the layer groups (`SHADER_TYPES_LAYERS_*`) a pipeline compiles away. `SHADER_TYPES_LAYERS_EXTENDED`

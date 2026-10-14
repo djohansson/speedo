@@ -615,20 +615,27 @@ std::vector<FrameGraph::PassTiming> FrameGraph::ReadTimings(uint32_t frame) cons
 	if (frame >= myTimingPools.size() || myTimedPasses[frame].empty())
 		return {};
 	const auto& passes = myTimedPasses[frame];
-	std::vector<uint64_t> timestamps(passes.size() * 2);
-	if (!myTimingPools[frame].Read(0, timestamps))
-		return {};
-	// only plausible pairs: some backends only write timestamps where their own command encoders begin or end (Metal),
-	// so others are 0 or repeated
+	std::vector<std::optional<uint64_t>> timestamps(passes.size() * 2);
+	myTimingPools[frame].Read(0, timestamps);
+	// only the passes whose two timestamps were written this time. some backends only write them where their own command
+	// encoders begin or end (Metal: KosmicKrisp), leaving the others with an undefined value, and KosmicKrisp reports
+	// those as available too, 0 or one written frames before (the UI pass's time grew with the run time). so a pass's
+	// timestamps must also be plausible: begun not before the passes before it ended (the passes run in order, so an
+	// older value is stale), ended not before begun, within a quarter of a second
+	constexpr double kMaxMilliseconds = 250.0;
 	std::vector<PassTiming> timings;
+	uint64_t floor = 0; // the end of the last pass taken
 	for (size_t passIt = 0; passIt < passes.size(); passIt++)
 	{
-		auto begin = timestamps[passIt * 2];
-		auto end = timestamps[(passIt * 2) + 1];
-		if (begin == 0 || end < begin)
+		const auto& begin = timestamps[passIt * 2];
+		const auto& end = timestamps[(passIt * 2) + 1];
+		if (!begin || !end || *begin == 0 || *begin < floor || *end < *begin)
 			continue;
-		timings.push_back(
-			{.name = myPasses[passes[passIt]].name, .milliseconds = static_cast<double>(end - begin) * myTimestampPeriod * 1e-6});
+		auto milliseconds = static_cast<double>(*end - *begin) * myTimestampPeriod * 1e-6;
+		if (milliseconds > kMaxMilliseconds)
+			continue;
+		floor = *end;
+		timings.push_back({.name = myPasses[passes[passIt]].name, .milliseconds = milliseconds});
 	}
 	return timings;
 }

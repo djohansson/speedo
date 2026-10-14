@@ -94,7 +94,8 @@ public:
 
 	[[nodiscard]] const FrameGraph& GetGraph() const noexcept { return myGraph; }
 
-	// how long each pass took on the gpu, the last time it was read (milliseconds, by name). any thread.
+	// how long each pass takes on the gpu (milliseconds, by name): a moving average over the frames that timed it, for
+	// the passes timed in the last 2 seconds, in the order they were first timed. any thread.
 	[[nodiscard]] std::vector<std::pair<std::string, double>> GetPassTimings() const;
 
 	// the lights and shadow views of the last frame recorded with FrameInputs::captureLights, for debugging. any thread.
@@ -153,8 +154,17 @@ private:
 	RecordingFrame myFrame;
 	uint32_t myOitNodeCapacity = 0;
 
-	// the passes' gpu timings, for the ui, and with SPEEDO_GPU_TIMINGS=1 every frame's, whose medians the destructor prints
+	// the passes' gpu timings, for the ui (see GetPassTimings), and with SPEEDO_GPU_TIMINGS=1 every frame's, whose medians
+	// the destructor prints
 	core::ConcurrentAccess<std::vector<std::pair<std::string, double>>> myPassTimings;
+	struct SmoothedTiming
+	{
+		std::string name;
+		double milliseconds = 0.0; // an exponential moving average of the frames that timed the pass
+		uint64_t lastRecord = 0; // the Record that last timed it
+	};
+	std::vector<SmoothedTiming> mySmoothedTimings; // in the order the passes were first timed
+	uint64_t myRecordCount = 0;
 	core::ConcurrentAccess<LightCapture> myLightCapture;
 	bool myCollectTimings = false;
 	std::vector<std::pair<std::string, std::vector<double>>> myCollectedTimings;

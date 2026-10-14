@@ -4,7 +4,9 @@
 #include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
+#include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace rhi
 {
@@ -78,20 +80,27 @@ void QueryPool<kVk>::WriteTimestamp(CommandBufferHandle<kVk> cmd, uint32_t index
 }
 
 template <>
-bool QueryPool<kVk>::Read(uint32_t first, std::span<uint64_t> timestamps) const
+void QueryPool<kVk>::Read(uint32_t first, std::span<std::optional<uint64_t>> timestamps) const
 {
+	std::ranges::fill(timestamps, std::nullopt);
 	if (timestamps.empty())
-		return true;
+		return;
+	// each a value and its availability: VK_NOT_READY (some unwritten) still returns the ones written
+	std::vector<uint64_t> results(timestamps.size() * 2);
 	auto result = vkGetQueryPoolResults(
 		GetDevice(),
 		myPool,
 		first,
 		static_cast<uint32_t>(timestamps.size()),
-		timestamps.size_bytes(),
-		timestamps.data(),
-		sizeof(uint64_t),
-		VK_QUERY_RESULT_64_BIT);
-	return result == VK_SUCCESS;
+		results.size() * sizeof(uint64_t),
+		results.data(),
+		2 * sizeof(uint64_t),
+		VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+	if (result != VK_SUCCESS && result != VK_NOT_READY)
+		return;
+	for (size_t queryIt = 0; queryIt < timestamps.size(); queryIt++)
+		if (results[(queryIt * 2) + 1] != 0)
+			timestamps[queryIt] = results[queryIt * 2];
 }
 
 } // namespace rhi

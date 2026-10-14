@@ -49,18 +49,27 @@ void WindowedApplication::PrepareDraw()
 
 	myImGui->BeginFrame();
 
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-	static bool gShowStatistics = false;
+	// View > Statistics (SPEEDO_SHOW_STATISTICS=1 at startup), in the builds that profile (debug and profile): the pass
+	// timings (the frame graph's, written in those builds only), submits and transient memory, and in debug the vulkan
+	// objects (tracked by validation builds only)
+#if (SPEEDO_PROFILING_LEVEL > 0)
+	static bool gShowStatistics = []
+	{
+		const char* show = std::getenv("SPEEDO_SHOW_STATISTICS");
+		return show != nullptr && std::string_view(show) == "1";
+	}();
 	{
 		if (gShowStatistics)
 		{
-			if (Begin("Statistics", &gShowStatistics))
+			if (Begin("Statistics", &gShowStatistics, ImGuiWindowFlags_AlwaysAutoResize))
 			{
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 				for (const auto& [name, count] : GetObjectCounts<kGraphicsApi>())
 					Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
+				Separator();
+#endif
 
 				// gpu submits: totals, and how many went to the gpu between the last two presented frames (see Draw)
-				Separator();
 				Text(
 					"Queue Submits: %llu (%u/frame)",
 					static_cast<unsigned long long>(Queue::GetSubmitCount()),
@@ -852,11 +861,10 @@ void WindowedApplication::PrepareDraw()
 			if (MenuItem("Lights...", nullptr, gShowLights))
 				gShowLights = !gShowLights;
 			SetItemTooltip("Lists the lights, and draws them over the views: where they are (a directional light outside the scene, shining in), spot cones, point light ranges and the shadow views' frusta.");
-#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-			{
-				if (MenuItem("Statistics..."))
-					gShowStatistics = !gShowStatistics;
-			}
+#if (SPEEDO_PROFILING_LEVEL > 0)
+			if (MenuItem("Statistics...", nullptr, gShowStatistics))
+				gShowStatistics = !gShowStatistics;
+			SetItemTooltip("The passes' gpu timings (where the driver writes them), submits, transient memory, and in debug builds the vulkan objects.");
 #endif
 			ImGui::EndMenu();
 		}

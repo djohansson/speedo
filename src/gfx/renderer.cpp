@@ -558,22 +558,34 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	ENSURE(inputs.exposureHistogram && inputs.graphicsQueue);
 
-	// the passes' timings from the last time this frame index ran (its fence has been waited for)
-	if (auto timings = myGraph.ReadTimings(inputs.frameIndex); !timings.empty())
+	// the passes' timings from the last time this frame index ran (its fence has been waited for): the ui's smoothed (an
+	// exponential moving average over the frames that timed a pass, which may be few: see FrameGraph::ReadTimings), and
+	// shown until a pass hasn't been timed for a while, so that the list doesn't flicker
 	{
-		std::vector<std::pair<std::string, double>> named;
-		for (const auto& [name, milliseconds] : timings)
+		constexpr double kSmoothing = 0.1;
+		constexpr uint64_t kShownRecords = 240; // 2 seconds at 120 frames a second
+		myRecordCount++;
+		for (const auto& [name, milliseconds] : myGraph.ReadTimings(inputs.frameIndex))
 		{
-			named.emplace_back(std::string(name), milliseconds);
+			auto it = std::ranges::find(mySmoothedTimings, name, [](const auto& timing) { return std::string_view(timing.name); });
+			if (it == mySmoothedTimings.end())
+				it = mySmoothedTimings.insert(mySmoothedTimings.end(), {.name = std::string(name), .milliseconds = milliseconds});
+			else
+				it->milliseconds += kSmoothing * (milliseconds - it->milliseconds);
+			it->lastRecord = myRecordCount;
 			if (myCollectTimings)
 			{
-				auto it = std::ranges::find(myCollectedTimings, name, [](const auto& entry) { return std::string_view(entry.first); });
-				if (it == myCollectedTimings.end())
-					it = myCollectedTimings.insert(myCollectedTimings.end(), {std::string(name), {}});
-				it->second.push_back(milliseconds);
+				auto collected = std::ranges::find(myCollectedTimings, name, [](const auto& entry) { return std::string_view(entry.first); });
+				if (collected == myCollectedTimings.end())
+					collected = myCollectedTimings.insert(myCollectedTimings.end(), {std::string(name), {}});
+				collected->second.push_back(milliseconds);
 			}
 		}
-		myPassTimings.Write().Get() = std::move(named);
+		std::vector<std::pair<std::string, double>> shown;
+		for (const auto& timing : mySmoothedTimings)
+			if (myRecordCount - timing.lastRecord <= kShownRecords)
+				shown.emplace_back(timing.name, timing.milliseconds);
+		myPassTimings.Write().Get() = std::move(shown);
 	}
 
 	FrameInputs frame = inputs;

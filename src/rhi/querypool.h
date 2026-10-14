@@ -4,6 +4,7 @@
 #include <rhi/types.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace rhi
@@ -48,8 +49,10 @@ public:
 	void Reset(CommandBufferHandle<G> cmd, uint32_t first, uint32_t count) const;
 	// records writing a timestamp once the commands before have completed
 	void WriteTimestamp(CommandBufferHandle<G> cmd, uint32_t index) const;
-	// the timestamps from first, if all of them are available (doesn't wait)
-	[[nodiscard]] bool Read(uint32_t first, std::span<uint64_t> timestamps) const;
+	// the timestamps from first, each if it was written since its reset (doesn't wait). a backend may leave some unwritten:
+	// KosmicKrisp only writes them where its own Metal command encoders begin and end, and an unwritten one's value is
+	// undefined (it read back as one written frames before)
+	void Read(uint32_t first, std::span<std::optional<uint64_t>> timestamps) const;
 
 private:
 	QueryPool(CreateDescType&& desc, QueryPoolHandle<G>&& pool);
