@@ -1,5 +1,6 @@
 #include <core/taskexecutor.h>
 #include <core/assert.h>//NOLINT(modernize-deprecated-headers)
+#include <core/profiling.h>
 
 #include <atomic>
 
@@ -229,7 +230,13 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 
 	gTaskExecutorState.wait(kTaskExecutorInitializing, std::memory_order_acquire);
 	
-	SetThreadName(myThreads[threadIndex], std::format("TaskThread {}", threadIndex).c_str());
+	auto threadName = std::format("TaskThread {}", threadIndex);
+	SetThreadName(myThreads[threadIndex], threadName.c_str());
+#if defined(TRACY_ENABLE)
+	// and Tracy's, which it keeps a list of its own for (it doesn't read the os's: only the thread id showed), the task
+	// threads in a group of their own
+	tracy::SetThreadNameWithHint(threadName.c_str(), 1);
+#endif
 			
 	auto stopToken = myStopSource.get_token();
 
