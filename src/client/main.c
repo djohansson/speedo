@@ -19,6 +19,19 @@
 #if defined(__APPLE__)
 #	define GLFW_EXPOSE_NATIVE_COCOA
 #	include <GLFW/glfw3native.h>
+#elif defined(__WINDOWS__)
+// windows.h for SetWindowPos (see OnCreateWindow): only the kernel and user parts, without min and max
+#	ifndef WIN32_LEAN_AND_MEAN
+#		define WIN32_LEAN_AND_MEAN
+#	endif
+#	ifndef NOMINMAX
+#		define NOMINMAX
+#	endif
+#	ifndef NOGDI
+#		define NOGDI
+#	endif
+#	define GLFW_EXPOSE_NATIVE_WIN32
+#	include <GLFW/glfw3native.h>
 #endif
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
@@ -497,6 +510,9 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 		// shown behind every other window (glfw's show orders it to the front)
 		id nsWindow = glfwGetCocoaWindow(window);
 		((void (*)(id, SEL, id))objc_msgSend)(nsWindow, sel_registerName("orderBack:"), NULL);
+#elif defined(__WINDOWS__)
+		// shown at the bottom of the z-order without activating it (glfw's show, SW_SHOWNA, puts it on top)
+		SetWindowPos(glfwGetWin32Window(window), HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
 #else
 		glfwShowWindow(window);
 #endif

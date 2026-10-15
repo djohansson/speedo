@@ -238,6 +238,11 @@ if ($Client)
 	{
 		$env:SPEEDO_BACKGROUND = '1'
 	}
+	# fifo: with mailbox, nvidia's windows driver hangs about 1 exit in 100 in vkDestroySwapchainKHR (0 in 858 with fifo)
+	if (-not $env:SPEEDO_PRESENT_MODE)
+	{
+		$env:SPEEDO_PRESENT_MODE = 'fifo'
+	}
 	$timeout = if ($env:ASSETTEST_CLIENT_TIMEOUT) { [int]$env:ASSETTEST_CLIENT_TIMEOUT } else { 600 }
 	$caffeinate = if ($IsMacOS) { Get-Command caffeinate -ErrorAction SilentlyContinue } else { $null }
 
@@ -305,7 +310,10 @@ if ($Client)
 		if (Test-Path -LiteralPath "$log.stderr")
 		{
 			Get-Content -LiteralPath "$log.stderr" | Add-Content -LiteralPath $log
-			Remove-Item -LiteralPath "$log.stderr"
+			# on windows a client started meanwhile may hold it open (Start-Process's redirects are inherited by the
+			# processes started while they are open), which stopped the whole run: it is complete, and the next run of
+			# this model overwrites it
+			Remove-Item -LiteralPath "$log.stderr" -ErrorAction SilentlyContinue
 		}
 		if ($TimedOut)
 		{
