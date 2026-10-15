@@ -7,6 +7,7 @@
 #include <cstring>
 #include <ctime>
 #include <chrono>
+#include <format>
 #include <iostream>
 
 #include <core/uuids_extra.h>
@@ -157,18 +158,25 @@ std::expected<Record, std::error_code> LoadAsset(
 		if (error)
 			return std::unexpected(error);
 
+		// the manifest is written apart and renamed into its place once complete: another load of the same asset (e.g.
+		// the file browser's preview and opening it, a double click apart) must never see one half written. it mapped the
+		// empty manifest an import had just created, failed, and the model wasn't loaded. beside the cache file rather
+		// than the manifest: a longer manifest path can pass MAX_PATH (the executables aren't long path aware)
+		auto cachePath = cacheDir / uuidStr;
+		auto manifestTempPath = cacheDir / std::format("{}.manifest", uuidStr);
+
 		auto manifestFile = mio_extra::resizeable_mmap_sink<std::byte>();
-		manifestFile.map(manifestPath.string(), error);
+		manifestFile.map(manifestTempPath.string(), error);
 
 		if (error)
 			return std::unexpected(error);
 
-		// a failed (e.g. cancelled) import leaves neither an empty manifest nor an orphaned cache file behind
-		auto fail = [&manifestFile, &manifestPath, cachePath = cacheDir / uuidStr](std::error_code failure)
+		// a failed (e.g. cancelled) import leaves neither a manifest nor an orphaned cache file behind
+		auto fail = [&manifestFile, &manifestTempPath, &cachePath](std::error_code failure)
 		{
 			manifestFile.unmap();
 			std::error_code ignored;
-			std::filesystem::remove(manifestPath, ignored);
+			std::filesystem::remove(manifestTempPath, ignored);
 			std::filesystem::remove(cachePath, ignored);
 			return std::unexpected(failure);
 		};
@@ -179,7 +187,7 @@ std::expected<Record, std::error_code> LoadAsset(
 			return fail(asset.error());
 
 		auto cache = SaveBinary<true>(
-			cacheDir / uuidStr, saveBinaryCacheFn, {.value = progressOut, .end = kCacheHashEnd, .cancelled = cancelled});
+			cachePath, saveBinaryCacheFn, {.value = progressOut, .end = kCacheHashEnd, .cancelled = cancelled});
 		if (!cache)
 			return fail(cache.error());
 
@@ -207,6 +215,21 @@ std::expected<Record, std::error_code> LoadAsset(
 		if (error)
 			return fail(error);
 
+		manifestFile.unmap();
+
+		// a concurrent import of the same asset that published first wins (it may be being read, which windows doesn't
+		// rename over): this one's files go, and its result, already loaded, is still good
+		std::error_code ignored;
+		if (std::filesystem::exists(manifestPath, ignored))
+			error = std::make_error_code(std::errc::file_exists);
+		else
+			std::filesystem::rename(manifestTempPath, manifestPath, error);
+		if (error)
+		{
+			std::filesystem::remove(manifestTempPath, ignored);
+			std::filesystem::remove(cachePath, ignored);
+		}
+
 		return manifest;
 	};
 
@@ -216,15 +239,16 @@ std::expected<Record, std::error_code> LoadAsset(
 	{
 		ZoneScopedN("LoadAsset::LoadAssetManifest");
 
+		// one that can't be mapped (e.g. left empty by an older version or a crash) is reimported
 		auto manifestFile = mio::basic_mmap_source<std::byte>();
 		manifestFile.map(manifestPath.string(), error);
 
 		if (error)
-			return std::unexpected(error);
-
-		manifest = LoadAssetManifest<false>(
-			std::span<const std::byte>(manifestFile.data(), manifestFile.size()),
-			[](std::span<const std::byte> buffer) { return LoadObject<AssetManifest>(buffer); });
+			manifest = std::unexpected(error);
+		else
+			manifest = LoadAssetManifest<false>(
+				std::span<const std::byte>(manifestFile.data(), manifestFile.size()),
+				[](std::span<const std::byte> buffer) { return LoadObject<AssetManifest>(buffer); });
 	}
 	else
 	{
@@ -242,10 +266,9 @@ std::expected<Record, std::error_code> LoadAsset(
 		else
 			std::cerr << "Asset manifest is invalid: Unknown error, Path: " << manifestPath << '\n';
 
+		// may fail (on windows, while another load reads it): the import replaces it if it can, else the next load retries
 		std::filesystem::remove(manifestPath, error);
-		if (error)
-			return std::unexpected(error);
-		
+
 		std::cerr << "Reimporting source file\n";
 
 		if (auto result = importSourceFile(); result)
