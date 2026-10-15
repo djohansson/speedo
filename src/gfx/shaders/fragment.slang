@@ -14,7 +14,6 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
 
 	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
-
 	uint materialId = viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u);
 
 	MaterialData material = gMaterialData[materialId];
