@@ -1003,7 +1003,11 @@ which unzip ignores too. `assettest` takes zip archives as well, extracting them
 index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `-Client`
 also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish, and
 `SPEEDO_BACKGROUND=1` opens its window behind the others without taking the focus, so the runs don't interrupt whoever
-is working), failing
+is working, and `SPEEDO_PRESENT_MODE=fifo`: with mailbox, the client's default where the surface has it, NVIDIA's Windows
+driver hangs about 1 exit in 100 in `vkDestroySwapchainKHR`, which no change of ours fixed: handling the window's messages
+meanwhile, or keeping the presents' semaphores until their images were acquired again (which validation then reported
+destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fences it can't know a present is done);
+0 in 858 with fifo), failing
 on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
 profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. Both run in
 parallel: `assettest` checks its models and images on every thread (`CheckInOrder`: results printed in the serial order;
@@ -1078,6 +1082,25 @@ system's (1252) it threw on the glTF sample `Unicode❤♻Test` when the file br
 manifest without libxml2 or mt.exe, so it is a resource (`src/windows.rc`), and `CMakeLists.txt` turns CMake's
 `/MANIFEST:EMBED` (in `Windows-Clang.cmake`'s link rule, after the target's flags) into `/MANIFEST:NO`. A new
 executable target needs `windows.rc` in its sources.
+
+## Parallel work is tasks; callables are templates or tasks, not `std::function`
+
+- Run parallel and background work as tasks on the application's executor (`core::CreateTask` and
+  `TaskExecutor::Submit`, `TaskExecutor::ForEach` for a loop over indices, `core::AddDependency` to run one task after
+  another, `Join` or a future's `IsReady` to wait), not on threads of its own (`std::thread`, `std::jthread`,
+  `std::async`): the executor's threads are named for the debugger and Tracy and joined at shutdown, and a waiting `Join`
+  or `ForEach` helps run the queue instead of blocking a thread. The only other threads are the tools' (`assettest`'s
+  workers, the cpu environment kernels). Work for a particular thread is a task too, queued for it: `mainCalls` (the
+  main thread's, run by `platform::WindowedApplication::Main`) and `RHI::drawCalls` (the draw thread's).
+- Take a callable as a template parameter (`template <typename Fn> void Foo(Fn&& fn)`); where it runs later, or on
+  another thread, as a task (`core::TaskHandle`, as `mainCalls` and `drawCalls` do); where it is called during the call
+  into a .cpp that a template can't reach, as a non-owning `function_ref`; and where it is stored and called again (the
+  frame graph's passes), as a `std::move_only_function`. Not as a `std::function`, which copies, type-erases every
+  call and allocates for larger captures.
+- Tasks come from a fixed pool (`kTaskPoolSize`), and a task stays allocated until its future is gone and the executor
+  purges it (`JoinAll`, or after another task runs). A waiting `ForEach` runs other tasks meanwhile, so `ForEach`es nest,
+  each holding a task per thread: a model's texture loads, each compressing on every thread, took about threads squared
+  (see `kTaskPoolSize`).
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 
