@@ -529,6 +529,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(target server client assettest filebench)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
+	# the resource compiler's includes aren't tracked: without this, a changed manifest wasn't embedded
+	set_source_files_properties(${SPEEDO_SOURCE_DIR}/windows.rc PROPERTIES OBJECT_DEPENDS ${SPEEDO_SOURCE_DIR}/windows.manifest)
 
 	# the modules slang loads at run time from beside the executable (the build copies only the dlls it imports):
 	# without them, compiling the shaders (a new user profile, or a changed shader) fails to load spirv-opt

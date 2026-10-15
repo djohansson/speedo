@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!-- embedded by windows.rc, in place of the linker's (whose trustInfo it repeats). the process's ANSI code page is UTF-8, as narrow strings are on the other platforms: libc++'s path::string() and the
      narrow file APIs (mio, the importers) convert with it, and the system's (1252 here) can't represent every file name
-     (the glTF sample Unicode❤♻Test made path::string() throw) -->
+     (the glTF sample Unicode❤♻Test made path::string() throw). long paths: the asset caches mirror the assets' paths
+     (and absolute ones under external/), and without it a path past MAX_PATH (260) failed to load or cache, where the
+     system allows long paths (LongPathsEnabled) -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
 	<trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
 		<security>
@@ -13,6 +15,7 @@
 	<application xmlns="urn:schemas-microsoft-com:asm.v3">
 		<windowsSettings>
 			<activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+			<longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
 		</windowsSettings>
 	</application>
 </assembly>
