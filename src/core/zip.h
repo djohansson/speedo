@@ -1,11 +1,12 @@
 #pragma once
 
+#include <core/cancelled.h>
+
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -70,6 +71,6 @@ struct EntryData
 	const std::filesystem::path& directory,
 	TaskExecutor* executor = nullptr,
 	std::atomic_uint8_t* progress = nullptr,
-	const std::function<bool()>& cancelled = {});
+	CancelledFn cancelled = NeverCancelled);
 
 } // namespace core::zip

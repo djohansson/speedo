@@ -1,13 +1,14 @@
 #pragma once
 
+#include <core/cancelled.h>
 #include <core/mio_extra.h>
 #include <core/path.h>
+#include <core/std_extra.h>
 
 #include <atomic>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <functional>
 #include <span>
 #include <string>
 #include <system_error>
@@ -37,12 +38,12 @@ struct Record
 };
 
 // a step's share of a load's progress (0-255): advanced from its value when the step starts, to `end` when it is done.
-// a step that takes long checks `cancelled` (if set) as it goes, and fails with std::errc::operation_canceled.
+// a step that takes long checks `cancelled` as it goes, and fails with std::errc::operation_canceled.
 struct Progress
 {
 	std::atomic_uint8_t* value = nullptr;
 	uint8_t end = 0;
-	std::function<bool()> cancelled;
+	CancelledFn cancelled = NeverCancelled;
 };
 
 template <typename T, AccessMode Mode, bool SaveOnDestruct = false>
@@ -92,20 +93,22 @@ using MappedFile = mio::basic_mmap_source<std::byte>;
 using InputSerializer = zpp::bits::in<mio::basic_mmap_source<std::byte>>;
 using OutputSerializer = zpp::bits::out<mio_extra::resizeable_mmap_sink<std::byte>, zpp::bits::no_fit_size, zpp::bits::no_enlarge_overflow>;
 
-using LoadFn = std::function<std::error_code(InputSerializer&)>;
-using SaveFn = std::function<std::error_code(OutputSerializer&)>;
+// called during the call they are passed to (see std_extra::function_ref)
+using LoadFn = std_extra::function_ref<std::error_code(InputSerializer&)>;
+using SaveFn = std_extra::function_ref<std::error_code(OutputSerializer&)>;
 // files the source file pulled in while loading (e.g. shader includes/imports). called after a successful source load;
 // their records are kept in the manifest, so that changing any of them invalidates the cache as well.
-using DependenciesFn = std::function<std::vector<std::filesystem::path>()>;
+using DependenciesFn = std_extra::function_ref<std::vector<std::filesystem::path>()>;
+[[nodiscard]] inline std::vector<std::filesystem::path> NoDependencies() { return {}; }
 
 template <bool Sha256ChecksumEnable>
 [[nodiscard]] std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& filePath, Progress progress = {});
 
 template <bool Sha256ChecksumEnable>
-[[nodiscard]] std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp, Progress hashProgress = {});
+[[nodiscard]] std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, LoadFn loadOp, Progress hashProgress = {});
 
 template <bool Sha256ChecksumEnable>
-[[nodiscard]] std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp, Progress hashProgress = {});
+[[nodiscard]] std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, SaveFn saveOp, Progress hashProgress = {});
 
 template <typename T>
 [[nodiscard]] std::expected<T, std::error_code> LoadObject(std::span<std::byte> buffer) noexcept;
@@ -118,13 +121,13 @@ template <typename T>
 
 [[nodiscard]] std::expected<Record, std::error_code> LoadAsset(
 	const std::filesystem::path& filePath,
-	const LoadFn& loadSourceFileFn,
-	const LoadFn& loadBinaryCacheFn,
-	const SaveFn& SaveBinaryCacheFn,
+	LoadFn loadSourceFileFn,
+	LoadFn loadBinaryCacheFn,
+	SaveFn saveBinaryCacheFn,
 	const std::string& parameterHash,
-	const DependenciesFn& dependenciesFn = {},
+	DependenciesFn dependenciesFn = NoDependencies,
 	std::atomic_uint8_t* progressOut = nullptr, // see LoadAsset in file.cpp for the share its steps take
-	const std::function<bool()>& cancelled = {}); // checked while hashing (the load ops check it themselves)
+	CancelledFn cancelled = NeverCancelled); // checked while hashing (the load ops check it themselves)
 
 } // namespace file
 

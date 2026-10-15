@@ -7,6 +7,7 @@
 #include <gfx/textureref.h>
 #include <gfx/shaders/capi.h>
 
+#include <core/cancelled.h>
 #include <core/glm_extra.h>
 
 #include <glm/mat4x4.hpp>
@@ -16,7 +17,6 @@
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -248,7 +248,7 @@ struct ImportOptions
 // imports a model file with the importer for its extension. returns an error message if the file can't be read or
 // parsed, or if cancelled() returns true.
 [[nodiscard]] std::expected<Mesh, std::string> Import(
-	const std::filesystem::path& path, const ImportOptions& options = {}, const std::function<bool()>& cancelled = {});
+	const std::filesystem::path& path, const ImportOptions& options = {}, core::CancelledFn cancelled = core::NeverCancelled);
 
 // why Import can't load path at all, before trying (a gltf file requiring an unsupported extension), if it can't
 [[nodiscard]] std::optional<std::string> Unsupported(const std::filesystem::path& path);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <core/task.h>
 #include <core/utils.h>
 
 #include <rhi/descriptorset.h>
@@ -172,12 +173,13 @@ public:
 	[[maybe_unused]] PipelineHandle<G> BindPipelineAuto(CommandBufferHandle<G> cmd, ComputePipelineVariant variant);
 
 	// a graphics pipeline for the bound layout and render target, as BindPipelineAuto would create it, without waiting
-	// for it: its handle if it exists; else none, and the first time it is asked for, a job that creates it from a copy of
-	// the current state (to run on any thread: until it has, BindPipelineAuto for the variant waits for it)
+	// for it: its handle if it exists; else none, and the first time it is asked for, a task that creates it from a copy
+	// of the current state, for the caller to submit (it runs on any thread: until it has, BindPipelineAuto for the
+	// variant waits for it)
 	struct GraphicsPipelineRequest
 	{
 		PipelineHandle<G> handle{};
-		std::function<void()> create;
+		core::TaskHandle create{};
 	};
 	[[nodiscard]] GraphicsPipelineRequest RequestGraphicsPipeline(GraphicsPipelineVariant variant);
 	// the thread group size (from the shader's reflection) of one of the bound compute layout's entry points, to dispatch

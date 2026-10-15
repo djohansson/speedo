@@ -72,14 +72,10 @@ void UpdateBufferOnGraphics(
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
-// in a graphics queue submission that waits for the uploads, acquires the uploaded resources for the graphics queue
-// family and transitions the images to a shader readable layout. once that has executed, has the draw thread call
-// bind (with the graphics queue context). call on the draw thread.
-void TransitionThenBind(
-	RHI& rhi,
-	QueueTimelineContextData& graphics,
-	const Uploads& uploads,
-	std::function<void(QueueTimelineContextData&)> bind)
+namespace detail
+{
+
+void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, core::TaskHandle bind)
 {
 	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
 
@@ -135,12 +131,7 @@ void TransitionThenBind(
 	}
 	cmd.End();
 
-	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, bind = std::move(bind)]
-	{
-		auto [bindTask, bindFuture] = core::CreateTask<QueueTimelineContextData*>(
-			[bind](QueueTimelineContextData* graphics) { bind(*graphics); });
-		rhi.drawCalls.enqueue(bindTask);
-	});
+	auto [transitionDoneTask, transitionDoneFuture] = core::CreateTask([&rhi, bind] { rhi.drawCalls.enqueue(bind); });
 
 	syncInfo.signalSemaphores = {graphics.semaphore};
 	syncInfo.signalSemaphoreValues = {++graphics.timeline};
@@ -149,5 +140,7 @@ void TransitionThenBind(
 
 	graphicsSubmits |= graphicsQueue.Submit();
 }
+
+} // namespace detail
 
 } // namespace gfx

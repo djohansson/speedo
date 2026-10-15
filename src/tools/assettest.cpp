@@ -35,7 +35,6 @@
 #include <cstring>
 #include <filesystem>
 #include <format>
-#include <functional>
 #include <iterator>
 #include <mutex>
 #include <numbers>
@@ -988,6 +987,7 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 // (sky: then the kernels draw it from its parameters, without its sun, and its sun is expectedLight, which the dominant
 // light found in its panorama must match)
 Report CheckEnvironment(
+	core::TaskExecutor& executor,
 	const gfx::environment::Panorama& panorama,
 	const gfx::environment::SkyParameters* sky = nullptr,
 	const std::optional<gfx::environment::DominantLight>& expectedLight = std::nullopt)
@@ -1001,7 +1001,8 @@ Report CheckEnvironment(
 	std::optional<Environment> environment = environmentkernels::Prefilter(
 		sky != nullptr ? environmentkernels::Source{.sky = sky, .skyWidth = panorama.width}
 					   : environmentkernels::Source{.original = &panorama, .lighting = &lighting},
-		data);
+		data,
+		executor);
 	environment->dominantLights = std::move(dominantLights);
 
 	auto luminance = [](const glm::dvec3& rgb) { return glm::dot(rgb, glm::dvec3(0.2126, 0.7152, 0.0722)); };
@@ -1134,19 +1135,21 @@ void Print(const std::filesystem::path& path, const Report& report, std::chrono:
 		std::println("    {}", note);
 }
 
-// runs check(i) for each i below count on jobs threads, and hands the results to report(i, result) on the calling
-// thread in order, as soon as each is in: the report reads as a serial run's (the checks don't share state)
-template <typename ResultType>
-void CheckInOrder(
-	size_t count, unsigned jobs, const std::function<ResultType(size_t)>& check, const std::function<void(size_t, ResultType&)>& report)
+// runs ResultType check(i) for each i below count in jobs tasks on executor, and hands the results to report(i, result)
+// on the calling thread (not a task: it waits) in order, as soon as each is in: the report reads as a serial run's (the
+// checks don't share state)
+template <typename ResultType, typename Check, typename Report>
+void CheckInOrder(core::TaskExecutor& executor, size_t count, unsigned jobs, Check&& check, Report&& report)
 {
 	std::vector<std::optional<ResultType>> results(count);
 	std::mutex mutex;
 	std::condition_variable done;
 	std::atomic_size_t next = 0;
-	std::vector<std::jthread> workers;
+	std::vector<core::TaskHandle> workers;
+	std::vector<core::Future<void>> workerFutures;
 	for (size_t workerIt = 0; workerIt < std::min<size_t>(jobs, count); workerIt++)
-		workers.emplace_back(
+	{
+		auto [worker, future] = core::CreateTask(
 			[&]
 			{
 				for (size_t index = next++; index < count; index = next++)
@@ -1159,6 +1162,10 @@ void CheckInOrder(
 					done.notify_one();
 				}
 			});
+		workers.push_back(worker);
+		workerFutures.push_back(std::move(future));
+	}
+	executor.Submit(workers);
 	for (size_t index = 0; index < count; index++)
 	{
 		std::unique_lock lock(mutex);
@@ -1168,6 +1175,9 @@ void CheckInOrder(
 		lock.unlock();
 		report(index, result);
 	}
+	// the workers may still be on their way out, holding references to the above
+	for (auto& future : workerFutures)
+		(void)executor.Join(std::move(future));
 }
 
 } // namespace
@@ -1179,8 +1189,9 @@ int main(int argc, char* argv[])
 	// how many models or images are checked at once (--jobs N): a thread each, by default the hardware's
 	unsigned jobs = std::max(1U, std::thread::hardware_concurrency());
 	bool archiveFailed = false;
-	// extracts the zip archives given, an entry per thread (see core::zip::ExtractAll)
-	core::TaskExecutor zipExecutor(std::max(1U, std::thread::hardware_concurrency()));
+	// runs the checks (see CheckInOrder), the environment kernels and the zip archives' extraction (an entry per thread, see
+	// core::zip::ExtractAll)
+	core::TaskExecutor executor(std::max(1U, std::thread::hardware_concurrency()));
 	std::vector<std::filesystem::path> modelFiles;
 	std::vector<std::filesystem::path> environmentFiles;
 	ImageChecks imageFiles;
@@ -1213,7 +1224,7 @@ int main(int argc, char* argv[])
 			std::error_code error;
 			std::filesystem::remove_all(directory, error);
 			auto start = std::chrono::steady_clock::now();
-			if (auto result = core::zip::ExtractAll(path, directory, &zipExecutor); !result)
+			if (auto result = core::zip::ExtractAll(path, directory, &executor); !result)
 			{
 				std::println("FAIL {}\n    {}", path.string(), result.error());
 				archiveFailed = true;
@@ -1284,6 +1295,7 @@ int main(int argc, char* argv[])
 			std::chrono::duration<double> time{};
 		};
 		CheckInOrder<ModelCheck>(
+			executor,
 			modelFiles.size(),
 			jobs,
 			[&modelFiles](size_t index)
@@ -1335,6 +1347,7 @@ int main(int argc, char* argv[])
 			checks.push_back(check);
 		std::ranges::sort(checks);
 		CheckInOrder<std::pair<Report, std::chrono::duration<double>>>(
+			executor,
 			checks.size(),
 			jobs,
 			[&checks](size_t index)
@@ -1360,7 +1373,7 @@ int main(int argc, char* argv[])
 		auto start = std::chrono::steady_clock::now();
 		gfx::environment::DominantLight skySun{.direction = gfx::environment::kSkySunDirection};
 		skySun.irradiance = glm::vec3(gfx::environment::kSkySunIrradiance);
-		auto report = CheckEnvironment(gfx::environment::ProceduralSky(), &gfx::environment::ProceduralSkyParameters(), skySun);
+		auto report = CheckEnvironment(executor, gfx::environment::ProceduralSky(), &gfx::environment::ProceduralSkyParameters(), skySun);
 		Print("procedural sky", report, std::chrono::steady_clock::now() - start);
 		Count(environmentResults, report.result)++;
 
@@ -1373,7 +1386,7 @@ int main(int argc, char* argv[])
 			if (!panorama)
 				report.Fail("{}", panorama.error());
 			else
-				report = CheckEnvironment(*panorama);
+				report = CheckEnvironment(executor, *panorama);
 			Print(path, report, std::chrono::steady_clock::now() - start);
 			Count(environmentResults, report.result)++;
 		}

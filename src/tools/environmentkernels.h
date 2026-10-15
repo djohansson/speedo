@@ -5,6 +5,11 @@
 #include <cstddef>
 #include <vector>
 
+namespace core
+{
+class TaskExecutor;
+} // namespace core
+
 // the environment's prefiltering kernels (src/gfx/shaders/environment.slang) run on the cpu, as slang's c++ target
 // compiles them (environmentkernels.generated.cpp, a build step of assettest): the same kernels the client's
 // gfx::EnvironmentFilter runs on the gpu, in the same order, so the tests check what the client draws with.
@@ -22,7 +27,7 @@ struct Source
 };
 
 // the levels and sheen levels (as R16G16B16A16 half floats in data, laid out as gfx::environment::Environment says) and
-// the irradiance (dominantLights is left empty: the caller has them)
-[[nodiscard]] gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data);
+// the irradiance (dominantLights is left empty: the caller has them), the kernels run on executor's threads
+[[nodiscard]] gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data, core::TaskExecutor& executor);
 
 } // namespace environmentkernels

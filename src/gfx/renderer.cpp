@@ -564,7 +564,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	// the scene's draws: in two phases if it has transmissive materials
 	myTwoPhases = false;
-	if (frame.model != nullptr && frame.transmissive)
+	if (frame.model != nullptr)
 	{
 		const auto& materials = frame.model->GetDesc().materials;
 		for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
@@ -572,8 +572,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	}
 	for (auto phase : {MainPassPhase::kOpaque, MainPassPhase::kTransmissive})
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
-			? BuildDrawList(
-				  *frame.model, phase, myTwoPhases, frame.transmissive ? frame.transmissive : [](size_t) { return false; }, frame.specialization)
+			? BuildDrawList(*frame.model, phase, myTwoPhases, frame.transmissive, frame.specialization)
 			: DrawList{};
 	// the shadows: planned for the frame, and written for the shader to read once the frame's previous use of its
 	// buffers is done (the caller waited for its fence)
@@ -624,7 +623,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		lights.sceneBounds = frame.sceneBounds;
 	}
 	myShadowDrawList = !myShadowPlan.views.empty()
-		? BuildShadowDrawList(*frame.model, frame.transmissive ? frame.transmissive : [](size_t) { return false; })
+		? BuildShadowDrawList(*frame.model, frame.transmissive)
 		: DrawList{};
 	bool shadowsDrawn = !myShadowDrawList.Empty();
 	frame.pushConstants.shadows = shadowsDrawn ? 1U : 0U;
@@ -632,7 +631,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn);
 
 	// the scattering materials' light, if any are drawn
-	myScatterDrawList = frame.model != nullptr && frame.scatters
+	myScatterDrawList = frame.model != nullptr
 		? BuildScatterDrawList(*frame.model, frame.scatters, frame.specialization)
 		: DrawList{};
 	myScatterBackDrawList = BuildScatterBackDrawList(myScatterDrawList);
@@ -754,7 +753,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 		std::optional<Frustum> frustum;
 		if (inputs.culling && viewIt < inputs.viewProjections.size())
 			frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
-		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, frustum ? &*frustum : nullptr, inputs.runInBackground);
+		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, frustum ? &*frustum : nullptr, inputs.executor);
 	}
 
 	std::vector<CommandBuffer> secondaries;

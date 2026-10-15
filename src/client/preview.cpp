@@ -65,7 +65,7 @@ void Preview::RecordCapture(CommandBufferHandle<rhi::kGraphicsApi> cmd, std::vec
 
 	callbacks.emplace_back(
 		core::CreateTask(
-			[buffer, extent, size, done = std::move(*done)]
+			[buffer, extent, size, done = std::move(*done)] mutable
 			{
 				std::vector<uint8_t> rgba(size);
 				auto memory = buffer->Map();

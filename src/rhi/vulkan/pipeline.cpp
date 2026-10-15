@@ -771,20 +771,21 @@ Pipeline<kVk>::GraphicsPipelineRequest Pipeline<kVk>::RequestGraphicsPipeline(Gr
 		std::unique_lock lock(sync.mutex);
 		auto [it, inserted] = myPipelineMap.try_emplace(key, PipelineHandle<kVk>{});
 		if (!inserted)
-			return {.handle = it->second, .create = {}};
+			return {.handle = it->second};
 	}
 
-	// the first ask: a job creating it from the state as it is now
+	// the first ask: a task creating it from the state as it is now
 	return {
 		.handle = {},
-		.create = [this, key, variant, snapshot = InternalSnapshotGraphicsState()]
-		{
-			auto handle = InternalCreateGraphicsPipeline(key, variant, *snapshot);
-			auto& sync = *myPipelineMapSync;
-			std::unique_lock lock(sync.mutex);
-			myPipelineMap.at(key) = handle;
-			sync.created.notify_all();
-		}};
+		.create = core::CreateTask(
+			[this, key, variant, snapshot = InternalSnapshotGraphicsState()]
+			{
+				auto handle = InternalCreateGraphicsPipeline(key, variant, *snapshot);
+				auto& sync = *myPipelineMapSync;
+				std::unique_lock lock(sync.mutex);
+				myPipelineMap.at(key) = handle;
+				sync.created.notify_all();
+			}).handle};
 }
 
 template <>

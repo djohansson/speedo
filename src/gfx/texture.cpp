@@ -250,7 +250,7 @@ Texture LoadTexture(
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 	picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-	auto loadResult = core::file::LoadAsset(filePath, loadImage, loadBin, saveBin, paramsHash, {}, &progress, cancelled);
+	auto loadResult = core::file::LoadAsset(filePath, loadImage, loadBin, saveBin, paramsHash, core::file::NoDependencies, &progress, cancelled);
 
 	if (!loadResult || !staging.IsValid())
 	{
@@ -423,7 +423,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 		std::array<uint8_t, kSha2Size> sha2;
 		picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
 		picosha2::bytes_to_hex_string(sha2.cbegin(), sha2.cend(), paramsHash);
-		auto loadResult = core::file::LoadAsset(*filePath, loadEnvironment, loadBin, saveBin, paramsHash, {}, &progress, cancelled);
+		auto loadResult = core::file::LoadAsset(*filePath, loadEnvironment, loadBin, saveBin, paramsHash, core::file::NoDependencies, &progress, cancelled);
 		if (!loadResult || !originalStaging.IsValid() || !lightingStaging.IsValid())
 		{
 			if (!loadResult && loadResult.error() != std::errc::operation_canceled)

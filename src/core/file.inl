@@ -35,11 +35,10 @@ struct AssetManifest
 	std::vector<file::Record> dependencyFileInfos;
 };
 
-using LoadAssetManifestInfoFn = std::function<std::expected<AssetManifest, std::error_code>(std::span<const std::byte>)>;
-
-template <bool Sha256ChecksumEnable>
+// loadManifestInfoFn: std::expected<AssetManifest, std::error_code>(std::span<const std::byte>)
+template <bool Sha256ChecksumEnable, typename LoadManifestInfo>
 std::expected<AssetManifest, AssetManifestError>
-LoadAssetManifest(std::span<const std::byte> buffer, const LoadAssetManifestInfoFn& loadManifestInfoFn)
+LoadAssetManifest(std::span<const std::byte> buffer, LoadManifestInfo&& loadManifestInfoFn)
 {
 	ZoneScoped;
 
@@ -128,7 +127,7 @@ std::expected<Record, std::error_code> GetRecord(const std::filesystem::path& fi
 		for (size_t offset = 0; offset < file.size(); offset += kChunkSize)
 		{
 			size_t chunkEnd = std::min(offset + kChunkSize, file.size());
-			if (progress.cancelled && progress.cancelled())
+			if (progress.cancelled())
 				return std::unexpected(std::make_error_code(std::errc::operation_canceled));
 
 			hasher.process(file.begin() + offset, file.begin() + chunkEnd);
@@ -201,7 +200,7 @@ std::expected<void, std::error_code> SaveObject(const T& object, const std::stri
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, const LoadFn& loadOp, Progress hashProgress)
+std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& filePath, LoadFn loadOp, Progress hashProgress)
 {
 	ZoneScoped;
 
@@ -225,7 +224,7 @@ std::expected<Record, std::error_code> LoadBinary(const std::filesystem::path& f
 }
 
 template <bool Sha256ChecksumEnable>
-std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, const SaveFn& saveOp, Progress hashProgress)
+std::expected<Record, std::error_code> SaveBinary(const std::filesystem::path& filePath, SaveFn saveOp, Progress hashProgress)
 {
 	ZoneScoped;
 

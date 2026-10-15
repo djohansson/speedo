@@ -7,17 +7,22 @@
 #include <gfx/shaders/capi.h>
 
 #include <core/concurrentaccess.h>
+#include <core/std_extra.h>
 
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <vector>
+
+namespace core
+{
+class TaskExecutor;
+} // namespace core
 
 namespace gfx
 {
@@ -110,20 +115,20 @@ public:
 		bool operator==(const DominantLightInfo&) const = default;
 	};
 
-	// what a frame is drawn into, and with (see Record)
+	// what a frame is drawn into, and with (see Record). its callables are called during Record
 	struct FrameTarget
 	{
 		uint16_t frameIndex = 0;
 		Queue* graphicsQueue = nullptr;
 		uint64_t graphicsTimeline = 0;
 		// record the ui's texture uploads and draws, over a window's frames (see SwapchainOutput)
-		std::function<void(CommandBufferHandle cmd)> prepareUi;
-		std::function<void(CommandBufferHandle cmd)> drawUi;
+		core::std_extra::function_ref<void(CommandBufferHandle cmd)> prepareUi = NoUi;
+		core::std_extra::function_ref<void(CommandBufferHandle cmd)> drawUi = NoUi;
 		// the ui's frosted panels, whose backdrop is blurred (see UiBlurRect: their rectangles and corners, in pixels of the
 		// output; the threads are the renderer's to fill in). of the ui frame drawUi draws
 		std::span<const UiBlurRect> uiBlurRects;
-		// runs a job on the task executor (pipelines created in the background)
-		std::function<void(std::function<void()> job)> runInBackground;
+		// runs tasks in the background (pipelines created there), if given
+		core::TaskExecutor* executor = nullptr;
 	};
 
 	// creates the default resources and the pipeline layouts, binds them, and sizes the renderer after output. draws with

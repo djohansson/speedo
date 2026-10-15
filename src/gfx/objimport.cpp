@@ -200,13 +200,13 @@ private:
 
 } // namespace detail
 
-std::expected<Mesh, std::string> Import(const std::filesystem::path& path, const std::function<bool()>& cancelled)
+std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core::CancelledFn cancelled)
 {
 	using namespace detail;
 
 	ZoneScopedN("obj::Import");
 
-	auto isCancelled = [&cancelled] { return cancelled && cancelled(); };
+	auto isCancelled = [&cancelled] { return cancelled(); };
 
 	// as tinyobj::ObjReader::ParseFromFile, but from the files mapped (its mtl files by MappedMaterialReader)
 	struct

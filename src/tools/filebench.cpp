@@ -38,7 +38,6 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
-#include <functional>
 #include <iterator>
 #include <optional>
 #include <print>
@@ -65,7 +64,7 @@ namespace filebench
 struct Method
 {
 	std::string_view name;
-	std::function<uint64_t(const std::filesystem::path&)> read; // the hash of the file's bytes
+	uint64_t (*read)(const std::filesystem::path&) = nullptr; // the hash of the file's bytes
 };
 
 [[nodiscard]] uint64_t Hash(const void* data, size_t size)
@@ -267,7 +266,7 @@ struct Result
 	{
 		auto extension = file.extension().string();
 		std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-		std::vector<std::pair<std::string, std::function<std::optional<std::string>()>>> imports;
+		std::vector<std::pair<std::string, core::std_extra::move_only_function<std::optional<std::string>() const>>> imports;
 		if (gfx::mesh::IsModelFile(file))
 			imports.emplace_back("import", [&file] { auto mesh = gfx::mesh::Import(file); return mesh ? std::nullopt : std::optional(mesh.error()); });
 		else if (extension == ".hdr")

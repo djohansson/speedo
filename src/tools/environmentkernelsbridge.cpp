@@ -5,8 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
-#include <atomic>
-#include <thread>
 #include <numeric>
 #include <optional>
 
@@ -174,35 +172,28 @@ struct Globals
 
 using Kernel = void (*)(ComputeVaryingInput*, void*, void*);
 
-// a kernel of 8x8 threads per group over an output level: the rows of groups spread over the cpu's threads (libc++ runs
+// a kernel of 8x8 threads per group over an output level: the rows of groups spread over forEach's threads (libc++ runs
 // std::execution::par serially)
-void Run(Kernel kernel, Globals globals, uint32_t width, uint32_t height)
+void Run(Kernel kernel, Globals globals, uint32_t width, uint32_t height, ForEach forEach)
 {
 	constexpr uint32_t kGroupSize = 8;
 	uint32_t groupsX = (width + kGroupSize - 1) / kGroupSize;
 	uint32_t groupsY = (height + kGroupSize - 1) / kGroupSize;
-	std::atomic_uint32_t nextRow = 0;
-	auto work = [&]
-	{
-		for (uint32_t row = nextRow++; row < groupsY; row = nextRow++)
+	forEach(
+		groupsY,
+		[&](uint32_t row)
 		{
 			ComputeVaryingInput input{};
 			input.startGroupID = {0, row, 0};
 			input.endGroupID = {groupsX, row + 1, 1};
 			auto rowGlobals = globals;
 			kernel(&input, nullptr, &rowGlobals);
-		}
-	};
-	std::vector<std::thread> threads(std::min<uint32_t>(std::max(std::thread::hardware_concurrency(), 1U), groupsY));
-	for (auto& thread : threads)
-		thread = std::thread(work);
-	for (auto& thread : threads)
-		thread.join();
+		});
 }
 
 } // namespace detail
 
-Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& environment)
+Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& environment, ForEach forEach)
 {
 	using namespace detail;
 
@@ -237,7 +228,7 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 		globals.output.texture = &output;
 		constants.roughness = roughness;
 		const auto& extent = image.levels[level];
-		Run(kernel, globals, extent.width, extent.height);
+		Run(kernel, globals, extent.width, extent.height, forEach);
 	};
 
 	// the source's level 0 and its pyramid

@@ -82,7 +82,7 @@ bool IsModelFile(const std::filesystem::path& path)
 }
 
 std::expected<Mesh, std::string> Import(
-	const std::filesystem::path& path, const ImportOptions& options, const std::function<bool()>& cancelled)
+	const std::filesystem::path& path, const ImportOptions& options, core::CancelledFn cancelled)
 {
 	switch (detail::FormatOf(path))
 	{

@@ -7,10 +7,6 @@
 #include <tuple>
 #include <type_traits>
 
-#if !defined(__cpp_lib_function_ref) || __cpp_lib_function_ref < 202306L
-#include <tl/function_ref.hpp>
-#endif
-
 namespace core
 {
 
@@ -68,13 +64,8 @@ private:
 	alignas(16) std::array<std::byte, kMaxCallableSizeBytes> myCallableMemory;
 	alignas(16) std::array<std::byte, kMaxArgsSizeBytes> myArgsMemory;
 
-#if defined(__cpp_lib_function_ref) && __cpp_lib_function_ref >= 202306L
-	alignas(8) std::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	alignas(8) std::function_ref<void(void*, void*)> myDeleteFcn;
-#else
-	alignas(8) tl::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
-	alignas(8) tl::function_ref<void(void*, void*)> myDeleteFcn;
-#endif
+	alignas(8) std_extra::function_ref<void(void*, const void*, void*, const void*)> myInvokeFcn;
+	alignas(8) std_extra::function_ref<void(void*, void*)> myDeleteFcn;
 	alignas(8) std::shared_ptr<struct TaskState> myState;
 };
 

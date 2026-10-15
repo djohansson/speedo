@@ -156,7 +156,7 @@ FrameGraph::BufferId FrameGraph::ImportBuffer(std::string name)
 	return {static_cast<uint32_t>(myResources.size() - 1)};
 }
 
-FrameGraph::PassId FrameGraph::AddPass(std::string name, const std::function<void(PassBuilder& builder)>& setup, ExecuteFunction execute)
+FrameGraph::PassId FrameGraph::AddPass(std::string name, core::std_extra::function_ref<void(PassBuilder& builder)> setup, ExecuteFunction execute)
 {
 	ENSURE(!myCompiled);
 	auto& pass = myPasses.emplace_back();

@@ -1,12 +1,13 @@
 #pragma once
 
+#include <core/cancelled.h>
+
 #include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -118,17 +119,17 @@ struct Pixels
 [[nodiscard]] std::expected<Image, std::string> Import(
 	const std::filesystem::path& path,
 	const Options& options,
-	const std::function<std::byte*(size_t size)>& allocate,
+	core::std_extra::function_ref<std::byte*(size_t size)> allocate,
 	std::atomic_uint8_t* progress = nullptr,
-	const std::function<bool()>& cancelled = {});
+	core::CancelledFn cancelled = core::NeverCancelled);
 // the same from an image's bytes (e.g. an image a gltf file embeds), with a name for messages
 [[nodiscard]] std::expected<Image, std::string> Import(
 	std::span<const std::byte> data,
 	std::string_view name,
 	const Options& options,
-	const std::function<std::byte*(size_t size)>& allocate,
+	core::std_extra::function_ref<std::byte*(size_t size)> allocate,
 	std::atomic_uint8_t* progress = nullptr,
-	const std::function<bool()>& cancelled = {});
+	core::CancelledFn cancelled = core::NeverCancelled);
 
 // decompresses one block of format to 4x4 rgba pixels, row by row: bc4 to the value in rgb, bc5 to x, y and the
 // reconstructed z (each * 0.5 + 0.5) in rgb, both with alpha 255. for testing.

@@ -13,6 +13,9 @@ namespace gfx
 
 struct FrameInputs;
 
+// no ui to record (the default of FrameInputs' and Scene::FrameTarget's prepareUi and drawUi)
+inline void NoUi(CommandBufferHandle /*cmd*/) noexcept {}
+
 // what the passes that end a frame (RenderOutput::AddFinalPasses) see of the frame being recorded (see Renderer::Record),
 // while it is
 struct RecordingFrame

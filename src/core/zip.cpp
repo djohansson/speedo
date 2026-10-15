@@ -256,7 +256,7 @@ std::expected<void, std::string> ExtractAll(
 	const std::filesystem::path& directory,
 	TaskExecutor* executor,
 	std::atomic_uint8_t* progress,
-	const std::function<bool()>& cancelled)
+	CancelledFn cancelled)
 {
 	using namespace detail;
 
@@ -309,7 +309,7 @@ std::expected<void, std::string> ExtractAll(
 		std::atomic_uint64_t extractedSize = 0;
 		uint64_t totalSize = 0;
 		std::atomic_uint8_t* progress = nullptr;
-		const std::function<bool()>& cancelled;
+		CancelledFn cancelled;
 		std::atomic_bool failed = false;
 		std::mutex errorMutex;
 		std::string error;
@@ -326,7 +326,7 @@ std::expected<void, std::string> ExtractAll(
 		{
 			for (size_t targetIt = next++; targetIt < targets.size() && !failed; targetIt = next++)
 			{
-				if (cancelled && cancelled())
+				if (cancelled())
 				{
 					Fail("cancelled");
 					return;

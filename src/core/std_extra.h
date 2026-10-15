@@ -4,10 +4,18 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstddef>
+#include <functional>
+#include <memory>
 #include <new>
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
+
+#if !defined(__cpp_lib_function_ref) || __cpp_lib_function_ref < 202306L
+#include <tl/function_ref.hpp>
+#endif
 
 namespace core
 {
@@ -151,6 +159,191 @@ consteval auto member_count()
 
 	return sizeof...(Args);
 }
+
+// a callable that is called during the call it is passed to (see CLAUDE.md: "Parallel work is tasks; callables are
+// templates or tasks, not std::function"): not owning, never empty. c++26's, else tl's
+#if defined(__cpp_lib_function_ref) && __cpp_lib_function_ref >= 202306L
+template <typename Signature>
+using function_ref = std::function_ref<Signature>;
+#else
+template <typename Signature>
+using function_ref = tl::function_ref<Signature>;
+#endif
+
+// a callable that is stored and called again: owning, move only, maybe empty. c++23's, else this one, which keeps
+// callables of up to four pointers (and nothrow movable) in place, larger ones on the heap. a const signature
+// (R(Args...) const) calls the callable as const, and can be called on a const move_only_function
+#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 202110L
+using std::move_only_function;
+#else
+namespace detail
+{
+
+template <bool Const, typename R, typename... Args>
+class move_only_function_base
+{
+public:
+	move_only_function_base() noexcept = default;
+	move_only_function_base(std::nullptr_t) noexcept {}//NOLINT(google-explicit-constructor)
+	template <typename F>
+	requires(!std::is_base_of_v<move_only_function_base, std::remove_cvref_t<F>> &&
+			 std::is_invocable_r_v<R, std::conditional_t<Const, const std::decay_t<F>&, std::decay_t<F>&>, Args...>)
+	move_only_function_base(F&& callable)//NOLINT(google-explicit-constructor,bugprone-forwarding-reference-overload)
+	{
+		using Callable = std::decay_t<F>;
+		if constexpr (kInPlace<Callable>)
+		{
+			::new (static_cast<void*>(myStorage)) Callable(std::forward<F>(callable));
+		}
+		else
+		{
+			::new (static_cast<void*>(myStorage)) Callable*(new Callable(std::forward<F>(callable)));
+		}
+		myOps = &kOps<Callable>;
+	}
+	move_only_function_base(move_only_function_base&& other) noexcept { InternalMoveFrom(other); }
+	move_only_function_base& operator=(move_only_function_base&& other) noexcept
+	{
+		if (this != &other)
+		{
+			InternalReset();
+			InternalMoveFrom(other);
+		}
+		return *this;
+	}
+	move_only_function_base& operator=(std::nullptr_t) noexcept
+	{
+		InternalReset();
+		return *this;
+	}
+	move_only_function_base(const move_only_function_base&) = delete;
+	move_only_function_base& operator=(const move_only_function_base&) = delete;
+	~move_only_function_base() { InternalReset(); }
+
+	[[nodiscard]] explicit operator bool() const noexcept { return myOps != nullptr; }
+
+protected:
+	// const or not, as the signature says (see move_only_function's operator())
+	R InternalInvoke(Args&&... args) const { return myOps->invoke(myStorage, std::forward<Args>(args)...); }
+
+private:
+	static constexpr std::size_t kInPlaceSize = 4 * sizeof(void*);
+
+	template <typename Callable>
+	static constexpr bool kInPlace = sizeof(Callable) <= kInPlaceSize && alignof(Callable) <= alignof(std::max_align_t) &&
+									 std::is_nothrow_move_constructible_v<Callable>;
+
+	struct Ops
+	{
+		R (*invoke)(std::byte* storage, Args&&... args);
+		void (*move)(std::byte* destination, std::byte* source) noexcept; // and destroys source's
+		void (*destroy)(std::byte* storage) noexcept;
+	};
+
+	template <typename Callable>
+	[[nodiscard]] static Callable& Get(std::byte* storage) noexcept
+	{
+		if constexpr (kInPlace<Callable>)
+			return *std::launder(reinterpret_cast<Callable*>(storage));
+		else
+			return **std::launder(reinterpret_cast<Callable**>(storage));
+	}
+
+	// as the signature says: const, or not
+	template <typename Callable>
+	[[nodiscard]] static decltype(auto) GetForInvoke(std::byte* storage) noexcept
+	{
+		if constexpr (Const)
+			return std::as_const(Get<Callable>(storage));
+		else
+			return Get<Callable>(storage);
+	}
+
+	template <typename Callable>
+	static constexpr Ops kOps{
+		.invoke = [](std::byte* storage, Args&&... args) -> R
+		{
+			if constexpr (std::is_void_v<R>)
+			{
+				std::invoke(GetForInvoke<Callable>(storage), std::forward<Args>(args)...);
+			}
+			else
+			{
+				return std::invoke(GetForInvoke<Callable>(storage), std::forward<Args>(args)...);
+			}
+		},
+		.move = [](std::byte* destination, std::byte* source) noexcept
+		{
+			if constexpr (kInPlace<Callable>)
+			{
+				::new (static_cast<void*>(destination)) Callable(std::move(Get<Callable>(source)));
+				Get<Callable>(source).~Callable();
+			}
+			else
+			{
+				::new (static_cast<void*>(destination)) Callable*(&Get<Callable>(source));
+			}
+		},
+		.destroy = [](std::byte* storage) noexcept
+		{
+			if constexpr (kInPlace<Callable>)
+			{
+				Get<Callable>(storage).~Callable();
+			}
+			else
+			{
+				delete &Get<Callable>(storage);
+			}
+		},
+	};
+
+	void InternalMoveFrom(move_only_function_base& other) noexcept
+	{
+		if (other.myOps == nullptr)
+			return;
+		other.myOps->move(myStorage, other.myStorage);
+		myOps = std::exchange(other.myOps, nullptr);
+	}
+	void InternalReset() noexcept
+	{
+		if (myOps != nullptr)
+			std::exchange(myOps, nullptr)->destroy(myStorage);
+	}
+
+	// mutable: a const signature calls the callable as const (see GetForInvoke) from a const operator()
+	alignas(std::max_align_t) mutable std::byte myStorage[kInPlaceSize]{};//NOLINT(modernize-avoid-c-arrays)
+	const Ops* myOps = nullptr;
+};
+
+} // namespace detail
+
+template <typename Signature>
+class move_only_function;
+
+template <typename R, typename... Args>
+class move_only_function<R(Args...)> : public detail::move_only_function_base<false, R, Args...>
+{
+	using Base = detail::move_only_function_base<false, R, Args...>;
+
+public:
+	using Base::Base;
+	using Base::operator=;
+
+	R operator()(Args... args) { return Base::InternalInvoke(std::forward<Args>(args)...); }
+};
+
+template <typename R, typename... Args>
+class move_only_function<R(Args...) const> : public detail::move_only_function_base<true, R, Args...>
+{
+	using Base = detail::move_only_function_base<true, R, Args...>;
+
+public:
+	using Base::Base;
+	using Base::operator=;
+
+	R operator()(Args... args) const { return Base::InternalInvoke(std::forward<Args>(args)...); }
+};
+#endif
 
 } // namespace std_extra
 

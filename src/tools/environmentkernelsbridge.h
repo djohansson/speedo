@@ -2,6 +2,8 @@
 
 #include <gfx/shaders/capi.h>
 
+#include <core/std_extra.h>
+
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -37,7 +39,12 @@ struct Output
 	std::vector<Level> sheenLevels; // kLevelCount, from an eighth of it
 };
 
-// runs the kernels as gfx::EnvironmentFilter does on the gpu: levelCount levels, and the irradiance into environment
-[[nodiscard]] Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& environment);
+// calls body(index) for each index below count, on several threads, and returns once all are done (the other side's
+// core::TaskExecutor::ForEach)
+using ForEach = core::std_extra::function_ref<void(uint32_t count, core::std_extra::function_ref<void(uint32_t index)> body)>;
+
+// runs the kernels as gfx::EnvironmentFilter does on the gpu: levelCount levels, and the irradiance into environment, each
+// kernel's rows of groups spread by forEach
+[[nodiscard]] Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& environment, ForEach forEach);
 
 } // namespace environmentkernels::bridge

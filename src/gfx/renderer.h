@@ -14,31 +14,40 @@
 
 #include <cstdint>
 #include <core/concurrentaccess.h>
+#include <core/std_extra.h>
 
-#include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 #include <memory>
 #include <span>
 #include <vector>
 
+namespace core
+{
+class TaskExecutor;
+} // namespace core
+
 namespace gfx
 {
 
 class Model;
 
-// what a frame draws, and with what (see Renderer::Record)
+// for FrameInputs' callables (called during Record, see std_extra::function_ref): no material is
+[[nodiscard]] inline bool NoMaterial(size_t /*material*/) noexcept { return false; }
+
+// what a frame draws, and with what (see Renderer::Record). its callables are called during Record
 struct FrameInputs
 {
 	uint16_t frameIndex = 0;
 	PushConstants pushConstants{}; // the frame's (Record fills in what the render target decides)
 	// the scene: the model (or none), and which of its materials are transmissive (drawn in the main pass's second phase)
 	const Model* model = nullptr;
-	std::function<bool(size_t material)> transmissive;
+	core::std_extra::function_ref<bool(size_t material)> transmissive = NoMaterial;
 	// which scatter light under their surface (KHR_materials_volume_scatter: drawn first into the scatter pass's target too)
-	std::function<bool(size_t material)> scatters;
-	// and which layer groups each material's pipeline can skip (see BuildDrawList): none, the generic ones, if empty
-	std::function<uint16_t(size_t material)> specialization;
+	core::std_extra::function_ref<bool(size_t material)> scatters = NoMaterial;
+	// and which layer groups each material's pipeline can skip (see BuildDrawList): none, the generic ones, if not given
+	std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization;
 	// the views: their grid, and each one's viewport (its cell, letterboxed to its camera's aspect ratio)
 	glm::uvec2 grid{1, 1};
 	std::vector<ViewportCreateDesc> viewports;
@@ -62,12 +71,12 @@ struct FrameInputs
 	Queue* graphicsQueue = nullptr;
 	uint64_t graphicsTimeline = 0;
 	// the ui: records its uploads (outside of a render pass), and its draws (in the swapchain's)
-	std::function<void(CommandBufferHandle cmd)> prepareUi;
-	std::function<void(CommandBufferHandle cmd)> drawUi;
+	core::std_extra::function_ref<void(CommandBufferHandle cmd)> prepareUi = NoUi;
+	core::std_extra::function_ref<void(CommandBufferHandle cmd)> drawUi = NoUi;
 	// the ui's frosted panels (see Scene::FrameTarget::uiBlurRects)
 	std::span<const UiBlurRect> uiBlurRects;
-	// runs a job on another thread (creating a pipeline in the background, see RecordDrawList), if given
-	std::function<void(std::function<void()> job)> runInBackground;
+	// runs tasks in the background (creating pipelines, see RecordDrawList), if given
+	core::TaskExecutor* executor = nullptr;
 };
 
 // draws frames: the lights' shadows (see gfx/shadows.h), the light under scattering materials' surfaces, the main pass (in two phases with transmissive materials), the order independent transparency's

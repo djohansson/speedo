@@ -3,6 +3,7 @@
 #include <gfx/model.h>
 
 #include <core/profiling.h>
+#include <core/taskexecutor.h>
 
 #include <algorithm>
 #include <cstring>
@@ -25,8 +26,8 @@ DrawList BuildDrawList(
 	const Model& model,
 	MainPassPhase phase,
 	bool twoPhases,
-	const std::function<bool(size_t material)>& transmissive,
-	const std::function<uint16_t(size_t material)>& specialization)
+	core::std_extra::function_ref<bool(size_t material)> transmissive,
+	std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization)
 {
 	ZoneScopedN("gfx::BuildDrawList");
 
@@ -46,7 +47,7 @@ DrawList BuildDrawList(
 				{.topology = submesh.topology,
 				 .blend = blend,
 				 .fragmentShader = fragmentShader,
-				 .specialization = specialization ? (submesh.material >= 0 ? specialization(static_cast<size_t>(submesh.material))
+				 .specialization = specialization ? (submesh.material >= 0 ? (*specialization)(static_cast<size_t>(submesh.material))
 																		   : static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED))
 												  : uint16_t{0}},
 			.cullMode = doubleSided ? CullMode::kNone : CullMode::kBack,
@@ -108,7 +109,7 @@ DrawList BuildDrawList(
 	return list;
 }
 
-DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t material)>& transmissive)
+DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<bool(size_t material)> transmissive)
 {
 	ZoneScopedN("gfx::BuildShadowDrawList");
 
@@ -128,7 +129,7 @@ DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t
 }
 
 DrawList BuildScatterDrawList(
-	const Model& model, const std::function<bool(size_t material)>& scatters, const std::function<uint16_t(size_t material)>& specialization)
+	const Model& model, core::std_extra::function_ref<bool(size_t material)> scatters, std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization)
 {
 	ZoneScopedN("gfx::BuildScatterDrawList");
 
@@ -171,7 +172,7 @@ void RecordDrawList(
 	PushConstants pushConstants,
 	uint16_t viewIndex,
 	const Frustum* frustum,
-	const std::function<void(std::function<void()> job)>& createInBackground)
+	core::TaskExecutor* executor)
 {
 	ZoneScopedN("gfx::RecordDrawList");
 
@@ -187,14 +188,14 @@ void RecordDrawList(
 			continue;
 
 		auto variant = item.variant;
-		if (variant.specialization != 0 && createInBackground)
+		if (variant.specialization != 0 && executor != nullptr)
 		{
 			// the generic pipeline until the specialized one exists (its creation takes tens of milliseconds)
 			auto request = pipeline.RequestGraphicsPipeline(variant);
 			if (request.handle == nullptr)
 			{
 				if (request.create)
-					createInBackground(std::move(request.create));
+					executor->Submit({&request.create, 1});
 				variant.specialization = 0;
 			}
 		}

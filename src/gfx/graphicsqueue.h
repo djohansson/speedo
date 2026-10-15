@@ -3,9 +3,10 @@
 #include <gfx/gpu.h>
 #include <gfx/upload.h>
 
+#include <core/task.h>
+
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <span>
 #include <utility>
@@ -33,13 +34,27 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 void UpdateBufferOnGraphics(
 	QueueTimelineContextData& graphics, const Buffer& buffer, uint64_t offset, std::span<const std::byte> data);
 
+namespace detail
+{
+
+// bind: a draw call (see RHI::drawCalls), queued once the transition has executed
+void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, core::TaskHandle bind);
+
+} // namespace detail
+
 // in a graphics queue submission that waits for the uploads, acquires the uploaded resources for the graphics queue
 // family and transitions the images to a shader readable layout. once that has executed, has the draw thread call
-// bind (with the graphics queue context). call on the draw thread.
-void TransitionThenBind(
-	RHI& rhi,
-	QueueTimelineContextData& graphics,
-	const Uploads& uploads,
-	std::function<void(QueueTimelineContextData&)> bind);
+// bind(QueueTimelineContextData& graphics). call on the draw thread.
+template <typename Bind>
+void TransitionThenBind(RHI& rhi, QueueTimelineContextData& graphics, const Uploads& uploads, Bind&& bind)
+{
+	detail::TransitionThenBind(
+		rhi,
+		graphics,
+		uploads,
+		core::CreateTask<QueueTimelineContextData*>(
+			[bind = std::forward<Bind>(bind)](QueueTimelineContextData* graphics) mutable { bind(*graphics); })
+			.handle);
+}
 
 } // namespace gfx

@@ -8,7 +8,6 @@
 #include <core/task.h>
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -38,7 +37,8 @@ public:
 	// reads back the next frame drawn (rgba8, srgb encoded as the ui shows it), handing it to done on the task executor
 	// once the gpu is done with it (e.g. a thumbnail of what is previewed). one at a time: a newer request replaces one
 	// not recorded yet. any thread
-	using CaptureDone = std::function<void(std::vector<uint8_t> rgba, uint32_t width, uint32_t height)>;
+	// (not a task: a replaced request is dropped without running, which a task never is)
+	using CaptureDone = core::std_extra::move_only_function<void(std::vector<uint8_t> rgba, uint32_t width, uint32_t height)>;
 	void RequestCapture(CaptureDone done);
 	// records the requested capture, if any, after the frame was recorded into cmd (outside of render passes), with the
 	// task reading it back added to callbacks (run once the gpu is done with cmd's submission). draw thread

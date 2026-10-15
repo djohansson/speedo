@@ -176,11 +176,6 @@ bool WindowedApplication::Draw()
 		ZoneScopedN("WindowedApplication::Draw::submit");
 
 		std::vector<core::TaskHandle> graphicsCallbacks;
-		auto runInBackground = [this](std::function<void()> job)
-		{
-			auto [task, future] = core::CreateTask(std::move(job));
-			GetExecutor().Submit(std::span(&task, 1));
-		};
 
 		// the preview first: its image is sampled by the ui, drawn over the window's frame below
 		if (drawPreview)
@@ -191,7 +186,7 @@ bool WindowedApplication::Draw()
 					.frameIndex = static_cast<uint16_t>(newFrameIndex),
 					.graphicsQueue = &graphicsQueue,
 					.graphicsTimeline = graphics->timeline,
-					.runInBackground = runInBackground});
+					.executor = &GetExecutor()});
 			// a read back of it, if asked for (a model's thumbnail)
 			myPreview->RecordCapture(cmd, graphicsCallbacks);
 		}
@@ -207,7 +202,7 @@ bool WindowedApplication::Draw()
 				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
 				.drawUi = [this](CommandBufferHandle cmd) { myImGui->Draw(cmd); },
 				.uiBlurRects = uiBlurRects,
-				.runInBackground = runInBackground});
+				.executor = &GetExecutor()});
 
 		auto presentInfo = swapchain.PreparePresent();
 

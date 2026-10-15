@@ -97,13 +97,13 @@ GetCanonicalPath(const char* pathStr, const char* defaultPathStr, bool createIfM
 
 std::expected<Record, std::error_code> LoadAsset(
 	const std::filesystem::path& assetFilePath,
-	const LoadFn& loadSourceFileFn,
-	const LoadFn& loadBinaryCacheFn,
-	const SaveFn& saveBinaryCacheFn,
+	LoadFn loadSourceFileFn,
+	LoadFn loadBinaryCacheFn,
+	SaveFn saveBinaryCacheFn,
 	const std::string& parameterHash,
-	const DependenciesFn& dependenciesFn,
+	DependenciesFn dependenciesFn,
 	std::atomic_uint8_t* progressOut,
-	const std::function<bool()>& cancelled)
+	CancelledFn cancelled)
 {
 	using namespace detail;
 	
@@ -193,16 +193,13 @@ std::expected<Record, std::error_code> LoadAsset(
 
 		AssetManifest manifest{.assetFileInfo = asset.value(), .cacheFileInfo=cache.value()};
 
-		if (dependenciesFn)
+		for (const auto& dependencyPath : dependenciesFn())
 		{
-			for (const auto& dependencyPath : dependenciesFn())
-			{
-				// a dependency that can't be read can't be checked either, so it is left out rather than failing the load
-				if (auto dependency = GetRecord<true>(dependencyPath); dependency)
-					manifest.dependencyFileInfos.emplace_back(std::move(dependency.value()));
-				else
-					std::cerr << "Failed to record asset dependency: " << dependencyPath << '\n';
-			}
+			// a dependency that can't be read can't be checked either, so it is left out rather than failing the load
+			if (auto dependency = GetRecord<true>(dependencyPath); dependency)
+				manifest.dependencyFileInfos.emplace_back(std::move(dependency.value()));
+			else
+				std::cerr << "Failed to record asset dependency: " << dependencyPath << '\n';
 		}
 
 		auto outStream = zpp::bits::out(manifestFile, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});

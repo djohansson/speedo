@@ -5,10 +5,17 @@
 #include <gfx/gpu.h>
 #include <gfx/shaders/capi.h>
 
+#include <core/std_extra.h>
+
 #include <array>
 #include <cstdint>
-#include <functional>
+#include <optional>
 #include <vector>
+
+namespace core
+{
+class TaskExecutor;
+} // namespace core
 
 namespace gfx
 {
@@ -87,19 +94,19 @@ struct DrawList
 	const Model& model,
 	MainPassPhase phase,
 	bool twoPhases,
-	const std::function<bool(size_t material)>& transmissive,
-	const std::function<uint16_t(size_t material)>& specialization = {});
+	core::std_extra::function_ref<bool(size_t material)> transmissive,
+	std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization = std::nullopt);
 
 // a model's draws for the shadow pass: the triangles of the submeshes that cast shadows (opaque or alpha masked, not
 // blended or transmissive)
-[[nodiscard]] DrawList BuildShadowDrawList(const Model& model, const std::function<bool(size_t material)>& transmissive);
+[[nodiscard]] DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<bool(size_t material)> transmissive);
 
 // a model's draws for the scatter pass: the triangles of the submeshes whose material scatters (KHR_materials_volume_scatter),
 // unless blended
 [[nodiscard]] DrawList BuildScatterDrawList(
 	const Model& model,
-	const std::function<bool(size_t material)>& scatters,
-	const std::function<uint16_t(size_t material)>& specialization = {});
+	core::std_extra::function_ref<bool(size_t material)> scatters,
+	std::optional<core::std_extra::function_ref<uint16_t(size_t material)>> specialization = std::nullopt);
 
 // the scatter pass's draws, for their back faces' depth (FragmentShadow, the front faces culled): single sided ones only,
 // since a double sided surface's nearest back face is its front
@@ -109,7 +116,7 @@ struct DrawList
 // their state and push constants set only where they change from the draw before (chunks of a submesh share them). binds
 // the pipeline variants it needs, from the default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
 // GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
-// draws, and createInBackground gets the job creating it (see Pipeline::RequestGraphicsPipeline), the first time
+// draws, and the task creating it (see Pipeline::RequestGraphicsPipeline) runs on executor, the first time it is asked for
 void RecordDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,
@@ -117,6 +124,6 @@ void RecordDrawList(
 	PushConstants pushConstants,
 	uint16_t viewIndex,
 	const Frustum* frustum = nullptr,
-	const std::function<void(std::function<void()> job)>& createInBackground = {});
+	core::TaskExecutor* executor = nullptr);
 
 } // namespace gfx

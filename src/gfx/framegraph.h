@@ -2,8 +2,9 @@
 
 #include <gfx/gpu.h>
 
+#include <core/std_extra.h>
+
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string_view>
@@ -78,7 +79,7 @@ public:
 	{
 		std::string name;
 		uint64_t size = 0;
-		std::function<uint64_t(rhi::Extent2d extent)> sizeOf;
+		core::std_extra::move_only_function<uint64_t(rhi::Extent2d extent) const> sizeOf;
 	};
 
 	// what a pass's execute callback records with
@@ -90,7 +91,7 @@ public:
 		IRenderTarget* target = nullptr;
 		const RenderTargetBeginInfo* beginInfo = nullptr;
 	};
-	using ExecuteFunction = std::function<void(PassContext& context)>;
+	using ExecuteFunction = core::std_extra::move_only_function<void(PassContext& context)>;
 	// records around a pass: calls record (the pass's barriers, render target and execute callback) in between
 
 	// declares what a pass uses (called once, from AddPass)
@@ -136,7 +137,7 @@ public:
 	[[nodiscard]] ImageId ImportImage(std::string name, rhi::ImageAspect aspect = rhi::ImageAspect::kColor);
 	[[nodiscard]] BufferId ImportBuffer(std::string name);
 
-	PassId AddPass(std::string name, const std::function<void(PassBuilder& builder)>& setup, ExecuteFunction execute);
+	PassId AddPass(std::string name, core::std_extra::function_ref<void(PassBuilder& builder)> setup, ExecuteFunction execute);
 	// a disabled pass is skipped by Execute, with nothing else changed (default: enabled)
 	void SetEnabled(PassId pass, bool enabled);
 

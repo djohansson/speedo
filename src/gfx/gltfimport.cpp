@@ -1137,13 +1137,13 @@ constexpr std::array<std::pair<std::string_view, MaterialTexture>, 19> kTextureP
 } // namespace detail
 
 std::expected<Mesh, std::string> Import(
-	const std::filesystem::path& path, const mesh::ImportOptions& options, const std::function<bool()>& cancelled)
+	const std::filesystem::path& path, const mesh::ImportOptions& options, core::CancelledFn cancelled)
 {
 	using namespace detail;
 
 	ZoneScopedN("gltf::Import");
 
-	auto isCancelled = [&cancelled] { return cancelled && cancelled(); };
+	auto isCancelled = [&cancelled] { return cancelled(); };
 
 	auto parsed = Parse(path);
 	if (!parsed)

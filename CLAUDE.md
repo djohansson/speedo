@@ -1089,14 +1089,22 @@ executable target needs `windows.rc` in its sources.
   `TaskExecutor::Submit`, `TaskExecutor::ForEach` for a loop over indices, `core::AddDependency` to run one task after
   another, `Join` or a future's `IsReady` to wait), not on threads of its own (`std::thread`, `std::jthread`,
   `std::async`): the executor's threads are named for the debugger and Tracy and joined at shutdown, and a waiting `Join`
-  or `ForEach` helps run the queue instead of blocking a thread. The only other threads are the tools' (`assettest`'s
-  workers, the cpu environment kernels). Work for a particular thread is a task too, queued for it: `mainCalls` (the
-  main thread's, run by `platform::WindowedApplication::Main`) and `RHI::drawCalls` (the draw thread's).
+  or `ForEach` helps run the queue instead of blocking a thread. The executor's are the only threads, the tools' included
+  (`assettest` makes one executor for its checks, `CheckInOrder`, the environment kernels and zip extraction). Work for a
+  particular thread is a task too, queued for it: `mainCalls` (the main thread's, run by
+  `platform::WindowedApplication::Main`) and `RHI::drawCalls` (the draw thread's; `TransitionThenBind` makes its bind
+  one). Code that runs work in the background takes the executor (`FrameInputs::executor`, which background pipeline
+  creation, `Pipeline::RequestGraphicsPipeline`'s task, is submitted to).
 - Take a callable as a template parameter (`template <typename Fn> void Foo(Fn&& fn)`); where it runs later, or on
-  another thread, as a task (`core::TaskHandle`, as `mainCalls` and `drawCalls` do); where it is called during the call
-  into a .cpp that a template can't reach, as a non-owning `function_ref`; and where it is stored and called again (the
-  frame graph's passes), as a `std::move_only_function`. Not as a `std::function`, which copies, type-erases every
-  call and allocates for larger captures.
+  another thread, as a task (`core::TaskHandle`, as `mainCalls` and `drawCalls` do; a header template can make it,
+  passing only the handle into the .cpp, see `TransitionThenBind`); where it is called during the call into a .cpp
+  that a template can't reach, as a `core::std_extra::function_ref` (c++26's, else `tl::function_ref`: not owning,
+  never empty, so an optional one has a default, `core::NeverCancelled`, `NoUi`, `NoMaterial`, or is a `std::optional`);
+  and where it is stored and called again (the frame graph's passes) or may be dropped unrun (a task never is: the
+  preview's `CaptureDone`), as a `core::std_extra::move_only_function` (c++23's, else a polyfill in `core/std_extra.h`
+  that supports `R(Args...) const` too). Not as a `std::function`, which copies, type-erases every call and allocates
+  for larger captures. A `function_ref` bound to a lambda dangles once the lambda's full expression ends: bind it in the
+  call (or an aggregate built in the call, as `FrameInputs` is), or to a named lambda that outlives it.
 - Tasks come from a fixed pool (`kTaskPoolSize`), and a task stays allocated until its future is gone and the executor
   purges it (`JoinAll`, or after another task runs). A waiting `ForEach` runs other tasks meanwhile, so `ForEach`es nest,
   each holding a task per thread: a model's texture loads, each compressing on every thread, took about threads squared

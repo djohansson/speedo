@@ -1892,6 +1892,8 @@ struct Scene::Impl
 								layers.diffuseTransmission || layers.retroreflection || layers.volumeScatter;
 				specialization.push_back(kTiers && !extended ? static_cast<uint16_t>(SHADER_TYPES_LAYERS_EXTENDED) : uint16_t{0});
 			}
+		auto specializationOf = [&specialization](size_t material)
+		{ return material < specialization.size() ? specialization[material] : uint16_t{0}; };
 
 		// the views as this frame draws them (the cameras may move while it records): what it culls by and fits its
 		// shadows (to the first view) and clusters to
@@ -1918,9 +1920,7 @@ struct Scene::Impl
 				.model = myModel.get(),
 				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
 				.scatters = [&scatters](size_t material) { return material < scatters.size() && scatters[material]; },
-				.specialization = kTiers ? std::function<uint16_t(size_t)>([&specialization](size_t material)
-										 { return material < specialization.size() ? specialization[material] : uint16_t{0}; })
-										 : std::function<uint16_t(size_t)>{},
+				.specialization = kTiers ? std::optional<core::std_extra::function_ref<uint16_t(size_t)>>(specializationOf) : std::nullopt,
 				.grid = views.GetGrid(),
 				.viewports = views.GetViewports(),
 				.viewProjections = std::move(viewProjections),
@@ -1938,7 +1938,7 @@ struct Scene::Impl
 				.prepareUi = target.prepareUi,
 				.drawUi = target.drawUi,
 				.uiBlurRects = target.uiBlurRects,
-				.runInBackground = target.runInBackground});
+				.executor = target.executor});
 	}
 };
 

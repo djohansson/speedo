@@ -2,11 +2,12 @@
 
 #include <gfx/meshimport.h>
 
+#include <core/cancelled.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
-#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -22,7 +23,7 @@ namespace gfx::gltf
 // message if the file can't be read or parsed, requires an extension that isn't supported, or if cancelled() returns
 // true.
 [[nodiscard]] std::expected<mesh::Mesh, std::string> Import(
-	const std::filesystem::path& path, const mesh::ImportOptions& options = {}, const std::function<bool()>& cancelled = {});
+	const std::filesystem::path& path, const mesh::ImportOptions& options = {}, core::CancelledFn cancelled = core::NeverCancelled);
 
 // the first extension a gltf file requires that Import doesn't support (e.g. draco compression), if any. only parses
 // the json, so it is cheap.

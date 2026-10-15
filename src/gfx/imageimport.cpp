@@ -64,7 +64,7 @@ constexpr uint32_t kRgba = 4;
 	Format format,
 	std::byte* dst,
 	core::TaskExecutor* executor,
-	const std::function<bool()>& cancelled)
+	core::CancelledFn cancelled)
 {
 	ZoneScopedN("image::CompressLevel");
 
@@ -79,7 +79,7 @@ constexpr uint32_t kRgba = 4;
 		if (stopped.load(std::memory_order_relaxed))
 			return;
 
-		if (cancelled && cancelled())
+		if (cancelled())
 		{
 			stopped = true;
 			return;
@@ -477,9 +477,9 @@ std::expected<Pixels, std::string> Decode(std::span<const std::byte> data, std::
 std::expected<Image, std::string> Import(
 	const std::filesystem::path& path,
 	const Options& options,
-	const std::function<std::byte*(size_t size)>& allocate,
+	core::std_extra::function_ref<std::byte*(size_t size)> allocate,
 	std::atomic_uint8_t* progress,
-	const std::function<bool()>& cancelled)
+	core::CancelledFn cancelled)
 {
 	auto bytes = ReadFile(path);
 	if (!bytes)
@@ -501,7 +501,7 @@ std::expected<Image, std::string> Import(
 	std::span<const std::byte> data,
 	std::string_view name,
 	const Options& options,
-	const std::function<std::byte*(size_t size)>& allocate)
+	core::std_extra::function_ref<std::byte*(size_t size)> allocate)
 {
 	using namespace detail;
 
@@ -600,9 +600,9 @@ std::expected<Image, std::string> Import(
 	std::span<const std::byte> data,
 	std::string_view name,
 	const Options& options,
-	const std::function<std::byte*(size_t size)>& allocate,
+	core::std_extra::function_ref<std::byte*(size_t size)> allocate,
 	std::atomic_uint8_t* progress,
-	const std::function<bool()>& cancelled)
+	core::CancelledFn cancelled)
 {
 	using namespace detail;
 

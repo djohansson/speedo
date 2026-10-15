@@ -1,6 +1,8 @@
 #include "environmentkernels.h"
 #include "environmentkernelsbridge.h"
 
+#include <core/taskexecutor.h>
+
 #include <glm/gtc/packing.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
@@ -10,7 +12,7 @@
 namespace environmentkernels
 {
 
-gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data)
+gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data, core::TaskExecutor& executor)
 {
 	using namespace gfx::environment;
 
@@ -34,7 +36,12 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 		environmentData.skySun[3] = sky.sunCosRadius;
 		environmentData.skySunRadiance[0] = sky.sunRadiance;
 	}
-	auto output = bridge::Prefilter(input, kLevelCount, environmentData);
+	auto output = bridge::Prefilter(
+		input,
+		kLevelCount,
+		environmentData,
+		[&executor](uint32_t count, core::std_extra::function_ref<void(uint32_t index)> body)
+		{ executor.ForEach(count, [&body](size_t index) { body(static_cast<uint32_t>(index)); }); });
 
 	// as the layout gfx::environment::Environment has: the levels, then the sheen levels, as half floats
 	Environment environment;
