@@ -73,8 +73,6 @@ std::vector<std::filesystem::path> FindModels(const std::filesystem::path& direc
 	return models;
 }
 
-
-
 // extracts a zip archive and loads the model in it. with several, see ArchiveModels. call from a load (see gLoads).
 void LoadAndInstallArchive(RHI& rhi, std::string_view archivePath, std::atomic_uint8_t& progress, ArchiveModels several)
 {

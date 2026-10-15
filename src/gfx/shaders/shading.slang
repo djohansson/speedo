@@ -188,13 +188,3 @@ float3 Shade(Surface surface, float3 view, float3 position)
 
 	return result;
 }
-
-// KHR_materials_volume_scatter, as screen space subsurface scattering (after the Khronos sample renderer, but by the
-// extension's definitions): the light scattering in a volume is diffused under its surface. the scatter pass draws the
-// light entering it (ScatterLight: from the front, which comes back out in the multiscatter color, the albedo of the
-// whole of its scattering, and from behind, through the volume's thickness, measured from the back faces' depth), which
-// the main pass blurs over the surface with Christensen and Burley's diffusion profile (SubsurfaceScattering), scaled per
-// color by the volume's mean free path (KHR_materials_volume's attenuation is the extinction) and the albedo. the Khronos
-// renderer tints by the single scattering albedo instead (what a path tracer's volume needs for the multiscatter color to
-// come out, much paler), and scales the profile by the attenuation distance times the multiscatter color (a tenth of
-// this), which left it a flat, pale, barely blurred diffuse.
