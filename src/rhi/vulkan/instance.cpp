@@ -5,8 +5,10 @@
 #include <core/profiling.h>
 #include <core/utils.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <ostream>
 #include <format>
@@ -16,6 +18,10 @@
 
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
+#elif defined(__APPLE__)
+#include <malloc/malloc.h>
+#elif !defined(__WINDOWS__)
+#include <malloc.h>
 #endif
 
 namespace rhi
@@ -23,6 +29,16 @@ namespace rhi
 
 namespace instance
 {
+
+#if !defined(SPEEDO_USE_MIMALLOC) && !defined(__WINDOWS__)
+// aligned_alloc takes only sizes that are a multiple of the alignment, and on macos no alignment below a pointer's:
+// otherwise it returns null, and vkCreateInstance and vkCreateDevice failed out of host memory
+static void* AlignedAllocate(size_t size, size_t alignment)
+{
+	alignment = std::max(alignment, sizeof(void*));
+	return std::aligned_alloc(alignment, (size + alignment - 1) / alignment * alignment);
+}
+#endif
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 static VkDebugUtilsMessengerEXT gDebugUtilsMessenger{};
@@ -335,13 +351,29 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 		_aligned_free(pMemory);
 	},
 #else
+	// realloc keeps no alignment, so a reallocation is a new allocation and a copy
 	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
-		return std::aligned_alloc(alignment, size);
+		return instance::AlignedAllocate(size, alignment);
 	},
-	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/) -> void*
 	{
-		return std::realloc(pOriginal, size);
+		if (size == 0)
+		{
+			std::free(pOriginal);
+			return nullptr;
+		}
+		void* memory = instance::AlignedAllocate(size, alignment);
+		if (memory != nullptr && pOriginal != nullptr)
+		{
+#if defined(__APPLE__)
+			std::memcpy(memory, pOriginal, std::min(size, malloc_size(pOriginal)));
+#else
+			std::memcpy(memory, pOriginal, std::min(size, malloc_usable_size(pOriginal)));
+#endif
+			std::free(pOriginal);
+		}
+		return memory;
 	},
 	.pfnFree = [](void* /*pUserData*/, void* pMemory)
 	{

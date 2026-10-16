@@ -204,7 +204,6 @@ $PlatformSettings = @(
 				DYLD_LIBRARY_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/$($Config -eq 'debug' ? 'debug/lib' : 'lib')"
 				#DYLD_INSERT_LIBRARIES = "libmimalloc$($Config -eq 'debug' ? '-secure-debug' : '').dylib"
 				DYLD_PRINT_LIBRARIES = "$($Config -eq 'debug' ? '1' : '0')"
-				TSAN_OPTIONS = "suppressions=`${workspaceFolder}/tsan-suppressions.txt"
 				VK_LAYER_PATH = "`${workspaceFolder}/install/$(Get-TargetTriplet)/share/vulkan/explicit_layer.d"
 			}
 		}
@@ -321,6 +320,28 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 	foreach ($Entry in $Settings.ProfilerLaunchOptions.GetEnumerator()) { $VSCodeLaunchConfiguration.configurations[-1][$Entry.Key] = $Entry.Value }
 
 	$VSCodeTasks.tasks += $Settings.Tasks
+
+	# the profile configuration with our own targets instrumented by asan and ubsan, without mimalloc (see
+	# SPEEDO_SANITIZE in CMakeLists.txt). the runtimes are compiler-rt's, which the host llvm builds only off windows
+	if (-not $IsWindows)
+	{
+		$CMakePresets.configurePresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-sanitize"
+				inherits = "$(Get-TargetTriplet)-profile"
+				cacheVariables = [ordered] @{
+					SPEEDO_SANITIZE = 'address,undefined'
+				}
+			}
+		)
+		$CMakePresets.buildPresets += @(
+			[ordered] @{
+				name = "$(Get-TargetTriplet)-sanitize"
+				configurePreset = "$(Get-TargetTriplet)-sanitize"
+				configuration = 'profile'
+			}
+		)
+	}
 }
 
 foreach ($Config in $Configurations)

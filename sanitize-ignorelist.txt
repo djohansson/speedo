@@ -1,0 +1,7 @@
+# functions the sanitizers skip (-fsanitize-ignorelist, see SPEEDO_SANITIZE in CMakeLists.txt): third-party code compiled
+# into ours, whose reports are its idioms rather than bugs. by function name (the mangled one matches too): FASTBuild
+# compiles preprocessed sources (-frewrite-includes), so a src: entry only ever sees the .cpp, not the header
+
+# stb_image_resize2: unaligned 8 byte stores of coefficients (fine on arm64 and x64), and srgb tables indexed through a
+# biased base pointer
+fun:*stbir_*

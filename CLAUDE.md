@@ -1067,6 +1067,26 @@ triangle, vertex, material, submesh and texture counts, and bounds within 1% (qu
 some differ in the source files: ABeautifulGame's glb is another export (1152 fewer triangles), and StainedGlassLamp's
 JPG-PNG variant has 8 materials instead of 13.
 
+## Sanitizers: the sanitize preset
+
+`<triplet>-sanitize` (macOS and Linux, from `setup.ps1`) is the profile configuration with `SPEEDO_SANITIZE=address,undefined`
+(`CMakeLists.txt`): our own targets compiled with `-fsanitize=` and `-fno-sanitize-recover=all` (the first report aborts),
+the vcpkg packages as they are. The runtimes are compiler-rt's, which the host llvm builds (its `compiler-rt` feature,
+off Windows; adding it rebuilt llvm, about 50 minutes). The sanitizers replace malloc, so a sanitize build has no
+mimalloc: the executables don't link it (its dylib interposes malloc process wide) and `SPEEDO_USE_MIMALLOC` isn't
+defined, which takes the code's fallbacks (the Vulkan host allocation callbacks in `instance.cpp`: `aligned_alloc`
+there needs a size that is a multiple of the alignment, and on macOS an alignment of at least a pointer, or it returns
+null, which failed `vkCreateInstance` and `vkCreateDevice` out of host memory). Run it on the quick tier:
+`pwsh scripts/assettest.ps1 -Preset <triplet>-sanitize -Client ...`, which sets `UBSAN_OPTIONS=print_stacktrace=1`
+and the host llvm's `llvm-symbolizer`, and fails a run on its reports (`ERROR: AddressSanitizer`, `runtime error:`).
+The quick tier passes, assettest and clients.
+
+Third-party code compiled into ours (the header-only libraries) whose reports are its idioms goes in
+`sanitize-ignorelist.txt`, by function name (`fun:`): FASTBuild compiles preprocessed sources (`-frewrite-includes`), so a
+`src:` entry only ever sees the `.cpp`, never the header. FASTBuild doesn't track the ignorelist either: after changing
+it, touch the sources it concerns (or rebuild). stb_image_resize2 is the one there: unaligned 8 byte stores, and srgb
+tables indexed through a biased base pointer.
+
 ## Gotcha: `<windows.h>` macros
 
 `core/file.h` includes `<windows.h>` (mio's), so everything reading files sees it, and its macros rename our code:

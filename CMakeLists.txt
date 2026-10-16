@@ -61,6 +61,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # appended after CMAKE_<LANG>_FLAGS_DEBUG, so this -O0 wins over the toolchain's -Og.
 add_compile_options($<$<CONFIG:debug>:-O0>)
 
+# sanitizers (-fsanitize=, e.g. address,undefined or thread) for our own targets: the vcpkg packages aren't instrumented.
+# they replace malloc themselves, so the executables are built without mimalloc (whose dylib interposes malloc)
+set(SPEEDO_SANITIZE "" CACHE STRING "Sanitizers for our own targets (-fsanitize=), e.g. address,undefined or thread")
+if(SPEEDO_SANITIZE)
+	add_compile_options(
+		-fsanitize=${SPEEDO_SANITIZE}
+		-fsanitize-ignorelist=${CMAKE_CURRENT_SOURCE_DIR}/sanitize-ignorelist.txt
+		-fno-sanitize-recover=all
+		-fno-omit-frame-pointer)
+	add_link_options(-fsanitize=${SPEEDO_SANITIZE})
+	set(SPEEDO_USE_MIMALLOC OFF)
+	set(SPEEDO_MIMALLOC "")
+else()
+	set(SPEEDO_USE_MIMALLOC ON)
+	set(SPEEDO_MIMALLOC $<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>)
+endif()
+
 find_package(Vulkan REQUIRED)
 if(TARGET Vulkan::Vulkan)
 	# FindVulkan.cmake only sets a generic IMPORTED_LOCATION, which CMake's config-mapping
@@ -87,7 +104,7 @@ find_package(meshoptimizer CONFIG REQUIRED)
 find_package(mikktspace CONFIG REQUIRED)
 find_package(libdeflate CONFIG REQUIRED)
 
-if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
+if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL "") AND SPEEDO_USE_MIMALLOC)
 	find_program(MINJECT NAMES minject.exe minject32.exe HINTS ENV PATH REQUIRED)
 endif()
 
@@ -113,7 +130,7 @@ target_compile_definitions(
 	core
 	PUBLIC
 		SPEEDO_PROFILING_LEVEL=$<IF:$<CONFIG:release>,0,1>
-		SPEEDO_USE_MIMALLOC
+		$<$<BOOL:${SPEEDO_USE_MIMALLOC}>:SPEEDO_USE_MIMALLOC>
 )
 target_include_directories(
 	core
@@ -401,12 +418,12 @@ target_include_directories(
 target_link_libraries(
 	server
 	PRIVATE
-		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		${SPEEDO_MIMALLOC}
 		cargs
 		serverlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
+if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL "") AND SPEEDO_USE_MIMALLOC)
 	add_custom_command(
 		TARGET server POST_BUILD
 		COMMAND ${MINJECT} -v -f -i --postfix=secure$<$<CONFIG:debug>:-debug> $<TARGET_FILE:server>
@@ -435,7 +452,7 @@ target_include_directories(
 target_link_libraries(
 	client
 	PRIVATE
-		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		${SPEEDO_MIMALLOC}
 		cargs
 		glfw
 		gfx
@@ -443,7 +460,7 @@ target_link_libraries(
 		clientlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
-if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL ""))
+if(DEFINED CMAKE_SYSTEM_NAME AND (CMAKE_SYSTEM_NAME STREQUAL "Windows" OR CMAKE_SYSTEM_NAME STREQUAL "") AND SPEEDO_USE_MIMALLOC)
 	add_custom_command(
 		TARGET client POST_BUILD
 		COMMAND ${MINJECT} -v -f -i --postfix=secure$<$<CONFIG:debug>:-debug> $<TARGET_FILE:client>
@@ -495,7 +512,7 @@ target_compile_features(
 target_link_libraries(
 	assettest
 	PRIVATE
-		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		${SPEEDO_MIMALLOC}
 		gfx
 )
 
@@ -512,7 +529,7 @@ target_compile_features(
 target_link_libraries(
 	filebench
 	PRIVATE
-		$<IF:$<TARGET_EXISTS:mimalloc-static>,mimalloc-static,mimalloc>
+		${SPEEDO_MIMALLOC}
 		core
 		gfx
 		xxHash::xxhash

@@ -3,7 +3,7 @@
 	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
 		later: lights binned on the cpu (fine to 256 lights: a compute pass if it shows); a spot light without a range reaches every cluster
 		later: gpu driven culling (a compute pass writing indirect draws: per instance, and no cost per draw for chunks out of view), then occlusion culling, from the same chunks
-	2. ubsan and asan (then tsan) as a preset on macos, run on the quick tier: the CreateTask dangling references, render target use after free and the mimalloc thread exit frees were all found the slow way. mimalloc's interposing may need turning off under asan
+	2. tsan as a preset on macos, run on the quick tier, as the sanitize preset (asan and ubsan) is: SPEEDO_SANITIZE=thread
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
@@ -43,6 +43,7 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: a sanitize preset (asan and ubsan on our own targets, compiler-rt from the host llvm, without mimalloc), run by assettest.ps1: the quick tier passes. it found the Vulkan host allocation fallback (without mimalloc) returning null
 * done: every window frosted and rounded as macOS's (dialogs too), with a macOS dark palette for the controls
 * done: the menu bar, menus, popups and tooltips as macOS's: translucent and rounded over their backdrop blurred (ImGuiLayer collects the panels with each frame, the UI Blur X and Y passes blur them back)
 * done: borderless fullscreen on every platform
