@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <format>
-#include <iostream>
 #include <print>
 #include <string_view>
 #include <tuple>
@@ -45,7 +44,7 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 	graphicsDeviceCandidates.reserve(physicalDevices.size());
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << physicalDevices.size() << " vulkan physical device(s) found: " << '\n';
+		std::println("{} vulkan physical device(s) found: ", physicalDevices.size());
 
 	for (uint32_t physicalDeviceIt = 0; physicalDeviceIt < physicalDevices.size();
 			physicalDeviceIt++)
@@ -56,7 +55,7 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 		const auto& swapchainInfo = instance.UpdateSwapchainInfo(physicalDevice, surface);
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-			std::cout << physicalDeviceInfo.deviceProperties.properties.deviceName << '\n';
+			std::println("{}", physicalDeviceInfo.deviceProperties.properties.deviceName);
 
 		for (uint32_t queueFamilyIt = 0;
 				queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();

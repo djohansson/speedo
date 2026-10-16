@@ -13,7 +13,7 @@ through the full load + upload + draw path, and a zip archive of several models 
 of a directory with several (e.g. a gltf sample model's encodings), as one, side by side (files the importers don't
 support are skipped there), with a user profile dir under <work>, and fails a model if the client crashes or prints
 load failures, failed asserts, validation errors (validation needs a debug preset) or sanitizer reports (a sanitize
-preset: asan and ubsan). -ClientOnly skips the assettest
+preset: asan and ubsan; a tsan preset: tsan). -ClientOnly skips the assettest
 run (which is slow with a debug preset). The client needs a vulkan driver: set VK_DRIVER_FILES etc. as for running it
 by hand. On macOS the display is woken and kept awake while the client runs (glfw finds no monitors while it sleeps).
 
@@ -113,12 +113,20 @@ if (-not $env:VK_LAYER_PATH)
 {
 	$env:VK_LAYER_PATH = if ($IsWindows) { $lib } else { Join-Path $installDir 'share/vulkan/explicit_layer.d' }
 }
-# a sanitize preset's reports: with stacks, symbolized by the host llvm's llvm-symbolizer
-if ($config -eq 'sanitize')
+# a sanitize or tsan preset's reports: with stacks, symbolized by the host llvm's llvm-symbolizer. tsan reports and goes
+# on, exiting with 66 at the end: the client runs fail on the reports below
+if ($config -eq 'sanitize' -or $config -eq 'tsan')
 {
-	if (-not $env:UBSAN_OPTIONS) { $env:UBSAN_OPTIONS = 'print_stacktrace=1' }
 	$symbolizer = Get-ChildItem -Path (Join-Path $root 'install/*/tools/llvm/llvm-symbolizer*') -ErrorAction SilentlyContinue | Select-Object -First 1
 	if ($symbolizer -and -not $env:ASAN_SYMBOLIZER_PATH) { $env:ASAN_SYMBOLIZER_PATH = $symbolizer.FullName }
+	if (-not $env:UBSAN_OPTIONS) { $env:UBSAN_OPTIONS = 'print_stacktrace=1' }
+	if (-not $env:TSAN_OPTIONS)
+	{
+		$env:TSAN_OPTIONS = (@(
+			if ($symbolizer) { "external_symbolizer_path=$($symbolizer.FullName)" }
+			$suppressions = Join-Path $root 'tsan-suppressions.txt'
+			if (Test-Path $suppressions) { "suppressions=$suppressions" }) -join ' ')
+	}
 }
 
 if (-not $Work)
@@ -220,7 +228,8 @@ $failed = $false
 
 if ($check)
 {
-	& $assettest @dirs @environmentFiles | Tee-Object -FilePath (Join-Path $logs 'assettest.log')
+	# stderr too: a sanitizer's reports go there
+	& $assettest @dirs @environmentFiles 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath (Join-Path $logs 'assettest.log')
 	if ($LASTEXITCODE -ne 0)
 	{
 		$failed = $true
@@ -331,7 +340,7 @@ if ($Client)
 		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
 		$name = if ($Run.Model) { $Run.Model } else { $Run.Environment }
 
-		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after|ERROR: AddressSanitizer|runtime error: ' |
+		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
 			ForEach-Object { '{0,7} {1}' -f $_.Count, $_.Name })
 		if ($status -ne 0 -or $problems.Count -gt 0)

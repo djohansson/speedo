@@ -321,26 +321,30 @@ if ($PlatformIndex -ge 0 -and $PlatformIndex -lt $PlatformSettings.Length)
 
 	$VSCodeTasks.tasks += $Settings.Tasks
 
-	# the profile configuration with our own targets instrumented by asan and ubsan, without mimalloc (see
-	# SPEEDO_SANITIZE in CMakeLists.txt). the runtimes are compiler-rt's, which the host llvm builds only off windows
+	# the profile configuration with our own targets instrumented, without mimalloc (see SPEEDO_SANITIZE in
+	# CMakeLists.txt): sanitize by asan and ubsan, tsan by tsan (which combines with neither). the runtimes are
+	# compiler-rt's, which the host llvm builds only off windows
 	if (-not $IsWindows)
 	{
-		$CMakePresets.configurePresets += @(
-			[ordered] @{
-				name = "$(Get-TargetTriplet)-sanitize"
-				inherits = "$(Get-TargetTriplet)-profile"
-				cacheVariables = [ordered] @{
-					SPEEDO_SANITIZE = 'address,undefined'
+		foreach ($Sanitizer in ([ordered] @{ sanitize = 'address,undefined'; tsan = 'thread' }).GetEnumerator())
+		{
+			$CMakePresets.configurePresets += @(
+				[ordered] @{
+					name = "$(Get-TargetTriplet)-$($Sanitizer.Key)"
+					inherits = "$(Get-TargetTriplet)-profile"
+					cacheVariables = [ordered] @{
+						SPEEDO_SANITIZE = $Sanitizer.Value
+					}
 				}
-			}
-		)
-		$CMakePresets.buildPresets += @(
-			[ordered] @{
-				name = "$(Get-TargetTriplet)-sanitize"
-				configurePreset = "$(Get-TargetTriplet)-sanitize"
-				configuration = 'profile'
-			}
-		)
+			)
+			$CMakePresets.buildPresets += @(
+				[ordered] @{
+					name = "$(Get-TargetTriplet)-$($Sanitizer.Key)"
+					configurePreset = "$(Get-TargetTriplet)-$($Sanitizer.Key)"
+					configuration = 'profile'
+				}
+			)
+		}
 	}
 }
 

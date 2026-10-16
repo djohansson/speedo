@@ -8,7 +8,7 @@
 #include <ctime>
 #include <chrono>
 #include <format>
-#include <iostream>
+#include <print>
 
 #include <core/uuids_extra.h>
 
@@ -199,7 +199,7 @@ std::expected<Record, std::error_code> LoadAsset(
 			if (auto dependency = GetRecord<true>(dependencyPath); dependency)
 				manifest.dependencyFileInfos.emplace_back(std::move(dependency.value()));
 			else
-				std::cerr << "Failed to record asset dependency: " << dependencyPath << '\n';
+				std::println(stderr, "Failed to record asset dependency: \"{}\"", dependencyPath.string());
 		}
 
 		auto outStream = zpp::bits::out(manifestFile, zpp::bits::no_fit_size{}, zpp::bits::no_enlarge_overflow{});
@@ -255,18 +255,20 @@ std::expected<Record, std::error_code> LoadAsset(
 	if (!manifest)
 	{
 		if (std::holds_alternative<AssetManifestErrorCode>(manifest.error()))
-			std::cerr << "Asset manifest is invalid: "
-					  << ToString(std::get<AssetManifestErrorCode>(manifest.error()))
-					  << ", Path: " << manifestPath << '\n';
+			std::println(
+				stderr,
+				"Asset manifest is invalid: {}, Path: \"{}\"",
+				ToString(std::get<AssetManifestErrorCode>(manifest.error())),
+				manifestPath.string());
 		else if (std::holds_alternative<std::error_code>(manifest.error()))
-			std::cerr << "Asset manifest is invalid: " << std::get<std::error_code>(manifest.error()).message() << ", Path: " << manifestPath << '\n';
+			std::println(stderr, "Asset manifest is invalid: {}, Path: \"{}\"", std::get<std::error_code>(manifest.error()).message(), manifestPath.string());
 		else
-			std::cerr << "Asset manifest is invalid: Unknown error, Path: " << manifestPath << '\n';
+			std::println(stderr, "Asset manifest is invalid: Unknown error, Path: \"{}\"", manifestPath.string());
 
 		// may fail (on windows, while another load reads it): the import replaces it if it can, else the next load retries
 		std::filesystem::remove(manifestPath, error);
 
-		std::cerr << "Reimporting source file\n";
+		std::println(stderr, "Reimporting source file");
 
 		if (auto result = importSourceFile(); result)
 			manifest = result;
@@ -281,12 +283,12 @@ std::expected<Record, std::error_code> LoadAsset(
 		return cache;
 
 	// e.g. a cache written by an older version with the same layout hash, that can't be read anymore
-	std::cerr << "Asset cache is invalid: " << cache.error().message() << ", Path: " << manifest->cacheFileInfo.path << '\n';
+	std::println(stderr, "Asset cache is invalid: {}, Path: {}", cache.error().message(), manifest->cacheFileInfo.path);
 
 	std::filesystem::remove(manifestPath, error);
 	std::filesystem::remove(manifest->cacheFileInfo.path, error);
 
-	std::cerr << "Reimporting source file\n";
+	std::println(stderr, "Reimporting source file");
 
 	if (auto result = importSourceFile(); result)
 		return result->cacheFileInfo;

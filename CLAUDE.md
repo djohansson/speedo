@@ -1067,7 +1067,7 @@ triangle, vertex, material, submesh and texture counts, and bounds within 1% (qu
 some differ in the source files: ABeautifulGame's glb is another export (1152 fewer triangles), and StainedGlassLamp's
 JPG-PNG variant has 8 materials instead of 13.
 
-## Sanitizers: the sanitize preset
+## Sanitizers: the sanitize and tsan presets
 
 `<triplet>-sanitize` (macOS and Linux, from `setup.ps1`) is the profile configuration with `SPEEDO_SANITIZE=address,undefined`
 (`CMakeLists.txt`): our own targets compiled with `-fsanitize=` and `-fno-sanitize-recover=all` (the first report aborts),
@@ -1080,6 +1080,25 @@ null, which failed `vkCreateInstance` and `vkCreateDevice` out of host memory). 
 `pwsh scripts/assettest.ps1 -Preset <triplet>-sanitize -Client ...`, which sets `UBSAN_OPTIONS=print_stacktrace=1`
 and the host llvm's `llvm-symbolizer`, and fails a run on its reports (`ERROR: AddressSanitizer`, `runtime error:`).
 The quick tier passes, assettest and clients.
+
+`<triplet>-tsan` is the same with `SPEEDO_SANITIZE=thread` (tsan combines with neither asan nor ubsan). tsan reports and
+goes on, exiting with 66 (an abort, on macOS) once done; `assettest.ps1` sets `TSAN_OPTIONS` (the symbolizer, and
+`tsan-suppressions.txt`) and fails a run on `WARNING: ThreadSanitizer`. The quick tier passes. What it found: printing
+with `std::cout`/`std::cerr` from several threads races in libc++ (`operator<<` reads and resets the stream's `width()`
+unlocked, which the standard says it mustn't): the asset loaders' reimport messages, from parallel texture loads. Print
+with `std::println` (`stderr` for errors), one locked `fwrite` a line, which also keeps lines whole: there's no
+`std::cout` or `std::cerr` left. `tsan-suppressions.txt` holds what isn't a race: a function local static's guard is
+released in `__cxa_guard_release`, which our binaries bind from a C++ dylib (cpptrace's, slang's: each exports the
+static libc++abi linked into it) rather than the system's libc++abi, so tsan's interceptor never sees it, and the
+threads reading a static first race the one that initialized it (mio's `page_size()`, the only one the quick tier
+hits). Our frames aren't symbolized there (no line numbers), so a suppression names a function tsan prints, not one
+inlined into it.
+
+About one client run in 50 faulted inside the tsan runtime on macOS 27 (`MetaMap::AllocBlock`, `OnUserFree`: frees of
+system frameworks' allocations, CoreUI's libcompression on a dispatch queue), not in our code. Our fatal signal handler
+then hung the run (its stack trace allocates, which waited for the tsan lock the faulting thread held): a sanitized
+build (`SPEEDO_SANITIZE`, also a compile definition) leaves SIGILL, SIGABRT, SIGFPE and SIGSEGV to the sanitizer, which
+reports them itself and exits.
 
 Third-party code compiled into ours (the header-only libraries) whose reports are its idioms goes in
 `sanitize-ignorelist.txt`, by function name (`fun:`): FASTBuild compiles preprocessed sources (`-frewrite-includes`), so a

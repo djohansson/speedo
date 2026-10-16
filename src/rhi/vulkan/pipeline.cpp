@@ -7,7 +7,7 @@
 
 #include <filesystem>
 #include <format>
-#include <iostream>
+#include <print>
 
 namespace rhi
 {
@@ -63,7 +63,7 @@ PipelineCacheHandle<kVk> LoadPipelineCache(const std::filesystem::path& cacheFil
 		if (cacheData.empty() ||
 			!IsCacheValid(*header, instance.GetPhysicalDeviceInfo(device.GetPhysicalDevice()).deviceProperties))
 		{
-			std::cerr << "Invalid pipeline cache, creating new." << '\n';
+			std::println(stderr, "Invalid pipeline cache, creating new.");
 			cacheData.clear();
 		}
 
@@ -1216,7 +1216,7 @@ Pipeline<kVk>::~Pipeline()
 			myCache);
 		fileInfo)
 	{
-		std::cout << "Saved pipeline cache to " << fileInfo.value().path << '\n';
+		std::println("Saved pipeline cache to {}", fileInfo.value().path);
 	}
 	else
 	{

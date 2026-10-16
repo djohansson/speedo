@@ -8,8 +8,8 @@
 #include <server/rpc/rpc.h>
 
 #include <array>
-#include <iostream>
 #include <memory>
+#include <print>
 
 namespace server
 {
@@ -88,8 +88,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	{
 		if (auto result = server.serve(); failure(result))
 		{
-			std::cerr << "server.serve() returned error code: "
-						<< std::make_error_code(result).message() << '\n';
+			std::println(stderr, "server.serve() returned error code: {}", std::make_error_code(result).message());
 			SetTaskDone(gRpcTaskState);
 			return;
 		}
@@ -102,7 +101,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 
 		if (auto sendResult = /*outEvent.*/socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
 		{
-			std::cerr << "socket.send() failed" << '\n';
+			std::println(stderr, "socket.send() failed");
 			SetTaskDone(gRpcTaskState);
 			return;
 		}
@@ -122,7 +121,7 @@ Server::~Server()
 	myContext.shutdown();
 	myContext.close();
 
-	std::cout << "Server shutting down, goodbye." << '\n';
+	std::println("Server shutting down, goodbye.");
 }
 
 Server::Server(std::string_view name, Environment&& env)
@@ -140,7 +139,7 @@ Server::Server(std::string_view name, Environment&& env)
 		//std::cout << "socket flags: " << toString(ef) << std::endl;
 	});
 
-	std::cout << "Server listening on " << kCxServerAddress << '\n';
+	std::println("Server listening on {}", kCxServerAddress);
 
 	gRpcTask = CreateTask(Rpc, mySocket, myPoller);
 	gRpcTaskState = kTaskStateRunning;

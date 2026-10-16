@@ -575,10 +575,14 @@ int main(int argc, char* argv[], char* envp[])
 #endif
 	signal(SIGINT, OnSignal);
 	signal(SIGTERM, OnSignal);
+#if !defined(SPEEDO_SANITIZE)
+	// a sanitizer reports these itself. ours allocates (the stack trace), which deadlocked tsan when its runtime faulted
+	// holding its own locks
 	signal(SIGILL, OnSignal);
 	signal(SIGABRT, OnSignal);
 	signal(SIGFPE, OnSignal);
 	signal(SIGSEGV, OnSignal);
+#endif
 
 	ENSURE(argv != NULL);
 	ENSURE(envp != NULL);

@@ -71,6 +71,7 @@ if(SPEEDO_SANITIZE)
 		-fno-sanitize-recover=all
 		-fno-omit-frame-pointer)
 	add_link_options(-fsanitize=${SPEEDO_SANITIZE})
+	add_compile_definitions(SPEEDO_SANITIZE)
 	set(SPEEDO_USE_MIMALLOC OFF)
 	set(SPEEDO_MIMALLOC "")
 else()

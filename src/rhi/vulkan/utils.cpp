@@ -21,7 +21,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <cstdint>
-#include <iostream>
+#include <print>
 
 PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2{};
 PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2{};
@@ -226,11 +226,11 @@ bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
-			std::cout << deviceExtensions.size() << " vulkan device extension(s) found:" << '\n';
+			std::println("{} vulkan device extension(s) found:", deviceExtensions.size());
 			std::ranges::for_each(
 				deviceExtensions,
 				[](const VkExtensionProperties& instanceExtension) {
-					std::cout << instanceExtension.extensionName << '\n';
+					std::println("{}", instanceExtension.extensionName);
 				});
 		}
 	}
@@ -264,11 +264,11 @@ bool SupportsExtension(const char* extensionName, VkInstance instance)
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
-			std::cout << instanceExtensions.size() << " vulkan instance extension(s) found:" << '\n';
+			std::println("{} vulkan instance extension(s) found:", instanceExtensions.size());
 			std::ranges::for_each(
 				instanceExtensions,
 				[](const VkExtensionProperties& instanceExtension) {
-					std::cout << instanceExtension.extensionName << '\n';
+					std::println("{}", instanceExtension.extensionName);
 				});
 		}
 	}

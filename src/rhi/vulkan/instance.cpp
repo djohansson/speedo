@@ -8,9 +8,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
-#include <iostream>
-#include <ostream>
 #include <format>
 #include <print>
 #include <string_view>
@@ -208,11 +207,11 @@ VkBool32 DebugUtilsMessengerCallback(
 	void* pUserData)
 {
 	if (pCallbackData->pMessageIdName != nullptr)
-		std::print(std::cout, "{}: ", pCallbackData->pMessageIdName);
+		std::print("{}: ", pCallbackData->pMessageIdName);
 	if (pCallbackData->pMessage != nullptr)
-		std::println(std::cout, "{}", pCallbackData->pMessage);
+		std::println("{}", pCallbackData->pMessage);
 
-	std::flush(std::cout);
+	std::fflush(stdout);
 
 	// SPEEDO_VALIDATION_BREAK selects the message severities that break into an attached debugger:
 	// "off" (the default, or "0") never breaks, "error" breaks on errors, "warning" on errors and warnings.
@@ -228,7 +227,7 @@ VkBool32 DebugUtilsMessengerCallback(
 			else if (setting == "error")
 				categories = {VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT};
 			else if (setting != "off" && setting != "0")
-				std::println(std::cerr, "Unknown SPEEDO_VALIDATION_BREAK value '{}', expected off, error or warning", setting);
+				std::println(stderr, "Unknown SPEEDO_VALIDATION_BREAK value '{}', expected off, error or warning", setting);
 		}
 		return categories;
 	}();
@@ -391,22 +390,22 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 	{
 		static const char* gVkLoaderDebugStr = "VK_LOADER_DEBUG";
 		if (char* vkLoaderDebug = getenv(gVkLoaderDebugStr))
-			std::cout << gVkLoaderDebugStr << "=" << vkLoaderDebug << '\n';
+			std::println("{}={}", gVkLoaderDebugStr, vkLoaderDebug);
 
 		static const char* gVkLayerPathStr = "VK_LAYER_PATH";
 		if (char* vkLayerPath = getenv(gVkLayerPathStr))
-			std::cout << gVkLayerPathStr << "=" << vkLayerPath << '\n';
+			std::println("{}={}", gVkLayerPathStr, vkLayerPath);
 
 		static const char* gVkDriverFilesStr = "VK_DRIVER_FILES";
 		if (char* vkDriverFiles = getenv(gVkDriverFilesStr))
-			std::cout << gVkDriverFilesStr << "=" << vkDriverFiles << '\n';
+			std::println("{}={}", gVkDriverFilesStr, vkDriverFiles);
 	}
 
 	uint32_t instanceLayerCount;
 	VK_CHECK(vkEnumerateInstanceLayerProperties(&instanceLayerCount, nullptr));
 	
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << instanceLayerCount << " vulkan layer(s) found:" << '\n';
+		std::println("{} vulkan layer(s) found:", instanceLayerCount);
 	
 	if (instanceLayerCount > 0)
 	{
@@ -415,11 +414,11 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 		{
 			for (uint32_t i = 0; i < instanceLayerCount; ++i)
-				std::cout << instanceLayers[i].layerName << '\n';
+				std::println("{}", instanceLayers[i].layerName);
 		}
 	}
 
-	std::cout.flush();
+	std::fflush(stdout);
 
 	std::vector<const char*> requiredExtensions = {
 		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,

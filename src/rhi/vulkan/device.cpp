@@ -5,7 +5,7 @@
 #include <rhi/vulkan/utils.h>
 
 #include <list>
-#include <iostream>
+#include <print>
 #include <vector>
 
 #include <xxhash.h>
@@ -275,17 +275,18 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	const auto& physicalDeviceInfo = instance.GetPhysicalDeviceInfo(GetPhysicalDevice());
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-		std::cout << "\"" << physicalDeviceInfo.deviceProperties.properties.deviceName
-				  << "\" is selected as primary graphics device" << '\n';
+		std::println("\"{}\" is selected as primary graphics device", physicalDeviceInfo.deviceProperties.properties.deviceName);
 
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		// the ones the shaders' resource arrays and the model loader depend on
 		const auto& limits = physicalDeviceInfo.deviceProperties.properties.limits;
-		std::cout << "maxPerStageDescriptorSampledImages: " << limits.maxPerStageDescriptorSampledImages
-				  << ", maxDescriptorSetSampledImages: " << limits.maxDescriptorSetSampledImages
-				  << ", maxPerStageResources: " << limits.maxPerStageResources
-				  << ", maxStorageBufferRange: " << limits.maxStorageBufferRange << '\n';
+		std::println(
+			"maxPerStageDescriptorSampledImages: {}, maxDescriptorSetSampledImages: {}, maxPerStageResources: {}, maxStorageBufferRange: {}",
+			limits.maxPerStageDescriptorSampledImages,
+			limits.maxDescriptorSetSampledImages,
+			limits.maxPerStageResources,
+			limits.maxStorageBufferRange);
 	}
 
 	std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
@@ -301,13 +302,15 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		std::ranges::fill(queuePriorities, 1.0F);
 
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-			std::cout << "Queue Family " << queueFamilyIt << 
-				", queueFlags: " << queueFamilyProperty.queueFlags <<
-				", queueCount: " << queueFamilyProperty.queueCount <<
-				", timestampValidBits: " << queueFamilyProperty.timestampValidBits <<
-				", minImageTransferGranularity: " << queueFamilyProperty.minImageTransferGranularity.width <<
-				"x" << queueFamilyProperty.minImageTransferGranularity.height <<
-				"x" << queueFamilyProperty.minImageTransferGranularity.depth << '\n';
+			std::println(
+				"Queue Family {}, queueFlags: {}, queueCount: {}, timestampValidBits: {}, minImageTransferGranularity: {}x{}x{}",
+				queueFamilyIt,
+				queueFamilyProperty.queueFlags,
+				queueFamilyProperty.queueCount,
+				queueFamilyProperty.timestampValidBits,
+				queueFamilyProperty.minImageTransferGranularity.width,
+				queueFamilyProperty.minImageTransferGranularity.height,
+				queueFamilyProperty.minImageTransferGranularity.depth);
 
 		queueCreateInfos.emplace_back(VkDeviceQueueCreateInfo{
 			.sType=VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -479,7 +482,7 @@ Device<kVk>::~Device()
 	{
 		char* allocatorStatsJSON = nullptr;
 		vmaBuildStatsString(myAllocator, &allocatorStatsJSON, 1U);
-		std::cout << allocatorStatsJSON << '\n';
+		std::println("{}", allocatorStatsJSON);
 		vmaFreeStatsString(myAllocator, allocatorStatsJSON);
 	}
 

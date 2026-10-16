@@ -11,8 +11,8 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <iostream>
 #include <memory>
+#include <print>
 #include <thread>
 #include <vector>
 
@@ -80,11 +80,10 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 	server::RpcSay::client client{inStream, outStream};
 
 	if (auto result = client.request<"Say"_sha256_int>("hello"s); failure(result))
-		std::cerr << "client.request() returned error code: "
-					<< std::make_error_code(result).message() << '\n';
+		std::println(stderr, "client.request() returned error code: {}", std::make_error_code(result).message());
 
 	if (auto sendResult = socket.send(zmq::buffer(outStream.data().data(), outStream.position()), zmq::send_flags::none); !sendResult)
-		std::cerr << "socket.send() failed" << '\n';
+		std::println(stderr, "socket.send() failed");
 
 	for (bool responseFailure = true; responseFailure;)
 	{
@@ -97,8 +96,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 				responseFailure = failure(responseResult);
 				if (responseFailure)
 				{
-					std::cerr << "client.response() returned error code: "
-								<< std::make_error_code(responseResult.error()).message() << '\n';
+					std::println(stderr, "client.response() returned error code: {}", std::make_error_code(responseResult.error()).message());
 					SetTaskDone(gRpcTaskState);
 					return;
 				}
@@ -107,7 +105,7 @@ static void Rpc(zmq::socket_t& socket, zmq::active_poller_t& poller)
 			}
 			else
 			{
-				std::cerr << "socket.recv() failed" << '\n';
+				std::println(stderr, "socket.recv() failed");
 				SetTaskDone(gRpcTaskState);
 				return;
 			}
@@ -170,7 +168,7 @@ Client::~Client()
 	myContext.shutdown();
 	myContext.close();
 
-	std::cout << "Client shutting down, goodbye." << '\n';
+	std::println("Client shutting down, goodbye.");
 }
 
 void Client::OnKeyboard(const KeyboardEvent& keyboard)

@@ -1,0 +1,8 @@
+# tsan's suppressions (TSAN_OPTIONS=suppressions=..., set by scripts/assettest.ps1 for a tsan preset): reports that
+# aren't races, by a function in their stacks
+
+# function local statics: their guard is released in __cxa_guard_release, which our binaries bind from a C++ dylib
+# (cpptrace, slang: each exports the static libc++abi linked into it), not from the system's libc++abi, so tsan's
+# interceptor never sees the release, and the first threads to read one race the one that initialized it.
+# mio::page_size(), inlined here
+race:mio::detail::memory_map

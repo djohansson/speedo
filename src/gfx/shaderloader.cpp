@@ -7,7 +7,7 @@
 
 #include <array>
 #include <format>
-#include <iostream>
+#include <print>
 #include <utility>
 
 #include <xxhash.h>
@@ -175,9 +175,13 @@ static void AddBinding(
 			rhi::ShaderPushConstants{.stages = binding.stages, .offset = 0, .size = static_cast<uint32_t>(sizeBytes)};
 	}
 
-	std::cout << "ADD BINDING \"" << name << "\": Set: " << bindingSpace
-			  << ", Binding: " << binding.binding << ", Count: " << descriptorCount
-			  << ", Size: " << sizeBytes << '\n';
+	std::println(
+		"ADD BINDING \"{}\": Set: {}, Binding: {}, Count: {}, Size: {}",
+		name,
+		bindingSpace,
+		binding.binding,
+		descriptorCount,
+		sizeBytes);
 }
 
 static uint32_t CreateLayoutBindings(
@@ -241,26 +245,34 @@ static uint32_t CreateLayoutBindings(
 		auto elementStride =
 			(elementTypeLayout != nullptr) ? elementTypeLayout->getElementStride(subCategory) : 0;
 
-		std::cout << "DEBUG: name: " << name << ", fullName: " << fullName << ", space: " << space
-				  << ", parent space: "
-				  << ((parentSpace != nullptr) ? std::to_string(*parentSpace) : "(nullptr)")
-				  << ", index: " << index << ", stage: " << stage
-				  << ", kind: " << static_cast<int>(kind)
-				  << ", typeName: " << ((typeName != nullptr) ? typeName : "(nullptr)")
-				  << ", userAttributeCount: " << userAttributeCount;
-
-		std::cout << ", arrayElementCount: " << arrayElementCount << ", fieldCount: " << fieldCount;
-
-		std::cout << ", category: " << category << ", subCategory: " << subCategory
-				  << ", spaceForCategory: " << spaceForCategory
-				  << ", offsetForCategory: " << offsetForCategory
-				  << ", elementStride: " << elementStride << ", elementSize: " << elementSize
-				  << ", elementAlignment: " << elementAlignment
-				  << ", elementKind: " << static_cast<int>(elementKind)
-				  << ", elementFieldCount: " << elementFieldCount << ", size: " << size
-				  << ", alignment: " << alignment << ", genericParamIndex: " << genericParamIndex;
-
-		std::cout << '\n';
+		std::println(
+			"DEBUG: name: {}, fullName: {}, space: {}, parent space: {}, index: {}, stage: {}, kind: {}, typeName: {}, "
+			"userAttributeCount: {}, arrayElementCount: {}, fieldCount: {}, category: {}, subCategory: {}, "
+			"spaceForCategory: {}, offsetForCategory: {}, elementStride: {}, elementSize: {}, elementAlignment: {}, "
+			"elementKind: {}, elementFieldCount: {}, size: {}, alignment: {}, genericParamIndex: {}",
+			name,
+			fullName,
+			space,
+			(parentSpace != nullptr) ? std::to_string(*parentSpace) : "(nullptr)",
+			index,
+			static_cast<int>(stage),
+			static_cast<int>(kind),
+			(typeName != nullptr) ? typeName : "(nullptr)",
+			userAttributeCount,
+			arrayElementCount,
+			fieldCount,
+			static_cast<int>(category),
+			static_cast<int>(subCategory),
+			spaceForCategory,
+			offsetForCategory,
+			elementStride,
+			elementSize,
+			elementAlignment,
+			static_cast<int>(elementKind),
+			elementFieldCount,
+			size,
+			alignment,
+			genericParamIndex);
 
 		if (subCategory == SLANG_PARAMETER_CATEGORY_REGISTER_SPACE)
 		{
@@ -332,7 +344,7 @@ ShaderLoader::ShaderLoader(
 
 		auto path = std::filesystem::canonical(compilerPath.value());
 		
-		std::cout << "Set downstream compiler path: " << path << '\n';
+		std::println("Set downstream compiler path: \"{}\"", path.string());
 		ENSURE(std::filesystem::is_directory(path));
 
 		myCompilerSession->setDownstreamCompilerPath(compilerId, path.generic_string().c_str());
@@ -400,7 +412,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 				ENSUREF(!error, "Failed to create intermediate path.");
 			}
 
-			std::cout << "Set intermediate path: " << path << '\n';
+			std::println("Set intermediate path: \"{}\"", path.string());
 			ENSURE(std::filesystem::is_directory(path));
 			spSetDumpIntermediatePrefix(slangRequest, (path.generic_string() + "/").c_str());
 		}
@@ -411,7 +423,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 		{
 			auto path = std::filesystem::canonical(includePath);
 
-			std::cout << "Add include search path: " << path << '\n';
+			std::println("Add include search path: \"{}\"", path.string());
 			ENSURE(std::filesystem::is_directory(path));
 			spAddSearchPath(slangRequest, path.generic_string().c_str());
 		}
@@ -452,7 +464,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 		const SlangResult compileRes = spCompile(slangRequest);
 
 		if (const auto* diagnostics = spGetDiagnosticOutput(slangRequest))
-			std::cout << diagnostics;
+			std::print("{}", diagnostics);
 
 		if (SLANG_FAILED(compileRes))
 		{
@@ -467,7 +479,7 @@ rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const Slang
 			char const* depPath = spGetDependencyFilePath(slangRequest, dep);
 			// recorded in the asset manifest, so editing an included/imported file recompiles. todo: hot reload
 			dependencies.emplace_back(depPath);
-			std::cout << "File include/import: " << depPath << '\n';
+			std::println("File include/import: {}", depPath);
 		}
 
 		for (const auto& entryPoint : entryPoints)
