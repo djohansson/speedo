@@ -47,6 +47,7 @@ enum class Format : uint8_t
 	kBC5Unorm,
 	kBC7Unorm,
 	kBC7Srgb,
+	kR32Sfloat, // last: the values before are serialized
 };
 
 enum class ImageLayout : uint8_t

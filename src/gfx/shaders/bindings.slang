@@ -41,6 +41,10 @@ Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
+// the depth pyramid's levels (see SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT): read as storage images too, so of a format
+// (reading without one needs shaderStorageImageReadWithoutFormat, which KosmicKrisp lacks)
+[[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("r32f")]]
+RWTexture2D<float> gDepthPyramid[SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
@@ -103,3 +107,6 @@ StructuredBuffer<CullView> gCullViews[SHADER_TYPES_FRAME_COUNT];
 RWStructuredBuffer<DrawIndexedIndirectCommand> gCullCommands[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(16, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gCullCounts[SHADER_TYPES_FRAME_COUNT];
+// per draw and main view, whether it was seen (1) the last frame that culled it: one buffer, frames run in order
+[[vk::binding(17, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gCullVisibility;

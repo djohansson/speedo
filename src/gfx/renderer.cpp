@@ -42,6 +42,7 @@ constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
 // (the main pass's phases and the scatter passes' lists by the main views, the shadows' by the shadow views), and the
 // views, main then shadow
 constexpr uint8_t kCullEntryPoint = 5;
+constexpr uint8_t kDepthPyramidEntryPoint = 6;
 constexpr uint32_t kCullJobCount = (4 * SHADER_TYPES_VIEW_COUNT) + SHADER_TYPES_SHADOW_VIEW_COUNT;
 constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADOW_VIEW_COUNT;
 
@@ -158,6 +159,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
 	myCullCommands = myGraph.ImportBuffer("Cull Commands");
 	myCullCounts = myGraph.ImportBuffer("Cull Counts");
+	myCullVisibility = myGraph.ImportBuffer("Cull Visibility");
+	myCullVisibilityCapacity = SHADER_TYPES_DRAW_RECORD_COUNT;
+	myCullVisibilityBuffer = Buffer(BufferCreateDesc{
+		device.CreateDeviceObjectCreateDesc("Cull Visibility"),
+		myCullVisibilityCapacity * sizeof(uint32_t),
+		BufferUsage::kStorage,
+		MemoryProperty::kDeviceLocal});
+	// the main depth's farthest per texel, by level (see ComputeDepthPyramid), which occlusion culling tests against
+	myDepthPyramid = myGraph.CreateImage({.name = "Depth Pyramid", .format = Format::kR32Sfloat, .mipChain = true, .downscale = 2});
 
 	constexpr auto kOitAccess = Access::kShaderRead | Access::kShaderWrite;
 	auto useOitLists = [this](FrameGraph::PassBuilder& builder, PipelineStage stages, Access access)
@@ -168,7 +178,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	};
 
 	// Main layout compute kernels, of width by height threads
-	auto kernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, uint32_t width, uint32_t height)
+	auto kernel = [this](
+					  CommandBufferHandle cmd,
+					  ComputePipelineVariant variant,
+					  uint32_t width,
+					  uint32_t height,
+					  uint32_t cullJobBase = 0,
+					  uint32_t depthPyramidLevel = 0)
 	{
 		auto& pipeline = *myFrame.pipeline;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
@@ -181,6 +197,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		pipeline.BindPipelineAuto(cmd, variant);
 		auto pushConstants = myFrame.inputs->pushConstants;
+		pushConstants.cullJobBase = cullJobBase;
+		pushConstants.depthPyramidLevel = depthPyramidLevel;
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
 	};
@@ -201,10 +219,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myCullCounts, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myCullCommands, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myCullVisibility, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kCullEntryPoint}, myCullMaxCandidateCount, static_cast<uint32_t>(myCullJobs.size()));
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kCullEntryPoint}, myCullMaxCandidateCount, myCullEarlyJobCount);
 		});
 	auto useCulled = [this](FrameGraph::PassBuilder& builder)
 	{
@@ -339,11 +358,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 
 	// the main pass: the views, each in its viewport. alpha 0 where nothing opaque is drawn (opaque draws write alpha 1):
 	// there ComputeMain draws the environment
-	auto mainPass = [&](MainPassPhase phase)
+	auto mainPass = [&](MainPassPhase phase, bool late = false)
 	{
-		auto load = phase == MainPassPhase::kOpaque ? LoadOp::kClear : LoadOp::kLoad;
+		auto load = phase == MainPassPhase::kOpaque && !late ? LoadOp::kClear : LoadOp::kLoad;
 		return myGraph.AddPass(
-			phase == MainPassPhase::kOpaque ? "Main" : "Main Transmissive",
+			late ? "Main Late" : (phase == MainPassPhase::kOpaque ? "Main" : "Main Transmissive"),
 			[this, load, phase, &useOitLists, useCulled](FrameGraph::PassBuilder& builder)
 			{
 				useCulled(builder);
@@ -356,13 +375,64 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
-			[this, phase](FrameGraph::PassContext& context)
+			[this, phase, late](FrameGraph::PassContext& context)
 			{
 				InternalDrawViews(
-					context, *myFrame.pipeline, *myFrame.inputs, phase == MainPassPhase::kOpaque ? ListId::kMain : ListId::kMainTransmissive);
+					context,
+					*myFrame.pipeline,
+					*myFrame.inputs,
+					phase == MainPassPhase::kOpaque ? ListId::kMain : ListId::kMainTransmissive,
+					late);
 			});
 	};
 	mainPass(MainPassPhase::kOpaque);
+
+	// occlusion culling: the depth pyramid of what the main pass drew first (the draws seen last frame), level by level
+	// (each dispatch reads the one before: barriers between them, within the pass)
+	myDepthPyramidPass = myGraph.AddPass(
+		"Depth Pyramid",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDepthPyramid, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			const auto& levels = context.graph.GetImage(myDepthPyramid).GetDesc().mipLevels;
+			for (uint32_t levelIt = 0; levelIt < myDepthPyramidViews.size(); levelIt++)
+			{
+				if (levelIt > 0)
+					CommandEncoder(context.cmd).Barrier(
+						PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead);
+				kernel(
+					context.cmd,
+					ComputePipelineVariant{.entryPoint = kDepthPyramidEntryPoint},
+					levels[levelIt].extent.width,
+					levels[levelIt].extent.height,
+					0,
+					levelIt);
+			}
+		});
+	// then the rest of the main pass's draws, those it doesn't hide (and the transmissive phase's)
+	myCullLatePass = myGraph.AddPass(
+		"Cull Late",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myCullCounts, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myCullCommands, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myCullVisibility, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myDepthPyramid, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			kernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kCullEntryPoint},
+				myCullLateMaxCandidateCount,
+				static_cast<uint32_t>(myCullJobs.size()) - myCullEarlyJobCount,
+				myCullEarlyJobCount);
+		});
+	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
 	// transmissive materials see the opaque scene behind them: copied, with mips for their roughness
 	myTransmissionPass = myGraph.AddPass(
@@ -491,6 +561,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
 	bool gpuCullingWanted = gpuCulling != nullptr ? std::string_view(gpuCulling) == "1" : !limits.drawIndirectCountEmulated;
 	myGpuCulling = limits.drawIndirectCount && myDrawStreams.front().indirect && gpuCullingWanted;
+	// occlusion culling, where the count exists (SPEEDO_OCCLUSION_CULLING=0 turns it off): it culls the main pass on the
+	// gpu even where the count is emulated, since the main pass makes few counts (a run per view), and what it hides is
+	// what the cpu can't
+	const char* occlusion = std::getenv("SPEEDO_OCCLUSION_CULLING");
+	myOcclusionCulling = limits.drawIndirectCount && myDrawStreams.front().indirect &&
+						 (occlusion == nullptr || std::string_view(occlusion) != "0");
+	myCountEmulated = limits.drawIndirectCountEmulated;
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -597,6 +674,36 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myDepth), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_MAIN_DEPTH_TEXTURE);
+	// a storage view per level of the depth pyramid, each of gDepthPyramid's slots past them the last level's (bound, so
+	// none names a view of an earlier size's pyramid)
+	{
+		const auto& pyramid = myGraph.GetImage(myDepthPyramid);
+		auto levelCount = std::min<size_t>(pyramid.GetDesc().mipLevels.size(), SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT);
+		myDepthPyramidViews.clear();
+		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+			myDepthPyramidViews.push_back(std::make_unique<ImageView>(ImageViewCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Depth Pyramid Level {}", levelIt)),
+				pyramid,
+				Format::kR32Sfloat,
+				ImageAspect::kColor,
+				1,
+				{},
+				levelIt}));
+		for (uint32_t slotIt = 0; slotIt < SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT; slotIt++)
+			pipeline.SetDescriptorData(
+				"gDepthPyramid",
+				ImageBinding{
+					.sampler = {}, .imageView = *myDepthPyramidViews[std::min<size_t>(slotIt, levelCount - 1)], .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				slotIt);
+	}
+	pipeline.SetDescriptorData(
+		"gCullVisibility", BufferBinding{.buffer = myCullVisibilityBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
 		pipeline.SetDescriptorData(
@@ -813,10 +920,18 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	InternalPlanCulling(pipeline, frame);
 	myGraph.Bind(myCullCommands, myCullCommandBuffers.buffers[frame.frameIndex]);
 	myGraph.Bind(myCullCounts, myCullCountBuffers.buffers[frame.frameIndex]);
+	myGraph.Bind(myCullVisibility, myCullVisibilityBuffer);
 
 	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
 	myDrawStream = &myDrawStreams[frame.frameIndex];
+	// the whole frame's gpu time too, in the passes' timing group (where a backend doesn't time every pass, see
+	// GpuProfiler::Collect, it still times the frame: its two timestamps are outside every pass)
+	static constexpr SourceLocationData kFrameLocation = SOURCE_LOCATION_DATA(frame);
+	GpuProfiler::Scope frameScope;
+	if (auto* profiler = inputs.graphicsQueue->GetProfiler())
+		frameScope = profiler->Begin(cmd, "Frame", kFrameLocation, myGraph.GetTimingGroup(), PipelineStage::kTopOfPipe);
 	myGraph.Execute(cmd, inputs.graphicsQueue->GetProfiler());
+	frameScope.End();
 	myDrawStream->End();
 	myDrawStream = nullptr;
 
@@ -875,6 +990,44 @@ Buffer& Renderer::InternalReserve(GrowingBuffers& buffers, Pipeline& pipeline, u
 	return buffers.buffers[frameIndex];
 }
 
+bool Renderer::InternalCullsOnGpu(ListId list, const FrameInputs& frame) const noexcept
+{
+	if (myGpuCulling)
+		return true;
+	// occlusion culls the main pass's lists on the gpu even where the count is emulated (see the constructor)
+	return myOcclusionCulling && frame.culling && (list == ListId::kMain || list == ListId::kMainTransmissive);
+}
+
+namespace renderer
+{
+
+// a main view's viewport: its grid cell, letterboxed to its camera's aspect ratio (FrameInputs::viewports)
+[[nodiscard]] Viewport ViewportOf(const FrameInputs& inputs, Extent2d extent, uint32_t view)
+{
+	uint32_t deltaX = extent.width / std::max(inputs.grid.x, 1U);
+	uint32_t deltaY = extent.height / std::max(inputs.grid.y, 1U);
+	auto x = static_cast<int32_t>((view % inputs.grid.x) * deltaX);
+	auto y = static_cast<int32_t>((view / inputs.grid.x) * deltaY);
+	auto width = deltaX;
+	auto height = deltaY;
+	if (view < inputs.viewports.size() && inputs.viewports[view].width > 0 && inputs.viewports[view].height > 0)
+	{
+		x = inputs.viewports[view].x;
+		y = inputs.viewports[view].y;
+		width = inputs.viewports[view].width;
+		height = inputs.viewports[view].height;
+	}
+	return Viewport{
+		.x = static_cast<float>(x),
+		.y = static_cast<float>(y),
+		.width = static_cast<float>(width),
+		.height = static_cast<float>(height),
+		.minDepth = 0.0F,
+		.maxDepth = 1.0F};
+}
+
+} // namespace renderer
+
 void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 {
 	ZoneScopedN("Renderer::planCulling");
@@ -882,17 +1035,34 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	using namespace renderer;
 
 	myCullFirstJob.fill(kNoJob);
+	myCullLateFirstJob.fill(kNoJob);
 	myCullJobs.clear();
+	myCullEarlyJobCount = 0;
 	myCullCountCount = 0;
 	myCullMaxCandidateCount = 0;
-	if (!myGpuCulling)
+	myCullLateMaxCandidateCount = 0;
+	const auto& mainList = InternalList(ListId::kMain);
+	myOcclusionThisFrame = myOcclusionCulling && frame.culling && !mainList.Empty();
+	auto disable = [this]
 	{
 		myGraph.SetEnabled(myCullClearPass, false);
 		myGraph.SetEnabled(myCullPass, false);
+		myGraph.SetEnabled(myDepthPyramidPass, false);
+		myGraph.SetEnabled(myCullLatePass, false);
+		myGraph.SetEnabled(myMainLatePass, false);
+	};
+	bool anyOnGpu = false;
+	for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
+		anyOnGpu |= InternalCullsOnGpu(static_cast<ListId>(listIt), frame) && !InternalList(static_cast<ListId>(listIt)).Empty();
+	if (!anyOnGpu)
+	{
+		myOcclusionThisFrame = false;
+		disable();
 		return;
 	}
 
-	// the views: the main views', then the shadow views' frustums (all zeros, which culls nothing, without culling)
+	// the views: the main views', then the shadow views' frustums (all zeros, which culls nothing, without culling), and
+	// the main views' view projections and viewports, for occlusion
 	uint32_t mainViewCount = frame.grid.x * frame.grid.y;
 	ENSURE(mainViewCount <= SHADER_TYPES_VIEW_COUNT);
 	std::vector<CullView> views(mainViewCount + myShadowPlan.views.size());
@@ -901,26 +1071,35 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 		auto frustum = Frustum::FromViewProjection(viewProjection);
 		for (size_t planeIt = 0; planeIt < frustum.planes.size(); planeIt++)
 			std::ranges::copy(std::span(glm::value_ptr(frustum.planes[planeIt]), 4), views[view].planes[planeIt]);
+		std::ranges::copy(std::span(glm::value_ptr(viewProjection), 16), &views[view].viewProjection[0][0]);
 	};
 	if (frame.culling)
 	{
+		auto extent = myGraph.GetExtent();
 		for (uint32_t viewIt = 0; viewIt < mainViewCount && viewIt < frame.viewProjections.size(); viewIt++)
+		{
 			setView(viewIt, frame.viewProjections[viewIt]);
+			auto viewport = ViewportOf(frame, extent, viewIt);
+			views[viewIt].viewport[0] = viewport.x;
+			views[viewIt].viewport[1] = viewport.y;
+			views[viewIt].viewport[2] = viewport.width;
+			views[viewIt].viewport[3] = viewport.height;
+			views[viewIt].occlusion = myOcclusionThisFrame ? 1U : 0U;
+		}
 		for (size_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
 			setView(mainViewCount + viewIt, glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
 	}
 
-	// the candidates, list after list, and a job per list and view
+	// the candidates, list after list, and a job per list and view: the Cull pass's first, then the Cull Late pass's
 	std::vector<CullCandidate> candidates;
-	uint32_t commandCount = 0;
+	std::array<uint32_t, std::to_underlying(ListId::kCount)> candidateBases{};
 	for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
 	{
 		auto listId = static_cast<ListId>(listIt);
 		const auto& list = InternalList(listId);
-		if (list.Empty())
+		candidateBases[listIt] = static_cast<uint32_t>(candidates.size());
+		if (list.Empty() || !InternalCullsOnGpu(listId, frame))
 			continue;
-
-		auto candidateBase = static_cast<uint32_t>(candidates.size());
 		for (uint32_t runIt = 0; runIt < list.runs.size(); runIt++)
 		{
 			const auto& run = list.runs[runIt];
@@ -937,31 +1116,71 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 					.instanceCount = item.instanceCount,
 					.firstIndex = item.firstIndex,
 					.run = runIt,
-					.runFirst = run.first});
+					.runFirst = run.first,
+					.late = item.variant.fragmentShader == kTransparentFragmentShader ? 1U : 0U});
 			}
 		}
+	}
 
+	uint32_t commandCount = 0;
+	uint32_t visibilityCount = 0;
+	auto addJobs = [&](ListId listId, uint32_t kind, uint32_t visibilityBase)
+	{
+		const auto& list = InternalList(listId);
+		auto listIt = std::to_underlying(listId);
 		bool shadow = listId == ListId::kShadow;
 		auto firstView = shadow ? mainViewCount : 0U;
 		auto viewCount = shadow ? static_cast<uint32_t>(myShadowPlan.views.size()) : mainViewCount;
-		myCullFirstJob[listIt] = static_cast<uint32_t>(myCullJobs.size());
+		auto itemCount = static_cast<uint32_t>(list.items.size());
+		bool late = kind == CULL_JOB_LATE || kind == CULL_JOB_PYRAMID;
+		(late ? myCullLateFirstJob : myCullFirstJob)[listIt] = static_cast<uint32_t>(myCullJobs.size());
 		for (uint32_t viewIt = 0; viewIt < viewCount; viewIt++)
 		{
 			myCullJobs.push_back(CullJob{
-				.candidateBase = candidateBase,
-				.candidateCount = static_cast<uint32_t>(list.items.size()),
+				.candidateBase = candidateBases[listIt],
+				.candidateCount = itemCount,
 				.view = firstView + viewIt,
 				.commandBase = commandCount,
-				.countBase = myCullCountCount});
-			commandCount += static_cast<uint32_t>(list.items.size());
+				.countBase = myCullCountCount,
+				.kind = kind,
+				.visibilityBase = visibilityBase + viewIt * itemCount,
+				.compact = myCountEmulated ? 0U : 1U});
+			commandCount += itemCount;
 			myCullCountCount += static_cast<uint32_t>(list.runs.size());
 		}
-		myCullMaxCandidateCount = std::max(myCullMaxCandidateCount, static_cast<uint32_t>(list.items.size()));
+		(late ? myCullLateMaxCandidateCount : myCullMaxCandidateCount) =
+			std::max(late ? myCullLateMaxCandidateCount : myCullMaxCandidateCount, itemCount);
+	};
+	auto onGpu = [&](ListId listId) { return !InternalList(listId).Empty() && InternalCullsOnGpu(listId, frame); };
+	for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
+	{
+		auto listId = static_cast<ListId>(listIt);
+		if (!onGpu(listId))
+			continue;
+		if (myOcclusionThisFrame && listId == ListId::kMain)
+		{
+			// the main pass's: those seen last frame first, by their visibility (kept from frame to frame: the main
+			// list's comes first, so its place stays as long as its draws and the views do)
+			addJobs(listId, CULL_JOB_EARLY, visibilityCount);
+			continue;
+		}
+		if (myOcclusionThisFrame && listId == ListId::kMainTransmissive)
+			continue; // after the pyramid
+		addJobs(listId, CULL_JOB_FRUSTUM, 0);
+	}
+	myCullEarlyJobCount = static_cast<uint32_t>(myCullJobs.size());
+	if (myOcclusionThisFrame)
+	{
+		addJobs(ListId::kMain, CULL_JOB_LATE, visibilityCount);
+		visibilityCount += static_cast<uint32_t>(mainList.items.size()) * mainViewCount;
+		if (onGpu(ListId::kMainTransmissive))
+			addJobs(ListId::kMainTransmissive, CULL_JOB_PYRAMID, 0);
 	}
 	ENSURE(myCullJobs.size() <= kCullJobCount && views.size() <= kCullViewCount);
 
 	// written for the gpu to read once the frame's previous use of them is done (the caller waited for its fence). the
-	// commands and counts grow with them (NodePerformanceTest's two encodings: 40000 draws a view)
+	// commands and counts grow with them (NodePerformanceTest's two encodings: 40000 draws a view), and the visibility
+	// (whose contents a bigger buffer loses: every draw then waits for the pyramid, once)
 	auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
 	{
 		if (bytes.empty())
@@ -976,14 +1195,29 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	write(myCullViewBuffers[frame.frameIndex], std::as_bytes(std::span(views)));
 	InternalReserve(myCullCommandBuffers, pipeline, frame.frameIndex, commandCount);
 	InternalReserve(myCullCountBuffers, pipeline, frame.frameIndex, myCullCountCount);
+	if (visibilityCount > myCullVisibilityCapacity)
+	{
+		myCullVisibilityCapacity = std::bit_ceil(static_cast<size_t>(visibilityCount));
+		auto& device = pipeline.GetDevice();
+		Buffer grown(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc("Cull Visibility"),
+			myCullVisibilityCapacity * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kDeviceLocal});
+		pipeline.SetDescriptorData("gCullVisibility", BufferBinding{.buffer = grown, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		myRetiredBuffers.emplace_back(myFrameCount, std::exchange(myCullVisibilityBuffer, std::move(grown)));
+	}
 
-	myGraph.SetEnabled(myCullClearPass, myCullCountCount > 0);
-	myGraph.SetEnabled(myCullPass, !myCullJobs.empty());
+	myGraph.SetEnabled(myCullClearPass, myCullCountCount > 0 && !myCountEmulated);
+	myGraph.SetEnabled(myCullPass, myCullEarlyJobCount > 0);
+	myGraph.SetEnabled(myDepthPyramidPass, myOcclusionThisFrame);
+	myGraph.SetEnabled(myCullLatePass, myOcclusionThisFrame);
+	myGraph.SetEnabled(myMainLatePass, myOcclusionThisFrame);
 }
 
-std::optional<CulledDraws> Renderer::InternalCulledDraws(ListId list, uint32_t view) const
+std::optional<CulledDraws> Renderer::InternalCulledDraws(ListId list, uint32_t view, bool late) const
 {
-	auto firstJob = myCullFirstJob[std::to_underlying(list)];
+	auto firstJob = (late ? myCullLateFirstJob : myCullFirstJob)[std::to_underlying(list)];
 	if (firstJob == kNoJob)
 		return std::nullopt;
 	ENSURE(firstJob + view < myCullJobs.size());
@@ -993,10 +1227,11 @@ std::optional<CulledDraws> Renderer::InternalCulledDraws(ListId list, uint32_t v
 		.commands = &myCullCommandBuffers.buffers[frameIndex],
 		.counts = &myCullCountBuffers.buffers[frameIndex],
 		.commandBase = job.commandBase,
-		.countBase = job.countBase};
+		.countBase = job.countBase,
+		.counted = job.compact != 0};
 }
 
-void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId listId)
+void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId listId, bool late)
 {
 	const auto& list = InternalList(listId);
 	auto& graphicsQueue = *inputs.graphicsQueue;
@@ -1013,10 +1248,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	const auto grid = inputs.grid;
 	uint32_t viewCount = grid.x * grid.y;
 	const auto extent = context.target->GetExtent();
-	uint32_t deltaX = extent.width / grid.x;
-	uint32_t deltaY = extent.height / grid.y;
-	ASSERT(deltaX > 0);
-	ASSERT(deltaY > 0);
+	ASSERT(extent.width >= grid.x && extent.height >= grid.y);
 
 	// the views, in a secondary command buffer run inside the pass's render target
 	auto cmd = graphicsQueue.GetPool().BeginSecondary(*context.beginInfo);
@@ -1036,29 +1268,16 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	{
 		ZoneScopedN("Renderer::drawView");
 
-		// the view's viewport: its grid cell, letterboxed to its camera's aspect ratio
 		auto viewIt = static_cast<uint16_t>(drawIt);
-		auto posX = static_cast<int32_t>((viewIt % grid.x) * deltaX);
-		auto posY = static_cast<int32_t>((viewIt / grid.x) * deltaY);
-		auto width = deltaX;
-		auto height = deltaY;
-		if (viewIt < inputs.viewports.size() && inputs.viewports[viewIt].width > 0 && inputs.viewports[viewIt].height > 0)
-		{
-			posX = inputs.viewports[viewIt].x;
-			posY = inputs.viewports[viewIt].y;
-			width = inputs.viewports[viewIt].width;
-			height = inputs.viewports[viewIt].height;
-		}
-		encoder.SetViewport(Viewport{
-			.x = static_cast<float>(posX),
-			.y = static_cast<float>(posY),
-			.width = static_cast<float>(width),
-			.height = static_cast<float>(height),
-			.minDepth = 0.0F,
-			.maxDepth = 1.0F});
-		encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
+		auto viewport = renderer::ViewportOf(inputs, extent, viewIt);
+		encoder.SetViewport(viewport);
+		encoder.SetScissor(rhi::Rect{
+			.x = static_cast<int32_t>(viewport.x),
+			.y = static_cast<int32_t>(viewport.y),
+			.width = static_cast<uint32_t>(viewport.width),
+			.height = static_cast<uint32_t>(viewport.height)});
 
-		if (auto culled = InternalCulledDraws(listId, viewIt))
+		if (auto culled = InternalCulledDraws(listId, viewIt, late))
 		{
 			RecordCulledDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, *culled, inputs.executor);
 			continue;

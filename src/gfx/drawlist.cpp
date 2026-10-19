@@ -433,6 +433,15 @@ void RecordCulledDrawList(
 		if (state.Changes(item))
 			state.Set(item);
 		state.Push();
+		if (!culled.counted)
+		{
+			encoder.DrawIndexedIndirect(
+				*culled.commands,
+				static_cast<uint64_t>(culled.commandBase + run.first) * sizeof(DrawIndexedIndirectCommand),
+				run.count,
+				sizeof(DrawIndexedIndirectCommand));
+			continue;
+		}
 		encoder.DrawIndexedIndirectCount(
 			*culled.commands,
 			static_cast<uint64_t>(culled.commandBase + run.first) * sizeof(DrawIndexedIndirectCommand),

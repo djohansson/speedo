@@ -75,6 +75,8 @@ public:
 		rhi::ImageAspect aspect = rhi::ImageAspect::kColor;
 		rhi::Extent2d extent{};
 		bool mipChain = false;
+		// without an extent: the frame's divided by this, rounded up (so that its texels cover all of the frame's)
+		uint32_t downscale = 1;
 	};
 	// a transient buffer of size bytes (computed from the frame's extent if sizeOf is set)
 	struct BufferDesc

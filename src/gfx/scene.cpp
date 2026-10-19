@@ -107,7 +107,8 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 		{.type = rhi::DescriptorType::kSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kCombinedImageSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kSampledImage, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
-		{.type = rhi::DescriptorType::kStorageImage, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT},
+		{.type = rhi::DescriptorType::kStorageImage,
+		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT + SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT)},
 		{.type = rhi::DescriptorType::kUniformTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kStorageTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kUniformBuffer, .count = kBufferBaseCount},
@@ -1781,7 +1782,8 @@ struct Scene::Impl
 						{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
 						{"ComputeUiBlurX", SLANG_STAGE_COMPUTE}, // see the UI Blur passes
 						{"ComputeUiBlurY", SLANG_STAGE_COMPUTE},
-						{"ComputeCull", SLANG_STAGE_COMPUTE}, // see the Cull pass
+						{"ComputeCull", SLANG_STAGE_COMPUTE}, // see the Cull passes
+						{"ComputeDepthPyramid", SLANG_STAGE_COMPUTE}, // see the Depth Pyramid pass
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

@@ -141,10 +141,12 @@ private:
 	// plans the gpu's culling of the frame's draw lists (see CullCandidate), and writes it
 	void InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame);
 	// where the gpu's culling put a list's draws for a view (of the views of its pass: the main views, or the shadow
-	// views), if it culled them
-	[[nodiscard]] std::optional<CulledDraws> InternalCulledDraws(ListId list, uint32_t view) const;
+	// views), if it culled them: the first draws (or all), or the late ones (see CULL_JOB_LATE)
+	[[nodiscard]] std::optional<CulledDraws> InternalCulledDraws(ListId list, uint32_t view, bool late = false) const;
+	// whether the gpu culls a list this frame (else the cpu does, by the frustum)
+	[[nodiscard]] bool InternalCullsOnGpu(ListId list, const FrameInputs& frame) const noexcept;
 
-	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list);
+	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false);
 
 	FrameGraph myGraph;
 	FrameGraph::ImageId myColor;
@@ -206,9 +208,26 @@ private:
 	FrameGraph::PassId myCullClearPass;
 	FrameGraph::PassId myCullPass;
 	std::array<uint32_t, std::to_underlying(ListId::kCount)> myCullFirstJob{};
-	std::vector<CullJob> myCullJobs;
+	std::array<uint32_t, std::to_underlying(ListId::kCount)> myCullLateFirstJob{};
+	std::vector<CullJob> myCullJobs; // the Cull pass's, then the Cull Late pass's from myCullEarlyJobCount
+	uint32_t myCullEarlyJobCount = 0;
 	uint32_t myCullCountCount = 0;
 	uint32_t myCullMaxCandidateCount = 0;
+	uint32_t myCullLateMaxCandidateCount = 0;
+	// occlusion culling (see the Depth Pyramid pass): whether it is wanted (SPEEDO_OCCLUSION_CULLING), and on this frame;
+	// the main pass's draws seen last frame first, then a depth pyramid of the main depth, then the rest that it doesn't
+	// hide (Main Late). the visibility per draw and main view (gCullVisibility), kept from frame to frame, growing
+	bool myOcclusionCulling = true;
+	bool myOcclusionThisFrame = false;
+	bool myCountEmulated = false;
+	FrameGraph::ImageId myDepthPyramid;
+	std::vector<std::unique_ptr<ImageView>> myDepthPyramidViews; // a storage view per level
+	FrameGraph::BufferId myCullVisibility;
+	Buffer myCullVisibilityBuffer;
+	size_t myCullVisibilityCapacity = 0;
+	FrameGraph::PassId myDepthPyramidPass;
+	FrameGraph::PassId myCullLatePass;
+	FrameGraph::PassId myMainLatePass;
 	// the buffers replaced by bigger ones, with the Record that replaced them
 	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
 	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from

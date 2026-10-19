@@ -200,10 +200,12 @@ struct CulledDraws
 	const Buffer* counts = nullptr;
 	uint32_t commandBase = 0;
 	uint32_t countBase = 0;
+	// whether they are compacted and counted (else every draw has its place, of no instances if culled: see CullJob)
+	bool counted = true;
 };
 
 // records a draw list for a view as the gpu culled it: each of its runs (see PlanDrawRuns) one indirect draw of as many
-// of its commands as its count says. binds the pipeline variants it needs as RecordDrawList does
+// of its commands as its count says (or of all of them, uncounted). binds the pipeline variants it needs as RecordDrawList does
 void RecordCulledDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,

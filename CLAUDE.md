@@ -444,7 +444,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -568,7 +568,32 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   15.1; Bistro's Main 4.03 to 4.31 framed. Mesa main of 2026-10-19 (44fd0fde) still does that, with a TODO to build Metal
   indirect command buffers on the gpu instead: once it does, measure again and drop the exception. By the frustum alone
   the gpu culling saves no gpu time anywhere (the cpu's draws are the same ones): it saves the cpu's recording, and
-  occlusion (TODO.md) is where it pays.
+  occlusion (below) is where it pays. Where the count is emulated, what the gpu culls isn't compacted either
+  (`CullJob::compact` 0, `CulledDraws::counted`): every draw keeps its place, of no instances if culled, and each run
+  is a plain `DrawIndexedIndirect` (an empty draw costs KosmicKrisp about 0.2 us, a count a compute kernel and an
+  encoder split).
+- **Occlusion culling** (two phase, `SPEEDO_OCCLUSION_CULLING=0` turns it off; where there is a count, emulated or not,
+  and culling is on): the main pass's opaque list is culled on the gpu in two jobs per view. The Cull pass's
+  (`CULL_JOB_EARLY`) keeps the draws seen last frame (`gCullVisibility`, a word per draw and main view, one buffer kept
+  from frame to frame: the main list comes first, so its place holds while its draws and the views do; it grows, which
+  loses it once), and Main draws them. The Depth Pyramid pass (`ComputeDepthPyramid`, compute entry point 6) reduces the
+  main depth (`SHADER_TYPES_MAIN_DEPTH_TEXTURE`) into an `R32Sfloat` mip chain of the farthest depth, half its size at
+  level 0 (`FrameGraph::ImageDesc::downscale`), each texel the farthest of 3x3 below so odd sizes are covered, a dispatch
+  per level with barriers between, written and read as storage images of a format (`gDepthPyramid`, binding 1 of the rw
+  textures' set: reading without one needs `shaderStorageImageReadWithoutFormat`, which KosmicKrisp lacks). Cull Late
+  (`CULL_JOB_LATE`) tests every draw in view against it (`CullOccluded`: the box's corners projected into the view's
+  viewport, its nearest depth against the farthest of the at most 2x2 texels of the level where its rectangle spans two;
+  a box reaching behind the eye is never hidden), keeps the ones it doesn't hide that weren't drawn first, and writes
+  each one's visibility for the next frame; Main Late draws them, loading the attachments. Blended draws
+  (`CullCandidate::late`) are only ever drawn late, after every opaque draw (the transparency's lists depth test when
+  written), and the transmissive phase's list is tested against the pyramid alone (`CULL_JOB_PYRAMID`). The main lists
+  are culled on the gpu for it even where the count is emulated (few calls: a run per view per phase); the shadow and
+  scatter lists stay the cpu's there. Renders are identical with and without (eight models, BlendInstances among them),
+  and with a still camera Main Late draws nothing. Measured on KosmicKrisp by the frame's gpu time (the `Frame` scope,
+  see "GPU timings"), off to on: Sponza 5.34 to 4.83 ms (Main 3.78 to 1.78), Bistro 7.67 to 7.94 framed, 8.58 to 9.05
+  and 11.67 to 11.79 in its streets, ThousandsOfLights 9.78 to 10.26. Where little is hidden it costs: the second render
+  pass loads and stores the main color and depth (a tile based gpu's cost; a desktop gpu's is lower), the pyramid takes
+  0.14 ms (0.28 from a full size level 0), and the cull passes. It is the general method, so it stays on.
 
 Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
@@ -586,7 +611,11 @@ graph's timing group (`FrameGraph::GetTimingGroup`), so its callbacks have none 
 after the frame's fences) reads what the gpu is done with (up to the first timestamp that isn't, and never half a
 grouped scope), gives Tracy every one, frees them from the host (`vkResetQueryPool`, Vulkan 1.2), and keeps each grouped
 scope's duration, which `Renderer::Record` takes (`TakeTimings`), shows in the Statistics window, and with
-`SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit. A timestamp is plausible if it is not 0, not before the one
+`SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit, and the draw thread's median frame time. `Renderer::Record`
+also opens a `Frame` scope (in the same group) around the whole graph, whose timestamps are outside every pass: it is
+timed where passes aren't (KosmicKrisp times neither compute passes nor Main Late), so compare whole frames by it.
+The frame time unthrottled is no substitute on macOS: presentation stays at the display's rate even with
+`SPEEDO_PRESENT_MODE=immediate` (in the background, at least), so frames take one or two refreshes. A timestamp is plausible if it is not 0, not before the one
 before it in its command buffer, and not more than 250 ms after it: Tracy gets the one before in place of the others,
 and a grouped scope is timed only if both of its are plausible. KosmicKrisp only writes timestamps where its own Metal
 command encoders begin and end: passes inside one encoder read 0, and the others are unwritten, which it reports as
@@ -1047,7 +1076,7 @@ first 1023 used to be drawn with the default one, with a warning; the index used
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 18
-(0-3 are the frames' render targets, 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's). Bump textures are height maps in
+(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

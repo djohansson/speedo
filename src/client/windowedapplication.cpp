@@ -13,6 +13,16 @@ bool WindowedApplication::gShowTps = false;
 namespace windowedapplication
 {
 
+// with SPEEDO_GPU_TIMINGS=1, the frame time of each half second the frame rate is measured over (milliseconds), whose
+// median Shutdown prints: unthrottled (SPEEDO_PRESENT_MODE=immediate) the gpu's whole frame, where a backend doesn't
+// time every pass (KosmicKrisp, see "GPU timings" in CLAUDE.md)
+std::vector<float> gFrameTimes;
+const bool gCollectFrameTimes = []
+{
+	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
+	return collect != nullptr && std::string_view(collect) == "1";
+}();
+
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
 // returns false if the surface has no area (minimized), in which case nothing is recreated.
 bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
@@ -279,6 +289,8 @@ bool WindowedApplication::Draw()
 			auto submitBatchCount = Queue::GetSubmitBatchCount();
 			auto frames = static_cast<float>(gFpsFrameCount);
 			gFramesPerSecond.store(frames / std::chrono::duration<float>(now - gFpsTime).count(), std::memory_order_relaxed);
+			if (windowedapplication::gCollectFrameTimes)
+				windowedapplication::gFrameTimes.push_back(std::chrono::duration<float, std::milli>(now - gFpsTime).count() / frames);
 			gSubmitsPerFrame.store(static_cast<float>(submitCount - gFpsSubmitCount) / frames, std::memory_order_relaxed);
 			gSubmitBatchesPerFrame.store(static_cast<float>(submitBatchCount - gFpsSubmitBatchCount) / frames, std::memory_order_relaxed);
 			gFpsFrameCount = 0;
@@ -336,6 +348,14 @@ void WindowedApplication::Shutdown()
 
 	if (!myRHI)
 		return;
+
+	if (gFrameTimes.size() > 2)
+	{
+		// the first half seconds load and compile
+		auto times = std::vector(gFrameTimes.begin() + static_cast<ptrdiff_t>(gFrameTimes.size() / 4), gFrameTimes.end());
+		std::ranges::sort(times);
+		std::println("frame time: {:.3f} ms (median of {} half seconds)", times[times.size() / 2], times.size());
+	}
 
 	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();

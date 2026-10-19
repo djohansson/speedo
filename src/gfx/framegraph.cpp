@@ -341,7 +341,10 @@ void FrameGraph::InternalCreateTransients(Device& device)
 		if (resource.image)
 		{
 			const auto& desc = resource.imageDesc;
-			auto extent = desc.extent.width > 0 ? desc.extent : myExtent;
+			auto extent = desc.extent.width > 0 ? desc.extent
+												: Extent2d{
+													  .width = std::max((myExtent.width + desc.downscale - 1) / desc.downscale, 1U),
+													  .height = std::max((myExtent.height + desc.downscale - 1) / desc.downscale, 1U)};
 			std::vector<ImageMipLevelDesc> mipLevels{{.extent = extent}};
 			while (desc.mipChain && (extent.width > 1 || extent.height > 1))
 			{

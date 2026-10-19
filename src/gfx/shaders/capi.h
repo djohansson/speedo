@@ -443,12 +443,25 @@ struct DrawIndexedIndirectCommand
 	alignas(4) UINT1(firstInstance);
 };
 
-// the gpu's culling (ComputeCull, see the Cull pass): each of a frame's draws (gCullCandidates[frame]: the draw lists'
+// the gpu's culling (ComputeCull, see the Cull passes): each of a frame's draws (gCullCandidates[frame]: the draw lists'
 // items, list after list), tested against each view that draws its list (gCullJobs[frame], a job per list and view, by
-// gCullViews[frame]'s planes). a draw in view takes the next place of its run (the items from runFirst with the same
-// pipeline state) in the job's commands (gCullCommands[frame] from commandBase), counted in gCullCounts[frame] from
-// countBase, which the run's DrawIndexedIndirectCount reads
+// gCullViews[frame]'s planes, and by the depth pyramid). a draw it keeps takes the next place of its run (the items from
+// runFirst with the same pipeline state) in the job's commands (gCullCommands[frame] from commandBase), counted in
+// gCullCounts[frame] from countBase, which the run's DrawIndexedIndirectCount reads
 #define SHADER_TYPES_CULL_GROUP_SIZE 64u
+// what a job keeps of its list's draws in view (CullJob::kind): all of them; those seen last frame (gCullVisibility),
+// the main pass's first draws, which the depth pyramid is made of; those the pyramid doesn't hide that weren't drawn
+// first (and whether each is seen, for the next frame); those the pyramid doesn't hide (the transmissive phase's)
+#define CULL_JOB_FRUSTUM 0u
+#define CULL_JOB_EARLY 1u
+#define CULL_JOB_LATE 2u
+#define CULL_JOB_PYRAMID 3u
+// the depth pyramid (ComputeDepthPyramid, see the Depth Pyramid pass): the main depth's farthest per texel, from the
+// main depth at level 0 (a copy) up to 1x1, each level a storage image of gDepthPyramid, which occlusion reads
+#define SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT 16u
+#define SHADER_TYPES_DEPTH_PYRAMID_GROUP_SIZE 8u
+// the gTextures slot of the main pass's depth (the depth pyramid's source)
+#define SHADER_TYPES_MAIN_DEPTH_TEXTURE 4u
 
 struct CullCandidate
 {
@@ -460,8 +473,8 @@ struct CullCandidate
 	alignas(4) UINT1(firstIndex);
 	alignas(4) UINT1(run); // its run, of its list's
 	alignas(4) UINT1(runFirst); // its run's first item, in its list
+	alignas(4) UINT1(late); // 1: never drawn first (blended: drawn after every opaque draw, see FragmentTransparent)
 	alignas(4) UINT1(padding0);
-	alignas(4) UINT1(padding1);
 };
 
 struct CullJob
@@ -471,15 +484,25 @@ struct CullJob
 	alignas(4) UINT1(view); // in gCullViews
 	alignas(4) UINT1(commandBase); // its list's commands (one place per item), in gCullCommands
 	alignas(4) UINT1(countBase); // its list's runs' counts, in gCullCounts
-	alignas(4) UINT1(padding0);
-	alignas(4) UINT1(padding1);
-	alignas(4) UINT1(padding2);
+	alignas(4) UINT1(kind); // CULL_JOB_*
+	alignas(4) UINT1(visibilityBase); // early and late: its list's draws' visibility for the view, in gCullVisibility
+	// 1: the draws kept compacted per run and counted (DrawIndexedIndirectCount). 0: every draw's command in its own place,
+	// of no instances if not kept (DrawIndexedIndirect of the whole run: where the count is emulated, see
+	// DeviceLimits::drawIndirectCountEmulated)
+	alignas(4) UINT1(compact);
 };
 
-// a view's frustum (see gfx::Frustum): six planes, xyz the inward normal, w the distance. all zeros culls nothing
+// a view's frustum (see gfx::Frustum): six planes, xyz the inward normal, w the distance (all zeros culls nothing), and,
+// for occlusion, its view projection and viewport (in framebuffer pixels: x, y, width, height)
 struct CullView
 {
 	alignas(16) FLOAT4(planes[6]);
+	alignas(16) FLOAT4X4(viewProjection);
+	alignas(16) FLOAT4(viewport);
+	alignas(4) UINT1(occlusion); // whether the depth pyramid hides draws from it
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 };
 
 struct PushConstants
@@ -512,6 +535,9 @@ struct PushConstants
 	alignas(4) UINT1(scatter);
 	// per frame: how many of gUiBlurRects[frame] the ui's frosted panels take (0: none)
 	alignas(4) UINT1(uiBlurRectCount);
+	// per dispatch: the first of gCullJobs[frame] a Cull pass runs, and the level the Depth Pyramid pass writes
+	alignas(4) UINT1(cullJobBase);
+	alignas(4) UINT1(depthPyramidLevel);
 };
 
 #ifdef __cplusplus
