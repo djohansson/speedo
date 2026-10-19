@@ -802,7 +802,9 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			timelineCallbacks.emplace_back(transferDone.handle);
 			return buffer;
 		};
-		buffers.index = upload("indices", desc.indexCount * sizeof(uint32_t), BufferUsage::kIndex, std::move(indexStaging));
+		// storage too: the indirect lighting's voxelizer reads the triangles in compute
+		buffers.index = upload(
+			"indices", desc.indexCount * sizeof(uint32_t), BufferUsage::kIndex | BufferUsage::kStorage, std::move(indexStaging));
 		buffers.vertex = upload(
 			"vertices", desc.vertexCount * sizeof(VertexP3fN3fTa4fT014fC4f), BufferUsage::kVertex | BufferUsage::kStorage,
 			std::move(vertexStaging));

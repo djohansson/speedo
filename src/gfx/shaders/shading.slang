@@ -111,10 +111,20 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			surface.retroreflection);
 	// KHR_materials_diffuse_transmission: that much of the diffuse is lit from the back instead, tinted by the
 	// transmission color alone (the spec's diffuse_btdf(diffuseTransmissionColor): not the base color)
-	float3 diffuseEnvironment = surface.diffuseColor * EnvironmentIrradiance(environment, normal);
+	// the indirect lighting's (see GiIrradiance), where its probes cover the point: the environment occluded, and the light
+	// the scene bounces. else the environment's
+	float3 indirect = GiIrradiance(position, normal);
+	if (GiDebug() != 0u)
+		return indirect.x >= 0.0 ? indirect : float3(1.0, 0.0, 1.0);
+	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));
 	if (surface.diffuseTransmission > 0.0)
+	{
+		float3 behind = GiIrradiance(position, -normal);
 		diffuseEnvironment = lerp(
-			diffuseEnvironment, surface.diffuseTransmissionColor * EnvironmentIrradiance(environment, -normal), surface.diffuseTransmission);
+			diffuseEnvironment,
+			surface.diffuseTransmissionColor * (behind.x >= 0.0 ? behind : EnvironmentIrradiance(environment, -normal)),
+			surface.diffuseTransmission);
+	}
 	float3 result = surface.occlusion * (diffuseEnvironment +
 										 environmentSpecular * environmentRadiance);
 	result += surface.transmitted * (1.0 - environmentSpecular);

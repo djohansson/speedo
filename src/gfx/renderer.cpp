@@ -45,6 +45,18 @@ constexpr uint8_t kCullEntryPoint = 5;
 constexpr uint8_t kDepthPyramidEntryPoint = 6;
 constexpr uint8_t kDepthSaveEntryPoint = 7;
 constexpr uint8_t kDepthReprojectEntryPoint = 8;
+// the indirect lighting's kernels (see gi.slang), entry points 9 to 15
+constexpr uint8_t kGiClearEntryPoint = 9;
+constexpr uint8_t kGiVoxelizeEntryPoint = 10;
+constexpr uint8_t kGiLightEntryPoint = 11;
+constexpr uint8_t kGiMipEntryPoint = 12;
+constexpr uint8_t kGiTraceEntryPoint = 13;
+constexpr uint8_t kGiMergeEntryPoint = 14;
+constexpr uint8_t kGiIrradianceEntryPoint = 15;
+constexpr uint8_t kGiVisibilityEntryPoint = 16;
+constexpr uint8_t kGiBounceEntryPoint = 17;
+// a dispatch's threads along x (DispatchThreads: groups of SHADER_TYPES_GI_GROUP_SIZE, at most 65535 of them)
+constexpr uint64_t kMaxDispatchThreads = 65535ULL * SHADER_TYPES_GI_GROUP_SIZE;
 // at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
 // list's early and late per shadow view
 constexpr uint32_t kCullJobCount = (5 * SHADER_TYPES_VIEW_COUNT) + (2 * SHADER_TYPES_SHADOW_VIEW_COUNT);
@@ -170,6 +182,26 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myCullCounts = myGraph.ImportBuffer("Cull Counts");
 	myCullVisibility = myGraph.ImportBuffer("Cull Visibility");
 	myCullStatisticsId = myGraph.ImportBuffer("Cull Statistics");
+	// the indirect lighting's (see InternalPlanGi): the persistent buffers, a texel each until a model is voxelized
+	myGiVoxels = myGraph.ImportBuffer("GI Voxels");
+	myGiRadiance = myGraph.ImportBuffer("GI Radiance");
+	myGiCascades = myGraph.ImportBuffer("GI Cascades");
+	myGiIrradiance = myGraph.ImportBuffer("GI Irradiance");
+	for (auto [buffer, name, size] : std::array{
+			 std::tuple{&myGiVoxelBuffer, "GI Voxels", sizeof(GiVoxel)},
+			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiCascadeBuffer, "GI Cascades", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", 3 * 4 * sizeof(float)}})
+		*buffer = Buffer(BufferCreateDesc{device.CreateDeviceObjectCreateDesc(name), size, BufferUsage::kStorage, MemoryProperty::kDeviceLocal});
+	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+		myGiDataBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("GI Data {}", frameIt)), sizeof(GiData), BufferUsage::kStorage, MemoryProperty::kHostVisible});
+	myGiJobs = {.name = "GI Jobs", .binding = "gGiJobs", .elementSize = 4 * sizeof(uint32_t)};
+	InternalCreate(myGiJobs, device, 1024);
+	myGiLightCells = {.name = "GI Light Cells", .binding = "gGiLightCells", .elementSize = 2 * sizeof(uint32_t)};
+	InternalCreate(myGiLightCells, device, SHADER_TYPES_GI_LIGHT_GRID * SHADER_TYPES_GI_LIGHT_GRID * SHADER_TYPES_GI_LIGHT_GRID);
+	myGiLightIndices = {.name = "GI Light Indices", .binding = "gGiLightIndices", .elementSize = sizeof(uint32_t)};
+	InternalCreate(myGiLightIndices, device, 4096);
 	myCullVisibilityCapacity = SHADER_TYPES_DRAW_RECORD_COUNT;
 	myCullVisibilityBuffer = Buffer(BufferCreateDesc{
 		device.CreateDeviceObjectCreateDesc("Cull Visibility"),
@@ -205,7 +237,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					  uint32_t height,
 					  uint32_t cullJobBase = 0,
 					  uint32_t depthPyramidLevel = 0,
-					  uint32_t depthPyramidSource = 0)
+					  uint32_t depthPyramidSource = 0,
+					  uint32_t giStep = 0)
 	{
 		auto& pipeline = *myFrame.pipeline;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
@@ -221,6 +254,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pushConstants.cullJobBase = cullJobBase;
 		pushConstants.depthPyramidLevel = depthPyramidLevel;
 		pushConstants.depthPyramidSource = depthPyramidSource;
+		pushConstants.giStep = giStep;
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
 	};
@@ -493,6 +527,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			[this, load, phase, &useOitLists, useCulled](FrameGraph::PassBuilder& builder)
 			{
 				useCulled(builder);
+				// the indirect lighting's probes, and the voxels (where they are inside something)
+				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, load);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
@@ -512,6 +549,82 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					late);
 			});
 	};
+	// the indirect lighting (see gi.slang): the voxels (again when the model changes), lit, their levels, the cascades
+	// traced and merged from the farthest down, and cascade 0's irradiance per probe, which the main pass shades with.
+	// each kernel's dispatches in a pass read what the one before wrote: barriers between them
+	auto computeBarrier = [](CommandBufferHandle cmd)
+	{
+		CommandEncoder(cmd).Barrier(
+			PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
+	};
+	myGiClearPass = myGraph.AddPass(
+		"GI Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); },
+		[this, kernel](FrameGraph::PassContext& context)
+		{ kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiClearEntryPoint}, myGiLayout.voxelCount, 1); });
+	myGiVoxelizePass = myGraph.AddPass(
+		"GI Voxelize",
+		[this](FrameGraph::PassBuilder& builder)
+		{ builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite)); },
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiVoxelizeEntryPoint}, myGiTriangleCount, 1, 0, 0, 0, myGiJobCount);
+		});
+	myGiVisibilityPass = myGraph.AddPass(
+		"GI Visibility",
+		[this](FrameGraph::PassBuilder& builder)
+		{ builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite)); },
+		[this, kernel](FrameGraph::PassContext& context)
+		{ kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiVisibilityEntryPoint}, myGiLayout.voxelCount, 1); });
+	auto cascadeTexels = [this](uint32_t cascade)
+	{
+		const auto& size = myGiLayout.data.cascadeSize[cascade];
+		return size[0] * size[1] * size[2] * size[3] * size[3];
+	};
+	// per bounce: the voxels lit (the first by the lights, the next adding what the probes of the one before reflect off
+	// them), their levels, the cascades traced and merged, and the probes' irradiance. all in the frame, from nothing of
+	// the last
+	myGiPass = myGraph.AddPass(
+		"GI",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiCascades, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, kernel, computeBarrier, cascadeTexels](FrameGraph::PassContext& context)
+		{
+			auto cmd = context.cmd;
+			const auto& data = myGiLayout.data;
+			for (uint32_t bounceIt = 0; bounceIt < myGiBounceCount; bounceIt++)
+			{
+				if (bounceIt > 0)
+					computeBarrier(cmd);
+				kernel(
+					cmd,
+					ComputePipelineVariant{.entryPoint = bounceIt == 0 ? kGiLightEntryPoint : kGiBounceEntryPoint},
+					myGiLayout.voxelCount,
+					1);
+				for (uint32_t levelIt = 1; levelIt < data.volumeSize[3]; levelIt++)
+				{
+					computeBarrier(cmd);
+					auto size = glm::max(glm::uvec3(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]) >> levelIt, glm::uvec3(1));
+					kernel(cmd, ComputePipelineVariant{.entryPoint = kGiMipEntryPoint}, size.x * size.y * size.z, 1, 0, 0, 0, levelIt);
+				}
+				computeBarrier(cmd);
+				for (uint32_t cascadeIt = 0; cascadeIt < data.cascadeCount; cascadeIt++)
+					kernel(cmd, ComputePipelineVariant{.entryPoint = kGiTraceEntryPoint}, cascadeTexels(cascadeIt), 1, 0, 0, 0, cascadeIt);
+				for (uint32_t cascadeIt = data.cascadeCount - 1; cascadeIt-- > 0;)
+				{
+					computeBarrier(cmd);
+					kernel(cmd, ComputePipelineVariant{.entryPoint = kGiMergeEntryPoint}, cascadeTexels(cascadeIt), 1, 0, 0, 0, cascadeIt);
+				}
+				computeBarrier(cmd);
+				kernel(cmd, ComputePipelineVariant{.entryPoint = kGiIrradianceEntryPoint}, myGiLayout.probeCount, 1);
+			}
+		});
+
 	mainPass(MainPassPhase::kOpaque);
 
 	// occlusion culling: the depth pyramid of what the main pass drew first (the draws seen last frame), level by level
@@ -689,6 +802,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
 	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
+	// the indirect lighting, with SPEEDO_GI=1 (SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, 128 by default)
+	const char* gi = std::getenv("SPEEDO_GI");
+	myGiEnabled = gi != nullptr && std::string_view(gi) == "1";
+	if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
+		myGiResolution = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(resolution, nullptr, 10)), 8U, 512U);
+	// bounces of light (SPEEDO_GI_BOUNCES, 2 by default: the lights' and the sky's light off the scene, then that off it
+	// once more), each a pass of the cascades, in the frame
+	if (const char* bounces = std::getenv("SPEEDO_GI_BOUNCES"); bounces != nullptr && *bounces != '\0')
+		myGiBounceCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(bounces, nullptr, 10)), 1U, 8U);
 	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
 	// (SPEEDO_SHADOW_OCCLUSION_CULLING=1 turns it on: off by default, since a shadow view sees few of the chunks hidden
 	// behind others, 6 to 11 of Bistro's 560 to 800, and its pyramid and the atlas's second render pass cost 0.5 to 1 ms)
@@ -841,6 +963,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers},
 				 std::pair{"gCullJobs", &myCullJobBuffers},
 				 std::pair{"gCullStatistics", &myCullStatisticsBuffers},
+				 std::pair{"gGi", &myGiDataBuffers},
+				 std::pair{"gGiJobs", &myGiJobs.buffers},
+				 std::pair{"gGiLightCells", &myGiLightCells.buffers},
+				 std::pair{"gGiLightIndices", &myGiLightIndices.buffers},
 				 std::pair{"gCullViews", &myCullViewBuffers},
 				 std::pair{"gDrawRecords", &myDrawRecords.buffers},
 				 std::pair{"gCullCandidates", &myCullCandidates.buffers},
@@ -903,6 +1029,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 	}
 	pipeline.SetDescriptorData(
 		"gCullVisibility", BufferBinding{.buffer = myCullVisibilityBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	for (auto [name, buffer] : std::array{
+			 std::pair{"gGiVoxels", &myGiVoxelBuffer},
+			 std::pair{"gGiRadiance", &myGiRadianceBuffer},
+			 std::pair{"gGiCascades", &myGiCascadeBuffer},
+			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer}})
+		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// the depth reprojection's: the main depth's stencil, and the last frame's depth at this size (none yet)
 	{
 		const auto& depth = myGraph.GetImage(myDepth);
@@ -1170,6 +1302,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myCullVisibility, myCullVisibilityBuffer);
 	myGraph.Bind(myPreviousDepth, myPreviousDepthBuffer);
 	myGraph.Bind(myCullStatisticsId, myCullStatisticsBuffers[frame.frameIndex]);
+	InternalPlanGi(pipeline, frame);
+	myGraph.Bind(myGiVoxels, myGiVoxelBuffer);
+	myGraph.Bind(myGiRadiance, myGiRadianceBuffer);
+	myGraph.Bind(myGiCascades, myGiCascadeBuffer);
+	myGraph.Bind(myGiIrradiance, myGiIrradianceBuffer);
 
 	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
 	myDrawStream = &myDrawStreams[frame.frameIndex];
@@ -1588,6 +1725,105 @@ std::optional<CulledDraws> Renderer::InternalCulledDraws(ListId list, uint32_t v
 		.commandBase = job.commandBase,
 		.countBase = job.countBase,
 		.counted = job.compact != 0};
+}
+
+void Renderer::InternalReplaceBuffer(Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size)
+{
+	auto& device = pipeline.GetDevice();
+	Buffer replacement(BufferCreateDesc{
+		device.CreateDeviceObjectCreateDesc(std::string(name)), std::max<size_t>(size, 16), BufferUsage::kStorage, MemoryProperty::kDeviceLocal});
+	pipeline.SetDescriptorData(binding, BufferBinding{.buffer = replacement, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	myRetiredBuffers.emplace_back(myFrameCount, std::exchange(buffer, std::move(replacement)));
+}
+
+void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
+{
+	ZoneScopedN("Renderer::planGi");
+
+	using namespace renderer;
+
+	const auto& mainList = InternalList(ListId::kMain);
+	bool enabled = myGiEnabled && frame.model != nullptr && !mainList.Empty();
+	auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
+	{
+		if (bytes.empty())
+			return;
+		auto memory = buffer.Map();
+		std::ranges::copy(bytes, memory.begin());
+		buffer.Flush(0, bytes.size());
+		buffer.Unmap();
+	};
+	for (auto pass : {myGiClearPass, myGiVoxelizePass, myGiVisibilityPass, myGiPass})
+		myGraph.SetEnabled(pass, enabled);
+	if (!enabled)
+	{
+		GiData data{};
+		write(myGiDataBuffers[frame.frameIndex], std::as_bytes(std::span(&data, 1)));
+		myGiModel = nullptr;
+		return;
+	}
+
+	// the volume over the scene, made again (and voxelized) when the model, its bounds or its draws change
+	if (frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
+		frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount)
+	{
+		myGiModel = frame.model;
+		myGiBounds = frame.sceneBounds;
+		myGiItemCount = mainList.items.size();
+		constexpr uint32_t kProbeSpacing = 4;
+		constexpr uint32_t kOctahedralSide = 4;
+		auto layout = gi::MakeLayout(frame.sceneBounds, myGiResolution, kProbeSpacing, kOctahedralSide);
+		for (auto count : {layout.voxelCount, layout.radianceCount, layout.cascadeTexelCount, layout.probeCount})
+			ENSUREF(count <= kMaxDispatchThreads, "the indirect lighting's {} threads are more than a dispatch takes", count);
+		if (layout.voxelCount != myGiLayout.voxelCount)
+			InternalReplaceBuffer(myGiVoxelBuffer, pipeline, "GI Voxels", "gGiVoxels", layout.voxelCount * sizeof(GiVoxel));
+		if (layout.radianceCount + layout.voxelCount != myGiLayout.radianceCount + myGiLayout.voxelCount)
+			InternalReplaceBuffer(
+				myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", (layout.radianceCount + layout.voxelCount) * 2 * sizeof(uint32_t));
+		if (layout.cascadeTexelCount != myGiLayout.cascadeTexelCount)
+			InternalReplaceBuffer(myGiCascadeBuffer, pipeline, "GI Cascades", "gGiCascades", layout.cascadeTexelCount * 2 * sizeof(uint32_t));
+		if (layout.probeCount != myGiLayout.probeCount)
+			InternalReplaceBuffer(myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", layout.probeCount * 3 * 4 * sizeof(float));
+		myGiLayout = layout;
+		myGiVoxelize = true;
+	}
+
+	// what the voxelizer reads, when it runs: the main list's triangles of what doesn't move (opaque or alpha masked), a
+	// job per draw, then the triangle count
+	myGraph.SetEnabled(myGiClearPass, myGiVoxelize);
+	myGraph.SetEnabled(myGiVoxelizePass, myGiVoxelize);
+	myGraph.SetEnabled(myGiVisibilityPass, myGiVoxelize);
+	if (myGiVoxelize)
+	{
+		std::vector<uint32_t> jobs;
+		uint32_t triangles = 0;
+		for (const auto& item : mainList.items)
+		{
+			if (!item.cullable || item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0)
+				continue;
+			jobs.insert(jobs.end(), {triangles, item.firstIndex, item.record, item.instanceCount});
+			triangles += item.indexCount / 3;
+		}
+		myGiJobCount = static_cast<uint32_t>(jobs.size() / 4);
+		myGiTriangleCount = triangles;
+		ENSUREF(triangles <= kMaxDispatchThreads, "the indirect lighting's voxelizer's {} triangles are more than a dispatch takes", triangles);
+		jobs.insert(jobs.end(), {triangles, 0U, 0U, 0U});
+		write(InternalReserve(myGiJobs, pipeline, frame.frameIndex, jobs.size() / 4), std::as_bytes(std::span(jobs)));
+		myGraph.SetEnabled(myGiVoxelizePass, myGiJobCount > 0);
+		myGiVoxelize = false;
+	}
+
+	// the lights per cell, and the parameters
+	auto cells = gi::BinLights(myGiLayout.data, frame.lights);
+	write(InternalReserve(myGiLightCells, pipeline, frame.frameIndex, cells.ranges.size() / 2), std::as_bytes(std::span(cells.ranges)));
+	write(InternalReserve(myGiLightIndices, pipeline, frame.frameIndex, std::max<size_t>(cells.indices.size(), 1)), std::as_bytes(std::span(cells.indices)));
+	auto data = myGiLayout.data;
+	data.enabled = 1;
+	data.directFirst = myGiLayout.radianceCount;
+	data.lightCount = static_cast<uint32_t>(frame.lights.size());
+	if (const char* debug = std::getenv("SPEEDO_GI_DEBUG"); debug != nullptr)
+		data.debug = static_cast<uint32_t>(std::strtoul(debug, nullptr, 10));
+	write(myGiDataBuffers[frame.frameIndex], std::as_bytes(std::span(&data, 1)));
 }
 
 void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId listId, bool late)

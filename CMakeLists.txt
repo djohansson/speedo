@@ -193,6 +193,7 @@ set(GFX_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/gfx/imageimport.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/imgui_extra.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/imguilayer.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/indirectlight.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/lightgizmos.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/meshimport.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/model.cpp

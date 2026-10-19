@@ -25,3 +25,4 @@ __include types;
 #include "composite.slang"
 #include "uiblur.slang"
 #include "cull.slang"
+#include "gi.slang"

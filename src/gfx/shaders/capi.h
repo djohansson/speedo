@@ -536,6 +536,56 @@ struct CullView
 	alignas(16) FLOAT4(previousViewport);
 };
 
+// indirect lighting (see gi.slang and gfx/indirectlight.h): world space radiance cascades over a voxel radiance volume.
+// the volume: a grid of voxels over the scene (GiData::volume*), voxelized from what doesn't move (gGiVoxels: albedo and
+// occupancy, normal, emission per voxel), lit each frame into radiance and occupancy (gGiRadiance, a mip chain of levels
+// each half the one below). the cascades: probes over the volume, each cascade with half the probes per axis of the one
+// before, twice its directions per axis (an octahedral map of them) and its rays four times as far (GiData::cascade*),
+// traced through the radiance at their level and merged from the farthest down (gGiCascades), cascade 0 then projected
+// to spherical harmonics per probe (gGiIrradiance), which the shading interpolates
+#define SHADER_TYPES_GI_GROUP_SIZE 64u
+#define SHADER_TYPES_GI_LEVEL_COUNT 8u
+#define SHADER_TYPES_GI_CASCADE_COUNT 8u
+// the lights that light the voxels, binned into a grid of cells over the volume (gGiLightCells: a first index and count
+// into gGiLightIndices per cell)
+#define SHADER_TYPES_GI_LIGHT_GRID 16u
+
+struct GiVoxel
+{
+	alignas(4) UINT1(albedo); // rgba8: the diffuse albedo, linear, and 255 in a where something is
+	alignas(4) UINT1(normal); // two snorm16: the normal, octahedral
+	alignas(4) UINT1(emissionRG); // half2
+	// half, and in the upper 16 bits which of the 8 cascade 0 probes around the voxel are visible from its center (bit
+	// i: the probe at offset (i & 1, i >> 1 & 1, i >> 2) from the nearest below, see GiIrradiance)
+	alignas(4) UINT1(emissionB);
+};
+
+struct GiData
+{
+	// the volume: its corner (world space) and its voxels' size, its voxels per axis and its level count, and each level's
+	// first voxel in gGiRadiance
+	alignas(16) FLOAT4(volumeOrigin);
+	alignas(16) UINT4(volumeSize);
+	alignas(16) UINT4(levelFirst[2]);
+	// per cascade: its probes per axis and the side of its directions' octahedral map, and its first texel in
+	// gGiCascades (x), the start and end of its rays' interval (y, z: world space), and its probes' spacing (w)
+	alignas(16) UINT4(cascadeSize[SHADER_TYPES_GI_CASCADE_COUNT]);
+	alignas(16) FLOAT4(cascadeInterval[SHADER_TYPES_GI_CASCADE_COUNT]);
+	alignas(16) UINT4(cascadeFirst[SHADER_TYPES_GI_CASCADE_COUNT / 4]);
+	alignas(4) UINT1(cascadeCount);
+	alignas(4) UINT1(enabled); // whether the shading takes its diffuse indirect light from the probes
+	alignas(4) UINT1(lightCount); // of gLights, which light the voxels
+	// SPEEDO_GI_DEBUG: 1 shades with the indirect diffuse light alone (a white surface's), 2 with the probes' visibility
+	// (the share of the 8 a point sees, see GiIrradiance), 3 with the radiance of the voxel behind the point (4: in front of
+	// it), 5 with its albedo (magenta where there is none, cyan outside the volume)
+	alignas(4) UINT1(debug);
+	// where in gGiRadiance the voxels' direct radiance is kept (after the levels): each bounce adds to it
+	alignas(4) UINT1(directFirst);
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
+};
+
 struct PushConstants
 {
 	// per frame
@@ -576,6 +626,8 @@ struct PushConstants
 	alignas(4) UINT1(previousWidth);
 	alignas(4) UINT1(previousHeight);
 	alignas(4) UINT1(mainViewCount);
+	// per dispatch: the indirect lighting's level or cascade (see GiData)
+	alignas(4) UINT1(giStep);
 };
 
 #ifdef __cplusplus

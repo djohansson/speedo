@@ -444,7 +444,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling; GI Clear, GI Voxelize, GI Visibility and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -796,6 +796,52 @@ to 4.15). Renders with and without are identical. The cpu binning stays cheap: 6
 for ManyLights' 33, 80 (105 at the 90th percentile) for the 4000 of `ThousandsOfLights.gltf` in one view, so it hasn't been
 moved to a compute pass; that scene's main pass takes 8.9 ms clustered, and unclustered more than the 250 ms a timed pass
 may (its timings are dropped). `SHADER_TYPES_LIGHT_COUNT` (gLights) is 4096.
+
+## Indirect lighting: radiance cascades over a voxel volume
+
+`SPEEDO_GI=1` (off by default while it matures) gives the diffuse ambient term from world space radiance cascades
+(`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), every frame and noise free: a fixed set of rays, merged, no
+history, no denoiser (temporal accumulation is ruled out by design: its ghosting and lag). What it does, per frame:
+
+- **The volume**: a grid of voxels over the scene's bounds (`gi::MakeLayout`: `SPEEDO_GI_RESOLUTION`, 128 by default,
+  along the longest axis, a voxel of margin), made again when the model, its bounds or its draws change. Voxelizing
+  (the GI Clear, GI Voxelize and GI Visibility passes, only then): a thread per triangle of the main list's static draws
+  (`gGiJobs`: per draw its first triangle of all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index
+  buffers are storage buffers too) samples its surface at under half a voxel apart into the voxel half a voxel behind
+  each of its faces (`GiVoxel`: albedo and occupancy, normal facing away from the face, emission; `InterlockedMax`, so
+  that the order doesn't matter). Both faces, always: a double sided material's either face can be the one seen, and a
+  triangle's winding, its vertex normals and the side it is drawn from needn't agree (CornellBox's generated normals
+  point out of the box, whose walls are seen from inside). Then, per voxel, which of the 8 cascade 0 probes around it
+  are visible from its center (a march through the voxels, into `GiVoxel::emissionB`'s upper bits): the probes are
+  centered on voxel boundaries, so every point of a voxel interpolates the same 8. What moves isn't voxelized yet.
+- **Lighting** (the GI pass, per bounce): each voxel's emission plus its albedo over pi times the punctual lights of
+  its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only (a
+  wall's voxel isn't lit by the sun outside it), each shadowed by a march through the voxels (the shadow atlas covers
+  only what the camera sees); kept as the direct radiance. A mip chain of radiance and occupancy (each voxel the mean of
+  its 8). The cascades: cascade 0 has a probe every 4 voxels with 4x4 directions (octahedral), each cascade above half
+  the probes per axis, twice the directions per axis and an interval four times as long, until one reaches across the
+  volume; cascade c marches its interval through level c (front to back, the occupancy as opacity), the last's rays that
+  get through see the environment (`EnvironmentRadiance` at roughness 0.6, without the dominant lights, which light the
+  voxels themselves), and each cascade below takes what gets through its rays from its 2x2 child directions at its 8
+  nearest probes above (trilinear). Cascade 0's merged radiance becomes L1 spherical harmonics per probe. A second
+  bounce (`SPEEDO_GI_BOUNCES`, 2 by default) lights the voxels again with their direct radiance plus their albedo times
+  the probes' irradiance at them (the sky's and the lights' light off the scene), and traces again: in the frame,
+  nothing kept from the last.
+- **Shading**: `Shade` takes `GiIrradiance(position, normal)` in place of the environment's irradiance where the volume
+  covers the point (the environment's elsewhere): the 8 nearest cascade 0 probes, trilinear, from the point offset 1.5
+  voxels along its normal (off its own surface's voxels, a staircase where it is diagonal to them), each weighed by
+  whether it is visible (the voxel's mask) and how much it faces the surface. The specular still reflects the
+  environment unoccluded (glossy indirect light is the next step). `SPEEDO_GI_DEBUG`: 1 the indirect diffuse alone, 2 the
+  probes' visibility, 3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo.
+
+Measured on KosmicKrisp by the frame's gpu time, two bounces: CornellBox +0.6 ms, Bistro +1.1, ThousandsOfLights +1.1
+(4000 lights in the voxels' cells), Sponza's interior +2.0 (most of it the main pass's lookups). It renders CornellBox's
+colour bleeding, the lamp lighting the ceiling around it, and contact darkening in the corners; Sponza's arcades are lit
+by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
+way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel
+boundary rounds to either side (so the offset); per pixel visibility marches cost 1 ms on CornellBox before the masks.
+What's left (TODO.md): a camera clipmap instead of one volume over the scene, what moves, glossy reflections, hardware
+ray queries, and a path traced reference to compare against.
 
 ## Descriptor sets: redundant updates consume the pool
 

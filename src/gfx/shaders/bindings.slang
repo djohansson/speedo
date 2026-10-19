@@ -36,6 +36,10 @@ RWStructuredBuffer<uint> gOitCounter;
 [[vk::binding(6, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 RWStructuredBuffer<uint> gExposureHistogram;
 
+// the model's indices (the index buffer's), for what reads its triangles in compute (the indirect lighting's voxelizer)
+[[vk::binding(7, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<uint> gIndexBuffer;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 // the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
@@ -125,3 +129,25 @@ RWStructuredBuffer<uint> gReprojectedDepth;
 // what the occlusion culling decided (CULL_STATISTIC_*), host visible, per frame index
 [[vk::binding(20, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gCullStatistics[SHADER_TYPES_FRAME_COUNT];
+
+// the indirect lighting (see GiData): its parameters per frame index, the voxels, their radiance (rgba16f: radiance times
+// occupancy, and occupancy) by level, the cascades' radiance (rgba16f: radiance, and the transmittance along the ray)
+// per probe and direction, and cascade 0's irradiance per probe (spherical harmonics, bands 0 and 1: a float4 per color)
+[[vk::binding(21, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<GiData> gGi[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(22, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<GiVoxel> gGiVoxels;
+[[vk::binding(23, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint2> gGiRadiance;
+[[vk::binding(24, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint2> gGiCascades;
+[[vk::binding(25, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<float4> gGiIrradiance;
+// what the voxelizer reads (a uint4 per run of triangles: its first triangle of all, first index, DrawRecord and
+// instance count), and the lights per cell of the volume, per frame index
+[[vk::binding(26, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<uint4> gGiJobs[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(27, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<uint2> gGiLightCells[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(28, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<uint> gGiLightIndices[SHADER_TYPES_FRAME_COUNT];

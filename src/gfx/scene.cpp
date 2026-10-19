@@ -1034,6 +1034,8 @@ struct Scene::Impl
 				BufferBinding{.buffer = model->GetVertexBuffer(), .offset = 0},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.SetDescriptorData(
+				"gIndexBuffer", BufferBinding{.buffer = model->GetIndexBuffer(), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.SetDescriptorData(
 				"gSkinVertices",
 				BufferBinding{
 					.buffer = model->GetSkinBuffer() != nullptr ? *model->GetSkinBuffer() : *device.GetResource<Buffer>(myDefaultSkinVerticesUuid),
@@ -1787,6 +1789,15 @@ struct Scene::Impl
 						{"ComputeDepthPyramid", SLANG_STAGE_COMPUTE}, // see the Depth Pyramid pass
 						{"ComputeDepthSave", SLANG_STAGE_COMPUTE}, // see the depth reprojection passes
 						{"ComputeDepthReproject", SLANG_STAGE_COMPUTE},
+						{"ComputeGiClear", SLANG_STAGE_COMPUTE}, // see the GI passes
+						{"ComputeGiVoxelize", SLANG_STAGE_COMPUTE},
+						{"ComputeGiLight", SLANG_STAGE_COMPUTE},
+						{"ComputeGiMip", SLANG_STAGE_COMPUTE},
+						{"ComputeGiTrace", SLANG_STAGE_COMPUTE},
+						{"ComputeGiMerge", SLANG_STAGE_COMPUTE},
+						{"ComputeGiIrradiance", SLANG_STAGE_COMPUTE},
+						{"ComputeGiVisibility", SLANG_STAGE_COMPUTE},
+						{"ComputeGiBounce", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

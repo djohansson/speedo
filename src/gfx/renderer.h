@@ -5,6 +5,7 @@
 #include <gfx/drawlist.h>
 #include <gfx/framegraph.h>
 #include <gfx/gpu.h>
+#include <gfx/indirectlight.h>
 #include <gfx/lightgizmos.h>
 #include <gfx/renderoutput.h>
 #include <gfx/shaders/capi.h>
@@ -152,6 +153,13 @@ private:
 	// whether the gpu culls a list this frame (else the cpu does, by the frustum)
 	[[nodiscard]] bool InternalCullsOnGpu(ListId list, const FrameInputs& frame) const noexcept;
 
+	// plans the frame's indirect lighting (see gfx/indirectlight.h): the volume for the model (voxelized again when it
+	// changes), the lights per cell, and the passes
+	void InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame);
+	// a persistent buffer of count elements of size bound as binding (all of the frame indices' slots if perFrame), the
+	// one it replaces kept until no frame in flight can use it
+	void InternalReplaceBuffer(Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size);
+
 	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false);
 
 	FrameGraph myGraph;
@@ -281,6 +289,37 @@ private:
 	FrameGraph::PassId myShadowDepthPyramidPass;
 	FrameGraph::PassId myCullShadowsLatePass;
 	FrameGraph::PassId myShadowsLatePass;
+
+	// the indirect lighting (SPEEDO_GI=1; SPEEDO_GI_RESOLUTION voxels along the volume's longest axis): its layout, what it
+	// was voxelized for (the model, its bounds and its draws), the persistent buffers (voxels, radiance, cascades,
+	// irradiance: see GiData), per frame index its parameters (host visible), and what the voxelizer and the voxels'
+	// lighting read (growing)
+	bool myGiEnabled = false;
+	uint32_t myGiResolution = 128;
+	gi::Layout myGiLayout;
+	const Model* myGiModel = nullptr;
+	Bounds3f myGiBounds;
+	size_t myGiItemCount = 0;
+	bool myGiVoxelize = false;
+	uint32_t myGiJobCount = 0;
+	uint32_t myGiTriangleCount = 0;
+	Buffer myGiVoxelBuffer;
+	Buffer myGiRadianceBuffer;
+	Buffer myGiCascadeBuffer;
+	Buffer myGiIrradianceBuffer;
+	std::vector<Buffer> myGiDataBuffers;
+	GrowingBuffers myGiJobs;
+	GrowingBuffers myGiLightCells;
+	GrowingBuffers myGiLightIndices;
+	FrameGraph::BufferId myGiVoxels;
+	FrameGraph::BufferId myGiRadiance;
+	FrameGraph::BufferId myGiCascades;
+	FrameGraph::BufferId myGiIrradiance;
+	FrameGraph::PassId myGiClearPass;
+	FrameGraph::PassId myGiVoxelizePass;
+	FrameGraph::PassId myGiVisibilityPass;
+	FrameGraph::PassId myGiPass;
+	uint32_t myGiBounceCount = 2;
 	// the buffers replaced by bigger ones, with the Record that replaced them
 	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
 	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from
