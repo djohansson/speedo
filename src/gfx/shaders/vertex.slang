@@ -37,6 +37,7 @@ struct InputStream : IInputStream
 {
 	uint vertexId : SV_VertexID;
 	uint instanceId : SV_InstanceID;
+	uint drawIndex : SV_DrawIndex; // in an indirect draw, else 0
 };
 
 struct VertexZPrepassOutput : IInterpolants
@@ -68,7 +69,7 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	VertexZPrepassOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-	DrawRecord draw = gDrawRecords[frameIndex][gPushConstants.drawRecord];
+	DrawRecord draw = gDrawRecords[frameIndex][gDrawSlots[frameIndex][gPushConstants.drawSlot + input.drawIndex]];
 
 	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
 
@@ -97,7 +98,7 @@ VertexMainOutput VertexMain(InputStream input)
 	VertexOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-	DrawRecord draw = gDrawRecords[frameIndex][gPushConstants.drawRecord];
+	DrawRecord draw = gDrawRecords[frameIndex][gDrawSlots[frameIndex][gPushConstants.drawSlot + input.drawIndex]];
 
 	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
 

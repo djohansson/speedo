@@ -503,11 +503,20 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   the main pass does per view in the queue pool's secondary command buffers. A draw's per draw values are a `DrawRecord`
   (material, first instance, skin and morph bases) in the frame's `gDrawRecords[frame]` (host visible, per frame index,
   `SHADER_TYPES_DRAW_RECORD_COUNT` of them: past that, draws are dropped with a warning), written in `Renderer::Record`
-  once the frame's lists are built (`WriteDrawRecords`, which sets each item's `record`); the push constants only say
-  which (`drawRecord`) and the view (`viewId`). The vertex stage reads the record and hands the material to the fragment
-  stage (`VertexOutput::materialId`, flat). It is the first step towards gpu driven drawing (TODO.md): an indirect draw
-  can't change push constants between its draws. Renders came out the same, but for one byte of ScatteringSkull's (by 2
-  of 255, in every run).
+  once the frame's lists are built (`WriteDrawRecords`, which sets each item's `record`). The draws recorded take slots
+  of the frame's `DrawStream` in order (`RecordDrawList`): `gDrawSlots[frame][slot]` is the draw's record, and the
+  push constants say the first slot (`drawSlot`) and the view (`viewId`); the vertex stage reads the record at
+  `drawSlot + SV_DrawIndex` (shader draw parameters, `VkPhysicalDeviceShaderDrawParametersFeatures`) and hands the
+  material to the fragment stage (`VertexOutput::materialId`, flat). Each run of draws with the same pipeline and state
+  is one `DrawIndexedIndirect` of their commands (the stream's other buffer, at the same slots; `SPEEDO_INDIRECT_DRAWS=0`
+  records them as direct draws, `drawSlot` each, `SV_DrawIndex` 0), with the slots and commands host visible and mapped
+  while the frame records (`SHADER_TYPES_DRAW_SLOT_COUNT`: past it draws are dropped, with a warning). Renders are the
+  same either way. On KosmicKrisp, measured on Bistro: multi-draw indirect costs nothing over direct draws (Shadows 4.18
+  to 4.03 ms looking down a street, 3.22 to 3.12 framed), `DrawIndexedIndirectCount` (the count read from a buffer) about
+  0.8 us per draw more (Shadows 4.03 to 4.53 ms: its four cascades' 600 draws), and a draw of no instances in a plain
+  indirect draw about 0.2 us (Metal has no draw count indirect: KosmicKrisp emulates it). So the gpu culling (TODO.md)
+  zeroes the instance counts of what it culls rather than compacting the draws and counting them. Renders came out the
+  same as with push constants, but for one byte of ScatteringSkull's (by 2 of 255, in every run).
 
 Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers

@@ -50,6 +50,19 @@ void CommandEncoder<kVk>::DrawIndexed(
 }
 
 template <>
+void CommandEncoder<kVk>::DrawIndexedIndirect(const Buffer<kVk>& buffer, uint64_t offset, uint32_t drawCount, uint32_t stride) const
+{
+	vkCmdDrawIndexedIndirect(myCmd, buffer, offset, drawCount, stride);
+}
+
+template <>
+void CommandEncoder<kVk>::DrawIndexedIndirectCount(
+	const Buffer<kVk>& buffer, uint64_t offset, const Buffer<kVk>& countBuffer, uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) const
+{
+	vkCmdDrawIndexedIndirectCount(myCmd, buffer, offset, countBuffer, countOffset, maxDrawCount, stride);
+}
+
+template <>
 void CommandEncoder<kVk>::Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const
 {
 	vkCmdDispatch(myCmd, groupCountX, groupCountY, groupCountZ);

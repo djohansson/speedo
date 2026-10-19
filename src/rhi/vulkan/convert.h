@@ -148,6 +148,8 @@ namespace rhi::vk
 		flags |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 	if (Any(usage & BufferUsage::kVertex))
 		flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+	if (Any(usage & BufferUsage::kIndirect))
+		flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 	return flags;
 }
 

@@ -97,6 +97,7 @@ enum class BufferUsage : uint8_t
 	kStorage = 1U << 3U,
 	kIndex = 1U << 4U,
 	kVertex = 1U << 5U,
+	kIndirect = 1U << 6U, // indirect draws' commands (see CommandEncoder::DrawIndexedIndirect)
 };
 RHI_FLAGS(BufferUsage)
 

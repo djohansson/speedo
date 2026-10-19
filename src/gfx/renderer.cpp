@@ -122,6 +122,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			SHADER_TYPES_DRAW_RECORD_COUNT * sizeof(DrawRecord),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
+		myDrawSlotBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Draw Slots {}", frameIt)),
+			SHADER_TYPES_DRAW_SLOT_COUNT * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myDrawCommandBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Draw Commands {}", frameIt)),
+			SHADER_TYPES_DRAW_SLOT_COUNT * sizeof(DrawIndexedIndirectCommand),
+			BufferUsage::kIndirect,
+			MemoryProperty::kHostVisible});
 	}
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
 
@@ -188,7 +198,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
 				pushConstants.shadowView = viewIt;
 				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
-				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, inputs.culling ? &frustum : nullptr);
+				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, myDrawStream, inputs.culling ? &frustum : nullptr);
 			}
 		});
 
@@ -404,6 +414,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	output.AddFinalPasses(myGraph, myOutput, myFrame);
 
 	// the passes' gpu timings (see GetPassTimings)
+	// each run of draws with the same pipeline and state as one indirect draw (see RecordDrawList), unless
+	// SPEEDO_INDIRECT_DRAWS=0: direct draws
+	const char* indirect = std::getenv("SPEEDO_INDIRECT_DRAWS");
+	myIndirectDraws = indirect == nullptr || std::string_view(indirect) != "0";
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -501,7 +515,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				 std::pair{"gClusters", &myClusterBuffers},
 				 std::pair{"gClusterLights", &myClusterLightBuffers},
 				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers},
-				 std::pair{"gDrawRecords", &myDrawRecordBuffers}})
+				 std::pair{"gDrawRecords", &myDrawRecordBuffers},
+				 std::pair{"gDrawSlots", &myDrawSlotBuffers}})
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
@@ -708,7 +723,27 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.frameIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
+
+	// the draws' slots and commands, written as the passes record them (the frame's buffers' previous use is done)
+	auto& slotBuffer = myDrawSlotBuffers[frame.frameIndex];
+	auto& commandBuffer = myDrawCommandBuffers[frame.frameIndex];
+	auto slotMemory = slotBuffer.Map();
+	auto commandMemory = commandBuffer.Map();
+	myDrawStream = DrawStream{
+		.slots = std::span(reinterpret_cast<uint32_t*>(slotMemory.data()), SHADER_TYPES_DRAW_SLOT_COUNT),
+		.commands = std::span(reinterpret_cast<DrawIndexedIndirectCommand*>(commandMemory.data()), SHADER_TYPES_DRAW_SLOT_COUNT),
+		.commandBuffer = &commandBuffer,
+		.indirect = myIndirectDraws};
 	myGraph.Execute(cmd, inputs.graphicsQueue->GetProfiler());
+	if (myDrawStream.count > 0)
+	{
+		slotBuffer.Flush(0, myDrawStream.count * sizeof(uint32_t));
+		if (myDrawStream.indirect)
+			commandBuffer.Flush(0, myDrawStream.count * sizeof(DrawIndexedIndirectCommand));
+	}
+	slotBuffer.Unmap();
+	commandBuffer.Unmap();
+	myDrawStream = {};
 
 	myFrame.inputs = nullptr;
 	myFrame.pipeline = nullptr;
@@ -778,7 +813,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 		std::optional<Frustum> frustum;
 		if (inputs.culling && viewIt < inputs.viewProjections.size())
 			frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
-		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, frustum ? &*frustum : nullptr, inputs.executor);
+		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, myDrawStream, frustum ? &*frustum : nullptr, inputs.executor);
 	}
 
 	std::vector<CommandBuffer> secondaries;

@@ -207,6 +207,7 @@ void RecordDrawList(
 	const DrawList& list,
 	PushConstants pushConstants,
 	uint16_t viewIndex,
+	DrawStream& stream,
 	const Frustum* frustum,
 	core::TaskExecutor* executor)
 {
@@ -218,10 +219,40 @@ void RecordDrawList(
 	std::optional<CullMode> cullMode;
 	std::optional<FrontFace> frontFace;
 	std::optional<PushConstants> pushed;
+	pushConstants.viewId = viewIndex;
+	auto push = [&](uint32_t slot)
+	{
+		pushConstants.drawSlot = slot;
+		// compared bytewise: both are copies of the caller's, padding included
+		if (!pushed || std::memcmp(&*pushed, &pushConstants, sizeof(PushConstants)) != 0)
+		{
+			pushed = pushConstants;
+			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+		}
+	};
+	// indirect: the run of draws since the state last changed, one indirect draw of their slots
+	uint32_t runFirst = 0;
+	uint32_t runCount = 0;
+	auto flush = [&]
+	{
+		if (runCount == 0)
+			return;
+		push(runFirst);
+		encoder.DrawIndexedIndirect(
+			*stream.commandBuffer, runFirst * sizeof(DrawIndexedIndirectCommand), runCount, sizeof(DrawIndexedIndirectCommand));
+		runCount = 0;
+	};
 	for (const auto& item : list.items)
 	{
 		if (frustum != nullptr && item.cullable && frustum->Excludes(item.bounds))
 			continue;
+		if (stream.count == stream.slots.size())
+		{
+			static std::atomic_bool gWarned = false;
+			if (!gWarned.exchange(true))
+				std::println(stderr, "more than {} draws recorded in a frame: the rest aren't drawn", stream.slots.size());
+			break;
+		}
 
 		auto variant = item.variant;
 		if (variant.specialization != 0 && executor != nullptr)
@@ -235,6 +266,8 @@ void RecordDrawList(
 				variant.specialization = 0;
 			}
 		}
+		if (variant != bound || cullMode != item.cullMode || frontFace != item.frontFace)
+			flush();
 		if (variant != bound)
 		{
 			bound = variant;
@@ -254,16 +287,25 @@ void RecordDrawList(
 			encoder.SetFrontFace(item.frontFace);
 		}
 
-		pushConstants.viewId = viewIndex;
-		pushConstants.drawRecord = item.record;
-		// compared bytewise: both are copies of the caller's, padding included
-		if (!pushed || std::memcmp(&*pushed, &pushConstants, sizeof(PushConstants)) != 0)
+		auto slot = stream.count++;
+		stream.slots[slot] = item.record;
+		if (stream.indirect)
 		{
-			pushed = pushConstants;
-			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+			if (runCount > 0 && runFirst + runCount != slot)
+				flush();
+			if (runCount == 0)
+				runFirst = slot;
+			runCount++;
+			stream.commands[slot] = DrawIndexedIndirectCommand{
+				.indexCount = item.indexCount, .instanceCount = item.instanceCount, .firstIndex = item.firstIndex};
 		}
-		encoder.DrawIndexed(item.indexCount, item.instanceCount, item.firstIndex);
+		else
+		{
+			push(slot);
+			encoder.DrawIndexed(item.indexCount, item.instanceCount, item.firstIndex);
+		}
 	}
+	flush();
 
 	if (bound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
 		pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});

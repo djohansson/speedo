@@ -35,6 +35,13 @@ public:
 	void SetFrontFace(FrontFace face) const;
 	void BindIndexBuffer(const Buffer<G>& buffer, uint64_t offset, IndexType type) const;
 	void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0, int32_t vertexOffset = 0, uint32_t firstInstance = 0) const;
+	// drawCount indexed draws, each from a command in buffer (BufferUsage::kIndirect: index count, instance count, first
+	// index, vertex offset and first instance, as uint32s but the offset, an int32) from offset, stride bytes apart. the
+	// vertex stage tells them apart by its draw index (SV_DrawIndex), 0 to drawCount - 1
+	void DrawIndexedIndirect(const Buffer<G>& buffer, uint64_t offset, uint32_t drawCount, uint32_t stride) const;
+	// the same, with the draw count read from countBuffer at countOffset (a uint32, at most maxDrawCount)
+	void DrawIndexedIndirectCount(
+		const Buffer<G>& buffer, uint64_t offset, const Buffer<G>& countBuffer, uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) const;
 	void Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const;
 	// dispatches the bound compute pipeline (whose thread group size launch is, see Pipeline::GetComputeLaunchParameters)
 	// over at least this many threads, in whole groups

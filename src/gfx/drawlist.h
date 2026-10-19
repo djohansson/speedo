@@ -119,8 +119,21 @@ struct DrawList
 // past the records' capacity are dropped (with a warning, once)
 void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> records);
 
+// a frame's recorded draws: each one's DrawRecord index in slots (gDrawSlots), and with indirect draws its command in
+// commands (at the same index, in commandBuffer), handed out in recording order by RecordDrawList. the draw thread's,
+// while the frame records (its memory is mapped meanwhile)
+struct DrawStream
+{
+	std::span<uint32_t> slots;
+	std::span<DrawIndexedIndirectCommand> commands;
+	const Buffer* commandBuffer = nullptr;
+	uint32_t count = 0; // slots taken
+	bool indirect = false; // each run of draws with the same pipeline and state as one indirect draw, else direct draws
+};
+
 // records a draw list for a view (in its viewport, set by the caller): the draws not outside frustum (if given), with
-// their state and push constants set only where they change from the draw before (chunks of a submesh share them). binds
+// their state set only where it changes from the draw before (chunks of a submesh share it), each in its slot of stream
+// (past its capacity, draws are dropped, with a warning once). binds
 // the pipeline variants it needs, from the default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
 // GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
 // draws, and the task creating it (see Pipeline::RequestGraphicsPipeline) runs on executor, the first time it is asked for
@@ -130,6 +143,7 @@ void RecordDrawList(
 	const DrawList& list,
 	PushConstants pushConstants,
 	uint16_t viewIndex,
+	DrawStream& stream,
 	const Frustum* frustum = nullptr,
 	core::TaskExecutor* executor = nullptr);
 

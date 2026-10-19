@@ -415,9 +415,12 @@ struct MorphDelta
 
 // how many draws a frame's gDrawRecords holds (the draw lists' items, see DrawList)
 #define SHADER_TYPES_DRAW_RECORD_COUNT (1u << 15)
+// how many draws a frame records (each view's and shadow view's, see gDrawSlots)
+#define SHADER_TYPES_DRAW_SLOT_COUNT (1u << 17)
 
-// what a draw needs that differs from the draw before (gDrawRecords[frame][PushConstants::drawRecord]): its material,
-// its instances, and its skin and morph targets. read by the vertex stage, which hands the material on
+// what a draw needs that differs from the draw before (gDrawRecords[frame][gDrawSlots[frame][PushConstants::drawSlot +
+// SV_DrawIndex]]): its material, its instances, and its skin and morph targets. read by the vertex stage, which hands the
+// material on
 struct DrawRecord
 {
 	alignas(4) UINT1(materialId); // gMaterialData's
@@ -431,14 +434,25 @@ struct DrawRecord
 	alignas(4) UINT1(padding);
 };
 
+// an indexed indirect draw's command (VkDrawIndexedIndirectCommand's layout)
+struct DrawIndexedIndirectCommand
+{
+	alignas(4) UINT1(indexCount);
+	alignas(4) UINT1(instanceCount);
+	alignas(4) UINT1(firstIndex);
+	alignas(4) INT1(vertexOffset);
+	alignas(4) UINT1(firstInstance);
+};
+
 struct PushConstants
 {
 	// per frame
 	alignas(4) UINT1(frameIndex);
 	// per view: gViewData's
 	alignas(4) UINT1(viewId);
-	// per draw: its DrawRecord in gDrawRecords[frameIndex]
-	alignas(4) UINT1(drawRecord);
+	// per draw (or per indirect draw, of which each draw is SV_DrawIndex after it): its slot in gDrawSlots[frameIndex],
+	// which holds its DrawRecord's index
+	alignas(4) UINT1(drawSlot);
 	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
 	alignas(4) UINT1(lightCount);
 	alignas(4) FLOAT1(exposure);

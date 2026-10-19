@@ -94,6 +94,11 @@ void GetPhysicalDeviceInfo2(
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
 	});
+	// SV_DrawIndex (the vertex stage's draw index in an indirect draw)
+	deviceFeatureParams.emplace(VkPhysicalDeviceShaderDrawParametersFeatures
+	{
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
+	});
 	deviceFeatureParams.emplace(VkPhysicalDeviceMultiviewFeatures
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,

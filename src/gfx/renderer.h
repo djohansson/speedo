@@ -156,6 +156,12 @@ private:
 	// per frame index: the ui's frosted panels (gUiBlurRects), host visible, and the UI Blur passes' thread counts
 	std::vector<Buffer> myUiBlurRectBuffers;
 	std::vector<Buffer> myDrawRecordBuffers; // per frame index, the draw lists' DrawRecords (gDrawRecords)
+	// per frame index, the recorded draws' slots (gDrawSlots) and indirect commands, which myDrawStream hands out while a
+	// frame records (see RecordDrawList)
+	std::vector<Buffer> myDrawSlotBuffers;
+	std::vector<Buffer> myDrawCommandBuffers;
+	DrawStream myDrawStream;
+	bool myIndirectDraws = false;
 	uint32_t myUiBlurThreadsX = 0;
 	uint32_t myUiBlurThreadsY = 0;
 	DrawList myShadowDrawList;
