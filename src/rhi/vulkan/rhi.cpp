@@ -195,7 +195,7 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 	}
 
 	// overrides, for trying out presentation (e.g. macOS's direct scanout in fullscreen): SPEEDO_PRESENT_MODE=fifo,
-	// fifo_relaxed, mailbox or immediate (if the surface has it), SPEEDO_SWAPCHAIN_IMAGES=<count> (within the surface's
+	// fifo_relaxed, mailbox or immediate (if the surface has it), SPEEDO_SWAPCHAIN_IMAGE_COUNT=<count> (within the surface's
 	// limits)
 	if (const char* presentMode = std::getenv("SPEEDO_PRESENT_MODE"); presentMode != nullptr)
 	{
@@ -209,7 +209,7 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 		else
 			std::println(stderr, "SPEEDO_PRESENT_MODE={}: the surface doesn't support it", presentMode);
 	}
-	if (const char* imageCount = std::getenv("SPEEDO_SWAPCHAIN_IMAGES"); imageCount != nullptr)
+	if (const char* imageCount = std::getenv("SPEEDO_SWAPCHAIN_IMAGE_COUNT"); imageCount != nullptr)
 	{
 		auto count = std::max<uint32_t>(static_cast<uint32_t>(std::strtoul(imageCount, nullptr, 10)), swapchainInfo.capabilities.minImageCount);
 		if (swapchainInfo.capabilities.maxImageCount != 0)

@@ -2,14 +2,14 @@
 
 #include <gfx/model.h>
 
+#include <core/assert.h>
 #include <core/profiling.h>
 #include <core/taskexecutor.h>
 
 #include <algorithm>
-#include <atomic>
 #include <cstring>
+#include <format>
 #include <optional>
-#include <print>
 #include <span>
 #include <tuple>
 #include <utility>
@@ -21,7 +21,7 @@ using namespace rhi;
 
 uint32_t ModelMaterialSlot(int32_t material)
 {
-	return material >= 0 && std::cmp_less(material, kModelMaterialMaxCount) ? static_cast<uint32_t>(material) + 1 : 0;
+	return material >= 0 ? static_cast<uint32_t>(material) + 1 : 0;
 }
 
 DrawList BuildDrawList(
@@ -170,35 +170,70 @@ DrawList BuildScatterBackDrawList(const DrawList& scatter)
 void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> records)
 {
 	size_t next = 0;
-	bool dropped = false;
 	for (auto* list : lists)
 	{
 		if (list == nullptr)
 			continue;
-		std::erase_if(
-			list->items,
-			[&](DrawItem& item)
-			{
-				if (next == records.size())
-				{
-					dropped = true;
-					return true;
-				}
-				item.record = static_cast<uint32_t>(next);
-				records[next++] = DrawRecord{
+		for (auto& item : list->items)
+		{
+			ENSUREF(next < records.size(), "more than {} draws in a frame (SHADER_TYPES_DRAW_RECORD_COUNT)", records.size());
+			item.record = static_cast<uint32_t>(next);
+			records[next++] = DrawRecord{
 					.materialId = item.materialSlot,
 					.modelInstanceId = item.firstInstance,
 					.jointBase = item.jointBase,
 					.morphTargetCount = item.morphTargetCount,
 					.morphDeltaBase = item.morphDeltaBase,
 					.morphFirstVertex = item.morphFirstVertex,
-					.morphWeightBase = item.morphWeightBase};
-				return false;
-			});
+				.morphWeightBase = item.morphWeightBase};
+		}
 	}
-	static std::atomic_bool gWarned = false;
-	if (dropped && !gWarned.exchange(true))
-		std::println(stderr, "more than {} draws in a frame: the rest aren't drawn", records.size());
+}
+
+DrawStream::~DrawStream()
+{
+	End();
+}
+
+DrawStream::Command DrawStream::Take()
+{
+	ENSURE(myDevice != nullptr);
+	if (myChunk < myChunks.size() && myUsedCount == kChunkCommandCount)
+	{
+		myChunk++;
+		myUsedCount = 0;
+	}
+	if (myChunk == myChunks.size())
+		myChunks.push_back({.buffer = std::make_unique<Buffer>(BufferCreateDesc{
+								myDevice->CreateDeviceObjectCreateDesc(std::format("Draw Commands {}", myChunks.size())),
+								kChunkCommandCount * sizeof(DrawIndexedIndirectCommand),
+								BufferUsage::kIndirect,
+								MemoryProperty::kHostVisible})});
+	auto& chunk = myChunks[myChunk];
+	if (chunk.memory.empty())
+	{
+		auto memory = chunk.buffer->Map();
+		chunk.memory = std::span(reinterpret_cast<DrawIndexedIndirectCommand*>(memory.data()), kChunkCommandCount);
+	}
+	auto index = myUsedCount++;
+	return {.buffer = chunk.buffer.get(), .index = index, .memory = &chunk.memory[index]};
+}
+
+void DrawStream::End()
+{
+	for (size_t chunkIt = 0; chunkIt < myChunks.size(); chunkIt++)
+	{
+		auto& chunk = myChunks[chunkIt];
+		if (chunk.memory.empty())
+			continue;
+		auto used = chunkIt < myChunk ? kChunkCommandCount : myUsedCount;
+		if (used > 0)
+			chunk.buffer->Flush(0, used * sizeof(DrawIndexedIndirectCommand));
+		chunk.buffer->Unmap();
+		chunk.memory = {};
+	}
+	myChunk = 0;
+	myUsedCount = 0;
 }
 
 void RecordDrawList(
@@ -218,41 +253,30 @@ void RecordDrawList(
 	// the state the draw before set (none yet: a secondary command buffer starts without dynamic state)
 	std::optional<CullMode> cullMode;
 	std::optional<FrontFace> frontFace;
-	std::optional<PushConstants> pushed;
+	bool pushed = false;
 	pushConstants.viewId = viewIndex;
-	auto push = [&](uint32_t slot)
+	auto push = [&]
 	{
-		pushConstants.drawSlot = slot;
-		// compared bytewise: both are copies of the caller's, padding included
-		if (!pushed || std::memcmp(&*pushed, &pushConstants, sizeof(PushConstants)) != 0)
-		{
-			pushed = pushConstants;
-			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-		}
+		if (std::exchange(pushed, true))
+			return;
+		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 	};
-	// indirect: the run of draws since the state last changed, one indirect draw of their slots
+	// indirect: the run of draws since the state last changed, one indirect draw of their consecutive commands
+	const Buffer* runBuffer = nullptr;
 	uint32_t runFirst = 0;
 	uint32_t runCount = 0;
 	auto flush = [&]
 	{
 		if (runCount == 0)
 			return;
-		push(runFirst);
-		encoder.DrawIndexedIndirect(
-			*stream.commandBuffer, runFirst * sizeof(DrawIndexedIndirectCommand), runCount, sizeof(DrawIndexedIndirectCommand));
+		push();
+		encoder.DrawIndexedIndirect(*runBuffer, runFirst * sizeof(DrawIndexedIndirectCommand), runCount, sizeof(DrawIndexedIndirectCommand));
 		runCount = 0;
 	};
 	for (const auto& item : list.items)
 	{
 		if (frustum != nullptr && item.cullable && frustum->Excludes(item.bounds))
 			continue;
-		if (stream.count == stream.slots.size())
-		{
-			static std::atomic_bool gWarned = false;
-			if (!gWarned.exchange(true))
-				std::println(stderr, "more than {} draws recorded in a frame: the rest aren't drawn", stream.slots.size());
-			break;
-		}
 
 		auto variant = item.variant;
 		if (variant.specialization != 0 && executor != nullptr)
@@ -274,7 +298,7 @@ void RecordDrawList(
 			pipeline.BindPipelineAuto(cmd, variant);
 			// push constants outlive a pipeline bind with the same layout, as here, but variants switch rarely enough (the
 			// draws are sorted by them) not to rely on it
-			pushed.reset();
+			pushed = false;
 		}
 		if (cullMode != item.cullMode)
 		{
@@ -287,22 +311,25 @@ void RecordDrawList(
 			encoder.SetFrontFace(item.frontFace);
 		}
 
-		auto slot = stream.count++;
-		stream.slots[slot] = item.record;
+		// the first instance names the draw's record (SV_StartInstanceLocation), which the shader adds the instance to
 		if (stream.indirect)
 		{
-			if (runCount > 0 && runFirst + runCount != slot)
+			auto command = stream.Take();
+			if (runCount > 0 && (command.buffer != runBuffer || runFirst + runCount != command.index))
 				flush();
 			if (runCount == 0)
-				runFirst = slot;
+			{
+				runBuffer = command.buffer;
+				runFirst = command.index;
+			}
 			runCount++;
-			stream.commands[slot] = DrawIndexedIndirectCommand{
-				.indexCount = item.indexCount, .instanceCount = item.instanceCount, .firstIndex = item.firstIndex};
+			*command.memory = DrawIndexedIndirectCommand{
+				.indexCount = item.indexCount, .instanceCount = item.instanceCount, .firstIndex = item.firstIndex, .firstInstance = item.record};
 		}
 		else
 		{
-			push(slot);
-			encoder.DrawIndexed(item.indexCount, item.instanceCount, item.firstIndex);
+			push();
+			encoder.DrawIndexed(item.indexCount, item.instanceCount, item.firstIndex, 0, item.record);
 		}
 	}
 	flush();

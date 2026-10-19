@@ -8,6 +8,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
@@ -122,16 +123,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			SHADER_TYPES_DRAW_RECORD_COUNT * sizeof(DrawRecord),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
-		myDrawSlotBuffers.emplace_back(BufferCreateDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("Draw Slots {}", frameIt)),
-			SHADER_TYPES_DRAW_SLOT_COUNT * sizeof(uint32_t),
-			BufferUsage::kStorage,
-			MemoryProperty::kHostVisible});
-		myDrawCommandBuffers.emplace_back(BufferCreateDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("Draw Commands {}", frameIt)),
-			SHADER_TYPES_DRAW_SLOT_COUNT * sizeof(DrawIndexedIndirectCommand),
-			BufferUsage::kIndirect,
-			MemoryProperty::kHostVisible});
+		myDrawRecordCapacity.push_back(SHADER_TYPES_DRAW_RECORD_COUNT);
+		myDrawStreams.emplace_back(device);
 	}
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
 
@@ -198,7 +191,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
 				pushConstants.shadowView = viewIt;
 				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
-				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, myDrawStream, inputs.culling ? &frustum : nullptr);
+				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
 			}
 		});
 
@@ -417,7 +410,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// each run of draws with the same pipeline and state as one indirect draw (see RecordDrawList), unless
 	// SPEEDO_INDIRECT_DRAWS=0: direct draws
 	const char* indirect = std::getenv("SPEEDO_INDIRECT_DRAWS");
-	myIndirectDraws = indirect == nullptr || std::string_view(indirect) != "0";
+	for (auto& stream : myDrawStreams)
+		stream.indirect = indirect == nullptr || std::string_view(indirect) != "0";
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -515,8 +509,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				 std::pair{"gClusters", &myClusterBuffers},
 				 std::pair{"gClusterLights", &myClusterLightBuffers},
 				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers},
-				 std::pair{"gDrawRecords", &myDrawRecordBuffers},
-				 std::pair{"gDrawSlots", &myDrawSlotBuffers}})
+				 std::pair{"gDrawRecords", &myDrawRecordBuffers}})
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
@@ -597,8 +590,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			: DrawList{};
 	// the shadows: planned for the frame, and written for the shader to read once the frame's previous use of its
 	// buffers is done (the caller waited for its fence)
+	ENSURE(frame.lights.size() <= SHADER_TYPES_LIGHT_COUNT); // see Scene::UpdateLights
 	myShadowPlan = frame.shadows && frame.model != nullptr
-		? shadows::Plan(frame.lights.first(std::min<size_t>(frame.lights.size(), SHADER_TYPES_LIGHT_COUNT)), frame.camera, frame.sceneBounds)
+		? shadows::Plan(frame.lights, frame.camera, frame.sceneBounds)
 		: shadows::ShadowPlan{};
 	myShadowPlan.lightShadows.resize(SHADER_TYPES_LIGHT_COUNT, SHADER_TYPES_NO_SHADOW);
 	ENSURE(myShadowPlan.views.size() <= SHADER_TYPES_SHADOW_VIEW_COUNT);
@@ -617,7 +611,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	}
 	// the lights' clusters per view, written as the shadows are
 	{
-		auto lights = frame.lights.first(std::min<size_t>(frame.lights.size(), SHADER_TYPES_LIGHT_COUNT));
+		auto lights = frame.lights;
 		auto plan = frame.clusteredLights ? clusters::Plan(lights, frame.viewProjections, frame.sceneBounds)
 										  : clusters::ClusterPlan{.views = std::vector<ClusterView>(SHADER_TYPES_VIEW_COUNT)};
 		auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
@@ -662,13 +656,32 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myScatterBlurPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterDenoisePass, !myScatterDrawList.Empty());
 
-	// the draws' per draw values, in the frame's buffer (its previous use is done: after the frame's fence)
+	// the draws' per draw values, in the frame's buffer (its previous use is done: after the frame's fence). a frame with
+	// more draws than it holds gets a bigger one (NodePerformanceTest's two encodings side by side have 40000), and the
+	// old one is kept until the frames in flight, whose descriptor sets name it, are done
 	{
+		myFrameCount++;
+		std::erase_if(
+			myRetiredBuffers, [this](const auto& retired) { return myFrameCount > retired.first + SHADER_TYPES_FRAME_COUNT; });
 		std::array lists{&myDrawLists[0], &myDrawLists[1], &myShadowDrawList, &myScatterDrawList, &myScatterBackDrawList};
 		size_t count = 0;
 		for (const auto* list : lists)
 			count += list->items.size();
-		std::vector<DrawRecord> records(std::min<size_t>(count, SHADER_TYPES_DRAW_RECORD_COUNT));
+		if (count > myDrawRecordCapacity[frame.frameIndex])
+		{
+			auto capacity = std::bit_ceil(count);
+			auto& device = pipeline.GetDevice();
+			Buffer grown(BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Draw Records {}", frame.frameIndex)),
+				capacity * sizeof(DrawRecord),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible});
+			pipeline.SetDescriptorData(
+				"gDrawRecords", BufferBinding{.buffer = grown, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frame.frameIndex);
+			myRetiredBuffers.emplace_back(myFrameCount, std::exchange(myDrawRecordBuffers[frame.frameIndex], std::move(grown)));
+			myDrawRecordCapacity[frame.frameIndex] = capacity;
+		}
+		std::vector<DrawRecord> records(count);
 		WriteDrawRecords(lists, records);
 		if (!records.empty())
 		{
@@ -689,8 +702,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myUiBlurThreadsY = 0;
 		for (auto rect : frame.uiBlurRects)
 		{
-			if (rects.size() == SHADER_TYPES_UI_BLUR_RECT_COUNT)
-				break;
+			ENSUREF(rects.size() < SHADER_TYPES_UI_BLUR_RECT_COUNT, "more than {} frosted ui panels (SHADER_TYPES_UI_BLUR_RECT_COUNT)", SHADER_TYPES_UI_BLUR_RECT_COUNT);
 			rect.rect[0] = std::clamp(std::floor(rect.rect[0]), 0.0F, static_cast<float>(extent.width));
 			rect.rect[1] = std::clamp(std::floor(rect.rect[1]), 0.0F, static_cast<float>(extent.height));
 			rect.rect[2] = std::clamp(std::ceil(rect.rect[2]), 0.0F, static_cast<float>(extent.width));
@@ -724,26 +736,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.frameIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
 
-	// the draws' slots and commands, written as the passes record them (the frame's buffers' previous use is done)
-	auto& slotBuffer = myDrawSlotBuffers[frame.frameIndex];
-	auto& commandBuffer = myDrawCommandBuffers[frame.frameIndex];
-	auto slotMemory = slotBuffer.Map();
-	auto commandMemory = commandBuffer.Map();
-	myDrawStream = DrawStream{
-		.slots = std::span(reinterpret_cast<uint32_t*>(slotMemory.data()), SHADER_TYPES_DRAW_SLOT_COUNT),
-		.commands = std::span(reinterpret_cast<DrawIndexedIndirectCommand*>(commandMemory.data()), SHADER_TYPES_DRAW_SLOT_COUNT),
-		.commandBuffer = &commandBuffer,
-		.indirect = myIndirectDraws};
+	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
+	myDrawStream = &myDrawStreams[frame.frameIndex];
 	myGraph.Execute(cmd, inputs.graphicsQueue->GetProfiler());
-	if (myDrawStream.count > 0)
-	{
-		slotBuffer.Flush(0, myDrawStream.count * sizeof(uint32_t));
-		if (myDrawStream.indirect)
-			commandBuffer.Flush(0, myDrawStream.count * sizeof(DrawIndexedIndirectCommand));
-	}
-	slotBuffer.Unmap();
-	commandBuffer.Unmap();
-	myDrawStream = {};
+	myDrawStream->End();
+	myDrawStream = nullptr;
 
 	myFrame.inputs = nullptr;
 	myFrame.pipeline = nullptr;
@@ -813,7 +810,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 		std::optional<Frustum> frustum;
 		if (inputs.culling && viewIt < inputs.viewProjections.size())
 			frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
-		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, myDrawStream, frustum ? &*frustum : nullptr, inputs.executor);
+		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, *myDrawStream, frustum ? &*frustum : nullptr, inputs.executor);
 	}
 
 	std::vector<CommandBuffer> secondaries;

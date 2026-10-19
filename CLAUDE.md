@@ -23,7 +23,7 @@ Notes for working in this codebase, distilled from real build failures.
   presentation (`Swapchain::Configure`: `rhi::PresentationMode`, FIFO, FIFO relaxed, mailbox or immediate, of those the
   surface has, and an image count, applied by `Draw`, which recreates the swapchain; KosmicKrisp has FIFO and immediate,
   and takes exactly 3 images; at startup the swapchain takes mailbox, else FIFO relaxed, else FIFO), as
-  `SPEEDO_PRESENT_MODE` and `SPEEDO_SWAPCHAIN_IMAGES` do at startup.
+  `SPEEDO_PRESENT_MODE` and `SPEEDO_SWAPCHAIN_IMAGE_COUNT` do at startup.
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
@@ -299,6 +299,31 @@ vectors are anonymous unions, which zpp::bits can't serialize by members), and t
 If a glm heavy loop ever shows in a profile, use `glm::aligned_vec4`/`aligned_mat4` there. `-march=native` ties the
 macOS binaries to the build machine's cpu: anything distributed needs a fixed one (e.g. `-mcpu=apple-m1`).
 
+## Portable by default, measured on one
+
+This code runs on several platforms and gpus (macOS through KosmicKrisp or MoltenVK, Windows and Linux on desktop
+gpus). Measure the choices here, but pick the general method that is likely to perform well across them, not the one a
+single driver happens to favor: e.g. the gpu culling compacts its draws and counts them (`DrawIndexedIndirectCount`,
+native on desktop gpus) although KosmicKrisp emulates the count. Record the platform's numbers as what it costs there.
+
+## Naming: counts
+
+A number that is a size or an amount of something is a count, and named so: `SHADER_TYPES_LIGHT_COUNT`,
+`kChunkCommandCount`, `SPEEDO_SWAPCHAIN_IMAGE_COUNT` (it was `SPEEDO_SWAPCHAIN_IMAGES`). A switch is not:
+`SPEEDO_INDIRECT_DRAWS=0`.
+
+## Capacity limits: hard failures, not warnings
+
+When a fixed capacity runs out (a buffer of draws, slots, lights, materials, textures, samplers, texture views, cluster
+light indices, ui panels, the gpu profiler's ring, the task pool), fail hard with `ENSUREF` (`core/assert.h`: it traps
+in every build, with the message and a stack trace; `CHECK` only breaks in the debugger), naming the limit. Don't warn
+and drop the rest, truncate, or fall back to something slower: that hides the case, and leaves a render that looks
+plausible but is wrong. When real content hits a limit, handle it then (a bigger or growing buffer, a budget per view):
+an artificial case may keep the hard failure. What stays a budget by design is a policy rather than a capacity: the
+shadow atlas gives the lights it can't fit no shadow (see "Shadows"), and the transparency's per pixel node pool drops
+fragments past it on the gpu, where no hard failure is possible. The first real case found: NodePerformanceTest's 10000
+materials (see "Asset import and testing"), so gMaterialData grows.
+
 ## Associative containers: core's, not the standard library's
 
 Don't use `std::map`, `std::set`, `std::unordered_map` or `std::unordered_set` (tools included): use `core::UnorderedMap`
@@ -501,22 +526,25 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
 - **Draws** are data: `BuildDrawList` turns the model into `DrawItem`s for a main pass phase (pipeline variant, cull mode,
   front face, material slot, instance range, skin and morph bases), and `RecordDrawList` records them for a view, which
   the main pass does per view in the queue pool's secondary command buffers. A draw's per draw values are a `DrawRecord`
-  (material, first instance, skin and morph bases) in the frame's `gDrawRecords[frame]` (host visible, per frame index,
-  `SHADER_TYPES_DRAW_RECORD_COUNT` of them: past that, draws are dropped with a warning), written in `Renderer::Record`
-  once the frame's lists are built (`WriteDrawRecords`, which sets each item's `record`). The draws recorded take slots
-  of the frame's `DrawStream` in order (`RecordDrawList`): `gDrawSlots[frame][slot]` is the draw's record, and the
-  push constants say the first slot (`drawSlot`) and the view (`viewId`); the vertex stage reads the record at
-  `drawSlot + SV_DrawIndex` (shader draw parameters, `VkPhysicalDeviceShaderDrawParametersFeatures`) and hands the
-  material to the fragment stage (`VertexOutput::materialId`, flat). Each run of draws with the same pipeline and state
-  is one `DrawIndexedIndirect` of their commands (the stream's other buffer, at the same slots; `SPEEDO_INDIRECT_DRAWS=0`
-  records them as direct draws, `drawSlot` each, `SV_DrawIndex` 0), with the slots and commands host visible and mapped
-  while the frame records (`SHADER_TYPES_DRAW_SLOT_COUNT`: past it draws are dropped, with a warning). Renders are the
-  same either way. On KosmicKrisp, measured on Bistro: multi-draw indirect costs nothing over direct draws (Shadows 4.18
-  to 4.03 ms looking down a street, 3.22 to 3.12 framed), `DrawIndexedIndirectCount` (the count read from a buffer) about
-  0.8 us per draw more (Shadows 4.03 to 4.53 ms: its four cascades' 600 draws), and a draw of no instances in a plain
-  indirect draw about 0.2 us (Metal has no draw count indirect: KosmicKrisp emulates it). So the gpu culling (TODO.md)
-  zeroes the instance counts of what it culls rather than compacting the draws and counting them. Renders came out the
-  same as with push constants, but for one byte of ScatteringSkull's (by 2 of 255, in every run).
+  (material, first instance, skin and morph bases) in the frame's `gDrawRecords[frame]` (host visible, per frame index),
+  written in `Renderer::Record` once the frame's lists are built (`WriteDrawRecords`, which sets each item's `record`).
+  The buffer starts at `SHADER_TYPES_DRAW_RECORD_COUNT` and grows to the next power of two that holds a frame's draws
+  (NodePerformanceTest's two encodings side by side have 40000), the old one kept until the frames in flight, whose
+  descriptor sets name it, are done (`myRetiredBuffers`). Each draw names its record by its first instance, which the
+  vertex stage reads as `SV_StartInstanceLocation` (shader draw parameters, `VkPhysicalDeviceShaderDrawParametersFeatures`;
+  `SV_InstanceID` doesn't count it), and the vertex stage hands the material on (`VertexOutput::materialId`, flat); the
+  push constants only say the view (`viewId`). Each run of draws with the same pipeline and state is one
+  `DrawIndexedIndirect` of their commands, which the frame index's `DrawStream` hands out in recording order from chunks of
+  `kChunkCommandCount` host visible commands, made as a frame needs them, so there is no limit to what a frame records
+  (`SPEEDO_INDIRECT_DRAWS=0` records direct draws instead). A slot table (slot to record, read at `SV_DrawIndex`) came
+  first, but a frame's recorded draws are only known once recorded, so it couldn't grow, and the shadow views multiply
+  them. Renders are the same either way. On KosmicKrisp, measured on Bistro: multi-draw indirect costs nothing over
+  direct draws (Shadows 4.18 to 4.03 ms looking down a street, 3.22 to 3.12 framed), `DrawIndexedIndirectCount` (the
+  count read from a buffer) about 0.8 us per draw more (Shadows 4.03 to 4.53 ms: its four cascades' 600 draws), and a
+  draw of no instances in a plain indirect draw about 0.2 us: Metal has no draw count indirect, which KosmicKrisp
+  emulates. Elsewhere (desktop Vulkan, D3D12) the count is read natively, so the gpu culling (TODO.md) compacts the
+  draws it keeps and counts them, the general method, and KosmicKrisp's cost is known rather than designed around.
+  Renders came out the same as with push constants, but for one byte of ScatteringSkull's (by 2 of 255, in every run).
 
 Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
@@ -603,6 +631,7 @@ cascade skips what it doesn't see); chunks of 4096 were 7.5 in the street but 7.
 installed (`Views::Place`), for such measurements: Bistro's were `3430,170,2200,0,-62`, `564,170,-2436,0,30`, and framed.
 It keeps the near and far planes of the camera the views had (a model's own camera's, e.g. a chase camera's far plane of
 1 m in DiffuseTransmissionPlant); `SPEEDO_CAMERA=frame` frames the model instead, as View > Camera > Frame model.
+`SPEEDO_LAYOUT=1x1|1x2|2x1|2x2` starts with that grid of views, as View > Layout.
 
 ## Shadows
 
@@ -660,7 +689,8 @@ is behind the eye; a light outside the frustum into none), widened by a thousand
 Per frame index, host visible: `gClusterViews` (a `ClusterView` per view: the depth plane and slicing; the tile comes
 from the view's own view projection, which is the one the clusters were planned with, see `Views::Upload`), `gClusters`
 (per cluster its first index and count) and `gClusterLights` (the indices, at most
-`SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`: a view whose lights don't fit gets `enabled` 0, and loops over all lights).
+`SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT`, a hard failure past it: ThousandsOfLights in four views fits; `enabled` 0, all
+lights looped over, is for View > Clustered Lights off).
 View > Clustered Lights (`SPEEDO_CLUSTERED_LIGHTS=0`) turns it off. Every light the loop rejects cost about 60 us of
 main pass per frame (ManyLights with 223 more lights out of reach: 20.7 ms, clustered 5.2, as without them; ManyLights
 itself 5.8 to 5.2, 4.9 with its spot lights bounded by their cones, orthographic 6.3 to 5.3; Bistro with one light 4.10
@@ -986,7 +1016,12 @@ and scattering materials too, and attenuates the diffuse transmission's back lig
 more than the profile's reach, caustics, and the volume's own shadowing.
 Every `KHR_materials_*` of the glTF-Sample-Assets is drawn, and `KHR_materials_variants` is chosen at import (see above). gltf primitives without a material get the spec's default (white, metallic 1, roughness 1), a
 material of the model's own, while obj faces without one use material 0, which opening an image textures. KHR_materials_unlit draws the base color alone. A model's materials
-(`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`. Their diffuse, alpha
+(`ModelCreateDesc::materials`, drawn per `submeshes`) are materials 1 and up in `gMaterialData`, which starts at
+`SHADER_TYPES_MATERIAL_COUNT` (1024) and grows to the next power of two that holds a model's (`GrowMaterials`: a new
+buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 per encoding, and its materials past the
+first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
+10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
+hard failure. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 18
 (0-3 are the frames' render targets, 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns

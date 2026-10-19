@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <vector>
@@ -39,9 +40,6 @@ constexpr uint8_t kShadowFragmentShader = 2;
 constexpr uint8_t kScatterFragmentShader = 3;
 constexpr std::array kScatterBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 static_assert(kOpaqueBlend.size() == rhi::kMaxColorAttachments);
-
-// the materials of the loaded model are 1 and up in gMaterialData (0 is the default material)
-constexpr uint32_t kModelMaterialMaxCount = SHADER_TYPES_MATERIAL_COUNT - 1;
 
 // the gMaterialData slot drawn for a submesh's material (-1: none)
 [[nodiscard]] uint32_t ModelMaterialSlot(int32_t material);
@@ -115,25 +113,56 @@ struct DrawList
 // since a double sided surface's nearest back face is its front
 [[nodiscard]] DrawList BuildScatterBackDrawList(const DrawList& scatter);
 
-// gives each draw of lists its DrawRecord (materialSlot and on), in order, written to records (DrawItem::record). draws
-// past the records' capacity are dropped (with a warning, once)
+// gives each draw of lists its DrawRecord (materialSlot and on), in order, written to records (DrawItem::record), which
+// must hold them all
 void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> records);
 
-// a frame's recorded draws: each one's DrawRecord index in slots (gDrawSlots), and with indirect draws its command in
-// commands (at the same index, in commandBuffer), handed out in recording order by RecordDrawList. the draw thread's,
-// while the frame records (its memory is mapped meanwhile)
-struct DrawStream
+// a frame index's indirect draws' commands, handed out in recording order (Take, by RecordDrawList) from chunks of
+// kChunkCommandCount, made as the frame needs them and kept for its next use. the draw thread's: a chunk is mapped from the
+// first command taken from it until End, which the frame calls once it has recorded
+class DrawStream final
 {
-	std::span<uint32_t> slots;
-	std::span<DrawIndexedIndirectCommand> commands;
-	const Buffer* commandBuffer = nullptr;
-	uint32_t count = 0; // slots taken
-	bool indirect = false; // each run of draws with the same pipeline and state as one indirect draw, else direct draws
+public:
+	static constexpr uint32_t kChunkCommandCount = 1U << 14;
+
+	DrawStream() = default;
+	explicit DrawStream(Device& device) noexcept : myDevice(&device) {}
+	DrawStream(const DrawStream&) = delete;
+	DrawStream(DrawStream&&) noexcept = default;
+	~DrawStream();
+	DrawStream& operator=(const DrawStream&) = delete;
+	DrawStream& operator=(DrawStream&&) noexcept = default;
+
+	// a command's place: its buffer (BufferUsage::kIndirect), its index in it, and its memory, to write it to
+	struct Command
+	{
+		const Buffer* buffer = nullptr;
+		uint32_t index = 0;
+		DrawIndexedIndirectCommand* memory = nullptr;
+	};
+	[[nodiscard]] Command Take();
+	// makes the commands taken visible to the gpu and unmaps their chunks, for the next frame to start over
+	void End();
+
+	// each run of draws with the same pipeline and state as one indirect draw, else direct draws (see RecordDrawList)
+	bool indirect = true;
+
+private:
+	struct Chunk
+	{
+		std::unique_ptr<Buffer> buffer;
+		std::span<DrawIndexedIndirectCommand> memory; // while mapped
+	};
+
+	Device* myDevice = nullptr;
+	std::vector<Chunk> myChunks;
+	size_t myChunk = 0; // the one commands are taken from
+	uint32_t myUsedCount = 0; // of its commands
 };
 
 // records a draw list for a view (in its viewport, set by the caller): the draws not outside frustum (if given), with
-// their state set only where it changes from the draw before (chunks of a submesh share it), each in its slot of stream
-// (past its capacity, draws are dropped, with a warning once). binds
+// their state set only where it changes from the draw before (chunks of a submesh share it), each draw naming its
+// DrawRecord by its first instance (an indirect draw's commands from stream). binds
 // the pipeline variants it needs, from the default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
 // GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
 // draws, and the task creating it (see Pipeline::RequestGraphicsPipeline) runs on executor, the first time it is asked for

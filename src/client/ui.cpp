@@ -590,6 +590,19 @@ void WindowedApplication::PrepareDraw()
 			[this, grid = gSplitScreenGrid] { myViews->OnResizeGrid({grid.width, grid.height}); });
 		rhi.drawCalls.enqueue(resizeTask);
 	};
+	// SPEEDO_LAYOUT=<columns>x<rows> (1x1, 1x2, 2x1 or 2x2): the views' grid at startup, as View > Layout sets it
+	if (static bool gLayoutDone = false; !gLayoutDone)
+	{
+		gLayoutDone = true;
+		if (const char* layout = std::getenv("SPEEDO_LAYOUT"); layout != nullptr)
+		{
+			std::string_view text(layout);
+			if (text.size() == 3 && text[1] == 'x' && (text[0] == '1' || text[0] == '2') && (text[2] == '1' || text[2] == '2'))
+				setSplitScreenGrid(static_cast<uint32_t>(text[0] - '0'), static_cast<uint32_t>(text[2] - '0'));
+			else
+				std::println(stderr, "SPEEDO_LAYOUT: expected 1x1, 1x2, 2x1 or 2x2, got {}", layout);
+		}
+	}
 
 	// the menus' shortcuts: the labels MenuItem shows are only text. global routes, so they work whichever window has
 	// the focus, unless its active item takes the chord (a text field's ctrl+a). ImGuiMod_Ctrl is cmd on macOS

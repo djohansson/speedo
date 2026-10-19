@@ -91,6 +91,3 @@ StructuredBuffer<UiBlurRect> gUiBlurRects[SHADER_TYPES_FRAME_COUNT];
 // the frame's draws' per draw values (see DrawRecord)
 [[vk::binding(11, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<DrawRecord> gDrawRecords[SHADER_TYPES_FRAME_COUNT];
-// the frame's recorded draws, in order: each one's DrawRecord (see PushConstants::drawSlot)
-[[vk::binding(12, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
-StructuredBuffer<uint> gDrawSlots[SHADER_TYPES_FRAME_COUNT];

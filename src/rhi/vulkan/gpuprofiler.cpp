@@ -74,13 +74,9 @@ GpuProfiler<kVk>::GpuProfiler(QueryPool<kVk>&& pool, QueueHandle<kVk> queue, Com
 template <>
 uint64_t GpuProfiler<kVk>::InternalWrite(CommandBufferHandle<kVk> cmd, PipelineStage stage)
 {
-	// called with myMutex held. a full ring drops the oldest (whose times Tracy then never gets: a command buffer that was
-	// never submitted keeps its queries from ever being done)
-	if (myHead - myTail >= myQueries.size())
-	{
-		myPool.Reset(static_cast<uint32_t>(myTail % myQueries.size()), 1);
-		myTail++;
-	}
+	// called with myMutex held. the ring fills if Collect stops freeing it: a command buffer recorded with scopes and never
+	// submitted keeps its queries from ever being done
+	ENSUREF(myHead - myTail < myQueries.size(), "the gpu profiler's {} timestamps are all in use", myQueries.size());
 	auto index = myHead++;
 	auto& query = myQueries[index % myQueries.size()];
 	query = {.cmd = cmd};

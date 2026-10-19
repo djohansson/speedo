@@ -3,6 +3,7 @@
 #include <gfx/frustum.h>
 #include <gfx/lightbounds.h>
 
+#include <core/assert.h>
 #include <core/profiling.h>
 
 #include <algorithm>
@@ -45,7 +46,8 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 
 	ZoneScopedN("gfx::clusters::Plan");
 
-	auto viewCount = std::min<size_t>(viewProjections.size(), SHADER_TYPES_VIEW_COUNT);
+	ENSURE(viewProjections.size() <= SHADER_TYPES_VIEW_COUNT);
+	auto viewCount = viewProjections.size();
 	ClusterPlan plan;
 	plan.views.resize(SHADER_TYPES_VIEW_COUNT);
 	plan.ranges.assign(viewCount * SHADER_TYPES_CLUSTER_COUNT * 2, 0);
@@ -162,11 +164,11 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 		for (size_t lightIt = 0; lightIt < lights.size(); lightIt++)
 			if (reaches[lightIt])
 				forEachCluster(lightIt, [&](uint32_t cluster) { ranges[(cluster * 2) + 1]++; total++; });
-		if (plan.lights.size() + total > SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT)
-		{
-			std::fill_n(ranges, SHADER_TYPES_CLUSTER_COUNT * 2, 0U);
-			continue;
-		}
+		ENSUREF(
+			plan.lights.size() + total <= SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT,
+			"the clusters' light indices need {}, more than SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT ({})",
+			plan.lights.size() + total,
+			SHADER_TYPES_CLUSTER_LIGHT_INDEX_COUNT);
 		auto first = static_cast<uint32_t>(plan.lights.size());
 		for (uint32_t cluster = 0; cluster < SHADER_TYPES_CLUSTER_COUNT; cluster++)
 		{

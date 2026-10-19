@@ -1,6 +1,7 @@
 #include "scene.h"
 
 #include <core/application.h>
+#include <core/assert.h>
 #include <core/profiling.h>
 #include <core/task.h>
 #include <core/taskexecutor.h>
@@ -25,6 +26,7 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <bit>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -330,6 +332,10 @@ struct Scene::Impl
 	uuids::uuid mySamplersUuid;
 	uuids::uuid myModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
 	uuids::uuid myMaterialsUuid;
+	// gMaterialData's size (in materials), which grows to hold the installed model's (see GrowMaterials), and material 0
+	// (the default, textured by an opened image), which a grown buffer starts with
+	uint32_t myMaterialCapacity = SHADER_TYPES_MATERIAL_COUNT;
+	MaterialData myDefaultMaterial = DefaultMaterialData();
 	uuids::uuid myTextureViewsUuid;
 	uuids::uuid myModelInstancesUuid;
 	// bound as gSkinVertices, gJointMatrices, gMorphDeltas and gMorphWeights while the installed model has none (a model
@@ -375,7 +381,7 @@ struct Scene::Impl
 				(mySettings.autoExposure.load(std::memory_order_relaxed) ? myAutoExposureStops.load(std::memory_order_relaxed) : 0.0F)),
 			.environmentIntensity = mySettings.environmentIntensity.load(std::memory_order_relaxed),
 			.environmentRotation = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed)),
-			.viewCount = std::min<uint32_t>(myViews.GetGrid().x * myViews.GetGrid().y, SHADER_TYPES_VIEW_COUNT),
+			.viewCount = myViews.GetGrid().x * myViews.GetGrid().y, // at most SHADER_TYPES_VIEW_COUNT (see Views::Upload)
 			.environmentBackdrop = mySettings.environmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
 			.tonemapper = mySettings.tonemapper.load(std::memory_order_relaxed),
 			.shadowView = SHADER_TYPES_NO_SHADOW};
@@ -386,12 +392,41 @@ struct Scene::Impl
 	void UpdateMaterials(
 		RHI& rhi, QueueTimelineContextData& graphics, uint32_t first, std::span<const MaterialData> materials)
 	{
-		ENSURE(first + materials.size() <= SHADER_TYPES_MATERIAL_COUNT);
+		ENSURE(first + materials.size() <= myMaterialCapacity);
 
 		UpdateBufferOnGraphics(
 			graphics, *rhi.GetPrimaryDevice().GetResource<Buffer>(myMaterialsUuid), first * sizeof(MaterialData), std::as_bytes(materials));
 	}
 
+
+	// makes gMaterialData hold count materials: if it is smaller, a new buffer of the next power of two, the default
+	// materials in it (material 0 as it is), bound in its place, and the old one retired once the gpu is done with it
+	// (NodePerformanceTest has 10000 materials per model). call on the draw thread, before writing the materials
+	void GrowMaterials(RHI& rhi, QueueTimelineContextData& graphics, size_t count)
+	{
+		if (count <= myMaterialCapacity)
+			return;
+
+		auto& device = rhi.GetPrimaryDevice();
+		auto capacity = static_cast<uint32_t>(std::bit_ceil(count));
+		std::vector<MaterialData> data(capacity, DefaultMaterialData());
+		data.front() = myDefaultMaterial;
+		auto buffer = std::make_shared<Buffer>(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc("Materials"),
+			capacity * sizeof(MaterialData),
+			BufferUsage::kStorage | BufferUsage::kTransferDestination, // UpdateMaterials writes it with UpdateBuffer
+			MemoryProperty::kHostVisible});
+		auto bytes = std::as_bytes(std::span(data));
+		auto memory = buffer->Map();
+		std::ranges::copy(bytes, memory.begin());
+		buffer->Flush(0, bytes.size());
+		buffer->Unmap();
+
+		myPipeline.SetDescriptorData("gMaterialData", BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+		RetireAfterGraphicsWork(graphics, device.ReplaceResource(myMaterialsUuid, buffer));
+		myMaterialsUuid = buffer->GetUuid();
+		myMaterialCapacity = capacity;
+	}
 
 	// writes a model's lights to gLights, or the default light if it has none: a directional light from above that, with
 	// the ambient light in the shader, lights matte surfaces as before there were lights. call on the draw thread.
@@ -400,11 +435,11 @@ struct Scene::Impl
 	{
 		// the rest are the environment's dominant lights
 		constexpr size_t kModelLightCount = SHADER_TYPES_LIGHT_COUNT - environment::kMaxDominantLights;
-		if (sceneLights.size() > kModelLightCount)
-		{
-			std::println(stderr, "{} lights, only the first {} are used", sceneLights.size(), kModelLightCount);
-			sceneLights = sceneLights.first(kModelLightCount);
-		}
+		ENSUREF(
+			sceneLights.size() <= kModelLightCount,
+			"{} lights, more than the {} a model may have (SHADER_TYPES_LIGHT_COUNT)",
+			sceneLights.size(),
+			kModelLightCount);
 
 		std::vector<LightData> lights(sceneLights.size());
 		for (size_t lightIt = 0; lightIt < lights.size(); lightIt++)
@@ -471,7 +506,8 @@ struct Scene::Impl
 										   return sceneLight.type == LIGHT_TYPE_DIRECTIONAL && glm::length(sceneDirection) > 0.0F &&
 												  glm::dot(glm::normalize(sceneDirection), glm::normalize(direction)) >= cosMerge;
 									   });
-			if (!merged && lights.size() < SHADER_TYPES_LIGHT_COUNT)
+			// a model's lights leave room for the dominant lights (see UpdateLights)
+			if (!merged)
 				lights.push_back(light);
 			info.push_back(
 				{.lux = (0.2126F * dominant.irradiance[0]) + (0.7152F * dominant.irradiance[1]) + (0.0722F * dominant.irradiance[2]),
@@ -692,8 +728,7 @@ struct Scene::Impl
 				if (auto slotIt = textureSlots.find(image.get()); slotIt != textureSlots.end())
 					return slotIt->second;
 
-				if (textureUuids.size() == kModelTextureMaxCount)
-					return std::nullopt;
+				ENSUREF(textureUuids.size() < kModelTextureMaxCount, "more than {} textures in a model", kModelTextureMaxCount);
 
 				auto slot = static_cast<uint32_t>(kModelTextureFirstSlot + textureUuids.size());
 				pipeline.SetDescriptorData(
@@ -714,7 +749,7 @@ struct Scene::Impl
 
 			// each distinct sampler once: the default in its slot, the others in the rest (see TextureRef::sampler)
 			std::vector<SamplerDesc> samplerDescs;
-			auto samplerSlotOf = [&samplerDescs, warned = false](const SamplerDesc& desc) mutable -> uint32_t
+			auto samplerSlotOf = [&samplerDescs](const SamplerDesc& desc) -> uint32_t
 			{
 				static const SamplerDesc kDefault = TextureRef{}.sampler;
 				if (desc == kDefault)
@@ -722,12 +757,10 @@ struct Scene::Impl
 				auto samplerDescIt = std::ranges::find(samplerDescs, desc);
 				if (samplerDescIt == samplerDescs.end())
 				{
-					if (samplerDescs.size() == kModelSamplerSlots.size())
-					{
-						if (!std::exchange(warned, true))
-							std::println(stderr, "more than {} different samplers, the rest use the default", kModelSamplerSlots.size());
-						return kDefaultSamplerId;
-					}
+					ENSUREF(
+						samplerDescs.size() < kModelSamplerSlots.size(),
+						"more than {} different samplers in a model (kModelSamplerSlots)",
+						kModelSamplerSlots.size());
 					samplerDescIt = samplerDescs.insert(samplerDescs.end(), desc);
 				}
 				return kModelSamplerSlots[static_cast<size_t>(samplerDescIt - samplerDescs.begin())];
@@ -737,7 +770,6 @@ struct Scene::Impl
 			std::vector<TextureView> views;
 			std::vector<AnimatedTextureView> animatedViews;
 			core::UnorderedMap<TextureViewKey, uint32_t, TextureViewKeyHash> viewIds;
-			bool viewsFull = false;
 			auto viewOf = [&, this](const Texture& texture, const TextureRef& ref) -> std::optional<uint32_t>
 			{
 				auto textureSlot = slotOf(texture);
@@ -756,13 +788,10 @@ struct Scene::Impl
 					0U);
 				if (inserted)
 				{
-					if (1 + views.size() == SHADER_TYPES_TEXTURE_VIEW_COUNT)
-					{
-						if (!std::exchange(viewsFull, true))
-							std::println(stderr, "more than {} texture views, the rest are left out", SHADER_TYPES_TEXTURE_VIEW_COUNT - 1);
-						viewIds.erase(viewIdIt);
-						return std::nullopt;
-					}
+					ENSUREF(
+						1 + views.size() < SHADER_TYPES_TEXTURE_VIEW_COUNT,
+						"more than {} texture views in a model (SHADER_TYPES_TEXTURE_VIEW_COUNT)",
+						SHADER_TYPES_TEXTURE_VIEW_COUNT - 1);
 					viewIdIt->second = static_cast<uint32_t>(1 + views.size());
 					views.push_back(MakeTextureView(*textureSlot, samplerSlot, ref, texture.normalYUp ? TEXTURE_VIEW_FLAG_NORMAL_Y_UP : 0U));
 					if (ref.animatedTransform >= 0)
@@ -771,7 +800,7 @@ struct Scene::Impl
 				return viewIdIt->second;
 			};
 
-			std::vector<MaterialData> materials(std::min<size_t>(textures.size(), kModelMaterialMaxCount), DefaultMaterialData());
+			std::vector<MaterialData> materials(textures.size(), DefaultMaterialData());
 			for (size_t materialIt = 0; materialIt < materials.size(); materialIt++)
 			{
 				auto& material = materials[materialIt];
@@ -897,6 +926,11 @@ struct Scene::Impl
 				}
 				if (layers.volumeScatter)
 				{
+					// the scatter pass writes its material + 1 to a half float (see SHADER_TYPES_SCATTER_TEXTURE), exact to 2048
+					ENSUREF(
+						materialIt + 2 <= 2048,
+						"scattering material {} is past the 2047 the scatter texture tells apart",
+						materialIt + 1);
 					material.flags |= MATERIAL_FLAG_VOLUME_SCATTER;
 					std::copy_n(glm::value_ptr(desc.multiscatterColor), 3, material.multiscatterColor);
 					if (auto id = viewOf(textures[materialIt].multiscatterColor, desc.multiscatterColorTexture))
@@ -985,6 +1019,7 @@ struct Scene::Impl
 			}
 			myModelTextureUuids = std::move(textureUuids);
 
+			GrowMaterials(rhi, graphics, 1 + materials.size());
 			UpdateMaterials(rhi, graphics, 1, materials);
 			myModelMaterialData = materials;
 			myAnimatedLights.clear();
@@ -1100,6 +1135,7 @@ struct Scene::Impl
 			material.flags = MATERIAL_FLAG_TEXTURE;
 			material.alphaCutoff = 0.5F;
 			material.baseColorView = 0;
+			myDefaultMaterial = material;
 			UpdateMaterials(rhi, graphics, 0, std::span(&material, 1));
 
 			RetireAfterGraphicsWork(graphics, device.ReplaceResource(myLoadedImageUuid, image));
@@ -1129,8 +1165,6 @@ struct Scene::Impl
 		const auto& filePath = model->GetDesc().name; // or the models' directory, for several
 
 		const auto& materials = model->GetDesc().materials;
-		if (materials.size() > kModelMaterialMaxCount)
-			std::println(stderr, "{}: {} materials, only the first {} are used", filePath, materials.size(), kModelMaterialMaxCount);
 
 		// then the textures, each file and usage once. the progress starts over for them.
 		struct TextureLoad
@@ -1258,8 +1292,12 @@ struct Scene::Impl
 		for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
 			*loads[loadIt].result = loaded[loadDistinct[loadIt]];
 
-		if (loaded.size() > kModelTextureMaxCount)
-			std::println(stderr, "{}: {} textures, only the first {} are used", filePath, loaded.size(), kModelTextureMaxCount);
+		ENSUREF(
+			loaded.size() <= kModelTextureMaxCount,
+			"{}: {} textures, more than a model may have ({}, SHADER_TYPES_GLOBAL_TEXTURE_COUNT)",
+			filePath,
+			loaded.size(),
+			kModelTextureMaxCount);
 
 		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
 			[this, &rhi, model, textures = std::move(textures)](QueueTimelineContextData* graphics) mutable

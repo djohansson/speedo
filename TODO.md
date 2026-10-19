@@ -5,7 +5,7 @@
 		next: gpu driven culling (no cost per draw for chunks out of view, and per instance), then occlusion culling, from the same chunks, measured on Bistro and ThousandsOfLights.gltf:
 			a. done: the per draw values (material, instance base, skin and morph bases) from a draw record the vertex shader reads by index, not push constants (renders unchanged)
 			b. done: indirect draws, a run of draws with the same state each, the cpu writing the commands: free on KosmicKrisp, but DrawIndexedIndirectCount costs 0.8 us a draw more, an empty draw 0.2 (see CLAUDE.md)
-			c. a compute pass culling each chunk (and each instance) per main and shadow view, writing their indirect commands with the culled ones' instance counts 0 (not compacted and counted: see b), which the passes draw as now
+			c. a compute pass culling each chunk (and each instance) per main and shadow view, compacting the draws it keeps per run (pipeline state) and counting them, drawn with DrawIndexedIndirectCount: the general method, native on desktop gpus (KosmicKrisp emulates the count: see b)
 			d. occlusion: the draws visible last frame first, a depth pyramid from them (compute: no min/max samplers on KosmicKrisp), then the rest tested against it
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it

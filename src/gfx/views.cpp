@@ -2,6 +2,7 @@
 
 #include <gfx/shaders/capi.h>
 
+#include <core/assert.h>
 #include <core/profiling.h>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -276,7 +277,8 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex)
 	ZoneScopedN("Views::Upload");
 
 	auto cameras = myCameras.Read().Get();
-	auto viewCount = std::min<size_t>(cameras.size(), SHADER_TYPES_VIEW_COUNT);
+	ENSUREF(cameras.size() <= SHADER_TYPES_VIEW_COUNT, "{} views, more than SHADER_TYPES_VIEW_COUNT ({})", cameras.size(), SHADER_TYPES_VIEW_COUNT);
+	auto viewCount = cameras.size();
 
 	auto& buffer = myBuffers[frameIndex];
 	auto memory = buffer.Map();

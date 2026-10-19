@@ -155,13 +155,14 @@ private:
 	std::vector<Buffer> myClusterLightBuffers;
 	// per frame index: the ui's frosted panels (gUiBlurRects), host visible, and the UI Blur passes' thread counts
 	std::vector<Buffer> myUiBlurRectBuffers;
-	std::vector<Buffer> myDrawRecordBuffers; // per frame index, the draw lists' DrawRecords (gDrawRecords)
-	// per frame index, the recorded draws' slots (gDrawSlots) and indirect commands, which myDrawStream hands out while a
-	// frame records (see RecordDrawList)
-	std::vector<Buffer> myDrawSlotBuffers;
-	std::vector<Buffer> myDrawCommandBuffers;
-	DrawStream myDrawStream;
-	bool myIndirectDraws = false;
+	// per frame index, the draw lists' DrawRecords (gDrawRecords), of the capacity each holds (it grows: a replaced buffer
+	// is kept until no frame in flight can use it, myRetiredBuffers, with the Record that replaced it)
+	std::vector<Buffer> myDrawRecordBuffers;
+	std::vector<size_t> myDrawRecordCapacity;
+	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
+	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from
+	std::vector<DrawStream> myDrawStreams;
+	DrawStream* myDrawStream = nullptr;
 	uint32_t myUiBlurThreadsX = 0;
 	uint32_t myUiBlurThreadsY = 0;
 	DrawList myShadowDrawList;
@@ -180,7 +181,8 @@ private:
 		uint64_t lastRecord = 0; // the Record that last timed it
 	};
 	std::vector<SmoothedTiming> mySmoothedTimings; // in the order the passes were first timed
-	uint64_t myRecordCount = 0;
+	uint64_t myRecordCount = 0; // of the frames that timed passes (see GetPassTimings)
+	uint64_t myFrameCount = 0; // Records, every one
 	core::ConcurrentAccess<LightCapture> myLightCapture;
 	bool myCollectTimings = false;
 	std::vector<std::pair<std::string, std::vector<double>>> myCollectedTimings;

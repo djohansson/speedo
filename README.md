@@ -206,10 +206,11 @@ screenshots:
 | `SPEEDO_AUTOLOAD_EXIT=<frames>` | Exit that many frames after the loads finish. |
 | `SPEEDO_BACKGROUND=1` | Open the window behind the others, without taking focus. |
 | `SPEEDO_CAMERA=x,y,z,pitch,yaw` | Place the views once the loads are installed (degrees; positive pitch looks down, positive yaw turns from -z towards +x). For repeatable measurements. |
+| `SPEEDO_LAYOUT=1x1\|1x2\|2x1\|2x2` | Start with that grid of views. |
 | `SPEEDO_ANIMATION_TIME=<seconds>` | Freeze animations at a fixed time. |
 | `SPEEDO_TONEMAPPER`, `SPEEDO_AUTO_EXPOSURE`, `SPEEDO_SHADOWS`, `SPEEDO_CULLING`, `SPEEDO_CLUSTERED_LIGHTS`, `SPEEDO_MERGE_LIGHTS`, `SPEEDO_ENVIRONMENT_ROTATION`, `SPEEDO_ENVIRONMENT_INTENSITY` | Start with these view settings (`0` turns a setting off). |
 | `SPEEDO_FULLSCREEN=exclusive\|borderless\|native` | The fullscreen mode `Alt+Enter` uses (`native`: macOS only). |
-| `SPEEDO_PRESENT_MODE=fifo\|fifo_relaxed\|mailbox\|immediate`, `SPEEDO_SWAPCHAIN_IMAGES=<count>` | The swapchain's presentation at startup, if the display offers it. |
+| `SPEEDO_PRESENT_MODE=fifo\|fifo_relaxed\|mailbox\|immediate`, `SPEEDO_SWAPCHAIN_IMAGE_COUNT=<count>` | The swapchain's presentation at startup, if the display offers it. |
 | `SPEEDO_SHOW_STATISTICS=1`, `SPEEDO_SHOW_LIGHTS=1` | Open the Statistics or Lights window at startup. |
 | `SPEEDO_OPEN_MENUS=View/Presentation` | Hold these menus open, for screenshots. |
 | `SPEEDO_BROWSE=<dir>`, `SPEEDO_BROWSE_SELECT`, `SPEEDO_BROWSE_KINDS`, `SPEEDO_BROWSE_RECURSIVE`, `SPEEDO_BROWSE_OPEN`, `SPEEDO_BROWSE_ENVIRONMENT` | Open the file browser on a folder, with a selection, filters and an open action (see CLAUDE.md). |

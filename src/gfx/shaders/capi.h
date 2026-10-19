@@ -133,8 +133,9 @@ extern "C"
 #define TONEMAPPER_LINEAR 4u // none: clamped
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
-#define SHADER_TYPES_MATERIAL_INDEX_BITS 10u
-#define SHADER_TYPES_MATERIAL_COUNT (1u << SHADER_TYPES_MATERIAL_INDEX_BITS)
+// gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
+// grows to hold them (see Scene's GrowMaterials)
+#define SHADER_TYPES_MATERIAL_COUNT 1024u
 
 // caution: don't change the alignment unless you know what you are doing.
 struct ViewData
@@ -413,14 +414,12 @@ struct MorphDelta
 	alignas(16) FLOAT4(tangent);
 };
 
-// how many draws a frame's gDrawRecords holds (the draw lists' items, see DrawList)
+// how many draws a frame's gDrawRecords holds to begin with (the draw lists' items, see DrawList): it grows to hold them
 #define SHADER_TYPES_DRAW_RECORD_COUNT (1u << 15)
-// how many draws a frame records (each view's and shadow view's, see gDrawSlots)
-#define SHADER_TYPES_DRAW_SLOT_COUNT (1u << 17)
 
-// what a draw needs that differs from the draw before (gDrawRecords[frame][gDrawSlots[frame][PushConstants::drawSlot +
-// SV_DrawIndex]]): its material, its instances, and its skin and morph targets. read by the vertex stage, which hands the
-// material on
+// what a draw needs that differs from the draw before (gDrawRecords[frame][first instance]: each draw, direct or
+// indirect, names its record by its first instance, SV_StartInstanceLocation, which SV_InstanceID doesn't count): its
+// material, its instances, and its skin and morph targets. read by the vertex stage, which hands the material on
 struct DrawRecord
 {
 	alignas(4) UINT1(materialId); // gMaterialData's
@@ -450,9 +449,6 @@ struct PushConstants
 	alignas(4) UINT1(frameIndex);
 	// per view: gViewData's
 	alignas(4) UINT1(viewId);
-	// per draw (or per indirect draw, of which each draw is SV_DrawIndex after it): its slot in gDrawSlots[frameIndex],
-	// which holds its DrawRecord's index
-	alignas(4) UINT1(drawSlot);
 	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
 	alignas(4) UINT1(lightCount);
 	alignas(4) FLOAT1(exposure);
