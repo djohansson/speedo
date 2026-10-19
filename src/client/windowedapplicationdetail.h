@@ -83,6 +83,11 @@ namespace windowedapplication
 
 // presented frames per second, and gpu submits (vkQueueSubmit calls) and their batches (VkSubmitInfos) per presented frame,
 // over (at least) the last half second, from any thread. written by Draw
+// SPEEDO_CAPTURE=<file>: the frame an autoload exit ends on, read back and saved as a bmp (32 bits, top down), for
+// comparing renders without the screen (a locked one can't be captured). the ui asks for it (1), the draw thread records
+// its read back (2), and its graphics timeline callback saves it (3), after which the ui exits
+inline std::atomic_uint8_t gCaptureState{0};
+inline std::string gCapturePath;
 inline std::atomic<float> gFramesPerSecond;
 inline std::atomic<float> gSubmitsPerFrame;
 inline std::atomic<float> gSubmitBatchesPerFrame;

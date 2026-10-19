@@ -460,17 +460,24 @@ struct DrawIndexedIndirectCommand
 // drawn first (and marked so in gCullVisibility), then of the rest, those the pyramid of what was drawn doesn't hide
 #define CULL_JOB_HYBRID_EARLY 4u
 #define CULL_JOB_HYBRID_LATE 5u
-// what the occlusion culling decided in a frame, per draw and main view (gCullStatistics[frame]): drawn before the
-// pyramid of the main pass's depth (or in one phase), opaque and blended draws drawn after it, and the draws in view it
-// hid
+// what the occlusion culling decided in a frame, per draw and view (gCullStatistics[frame], a group of these per
+// CullJob::statistics: the main views', then the shadow views'): drawn before the pyramid (or in one phase), opaque and
+// blended draws drawn after it, and the draws in view it hid
 #define CULL_STATISTIC_EARLY 0u
 #define CULL_STATISTIC_LATE 1u
 #define CULL_STATISTIC_LATE_BLENDED 2u
 #define CULL_STATISTIC_HIDDEN 3u
 #define CULL_STATISTIC_COUNT 4u
+#define CULL_STATISTIC_MAIN 0u
+#define CULL_STATISTIC_SHADOW 1u
+#define CULL_STATISTIC_GROUP_COUNT 2u
 // the depth pyramid (ComputeDepthPyramid, see the Depth Pyramid pass): the main depth's farthest per texel, from the
 // main depth at level 0 (a copy) up to 1x1, each level a storage image of gDepthPyramid, which occlusion reads
 #define SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT 16u
+// and the shadow atlas's (gShadowDepthPyramid: half the atlas at level 0), which the shadow views' occlusion reads. the
+// atlas's tiles are power of two squares aligned to their size, so a level whose texels are no bigger than a tile reads
+// that tile alone (CullView::maxLevel)
+#define SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT 12u
 #define SHADER_TYPES_DEPTH_PYRAMID_GROUP_SIZE 8u
 // the gTextures slot of the main pass's depth (the depth pyramid's source)
 #define SHADER_TYPES_MAIN_DEPTH_TEXTURE 4u
@@ -504,6 +511,10 @@ struct CullJob
 	// of no instances if not kept (DrawIndexedIndirect of the whole run: where the count is emulated, see
 	// DeviceLimits::drawIndirectCountEmulated)
 	alignas(4) UINT1(compact);
+	alignas(4) UINT1(statistics); // its decisions' group in gCullStatistics (CULL_STATISTIC_MAIN or _SHADOW)
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 };
 
 // a view's frustum (see gfx::Frustum): six planes, xyz the inward normal, w the distance (all zeros culls nothing), and,
@@ -517,8 +528,10 @@ struct CullView
 	// whether the last frame saved its depth (gPreviousDepth) with this view, and its inverse view projection and viewport
 	// then (the depth reprojection's)
 	alignas(4) UINT1(previousValid);
-	alignas(4) UINT1(padding0);
-	alignas(4) UINT1(padding1);
+	// the pyramid it is occluded by (0: gDepthPyramid, the main views'; 1: gShadowDepthPyramid, a shadow view's, in its
+	// tile of the atlas, its viewport), and the coarsest level whose texels stay in its viewport
+	alignas(4) UINT1(pyramid);
+	alignas(4) UINT1(maxLevel);
 	alignas(16) FLOAT4X4(previousInverseViewProjection);
 	alignas(16) FLOAT4(previousViewport);
 };

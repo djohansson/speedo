@@ -45,7 +45,9 @@ constexpr uint8_t kCullEntryPoint = 5;
 constexpr uint8_t kDepthPyramidEntryPoint = 6;
 constexpr uint8_t kDepthSaveEntryPoint = 7;
 constexpr uint8_t kDepthReprojectEntryPoint = 8;
-constexpr uint32_t kCullJobCount = (4 * SHADER_TYPES_VIEW_COUNT) + SHADER_TYPES_SHADOW_VIEW_COUNT;
+// at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
+// list's early and late per shadow view
+constexpr uint32_t kCullJobCount = (5 * SHADER_TYPES_VIEW_COUNT) + (2 * SHADER_TYPES_SHADOW_VIEW_COUNT);
 constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADOW_VIEW_COUNT;
 
 } // namespace renderer
@@ -140,7 +142,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			MemoryProperty::kHostVisible});
 		myCullStatisticsBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Cull Statistics {}", frameIt)),
-			CULL_STATISTIC_COUNT * sizeof(uint32_t),
+			CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT * sizeof(uint32_t),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 		myDrawStreams.emplace_back(device);
@@ -176,6 +178,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		MemoryProperty::kDeviceLocal});
 	// the main depth's farthest per texel, by level (see ComputeDepthPyramid), which occlusion culling tests against
 	myDepthPyramid = myGraph.CreateImage({.name = "Depth Pyramid", .format = Format::kR32Sfloat, .mipChain = true, .downscale = 2});
+	myShadowDepthPyramid = myGraph.CreateImage(
+		{.name = "Shadow Depth Pyramid",
+		 .format = Format::kR32Sfloat,
+		 .extent = {.width = shadows::kAtlasSize / 2, .height = shadows::kAtlasSize / 2},
+		 .mipChain = true});
 	// the depth reprojection's (see ComputeDepthReproject): the last frame's depth, kept (see Resize), and the frame's
 	// reprojected
 	myPreviousDepth = myGraph.ImportBuffer("Previous Depth");
@@ -232,8 +239,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// barriers between them, within the pass)
 	auto pyramid = [this, kernel](FrameGraph::PassContext& context, uint32_t source)
 	{
-		const auto& levels = context.graph.GetImage(myDepthPyramid).GetDesc().mipLevels;
-		for (uint32_t levelIt = 0; levelIt < myDepthPyramidViews.size(); levelIt++)
+		// source 2: the shadow atlas, into the shadow views' pyramid (see ComputeDepthPyramid)
+		const auto& levels = context.graph.GetImage(source == 2 ? myShadowDepthPyramid : myDepthPyramid).GetDesc().mipLevels;
+		auto levelCount = (source == 2 ? myShadowDepthPyramidViews : myDepthPyramidViews).size();
+		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 		{
 			if (levelIt > 0)
 				CommandEncoder(context.cmd).Barrier(
@@ -326,6 +335,47 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		});
 
 	// the lights' shadows: each of their views in its tile of the atlas
+	auto shadowDraws = [this](FrameGraph::PassContext& context, bool late)
+	{
+		const auto& inputs = *myFrame.inputs;
+		auto& pipeline = *myFrame.pipeline;
+		auto cmd = context.cmd;
+		CommandEncoder encoder(cmd);
+
+		pipeline.SetRenderTarget(*context.target);
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+		encoder.BindIndexBuffer(*myShadowDrawList.indexBuffer, 0, IndexType::kUint32);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
+
+		auto pushConstants = inputs.pushConstants;
+		for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+		{
+			const auto& tile = myShadowPlan.tiles[viewIt];
+			encoder.SetViewport(Viewport{
+				.x = static_cast<float>(tile.x),
+				.y = static_cast<float>(tile.y),
+				.width = static_cast<float>(tile.size),
+				.height = static_cast<float>(tile.size),
+				.minDepth = 0.0F,
+				.maxDepth = 1.0F});
+			encoder.SetScissor(rhi::Rect{
+				.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
+			pushConstants.shadowView = viewIt;
+			if (auto culled = InternalCulledDraws(ListId::kShadow, viewIt, late))
+			{
+				RecordCulledDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *culled);
+				continue;
+			}
+			auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+			RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
+		}
+	};
 	myShadowPass = myGraph.AddPass(
 		"Shadows",
 		[this, useCulled](FrameGraph::PassBuilder& builder)
@@ -333,47 +383,45 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.DepthAttachment(myShadowAtlas, LoadOp::kClear);
 			useCulled(builder);
 		},
-		[this](FrameGraph::PassContext& context)
+		[shadowDraws](FrameGraph::PassContext& context) { shadowDraws(context, false); });
+
+	// the shadow views' occlusion culling: what the shadow views saw last frame drew first, then the rest that a pyramid
+	// of the atlas doesn't hide
+	myShadowDepthPyramidPass = myGraph.AddPass(
+		"Shadow Depth Pyramid",
+		[this](FrameGraph::PassBuilder& builder)
 		{
-			const auto& inputs = *myFrame.inputs;
-			auto& pipeline = *myFrame.pipeline;
-			auto cmd = context.cmd;
-			CommandEncoder encoder(cmd);
-
-			pipeline.SetRenderTarget(*context.target);
-			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
-			encoder.BindIndexBuffer(*myShadowDrawList.indexBuffer, 0, IndexType::kUint32);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-			pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
-
-			auto pushConstants = inputs.pushConstants;
-			for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
-			{
-				const auto& tile = myShadowPlan.tiles[viewIt];
-				encoder.SetViewport(Viewport{
-					.x = static_cast<float>(tile.x),
-					.y = static_cast<float>(tile.y),
-					.width = static_cast<float>(tile.size),
-					.height = static_cast<float>(tile.size),
-					.minDepth = 0.0F,
-					.maxDepth = 1.0F});
-				encoder.SetScissor(rhi::Rect{
-					.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
-				pushConstants.shadowView = viewIt;
-				if (auto culled = InternalCulledDraws(ListId::kShadow, viewIt))
-				{
-					RecordCulledDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *culled);
-					continue;
-				}
-				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
-				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
-			}
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowDepthPyramid, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[pyramid](FrameGraph::PassContext& context) { pyramid(context, 2); });
+	myCullShadowsLatePass = myGraph.AddPass(
+		"Cull Shadows Late",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myCullCounts, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myCullCommands, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myCullStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myCullVisibility, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myShadowDepthPyramid, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			kernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kCullEntryPoint},
+				myCullShadowLateMaxCandidateCount,
+				myCullShadowLateJobCount,
+				myCullShadowLateJobBase);
 		});
+	myShadowsLatePass = myGraph.AddPass(
+		"Shadows Late",
+		[this, useCulled](FrameGraph::PassBuilder& builder)
+		{
+			builder.DepthAttachment(myShadowAtlas, LoadOp::kLoad);
+			useCulled(builder);
+		},
+		[shadowDraws](FrameGraph::PassContext& context) { shadowDraws(context, true); });
 
 	// the scattering materials' back faces, depth only: how thick they are where the Scatter pass sees them
 	myScatterBackPass = myGraph.AddPass(
@@ -493,8 +541,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				context.cmd,
 				ComputePipelineVariant{.entryPoint = kCullEntryPoint},
 				myCullLateMaxCandidateCount,
-				static_cast<uint32_t>(myCullJobs.size()) - myCullEarlyJobCount,
-				myCullEarlyJobCount);
+				static_cast<uint32_t>(myCullJobs.size()) - myCullMainLateJobBase,
+				myCullMainLateJobBase);
 		});
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
@@ -633,20 +681,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* indirect = std::getenv("SPEEDO_INDIRECT_DRAWS");
 	for (auto& stream : myDrawStreams)
 		stream.indirect = indirect == nullptr || std::string_view(indirect) != "0";
-	// the gpu culls the draws (the Cull pass) where it counts them natively (DrawIndexedIndirectCount) and the draws are
-	// indirect, else the cpu does: where the count is emulated (KosmicKrisp) it costs more than it saves (see CLAUDE.md).
-	// SPEEDO_GPU_CULLING=0 or 1 overrides that, where the count exists at all
+	// the gpu culls the draws (the Cull passes) where the draws are indirect, unless SPEEDO_GPU_CULLING=0 (the cpu does,
+	// by the frustum). it compacts the draws it keeps and counts them (DrawIndexedIndirectCount) where the count is native;
+	// where it is emulated (KosmicKrisp: a compute kernel and an encoder split per count) every draw keeps its place, of
+	// no instances if culled, drawn by plain indirect draws, which cost nothing measurable there (see CLAUDE.md)
 	auto limits = device.GetLimits();
 	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
-	bool gpuCullingWanted = gpuCulling != nullptr ? std::string_view(gpuCulling) == "1" : !limits.drawIndirectCountEmulated;
-	myGpuCulling = limits.drawIndirectCount && myDrawStreams.front().indirect && gpuCullingWanted;
-	// occlusion culling, where the count exists (SPEEDO_OCCLUSION_CULLING=0 turns it off): it culls the main pass on the
-	// gpu even where the count is emulated, since the main pass makes few counts (a run per view), and what it hides is
-	// what the cpu can't
+	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
+	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
+	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
+	// (SPEEDO_SHADOW_OCCLUSION_CULLING=1 turns it on: off by default, since a shadow view sees few of the chunks hidden
+	// behind others, 6 to 11 of Bistro's 560 to 800, and its pyramid and the atlas's second render pass cost 0.5 to 1 ms)
 	const char* occlusion = std::getenv("SPEEDO_OCCLUSION_CULLING");
-	myOcclusionCulling = limits.drawIndirectCount && myDrawStreams.front().indirect &&
-						 (occlusion == nullptr || std::string_view(occlusion) != "0");
-	myCountEmulated = limits.drawIndirectCountEmulated;
+	myOcclusionCulling = myGpuCulling && (occlusion == nullptr || std::string_view(occlusion) != "0");
+	const char* shadowOcclusion = std::getenv("SPEEDO_SHADOW_OCCLUSION_CULLING");
+	myShadowOcclusionCulling = myGpuCulling && shadowOcclusion != nullptr && std::string_view(shadowOcclusion) == "1";
 	if (const char* mode = std::getenv("SPEEDO_OCCLUSION_MODE"); mode != nullptr)
 	{
 		std::string_view name(mode);
@@ -663,16 +712,23 @@ Renderer::~Renderer()
 	// what the occlusion culling decided, on average per frame (SPEEDO_GPU_TIMINGS=1)
 	if (myCollectTimings && myCullStatisticFrameCount > 0)
 	{
-		auto mean = [this](uint32_t statistic)
-		{ return static_cast<double>(myCullStatisticSums[statistic]) / static_cast<double>(myCullStatisticFrameCount); };
-		std::println(
-			"occlusion culling ({}), draws per frame: {:.1f} early, {:.1f} late ({:.1f} blended), {:.1f} hidden ({} frames)",
-			GetOcclusionModeName(),
-			mean(CULL_STATISTIC_EARLY),
-			mean(CULL_STATISTIC_LATE) + mean(CULL_STATISTIC_LATE_BLENDED),
-			mean(CULL_STATISTIC_LATE_BLENDED),
-			mean(CULL_STATISTIC_HIDDEN),
-			myCullStatisticFrameCount);
+		for (uint32_t groupIt = 0; groupIt < CULL_STATISTIC_GROUP_COUNT; groupIt++)
+		{
+			auto mean = [this, groupIt](uint32_t statistic)
+			{
+				return static_cast<double>(myCullStatisticSums[(groupIt * CULL_STATISTIC_COUNT) + statistic]) /
+					   static_cast<double>(myCullStatisticFrameCount);
+			};
+			std::println(
+				"occlusion culling of the {} ({}), draws per frame: {:.1f} early, {:.1f} late ({:.1f} blended), {:.1f} hidden ({} frames)",
+				groupIt == CULL_STATISTIC_MAIN ? "main views" : "shadow views",
+				groupIt == CULL_STATISTIC_MAIN ? GetOcclusionModeName() : (myShadowOcclusionCulling ? "two-phase" : "off"),
+				mean(CULL_STATISTIC_EARLY),
+				mean(CULL_STATISTIC_LATE) + mean(CULL_STATISTIC_LATE_BLENDED),
+				mean(CULL_STATISTIC_LATE_BLENDED),
+				mean(CULL_STATISTIC_HIDDEN),
+				myCullStatisticFrameCount);
+		}
 	}
 	// the medians of the passes' timings, for experiments (SPEEDO_GPU_TIMINGS=1)
 	if (!myCollectedTimings.empty())
@@ -691,7 +747,7 @@ LightCapture Renderer::GetLightCapture() const
 	return myLightCapture.Read().Get();
 }
 
-std::array<uint32_t, CULL_STATISTIC_COUNT> Renderer::GetCullStatistics() const
+std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> Renderer::GetCullStatistics() const
 {
 	return myCullStatistics.Read().Get();
 }
@@ -821,6 +877,30 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				slotIt);
 	}
+	// and the shadow atlas's pyramid, likewise
+	{
+		const auto& pyramid = myGraph.GetImage(myShadowDepthPyramid);
+		auto levelCount = std::min<size_t>(pyramid.GetDesc().mipLevels.size(), SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT);
+		myShadowDepthPyramidViews.clear();
+		for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
+			myShadowDepthPyramidViews.push_back(std::make_unique<ImageView>(ImageViewCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Shadow Depth Pyramid Level {}", levelIt)),
+				pyramid,
+				Format::kR32Sfloat,
+				ImageAspect::kColor,
+				1,
+				{},
+				levelIt}));
+		for (uint32_t slotIt = 0; slotIt < SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT; slotIt++)
+			pipeline.SetDescriptorData(
+				"gShadowDepthPyramid",
+				ImageBinding{
+					.sampler = {},
+					.imageView = *myShadowDepthPyramidViews[std::min<size_t>(slotIt, levelCount - 1)],
+					.layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				slotIt);
+	}
 	pipeline.SetDescriptorData(
 		"gCullVisibility", BufferBinding{.buffer = myCullVisibilityBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// the depth reprojection's: the main depth's stencil, and the last frame's depth at this size (none yet)
@@ -905,7 +985,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	{
 		auto& buffer = myCullStatisticsBuffers[inputs.frameIndex];
 		auto memory = buffer.Map();
-		std::array<uint32_t, CULL_STATISTIC_COUNT> statistics{};
+		std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> statistics{};
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
 		if (std::ranges::any_of(statistics, [](uint32_t count) { return count != 0; }))
@@ -1159,12 +1239,9 @@ Buffer& Renderer::InternalReserve(GrowingBuffers& buffers, Pipeline& pipeline, u
 	return buffers.buffers[frameIndex];
 }
 
-bool Renderer::InternalCullsOnGpu(ListId list, const FrameInputs& frame) const noexcept
+bool Renderer::InternalCullsOnGpu(ListId /*list*/, const FrameInputs& /*frame*/) const noexcept
 {
-	if (myGpuCulling)
-		return true;
-	// occlusion culls the main pass's lists on the gpu even where the count is emulated (see the constructor)
-	return myOcclusionCulling && frame.culling && (list == ListId::kMain || list == ListId::kMainTransmissive);
+	return myGpuCulling;
 }
 
 namespace renderer
@@ -1210,8 +1287,14 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	myCullCountCount = 0;
 	myCullMaxCandidateCount = 0;
 	myCullLateMaxCandidateCount = 0;
+	myCullShadowLateMaxCandidateCount = 0;
+	myCullShadowLateJobBase = 0;
+	myCullShadowLateJobCount = 0;
+	myCullMainLateJobBase = 0;
 	const auto& mainList = InternalList(ListId::kMain);
+	const auto& shadowList = InternalList(ListId::kShadow);
 	myOcclusionThisFrame = myOcclusionCulling && frame.culling && !mainList.Empty();
+	myShadowOcclusionThisFrame = myShadowOcclusionCulling && frame.culling && !shadowList.Empty() && !myShadowPlan.views.empty();
 	auto disable = [this]
 	{
 		for (auto pass :
@@ -1224,9 +1307,13 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 			  myDepthPyramidPass,
 			  myCullLatePass,
 			  myMainLatePass,
-			  myDepthSavePass})
+			  myDepthSavePass,
+			  myShadowDepthPyramidPass,
+			  myCullShadowsLatePass,
+			  myShadowsLatePass})
 			myGraph.SetEnabled(pass, false);
 		myPreviousValid = false;
+		myShadowOcclusionThisFrame = false;
 	};
 	bool anyOnGpu = false;
 	for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
@@ -1262,6 +1349,8 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 			views[viewIt].viewport[2] = viewport.width;
 			views[viewIt].viewport[3] = viewport.height;
 			views[viewIt].occlusion = myOcclusionThisFrame ? 1U : 0U;
+			views[viewIt].pyramid = 0;
+			views[viewIt].maxLevel = SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT;
 			if (myPreviousValid && myPreviousViewports.size() == mainViewCount)
 			{
 				const auto& previous = myPreviousViewports[viewIt];
@@ -1274,8 +1363,22 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 				views[viewIt].previousViewport[3] = previous.height;
 			}
 		}
+		// the shadow views in their tiles of the atlas, occluded by its pyramid: a tile of size s is one texel at level
+		// log2(s) - 1 (level 0 is half the atlas), aligned (see shadows::Plan), so no coarser level is read
 		for (size_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+		{
+			auto& view = views[mainViewCount + viewIt];
 			setView(mainViewCount + viewIt, glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+			const auto& tile = myShadowPlan.tiles[viewIt];
+			ENSURE(std::has_single_bit(tile.size) && tile.x % tile.size == 0 && tile.y % tile.size == 0);
+			view.viewport[0] = static_cast<float>(tile.x);
+			view.viewport[1] = static_cast<float>(tile.y);
+			view.viewport[2] = static_cast<float>(tile.size);
+			view.viewport[3] = static_cast<float>(tile.size);
+			view.occlusion = myShadowOcclusionThisFrame ? 1U : 0U;
+			view.pyramid = 1;
+			view.maxLevel = static_cast<uint32_t>(std::bit_width(tile.size)) - 2;
+		}
 	}
 
 	// the candidates, list after list, and a job per list and view: the Cull pass's first, then the Cull Late pass's
@@ -1311,10 +1414,27 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	}
 
 	uint32_t commandCount = 0;
-	uint32_t visibilityCount = 0;
-	// a list's jobs, a job per view, of the Cull pass (before the main pass) or the Cull Late pass (after it)
-	auto addJobs = [&](ListId listId, uint32_t kind, uint32_t visibilityBase, bool late = false)
+	// the visibility per draw and view, kept from frame to frame: the main views', first, so that its place holds as long
+	// as the main list's draws and the views do, then the shadow views'
+	bool mainVisibility = myOcclusionThisFrame && myOcclusionMode != OcclusionMode::kReprojected;
+	auto shadowVisibilityBase = mainVisibility ? static_cast<uint32_t>(mainList.items.size()) * mainViewCount : 0U;
+	auto visibilityCount =
+		shadowVisibilityBase +
+		(myShadowOcclusionThisFrame ? static_cast<uint32_t>(shadowList.items.size() * myShadowPlan.views.size()) : 0U);
+	// a list's jobs, a job per view, of the Cull pass (before the shadows and the main pass), the Cull Shadows Late pass or
+	// the Cull Late pass (after the main pass)
+	enum class JobSet : uint8_t
 	{
+		kEarly,
+		kShadowLate,
+		kMainLate,
+	};
+	auto addJobs = [&](ListId listId, uint32_t kind, uint32_t visibilityBase, JobSet set = JobSet::kEarly)
+	{
+		bool late = set != JobSet::kEarly;
+		auto& maxCandidateCount = set == JobSet::kEarly		  ? myCullMaxCandidateCount
+								  : set == JobSet::kShadowLate ? myCullShadowLateMaxCandidateCount
+															   : myCullLateMaxCandidateCount;
 		const auto& list = InternalList(listId);
 		auto listIt = std::to_underlying(listId);
 		bool shadow = listId == ListId::kShadow;
@@ -1332,12 +1452,12 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 				.countBase = myCullCountCount,
 				.kind = kind,
 				.visibilityBase = visibilityBase + viewIt * itemCount,
-				.compact = myCountEmulated ? 0U : 1U});
+				.compact = myCountEmulated ? 0U : 1U,
+				.statistics = shadow ? CULL_STATISTIC_SHADOW : CULL_STATISTIC_MAIN});
 			commandCount += itemCount;
 			myCullCountCount += static_cast<uint32_t>(list.runs.size());
 		}
-		(late ? myCullLateMaxCandidateCount : myCullMaxCandidateCount) =
-			std::max(late ? myCullLateMaxCandidateCount : myCullMaxCandidateCount, itemCount);
+		maxCandidateCount = std::max(maxCandidateCount, itemCount);
 	};
 	auto onGpu = [&](ListId listId) { return !InternalList(listId).Empty() && InternalCullsOnGpu(listId, frame); };
 	for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
@@ -1352,10 +1472,16 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 			// draws, by the last frame's depth; hybrid, those that doesn't hide (marked in the visibility)
 			switch (myOcclusionMode)
 			{
-			case OcclusionMode::kTwoPhase: addJobs(listId, CULL_JOB_EARLY, visibilityCount); break;
+			case OcclusionMode::kTwoPhase: addJobs(listId, CULL_JOB_EARLY, 0); break;
 			case OcclusionMode::kReprojected: addJobs(listId, CULL_JOB_PYRAMID, 0); break;
-			case OcclusionMode::kHybrid: addJobs(listId, CULL_JOB_HYBRID_EARLY, visibilityCount); break;
+			case OcclusionMode::kHybrid: addJobs(listId, CULL_JOB_HYBRID_EARLY, 0); break;
 			}
+			continue;
+		}
+		if (myShadowOcclusionThisFrame && listId == ListId::kShadow)
+		{
+			// the casters each shadow view saw last frame
+			addJobs(listId, CULL_JOB_EARLY, shadowVisibilityBase);
 			continue;
 		}
 		if (myOcclusionThisFrame && listId == ListId::kMainTransmissive)
@@ -1367,16 +1493,19 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 		addJobs(listId, CULL_JOB_FRUSTUM, 0);
 	}
 	myCullEarlyJobCount = static_cast<uint32_t>(myCullJobs.size());
+	myCullShadowLateJobBase = myCullEarlyJobCount;
+	if (myShadowOcclusionThisFrame)
+		addJobs(ListId::kShadow, CULL_JOB_LATE, shadowVisibilityBase, JobSet::kShadowLate);
+	myCullShadowLateJobCount = static_cast<uint32_t>(myCullJobs.size()) - myCullShadowLateJobBase;
+	myCullMainLateJobBase = static_cast<uint32_t>(myCullJobs.size());
 	bool reprojected = myOcclusionThisFrame && myOcclusionMode != OcclusionMode::kTwoPhase;
 	bool lateDraws = myOcclusionThisFrame && myOcclusionMode != OcclusionMode::kReprojected;
 	if (lateDraws)
 	{
-		addJobs(ListId::kMain, myOcclusionMode == OcclusionMode::kHybrid ? CULL_JOB_HYBRID_LATE : CULL_JOB_LATE, visibilityCount, true);
+		addJobs(ListId::kMain, myOcclusionMode == OcclusionMode::kHybrid ? CULL_JOB_HYBRID_LATE : CULL_JOB_LATE, 0, JobSet::kMainLate);
 		if (onGpu(ListId::kMainTransmissive))
-			addJobs(ListId::kMainTransmissive, CULL_JOB_PYRAMID, 0, true);
+			addJobs(ListId::kMainTransmissive, CULL_JOB_PYRAMID, 0, JobSet::kMainLate);
 	}
-	if (myOcclusionThisFrame && myOcclusionMode != OcclusionMode::kReprojected)
-		visibilityCount += static_cast<uint32_t>(mainList.items.size()) * mainViewCount;
 	ENSURE(myCullJobs.size() <= kCullJobCount && views.size() <= kCullViewCount);
 
 	// written for the gpu to read once the frame's previous use of them is done (the caller waited for its fence). the
@@ -1419,6 +1548,9 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	myGraph.SetEnabled(myCullLatePass, lateDraws);
 	myGraph.SetEnabled(myMainLatePass, lateDraws);
 	myGraph.SetEnabled(myDepthSavePass, reprojected);
+	myGraph.SetEnabled(myShadowDepthPyramidPass, myShadowOcclusionThisFrame);
+	myGraph.SetEnabled(myCullShadowsLatePass, myShadowOcclusionThisFrame);
+	myGraph.SetEnabled(myShadowsLatePass, myShadowOcclusionThisFrame);
 
 	// what the next frame reprojects: this frame's depth (once the Depth Save pass has run), from its views
 	myPreviousValid = reprojected && frame.viewProjections.size() >= mainViewCount;

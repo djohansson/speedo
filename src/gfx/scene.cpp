@@ -108,7 +108,8 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 		{.type = rhi::DescriptorType::kCombinedImageSampler, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_SAMPLER_COUNT},
 		{.type = rhi::DescriptorType::kSampledImage, .count = kGlobalResourceBaseCount * SHADER_TYPES_GLOBAL_TEXTURE_COUNT},
 		{.type = rhi::DescriptorType::kStorageImage,
-		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT + SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT)},
+		 .count = kGlobalResourceBaseCount * (SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT + SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT +
+											  SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT)},
 		{.type = rhi::DescriptorType::kUniformTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kStorageTexelBuffer, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kUniformBuffer, .count = kBufferBaseCount},

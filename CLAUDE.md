@@ -551,8 +551,8 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   emulates. Elsewhere (desktop Vulkan, D3D12) the count is read natively, so the gpu culling (TODO.md) compacts the
   draws it keeps and counts them, the general method, and KosmicKrisp's cost is known rather than designed around.
   Renders came out the same as with push constants, but for one byte of ScatteringSkull's (by 2 of 255, in every run).
-- **The gpu's culling** (where the device has `DeviceLimits::drawIndirectCount`, not emulated, and the draws are indirect;
-  `SPEEDO_GPU_CULLING=0` or `1` overrides it, `SPEEDO_CULLING=0` turns culling off on either path). Each list's items are cut into runs of the same pipeline variant, cull mode and front face
+- **The gpu's culling** (wherever the draws are indirect; `SPEEDO_GPU_CULLING=0` hands it to the cpu, `SPEEDO_CULLING=0`
+  turns culling off on either path). Each list's items are cut into runs of the same pipeline variant, cull mode and front face
   (`PlanDrawRuns`, at most `maxDrawIndirectCount` each; a specialized variant whose pipeline isn't made yet draws its run
   with the generic one). `InternalPlanCulling` writes the candidates (`CullCandidate`: bounds, cullable, record, the
   command's values, its run and the run's first item), a job per list and view drawing it (`CullJob`: the main pass's
@@ -564,17 +564,17 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   (`GrowingBuffers`). The order of a run's draws is the order threads got their places, which only shows between
   coplanar opaque surfaces; renders came out identical to the cpu's (seven models, ScatteringSkull and DragonAttenuation
   among them); the debug quick tier passes with it, under validation. Where the count is emulated
-  (`DeviceLimits::drawIndirectCountEmulated`, rhi's: KosmicKrisp, by its driver id) the cpu culls instead, since there it
-  costs: `kk_CmdDrawIndexedIndirectCount2KHR` (mesa's `kk_cmd_draw.c`) runs a compute kernel per call that zeroes the
+  (`DeviceLimits::drawIndirectCountEmulated`, rhi's: KosmicKrisp, by its driver id), or missing, nothing is compacted
+  or counted (below), since there a count costs: `kk_CmdDrawIndexedIndirectCount2KHR` (mesa's `kk_cmd_draw.c`) runs a compute kernel per call that zeroes the
   commands past the count (`kk_predicate_draws`: in a render pass, a Metal encoder split, about 55 us with the shadow
   atlas) and then draws every one of `maxDrawCount`. ThousandsOfLights' 256 shadow views, a call each: Shadows 1.0 ms to
   15.1; Bistro's Main 4.03 to 4.31 framed. Mesa main of 2026-10-19 (44fd0fde) still does that, with a TODO to build Metal
-  indirect command buffers on the gpu instead: once it does, measure again and drop the exception. By the frustum alone
-  the gpu culling saves no gpu time anywhere (the cpu's draws are the same ones): it saves the cpu's recording, and
-  occlusion (below) is where it pays. Where the count is emulated, what the gpu culls isn't compacted either
-  (`CullJob::compact` 0, `CulledDraws::counted`): every draw keeps its place, of no instances if culled, and each run
-  is a plain `DrawIndexedIndirect` (an empty draw costs KosmicKrisp about 0.2 us, a count a compute kernel and an
-  encoder split).
+  indirect command buffers on the gpu instead: once it does, measure again and drop the exception. Uncompacted
+  (`CullJob::compact` 0, `CulledDraws::counted`), every draw keeps its place, of no instances if culled, and each run is
+  a plain `DrawIndexedIndirect`: on KosmicKrisp that costs nothing measurable (ThousandsOfLights' 256 shadow views and
+  Bistro's, the cpu's culling against it: the same Shadows time to 0.02 ms), so every list is culled on the gpu there too
+  (the shadow and scatter lists stayed the cpu's for a while). By the frustum alone the gpu culling saves no gpu time
+  anywhere (the cpu's draws are the same ones): it saves the cpu's recording, and occlusion (below) is where it pays.
 - **Occlusion culling** (two phase, `SPEEDO_OCCLUSION_CULLING=0` turns it off; where there is a count, emulated or not,
   and culling is on): the main pass's opaque list is culled on the gpu in two jobs per view. The Cull pass's
   (`CULL_JOB_EARLY`) keeps the draws seen last frame (`gCullVisibility`, a word per draw and main view, one buffer kept
@@ -589,14 +589,25 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   a box reaching behind the eye is never hidden), keeps the ones it doesn't hide that weren't drawn first, and writes
   each one's visibility for the next frame; Main Late draws them, loading the attachments. Blended draws
   (`CullCandidate::late`) are only ever drawn late, after every opaque draw (the transparency's lists depth test when
-  written), and the transmissive phase's list is tested against the pyramid alone (`CULL_JOB_PYRAMID`). The main lists
-  are culled on the gpu for it even where the count is emulated (few calls: a run per view per phase); the shadow and
-  scatter lists stay the cpu's there. Renders are identical with and without (eight models, BlendInstances among them),
+  written), and the transmissive phase's list is tested against the pyramid alone (`CULL_JOB_PYRAMID`). Renders are identical with and without (eight models, BlendInstances among them),
   and with a still camera Main Late draws nothing. Measured on KosmicKrisp by the frame's gpu time (the `Frame` scope,
   see "GPU timings"), off to on: Sponza 5.34 to 4.83 ms (Main 3.78 to 1.78), Bistro 7.67 to 7.94 framed, 8.58 to 9.05
   and 11.67 to 11.79 in its streets, ThousandsOfLights 9.78 to 10.26. Where little is hidden it costs: the second render
   pass loads and stores the main color and depth (a tile based gpu's cost; a desktop gpu's is lower), the pyramid takes
   0.14 ms (0.28 from a full size level 0), and the cull passes. It is the general method, so it stays on.
+- **The shadow views' occlusion** (`SPEEDO_SHADOW_OCCLUSION_CULLING=1`; off by default): the same two phases in each
+  light's view, before Scatter and Main sample the atlas. Shadows draws the casters each shadow view saw last frame
+  (`CULL_JOB_EARLY`, the visibility after the main views'), the Shadow Depth Pyramid pass reduces the atlas
+  (`gShadowDepthPyramid`, half its size at level 0, `PushConstants::depthPyramidSource` 2), Cull Shadows Late tests the
+  rest against it and Shadows Late draws them, loading the atlas. One pyramid serves every tile: tiles are power of two
+  squares aligned to their size (`shadows::Plan`, checked), and a view reads no level coarser than its tile is a texel of
+  (`CullView::maxLevel`; `CullView::pyramid` says which pyramid). The cull jobs are bounded by design (`kCullJobCount`:
+  the main lists' per main view, the shadow list's early and late per shadow view); ThousandsOfLights' 256 shadow views
+  overflowed it before it counted both. Renders are identical with and without, and to the cpu's culling. It is off
+  because it hides almost nothing at the chunks' size: a shadow view sees few chunks behind others (Bistro 6 to 11 of
+  560 to 800 draws, ThousandsOfLights and ManyLights none), while the atlas's second render pass and its pyramid cost
+  0.5 to 1 ms a frame on KosmicKrisp (Bistro framed 8.2 to 9.1 ms, Sponza 4.8 to 5.1). Smaller chunks for shadows, or a
+  pyramid of the tiles that are drawn only, might change that.
 - **Occlusion modes** (`SPEEDO_OCCLUSION_MODE`): `two-phase` (the default, above), `reprojected` and `hybrid`, which take
   the last frame's depth instead of drawing first what it saw. Each frame saves its depth of what doesn't move (Depth
   Save, `ComputeDepthSave`, compute entry point 7, into `gPreviousDepth`, a float per pixel kept from frame to frame and
@@ -642,7 +653,10 @@ graph's timing group (`FrameGraph::GetTimingGroup`), so its callbacks have none 
 after the frame's fences) reads what the gpu is done with (up to the first timestamp that isn't, and never half a
 grouped scope), gives Tracy every one, frees them from the host (`vkResetQueryPool`, Vulkan 1.2), and keeps each grouped
 scope's duration, which `Renderer::Record` takes (`TakeTimings`), shows in the Statistics window, and with
-`SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit, and the draw thread's median frame time. `Renderer::Record`
+`SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit, and the draw thread's median frame time.
+`SPEEDO_CAPTURE=<file>` saves the frame an autoload exit ends on (`SPEEDO_AUTOLOAD_EXIT`) as a bmp, read back from the
+swapchain image (its images are transfer sources for it): renders can be compared without the screen, which a locked
+one hides from screenshots. `Renderer::Record`
 also opens a `Frame` scope (in the same group) around the whole graph, whose timestamps are outside every pass: it is
 timed where passes aren't (KosmicKrisp times neither compute passes nor Main Late), so compare whole frames by it.
 The frame time unthrottled is no substitute on macOS: presentation stays at the display's rate even with

@@ -113,7 +113,7 @@ public:
 
 	// what the occlusion culling decided in the last frame the gpu finished (CULL_STATISTIC_*), and the occlusion mode's
 	// name. any thread.
-	[[nodiscard]] std::array<uint32_t, CULL_STATISTIC_COUNT> GetCullStatistics() const;
+	[[nodiscard]] std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> GetCullStatistics() const;
 	[[nodiscard]] std::string_view GetOcclusionModeName() const noexcept;
 
 private:
@@ -215,8 +215,13 @@ private:
 	FrameGraph::PassId myCullPass;
 	std::array<uint32_t, std::to_underlying(ListId::kCount)> myCullFirstJob{};
 	std::array<uint32_t, std::to_underlying(ListId::kCount)> myCullLateFirstJob{};
-	std::vector<CullJob> myCullJobs; // the Cull pass's, then the Cull Late pass's from myCullEarlyJobCount
+	// the Cull pass's (myCullEarlyJobCount), then the Cull Shadows Late pass's, then the Cull Late pass's
+	std::vector<CullJob> myCullJobs;
 	uint32_t myCullEarlyJobCount = 0;
+	uint32_t myCullShadowLateJobBase = 0;
+	uint32_t myCullShadowLateJobCount = 0;
+	uint32_t myCullShadowLateMaxCandidateCount = 0;
+	uint32_t myCullMainLateJobBase = 0;
 	uint32_t myCullCountCount = 0;
 	uint32_t myCullMaxCandidateCount = 0;
 	uint32_t myCullLateMaxCandidateCount = 0;
@@ -224,6 +229,7 @@ private:
 	// the main pass's draws seen last frame first, then a depth pyramid of the main depth, then the rest that it doesn't
 	// hide (Main Late). the visibility per draw and main view (gCullVisibility), kept from frame to frame, growing
 	bool myOcclusionCulling = true;
+	bool myShadowOcclusionCulling = true;
 	bool myOcclusionThisFrame = false;
 	// how what is hidden is found (SPEEDO_OCCLUSION_MODE): two-phase (the draws seen last frame, a pyramid of them, then
 	// the rest), reprojected (one phase, against the last frame's depth reprojected, see ComputeDepthReproject) or hybrid
@@ -255,8 +261,8 @@ private:
 	// the last frame's kept, and with SPEEDO_GPU_TIMINGS=1 summed for the destructor's averages
 	std::vector<Buffer> myCullStatisticsBuffers;
 	FrameGraph::BufferId myCullStatisticsId;
-	core::ConcurrentAccess<std::array<uint32_t, CULL_STATISTIC_COUNT>> myCullStatistics;
-	std::array<uint64_t, CULL_STATISTIC_COUNT> myCullStatisticSums{};
+	core::ConcurrentAccess<std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT>> myCullStatistics;
+	std::array<uint64_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> myCullStatisticSums{};
 	uint64_t myCullStatisticFrameCount = 0;
 	bool myCountEmulated = false;
 	FrameGraph::ImageId myDepthPyramid;
@@ -267,6 +273,14 @@ private:
 	FrameGraph::PassId myDepthPyramidPass;
 	FrameGraph::PassId myCullLatePass;
 	FrameGraph::PassId myMainLatePass;
+	// the shadow views' occlusion culling, as the main pass's two-phase: the casters each saw last frame first (Shadows),
+	// a pyramid of the atlas (Shadow Depth Pyramid), then the rest it doesn't hide (Cull Shadows Late, Shadows Late)
+	bool myShadowOcclusionThisFrame = false;
+	FrameGraph::ImageId myShadowDepthPyramid;
+	std::vector<std::unique_ptr<ImageView>> myShadowDepthPyramidViews;
+	FrameGraph::PassId myShadowDepthPyramidPass;
+	FrameGraph::PassId myCullShadowsLatePass;
+	FrameGraph::PassId myShadowsLatePass;
 	// the buffers replaced by bigger ones, with the Record that replaced them
 	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
 	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from

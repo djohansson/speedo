@@ -212,13 +212,18 @@ void WindowedApplication::PrepareDraw()
 					const auto& renderer = myScene->GetRenderer();
 					auto statistics = renderer.GetCullStatistics();
 					auto mode = renderer.GetOcclusionModeName();
-					Text("Occlusion (%.*s): %u early, %u late (%u blended), %u hidden",
-						static_cast<int>(mode.size()),
-						mode.data(),
-						statistics[CULL_STATISTIC_EARLY],
-						statistics[CULL_STATISTIC_LATE] + statistics[CULL_STATISTIC_LATE_BLENDED],
-						statistics[CULL_STATISTIC_LATE_BLENDED],
-						statistics[CULL_STATISTIC_HIDDEN]);
+					for (uint32_t groupIt = 0; groupIt < CULL_STATISTIC_GROUP_COUNT; groupIt++)
+					{
+						const auto* group = &statistics[groupIt * CULL_STATISTIC_COUNT];
+						Text("%s (%.*s): %u early, %u late (%u blended), %u hidden",
+							groupIt == CULL_STATISTIC_MAIN ? "Occlusion" : "Shadow Occlusion",
+							groupIt == CULL_STATISTIC_MAIN ? static_cast<int>(mode.size()) : 9,
+							groupIt == CULL_STATISTIC_MAIN ? mode.data() : "two-phase",
+							group[CULL_STATISTIC_EARLY],
+							group[CULL_STATISTIC_LATE] + group[CULL_STATISTIC_LATE_BLENDED],
+							group[CULL_STATISTIC_LATE_BLENDED],
+							group[CULL_STATISTIC_HIDDEN]);
+					}
 				}
 
 				// the frame graph's transients (see FrameGraph), in shared memory
@@ -608,8 +613,23 @@ void WindowedApplication::PrepareDraw()
 
 	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later
 	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }))
-		if ((*gAutoLoadExitFrames)-- == 0)
+	{
+		if (*gAutoLoadExitFrames > 0)
+			(*gAutoLoadExitFrames)--;
+		else if (const char* capture = std::getenv("SPEEDO_CAPTURE"); capture != nullptr && *capture != '\0' && gCaptureState != 3)
+		{
+			// the last frame read back first (see gCaptureState)
+			uint8_t idle = 0;
+			if (gCapturePath.empty())
+				gCapturePath = capture;
+			gCaptureState.compare_exchange_strong(idle, 1);
+		}
+		else
+		{
 			core::Application::Get()->RequestExit();
+			gAutoLoadExitFrames.reset();
+		}
+	}
 
 	// the views' grid is owned by the draw thread (see Views::OnResizeGrid), so track the requested one here. nothing else
 	// changes the grid, so the window's is current when this is initialized

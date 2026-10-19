@@ -48,6 +48,8 @@ RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
 // (reading without one needs shaderStorageImageReadWithoutFormat, which KosmicKrisp lacks)
 [[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> gDepthPyramid[SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT];
+[[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("r32f")]]
+RWTexture2D<float> gShadowDepthPyramid[SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];

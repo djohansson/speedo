@@ -214,6 +214,54 @@ bool WindowedApplication::Draw()
 				.uiBlurRects = uiBlurRects,
 				.executor = &GetExecutor()});
 
+		// a read back of the frame (SPEEDO_CAPTURE, see gCaptureState): out of the present layout and back
+		if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
+		{
+			auto extent = swapchain.GetDesc().extent;
+			auto size = static_cast<size_t>(extent.width) * extent.height * 4;
+			auto buffer = std::make_shared<gfx::Buffer>(gfx::BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc("Frame Capture"), size, BufferUsage::kTransferDestination, MemoryProperty::kHostVisible});
+			auto layout = newFrame.GetLayout(0);
+			newFrame.Transition(cmd, ImageLayout::kTransferSource, ImageAspect::kColor, 0);
+			gfx::CommandEncoder encoder(cmd);
+			encoder.CopyImageToBuffer(newFrame.GetImages()[0], extent, *buffer);
+			newFrame.Transition(cmd, layout, ImageAspect::kColor, 0);
+			encoder.Barrier(PipelineStage::kTransfer, Access::kTransferWrite, PipelineStage::kHost, Access::kHostRead);
+			bool bgra = newFrame.GetDesc().imageFormats[0] == Format::kB8G8R8A8Unorm ||
+						newFrame.GetDesc().imageFormats[0] == Format::kB8G8R8A8Srgb;
+			graphicsCallbacks.emplace_back(
+				core::CreateTask(
+					[buffer, extent, size, bgra]
+					{
+						// a bitmap file header and info header, then the pixels, top down (a negative height), as bgra
+						std::vector<std::byte> file(54 + size);
+						auto put = [&file](size_t offset, uint32_t value, size_t bytes)
+						{
+							for (size_t byteIt = 0; byteIt < bytes; byteIt++)
+								file[offset + byteIt] = static_cast<std::byte>((value >> (8 * byteIt)) & 0xFFU);
+						};
+						file[0] = std::byte{'B'};
+						file[1] = std::byte{'M'};
+						put(2, static_cast<uint32_t>(file.size()), 4);
+						put(10, 54, 4);
+						put(14, 40, 4);
+						put(18, extent.width, 4);
+						put(22, static_cast<uint32_t>(-static_cast<int32_t>(extent.height)), 4);
+						put(26, 1, 2);
+						put(28, 32, 2);
+						auto memory = buffer->Map();
+						buffer->Invalidate(0, size);
+						std::memcpy(file.data() + 54, memory.data(), size);
+						buffer->Unmap();
+						if (!bgra)
+							for (size_t pixelIt = 54; pixelIt + 3 < file.size(); pixelIt += 4)
+								std::swap(file[pixelIt], file[pixelIt + 2]);
+						if (!core::file::Write(gCapturePath, file))
+							std::println(stderr, "SPEEDO_CAPTURE: couldn't write {}", gCapturePath);
+						gCaptureState = 3;
+					}).handle);
+		}
+
 		auto presentInfo = swapchain.PreparePresent();
 
 		SemaphoreHandle acquireNextImageSemaphoreHandle = acquireNextImageSemaphore;

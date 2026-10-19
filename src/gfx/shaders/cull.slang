@@ -1,6 +1,23 @@
 // the gpu's culling of the frame's draws (the Cull passes): a thread per draw and view that draws it (see CullCandidate),
 // and the depth pyramid occlusion is tested against (the Depth Pyramid pass)
 
+// a depth pyramid's (CullView::pyramid) level's size, and texel
+uint2 PyramidSize(uint pyramid, uint level)
+{
+	uint width;
+	uint height;
+	if (pyramid == 0)
+		gDepthPyramid[NonUniformResourceIndex(level)].GetDimensions(width, height);
+	else
+		gShadowDepthPyramid[NonUniformResourceIndex(level)].GetDimensions(width, height);
+	return uint2(width, height);
+}
+
+float PyramidTexel(uint pyramid, uint level, uint2 texel)
+{
+	return pyramid == 0 ? gDepthPyramid[NonUniformResourceIndex(level)][texel] : gShadowDepthPyramid[NonUniformResourceIndex(level)][texel];
+}
+
 // whether a box is entirely outside one of a view's planes (as gfx::Frustum::Excludes)
 bool CullExcludes(CullView view, float3 boundsMin, float3 boundsMax)
 {
@@ -48,23 +65,23 @@ bool CullOccluded(CullView view, float3 boundsMin, float3 boundsMax)
 	if (any(screenMax < screenMin))
 		return false; // off the view: the frustum test keeps it, conservatively
 
-	uint width;
-	uint height;
-	gDepthPyramid[0].GetDimensions(width, height);
+	uint2 size = PyramidSize(view.pyramid, 0);
 	uint levelCount = 1;
-	while (levelCount < SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT && ((width >> levelCount) > 0 || (height >> levelCount) > 0))
+	uint maxLevelCount = view.pyramid == 0 ? SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT : SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT;
+	while (levelCount < maxLevelCount && ((size.x >> levelCount) > 0 || (size.y >> levelCount) > 0))
 		levelCount++;
 
-	// a texel of level n covers (at least) 2^(n + 1) pixels each way: level 0 is half the main depth's size
+	// a texel of level n covers (at least) 2^(n + 1) pixels each way: level 0 is half its source's size. a shadow view
+	// reads no level coarser than its tile (whose texels would be its neighbors' too): its rectangle may span more texels
 	float extent = max(max(screenMax.x - screenMin.x, screenMax.y - screenMin.y), 1.0);
-	uint level = min(uint(max(ceil(log2(extent)), 1.0)) - 1, levelCount - 1);
-	uint2 levelSize = max(uint2(width, height) >> level, uint2(1));
+	uint level = min(min(uint(max(ceil(log2(extent)), 1.0)) - 1, levelCount - 1), view.maxLevel);
+	uint2 levelSize = max(size >> level, uint2(1));
 	uint2 first = min(uint2(screenMin) >> (level + 1), levelSize - 1);
 	uint2 last = min(uint2(screenMax) >> (level + 1), levelSize - 1);
 	float farthest = 0.0;
 	for (uint y = first.y; y <= last.y; y++)
 		for (uint x = first.x; x <= last.x; x++)
-			farthest = max(farthest, gDepthPyramid[NonUniformResourceIndex(level)][uint2(x, y)]);
+			farthest = max(farthest, PyramidTexel(view.pyramid, level, uint2(x, y)));
 	return nearest > farthest;
 }
 
@@ -124,7 +141,7 @@ void ComputeCull(uint3 threadId: SV_DispatchThreadID)
 		uint statistic = hidden ? CULL_STATISTIC_HIDDEN
 						 : !late ? CULL_STATISTIC_EARLY
 								 : (candidate.late != 0 ? CULL_STATISTIC_LATE_BLENDED : CULL_STATISTIC_LATE);
-		InterlockedAdd(gCullStatistics[frameIndex][statistic], 1);
+		InterlockedAdd(gCullStatistics[frameIndex][job.statistics * CULL_STATISTIC_COUNT + statistic], 1);
 	}
 	if (!keep && job.compact != 0)
 		return;
@@ -152,32 +169,38 @@ void ComputeCull(uint3 threadId: SV_DispatchThreadID)
 [numthreads(SHADER_TYPES_DEPTH_PYRAMID_GROUP_SIZE, SHADER_TYPES_DEPTH_PYRAMID_GROUP_SIZE, 1)]
 void ComputeDepthPyramid(uint3 threadId: SV_DispatchThreadID)
 {
+	// the main views' pyramid from the main depth (source 0) or the depth reprojected (1), the shadow views' from the atlas
+	// (2)
 	uint level = gPushConstants.depthPyramidLevel;
-	uint width;
-	uint height;
-	gDepthPyramid[NonUniformResourceIndex(level)].GetDimensions(width, height);
-	if (threadId.x >= width || threadId.y >= height)
+	uint sourceKind = gPushConstants.depthPyramidSource;
+	uint pyramid = sourceKind == 2 ? 1 : 0;
+	uint2 size = PyramidSize(pyramid, level);
+	if (threadId.x >= size.x || threadId.y >= size.y)
 		return;
 
 	float farthest = 0.0;
-	uint sourceWidth = gPushConstants.framebufferWidth;
-	uint sourceHeight = gPushConstants.framebufferHeight;
+	uint2 sourceSize = uint2(gPushConstants.framebufferWidth, gPushConstants.framebufferHeight);
 	if (level > 0)
-		gDepthPyramid[NonUniformResourceIndex(level - 1)].GetDimensions(sourceWidth, sourceHeight);
+		sourceSize = PyramidSize(pyramid, level - 1);
+	else if (sourceKind == 2)
+		gTextures[SHADER_TYPES_SHADOW_ATLAS_TEXTURE].GetDimensions(sourceSize.x, sourceSize.y);
 	for (uint y = 0; y < 3; y++)
 		for (uint x = 0; x < 3; x++)
 		{
-			uint2 source = min(threadId.xy * 2 + uint2(x, y), uint2(sourceWidth, sourceHeight) - 1);
+			uint2 source = min(threadId.xy * 2 + uint2(x, y), sourceSize - 1);
 			float depth;
 			if (level > 0)
-				depth = gDepthPyramid[NonUniformResourceIndex(level - 1)][source];
-			else if (gPushConstants.depthPyramidSource != 0)
-				depth = asfloat(gReprojectedDepth[source.y * sourceWidth + source.x]);
+				depth = PyramidTexel(pyramid, level - 1, source);
+			else if (sourceKind == 1)
+				depth = asfloat(gReprojectedDepth[source.y * sourceSize.x + source.x]);
 			else
-				depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(source, 0)).r;
+				depth = gTextures[sourceKind == 2 ? SHADER_TYPES_SHADOW_ATLAS_TEXTURE : SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(source, 0)).r;
 			farthest = max(farthest, depth);
 		}
-	gDepthPyramid[NonUniformResourceIndex(level)][threadId.xy] = farthest;
+	if (pyramid == 0)
+		gDepthPyramid[NonUniformResourceIndex(level)][threadId.xy] = farthest;
+	else
+		gShadowDepthPyramid[NonUniformResourceIndex(level)][threadId.xy] = farthest;
 }
 
 // the depth reprojection: each frame saves its depth of what doesn't move (ComputeDepthSave; what moves is at the far
