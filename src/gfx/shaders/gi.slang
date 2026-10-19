@@ -1,6 +1,12 @@
 // indirect lighting: world space radiance cascades over a voxel radiance volume (see GiData). a part of shaders.slang,
 // which includes it after capi.h and sky.h
 
+// a kernel's thread, of its rows of SHADER_TYPES_GI_ROW (see Renderer's giKernel)
+uint3 GiThread(uint3 dispatchId)
+{
+	return uint3(dispatchId.y * SHADER_TYPES_GI_ROW + dispatchId.x, 0, 0);
+}
+
 // packing
 uint GiPackHalf2(float2 v)
 {
@@ -43,6 +49,27 @@ float3 GiFromOctahedral(float2 o)
 float3 GiDirection(uint2 texel, uint side)
 {
 	return GiFromOctahedral((float2(texel) + 0.5) / float(side) * 2.0 - 1.0);
+}
+
+// the solid angle of a spherical triangle (Van Oosterom and Strackee)
+float GiTriangleSolidAngle(float3 a, float3 b, float3 c)
+{
+	float numerator = abs(dot(a, cross(b, c)));
+	float denominator = 1.0 + dot(a, b) + dot(b, c) + dot(c, a);
+	return 2.0 * atan2(numerator, denominator);
+}
+
+// the solid angle an octahedral map's texel covers (they aren't equal: by its corners, as two spherical triangles, each
+// side of the map's fold apart)
+float GiTexelSolidAngle(uint2 texel, uint side)
+{
+	float2 low = float2(texel) / float(side) * 2.0 - 1.0;
+	float2 high = float2(texel + 1) / float(side) * 2.0 - 1.0;
+	float3 c00 = GiFromOctahedral(low);
+	float3 c10 = GiFromOctahedral(float2(high.x, low.y));
+	float3 c01 = GiFromOctahedral(float2(low.x, high.y));
+	float3 c11 = GiFromOctahedral(high);
+	return GiTriangleSolidAngle(c00, c10, c11) + GiTriangleSolidAngle(c00, c11, c01);
 }
 
 // the volume
@@ -98,18 +125,44 @@ float4 GiMarch(GiData gi, uint level, float3 origin, float3 direction, float sta
 	return float4(radiance, transmittance);
 }
 
-// whether the voxels let a ray through from origin, a distance along direction (level 0's occupancy: a shadow ray)
+// whether the voxels let a ray through from origin, a distance along direction (level 0's occupancy: a shadow ray).
+// each voxel the ray crosses visited once (Amanatides and Woo), so no thin wall is stepped over
 float GiVisibility(GiData gi, float3 origin, float3 direction, float distance)
 {
-	float step = gi.volumeOrigin.w * 0.5;
 	uint3 size = GiLevelSize(gi, 0);
-	for (float t = step; t < distance; t += step)
+	float3 start = GiVoxelCoordinate(gi, origin, 0);
+	int3 voxel = int3(floor(start));
+	int3 stepDirection = int3(select(direction >= 0.0, 1, -1));
+	float3 inverse = 1.0 / max(abs(direction), 1e-8);
+	// the distance (in voxels) along the ray to the next boundary per axis, and between boundaries
+	float3 next = (select(direction >= 0.0, float3(voxel + 1) - start, start - float3(voxel))) * inverse;
+	float3 delta = inverse;
+	float end = distance / gi.volumeOrigin.w;
+	float t = 0.0;
+	while (t < end)
 	{
-		int3 voxel = int3(floor(GiVoxelCoordinate(gi, origin + direction * t, 0)));
 		if (!GiInside(voxel, size))
 			return 1.0;
 		if ((gGiVoxels[GiVoxelIndex(uint3(voxel), size)].albedo >> 24) != 0u)
 			return 0.0;
+		if (next.x < next.y && next.x < next.z)
+		{
+			t = next.x;
+			next.x += delta.x;
+			voxel.x += stepDirection.x;
+		}
+		else if (next.y < next.z)
+		{
+			t = next.y;
+			next.y += delta.y;
+			voxel.y += stepDirection.y;
+		}
+		else
+		{
+			t = next.z;
+			next.z += delta.z;
+			voxel.z += stepDirection.z;
+		}
 	}
 	return 1.0;
 }
@@ -117,8 +170,9 @@ float GiVisibility(GiData gi, float3 origin, float3 direction, float distance)
 // voxelizing: empties the voxels
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiClear(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiClear(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint3 size = GiLevelSize(gi, 0);
 	if (threadId.x >= size.x * size.y * size.z)
@@ -142,8 +196,9 @@ float4 GiUnpackRgba8(uint v)
 // albedo, normal and emission (the largest of each, so that which triangle wins doesn't depend on the order)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiVoxelize(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	uint frameIndex = gPushConstants.frameIndex;
 	GiData gi = gGi[frameIndex][0];
 	uint jobCount = gPushConstants.giStep;
@@ -236,8 +291,9 @@ void ComputeGiVoxelize(uint3 threadId: SV_DispatchThreadID)
 // cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiLight(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	uint frameIndex = gPushConstants.frameIndex;
 	GiData gi = gGi[frameIndex][0];
 	uint3 size = GiLevelSize(gi, 0);
@@ -302,8 +358,9 @@ void ComputeGiLight(uint3 threadId: SV_DispatchThreadID)
 // a level of the radiance from the one below: each voxel the mean of its 8 (radiance times occupancy, and occupancy)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiMip(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiMip(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint level = gPushConstants.giStep;
 	uint3 size = GiLevelSize(gi, level);
@@ -327,12 +384,27 @@ uint GiCascadeFirst(GiData gi, uint cascade)
 	return gi.cascadeFirst[cascade / 4][cascade % 4];
 }
 
+uint GiCascadeProbeFirst(GiData gi, uint cascade)
+{
+	return gi.cascadeProbeFirst[cascade / 4][cascade % 4];
+}
+
+// the nearest probe of the cascade above below a probe (of the 8 its merge interpolates), and the fraction of the way
+int3 GiAboveBase(GiData gi, uint cascade, uint3 probe, out float3 fraction)
+{
+	float3 coordinate = (GiProbePosition(gi, cascade, probe) - gi.volumeOrigin.xyz) / gi.cascadeInterval[cascade + 1].w - 0.5;
+	int3 base = int3(floor(coordinate));
+	fraction = coordinate - float3(base);
+	return base;
+}
+
 // tracing a cascade (giStep): a thread per probe and direction, its interval through the level of its probes' spacing
 // (as far as the volume has levels). the last cascade's rays that get through see the environment
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiTrace(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint cascade = gPushConstants.giStep;
 	uint4 cascadeSize = gi.cascadeSize[cascade];
@@ -345,7 +417,9 @@ void ComputeGiTrace(uint3 threadId: SV_DispatchThreadID)
 	uint3 probe = uint3(probeIndex % cascadeSize.x, (probeIndex / cascadeSize.x) % cascadeSize.y, probeIndex / (cascadeSize.x * cascadeSize.y));
 	float3 direction = GiDirection(uint2(directionIndex % cascadeSize.w, directionIndex / cascadeSize.w), cascadeSize.w);
 	float4 interval = gi.cascadeInterval[cascade];
-	uint level = min(cascade, gi.volumeSize.w - 1);
+	// the level of the probes' spacing (a finer one gave 10% more light near walls, a coarse level's occupancy being the
+	// mean of what it holds, at twice the cost); 7 traces level 0, for comparison
+	uint level = gi.debug == 7u ? 0u : min(cascade, gi.volumeSize.w - 1);
 	float4 result = GiMarch(gi, level, GiProbePosition(gi, cascade, probe), direction, interval.x, interval.y);
 	if (cascade + 1 == gi.cascadeCount)
 	{
@@ -360,8 +434,9 @@ void ComputeGiTrace(uint3 threadId: SV_DispatchThreadID)
 // rays above it see beyond, in its 2x2 directions, at its 8 nearest probes (trilinear)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiMerge(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiMerge(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint cascade = gPushConstants.giStep;
 	uint4 cascadeSize = gi.cascadeSize[cascade];
@@ -382,16 +457,19 @@ void ComputeGiMerge(uint3 threadId: SV_DispatchThreadID)
 	uint4 aboveSize = gi.cascadeSize[cascade + 1];
 	uint aboveDirections = aboveSize.w * aboveSize.w;
 	uint aboveFirst = GiCascadeFirst(gi, cascade + 1);
-	float3 coordinate = (GiProbePosition(gi, cascade, probe) - gi.volumeOrigin.xyz) / gi.cascadeInterval[cascade + 1].w - 0.5;
-	int3 base = int3(floor(coordinate));
-	float3 fraction = coordinate - float3(base);
+	float3 fraction;
+	int3 base = GiAboveBase(gi, cascade, probe, fraction);
+	// only the probes above this one sees (an enclosed space's, a building's inside, see none of the light outside)
+	uint visible = gGiProbeMasks[GiCascadeProbeFirst(gi, cascade) + probeIndex];
 	float3 beyond = 0.0;
+	float weightSum = 0.0;
 	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
 	{
 		int3 offset = int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
 		uint3 above = uint3(clamp(base + offset, int3(0), int3(aboveSize.xyz) - 1));
 		float3 weights = select(offset != 0, fraction, 1.0 - fraction);
-		float weight = weights.x * weights.y * weights.z;
+		float weight = weights.x * weights.y * weights.z * (((visible >> cornerIt) & 1u) != 0u ? 1.0 : 1e-3);
+		weightSum += weight;
 		uint aboveProbe = (above.z * aboveSize.y + above.y) * aboveSize.x + above.x;
 		float3 sum = 0.0;
 		for (uint childIt = 0; childIt < 4; childIt++)
@@ -401,15 +479,16 @@ void ComputeGiMerge(uint3 threadId: SV_DispatchThreadID)
 		}
 		beyond += weight * sum * 0.25;
 	}
-	gGiCascades[index] = GiPackRgba16(float4(own.rgb + own.a * beyond, 0.0));
+	gGiCascades[index] = GiPackRgba16(float4(own.rgb + own.a * beyond / max(weightSum, 1e-6), 0.0));
 }
 
 // cascade 0's merged radiance per probe as spherical harmonics (bands 0 and 1, each direction the same share of the
 // sphere): what the shading interpolates
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiIrradiance(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiIrradiance(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint4 cascadeSize = gi.cascadeSize[0];
 	uint probeCount = cascadeSize.x * cascadeSize.y * cascadeSize.z;
@@ -419,10 +498,39 @@ void ComputeGiIrradiance(uint3 threadId: SV_DispatchThreadID)
 	float4 r = 0.0;
 	float4 g = 0.0;
 	float4 b = 0.0;
-	float solidAngle = 4.0 * 3.14159265 / float(directionCount);
+	if (gi.debug == 6u)
+	{
+		// the reference (SPEEDO_GI_DEBUG=6): the same voxels, but each probe's light from 512 rays through level 0 to the
+		// environment, directly (seconds a frame)
+		uint3 probe = uint3(threadId.x % cascadeSize.x, (threadId.x / cascadeSize.x) % cascadeSize.y, threadId.x / (cascadeSize.x * cascadeSize.y));
+		float3 origin = GiProbePosition(gi, 0, probe);
+		float far = length(float3(gi.volumeSize.xyz)) * gi.volumeOrigin.w;
+		const uint kRays = 512;
+		EnvironmentData environment = gEnvironment[0];
+		for (uint rayIt = 0; rayIt < kRays; rayIt++)
+		{
+			// a Fibonacci sphere
+			float z = 1.0 - (float(rayIt) + 0.5) * 2.0 / float(kRays);
+			float radius = sqrt(max(1.0 - z * z, 0.0));
+			float phi = float(rayIt) * 2.39996323;
+			float3 direction = float3(radius * cos(phi), radius * sin(phi), z);
+			float4 traced = GiMarch(gi, 0, origin, direction, 0.0, far);
+			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
+			float4 basis = float4(0.282095, 0.488603 * direction) * (4.0 * 3.14159265 / float(kRays));
+			r += radiance.r * basis;
+			g += radiance.g * basis;
+			b += radiance.b * basis;
+		}
+		gGiIrradiance[threadId.x * 3 + 0] = r;
+		gGiIrradiance[threadId.x * 3 + 1] = g;
+		gGiIrradiance[threadId.x * 3 + 2] = b;
+		return;
+	}
 	for (uint directionIt = 0; directionIt < directionCount; directionIt++)
 	{
-		float3 direction = GiDirection(uint2(directionIt % cascadeSize.w, directionIt / cascadeSize.w), cascadeSize.w);
+		uint2 texel = uint2(directionIt % cascadeSize.w, directionIt / cascadeSize.w);
+		float3 direction = GiDirection(texel, cascadeSize.w);
+		float solidAngle = GiTexelSolidAngle(texel, cascadeSize.w);
 		float3 radiance = GiUnpackRgba16(gGiCascades[GiCascadeFirst(gi, 0) + threadId.x * directionCount + directionIt]).rgb;
 		float4 basis = float4(0.282095, 0.488603 * direction) * solidAngle;
 		r += radiance.r * basis;
@@ -467,8 +575,9 @@ int3 GiProbeBase(GiData gi, float3 position, out float3 fraction)
 // of a voxel's points interpolate the same 8
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiVisibility(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiVisibility(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint3 size = GiLevelSize(gi, 0);
 	if (threadId.x >= size.x * size.y * size.z)
@@ -519,6 +628,36 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug)
 	if (!GiInside(voxel, levelSize))
 		return -1.0;
 	uint visible = gGiVoxels[GiVoxelIndex(uint3(voxel), levelSize)].emissionB >> 16;
+	// each probe's visibility from the 8 voxels around the point, trilinear by their centers (one voxel's mask switches
+	// at its edges, which shows where voxels are large): a voxel's mask says only for the 8 probes around it
+	// (the bounce's lookups, debug 8, take the voxel's mask alone: their precision matters less than their cost)
+	bool soft = debug != 8u;
+	float3 voxelCoordinate = GiVoxelCoordinate(gi, biased, 0) - 0.5;
+	int3 voxelBase = int3(floor(voxelCoordinate));
+	float3 voxelFraction = voxelCoordinate - float3(voxelBase);
+	float visibility[8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	float coverage[8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	for (uint neighborIt = 0; neighborIt < (soft ? 8u : 0u); neighborIt++)
+	{
+		int3 neighborOffset = int3(neighborIt & 1, (neighborIt >> 1) & 1, neighborIt >> 2);
+		int3 neighbor = voxelBase + neighborOffset;
+		if (!GiInside(neighbor, levelSize))
+			continue;
+		float3 neighborWeights = select(neighborOffset != 0, voxelFraction, 1.0 - voxelFraction);
+		float neighborWeight = neighborWeights.x * neighborWeights.y * neighborWeights.z;
+		float3 unused;
+		int3 neighborBase = GiProbeBase(gi, gi.volumeOrigin.xyz + (float3(neighbor) + 0.5) * gi.volumeOrigin.w, unused);
+		uint neighborMask = gGiVoxels[GiVoxelIndex(uint3(neighbor), levelSize)].emissionB >> 16;
+		for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+		{
+			int3 relative = base + int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2) - neighborBase;
+			if (any(relative < 0) || any(relative > 1))
+				continue;
+			uint bit = uint(relative.x) | (uint(relative.y) << 1) | (uint(relative.z) << 2);
+			visibility[cornerIt] += neighborWeight * float((neighborMask >> bit) & 1u);
+			coverage[cornerIt] += neighborWeight;
+		}
+	}
 	float3 sum = 0.0;
 	float weightSum = 0.0;
 	float4 basis = float4(3.14159265 * 0.282095, 2.0 * 3.14159265 / 3.0 * 0.488603 * normal);
@@ -530,8 +669,8 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug)
 		float weight = weights.x * weights.y * weights.z;
 		float facing = dot(normalize(GiProbePosition(gi, 0, probe) - position), normal) * 0.5 + 0.5;
 		weight *= facing * facing + 0.05;
-		if ((visible & (1u << cornerIt)) == 0u)
-			weight *= 1e-3;
+		float seen = coverage[cornerIt] > 0.0 ? visibility[cornerIt] / coverage[cornerIt] : float((visible >> cornerIt) & 1u);
+		weight *= max(seen, 1e-3);
 		uint probeIndex = (probe.z * cascadeSize.y + probe.y) * cascadeSize.x + probe.x;
 		float3 irradiance = float3(
 			dot(gGiIrradiance[probeIndex * 3 + 0], basis), dot(gGiIrradiance[probeIndex * 3 + 1], basis), dot(gGiIrradiance[probeIndex * 3 + 2], basis));
@@ -567,8 +706,9 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug)
 // (the last bounce's: the lights' and the sky's light off the scene so far)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiBounce(uint3 threadId: SV_DispatchThreadID)
+void ComputeGiBounce(uint3 dispatchId: SV_DispatchThreadID)
 {
+	uint3 threadId = GiThread(dispatchId);
 	GiData gi = gGi[gPushConstants.frameIndex][0];
 	uint3 size = GiLevelSize(gi, 0);
 	if (threadId.x >= size.x * size.y * size.z)
@@ -580,7 +720,34 @@ void ComputeGiBounce(uint3 threadId: SV_DispatchThreadID)
 	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
 	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 	float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
-	float3 reflected = GiIrradiance(position, normal, 0);
+	float3 reflected = GiIrradiance(position, normal, 8);
 	float3 radiance = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]).rgb + albedo.rgb * max(reflected, 0.0);
 	gGiRadiance[GiLevelFirst(gi, 0) + threadId.x] = GiPackRgba16(float4(radiance, 1.0));
+}
+
+// after voxelizing, per probe of a cascade (giStep, all but the last): which of the 8 probes of the one above around it
+// it sees (a march through the voxels between them), for the merge
+[shader("compute")]
+[numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
+void ComputeGiProbeVisibility(uint3 dispatchId: SV_DispatchThreadID)
+{
+	uint3 threadId = GiThread(dispatchId);
+	GiData gi = gGi[gPushConstants.frameIndex][0];
+	uint cascade = gPushConstants.giStep;
+	uint4 cascadeSize = gi.cascadeSize[cascade];
+	if (threadId.x >= cascadeSize.x * cascadeSize.y * cascadeSize.z)
+		return;
+	uint3 probe = uint3(threadId.x % cascadeSize.x, (threadId.x / cascadeSize.x) % cascadeSize.y, threadId.x / (cascadeSize.x * cascadeSize.y));
+	uint4 aboveSize = gi.cascadeSize[cascade + 1];
+	float3 fraction;
+	int3 base = GiAboveBase(gi, cascade, probe, fraction);
+	float3 position = GiProbePosition(gi, cascade, probe);
+	uint mask = 0;
+	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+	{
+		uint3 above = uint3(clamp(base + int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2), int3(0), int3(aboveSize.xyz) - 1));
+		if (GiProbeVisible(gi, position, GiProbePosition(gi, cascade + 1, above)))
+			mask |= 1u << cornerIt;
+	}
+	gGiProbeMasks[GiCascadeProbeFirst(gi, cascade) + threadId.x] = mask;
 }

@@ -596,11 +596,20 @@ void WindowedApplication::PrepareDraw()
 		}
 		else
 		{
-			const auto& values = *gAutoCamera;
-			myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
+			// on the draw thread too, after the install (which frames the views, or sets the model's camera), and for a
+			// few frames: the install may be queued after the scene names its file
+			auto values = *gAutoCamera;
+			auto [task, future] = core::CreateTask(
+				[this, values]
+				{ myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F)); });
+			rhi.drawCalls.enqueue(task);
 		}
-		gAutoCamera.reset();
-		gAutoFrame = false;
+		static uint32_t gAutoCameraRepeats = 30;
+		if (--gAutoCameraRepeats == 0)
+		{
+			gAutoCamera.reset();
+			gAutoFrame = false;
+		}
 	}
 	if ((gAutoTurn != 0.0F || gAutoWalk != 0.0F) && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
 		!App().GetScene().GetScenes().Read().Get().filePath.empty())

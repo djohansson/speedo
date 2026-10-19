@@ -544,6 +544,8 @@ struct CullView
 // traced through the radiance at their level and merged from the farthest down (gGiCascades), cascade 0 then projected
 // to spherical harmonics per probe (gGiIrradiance), which the shading interpolates
 #define SHADER_TYPES_GI_GROUP_SIZE 64u
+// the kernels' threads are dispatched in rows of this many (a dispatch has at most 65535 groups a dimension)
+#define SHADER_TYPES_GI_ROW 4096u
 #define SHADER_TYPES_GI_LEVEL_COUNT 8u
 #define SHADER_TYPES_GI_CASCADE_COUNT 8u
 // the lights that light the voxels, binned into a grid of cells over the volume (gGiLightCells: a first index and count
@@ -572,6 +574,9 @@ struct GiData
 	alignas(16) UINT4(cascadeSize[SHADER_TYPES_GI_CASCADE_COUNT]);
 	alignas(16) FLOAT4(cascadeInterval[SHADER_TYPES_GI_CASCADE_COUNT]);
 	alignas(16) UINT4(cascadeFirst[SHADER_TYPES_GI_CASCADE_COUNT / 4]);
+	// per cascade, its first probe in gGiProbeMasks (which of the 8 probes of the cascade above around each are visible
+	// from it, for the merge)
+	alignas(16) UINT4(cascadeProbeFirst[SHADER_TYPES_GI_CASCADE_COUNT / 4]);
 	alignas(4) UINT1(cascadeCount);
 	alignas(4) UINT1(enabled); // whether the shading takes its diffuse indirect light from the probes
 	alignas(4) UINT1(lightCount); // of gLights, which light the voxels

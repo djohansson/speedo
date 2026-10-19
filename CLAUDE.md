@@ -830,12 +830,28 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
 - **Shading**: `Shade` takes `GiIrradiance(position, normal)` in place of the environment's irradiance where the volume
   covers the point (the environment's elsewhere): the 8 nearest cascade 0 probes, trilinear, from the point offset 1.5
   voxels along its normal (off its own surface's voxels, a staircase where it is diagonal to them), each weighed by
-  whether it is visible (the voxel's mask) and how much it faces the surface. The specular still reflects the
+  whether it is visible (trilinear between the 8 voxels around the point, each voxel's mask saying for its own 8
+  probes: one voxel's mask switches at its edges, which showed as blocks where voxels are large) and how much it faces
+  the surface. The specular still reflects the
   environment unoccluded (glossy indirect light is the next step). `SPEEDO_GI_DEBUG`: 1 the indirect diffuse alone, 2 the
-  probes' visibility, 3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo.
+  probes' visibility, 3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each
+  probe's light from 512 rays through level 0 straight to the environment (seconds a frame), and 7 the cascades traced
+  at level 0, to tell what the cascades and what the levels lose.
+- **What the merge sees**: a cascade's merge only takes the probes above it that it can see (`gGiProbeMasks`, per
+  probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'
+  shells, sees none of the light outside, and pulled the streets dark). The projection to spherical harmonics weighs
+  each direction by its octahedral texel's solid angle (`GiTexelSolidAngle`: they aren't equal). Against the reference
+  on Sponza's outer wall, one bounce: 56% of its light (linear) before both, 80% after (the levels: tracing at level 0
+  gives the same there; a level finer than the spacing cost twice as much for 10% more). The rest is the merge's
+  parallax (a probe above traces from itself, not along the ray): radiance cascades' bilinear fix would trace to each of
+  the 8, about 8 times the tracing. Shadow rays visit each voxel they cross once (Amanatides and Woo: exact, and half the
+  reads of half voxel steps). The kernels dispatch rows of `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's
+  size isn't capped by a dispatch.
 
-Measured on KosmicKrisp by the frame's gpu time, two bounces: CornellBox +0.6 ms, Bistro +1.1, ThousandsOfLights +1.1
-(4000 lights in the voxels' cells), Sponza's interior +2.0 (most of it the main pass's lookups). It renders CornellBox's
+Measured on KosmicKrisp by the frame's gpu time, two bounces, 128 voxels: CornellBox +1.4 ms (lighting the voxels
+0.6, tracing 1.0, merging 0.5, the mips 0.15, the main pass's lookups 0.3), Bistro +1.7; at 256 voxels Bistro +5.8 and
+CornellBox, a cube, +15 (16 M voxels): larger scenes need the clipmap rather than a finer volume. Before the masks and
+weights: CornellBox +0.6, Bistro +1.1, ThousandsOfLights +1.1, Sponza's interior +2.0. It renders CornellBox's
 colour bleeding, the lamp lighting the ceiling around it, and contact darkening in the corners; Sponza's arcades are lit
 by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
 way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel

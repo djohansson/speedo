@@ -25,6 +25,7 @@ struct Layout
 	uint32_t radianceCount = 0;
 	uint32_t cascadeTexelCount = 0;
 	uint32_t probeCount = 0;
+	uint32_t probeMaskCount = 0; // of all cascades but the last
 };
 [[nodiscard]] Layout MakeLayout(const Bounds3f& bounds, uint32_t resolution, uint32_t probeSpacing, uint32_t octahedralSide);
 

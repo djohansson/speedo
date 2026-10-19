@@ -307,6 +307,8 @@ private:
 	Buffer myGiRadianceBuffer;
 	Buffer myGiCascadeBuffer;
 	Buffer myGiIrradianceBuffer;
+	Buffer myGiProbeMaskBuffer;
+	FrameGraph::BufferId myGiProbeMasks;
 	std::vector<Buffer> myGiDataBuffers;
 	GrowingBuffers myGiJobs;
 	GrowingBuffers myGiLightCells;

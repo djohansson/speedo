@@ -12,7 +12,8 @@
 	* steps, each measured (the frame's gpu time) and compared against a reference (a path traced ground truth of the hand made test scenes, CornellBox among them, offline, many samples):
 		1. done (SPEEDO_GI=1, see CLAUDE.md "Indirect lighting"): one voxel volume over the scene, voxelized on the gpu at install (not cached yet: it takes a frame), lit by the direct light, debug views (SPEEDO_GI_DEBUG)
 		2. done: the cascades traced and merged every frame, cascade 0's irradiance in the main pass's diffuse ambient term, the probes' visibility per voxel, two bounces in the frame. +0.6 to 2 ms on KosmicKrisp
-		3. next: a camera clipmap of volumes instead of one over the scene (Bistro's 128 voxels are 1.2 m wide), cascade seams and ringing looked at closely, the faint diagonal on CornellBox's red wall (a triangle seam in the voxels), a path traced reference of the hand made scenes to compare against, then on by default
+		3. done: soft probe visibility (no blocks where voxels are large), the merge seeing only the probes above it can see, solid angle weights, grid traversed shadow rays, a reference in the same voxels (SPEEDO_GI_DEBUG=6): 80% of its light on Sponza's outer wall. +1.4 to 1.7 ms at 128 voxels
+		next: a camera clipmap of volumes instead of one over the scene (Bistro's 128 voxels are 1.2 m wide, and 256 costs 6 ms), the merge's parallax (radiance cascades' bilinear fix: the last 20% of the light), the faint seams on CornellBox's boxes, then on by default
 		4. what moves voxelized each frame (CesiumMan, the animated sample models)
 		5. hardware ray queries where available (desktop Vulkan, Metal through a backend that exposes them): the same cascades, triangle hits
 		6. glossy: the cascades' radiance (not only irradiance) for rough reflections, then something sharper for mirrors (screen space reflections falling back to the cascades)

@@ -151,3 +151,7 @@ StructuredBuffer<uint4> gGiJobs[SHADER_TYPES_FRAME_COUNT];
 StructuredBuffer<uint2> gGiLightCells[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(28, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<uint> gGiLightIndices[SHADER_TYPES_FRAME_COUNT];
+// per probe of each cascade but the last, which of the 8 probes of the one above around it it sees (see
+// GiData::cascadeProbeFirst)
+[[vk::binding(29, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gGiProbeMasks;

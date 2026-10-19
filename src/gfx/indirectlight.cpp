@@ -66,7 +66,9 @@ Layout MakeLayout(const Bounds3f& bounds, uint32_t resolution, uint32_t probeSpa
 		data.cascadeInterval[cascadeIt][2] = 0.0F;
 		data.cascadeInterval[cascadeIt][3] = spacing0 * static_cast<float>(1U << cascadeIt);
 		data.cascadeFirst[cascadeIt / 4][cascadeIt % 4] = layout.cascadeTexelCount;
+		data.cascadeProbeFirst[cascadeIt / 4][cascadeIt % 4] = layout.probeMaskCount;
 		layout.cascadeTexelCount += probes.x * probes.y * probes.z * side * side;
+		layout.probeMaskCount += probes.x * probes.y * probes.z;
 		cascadeCount++;
 		if (end >= diagonal)
 			break;
