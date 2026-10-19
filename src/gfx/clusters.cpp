@@ -92,10 +92,18 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 			auto& box = boxes[lightIt];
 			box = {0, kTilesX - 1, 0, kTilesY - 1, 0, kSlices - 1};
 			reaches[lightIt] = true;
-			// what it can light: a point light's range, a spot light's cone in it (see LightReach)
-			if (light.type == LIGHT_TYPE_DIRECTIONAL || light.positionRange[3] <= 0.0F)
+			// what it can light: a point light's range, a spot light's cone in it (see LightReach). without a range (infinite),
+			// as far as the scene's farthest corner: nothing beyond the scene is lit (as the shadows' reach)
+			if (light.type == LIGHT_TYPE_DIRECTIONAL)
 				continue;
-			auto reach = *LightReach(light, light.positionRange[3]);
+			glm::vec3 position(light.positionRange[0], light.positionRange[1], light.positionRange[2]);
+			float range = light.positionRange[3];
+			if (range <= 0.0F)
+				for (const auto& corner : sceneCorners)
+					range = std::max(range, glm::distance(corner, position));
+			if (!(range > 0.0F))
+				continue;
+			auto reach = *LightReach(light, range);
 			glm::vec3 center = reach.center;
 			float radius = reach.radius;
 			Bounds3f sphere;

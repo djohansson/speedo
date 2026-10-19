@@ -145,7 +145,8 @@ struct ViewData
 	alignas(16) FLOAT4(viewport); // x, y, width, height: where it is drawn in the render target, in pixels
 };
 
-#define SHADER_TYPES_LIGHT_COUNT 256u
+// how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
+#define SHADER_TYPES_LIGHT_COUNT 4096u
 
 // shadows: each shadowed light's views into the shadow atlas (one depth texture, SHADER_TYPES_SHADOW_ATLAS_TEXTURE), per
 // frame: gShadowViews[frame], from the light's first, gLightShadows[frame][light] (SHADER_TYPES_NO_SHADOW for a light

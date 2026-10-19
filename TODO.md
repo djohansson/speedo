@@ -1,8 +1,12 @@
 # TODO
 * plan (in this order):
 	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
-		later: lights binned on the cpu (fine to 256 lights: a compute pass if it shows); a spot light without a range reaches every cluster
-		later: gpu driven culling (a compute pass writing indirect draws: per instance, and no cost per draw for chunks out of view), then occlusion culling, from the same chunks
+		done: lights binned on the cpu, measured with ThousandsOfLights.gltf (4000 lights: 80 us a frame, so no compute pass), unranged lights bounded by the scene
+		next: gpu driven culling (no cost per draw for chunks out of view, and per instance), then occlusion culling, from the same chunks, measured on Bistro and ThousandsOfLights.gltf:
+			a. the per draw values (material, instance base, skin and morph bases) from a draw record the vertex shader reads by index, not push constants (renders unchanged)
+			b. what KosmicKrisp's vkCmdDrawIndexedIndirectCount costs against direct draws (Metal has no draw count indirect: it may be emulated)
+			c. a compute pass culling each chunk (and each instance) per main and shadow view, writing compacted indirect draws per pipeline state, which the passes draw
+			d. occlusion: the draws visible last frame first, a depth pyramid from them (compute: no min/max samplers on KosmicKrisp), then the rest tested against it
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
