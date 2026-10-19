@@ -42,6 +42,8 @@ struct ResourceUse
 	[[nodiscard]] static ResourceUse TransferSource();
 	[[nodiscard]] static ResourceUse TransferDestination();
 	[[nodiscard]] static ResourceUse HostRead();
+	// a buffer of indirect draws' commands or counts, read by the draws
+	[[nodiscard]] static ResourceUse Indirect();
 	[[nodiscard]] static ResourceUse Present();
 };
 

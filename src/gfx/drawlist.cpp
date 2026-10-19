@@ -236,6 +236,117 @@ void DrawStream::End()
 	myUsedCount = 0;
 }
 
+void PlanDrawRuns(DrawList& list, uint32_t maxDrawCount)
+{
+	ENSURE(maxDrawCount > 0);
+	list.runs.clear();
+	for (uint32_t itemIt = 0; itemIt < list.items.size(); itemIt++)
+	{
+		const auto& item = list.items[itemIt];
+		if (!list.runs.empty())
+		{
+			auto& run = list.runs.back();
+			const auto& first = list.items[run.first];
+			if (run.count < maxDrawCount && item.variant == first.variant && item.cullMode == first.cullMode &&
+				item.frontFace == first.frontFace)
+			{
+				run.count++;
+				continue;
+			}
+		}
+		list.runs.push_back({.first = itemIt, .count = 1});
+	}
+}
+
+namespace drawlist
+{
+
+// the pipeline and dynamic state a list's draws are recorded with, set only where it changes from the draw before
+class DrawState final
+{
+public:
+	DrawState(CommandBufferHandle cmd, Pipeline& pipeline, PushConstants pushConstants, core::TaskExecutor* executor)
+		: myCmd(cmd)
+		, myPipeline(pipeline)
+		, myPushConstants(pushConstants)
+		, myExecutor(executor)
+	{}
+	DrawState(const DrawState&) = delete;
+	DrawState& operator=(const DrawState&) = delete;
+	// gives the caller back the default (opaque triangle list) variant it bound
+	~DrawState()
+	{
+		if (myBound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
+			myPipeline.BindPipelineAuto(myCmd, {.blend = kOpaqueBlend});
+	}
+
+	// whether drawing item needs other state than the draw before. a specialized variant (see
+	// GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
+	// draws, and the task creating it runs on the executor, the first time it is asked for
+	[[nodiscard]] bool Changes(const DrawItem& item)
+	{
+		myVariant = item.variant;
+		if (myVariant.specialization != 0 && myExecutor != nullptr)
+		{
+			// its creation takes tens of milliseconds
+			auto request = myPipeline.RequestGraphicsPipeline(myVariant);
+			if (request.handle == nullptr)
+			{
+				if (request.create)
+					myExecutor->Submit({&request.create, 1});
+				myVariant.specialization = 0;
+			}
+		}
+		return myVariant != myBound || myCullMode != item.cullMode || myFrontFace != item.frontFace;
+	}
+
+	// sets the state Changes found item needs
+	void Set(const DrawItem& item)
+	{
+		CommandEncoder encoder(myCmd);
+		if (myVariant != myBound)
+		{
+			myBound = myVariant;
+			myPipeline.BindPipelineAuto(myCmd, myVariant);
+			// push constants outlive a pipeline bind with the same layout, as here, but variants switch rarely enough (the
+			// draws are sorted by them) not to rely on it
+			myPushed = false;
+		}
+		if (myCullMode != item.cullMode)
+		{
+			myCullMode = item.cullMode;
+			encoder.SetCullMode(item.cullMode);
+		}
+		if (myFrontFace != item.frontFace)
+		{
+			myFrontFace = item.frontFace;
+			encoder.SetFrontFace(item.frontFace);
+		}
+	}
+
+	// before a draw: the push constants, if the pipeline bound since they were pushed
+	void Push()
+	{
+		if (std::exchange(myPushed, true))
+			return;
+		myPipeline.PushConstants(myCmd, std::as_bytes(std::span(&myPushConstants, 1)));
+	}
+
+private:
+	CommandBufferHandle myCmd;
+	Pipeline& myPipeline;
+	PushConstants myPushConstants;
+	core::TaskExecutor* myExecutor = nullptr;
+	GraphicsPipelineVariant myBound{.blend = kOpaqueBlend};
+	GraphicsPipelineVariant myVariant{.blend = kOpaqueBlend}; // the one Changes found
+	// the state the draw before set (none yet: a secondary command buffer starts without dynamic state)
+	std::optional<CullMode> myCullMode;
+	std::optional<FrontFace> myFrontFace;
+	bool myPushed = false;
+};
+
+} // namespace drawlist
+
 void RecordDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,
@@ -249,18 +360,8 @@ void RecordDrawList(
 	ZoneScopedN("gfx::RecordDrawList");
 
 	CommandEncoder encoder(cmd);
-	GraphicsPipelineVariant bound{.blend = kOpaqueBlend};
-	// the state the draw before set (none yet: a secondary command buffer starts without dynamic state)
-	std::optional<CullMode> cullMode;
-	std::optional<FrontFace> frontFace;
-	bool pushed = false;
 	pushConstants.viewId = viewIndex;
-	auto push = [&]
-	{
-		if (std::exchange(pushed, true))
-			return;
-		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-	};
+	drawlist::DrawState state(cmd, pipeline, pushConstants, executor);
 	// indirect: the run of draws since the state last changed, one indirect draw of their consecutive commands
 	const Buffer* runBuffer = nullptr;
 	uint32_t runFirst = 0;
@@ -269,7 +370,7 @@ void RecordDrawList(
 	{
 		if (runCount == 0)
 			return;
-		push();
+		state.Push();
 		encoder.DrawIndexedIndirect(*runBuffer, runFirst * sizeof(DrawIndexedIndirectCommand), runCount, sizeof(DrawIndexedIndirectCommand));
 		runCount = 0;
 	};
@@ -278,44 +379,18 @@ void RecordDrawList(
 		if (frustum != nullptr && item.cullable && frustum->Excludes(item.bounds))
 			continue;
 
-		auto variant = item.variant;
-		if (variant.specialization != 0 && executor != nullptr)
+		if (state.Changes(item))
 		{
-			// the generic pipeline until the specialized one exists (its creation takes tens of milliseconds)
-			auto request = pipeline.RequestGraphicsPipeline(variant);
-			if (request.handle == nullptr)
-			{
-				if (request.create)
-					executor->Submit({&request.create, 1});
-				variant.specialization = 0;
-			}
-		}
-		if (variant != bound || cullMode != item.cullMode || frontFace != item.frontFace)
 			flush();
-		if (variant != bound)
-		{
-			bound = variant;
-			pipeline.BindPipelineAuto(cmd, variant);
-			// push constants outlive a pipeline bind with the same layout, as here, but variants switch rarely enough (the
-			// draws are sorted by them) not to rely on it
-			pushed = false;
-		}
-		if (cullMode != item.cullMode)
-		{
-			cullMode = item.cullMode;
-			encoder.SetCullMode(item.cullMode);
-		}
-		if (frontFace != item.frontFace)
-		{
-			frontFace = item.frontFace;
-			encoder.SetFrontFace(item.frontFace);
+			state.Set(item);
 		}
 
 		// the first instance names the draw's record (SV_StartInstanceLocation), which the shader adds the instance to
 		if (stream.indirect)
 		{
 			auto command = stream.Take();
-			if (runCount > 0 && (command.buffer != runBuffer || runFirst + runCount != command.index))
+			if (runCount > 0 &&
+				(command.buffer != runBuffer || runFirst + runCount != command.index || runCount == stream.GetMaxDrawCount()))
 				flush();
 			if (runCount == 0)
 			{
@@ -328,14 +403,44 @@ void RecordDrawList(
 		}
 		else
 		{
-			push();
+			state.Push();
 			encoder.DrawIndexed(item.indexCount, item.instanceCount, item.firstIndex, 0, item.record);
 		}
 	}
 	flush();
+}
 
-	if (bound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
-		pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
+void RecordCulledDrawList(
+	CommandBufferHandle cmd,
+	Pipeline& pipeline,
+	const DrawList& list,
+	PushConstants pushConstants,
+	uint16_t viewIndex,
+	const CulledDraws& culled,
+	core::TaskExecutor* executor)
+{
+	ZoneScopedN("gfx::RecordCulledDrawList");
+
+	ENSURE(culled.commands != nullptr && culled.counts != nullptr);
+
+	CommandEncoder encoder(cmd);
+	pushConstants.viewId = viewIndex;
+	drawlist::DrawState state(cmd, pipeline, pushConstants, executor);
+	for (uint32_t runIt = 0; runIt < list.runs.size(); runIt++)
+	{
+		const auto& run = list.runs[runIt];
+		const auto& item = list.items[run.first];
+		if (state.Changes(item))
+			state.Set(item);
+		state.Push();
+		encoder.DrawIndexedIndirectCount(
+			*culled.commands,
+			static_cast<uint64_t>(culled.commandBase + run.first) * sizeof(DrawIndexedIndirectCommand),
+			*culled.counts,
+			static_cast<uint64_t>(culled.countBase + runIt) * sizeof(uint32_t),
+			run.count,
+			sizeof(DrawIndexedIndirectCommand));
+	}
 }
 
 } // namespace gfx

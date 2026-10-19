@@ -24,3 +24,4 @@ __include types;
 #include "tonemap.slang"
 #include "composite.slang"
 #include "uiblur.slang"
+#include "cull.slang"

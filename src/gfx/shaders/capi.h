@@ -443,6 +443,45 @@ struct DrawIndexedIndirectCommand
 	alignas(4) UINT1(firstInstance);
 };
 
+// the gpu's culling (ComputeCull, see the Cull pass): each of a frame's draws (gCullCandidates[frame]: the draw lists'
+// items, list after list), tested against each view that draws its list (gCullJobs[frame], a job per list and view, by
+// gCullViews[frame]'s planes). a draw in view takes the next place of its run (the items from runFirst with the same
+// pipeline state) in the job's commands (gCullCommands[frame] from commandBase), counted in gCullCounts[frame] from
+// countBase, which the run's DrawIndexedIndirectCount reads
+#define SHADER_TYPES_CULL_GROUP_SIZE 64u
+
+struct CullCandidate
+{
+	alignas(16) FLOAT4(boundsMin); // xyz: its bounds' corner (world space). w: 1 if it may be culled (see DrawItem)
+	alignas(16) FLOAT4(boundsMax);
+	alignas(4) UINT1(record); // its DrawRecord: its command's first instance
+	alignas(4) UINT1(indexCount);
+	alignas(4) UINT1(instanceCount);
+	alignas(4) UINT1(firstIndex);
+	alignas(4) UINT1(run); // its run, of its list's
+	alignas(4) UINT1(runFirst); // its run's first item, in its list
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+};
+
+struct CullJob
+{
+	alignas(4) UINT1(candidateBase); // its list's first item in gCullCandidates
+	alignas(4) UINT1(candidateCount); // its list's
+	alignas(4) UINT1(view); // in gCullViews
+	alignas(4) UINT1(commandBase); // its list's commands (one place per item), in gCullCommands
+	alignas(4) UINT1(countBase); // its list's runs' counts, in gCullCounts
+	alignas(4) UINT1(padding0);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
+};
+
+// a view's frustum (see gfx::Frustum): six planes, xyz the inward normal, w the distance. all zeros culls nothing
+struct CullView
+{
+	alignas(16) FLOAT4(planes[6]);
+};
+
 struct PushConstants
 {
 	// per frame

@@ -76,11 +76,19 @@ struct DrawItem
 	uint32_t record = 0;
 };
 
+// a run of a draw list's items with the same pipeline variant and dynamic state (see PlanDrawRuns)
+struct DrawRun
+{
+	uint32_t first = 0;
+	uint32_t count = 0;
+};
+
 // what a view draws of the scene, in order, from one index buffer
 struct DrawList
 {
 	const Buffer* indexBuffer = nullptr;
 	std::vector<DrawItem> items;
+	std::vector<DrawRun> runs; // see PlanDrawRuns
 
 	[[nodiscard]] bool Empty() const noexcept { return items.empty(); }
 };
@@ -113,6 +121,10 @@ struct DrawList
 // since a double sided surface's nearest back face is its front
 [[nodiscard]] DrawList BuildScatterBackDrawList(const DrawList& scatter);
 
+// cuts a list's items into runs of the same pipeline variant, cull mode and front face, of at most maxDrawCount
+// (DeviceLimits::maxDrawIndirectCount): each an indirect draw when the gpu culls (see RecordCulledDrawList)
+void PlanDrawRuns(DrawList& list, uint32_t maxDrawCount);
+
 // gives each draw of lists its DrawRecord (materialSlot and on), in order, written to records (DrawItem::record), which
 // must hold them all
 void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> records);
@@ -126,7 +138,7 @@ public:
 	static constexpr uint32_t kChunkCommandCount = 1U << 14;
 
 	DrawStream() = default;
-	explicit DrawStream(Device& device) noexcept : myDevice(&device) {}
+	explicit DrawStream(Device& device) : myDevice(&device), myMaxDrawCount(device.GetLimits().maxDrawIndirectCount) {}
 	DrawStream(const DrawStream&) = delete;
 	DrawStream(DrawStream&&) noexcept = default;
 	~DrawStream();
@@ -147,6 +159,9 @@ public:
 	// each run of draws with the same pipeline and state as one indirect draw, else direct draws (see RecordDrawList)
 	bool indirect = true;
 
+	// the most draws one indirect draw may make (DeviceLimits::maxDrawIndirectCount)
+	[[nodiscard]] uint32_t GetMaxDrawCount() const noexcept { return myMaxDrawCount; }
+
 private:
 	struct Chunk
 	{
@@ -155,6 +170,7 @@ private:
 	};
 
 	Device* myDevice = nullptr;
+	uint32_t myMaxDrawCount = 1;
 	std::vector<Chunk> myChunks;
 	size_t myChunk = 0; // the one commands are taken from
 	uint32_t myUsedCount = 0; // of its commands
@@ -174,6 +190,27 @@ void RecordDrawList(
 	uint16_t viewIndex,
 	DrawStream& stream,
 	const Frustum* frustum = nullptr,
+	core::TaskExecutor* executor = nullptr);
+
+// where the gpu's culling (the Cull pass, ComputeCull) put a list's draws for a view: a place per item from commandBase
+// in commands, each run's from its first item's, and a count per run from countBase in counts
+struct CulledDraws
+{
+	const Buffer* commands = nullptr;
+	const Buffer* counts = nullptr;
+	uint32_t commandBase = 0;
+	uint32_t countBase = 0;
+};
+
+// records a draw list for a view as the gpu culled it: each of its runs (see PlanDrawRuns) one indirect draw of as many
+// of its commands as its count says. binds the pipeline variants it needs as RecordDrawList does
+void RecordCulledDrawList(
+	CommandBufferHandle cmd,
+	Pipeline& pipeline,
+	const DrawList& list,
+	PushConstants pushConstants,
+	uint16_t viewIndex,
+	const CulledDraws& culled,
 	core::TaskExecutor* executor = nullptr);
 
 } // namespace gfx

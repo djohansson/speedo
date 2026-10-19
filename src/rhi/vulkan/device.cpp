@@ -83,11 +83,17 @@ DeviceObjectCreateDesc<kVk> Device<kVk>::CreateDeviceObjectCreateDesc(std::strin
 template <>
 DeviceLimits Device<kVk>::GetLimits() const
 {
-	const auto& limits = GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice()).deviceProperties.properties.limits;
+	const auto& info = GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice());
+	const auto& limits = info.deviceProperties.properties.limits;
 	return DeviceLimits{
 		.maxStorageBufferRange = limits.maxStorageBufferRange,
 		.maxPerStageSampledImages = limits.maxPerStageDescriptorSampledImages,
-		.timestampPeriod = limits.timestampPeriod};
+		.maxDrawIndirectCount = info.deviceFeatures.features.multiDrawIndirect == VK_TRUE ? limits.maxDrawIndirectCount : 1U,
+		.timestampPeriod = limits.timestampPeriod,
+		.drawIndirectCount = info.deviceFeatures12Ex.drawIndirectCount == VK_TRUE,
+		// mesa's kk_cmd_draw.c (main, 44fd0fde, 2026-10-19): a compute kernel per call zeroes the commands past the
+		// count, then all maxDrawCount are drawn. revisit once it builds Metal indirect command buffers on the gpu
+		.drawIndirectCountEmulated = info.deviceProperties12Ex.driverID == VK_DRIVER_ID_MESA_KOSMICKRISP};
 }
 
 template <>

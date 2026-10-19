@@ -91,3 +91,15 @@ StructuredBuffer<UiBlurRect> gUiBlurRects[SHADER_TYPES_FRAME_COUNT];
 // the frame's draws' per draw values (see DrawRecord)
 [[vk::binding(11, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<DrawRecord> gDrawRecords[SHADER_TYPES_FRAME_COUNT];
+
+// the gpu's culling of the frame's draws (see CullCandidate, ComputeCull)
+[[vk::binding(12, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<CullCandidate> gCullCandidates[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(13, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<CullJob> gCullJobs[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(14, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<CullView> gCullViews[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(15, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<DrawIndexedIndirectCommand> gCullCommands[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(16, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gCullCounts[SHADER_TYPES_FRAME_COUNT];

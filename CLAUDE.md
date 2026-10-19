@@ -305,6 +305,9 @@ This code runs on several platforms and gpus (macOS through KosmicKrisp or Molte
 gpus). Measure the choices here, but pick the general method that is likely to perform well across them, not the one a
 single driver happens to favor: e.g. the gpu culling compacts its draws and counts them (`DrawIndexedIndirectCount`,
 native on desktop gpus) although KosmicKrisp emulates the count. Record the platform's numbers as what it costs there.
+Where one platform can't do the general method well, it gets an exception named for what it lacks, decided in rhi
+(`DeviceLimits::drawIndirectCountEmulated`), not a different design for everyone, and the exception says when to look
+again.
 
 ## Naming: counts
 
@@ -441,7 +444,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -545,6 +548,27 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   emulates. Elsewhere (desktop Vulkan, D3D12) the count is read natively, so the gpu culling (TODO.md) compacts the
   draws it keeps and counts them, the general method, and KosmicKrisp's cost is known rather than designed around.
   Renders came out the same as with push constants, but for one byte of ScatteringSkull's (by 2 of 255, in every run).
+- **The gpu's culling** (where the device has `DeviceLimits::drawIndirectCount`, not emulated, and the draws are indirect;
+  `SPEEDO_GPU_CULLING=0` or `1` overrides it, `SPEEDO_CULLING=0` turns culling off on either path). Each list's items are cut into runs of the same pipeline variant, cull mode and front face
+  (`PlanDrawRuns`, at most `maxDrawIndirectCount` each; a specialized variant whose pipeline isn't made yet draws its run
+  with the generic one). `InternalPlanCulling` writes the candidates (`CullCandidate`: bounds, cullable, record, the
+  command's values, its run and the run's first item), a job per list and view drawing it (`CullJob`: the main pass's
+  phases and the scatter lists by the main views, the shadow list by the shadow views) and the views' planes (`CullView`).
+  The Cull Clear pass empties the counts, the Cull pass (`ComputeCull`, `cull.slang`, compute entry point 5) runs a
+  thread per candidate and job: one in view takes the next place of its run (`InterlockedAdd`) and writes its command
+  there, and the drawing passes (which declare `ResourceUse::Indirect()` on the commands and counts) draw each run with
+  one `DrawIndexedIndirectCount` (`RecordCulledDrawList`). The candidates, commands and counts grow as the records do
+  (`GrowingBuffers`). The order of a run's draws is the order threads got their places, which only shows between
+  coplanar opaque surfaces; renders came out identical to the cpu's (seven models, ScatteringSkull and DragonAttenuation
+  among them); the debug quick tier passes with it, under validation. Where the count is emulated
+  (`DeviceLimits::drawIndirectCountEmulated`, rhi's: KosmicKrisp, by its driver id) the cpu culls instead, since there it
+  costs: `kk_CmdDrawIndexedIndirectCount2KHR` (mesa's `kk_cmd_draw.c`) runs a compute kernel per call that zeroes the
+  commands past the count (`kk_predicate_draws`: in a render pass, a Metal encoder split, about 55 us with the shadow
+  atlas) and then draws every one of `maxDrawCount`. ThousandsOfLights' 256 shadow views, a call each: Shadows 1.0 ms to
+  15.1; Bistro's Main 4.03 to 4.31 framed. Mesa main of 2026-10-19 (44fd0fde) still does that, with a TODO to build Metal
+  indirect command buffers on the gpu instead: once it does, measure again and drop the exception. By the frustum alone
+  the gpu culling saves no gpu time anywhere (the cpu's draws are the same ones): it saves the cpu's recording, and
+  occlusion (TODO.md) is where it pays.
 
 Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers

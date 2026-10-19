@@ -1781,6 +1781,7 @@ struct Scene::Impl
 						{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
 						{"ComputeUiBlurX", SLANG_STAGE_COMPUTE}, // see the UI Blur passes
 						{"ComputeUiBlurY", SLANG_STAGE_COMPUTE},
+						{"ComputeCull", SLANG_STAGE_COMPUTE}, // see the Cull pass
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

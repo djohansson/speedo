@@ -38,6 +38,13 @@ constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
 	return static_cast<uint32_t>(std::min<uint64_t>(PixelCount(extent) * SHADER_TYPES_OIT_NODES_PER_PIXEL, SHADER_TYPES_OIT_NONE - 1));
 }
 
+// the gpu's culling: ComputeCull, the Main layout's sixth compute entry point. a job per draw list and view drawing it
+// (the main pass's phases and the scatter passes' lists by the main views, the shadows' by the shadow views), and the
+// views, main then shadow
+constexpr uint8_t kCullEntryPoint = 5;
+constexpr uint32_t kCullJobCount = (4 * SHADER_TYPES_VIEW_COUNT) + SHADER_TYPES_SHADOW_VIEW_COUNT;
+constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADOW_VIEW_COUNT;
+
 } // namespace renderer
 
 Renderer::Renderer(Device& device, RenderOutput& output)
@@ -118,15 +125,39 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			SHADER_TYPES_UI_BLUR_RECT_COUNT * sizeof(UiBlurRect),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
-		myDrawRecordBuffers.emplace_back(BufferCreateDesc{
-			device.CreateDeviceObjectCreateDesc(std::format("Draw Records {}", frameIt)),
-			SHADER_TYPES_DRAW_RECORD_COUNT * sizeof(DrawRecord),
+		myCullJobBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Cull Jobs {}", frameIt)),
+			kCullJobCount * sizeof(CullJob),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
-		myDrawRecordCapacity.push_back(SHADER_TYPES_DRAW_RECORD_COUNT);
+		myCullViewBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Cull Views {}", frameIt)),
+			kCullViewCount * sizeof(CullView),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
 		myDrawStreams.emplace_back(device);
 	}
+	myDrawRecords = {.name = "Draw Records", .binding = "gDrawRecords", .elementSize = sizeof(DrawRecord)};
+	InternalCreate(myDrawRecords, device, SHADER_TYPES_DRAW_RECORD_COUNT);
+	myCullCandidates = {.name = "Cull Candidates", .binding = "gCullCandidates", .elementSize = sizeof(CullCandidate)};
+	InternalCreate(myCullCandidates, device, SHADER_TYPES_DRAW_RECORD_COUNT);
+	myCullCommandBuffers = {
+		.name = "Cull Commands",
+		.binding = "gCullCommands",
+		.elementSize = sizeof(DrawIndexedIndirectCommand),
+		.usage = BufferUsage::kStorage | BufferUsage::kIndirect,
+		.memory = MemoryProperty::kDeviceLocal};
+	InternalCreate(myCullCommandBuffers, device, SHADER_TYPES_DRAW_RECORD_COUNT);
+	myCullCountBuffers = {
+		.name = "Cull Counts",
+		.binding = "gCullCounts",
+		.elementSize = sizeof(uint32_t),
+		.usage = BufferUsage::kStorage | BufferUsage::kIndirect | BufferUsage::kTransferDestination,
+		.memory = MemoryProperty::kDeviceLocal};
+	InternalCreate(myCullCountBuffers, device, SHADER_TYPES_DRAW_RECORD_COUNT);
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
+	myCullCommands = myGraph.ImportBuffer("Cull Commands");
+	myCullCounts = myGraph.ImportBuffer("Cull Counts");
 
 	constexpr auto kOitAccess = Access::kShaderRead | Access::kShaderWrite;
 	auto useOitLists = [this](FrameGraph::PassBuilder& builder, PipelineStage stages, Access access)
@@ -134,6 +165,51 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		builder.Use(myOitHeads, ResourceUse::Storage(stages, access));
 		builder.Use(myOitNodes, ResourceUse::Storage(stages, stages == PipelineStage::kFragmentShader ? Access::kShaderWrite : access));
 		builder.Use(myOitCounter, ResourceUse::Storage(stages, access));
+	};
+
+	// Main layout compute kernels, of width by height threads
+	auto kernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, uint32_t width, uint32_t height)
+	{
+		auto& pipeline = *myFrame.pipeline;
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		pipeline.BindPipelineAuto(cmd, variant);
+		auto pushConstants = myFrame.inputs->pushConstants;
+		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
+	};
+
+	// the gpu's culling: each draw list's draws tested against each view drawing it, those in view compacted into their
+	// run's commands and counted, for the passes after to draw (see CullCandidate, RecordCulledDrawList). the counts
+	// emptied first, once the previous frame's draws have read them
+	myCullClearPass = myGraph.AddPass(
+		"Cull Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myCullCounts, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context)
+		{
+			CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myCullCounts), 0, myCullCountCount * sizeof(uint32_t), 0);
+		});
+	myCullPass = myGraph.AddPass(
+		"Cull",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myCullCounts, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myCullCommands, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kCullEntryPoint}, myCullMaxCandidateCount, static_cast<uint32_t>(myCullJobs.size()));
+		});
+	auto useCulled = [this](FrameGraph::PassBuilder& builder)
+	{
+		builder.Use(myCullCommands, ResourceUse::Indirect());
+		builder.Use(myCullCounts, ResourceUse::Indirect());
 	};
 
 	// empty transparency lists, once the previous frame's ComputeMain has read them
@@ -154,9 +230,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the lights' shadows: each of their views in its tile of the atlas
 	myShadowPass = myGraph.AddPass(
 		"Shadows",
-		[this](FrameGraph::PassBuilder& builder)
+		[this, useCulled](FrameGraph::PassBuilder& builder)
 		{
 			builder.DepthAttachment(myShadowAtlas, LoadOp::kClear);
+			useCulled(builder);
 		},
 		[this](FrameGraph::PassContext& context)
 		{
@@ -190,6 +267,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				encoder.SetScissor(rhi::Rect{
 					.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
 				pushConstants.shadowView = viewIt;
+				if (auto culled = InternalCulledDraws(ListId::kShadow, viewIt))
+				{
+					RecordCulledDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *culled);
+					continue;
+				}
 				auto frustum = Frustum::FromViewProjection(glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
 				RecordDrawList(cmd, pipeline, myShadowDrawList, pushConstants, 0, *myDrawStream, inputs.culling ? &frustum : nullptr);
 			}
@@ -198,19 +280,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the scattering materials' back faces, depth only: how thick they are where the Scatter pass sees them
 	myScatterBackPass = myGraph.AddPass(
 		"Scatter Back",
-		[this](FrameGraph::PassBuilder& builder)
+		[this, useCulled](FrameGraph::PassBuilder& builder)
 		{
 			builder.DepthAttachment(myScatterBackDepth, LoadOp::kClear);
+			useCulled(builder);
 			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 		},
-		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myScatterBackDrawList); });
+		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, ListId::kScatterBack); });
 
 	// the scattering materials' surfaces, lit as the light entering them (FragmentScatter), which the main pass blurs
 	// over them by their volume's radius (see SubsurfaceScattering in the shaders)
 	myScatterPass = myGraph.AddPass(
 		"Scatter",
-		[this](FrameGraph::PassBuilder& builder)
+		[this, useCulled](FrameGraph::PassBuilder& builder)
 		{
+			useCulled(builder);
 			builder.ColorAttachment(myScatter, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 			builder.ColorAttachment(myScatterAlbedo, LoadOp::kClear, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 			builder.DepthAttachment(myScatterDepth, LoadOp::kClear);
@@ -218,26 +302,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 			builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 		},
-		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myScatterDrawList); });
+		[this](FrameGraph::PassContext& context) { InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, ListId::kScatter); });
 
 	// the scattering light blurred over the surfaces by their diffusion profile, once per pixel (ComputeScatter), then
-	// denoised (ComputeScatterDenoise): Main layout compute kernels over the render target
-	auto kernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, uint32_t width, uint32_t height)
-	{
-		auto& pipeline = *myFrame.pipeline;
-		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
-		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-		pipeline.BindPipelineAuto(cmd, variant);
-		auto pushConstants = myFrame.inputs->pushConstants;
-		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
-	};
+	// denoised (ComputeScatterDenoise)
 	auto scatterKernel = [this, kernel](CommandBufferHandle cmd, ComputePipelineVariant variant)
 	{
 		auto extent = myGraph.GetExtent();
@@ -276,8 +344,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		auto load = phase == MainPassPhase::kOpaque ? LoadOp::kClear : LoadOp::kLoad;
 		return myGraph.AddPass(
 			phase == MainPassPhase::kOpaque ? "Main" : "Main Transmissive",
-			[this, load, phase, &useOitLists](FrameGraph::PassBuilder& builder)
+			[this, load, phase, &useOitLists, useCulled](FrameGraph::PassBuilder& builder)
 			{
+				useCulled(builder);
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, load);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
@@ -288,7 +357,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase](FrameGraph::PassContext& context)
-			{ InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, myDrawLists[std::to_underlying(phase)]); });
+			{
+				InternalDrawViews(
+					context, *myFrame.pipeline, *myFrame.inputs, phase == MainPassPhase::kOpaque ? ListId::kMain : ListId::kMainTransmissive);
+			});
 	};
 	mainPass(MainPassPhase::kOpaque);
 
@@ -412,6 +484,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* indirect = std::getenv("SPEEDO_INDIRECT_DRAWS");
 	for (auto& stream : myDrawStreams)
 		stream.indirect = indirect == nullptr || std::string_view(indirect) != "0";
+	// the gpu culls the draws (the Cull pass) where it counts them natively (DrawIndexedIndirectCount) and the draws are
+	// indirect, else the cpu does: where the count is emulated (KosmicKrisp) it costs more than it saves (see CLAUDE.md).
+	// SPEEDO_GPU_CULLING=0 or 1 overrides that, where the count exists at all
+	auto limits = device.GetLimits();
+	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
+	bool gpuCullingWanted = gpuCulling != nullptr ? std::string_view(gpuCulling) == "1" : !limits.drawIndirectCountEmulated;
+	myGpuCulling = limits.drawIndirectCount && myDrawStreams.front().indirect && gpuCullingWanted;
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -509,7 +588,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				 std::pair{"gClusters", &myClusterBuffers},
 				 std::pair{"gClusterLights", &myClusterLightBuffers},
 				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers},
-				 std::pair{"gDrawRecords", &myDrawRecordBuffers}})
+				 std::pair{"gCullJobs", &myCullJobBuffers},
+				 std::pair{"gCullViews", &myCullViewBuffers},
+				 std::pair{"gDrawRecords", &myDrawRecords.buffers},
+				 std::pair{"gCullCandidates", &myCullCandidates.buffers},
+				 std::pair{"gCullCommands", &myCullCommandBuffers.buffers},
+				 std::pair{"gCullCounts", &myCullCountBuffers.buffers}})
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
@@ -663,29 +747,19 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myFrameCount++;
 		std::erase_if(
 			myRetiredBuffers, [this](const auto& retired) { return myFrameCount > retired.first + SHADER_TYPES_FRAME_COUNT; });
-		std::array lists{&myDrawLists[0], &myDrawLists[1], &myShadowDrawList, &myScatterDrawList, &myScatterBackDrawList};
+		std::array<DrawList*, std::to_underlying(ListId::kCount)> lists{};
 		size_t count = 0;
-		for (const auto* list : lists)
-			count += list->items.size();
-		if (count > myDrawRecordCapacity[frame.frameIndex])
+		for (uint8_t listIt = 0; listIt < lists.size(); listIt++)
 		{
-			auto capacity = std::bit_ceil(count);
-			auto& device = pipeline.GetDevice();
-			Buffer grown(BufferCreateDesc{
-				device.CreateDeviceObjectCreateDesc(std::format("Draw Records {}", frame.frameIndex)),
-				capacity * sizeof(DrawRecord),
-				BufferUsage::kStorage,
-				MemoryProperty::kHostVisible});
-			pipeline.SetDescriptorData(
-				"gDrawRecords", BufferBinding{.buffer = grown, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frame.frameIndex);
-			myRetiredBuffers.emplace_back(myFrameCount, std::exchange(myDrawRecordBuffers[frame.frameIndex], std::move(grown)));
-			myDrawRecordCapacity[frame.frameIndex] = capacity;
+			lists[listIt] = &InternalList(static_cast<ListId>(listIt));
+			count += lists[listIt]->items.size();
+			PlanDrawRuns(*lists[listIt], myDrawStreams[frame.frameIndex].GetMaxDrawCount());
 		}
+		auto& buffer = InternalReserve(myDrawRecords, pipeline, frame.frameIndex, count);
 		std::vector<DrawRecord> records(count);
 		WriteDrawRecords(lists, records);
 		if (!records.empty())
 		{
-			auto& buffer = myDrawRecordBuffers[frame.frameIndex];
 			auto bytes = std::as_bytes(std::span(records));
 			auto memory = buffer.Map();
 			std::ranges::copy(bytes, memory.begin());
@@ -736,6 +810,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.frameIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
 
+	InternalPlanCulling(pipeline, frame);
+	myGraph.Bind(myCullCommands, myCullCommandBuffers.buffers[frame.frameIndex]);
+	myGraph.Bind(myCullCounts, myCullCountBuffers.buffers[frame.frameIndex]);
+
 	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
 	myDrawStream = &myDrawStreams[frame.frameIndex];
 	myGraph.Execute(cmd, inputs.graphicsQueue->GetProfiler());
@@ -746,8 +824,181 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myFrame.pipeline = nullptr;
 }
 
-void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, const DrawList& list)
+DrawList& Renderer::InternalList(ListId list) noexcept
 {
+	switch (list)
+	{
+	case ListId::kMain:
+		return myDrawLists[0];
+	case ListId::kMainTransmissive:
+		return myDrawLists[1];
+	case ListId::kShadow:
+		return myShadowDrawList;
+	case ListId::kScatter:
+		return myScatterDrawList;
+	case ListId::kScatterBack:
+	case ListId::kCount:
+		break;
+	}
+	return myScatterBackDrawList;
+}
+
+void Renderer::InternalCreate(GrowingBuffers& buffers, Device& device, size_t capacity)
+{
+	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+	{
+		buffers.buffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} {}", buffers.name, frameIt)),
+			capacity * buffers.elementSize,
+			buffers.usage,
+			buffers.memory});
+		buffers.capacities.push_back(capacity);
+	}
+}
+
+Buffer& Renderer::InternalReserve(GrowingBuffers& buffers, Pipeline& pipeline, uint16_t frameIndex, size_t count)
+{
+	if (count > buffers.capacities[frameIndex])
+	{
+		auto capacity = std::bit_ceil(count);
+		auto& device = pipeline.GetDevice();
+		Buffer grown(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} {}", buffers.name, frameIndex)),
+			capacity * buffers.elementSize,
+			buffers.usage,
+			buffers.memory});
+		pipeline.SetDescriptorData(
+			buffers.binding, BufferBinding{.buffer = grown, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIndex);
+		myRetiredBuffers.emplace_back(myFrameCount, std::exchange(buffers.buffers[frameIndex], std::move(grown)));
+		buffers.capacities[frameIndex] = capacity;
+	}
+	return buffers.buffers[frameIndex];
+}
+
+void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
+{
+	ZoneScopedN("Renderer::planCulling");
+
+	using namespace renderer;
+
+	myCullFirstJob.fill(kNoJob);
+	myCullJobs.clear();
+	myCullCountCount = 0;
+	myCullMaxCandidateCount = 0;
+	if (!myGpuCulling)
+	{
+		myGraph.SetEnabled(myCullClearPass, false);
+		myGraph.SetEnabled(myCullPass, false);
+		return;
+	}
+
+	// the views: the main views', then the shadow views' frustums (all zeros, which culls nothing, without culling)
+	uint32_t mainViewCount = frame.grid.x * frame.grid.y;
+	ENSURE(mainViewCount <= SHADER_TYPES_VIEW_COUNT);
+	std::vector<CullView> views(mainViewCount + myShadowPlan.views.size());
+	auto setView = [&views](size_t view, const glm::mat4& viewProjection)
+	{
+		auto frustum = Frustum::FromViewProjection(viewProjection);
+		for (size_t planeIt = 0; planeIt < frustum.planes.size(); planeIt++)
+			std::ranges::copy(std::span(glm::value_ptr(frustum.planes[planeIt]), 4), views[view].planes[planeIt]);
+	};
+	if (frame.culling)
+	{
+		for (uint32_t viewIt = 0; viewIt < mainViewCount && viewIt < frame.viewProjections.size(); viewIt++)
+			setView(viewIt, frame.viewProjections[viewIt]);
+		for (size_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
+			setView(mainViewCount + viewIt, glm::make_mat4(&myShadowPlan.views[viewIt].viewProjection[0][0]));
+	}
+
+	// the candidates, list after list, and a job per list and view
+	std::vector<CullCandidate> candidates;
+	uint32_t commandCount = 0;
+	for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
+	{
+		auto listId = static_cast<ListId>(listIt);
+		const auto& list = InternalList(listId);
+		if (list.Empty())
+			continue;
+
+		auto candidateBase = static_cast<uint32_t>(candidates.size());
+		for (uint32_t runIt = 0; runIt < list.runs.size(); runIt++)
+		{
+			const auto& run = list.runs[runIt];
+			for (uint32_t itemIt = run.first; itemIt < run.first + run.count; itemIt++)
+			{
+				const auto& item = list.items[itemIt];
+				const auto& min = item.bounds.GetMin();
+				const auto& max = item.bounds.GetMax();
+				candidates.push_back(CullCandidate{
+					.boundsMin = {min.x, min.y, min.z, item.cullable ? 1.0F : 0.0F},
+					.boundsMax = {max.x, max.y, max.z, 0.0F},
+					.record = item.record,
+					.indexCount = item.indexCount,
+					.instanceCount = item.instanceCount,
+					.firstIndex = item.firstIndex,
+					.run = runIt,
+					.runFirst = run.first});
+			}
+		}
+
+		bool shadow = listId == ListId::kShadow;
+		auto firstView = shadow ? mainViewCount : 0U;
+		auto viewCount = shadow ? static_cast<uint32_t>(myShadowPlan.views.size()) : mainViewCount;
+		myCullFirstJob[listIt] = static_cast<uint32_t>(myCullJobs.size());
+		for (uint32_t viewIt = 0; viewIt < viewCount; viewIt++)
+		{
+			myCullJobs.push_back(CullJob{
+				.candidateBase = candidateBase,
+				.candidateCount = static_cast<uint32_t>(list.items.size()),
+				.view = firstView + viewIt,
+				.commandBase = commandCount,
+				.countBase = myCullCountCount});
+			commandCount += static_cast<uint32_t>(list.items.size());
+			myCullCountCount += static_cast<uint32_t>(list.runs.size());
+		}
+		myCullMaxCandidateCount = std::max(myCullMaxCandidateCount, static_cast<uint32_t>(list.items.size()));
+	}
+	ENSURE(myCullJobs.size() <= kCullJobCount && views.size() <= kCullViewCount);
+
+	// written for the gpu to read once the frame's previous use of them is done (the caller waited for its fence). the
+	// commands and counts grow with them (NodePerformanceTest's two encodings: 40000 draws a view)
+	auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
+	{
+		if (bytes.empty())
+			return;
+		auto memory = buffer.Map();
+		std::ranges::copy(bytes, memory.begin());
+		buffer.Flush(0, bytes.size());
+		buffer.Unmap();
+	};
+	write(InternalReserve(myCullCandidates, pipeline, frame.frameIndex, candidates.size()), std::as_bytes(std::span(candidates)));
+	write(myCullJobBuffers[frame.frameIndex], std::as_bytes(std::span(myCullJobs)));
+	write(myCullViewBuffers[frame.frameIndex], std::as_bytes(std::span(views)));
+	InternalReserve(myCullCommandBuffers, pipeline, frame.frameIndex, commandCount);
+	InternalReserve(myCullCountBuffers, pipeline, frame.frameIndex, myCullCountCount);
+
+	myGraph.SetEnabled(myCullClearPass, myCullCountCount > 0);
+	myGraph.SetEnabled(myCullPass, !myCullJobs.empty());
+}
+
+std::optional<CulledDraws> Renderer::InternalCulledDraws(ListId list, uint32_t view) const
+{
+	auto firstJob = myCullFirstJob[std::to_underlying(list)];
+	if (firstJob == kNoJob)
+		return std::nullopt;
+	ENSURE(firstJob + view < myCullJobs.size());
+	const auto& job = myCullJobs[firstJob + view];
+	auto frameIndex = myFrame.inputs->frameIndex;
+	return CulledDraws{
+		.commands = &myCullCommandBuffers.buffers[frameIndex],
+		.counts = &myCullCountBuffers.buffers[frameIndex],
+		.commandBase = job.commandBase,
+		.countBase = job.countBase};
+}
+
+void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId listId)
+{
+	const auto& list = InternalList(listId);
 	auto& graphicsQueue = *inputs.graphicsQueue;
 	auto& device = pipeline.GetDevice();
 
@@ -807,6 +1058,11 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 			.maxDepth = 1.0F});
 		encoder.SetScissor(rhi::Rect{.x = posX, .y = posY, .width = width, .height = height});
 
+		if (auto culled = InternalCulledDraws(listId, viewIt))
+		{
+			RecordCulledDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, *culled, inputs.executor);
+			continue;
+		}
 		std::optional<Frustum> frustum;
 		if (inputs.culling && viewIt < inputs.viewProjections.size())
 			frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);

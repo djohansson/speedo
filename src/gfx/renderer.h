@@ -16,6 +16,7 @@
 #include <core/concurrentaccess.h>
 #include <core/std_extra.h>
 
+#include <array>
 #include <optional>
 #include <string>
 #include <utility>
@@ -111,7 +112,39 @@ public:
 	[[nodiscard]] LightCapture GetLightCapture() const;
 
 private:
-	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, const DrawList& list);
+	// the frame's draw lists, in the order their records and culling candidates are written
+	enum class ListId : uint8_t
+	{
+		kMain,
+		kMainTransmissive,
+		kShadow,
+		kScatter,
+		kScatterBack,
+		kCount,
+	};
+	[[nodiscard]] DrawList& InternalList(ListId list) noexcept;
+
+	// per frame index buffers bound as one array (binding), which grow to the next power of two when a frame needs more
+	// than they hold: the replaced one is kept until no frame in flight can use it (myRetiredBuffers)
+	struct GrowingBuffers
+	{
+		std::string name;
+		std::string binding;
+		size_t elementSize = 0;
+		rhi::BufferUsage usage = rhi::BufferUsage::kStorage;
+		rhi::MemoryProperty memory = rhi::MemoryProperty::kHostVisible;
+		std::vector<Buffer> buffers;
+		std::vector<size_t> capacities;
+	};
+	void InternalCreate(GrowingBuffers& buffers, Device& device, size_t capacity);
+	Buffer& InternalReserve(GrowingBuffers& buffers, Pipeline& pipeline, uint16_t frameIndex, size_t count);
+	// plans the gpu's culling of the frame's draw lists (see CullCandidate), and writes it
+	void InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame);
+	// where the gpu's culling put a list's draws for a view (of the views of its pass: the main views, or the shadow
+	// views), if it culled them
+	[[nodiscard]] std::optional<CulledDraws> InternalCulledDraws(ListId list, uint32_t view) const;
+
+	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list);
 
 	FrameGraph myGraph;
 	FrameGraph::ImageId myColor;
@@ -155,10 +188,28 @@ private:
 	std::vector<Buffer> myClusterLightBuffers;
 	// per frame index: the ui's frosted panels (gUiBlurRects), host visible, and the UI Blur passes' thread counts
 	std::vector<Buffer> myUiBlurRectBuffers;
-	// per frame index, the draw lists' DrawRecords (gDrawRecords), of the capacity each holds (it grows: a replaced buffer
-	// is kept until no frame in flight can use it, myRetiredBuffers, with the Record that replaced it)
-	std::vector<Buffer> myDrawRecordBuffers;
-	std::vector<size_t> myDrawRecordCapacity;
+	// per frame index, the draw lists' DrawRecords (gDrawRecords)
+	GrowingBuffers myDrawRecords;
+	// the gpu's culling (the Cull pass, see CullCandidate): per frame index its candidates (growing), jobs and views
+	// (host visible), and the commands and counts it writes (growing, device local), bound for the passes drawing them
+	// (myCullCommands, myCullCounts). each list's first job (kNoJob: not culled on the gpu), and the job count, and the
+	// most candidates of a job, the Cull pass's dispatch
+	static constexpr uint32_t kNoJob = ~0U;
+	bool myGpuCulling = false;
+	GrowingBuffers myCullCandidates;
+	GrowingBuffers myCullCommandBuffers;
+	GrowingBuffers myCullCountBuffers;
+	std::vector<Buffer> myCullJobBuffers;
+	std::vector<Buffer> myCullViewBuffers;
+	FrameGraph::BufferId myCullCommands;
+	FrameGraph::BufferId myCullCounts;
+	FrameGraph::PassId myCullClearPass;
+	FrameGraph::PassId myCullPass;
+	std::array<uint32_t, std::to_underlying(ListId::kCount)> myCullFirstJob{};
+	std::vector<CullJob> myCullJobs;
+	uint32_t myCullCountCount = 0;
+	uint32_t myCullMaxCandidateCount = 0;
+	// the buffers replaced by bigger ones, with the Record that replaced them
 	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
 	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from
 	std::vector<DrawStream> myDrawStreams;

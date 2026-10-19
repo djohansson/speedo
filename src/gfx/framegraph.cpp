@@ -61,6 +61,11 @@ ResourceUse ResourceUse::HostRead()
 	return {.layout = ImageLayout::kUndefined, .stages = PipelineStage::kHost, .access = Access::kHostRead};
 }
 
+ResourceUse ResourceUse::Indirect()
+{
+	return {.layout = ImageLayout::kUndefined, .stages = PipelineStage::kDrawIndirect, .access = Access::kIndirectCommandRead};
+}
+
 ResourceUse ResourceUse::Present()
 {
 	return {.layout = ImageLayout::kPresent, .stages = PipelineStage::kBottomOfPipe, .access = Access::kNone};
@@ -272,6 +277,8 @@ void FrameGraph::InternalCull()
 					resource.bufferUsage |= BufferUsage::kTransferSource;
 				if (Any(use.access & Access::kTransferWrite))
 					resource.bufferUsage |= BufferUsage::kTransferDestination;
+				if (Any(use.access & Access::kIndirectCommandRead))
+					resource.bufferUsage |= BufferUsage::kIndirect;
 			}
 		}
 	}

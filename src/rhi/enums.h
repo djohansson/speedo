@@ -162,6 +162,7 @@ enum class PipelineStage : uint16_t
 	kHost = 1U << 9U, // the host's reads and writes of mapped memory
 	kEarlyFragmentTests = 1U << 10U, // depth and stencil tests (and attachment loads) before fragment shading
 	kLateFragmentTests = 1U << 11U, // the same after it (and attachment stores)
+	kDrawIndirect = 1U << 12U, // where indirect draws read their commands and counts
 };
 RHI_FLAGS(PipelineStage)
 
@@ -179,6 +180,7 @@ enum class Access : uint16_t
 	kColorAttachmentWrite = 1U << 8U,
 	kDepthStencilAttachmentRead = 1U << 9U,
 	kDepthStencilAttachmentWrite = 1U << 10U,
+	kIndirectCommandRead = 1U << 11U, // indirect draws' commands and counts
 };
 RHI_FLAGS(Access)
 
@@ -331,12 +333,17 @@ struct ClearValue
 	uint32_t stencil = 0;
 };
 
-// the device limits the code above rhi needs
+// the device limits (and optional features) the code above rhi needs
 struct DeviceLimits
 {
 	uint64_t maxStorageBufferRange = 0; // in bytes
 	uint32_t maxPerStageSampledImages = 0;
+	uint32_t maxDrawIndirectCount = 0; // draws per indirect draw
 	float timestampPeriod = 0.0F; // nanoseconds per timestamp tick (see QueryPool)
+	bool drawIndirectCount = false; // CommandEncoder::DrawIndexedIndirectCount
+	// the count is emulated, at a cost per call and per slot of its maxDrawCount rather than per draw made (KosmicKrisp:
+	// Metal has no draw count indirect, see CLAUDE.md, "The gpu's culling")
+	bool drawIndirectCountEmulated = false;
 };
 
 // the shader stages a shader, binding or push constant range is used in
