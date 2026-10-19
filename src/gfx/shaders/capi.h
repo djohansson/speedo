@@ -456,12 +456,26 @@ struct DrawIndexedIndirectCommand
 #define CULL_JOB_EARLY 1u
 #define CULL_JOB_LATE 2u
 #define CULL_JOB_PYRAMID 3u
+// with the depth reprojected from the last frame (see ComputeDepthReproject) as the pyramid's: those it doesn't hide,
+// drawn first (and marked so in gCullVisibility), then of the rest, those the pyramid of what was drawn doesn't hide
+#define CULL_JOB_HYBRID_EARLY 4u
+#define CULL_JOB_HYBRID_LATE 5u
+// what the occlusion culling decided in a frame, per draw and main view (gCullStatistics[frame]): drawn before the
+// pyramid of the main pass's depth (or in one phase), opaque and blended draws drawn after it, and the draws in view it
+// hid
+#define CULL_STATISTIC_EARLY 0u
+#define CULL_STATISTIC_LATE 1u
+#define CULL_STATISTIC_LATE_BLENDED 2u
+#define CULL_STATISTIC_HIDDEN 3u
+#define CULL_STATISTIC_COUNT 4u
 // the depth pyramid (ComputeDepthPyramid, see the Depth Pyramid pass): the main depth's farthest per texel, from the
 // main depth at level 0 (a copy) up to 1x1, each level a storage image of gDepthPyramid, which occlusion reads
 #define SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT 16u
 #define SHADER_TYPES_DEPTH_PYRAMID_GROUP_SIZE 8u
 // the gTextures slot of the main pass's depth (the depth pyramid's source)
 #define SHADER_TYPES_MAIN_DEPTH_TEXTURE 4u
+// the depth reprojection: a thread per pixel, as the pyramid's
+#define SHADER_TYPES_DEPTH_REPROJECT_GROUP_SIZE 8u
 
 struct CullCandidate
 {
@@ -500,9 +514,13 @@ struct CullView
 	alignas(16) FLOAT4X4(viewProjection);
 	alignas(16) FLOAT4(viewport);
 	alignas(4) UINT1(occlusion); // whether the depth pyramid hides draws from it
+	// whether the last frame saved its depth (gPreviousDepth) with this view, and its inverse view projection and viewport
+	// then (the depth reprojection's)
+	alignas(4) UINT1(previousValid);
 	alignas(4) UINT1(padding0);
 	alignas(4) UINT1(padding1);
-	alignas(4) UINT1(padding2);
+	alignas(16) FLOAT4X4(previousInverseViewProjection);
+	alignas(16) FLOAT4(previousViewport);
 };
 
 struct PushConstants
@@ -538,6 +556,13 @@ struct PushConstants
 	// per dispatch: the first of gCullJobs[frame] a Cull pass runs, and the level the Depth Pyramid pass writes
 	alignas(4) UINT1(cullJobBase);
 	alignas(4) UINT1(depthPyramidLevel);
+	// per dispatch: what the Depth Pyramid's level 0 reduces (0: the main depth, 1: gReprojectedDepth), and the frame's
+	// height; the last frame's extent (gPreviousDepth's), and its main view count (the depth reprojection's)
+	alignas(4) UINT1(depthPyramidSource);
+	alignas(4) UINT1(framebufferHeight);
+	alignas(4) UINT1(previousWidth);
+	alignas(4) UINT1(previousHeight);
+	alignas(4) UINT1(mainViewCount);
 };
 
 #ifdef __cplusplus

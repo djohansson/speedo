@@ -140,6 +140,20 @@ void Views::Place(const glm::vec3& eye, const glm::vec3& rotation)
 	}
 }
 
+void Views::Turn(float yaw, float forward)
+{
+	auto cameras = myCameras.Write();
+	for (auto& camera : cameras.Get())
+	{
+		const auto& view = camera.GetViewMatrix();
+		glm::vec3 direction(-view[0][2], -view[1][2], -view[2][2]);
+		auto& desc = camera.GetDesc();
+		desc.position -= direction * forward; // the camera is at -position
+		desc.cameraRotation.y += yaw;
+		camera.UpdateAll();
+	}
+}
+
 void Views::SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras)
 {
 	bool hasCameras = !cameras.empty();

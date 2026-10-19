@@ -205,6 +205,22 @@ void WindowedApplication::PrepareDraw()
 					for (const auto& [name, milliseconds] : myScene->GetRenderer().GetPassTimings())
 						Text("%s: %.3f ms", name.c_str(), milliseconds);
 
+				// what the occlusion culling decided in the last frame, per draw and main view
+				if (myScene)
+				{
+					Separator();
+					const auto& renderer = myScene->GetRenderer();
+					auto statistics = renderer.GetCullStatistics();
+					auto mode = renderer.GetOcclusionModeName();
+					Text("Occlusion (%.*s): %u early, %u late (%u blended), %u hidden",
+						static_cast<int>(mode.size()),
+						mode.data(),
+						statistics[CULL_STATISTIC_EARLY],
+						statistics[CULL_STATISTIC_LATE] + statistics[CULL_STATISTIC_LATE_BLENDED],
+						statistics[CULL_STATISTIC_LATE_BLENDED],
+						statistics[CULL_STATISTIC_HIDDEN]);
+				}
+
 				// the frame graph's transients (see FrameGraph), in shared memory
 				Separator();
 				constexpr double kMiB = 1024.0 * 1024.0;
@@ -461,6 +477,11 @@ void WindowedApplication::PrepareDraw()
 	static std::optional<std::array<float, 5>> gAutoCamera;
 	static bool gAutoFrame = false;
 	static bool gAutoCameraAfterModel = false; // wait for the model's install (on the draw thread), which frames the views
+	// SPEEDO_CAMERA_TURN=<degrees per second>: the views turn about the vertical axis once the autoloads have installed
+	// (after SPEEDO_CAMERA's placement), for comparing renders and timings with a camera that moves
+	static float gAutoTurn = 0.0F;
+	static float gAutoWalk = 0.0F; // SPEEDO_CAMERA_WALK=<units per second>: forward, as the turn
+	static bool gAutoTurning = false;
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
 	{
 		gAutoLoadDone = true;
@@ -525,6 +546,10 @@ void WindowedApplication::PrepareDraw()
 				{ App().GetScene().LoadImage(path, progress); }));
 		if (const char* autoLoadExit = std::getenv("SPEEDO_AUTOLOAD_EXIT"); autoLoadExit != nullptr && *autoLoadExit != '\0')
 			gAutoLoadExitFrames = static_cast<uint32_t>(std::strtoul(autoLoadExit, nullptr, 10));
+		if (const char* turn = std::getenv("SPEEDO_CAMERA_TURN"); turn != nullptr && *turn != '\0')
+			gAutoTurn = glm::radians(std::strtof(turn, nullptr));
+		if (const char* walk = std::getenv("SPEEDO_CAMERA_WALK"); walk != nullptr && *walk != '\0')
+			gAutoWalk = std::strtof(walk, nullptr);
 		if (const char* camera = std::getenv("SPEEDO_CAMERA"); camera != nullptr && std::string_view(camera) == "frame")
 		{
 			gAutoFrame = true;
@@ -571,6 +596,14 @@ void WindowedApplication::PrepareDraw()
 		}
 		gAutoCamera.reset();
 		gAutoFrame = false;
+	}
+	if ((gAutoTurn != 0.0F || gAutoWalk != 0.0F) && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
+		!App().GetScene().GetScenes().Read().Get().filePath.empty())
+	{
+		// from the frame after the placement
+		if (gAutoTurning && !gAutoCamera && !gAutoFrame)
+			myViews->Turn(gAutoTurn * ImGui::GetIO().DeltaTime, gAutoWalk * ImGui::GetIO().DeltaTime);
+		gAutoTurning = true;
 	}
 
 	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later

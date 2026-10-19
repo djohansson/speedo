@@ -157,6 +157,12 @@ void Buffer<kVk>::Flush(size_t offset, size_t size)
 }
 
 template <>
+void Buffer<kVk>::Invalidate(size_t offset, size_t size)
+{
+	VK_CHECK(vmaInvalidateAllocation(GetDevice().GetAllocator(), GetMemory(), offset, size));
+}
+
+template <>
 Buffer<kVk>::~Buffer()
 {
 	if (IsValid())

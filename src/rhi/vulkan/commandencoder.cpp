@@ -37,6 +37,12 @@ void CommandEncoder<kVk>::SetFrontFace(FrontFace face) const
 }
 
 template <>
+void CommandEncoder<kVk>::SetStencilReference(uint32_t reference) const
+{
+	vkCmdSetStencilReference(myCmd, VK_STENCIL_FACE_FRONT_AND_BACK, reference);
+}
+
+template <>
 void CommandEncoder<kVk>::BindIndexBuffer(const Buffer<kVk>& buffer, uint64_t offset, IndexType type) const
 {
 	vkCmdBindIndexBuffer(myCmd, buffer, offset, vk::ToVk(type));

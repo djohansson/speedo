@@ -480,9 +480,10 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.depthWriteEnable = VK_TRUE,
 		.depthCompareOp = VK_COMPARE_OP_LESS,
 		.depthBoundsTestEnable = VK_FALSE,
+		// what writes depth writes the stencil's first bit too, the reference (dynamic: CommandEncoder::SetStencilReference)
 		.stencilTestEnable = VK_FALSE,
-		.front = {},
-		.back = {},
+		.front = {.failOp = VK_STENCIL_OP_KEEP, .passOp = VK_STENCIL_OP_REPLACE, .depthFailOp = VK_STENCIL_OP_KEEP, .compareOp = VK_COMPARE_OP_ALWAYS, .compareMask = 0xFFU, .writeMask = 1U, .reference = 0U},
+		.back = {.failOp = VK_STENCIL_OP_KEEP, .passOp = VK_STENCIL_OP_REPLACE, .depthFailOp = VK_STENCIL_OP_KEEP, .compareOp = VK_COMPARE_OP_ALWAYS, .compareMask = 0xFFU, .writeMask = 1U, .reference = 0U},
 		.minDepthBounds = 0.0F,
 		.maxDepthBounds = 1.0F,};
 
@@ -514,6 +515,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 	// per draw (e.g. per material, for double sided ones), see CommandEncoder::SetCullMode
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_CULL_MODE_EXT);
 	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_FRONT_FACE_EXT);
+	myGraphicsState.dynamicStateDescs.emplace_back(VK_DYNAMIC_STATE_STENCIL_REFERENCE);
 
 	myGraphicsState.dynamicState = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
@@ -653,6 +655,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 	// depth only (e.g. shadows): the first blend mode says whether it writes depth
 	if (colorAttachmentCount == 0 && variant.blend[0] == BlendMode::kOpaque)
 		depthStencil.depthWriteEnable = VK_TRUE;
+	depthStencil.stencilTestEnable = depthStencil.depthWriteEnable;
 	auto colorBlend = graphicsState.colorBlend;
 	colorBlend.attachmentCount = colorAttachmentCount;
 	colorBlend.pAttachments = colorBlendAttachments.data();

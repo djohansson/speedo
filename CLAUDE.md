@@ -517,6 +517,9 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   transients only. The Statistics window shows the bytes, aliased and not.
 - **Imported** resources (the swapchain, the exposure histograms) are bound each frame (`Bind`); passes writing them are
   never culled (others: only if something needed reads what they write, or `SideEffects`).
+- **Depth stencil formats** attach both: `RenderTarget`'s dynamic rendering took a combined format's depth branch
+  alone, so the stencil was never attached and what draws wrote to it went nowhere (found by the depth reprojection,
+  whose stencil read garbage). The stencil's load and store ops are the depth's (the frame graph sets both).
 - **Raster passes** declare attachments (`ColorAttachment`/`DepthAttachment` with load and store ops): all transients
   (the graph makes a `RenderImageSet` over the shared images, one per attachment list) or all of one bound render target
   (the swapchain). The graph sets the ops, begins it (inline or secondary contents) around the callback and ends it.
@@ -594,6 +597,34 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   and 11.67 to 11.79 in its streets, ThousandsOfLights 9.78 to 10.26. Where little is hidden it costs: the second render
   pass loads and stores the main color and depth (a tile based gpu's cost; a desktop gpu's is lower), the pyramid takes
   0.14 ms (0.28 from a full size level 0), and the cull passes. It is the general method, so it stays on.
+- **Occlusion modes** (`SPEEDO_OCCLUSION_MODE`): `two-phase` (the default, above), `reprojected` and `hybrid`, which take
+  the last frame's depth instead of drawing first what it saw. Each frame saves its depth of what doesn't move (Depth
+  Save, `ComputeDepthSave`, compute entry point 7, into `gPreviousDepth`, a float per pixel kept from frame to frame and
+  remade on resizes): what moves is at the far plane, since its depth is last frame's place, marked in the main depth's
+  stencil (`CommandEncoder::SetStencilReference`, dynamic: 1 for draws that aren't cullable, written by every pipeline
+  that writes depth; `gMainStencil` reads it). The next frame pushes each saved pixel to where its point is seen now
+  (Depth Reproject, `ComputeDepthReproject`, entry point 8: the view's last inverse view projection, then the current
+  view projection; `CullView::previous*`), the nearest landing on a pixel kept (`InterlockedMin` of the float's bits into
+  `gReprojectedDepth`, a transient cleared to the far plane), and builds the pyramid from it (Depth Pyramid Reprojected,
+  `PushConstants::depthPyramidSource`). Every point pushed is on a surface that doesn't move, so it is no nearer than
+  what the pixel sees now; pixels nothing lands on (revealed, or the gaps when coming closer) hide nothing; rounding is
+  made up for by a bias farther and the pyramid's 3x3. `reprojected` culls once (Cull Reprojected, `CULL_JOB_PYRAMID`)
+  and draws once: no Main Late, no second render pass. `hybrid` draws first what the reprojected depth doesn't hide
+  (`CULL_JOB_HYBRID_EARLY`, marked in the visibility), then a pyramid of what was drawn tests the rest
+  (`CULL_JOB_HYBRID_LATE`), drawn in Main Late: exact as two-phase. All three render identically to culling off. The
+  cull kernel counts its decisions (`gCullStatistics[frame]`, `CULL_STATISTIC_*`: drawn early, late, late blended,
+  hidden), which the Statistics window shows and `SPEEDO_GPU_TIMINGS=1` averages at exit; hybrid's opaque late draws
+  are what the reprojection alone would have hidden wrongly (popping in `reprojected`). `SPEEDO_CAMERA_TURN=<degrees
+  per second>` and `SPEEDO_CAMERA_WALK=<units per second>` move the views in automated runs (`Views::Turn`). Measured on
+  KosmicKrisp (the frame's gpu time, still, turning, walking, and both, on Sponza, Bistro framed and in a street, and
+  ThousandsOfLights): hybrid's opaque late draws were 0 in every run, so the reprojection never hid what was seen;
+  `reprojected` costs the same as `two-phase` (within 0.1 ms either way; it was 1 ms faster in one Sponza session,
+  the same in another: the gpu clock drifts between sessions), and hides less while the camera turns (Sponza 0.4 draws
+  against 1.3, Bistro's street 2.8 against 6.8: the revealed edges hide nothing); `hybrid` costs 0.35 to 0.45 ms more
+  than either (both pyramids and the reprojection, and still the second render pass). On a tile based gpu the second
+  render pass is what two-phase pays; the reprojection pays as much in Depth Save and the scatter's atomics. A
+  `reprojected` miss would show as a draw missing for a frame, never for longer: its pixels then save the depth behind
+  it.
 
 Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers

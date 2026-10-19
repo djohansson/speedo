@@ -86,6 +86,7 @@ void ComputeCull(uint3 threadId: SV_DispatchThreadID)
 	uint visibility = job.visibilityBase + threadId.x;
 
 	bool keep = false;
+	bool hidden = false; // in view, and hidden
 	switch (job.kind)
 	{
 	case CULL_JOB_FRUSTUM:
@@ -100,11 +101,30 @@ void ComputeCull(uint3 threadId: SV_DispatchThreadID)
 		bool seen = inFrustum && (!cullable || !CullOccluded(view, candidate.boundsMin.xyz, candidate.boundsMax.xyz));
 		gCullVisibility[visibility] = seen ? 1 : 0;
 		keep = seen && !drawnEarly;
+		hidden = inFrustum && !seen;
 		break;
 	}
 	case CULL_JOB_PYRAMID:
 		keep = inFrustum && (!cullable || !CullOccluded(view, candidate.boundsMin.xyz, candidate.boundsMax.xyz));
+		hidden = inFrustum && !keep;
 		break;
+	case CULL_JOB_HYBRID_EARLY:
+		keep = inFrustum && candidate.late == 0 && (!cullable || !CullOccluded(view, candidate.boundsMin.xyz, candidate.boundsMax.xyz));
+		gCullVisibility[visibility] = keep ? 1 : 0;
+		break;
+	case CULL_JOB_HYBRID_LATE:
+		keep = inFrustum && gCullVisibility[visibility] == 0 &&
+			   (!cullable || !CullOccluded(view, candidate.boundsMin.xyz, candidate.boundsMax.xyz));
+		hidden = inFrustum && gCullVisibility[visibility] == 0 && !keep;
+		break;
+	}
+	if (job.kind != CULL_JOB_FRUSTUM && (keep || hidden))
+	{
+		bool late = job.kind == CULL_JOB_LATE || job.kind == CULL_JOB_HYBRID_LATE;
+		uint statistic = hidden ? CULL_STATISTIC_HIDDEN
+						 : !late ? CULL_STATISTIC_EARLY
+								 : (candidate.late != 0 ? CULL_STATISTIC_LATE_BLENDED : CULL_STATISTIC_LATE);
+		InterlockedAdd(gCullStatistics[frameIndex][statistic], 1);
 	}
 	if (!keep && job.compact != 0)
 		return;
@@ -140,20 +160,77 @@ void ComputeDepthPyramid(uint3 threadId: SV_DispatchThreadID)
 		return;
 
 	float farthest = 0.0;
-	uint sourceWidth;
-	uint sourceHeight;
-	if (level == 0)
-		gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].GetDimensions(sourceWidth, sourceHeight);
-	else
+	uint sourceWidth = gPushConstants.framebufferWidth;
+	uint sourceHeight = gPushConstants.framebufferHeight;
+	if (level > 0)
 		gDepthPyramid[NonUniformResourceIndex(level - 1)].GetDimensions(sourceWidth, sourceHeight);
 	for (uint y = 0; y < 3; y++)
 		for (uint x = 0; x < 3; x++)
 		{
 			uint2 source = min(threadId.xy * 2 + uint2(x, y), uint2(sourceWidth, sourceHeight) - 1);
-			farthest = max(
-				farthest,
-				level == 0 ? gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(source, 0)).r
-						   : gDepthPyramid[NonUniformResourceIndex(level - 1)][source]);
+			float depth;
+			if (level > 0)
+				depth = gDepthPyramid[NonUniformResourceIndex(level - 1)][source];
+			else if (gPushConstants.depthPyramidSource != 0)
+				depth = asfloat(gReprojectedDepth[source.y * sourceWidth + source.x]);
+			else
+				depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(source, 0)).r;
+			farthest = max(farthest, depth);
 		}
 	gDepthPyramid[NonUniformResourceIndex(level)][threadId.xy] = farthest;
+}
+
+// the depth reprojection: each frame saves its depth of what doesn't move (ComputeDepthSave; what moves is at the far
+// plane, its depth last frame's place), and the next pushes each saved pixel to where its point is seen now
+// (ComputeDepthReproject: its view's last inverse view projection, then the view projection now), the nearest of those
+// landing on a pixel kept. every point pushed is on a surface that doesn't move, so it is no nearer than what the pixel
+// sees now (pixels nothing lands on stay at the far plane, as the gaps when coming closer): conservative but for
+// rounding, which a little bias farther and the pyramid's 3x3 at level 0 make up for
+[shader("compute")]
+[numthreads(SHADER_TYPES_DEPTH_REPROJECT_GROUP_SIZE, SHADER_TYPES_DEPTH_REPROJECT_GROUP_SIZE, 1)]
+void ComputeDepthSave(uint3 threadId: SV_DispatchThreadID)
+{
+	uint width = gPushConstants.framebufferWidth;
+	if (threadId.x >= width || threadId.y >= gPushConstants.framebufferHeight)
+		return;
+	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(threadId.xy, 0)).r;
+	bool moves = (gMainStencil.Load(int3(threadId.xy, 0)) & 1) != 0;
+	gPreviousDepth[threadId.y * width + threadId.x] = moves ? 1.0 : depth;
+}
+
+[shader("compute")]
+[numthreads(SHADER_TYPES_DEPTH_REPROJECT_GROUP_SIZE, SHADER_TYPES_DEPTH_REPROJECT_GROUP_SIZE, 1)]
+void ComputeDepthReproject(uint3 threadId: SV_DispatchThreadID)
+{
+	uint previousWidth = gPushConstants.previousWidth;
+	if (threadId.x >= previousWidth || threadId.y >= gPushConstants.previousHeight)
+		return;
+	float depth = gPreviousDepth[threadId.y * previousWidth + threadId.x];
+	if (depth >= 1.0)
+		return;
+
+	float2 pixel = float2(threadId.xy) + 0.5;
+	for (uint viewIt = 0; viewIt < gPushConstants.mainViewCount; viewIt++)
+	{
+		CullView view = gCullViews[gPushConstants.frameIndex][viewIt];
+		float4 previousViewport = view.previousViewport;
+		if (view.previousValid == 0 || any(pixel < previousViewport.xy) || any(pixel >= previousViewport.xy + previousViewport.zw))
+			continue;
+
+		float2 ndc = (pixel - previousViewport.xy) / previousViewport.zw * 2.0 - 1.0;
+		float4 world = mul(view.previousInverseViewProjection, float4(ndc, depth, 1.0));
+		float4 clip = mul(view.viewProjection, float4(world.xyz / world.w, 1.0));
+		if (clip.w <= 1.0e-6)
+			return;
+		float3 now = clip.xyz / clip.w;
+		if (now.z < 0.0 || now.z >= 1.0)
+			return;
+		float2 target = view.viewport.xy + (now.xy * 0.5 + 0.5) * view.viewport.zw;
+		if (any(target < view.viewport.xy) || any(target >= view.viewport.xy + view.viewport.zw))
+			return;
+		float biased = min(now.z + (1.0 - now.z) * 1.0e-3, 1.0);
+		uint2 at = uint2(target);
+		InterlockedMin(gReprojectedDepth[at.y * gPushConstants.framebufferWidth + at.x], asuint(biased));
+		return;
+	}
 }

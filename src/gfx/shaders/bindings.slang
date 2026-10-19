@@ -38,6 +38,9 @@ RWStructuredBuffer<uint> gExposureHistogram;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
+// the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
+[[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
+Texture2D<uint> gMainStencil;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
@@ -110,3 +113,13 @@ RWStructuredBuffer<uint> gCullCounts[SHADER_TYPES_FRAME_COUNT];
 // per draw and main view, whether it was seen (1) the last frame that culled it: one buffer, frames run in order
 [[vk::binding(17, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gCullVisibility;
+// the depth reprojection (see ComputeDepthSave, ComputeDepthReproject): the last frame's depth of what doesn't move (1,
+// the far plane, where something moved), a float per pixel, and the frame's depth reprojected from it, a float's bits
+// per pixel (an atomic minimum: depths are positive, so their bits order as they do)
+[[vk::binding(18, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<float> gPreviousDepth;
+[[vk::binding(19, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gReprojectedDepth;
+// what the occlusion culling decided (CULL_STATISTIC_*), host visible, per frame index
+[[vk::binding(20, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gCullStatistics[SHADER_TYPES_FRAME_COUNT];

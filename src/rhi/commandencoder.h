@@ -33,6 +33,9 @@ public:
 	// which faces draws discard: dynamic state, so it must be set before drawing with the pipeline
 	void SetCullMode(CullMode mode) const;
 	void SetFrontFace(FrontFace face) const;
+	// the value draws that write depth write to the stencil's first bit too (both faces), where the target has one: e.g.
+	// to mark what moves (see the depth reprojection)
+	void SetStencilReference(uint32_t reference) const;
 	void BindIndexBuffer(const Buffer<G>& buffer, uint64_t offset, IndexType type) const;
 	void DrawIndexed(uint32_t indexCount, uint32_t instanceCount = 1, uint32_t firstIndex = 0, int32_t vertexOffset = 0, uint32_t firstInstance = 0) const;
 	// drawCount indexed draws, each from a command in buffer (BufferUsage::kIndirect: index count, instance count, first

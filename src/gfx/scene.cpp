@@ -1784,6 +1784,8 @@ struct Scene::Impl
 						{"ComputeUiBlurY", SLANG_STAGE_COMPUTE},
 						{"ComputeCull", SLANG_STAGE_COMPUTE}, // see the Cull passes
 						{"ComputeDepthPyramid", SLANG_STAGE_COMPUTE}, // see the Depth Pyramid pass
+						{"ComputeDepthSave", SLANG_STAGE_COMPUTE}, // see the depth reprojection passes
+						{"ComputeDepthReproject", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

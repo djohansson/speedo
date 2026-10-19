@@ -441,16 +441,19 @@ void RenderTarget<DerivedType, kVk>::InternalUpdateAttachments()
 				};
 				myDepthAttachmentFormat = attachmentDesc.format;
 			}
-			else if (HasStencilComponent(attachmentDesc.format))
+			// a depth stencil format's stencil too (it used to take the depth's branch alone, so the stencil was never
+			// attached: what draws wrote to it went nowhere)
+			if (HasStencilComponent(attachmentDesc.format))
 			{
+				bool depth = HasDepthComponent(attachmentDesc.format);
 				myStencilAttachmentInfo = VkRenderingAttachmentInfoKHR
 				{
 					.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR,
 					.pNext = nullptr,
 					.imageView = attachment,
 					.imageLayout = vk::ToVk(GetLayout(i)),
-					.loadOp = attachmentDesc.loadOp,
-					.storeOp = attachmentDesc.storeOp,
+					.loadOp = depth ? attachmentDesc.stencilLoadOp : attachmentDesc.loadOp,
+					.storeOp = depth ? attachmentDesc.stencilStoreOp : attachmentDesc.storeOp,
 					.clearValue = vk::ToVk(clearValue, AspectOf(this->GetDesc().imageFormats[i])),
 				};
 				myStencilAttachmentFormat = attachmentDesc.format;

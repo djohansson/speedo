@@ -53,6 +53,8 @@ public:
 	// CameraCreateDesc::cameraRotation), keeping its projection (e.g. SPEEDO_CAMERA, for measurements and screenshots).
 	// any thread
 	void Place(const glm::vec3& eye, const glm::vec3& rotation);
+	// turns every view about the vertical axis (radians of yaw), and moves it forward (along where it looks), where it is
+	void Turn(float yaw, float forward = 0.0F);
 
 	// the installed model's bounds and cameras (see ModelDesc::cameras): sets the views to its first camera, or frames
 	// the bounds if it has none. call on the draw thread.

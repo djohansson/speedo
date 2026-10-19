@@ -111,6 +111,11 @@ public:
 	// the lights and shadow views of the last frame recorded with FrameInputs::captureLights, for debugging. any thread.
 	[[nodiscard]] LightCapture GetLightCapture() const;
 
+	// what the occlusion culling decided in the last frame the gpu finished (CULL_STATISTIC_*), and the occlusion mode's
+	// name. any thread.
+	[[nodiscard]] std::array<uint32_t, CULL_STATISTIC_COUNT> GetCullStatistics() const;
+	[[nodiscard]] std::string_view GetOcclusionModeName() const noexcept;
+
 private:
 	// the frame's draw lists, in the order their records and culling candidates are written
 	enum class ListId : uint8_t
@@ -123,6 +128,7 @@ private:
 		kCount,
 	};
 	[[nodiscard]] DrawList& InternalList(ListId list) noexcept;
+	[[nodiscard]] const DrawList& InternalList(ListId list) const noexcept { return const_cast<Renderer*>(this)->InternalList(list); }
 
 	// per frame index buffers bound as one array (binding), which grow to the next power of two when a frame needs more
 	// than they hold: the replaced one is kept until no frame in flight can use it (myRetiredBuffers)
@@ -219,6 +225,39 @@ private:
 	// hide (Main Late). the visibility per draw and main view (gCullVisibility), kept from frame to frame, growing
 	bool myOcclusionCulling = true;
 	bool myOcclusionThisFrame = false;
+	// how what is hidden is found (SPEEDO_OCCLUSION_MODE): two-phase (the draws seen last frame, a pyramid of them, then
+	// the rest), reprojected (one phase, against the last frame's depth reprojected, see ComputeDepthReproject) or hybrid
+	// (what that doesn't hide first, then the rest against a pyramid of it)
+	enum class OcclusionMode : uint8_t
+	{
+		kTwoPhase,
+		kReprojected,
+		kHybrid,
+	};
+	OcclusionMode myOcclusionMode = OcclusionMode::kTwoPhase;
+	// the depth reprojection's: the last frame's depth of what doesn't move (gPreviousDepth, kept: recreated, and not
+	// valid, on resizes), its extent and views, and the frame's reprojected (gReprojectedDepth, a transient), and the
+	// main depth's stencil, which marks what moves
+	FrameGraph::BufferId myPreviousDepth;
+	FrameGraph::BufferId myReprojectedDepth;
+	Buffer myPreviousDepthBuffer;
+	rhi::Extent2d myPreviousExtent{};
+	bool myPreviousValid = false;
+	std::vector<glm::mat4> myPreviousInverseViewProjections;
+	std::vector<rhi::Viewport> myPreviousViewports;
+	std::unique_ptr<ImageView> myStencilView;
+	FrameGraph::PassId myDepthReprojectClearPass;
+	FrameGraph::PassId myDepthReprojectPass;
+	FrameGraph::PassId myDepthPyramidReprojectedPass;
+	FrameGraph::PassId myCullReprojectedPass;
+	FrameGraph::PassId myDepthSavePass;
+	// per frame index, what the occlusion culling decided (gCullStatistics), host visible: read after the frame's fence,
+	// the last frame's kept, and with SPEEDO_GPU_TIMINGS=1 summed for the destructor's averages
+	std::vector<Buffer> myCullStatisticsBuffers;
+	FrameGraph::BufferId myCullStatisticsId;
+	core::ConcurrentAccess<std::array<uint32_t, CULL_STATISTIC_COUNT>> myCullStatistics;
+	std::array<uint64_t, CULL_STATISTIC_COUNT> myCullStatisticSums{};
+	uint64_t myCullStatisticFrameCount = 0;
 	bool myCountEmulated = false;
 	FrameGraph::ImageId myDepthPyramid;
 	std::vector<std::unique_ptr<ImageView>> myDepthPyramidViews; // a storage view per level

@@ -86,10 +86,12 @@ public:
 	[[nodiscard]] static MemoryRequirements GetMemoryRequirements(const Device<G>& device, const CreateDescType& desc);
 
 	// for host visible buffers: the buffer's memory, until Unmap. Flush makes host writes to a range of it visible to
-	// the device when the memory isn't host coherent.
+	// the device when the memory isn't host coherent, and Invalidate the device's writes to the host (after a barrier to
+	// the host stage, and the gpu's work).
 	[[nodiscard]] std::span<std::byte> Map();
 	void Unmap();
 	void Flush(size_t offset, size_t size);
+	void Invalidate(size_t offset, size_t size);
 
 private:
 	ValueType myBuffer{};

@@ -121,7 +121,8 @@ struct DrawList
 // since a double sided surface's nearest back face is its front
 [[nodiscard]] DrawList BuildScatterBackDrawList(const DrawList& scatter);
 
-// cuts a list's items into runs of the same pipeline variant, cull mode and front face, of at most maxDrawCount
+// cuts a list's items into runs of the same pipeline variant, cull mode, front face and cullability (what moves marks
+// the stencil, see DrawState), of at most maxDrawCount
 // (DeviceLimits::maxDrawIndirectCount): each an indirect draw when the gpu culls (see RecordCulledDrawList)
 void PlanDrawRuns(DrawList& list, uint32_t maxDrawCount);
 
