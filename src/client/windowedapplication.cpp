@@ -266,26 +266,25 @@ bool WindowedApplication::Draw()
 			swapchain.OnPresentResult(presentResult);
 		}
 
-		static uint64_t gLastFrameSubmitCount = Queue::GetSubmitCount();
-		static uint64_t gLastFrameSubmitBatchCount = Queue::GetSubmitBatchCount();
-		auto submitCount = Queue::GetSubmitCount();
-		auto submitBatchCount = Queue::GetSubmitBatchCount();
-		gFrameSubmitCount.store(static_cast<uint32_t>(submitCount - gLastFrameSubmitCount), std::memory_order_relaxed);
-		gFrameSubmitBatchCount.store(static_cast<uint32_t>(submitBatchCount - gLastFrameSubmitBatchCount), std::memory_order_relaxed);
-		gLastFrameSubmitCount = submitCount;
-		gLastFrameSubmitBatchCount = submitBatchCount;
-
+		// the frame rate, and the gpu submits (and their batches) per frame, over the frames of (at least) half a second
 		using namespace std::chrono_literals;
 		static auto gFpsTime = std::chrono::steady_clock::now();
 		static uint32_t gFpsFrameCount = 0;
+		static uint64_t gFpsSubmitCount = Queue::GetSubmitCount();
+		static uint64_t gFpsSubmitBatchCount = Queue::GetSubmitBatchCount();
 		gFpsFrameCount++;
 		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
 		{
-			gFramesPerSecond.store(
-				static_cast<float>(gFpsFrameCount) / std::chrono::duration<float>(now - gFpsTime).count(),
-				std::memory_order_relaxed);
+			auto submitCount = Queue::GetSubmitCount();
+			auto submitBatchCount = Queue::GetSubmitBatchCount();
+			auto frames = static_cast<float>(gFpsFrameCount);
+			gFramesPerSecond.store(frames / std::chrono::duration<float>(now - gFpsTime).count(), std::memory_order_relaxed);
+			gSubmitsPerFrame.store(static_cast<float>(submitCount - gFpsSubmitCount) / frames, std::memory_order_relaxed);
+			gSubmitBatchesPerFrame.store(static_cast<float>(submitBatchCount - gFpsSubmitBatchCount) / frames, std::memory_order_relaxed);
 			gFpsFrameCount = 0;
 			gFpsTime = now;
+			gFpsSubmitCount = submitCount;
+			gFpsSubmitBatchCount = submitBatchCount;
 		}
 	}
 

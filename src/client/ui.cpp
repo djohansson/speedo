@@ -2,6 +2,8 @@
 
 #include <gfx/lightgizmos.h>
 
+#include <version.h>
+
 #include <imgui.h>
 
 #include <glm/mat4x4.hpp>
@@ -192,15 +194,9 @@ void WindowedApplication::PrepareDraw()
 				Separator();
 #endif
 
-				// gpu submits: totals, and how many went to the gpu between the last two presented frames (see Draw)
-				Text(
-					"Queue Submits: %llu (%u/frame)",
-					static_cast<unsigned long long>(Queue::GetSubmitCount()),
-					gFrameSubmitCount.load(std::memory_order_relaxed));
-				Text(
-					"Submit Batches: %llu (%u/frame)",
-					static_cast<unsigned long long>(Queue::GetSubmitBatchCount()),
-					gFrameSubmitBatchCount.load(std::memory_order_relaxed));
+				// gpu submits per frame, averaged over half a second as the frame rate is (see Draw)
+				Text("Queue Submits: %.1f/frame", gSubmitsPerFrame.load(std::memory_order_relaxed));
+				Text("Submit Batches: %.1f/frame", gSubmitBatchesPerFrame.load(std::memory_order_relaxed));
 
 				// the frame graph's passes, on the gpu (see GpuProfiler::Collect): only where the backend writes their timestamps
 				// (KosmicKrisp: at the beginning and end of its own command encoders)
@@ -429,8 +425,22 @@ void WindowedApplication::PrepareDraw()
 
 	if (gShowAbout)
 	{
-		if (Begin("About client", &gShowAbout))
+		if (Begin("About client", &gShowAbout, ImGuiWindowFlags_AlwaysAutoResize))
+		{
 			CloseOnEscape(gShowAbout);
+			Text("speedo %d.%d.%d", speedo::version::Major, speedo::version::Minor, speedo::version::Patch);
+			TextDisabled("A real-time renderer and asset viewer, built on Vulkan.");
+			Separator();
+			auto name = device.GetName();
+			Text("GPU: %.*s", static_cast<int>(name.size()), name.data());
+#if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
+			Text("Build: debug (validation on)");
+#elif (SPEEDO_PROFILING_LEVEL > 0)
+			Text("Build: profile");
+#else
+			Text("Build: release");
+#endif
+		}
 		End();
 	}
 

@@ -81,11 +81,11 @@ namespace windowedapplication
 	return *app;
 }
 
-// gpu submits (and their batches) between the last two presented frames, from any thread. written by Draw
-inline std::atomic_uint32_t gFrameSubmitCount;
-inline std::atomic_uint32_t gFrameSubmitBatchCount;
-// presented frames per second, over (at least) the last half second. written by Draw
+// presented frames per second, and gpu submits (vkQueueSubmit calls) and their batches (VkSubmitInfos) per presented frame,
+// over (at least) the last half second, from any thread. written by Draw
 inline std::atomic<float> gFramesPerSecond;
+inline std::atomic<float> gSubmitsPerFrame;
+inline std::atomic<float> gSubmitBatchesPerFrame;
 
 // the models of an archive with several, for the user to choose from (see PrepareDraw)
 struct ArchiveChoice

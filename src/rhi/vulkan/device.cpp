@@ -91,6 +91,12 @@ DeviceLimits Device<kVk>::GetLimits() const
 }
 
 template <>
+std::string_view Device<kVk>::GetName() const
+{
+	return GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice()).deviceProperties.properties.deviceName;
+}
+
+template <>
 Format Device<kVk>::FindSupportedFormat(std::span<const Format> candidates, ImageTiling tiling, FormatFeature features) const
 {
 	for (auto candidate : candidates)

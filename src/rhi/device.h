@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace rhi
@@ -74,6 +75,8 @@ public:
 
 	[[nodiscard]] PhysicalDeviceHandle<G> GetPhysicalDevice() const noexcept { return SuperType::GetDesc().physicalDevice; }
 	[[nodiscard]] DeviceLimits GetLimits() const;
+	// the physical device's name, as its driver reports it (e.g. "Apple M4 Pro")
+	[[nodiscard]] std::string_view GetName() const;
 	// the first of candidates that supports features with tiling, or kUndefined if none does
 	[[nodiscard]] Format FindSupportedFormat(std::span<const Format> candidates, ImageTiling tiling, FormatFeature features) const;
 
