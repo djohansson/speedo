@@ -1,13 +1,10 @@
 # TODO
-* plan (in this order):
-	1. culling, step by step towards clustered shading (measured with the gpu timings: Main and Shadows on Bistro, from the SPEEDO_CAMERA viewpoints in CLAUDE.md, "Culling")
-		done: lights binned on the cpu, measured with ThousandsOfLights.gltf (4000 lights: 80 us a frame, so no compute pass), unranged lights bounded by the scene
-		next: gpu driven culling (no cost per draw for chunks out of view, and per instance), then occlusion culling, from the same chunks, measured on Bistro and ThousandsOfLights.gltf:
-			a. done: the per draw values (material, instance base, skin and morph bases) from a draw record the vertex shader reads by index, not push constants (renders unchanged)
-			b. done: indirect draws, a run of draws with the same state each, the cpu writing the commands: free on KosmicKrisp, but DrawIndexedIndirectCount costs 0.8 us a draw more, an empty draw 0.2 (see CLAUDE.md)
-			c. done: the gpu's frustum culling (the Cull pass): a thread per draw and view, the draws it keeps compacted per run and counted, drawn with DrawIndexedIndirectCount; renders identical to the cpu's. default where the count is native; where it is emulated (KosmicKrisp: a compute kernel and encoder split per call, ~55 us with the shadow atlas, then every slot drawn; ThousandsOfLights' Shadows 1.0 to 15.1 ms) the cpu culls. revisit when mesa's kk_cmd_draw.c builds indirect command buffers on the gpu (its TODO, still there in main 44fd0fde, 2026-10-19). per instance culling is still to do (one draw's instances share bounds)
-			d. done: two phase occlusion culling (see CLAUDE.md, "Occlusion culling"): the draws seen last frame, a depth pyramid of them, then the rest it doesn't hide. Sponza's frame 5.34 to 4.83 ms on KosmicKrisp; where little is hidden it costs 0.1 to 0.5 (the second render pass's loads and stores). next, maybe: the pyramid in one dispatch (shared memory, as AMD's single pass downsampler), occlusion for the shadow views (from the previous frame's shadow depth), per instance culling
-			e. done: occlusion by the last frame's depth reprojected (SPEEDO_OCCLUSION_MODE=reprojected, one phase) and hybrid (reprojected first, then the rest against a pyramid of what was drawn); see CLAUDE.md, "Occlusion modes". two-phase stays the default: reprojected costs the same here and hides less while the camera moves, hybrid costs 0.35 to 0.45 ms more. worth measuring again on a desktop gpu, where the second render pass is cheap and the reprojection's atomics may not be
+* plan (in this order): culling follow-ups, measured as before (the frame's gpu time, the `Frame` scope, and the cull statistics; SPEEDO_CAMERA, SPEEDO_CAMERA_TURN and SPEEDO_CAMERA_WALK for repeatable views)
+	1. per instance culling: one draw's instances share its bounds now, so an instanced submesh is culled whole (bounds per instance, and the cull kernel writing the instances it keeps)
+	2. the depth pyramid in one dispatch (shared memory, as AMD's single pass downsampler) instead of a dispatch per level with barriers between
+	3. occlusion for the shadow views (from the previous frame's shadow depth, or the main view's pyramid for the cascades)
+	4. the occlusion modes and the gpu culling measured again on a desktop gpu (Windows or Linux): there the second render pass is cheap and the reprojection's atomics may not be, and the count is native
+	5. revisit KosmicKrisp's DrawIndexedIndirectCount once mesa's kk_cmd_draw.c builds indirect command buffers on the gpu (its TODO, still there in main 44fd0fde, 2026-10-19): then drop DeviceLimits::drawIndirectCountEmulated's exception
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
@@ -16,13 +13,12 @@
 	* shading models: metallic-roughness, specular-glossiness, unlit, and the KHR_materials_* extensions of the glTF-Sample-Assets (specular, ior, clearcoat, sheen, transmission, volume, volume_scatter, dispersion, anisotropy, iridescence, diffuse_transmission, emissive_strength, retroreflection, variants), as the Khronos sample viewer approximates them. transmission sees only the opaque scene (not other transmissive or blended surfaces), and punctual lights don't shine through it. obj materials map Ks and Ns to specular and roughness (their Ks color, Ka, Tf, Ni and illum are ignored)
 	* alpha blending: exact per pixel linked lists, but with fixed budgets: 4 nodes per pixel on average (fragments past them are dropped, e.g. in full screen glass several layers deep), and the 16 nearest layers of a pixel blended. no adaptive growth of the node pool, and no MSAA
 	* texcoords: sets above 1 fall back to set 0 (no sample model needs more: MosquitoInAmber has a TEXCOORD_2 that no material reads)
-	* everything else is flattened into one Model with one draw per submesh: no per node transforms or culling at draw time
+	* everything else is flattened into one Model, drawn per submesh chunk (see CLAUDE.md, "Culling"): no per node transforms at draw time
 * todo: the glTF-Sample-Assets materials not drawn yet (compared against the samples' reference screenshots)
 	* what only ray or path tracing matches (TransmissionRoughnessTest, AttenuationTest and DispersionTest's screenshots are path traced, ScatteringSkull's from Substance Stager, TrafficCone's from a ray tracer): one refraction through an estimated thickness, so no internal or total internal reflection (DispersionTest's bright faces), and no transmissive surface seen through another
 	* not settled: DiffuseTransmissionTeacup's cup looked more mirror-like than the reference's satin porcelain (no matching camera angle to compare)
-* todo: optimize shaders. investigate if we can use vulkan specialization constants to simplify the shader for a specific material set for example.
-* todo: investigate and implement optimization techniques such as clustered forward shading
-	* culling: frustum culling of chunks on the cpu (see CLAUDE.md, "Culling"); nothing that moves is culled, nor are instanced submeshes by instance (one draw's instances share bounds). no occlusion culling
+* todo: optimize shaders further: the layer groups a material doesn't use are compiled away by a specialization constant (see CLAUDE.md, "Shader tiers"); the uber-shader's other branches (texture presence, alpha modes, the light loop) aren't
+* todo: culling leftovers: nothing that moves is culled (skinned, morphed and animated draws are always drawn, and left out of the reprojected depth), nor are instanced submeshes by instance (see the plan)
 * todo: file loading leftovers (see CLAUDE.md, "File I/O"): Model::Load's source load op still lets mesh::Import map the file again (the obj and gltf importers take paths, for their mtl files and buffers); slang reads the shader sources itself (an ISlangFileSystem could hand it mapped files); core::file::Map has no read-ahead hint on windows (PrefetchVirtualMemory)
 * todo: frame graph (gfx::FrameGraph) follow-ups
 	* one queue: no async compute or transfer passes, and the passes are recorded in order into one command buffer (only the main pass's views go to secondary command buffers)
@@ -31,7 +27,7 @@
 * todo: imguirenderer: rhi::ImGuiRenderer is imgui's vulkan backend and its textures, which could live with gfx's imgui context instead (gfx would need the backend's vulkan calls, which it mustn't have, so likely a renderer api of rhi's instead)
 * todo: split some of the bulkier rhi files such as pipeline and command into separate files.
 * todo: (maybe) CMAKE_SUPPRESS_REGENERATION: the FASTBuild generator re-runs cmake from inside a build when CMakeLists.txt changed (its rebuild-bff step), without the preset's environment when the build wasn't started through a preset; that is the path that breaks the shared install/ tree (see CLAUDE.md), and once left a build dir without its CMakeCache.txt ("not a CMake build directory": fixed by cmake --preset). suppressing it removes that path, at the cost of running Configure by hand after CMakeLists.txt changes outside VS Code's editor (a git pull, scripted edits): until then a build uses the old file lists
-* todo: the file browser: the preview can't be orbited (it frames the model, or uses its camera); zip archives have no thumbnail or preview; long paths overflow the breadcrumb row; long names are clipped (the tooltip has them); the thumbnail cache is never pruned (a changed file or shader leaves the old entries behind)
+* todo: the file browser: the preview can't be orbited (it frames the model, or uses its camera); long paths overflow the breadcrumb row; long names are clipped (the tooltip has them); the thumbnail cache is never pruned (a changed file or shader leaves the old entries behind)
 * todo: multi window/swapchain capability
 * todo: (maybe) use Scatter/Gather I/O
 * todo: graph based GUI. current solution (imnodes) is buggy and not currently working at all.
@@ -47,6 +43,18 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: occlusion modes (SPEEDO_OCCLUSION_MODE): reprojected, one phase against the last frame's depth pushed to where it is seen now, and hybrid; two-phase stays the default (reprojected costs the same on KosmicKrisp and hides less while the camera moves, hybrid more). the reprojection never hid a visible draw, still, turning or walking. found on the way: depth stencil formats' stencil was never attached; host reads of device writes lacked an invalidate and a barrier
+* done: two phase occlusion culling: the draws seen last frame, a depth pyramid of them (half size, a level per dispatch), then the rest it doesn't hide (Cull Late, Main Late); Sponza's frame 5.34 to 4.83 ms; the cull kernel's decisions in Statistics
+* done: the gpu's frustum culling (the Cull pass): the draws in view compacted per run and counted, drawn with DrawIndexedIndirectCount, where the count is native; where it is emulated (KosmicKrisp: DeviceLimits::drawIndirectCountEmulated) the cpu culls, and occlusion culls the main pass uncompacted (empty commands in place)
+* done: indirect draws: a run of draws with the same state one DrawIndexedIndirect of commands the cpu writes (DrawStream chunks), each draw naming its DrawRecord (material, instance, skin and morph bases) by its first instance
+* done: the frame's whole gpu time (the Frame scope), where a backend doesn't time every pass, and the median frame time with SPEEDO_GPU_TIMINGS=1
+* done: capacity limits fail hard (ENSUREF), and what real content hit grows: the draw records, the materials (NodePerformanceTest's 10000), the cull buffers
+* done: clustered lighting at scale: unranged lights bounded by the scene, 4096 lights, ThousandsOfLights.gltf (4000 lights binned on the cpu in 80 us a frame, so no compute pass); SPEEDO_LAYOUT for split views
+* done: the About window, and Statistics' submits and batches per frame
+* done: the ui fades out when unused and back in over the menu bar or a window, menu or popup
+* done: zip archives previewed and thumbnailed in the file browser (their models side by side), listed with the models by default; an entry without a preview clears it
+* done: the README's screenshots (ChronographWatch, CarConcept, DamagedHelmet), and the README brought up to date
+* done: the task executor's threads named in Tracy; RHIBase removed; Tracy's vk-query-count patch dropped
 * done: a tsan preset, run by assettest.ps1: the quick tier passes. it found std::cout racing in libc++ (all printing is std::println now); the tsan runtime itself faults now and then on macOS 27, which our crash handler turned into a hang (sanitized builds leave fatal signals to the sanitizer)
 * done: a sanitize preset (asan and ubsan on our own targets, compiler-rt from the host llvm, without mimalloc), run by assettest.ps1: the quick tier passes. it found the Vulkan host allocation fallback (without mimalloc) returning null
 * done: every window frosted and rounded as macOS's (dialogs too), with a macOS dark palette for the controls
