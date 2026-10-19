@@ -7,7 +7,7 @@
 bool ClusterLights(float3 position, out uint first, out uint count)
 {
 	uint frameIndex = gPushConstants.frameIndex;
-	uint viewId = gPushConstants.viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
+	uint viewId = gPushConstants.viewId;
 	ClusterView cluster = gClusterViews[frameIndex][viewId];
 	first = 0;
 	count = gPushConstants.lightCount;

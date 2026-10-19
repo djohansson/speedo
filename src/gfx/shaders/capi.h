@@ -396,7 +396,7 @@ struct VertexP3fN3fTa4fT014fC4f
 };
 
 // a skinned vertex's joints and weights (gltf JOINTS_0 and WEIGHTS_0), by vertex index (gSkinVertices, parallel to
-// gVertexBuffer): position = sum of weight i * gJointMatrices[frame][PushConstants::jointBase + joint i] * position
+// gVertexBuffer): position = sum of weight i * gJointMatrices[frame][DrawRecord::jointBase + joint i] * position
 struct SkinVertex
 {
 	alignas(8) UINT2(joints); // 4 x 16 bit joint indices into its skin, low half first
@@ -404,7 +404,7 @@ struct SkinVertex
 };
 
 // a vertex's deltas for one morph target, transformed like the vertex: gMorphDeltas holds a row of
-// PushConstants::morphTargetCount of them per vertex of an animated morph submesh, from morphDeltaBase for its vertices
+// DrawRecord::morphTargetCount of them per vertex of an animated morph submesh, from morphDeltaBase for its vertices
 // from morphFirstVertex, added to the vertex by the target's weight (gMorphWeights[frame][morphWeightBase + target])
 struct MorphDelta
 {
@@ -413,25 +413,35 @@ struct MorphDelta
 	alignas(16) FLOAT4(tangent);
 };
 
-struct PushConstants
+// how many draws a frame's gDrawRecords holds (the draw lists' items, see DrawList)
+#define SHADER_TYPES_DRAW_RECORD_COUNT (1u << 15)
+
+// what a draw needs that differs from the draw before (gDrawRecords[frame][PushConstants::drawRecord]): its material,
+// its instances, and its skin and morph targets. read by the vertex stage, which hands the material on
+struct DrawRecord
 {
-	// per frame
-	alignas(4) UINT1(frameIndex);
-	// per view
-	// per material
-	alignas(4) UINT1(viewAndMaterialId);
-	// per draw: the first of its instances in gModelInstances (the model's instance buffer), offset by SV_InstanceID
-	alignas(4) UINT1(modelInstanceId);
-	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
-	alignas(4) UINT1(lightCount);
-	alignas(4) FLOAT1(exposure);
-	// per draw: where its skin's joint matrices start in gJointMatrices, or SHADER_TYPES_NOT_SKINNED
-	alignas(4) UINT1(jointBase);
-	// per draw: its morph targets (see MorphDelta), none if morphTargetCount is 0
+	alignas(4) UINT1(materialId); // gMaterialData's
+	alignas(4) UINT1(modelInstanceId); // the first of its instances in gModelInstances, offset by SV_InstanceID
+	alignas(4) UINT1(jointBase); // where its skin's joint matrices start in gJointMatrices, or SHADER_TYPES_NOT_SKINNED
+	// its morph targets (see MorphDelta), none if morphTargetCount is 0
 	alignas(4) UINT1(morphTargetCount);
 	alignas(4) UINT1(morphDeltaBase);
 	alignas(4) UINT1(morphFirstVertex);
 	alignas(4) UINT1(morphWeightBase);
+	alignas(4) UINT1(padding);
+};
+
+struct PushConstants
+{
+	// per frame
+	alignas(4) UINT1(frameIndex);
+	// per view: gViewData's
+	alignas(4) UINT1(viewId);
+	// per draw: its DrawRecord in gDrawRecords[frameIndex]
+	alignas(4) UINT1(drawRecord);
+	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
+	alignas(4) UINT1(lightCount);
+	alignas(4) FLOAT1(exposure);
 	// per frame: the environment's (see EnvironmentData) radiance scale, and its rotation about +y in radians (positive
 	// turns it counterclockwise seen from above)
 	alignas(4) FLOAT1(environmentIntensity);
@@ -446,7 +456,7 @@ struct PushConstants
 	// per frame, for ComputeMain: which tonemapper (TONEMAPPER_*)
 	alignas(4) UINT1(tonemapper);
 	// per draw: the shadow view (gShadowViews[frame]) a draw of the shadow pass is seen from, else SHADER_TYPES_NO_SHADOW
-	// (the view of viewAndMaterialId). per frame: whether lights cast their shadows
+	// (the view of viewId). per frame: whether lights cast their shadows
 	alignas(4) UINT1(shadowView);
 	alignas(4) UINT1(shadows);
 	// per frame: whether the scatter pass drew (SHADER_TYPES_SCATTER_TEXTURE holds this frame's scattering light)

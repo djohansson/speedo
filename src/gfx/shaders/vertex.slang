@@ -1,13 +1,13 @@
 // the vertex stage: morph targets, skinning, the vertex interfaces, and VertexZPrepass and VertexMain. a part of shaders.slang, which includes it after capi.h and sky.h
 
 // a vertex moved by its submesh's morph targets: each target's deltas (see MorphDelta) times the target's weight
-void Morph(uint vertexId, uint frameIndex, inout float3 position, inout float3 normal, inout float3 tangent)
+void Morph(DrawRecord draw, uint vertexId, uint frameIndex, inout float3 position, inout float3 normal, inout float3 tangent)
 {
-	uint count = gPushConstants.morphTargetCount;
-	uint row = gPushConstants.morphDeltaBase + (vertexId - gPushConstants.morphFirstVertex) * count;
+	uint count = draw.morphTargetCount;
+	uint row = draw.morphDeltaBase + (vertexId - draw.morphFirstVertex) * count;
 	for (uint t = 0; t < count; t++)
 	{
-		float weight = gMorphWeights[frameIndex][gPushConstants.morphWeightBase + t];
+		float weight = gMorphWeights[frameIndex][draw.morphWeightBase + t];
 		if (weight == 0.0)
 			continue;
 		MorphDelta delta = gMorphDeltas[row + t];
@@ -50,6 +50,8 @@ struct VertexOutput : IInterpolants
 	float4 hPos : SV_Position;
 	// the instance transform's scale (the cube root of its volume scale), for KHR_materials_volume's thickness
 	float modelScale;
+	// the draw's material (see DrawRecord), for the fragment stage
+	nointerpolation uint materialId;
 };
 
 // VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)
@@ -66,25 +68,22 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	VertexZPrepassOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
-	uint modelInstanceId = gPushConstants.modelInstanceId;
-	
-	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
+	DrawRecord draw = gDrawRecords[frameIndex][gPushConstants.drawRecord];
 
-	ViewData view = gViewData[frameIndex][viewId];
+	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
 
 	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-	ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
+	ModelInstance i = gModelInstances[frameIndex][draw.modelInstanceId + input.instanceId];
 
 	float3 position = v.position;
-	if (gPushConstants.morphTargetCount > 0)
+	if (draw.morphTargetCount > 0)
 	{
 		float3 normal = v.normal;
 		float3 tangent = v.tangent.xyz;
-		Morph(input.vertexId, frameIndex, position, normal, tangent);
+		Morph(draw, input.vertexId, frameIndex, position, normal, tangent);
 	}
-	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
-		position = mul(SkinMatrix(input.vertexId, frameIndex, gPushConstants.jointBase), float4(position, 1.0)).xyz;
+	if (draw.jointBase != SHADER_TYPES_NOT_SKINNED)
+		position = mul(SkinMatrix(input.vertexId, frameIndex, draw.jointBase), float4(position, 1.0)).xyz;
 	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
 	
 	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
@@ -98,26 +97,23 @@ VertexMainOutput VertexMain(InputStream input)
 	VertexOutput output;
 
 	uint frameIndex = gPushConstants.frameIndex;
-	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
-	uint modelInstanceId = gPushConstants.modelInstanceId;
+	DrawRecord draw = gDrawRecords[frameIndex][gPushConstants.drawRecord];
 
-	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
-
-	ViewData view = gViewData[frameIndex][viewId];
+	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
 
 	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-	ModelInstance i = gModelInstances[frameIndex][modelInstanceId + input.instanceId];
+	ModelInstance i = gModelInstances[frameIndex][draw.modelInstanceId + input.instanceId];
 
 	// morph targets move the vertices first (in the space they are stored in), then skinned vertices move with their joints (in world space), before the instance's transform (the identity for them).
 	// the normals and tangents go by the same matrix, which is exact for joints without non-uniform scale.
 	float3 position = v.position;
 	float3 normal = v.normal;
 	float3 tangent = v.tangent.xyz;
-	if (gPushConstants.morphTargetCount > 0)
-		Morph(input.vertexId, frameIndex, position, normal, tangent);
-	if (gPushConstants.jointBase != SHADER_TYPES_NOT_SKINNED)
+	if (draw.morphTargetCount > 0)
+		Morph(draw, input.vertexId, frameIndex, position, normal, tangent);
+	if (draw.jointBase != SHADER_TYPES_NOT_SKINNED)
 	{
-		float4x4 skin = SkinMatrix(input.vertexId, frameIndex, gPushConstants.jointBase);
+		float4x4 skin = SkinMatrix(input.vertexId, frameIndex, draw.jointBase);
 		position = mul(skin, float4(position, 1.0)).xyz;
 		normal = mul(skin, float4(normal, 0.0)).xyz;
 		tangent = mul(skin, float4(tangent, 0.0)).xyz;
@@ -139,6 +135,7 @@ VertexMainOutput VertexMain(InputStream input)
 	output.vertex.texCoord01 = v.texCoord01;
 	output.vertex.color = v.color;
 	output.modelScale = pow(abs(determinant(linear)), 1.0 / 3.0);
+	output.materialId = draw.materialId;
 
 	return { output, 1.0 };
 }

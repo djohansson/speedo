@@ -117,6 +117,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			SHADER_TYPES_UI_BLUR_RECT_COUNT * sizeof(UiBlurRect),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
+		myDrawRecordBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Draw Records {}", frameIt)),
+			SHADER_TYPES_DRAW_RECORD_COUNT * sizeof(DrawRecord),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
 	}
 	myExposureHistogram = myGraph.ImportBuffer("Exposure Histogram");
 
@@ -495,7 +500,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				 std::pair{"gClusterViews", &myClusterViewBuffers},
 				 std::pair{"gClusters", &myClusterBuffers},
 				 std::pair{"gClusterLights", &myClusterLightBuffers},
-				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers}})
+				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers},
+				 std::pair{"gDrawRecords", &myDrawRecordBuffers}})
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
 	}
@@ -640,6 +646,25 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myScatterBackPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterBlurPass, !myScatterDrawList.Empty());
 	myGraph.SetEnabled(myScatterDenoisePass, !myScatterDrawList.Empty());
+
+	// the draws' per draw values, in the frame's buffer (its previous use is done: after the frame's fence)
+	{
+		std::array lists{&myDrawLists[0], &myDrawLists[1], &myShadowDrawList, &myScatterDrawList, &myScatterBackDrawList};
+		size_t count = 0;
+		for (const auto* list : lists)
+			count += list->items.size();
+		std::vector<DrawRecord> records(std::min<size_t>(count, SHADER_TYPES_DRAW_RECORD_COUNT));
+		WriteDrawRecords(lists, records);
+		if (!records.empty())
+		{
+			auto& buffer = myDrawRecordBuffers[frame.frameIndex];
+			auto bytes = std::as_bytes(std::span(records));
+			auto memory = buffer.Map();
+			std::ranges::copy(bytes, memory.begin());
+			buffer.Flush(0, bytes.size());
+			buffer.Unmap();
+		}
+	}
 	// the ui's frosted panels: clipped to the frame, each a run of the UI Blur passes' threads, a pixel each (X's over
 	// the blur's reach above and below too)
 	{

@@ -500,7 +500,14 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   don't add a `GPU_SCOPE` in a pass's callback.
 - **Draws** are data: `BuildDrawList` turns the model into `DrawItem`s for a main pass phase (pipeline variant, cull mode,
   front face, material slot, instance range, skin and morph bases), and `RecordDrawList` records them for a view, which
-  the main pass does per view in the queue pool's secondary command buffers.
+  the main pass does per view in the queue pool's secondary command buffers. A draw's per draw values are a `DrawRecord`
+  (material, first instance, skin and morph bases) in the frame's `gDrawRecords[frame]` (host visible, per frame index,
+  `SHADER_TYPES_DRAW_RECORD_COUNT` of them: past that, draws are dropped with a warning), written in `Renderer::Record`
+  once the frame's lists are built (`WriteDrawRecords`, which sets each item's `record`); the push constants only say
+  which (`drawRecord`) and the view (`viewId`). The vertex stage reads the record and hands the material to the fragment
+  stage (`VertexOutput::materialId`, flat). It is the first step towards gpu driven drawing (TODO.md): an indirect draw
+  can't change push constants between its draws. Renders came out the same, but for one byte of ScatteringSkull's (by 2
+  of 255, in every run).
 
 Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `VK_LAYER_PATH` set as `assettest.ps1`
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers

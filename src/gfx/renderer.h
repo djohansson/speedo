@@ -155,6 +155,7 @@ private:
 	std::vector<Buffer> myClusterLightBuffers;
 	// per frame index: the ui's frosted panels (gUiBlurRects), host visible, and the UI Blur passes' thread counts
 	std::vector<Buffer> myUiBlurRectBuffers;
+	std::vector<Buffer> myDrawRecordBuffers; // per frame index, the draw lists' DrawRecords (gDrawRecords)
 	uint32_t myUiBlurThreadsX = 0;
 	uint32_t myUiBlurThreadsY = 0;
 	DrawList myShadowDrawList;

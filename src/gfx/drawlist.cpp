@@ -6,8 +6,10 @@
 #include <core/taskexecutor.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <optional>
+#include <print>
 #include <span>
 #include <tuple>
 #include <utility>
@@ -165,6 +167,40 @@ DrawList BuildScatterBackDrawList(const DrawList& scatter)
 	return list;
 }
 
+void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> records)
+{
+	size_t next = 0;
+	bool dropped = false;
+	for (auto* list : lists)
+	{
+		if (list == nullptr)
+			continue;
+		std::erase_if(
+			list->items,
+			[&](DrawItem& item)
+			{
+				if (next == records.size())
+				{
+					dropped = true;
+					return true;
+				}
+				item.record = static_cast<uint32_t>(next);
+				records[next++] = DrawRecord{
+					.materialId = item.materialSlot,
+					.modelInstanceId = item.firstInstance,
+					.jointBase = item.jointBase,
+					.morphTargetCount = item.morphTargetCount,
+					.morphDeltaBase = item.morphDeltaBase,
+					.morphFirstVertex = item.morphFirstVertex,
+					.morphWeightBase = item.morphWeightBase};
+				return false;
+			});
+	}
+	static std::atomic_bool gWarned = false;
+	if (dropped && !gWarned.exchange(true))
+		std::println(stderr, "more than {} draws in a frame: the rest aren't drawn", records.size());
+}
+
 void RecordDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,
@@ -218,13 +254,8 @@ void RecordDrawList(
 			encoder.SetFrontFace(item.frontFace);
 		}
 
-		pushConstants.viewAndMaterialId = (static_cast<uint32_t>(viewIndex) << SHADER_TYPES_MATERIAL_INDEX_BITS) | item.materialSlot;
-		pushConstants.modelInstanceId = item.firstInstance;
-		pushConstants.jointBase = item.jointBase;
-		pushConstants.morphTargetCount = item.morphTargetCount;
-		pushConstants.morphDeltaBase = item.morphDeltaBase;
-		pushConstants.morphFirstVertex = item.morphFirstVertex;
-		pushConstants.morphWeightBase = item.morphWeightBase;
+		pushConstants.viewId = viewIndex;
+		pushConstants.drawRecord = item.record;
 		// compared bytewise: both are copies of the caller's, padding included
 		if (!pushed || std::memcmp(&*pushed, &pushConstants, sizeof(PushConstants)) != 0)
 		{

@@ -87,3 +87,7 @@ StructuredBuffer<uint> gClusterLights[SHADER_TYPES_FRAME_COUNT];
 // the ui's frosted panels (see UiBlurRect)
 [[vk::binding(10, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<UiBlurRect> gUiBlurRects[SHADER_TYPES_FRAME_COUNT];
+
+// the frame's draws' per draw values (see DrawRecord)
+[[vk::binding(11, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<DrawRecord> gDrawRecords[SHADER_TYPES_FRAME_COUNT];

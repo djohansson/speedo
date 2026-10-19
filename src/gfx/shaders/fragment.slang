@@ -13,8 +13,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 {
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
 
-	uint viewAndMaterialId = gPushConstants.viewAndMaterialId;
-	uint materialId = viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u);
+	uint materialId = input.materialId;
 
 	MaterialData material = gMaterialData[materialId];
 
@@ -136,7 +135,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 		surface.roughness = roughness;
 	}
 
-	uint viewId = viewAndMaterialId >> SHADER_TYPES_MATERIAL_INDEX_BITS;
+	uint viewId = gPushConstants.viewId;
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
@@ -313,7 +312,7 @@ ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontF
 {
 	ScatterOutput output;
 	output.color = ShadeFragment(input, isFrontFace, true);
-	MaterialData material = gMaterialData[gPushConstants.viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u)];
+	MaterialData material = gMaterialData[input.materialId];
 	output.albedo = float4(MultiscatterColor(material, input.vertex.texCoord01), 1.0);
 	return output;
 }
@@ -323,7 +322,7 @@ ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontF
 void FragmentShadow(VertexOutput input)
 {
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
-	MaterialData material = gMaterialData[gPushConstants.viewAndMaterialId & (SHADER_TYPES_MATERIAL_COUNT - 1u)];
+	MaterialData material = gMaterialData[input.materialId];
 	if (material.alphaCutoff <= 0.0)
 		return;
 	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u && SampleView(material.baseColorView, v.texCoord01).a < material.alphaCutoff)

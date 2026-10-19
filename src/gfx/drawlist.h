@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace core
@@ -73,6 +74,8 @@ struct DrawItem
 	// where it is drawn (its chunk's bounds, see mesh::Chunk), and whether a view may skip it by them: not if it moves
 	Bounds3f bounds;
 	bool cullable = false;
+	// its DrawRecord in the frame's gDrawRecords (see WriteDrawRecords)
+	uint32_t record = 0;
 };
 
 // what a view draws of the scene, in order, from one index buffer
@@ -111,6 +114,10 @@ struct DrawList
 // the scatter pass's draws, for their back faces' depth (FragmentShadow, the front faces culled): single sided ones only,
 // since a double sided surface's nearest back face is its front
 [[nodiscard]] DrawList BuildScatterBackDrawList(const DrawList& scatter);
+
+// gives each draw of lists its DrawRecord (materialSlot and on), in order, written to records (DrawItem::record). draws
+// past the records' capacity are dropped (with a warning, once)
+void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> records);
 
 // records a draw list for a view (in its viewport, set by the caller): the draws not outside frustum (if given), with
 // their state and push constants set only where they change from the draw before (chunks of a submesh share them). binds
