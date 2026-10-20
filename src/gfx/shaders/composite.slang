@@ -66,10 +66,27 @@ void ComputeMain(
 				}
 			}
 
+			// the voxel world (DEBUG_VIEW_GI_VOXEL_WORLD*): every pixel's ray through the voxels, in place of what was drawn
+			uint debugView = gPushConstants.debugView;
+			bool voxelWorld = debugView >= DEBUG_VIEW_GI_VOXEL_WORLD && debugView <= DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL;
+			if (voxelWorld)
+			{
+				ViewData view;
+				if (ViewAt(int2(xy), view))
+				{
+					float2 local = (float2(xy) + 0.5 - view.viewport.xy) / view.viewport.zw;
+					float2 ndc = local * 2.0 - 1.0;
+					float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
+					float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.5, 1.0));
+					float3 ray = normalize(farPoint.xyz / farPoint.w - nearPoint.xyz / nearPoint.w);
+					color.rgb = GiVoxelWorldDebug(view.eyePosition.xyz, ray, debugView);
+				}
+			}
+
 			// the blended fragments over the rest: the pixel's list, its nearest layers sorted near to far (by insertion),
 			// then blended far to near
 			uint node = gOitHeads[y * gPushConstants.framebufferWidth + x];
-			if (node != SHADER_TYPES_OIT_NONE)
+			if (node != SHADER_TYPES_OIT_NONE && !voxelWorld)
 			{
 				uint layers[SHADER_TYPES_OIT_MAX_LAYERS];
 				uint keys[SHADER_TYPES_OIT_MAX_LAYERS];

@@ -729,7 +729,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				for (uint32_t levelIt = 1; levelIt < data.volumeSize[3]; levelIt++)
 				{
 					computeBarrier(cmd);
-					auto size = glm::max(glm::uvec3(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]) >> levelIt, glm::uvec3(1));
+					auto size = gi::LevelVoxels(glm::uvec3(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]), levelIt);
 					clips([&](uint32_t clip, const gi::Layout&)
 						  { giKernel(cmd, kGiMipEntryPoint, static_cast<uint64_t>(size.x) * size.y * size.z, clip, levelIt); });
 				}
@@ -947,6 +947,37 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// around the camera)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
 		myGiClipCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(clipCount, nullptr, 10)), 1, SHADER_TYPES_GI_CLIP_COUNT);
+	// every clip voxelized again every frame (SPEEDO_GI_REVOXELIZE=1): what the clips' scrolling must come to, for
+	// comparing with it (slow)
+	const char* revoxelize = std::getenv("SPEEDO_GI_REVOXELIZE");
+	myGiRevoxelize = revoxelize != nullptr && std::string_view(revoxelize) == "1";
+	// where the clips are centered, a point a frame and the last kept, in place of the camera (SPEEDO_GI_EYE_PATH=
+	// <x>,<y>,<z>[;...]): the clips moved under a camera that doesn't, so that what changes is what their moves change
+	if (const char* path = std::getenv("SPEEDO_GI_EYE_PATH"); path != nullptr && *path != '\0')
+	{
+		for (const char* it = path; *it != '\0';)
+		{
+			glm::vec3 point{0.0F};
+			int axisIt = 0;
+			for (; axisIt < 3; axisIt++)
+			{
+				char* end = nullptr;
+				point[axisIt] = std::strtof(it, &end);
+				if (end == it)
+					break;
+				it = *end == ',' ? end + 1 : end;
+			}
+			if (axisIt < 3)
+			{
+				std::println(stderr, "SPEEDO_GI_EYE_PATH: expected x,y,z[;...], got {}", path);
+				myGiEyePath.clear();
+				break;
+			}
+			myGiEyePath.push_back(point);
+			if (*it == ';')
+				it++;
+		}
+	}
 	if (const char* bounces = std::getenv("SPEEDO_GI_BOUNCES"); bounces != nullptr && *bounces != '\0')
 		myGiBounceCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(bounces, nullptr, 10)), 1U, 8U);
 	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
@@ -2016,9 +2047,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// CornellBox showed as blobs on its walls
 	constexpr uint32_t kOctahedralSide = 6;
 	glm::vec3 eye = glm::inverse(frame.camera.view)[3];
+	if (!myGiEyePath.empty())
+		eye = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
 	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, myGiResolution, myGiClipCount, kProbeSpacing, kOctahedralSide);
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
-				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount;
+				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize;
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
 	// place plus that. all of it is voxelized again when the scene changed, or when it moved by its size or more
 	for (uint32_t clipIt = 0; clipIt < clipmap.clips.size(); clipIt++)

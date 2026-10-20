@@ -162,7 +162,16 @@ extern "C"
 #define DEBUG_VIEW_GI_LEVEL0 22u // the cascades traced at level 0
 #define DEBUG_VIEW_GI_CLIP 23u // which clip lights the point (red, green, blue, yellow: finest first), blended (data)
 #define DEBUG_VIEW_GI_GRID 24u // the indirect diffuse, with the voxels' (thin) and probes' (thick) cells of the clip drawn
-#define DEBUG_VIEW_COUNT 25u
+// the voxels themselves, as the cascades see them: each pixel's ray from the eye through the clipmap's voxels (finest
+// first, see GiTraceVoxels), and the first it meets (the environment where it meets none): its radiance, its albedo, its
+// normal (data), or which clip it is in (data)
+#define DEBUG_VIEW_GI_VOXEL_WORLD 25u
+#define DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO 26u
+#define DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL 27u
+// the irradiance of the 8 cascade 0 probes around a point, trilinear, as the probes hold it: without the masks, the
+// resolve into the voxels and the volumes (to tell what the probes see from what the lookups make of it)
+#define DEBUG_VIEW_GI_PROBES 28u
+#define DEBUG_VIEW_COUNT 29u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -622,6 +631,20 @@ struct GiData
 	// gGiCascades (x), the start and end of its rays' interval (y, z: world space), and its probes' spacing (w)
 	alignas(16) UINT4(cascadeSize[SHADER_TYPES_GI_CASCADE_COUNT]);
 	alignas(16) FLOAT4(cascadeInterval[SHADER_TYPES_GI_CASCADE_COUNT]);
+	// per cascade, the corner its probes are laid out from (world space, xyz): the clip's, rounded down to a multiple of
+	// the cascade's spacing from the clipmap's anchor (the last clip's corner), so that its probes stay where they are in
+	// the world when the clip moves (by whole snaps, see gi::MakeClipmap), whatever their spacing. they were laid out from
+	// the clip's corner: a snap of the finest clip (4 cascade 0 spacings) moved its cascades 3 and up (8 and more) by part
+	// of their spacing, which changed the light from afar of everything in the clip at once
+	alignas(16) FLOAT4(cascadeOrigin[SHADER_TYPES_GI_CASCADE_COUNT]);
+	// a clip that follows the eye: the box around the eye (xyz its center, world space) that it always holds well inside
+	// wherever it snapped to, of half its size per axis (fadeExtent.xyz), its weight fading to 0 over the outermost
+	// fadeExtent.w of it (see GiClipWeight). by the eye, which moves smoothly, rather than by the clip's snapped edges:
+	// fading over 8 voxels from them, narrower than a snap (16), points switched from one clip to the next at once as it
+	// snapped, and the clips' lighting differs (a coarser clip's voxels are thicker, its lookups further off the surface:
+	// Sponza's inside by 15 to 25 of 255), so whole regions lit up or darkened. the last clip: a box holding everything
+	alignas(16) FLOAT4(fadeCenter);
+	alignas(16) FLOAT4(fadeExtent);
 	alignas(16) UINT4(cascadeFirst[SHADER_TYPES_GI_CASCADE_COUNT / 4]);
 	// per cascade, its first probe in gGiProbeMasks (which of the 8 probes of the cascade above around each are visible
 	// from it, for the merge)
@@ -644,7 +667,9 @@ struct GiData
 	alignas(4) UINT1(lightCellFirst);
 	alignas(4) UINT1(clipCount);
 	alignas(4) UINT1(clip);
-	alignas(4) UINT1(padding0);
+	// the levels the cascades march (ComputeGiTrace: cascade c its level c, at most the last of these): those whose voxels
+	// stay where they are in the world when the clip moves by its snaps (all of the last clip's, which doesn't)
+	alignas(4) UINT1(marchLevelCount);
 	alignas(4) UINT1(padding1);
 };
 

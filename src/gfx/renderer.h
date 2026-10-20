@@ -345,6 +345,9 @@ private:
 	// changed) and its static jobs then (the first in gGiJobs, their count and triangles)
 	uint32_t myGiResolution = 128;
 	uint32_t myGiClipCount = 3;
+	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
+	std::vector<glm::vec3> myGiEyePath; // SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame
+	size_t myGiEyePathNext = 0;
 	gi::Clipmap myGiClipmap;
 	const Model* myGiModel = nullptr;
 	Bounds3f myGiBounds;

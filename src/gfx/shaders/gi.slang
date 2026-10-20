@@ -73,9 +73,18 @@ float GiTexelSolidAngle(uint2 texel, uint side)
 }
 
 // the volume
+// a level's voxels per axis: rounded up, so that every level covers all of the volume. rounded down, a level ended up
+// to 2^level - 1 voxels short of the volume's far side (Sponza's 61 voxels deep: level 4 covered 48), where rays
+// left for the next clip early: as early as the box around the eye ended (see GiMarch) on some snaps of a clip and not
+// on others, so its light switched between two values as it moved
+uint3 GiLevelVoxels(uint3 size, uint level)
+{
+	return max((size + (1u << level) - 1u) >> level, uint3(1));
+}
+
 uint3 GiLevelSize(GiData gi, uint level)
 {
-	return max(gi.volumeSize.xyz >> level, uint3(1));
+	return GiLevelVoxels(gi.volumeSize.xyz, level);
 }
 
 uint GiLevelFirst(GiData gi, uint level)
@@ -115,6 +124,8 @@ struct GiClipView
 	uint clip;
 	uint clipCount;
 	float probeSpacing; // cascade 0's, in voxels
+	float4 fadeCenter; // see GiData::fadeCenter
+	float4 fadeExtent;
 };
 
 GiClipView GiClipViewAt(uint clip)
@@ -126,7 +137,25 @@ GiClipView GiClipViewAt(uint clip)
 	view.clip = clip;
 	view.clipCount = gGi[gPushConstants.frameIndex][clip].clipCount;
 	view.probeSpacing = gGi[gPushConstants.frameIndex][clip].cascadeInterval[0].w / view.volumeOrigin.w;
+	view.fadeCenter = gGi[gPushConstants.frameIndex][clip].fadeCenter;
+	view.fadeExtent = gGi[gPushConstants.frameIndex][clip].fadeExtent;
 	return view;
+}
+
+// how much a clip lights a point, where the finer ones don't (see GiSampleAt): the last clip all of what it holds; one that
+// follows the eye 1 in the box around the eye it always holds (GiData::fadeCenter), fading to 0 toward the box's edges, and
+// at most as much as it holds the point (more than a cascade 0 probe spacing inside it, fading over 8 voxels: where it is
+// clamped to the last clip's edges, the box needn't be inside it)
+float GiClipWeight(GiClipView clip, float3 position)
+{
+	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 size = float3(clip.volumeSize.xyz);
+	float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
+	if (clip.clip + 1 >= clip.clipCount)
+		return edge > 0.0 ? 1.0 : 0.0;
+	float3 beyond = abs(position - clip.fadeCenter.xyz) - (clip.fadeExtent.xyz - clip.fadeExtent.w);
+	float fade = 1.0 - smoothstep(0.0, clip.fadeExtent.w, max(beyond.x, max(beyond.y, beyond.z)));
+	return min(fade, saturate((edge - clip.probeSpacing) / 8.0));
 }
 
 // a clip's voxel (level 0)
@@ -144,10 +173,24 @@ float4 GiRadianceAt(GiData gi, uint level, int3 voxel)
 	return GiUnpackRgba16(gGiRadiance[GiLevelFirst(gi, level) + GiVoxelIndex(uint3(voxel), size)]);
 }
 
+// how far along a ray from origin (world space) it stays in a clip's box around the eye (GiData::fadeCenter): the
+// distance to where it leaves it, 0 if it starts outside, and the last clip's holds everything
+float GiFadeBoxExit(float4 fadeCenter, float4 fadeExtent, float3 origin, float3 direction)
+{
+	float3 relative = origin - fadeCenter.xyz;
+	if (any(abs(relative) > fadeExtent.xyz))
+		return 0.0;
+	float3 bound = select(direction >= 0.0, fadeExtent.xyz, -fadeExtent.xyz);
+	float3 distances = (bound - relative) / select(abs(direction) > 1e-8, direction, 1e-8);
+	return max(min(distances.x, min(distances.y, distances.z)), 0.0);
+}
+
 // along a ray through a level of the volume, from start to end (world space distances): the radiance reaching its
 // origin (front to back) and how much of what is beyond gets through. where it leaves the clip it goes on through the
 // coarser ones (never back: they are boxes), at their level of the same voxel size (or level 0), at half their voxels'
-// steps
+// steps. a clip that follows the eye is left where its box around the eye is (GiData::fadeCenter), inside its own, so
+// that where a ray goes on through the coarser clip's voxels (thicker) moves with the eye, smoothly, rather than with the
+// clip's snaps
 float4 GiMarch(GiData gi, uint level, float3 origin, float3 direction, float start, float end)
 {
 	float3 radiance = 0.0;
@@ -161,21 +204,23 @@ float4 GiMarch(GiData gi, uint level, float3 origin, float3 direction, float sta
 	uint3 levelSize = GiLevelSize(gi, clipLevel);
 	uint levelFirst = GiLevelFirst(gi, clipLevel);
 	float voxelSize = volumeOrigin.w * float(1u << clipLevel);
+	float boxExit = GiFadeBoxExit(gi.fadeCenter, gi.fadeExtent, origin, direction);
 	float t = start;
 	while (t < end && transmittance > 0.01)
 	{
 		float step = voxelSize * 0.5;
 		float3 position = origin + direction * (t + step * 0.5);
 		int3 voxel = int3(floor((position - volumeOrigin.xyz) / voxelSize));
-		if (!GiInside(voxel, levelSize))
+		if (!GiInside(voxel, levelSize) || t + step * 0.5 > boxExit)
 		{
 			if (clip + 1 >= clipCount)
 				break;
 			clip++;
+			boxExit = GiFadeBoxExit(gGi[gPushConstants.frameIndex][clip].fadeCenter, gGi[gPushConstants.frameIndex][clip].fadeExtent, origin, direction);
 			volumeOrigin = gGi[gPushConstants.frameIndex][clip].volumeOrigin;
 			uint4 volumeSize = gGi[gPushConstants.frameIndex][clip].volumeSize;
 			clipLevel = min(clipLevel > 0u ? clipLevel - 1u : 0u, volumeSize.w - 1u);
-			levelSize = max(volumeSize.xyz >> clipLevel, uint3(1));
+			levelSize = GiLevelVoxels(volumeSize.xyz, clipLevel);
 			levelFirst = gGi[gPushConstants.frameIndex][clip].levelFirst[clipLevel / 4][clipLevel % 4];
 			voxelSize = volumeOrigin.w * float(1u << clipLevel);
 			continue;
@@ -206,11 +251,13 @@ float GiVisibility(GiData gi, float3 origin, float3 direction, float distance)
 		float3 next = (select(direction >= 0.0, float3(voxel + 1) - start, start - float3(voxel))) * inverse;
 		float3 delta = inverse;
 		float end = (distance - travelled) / clip.volumeOrigin.w;
+		// and where it leaves the clip's box around the eye (see GiMarch), in its voxels
+		float boxExit = GiFadeBoxExit(clip.fadeCenter, clip.fadeExtent, origin + direction * travelled, direction) / clip.volumeOrigin.w;
 		float t = 0.0;
 		bool left = false;
 		while (t < end)
 		{
-			if (!GiInside(voxel, size))
+			if (!GiInside(voxel, size) || t > boxExit)
 			{
 				left = true;
 				break;
@@ -408,7 +455,11 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 		{
 			float3 facing = sideIt == 0 ? normal : -normal;
 			float offset = 0.5;
-			float2 octahedral = GiOctahedral(facing) * 0.5 + 0.5;
+			// the voxel behind this face stands for the other face, the one on its own side: a ray from that side meets it
+			// first, and it is lit from there (its shadow rays leave away from the surface). it took this face's normal,
+			// toward the surface: each shadow ray started in its twin across the surface and was blocked (no voxel was ever
+			// lit by a light), and a ray from in front of a wall met the voxel of its back face, lit from inside the wall
+			float2 octahedral = GiOctahedral(-facing) * 0.5 + 0.5;
 			GiVoxel voxel;
 			voxel.albedo = GiPackRgba8(float4(albedo, 1.0));
 			voxel.normal = (uint(round(octahedral.x * 65535.0))) | (uint(round(octahedral.y * 65535.0)) << 16);
@@ -486,7 +537,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
 	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 	float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
-	// the shadow rays start a voxel off the surface, in front of it (the voxels are behind it)
+	// the shadow rays start a voxel further from the surface (the voxel is on the side it stands for, its twin across it)
 	float3 emission = float3(GiUnpackHalf2(voxel.emissionRG), GiUnpackHalf2(voxel.emissionB).x);
 
 	uint3 cell = min(uint3(float3(at) / float3(size) * float(SHADER_TYPES_GI_LIGHT_GRID)), uint3(SHADER_TYPES_GI_LIGHT_GRID - 1));
@@ -552,7 +603,7 @@ void ComputeGiMip(uint3 dispatchId: SV_DispatchThreadID)
 // a cascade's probe's center (world space)
 float3 GiProbePosition(GiData gi, uint cascade, uint3 probe)
 {
-	return gi.volumeOrigin.xyz + (float3(probe) + 0.5) * gi.cascadeInterval[cascade].w;
+	return gi.cascadeOrigin[cascade].xyz + (float3(probe) + 0.5) * gi.cascadeInterval[cascade].w;
 }
 
 uint GiCascadeFirst(GiData gi, uint cascade)
@@ -568,7 +619,7 @@ uint GiCascadeProbeFirst(GiData gi, uint cascade)
 // the nearest probe of the cascade above below a probe (of the 8 its merge interpolates), and the fraction of the way
 int3 GiAboveBase(GiData gi, uint cascade, uint3 probe, out float3 fraction)
 {
-	float3 coordinate = (GiProbePosition(gi, cascade, probe) - gi.volumeOrigin.xyz) / gi.cascadeInterval[cascade + 1].w - 0.5;
+	float3 coordinate = (GiProbePosition(gi, cascade, probe) - gi.cascadeOrigin[cascade + 1].xyz) / gi.cascadeInterval[cascade + 1].w - 0.5;
 	int3 base = int3(floor(coordinate));
 	fraction = coordinate - float3(base);
 	return base;
@@ -595,7 +646,7 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	float4 interval = gi.cascadeInterval[cascade];
 	// the level of the probes' spacing (a finer one gave 10% more light near walls, a coarse level's occupancy being the
 	// mean of what it holds, at twice the cost); 7 traces level 0, for comparison
-	uint level = gi.debug == 7u ? 0u : min(cascade, gi.volumeSize.w - 1);
+	uint level = gi.debug == 7u ? 0u : min(cascade, gi.marchLevelCount - 1);
 	float4 result = GiMarch(gi, level, GiProbePosition(gi, cascade, probe), direction, interval.x, interval.y);
 	if (cascade + 1 == gi.cascadeCount)
 	{
@@ -753,7 +804,7 @@ bool GiProbeVisible(GiData gi, float3 from, float3 to)
 // the nearest cascade 0 probe below a point (of the 8 interpolated for it), and its fraction of the way to the next
 int3 GiProbeBase(GiData gi, float3 position, out float3 fraction)
 {
-	float3 coordinate = (position - gi.volumeOrigin.xyz) / gi.cascadeInterval[0].w - 0.5;
+	float3 coordinate = (position - gi.cascadeOrigin[0].xyz) / gi.cascadeInterval[0].w - 0.5;
 	int3 base = int3(floor(coordinate));
 	fraction = coordinate - float3(base);
 	return base;
@@ -839,6 +890,8 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug)
 {
 	if (debug == 8u || debug == 9u)
 		return GiClipDebug(position, normal, debug == 9u);
+	if (debug == 13u)
+		return GiProbesDebug(position, normal);
 	if (debug < 2u || debug > 5u)
 	{
 		GiSample sample = GiSampleAt(position, normal);
@@ -847,29 +900,27 @@ float3 GiIrradiance(float3 position, float3 normal, uint debug)
 	GiData gi = GiClip(0);
 	if (gi.enabled == 0)
 		return -1.0;
-	for (uint clipIt = 0; clipIt < gi.clipCount; clipIt++)
+	// each clip by its weight of what the finer ones leave (as GiSampleAt); the voxel views (3 to 5) the finest that
+	// lights the point at all
+	float3 result = 0.0;
+	float remaining = 1.0;
+	float covered = 0.0;
+	for (uint clipIt = 0; clipIt < gi.clipCount && remaining > 0.0; clipIt++)
 	{
-		GiData clip = clipIt == 0 ? gi : GiClip(clipIt);
-		float3 coordinate = GiVoxelCoordinate(clip, position, 0);
-		float3 size = float3(GiLevelSize(clip, 0));
-		float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
-		float spacing = clip.cascadeInterval[0].w / clip.volumeOrigin.w;
-		float weight = saturate((edge - spacing) / 8.0);
-		if (clipIt + 1 == gi.clipCount)
-			return edge > 0.0 ? GiIrradianceAt(clip, position, normal, debug) : -1.0;
+		float weight = GiClipWeight(GiClipViewAt(clipIt), position);
 		if (weight <= 0.0)
 			continue;
-		float3 fine = GiIrradianceAt(clip, position, normal, debug);
-		if (weight >= 1.0 || (debug >= 2u && debug <= 5u))
-			return fine;
-		float3 coarse = GiIrradianceAt(GiClip(clipIt + 1), position, normal, debug);
-		if (any(fine < 0.0))
-			return coarse;
-		if (any(coarse < 0.0))
-			return fine;
-		return lerp(coarse, fine, weight);
+		float3 value = GiIrradianceAt(clipIt == 0 ? gi : GiClip(clipIt), position, normal, debug);
+		if (debug >= 3u && debug <= 5u)
+			return value;
+		float share = remaining * weight;
+		remaining -= share;
+		if (any(value < 0.0))
+			continue;
+		result += share * value;
+		covered += share;
 	}
-	return -1.0;
+	return covered > 0.0 ? result / covered : -1.0;
 }
 
 // a bounce after the first: the voxels' direct radiance plus what their albedo reflects of the probes' irradiance at them
@@ -1073,36 +1124,46 @@ GiSample GiSampleAt(float3 position, float3 normal)
 	none.valid = false;
 	if (gGi[gPushConstants.frameIndex][0].enabled == 0)
 		return none;
+	// each clip by its weight (GiClipWeight) of what the finer ones leave, the shares of those that see probes there
+	// normalized. it blended a clip with the next one's sample at whatever weight the next one had: where the finer one
+	// lit a point a little (a thousandth), the next lit it all, outside its box around the eye, where what its edges
+	// clamp changes as it snaps (a region switched between 61 and 91 of 255, which the clips view showed lit by the last)
 	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
-	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
+	GiSample result = none;
+	float remaining = 1.0;
+	float covered = 0.0;
+	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
 	{
 		GiClipView clip = GiClipViewAt(clipIt);
-		float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
-		float3 size = float3(clip.volumeSize.xyz);
-		float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
-		float weight = saturate((edge - clip.probeSpacing) / 8.0);
-		if (clipIt + 1 == clipCount)
-			return edge > 0.0 ? GiSampleClip(clip, position, normal) : none;
+		float weight = GiClipWeight(clip, position);
 		if (weight <= 0.0)
 			continue;
-		GiSample fine = GiSampleClip(clip, position, normal);
-		if (weight >= 1.0)
-			return fine;
-		GiSample coarse = GiSampleClip(GiClipViewAt(clipIt + 1), position, normal);
-		if (!fine.valid)
-			return coarse;
-		if (!coarse.valid)
-			return fine;
-		fine.r0 = lerp(coarse.r0, fine.r0, weight);
-		fine.r1 = lerp(coarse.r1, fine.r1, weight);
-		fine.g0 = lerp(coarse.g0, fine.g0, weight);
-		fine.g1 = lerp(coarse.g1, fine.g1, weight);
-		fine.b0 = lerp(coarse.b0, fine.b0, weight);
-		fine.b1 = lerp(coarse.b1, fine.b1, weight);
-		fine.last.xyz = lerp(coarse.last.xyz, fine.last.xyz, weight);
-		return fine;
+		GiSample sample = GiSampleClip(clip, position, normal);
+		float share = remaining * weight;
+		remaining -= share;
+		if (!sample.valid)
+			continue;
+		result.r0 += share * sample.r0;
+		result.r1 += share * sample.r1;
+		result.g0 += share * sample.g0;
+		result.g1 += share * sample.g1;
+		result.b0 += share * sample.b0;
+		result.b1 += share * sample.b1;
+		result.last += share * sample.last;
+		covered += share;
 	}
-	return none;
+	if (covered <= 0.0)
+		return none;
+	float scale = 1.0 / covered;
+	result.r0 *= scale;
+	result.r1 *= scale;
+	result.g0 *= scale;
+	result.g1 *= scale;
+	result.b0 *= scale;
+	result.b1 *= scale;
+	result.last *= scale;
+	result.valid = true;
+	return result;
 }
 
 // a sample's irradiance over pi (the radiance a white Lambertian surface reflects) for a surface facing direction: along
@@ -1139,10 +1200,7 @@ float3 GiClipDebug(float3 position, float3 normal, bool grid)
 	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
 	{
 		GiClipView clip = GiClipViewAt(clipIt);
-		float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
-		float3 size = float3(clip.volumeSize.xyz);
-		float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
-		float weight = clipIt + 1 == clipCount ? (edge > 0.0 ? 1.0 : 0.0) : saturate((edge - clip.probeSpacing) / 8.0);
+		float weight = GiClipWeight(clip, position);
 		if (weight <= 0.0)
 			continue;
 		if (finest == clipCount)
@@ -1170,4 +1228,137 @@ float3 GiClipDebug(float3 position, float3 normal, bool grid)
 	if (onVoxel)
 		return lerp(base, DebugClipColor(finest), 0.6);
 	return irradiance;
+}
+
+// the first voxel a ray from origin meets (level 0, each voxel it crosses visited once, as GiVisibility): through the
+// finest clip holding the origin, then the coarser ones (into the last from outside it, where the origin is outside all).
+// its clip and its index in gGiVoxels; false where it meets none
+bool GiTraceVoxels(float3 origin, float3 direction, out uint hitClip, out uint hitIndex)
+{
+	hitClip = 0;
+	hitIndex = 0;
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	float travelled = 0.0;
+	uint stepCount = 0;
+	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
+	{
+		GiClipView clip = GiClipViewAt(clipIt);
+		float3 size = float3(clip.volumeSize.xyz);
+		float3 start = (origin + direction * travelled - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+		if (any(start < 0.0) || any(start >= size))
+		{
+			if (clipIt + 1 < clipCount)
+				continue;
+			// into the last clip from outside: where the ray enters its box, if it does
+			float3 inverse = 1.0 / select(abs(direction) > 1e-8, direction, 1e-8);
+			float3 low = (0.0 - start) * inverse;
+			float3 high = (size - start) * inverse;
+			float enter = max(max(min(low.x, high.x), min(low.y, high.y)), min(low.z, high.z));
+			float leave = min(min(max(low.x, high.x), max(low.y, high.y)), max(low.z, high.z));
+			if (enter > leave || leave < 0.0)
+				return false;
+			start = clamp(start + direction * (enter + 1e-3), 0.0, size - 1e-3);
+		}
+		int3 voxel = int3(floor(start));
+		int3 stepDirection = int3(select(direction >= 0.0, 1, -1));
+		float3 inverse = 1.0 / max(abs(direction), 1e-8);
+		float3 next = (select(direction >= 0.0, float3(voxel + 1) - start, start - float3(voxel))) * inverse;
+		float3 delta = inverse;
+		float t = 0.0;
+		while (GiInside(voxel, clip.volumeSize.xyz) && stepCount++ < 4096u)
+		{
+			uint index = clip.voxelFirst + GiVoxelIndex(uint3(voxel), clip.volumeSize.xyz);
+			if ((gGiVoxels[index].albedo >> 24) != 0u)
+			{
+				hitClip = clipIt;
+				hitIndex = index;
+				return true;
+			}
+			if (next.x < next.y && next.x < next.z)
+			{
+				t = next.x;
+				next.x += delta.x;
+				voxel.x += stepDirection.x;
+			}
+			else if (next.y < next.z)
+			{
+				t = next.y;
+				next.y += delta.y;
+				voxel.y += stepDirection.y;
+			}
+			else
+			{
+				t = next.z;
+				next.z += delta.z;
+				voxel.z += stepDirection.z;
+			}
+		}
+		travelled += t * clip.volumeOrigin.w;
+	}
+	return false;
+}
+
+// the debug views of the voxel world (DEBUG_VIEW_GI_VOXEL_WORLD*): a ray of a pixel's, from the eye, and what the first
+// voxel it meets holds (its radiance as the cascades read it, from the levels' level 0; its albedo; its normal); the
+// environment where it meets none
+float3 GiVoxelWorldDebug(float3 eye, float3 direction, uint debugView)
+{
+	uint clip;
+	uint index;
+	if (!GiTraceVoxels(eye, direction, clip, index))
+		return debugView == DEBUG_VIEW_GI_VOXEL_WORLD ? EnvironmentRadiance(gEnvironment[0], direction, 0.0) : float3(0.05, 0.1, 0.2);
+	GiVoxel voxel = gGiVoxels[index];
+	if (debugView == DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO)
+		return GiUnpackRgba8(voxel.albedo).rgb;
+	if (debugView == DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL)
+	{
+		float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		// facing the eye or away from it (a voxel lit from behind what the eye sees): dimmed
+		return pow((normal * 0.5 + 0.5) * (dot(normal, direction) < 0.0 ? 1.0 : 0.25), 2.2);
+	}
+	GiData gi = GiClip(clip);
+	uint local = index - gi.voxelFirst;
+	return GiUnpackRgba16(gGiRadiance[GiLevelFirst(gi, 0) + local]).rgb;
+}
+
+// the debug view of the probes (DEBUG_VIEW_GI_PROBES): the 8 cascade 0 probes around the point of the finest clip that
+// holds it, trilinear, each its irradiance along the normal as GiEvaluate has it (the cosine lobe over pi)
+float3 GiProbesDebug(float3 position, float3 normal)
+{
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
+	{
+		GiData gi = GiClip(clipIt);
+		float3 coordinate = GiVoxelCoordinate(gi, position, 0);
+		if (any(coordinate < 0.0) || any(coordinate >= float3(GiLevelSize(gi, 0))))
+			continue;
+		float3 fraction;
+		int3 base = GiProbeBase(gi, position, fraction);
+		uint4 cascadeSize = gi.cascadeSize[0];
+		float4 basis0 = float4(0.282095, 2.0 / 3.0 * 0.488603 * normal);
+		float3 d = normal;
+		float4 basis1 = 0.25 * float4(1.092548 * d.x * d.y, 1.092548 * d.y * d.z, 0.315392 * (3.0 * d.z * d.z - 1.0), 1.092548 * d.x * d.z);
+		float basis8 = 0.25 * 0.546274 * (d.x * d.x - d.y * d.y);
+		float3 result = 0.0;
+		for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+		{
+			int3 offset = int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
+			uint3 probe = uint3(clamp(base + offset, int3(0), int3(cascadeSize.xyz) - 1));
+			float3 weights = select(offset != 0, fraction, 1.0 - fraction);
+			uint first = (gi.probeFirst + (probe.z * cascadeSize.y + probe.y) * cascadeSize.x + probe.x) * SHADER_TYPES_GI_SH_COUNT;
+			float3 irradiance = 0.0;
+			irradiance += gGiIrradiance[first + 0].rgb * basis0.x;
+			irradiance += gGiIrradiance[first + 1].rgb * basis0.y;
+			irradiance += gGiIrradiance[first + 2].rgb * basis0.z;
+			irradiance += gGiIrradiance[first + 3].rgb * basis0.w;
+			irradiance += gGiIrradiance[first + 4].rgb * basis1.x;
+			irradiance += gGiIrradiance[first + 5].rgb * basis1.y;
+			irradiance += gGiIrradiance[first + 6].rgb * basis1.z;
+			irradiance += gGiIrradiance[first + 7].rgb * basis1.w;
+			irradiance += gGiIrradiance[first + 8].rgb * basis8;
+			result += weights.x * weights.y * weights.z * max(irradiance, 0.0);
+		}
+		return result;
+	}
+	return -1.0;
 }

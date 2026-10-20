@@ -14,11 +14,23 @@
 namespace gfx::gi
 {
 
+// how far a clip that follows the eye moves at a time: this many of its cascade 0 probes (see MakeClipmap)
+inline constexpr uint32_t kSnapProbes = 4;
+
+// a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
+[[nodiscard]] inline glm::uvec3 LevelVoxels(const glm::uvec3& size, uint32_t level)
+{
+	return glm::max((size + glm::uvec3((1U << level) - 1U)) >> level, glm::uvec3(1));
+}
+
 // a volume of size voxels from origin, its levels, and its cascades: probes every probeSpacing voxels with
 // octahedralSide^2 directions in cascade 0, as many cascades as reach as far as reach (world space). the counts are what
 // the buffers hold for it: voxels (level 0), radiance texels (all levels, then the direct radiance's voxels), cascade
 // texels (all cascades), cascade 0's probes and the probe masks; its GiData's offsets are after first's counts (a clip
-// before it in the buffers)
+// before it in the buffers). origin is a whole number of voxels from anchor, the clipmap's corner, which the cascades'
+// probes are laid out from (GiData::cascadeOrigin); moves says whether it moves (by kSnapProbes cascade 0 probes at a
+// time: the cascades spaced wider get two probes more per axis, half a spacing past each side wherever their lattice
+// starts), and how many of its levels the cascades march (GiData::marchLevelCount)
 struct Layout
 {
 	GiData data{};
@@ -35,7 +47,9 @@ struct Layout
 	uint32_t probeSpacing,
 	uint32_t octahedralSide,
 	float reach,
-	const Layout& first);
+	const Layout& first,
+	const glm::vec3& anchor,
+	bool moves);
 
 // the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): clipCount volumes, finest first, of the voxel counts of the last, which is
 // over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each before it of

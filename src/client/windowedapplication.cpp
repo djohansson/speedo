@@ -214,8 +214,9 @@ bool WindowedApplication::Draw()
 				.uiBlurRects = uiBlurRects,
 				.executor = &GetExecutor()});
 
-		// a read back of the frame (SPEEDO_CAPTURE, see gCaptureState): out of the present layout and back
-		if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
+		// a read back of the frame into a bitmap file at path, then done (if given) once written: out of the present layout
+		// and back
+		auto capture = [&](std::string path, std::atomic_uint8_t* done)
 		{
 			auto extent = swapchain.GetDesc().extent;
 			auto size = static_cast<size_t>(extent.width) * extent.height * 4;
@@ -231,7 +232,7 @@ bool WindowedApplication::Draw()
 						newFrame.GetDesc().imageFormats[0] == Format::kB8G8R8A8Srgb;
 			graphicsCallbacks.emplace_back(
 				core::CreateTask(
-					[buffer, extent, size, bgra]
+					[buffer, extent, size, bgra, path = std::move(path), done]
 					{
 						// a bitmap file header and info header, then the pixels, top down (a negative height), as bgra
 						std::vector<std::byte> file(54 + size);
@@ -256,11 +257,21 @@ bool WindowedApplication::Draw()
 						if (!bgra)
 							for (size_t pixelIt = 54; pixelIt + 3 < file.size(); pixelIt += 4)
 								std::swap(file[pixelIt], file[pixelIt + 2]);
-						if (!core::file::Write(gCapturePath, file))
-							std::println(stderr, "SPEEDO_CAPTURE: couldn't write {}", gCapturePath);
-						gCaptureState = 3;
+						if (!core::file::Write(path, file))
+							std::println(stderr, "SPEEDO_CAPTURE: couldn't write {}", path);
+						if (done != nullptr)
+							*done = 3;
 					}).handle);
-		}
+		};
+		// the frame an autoload exit ends on (SPEEDO_CAPTURE, see gCaptureState)
+		if (uint8_t requested = 1; gCaptureState.compare_exchange_strong(requested, 2))
+			capture(gCapturePath, &gCaptureState);
+		// each frame drawing a pose of SPEEDO_CAMERA_PATH for the first time (SPEEDO_CAPTURE_PATH=<directory>:
+		// pose-<NNNN>.bmp), to compare a move's frames
+		static const char* gCapturePathDirectory = std::getenv("SPEEDO_CAPTURE_PATH");
+		if (gCapturePathDirectory != nullptr && *gCapturePathDirectory != '\0')
+			if (auto pose = myViews->GetPlacedPose())
+				capture((std::filesystem::path(gCapturePathDirectory) / std::format("pose-{:04}.bmp", *pose)).string(), nullptr);
 
 		auto presentInfo = swapchain.PreparePresent();
 

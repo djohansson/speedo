@@ -82,11 +82,15 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The share of the probes around a point that it sees: dark where it sees few (inside walls, in corners)."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-behind", "Voxel Radiance (behind)", DEBUG_VIEW_GI_VOXEL_BEHIND, "The radiance of the voxel behind a point: what the cascades trace. Magenta where there is none, cyan outside the clip."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-front", "Voxel Radiance (in front)", DEBUG_VIEW_GI_VOXEL_FRONT, "The radiance of the voxel in front of a point. Magenta where there is none, cyan outside the clip."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-behind", "Voxel Radiance (behind)", DEBUG_VIEW_GI_VOXEL_BEHIND, "The radiance of the voxel behind a point: its back face's, lit from behind the surface. Magenta where there is none, cyan outside the clip."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-front", "Voxel Radiance (in front)", DEBUG_VIEW_GI_VOXEL_FRONT, "The radiance of the voxel in front of a point: what a ray toward the surface meets first, as the cascades trace it. Magenta where there is none, cyan outside the clip."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-albedo", "Voxel Albedo", DEBUG_VIEW_GI_VOXEL_ALBEDO, "The albedo voxelized behind a point. Magenta where there is none, cyan outside the clip."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-clip", "Clips", DEBUG_VIEW_GI_CLIP, "Which clip lights a point, finest first: red, green, blue, yellow (blended where they meet). Dark outside them all."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-grid", "Voxel and Probe Grid", DEBUG_VIEW_GI_GRID, "The irradiance with the finest clip's voxels (thin lines, in its color) and cascade 0 probe cells (white) drawn over it."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world", "Voxel World", DEBUG_VIEW_GI_VOXEL_WORLD, "The voxels themselves, as the cascades see them: each pixel's ray from the eye through the clips, and the radiance of the first voxel it meets (the sky where it meets none)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-albedo", "Voxel World Albedo", DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO, "The albedo of the first voxel each pixel's ray meets (dark blue where it meets none)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-normal", "Voxel World Normal", DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL, "The normal of the first voxel each pixel's ray meets, dimmed where it faces away from the eye (lit from behind what is seen)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The irradiance of the 8 probes around a point as they hold it, trilinear: without their visibility masks and the resolve into the voxels, to tell what the probes see from what the lookups make of it."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment: what the cascades approximate. Seconds a frame."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-level0", "Cascades at Level 0", DEBUG_VIEW_GI_LEVEL0, "The cascades traced through the finest voxels only: what the coarser levels lose."}},
 };
@@ -710,6 +714,28 @@ void WindowedApplication::PrepareDraw()
 	static float gAutoTurn = 0.0F;
 	static float gAutoWalk = 0.0F; // SPEEDO_CAMERA_WALK=<units per second>: forward, as the turn
 	static bool gAutoTurning = false;
+	// SPEEDO_CAMERA_PATH=<x>,<y>,<z>,<pitch>,<yaw>[;...]: the views placed at each pose in turn, one per drawn frame, from
+	// the frame after SPEEDO_CAMERA's placement, and kept at the last: an exact, repeatable move (the walk and the turn go
+	// by the frame time), to compare a view arrived at with one started at
+	static std::vector<std::array<float, 5>> gAutoPath;
+	static bool gAutoPathFollowed = false;
+	// a pose: x, y, z, pitch, yaw, separated by commas, up to the end or a semicolon
+	auto parsePose = [](const char*& it) -> std::optional<std::array<float, 5>>
+	{
+		std::array<float, 5> values{};
+		size_t count = 0;
+		for (; count < values.size() && *it != '\0' && *it != ';'; count++)
+		{
+			char* end = nullptr;
+			values[count] = std::strtof(it, &end);
+			if (end == it)
+				break;
+			it = *end == ',' ? end + 1 : end;
+		}
+		if (count != values.size())
+			return std::nullopt;
+		return values;
+	};
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
 	{
 		gAutoLoadDone = true;
@@ -803,18 +829,8 @@ void WindowedApplication::PrepareDraw()
 			gAutoFrame = true;
 		else if (camera != nullptr && *camera != '\0')
 		{
-			std::array<float, 5> values{};
 			const char* it = camera;
-			size_t count = 0;
-			for (; count < values.size() && *it != '\0'; count++)
-			{
-				char* end = nullptr;
-				values[count] = std::strtof(it, &end);
-				if (end == it)
-					break;
-				it = *end == ',' ? end + 1 : end;
-			}
-			if (count == values.size())
+			if (auto values = parsePose(it))
 			{
 				gAutoCamera = values;
 				const char* model = std::getenv("SPEEDO_AUTOLOAD_MODEL");
@@ -822,6 +838,22 @@ void WindowedApplication::PrepareDraw()
 			}
 			else
 				std::println(stderr, "SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
+		}
+		if (const char* path = std::getenv("SPEEDO_CAMERA_PATH"); path != nullptr && *path != '\0')
+		{
+			for (const char* it = path; *it != '\0';)
+			{
+				auto pose = parsePose(it);
+				if (!pose)
+				{
+					std::println(stderr, "SPEEDO_CAMERA_PATH: expected x,y,z,pitch,yaw[;...], got {}", path);
+					gAutoPath.clear();
+					break;
+				}
+				gAutoPath.push_back(*pose);
+				if (*it == ';')
+					it++;
+			}
 		}
 	}
 
@@ -859,6 +891,16 @@ void WindowedApplication::PrepareDraw()
 			gAutoFrame = false;
 		}
 	}
+	if (!gAutoPath.empty() && !gAutoPathFollowed && !gAutoCamera && !gAutoFrame && autoLoadsReady && modelInstalled)
+	{
+		// placed by the views as they upload, a pose a frame (draw calls from the ui's frames needn't run in their order:
+		// the queue keeps it per thread only, and the ui's frames run on any of the executor's)
+		std::vector<std::pair<glm::vec3, glm::vec3>> poses;
+		for (const auto& values : gAutoPath)
+			poses.emplace_back(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
+		myViews->FollowPath(std::move(poses));
+		gAutoPathFollowed = true;
+	}
 	if ((gAutoTurn != 0.0F || gAutoWalk != 0.0F) && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
 		!App().GetScene().GetScenes().Read().Get().filePath.empty())
 	{
@@ -874,7 +916,7 @@ void WindowedApplication::PrepareDraw()
 	// the placement
 	static std::optional<uint64_t> gAutoLoadExitStart;
 	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
-		!gAutoFrame && modelInstalled)
+		!gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())))
 	{
 		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
 		if (!gAutoLoadExitStart)

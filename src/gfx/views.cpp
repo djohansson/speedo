@@ -309,9 +309,40 @@ std::optional<Camera> Views::GetCamera(size_t view) const
 	return cameras.Get()[view];
 }
 
+void Views::FollowPath(std::vector<std::pair<glm::vec3, glm::vec3>> poses)
+{
+	myPath.Write().Get() = Path{.poses = std::move(poses)};
+}
+
+std::optional<size_t> Views::GetPlacedPose() const
+{
+	return myPath.Read().Get().placed;
+}
+
+bool Views::OnPath() const
+{
+	auto path = myPath.Read();
+	return path.Get().next < path.Get().poses.size();
+}
+
 std::vector<Camera> Views::Upload(uint32_t frameIndex)
 {
 	ZoneScopedN("Views::Upload");
+
+	// the path's next pose, or its last kept (see FollowPath)
+	{
+		auto path = myPath.Write();
+		auto& [poses, next, placed] = path.Get();
+		placed.reset();
+		if (!poses.empty())
+		{
+			const auto& [eye, rotation] = poses[std::min(next, poses.size() - 1)];
+			Place(eye, rotation);
+			if (next < poses.size())
+				placed = next;
+			next = std::min(next + 1, poses.size());
+		}
+	}
 
 	auto cameras = myCameras.Read().Get();
 	ENSUREF(cameras.size() <= SHADER_TYPES_VIEW_COUNT, "{} views, more than SHADER_TYPES_VIEW_COUNT ({})", cameras.size(), SHADER_TYPES_VIEW_COUNT);

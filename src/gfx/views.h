@@ -84,6 +84,16 @@ public:
 	// fence)
 	[[nodiscard]] std::vector<Camera> Upload(uint32_t frameIndex);
 
+	// a path of poses (eye and rotation, as Place takes them): Upload places the views at the next before each frame it
+	// writes, so one pose a frame, and keeps them at the last (SPEEDO_CAMERA_PATH: an exact, repeatable move, whatever the
+	// frame times and in whatever order the draw calls run). any thread.
+	void FollowPath(std::vector<std::pair<glm::vec3, glm::vec3>> poses);
+	// whether poses of the path are left to place. any thread.
+	[[nodiscard]] bool OnPath() const;
+	// the pose of the path the last Upload placed, if it placed one of the path's for the first time (not the last kept):
+	// which pose the frame being recorded draws (SPEEDO_CAPTURE_PATH). call on the draw thread, after Upload.
+	[[nodiscard]] std::optional<size_t> GetPlacedPose() const;
+
 	// where each view draws in the framebuffer: its grid cell, letterboxed to its camera's aspect ratio. any thread.
 	[[nodiscard]] std::vector<ViewportCreateDesc> GetViewports() const;
 
@@ -110,6 +120,14 @@ private:
 	static constexpr float kDefaultMoveSpeed = 5.0F; // until a model is framed
 
 	std::atomic<float> myMoveSpeed{kDefaultMoveSpeed};
+	// see FollowPath: the poses, and the next to place
+	struct Path
+	{
+		std::vector<std::pair<glm::vec3, glm::vec3>> poses;
+		size_t next = 0;
+		std::optional<size_t> placed; // see GetPlacedPose
+	};
+	core::ConcurrentAccess<Path> myPath;
 };
 
 } // namespace gfx

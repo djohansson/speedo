@@ -658,6 +658,17 @@ the renderer also writes to `GiData::debug` for the references' compute) return 
 scattering's light. Views of values (`DebugViewIsData`) skip exposure and tonemapping in `ComputeMain` (stored as
 `pow(v, 2.2)` where a value should read as itself after the srgb curve) and have a dark backdrop instead of the sky.
 The scatter pass is never in a debug view. An overlay at the bottom left names the view and what its colors mean.
+Indirect lighting's views beyond the per pixel lookups: Voxel World (radiance, albedo, normal: `ComputeMain` marches
+each pixel's ray through the clips' voxels, `GiTraceVoxels`, what the cascades see) and Probes (the 8 cascade 0
+probes around a point, trilinear, without the masks and the resolve).
+
+For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` places the views at a pose a frame,
+the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
+`RHI::drawCalls` keeps it per producer thread only and the ui's frames run on any of the executor's, so placements
+queued in different frames landed out of order); `SPEEDO_CAPTURE_PATH=<directory>` saves each frame of the path
+(`pose-NNNN.bmp`); `SPEEDO_GI_EYE_PATH=<x,y,z>[;...]` centers the clips on a point a frame instead of the camera, so
+that under a still camera what changes is what the clips' moves change; `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip
+again every frame, what their scrolling must come to.
 
 The Statistics window (debug and profile builds) has the pass timings in two columns, then: per draw list its draws
 and triangles; the culling of the main and the shadow views (`Renderer::GetFrameStatistics` for what was tested, the
@@ -868,6 +879,28 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   after the static ones', by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned,
   then by the instance, as `VertexMain` does): it occludes, is lit and bounces light, in the frame; the masks stay the
   static voxels'.
+- **Moving clips** (the flicker): a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, 4 cascade 0
+  probes: 16 voxels; clamped to whole snaps at the last clip's sides too, which left it off the grid), so everything a
+  point inside it is lit by must stay where it is in the world as it snaps, and whatever does change must change with the
+  eye, which moves smoothly, not with the snaps. Each cascade's probes are laid out from the clipmap's corner
+  (`GiData::cascadeOrigin`: the clip's corner rounded down to their spacing; the cascades spaced wider than a snap
+  start half a spacing before it and have two probes more per axis, so their merges never interpolate clamped probes
+  inside it); the cascades march only the levels a snap keeps aligned (`GiData::marchLevelCount`); a level's voxels
+  are rounded up (`GiLevelVoxels`, `gi::LevelVoxels`: rounded down, Sponza's 61 voxels deep left level 4 covering
+  48, and rays left for the next clip early there on some snaps and not on others); and each clip has a box around
+  the eye that it always holds well inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap and a
+  probe spacing and a voxel), which the shading fades it out toward over a third of its half size (`GiClipWeight`)
+  and rays leave it at (`GiFadeBoxExit`, in `GiMarch` and `GiVisibility`). The shading takes each clip by its weight
+  of what the finer ones leave (`GiSampleAt`); it used to blend a clip with the next one's sample at whatever weight
+  that had, so a point a finer clip lit a thousandth was lit by the next one alone, outside its box. Before, the clips
+  faded over 8 voxels from their snapped edges (half a snap) and the cascades above 2 shifted by part of their spacing
+  at each snap: under a still camera with the clips moving 3 m (`SPEEDO_GI_EYE_PATH`), whole regions changed at once,
+  Sponza's inside by 85 of 255 in a frame (the irradiance view); now 5 at most along x, and the change is spread over
+  the move. What is left: regions in a clip's fading band still change at its snaps (up to 30 of 255 in the irradiance
+  view, 8 lit, in Sponza's arcade along z), which the inner clips' shape makes likely: every clip has the last's voxel
+  counts, so Sponza's are thin slabs (clip 0 is 3.6 m deep, its box around the eye 1 m), and a margin that kept the
+  band clear of what the clips' edges change would leave them little; finer clips with more voxels along their thin
+  axes (cubes where the scene allows) would cost 4 to 5 times the voxels.
 - **Lighting** (the GI pass, per bounce): each voxel's emission plus its albedo over pi times the punctual lights of
   its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only (a
   wall's voxel isn't lit by the sun outside it), each shadowed by a march through the voxels (the shadow atlas covers
@@ -951,6 +984,9 @@ colour bleeding, the lamp lighting the ceiling around it, and contact darkening 
 by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
 way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel
 boundary rounds to either side (so the offset); per pixel visibility marches cost 1 ms on CornellBox before the masks.
+The voxels' normals pointed toward the face each stands for, not away from it (as above): every voxel's shadow ray
+started in its twin across the surface, so no voxel was ever lit by a light, and a ray from in front of a wall met the
+voxel of its back face, lit from inside the wall (Voxel Radiance of Sponza's sunlit wall was black with one bounce).
 The voxels' albedo took the metallic factor alone, not times the metallic-roughness texture's (as the shading does):
 Sponza's factor is the default 1, its texture saying where metal is, so every one of its voxels was black and bounced
 nothing (the Voxel Albedo debug view showed it). The measurements of Sponza here are from before that fix.

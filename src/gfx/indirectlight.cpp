@@ -19,9 +19,15 @@ Layout MakeLayout(
 	uint32_t probeSpacing,
 	uint32_t octahedralSide,
 	float reach,
-	const Layout& first)
+	const Layout& first,
+	const glm::vec3& anchor,
+	bool moves)
 {
 	ENSURE(probeSpacing > 0 && octahedralSide > 0 && voxelSize > 0.0F);
+	// where the volume is from the anchor, in its voxels (whole ones, see MakeClipmap)
+	glm::ivec3 originVoxels = glm::ivec3(glm::round((origin - anchor) / voxelSize));
+	ENSURE(glm::all(glm::greaterThanEqual(originVoxels, glm::ivec3(0))));
+	uint32_t snapVoxels = probeSpacing * kSnapProbes;
 
 	Layout layout;
 	auto& data = layout.data;
@@ -38,10 +44,12 @@ Layout MakeLayout(
 	// the levels, down to a voxel or SHADER_TYPES_GI_LEVEL_COUNT
 	uint32_t levelCount = std::min<uint32_t>(std::bit_width(std::max({size.x, size.y, size.z})), SHADER_TYPES_GI_LEVEL_COUNT);
 	data.volumeSize[3] = levelCount;
+	// a level's voxels stay where they are in the world as the volume moves while they are no bigger than its snaps
+	data.marchLevelCount = moves ? std::min(levelCount, static_cast<uint32_t>(std::bit_width(snapVoxels))) : levelCount;
 	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 	{
 		data.levelFirst[levelIt / 4][levelIt % 4] = first.radianceCount + layout.radianceCount;
-		auto levelSize = glm::max(size >> levelIt, glm::uvec3(1));
+		auto levelSize = LevelVoxels(size, levelIt);
 		layout.radianceCount += levelSize.x * levelSize.y * levelSize.z;
 	}
 	data.directFirst = first.radianceCount + layout.radianceCount;
@@ -59,6 +67,27 @@ Layout MakeLayout(
 	for (uint32_t cascadeIt = 0; cascadeIt < SHADER_TYPES_GI_CASCADE_COUNT; cascadeIt++)
 	{
 		auto probes = glm::max((probes0 + glm::uvec3((1U << cascadeIt) - 1)) >> cascadeIt, glm::uvec3(1));
+		// its probes from the volume's corner, a multiple of their spacing from the anchor (GiData::cascadeOrigin). where
+		// its moves don't keep that (a spacing wider than a snap): from at least half a spacing before it, rounded down to
+		// one, to half a spacing past its far side, two probes more, so that its merges never interpolate clamped probes
+		// inside it (half of cascade 3's spacing, 16 voxels, is more than the shading's box around the eye keeps from the
+		// clip's edges, and where the lattice starts against them changes with every snap)
+		uint32_t spacingVoxels = probeSpacing << cascadeIt;
+		auto spacing = static_cast<int>(spacingVoxels);
+		glm::ivec3 latticeVoxels = (originVoxels / spacing) * spacing;
+		if (moves && spacingVoxels > snapVoxels)
+		{
+			glm::ivec3 start = originVoxels - glm::ivec3(spacing / 2);
+			// rounded down (towards minus infinity: the start may be before the anchor)
+			for (int axisIt = 0; axisIt < 3; axisIt++)
+				latticeVoxels[axisIt] = (start[axisIt] >= 0 ? start[axisIt] / spacing : -((-start[axisIt] + spacing - 1) / spacing)) * spacing;
+			probes = (size + glm::uvec3(spacingVoxels - 1)) / spacingVoxels + glm::uvec3(2);
+		}
+		glm::vec3 latticeOrigin = anchor + glm::vec3(latticeVoxels) * voxelSize;
+		data.cascadeOrigin[cascadeIt][0] = latticeOrigin.x;
+		data.cascadeOrigin[cascadeIt][1] = latticeOrigin.y;
+		data.cascadeOrigin[cascadeIt][2] = latticeOrigin.z;
+		data.cascadeOrigin[cascadeIt][3] = 0.0F;
 		uint32_t side = octahedralSide << cascadeIt;
 		float scale = static_cast<float>(1U << (2 * cascadeIt));
 		float start = kIntervalScale * spacing0 * (scale - 1.0F) / 3.0F;
@@ -105,8 +134,10 @@ Clipmap MakeClipmap(
 	glm::vec3 last = glm::vec3(size) * voxelSize;
 	float reach = glm::length(last);
 
-	// the finer ones around the eye, on a grid of 4 of their cascade 0 probes (what moves when they do: their cascades
-	// above that are a frame's probes of another place, and their voxels are made again), inside the last
+	// the finer ones around the eye, on a grid of kSnapProbes of their cascade 0 probes from the last's corner (each
+	// cascade's probes stay where they are in the world, see MakeLayout; what scrolls in is voxelized), inside the last.
+	// clamped to whole snaps: clamped to the last's far side, a clip moved by voxels that weren't whole probe cells, and the
+	// probe masks its shifted voxels kept were of other probes
 	Clipmap clipmap;
 	Layout first;
 	for (uint32_t clipIt = 0; clipIt < clipCount; clipIt++)
@@ -116,11 +147,34 @@ Clipmap MakeClipmap(
 		if (clipIt + 1 < clipCount)
 		{
 			glm::vec3 clipExtent = glm::vec3(size) * clipVoxelSize;
-			float snap = clipVoxelSize * static_cast<float>(probeSpacing * 4);
-			origin = min + glm::round((eye - clipExtent * 0.5F - min) / snap) * snap;
-			origin = glm::clamp(origin, min, min + last - clipExtent);
+			float snap = clipVoxelSize * static_cast<float>(probeSpacing * kSnapProbes);
+			glm::vec3 snaps = glm::floor((last - clipExtent) / snap + glm::vec3(1e-4F));
+			origin = min + glm::clamp(glm::round((eye - clipExtent * 0.5F - min) / snap), glm::vec3(0.0F), snaps) * snap;
 		}
-		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, octahedralSide, reach, first);
+		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, octahedralSide, reach, first, min, clipIt + 1 < clipCount);
+		// the box around the eye it holds wherever it snapped to: half its size, less half a snap (how far from the eye
+		// its center snaps), and a cascade 0 probe spacing and a voxel inside its edges (where its probes are clamped).
+		// faded over a third of its half size: a snap then changes a point's weight by little, and smoothly as the eye moves
+		auto& data = layout.data;
+		data.fadeCenter[0] = eye.x;
+		data.fadeCenter[1] = eye.y;
+		data.fadeCenter[2] = eye.z;
+		data.fadeCenter[3] = 0.0F;
+		if (clipIt + 1 < clipCount)
+		{
+			glm::vec3 half = glm::vec3(size) * clipVoxelSize * 0.5F;
+			float snap = clipVoxelSize * static_cast<float>(probeSpacing * kSnapProbes);
+			glm::vec3 extent = half - glm::vec3(snap * 0.5F + clipVoxelSize * static_cast<float>(probeSpacing + 1));
+			data.fadeExtent[0] = extent.x;
+			data.fadeExtent[1] = extent.y;
+			data.fadeExtent[2] = extent.z;
+			data.fadeExtent[3] = std::min({half.x, half.y, half.z}) / 3.0F;
+		}
+		else
+		{
+			data.fadeExtent[0] = data.fadeExtent[1] = data.fadeExtent[2] = 1e30F;
+			data.fadeExtent[3] = 1.0F;
+		}
 		layout.data.clip = clipIt;
 		layout.data.clipCount = clipCount;
 		first.voxelCount += layout.voxelCount;
