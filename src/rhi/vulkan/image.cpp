@@ -22,10 +22,11 @@ namespace detail
 std::tuple<VkImage, VmaAllocation>
 CreateImage2D(VmaAllocator allocator, const ImageCreateDesc<kVk>& desc)
 {
-	return CreateImage2D(
+	return CreateImage3D(
 		allocator,
 		desc.mipLevels[0].extent.width,
 		desc.mipLevels[0].extent.height,
+		desc.depth,
 		desc.mipLevels.size(),
 		vk::ToVk(desc.format),
 		vk::ToVk(desc.tiling),
@@ -349,7 +350,8 @@ ImageView<kVk>::ImageView(
 				.g = vk::ToVk(desc.components[1]),
 				.b = vk::ToVk(desc.components[2]),
 				.a = vk::ToVk(desc.components[3])},
-			desc.baseLevel))
+			desc.baseLevel,
+			desc.volume ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D))
 {}
 
 template <>

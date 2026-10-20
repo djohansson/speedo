@@ -196,6 +196,20 @@ void CopyBufferToImage(
 	const char* debugName,
 	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
 
+// a volume (VK_IMAGE_TYPE_3D), as CreateImage2D with a depth
+[[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage3D(
+	VmaAllocator allocator,
+	uint32_t width,
+	uint32_t height,
+	uint32_t depth,
+	uint32_t mipLevels,
+	VkFormat format,
+	VkImageTiling tiling,
+	VkImageUsageFlags usage,
+	VkMemoryPropertyFlags memoryFlags,
+	const char* debugName,
+	VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED);
+
 [[nodiscard]] std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkCommandBuffer commandBuffer,
 	VmaAllocator allocator,
@@ -223,7 +237,8 @@ void CopyBufferToImage(
 	uint32_t mipLevels,
 	std::string_view debugName = {},
 	VkComponentMapping components = {},
-	uint32_t baseMipLevel = 0);
+	uint32_t baseMipLevel = 0,
+	VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D);
 
 [[nodiscard]] VkFramebuffer CreateFramebuffer(
 	VkDevice device,

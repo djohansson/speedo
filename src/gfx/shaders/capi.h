@@ -555,6 +555,8 @@ struct CullView
 // camera and the last over the scene (gGi[frame][clip]); a clip's rays and shadow rays that leave it go on through the
 // coarser ones, and the shading takes the finest that holds a point
 #define SHADER_TYPES_GI_CLIP_COUNT 4u
+// the voxels' resolved probes (gGiVolumes): the harmonics of red, green and blue, and the weight
+#define SHADER_TYPES_GI_VOLUME_COUNT 4u
 
 struct GiVoxel
 {

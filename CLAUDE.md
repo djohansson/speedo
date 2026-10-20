@@ -841,17 +841,27 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   the probes' irradiance at them (the sky's and the lights' light off the scene), and traces again: in the frame,
   nothing kept from the last.
 - **Shading**: after each bounce's probes, GI Resolve (`ComputeGiResolve`) gives each voxel of each clip the spherical
-  harmonics of the 8 probes around its center that it sees (its mask), trilinear by its center, premultiplied by the
-  weight of those it sees, and that weight (`gGiResolved`: two `uint4` of halves per voxel; a voxel that sees none, in
-  a corner or inside a wall, takes all 8 at a thousandth of the weight). `Shade` takes `GiIrradiance(position, normal)`
+  harmonics of the 8 probes around its center that it sees (its mask), trilinear by its center and weighed by how much
+  each lies away from the surfaces next to the voxel (its occupancy's gradient over its 6 neighbors, as the per pixel
+  lookups weighed probes by how much they faced the surface: Sponza's inside 79% of its reference's light without, 83%
+  with), premultiplied by the weight of those it sees, and that weight; a voxel that sees none, in a corner or inside a
+  wall, takes all 8 at a thousandth of the weight. They go in 4 `R16G16B16A16Sfloat` 3D images (`gGiVolumes`: red's,
+  green's and blue's harmonics, and the weight; the clips stacked along z, a lookup clamped inside its clip's slab),
+  written as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout
+  (the bounces sample them in the pass that writes them; Main declares a storage read). rhi's 3D images:
+  `ImageCreateDesc::depth` above 1 (not serialized: the cached images are 2D) and `ImageViewCreateDesc::volume`. `Shade` takes `GiIrradiance(position, normal)`
   in place of the environment's irradiance where a clip covers the point (the environment's elsewhere): the finest clip
   holding it more than a cascade 0 probe spacing from its edges (where its probes are clamped), blended into the next
   over 8 voxels; there the 8 voxels around the point offset 1.5 voxels along its normal (off its own surface's voxels),
-  trilinear, their premultiplied harmonics over their weights (`GiIrradianceResolved`), as the bounces' lookups are.
+  filtered, their premultiplied harmonics over their weights (`GiIrradianceResolved`), as the bounces' lookups are.
   So a point sees each probe as much as the voxels around it do (one voxel's mask switched at its edges, which showed as
-  blocks where voxels are large), at 8 voxels' reads: the per pixel lookups before, the masks of the 8 voxels around for
+  blocks where voxels are large), at 4 filtered reads: the per pixel lookups before, the masks of the 8 voxels around for
   each of 8 probes and how much each probe faced the surface, cost Bistro's main pass 3.8 ms up close in its street
-  (3.4 without, 7.2 with them, 5.3 resolved; 9.5 and 6.5 with three clips, whose blending is 0.9 of it). The specular
+  (3.4 without, 7.2 with them; resolved into a buffer, 8 voxels of two `uint4` read by hand, 5.3, and with three
+  clips 9.5 and 6.5, whose blend band was 0.9 of it; from the 3D images 3.7, and 4.0 with three clips). Known: a dark
+  blue halo around CornellBox's lamps in the indirect light, which the per pixel lookups didn't have and the reference
+  hasn't (summed harmonics ringing below 0 near an emitter, clamped per color; exact probe visibility traversal and
+  shortening the linear band where it goes below 0 didn't remove it, and the latter cost Sponza's wall 7% of its light). The specular
   still reflects the environment unoccluded (glossy indirect light is the next step). `SPEEDO_GI_DEBUG`: 1 the indirect
   diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
   voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
@@ -884,12 +894,12 @@ colour bleeding, the lamp lighting the ceiling around it, and contact darkening 
 by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
 way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel
 boundary rounds to either side (so the offset); per pixel visibility marches cost 1 ms on CornellBox before the masks.
-The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in its street (`564,170,-2436,0,30`) 13.0 ms
-with one clip, 18.1 with three (9.4 without the indirect lighting); against its reference, Sponza's inside (`0,2,0,0,90`)
+The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in its street (`564,170,-2436,0,30`) 11.5 ms
+with one clip, 15.7 with three (9.4 without the indirect lighting); CornellBox 6.5 (5.1), Sponza 8.8 (4.8), with three; against its reference, Sponza's inside (`0,2,0,0,90`)
 63% of the reference's light with one clip, 79% with three, its outer wall 86 and 87%. With one clip Bistro's 1.2 m voxels
 leak the sky into its narrow streets, which with three come out dark between their walls (the reference is too slow to
 run there). A clip that moves is voxelized again in the frame: all three every frame cost 18 ms more. What's left
-(TODO.md): the voxelization of what scrolls in only, the shading's lookups (3D textures, filtered), glossy reflections,
+(TODO.md): the voxelization of what scrolls in only, the compute's cost with three clips, glossy reflections,
 hardware ray queries, and a path traced reference to compare against.
 
 ## Descriptor sets: redundant updates consume the pool

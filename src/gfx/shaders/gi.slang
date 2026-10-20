@@ -589,7 +589,8 @@ void ComputeGiIrradiance(uint3 dispatchId: SV_DispatchThreadID)
 	gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 2] = b;
 }
 
-// whether a probe is visible from a point (level 0's voxels between them, at a voxel's steps)
+// whether a probe is visible from a point (level 0's voxels between them, at a voxel's steps; visiting every voxel the
+// line crosses, as the shadow rays do, was too strict for probes on voxel corners, whose lines along a wall touch it)
 bool GiProbeVisible(GiData gi, float3 from, float3 to)
 {
 	float3 offset = to - from;
@@ -769,39 +770,26 @@ float3 GiIrradianceAt(GiData gi, float3 position, float3 normal, uint debug)
 }
 
 // the radiance a white Lambertian surface at position, of normal, reflects (as EnvironmentIrradiance: the irradiance
-// over pi), from the 8 voxels around the point offset 1.5 voxels along its normal, trilinear: each the irradiance of the
-// probes it sees, weighed by how many it sees (see ComputeGiResolve). a negative value where they see none
+// over pi), from the 8 voxels around the point offset 1.5 voxels along its normal, trilinear (filtered): each the
+// irradiance of the probes it sees, weighed by how many it sees (see ComputeGiResolve). a negative value where they see
+// none
 float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weightOnly = false)
 {
 	float3 biased = position + normal * (1.5 * gi.volumeOrigin.w);
-	float3 coordinate = GiVoxelCoordinate(gi, biased, 0) - 0.5;
-	int3 base = int3(floor(coordinate));
-	float3 fraction = coordinate - float3(base);
-	uint3 size = GiLevelSize(gi, 0);
-	float4 r = 0.0;
-	float4 g = 0.0;
-	float4 b = 0.0;
-	float weightSum = 0.0;
-	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
-	{
-		int3 offset = int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
-		int3 voxel = base + offset;
-		if (!GiInside(voxel, size))
-			continue;
-		float3 weights = select(offset != 0, fraction, 1.0 - fraction);
-		float weight = weights.x * weights.y * weights.z;
-		uint index = (gi.voxelFirst + GiVoxelIndex(uint3(voxel), size)) * 2;
-		uint4 first = gGiResolved[index];
-		uint4 second = gGiResolved[index + 1];
-		r += weight * float4(GiUnpackHalf2(first.x), GiUnpackHalf2(first.y));
-		g += weight * float4(GiUnpackHalf2(first.z), GiUnpackHalf2(first.w));
-		b += weight * float4(GiUnpackHalf2(second.x), GiUnpackHalf2(second.y));
-		weightSum += weight * GiUnpackHalf2(second.z).x;
-	}
+	float3 size = float3(GiLevelSize(gi, 0));
+	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
+	float3 coordinate = GiVoxelCoordinate(gi, biased, 0);
+	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
+	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
+	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
+	float weightSum = gGiVolumes[3].SampleLevel(linear, uvw, 0.0).x;
 	if (weightOnly)
 		return weightSum;
 	if (weightSum <= 1e-7)
 		return -1.0;
+	float4 r = gGiVolumes[0].SampleLevel(linear, uvw, 0.0);
+	float4 g = gGiVolumes[1].SampleLevel(linear, uvw, 0.0);
+	float4 b = gGiVolumes[2].SampleLevel(linear, uvw, 0.0);
 	float4 basis = float4(3.14159265 * 0.282095, 2.0 * 3.14159265 / 3.0 * 0.488603 * normal);
 	return max(float3(dot(r, basis), dot(g, basis), dot(b, basis)), 0.0) / weightSum / 3.14159265;
 }
@@ -809,7 +797,7 @@ float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weig
 // per voxel of a clip, after its probes' irradiance: the spherical harmonics of the 8 probes around its center that it
 // sees (its mask, see ComputeGiVisibility), trilinear by its center, times the share of that weight they hold, and the
 // share. a point interpolating the voxels around it so sees each probe as much as the voxels around it do (one voxel's
-// mask switched at its edges, which showed as blocks where voxels are large), at 8 voxels' reads rather than the masks of
+// mask switched at its edges, which showed as blocks where voxels are large), at 4 filtered reads rather than the masks of
 // 8 voxels for each of 8 probes (which cost Bistro's main pass 4 ms up close)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -832,9 +820,25 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 	float seen = 0.0;
 	// a voxel that sees none of them (in a corner, or inside a wall) takes them all, a thousandth as much: a point whose
 	// voxels see none still gets their light, as the per pixel lookups did
+	float share = 1.0;
 	if (visible == 0u)
+	{
 		visible = 0xFFu;
-	float share = (gGiVoxels[gi.voxelFirst + threadId.x].emissionB >> 16) != 0u ? 1.0 : 1e-3;
+		share = 1e-3;
+	}
+	// which way is away from the surfaces next to it (the occupancy's gradient over its 6 neighbors): the probes that
+	// way weigh more, as the per pixel lookups weighed them by how much they faced the surface (Sponza's inside 79% of
+	// its reference's light without, 83% with)
+	float3 away = 0.0;
+	for (uint axisIt = 0; axisIt < 3; axisIt++)
+	{
+		int3 step = int3(axisIt == 0u, axisIt == 1u, axisIt == 2u);
+		float below = GiInside(int3(at) - step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) - step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+		float above = GiInside(int3(at) + step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) + step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+		away[axisIt] = below - above;
+	}
+	float awayLength = length(away);
+	away = awayLength > 0.0 ? away / awayLength : away;
 	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
 	{
 		if (((visible >> cornerIt) & 1u) == 0u)
@@ -843,13 +847,20 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 		uint3 probe = uint3(clamp(base + offset, int3(0), int3(cascadeSize.xyz) - 1));
 		float3 weights = select(offset != 0, fraction, 1.0 - fraction);
 		float weight = weights.x * weights.y * weights.z * share;
+		if (awayLength > 0.0)
+		{
+			float facing = dot(normalize(GiProbePosition(gi, 0, probe) - center), away) * 0.5 + 0.5;
+			weight *= facing * facing + 0.05;
+		}
 		uint probeIndex = gi.probeFirst + (probe.z * cascadeSize.y + probe.y) * cascadeSize.x + probe.x;
 		r += weight * gGiIrradiance[probeIndex * 3 + 0];
 		g += weight * gGiIrradiance[probeIndex * 3 + 1];
 		b += weight * gGiIrradiance[probeIndex * 3 + 2];
 		seen += weight;
 	}
-	uint index = (gi.voxelFirst + threadId.x) * 2;
-	gGiResolved[index] = uint4(GiPackHalf2(r.xy), GiPackHalf2(r.zw), GiPackHalf2(g.xy), GiPackHalf2(g.zw));
-	gGiResolved[index + 1] = uint4(GiPackHalf2(b.xy), GiPackHalf2(b.zw), GiPackHalf2(float2(seen, 0.0)), 0u);
+	uint3 texel = uint3(at.x, at.y, at.z + gi.clip * size.z);
+	gGiVolumeImages[0][texel] = r;
+	gGiVolumeImages[1][texel] = g;
+	gGiVolumeImages[2][texel] = b;
+	gGiVolumeImages[3][texel] = float4(seen, 0.0, 0.0, 0.0);
 }

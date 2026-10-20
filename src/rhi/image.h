@@ -30,6 +30,9 @@ struct ImageCreateDesc final : DeviceObjectCreateDesc<G>
 	MemoryProperty memoryFlags{};
 	ImageAspect imageAspectFlags{};
 	ImageLayout layout{};
+	// a volume's depth (a 3D image if more than 1, of one mip level, never uploaded). not serialized: the cached images
+	// are 2D
+	uint32_t depth = 1;
 
 	// see DeviceObjectCreateDesc::serialize for why this is needed
 	constexpr static auto serialize(auto& archive, auto& self)//NOLINT(readability-identifier-naming)
@@ -150,6 +153,7 @@ struct ImageViewCreateDesc final : DeviceObjectCreateDesc<G>
 	// where its r, g, b and a come from (e.g. a texture whose channels the shader expects elsewhere)
 	std::array<ComponentSwizzle, 4> components{};
 	uint32_t baseLevel = 0; // the first mip level it views (levelCount counts from it), e.g. one level as a storage image
+	bool volume = false; // a 3D image's view (see ImageCreateDesc::depth)
 };
 
 template <GraphicsApi G>

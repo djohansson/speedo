@@ -698,10 +698,11 @@ void CopyBufferToImage(
 		regions.data());
 }
 
-std::tuple<VkImage, VmaAllocation> CreateImage2D(
+std::tuple<VkImage, VmaAllocation> CreateImage3D(
 	VmaAllocator allocator,
 	uint32_t width,
 	uint32_t height,
+	uint32_t depth,
 	uint32_t mipLevels,
 	VkFormat format,
 	VkImageTiling tiling,
@@ -711,10 +712,10 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	VkImageLayout initialLayout)
 {
 	VkImageCreateInfo imageInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.imageType = depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
 	imageInfo.extent.width = width;
 	imageInfo.extent.height = height;
-	imageInfo.extent.depth = 1;
+	imageInfo.extent.depth = depth;
 	imageInfo.mipLevels = mipLevels;
 	imageInfo.arrayLayers = 1;
 	imageInfo.format = format;
@@ -744,6 +745,21 @@ std::tuple<VkImage, VmaAllocation> CreateImage2D(
 	Track(allocatorInfo.device, VK_OBJECT_TYPE_IMAGE, outImage, (debugName != nullptr && *debugName != '\0') ? debugName : "Image");
 
 	return std::make_tuple(outImage, outImageMemory);
+}
+
+std::tuple<VkImage, VmaAllocation> CreateImage2D(
+	VmaAllocator allocator,
+	uint32_t width,
+	uint32_t height,
+	uint32_t mipLevels,
+	VkFormat format,
+	VkImageTiling tiling,
+	VkImageUsageFlags usage,
+	VkMemoryPropertyFlags memoryFlags,
+	const char* debugName,
+	VkImageLayout initialLayout)
+{
+	return CreateImage3D(allocator, width, height, 1, mipLevels, format, tiling, usage, memoryFlags, debugName, initialLayout);
 }
 
 VkBuffer CreateAliasingBuffer(
@@ -904,12 +920,13 @@ VkImageView CreateImageView2D(
 	uint32_t mipLevels,
 	std::string_view debugName,
 	VkComponentMapping components,
-	uint32_t baseMipLevel)
+	uint32_t baseMipLevel,
+	VkImageViewType viewType)
 {
 	VkImageViewCreateInfo viewInfo{.sType=VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 	viewInfo.flags = flags;
 	viewInfo.image = image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.viewType = viewType;
 	viewInfo.format = format;
 	viewInfo.subresourceRange.aspectMask = aspectFlags;
 	viewInfo.subresourceRange.baseMipLevel = baseMipLevel;

@@ -327,8 +327,17 @@ private:
 	Buffer myGiIrradianceBuffer;
 	Buffer myGiProbeMaskBuffer;
 	FrameGraph::BufferId myGiProbeMasks;
-	Buffer myGiResolvedBuffer;
-	FrameGraph::BufferId myGiResolved;
+	// each voxel's resolved probes (gGiVolumes, see ComputeGiResolve): the clips stacked along z, made again with the
+	// clipmap's sizes (the replaced ones kept as the buffers are)
+	struct GiVolume
+	{
+		std::unique_ptr<Image> image;
+		std::unique_ptr<ImageView> view;
+	};
+	std::array<GiVolume, SHADER_TYPES_GI_VOLUME_COUNT> myGiVolumeImages;
+	std::array<FrameGraph::ImageId, SHADER_TYPES_GI_VOLUME_COUNT> myGiVolumes{};
+	std::vector<std::pair<uint64_t, GiVolume>> myRetiredGiVolumes;
+	void InternalReplaceGiVolumes(Pipeline& pipeline, const glm::uvec3& extent);
 	std::vector<Buffer> myGiDataBuffers;
 	GrowingBuffers myGiJobs;
 	GrowingBuffers myGiLightCells;

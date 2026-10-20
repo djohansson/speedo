@@ -45,6 +45,11 @@ Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 // the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
 [[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D<uint> gMainStencil;
+// the indirect lighting's voxels' resolved probes (see ComputeGiResolve), the clips stacked along z: the spherical
+// harmonics of red, green and blue times the weight of the probes seen, and that weight (in x). sampled trilinearly, and
+// written as storage images (gGiVolumeImages), always in the general layout
+[[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
+Texture3D<float4> gGiVolumes[SHADER_TYPES_GI_VOLUME_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
@@ -54,6 +59,8 @@ RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
 RWTexture2D<float> gDepthPyramid[SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT];
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("r32f")]]
 RWTexture2D<float> gShadowDepthPyramid[SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT];
+[[vk::binding(3, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
+RWTexture3D<float4> gGiVolumeImages[SHADER_TYPES_GI_VOLUME_COUNT];
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];
@@ -155,7 +162,4 @@ StructuredBuffer<uint> gGiLightIndices[SHADER_TYPES_FRAME_COUNT];
 // GiData::cascadeProbeFirst)
 [[vk::binding(29, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiProbeMasks;
-// per voxel of each clip, the irradiance of the probes it sees (see ComputeGiResolve): two uint4 of halves, the spherical
-// harmonics per color times the weight of the probes seen, and that weight
-[[vk::binding(30, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
-RWStructuredBuffer<uint4> gGiResolved;
+

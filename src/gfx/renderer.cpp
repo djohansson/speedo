@@ -189,7 +189,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiCascades = myGraph.ImportBuffer("GI Cascades");
 	myGiIrradiance = myGraph.ImportBuffer("GI Irradiance");
 	myGiProbeMasks = myGraph.ImportBuffer("GI Probe Masks");
-	myGiResolved = myGraph.ImportBuffer("GI Resolved");
+	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
+		myGiVolumes[volumeIt] = myGraph.ImportImage(std::format("GI Volume {}", volumeIt));
 	myGiStaticVoxels = myGraph.ImportBuffer("GI Static Voxels");
 	for (auto [buffer, name, size] : std::array{
 			 std::tuple{&myGiVoxelBuffer, "GI Voxels", sizeof(GiVoxel)},
@@ -197,8 +198,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiCascadeBuffer, "GI Cascades", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", 3 * 4 * sizeof(float)},
-			 std::tuple{&myGiProbeMaskBuffer, "GI Probe Masks", sizeof(uint32_t)},
-			 std::tuple{&myGiResolvedBuffer, "GI Resolved", 8 * sizeof(uint32_t)}})
+			 std::tuple{&myGiProbeMaskBuffer, "GI Probe Masks", sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			size,
@@ -546,7 +546,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				// the indirect lighting's probes, and the voxels (where they are inside something)
 				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
-				builder.Use(myGiResolved, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				// sampled in the general layout the resolve writes them in (see gGiVolumes)
+				for (auto volume : myGiVolumes)
+					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, load);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
@@ -704,7 +706,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiCascades, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiProbeMasks, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-			builder.Use(myGiResolved, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			for (auto volume : myGiVolumes)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
 		[this, giKernel, computeBarrier, cascadeTexels, clips](FrameGraph::PassContext& context)
 		{
@@ -1164,9 +1167,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{"gGiRadiance", &myGiRadianceBuffer},
 			 std::pair{"gGiCascades", &myGiCascadeBuffer},
 			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer},
-			 std::pair{"gGiProbeMasks", &myGiProbeMaskBuffer},
-			 std::pair{"gGiResolved", &myGiResolvedBuffer}})
+			 std::pair{"gGiProbeMasks", &myGiProbeMaskBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	// a voxel each until a model is voxelized (a depth of 2: a volume)
+	if (!myGiVolumeImages[0].image)
+		InternalReplaceGiVolumes(pipeline, glm::uvec3(1, 1, 2));
 	// the depth reprojection's: the main depth's stencil, and the last frame's depth at this size (none yet)
 	{
 		const auto& depth = myGraph.GetImage(myDepth);
@@ -1360,6 +1365,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myFrameCount++;
 		std::erase_if(
 			myRetiredBuffers, [this](const auto& retired) { return myFrameCount > retired.first + SHADER_TYPES_FRAME_COUNT; });
+		std::erase_if(
+			myRetiredGiVolumes, [this](const auto& retired) { return myFrameCount > retired.first + SHADER_TYPES_FRAME_COUNT; });
 		std::array<DrawList*, std::to_underlying(ListId::kCount)> lists{};
 		size_t count = 0;
 		for (uint8_t listIt = 0; listIt < lists.size(); listIt++)
@@ -1440,7 +1447,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiCascades, myGiCascadeBuffer);
 	myGraph.Bind(myGiIrradiance, myGiIrradianceBuffer);
 	myGraph.Bind(myGiProbeMasks, myGiProbeMaskBuffer);
-	myGraph.Bind(myGiResolved, myGiResolvedBuffer);
+	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
+		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
 
 	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
@@ -1873,6 +1881,43 @@ void Renderer::InternalReplaceBuffer(
 	myRetiredBuffers.emplace_back(myFrameCount, std::exchange(buffer, std::move(replacement)));
 }
 
+void Renderer::InternalReplaceGiVolumes(Pipeline& pipeline, const glm::uvec3& extent)
+{
+	auto& device = pipeline.GetDevice();
+	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
+	{
+		GiVolume volume;
+		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(std::format("GI Volume {}", volumeIt))};
+		desc.mipLevels = {{.extent = {.width = extent.x, .height = extent.y}}};
+		desc.format = Format::kR16G16B16A16Sfloat;
+		desc.tiling = ImageTiling::kOptimal;
+		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
+		desc.memoryFlags = MemoryProperty::kDeviceLocal;
+		desc.imageAspectFlags = ImageAspect::kColor;
+		desc.layout = ImageLayout::kUndefined;
+		desc.depth = extent.z;
+		volume.image = std::make_unique<Image>(std::move(desc));
+		ImageViewCreateDesc viewDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("GI Volume {} View", volumeIt)), *volume.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor};
+		viewDesc.volume = true;
+		volume.view = std::make_unique<ImageView>(std::move(viewDesc));
+		pipeline.SetDescriptorData(
+			"gGiVolumes",
+			ImageBinding{.sampler = {}, .imageView = *volume.view, .layout = ImageLayout::kGeneral},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			volumeIt);
+		pipeline.SetDescriptorData(
+			"gGiVolumeImages",
+			ImageBinding{.sampler = {}, .imageView = *volume.view, .layout = ImageLayout::kGeneral},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+			volumeIt);
+		if (myGiVolumeImages[volumeIt].image)
+			myRetiredGiVolumes.emplace_back(myFrameCount, std::exchange(myGiVolumeImages[volumeIt], std::move(volume)));
+		else
+			myGiVolumeImages[volumeIt] = std::move(volume);
+	}
+}
+
 void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 {
 	ZoneScopedN("Renderer::planGi");
@@ -1929,7 +1974,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			constexpr auto kVoxelUsage = BufferUsage::kStorage | BufferUsage::kTransferSource | BufferUsage::kTransferDestination;
 			InternalReplaceBuffer(myGiVoxelBuffer, pipeline, "GI Voxels", "gGiVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
 			InternalReplaceBuffer(myGiStaticVoxelBuffer, pipeline, "GI Static Voxels", "", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
-			InternalReplaceBuffer(myGiResolvedBuffer, pipeline, "GI Resolved", "gGiResolved", total.voxelCount * 8 * sizeof(uint32_t));
+			const auto& size = clipmap.clips.front().data.volumeSize;
+			InternalReplaceGiVolumes(pipeline, glm::uvec3(size[0], size[1], size[2] * static_cast<uint32_t>(clipmap.clips.size())));
 		}
 		if (total.radianceCount != previous.radianceCount)
 			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", total.radianceCount * 2 * sizeof(uint32_t));
