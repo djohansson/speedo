@@ -1005,8 +1005,15 @@ spacing (0.113, but cascade 1 then reaches the lamp with 144 directions and draw
 at 1.5 times (0.121, the clips agree slightly less as they move); 8x8 directions (0.149, worse, +4 ms on Bistro);
 direction corrected merging (the parent's texel toward where the probe's ray ends, or toward the middle of the
 parent's interval along it, nearest texel or bilinear: the box no better, Sponza's inside 70% too bright, a texel
-lattice on the walls with the nearest texel). What would still help: the bilinear fix with visibility only bridges
-(the parallax's 0.03, about +6 ms on Bistro by estimate), and more directions in the projection don't. The Surface
+lattice on the walls with the nearest texel). The rest, the floor of 0.097 for 900 straight
+rays against the reference's 0.046, is the direction set, not the projection: the same 900 rays projected each with
+its own basis score 0.090, and they are a regular grid in the octahedral map, whose rows lie along the world's axes
+(and so along the box's walls and lamp), where the reference's Fibonacci rays don't; the grid turned 37 degrees off the
+axes scores 0.067 on that path, but in the cascades themselves the turn made the splotches worse (0.168) and moved
+light from Sponza's floors to its ceilings (14% brighter inside): with 36 directions at cascade 0, where its texels
+point matters. The grid is the merge's (a texel's children are its parents'), so a probe can't turn it alone. What
+would still help: the bilinear fix with visibility only bridges (the parallax's 0.03, about +6 ms on Bistro by
+estimate); more directions in the projection don't. The Surface
 Reference's own leak along CornellBox's floor edges (a red and a white line) was its rays starting inside the next
 wall's voxel shell (every surface has one on each side): an origin in an occupied voxel moves out along that voxel's
 normal.
