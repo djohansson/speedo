@@ -1284,7 +1284,9 @@ which unzip ignores too. `assettest` takes zip archives as well, extracting them
 
 `scripts/assettest.ps1 <zips or dirs>` (PowerShell, as the other scripts) runs the `assettest` tool (imports every model and image and checks the result:
 index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `-Client`
-also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after the autoloads finish, and
+also loads each model in the client (`SPEEDO_AUTOLOAD_EXIT=<frames>` makes it exit after that many drawn frames once the
+autoloads have installed and `SPEEDO_CAMERA` has placed the views: counted in the ui's frames, which run ahead of the
+draw thread's, a big model's install and a capture of it came apart), and
 `SPEEDO_BACKGROUND=1` opens its window behind the others without taking the focus, so the runs don't interrupt whoever
 is working, and `SPEEDO_PRESENT_MODE=fifo`: with mailbox, the client's default where the surface has it, NVIDIA's Windows
 driver hangs about 1 exit in 100 in `vkDestroySwapchainKHR`, which no change of ours fixed: handling the window's messages

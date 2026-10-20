@@ -89,6 +89,8 @@ namespace windowedapplication
 inline std::atomic_uint8_t gCaptureState{0};
 inline std::string gCapturePath;
 inline std::atomic<float> gFramesPerSecond;
+// the frames Draw has submitted (SPEEDO_AUTOLOAD_EXIT counts them: the ui thread's frames aren't paced by them)
+inline std::atomic_uint64_t gDrawnFrameCount{0};
 inline std::atomic<float> gSubmitsPerFrame;
 inline std::atomic<float> gSubmitBatchesPerFrame;
 

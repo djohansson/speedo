@@ -620,11 +620,21 @@ void WindowedApplication::PrepareDraw()
 		gAutoTurning = true;
 	}
 
-	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later
-	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }))
+	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later. the count is
+	// of drawn frames (the ui thread's run ahead of them), from when the views are placed (SPEEDO_CAMERA), after the model's
+	// install: a big model's came late in a count of the ui's frames from the loads, and a capture showed the frame before
+	// the placement
+	static std::optional<uint64_t> gAutoLoadExitStart;
+	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
+		!gAutoFrame)
 	{
-		if (*gAutoLoadExitFrames > 0)
-			(*gAutoLoadExitFrames)--;
+		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
+		if (!gAutoLoadExitStart)
+			gAutoLoadExitStart = drawn;
+		if (drawn < *gAutoLoadExitStart + *gAutoLoadExitFrames)
+		{
+			// still drawing
+		}
 		else if (const char* capture = std::getenv("SPEEDO_CAPTURE"); capture != nullptr && *capture != '\0' && gCaptureState != 3)
 		{
 			// the last frame read back first (see gCaptureState)

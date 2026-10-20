@@ -331,6 +331,7 @@ bool WindowedApplication::Draw()
 		static uint64_t gFpsSubmitCount = Queue::GetSubmitCount();
 		static uint64_t gFpsSubmitBatchCount = Queue::GetSubmitBatchCount();
 		gFpsFrameCount++;
+		gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed);
 		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
 		{
 			auto submitCount = Queue::GetSubmitCount();
