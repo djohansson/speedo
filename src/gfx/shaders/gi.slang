@@ -800,11 +800,37 @@ uint GiFlagsAt(GiData gi, float3 position)
 	return gGiFlags[gi.flagFirst + GiVoxelIndex(uint3(block), size)];
 }
 
-// the probes: a lattice over the clip (GiData::probe*), each probe's center (world space), its index among the clip's
-// and the probe of an index
-float3 GiProbePosition(GiData gi, uint3 probe)
+// the probes: a lattice over the clip (GiData::probe*), each probe's place in it (world space; a voxel corner, the
+// spacing being even), its index among the clip's and the probe of an index
+float3 GiProbeLatticePosition(GiData gi, uint3 probe)
 {
 	return gi.probeOrigin.xyz + (float3(probe) + 0.5) * gi.probeOrigin.w;
+}
+
+// where a probe is: its place in the lattice, or, where the voxels at its corner are a surface's, out of them along
+// their normals by 0.45 of a spacing (DDGI's relocation, from the voxels each frame rather than kept, so that every
+// kernel agrees; a move of one and a half voxels left the probe's harmonics the surface's, which drew dots on
+// CornellBox's ceiling). a probe on a wall's voxel shell saw nothing and was skipped, and the
+// points nearest it took the mean of the others; on a thin wall's two shells (normals both ways) it stays, skipped
+float3 GiProbePosition(GiData gi, uint3 probe)
+{
+	float3 position = GiProbeLatticePosition(gi, probe);
+	int3 corner = int3(round(GiVoxelCoordinate(gi, position, 0)));
+	uint3 size = GiLevelSize(gi, 0);
+	float3 away = 0.0;
+	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
+	{
+		int3 voxel = corner - 1 + int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
+		if (!GiInside(voxel, size))
+			continue;
+		GiVoxel found = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(voxel), size)];
+		if ((found.albedo >> 24) != 0u)
+			away += GiFromOctahedral(float2(found.normal & 0xFFFFu, found.normal >> 16) / 65535.0 * 2.0 - 1.0);
+	}
+	float length2 = dot(away, away);
+	if (length2 <= 1e-4)
+		return position;
+	return position + away * (0.45 * gi.probeOrigin.w / sqrt(length2));
 }
 
 uint GiProbeIndex(uint3 probe, uint4 probeSize)
@@ -958,7 +984,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// a probe nothing is voxelized near holds nothing (its rays weren't traced, see ComputeGiTrace): no light, and a
 	// depth of 0, which no point passes
 	uint first = (gi.probeFirst + probeIndex) * SHADER_TYPES_GI_SH_COUNT;
-	if ((GiFlagsAt(gi, GiProbePosition(gi, probe)) & 8u) == 0u)
+	if ((GiFlagsAt(gi, GiProbeLatticePosition(gi, probe)) & 8u) == 0u)
 	{
 		gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIndex] = 0u;
 		if (texelIndex == 0u)
@@ -1066,7 +1092,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		if (all(abs(above.scroll.xyz) < int3(above.volumeSize.xyz)))
 		{
 			float3 fraction;
-			int3 base = GiProbeBase(above, GiProbePosition(gi, probe), fraction) + above.scroll.xyz / int(above.probeSize.w);
+			int3 base = GiProbeBase(above, GiProbeLatticePosition(gi, probe), fraction) + above.scroll.xyz / int(above.probeSize.w);
 			for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
 			{
 				int3 offset = int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
@@ -1242,6 +1268,7 @@ float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weig
 // most, the spacing being at least 4) are read into shared memory once rather than 8 a voxel (1.2 KB each)
 groupshared float4 gGiSharedSh[27 * SHADER_TYPES_GI_SH_COUNT];
 groupshared uint gGiSharedDepth[27 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE];
+groupshared float3 gGiSharedProbePosition[27];
 
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -1289,6 +1316,12 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
 		gGiSharedDepth[loadIt] = gGiProbeDepth[gi.depthFirst + GiProbeIndex(probe, gi.probeSize) * kTexelCount + loadIt % kTexelCount];
 	}
+	if (groupIndex < slotCount)
+	{
+		uint slot = groupIndex;
+		uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
+		gGiSharedProbePosition[slot] = GiProbePosition(gi, probe);
+	}
 	GroupMemoryBarrierWithGroupSync();
 	if (!inside)
 		return;
@@ -1328,7 +1361,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		uint slot = (slotAt.z * slots.y + slotAt.y) * slots.x + slotAt.x;
 		float3 weights = select(offset != 0, fraction, 1.0 - fraction);
 		float weight = 1.0;
-		float3 probePosition = GiProbePosition(gi, probe);
+		float3 probePosition = gGiSharedProbePosition[slot];
 		// the probes on the open side weigh more (wrapped, so that those beside it count a little)
 		if (awayLength > 0.0)
 		{
