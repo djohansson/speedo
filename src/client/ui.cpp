@@ -585,8 +585,16 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 
-	if ((gAutoCamera || gAutoFrame) && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) &&
-		(!gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty()))
+	// the autoloaded model installed (its file named by the scene), or given up on 600 drawn frames after the loads were
+	// ready: one that failed never installs, and the run must still end (and report it)
+	bool autoLoadsReady = std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); });
+	static std::optional<uint64_t> gAutoLoadsReadyFrame;
+	if (autoLoadsReady && !gAutoLoadsReadyFrame)
+		gAutoLoadsReadyFrame = gDrawnFrameCount.load(std::memory_order_relaxed);
+	constexpr uint64_t kInstallWaitFrameCount = 600;
+	bool modelInstalled = !gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty() ||
+						  (gAutoLoadsReadyFrame && gDrawnFrameCount.load(std::memory_order_relaxed) > *gAutoLoadsReadyFrame + kInstallWaitFrameCount);
+	if ((gAutoCamera || gAutoFrame) && autoLoadsReady && modelInstalled)
 	{
 		if (gAutoFrame)
 		{
@@ -626,7 +634,7 @@ void WindowedApplication::PrepareDraw()
 	// the placement
 	static std::optional<uint64_t> gAutoLoadExitStart;
 	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
-		!gAutoFrame && (!gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty()))
+		!gAutoFrame && modelInstalled)
 	{
 		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
 		if (!gAutoLoadExitStart)
