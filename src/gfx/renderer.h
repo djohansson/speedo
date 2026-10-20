@@ -112,8 +112,8 @@ struct FrameStatistics
 	uint32_t clusterMaxLightCount = 0;
 	float clusterMeanLightCount = 0.0F;
 	// the indirect lighting (see gfx/indirectlight.h): whether it ran, per clip its voxel size (world units) and voxels
-	// per axis, how many clips were voxelized this frame (moved, or the scene changed), and what moves (voxelized every
-	// frame over the rest)
+	// per axis, how many clips were voxelized this frame (moved, or the scene changed), what moves (voxelized every
+	// frame over the rest), the probes of all clips and the rays each traces a frame, and the hysteresis they blend by
 	bool indirectLighting = false;
 	uint32_t giClipCount = 0;
 	std::array<float, SHADER_TYPES_GI_CLIP_COUNT> giVoxelSize{};
@@ -121,7 +121,9 @@ struct FrameStatistics
 	uint32_t giClipsVoxelized = 0;
 	uint32_t giMovingDraws = 0;
 	uint32_t giMovingTriangles = 0;
-	uint32_t giBounceCount = 0;
+	uint32_t giProbeCount = 0;
+	uint32_t giRayCount = 0;
+	float giHysteresis = 0.0F;
 };
 
 // draws frames: the lights' shadows (see gfx/shadows.h), the light under scattering materials' surfaces, the main pass (in two phases with transmissive materials), the order independent transparency's
@@ -340,11 +342,24 @@ private:
 
 	// the indirect lighting (FrameInputs::indirectLighting; SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, SPEEDO_GI_CLIP_COUNT
 	// clips): its clipmap, what it was made for (the model, its bounds and its draws), the persistent buffers (voxels,
-	// radiance, cascades, irradiance: see GiData), per frame index its parameters (host visible), and what the voxelizer
-	// and the voxels' lighting read (growing). per clip, whether it is voxelized this frame (it moved, or the scene
-	// changed) and its static jobs then (the first in gGiJobs, their count and triangles)
+	// radiance, rays, the probes' irradiance and depth: see GiData), per frame index its parameters (host visible), and
+	// what the voxelizer and the voxels' lighting read (growing). per clip, whether it is voxelized this frame (it moved,
+	// or the scene changed) and its static jobs then (the first in gGiJobs, their count and triangles). the probes' rays
+	// a frame (SPEEDO_GI_RAY_COUNT) and the frames their set of directions takes (SPEEDO_GI_RAY_PHASE_COUNT, and which
+	// subset is the frame's: GiData::rayPhase), their spacing (SPEEDO_GI_PROBE_SPACING), what they keep of a frame
+	// (SPEEDO_GI_HYSTERESIS), whether the voxels take their light (SPEEDO_GI_BOUNCE), which half of the probes' buffers
+	// is the frame's (see GiData::probeFirst), and whether the frame keeps nothing of the last (GiData::reset)
 	uint32_t myGiResolution = 128;
 	uint32_t myGiClipCount = 3;
+	uint32_t myGiRayCount = 128;
+	uint32_t myGiRayPhaseCount = 32;
+	uint32_t myGiRayPhase = 0;
+	uint32_t myGiProbeSpacing = 8;
+	float myGiHysteresis = 0.97F;
+	bool myGiBounce = true;
+	uint32_t myGiProbeHalf = 0;
+	bool myGiReset = true;
+	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
 	std::vector<glm::vec3> myGiEyePath; // SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame
 	size_t myGiEyePathNext = 0;
@@ -369,14 +384,20 @@ private:
 	Buffer myGiStaticVoxelBuffer;
 	FrameGraph::BufferId myGiStaticVoxels;
 	FrameGraph::PassId myGiKeepPass;
+	// the static voxels' direct light (GiData::directFirst) is made again when the lights change: the last frame's lights
+	FrameGraph::PassId myGiLightStaticPass;
+	std::vector<LightData> myGiLights;
+	bool myGiLightsChanged = false;
+	Buffer myGiFlagBuffer;
+	FrameGraph::BufferId myGiFlags;
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;
 	Buffer myGiRadianceBuffer;
-	Buffer myGiCascadeBuffer;
+	Buffer myGiRayBuffer;
 	Buffer myGiIrradianceBuffer;
-	Buffer myGiProbeMaskBuffer;
-	FrameGraph::BufferId myGiProbeMasks;
+	Buffer myGiProbeDepthBuffer;
+	FrameGraph::BufferId myGiProbeDepth;
 	// each voxel's resolved probes (gGiVolumes, see ComputeGiResolve): the clips stacked along z, made again with the
 	// clipmap's sizes (the replaced ones kept as the buffers are)
 	struct GiVolume
@@ -394,13 +415,11 @@ private:
 	GrowingBuffers myGiLightIndices;
 	FrameGraph::BufferId myGiVoxels;
 	FrameGraph::BufferId myGiRadiance;
-	FrameGraph::BufferId myGiCascades;
+	FrameGraph::BufferId myGiRays;
 	FrameGraph::BufferId myGiIrradiance;
 	FrameGraph::PassId myGiClearPass;
 	FrameGraph::PassId myGiVoxelizePass;
-	FrameGraph::PassId myGiVisibilityPass;
 	FrameGraph::PassId myGiPass;
-	uint32_t myGiBounceCount = 2;
 	// the buffers replaced by bigger ones, with the Record that replaced them
 	std::vector<std::pair<uint64_t, Buffer>> myRetiredBuffers;
 	// per frame index, the indirect draws' commands (see RecordDrawList), and the one the frame recording takes from

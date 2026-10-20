@@ -449,7 +449,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling; GI Clear, GI Voxelize, GI Visibility and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling; GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -659,8 +659,8 @@ scattering's light. Views of values (`DebugViewIsData`) skip exposure and tonema
 `pow(v, 2.2)` where a value should read as itself after the srgb curve) and have a dark backdrop instead of the sky.
 The scatter pass is never in a debug view. An overlay at the bottom left names the view and what its colors mean.
 Indirect lighting's views beyond the per pixel lookups: Voxel World (radiance, albedo, normal: `ComputeMain` marches
-each pixel's ray through the clips' voxels, `GiTraceVoxels`, what the cascades see) and Probes (the 8 cascade 0
-probes around a point, trilinear, without the masks and the resolve).
+each pixel's ray through the clips' voxels, `GiTraceVoxels`, what the probes' rays see) and Probes (the 8 probes
+around a point, trilinear, without the resolve's weights).
 
 For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` places the views at a pose a frame,
 the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
@@ -842,237 +842,164 @@ for ManyLights' 33, 80 (105 at the 90th percentile) for the 4000 of `ThousandsOf
 moved to a compute pass; that scene's main pass takes 8.9 ms clustered, and unclustered more than the 250 ms a timed pass
 may (its timings are dropped). `SHADER_TYPES_LIGHT_COUNT` (gLights) is 4096.
 
-## Indirect lighting: radiance cascades over a voxel volume
+## Indirect lighting: irradiance probes over a voxel clipmap
 
 View > Indirect Lighting (`SPEEDO_GI=1` to start with it; off by default while it matures, and per frame:
-`FrameInputs::indirectLighting`, off drops the volumes, on voxelizes again) gives the diffuse ambient term from world space radiance cascades
-(`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), every frame and noise free: a fixed set of rays, merged, no
-history, no denoiser (temporal accumulation is ruled out by design: its ghosting and lag). What it does, per frame:
+`FrameInputs::indirectLighting`, off drops the volumes, on voxelizes again) gives the diffuse ambient term from world
+space irradiance probes (`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), as DDGI (Majercik et al. 2019, RTXGI)
+has them, over a voxel clipmap the probes' rays march: each probe traces a set of rays a frame through the voxels'
+radiance and blends what they see into what it holds (hysteresis), its irradiance as spherical harmonics and a depth map
+for a visibility test; the shading interpolates the 8 probes around a point, each by whether it sees the point. Lighting
+lags by the blend (about a second to settle, nothing else is temporal: no reprojection, so no ghosting), and a still
+scene flickers by the frame's rays' share of the blend (measured below). It replaced world space radiance cascades
+(2026-10-21): a fixed set of 36 directions per probe sampling a scene's small bright parts (CornellBox's lamp, Sponza's
+arches) landed differently from probe to probe, which showed as splotches a fifth of a room wide that no amount of
+tuning took below a third of the error (CornellBox-Sphere against a 2048 ray reference, `mean |log2|` at 48 pixels of
+blur: 0.13 against the reference's own 0.046 with 512 rays; the merge's parallax 0.03 of it, the levels 0.01, the rest
+the direction grid), and their cost grew with the clips (every clip's cascades reach across the last: CornellBox-Sphere
+29.9 ms a frame on the day it was dropped, 9.3 with the probes). What it does, per frame:
 
 - **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
   most 4) of the same voxel counts, finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by
-  default, voxels along its longest axis, a voxel of margin), each before it of voxels half the size of the next,
-  centered on the camera on a grid of 4 of its cascade 0 probes and kept inside the last; each has its own voxels,
-  levels, cascades, probes and masks, at its offsets in the shared buffers (`GiData::voxelFirst`, `probeFirst`,
-  `lightCellFirst`, and the levels' and cascades' firsts; `gGi[frame][clip]`), and the kernels take theirs from
-  `PushConstants::giClip`. A clip's rays (`GiMarch`) and shadow rays (`GiVisibility`) that leave it go on through the
-  coarser ones (a box is never entered again), at the level of the same voxel size, and every clip's cascades reach
-  across the last. All are made again when the model, its bounds or its draws change; a clip that moves scrolls
+  default, voxels along its longest axis, a margin of one and a half probe spacings, so that a layer of probes stands
+  outside its outermost surfaces), each before it of voxels half the size of the next, centered on the camera on a grid
+  of 4 of its probes and kept inside the last; each has its own voxels, levels, probes and flags, at its offsets in the
+  shared buffers (`GiData::voxelFirst`, `probeFirst`, `lightCellFirst`, `flagFirst`, and the levels' firsts;
+  `gGi[frame][clip]`), and the kernels take theirs from `PushConstants::giClip`. A clip's rays (`GiMarch`) and shadow
+  rays (`GiOccluderDistance`) that leave it go on through the coarser ones (a box is never entered again), at the level
+  of the same voxel size. All are made again when the model, its bounds or its draws change; a clip that moves scrolls
   (`GiData::scroll`, in voxels, whole probe cells): GI Shift (`ComputeGiShift`) gives each voxel the static one kept at
-  its place before (with its mask), or empty where it scrolled in, and only that is voxelized (its jobs are the static
-  draws whose bounds reach the slabs that scrolled in, `GiClipJobs`; a triangle whose voxels in the clip were all kept
-  skips, and a row of its samples only covers the slab), and only the masks within two probe spacings of it, or near a
-  face of an axis it moved along (where probes are clamped), are made again; a move of its size or more, or a change of
-  the scene, voxelizes all of it (a scroll of its whole size). On Bistro a scroll of the finest clip costs its frame 4.4
-  ms (8.9 to voxelize it again), the next 1.6 (5.8). Voxelizing
-  (the GI Shift, GI Voxelize and GI Visibility passes, only then): a thread per triangle of the main list's static draws
-  (`gGiJobs`: per draw its first triangle of all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index
-  buffers are storage buffers too) samples its surface at under half a voxel apart into the voxel half a voxel behind
-  each of its faces (`GiVoxel`: albedo and occupancy, normal facing away from the face, emission; `InterlockedMax`, so
-  that the order doesn't matter). Both faces, always: a double sided material's either face can be the one seen, and a
-  triangle's winding, its vertex normals and the side it is drawn from needn't agree (CornellBox's generated normals
-  point out of the box, whose walls are seen from inside). Then, per voxel, which of the 8 cascade 0 probes around it
-  are visible from its center (a march through the voxels, into `GiVoxel::emissionB`'s upper bits): the probes are
-  centered on voxel boundaries, so every point of a voxel interpolates the same 8. Those voxels are kept (GI Keep, into
-  a buffer of their own: the clips voxelized, the others' voxels holding what moved last frame), and every frame with something that moves (skinned, morphed, or following an animated node:
-  not cullable) they are copied back (GI Restore) and what moves is voxelized over them (GI Voxelize Moving: its jobs
-  after the static ones', by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned,
-  then by the instance, as `VertexMain` does): it occludes, is lit and bounces light, in the frame; the masks stay the
-  static voxels'.
-- **Moving clips** (the flicker): a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, 4 cascade 0
-  probes: 16 voxels; clamped to whole snaps at the last clip's sides too, which left it off the grid), so everything a
-  point inside it is lit by must stay where it is in the world as it snaps, and whatever does change must change with the
-  eye, which moves smoothly, not with the snaps. Each cascade's probes are laid out from the clipmap's corner
-  (`GiData::cascadeOrigin`: the clip's corner rounded down to their spacing; the cascades spaced wider than a snap
-  start half a spacing before it and have two probes more per axis, so their merges never interpolate clamped probes
-  inside it); the cascades march only the levels a snap keeps aligned (`GiData::marchLevelCount`); a level's voxels
-  are rounded up (`GiLevelVoxels`, `gi::LevelVoxels`: rounded down, Sponza's 61 voxels deep left level 4 covering
-  48, and rays left for the next clip early there on some snaps and not on others); and each clip has a box around
-  the eye that it always holds well inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap and a
-  probe spacing and a voxel), which the shading fades it out toward over a third of its half size (`GiClipWeight`)
-  and rays leave it at (`GiFadeBoxExit`, in `GiMarch` and `GiVisibility`). The shading takes each clip by its weight
-  of what the finer ones leave (`GiSampleAt`); it used to blend a clip with the next one's sample at whatever weight
-  that had, so a point a finer clip lit a thousandth was lit by the next one alone, outside its box. Before, the clips
-  faded over 8 voxels from their snapped edges (half a snap) and the cascades above 2 shifted by part of their spacing
-  at each snap: under a still camera with the clips moving 3 m (`SPEEDO_GI_EYE_PATH`), whole regions changed at once,
-  Sponza's inside by 85 of 255 in a frame (the irradiance view); now 5 at most along x, and the change is spread over
-  the move. What is left: regions in a clip's fading band still change at its snaps (up to 30 of 255 in the irradiance
-  view, 8 lit, in Sponza's arcade along z), which the inner clips' shape makes likely: every clip has the last's voxel
-  counts, so Sponza's are thin slabs (clip 0 is 3.6 m deep, its box around the eye 1 m), and a margin that kept the
-  band clear of what the clips' edges change would leave them little; finer clips with more voxels along their thin
-  axes (cubes where the scene allows) would cost 4 to 5 times the voxels.
-- **Lighting** (the GI pass, per bounce): each voxel's emission plus its albedo over pi times the punctual lights of
-  its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only (a
-  wall's voxel isn't lit by the sun outside it), each shadowed by a march through the voxels (the shadow atlas covers
-  only what the camera sees); kept as the direct radiance. A mip chain of radiance and occupancy (each voxel the mean of
-  its 8). The cascades: cascade 0 has a probe every 4 voxels with 6x6 directions (octahedral) over an interval of twice that
-  spacing, each cascade above half the probes per axis, twice the directions per axis and an interval four times as
-  long, until one reaches across the volume; cascade c marches its interval through level c (front to back, the occupancy as opacity), the last's rays that
-  get through see the environment (`EnvironmentRadiance` at roughness 0.6, without the dominant lights, which light the
-  voxels themselves), and each cascade below takes what gets through its rays from its 2x2 child directions at its 8
-  nearest probes above (trilinear). Cascade 0's merged radiance becomes spherical harmonics of bands 0 to 2 per probe (9 coefficients a color,
-  `SHADER_TYPES_GI_SH_COUNT`, each direction weighed by its solid angle). A second
-  bounce (`SPEEDO_GI_BOUNCES`, 2 by default) lights the voxels again with their direct radiance plus their albedo times
-  the probes' irradiance at them (the sky's and the lights' light off the scene), and traces again: in the frame,
-  nothing kept from the last.
-- **Shading**: after each bounce's probes, GI Resolve (`ComputeGiResolve`) gives each voxel of each clip the spherical
-  harmonics of the 8 probes around its center that it sees (its mask), trilinear by its center and weighed by how much
-  each lies away from the surfaces next to the voxel (its occupancy's gradient over its 6 neighbors, as the per pixel
-  lookups weighed probes by how much they faced the surface: Sponza's inside 79% of its reference's light without, 83%
-  with), premultiplied by the weight of those it sees, and that weight; a voxel that sees none, in a corner or inside a
-  wall, takes all 8 at a thousandth of the weight. They go in 7 `R16G16B16A16Sfloat` 3D images (`gGiVolumes`: per color
-  its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the shading reads vectors, see
-  `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab),
-  written as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout
-  (the bounces sample them in the pass that writes them; Main declares a storage read). rhi's 3D images:
-  `ImageCreateDesc::depth` above 1 (not serialized: the cached images are 2D) and `ImageViewCreateDesc::volume`. `Shade` takes `GiIrradiance(position, normal)`
-  in place of the environment's irradiance where a clip covers the point (the environment's elsewhere): the finest clip
-  holding it more than a cascade 0 probe spacing from its edges (where its probes are clamped), blended into the next
-  over 8 voxels; there the 8 voxels around the point offset 1.5 voxels along its normal (off its own surface's voxels),
-  filtered, their premultiplied harmonics over their weights (`GiIrradianceResolved`), as the bounces' lookups are.
-  So a point sees each probe as much as the voxels around it do (one voxel's mask switched at its edges, which showed as
-  blocks where voxels are large), at 7 filtered reads: the per pixel lookups before, the masks of the 8 voxels around for
-  each of 8 probes and how much each probe faced the surface, cost Bistro's main pass 3.8 ms up close in its street
-  (3.4 without, 7.2 with them; resolved into a buffer, 8 voxels of two `uint4` read by hand, 5.3, and with three
-  clips 9.5 and 6.5, whose blend band was 0.9 of it; from the 3D images 3.7, and 4.0 with three clips, with bands 0 and
-  1 only; 4.6 with band 2). Band 2: with bands 0 and 1 alone (4 volumes) a blue fringe ringed CornellBox's lamps, red
-  and green ringing below 0 opposite the lamp's strong warm light and clamped, which the reference hasn't; tried
-  against it: Hazel's non-negative reconstruction (Geomerics: a warm glow there instead, and Sponza's inside 6% further
-  from its reference), shortening all three gradients alike (a blue patch: the means there are bluish), shortening the
-  band wherever it can go below 0 (Sponza's wall 7% darker), exact probe visibility traversal (no change). Band 2 holds
-  that light: the fringe is gone, and against references of band 2 too (their 512 rays projected the same way)
-  CornellBox gets 99.5% of its light, Sponza's wall 91.8% and its inside 86.5% (with bands 0 and 1, against theirs:
-  100.3, 87 and 83), for 1.2 ms of Bistro's street (0.6 of it the main pass) and 0.5 of Sponza. Kept as arrays of the 28
-  values in the main pass's lookup, they spilled: Bistro's main pass took 31 ms. The specular
-  takes the same lookup (`GiSampleAt`: the harmonics fetched once, blended between clips, evaluated twice by
-  `GiEvaluate`): the environment by the indirect light's share of the environment's irradiance (luminance, at most 1;
-  all of it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection, the
-  scene's radiance around it in a cosine lobe as wide as the roughest. Sponza's inside lost the sky its gold and cloth
-  reflected (most of its brightness, which was the leak), Bistro's street the sky's blue sheen on its cobbles; open
-  surfaces keep theirs (DamagedHelmet 99.7% of its light, Sponza's outer wall 97.8%), for 0.06 ms of Bistro's main pass.
-  Sharp reflections of the scene itself (not the sky's, occluded) are still missing. Its debug views (View > Debug View
-  > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th, `GiData::debug`): 1 the indirect
-  diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
-  voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
-  straight to the environment (seconds a frame), and 7 the cascades traced at level 0, to tell what the cascades and what
-  the levels lose; 14 the surface reference (see below; its ray spiral turned per point by a hash, else its fixed
-  directions made radial streaks); 8 which clip lights a point (blended as `GiSampleAt` blends them), 9 the indirect diffuse with the
-  finest clip's voxel and cascade 0 probe planes drawn over it (`GiClipDebug`).
-- **What the merge sees**: a cascade's merge only takes the probes above it that it can see (`gGiProbeMasks`, per
-  probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'
-  shells, sees none of the light outside, and pulled the streets dark). The projection to spherical harmonics weighs
-  each direction by its octahedral texel's solid angle (`GiTexelSolidAngle`: they aren't equal). Against the reference
-  on Sponza's outer wall, one bounce (`SPEEDO_GI_BOUNCES=1`, `SPEEDO_GI_DEBUG=1` against 6, the wall's mean through the
-  tonemapper): 67% of its light with cascade 0's interval ending at its spacing, 86% at twice it, CornellBox's a
-  hundred either way. Ending at the spacing, the probes above (twice as far apart) are as far from a probe as its rays
-  reach, and the merge's parallax (a probe above traces from itself, not along the ray) loses light. Tried and dropped:
-  radiance cascades' bilinear fix (a ray from where a probe's interval starts to where each of the 8 above start theirs)
-  lost more, 59% for cascade 0 alone (55% for two), at any interval: in 3D its bridging rays leave the direction by up to
-  60 degrees and cross what the ray never meets; anisotropic mips (6 faces per voxel of the levels, composited front to
-  back along each axis, as voxel cone tracing has them) took 64%: a thin wall goes opaque in a coarse voxel the ray only
-  grazes; an interval of 4 times the spacing (88%) showed CornellBox's lamp as blobs on its walls with 4x4 directions,
-  checkers with 8x8; twice the spacing with 4x4, fainter blobs, hence 6x6. Tracing every cascade at level 0
-  (`SPEEDO_GI_DEBUG=7`) gets 80% with the old interval, so the coarse levels lose some too. Shadow rays visit each voxel they cross once (Amanatides and Woo: exact, and half the
-  reads of half voxel steps). The kernels dispatch rows of `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's
-  size isn't capped by a dispatch.
+  its place before, or empty where it scrolled in, and only that is voxelized (its jobs are the static draws whose
+  bounds reach the slabs that scrolled in, `GiClipJobs`; a triangle whose voxels in the clip were all kept skips, and a
+  row of its samples only covers the slab); the probes shift the same way (below); a move of its size or more, or a
+  change of the scene, voxelizes all of it (a scroll of its whole size). Voxelizing (the GI Shift and GI Voxelize
+  passes, only then): a thread per triangle of the main list's static draws (`gGiJobs`: per draw its first triangle of
+  all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index buffers are storage buffers too) samples its
+  surface at under half a voxel apart into the voxel half a voxel behind each of its faces (`GiVoxel`: albedo and
+  occupancy, normal facing away from the face, emission; `InterlockedMax`, so that the order doesn't matter). Both
+  faces, always: a double sided material's either face can be the one seen, and a triangle's winding, its vertex
+  normals and the side it is drawn from needn't agree (CornellBox's generated normals point out of the box, whose walls
+  are seen from inside). The voxels' albedo is the base color times 1 minus the metallic factor times its texture's
+  (by the factor alone, Sponza's voxels were all black). Those voxels are kept (GI Keep, into a buffer of their own:
+  the clips voxelized, the others' voxels holding what moved last frame), lit by the lights (GI Light Static, below),
+  and every frame with something that moves (skinned, morphed, or following an animated node: not cullable) they are
+  copied back (GI Restore) and what moves is voxelized over them (GI Voxelize Moving: its jobs after the static ones',
+  by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned, then by the instance,
+  as `VertexMain` does): it occludes, is lit and bounces light, in the frame.
+- **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, 4 probes: 32 voxels; clamped
+  to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
+  world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the
+  clipmap's, and keep what they hold across a snap (the update reads each probe's history from where it was, by the
+  scroll); the rays march only the levels a snap keeps aligned (`GiData::marchLevelCount`); a level's voxels are
+  rounded up (`GiLevelVoxels`, `gi::LevelVoxels`); and each clip has a box around the eye that it always holds well
+  inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap and a probe spacing and a voxel), which
+  the shading fades it out toward over a third of its half size (`GiClipWeight`) and rays leave it at
+  (`GiFadeBoxExit`), so what changes as a clip snaps changes with the eye, smoothly. The shading takes each clip by its
+  weight of what the finer ones leave (`GiSampleAt`). Under a still camera with the clips moving 6 m through Sponza's
+  arcade (`SPEEDO_GI_EYE_PATH`, 120 frames), the frames' means differ from the still run's by 0.1% at most.
+- **Lighting the voxels** (`GiDirectRadiance`): each voxel's emission plus its albedo over pi times the punctual lights
+  of its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only
+  (a wall's voxel isn't lit by the sun outside it), each shadowed by a ray through the voxels (the shadow atlas covers
+  only what the camera sees; `GiOccluderDistance` visits each voxel the ray crosses once, Amanatides and Woo). The
+  static voxels' is kept (GI Light Static, `ComputeGiLightStatic`, into `GiData::directFirst` of `gGiRadiance`) and
+  made again when a clip is voxelized or the lights change (`Renderer::myGiLights`, compared bytewise: the environment's
+  rotation turns its dominant lights, which are among them); each frame GI Light (`ComputeGiLight`) gives every voxel
+  that (a moving voxel's, which differs from the static one at its place, made then: a moving voxel doesn't shadow the
+  static ones' kept light), plus what its albedo reflects of the probes' light at it as the last frame resolved it
+  (`GiData::bounce`, `SPEEDO_GI_BOUNCE=0` for the lights' light alone): the light bounces on, a bounce a frame, settling
+  with the blend. The shadow rays every frame cost CornellBox-Sphere 2.9 ms of its 3 clips' lighting, the kept light 1.3.
+  Then a mip chain of radiance and occupancy, anisotropic (`ComputeGiMip`: 6 faces per voxel of the levels above 0, one
+  per axis direction, each its children composited front to back along it; a ray reads the 3 faces it looks through,
+  by its direction's squares: the mean of the 8 let a thin surface's lit face through to the other side, the sun on the
+  outside of Sponza's curtains lit its arcades' columns from inside), a thread per voxel making all 6 faces, skipping
+  the blocks that hold nothing (below). The **flags** (`gGiFlags`, `ComputeGiFlags`): per block of 4x4x4 voxels
+  (`SHADER_TYPES_GI_FLAG_LEVEL`) the lighting stamps the frame into the blocks holding something (a plain store: an
+  atomic maximum kept whatever a new buffer held, and such a block never counted again, which blacked out Sponza), then
+  bit 0 says whether anything is in the 3x3x3 blocks around it and bit 3 whether that is within 4 blocks along each axis
+  (three separable steps): the resolve skips the blocks without bit 0 (the lookups are within a few voxels of a surface)
+  and the probes without bit 3 (a probe is only ever looked up from within its cell of a surface's lookup), which is
+  what makes a clip's cost that of its surfaces rather than its volume. The mips are made whole on a reset (the buffer
+  may hold anything).
+- **The probes** (`GiData::probe*`): a lattice every `SPEEDO_GI_PROBE_SPACING` voxels (8 by default) from the clip's
+  corner, centered on voxel boundaries (so every point of a voxel interpolates the same 8). Each frame (the GI pass, GI
+  Trace then GI Probe Update) each probe near a surface traces `SPEEDO_GI_RAY_COUNT` rays (128), a Fibonacci sphere of
+  directions turned by the frame's phase (`GiRayDirection`: a quaternion from Roberts' R3 sequence over
+  `SPEEDO_GI_RAY_PHASE_COUNT` phases, 32, then the same sets again, so what a probe holds converges to a fixed value
+  rather than wandering, as it would under DDGI's random rotation a frame; every 32nd point of one set 32 times as
+  big, tried first, was a coarse spiral of its own, and the phases' light differed by a quarter: a 32 frame pulse of
+  5%), the same directions for every probe (each probe turning them its own way made each probe's error its own, which
+  showed as dots where the resolve's weights single a probe out). A ray marches the radiance front to back at the level
+  of its distance (`GiMarch` with `cone`: level 0 as far as two spacings, each level above four times as far, a cone of
+  a constant angle, a half voxel step taking half a voxel's share of the opacity, `1 - (1 - a)^(1/2)`; `SPEEDO_GI_DEBUG`
+  7 marches level 0 only, to tell what the levels lose), the environment past the last clip (`EnvironmentRadiance` at
+  roughness 0.6, without the dominant lights, which light the voxels themselves), and to the first occupied voxel as
+  far as the depth map reaches (`SHADER_TYPES_GI_DEPTH_REACH`, 3 spacings: the points a probe is tested for are within
+  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). The update (a group per probe, a thread per texel
+  of its depth map, the rays through shared memory) blends them into the probe: its irradiance as spherical harmonics of
+  bands 0 to 2 (`SHADER_TYPES_GI_SH_COUNT`, 9 coefficients a color, `gGiIrradiance`; coefficient 0's w counts the
+  frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 8 by 8 octahedral texels of the mean
+  distance and the mean of its square, half2; a texel takes the rays near its direction by `cos^10` of their angle, and
+  keeps what it had where none is near), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays are 3% of it), or by the
+  frames it has while fewer (so a probe starts from its first frame's rays and settles in 30). The probes' buffers hold
+  two halves, the frame's and the last's (`GiData::probeFirst`, `probePreviousFirst`, swapped each frame), and a
+  probe's history is the probe at its place last frame (by the scroll), a probe new to the clip taking the coarser
+  clip's light where it is (its previous half, at its place then, trilinear) as one frame's worth; on a reset (the
+  scene changed, or the buffers were replaced: `GiData::reset`) every probe starts over and the voxels take no bounce.
+  Memory per probe: 2 x (144 B of harmonics + 256 B of depth) + 128 rays x 8 B; Sponza's 3 clips of 16x8x10 probes
+  take 5 MB.
+- **The resolve and the shading**: after the probes, GI Resolve (`ComputeGiResolve`, a group per block of 4x4x4
+  voxels, with its 8 probes, or 27 where it spans two cells an axis, in shared memory) gives each voxel of each clip
+  the harmonics of the 8 probes around its center, each weighed as DDGI weighs them: by how much it faces the voxel's
+  open side (a surface's voxel its normal, else its occupancy's gradient over its 6 neighbors; wrapped, `facing^2 +
+  0.2`), by whether it sees the voxel's point (out that way by a fifth of a spacing, at least a voxel: DDGI's normal
+  bias; a probe's depth map along the direction to the point, bilinear across the octahedral map's folds, and
+  Chebyshev's inequality where the point is farther than the mean, cubed, at least a twentieth; a probe whose depth
+  that way is nothing sees nothing at all, being inside a surface's voxels, and is skipped: the twentieth of it drew
+  dark dots at the probes), crushed below a fifth (cubed, so that a point few see takes the mean of them rather than
+  nothing), and only then by where the point is between them (trilinear: crushing the product crushed every probe at a
+  cell's center, where each is an eighth, and the facing ones least, which drew the probes' cells as a checkerboard
+  across every wall), premultiplied, and the sum of the weights. They go in 7 `R16G16B16A16Sfloat` 3D images
+  (`gGiVolumes`: per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the
+  shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
+  as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the
+  voxels' lighting samples them in the pass that writes them; Main declares a storage read). rhi's 3D images:
+  `ImageCreateDesc::depth` above 1 (not serialized: the cached images are 2D) and `ImageViewCreateDesc::volume`. `Shade`
+  takes `GiSampleSurface` in place of the environment's irradiance where a clip covers the point (the environment's
+  elsewhere): the finest clip holding it more than a probe spacing from its edges, blended into the next over 8
+  voxels; there the 8 voxels around the point offset 0.75 voxels along its normal and 1.5 toward the eye (the line of
+  sight is clear; the normal alone led into the other surface's voxels at a concave edge), in the finest clip's voxels
+  for every clip (in its own where that finds none), twice as far where that finds no probes, filtered, their
+  premultiplied harmonics over their weights (`GiEvaluate`: the cosine lobe's convolution, bands 1, 2/3, 1/4). Band
+  2 is kept for CornellBox's lamps (with bands 0 and 1 alone a blue fringe ringed them). The specular takes the same
+  lookup: the environment by the indirect light's share of the environment's irradiance (luminance, at most 1; all of
+  it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection. Kept as arrays
+  of the 28 values in the main pass's lookup, they spilled: Bistro's main pass took 31 ms. The lookups cost Sponza's
+  main pass 1.5 ms (3.5 to 5.1) and Bistro's street 2.4 (3.8 to 6.2), more than they did (0.3 to 0.6): to look at.
+  Its debug views (View > Debug View > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th,
+  `GiData::debug`): 1 the indirect diffuse alone, 2 the resolved weight (how much a point sees of the probes around it),
+  3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light
+  from 512 rays through level 0 straight to the environment, nothing blended (seconds a frame), and 7 the rays at level
+  0; 14 the surface reference (`GiPixelReference`: 256 cosine weighted rays from the point itself, its spiral turned per
+  point by a hash, else its fixed directions made radial streaks; an origin in an occupied voxel moves out along that
+  voxel's normal; seconds a frame: capture it after a few frames); 8 which clip lights a point, 9 the indirect diffuse
+  with the finest clip's voxel and probe planes drawn over it (`GiClipDebug`); and the Voxel World and Probes views (the
+  8 probes around a point as they hold them, trilinear, without the resolve's weights). The kernels dispatch rows of
+  `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's size isn't capped by a dispatch.
 
-Measured on KosmicKrisp by the frame's gpu time, two bounces, 128 voxels (before the longer interval and 6x6
-directions, which added 0.07 ms on CornellBox and 0.7 on Bistro): CornellBox +1.4 ms (lighting the voxels
-0.6, tracing 1.0, merging 0.5, the mips 0.15, the main pass's lookups 0.3), Bistro +1.7; at 256 voxels Bistro +5.8 and
-CornellBox, a cube, +15 (16 M voxels): larger scenes need the clipmap rather than a finer volume. Before the masks and
-weights: CornellBox +0.6, Bistro +1.1, ThousandsOfLights +1.1, Sponza's interior +2.0. It renders CornellBox's
-colour bleeding, the lamp lighting the ceiling around it, and contact darkening in the corners; Sponza's arcades are lit
-by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
-way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel
-boundary rounds to either side (so the offset); per pixel visibility marches cost 1 ms on CornellBox before the masks.
-The voxels' normals pointed toward the face each stands for, not away from it (as above): every voxel's shadow ray
-started in its twin across the surface, so no voxel was ever lit by a light, and a ray from in front of a wall met the
-voxel of its back face, lit from inside the wall (Voxel Radiance of Sponza's sunlit wall was black with one bounce).
-The splotches (CornellBox's walls and floor mottled in patches about a fifth of the box wide, a few of which are
-brighter than the reference, the rest darker; the dark blobs at the walls' bases), measured at 48 pixels of blur
-against a 2048 ray probe reference (`mean |log2|`, the splotch metric in the notes: the per pixel metric is noise), one
-bounce, CornellBox-Sphere: the reference's own 512 ray version scores 0.046; 900 straight rays per probe projected from
-cascade 0's 36 texels 0.097; the cascades traced exactly from each probe (no parallax) at level 0 0.101, with the
-coarse levels 0.152; the real pipeline at level 0 0.131, with the levels 0.141. So the merge's parallax (a parent up to
-a spacing away traces from where it is) is 0.03 of it and the levels 0.01 (0.05 without the merge's blur over 8
-parents), and the rest is the 36 direction projection's. Fixed: a half voxel step took a whole voxel's opacity, so two
-steps through a partly occupied coarse voxel squared its transmittance (an oblique wall at 30% blocked 51%; per step it
-is `1 - (1 - a)^(1/2)` now, and the radiance's share with it): 0.141 to 0.130, no cost, and the clips agree a little
-better as they move. Tried and dropped, each measured: 25 rays per texel averaged (no change: the lamp's angular
-aliasing in the rays isn't it); the basis integrated over each texel, and cascade 0 merged and projected at cascade 1's
-144 directions (no change: the projection's quadrature isn't it either); cascade 0's interval at three times its
-spacing (0.113, but cascade 1 then reaches the lamp with 144 directions and draws it as bright rectangles on the walls),
-at 1.5 times (0.121, the clips agree slightly less as they move); 8x8 directions (0.149, worse, +4 ms on Bistro);
-direction corrected merging (the parent's texel toward where the probe's ray ends, or toward the middle of the
-parent's interval along it, nearest texel or bilinear: the box no better, Sponza's inside 70% too bright, a texel
-lattice on the walls with the nearest texel). The rest, the floor of 0.097 for 900 straight
-rays against the reference's 0.046, is the direction set, not the projection: the same 900 rays projected each with
-its own basis score 0.090, and they are a regular grid in the octahedral map, whose rows lie along the world's axes
-(and so along the box's walls and lamp), where the reference's Fibonacci rays don't; the grid turned 37 degrees off the
-axes scores 0.067 on that path, but in the cascades themselves the turn made the splotches worse (0.168) and moved
-light from Sponza's floors to its ceilings (14% brighter inside): with 36 directions at cascade 0, where its texels
-point matters. The grid is the merge's (a texel's children are its parents'), so a probe can't turn it alone. What
-would still help: the bilinear fix with visibility only bridges (the parallax's 0.03, about +6 ms on Bistro by
-estimate); more directions in the projection don't. The Surface
-Reference's own leak along CornellBox's floor edges (a red and a white line) was its rays starting inside the next
-wall's voxel shell (every surface has one on each side): an origin in an occupied voxel moves out along that voxel's
-normal.
-The leaks into dark interiors along their edges and corners (thin lines of the sky's light, about a voxel wide, along
-the bases of Sponza's ground floor walls and its curtains), four causes, each found with the probe visibility and
-level 0 views: a surface's voxels saw their probes from their own centers, among the surface's voxels, so they saw none
-(at a concave edge most of a lookup's 8 voxels are surfaces'), and a voxel that saw none took every probe at a
-thousandth of the weight, the sky's beyond the wall too: now a surface's voxel sees from a voxel out along its normal
-(`ComputeGiVisibility`), and one that sees none takes none; the shading's lookup goes 0.75 voxels along the normal and
-1.5 toward the eye (the line of sight is clear; the normal alone led into the other surface's voxels at an edge), twice
-as far where that finds none (`GiSampleSurface`), and a point a clip holds but whose lookup finds no probe gets no
-ambient light rather than the unoccluded environment's (`GiSample::inside`); the merge took the probes above that a
-probe can't see at a thousandth of the weight, which where it saw none was all of theirs (now none); the last clip's
-margin was a voxel, so the probes nearest the scene's outer walls were inside them and their outsides were lit from
-inside (it is one and a half cascade 0 probe spacings now: Sponza's outer wall went from 92% of its reference's light to
-97%); and the coarse levels averaged a thin surface's two faces, so a ray from inside saw the sunlit outside through
-the curtains and walls (red and yellow on the columns beside them, which level 0 hadn't): the levels above 0 are
-anisotropic now (`ComputeGiMip`: 6 faces per voxel, one per axis direction, each its children composited front to back
-along it; a ray reads the 3 faces it looks through, by its direction's squares). Last night's anisotropic mips lost
-light against the reference, but on voxels no light lit. Against the references now: CornellBox's boxes 102.6%,
-Sponza's wall 97.2%, its inside 91.4% (it read 97.7% with the leaks, which matched light the reference hasn't with light
-it has). The four cost Bistro's street 2.7 ms (18.2 to 20.9), CornellBox 2.0 and Sponza 1.6. `SPEEDO_EXPOSURE=<stops>`
-sets the exposure, to capture dark interiors comparably.
-The light changing near surfaces as the clips take over (the finest seemed darker): against the light at the surface
-itself (the Surface Reference debug view, `GiPixelReference`: 256 cosine weighted rays from the point through the
-finest clip's voxels holding it and the coarser ones', seconds a frame; the probe reference is at the probes, which is
-not where the light is wanted), the coarser clips were too bright, not the finer too dark: in Sponza's arcade up close
-clip 1's probes alone gave 119% of it, clip 2's 160%. A probe, up to a spacing off a surface, sees past what is nearer
-the surface than it is (an arcade's walls and ceiling, a curtain's folds), and a lookup in a clip's own voxels reached
-further out the coarser the clip. Now each voxel keeps the share of the hemisphere away from its nearby surfaces (its
-normal, or its occupancy's gradient) open within two cascade 0 probe spacings (16 rays when voxelizing, in
-`ComputeGiVisibility`; `GiVoxel::emissionB`'s top byte), which the resolve scales the probes by, and the lookup's offset
-is in the finest clip's voxels for every clip (in its own where that finds none of its probes seen: a coarse clip's
-voxels by a surface are the surface's). Clip 1 then gives 96% of the surface's light, clip 2 108%; the blended lighting
-against the surface reference: Sponza's wall 99%, inside 108%, arcade 83%, curtains 114%, up close 113%, CornellBox 101%.
-Under a still camera with the clips moving 7 m (`SPEEDO_GI_EYE_PATH`), the irradiance view's mean over the move went
-from 87 to 113% of its average to 91 to 107%, its largest step from 1.8% to 1.2%. No measurable cost (computed when
-voxelizing).
-The voxels' albedo took the metallic factor alone, not times the metallic-roughness texture's (as the shading does):
-Sponza's factor is the default 1, its texture saying where metal is, so every one of its voxels was black and bounced
-nothing (the Voxel Albedo debug view showed it). The measurements of Sponza here are from before that fix.
-The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in its street (`564,170,-2436,0,30`) 11.5 ms
-with one clip, 15.7 with three (9.4 without the indirect lighting); CornellBox 6.5 (5.1), Sponza 8.8 (4.8), with three; against its reference, Sponza's inside (`0,2,0,0,90`)
-63% of the reference's light with one clip, 79% with three, its outer wall 86 and 87%. With one clip Bistro's 1.2 m voxels
-leak the sky into its narrow streets, which with three come out dark between their walls (the reference is too slow to
-run there). Where three clips' 6.2 ms go in Bistro's street (each kernel skipped in turn, which leaves last frame's
-data: the content stays): tracing 3.6, the irradiance and the resolve 1.5, merging 1.0, lighting the voxels 0.3, the mips
-and the bounce's lighting little. Over no indirect lighting (9.4 ms): one clip +1.2 ms with one bounce, +2.1 with two;
-two clips +2.2 and +4.0; three +3.4 and +6.2. Each cascade costs about the same (half the rays of the one below, each
-twice as many steps), so the tracing goes with the clips' cascade counts, and the finer clips have the most: theirs all
-reach across the last clip. Their far cascades duplicate the coarser clips' (which their rays march through anyway), but
-can't simply hand over to them: a clip's intervals and directions are in its own probe spacing, so neither the
-intervals nor the angular resolutions of two clips' cascades line up. Tried: the voxels and radiance in 4x4x4 bricks
-(for a ray's locality whichever way it goes) cost 0.4 ms more; a whole voxel's steps instead of half saved 0.9 of the
-3.6. The march, the shadow rays and the shading's lookups read only the fields they need of the clips they
-loop over (`GiClipView`, and the march's own few), rather than copies of their `GiData` (its cascades' tables): 0.3 to
-0.6 ms less a frame (Bistro's street 16.8 to 16.2, CornellBox 6.6 to 6.3, Sponza 9.3 to 8.8). CornellBox is compared
-over its boxes alone (its whole frame's mean moved with what is drawn around them): 97.8% of its reference's light. What's left (TODO.md): the compute's cost with three clips, glossy reflections,
-hardware ray queries, and a path traced reference to compare against.
+Measured on KosmicKrisp by the frame's gpu time (2560x1440, 3 clips, 128 voxels, probes every 8, 128 rays, hysteresis
+0.97): CornellBox-Sphere 9.3 ms (4.5 without the indirect lighting; 7.5 with 32 rays, where its 3.0 ms are the voxels'
+lighting 1.3, the resolve 0.9, the rays 0.6, the probes' update 0.2, the mips and flags little), Sponza's inside
+(`0,2,0,0,90`) 12.0 (6.5), Bistro's street (`564,170,-2436,0,30`) 14.9 (9.9). Probes every 4 voxels cost 8 times the
+probes (CornellBox 12.8 ms with 32 rays), with no visible gain at these voxel sizes. A still camera in Sponza's arcade
+over 80 frames after settling: the frame's mean steps by 1.2% at most between frames and stays within 1.3% of its
+average (64 rays 2.1%; hysteresis 0.9 with 128 rays 3.9% and 4%, with 64 rays 7% and 7%: the arches' light is a noisy
+thing to sample with 64 rays). Renders: CornellBox's walls and ceiling smooth, with the lamp lighting the ceiling around
+it, colour bleeding on the ceiling's edges and the spheres' contact shadows; Sponza's inside within a shade of its
+surface reference (its arcades a little brighter), its sunlit upper floors lit by the sky; Bistro's street lit between
+its walls. Against the old cascades: no splotches, no dark blobs at the walls' bases, no blocks behind the spheres, and
+the clips' moves change nothing measurable. What's left (TODO.md): the lighting's lag (DDGI's adaptive hysteresis for
+lights that change), probes inside walls (DDGI's relocation), moving objects' shadows in the kept light, the lookups'
+cost, glossy reflections, hardware ray queries, and a path traced reference.
 
 ## Descriptor sets: redundant updates consume the pool
 

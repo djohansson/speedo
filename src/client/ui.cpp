@@ -81,19 +81,19 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"shadows", "Shadows", DEBUG_VIEW_SHADOWS, "The share of the direct light that reaches a point unshadowed: white lit, black shadowed, dark blue where no light faces it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The share of the probes around a point that it sees: dark where it sees few (inside walls, in corners)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The weight of the probes around a point: how much of them it sees (by their depth maps). Dark where it sees little (inside walls, in corners)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-behind", "Voxel Radiance (behind)", DEBUG_VIEW_GI_VOXEL_BEHIND, "The radiance of the voxel behind a point: its back face's, lit from behind the surface. Magenta where there is none, cyan outside the clip."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-front", "Voxel Radiance (in front)", DEBUG_VIEW_GI_VOXEL_FRONT, "The radiance of the voxel in front of a point: what a ray toward the surface meets first, as the cascades trace it. Magenta where there is none, cyan outside the clip."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-front", "Voxel Radiance (in front)", DEBUG_VIEW_GI_VOXEL_FRONT, "The radiance of the voxel in front of a point: what a ray toward the surface meets first. Magenta where there is none, cyan outside the clip."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-albedo", "Voxel Albedo", DEBUG_VIEW_GI_VOXEL_ALBEDO, "The albedo voxelized behind a point. Magenta where there is none, cyan outside the clip."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-clip", "Clips", DEBUG_VIEW_GI_CLIP, "Which clip lights a point, finest first: red, green, blue, yellow (blended where they meet). Dark outside them all."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-grid", "Voxel and Probe Grid", DEBUG_VIEW_GI_GRID, "The irradiance with the finest clip's voxels (thin lines, in its color) and cascade 0 probe cells (white) drawn over it."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world", "Voxel World", DEBUG_VIEW_GI_VOXEL_WORLD, "The voxels themselves, as the cascades see them: each pixel's ray from the eye through the clips, and the radiance of the first voxel it meets (the sky where it meets none)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-grid", "Voxel and Probe Grid", DEBUG_VIEW_GI_GRID, "The irradiance with the finest clip's voxels (thin lines, in its color) and probe cells (white) drawn over it."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world", "Voxel World", DEBUG_VIEW_GI_VOXEL_WORLD, "The voxels themselves, as the probes' rays see them: each pixel's ray from the eye through the clips, and the radiance of the first voxel it meets (the sky where it meets none)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-albedo", "Voxel World Albedo", DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO, "The albedo of the first voxel each pixel's ray meets (dark blue where it meets none)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-world-normal", "Voxel World Normal", DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL, "The normal of the first voxel each pixel's ray meets, dimmed where it faces away from the eye (lit from behind what is seen)."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-surface-reference", "Surface Reference (slow)", DEBUG_VIEW_GI_SURFACE_REFERENCE, "The irradiance at each point itself, from 256 rays through the voxels: what the probes' lookups should come to there (the probe reference is at the probes, a probe spacing off a surface). Seconds a frame."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The irradiance of the 8 probes around a point as they hold it, trilinear: without their visibility masks and the resolve into the voxels, to tell what the probes see from what the lookups make of it."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment: what the cascades approximate. Seconds a frame."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-level0", "Cascades at Level 0", DEBUG_VIEW_GI_LEVEL0, "The cascades traced through the finest voxels only: what the coarser levels lose."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The irradiance of the 8 probes around a point as they hold it, trilinear: without their visibility and the resolve into the voxels, to tell what the probes see from what the lookups make of it."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment, nothing blended: what the probes' rays converge to. Seconds a frame."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-level0", "Rays at Level 0", DEBUG_VIEW_GI_LEVEL0, "The probes' rays traced through the finest voxels only: what the coarser levels lose."}},
 };
 
 [[nodiscard]] const DebugView* FindDebugView(uint32_t view)
@@ -436,7 +436,13 @@ void WindowedApplication::PrepareDraw()
 							TextDisabled("Off (View > Indirect Lighting)");
 						else
 						{
-							Text("%u clips, %u bounces; voxelized this frame: %u", frame.giClipCount, frame.giBounceCount, frame.giClipsVoxelized);
+							Text(
+								"%u clips, %s probes, %u rays a probe a frame, hysteresis %.2f; voxelized this frame: %u",
+								frame.giClipCount,
+								compact(frame.giProbeCount).c_str(),
+								frame.giRayCount,
+								static_cast<double>(frame.giHysteresis),
+								frame.giClipsVoxelized);
 							for (uint32_t clipIt = 0; clipIt < frame.giClipCount; clipIt++)
 							{
 								auto voxels = frame.giVoxelCounts[clipIt];
@@ -1309,7 +1315,7 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Indirect Lighting", nullptr, &indirectLighting))
 					App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
 				SetItemTooltip(
-					"Diffuse ambient light from radiance cascades over a voxel clipmap (experimental, SPEEDO_GI=1 to start with it): "
+					"Diffuse ambient light from irradiance probes over a voxel clipmap (experimental, SPEEDO_GI=1 to start with it): "
 					"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
 				if (ui::BeginMenu("Debug View"))
 				{

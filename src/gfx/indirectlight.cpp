@@ -13,17 +13,9 @@ namespace gfx::gi
 {
 
 Layout MakeLayout(
-	const glm::vec3& origin,
-	float voxelSize,
-	const glm::uvec3& size,
-	uint32_t probeSpacing,
-	uint32_t octahedralSide,
-	float reach,
-	const Layout& first,
-	const glm::vec3& anchor,
-	bool moves)
+	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor, bool moves)
 {
-	ENSURE(probeSpacing > 0 && octahedralSide > 0 && voxelSize > 0.0F);
+	ENSURE(probeSpacing > 0 && voxelSize > 0.0F);
 	// where the volume is from the anchor, in its voxels (whole ones, see MakeClipmap)
 	glm::ivec3 originVoxels = glm::ivec3(glm::round((origin - anchor) / voxelSize));
 	ENSURE(glm::all(glm::greaterThanEqual(originVoxels, glm::ivec3(0))));
@@ -55,80 +47,33 @@ Layout MakeLayout(
 	}
 	data.directFirst = first.radianceCount + layout.radianceCount;
 	layout.radianceCount += layout.voxelCount;
+	auto flagSize = LevelVoxels(size, SHADER_TYPES_GI_FLAG_LEVEL);
+	layout.flagCount = flagSize.x * flagSize.y * flagSize.z;
+	data.flagFirst = first.flagCount;
 
-	// the cascades: each with half the probes per axis, twice the directions per axis and an interval four times as long,
-	// until one reaches reach. cascade 0's interval ends at twice its probes' spacing: ending at the spacing, the probes
-	// above (twice as far apart) are as far from a probe as its rays reach, and the merge's parallax lost a third of the
-	// light on Sponza's outer wall against the reference (67% of it, 86% at twice). three times measured better on
-	// CornellBox's splotches but drew the lamp as bright rectangles on its walls (cascade 1 then reaches it with 144
-	// directions, and a texel either hits it or not, probe by probe), see CLAUDE.md
-	constexpr float kIntervalScale = 2.0F;
-	float spacing0 = static_cast<float>(probeSpacing) * voxelSize;
-	glm::uvec3 probes0 = (size + glm::uvec3(probeSpacing - 1)) / probeSpacing;
-	uint32_t cascadeCount = 0;
-	for (uint32_t cascadeIt = 0; cascadeIt < SHADER_TYPES_GI_CASCADE_COUNT; cascadeIt++)
-	{
-		auto probes = glm::max((probes0 + glm::uvec3((1U << cascadeIt) - 1)) >> cascadeIt, glm::uvec3(1));
-		// its probes from the volume's corner, a multiple of their spacing from the anchor (GiData::cascadeOrigin). where
-		// its moves don't keep that (a spacing wider than a snap): from at least half a spacing before it, rounded down to
-		// one, to half a spacing past its far side, two probes more, so that its merges never interpolate clamped probes
-		// inside it (half of cascade 3's spacing, 16 voxels, is more than the shading's box around the eye keeps from the
-		// clip's edges, and where the lattice starts against them changes with every snap)
-		uint32_t spacingVoxels = probeSpacing << cascadeIt;
-		auto spacing = static_cast<int>(spacingVoxels);
-		glm::ivec3 latticeVoxels = (originVoxels / spacing) * spacing;
-		if (moves && spacingVoxels > snapVoxels)
-		{
-			glm::ivec3 start = originVoxels - glm::ivec3(spacing / 2);
-			// rounded down (towards minus infinity: the start may be before the anchor)
-			for (int axisIt = 0; axisIt < 3; axisIt++)
-				latticeVoxels[axisIt] = (start[axisIt] >= 0 ? start[axisIt] / spacing : -((-start[axisIt] + spacing - 1) / spacing)) * spacing;
-			probes = (size + glm::uvec3(spacingVoxels - 1)) / spacingVoxels + glm::uvec3(2);
-		}
-		glm::vec3 latticeOrigin = anchor + glm::vec3(latticeVoxels) * voxelSize;
-		data.cascadeOrigin[cascadeIt][0] = latticeOrigin.x;
-		data.cascadeOrigin[cascadeIt][1] = latticeOrigin.y;
-		data.cascadeOrigin[cascadeIt][2] = latticeOrigin.z;
-		data.cascadeOrigin[cascadeIt][3] = 0.0F;
-		uint32_t side = octahedralSide << cascadeIt;
-		float scale = static_cast<float>(1U << (2 * cascadeIt));
-		float start = kIntervalScale * spacing0 * (scale - 1.0F) / 3.0F;
-		float end = kIntervalScale * spacing0 * ((scale * 4.0F) - 1.0F) / 3.0F;
-		data.cascadeSize[cascadeIt][0] = probes.x;
-		data.cascadeSize[cascadeIt][1] = probes.y;
-		data.cascadeSize[cascadeIt][2] = probes.z;
-		data.cascadeSize[cascadeIt][3] = side;
-		data.cascadeInterval[cascadeIt][0] = start;
-		data.cascadeInterval[cascadeIt][1] = end;
-		data.cascadeInterval[cascadeIt][2] = 0.0F;
-		data.cascadeInterval[cascadeIt][3] = spacing0 * static_cast<float>(1U << cascadeIt);
-		data.cascadeFirst[cascadeIt / 4][cascadeIt % 4] = first.cascadeTexelCount + layout.cascadeTexelCount;
-		data.cascadeProbeFirst[cascadeIt / 4][cascadeIt % 4] = first.probeMaskCount + layout.probeMaskCount;
-		layout.cascadeTexelCount += probes.x * probes.y * probes.z * side * side;
-		layout.probeMaskCount += probes.x * probes.y * probes.z;
-		cascadeCount++;
-		if (end >= reach)
-			break;
-	}
-	data.cascadeCount = cascadeCount;
-	layout.probeCount = probes0.x * probes0.y * probes0.z;
+	// the probes: every probeSpacing voxels from the volume's corner (which is a whole number of snaps from the anchor, so
+	// they stay where they are in the world as it moves)
+	glm::uvec3 probes = (size + glm::uvec3(probeSpacing - 1)) / probeSpacing;
+	data.probeOrigin[0] = origin.x;
+	data.probeOrigin[1] = origin.y;
+	data.probeOrigin[2] = origin.z;
+	data.probeOrigin[3] = static_cast<float>(probeSpacing) * voxelSize;
+	data.probeSize[0] = probes.x;
+	data.probeSize[1] = probes.y;
+	data.probeSize[2] = probes.z;
+	data.probeSize[3] = probeSpacing;
+	layout.probeCount = probes.x * probes.y * probes.z;
 	data.probeFirst = first.probeCount;
 	return layout;
 }
 
-Clipmap MakeClipmap(
-	const Bounds3f& bounds,
-	const glm::vec3& eye,
-	uint32_t resolution,
-	uint32_t clipCount,
-	uint32_t probeSpacing,
-	uint32_t octahedralSide)
+Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing)
 {
 	ENSURE(resolution > 0 && clipCount > 0 && clipCount <= SHADER_TYPES_GI_CLIP_COUNT);
 
-	// the last clip: over the scene, with a margin of one and a half cascade 0 probe spacings around it, so that a layer
-	// of probes stands outside its outermost surfaces: with a voxel of margin, the probes nearest an outer wall were in
-	// it, and its outside saw none (and was lit by the probes inside, which the merge's and the resolve's fallbacks took)
+	// the last clip: over the scene, with a margin of one and a half probe spacings around it, so that a layer of probes
+	// stands outside its outermost surfaces: with a voxel of margin, the probes nearest an outer wall were in it, and its
+	// outside saw none
 	glm::vec3 min = bounds.GetMin();
 	glm::vec3 max = bounds.GetMax();
 	auto extent = glm::max(max - min, glm::vec3(1e-3F));
@@ -138,12 +83,11 @@ Clipmap MakeClipmap(
 	glm::uvec3 size = glm::max(
 		glm::uvec3(glm::ceil((extent + glm::vec3(2.0F * voxelSize * static_cast<float>(margin))) / voxelSize)), glm::uvec3(1));
 	glm::vec3 last = glm::vec3(size) * voxelSize;
-	float reach = glm::length(last);
 
-	// the finer ones around the eye, on a grid of kSnapProbes of their cascade 0 probes from the last's corner (each
-	// cascade's probes stay where they are in the world, see MakeLayout; what scrolls in is voxelized), inside the last.
-	// clamped to whole snaps: clamped to the last's far side, a clip moved by voxels that weren't whole probe cells, and the
-	// probe masks its shifted voxels kept were of other probes
+	// the finer ones around the eye, on a grid of kSnapProbes of their probes from the last's corner (the probes stay where
+	// they are in the world, see MakeLayout; what scrolls in is voxelized), inside the last. clamped to whole snaps:
+	// clamped to the last's far side, a clip moved by voxels that weren't whole probe cells, so its probes' history was of
+	// other places
 	Clipmap clipmap;
 	Layout first;
 	for (uint32_t clipIt = 0; clipIt < clipCount; clipIt++)
@@ -157,9 +101,9 @@ Clipmap MakeClipmap(
 			glm::vec3 snaps = glm::floor((last - clipExtent) / snap + glm::vec3(1e-4F));
 			origin = min + glm::clamp(glm::round((eye - clipExtent * 0.5F - min) / snap), glm::vec3(0.0F), snaps) * snap;
 		}
-		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, octahedralSide, reach, first, min, clipIt + 1 < clipCount);
+		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, first, min, clipIt + 1 < clipCount);
 		// the box around the eye it holds wherever it snapped to: half its size, less half a snap (how far from the eye
-		// its center snaps), and a cascade 0 probe spacing and a voxel inside its edges (where its probes are clamped).
+		// its center snaps), and a probe spacing and a voxel inside its edges (where its probes are clamped).
 		// faded over a third of its half size: a snap then changes a point's weight by little, and smoothly as the eye moves
 		auto& data = layout.data;
 		data.fadeCenter[0] = eye.x;
@@ -185,9 +129,8 @@ Clipmap MakeClipmap(
 		layout.data.clipCount = clipCount;
 		first.voxelCount += layout.voxelCount;
 		first.radianceCount += layout.radianceCount;
-		first.cascadeTexelCount += layout.cascadeTexelCount;
 		first.probeCount += layout.probeCount;
-		first.probeMaskCount += layout.probeMaskCount;
+		first.flagCount += layout.flagCount;
 		clipmap.clips.push_back(layout);
 	}
 	clipmap.total = first;

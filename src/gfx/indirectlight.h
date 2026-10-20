@@ -9,12 +9,12 @@
 #include <span>
 #include <vector>
 
-// indirect lighting (see GiData in gfx/shaders/capi.h and gi.slang): world space radiance cascades over a voxel radiance
-// volume. what the cpu plans: the volume's and the cascades' layout over the scene, and the lights per cell of it
+// indirect lighting (see GiData in gfx/shaders/capi.h and gi.slang): world space irradiance probes over a voxel radiance
+// volume. what the cpu plans: the volume's and the probes' layout over the scene, and the lights per cell of it
 namespace gfx::gi
 {
 
-// how far a clip that follows the eye moves at a time: this many of its cascade 0 probes (see MakeClipmap)
+// how far a clip that follows the eye moves at a time: this many of its probes (see MakeClipmap)
 inline constexpr uint32_t kSnapProbes = 4;
 
 // a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
@@ -23,50 +23,33 @@ inline constexpr uint32_t kSnapProbes = 4;
 	return glm::max((size + glm::uvec3((1U << level) - 1U)) >> level, glm::uvec3(1));
 }
 
-// a volume of size voxels from origin, its levels, and its cascades: probes every probeSpacing voxels with
-// octahedralSide^2 directions in cascade 0, as many cascades as reach as far as reach (world space). the counts are what
-// the buffers hold for it: voxels (level 0), radiance texels (all levels, then the direct radiance's voxels), cascade
-// texels (all cascades), cascade 0's probes and the probe masks; its GiData's offsets are after first's counts (a clip
-// before it in the buffers). origin is a whole number of voxels from anchor, the clipmap's corner, which the cascades'
-// probes are laid out from (GiData::cascadeOrigin); moves says whether it moves (by kSnapProbes cascade 0 probes at a
-// time: the cascades spaced wider get two probes more per axis, half a spacing past each side wherever their lattice
-// starts), and how many of its levels the cascades march (GiData::marchLevelCount)
+// a volume of size voxels from origin, its levels, and its probes: one every probeSpacing voxels. the counts are what the
+// buffers hold for it: voxels (level 0), radiance texels (all levels, then the direct radiance's voxels), probes and
+// flags (see GiData::flagFirst); its GiData's offsets are after first's
+// counts (a clip before it in the buffers; the probes' halves and the rays' offsets are the renderer's, see
+// GiData::probeFirst). origin is a whole number of voxels from anchor, the clipmap's corner; moves says whether it moves
+// (by kSnapProbes probes at a time), and so how many of its levels the rays march (GiData::marchLevelCount)
 struct Layout
 {
 	GiData data{};
 	uint32_t voxelCount = 0;
 	uint32_t radianceCount = 0;
-	uint32_t cascadeTexelCount = 0;
 	uint32_t probeCount = 0;
-	uint32_t probeMaskCount = 0; // of all cascades but the last
+	uint32_t flagCount = 0;
 };
 [[nodiscard]] Layout MakeLayout(
-	const glm::vec3& origin,
-	float voxelSize,
-	const glm::uvec3& size,
-	uint32_t probeSpacing,
-	uint32_t octahedralSide,
-	float reach,
-	const Layout& first,
-	const glm::vec3& anchor,
-	bool moves);
+	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor, bool moves);
 
 // the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): clipCount volumes, finest first, of the voxel counts of the last, which is
 // over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each before it of
-// voxels half the size of the next, centered on eye (snapped to its probes' grid, kept inside the last), its cascades
-// reaching across the last. total holds the counts of all (its data is unused)
+// voxels half the size of the next, centered on eye (snapped to its probes' grid, kept inside the last). total holds the
+// counts of all (its data is unused)
 struct Clipmap
 {
 	std::vector<Layout> clips;
 	Layout total;
 };
-[[nodiscard]] Clipmap MakeClipmap(
-	const Bounds3f& bounds,
-	const glm::vec3& eye,
-	uint32_t resolution,
-	uint32_t clipCount,
-	uint32_t probeSpacing,
-	uint32_t octahedralSide);
+[[nodiscard]] Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing);
 
 // the lights (as the shader sees them) that may reach each cell of the volume's SHADER_TYPES_GI_LIGHT_GRID^3: per cell
 // its first index and count (pairs of uints), and the indices. a directional light reaches every cell, a point or spot

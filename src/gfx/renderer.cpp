@@ -48,15 +48,13 @@ constexpr uint8_t kDepthReprojectEntryPoint = 8;
 // the indirect lighting's kernels (see gi.slang), entry points 9 to 15
 constexpr uint8_t kGiShiftEntryPoint = 9;
 constexpr uint8_t kGiVoxelizeEntryPoint = 10;
-constexpr uint8_t kGiLightEntryPoint = 11;
-constexpr uint8_t kGiMipEntryPoint = 12;
-constexpr uint8_t kGiTraceEntryPoint = 13;
-constexpr uint8_t kGiMergeEntryPoint = 14;
-constexpr uint8_t kGiIrradianceEntryPoint = 15;
-constexpr uint8_t kGiVisibilityEntryPoint = 16;
-constexpr uint8_t kGiBounceEntryPoint = 17;
-constexpr uint8_t kGiProbeVisibilityEntryPoint = 18;
-constexpr uint8_t kGiResolveEntryPoint = 19;
+constexpr uint8_t kGiLightStaticEntryPoint = 11;
+constexpr uint8_t kGiLightEntryPoint = 12;
+constexpr uint8_t kGiMipEntryPoint = 13;
+constexpr uint8_t kGiFlagsEntryPoint = 14;
+constexpr uint8_t kGiTraceEntryPoint = 15;
+constexpr uint8_t kGiProbeUpdateEntryPoint = 16;
+constexpr uint8_t kGiResolveEntryPoint = 17;
 
 // at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
 // list's early and late per shadow view
@@ -186,9 +184,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the indirect lighting's (see InternalPlanGi): the persistent buffers, a texel each until a model is voxelized
 	myGiVoxels = myGraph.ImportBuffer("GI Voxels");
 	myGiRadiance = myGraph.ImportBuffer("GI Radiance");
-	myGiCascades = myGraph.ImportBuffer("GI Cascades");
+	myGiRays = myGraph.ImportBuffer("GI Rays");
 	myGiIrradiance = myGraph.ImportBuffer("GI Irradiance");
-	myGiProbeMasks = myGraph.ImportBuffer("GI Probe Masks");
+	myGiProbeDepth = myGraph.ImportBuffer("GI Probe Depth");
+	myGiFlags = myGraph.ImportBuffer("GI Flags");
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGiVolumes[volumeIt] = myGraph.ImportImage(std::format("GI Volume {}", volumeIt));
 	myGiStaticVoxels = myGraph.ImportBuffer("GI Static Voxels");
@@ -196,9 +195,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiVoxelBuffer, "GI Voxels", sizeof(GiVoxel)},
 			 std::tuple{&myGiStaticVoxelBuffer, "GI Static Voxels", sizeof(GiVoxel)},
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
-			 std::tuple{&myGiCascadeBuffer, "GI Cascades", 2 * sizeof(uint32_t)},
+			 std::tuple{&myGiRayBuffer, "GI Rays", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float)},
-			 std::tuple{&myGiProbeMaskBuffer, "GI Probe Masks", sizeof(uint32_t)}})
+			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
+			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			size,
@@ -568,8 +568,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					late);
 			});
 	};
-	// the indirect lighting (see gi.slang): the voxels (again when the model changes), lit, their levels, the cascades
-	// traced and merged from the farthest down, and cascade 0's irradiance per probe, which the main pass shades with.
+	// the indirect lighting (see gi.slang): the voxels (again when the model changes), lit, their levels, the probes'
+	// rays through them, blended into the probes, and the probes resolved per voxel, which the main pass shades with.
 	// each kernel's dispatches in a pass read what the one before wrote: barriers between them
 	// a gi kernel over count threads, in rows (see GiThread)
 	auto giKernel = [kernel](CommandBufferHandle cmd, uint8_t entryPoint, uint64_t count, uint32_t clip, uint32_t step = 0, uint32_t jobBase = 0)
@@ -593,7 +593,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		CommandEncoder(cmd).Barrier(
 			PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
 	};
-	// per clip (see gi::MakeClipmap): those moved or new are voxelized, every one is lit and traced
+	// per clip (see gi::MakeClipmap): those moved or new are voxelized, every one is lit and its probes updated
 	auto clips = [this](auto&& fn)
 	{
 		for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
@@ -631,31 +631,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 						giKernel(context.cmd, kGiVoxelizeEntryPoint, jobs.triangleCount, clip, jobs.count, jobs.base);
 				});
 		});
-	myGiVisibilityPass = myGraph.AddPass(
-		"GI Visibility",
-		[this](FrameGraph::PassBuilder& builder)
-		{
-			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(myGiProbeMasks, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
-		},
-		[this, giKernel, clips](FrameGraph::PassContext& context)
-		{
-			// which probes each voxel sees, and which of the cascade above each probe sees (both of the voxels' occupancy only)
-			clips(
-				[&](uint32_t clip, const gi::Layout& layout)
-				{
-					if (!myGiClipJobs[clip].voxelize)
-						return;
-					giKernel(context.cmd, kGiVisibilityEntryPoint, layout.voxelCount, clip);
-					const auto& data = layout.data;
-					for (uint32_t cascadeIt = 0; cascadeIt + 1 < data.cascadeCount; cascadeIt++)
-					{
-						const auto& size = data.cascadeSize[cascadeIt];
-						giKernel(context.cmd, kGiProbeVisibilityEntryPoint, static_cast<uint64_t>(size[0]) * size[1] * size[2], clip, cascadeIt);
-					}
-				});
-		});
-	// the static voxels kept (with their masks), and each frame what moves voxelized over a copy of them
+	// the static voxels kept, and each frame what moves voxelized over a copy of them
 	myGiKeepPass = myGraph.AddPass(
 		"GI Keep",
 		[this](FrameGraph::PassBuilder& builder)
@@ -672,6 +648,23 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					if (myGiClipJobs[clip].voxelize)
 						CommandEncoder(context.cmd).CopyBuffer(
 							myGiVoxelBuffer, myGiStaticVoxelBuffer, layout.voxelCount * sizeof(GiVoxel), layout.data.voxelFirst * sizeof(GiVoxel));
+				});
+		});
+	// the static voxels' direct light, kept (GiData::directFirst): when a clip is voxelized, or the lights change
+	myGiLightStaticPass = myGraph.AddPass(
+		"GI Light Static",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, giKernel, clips](FrameGraph::PassContext& context)
+		{
+			clips(
+				[&](uint32_t clip, const gi::Layout& layout)
+				{
+					if (myGiClipJobs[clip].voxelize || myGiLightsChanged)
+						giKernel(context.cmd, kGiLightStaticEntryPoint, layout.voxelCount, clip);
 				});
 		});
 	myGiRestorePass = myGraph.AddPass(
@@ -695,69 +688,54 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				[&](uint32_t clip, const gi::Layout&)
 				{ giKernel(context.cmd, kGiVoxelizeEntryPoint, myGiMovingTriangleCount, clip, myGiMovingJobCount, myGiMovingJobBase); });
 		});
-	auto cascadeTexels = [](const gi::Layout& layout, uint32_t cascade)
-	{
-		const auto& size = layout.data.cascadeSize[cascade];
-		return size[0] * size[1] * size[2] * size[3] * size[3];
-	};
-	// per bounce: the voxels lit (the first by the lights, the next adding what the probes of the one before reflect off
-	// them), their levels, the cascades traced and merged, and the probes' irradiance. all in the frame, from nothing of
-	// the last. every clip is lit and has its levels before any is traced (rays go on into the coarser clips)
+	// the voxels lit (by the lights, and by the probes' light of the last frame off them: the light bounces on, a bounce
+	// a frame), their levels, the probes' rays, the probes blended from them, and each voxel's probes, for the shading and
+	// the next frame's bounce. every clip is lit and has its levels before any is traced (rays go on into the coarser
+	// clips), and every clip's probes are updated before any is resolved
 	myGiPass = myGraph.AddPass(
 		"GI",
 		[this](FrameGraph::PassBuilder& builder)
 		{
 			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(myGiCascades, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiRays, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(myGiProbeMasks, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto volume : myGiVolumes)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
-		[this, giKernel, computeBarrier, cascadeTexels, clips](FrameGraph::PassContext& context)
+		[this, giKernel, computeBarrier, clips](FrameGraph::PassContext& context)
 		{
 			auto cmd = context.cmd;
-			for (uint32_t bounceIt = 0; bounceIt < myGiBounceCount; bounceIt++)
+			clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiLightEntryPoint, layout.voxelCount, clip); });
+			const auto& data = myGiClipmap.clips.back().data;
+			glm::uvec3 volumeSize(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]);
+			// the flags: the blocks near a surface (by the blocks the lighting stamped), and that spread along each axis
+			// (each step reads the one before's)
+			for (uint32_t stepIt = 0; stepIt < 4; stepIt++)
 			{
-				if (bounceIt > 0)
-					computeBarrier(cmd);
-				clips(
-					[&](uint32_t clip, const gi::Layout& layout)
-					{ giKernel(cmd, bounceIt == 0 ? kGiLightEntryPoint : kGiBounceEntryPoint, layout.voxelCount, clip); });
-				const auto& data = myGiClipmap.clips.back().data;
-				for (uint32_t levelIt = 1; levelIt < data.volumeSize[3]; levelIt++)
-				{
-					computeBarrier(cmd);
-					auto size = gi::LevelVoxels(glm::uvec3(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]), levelIt);
-					clips([&](uint32_t clip, const gi::Layout&)
-						  { giKernel(cmd, kGiMipEntryPoint, static_cast<uint64_t>(size.x) * size.y * size.z * 6, clip, levelIt); });
-				}
 				computeBarrier(cmd);
-				clips(
-					[&](uint32_t clip, const gi::Layout& layout)
-					{
-						for (uint32_t cascadeIt = 0; cascadeIt < layout.data.cascadeCount; cascadeIt++)
-							giKernel(cmd, kGiTraceEntryPoint, cascadeTexels(layout, cascadeIt), clip, cascadeIt);
-					});
-				uint32_t cascadeCount = 0;
-				clips([&](uint32_t, const gi::Layout& layout) { cascadeCount = std::max(cascadeCount, layout.data.cascadeCount); });
-				for (uint32_t cascadeIt = cascadeCount - 1; cascadeIt-- > 0;)
-				{
-					computeBarrier(cmd);
-					clips(
-						[&](uint32_t clip, const gi::Layout& layout)
-						{
-							if (cascadeIt + 1 < layout.data.cascadeCount)
-								giKernel(cmd, kGiMergeEntryPoint, cascadeTexels(layout, cascadeIt), clip, cascadeIt);
-						});
-				}
-				computeBarrier(cmd);
-				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiIrradianceEntryPoint, layout.probeCount, clip); });
-				// each voxel's probes, for the shading and the next bounce
-				computeBarrier(cmd);
-				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiResolveEntryPoint, layout.voxelCount, clip); });
+				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiFlagsEntryPoint, layout.flagCount, clip, stepIt); });
 			}
+			for (uint32_t levelIt = 1; levelIt < data.volumeSize[3]; levelIt++)
+			{
+				computeBarrier(cmd);
+				auto size = gi::LevelVoxels(volumeSize, levelIt);
+				clips([&](uint32_t clip, const gi::Layout&)
+					  { giKernel(cmd, kGiMipEntryPoint, static_cast<uint64_t>(size.x) * size.y * size.z, clip, levelIt); });
+			}
+			computeBarrier(cmd);
+			clips([&](uint32_t clip, const gi::Layout& layout)
+				  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCount, clip); });
+			computeBarrier(cmd);
+			constexpr uint64_t kTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
+			clips([&](uint32_t clip, const gi::Layout& layout)
+				  { giKernel(cmd, kGiProbeUpdateEntryPoint, static_cast<uint64_t>(layout.probeCount) * kTexelCount, clip); });
+			computeBarrier(cmd);
+			clips([&](uint32_t clip, const gi::Layout& layout)
+				  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
 		});
 
 	mainPass(MainPassPhase::kOpaque);
@@ -941,8 +919,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// it): SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, 128 by default
 	if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
 		myGiResolution = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(resolution, nullptr, 10)), 8U, 512U);
-	// bounces of light (SPEEDO_GI_BOUNCES, 2 by default: the lights' and the sky's light off the scene, then that off it
-	// once more), each a pass of the cascades, in the frame
 	// the clipmap's clips (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -978,8 +954,20 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				it++;
 		}
 	}
-	if (const char* bounces = std::getenv("SPEEDO_GI_BOUNCES"); bounces != nullptr && *bounces != '\0')
-		myGiBounceCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(bounces, nullptr, 10)), 1U, 8U);
+	// the probes' rays a frame (SPEEDO_GI_RAY_COUNT, 128 by default), over how many frames their sets of directions
+	// repeat (SPEEDO_GI_RAY_PHASE_COUNT, 32), their spacing in voxels (SPEEDO_GI_PROBE_SPACING, 8), how much of what a
+	// probe holds it keeps a frame (SPEEDO_GI_HYSTERESIS, 0.97: the rest is the frame's rays'), and whether the voxels
+	// take the probes' light of the last frame (SPEEDO_GI_BOUNCE=0 for the lights' light alone)
+	if (const char* rays = std::getenv("SPEEDO_GI_RAY_COUNT"); rays != nullptr && *rays != '\0')
+		myGiRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 8U, 1024U);
+	if (const char* phases = std::getenv("SPEEDO_GI_RAY_PHASE_COUNT"); phases != nullptr && *phases != '\0')
+		myGiRayPhaseCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(phases, nullptr, 10)), 1U, 256U);
+	if (const char* spacing = std::getenv("SPEEDO_GI_PROBE_SPACING"); spacing != nullptr && *spacing != '\0')
+		myGiProbeSpacing = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(spacing, nullptr, 10)), 2U, 32U);
+	if (const char* hysteresis = std::getenv("SPEEDO_GI_HYSTERESIS"); hysteresis != nullptr && *hysteresis != '\0')
+		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
+	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
+	myGiBounce = bounce == nullptr || std::string_view(bounce) != "0";
 	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
 	// (SPEEDO_SHADOW_OCCLUSION_CULLING=1 turns it on: off by default, since a shadow view sees few of the chunks hidden
 	// behind others, 6 to 11 of Bistro's 560 to 800, and its pyramid and the atlas's second render pass cost 0.5 to 1 ms)
@@ -1209,9 +1197,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gGiVoxels", &myGiVoxelBuffer},
 			 std::pair{"gGiRadiance", &myGiRadianceBuffer},
-			 std::pair{"gGiCascades", &myGiCascadeBuffer},
+			 std::pair{"gGiRays", &myGiRayBuffer},
 			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer},
-			 std::pair{"gGiProbeMasks", &myGiProbeMaskBuffer},
+			 std::pair{"gGiProbeDepth", &myGiProbeDepthBuffer},
+			 std::pair{"gGiFlags", &myGiFlagBuffer},
 			 std::pair{"gGiStaticVoxels", &myGiStaticVoxelBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// a voxel each until a model is voxelized (a depth of 2: a volume)
@@ -1528,9 +1517,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myFrameStatistics.Write().Get() = myFrameStatisticsThisFrame;
 	myGraph.Bind(myGiVoxels, myGiVoxelBuffer);
 	myGraph.Bind(myGiRadiance, myGiRadianceBuffer);
-	myGraph.Bind(myGiCascades, myGiCascadeBuffer);
+	myGraph.Bind(myGiRays, myGiRayBuffer);
 	myGraph.Bind(myGiIrradiance, myGiIrradianceBuffer);
-	myGraph.Bind(myGiProbeMasks, myGiProbeMaskBuffer);
+	myGraph.Bind(myGiProbeDepth, myGiProbeDepthBuffer);
+	myGraph.Bind(myGiFlags, myGiFlagBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
@@ -2029,8 +2019,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		buffer.Flush(0, bytes.size());
 		buffer.Unmap();
 	};
-	for (auto pass :
-		 {myGiClearPass, myGiVoxelizePass, myGiVisibilityPass, myGiKeepPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiPass})
+	for (auto pass : {myGiClearPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
 	if (!enabled)
 	{
@@ -2039,17 +2028,18 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGiModel = nullptr;
 		return;
 	}
+	// the static voxels are lit again when the lights change (any of them: the environment's rotation turns its dominant
+	// lights, which are among them)
+	myGiLightsChanged = frame.lights.size() != myGiLights.size() || !std::ranges::equal(std::as_bytes(frame.lights), std::as_bytes(std::span(myGiLights)));
+	if (myGiLightsChanged)
+		myGiLights.assign(frame.lights.begin(), frame.lights.end());
 
 	// the clipmap, made again (and voxelized) when the model, its bounds or its draws change; a clip that moves with the
 	// camera is voxelized again
-	constexpr uint32_t kProbeSpacing = 4;
-	// cascade 0's directions: 6x6, since its interval reaches twice its spacing (see gi::MakeLayout); with 4x4 the lamp of
-	// CornellBox showed as blobs on its walls
-	constexpr uint32_t kOctahedralSide = 6;
 	glm::vec3 eye = glm::inverse(frame.camera.view)[3];
 	if (!myGiEyePath.empty())
 		eye = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
-	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, myGiResolution, myGiClipCount, kProbeSpacing, kOctahedralSide);
+	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, myGiResolution, myGiClipCount, myGiProbeSpacing);
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
 				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize;
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
@@ -2088,12 +2078,23 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		}
 		if (total.radianceCount != previous.radianceCount)
 			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", total.radianceCount * 2 * sizeof(uint32_t));
-		if (total.cascadeTexelCount != previous.cascadeTexelCount)
-			InternalReplaceBuffer(myGiCascadeBuffer, pipeline, "GI Cascades", "gGiCascades", total.cascadeTexelCount * 2 * sizeof(uint32_t));
-		if (total.probeMaskCount != previous.probeMaskCount)
-			InternalReplaceBuffer(myGiProbeMaskBuffer, pipeline, "GI Probe Masks", "gGiProbeMasks", total.probeMaskCount * sizeof(uint32_t));
+		if (total.flagCount != previous.flagCount)
+			InternalReplaceBuffer(myGiFlagBuffer, pipeline, "GI Flags", "gGiFlags", total.flagCount * sizeof(uint32_t));
+		// the probes' buffers in two halves (see GiData::probeFirst)
 		if (total.probeCount != previous.probeCount)
-			InternalReplaceBuffer(myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", total.probeCount * SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float));
+		{
+			InternalReplaceBuffer(myGiRayBuffer, pipeline, "GI Rays", "gGiRays", static_cast<uint64_t>(total.probeCount) * myGiRayCount * 2 * sizeof(uint32_t));
+			InternalReplaceBuffer(
+				myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", static_cast<uint64_t>(total.probeCount) * 2 * SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float));
+			InternalReplaceBuffer(
+				myGiProbeDepthBuffer,
+				pipeline,
+				"GI Probe Depth",
+				"gGiProbeDepth",
+				static_cast<uint64_t>(total.probeCount) * 2 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE * sizeof(uint32_t));
+		}
+		// nothing of the last frame's probes is kept
+		myGiReset = true;
 	}
 	ENSUREF(
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
@@ -2105,8 +2106,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// job per draw, then the triangle count
 	myGraph.SetEnabled(myGiClearPass, voxelize);
 	myGraph.SetEnabled(myGiVoxelizePass, voxelize);
-	myGraph.SetEnabled(myGiVisibilityPass, voxelize);
 	myGraph.SetEnabled(myGiKeepPass, voxelize);
+	myGraph.SetEnabled(myGiLightStaticPass, voxelize || myGiLightsChanged);
 	{
 		// a job per draw (its first triangle of the run, first index, DrawRecord and instances), the triangle count after:
 		// per clip voxelized, the static draws whose bounds reach it, then what moves, every frame (for every clip)
@@ -2168,14 +2169,35 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGraph.SetEnabled(myGiVoxelizeMovingPass, myGiMovingJobCount > 0);
 	}
 
-	// the lights per cell of each clip, and the parameters
+	// the lights per cell of each clip, and the parameters: the probes' halves (this frame's and the last's: swapped each
+	// frame), the rays' subset of the frame (see GiData::rayPhase), and the blending's
 	std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
+	myGiProbeHalf ^= 1;
+	myGiRayPhase = (myGiRayPhase + 1) % myGiRayPhaseCount;
+	myGiFrameStamp = (myGiFrameStamp % 0xFFFFFF) + 1;
+	constexpr uint32_t kDepthTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
+	uint32_t probeTotal = myGiClipmap.total.probeCount;
 	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 	{
-		data[clipIt] = myGiClipmap.clips[clipIt].data;
+		auto& clip = data[clipIt];
+		clip = myGiClipmap.clips[clipIt].data;
 		for (int axisIt = 0; axisIt < 3; axisIt++)
-			data[clipIt].scroll[axisIt] = myGiClipJobs[clipIt].scroll[axisIt];
+			clip.scroll[axisIt] = myGiClipJobs[clipIt].scroll[axisIt];
+		clip.rayPhase = myGiRayPhase;
+		clip.rayPhaseCount = myGiRayPhaseCount;
+		clip.frameStamp = myGiFrameStamp;
+		uint32_t clipFirst = clip.probeFirst;
+		clip.probeFirst = myGiProbeHalf * probeTotal + clipFirst;
+		clip.probePreviousFirst = (1 - myGiProbeHalf) * probeTotal + clipFirst;
+		clip.depthFirst = clip.probeFirst * kDepthTexelCount;
+		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
+		clip.rayFirst = clipFirst * myGiRayCount;
+		clip.rayCount = myGiRayCount;
+		clip.hysteresis = myGiHysteresis;
+		clip.reset = myGiReset ? 1 : 0;
+		clip.bounce = myGiBounce ? 1 : 0;
 	}
+	myGiReset = false;
 	auto clipData = std::span(data).first(myGiClipmap.clips.size());
 	auto cells = gi::BinLights(clipData, frame.lights);
 	write(InternalReserve(myGiLightCells, pipeline, frame.frameIndex, cells.ranges.size() / 2), std::as_bytes(std::span(cells.ranges)));
@@ -2187,7 +2209,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		auto& statistics = myFrameStatisticsThisFrame;
 		statistics.indirectLighting = true;
 		statistics.giClipCount = static_cast<uint32_t>(clipData.size());
-		statistics.giBounceCount = myGiBounceCount;
+		statistics.giProbeCount = probeTotal;
+		statistics.giRayCount = myGiRayCount;
+		statistics.giHysteresis = myGiHysteresis;
 		for (size_t clipIt = 0; clipIt < clipData.size(); clipIt++)
 		{
 			statistics.giVoxelSize[clipIt] = clipData[clipIt].volumeOrigin[3];
