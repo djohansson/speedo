@@ -197,6 +197,32 @@ Thumbnails::Thumbnails(uint32_t slotSize, uint32_t columns, uint32_t rows, std::
 {
 	myAtlas->Create(ImTextureFormat_RGBA32, static_cast<int>(slotSize * columns), static_cast<int>(slotSize * rows));
 	ImGui::RegisterUserTexture(myAtlas.get());
+	if (!myCacheDirectory.empty())
+	{
+		auto [task, future] = core::CreateTask([cacheDirectory = myCacheDirectory] { Prune(cacheDirectory); });
+		core::Application::Get()->GetExecutor().Submit(std::span(&task, 1));
+	}
+}
+
+void Thumbnails::Prune(const std::filesystem::path& cacheDirectory)
+{
+	ZoneScopedN("Thumbnails::Prune");
+
+	constexpr int kUnusedDays = 30;
+	auto oldest = std::filesystem::file_time_type::clock::now() - std::chrono::days(kUnusedDays);
+	std::error_code error;
+	uint32_t prunedCount = 0;
+	for (std::filesystem::directory_iterator it(cacheDirectory, error), end; !error && it != end; it.increment(error))
+	{
+		if (it->path().extension() != ".thumb")
+			continue;
+		std::error_code fileError;
+		auto time = it->last_write_time(fileError);
+		if (!fileError && time < oldest && std::filesystem::remove(it->path(), fileError))
+			prunedCount++;
+	}
+	if (prunedCount > 0)
+		std::println("Pruned {} thumbnails unused for {} days from {}", prunedCount, kUnusedDays, cacheDirectory.string());
 }
 
 Thumbnails::~Thumbnails()
@@ -234,6 +260,9 @@ std::optional<std::vector<uint8_t>> Thumbnails::Make(
 			std::memcpy(&header, mapped->data(), sizeof(Header));
 			if (header.magic == kMagic && mapped->size() == sizeof(Header) + (static_cast<size_t>(header.width) * header.height * 4))
 			{
+				// used: kept by Prune
+				std::error_code error;
+				std::filesystem::last_write_time(*cachePath, std::filesystem::file_time_type::clock::now(), error);
 				width = header.width;
 				height = header.height;
 				const auto* pixels = reinterpret_cast<const uint8_t*>(mapped->data() + sizeof(Header));

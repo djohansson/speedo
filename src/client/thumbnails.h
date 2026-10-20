@@ -88,6 +88,10 @@ private:
 		bool queued = false; // in myWaiting
 	};
 
+	// deletes the cached thumbnails unused for 30 days (a hit marks one used: its write time), which changes to the files
+	// and shaders they were made from leave behind. on the task executor, when a cached Thumbnails is made
+	static void Prune(const std::filesystem::path& cacheDirectory);
+
 	// made on the task executor: from the cache, else the source (cached then). the cache is keyed by what the thumbnail
 	// is made from, so a change to any of it makes a new one: the file (an image's, a panorama's, a model's screenshot),
 	// or for a capture its file (a model, or a zip archive), the files its render reads, its importers, and renderVersion
