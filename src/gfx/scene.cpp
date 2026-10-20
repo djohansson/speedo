@@ -1790,7 +1790,7 @@ struct Scene::Impl
 						{"ComputeDepthPyramid", SLANG_STAGE_COMPUTE}, // see the Depth Pyramid pass
 						{"ComputeDepthSave", SLANG_STAGE_COMPUTE}, // see the depth reprojection passes
 						{"ComputeDepthReproject", SLANG_STAGE_COMPUTE},
-						{"ComputeGiClear", SLANG_STAGE_COMPUTE}, // see the GI passes
+						{"ComputeGiShift", SLANG_STAGE_COMPUTE}, // see the GI passes
 						{"ComputeGiVoxelize", SLANG_STAGE_COMPUTE},
 						{"ComputeGiLight", SLANG_STAGE_COMPUTE},
 						{"ComputeGiMip", SLANG_STAGE_COMPUTE},

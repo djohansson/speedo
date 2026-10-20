@@ -811,9 +811,15 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   `lightCellFirst`, and the levels' and cascades' firsts; `gGi[frame][clip]`), and the kernels take theirs from
   `PushConstants::giClip`. A clip's rays (`GiMarch`) and shadow rays (`GiVisibility`) that leave it go on through the
   coarser ones (a box is never entered again), at the level of the same voxel size, and every clip's cascades reach
-  across the last. All are made again when the model, its bounds or its draws change, and a clip that moves is
-  voxelized again (`GiClipJobs::voxelize`: its jobs are the static draws whose bounds reach it). Voxelizing
-  (the GI Clear, GI Voxelize and GI Visibility passes, only then): a thread per triangle of the main list's static draws
+  across the last. All are made again when the model, its bounds or its draws change; a clip that moves scrolls
+  (`GiData::scroll`, in voxels, whole probe cells): GI Shift (`ComputeGiShift`) gives each voxel the static one kept at
+  its place before (with its mask), or empty where it scrolled in, and only that is voxelized (its jobs are the static
+  draws whose bounds reach the slabs that scrolled in, `GiClipJobs`; a triangle whose voxels in the clip were all kept
+  skips, and a row of its samples only covers the slab), and only the masks within two probe spacings of it, or near a
+  face of an axis it moved along (where probes are clamped), are made again; a move of its size or more, or a change of
+  the scene, voxelizes all of it (a scroll of its whole size). On Bistro a scroll of the finest clip costs its frame 4.4
+  ms (8.9 to voxelize it again), the next 1.6 (5.8). Voxelizing
+  (the GI Shift, GI Voxelize and GI Visibility passes, only then): a thread per triangle of the main list's static draws
   (`gGiJobs`: per draw its first triangle of all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index
   buffers are storage buffers too) samples its surface at under half a voxel apart into the voxel half a voxel behind
   each of its faces (`GiVoxel`: albedo and occupancy, normal facing away from the face, emission; `InterlockedMax`, so
@@ -898,8 +904,7 @@ The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in i
 with one clip, 15.7 with three (9.4 without the indirect lighting); CornellBox 6.5 (5.1), Sponza 8.8 (4.8), with three; against its reference, Sponza's inside (`0,2,0,0,90`)
 63% of the reference's light with one clip, 79% with three, its outer wall 86 and 87%. With one clip Bistro's 1.2 m voxels
 leak the sky into its narrow streets, which with three come out dark between their walls (the reference is too slow to
-run there). A clip that moves is voxelized again in the frame: all three every frame cost 18 ms more. What's left
-(TODO.md): the voxelization of what scrolls in only, the compute's cost with three clips, glossy reflections,
+run there). What's left (TODO.md): the compute's cost with three clips, glossy reflections,
 hardware ray queries, and a path traced reference to compare against.
 
 ## Descriptor sets: redundant updates consume the pool

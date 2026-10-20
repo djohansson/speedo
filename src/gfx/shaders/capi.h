@@ -575,6 +575,10 @@ struct GiData
 	alignas(16) FLOAT4(volumeOrigin);
 	alignas(16) UINT4(volumeSize);
 	alignas(16) UINT4(levelFirst[2]);
+	// when it is voxelized (see ComputeGiShift): how far its voxels moved since the frame before, in voxels (a voxel
+	// takes the one that was at its place plus this; the others, which scrolled in, are voxelized). its size, or more,
+	// to voxelize all of it
+	alignas(16) INT4(scroll);
 	// per cascade: its probes per axis and the side of its directions' octahedral map, and its first texel in
 	// gGiCascades (x), the start and end of its rays' interval (y, z: world space), and its probes' spacing (w)
 	alignas(16) UINT4(cascadeSize[SHADER_TYPES_GI_CASCADE_COUNT]);

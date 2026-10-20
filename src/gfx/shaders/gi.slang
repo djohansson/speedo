@@ -207,17 +207,27 @@ float GiVisibility(GiData gi, float3 origin, float3 direction, float distance)
 	return 1.0;
 }
 
-// voxelizing: empties the voxels
+// whether a voxel of a clip being voxelized scrolled in (wasn't in it the frame before: see GiData::scroll)
+bool GiScrolledIn(GiData gi, int3 voxel)
+{
+	return !GiInside(voxel + gi.scroll.xyz, GiLevelSize(gi, 0));
+}
+
+// voxelizing: each voxel the static one kept at its place before the clip moved (with its mask), or empty where it
+// scrolled in (all of the clip when it is voxelized again)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
-void ComputeGiClear(uint3 dispatchId: SV_DispatchThreadID)
+void ComputeGiShift(uint3 dispatchId: SV_DispatchThreadID)
 {
 	uint3 threadId = GiThread(dispatchId);
 	GiData gi = GiClip(gPushConstants.giClip);
 	uint3 size = GiLevelSize(gi, 0);
 	if (threadId.x >= size.x * size.y * size.z)
 		return;
-	gGiVoxels[gi.voxelFirst + threadId.x] = (GiVoxel)0;
+	int3 at = int3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
+	int3 from = at + gi.scroll.xyz;
+	gGiVoxels[gi.voxelFirst + threadId.x] =
+		GiInside(from, size) ? gGiStaticVoxels[gi.voxelFirst + GiVoxelIndex(uint3(from), size)] : (GiVoxel)0;
 }
 
 uint GiPackRgba8(float4 v)
@@ -262,49 +272,94 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 
 	uint triangle = threadId.x - job.x;
 	DrawRecord record = gDrawRecords[frameIndex][job.z];
-	MaterialData material = gMaterialData[record.materialId];
 	uint indices[3];
-	VertexP3fN3fTa4fT014fC4f vertices[3];
 	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
-	{
 		indices[cornerIt] = gIndexBuffer[job.y + triangle * 3 + cornerIt];
-		vertices[cornerIt] = gVertexBuffer[indices[cornerIt]];
-	}
-
-	// the triangle's albedo and emission: the material's, with its textures at the centroid, at a level of about a sample's
-	// size
-	float4 color = (vertices[0].color + vertices[1].color + vertices[2].color) / 3.0 * material.color;
-	float4 texCoord01 = (vertices[0].texCoord01 + vertices[1].texCoord01 + vertices[2].texCoord01) / 3.0;
-	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
-	{
-		TextureView view = gTextureViews[material.baseColorView];
-		color *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0);
-	}
-	float3 albedo = color.rgb * (1.0 - material.metallic);
-	float3 emission = material.emissive.rgb;
-	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
-	{
-		TextureView view = gTextureViews[material.emissiveView];
-		emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0).rgb;
-	}
+	// the triangle's albedo and emission (see below), once an instance of it has voxels to write
+	bool shaded = false;
+	float3 albedo = 0.0;
+	float3 emission = 0.0;
 
 	uint3 size = GiLevelSize(gi, 0);
 	uint instanceCount = job.w & 0x7FFFFFFFu;
+	bool moving = (job.w >> 31) != 0u; // a job of what moves (see Renderer::InternalPlanGi)
 	for (uint instanceIt = 0; instanceIt < instanceCount; instanceIt++)
 	{
-		// as the vertex stage places them (what moves: morphed and skinned)
-		float3 p0 = WorldPosition(record, indices[0], instanceIt, frameIndex);
-		float3 p1 = WorldPosition(record, indices[1], instanceIt, frameIndex);
-		float3 p2 = WorldPosition(record, indices[2], instanceIt, frameIndex);
+		// as the vertex stage places them (what moves: morphed and skinned); what doesn't, by the instance's transform
+		// alone (the positions and one transform, not each vertex's all: a moving clip's voxelizing reads every triangle
+		// of the draws reaching what scrolled in)
+		float3 p0;
+		float3 p1;
+		float3 p2;
+		if (moving)
+		{
+			p0 = WorldPosition(record, indices[0], instanceIt, frameIndex);
+			p1 = WorldPosition(record, indices[1], instanceIt, frameIndex);
+			p2 = WorldPosition(record, indices[2], instanceIt, frameIndex);
+		}
+		else
+		{
+			float4x4 transform = gModelInstances[frameIndex][record.modelInstanceId + instanceIt].modelTransform;
+			p0 = mul(transform, float4(gVertexBuffer[indices[0]].position, 1.0)).xyz;
+			p1 = mul(transform, float4(gVertexBuffer[indices[1]].position, 1.0)).xyz;
+			p2 = mul(transform, float4(gVertexBuffer[indices[2]].position, 1.0)).xyz;
+		}
 		float3 normal = cross(p1 - p0, p2 - p0);
 		if (dot(normal, normal) <= 0.0)
 			continue;
 		normal = normalize(normal);
+		// a static triangle all of whose voxels in the clip (a voxel around it, for the offset) were kept skips the
+		// sampling: only what scrolled in is voxelized. its bounds clipped to the clip first: the finest clip is a few
+		// meters tall, and the walls leaving it at its top or bottom were sampled whole (Bistro: 3.3 ms a scroll)
+		if (!moving)
+		{
+			float3 low = max(GiVoxelCoordinate(gi, min(p0, min(p1, p2)), 0) - 1.0, 0.0);
+			float3 high = min(GiVoxelCoordinate(gi, max(p0, max(p1, p2)), 0) + 1.0, float3(size));
+			if (any(high < low))
+				continue;
+			float3 keptLow = max(float3(-gi.scroll.xyz), 0.0);
+			float3 keptHigh = min(float3(int3(size) - gi.scroll.xyz), float3(size));
+			if (all(low >= keptLow) && all(high <= keptHigh))
+				continue;
+		}
+		// the material's, with its textures at the centroid, at a level of about a sample's size
+		if (!shaded)
+		{
+			shaded = true;
+			MaterialData material = gMaterialData[record.materialId];
+			VertexP3fN3fTa4fT014fC4f vertices[3] = {gVertexBuffer[indices[0]], gVertexBuffer[indices[1]], gVertexBuffer[indices[2]]};
+			float4 color = (vertices[0].color + vertices[1].color + vertices[2].color) / 3.0 * material.color;
+			float4 texCoord01 = (vertices[0].texCoord01 + vertices[1].texCoord01 + vertices[2].texCoord01) / 3.0;
+			if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
+			{
+				TextureView view = gTextureViews[material.baseColorView];
+				color *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0);
+			}
+			albedo = color.rgb * (1.0 - material.metallic);
+			emission = material.emissive.rgb;
+			if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
+			{
+				TextureView view = gTextureViews[material.emissiveView];
+				emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0).rgb;
+			}
+		}
 		float longest = max(length(p1 - p0), max(length(p2 - p1), length(p0 - p2)));
 		uint steps = clamp(uint(ceil(longest / (gi.volumeOrigin.w * 0.5))), 1u, 512u);
 		// a voxel behind each of its faces, half of one off it (one on a voxel boundary would round to either side),
 		// facing away from it: which face is seen and lit isn't known here (a double sided material's either, and a
 		// triangle's winding, its vertex normals and which side it is drawn from needn't agree)
+		// where its samples may write (voxel coordinates, a voxel of margin): the clip, or, scrolled along one axis, that
+		// axis's slab that scrolled in
+		float3 boxLow = -1.0;
+		float3 boxHigh = float3(size) + 1.0;
+		int3 scrolled = int3(gi.scroll.xyz != 0) * int3(abs(gi.scroll.xyz) < int3(size));
+		if (!moving && scrolled.x + scrolled.y + scrolled.z == 1)
+		{
+			uint axis = scrolled.x != 0 ? 0u : (scrolled.y != 0 ? 1u : 2u);
+			int scroll = gi.scroll[axis];
+			boxLow[axis] = scroll > 0 ? float(int(size[axis]) - scroll) - 1.0 : -1.0;
+			boxHigh[axis] = scroll > 0 ? float(size[axis]) + 1.0 : float(-scroll) + 1.0;
+		}
 		for (uint sideIt = 0; sideIt < 2u; sideIt++)
 		{
 			float3 facing = sideIt == 0 ? normal : -normal;
@@ -315,13 +370,43 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			voxel.normal = (uint(round(octahedral.x * 65535.0))) | (uint(round(octahedral.y * 65535.0)) << 16);
 			voxel.emissionRG = GiPackHalf2(emission.rg);
 			voxel.emissionB = GiPackHalf2(float2(emission.b, 0.0));
+			// in voxel coordinates, the samples q = start + edgeA a + edgeB b; each row (a) only over the b whose samples
+			// are in the box: a big triangle in a fine clip was sampled far outside it, and one reaching into a slab
+			// that scrolled in all over (a ground triangle at the finest clip's half voxel spacing: thousands of samples)
+			float3 start = GiVoxelCoordinate(gi, p0 - facing * (offset * gi.volumeOrigin.w), 0);
+			float3 edgeA = (p1 - p0) / (gi.volumeOrigin.w * float(steps));
+			float3 edgeB = (p2 - p0) / (gi.volumeOrigin.w * float(steps));
 			for (uint a = 0; a <= steps; a++)
-				for (uint b = 0; a + b <= steps; b++)
+			{
+				float3 row = start + edgeA * float(a);
+				float low = 0.0;
+				float high = float(steps - a);
+				for (uint axisIt = 0; axisIt < 3; axisIt++)
 				{
-					float3 p = p0 + (p1 - p0) * (float(a) / float(steps)) + (p2 - p0) * (float(b) / float(steps)) -
-							   facing * (offset * gi.volumeOrigin.w);
-					int3 at = int3(floor(GiVoxelCoordinate(gi, p, 0)));
-					if (!GiInside(at, size))
+					if (abs(edgeB[axisIt]) < 1e-6)
+					{
+						if (row[axisIt] < boxLow[axisIt] || row[axisIt] > boxHigh[axisIt])
+							high = -1.0;
+						continue;
+					}
+					float first = (boxLow[axisIt] - row[axisIt]) / edgeB[axisIt];
+					float last = (boxHigh[axisIt] - row[axisIt]) / edgeB[axisIt];
+					low = max(low, min(first, last));
+					high = min(high, max(first, last));
+				}
+				if (high < low)
+					continue;
+				// a row's samples are half a voxel apart: the ones landing in the voxel before skip its atomics
+				int3 previous = int3(-1);
+				for (uint b = uint(max(floor(low), 0.0)); b <= uint(ceil(high)) && a + b <= steps; b++)
+				{
+					int3 at = int3(floor(row + edgeB * float(b)));
+					if (all(at == previous))
+						continue;
+					previous = at;
+					// what doesn't move only where it scrolled in (the rest is shifted, see ComputeGiShift); what moves
+					// everywhere
+					if (!GiInside(at, size) || (!moving && !GiScrolledIn(gi, at)))
 						continue;
 					uint index = gi.voxelFirst + GiVoxelIndex(uint3(at), size);
 					InterlockedMax(gGiVoxels[index].albedo, voxel.albedo);
@@ -329,6 +414,7 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 					InterlockedMax(gGiVoxels[index].emissionRG, voxel.emissionRG);
 					InterlockedMax(gGiVoxels[index].emissionB, voxel.emissionB);
 				}
+			}
 		}
 	}
 }
@@ -631,6 +717,20 @@ void ComputeGiVisibility(uint3 dispatchId: SV_DispatchThreadID)
 	if (threadId.x >= size.x * size.y * size.z)
 		return;
 	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
+	// a shifted voxel keeps its mask (the clips move by whole probe cells), but where the march to its probes may reach
+	// what scrolled in (two probe spacings), or where its probes are clamped, near a face of an axis it moved along
+	int reach = int(2u * uint(gi.cascadeInterval[0].w / gi.volumeOrigin.w + 0.5));
+	bool remake = false;
+	for (uint axisIt = 0; axisIt < 3; axisIt++)
+	{
+		if (gi.scroll[axisIt] == 0)
+			continue;
+		int edge = int(size[axisIt]) - reach;
+		int moved = int(at[axisIt]) + gi.scroll[axisIt];
+		remake = remake || moved < reach || moved >= edge || int(at[axisIt]) < reach || int(at[axisIt]) >= edge;
+	}
+	if (!remake)
+		return;
 	float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 	float3 fraction;
 	int3 base = GiProbeBase(gi, center, fraction);

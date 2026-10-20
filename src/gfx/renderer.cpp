@@ -46,7 +46,7 @@ constexpr uint8_t kDepthPyramidEntryPoint = 6;
 constexpr uint8_t kDepthSaveEntryPoint = 7;
 constexpr uint8_t kDepthReprojectEntryPoint = 8;
 // the indirect lighting's kernels (see gi.slang), entry points 9 to 15
-constexpr uint8_t kGiClearEntryPoint = 9;
+constexpr uint8_t kGiShiftEntryPoint = 9;
 constexpr uint8_t kGiVoxelizeEntryPoint = 10;
 constexpr uint8_t kGiLightEntryPoint = 11;
 constexpr uint8_t kGiMipEntryPoint = 12;
@@ -599,16 +599,22 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 			fn(clipIt, myGiClipmap.clips[clipIt]);
 	};
+	// a clip voxelized starts from the static voxels kept, shifted by how far it moved (none of them when all of it is
+	// voxelized again), so that only what scrolled in is voxelized
 	myGiClearPass = myGraph.AddPass(
-		"GI Clear",
-		[this](FrameGraph::PassBuilder& builder) { builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); },
+		"GI Shift",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
 		[this, giKernel, clips](FrameGraph::PassContext& context)
 		{
 			clips(
 				[&](uint32_t clip, const gi::Layout& layout)
 				{
 					if (myGiClipJobs[clip].voxelize)
-						giKernel(context.cmd, kGiClearEntryPoint, layout.voxelCount, clip);
+						giKernel(context.cmd, kGiShiftEntryPoint, layout.voxelCount, clip);
 				});
 		});
 	myGiVoxelizePass = myGraph.AddPass(
@@ -1167,7 +1173,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{"gGiRadiance", &myGiRadianceBuffer},
 			 std::pair{"gGiCascades", &myGiCascadeBuffer},
 			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer},
-			 std::pair{"gGiProbeMasks", &myGiProbeMaskBuffer}})
+			 std::pair{"gGiProbeMasks", &myGiProbeMaskBuffer},
+			 std::pair{"gGiStaticVoxels", &myGiStaticVoxelBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// a voxel each until a model is voxelized (a depth of 2: a volume)
 	if (!myGiVolumeImages[0].image)
@@ -1956,11 +1963,24 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, myGiResolution, myGiClipCount, kProbeSpacing, kOctahedralSide);
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
 				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount;
+	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
+	// place plus that. all of it is voxelized again when the scene changed, or when it moved by its size or more
 	for (uint32_t clipIt = 0; clipIt < clipmap.clips.size(); clipIt++)
 	{
-		const auto& origin = clipmap.clips[clipIt].data.volumeOrigin;
-		myGiClipJobs[clipIt].voxelize = changed || clipIt >= myGiClipmap.clips.size() ||
-										!std::equal(std::begin(origin), std::end(origin), std::begin(myGiClipmap.clips[clipIt].data.volumeOrigin));
+		auto& jobs = myGiClipJobs[clipIt];
+		const auto& data = clipmap.clips[clipIt].data;
+		glm::ivec3 size(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]);
+		jobs.scroll = size;
+		if (!changed && clipIt < myGiClipmap.clips.size())
+		{
+			const auto& before = myGiClipmap.clips[clipIt].data.volumeOrigin;
+			glm::vec3 moved = (glm::vec3(data.volumeOrigin[0], data.volumeOrigin[1], data.volumeOrigin[2]) - glm::vec3(before[0], before[1], before[2])) /
+							  data.volumeOrigin[3];
+			auto scroll = glm::ivec3(glm::round(moved));
+			if (glm::all(glm::lessThan(glm::abs(scroll), size)))
+				jobs.scroll = scroll;
+		}
+		jobs.voxelize = jobs.scroll != glm::ivec3(0);
 	}
 	if (changed)
 	{
@@ -1973,7 +1993,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		{
 			constexpr auto kVoxelUsage = BufferUsage::kStorage | BufferUsage::kTransferSource | BufferUsage::kTransferDestination;
 			InternalReplaceBuffer(myGiVoxelBuffer, pipeline, "GI Voxels", "gGiVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
-			InternalReplaceBuffer(myGiStaticVoxelBuffer, pipeline, "GI Static Voxels", "", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
+			InternalReplaceBuffer(myGiStaticVoxelBuffer, pipeline, "GI Static Voxels", "gGiStaticVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
 			const auto& size = clipmap.clips.front().data.volumeSize;
 			InternalReplaceGiVolumes(pipeline, glm::uvec3(size[0], size[1], size[2] * static_cast<uint32_t>(clipmap.clips.size())));
 		}
@@ -2002,7 +2022,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// a job per draw (its first triangle of the run, first index, DrawRecord and instances), the triangle count after:
 		// per clip voxelized, the static draws whose bounds reach it, then what moves, every frame (for every clip)
 		std::vector<uint32_t> jobs;
-		auto addJobs = [&jobs, &mainList](bool moving, const Bounds3f* reach, uint32_t& jobCount, uint32_t& triangleCount)
+		auto addJobs = [&jobs, &mainList](bool moving, std::span<const Bounds3f> reach, uint32_t& jobCount, uint32_t& triangleCount)
 		{
 			auto first = jobs.size();
 			uint32_t triangles = 0;
@@ -2010,10 +2030,15 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			{
 				if (item.cullable == moving || item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0)
 					continue;
-				if (reach != nullptr && (glm::any(glm::greaterThan(item.bounds.GetMin(), reach->GetMax())) ||
-										 glm::any(glm::lessThan(item.bounds.GetMax(), reach->GetMin()))))
+				if (!moving && std::ranges::none_of(
+								   reach,
+								   [&item](const Bounds3f& box)
+								   {
+									   return !glm::any(glm::greaterThan(item.bounds.GetMin(), box.GetMax())) &&
+											  !glm::any(glm::lessThan(item.bounds.GetMax(), box.GetMin()));
+								   }))
 					continue;
-				jobs.insert(jobs.end(), {triangles, item.firstIndex, item.record, item.instanceCount});
+				jobs.insert(jobs.end(), {triangles, item.firstIndex, item.record, item.instanceCount | (moving ? 0x80000000U : 0U)});
 				triangles += item.indexCount / 3;
 			}
 			jobCount = static_cast<uint32_t>((jobs.size() - first) / 4);
@@ -2025,15 +2050,30 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			auto& clipJobs = myGiClipJobs[clipIt];
 			if (!clipJobs.voxelize)
 				continue;
+			// the slabs that scrolled in, per axis it moved along (all of it, when voxelized again)
 			const auto& data = myGiClipmap.clips[clipIt].data;
+			float voxelSize = data.volumeOrigin[3];
 			glm::vec3 origin(data.volumeOrigin[0], data.volumeOrigin[1], data.volumeOrigin[2]);
-			glm::vec3 extent = glm::vec3(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]) * data.volumeOrigin[3];
-			Bounds3f reach(origin - glm::vec3(data.volumeOrigin[3]), origin + extent + glm::vec3(data.volumeOrigin[3]));
+			glm::ivec3 size(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]);
+			std::vector<Bounds3f> slabs;
+			for (int axisIt = 0; axisIt < 3; axisIt++)
+			{
+				int scroll = clipJobs.scroll[axisIt];
+				if (scroll == 0)
+					continue;
+				glm::ivec3 low(0);
+				glm::ivec3 high = size;
+				if (scroll > 0)
+					low[axisIt] = std::max(size[axisIt] - scroll, 0);
+				else
+					high[axisIt] = std::min(-scroll, size[axisIt]);
+				slabs.emplace_back(origin + glm::vec3(low) * voxelSize - glm::vec3(voxelSize), origin + glm::vec3(high) * voxelSize + glm::vec3(voxelSize));
+			}
 			clipJobs.base = static_cast<uint32_t>(jobs.size() / 4);
-			addJobs(false, &reach, clipJobs.count, clipJobs.triangleCount);
+			addJobs(false, slabs, clipJobs.count, clipJobs.triangleCount);
 		}
 		myGiMovingJobBase = static_cast<uint32_t>(jobs.size() / 4);
-		addJobs(true, nullptr, myGiMovingJobCount, myGiMovingTriangleCount);
+		addJobs(true, {}, myGiMovingJobCount, myGiMovingTriangleCount);
 		write(InternalReserve(myGiJobs, pipeline, frame.frameIndex, jobs.size() / 4), std::as_bytes(std::span(jobs)));
 		myGraph.SetEnabled(myGiRestorePass, myGiMovingJobCount > 0);
 		myGraph.SetEnabled(myGiVoxelizeMovingPass, myGiMovingJobCount > 0);
@@ -2042,7 +2082,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// the lights per cell of each clip, and the parameters
 	std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
 	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
+	{
 		data[clipIt] = myGiClipmap.clips[clipIt].data;
+		for (int axisIt = 0; axisIt < 3; axisIt++)
+			data[clipIt].scroll[axisIt] = myGiClipJobs[clipIt].scroll[axisIt];
+	}
 	auto clipData = std::span(data).first(myGiClipmap.clips.size());
 	auto cells = gi::BinLights(clipData, frame.lights);
 	write(InternalReserve(myGiLightCells, pipeline, frame.frameIndex, cells.ranges.size() / 2), std::as_bytes(std::span(cells.ranges)));

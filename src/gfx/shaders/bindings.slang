@@ -162,4 +162,7 @@ StructuredBuffer<uint> gGiLightIndices[SHADER_TYPES_FRAME_COUNT];
 // GiData::cascadeProbeFirst)
 [[vk::binding(29, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiProbeMasks;
+// the static voxels kept (with their masks), which the clips that move shift theirs from (see ComputeGiShift)
+[[vk::binding(30, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<GiVoxel> gGiStaticVoxels;
 

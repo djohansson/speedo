@@ -306,6 +306,7 @@ private:
 	struct GiClipJobs
 	{
 		bool voxelize = false;
+		glm::ivec3 scroll{0}; // see GiData::scroll
 		uint32_t base = 0;
 		uint32_t count = 0;
 		uint32_t triangleCount = 0;
