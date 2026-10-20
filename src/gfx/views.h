@@ -55,6 +55,10 @@ public:
 	void Place(const glm::vec3& eye, const glm::vec3& rotation);
 	// turns every view about the vertical axis (radians of yaw), and moves it forward (along where it looks), where it is
 	void Turn(float yaw, float forward = 0.0F);
+	// moves every view around the scene's bounds' center (radians of yaw about the vertical, and of pitch, positive
+	// looking down from above, at most a little short of straight down or up), at its distance, looking at the center
+	// (e.g. dragging the file browser's preview). any thread
+	void Orbit(float yaw, float pitch);
 
 	// the installed model's bounds and cameras (see ModelDesc::cameras): sets the views to its first camera, or frames
 	// the bounds if it has none. call on the draw thread.

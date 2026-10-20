@@ -154,6 +154,29 @@ void Views::Turn(float yaw, float forward)
 	}
 }
 
+void Views::Orbit(float yaw, float pitch)
+{
+	auto center = myScene.Read().Get().bounds.Center();
+	auto cameras = myCameras.Write();
+	for (auto& camera : cameras.Get())
+	{
+		auto& desc = camera.GetDesc();
+		glm::vec3 eye = -desc.position;
+		float distance = glm::length(eye - center);
+		if (distance <= 0.0F)
+			continue;
+		// where it looks from, as yaw (from -z towards +x) and pitch (positive looking down), turned
+		glm::vec3 look = (center - eye) / distance;
+		constexpr float kPitchLimit = 1.5F;
+		float lookPitch = std::clamp(std::asin(std::clamp(-look.y, -1.0F, 1.0F)) + pitch, -kPitchLimit, kPitchLimit);
+		float lookYaw = std::atan2(look.x, -look.z) + yaw;
+		look = glm::vec3(std::sin(lookYaw) * std::cos(lookPitch), -std::sin(lookPitch), -std::cos(lookYaw) * std::cos(lookPitch));
+		desc.position = -(center - look * distance);
+		desc.cameraRotation = glm::vec3(lookPitch, lookYaw, 0.0F);
+		camera.UpdateAll();
+	}
+}
+
 void Views::SetScene(const Bounds3f& bounds, std::vector<SceneCamera> cameras)
 {
 	bool hasCameras = !cameras.empty();

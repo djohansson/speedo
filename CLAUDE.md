@@ -49,7 +49,8 @@ Notes for working in this codebase, distilled from real build failures.
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
-  views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`. The browser itself
+  views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`; dragged, it orbits
+  the model (`Views::Orbit`: around the bounds' center, at the camera's distance). The browser itself
   (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`; its path a button per folder, the
   ones that don't fit behind "...") lists a folder's subfolders and the
   files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift

@@ -765,7 +765,18 @@ void WindowedApplication::InternalDrawBrowser()
 				// the preview once it shows the focused entry; until then an empty square, rather than what it showed before
 				ImVec2 corner = GetCursorScreenPos();
 				if (previewReady)
-					ImGui::Image(ImTextureRef(state.texture), ImVec2(side, side));
+				{
+					// dragged, it orbits the model
+					InvisibleButton("##Preview", ImVec2(side, side));
+					GetWindowDrawList()->AddImage(ImTextureRef(state.texture), corner, ImVec2(corner.x + side, corner.y + side));
+					if (IsItemActive() && IsMouseDragging(ImGuiMouseButton_Left, 0.0F))
+					{
+						constexpr float kRadiansPerPixel = 0.01F;
+						auto delta = GetIO().MouseDelta;
+						preview->GetViews().Orbit(delta.x * kRadiansPerPixel, delta.y * kRadiansPerPixel);
+					}
+					SetItemTooltip("Drag to turn it.");
+				}
 				else
 					Dummy(ImVec2(side, side));
 				if (!previewReady)
