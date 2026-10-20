@@ -287,6 +287,9 @@ set(RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/instance.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/memory.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipeline.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinecache.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinedescriptors.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/pipelinelayout.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/querypool.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/gpuprofiler.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/queue.cpp

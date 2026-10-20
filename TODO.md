@@ -40,7 +40,7 @@
 	* the OIT node pool is sized for 4 nodes per pixel of the render target (177 MB at 2560x1440) and lives the whole frame, so nothing aliases it
 	* sync validation (SPEEDO_VALIDATE_SYNC=1) sees no hazards on the partially bound descriptors, so it can't check the graph's barriers
 * todo: imguirenderer: rhi::ImGuiRenderer is imgui's vulkan backend and its textures, which could live with gfx's imgui context instead (gfx would need the backend's vulkan calls, which it mustn't have, so likely a renderer api of rhi's instead)
-* todo: split some of the bulkier rhi files such as pipeline and command into separate files.
+* todo: (maybe) split rhi/vulkan/utils.cpp (1100 lines of helpers: extensions and formats, buffers, images, render passes) as pipeline.cpp was (its cache, layouts and descriptor sets now files of their own; command.cpp and commandencoder.cpp were already apart)
 * todo: (maybe) CMAKE_SUPPRESS_REGENERATION: the FASTBuild generator re-runs cmake from inside a build when CMakeLists.txt changed (its rebuild-bff step), without the preset's environment when the build wasn't started through a preset; that is the path that breaks the shared install/ tree (see CLAUDE.md), and once left a build dir without its CMakeCache.txt ("not a CMake build directory": fixed by cmake --preset). suppressing it removes that path, at the cost of running Configure by hand after CMakeLists.txt changes outside VS Code's editor (a git pull, scripted edits): until then a build uses the old file lists
 * todo: multi window/swapchain capability
 * todo: (maybe) use Scatter/Gather I/O
