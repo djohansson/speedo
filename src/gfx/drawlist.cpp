@@ -60,7 +60,8 @@ DrawList BuildDrawList(
 			.morphFirstVertex = submesh.morphFirstVertex,
 			.morphWeightBase = submesh.morphWeightBase,
 			.bounds = submesh.bounds,
-			.cullable = !submesh.moves};
+			.cullable = true,
+			.moves = submesh.moves};
 
 		auto unmirrored = submesh.instanceCount - submesh.mirroredInstanceCount;
 		if (unmirrored > 0)
@@ -248,7 +249,7 @@ void PlanDrawRuns(DrawList& list, uint32_t maxDrawCount)
 			auto& run = list.runs.back();
 			const auto& first = list.items[run.first];
 			if (run.count < maxDrawCount && item.variant == first.variant && item.cullMode == first.cullMode &&
-				item.frontFace == first.frontFace && item.cullable == first.cullable)
+				item.frontFace == first.frontFace && item.cullable == first.cullable && item.moves == first.moves)
 			{
 				run.count++;
 				continue;
@@ -297,7 +298,7 @@ public:
 				myVariant.specialization = 0;
 			}
 		}
-		return myVariant != myBound || myCullMode != item.cullMode || myFrontFace != item.frontFace || myMoves != !item.cullable;
+		return myVariant != myBound || myCullMode != item.cullMode || myFrontFace != item.frontFace || myMoves != item.moves;
 	}
 
 	// sets the state Changes found item needs
@@ -324,9 +325,9 @@ public:
 		}
 		// what moves marks its pixels in the stencil, which the depth reprojection leaves out (its depth is last frame's
 		// place)
-		if (myMoves != !item.cullable)
+		if (myMoves != item.moves)
 		{
-			myMoves = !item.cullable;
+			myMoves = item.moves;
 			encoder.SetStencilReference(*myMoves ? 1U : 0U);
 		}
 	}

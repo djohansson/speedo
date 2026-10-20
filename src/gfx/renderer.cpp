@@ -2028,7 +2028,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			uint32_t triangles = 0;
 			for (const auto& item : mainList.items)
 			{
-				if (item.cullable == moving || item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0)
+				if (item.moves != moving || item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0)
 					continue;
 				if (!moving && std::ranges::none_of(
 								   reach,

@@ -716,8 +716,13 @@ run by `Model`'s load after `mesh::Import`, and by `assettest`) cuts each static
 `kChunkTriangles` (16384): the triangles' centroids ordered along a space filling curve (`meshopt_spatialSortRemap`), cut
 into even runs, each run's triangles back in the file's order (their vertex reuse). A chunk is a submesh like the one it
 came from (material, instances, ...), with its bounds: its vertices at each of its instances, in world space
-(`Submesh::bounds`). What moves (skinned, morphed, or instances that follow animated nodes: `Submesh::moves`) stays whole and
-is never culled. The chunk size is part of the model cache key (`chunks-N`). `assettest` reports the chunks and fails a
+(`Submesh::bounds`). What moves (skinned, morphed, or instances that follow animated nodes: `Submesh::moves`) stays whole, and
+is culled by where its animations take it (`AnimatedBounds` in `model.cpp`, from the same samples that grow the model's
+bounds: its linked instances' or its skin's joints' reach, a morphed submesh's targets' reach at weights from 0 to 1, and a
+tenth of its size more, since a crossfade turns joints between two animations' poses; a skinned or linked submesh's
+morph reach is only at rest). `DrawItem::moves` keeps marking it in the stencil and voxelizing it each frame; it used to
+be `!cullable`. Renders are the same with and without culling (CesiumMan, Fox, BrainStem, AnimatedMorphCube,
+MorphStressTest, RiggedFigure at frozen times). The chunk size is part of the model cache key (`chunks-N`). `assettest` reports the chunks and fails a
 chunk whose vertices leave its bounds; its encodings comparison counts the submeshes before chunking.
 
 `RecordDrawList` takes the view's `gfx::Frustum` (`gfx/frustum.h`: six planes from a view projection, Gribb and Hartmann;

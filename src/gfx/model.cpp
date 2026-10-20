@@ -124,10 +124,48 @@ Model::~Model() = default;
 // grows bounds (a mesh's at rest) by where its animations take what moves: each animation sampled 30 times a second
 // (at most 600 times), the linked instances' vertices' bounds (in their node's space) and the skinned vertices' bounds
 // per joint (in bind space) where the sample puts them. so that the views frame all of it (see Views::FrameBounds).
-// morph targets' reach is in the rest bounds already, only where it is at rest.
-static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
+// and grows each moving submesh's bounds by its instances' or its skin's joints' (and a tenth of their size: a
+// crossfade between two animations' poses turns joints between them), so the views cull what moves too. a morphed
+// submesh's bounds take its targets' reach (a skinned one's only at rest: its joints' boxes are of the unmorphed
+// vertices, which the margin covers some of).
+static void AnimatedBounds(mesh::Mesh& mesh, Bounds3f& bounds)
 {
 	ZoneScopedN("gfx::AnimatedBounds");
+
+	// a morphed submesh's reach: each vertex with every target's delta at weights from 0 to 1, at its instances (its
+	// vertices are kept unmorphed, see Mesh::morphDeltas)
+	for (auto& submesh : mesh.submeshes)
+	{
+		if (submesh.morphTargetCount == 0 || submesh.firstIndex + submesh.indexCount > mesh.indices.size())
+			continue;
+		Bounds3f local{glm::vec3(std::numeric_limits<float>::max()), glm::vec3(std::numeric_limits<float>::lowest())};
+		for (auto index : std::span(mesh.indices).subspan(submesh.firstIndex, submesh.indexCount))
+		{
+			if (index >= mesh.vertices.size() || index < submesh.morphFirstVertex)
+				continue;
+			auto position = glm::make_vec3(mesh.vertices[index].position);
+			glm::vec3 low = position;
+			glm::vec3 high = position;
+			size_t row = submesh.morphDeltaBase + (static_cast<size_t>(index - submesh.morphFirstVertex) * submesh.morphTargetCount);
+			for (uint32_t targetIt = 0; targetIt < submesh.morphTargetCount && row + targetIt < mesh.morphDeltas.size(); targetIt++)
+			{
+				auto delta = glm::make_vec3(mesh.morphDeltas[row + targetIt].position);
+				low += glm::min(delta, glm::vec3(0.0F));
+				high += glm::max(delta, glm::vec3(0.0F));
+			}
+			local.Merge(low);
+			local.Merge(high);
+		}
+		if (local.GetMin().x > local.GetMax().x)
+			continue;
+		for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount && instanceIt < mesh.instances.size(); instanceIt++)
+			for (const auto& corner : local.Corners())
+			{
+				auto point = glm::vec3(mesh.instances[instanceIt] * glm::vec4(corner, 1.0F));
+				submesh.bounds.Merge(point);
+				bounds.Merge(point);
+			}
+	}
 
 	const auto& animation = mesh.animation;
 	if (animation.animations.empty() || (animation.instanceLinks.empty() && animation.skins.empty()))
@@ -176,7 +214,11 @@ static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
 			}
 	}
 
-	auto addBox = [&bounds](const Box& box, const glm::mat4& transform)
+	// where each linked instance's and each joint's box went, over all samples
+	const Bounds3f none{glm::vec3(std::numeric_limits<float>::max()), glm::vec3(std::numeric_limits<float>::lowest())};
+	std::vector<Bounds3f> instanceReach(instanceBoxes.size(), none);
+	std::vector<Bounds3f> jointReach(jointBoxes.size(), none);
+	auto addBox = [](Bounds3f& reach, const Box& box, const glm::mat4& transform)
 	{
 		if (box.first.x > box.second.x)
 			return;
@@ -187,7 +229,7 @@ static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
 				(corner & 4U) != 0 ? box.second.z : box.first.z, 1.0F);
 			auto world = glm::vec3(transform * local);
 			if (std::isfinite(world.x) && std::isfinite(world.y) && std::isfinite(world.z))
-				bounds.Merge(world);
+				reach.Merge(world);
 		}
 	};
 
@@ -205,14 +247,44 @@ static void AnimatedBounds(const mesh::Mesh& mesh, Bounds3f& bounds)
 			auto worlds = EvaluateNodes(animation, animationIt, std::max(time, 0.0F));
 			for (const auto& link : animation.instanceLinks)
 				if (link.instance < instanceBoxes.size() && link.node < worlds.size())
-					addBox(instanceBoxes[link.instance], worlds[link.node] * link.local);
+					addBox(instanceReach[link.instance], instanceBoxes[link.instance], worlds[link.node] * link.local);
 			if (!joints.empty())
 			{
 				WriteJoints(animation, worlds, joints);
 				for (size_t jointIt = 0; jointIt < joints.size(); jointIt++)
-					addBox(jointBoxes[jointIt], joints[jointIt]);
+					addBox(jointReach[jointIt], jointBoxes[jointIt], joints[jointIt]);
 			}
 		}
+	}
+	auto merge = [](Bounds3f& into, const Bounds3f& from)
+	{
+		if (from.GetMin().x <= from.GetMax().x)
+		{
+			into.Merge(from.GetMin());
+			into.Merge(from.GetMax());
+		}
+	};
+	for (const auto& reach : instanceReach)
+		merge(bounds, reach);
+	for (const auto& reach : jointReach)
+		merge(bounds, reach);
+
+	for (auto& submesh : mesh.submeshes)
+	{
+		if (!submesh.moves)
+			continue;
+		Bounds3f reach = submesh.bounds;
+		if (submesh.skin >= 0 && std::cmp_less(submesh.skin, animation.skins.size()))
+		{
+			const auto& skin = animation.skins[submesh.skin];
+			for (size_t jointIt = skin.jointBase; jointIt < skin.jointBase + skin.joints.size() && jointIt < jointReach.size(); jointIt++)
+				merge(reach, jointReach[jointIt]);
+		}
+		else
+			for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount && instanceIt < instanceReach.size(); instanceIt++)
+				merge(reach, instanceReach[instanceIt]);
+		auto margin = (reach.GetMax() - reach.GetMin()) * 0.1F;
+		submesh.bounds = Bounds3f(reach.GetMin() - margin, reach.GetMax() + margin);
 	}
 }
 
@@ -518,7 +590,7 @@ struct Staged
 	if (importOptions.variant)
 		params.append(std::format("|variant-{}", *importOptions.variant));
 	params.append(std::format("|chunks-{}", mesh::kChunkTriangles));
-	params.append("|cache-v37"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append("|cache-v38"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());

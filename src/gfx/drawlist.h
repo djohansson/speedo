@@ -69,9 +69,13 @@ struct DrawItem
 	uint32_t morphDeltaBase = 0;
 	uint32_t morphFirstVertex = 0;
 	uint32_t morphWeightBase = 0;
-	// where it is drawn (its chunk's bounds, see mesh::Chunk), and whether a view may skip it by them: not if it moves
+	// where it is drawn (its chunk's bounds, see mesh::Chunk; what moves, everywhere its animations take it, see
+	// AnimatedBounds in model.cpp), and whether a view may skip it by them
 	Bounds3f bounds;
 	bool cullable = false;
+	// whether it moves (skinned, morphed, or following animated nodes): it marks its pixels in the stencil (see DrawState),
+	// and the indirect lighting voxelizes it each frame
+	bool moves = false;
 	// its DrawRecord in the frame's gDrawRecords (see WriteDrawRecords)
 	uint32_t record = 0;
 };
