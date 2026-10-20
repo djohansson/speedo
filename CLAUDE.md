@@ -955,7 +955,8 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
   voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
   straight to the environment (seconds a frame), and 7 the cascades traced at level 0, to tell what the cascades and what
-  the levels lose; 14 the surface reference (see below); 8 which clip lights a point (blended as `GiSampleAt` blends them), 9 the indirect diffuse with the
+  the levels lose; 14 the surface reference (see below; its ray spiral turned per point by a hash, else its fixed
+  directions made radial streaks); 8 which clip lights a point (blended as `GiSampleAt` blends them), 9 the indirect diffuse with the
   finest clip's voxel and cascade 0 probe planes drawn over it (`GiClipDebug`).
 - **What the merge sees**: a cascade's merge only takes the probes above it that it can see (`gGiProbeMasks`, per
   probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'

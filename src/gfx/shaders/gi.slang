@@ -999,13 +999,19 @@ float3 GiPixelReference(float3 position, float3 normal)
 	float3 bitangent = cross(normal, tangent);
 	EnvironmentData environment = gEnvironment[0];
 	const uint kRays = 256;
+	// the spiral turned and shifted by a hash of the point: the same directions everywhere made radial streaks (each
+	// ray's hit or miss the same over a whole surface); turned per point, they are noise instead
+	uint hash = asuint(position.x * 7919.0) * 73856093u ^ asuint(position.y * 7919.0) * 19349663u ^ asuint(position.z * 7919.0) * 83492791u;
+	hash = (hash ^ (hash >> 16)) * 0x45d9f3bu;
+	float turn = float(hash & 0xFFFFu) / 65536.0 * 6.28318531;
+	float shift = float(hash >> 16) / 65536.0;
 	float3 sum = 0.0;
 	for (uint rayIt = 0; rayIt < kRays; rayIt++)
 	{
 		// cosine weighted, a Fibonacci spiral over the disk
-		float u = (float(rayIt) + 0.5) / float(kRays);
+		float u = frac((float(rayIt) + shift) / float(kRays));
 		float r = sqrt(u);
-		float phi = float(rayIt) * 2.39996323;
+		float phi = float(rayIt) * 2.39996323 + turn;
 		float3 direction = normalize(tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + normal * sqrt(max(1.0 - u, 0.0)));
 		float4 traced = GiMarch(gi, 0, origin, direction, 0.0, far);
 		sum += traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
