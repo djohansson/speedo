@@ -988,6 +988,28 @@ boundary rounds to either side (so the offset); per pixel visibility marches cos
 The voxels' normals pointed toward the face each stands for, not away from it (as above): every voxel's shadow ray
 started in its twin across the surface, so no voxel was ever lit by a light, and a ray from in front of a wall met the
 voxel of its back face, lit from inside the wall (Voxel Radiance of Sponza's sunlit wall was black with one bounce).
+The splotches (CornellBox's walls and floor mottled in patches about a fifth of the box wide, a few of which are
+brighter than the reference, the rest darker; the dark blobs at the walls' bases), measured at 48 pixels of blur
+against a 2048 ray probe reference (`mean |log2|`, the splotch metric in the notes: the per pixel metric is noise), one
+bounce, CornellBox-Sphere: the reference's own 512 ray version scores 0.046; 900 straight rays per probe projected from
+cascade 0's 36 texels 0.097; the cascades traced exactly from each probe (no parallax) at level 0 0.101, with the
+coarse levels 0.152; the real pipeline at level 0 0.131, with the levels 0.141. So the merge's parallax (a parent up to
+a spacing away traces from where it is) is 0.03 of it and the levels 0.01 (0.05 without the merge's blur over 8
+parents), and the rest is the 36 direction projection's. Fixed: a half voxel step took a whole voxel's opacity, so two
+steps through a partly occupied coarse voxel squared its transmittance (an oblique wall at 30% blocked 51%; per step it
+is `1 - (1 - a)^(1/2)` now, and the radiance's share with it): 0.141 to 0.130, no cost, and the clips agree a little
+better as they move. Tried and dropped, each measured: 25 rays per texel averaged (no change: the lamp's angular
+aliasing in the rays isn't it); the basis integrated over each texel, and cascade 0 merged and projected at cascade 1's
+144 directions (no change: the projection's quadrature isn't it either); cascade 0's interval at three times its
+spacing (0.113, but cascade 1 then reaches the lamp with 144 directions and draws it as bright rectangles on the walls),
+at 1.5 times (0.121, the clips agree slightly less as they move); 8x8 directions (0.149, worse, +4 ms on Bistro);
+direction corrected merging (the parent's texel toward where the probe's ray ends, or toward the middle of the
+parent's interval along it, nearest texel or bilinear: the box no better, Sponza's inside 70% too bright, a texel
+lattice on the walls with the nearest texel). What would still help: the bilinear fix with visibility only bridges
+(the parallax's 0.03, about +6 ms on Bistro by estimate), and more directions in the projection don't. The Surface
+Reference's own leak along CornellBox's floor edges (a red and a white line) was its rays starting inside the next
+wall's voxel shell (every surface has one on each side): an origin in an occupied voxel moves out along that voxel's
+normal.
 The leaks into dark interiors along their edges and corners (thin lines of the sky's light, about a voxel wide, along
 the bases of Sponza's ground floor walls and its curtains), four causes, each found with the probe visibility and
 level 0 views: a surface's voxels saw their probes from their own centers, among the surface's voxels, so they saw none

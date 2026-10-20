@@ -57,10 +57,11 @@ Layout MakeLayout(
 	layout.radianceCount += layout.voxelCount;
 
 	// the cascades: each with half the probes per axis, twice the directions per axis and an interval four times as long,
-	// until one reaches reach. cascade 0's interval ends at twice its probes' spacing: ending at the spacing,
-	// the probes above (twice as far apart) are as far from a probe as its rays reach, and the merge's parallax lost a
-	// third of the light on Sponza's outer wall against the reference (67% of it, 86% now; the bilinear fix, a ray from
-	// each probe to each of the 8 above, lost more: its bridging rays leave the direction by up to 60 degrees there)
+	// until one reaches reach. cascade 0's interval ends at twice its probes' spacing: ending at the spacing, the probes
+	// above (twice as far apart) are as far from a probe as its rays reach, and the merge's parallax lost a third of the
+	// light on Sponza's outer wall against the reference (67% of it, 86% at twice). three times measured better on
+	// CornellBox's splotches but drew the lamp as bright rectangles on its walls (cascade 1 then reaches it with 144
+	// directions, and a texel either hits it or not, probe by probe), see CLAUDE.md
 	constexpr float kIntervalScale = 2.0F;
 	float spacing0 = static_cast<float>(probeSpacing) * voxelSize;
 	glm::uvec3 probes0 = (size + glm::uvec3(probeSpacing - 1)) / probeSpacing;

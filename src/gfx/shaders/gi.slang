@@ -252,8 +252,16 @@ float4 GiMarch(GiData gi, uint level, float3 origin, float3 direction, float sta
 					 weights.y * GiUnpackRgba16(gGiRadiance[GiRadianceIndex(levelFirst, clipLevel, uint3(voxel), levelSize, faces.y)]) +
 					 weights.z * GiUnpackRgba16(gGiRadiance[GiRadianceIndex(levelFirst, clipLevel, uint3(voxel), levelSize, faces.z)]);
 		}
-		radiance += transmittance * sample.rgb;
-		transmittance *= 1.0 - saturate(sample.a);
+		// a half voxel step takes half a voxel's share of its opacity (1 - (1 - a)^(1/2)) and of its radiance (L a: the
+		// radiance is premultiplied), so a partly occupied coarse voxel is seen by its occupancy over a whole voxel, not
+		// its square (two steps of 1 - a: an oblique wall at 30% of a coarse voxel blocked 51%, and where a probe's rays
+		// crossed such voxels differed from probe to probe)
+		{
+			float a = saturate(sample.a);
+			float af = 1.0 - sqrt(1.0 - a);
+			radiance += transmittance * (a > 0.0 ? sample.rgb / a * af : 0.0);
+			transmittance *= 1.0 - af;
+		}
 		t += step;
 	}
 	return float4(radiance, transmittance);
@@ -685,7 +693,8 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	uint probeIndex = threadId.x / directionCount;
 	uint directionIndex = threadId.x % directionCount;
 	uint3 probe = uint3(probeIndex % cascadeSize.x, (probeIndex / cascadeSize.x) % cascadeSize.y, probeIndex / (cascadeSize.x * cascadeSize.y));
-	float3 direction = GiDirection(uint2(directionIndex % cascadeSize.w, directionIndex / cascadeSize.w), cascadeSize.w);
+	uint2 texel = uint2(directionIndex % cascadeSize.w, directionIndex / cascadeSize.w);
+	float3 direction = GiDirection(texel, cascadeSize.w);
 	float4 interval = gi.cascadeInterval[cascade];
 	// the level of the probes' spacing (a finer one gave 10% more light near walls, a coarse level's occupancy being the
 	// mean of what it holds, at twice the cost); 7 traces level 0, for comparison
@@ -812,9 +821,9 @@ void ComputeGiIrradiance(uint3 dispatchId: SV_DispatchThreadID)
 		for (uint directionIt = 0; directionIt < directionCount; directionIt++)
 		{
 			uint2 texel = uint2(directionIt % cascadeSize.w, directionIt / cascadeSize.w);
+			float3 radiance = GiUnpackRgba16(gGiCascades[GiCascadeFirst(gi, 0) + threadId.x * directionCount + directionIt]).rgb;
 			float3 direction = GiDirection(texel, cascadeSize.w);
 			float solidAngle = GiTexelSolidAngle(texel, cascadeSize.w);
-			float3 radiance = GiUnpackRgba16(gGiCascades[GiCascadeFirst(gi, 0) + threadId.x * directionCount + directionIt]).rgb;
 			GiShBasis(direction, basis);
 			for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
 				sh[shIt] += radiance * basis[shIt] * solidAngle;
@@ -995,6 +1004,18 @@ float3 GiPixelReference(float3 position, float3 normal)
 	GiData last = GiClip(clipCount - 1);
 	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 	float3 origin = position + normal * (2.0 * gi.volumeOrigin.w);
+	// at a concave edge that is inside the other surface's voxel (its shell is a voxel thick on this side too): out of
+	// it along that voxel's normal, else every ray starts in its radiance (CornellBox's red wall drew a line along the
+	// floor)
+	{
+		int3 at = int3(floor(GiVoxelCoordinate(gi, origin, 0)));
+		if (GiInside(at, GiLevelSize(gi, 0)))
+		{
+			GiVoxel voxel = GiVoxelAt(gi, uint3(at));
+			if ((voxel.albedo >> 24) != 0u)
+				origin += GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0) * (1.5 * gi.volumeOrigin.w);
+		}
+	}
 	float3 tangent = normalize(abs(normal.y) < 0.9 ? cross(normal, float3(0, 1, 0)) : cross(normal, float3(1, 0, 0)));
 	float3 bitangent = cross(normal, tangent);
 	EnvironmentData environment = gEnvironment[0];
