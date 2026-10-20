@@ -28,6 +28,16 @@ bool ClusterLights(float3 position, out uint first, out uint count)
 
 float LightAttenuation(uint lightIndex, LightData light, float3 position, float3 geometryNormal, out float3 toLight)
 {
+	float attenuation = LightFalloff(light, position, toLight);
+	if (attenuation <= 0.0)
+		return 0.0;
+	return attenuation * ShadowFactor(lightIndex, light, position, geometryNormal, toLight);
+}
+
+// the direction from position towards a light (toLight), and how much of its intensity reaches there unshadowed: by
+// distance and a spot light's cone
+float LightFalloff(LightData light, float3 position, out float3 toLight)
+{
 	float attenuation = 1.0;
 	if (light.type == LIGHT_TYPE_DIRECTIONAL)
 	{
@@ -51,7 +61,5 @@ float LightAttenuation(uint lightIndex, LightData light, float3 position, float3
 			attenuation *= cone * cone;
 		}
 	}
-	if (attenuation <= 0.0)
-		return 0.0;
-	return attenuation * ShadowFactor(lightIndex, light, position, geometryNormal, toLight);
+	return attenuation;
 }

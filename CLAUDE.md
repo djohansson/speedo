@@ -119,7 +119,7 @@ Notes for working in this codebase, distilled from real build failures.
   doesn't link slang. `Pipeline::CreateLayout` turns a `ShaderSet` into the backend's descriptor set layouts (every
   binding partially bound). What the app's descriptor sets need from the pool comes in through
   `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes. The main layout's module,
-  `shaders.slang`, is parts by area (`bindings`, `common`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
+  `shaders.slang`, is parts by area (`bindings`, `common`, `debug`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
   `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `uiblur`), which it includes textually after
   `capi.h` and `sky.h`: one translation unit, so the header's declarations exist once (each part including it as a part
   of the module, `__include` and `implementing`, declared its structs again: ambiguous). A part may use what any other
@@ -646,6 +646,30 @@ Sync validation is available (`SPEEDO_VALIDATE_SYNC=1` in a debug build, with `V
 does) but sees no hazards on the main layout's descriptors (all partially bound), even with the graph's barriers
 removed, so it can't vouch for them; compare renders instead (identical before and after the graph).
 
+## Debug views and the Statistics window
+
+View > Debug View (`SPEEDO_DEBUG_VIEW=<key or number>`; Ctrl/Cmd+[ and ] step through them, +0 back to the light)
+shows something other than the light in the main pass: `PushConstants::debugView`, `DEBUG_VIEW_*` in `capi.h`, keys in
+`client/ui.cpp`'s `kDebugViews`, helpers in `debug.slang`. The surface's values (base color, normals, roughness,
+metallic, occlusion, a color per material, texcoords) return early from `ShadeFragment` (`DebugSurfaceValue`); the
+lighting's (direct alone, ambient alone, its diffuse on white and its specular, the shadows' share of the direct light,
+the cluster's light count as a heat map) and the indirect lighting's (from `DEBUG_VIEW_GI_FIRST`, `DebugViewGi`, which
+the renderer also writes to `GiData::debug` for the references' compute) return from `Shade`, without emission and the
+scattering's light. Views of values (`DebugViewIsData`) skip exposure and tonemapping in `ComputeMain` (stored as
+`pow(v, 2.2)` where a value should read as itself after the srgb curve) and have a dark backdrop instead of the sky.
+The scatter pass is never in a debug view. An overlay at the bottom left names the view and what its colors mean.
+
+The Statistics window (debug and profile builds) has the pass timings in two columns, then: per draw list its draws
+and triangles; the culling of the main and the shadow views (`Renderer::GetFrameStatistics` for what was tested, the
+cpu's plan of the last frame recorded, and `GetCullStatistics` for the gpu's decisions of the last frame it finished,
+a frame or two behind): tested, outside the frustum, occluded, drawn early and late, triangles drawn. The cull kernel
+counts `CULL_STATISTIC_FRUSTUM` in the job that decides last on a draw (frustum, late, pyramid and hybrid late jobs) and
+`CULL_STATISTIC_TRIANGLES` wherever a draw is kept; frustum only jobs count their draws as early (they were left out
+before, so a list without occlusion counted nothing). Then the lights, shadows and clusters (most lights in a cluster,
+the mean where any), and the indirect lighting's clips (voxel counts and sizes, how many were voxelized this frame,
+what moves). `SPEEDO_GPU_TIMINGS=1`'s exit summary has the frustum and triangle counts too. The cpu culling path
+(`SPEEDO_GPU_CULLING=0`) has no gpu statistics.
+
 ## GPU timings and shader tiers
 
 Gpu work is timed by one path: each queue's `rhi::GpuProfiler` (`rhi/gpuprofiler.h`, `Queue::GetProfiler`; only with
@@ -809,7 +833,8 @@ may (its timings are dropped). `SHADER_TYPES_LIGHT_COUNT` (gLights) is 4096.
 
 ## Indirect lighting: radiance cascades over a voxel volume
 
-`SPEEDO_GI=1` (off by default while it matures) gives the diffuse ambient term from world space radiance cascades
+View > Indirect Lighting (`SPEEDO_GI=1` to start with it; off by default while it matures, and per frame:
+`FrameInputs::indirectLighting`, off drops the volumes, on voxelizes again) gives the diffuse ambient term from world space radiance cascades
 (`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), every frame and noise free: a fixed set of rays, merged, no
 history, no denoiser (temporal accumulation is ruled out by design: its ghosting and lag). What it does, per frame:
 
@@ -892,11 +917,13 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   scene's radiance around it in a cosine lobe as wide as the roughest. Sponza's inside lost the sky its gold and cloth
   reflected (most of its brightness, which was the leak), Bistro's street the sky's blue sheen on its cobbles; open
   surfaces keep theirs (DamagedHelmet 99.7% of its light, Sponza's outer wall 97.8%), for 0.06 ms of Bistro's main pass.
-  Sharp reflections of the scene itself (not the sky's, occluded) are still missing. `SPEEDO_GI_DEBUG`: 1 the indirect
+  Sharp reflections of the scene itself (not the sky's, occluded) are still missing. Its debug views (View > Debug View
+  > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th, `GiData::debug`): 1 the indirect
   diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
   voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
   straight to the environment (seconds a frame), and 7 the cascades traced at level 0, to tell what the cascades and what
-  the levels lose.
+  the levels lose; 8 which clip lights a point (blended as `GiSampleAt` blends them), 9 the indirect diffuse with the
+  finest clip's voxel and cascade 0 probe planes drawn over it (`GiClipDebug`).
 - **What the merge sees**: a cascade's merge only takes the probes above it that it can see (`gGiProbeMasks`, per
   probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'
   shells, sees none of the light outside, and pulled the streets dark). The projection to spherical harmonics weighs
@@ -924,6 +951,9 @@ colour bleeding, the lamp lighting the ceiling around it, and contact darkening 
 by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
 way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel
 boundary rounds to either side (so the offset); per pixel visibility marches cost 1 ms on CornellBox before the masks.
+The voxels' albedo took the metallic factor alone, not times the metallic-roughness texture's (as the shading does):
+Sponza's factor is the default 1, its texture saying where metal is, so every one of its voxels was black and bounced
+nothing (the Voxel Albedo debug view showed it). The measurements of Sponza here are from before that fix.
 The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in its street (`564,170,-2436,0,30`) 11.5 ms
 with one clip, 15.7 with three (9.4 without the indirect lighting); CornellBox 6.5 (5.1), Sponza 8.8 (4.8), with three; against its reference, Sponza's inside (`0,2,0,0,90`)
 63% of the reference's light with one clip, 79% with three, its outer wall 86 and 87%. With one clip Bistro's 1.2 m voxels

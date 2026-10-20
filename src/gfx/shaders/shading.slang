@@ -113,13 +113,18 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	// transmission color alone (the spec's diffuse_btdf(diffuseTransmissionColor): not the base color)
 	// the indirect lighting's (see GiIrradiance), where its probes cover the point: the environment occluded, and the light
 	// the scene bounces. else the environment's
-	if (GiDebug() != 0u)
+	uint debugView = DebugView();
+	if (DebugViewGi(debugView) != 0u)
 	{
 		float3 debug = GiIrradiance(position, normal);
 		return debug.x >= 0.0 ? debug : float3(1.0, 0.0, 1.0);
 	}
 	GiSample gi = GiSampleAt(position, normal);
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : -1.0;
+	// the debug views of the ambient light: a white surface's diffuse, whatever lights it (the indirect lighting where
+	// it covers the point, else the environment)
+	if (debugView == DEBUG_VIEW_INDIRECT_DIFFUSE)
+		return indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal);
 	// and the specular: the environment as much as the indirect light sees of it (its share of the environment's
 	// irradiance, which is all of it unoccluded), and, as the surface gets rough, the indirect light's radiance around the
 	// reflection (its harmonics along it: a cosine lobe, as wide as the roughest): glossy reflections of the scene, without
@@ -131,6 +136,8 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float rough = smoothstep(0.2, 0.9, roughness);
 		environmentRadiance = lerp(environmentRadiance * seen, GiEvaluate(gi, reflected), rough);
 	}
+	if (debugView == DEBUG_VIEW_INDIRECT_SPECULAR)
+		return surface.occlusion * environmentSpecular * environmentRadiance;
 	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));
 	if (surface.diffuseTransmission > 0.0)
 	{
@@ -163,10 +170,39 @@ float3 Shade(Surface surface, float3 view, float3 position)
 						 environment,
 						 DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness),
 						 surface.clearcoatRoughness);
+	if (debugView == DEBUG_VIEW_INDIRECT)
+		return result;
+	if (debugView == DEBUG_VIEW_DIRECT)
+		result = 0.0;
 
 	uint clusterFirst;
 	uint clusterCount;
 	bool clustered = ClusterLights(position, clusterFirst, clusterCount);
+	// the debug view of the lights looped over: a heat map of their count, by its log (1 a dark blue, 15 cyan to green,
+	// 255 and more red)
+	if (debugView == DEBUG_VIEW_LIGHT_COUNT)
+		return clusterCount == 0u ? float3(0.0) : DebugHeat(log2(1.0 + float(clusterCount)) / 8.0);
+	// the debug view of the shadows: of the direct light that would reach the point unshadowed (each light's luminance,
+	// falloff and n.l), the share that does
+	if (debugView == DEBUG_VIEW_SHADOWS)
+	{
+		float reaching = 0.0;
+		float unshadowed = 0.0;
+		for (uint clusterIt = 0; clusterIt < clusterCount; clusterIt++)
+		{
+			uint lightIt = clustered ? gClusterLights[gPushConstants.frameIndex][clusterFirst + clusterIt] : clusterIt;
+			LightData light = gLights[lightIt];
+			float3 toLight;
+			float weight = LightFalloff(light, position, toLight) * saturate(dot(normal, toLight)) *
+						   dot(light.intensity.rgb, float3(0.2126, 0.7152, 0.0722));
+			if (weight <= 0.0)
+				continue;
+			unshadowed += weight;
+			reaching += weight * ShadowFactor(lightIt, light, position, surface.geometryNormal, toLight);
+		}
+		// no light faces the point: a dark blue, apart from shadowed black
+		return unshadowed > 0.0 ? pow(reaching / unshadowed, 2.2) : float3(0.0, 0.0, 0.05);
+	}
 	for (uint clusterIt = 0; clusterIt < clusterCount; clusterIt++)
 	{
 		uint lightIt = clustered ? gClusterLights[gPushConstants.frameIndex][clusterFirst + clusterIt] : clusterIt;

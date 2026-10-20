@@ -135,7 +135,7 @@ void ComputeCull(uint3 threadId: SV_DispatchThreadID)
 		hidden = inFrustum && gCullVisibility[visibility] == 0 && !keep;
 		break;
 	}
-	if (job.kind != CULL_JOB_FRUSTUM && (keep || hidden))
+	if (keep || hidden)
 	{
 		bool late = job.kind == CULL_JOB_LATE || job.kind == CULL_JOB_HYBRID_LATE;
 		uint statistic = hidden ? CULL_STATISTIC_HIDDEN
@@ -143,6 +143,16 @@ void ComputeCull(uint3 threadId: SV_DispatchThreadID)
 								 : (candidate.late != 0 ? CULL_STATISTIC_LATE_BLENDED : CULL_STATISTIC_LATE);
 		InterlockedAdd(gCullStatistics[frameIndex][job.statistics * CULL_STATISTIC_COUNT + statistic], 1);
 	}
+	// outside the frustum: counted by the job that decides last on each draw (the early ones see them again later)
+	bool decidesLast = job.kind == CULL_JOB_FRUSTUM || job.kind == CULL_JOB_LATE || job.kind == CULL_JOB_PYRAMID ||
+					   job.kind == CULL_JOB_HYBRID_LATE;
+	if (decidesLast && !inFrustum)
+		InterlockedAdd(gCullStatistics[frameIndex][job.statistics * CULL_STATISTIC_COUNT + CULL_STATISTIC_FRUSTUM], 1);
+	// the triangles drawn (each draw is kept by one job of a view at most)
+	if (keep)
+		InterlockedAdd(
+			gCullStatistics[frameIndex][job.statistics * CULL_STATISTIC_COUNT + CULL_STATISTIC_TRIANGLES],
+			candidate.indexCount / 3u * candidate.instanceCount);
 	if (!keep && job.compact != 0)
 		return;
 

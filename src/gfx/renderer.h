@@ -58,6 +58,9 @@ struct FrameInputs
 	bool culling = true;
 	// whether the lights are binned into clusters per view, each fragment looping over its cluster's (else over all)
 	bool clusteredLights = true;
+	// whether the indirect lighting runs (see gfx/indirectlight.h): turned off, its volumes are dropped, and turned on
+	// again they are voxelized again
+	bool indirectLighting = false;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -79,6 +82,46 @@ struct FrameInputs
 	std::span<const UiBlurRect> uiBlurRects;
 	// runs tasks in the background (creating pipelines, see RecordDrawList), if given
 	core::TaskExecutor* executor = nullptr;
+};
+
+// what the renderer planned for a frame, on the cpu (see Renderer::GetFrameStatistics), for the Statistics window
+struct FrameStatistics
+{
+	// the draw lists, in order (main, the main pass's transmissive phase, shadow, scatter, scatter back faces): per list
+	// its draws (chunks of submeshes, see mesh::Chunk) and their triangles (times their instances), for one view
+	static constexpr std::array<const char*, 5> kListNames{"Main", "Main Transmissive", "Shadow", "Scatter", "Scatter Back"};
+	std::array<uint32_t, kListNames.size()> listDraws{};
+	std::array<uint64_t, kListNames.size()> listTriangles{};
+	// what the gpu's culling tested per group (CULL_STATISTIC_MAIN and _SHADOW): each list it culls by the views it is
+	// drawn in (the counts the gpu's decisions, Renderer::GetCullStatistics, are out of)
+	std::array<uint64_t, CULL_STATISTIC_GROUP_COUNT> testedDraws{};
+	std::array<uint64_t, CULL_STATISTIC_GROUP_COUNT> testedTriangles{};
+	bool culling = false; // whether the views cull at all (View > Culling)
+	bool gpuCulling = false; // else the cpu culls by the frustum, and the gpu's statistics stay as they were
+	bool occlusion = false; // the main views' occlusion culling ran this frame (see Renderer::GetOcclusionModeName)
+	bool shadowOcclusion = false;
+	uint32_t mainViewCount = 0;
+	// the lights: all of them, those with shadows and the shadow views they take (see shadows::Plan)
+	uint32_t lightCount = 0;
+	uint32_t shadowedLightCount = 0;
+	uint32_t shadowViewCount = 0;
+	// the clusters (see clusters::Plan): whether they are planned, the light indices of all views, and per cluster
+	// reached by any light, the most lights and their mean
+	bool clusteredLights = false;
+	uint32_t clusterLightIndexCount = 0;
+	uint32_t clusterMaxLightCount = 0;
+	float clusterMeanLightCount = 0.0F;
+	// the indirect lighting (see gfx/indirectlight.h): whether it ran, per clip its voxel size (world units) and voxels
+	// per axis, how many clips were voxelized this frame (moved, or the scene changed), and what moves (voxelized every
+	// frame over the rest)
+	bool indirectLighting = false;
+	uint32_t giClipCount = 0;
+	std::array<float, SHADER_TYPES_GI_CLIP_COUNT> giVoxelSize{};
+	std::array<glm::uvec3, SHADER_TYPES_GI_CLIP_COUNT> giVoxelCounts{};
+	uint32_t giClipsVoxelized = 0;
+	uint32_t giMovingDraws = 0;
+	uint32_t giMovingTriangles = 0;
+	uint32_t giBounceCount = 0;
 };
 
 // draws frames: the lights' shadows (see gfx/shadows.h), the light under scattering materials' surfaces, the main pass (in two phases with transmissive materials), the order independent transparency's
@@ -116,6 +159,8 @@ public:
 	// name. any thread.
 	[[nodiscard]] std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> GetCullStatistics() const;
 	[[nodiscard]] std::string_view GetOcclusionModeName() const noexcept;
+	// what the cpu planned for the last frame recorded. any thread.
+	[[nodiscard]] FrameStatistics GetFrameStatistics() const;
 
 private:
 	// the frame's draw lists, in the order their records and culling candidates are written
@@ -273,6 +318,8 @@ private:
 	core::ConcurrentAccess<std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT>> myCullStatistics;
 	std::array<uint64_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> myCullStatisticSums{};
 	uint64_t myCullStatisticFrameCount = 0;
+	FrameStatistics myFrameStatisticsThisFrame; // filled in while recording, then published
+	core::ConcurrentAccess<FrameStatistics> myFrameStatistics;
 	bool myCountEmulated = false;
 	FrameGraph::ImageId myDepthPyramid;
 	std::vector<std::unique_ptr<ImageView>> myDepthPyramidViews; // a storage view per level
@@ -291,12 +338,11 @@ private:
 	FrameGraph::PassId myCullShadowsLatePass;
 	FrameGraph::PassId myShadowsLatePass;
 
-	// the indirect lighting (SPEEDO_GI=1; SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, SPEEDO_GI_CLIP_COUNT
+	// the indirect lighting (FrameInputs::indirectLighting; SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, SPEEDO_GI_CLIP_COUNT
 	// clips): its clipmap, what it was made for (the model, its bounds and its draws), the persistent buffers (voxels,
 	// radiance, cascades, irradiance: see GiData), per frame index its parameters (host visible), and what the voxelizer
 	// and the voxels' lighting read (growing). per clip, whether it is voxelized this frame (it moved, or the scene
 	// changed) and its static jobs then (the first in gGiJobs, their count and triangles)
-	bool myGiEnabled = false;
 	uint32_t myGiResolution = 128;
 	uint32_t myGiClipCount = 3;
 	gi::Clipmap myGiClipmap;

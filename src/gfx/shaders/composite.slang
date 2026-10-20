@@ -45,9 +45,11 @@ void ComputeMain(
 
 			// the environment where nothing opaque was drawn, in the view the pixel is in (outside them, e.g. where a view
 			// is letterboxed, or without the backdrop, a gray): along the ray through the pixel, between two depths of it
+			// a debug view of values (see DebugViewIsData) is shown as it is, over a dark backdrop
+			bool data = DebugViewIsData(gPushConstants.debugView);
 			if (color.a == 0.0)
-				color.rgb = 0.2;
-			if (color.a == 0.0 && gPushConstants.environmentBackdrop != 0u)
+				color.rgb = data ? 0.005 : 0.2;
+			if (color.a == 0.0 && gPushConstants.environmentBackdrop != 0u && !data)
 			{
 				for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
 				{
@@ -106,7 +108,7 @@ void ComputeMain(
 			uint bin = uint(clamp(position * float(SHADER_TYPES_EXPOSURE_BINS), 0.0, float(SHADER_TYPES_EXPOSURE_BINS - 1)));
 			InterlockedAdd(gGroupHistogram[bin], 1u);
 
-			float3 mapped = Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);
+			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);
 			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
 
 			// the ui's frosted panels' backdrop: under them and within the blur's reach, linear, for the UI Blur passes

@@ -371,7 +371,15 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 				TextureView view = gTextureViews[material.baseColorView];
 				color *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0);
 			}
-			albedo = color.rgb * (1.0 - material.metallic);
+			// metallic is the factor times the texture's (its green, see image::Usage::kMetallicRoughness), as the shading
+			// has it: by the factor alone (1 by default, the texture saying where), Sponza's voxels were all black
+			float metallic = material.metallic;
+			if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
+			{
+				TextureView view = gTextureViews[material.metallicRoughnessView];
+				metallic *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0).g;
+			}
+			albedo = color.rgb * (1.0 - metallic);
 			emission = material.emissive.rgb;
 			if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
 			{
@@ -793,10 +801,10 @@ void ComputeGiVisibility(uint3 dispatchId: SV_DispatchThreadID)
 	gGiVoxels[index].emissionB = (gGiVoxels[index].emissionB & 0xFFFFu) | (mask << 16);
 }
 
-// the debug view (GiData::debug), or 0
+// the shading's debug view (GiData::debug's numbering, from PushConstants::debugView), or 0
 uint GiDebug()
 {
-	return gGi[gPushConstants.frameIndex][0].debug;
+	return DebugViewGi(DebugView());
 }
 
 // the shading's (with the debug views)
@@ -829,6 +837,8 @@ float3 GiVoxelDebug(GiData gi, float3 position, float3 normal, uint debug)
 // clamped), blended into the next over the 8 voxels after that, so the clips meet without a seam
 float3 GiIrradiance(float3 position, float3 normal, uint debug)
 {
+	if (debug == 8u || debug == 9u)
+		return GiClipDebug(position, normal, debug == 9u);
 	if (debug < 2u || debug > 5u)
 	{
 		GiSample sample = GiSampleAt(position, normal);
@@ -1111,4 +1121,53 @@ float3 GiEvaluate(GiSample sample, float3 direction)
 			dot(sample.b0, basis0) + dot(sample.b1, basis1)) +
 			sample.last.xyz * basis8,
 		0.0);
+}
+
+// the debug views of the clipmap: which clip lights a point (8: its color, DebugClipColor, blended where clips meet as
+// GiSampleAt blends them; dark where none does), or (9) the indirect diffuse with the cells of the finest clip covering
+// the point drawn over it: its voxels' thin, in the clip's color, and its cascade 0 probes' (the planes through them,
+// where the probes interpolated change) thick, in white. on the planes across the surface only: one along it would
+// cover it
+float3 GiClipDebug(float3 position, float3 normal, bool grid)
+{
+	if (gGi[gPushConstants.frameIndex][0].enabled == 0)
+		return -1.0;
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	float3 color = 0.0;
+	float remaining = 1.0; // of the point, not yet the finer clips'
+	uint finest = clipCount;
+	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
+	{
+		GiClipView clip = GiClipViewAt(clipIt);
+		float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+		float3 size = float3(clip.volumeSize.xyz);
+		float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
+		float weight = clipIt + 1 == clipCount ? (edge > 0.0 ? 1.0 : 0.0) : saturate((edge - clip.probeSpacing) / 8.0);
+		if (weight <= 0.0)
+			continue;
+		if (finest == clipCount)
+			finest = clipIt;
+		color += remaining * weight * DebugClipColor(clipIt);
+		remaining *= 1.0 - weight;
+	}
+	if (!grid)
+		return finest == clipCount ? float3(0.02) : color;
+
+	GiSample sample = GiSampleAt(position, normal);
+	float3 irradiance = sample.valid ? GiEvaluate(sample, normal) : -1.0;
+	if (finest == clipCount)
+		return irradiance;
+	GiClipView clip = GiClipViewAt(finest);
+	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	float3 across = step(abs(normal), 0.9); // the axes whose planes cross the surface
+	float3 voxelLine = abs(frac(coordinate + 0.5) - 0.5); // voxels from the nearest voxel boundary
+	float3 probeLine = abs(frac(coordinate / clip.probeSpacing) - 0.5) * clip.probeSpacing; // and from a probe's plane
+	bool onProbe = any(select(probeLine < 0.08, across, 0.0) > 0.0);
+	bool onVoxel = any(select(voxelLine < 0.03, across, 0.0) > 0.0);
+	float3 base = max(irradiance, 0.0);
+	if (onProbe)
+		return float3(1.0);
+	if (onVoxel)
+		return lerp(base, DebugClipColor(finest), 0.6);
+	return irradiance;
 }

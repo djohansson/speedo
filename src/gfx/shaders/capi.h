@@ -131,6 +131,38 @@ extern "C"
 #define TONEMAPPER_AGX 2u // AgX (Benjamin Wrensch's polynomial fit, the base look)
 #define TONEMAPPER_REINHARD 3u // Reinhard on luminance: x / (1 + x)
 #define TONEMAPPER_LINEAR 4u // none: clamped
+
+// PushConstants::debugView (View > Debug View, SPEEDO_DEBUG_VIEW): what the main pass's fragments show instead of their
+// light. the surface's values (data: shown as they are, without exposure or tonemapping, see DebugViewIsData)
+#define DEBUG_VIEW_NONE 0u
+#define DEBUG_VIEW_BASE_COLOR 1u // the base color (linear, texture and vertex colors applied)
+#define DEBUG_VIEW_NORMAL 2u // the shading normal (normal mapped), world space, as 0.5 + 0.5 n
+#define DEBUG_VIEW_GEOMETRY_NORMAL 3u // the interpolated vertex normal, facing the viewer
+#define DEBUG_VIEW_ROUGHNESS 4u
+#define DEBUG_VIEW_METALLIC 5u
+#define DEBUG_VIEW_OCCLUSION 6u // the material's ambient occlusion
+#define DEBUG_VIEW_MATERIAL 7u // a color per material
+#define DEBUG_VIEW_TEXCOORD 8u // texcoord set 0, repeated
+#define DEBUG_VIEW_SHADOWS 9u // the share of the lights' direct light that isn't shadowed (blue where none reaches)
+#define DEBUG_VIEW_LIGHT_COUNT 10u // the lights the fragment loops over (its cluster's), a heat map up to 255
+// light (exposed and tonemapped)
+#define DEBUG_VIEW_EMISSIVE 11u
+#define DEBUG_VIEW_DIRECT 12u // the punctual lights' light alone
+#define DEBUG_VIEW_INDIRECT 13u // the ambient light alone: diffuse and specular (the environment's or the indirect lighting's)
+#define DEBUG_VIEW_INDIRECT_DIFFUSE 14u // the ambient irradiance over pi, a white surface's (whatever lights it)
+#define DEBUG_VIEW_INDIRECT_SPECULAR 15u // the ambient specular alone
+// the indirect lighting's (SPEEDO_GI=1): GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see GiData::debug)
+#define DEBUG_VIEW_GI_FIRST 16u
+#define DEBUG_VIEW_GI_IRRADIANCE 16u // its indirect diffuse alone, a white surface's (magenta where no clip covers it)
+#define DEBUG_VIEW_GI_VISIBILITY 17u // the share of the probes around a point that it sees (data)
+#define DEBUG_VIEW_GI_VOXEL_BEHIND 18u // the radiance of the voxel behind the point
+#define DEBUG_VIEW_GI_VOXEL_FRONT 19u // and in front of it
+#define DEBUG_VIEW_GI_VOXEL_ALBEDO 20u // the voxel's albedo (data)
+#define DEBUG_VIEW_GI_REFERENCE 21u // each probe's light from 512 rays straight to the environment (seconds a frame)
+#define DEBUG_VIEW_GI_LEVEL0 22u // the cascades traced at level 0
+#define DEBUG_VIEW_GI_CLIP 23u // which clip lights the point (red, green, blue, yellow: finest first), blended (data)
+#define DEBUG_VIEW_GI_GRID 24u // the indirect diffuse, with the voxels' (thin) and probes' (thick) cells of the clip drawn
+#define DEBUG_VIEW_COUNT 25u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -462,12 +494,16 @@ struct DrawIndexedIndirectCommand
 #define CULL_JOB_HYBRID_LATE 5u
 // what the occlusion culling decided in a frame, per draw and view (gCullStatistics[frame], a group of these per
 // CullJob::statistics: the main views', then the shadow views'): drawn before the pyramid (or in one phase), opaque and
-// blended draws drawn after it, and the draws in view it hid
+// blended draws drawn after it, and the draws in view it hid; and of every culling job (frustum only too), the draws
+// outside the view's frustum (counted by the job that decides last: once per draw and view) and the triangles of the
+// draws kept (times their instances)
 #define CULL_STATISTIC_EARLY 0u
 #define CULL_STATISTIC_LATE 1u
 #define CULL_STATISTIC_LATE_BLENDED 2u
 #define CULL_STATISTIC_HIDDEN 3u
-#define CULL_STATISTIC_COUNT 4u
+#define CULL_STATISTIC_FRUSTUM 4u
+#define CULL_STATISTIC_TRIANGLES 5u
+#define CULL_STATISTIC_COUNT 6u
 #define CULL_STATISTIC_MAIN 0u
 #define CULL_STATISTIC_SHADOW 1u
 #define CULL_STATISTIC_GROUP_COUNT 2u
@@ -593,9 +629,11 @@ struct GiData
 	alignas(4) UINT1(cascadeCount);
 	alignas(4) UINT1(enabled); // whether the shading takes its diffuse indirect light from the probes
 	alignas(4) UINT1(lightCount); // of gLights, which light the voxels
-	// SPEEDO_GI_DEBUG: 1 shades with the indirect diffuse light alone (a white surface's), 2 with the probes' visibility
-	// (the share of the 8 a point sees, see GiIrradiance), 3 with the radiance of the voxel behind the point (4: in front of
-	// it), 5 with its albedo (magenta where there is none, cyan outside the volume)
+	// the debug view (PushConstants::debugView from DEBUG_VIEW_GI_FIRST, + 1; SPEEDO_GI_DEBUG): 1 shades with the
+	// indirect diffuse light alone (a white surface's), 2 with the probes' visibility (the share of the 8 a point sees, see
+	// GiIrradiance), 3 with the radiance of the voxel behind the point (4: in front of it), 5 with its albedo (magenta
+	// where there is none, cyan outside the volume), 6 and 7 the references (see ComputeGiIrradiance and GiMarch), 8 the
+	// clip a point is lit by, 9 the indirect diffuse with the clip's voxel and probe cells drawn
 	alignas(4) UINT1(debug);
 	// where in gGiRadiance the voxels' direct radiance is kept (after the levels): each bounce adds to it
 	alignas(4) UINT1(directFirst);
@@ -653,6 +691,9 @@ struct PushConstants
 	// per dispatch: the indirect lighting's level or cascade, and its clip (see GiData)
 	alignas(4) UINT1(giStep);
 	alignas(4) UINT1(giClip);
+	// per frame: what the main pass's fragments show (DEBUG_VIEW_*: their light, or a debug view of the surface or the
+	// lighting), and so how ComputeMain maps it (see DebugViewIsData)
+	alignas(4) UINT1(debugView);
 };
 
 #ifdef __cplusplus

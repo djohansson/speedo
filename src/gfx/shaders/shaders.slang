@@ -10,6 +10,7 @@ __include types;
 
 #include "bindings.slang"
 #include "common.slang"
+#include "debug.slang"
 #include "packing.slang"
 #include "vertex.slang"
 #include "texturing.slang"

@@ -15,6 +15,7 @@
 #include <format>
 #include <string>
 #include <tuple>
+#include <vector>
 #include <numbers>
 
 // a menu item's shortcut label, by the platform's name for ImGuiMod_Ctrl (cmd on macOS, see PrepareDraw)
@@ -42,6 +43,60 @@ namespace ui
 	if (!kOpenMenus.empty() && kOpenMenus.find(std::format("/{}/", label)) != std::string::npos)
 		ImGui::OpenPopup(ImGui::GetID(label));
 	return ImGui::BeginMenu(label);
+}
+
+// View > Debug View's views (DEBUG_VIEW_*), by group: SPEEDO_DEBUG_VIEW takes their keys (or numbers)
+struct DebugView
+{
+	const char* key;
+	const char* name;
+	uint32_t view;
+	const char* description; // the tooltip, and the overlay's legend
+};
+enum class DebugViewGroup : uint8_t
+{
+	kSurface,
+	kLighting,
+	kIndirectLighting,
+};
+struct DebugViewEntry
+{
+	DebugViewGroup group;
+	DebugView view;
+};
+constexpr std::array kDebugViews{
+	DebugViewEntry{DebugViewGroup::kSurface, {"base-color", "Base Color", DEBUG_VIEW_BASE_COLOR, "The base color, textures and vertex colors applied."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"normal", "Normal", DEBUG_VIEW_NORMAL, "The shading normal, normal mapped, in world space (x red, y green, z blue)."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"geometry-normal", "Geometry Normal", DEBUG_VIEW_GEOMETRY_NORMAL, "The interpolated vertex normal, facing the viewer, in world space."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"roughness", "Roughness", DEBUG_VIEW_ROUGHNESS, "Perceptual roughness: black is a mirror, white fully rough."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"metallic", "Metallic", DEBUG_VIEW_METALLIC, "Metallic: white is metal."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"occlusion", "Occlusion", DEBUG_VIEW_OCCLUSION, "The material's ambient occlusion (its texture, by its strength)."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"material", "Material", DEBUG_VIEW_MATERIAL, "A color per material."}},
+	DebugViewEntry{DebugViewGroup::kSurface, {"texcoord", "Texcoord", DEBUG_VIEW_TEXCOORD, "Texcoord set 0 (u red, v green), repeated."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emissive", "Emissive", DEBUG_VIEW_EMISSIVE, "The light the surfaces give off."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The punctual lights' light alone (with their shadows)."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"indirect", "Ambient Light", DEBUG_VIEW_INDIRECT, "The ambient light alone, diffuse and specular: the indirect lighting's where it covers a point, else the environment's."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"shadows", "Shadows", DEBUG_VIEW_SHADOWS, "The share of the direct light that reaches a point unshadowed: white lit, black shadowed, dark blue where no light faces it."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The share of the probes around a point that it sees: dark where it sees few (inside walls, in corners)."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-behind", "Voxel Radiance (behind)", DEBUG_VIEW_GI_VOXEL_BEHIND, "The radiance of the voxel behind a point: what the cascades trace. Magenta where there is none, cyan outside the clip."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-front", "Voxel Radiance (in front)", DEBUG_VIEW_GI_VOXEL_FRONT, "The radiance of the voxel in front of a point. Magenta where there is none, cyan outside the clip."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-voxel-albedo", "Voxel Albedo", DEBUG_VIEW_GI_VOXEL_ALBEDO, "The albedo voxelized behind a point. Magenta where there is none, cyan outside the clip."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-clip", "Clips", DEBUG_VIEW_GI_CLIP, "Which clip lights a point, finest first: red, green, blue, yellow (blended where they meet). Dark outside them all."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-grid", "Voxel and Probe Grid", DEBUG_VIEW_GI_GRID, "The irradiance with the finest clip's voxels (thin lines, in its color) and cascade 0 probe cells (white) drawn over it."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment: what the cascades approximate. Seconds a frame."}},
+	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-level0", "Cascades at Level 0", DEBUG_VIEW_GI_LEVEL0, "The cascades traced through the finest voxels only: what the coarser levels lose."}},
+};
+
+[[nodiscard]] const DebugView* FindDebugView(uint32_t view)
+{
+	for (const auto& entry : kDebugViews)
+		if (entry.view.view == view)
+			return &entry.view;
+	return nullptr;
 }
 
 } // namespace ui
@@ -97,6 +152,36 @@ void WindowedApplication::PrepareDraw()
 			}
 			if (gShowTps)
 				Text("%.0f TPS (%.2f ms)", gTicksPerSecond, gTicksPerSecond > 0.0F ? 1000.0F / gTicksPerSecond : 0.0F);
+		}
+		End();
+	}
+
+	// the debug view shown (View > Debug View), in the bottom left corner (the Statistics window opens in the top left): its
+	// name and what its colors mean
+	if (const auto* debugView = ui::FindDebugView(App().GetScene().GetSettings().debugView.load(std::memory_order_relaxed)))
+	{
+		constexpr float kOverlayPadding = 10.0F;
+		constexpr float kOverlayBgAlpha = 0.35F;
+		constexpr float kOverlayWrapWidth = 360.0F;
+		const auto* viewport = GetMainViewport();
+		SetNextWindowPos(
+			ImVec2(viewport->WorkPos.x + kOverlayPadding, viewport->WorkPos.y + viewport->WorkSize.y - kOverlayPadding),
+			ImGuiCond_Always,
+			ImVec2(0.0F, 1.0F));
+		SetNextWindowBgAlpha(kOverlayBgAlpha);
+		if (Begin(
+				"Debug view",
+				nullptr,
+				ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
+					ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs))
+		{
+			Text("Debug view: %s", debugView->name);
+			PushTextWrapPos(kOverlayWrapWidth);
+			TextDisabled("%s", debugView->description);
+			PopTextWrapPos();
+			if (debugView->view >= DEBUG_VIEW_GI_FIRST && !App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
+				TextColored(ImVec4(1.0F, 0.6F, 0.2F, 1.0F), "Indirect lighting is off (View > Indirect Lighting)");
+			TextDisabled(SHORTCUT_LABEL("0") " to go back to the light, " SHORTCUT_LABEL("[") " and " SHORTCUT_LABEL("]") " to step");
 		}
 		End();
 	}
@@ -189,9 +274,9 @@ void WindowedApplication::PrepareDraw()
 			{
 				CloseOnEscape(gShowStatistics);
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
-				for (const auto& [name, count] : GetObjectCounts<kGraphicsApi>())
-					Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
-				Separator();
+				if (CollapsingHeader("Vulkan Objects"))
+					for (const auto& [name, count] : GetObjectCounts<kGraphicsApi>())
+						Text("%.*s: %u", static_cast<int>(name.size()), name.data(), count);
 #endif
 
 				// gpu submits per frame, averaged over half a second as the frame rate is (see Draw)
@@ -199,30 +284,168 @@ void WindowedApplication::PrepareDraw()
 				Text("Submit Batches: %.1f/frame", gSubmitBatchesPerFrame.load(std::memory_order_relaxed));
 
 				// the frame graph's passes, on the gpu (see GpuProfiler::Collect): only where the backend writes their timestamps
-				// (KosmicKrisp: at the beginning and end of its own command encoders)
-				Separator();
-				if (myScene)
-					for (const auto& [name, milliseconds] : myScene->GetRenderer().GetPassTimings())
-						Text("%s: %.3f ms", name.c_str(), milliseconds);
+				// (KosmicKrisp: at the beginning and end of its own command encoders). in two columns of passes, which keeps
+				// the window short enough for the sections below
+				if (myScene && CollapsingHeader("GPU Passes", ImGuiTreeNodeFlags_DefaultOpen) &&
+					BeginTable("GPU Passes", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV))
+				{
+					auto timings = myScene->GetRenderer().GetPassTimings();
+					size_t rowCount = (timings.size() + 1) / 2;
+					for (size_t rowIt = 0; rowIt < rowCount; rowIt++)
+					{
+						TableNextRow();
+						for (size_t index : {rowIt, rowIt + rowCount})
+						{
+							TableNextColumn();
+							if (index < timings.size())
+								TextUnformatted(timings[index].first.c_str());
+							TableNextColumn();
+							if (index < timings.size())
+								Text("%.3f ms", timings[index].second);
+						}
+					}
+					EndTable();
+				}
 
-				// what the occlusion culling decided in the last frame, per draw and main view
+				// what the frame draws and how the culling did (the cpu's plan for the last frame recorded; the gpu's decisions
+				// of the last frame it finished, a frame or two behind), the lights and the indirect lighting
 				if (myScene)
 				{
-					Separator();
 					const auto& renderer = myScene->GetRenderer();
-					auto statistics = renderer.GetCullStatistics();
-					auto mode = renderer.GetOcclusionModeName();
-					for (uint32_t groupIt = 0; groupIt < CULL_STATISTIC_GROUP_COUNT; groupIt++)
+					auto frame = renderer.GetFrameStatistics();
+					auto decisions = renderer.GetCullStatistics();
+					auto percent = [](uint64_t part, uint64_t whole)
+					{ return whole > 0 ? 100.0 * static_cast<double>(part) / static_cast<double>(whole) : 0.0; };
+					auto compact = [](uint64_t count)
 					{
-						const auto* group = &statistics[groupIt * CULL_STATISTIC_COUNT];
-						Text("%s (%.*s): %u early, %u late (%u blended), %u hidden",
-							groupIt == CULL_STATISTIC_MAIN ? "Occlusion" : "Shadow Occlusion",
-							groupIt == CULL_STATISTIC_MAIN ? static_cast<int>(mode.size()) : 9,
-							groupIt == CULL_STATISTIC_MAIN ? mode.data() : "two-phase",
-							group[CULL_STATISTIC_EARLY],
-							group[CULL_STATISTIC_LATE] + group[CULL_STATISTIC_LATE_BLENDED],
-							group[CULL_STATISTIC_LATE_BLENDED],
-							group[CULL_STATISTIC_HIDDEN]);
+						return count >= 10'000'000 ? std::format("{:.1f} M", static_cast<double>(count) / 1e6)
+							   : count >= 10'000	? std::format("{:.1f} k", static_cast<double>(count) / 1e3)
+													: std::format("{}", count);
+					};
+
+					if (CollapsingHeader("Draws", ImGuiTreeNodeFlags_DefaultOpen))
+					{
+						// per list, one view's worth (a draw is a chunk of a submesh, see mesh::Chunk)
+						if (BeginTable("Draw lists", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg))
+						{
+							TableSetupColumn("List");
+							TableSetupColumn("Draws");
+							TableSetupColumn("Triangles");
+							TableHeadersRow();
+							for (size_t listIt = 0; listIt < gfx::FrameStatistics::kListNames.size(); listIt++)
+							{
+								if (frame.listDraws[listIt] == 0)
+									continue;
+								TableNextRow();
+								TableNextColumn();
+								TextUnformatted(gfx::FrameStatistics::kListNames[listIt]);
+								TableNextColumn();
+								Text("%u", frame.listDraws[listIt]);
+								TableNextColumn();
+								TextUnformatted(compact(frame.listTriangles[listIt]).c_str());
+							}
+							EndTable();
+						}
+						Text("Views: %u main, %u shadow", frame.mainViewCount, frame.shadowViewCount);
+					}
+
+					if (CollapsingHeader("Culling", ImGuiTreeNodeFlags_DefaultOpen))
+					{
+						Text(
+							"%s, occlusion %.*s%s",
+							!frame.culling	   ? "Culling off"
+							: frame.gpuCulling ? "On the gpu"
+											   : "On the cpu (by the frustum: no gpu statistics)",
+							static_cast<int>(renderer.GetOcclusionModeName().size()),
+							renderer.GetOcclusionModeName().data(),
+							frame.occlusion ? "" : " (not this frame)");
+						// per group, the draw and view pairs tested, and what became of them: outside the frustum, hidden by
+						// the depth pyramid, drawn (before it, or after it: the late phase's), and the triangles drawn
+						if (frame.gpuCulling &&
+							BeginTable("Culling", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV))
+						{
+							TableSetupColumn("");
+							TableSetupColumn("Main views");
+							TableSetupColumn(frame.shadowOcclusion ? "Shadow views" : "Shadow views (no occlusion)");
+							TableHeadersRow();
+							auto row = [&](const char* label, auto&& cell)
+							{
+								TableNextRow();
+								TableNextColumn();
+								TextUnformatted(label);
+								for (uint32_t groupIt = 0; groupIt < CULL_STATISTIC_GROUP_COUNT; groupIt++)
+								{
+									TableNextColumn();
+									cell(groupIt, &decisions[groupIt * CULL_STATISTIC_COUNT]);
+								}
+							};
+							row("Tested", [&](uint32_t group, const uint32_t*) { Text("%s", compact(frame.testedDraws[group]).c_str()); });
+							row("Outside frustum", [&](uint32_t group, const uint32_t* d)
+								{ Text("%u (%.0f%%)", d[CULL_STATISTIC_FRUSTUM], percent(d[CULL_STATISTIC_FRUSTUM], frame.testedDraws[group])); });
+							row("Occluded", [&](uint32_t group, const uint32_t* d)
+								{ Text("%u (%.0f%%)", d[CULL_STATISTIC_HIDDEN], percent(d[CULL_STATISTIC_HIDDEN], frame.testedDraws[group])); });
+							row("Drawn early", [&](uint32_t, const uint32_t* d) { Text("%u", d[CULL_STATISTIC_EARLY]); });
+							row("Drawn late", [&](uint32_t, const uint32_t* d)
+								{ Text("%u (%u blended)", d[CULL_STATISTIC_LATE] + d[CULL_STATISTIC_LATE_BLENDED], d[CULL_STATISTIC_LATE_BLENDED]); });
+							row("Drawn", [&](uint32_t group, const uint32_t* d)
+								{
+									uint64_t drawn = uint64_t{d[CULL_STATISTIC_EARLY]} + d[CULL_STATISTIC_LATE] + d[CULL_STATISTIC_LATE_BLENDED];
+									Text("%s (%.0f%%)", compact(drawn).c_str(), percent(drawn, frame.testedDraws[group]));
+								});
+							row("Triangles drawn", [&](uint32_t group, const uint32_t* d)
+								{
+									Text(
+										"%s of %s (%.0f%%)",
+										compact(d[CULL_STATISTIC_TRIANGLES]).c_str(),
+										compact(frame.testedTriangles[group]).c_str(),
+										percent(d[CULL_STATISTIC_TRIANGLES], frame.testedTriangles[group]));
+								});
+							EndTable();
+						}
+						// drawing late is what the reprojection alone would have missed (hybrid), or what moved into view
+						// from behind something (two-phase): a lot of it means the early phase guesses badly
+						if (frame.occlusion)
+						{
+							const auto* main = &decisions[CULL_STATISTIC_MAIN * CULL_STATISTIC_COUNT];
+							uint64_t drawn = uint64_t{main[CULL_STATISTIC_EARLY]} + main[CULL_STATISTIC_LATE] + main[CULL_STATISTIC_LATE_BLENDED];
+							TextDisabled("Late share of the main draws: %.1f%% (opaque %u)", percent(main[CULL_STATISTIC_LATE], drawn), main[CULL_STATISTIC_LATE]);
+						}
+					}
+
+					if (CollapsingHeader("Lights", ImGuiTreeNodeFlags_DefaultOpen))
+					{
+						Text("Lights: %u, %u shadowed in %u shadow views", frame.lightCount, frame.shadowedLightCount, frame.shadowViewCount);
+						if (frame.clusteredLights)
+							Text(
+								"Clusters: %u light indices, at most %u lights in a cluster, %.1f on average where any",
+								frame.clusterLightIndexCount,
+								frame.clusterMaxLightCount,
+								static_cast<double>(frame.clusterMeanLightCount));
+						else
+							TextDisabled("Clusters: off (every pixel loops over every light)");
+					}
+
+					if (CollapsingHeader("Indirect Lighting", ImGuiTreeNodeFlags_DefaultOpen))
+					{
+						if (!frame.indirectLighting)
+							TextDisabled("Off (View > Indirect Lighting)");
+						else
+						{
+							Text("%u clips, %u bounces; voxelized this frame: %u", frame.giClipCount, frame.giBounceCount, frame.giClipsVoxelized);
+							for (uint32_t clipIt = 0; clipIt < frame.giClipCount; clipIt++)
+							{
+								auto voxels = frame.giVoxelCounts[clipIt];
+								Text(
+									"Clip %u: %ux%ux%u voxels of %.3g units (%s)",
+									clipIt,
+									voxels.x,
+									voxels.y,
+									voxels.z,
+									static_cast<double>(frame.giVoxelSize[clipIt]),
+									compact(uint64_t{voxels.x} * voxels.y * voxels.z).c_str());
+							}
+							Text("Moving: %u draws, %s triangles voxelized every frame", frame.giMovingDraws, compact(frame.giMovingTriangles).c_str());
+						}
 					}
 				}
 
@@ -529,6 +752,23 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
 		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
 			App().GetScene().GetSettings().clusteredLights.store(false, std::memory_order_relaxed);
+		// the indirect lighting (SPEEDO_GI=1) and the debug view (SPEEDO_DEBUG_VIEW: a key of ui::kDebugViews, or its
+		// number; SPEEDO_GI_DEBUG=<n> is the indirect lighting's n-th, as GiData::debug numbers them) to start with
+		if (const char* gi = std::getenv("SPEEDO_GI"); gi != nullptr && std::string_view(gi) == "1")
+			App().GetScene().GetSettings().indirectLighting.store(true, std::memory_order_relaxed);
+		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
+			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_COUNT)
+				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
+		if (const char* debugView = std::getenv("SPEEDO_DEBUG_VIEW"); debugView != nullptr && *debugView != '\0')
+		{
+			std::string_view name(debugView);
+			uint32_t view = static_cast<uint32_t>(std::strtoul(debugView, nullptr, 10));
+			for (const auto& entry : ui::kDebugViews)
+				if (name == entry.view.key)
+					view = entry.view.view;
+			if (view < DEBUG_VIEW_COUNT)
+				App().GetScene().GetSettings().debugView.store(view, std::memory_order_relaxed);
+		}
 		if (const char* merge = std::getenv("SPEEDO_MERGE_LIGHTS"); merge != nullptr && std::string_view(merge) == "0")
 			App().GetScene().GetSettings().mergeLights.store(false, std::memory_order_relaxed);
 		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
@@ -707,6 +947,28 @@ void WindowedApplication::PrepareDraw()
 		setSplitScreenGrid(2, 1);
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_4, ImGuiInputFlags_RouteGlobal))
 		setSplitScreenGrid(2, 2);
+	// the debug views: back to the light, or the one before or after in View > Debug View's order (the indirect
+	// lighting's only while it runs)
+	{
+		auto& settings = App().GetScene().GetSettings();
+		if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_0, ImGuiInputFlags_RouteGlobal))
+			settings.debugView.store(DEBUG_VIEW_NONE, std::memory_order_relaxed);
+		int step = Shortcut(ImGuiMod_Ctrl | ImGuiKey_RightBracket, ImGuiInputFlags_RouteGlobal) ? 1
+				   : Shortcut(ImGuiMod_Ctrl | ImGuiKey_LeftBracket, ImGuiInputFlags_RouteGlobal) ? -1
+																								  : 0;
+		if (step != 0)
+		{
+			bool gi = settings.indirectLighting.load(std::memory_order_relaxed);
+			std::vector<uint32_t> order{DEBUG_VIEW_NONE};
+			for (const auto& entry : ui::kDebugViews)
+				if (gi || entry.group != ui::DebugViewGroup::kIndirectLighting)
+					order.push_back(entry.view.view);
+			auto at = std::ranges::find(order, settings.debugView.load(std::memory_order_relaxed));
+			auto index = at == order.end() ? 0 : static_cast<int>(at - order.begin());
+			auto count = static_cast<int>(order.size());
+			settings.debugView.store(order[static_cast<size_t>((index + step + count) % count)], std::memory_order_relaxed);
+		}
+	}
 
 	// the menu bar, as macOS's: translucent over its backdrop, which the renderer blurs (a frosted panel, see
 	// ImGuiLayer::TakeFrame), a little taller, without a border, with a faint edge below. its window would draw its own
@@ -997,6 +1259,42 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Clustered Lights", nullptr, &clusteredLights))
 					App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
 				SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
+				bool indirectLighting = App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed);
+				if (MenuItem("Indirect Lighting", nullptr, &indirectLighting))
+					App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Diffuse ambient light from radiance cascades over a voxel clipmap (experimental, SPEEDO_GI=1 to start with it): "
+					"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
+				if (ui::BeginMenu("Debug View"))
+				{
+					// what the views show instead of their light (see DEBUG_VIEW_*): values (base color, normals, ...) as they
+					// are, light exposed and tonemapped
+					auto& settings = App().GetScene().GetSettings();
+					auto current = settings.debugView.load(std::memory_order_relaxed);
+					if (MenuItem("Lit", SHORTCUT_LABEL("0"), current == DEBUG_VIEW_NONE))
+						settings.debugView.store(DEBUG_VIEW_NONE, std::memory_order_relaxed);
+					SetItemTooltip("The scene's light, as rendered. " SHORTCUT_LABEL("[") " and " SHORTCUT_LABEL("]") " step through the debug views.");
+					auto group = [&](ui::DebugViewGroup kind, const char* label, bool enabled)
+					{
+						SeparatorText(label);
+						BeginDisabled(!enabled);
+						for (const auto& entry : ui::kDebugViews)
+						{
+							if (entry.group != kind)
+								continue;
+							if (MenuItem(entry.view.name, nullptr, current == entry.view.view))
+								settings.debugView.store(entry.view.view, std::memory_order_relaxed);
+							SetItemTooltip("%s", entry.view.description);
+						}
+						EndDisabled();
+					};
+					group(ui::DebugViewGroup::kSurface, "Surface", true);
+					group(ui::DebugViewGroup::kLighting, "Lighting", true);
+					group(ui::DebugViewGroup::kIndirectLighting, "Indirect Lighting", indirectLighting);
+					if (!indirectLighting)
+						TextDisabled("Turn on View > Indirect Lighting for these.");
+					ImGui::EndMenu();
+				}
 				if (ui::BeginMenu("Tonemapper"))
 				{
 					static constexpr std::array<std::pair<const char*, uint32_t>, 5> kTonemappers{{

@@ -387,7 +387,8 @@ struct Scene::Impl
 			.viewCount = myViews.GetGrid().x * myViews.GetGrid().y, // at most SHADER_TYPES_VIEW_COUNT (see Views::Upload)
 			.environmentBackdrop = mySettings.environmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
 			.tonemapper = mySettings.tonemapper.load(std::memory_order_relaxed),
-			.shadowView = SHADER_TYPES_NO_SHADOW};
+			.shadowView = SHADER_TYPES_NO_SHADOW,
+			.debugView = std::min(mySettings.debugView.load(std::memory_order_relaxed), DEBUG_VIEW_COUNT - 1)};
 	}
 
 
@@ -1984,6 +1985,7 @@ struct Scene::Impl
 				.viewProjections = std::move(viewProjections),
 				.culling = mySettings.culling.load(std::memory_order_relaxed),
 				.clusteredLights = mySettings.clusteredLights.load(std::memory_order_relaxed),
+				.indirectLighting = mySettings.indirectLighting.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

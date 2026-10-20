@@ -51,13 +51,23 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
 		emissive *= SampleView(material.emissiveView, v.texCoord01).rgb;
 
+	// the debug views (not the scatter pass's: what it draws is only seen lit)
+	uint debugView = scatterPass ? DEBUG_VIEW_NONE : DebugView();
+
 	// KHR_materials_unlit: the base color alone. lines and points without normals: plus emissive
 	if (unlit)
 	{
 		if (scatterPass)
 			return float4(0.0, 0.0, 0.0, float(materialId + 1u));
 		bool unlitMaterial = (material.flags & MATERIAL_FLAG_UNLIT) != 0u;
-		return float4(color.rgb + (unlitMaterial ? float3(0.0) : emissive), color.a);
+		float3 unlitEmissive = unlitMaterial ? float3(0.0) : emissive;
+		float3 value;
+		if (DebugSurfaceValue(debugView, color.rgb, normal, geometryNormal, 1.0, 0.0, 1.0, materialId, v.texCoord01.xy, value))
+			return float4(value, color.a);
+		// the views of the light: what it shows is unaffected by the lighting, as emission is
+		if (debugView != DEBUG_VIEW_NONE)
+			return float4(debugView == DEBUG_VIEW_EMISSIVE ? color.rgb + unlitEmissive : float3(0.0), color.a);
+		return float4(color.rgb + unlitEmissive, color.a);
 	}
 
 	float metallic = material.metallic;
@@ -256,6 +266,14 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 			surface.retroreflection *= SampleView(material.retroreflectionView, v.texCoord01).r;
 	}
 
+	// the debug views of the surface's values
+	{
+		float3 value;
+		if (DebugSurfaceValue(
+				debugView, color.rgb, normal, geometryNormal, surface.roughness, metallic, occlusion, materialId, v.texCoord01.xy, value))
+			return float4(value, color.a);
+	}
+
 	// KHR_materials_volume_scatter: what enters the surface comes out blurred (see SubsurfaceScattering), and of what
 	// comes through it from behind, only what isn't scattered
 	float3 scattered = 0.0;
@@ -284,7 +302,44 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	surface.diffuseTransmissionColor *= throughVolume * (1.0 - metallic) * (1.0 - transmission);
 
 	// the clearcoat covers the emission too
-	return float4(Shade(surface, view, v.position) + scattered + emissive * (1.0 - ClearcoatFresnel(surface, view)), color.a);
+	emissive *= 1.0 - ClearcoatFresnel(surface, view);
+	// the debug views of the light: what it gives off, or Shade's (its light, its debug views: see Shade), without the
+	// scattering's (which is lights' and ambient alike)
+	if (debugView == DEBUG_VIEW_EMISSIVE)
+		return float4(emissive, color.a);
+	if (debugView != DEBUG_VIEW_NONE)
+		return float4(Shade(surface, view, v.position), color.a);
+	return float4(Shade(surface, view, v.position) + scattered + emissive, color.a);
+}
+
+// the debug views of a surface's values (DEBUG_VIEW_BASE_COLOR to DEBUG_VIEW_TEXCOORD): true and the value if debugView
+// is one of them
+bool DebugSurfaceValue(
+	uint debugView,
+	float3 baseColor,
+	float3 normal,
+	float3 geometryNormal,
+	float roughness,
+	float metallic,
+	float occlusion,
+	uint materialId,
+	float2 texCoord,
+	out float3 value)
+{
+	value = 0.0;
+	switch (debugView)
+	{
+	case DEBUG_VIEW_BASE_COLOR: value = baseColor; return true;
+	// shown as they are: the srgb curve then makes 0.5 + 0.5 n come out as the usual normal colors
+	case DEBUG_VIEW_NORMAL: value = pow(normal * 0.5 + 0.5, 2.2); return true;
+	case DEBUG_VIEW_GEOMETRY_NORMAL: value = pow(geometryNormal * 0.5 + 0.5, 2.2); return true;
+	case DEBUG_VIEW_ROUGHNESS: value = pow(saturate(roughness), 2.2); return true;
+	case DEBUG_VIEW_METALLIC: value = pow(saturate(metallic), 2.2); return true;
+	case DEBUG_VIEW_OCCLUSION: value = pow(saturate(occlusion), 2.2); return true;
+	case DEBUG_VIEW_MATERIAL: value = DebugIndexColor(materialId); return true;
+	case DEBUG_VIEW_TEXCOORD: value = pow(float3(frac(texCoord), 0.0), 2.2); return true;
+	default: return false;
+	}
 }
 
 [shader("fragment")]

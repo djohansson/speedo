@@ -937,9 +937,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
 	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
-	// the indirect lighting, with SPEEDO_GI=1 (SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, 128 by default)
-	const char* gi = std::getenv("SPEEDO_GI");
-	myGiEnabled = gi != nullptr && std::string_view(gi) == "1";
+	// the indirect lighting, when FrameInputs::indirectLighting says (View > Indirect Lighting, SPEEDO_GI=1 to start with
+	// it): SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, 128 by default
 	if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
 		myGiResolution = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(resolution, nullptr, 10)), 8U, 512U);
 	// bounces of light (SPEEDO_GI_BOUNCES, 2 by default: the lights' and the sky's light off the scene, then that off it
@@ -981,13 +980,16 @@ Renderer::~Renderer()
 					   static_cast<double>(myCullStatisticFrameCount);
 			};
 			std::println(
-				"occlusion culling of the {} ({}), draws per frame: {:.1f} early, {:.1f} late ({:.1f} blended), {:.1f} hidden ({} frames)",
+				"culling of the {} (occlusion {}), draws per frame: {:.1f} early, {:.1f} late ({:.1f} blended), {:.1f} hidden, {:.1f} outside "
+				"the frustum, {:.0f} triangles drawn ({} frames)",
 				groupIt == CULL_STATISTIC_MAIN ? "main views" : "shadow views",
 				groupIt == CULL_STATISTIC_MAIN ? GetOcclusionModeName() : (myShadowOcclusionCulling ? "two-phase" : "off"),
 				mean(CULL_STATISTIC_EARLY),
 				mean(CULL_STATISTIC_LATE) + mean(CULL_STATISTIC_LATE_BLENDED),
 				mean(CULL_STATISTIC_LATE_BLENDED),
 				mean(CULL_STATISTIC_HIDDEN),
+				mean(CULL_STATISTIC_FRUSTUM),
+				mean(CULL_STATISTIC_TRIANGLES),
 				myCullStatisticFrameCount);
 		}
 	}
@@ -1011,6 +1013,11 @@ LightCapture Renderer::GetLightCapture() const
 std::array<uint32_t, CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT> Renderer::GetCullStatistics() const
 {
 	return myCullStatistics.Read().Get();
+}
+
+FrameStatistics Renderer::GetFrameStatistics() const
+{
+	return myFrameStatistics.Read().Get();
 }
 
 std::string_view Renderer::GetOcclusionModeName() const noexcept
@@ -1284,6 +1291,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	frame.pushConstants.oitNodeCapacity = myOitNodeCapacity;
 	myFrame.inputs = &frame;
 	myFrame.pipeline = &pipeline;
+	myFrameStatisticsThisFrame = FrameStatistics{
+		.culling = frame.culling,
+		.gpuCulling = myGpuCulling,
+		.mainViewCount = frame.grid.x * frame.grid.y,
+		.lightCount = static_cast<uint32_t>(frame.lights.size()),
+		.clusteredLights = frame.clusteredLights};
 
 	// the scene's draws: in two phases if it has transmissive materials
 	myTwoPhases = false;
@@ -1332,6 +1345,19 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			buffer.Flush(0, bytes.size());
 			buffer.Unmap();
 		};
+		auto& statistics = myFrameStatisticsThisFrame;
+		statistics.clusterLightIndexCount = static_cast<uint32_t>(plan.lights.size());
+		uint64_t reachedLights = 0;
+		uint32_t reachedClusters = 0;
+		for (size_t rangeIt = 1; rangeIt < plan.ranges.size(); rangeIt += 2)
+			if (uint32_t count = plan.ranges[rangeIt]; count > 0)
+			{
+				statistics.clusterMaxLightCount = std::max(statistics.clusterMaxLightCount, count);
+				reachedLights += count;
+				reachedClusters++;
+			}
+		statistics.clusterMeanLightCount =
+			reachedClusters > 0 ? static_cast<float>(static_cast<double>(reachedLights) / reachedClusters) : 0.0F;
 		write(myClusterViewBuffers[frame.frameIndex], std::as_bytes(std::span(plan.views)));
 		write(myClusterBuffers[frame.frameIndex], std::as_bytes(std::span(plan.ranges)));
 		write(myClusterLightBuffers[frame.frameIndex], std::as_bytes(std::span(plan.lights)));
@@ -1394,6 +1420,23 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			buffer.Unmap();
 		}
 	}
+	// what the frame draws, for the Statistics window
+	{
+		static_assert(FrameStatistics::kListNames.size() == std::to_underlying(ListId::kCount));
+		auto& statistics = myFrameStatisticsThisFrame;
+		for (uint8_t listIt = 0; listIt < std::to_underlying(ListId::kCount); listIt++)
+		{
+			const auto& list = InternalList(static_cast<ListId>(listIt));
+			statistics.listDraws[listIt] = static_cast<uint32_t>(list.items.size());
+			for (const auto& item : list.items)
+				statistics.listTriangles[listIt] += static_cast<uint64_t>(item.indexCount / 3) * item.instanceCount;
+		}
+		statistics.shadowViewCount = static_cast<uint32_t>(myShadowPlan.views.size());
+		statistics.shadowedLightCount = static_cast<uint32_t>(std::ranges::count_if(
+			std::span(myShadowPlan.lightShadows).first(std::min(frame.lights.size(), myShadowPlan.lightShadows.size())),
+			[](uint32_t first) { return first != SHADER_TYPES_NO_SHADOW; }));
+	}
+
 	// the ui's frosted panels: clipped to the frame, each a run of the UI Blur passes' threads, a pixel each (X's over
 	// the blur's reach above and below too)
 	{
@@ -1449,6 +1492,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myPreviousDepth, myPreviousDepthBuffer);
 	myGraph.Bind(myCullStatisticsId, myCullStatisticsBuffers[frame.frameIndex]);
 	InternalPlanGi(pipeline, frame);
+	myFrameStatisticsThisFrame.occlusion = myOcclusionThisFrame;
+	myFrameStatisticsThisFrame.shadowOcclusion = myShadowOcclusionThisFrame;
+	myFrameStatistics.Write().Get() = myFrameStatisticsThisFrame;
 	myGraph.Bind(myGiVoxels, myGiVoxelBuffer);
 	myGraph.Bind(myGiRadiance, myGiRadianceBuffer);
 	myGraph.Bind(myGiCascades, myGiCascadeBuffer);
@@ -1752,6 +1798,16 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 		auto listId = static_cast<ListId>(listIt);
 		if (!onGpu(listId))
 			continue;
+		// what the culling tests: each draw once per view it is drawn in
+		{
+			bool shadow = listId == ListId::kShadow;
+			auto viewCount = shadow ? myShadowPlan.views.size() : mainViewCount;
+			auto group = shadow ? CULL_STATISTIC_SHADOW : CULL_STATISTIC_MAIN;
+			const auto& list = InternalList(listId);
+			myFrameStatisticsThisFrame.testedDraws[group] += list.items.size() * viewCount;
+			for (const auto& item : list.items)
+				myFrameStatisticsThisFrame.testedTriangles[group] += static_cast<uint64_t>(item.indexCount / 3) * item.instanceCount * viewCount;
+		}
 		if (myOcclusionThisFrame && listId == ListId::kMain)
 		{
 			// the main pass's first draws: two-phase, those seen last frame, by their visibility (kept from frame to frame:
@@ -1932,7 +1988,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	using namespace renderer;
 
 	const auto& mainList = InternalList(ListId::kMain);
-	bool enabled = myGiEnabled && frame.model != nullptr && !mainList.Empty();
+	bool enabled = frame.indirectLighting && frame.model != nullptr && !mainList.Empty();
 	auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
 	{
 		if (bytes.empty())
@@ -2091,9 +2147,23 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	auto cells = gi::BinLights(clipData, frame.lights);
 	write(InternalReserve(myGiLightCells, pipeline, frame.frameIndex, cells.ranges.size() / 2), std::as_bytes(std::span(cells.ranges)));
 	write(InternalReserve(myGiLightIndices, pipeline, frame.frameIndex, std::max<size_t>(cells.indices.size(), 1)), std::as_bytes(std::span(cells.indices)));
-	uint32_t debug = 0;
-	if (const char* value = std::getenv("SPEEDO_GI_DEBUG"); value != nullptr)
-		debug = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
+	// the debug view, which its references (6 and 7) trace for (see GiData::debug)
+	uint32_t debugView = frame.pushConstants.debugView;
+	uint32_t debug = debugView >= DEBUG_VIEW_GI_FIRST && debugView < DEBUG_VIEW_COUNT ? debugView - DEBUG_VIEW_GI_FIRST + 1 : 0;
+	{
+		auto& statistics = myFrameStatisticsThisFrame;
+		statistics.indirectLighting = true;
+		statistics.giClipCount = static_cast<uint32_t>(clipData.size());
+		statistics.giBounceCount = myGiBounceCount;
+		for (size_t clipIt = 0; clipIt < clipData.size(); clipIt++)
+		{
+			statistics.giVoxelSize[clipIt] = clipData[clipIt].volumeOrigin[3];
+			statistics.giVoxelCounts[clipIt] = {clipData[clipIt].volumeSize[0], clipData[clipIt].volumeSize[1], clipData[clipIt].volumeSize[2]};
+			statistics.giClipsVoxelized += myGiClipJobs[clipIt].voxelize ? 1 : 0;
+		}
+		statistics.giMovingDraws = myGiMovingJobCount;
+		statistics.giMovingTriangles = myGiMovingTriangleCount;
+	}
 	for (auto& clip : clipData)
 	{
 		clip.enabled = 1;
