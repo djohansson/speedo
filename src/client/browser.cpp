@@ -201,6 +201,36 @@ struct State
 
 // whether a kind has a preview in the preview scene: a model, a zip archive's models, or a panorama (an image is drawn as
 // it is, see the image preview)
+// text that fits width: as it is, or its start and end with "..." between, as many characters of each as fit (utf-8:
+// cut at code points)
+[[nodiscard]] std::string ElideMiddle(const std::string& text, float width)
+{
+	if (ImGui::CalcTextSize(text.c_str()).x <= width)
+		return text;
+	std::vector<size_t> points; // where each code point starts
+	for (size_t byteIt = 0; byteIt < text.size(); byteIt++)
+		if ((static_cast<unsigned char>(text[byteIt]) & 0xC0U) != 0x80U)
+			points.push_back(byteIt);
+	points.push_back(text.size());
+	auto elided = [&text, &points](size_t keep)
+	{
+		size_t head = (keep + 1) / 2;
+		size_t tail = keep / 2;
+		return text.substr(0, points[head]) + "..." + text.substr(points[points.size() - 1 - tail]);
+	};
+	size_t low = 0;
+	size_t high = points.size() - 1;
+	while (low < high)
+	{
+		size_t middle = (low + high + 1) / 2;
+		if (ImGui::CalcTextSize(elided(middle).c_str()).x <= width)
+			low = middle;
+		else
+			high = middle - 1;
+	}
+	return elided(low);
+}
+
 [[nodiscard]] bool HasScenePreview(Kind kind)
 {
 	return kind == Kind::kModel || kind == Kind::kArchive || kind == Kind::kEnvironment;
@@ -638,12 +668,14 @@ void WindowedApplication::InternalDrawBrowser()
 								IM_COL32(255, 255, 255, 230),
 								label);
 						}
+						// a name too long for the tile keeps its start and end (the extension), "..." between
+						std::string name = ElideMiddle(entry.name, tile);
+						ImVec2 nameSize = CalcTextSize(name.c_str());
 						drawList->PushClipRect(ImVec2(corner.x, corner.y + tile), ImVec2(corner.x + tile, corner.y + tile + labelHeight), true);
-						ImVec2 nameSize = CalcTextSize(entry.name.c_str());
 						drawList->AddText(
 							ImVec2(corner.x + std::max(0.0F, (tile - nameSize.x) * 0.5F), corner.y + tile),
 							GetColorU32(ImGuiCol_Text),
-							entry.name.c_str());
+							name.c_str());
 						drawList->PopClipRect();
 						PopID();
 					}

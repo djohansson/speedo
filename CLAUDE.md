@@ -53,7 +53,8 @@ Notes for working in this codebase, distilled from real build failures.
   the model (`Views::Orbit`: around the bounds' center, at the camera's distance). The browser itself
   (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`; its path a button per folder, the
   ones that don't fit behind "...") lists a folder's subfolders and the
-  files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
+  files the client loads (models, zip archives, images, panoramas) as tiles (a long name keeps its start and end, "..."
+  between: `ElideMiddle`), with click, ctrl or cmd click and shift
   click selection, double click (or enter) to open or enter, and the arrow keys to step through them (scrolled into
   view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
   and checkboxes filter by kind (models, archives, images, panoramas): by default every model and zip archive below `resources/test-assets`
