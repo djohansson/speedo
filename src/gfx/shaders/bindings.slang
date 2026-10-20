@@ -155,3 +155,7 @@ StructuredBuffer<uint> gGiLightIndices[SHADER_TYPES_FRAME_COUNT];
 // GiData::cascadeProbeFirst)
 [[vk::binding(29, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiProbeMasks;
+// per voxel of each clip, the irradiance of the probes it sees (see ComputeGiResolve): two uint4 of halves, the spherical
+// harmonics per color times the weight of the probes seen, and that weight
+[[vk::binding(30, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint4> gGiResolved;

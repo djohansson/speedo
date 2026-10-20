@@ -555,12 +555,12 @@ void WindowedApplication::PrepareDraw()
 			gAutoTurn = glm::radians(std::strtof(turn, nullptr));
 		if (const char* walk = std::getenv("SPEEDO_CAMERA_WALK"); walk != nullptr && *walk != '\0')
 			gAutoWalk = std::strtof(walk, nullptr);
+		// either waits for the model's install, which frames the views (a big model's installs frames after its load is
+		// ready: Bistro's came after 30 frames of placements)
+		const char* model = std::getenv("SPEEDO_AUTOLOAD_MODEL");
+		gAutoCameraAfterModel = model != nullptr && *model != '\0';
 		if (const char* camera = std::getenv("SPEEDO_CAMERA"); camera != nullptr && std::string_view(camera) == "frame")
-		{
 			gAutoFrame = true;
-			const char* model = std::getenv("SPEEDO_AUTOLOAD_MODEL");
-			gAutoCameraAfterModel = model != nullptr && *model != '\0';
-		}
 		else if (camera != nullptr && *camera != '\0')
 		{
 			std::array<float, 5> values{};

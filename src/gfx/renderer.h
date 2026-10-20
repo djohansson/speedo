@@ -291,19 +291,26 @@ private:
 	FrameGraph::PassId myCullShadowsLatePass;
 	FrameGraph::PassId myShadowsLatePass;
 
-	// the indirect lighting (SPEEDO_GI=1; SPEEDO_GI_RESOLUTION voxels along the volume's longest axis): its layout, what it
-	// was voxelized for (the model, its bounds and its draws), the persistent buffers (voxels, radiance, cascades,
-	// irradiance: see GiData), per frame index its parameters (host visible), and what the voxelizer and the voxels'
-	// lighting read (growing)
+	// the indirect lighting (SPEEDO_GI=1; SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, SPEEDO_GI_CLIP_COUNT
+	// clips): its clipmap, what it was made for (the model, its bounds and its draws), the persistent buffers (voxels,
+	// radiance, cascades, irradiance: see GiData), per frame index its parameters (host visible), and what the voxelizer
+	// and the voxels' lighting read (growing). per clip, whether it is voxelized this frame (it moved, or the scene
+	// changed) and its static jobs then (the first in gGiJobs, their count and triangles)
 	bool myGiEnabled = false;
 	uint32_t myGiResolution = 128;
-	gi::Layout myGiLayout;
+	uint32_t myGiClipCount = 3;
+	gi::Clipmap myGiClipmap;
 	const Model* myGiModel = nullptr;
 	Bounds3f myGiBounds;
 	size_t myGiItemCount = 0;
-	bool myGiVoxelize = false;
-	uint32_t myGiJobCount = 0;
-	uint32_t myGiTriangleCount = 0;
+	struct GiClipJobs
+	{
+		bool voxelize = false;
+		uint32_t base = 0;
+		uint32_t count = 0;
+		uint32_t triangleCount = 0;
+	};
+	std::array<GiClipJobs, SHADER_TYPES_GI_CLIP_COUNT> myGiClipJobs{};
 	// what moves (skinned, morphed, animated), voxelized each frame over the static voxels (kept, see GI Keep): its jobs
 	// after the static ones (from myGiMovingJobBase)
 	uint32_t myGiMovingJobBase = 0;
@@ -320,6 +327,8 @@ private:
 	Buffer myGiIrradianceBuffer;
 	Buffer myGiProbeMaskBuffer;
 	FrameGraph::BufferId myGiProbeMasks;
+	Buffer myGiResolvedBuffer;
+	FrameGraph::BufferId myGiResolved;
 	std::vector<Buffer> myGiDataBuffers;
 	GrowingBuffers myGiJobs;
 	GrowingBuffers myGiLightCells;

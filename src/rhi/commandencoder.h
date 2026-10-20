@@ -57,8 +57,8 @@ public:
 	// copies a color image's first mip level, in kTransferSource, into buffer (with BufferUsage::kTransferDestination),
 	// tightly packed rows from its start. outside of render passes
 	void CopyImageToBuffer(const Image<G>& image, const Buffer<G>& buffer) const;
-	// size bytes of source to destination, from the start of each
-	void CopyBuffer(const Buffer<G>& source, const Buffer<G>& destination, uint64_t size) const;
+	// size bytes of source to destination, from offset in each (the start by default)
+	void CopyBuffer(const Buffer<G>& source, const Buffer<G>& destination, uint64_t size, uint64_t offset = 0) const;
 	// an image this has only the handle of (e.g. a swapchain's), of extent, in kTransferSource
 	void CopyImageToBuffer(ImageHandle<G> image, Extent2d extent, const Buffer<G>& buffer) const;
 	// makes the memory accesses (srcAccess) of the commands before, in srcStages, visible to the accesses (dstAccess) of

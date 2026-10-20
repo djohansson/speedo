@@ -1799,6 +1799,7 @@ struct Scene::Impl
 						{"ComputeGiVisibility", SLANG_STAGE_COMPUTE},
 						{"ComputeGiBounce", SLANG_STAGE_COMPUTE},
 						{"ComputeGiProbeVisibility", SLANG_STAGE_COMPUTE},
+						{"ComputeGiResolve", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

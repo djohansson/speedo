@@ -551,6 +551,10 @@ struct CullView
 // the lights that light the voxels, binned into a grid of cells over the volume (gGiLightCells: a first index and count
 // into gGiLightIndices per cell)
 #define SHADER_TYPES_GI_LIGHT_GRID 16u
+// the clipmap: volumes of the same voxel counts, each of voxels twice the size of the one before, the finest around the
+// camera and the last over the scene (gGi[frame][clip]); a clip's rays and shadow rays that leave it go on through the
+// coarser ones, and the shading takes the finest that holds a point
+#define SHADER_TYPES_GI_CLIP_COUNT 4u
 
 struct GiVoxel
 {
@@ -586,9 +590,15 @@ struct GiData
 	alignas(4) UINT1(debug);
 	// where in gGiRadiance the voxels' direct radiance is kept (after the levels): each bounce adds to it
 	alignas(4) UINT1(directFirst);
+	// the clip's first voxel in gGiVoxels, first probe of cascade 0 in gGiIrradiance (3 float4 each), and first cell in
+	// gGiLightCells; the clipmap's clip count, and this clip's index (the coarser ones follow it in gGi)
+	alignas(4) UINT1(voxelFirst);
+	alignas(4) UINT1(probeFirst);
+	alignas(4) UINT1(lightCellFirst);
+	alignas(4) UINT1(clipCount);
+	alignas(4) UINT1(clip);
 	alignas(4) UINT1(padding0);
 	alignas(4) UINT1(padding1);
-	alignas(4) UINT1(padding2);
 };
 
 struct PushConstants
@@ -631,8 +641,9 @@ struct PushConstants
 	alignas(4) UINT1(previousWidth);
 	alignas(4) UINT1(previousHeight);
 	alignas(4) UINT1(mainViewCount);
-	// per dispatch: the indirect lighting's level or cascade (see GiData)
+	// per dispatch: the indirect lighting's level or cascade, and its clip (see GiData)
 	alignas(4) UINT1(giStep);
+	alignas(4) UINT1(giClip);
 };
 
 #ifdef __cplusplus

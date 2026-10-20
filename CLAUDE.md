@@ -803,8 +803,16 @@ may (its timings are dropped). `SHADER_TYPES_LIGHT_COUNT` (gLights) is 4096.
 (`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), every frame and noise free: a fixed set of rays, merged, no
 history, no denoiser (temporal accumulation is ruled out by design: its ghosting and lag). What it does, per frame:
 
-- **The volume**: a grid of voxels over the scene's bounds (`gi::MakeLayout`: `SPEEDO_GI_RESOLUTION`, 128 by default,
-  along the longest axis, a voxel of margin), made again when the model, its bounds or its draws change. Voxelizing
+- **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
+  most 4) of the same voxel counts, finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by
+  default, voxels along its longest axis, a voxel of margin), each before it of voxels half the size of the next,
+  centered on the camera on a grid of 4 of its cascade 0 probes and kept inside the last; each has its own voxels,
+  levels, cascades, probes and masks, at its offsets in the shared buffers (`GiData::voxelFirst`, `probeFirst`,
+  `lightCellFirst`, and the levels' and cascades' firsts; `gGi[frame][clip]`), and the kernels take theirs from
+  `PushConstants::giClip`. A clip's rays (`GiMarch`) and shadow rays (`GiVisibility`) that leave it go on through the
+  coarser ones (a box is never entered again), at the level of the same voxel size, and every clip's cascades reach
+  across the last. All are made again when the model, its bounds or its draws change, and a clip that moves is
+  voxelized again (`GiClipJobs::voxelize`: its jobs are the static draws whose bounds reach it). Voxelizing
   (the GI Clear, GI Voxelize and GI Visibility passes, only then): a thread per triangle of the main list's static draws
   (`gGiJobs`: per draw its first triangle of all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index
   buffers are storage buffers too) samples its surface at under half a voxel apart into the voxel half a voxel behind
@@ -814,7 +822,7 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   point out of the box, whose walls are seen from inside). Then, per voxel, which of the 8 cascade 0 probes around it
   are visible from its center (a march through the voxels, into `GiVoxel::emissionB`'s upper bits): the probes are
   centered on voxel boundaries, so every point of a voxel interpolates the same 8. Those voxels are kept (GI Keep, into
-  a buffer of their own), and every frame with something that moves (skinned, morphed, or following an animated node:
+  a buffer of their own: the clips voxelized, the others' voxels holding what moved last frame), and every frame with something that moves (skinned, morphed, or following an animated node:
   not cullable) they are copied back (GI Restore) and what moves is voxelized over them (GI Voxelize Moving: its jobs
   after the static ones', by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned,
   then by the instance, as `VertexMain` does): it occludes, is lit and bounces light, in the frame; the masks stay the
@@ -832,16 +840,23 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   bounce (`SPEEDO_GI_BOUNCES`, 2 by default) lights the voxels again with their direct radiance plus their albedo times
   the probes' irradiance at them (the sky's and the lights' light off the scene), and traces again: in the frame,
   nothing kept from the last.
-- **Shading**: `Shade` takes `GiIrradiance(position, normal)` in place of the environment's irradiance where the volume
-  covers the point (the environment's elsewhere): the 8 nearest cascade 0 probes, trilinear, from the point offset 1.5
-  voxels along its normal (off its own surface's voxels, a staircase where it is diagonal to them), each weighed by
-  whether it is visible (trilinear between the 8 voxels around the point, each voxel's mask saying for its own 8
-  probes: one voxel's mask switches at its edges, which showed as blocks where voxels are large) and how much it faces
-  the surface. The specular still reflects the
-  environment unoccluded (glossy indirect light is the next step). `SPEEDO_GI_DEBUG`: 1 the indirect diffuse alone, 2 the
-  probes' visibility, 3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each
-  probe's light from 512 rays through level 0 straight to the environment (seconds a frame), and 7 the cascades traced
-  at level 0, to tell what the cascades and what the levels lose.
+- **Shading**: after each bounce's probes, GI Resolve (`ComputeGiResolve`) gives each voxel of each clip the spherical
+  harmonics of the 8 probes around its center that it sees (its mask), trilinear by its center, premultiplied by the
+  weight of those it sees, and that weight (`gGiResolved`: two `uint4` of halves per voxel; a voxel that sees none, in
+  a corner or inside a wall, takes all 8 at a thousandth of the weight). `Shade` takes `GiIrradiance(position, normal)`
+  in place of the environment's irradiance where a clip covers the point (the environment's elsewhere): the finest clip
+  holding it more than a cascade 0 probe spacing from its edges (where its probes are clamped), blended into the next
+  over 8 voxels; there the 8 voxels around the point offset 1.5 voxels along its normal (off its own surface's voxels),
+  trilinear, their premultiplied harmonics over their weights (`GiIrradianceResolved`), as the bounces' lookups are.
+  So a point sees each probe as much as the voxels around it do (one voxel's mask switched at its edges, which showed as
+  blocks where voxels are large), at 8 voxels' reads: the per pixel lookups before, the masks of the 8 voxels around for
+  each of 8 probes and how much each probe faced the surface, cost Bistro's main pass 3.8 ms up close in its street
+  (3.4 without, 7.2 with them, 5.3 resolved; 9.5 and 6.5 with three clips, whose blending is 0.9 of it). The specular
+  still reflects the environment unoccluded (glossy indirect light is the next step). `SPEEDO_GI_DEBUG`: 1 the indirect
+  diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
+  voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
+  straight to the environment (seconds a frame), and 7 the cascades traced at level 0, to tell what the cascades and what
+  the levels lose.
 - **What the merge sees**: a cascade's merge only takes the probes above it that it can see (`gGiProbeMasks`, per
   probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'
   shells, sees none of the light outside, and pulled the streets dark). The projection to spherical harmonics weighs
@@ -869,8 +884,13 @@ colour bleeding, the lamp lighting the ceiling around it, and contact darkening 
 by the sky through the roof alone, so they come out dark and blue, which the unoccluded ambient light hid. Found on the
 way: voxelizing one face by its winding left whole triangles' voxels on the wrong side, and a surface on a voxel
 boundary rounds to either side (so the offset); per pixel visibility marches cost 1 ms on CornellBox before the masks.
-What's left (TODO.md): a camera clipmap instead of one volume over the scene, what moves, glossy reflections, hardware
-ray queries, and a path traced reference to compare against.
+The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in its street (`564,170,-2436,0,30`) 13.0 ms
+with one clip, 18.1 with three (9.4 without the indirect lighting); against its reference, Sponza's inside (`0,2,0,0,90`)
+63% of the reference's light with one clip, 79% with three, its outer wall 86 and 87%. With one clip Bistro's 1.2 m voxels
+leak the sky into its narrow streets, which with three come out dark between their walls (the reference is too slow to
+run there). A clip that moves is voxelized again in the frame: all three every frame cost 18 ms more. What's left
+(TODO.md): the voxelization of what scrolls in only, the shading's lookups (3D textures, filtered), glossy reflections,
+hardware ray queries, and a path traced reference to compare against.
 
 ## Descriptor sets: redundant updates consume the pool
 

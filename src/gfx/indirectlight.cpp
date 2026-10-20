@@ -12,45 +12,47 @@
 namespace gfx::gi
 {
 
-Layout MakeLayout(const Bounds3f& bounds, uint32_t resolution, uint32_t probeSpacing, uint32_t octahedralSide)
+Layout MakeLayout(
+	const glm::vec3& origin,
+	float voxelSize,
+	const glm::uvec3& size,
+	uint32_t probeSpacing,
+	uint32_t octahedralSide,
+	float reach,
+	const Layout& first)
 {
-	ENSURE(resolution > 0 && probeSpacing > 0 && octahedralSide > 0);
+	ENSURE(probeSpacing > 0 && octahedralSide > 0 && voxelSize > 0.0F);
 
 	Layout layout;
 	auto& data = layout.data;
-	// a margin of a voxel around the scene, so that its surfaces aren't on the volume's edge
-	glm::vec3 min = bounds.GetMin();
-	glm::vec3 max = bounds.GetMax();
-	auto extent = glm::max(max - min, glm::vec3(1e-3F));
-	float voxelSize = std::max({extent.x, extent.y, extent.z}) / static_cast<float>(std::max(resolution, 3U) - 2);
-	min -= glm::vec3(voxelSize);
-	glm::uvec3 size = glm::max(glm::uvec3(glm::ceil((extent + glm::vec3(2.0F * voxelSize)) / voxelSize)), glm::uvec3(1));
-	data.volumeOrigin[0] = min.x;
-	data.volumeOrigin[1] = min.y;
-	data.volumeOrigin[2] = min.z;
+	data.volumeOrigin[0] = origin.x;
+	data.volumeOrigin[1] = origin.y;
+	data.volumeOrigin[2] = origin.z;
 	data.volumeOrigin[3] = voxelSize;
 	data.volumeSize[0] = size.x;
 	data.volumeSize[1] = size.y;
 	data.volumeSize[2] = size.z;
 	layout.voxelCount = size.x * size.y * size.z;
+	data.voxelFirst = first.voxelCount;
 
 	// the levels, down to a voxel or SHADER_TYPES_GI_LEVEL_COUNT
 	uint32_t levelCount = std::min<uint32_t>(std::bit_width(std::max({size.x, size.y, size.z})), SHADER_TYPES_GI_LEVEL_COUNT);
 	data.volumeSize[3] = levelCount;
 	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
 	{
-		data.levelFirst[levelIt / 4][levelIt % 4] = layout.radianceCount;
+		data.levelFirst[levelIt / 4][levelIt % 4] = first.radianceCount + layout.radianceCount;
 		auto levelSize = glm::max(size >> levelIt, glm::uvec3(1));
 		layout.radianceCount += levelSize.x * levelSize.y * levelSize.z;
 	}
+	data.directFirst = first.radianceCount + layout.radianceCount;
+	layout.radianceCount += layout.voxelCount;
 
 	// the cascades: each with half the probes per axis, twice the directions per axis and an interval four times as long,
-	// until one reaches across the volume. cascade 0's interval ends at twice its probes' spacing: ending at the spacing,
+	// until one reaches reach. cascade 0's interval ends at twice its probes' spacing: ending at the spacing,
 	// the probes above (twice as far apart) are as far from a probe as its rays reach, and the merge's parallax lost a
 	// third of the light on Sponza's outer wall against the reference (67% of it, 86% now; the bilinear fix, a ray from
 	// each probe to each of the 8 above, lost more: its bridging rays leave the direction by up to 60 degrees there)
 	constexpr float kIntervalScale = 2.0F;
-	float diagonal = glm::length(glm::vec3(size)) * voxelSize;
 	float spacing0 = static_cast<float>(probeSpacing) * voxelSize;
 	glm::uvec3 probes0 = (size + glm::uvec3(probeSpacing - 1)) / probeSpacing;
 	uint32_t cascadeCount = 0;
@@ -69,17 +71,67 @@ Layout MakeLayout(const Bounds3f& bounds, uint32_t resolution, uint32_t probeSpa
 		data.cascadeInterval[cascadeIt][1] = end;
 		data.cascadeInterval[cascadeIt][2] = 0.0F;
 		data.cascadeInterval[cascadeIt][3] = spacing0 * static_cast<float>(1U << cascadeIt);
-		data.cascadeFirst[cascadeIt / 4][cascadeIt % 4] = layout.cascadeTexelCount;
-		data.cascadeProbeFirst[cascadeIt / 4][cascadeIt % 4] = layout.probeMaskCount;
+		data.cascadeFirst[cascadeIt / 4][cascadeIt % 4] = first.cascadeTexelCount + layout.cascadeTexelCount;
+		data.cascadeProbeFirst[cascadeIt / 4][cascadeIt % 4] = first.probeMaskCount + layout.probeMaskCount;
 		layout.cascadeTexelCount += probes.x * probes.y * probes.z * side * side;
 		layout.probeMaskCount += probes.x * probes.y * probes.z;
 		cascadeCount++;
-		if (end >= diagonal)
+		if (end >= reach)
 			break;
 	}
 	data.cascadeCount = cascadeCount;
 	layout.probeCount = probes0.x * probes0.y * probes0.z;
+	data.probeFirst = first.probeCount;
 	return layout;
+}
+
+Clipmap MakeClipmap(
+	const Bounds3f& bounds,
+	const glm::vec3& eye,
+	uint32_t resolution,
+	uint32_t clipCount,
+	uint32_t probeSpacing,
+	uint32_t octahedralSide)
+{
+	ENSURE(resolution > 0 && clipCount > 0 && clipCount <= SHADER_TYPES_GI_CLIP_COUNT);
+
+	// the last clip: over the scene, with a margin of a voxel around it, so that its surfaces aren't on the volume's edge
+	glm::vec3 min = bounds.GetMin();
+	glm::vec3 max = bounds.GetMax();
+	auto extent = glm::max(max - min, glm::vec3(1e-3F));
+	float voxelSize = std::max({extent.x, extent.y, extent.z}) / static_cast<float>(std::max(resolution, 3U) - 2);
+	min -= glm::vec3(voxelSize);
+	glm::uvec3 size = glm::max(glm::uvec3(glm::ceil((extent + glm::vec3(2.0F * voxelSize)) / voxelSize)), glm::uvec3(1));
+	glm::vec3 last = glm::vec3(size) * voxelSize;
+	float reach = glm::length(last);
+
+	// the finer ones around the eye, on a grid of 4 of their cascade 0 probes (what moves when they do: their cascades
+	// above that are a frame's probes of another place, and their voxels are made again), inside the last
+	Clipmap clipmap;
+	Layout first;
+	for (uint32_t clipIt = 0; clipIt < clipCount; clipIt++)
+	{
+		float clipVoxelSize = voxelSize / static_cast<float>(1U << (clipCount - 1 - clipIt));
+		glm::vec3 origin = min;
+		if (clipIt + 1 < clipCount)
+		{
+			glm::vec3 clipExtent = glm::vec3(size) * clipVoxelSize;
+			float snap = clipVoxelSize * static_cast<float>(probeSpacing * 4);
+			origin = min + glm::round((eye - clipExtent * 0.5F - min) / snap) * snap;
+			origin = glm::clamp(origin, min, min + last - clipExtent);
+		}
+		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, octahedralSide, reach, first);
+		layout.data.clip = clipIt;
+		layout.data.clipCount = clipCount;
+		first.voxelCount += layout.voxelCount;
+		first.radianceCount += layout.radianceCount;
+		first.cascadeTexelCount += layout.cascadeTexelCount;
+		first.probeCount += layout.probeCount;
+		first.probeMaskCount += layout.probeMaskCount;
+		clipmap.clips.push_back(layout);
+	}
+	clipmap.total = first;
+	return clipmap;
 }
 
 LightCells BinLights(const GiData& data, std::span<const LightData> lights)
@@ -122,6 +174,24 @@ LightCells BinLights(const GiData& data, std::span<const LightData> lights)
 		cells.ranges.push_back(static_cast<uint32_t>(cells.indices.size()));
 		cells.ranges.push_back(static_cast<uint32_t>(indices.size()));
 		cells.indices.insert(cells.indices.end(), indices.begin(), indices.end());
+	}
+	return cells;
+}
+
+LightCells BinLights(std::span<GiData> clips, std::span<const LightData> lights)
+{
+	LightCells cells;
+	for (auto& clip : clips)
+	{
+		auto clipCells = BinLights(clip, lights);
+		clip.lightCellFirst = static_cast<uint32_t>(cells.ranges.size() / 2);
+		auto indexFirst = static_cast<uint32_t>(cells.indices.size());
+		for (size_t rangeIt = 0; rangeIt < clipCells.ranges.size(); rangeIt += 2)
+		{
+			cells.ranges.push_back(clipCells.ranges[rangeIt] + indexFirst);
+			cells.ranges.push_back(clipCells.ranges[rangeIt + 1]);
+		}
+		cells.indices.insert(cells.indices.end(), clipCells.indices.begin(), clipCells.indices.end());
 	}
 	return cells;
 }
