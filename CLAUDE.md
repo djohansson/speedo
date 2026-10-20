@@ -813,7 +813,12 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   triangle's winding, its vertex normals and the side it is drawn from needn't agree (CornellBox's generated normals
   point out of the box, whose walls are seen from inside). Then, per voxel, which of the 8 cascade 0 probes around it
   are visible from its center (a march through the voxels, into `GiVoxel::emissionB`'s upper bits): the probes are
-  centered on voxel boundaries, so every point of a voxel interpolates the same 8. What moves isn't voxelized yet.
+  centered on voxel boundaries, so every point of a voxel interpolates the same 8. Those voxels are kept (GI Keep, into
+  a buffer of their own), and every frame with something that moves (skinned, morphed, or following an animated node:
+  not cullable) they are copied back (GI Restore) and what moves is voxelized over them (GI Voxelize Moving: its jobs
+  after the static ones', by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned,
+  then by the instance, as `VertexMain` does): it occludes, is lit and bounces light, in the frame; the masks stay the
+  static voxels'.
 - **Lighting** (the GI pass, per bounce): each voxel's emission plus its albedo over pi times the punctual lights of
   its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only (a
   wall's voxel isn't lit by the sun outside it), each shadowed by a march through the voxels (the shadow atlas covers

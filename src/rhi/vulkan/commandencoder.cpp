@@ -125,6 +125,13 @@ void CommandEncoder<kVk>::CopyImageToBuffer(ImageHandle<kVk> image, Extent2d ext
 }
 
 template <>
+void CommandEncoder<kVk>::CopyBuffer(const Buffer<kVk>& source, const Buffer<kVk>& destination, uint64_t size) const
+{
+	VkBufferCopy region{.srcOffset = 0, .dstOffset = 0, .size = size};
+	vkCmdCopyBuffer(myCmd, source, destination, 1, &region);
+}
+
+template <>
 void CommandEncoder<kVk>::CopyImageToBuffer(const Image<kVk>& image, const Buffer<kVk>& buffer) const
 {
 	CopyImageToBuffer(static_cast<ImageHandle<kVk>>(image), image.GetDesc().mipLevels.front().extent, buffer);

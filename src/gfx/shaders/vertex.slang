@@ -33,6 +33,23 @@ float4x4 SkinMatrix(uint vertexId, uint frameIndex, uint jointBase)
 	return result;
 }
 
+// a vertex's world position in a draw, at one of its instances: morphed, skinned, then by the instance's transform (as
+// VertexMain places it; the indirect lighting's voxelizer places what moves the same way)
+float3 WorldPosition(DrawRecord draw, uint vertexId, uint instance, uint frameIndex)
+{
+	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[vertexId];
+	float3 position = v.position;
+	if (draw.morphTargetCount > 0)
+	{
+		float3 normal = v.normal;
+		float3 tangent = v.tangent.xyz;
+		Morph(draw, vertexId, frameIndex, position, normal, tangent);
+	}
+	if (draw.jointBase != SHADER_TYPES_NOT_SKINNED)
+		position = mul(SkinMatrix(vertexId, frameIndex, draw.jointBase), float4(position, 1.0)).xyz;
+	return mul(gModelInstances[frameIndex][draw.modelInstanceId + instance].modelTransform, float4(position, 1.0)).xyz;
+}
+
 struct InputStream : IInputStream
 {
 	uint vertexId : SV_VertexID;
@@ -73,20 +90,8 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 
 	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
 
-	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-	ModelInstance i = gModelInstances[frameIndex][draw.modelInstanceId + input.instanceId];
+	float3 worldPosition = WorldPosition(draw, input.vertexId, input.instanceId, frameIndex);
 
-	float3 position = v.position;
-	if (draw.morphTargetCount > 0)
-	{
-		float3 normal = v.normal;
-		float3 tangent = v.tangent.xyz;
-		Morph(draw, input.vertexId, frameIndex, position, normal, tangent);
-	}
-	if (draw.jointBase != SHADER_TYPES_NOT_SKINNED)
-		position = mul(SkinMatrix(input.vertexId, frameIndex, draw.jointBase), float4(position, 1.0)).xyz;
-	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
-	
 	output.hPos = mul(view.viewProjection, float4(worldPosition, 1.0));
 	
 	return output;

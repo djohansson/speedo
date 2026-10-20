@@ -158,7 +158,8 @@ private:
 	void InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame);
 	// a persistent buffer of count elements of size bound as binding (all of the frame indices' slots if perFrame), the
 	// one it replaces kept until no frame in flight can use it
-	void InternalReplaceBuffer(Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size);
+	void InternalReplaceBuffer(
+		Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size, rhi::BufferUsage usage = rhi::BufferUsage::kStorage);
 
 	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false);
 
@@ -303,6 +304,16 @@ private:
 	bool myGiVoxelize = false;
 	uint32_t myGiJobCount = 0;
 	uint32_t myGiTriangleCount = 0;
+	// what moves (skinned, morphed, animated), voxelized each frame over the static voxels (kept, see GI Keep): its jobs
+	// after the static ones (from myGiMovingJobBase)
+	uint32_t myGiMovingJobBase = 0;
+	uint32_t myGiMovingJobCount = 0;
+	uint32_t myGiMovingTriangleCount = 0;
+	Buffer myGiStaticVoxelBuffer;
+	FrameGraph::BufferId myGiStaticVoxels;
+	FrameGraph::PassId myGiKeepPass;
+	FrameGraph::PassId myGiRestorePass;
+	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;
 	Buffer myGiRadianceBuffer;
 	Buffer myGiCascadeBuffer;

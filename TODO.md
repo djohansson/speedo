@@ -1,7 +1,7 @@
 # TODO
 * plan (in this order): culling follow-ups, measured as before (the frame's gpu time, the `Frame` scope, and the cull statistics; SPEEDO_CAMERA, SPEEDO_CAMERA_TURN and SPEEDO_CAMERA_WALK for repeatable views)
-	1. per instance culling: one draw's instances share its bounds now, so an instanced submesh is culled whole (bounds per instance, and the cull kernel writing the instances it keeps)
-	2. the depth pyramid in one dispatch (shared memory, as AMD's single pass downsampler) instead of a dispatch per level with barriers between
+	1. (low value until instanced content shows up: of the test sets only SimpleInstancing uses EXT_mesh_gpu_instancing, everything else is flattened) per instance culling: one draw's instances share its bounds now, so an instanced submesh is culled whole (bounds per instance, and the cull kernel writing the instances it keeps)
+	2. (small: the pyramid takes 0.14 ms) the depth pyramid in one dispatch (shared memory, as AMD's single pass downsampler) instead of a dispatch per level with barriers between
 	3. the occlusion modes and the gpu culling measured again on a desktop gpu (Windows or Linux): there the second render pass is cheap and the reprojection's atomics may not be, and the count is native
 	4. revisit KosmicKrisp's DrawIndexedIndirectCount once mesa's kk_cmd_draw.c builds indirect command buffers on the gpu (its TODO, still there in main 44fd0fde, 2026-10-19): then drop DeviceLimits::drawIndirectCountEmulated's exception
 	afterwards, small things when there's time: the file browser's leftovers (below), CMAKE_SUPPRESS_REGENERATION
@@ -14,7 +14,7 @@
 		2. done: the cascades traced and merged every frame, cascade 0's irradiance in the main pass's diffuse ambient term, the probes' visibility per voxel, two bounces in the frame. +0.6 to 2 ms on KosmicKrisp
 		3. done: soft probe visibility (no blocks where voxels are large), the merge seeing only the probes above it can see, solid angle weights, grid traversed shadow rays, a reference in the same voxels (SPEEDO_GI_DEBUG=6): 80% of its light on Sponza's outer wall. +1.4 to 1.7 ms at 128 voxels
 		next: a camera clipmap of volumes instead of one over the scene (Bistro's 128 voxels are 1.2 m wide, and 256 costs 6 ms), the merge's parallax (radiance cascades' bilinear fix: the last 20% of the light), the faint seams on CornellBox's boxes, then on by default
-		4. what moves voxelized each frame (CesiumMan, the animated sample models)
+		4. done: what moves voxelized each frame over a copy of the static voxels (CesiumMan's walk)
 		5. hardware ray queries where available (desktop Vulkan, Metal through a backend that exposes them): the same cascades, triangle hits
 		6. glossy: the cascades' radiance (not only irradiance) for rough reflections, then something sharper for mirrors (screen space reflections falling back to the cascades)
 	* considered and not chosen: DDGI probe volumes (updated with hysteresis: lag, and noise without it), ReSTIR GI and path tracing with denoisers (temporal reuse), Lumen like surface caches with screen probes (temporal), voxel cone tracing alone (cones leak and blur, but its voxels are the radiance volume here), lightmaps (static only), screen space GI alone (misses what is off screen or hidden)

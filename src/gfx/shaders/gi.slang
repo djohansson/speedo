@@ -201,9 +201,11 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 	uint3 threadId = GiThread(dispatchId);
 	uint frameIndex = gPushConstants.frameIndex;
 	GiData gi = gGi[frameIndex][0];
+	// the jobs from cullJobBase (what doesn't move, or what does)
+	uint jobBase = gPushConstants.cullJobBase;
 	uint jobCount = gPushConstants.giStep;
-	// past the last job's triangles (gGiJobs ends with the triangle count)
-	if (threadId.x >= gGiJobs[frameIndex][jobCount].x)
+	// past the last job's triangles (the jobs end with the triangle count)
+	if (threadId.x >= gGiJobs[frameIndex][jobBase + jobCount].x)
 		return;
 	// the job: the last whose first triangle is at most this one
 	uint low = 0;
@@ -211,19 +213,23 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 	while (high - low > 1)
 	{
 		uint middle = (low + high) / 2;
-		if (gGiJobs[frameIndex][middle].x <= threadId.x)
+		if (gGiJobs[frameIndex][jobBase + middle].x <= threadId.x)
 			low = middle;
 		else
 			high = middle;
 	}
-	uint4 job = gGiJobs[frameIndex][low];
+	uint4 job = gGiJobs[frameIndex][jobBase + low];
 
 	uint triangle = threadId.x - job.x;
 	DrawRecord record = gDrawRecords[frameIndex][job.z];
 	MaterialData material = gMaterialData[record.materialId];
+	uint indices[3];
 	VertexP3fN3fTa4fT014fC4f vertices[3];
 	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
-		vertices[cornerIt] = gVertexBuffer[gIndexBuffer[job.y + triangle * 3 + cornerIt]];
+	{
+		indices[cornerIt] = gIndexBuffer[job.y + triangle * 3 + cornerIt];
+		vertices[cornerIt] = gVertexBuffer[indices[cornerIt]];
+	}
 
 	// the triangle's albedo and emission: the material's, with its textures at the centroid, at a level of about a sample's
 	// size
@@ -246,10 +252,10 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 	uint instanceCount = job.w & 0x7FFFFFFFu;
 	for (uint instanceIt = 0; instanceIt < instanceCount; instanceIt++)
 	{
-		float4x4 transform = gModelInstances[frameIndex][record.modelInstanceId + instanceIt].modelTransform;
-		float3 p0 = mul(transform, float4(vertices[0].position, 1.0)).xyz;
-		float3 p1 = mul(transform, float4(vertices[1].position, 1.0)).xyz;
-		float3 p2 = mul(transform, float4(vertices[2].position, 1.0)).xyz;
+		// as the vertex stage places them (what moves: morphed and skinned)
+		float3 p0 = WorldPosition(record, indices[0], instanceIt, frameIndex);
+		float3 p1 = WorldPosition(record, indices[1], instanceIt, frameIndex);
+		float3 p2 = WorldPosition(record, indices[2], instanceIt, frameIndex);
 		float3 normal = cross(p1 - p0, p2 - p0);
 		if (dot(normal, normal) <= 0.0)
 			continue;
