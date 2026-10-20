@@ -46,7 +46,8 @@ Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 [[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D<uint> gMainStencil;
 // the indirect lighting's voxels' resolved probes (see ComputeGiResolve), the clips stacked along z: the spherical
-// harmonics of red, green and blue times the weight of the probes seen, and that weight (in x). sampled trilinearly, and
+// harmonics times the weight of the probes seen (per color its coefficients 0 to 3 and 4 to 7, then the colors'
+// coefficient 8 and the weight: see GiSample). sampled trilinearly, and
 // written as storage images (gGiVolumeImages), always in the general layout
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture3D<float4> gGiVolumes[SHADER_TYPES_GI_VOLUME_COUNT];
@@ -139,7 +140,8 @@ RWStructuredBuffer<uint> gCullStatistics[SHADER_TYPES_FRAME_COUNT];
 
 // the indirect lighting (see GiData): its parameters per frame index, the voxels, their radiance (rgba16f: radiance times
 // occupancy, and occupancy) by level, the cascades' radiance (rgba16f: radiance, and the transmittance along the ray)
-// per probe and direction, and cascade 0's irradiance per probe (spherical harmonics, bands 0 and 1: a float4 per color)
+// per probe and direction, and cascade 0's irradiance per probe (spherical harmonics, bands 0 to 2: a float4 per
+// coefficient, rgb)
 [[vk::binding(21, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<GiData> gGi[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(22, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]

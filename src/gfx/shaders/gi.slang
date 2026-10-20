@@ -614,8 +614,22 @@ void ComputeGiMerge(uint3 dispatchId: SV_DispatchThreadID)
 	gGiCascades[index] = GiPackRgba16(float4(own.rgb + own.a * beyond / max(weightSum, 1e-6), 0.0));
 }
 
-// cascade 0's merged radiance per probe as spherical harmonics (bands 0 and 1, each direction the same share of the
-// sphere): what the shading interpolates
+// the real spherical harmonics of bands 0 to 2 along a direction (band 1 in x, y, z order)
+void GiShBasis(float3 d, out float basis[SHADER_TYPES_GI_SH_COUNT])
+{
+	basis[0] = 0.282095;
+	basis[1] = 0.488603 * d.x;
+	basis[2] = 0.488603 * d.y;
+	basis[3] = 0.488603 * d.z;
+	basis[4] = 1.092548 * d.x * d.y;
+	basis[5] = 1.092548 * d.y * d.z;
+	basis[6] = 0.315392 * (3.0 * d.z * d.z - 1.0);
+	basis[7] = 1.092548 * d.x * d.z;
+	basis[8] = 0.546274 * (d.x * d.x - d.y * d.y);
+}
+
+// cascade 0's merged radiance per probe as spherical harmonics (bands 0 to 2, each direction weighed by its share of
+// the sphere: GiTexelSolidAngle): what the shading interpolates, SHADER_TYPES_GI_SH_COUNT float4 a probe (rgb)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiIrradiance(uint3 dispatchId: SV_DispatchThreadID)
@@ -627,9 +641,10 @@ void ComputeGiIrradiance(uint3 dispatchId: SV_DispatchThreadID)
 	if (threadId.x >= probeCount)
 		return;
 	uint directionCount = cascadeSize.w * cascadeSize.w;
-	float4 r = 0.0;
-	float4 g = 0.0;
-	float4 b = 0.0;
+	float3 sh[SHADER_TYPES_GI_SH_COUNT];
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
+		sh[shIt] = 0.0;
+	float basis[SHADER_TYPES_GI_SH_COUNT];
 	if (gi.debug == 6u)
 	{
 		// the reference (SPEEDO_GI_DEBUG=6): the same voxels, but each probe's light from 512 rays through level 0 to the
@@ -649,30 +664,26 @@ void ComputeGiIrradiance(uint3 dispatchId: SV_DispatchThreadID)
 			float3 direction = float3(radius * cos(phi), radius * sin(phi), z);
 			float4 traced = GiMarch(gi, 0, origin, direction, 0.0, far);
 			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
-			float4 basis = float4(0.282095, 0.488603 * direction) * (4.0 * 3.14159265 / float(kRays));
-			r += radiance.r * basis;
-			g += radiance.g * basis;
-			b += radiance.b * basis;
+			GiShBasis(direction, basis);
+			for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
+				sh[shIt] += radiance * basis[shIt] * (4.0 * 3.14159265 / float(kRays));
 		}
-		gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 0] = r;
-		gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 1] = g;
-		gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 2] = b;
-		return;
 	}
-	for (uint directionIt = 0; directionIt < directionCount; directionIt++)
+	else
 	{
-		uint2 texel = uint2(directionIt % cascadeSize.w, directionIt / cascadeSize.w);
-		float3 direction = GiDirection(texel, cascadeSize.w);
-		float solidAngle = GiTexelSolidAngle(texel, cascadeSize.w);
-		float3 radiance = GiUnpackRgba16(gGiCascades[GiCascadeFirst(gi, 0) + threadId.x * directionCount + directionIt]).rgb;
-		float4 basis = float4(0.282095, 0.488603 * direction) * solidAngle;
-		r += radiance.r * basis;
-		g += radiance.g * basis;
-		b += radiance.b * basis;
+		for (uint directionIt = 0; directionIt < directionCount; directionIt++)
+		{
+			uint2 texel = uint2(directionIt % cascadeSize.w, directionIt / cascadeSize.w);
+			float3 direction = GiDirection(texel, cascadeSize.w);
+			float solidAngle = GiTexelSolidAngle(texel, cascadeSize.w);
+			float3 radiance = GiUnpackRgba16(gGiCascades[GiCascadeFirst(gi, 0) + threadId.x * directionCount + directionIt]).rgb;
+			GiShBasis(direction, basis);
+			for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
+				sh[shIt] += radiance * basis[shIt] * solidAngle;
+		}
 	}
-	gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 0] = r;
-	gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 1] = g;
-	gGiIrradiance[(gi.probeFirst + threadId.x) * 3 + 2] = b;
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
+		gGiIrradiance[(gi.probeFirst + threadId.x) * SHADER_TYPES_GI_SH_COUNT + shIt] = float4(sh[shIt], 0.0);
 }
 
 // whether a probe is visible from a point (level 0's voxels between them, at a voxel's steps; visiting every voxel the
@@ -877,26 +888,13 @@ float3 GiIrradianceAt(GiData gi, float3 position, float3 normal, uint debug)
 // the radiance a white Lambertian surface at position, of normal, reflects (as EnvironmentIrradiance: the irradiance
 // over pi), from the 8 voxels around the point offset 1.5 voxels along its normal, trilinear (filtered): each the
 // irradiance of the probes it sees, weighed by how many it sees (see ComputeGiResolve). a negative value where they see
-// none
+// none; with weightOnly, the weight
 float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weightOnly = false)
 {
-	float3 biased = position + normal * (1.5 * gi.volumeOrigin.w);
-	float3 size = float3(GiLevelSize(gi, 0));
-	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
-	float3 coordinate = GiVoxelCoordinate(gi, biased, 0);
-	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
-	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
-	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
-	float weightSum = gGiVolumes[3].SampleLevel(linear, uvw, 0.0).x;
+	GiSample sample = GiSampleClip(gi, position, normal);
 	if (weightOnly)
-		return weightSum;
-	if (weightSum <= 1e-7)
-		return -1.0;
-	float4 r = gGiVolumes[0].SampleLevel(linear, uvw, 0.0);
-	float4 g = gGiVolumes[1].SampleLevel(linear, uvw, 0.0);
-	float4 b = gGiVolumes[2].SampleLevel(linear, uvw, 0.0);
-	float4 basis = float4(3.14159265 * 0.282095, 2.0 * 3.14159265 / 3.0 * 0.488603 * normal);
-	return max(float3(dot(r, basis), dot(g, basis), dot(b, basis)), 0.0) / weightSum / 3.14159265;
+		return sample.last.w;
+	return sample.valid ? GiEvaluate(sample, normal) : -1.0;
 }
 
 // per voxel of a clip, after its probes' irradiance: the spherical harmonics of the 8 probes around its center that it
@@ -919,9 +917,9 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 	float3 fraction;
 	int3 base = GiProbeBase(gi, center, fraction);
 	uint4 cascadeSize = gi.cascadeSize[0];
-	float4 r = 0.0;
-	float4 g = 0.0;
-	float4 b = 0.0;
+	float3 sh[SHADER_TYPES_GI_SH_COUNT];
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
+		sh[shIt] = 0.0;
 	float seen = 0.0;
 	// a voxel that sees none of them (in a corner, or inside a wall) takes them all, a thousandth as much: a point whose
 	// voxels see none still gets their light, as the per pixel lookups did
@@ -958,25 +956,34 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 			weight *= facing * facing + 0.05;
 		}
 		uint probeIndex = gi.probeFirst + (probe.z * cascadeSize.y + probe.y) * cascadeSize.x + probe.x;
-		r += weight * gGiIrradiance[probeIndex * 3 + 0];
-		g += weight * gGiIrradiance[probeIndex * 3 + 1];
-		b += weight * gGiIrradiance[probeIndex * 3 + 2];
+		for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
+			sh[shIt] += weight * gGiIrradiance[probeIndex * SHADER_TYPES_GI_SH_COUNT + shIt].rgb;
 		seen += weight;
 	}
+	// per color its coefficients 0 to 3 and 4 to 7, then the three colors' coefficient 8 and the weight (see GiSample)
 	uint3 texel = uint3(at.x, at.y, at.z + gi.clip * size.z);
-	gGiVolumeImages[0][texel] = r;
-	gGiVolumeImages[1][texel] = g;
-	gGiVolumeImages[2][texel] = b;
-	gGiVolumeImages[3][texel] = float4(seen, 0.0, 0.0, 0.0);
+	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
+	gGiVolumeImages[1][texel] = float4(sh[4].r, sh[5].r, sh[6].r, sh[7].r);
+	gGiVolumeImages[2][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
+	gGiVolumeImages[3][texel] = float4(sh[4].g, sh[5].g, sh[6].g, sh[7].g);
+	gGiVolumeImages[4][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);
+	gGiVolumeImages[5][texel] = float4(sh[4].b, sh[5].b, sh[6].b, sh[7].b);
+	gGiVolumeImages[6][texel] = float4(sh[8], seen);
 }
 
-// the irradiance's spherical harmonics (bands 0 and 1) per color around a point, from its clips' voxels (see
-// GiSampleAt), and whether any covered it
+// the irradiance's spherical harmonics (bands 0 to 2) around a point, from its clips' voxels (see GiSampleAt), as the
+// volumes hold them (see ComputeGiResolve): per color its coefficients 0 to 3 and 4 to 7, and the three colors'
+// coefficient 8 with the weight of the probes they saw. vectors rather than arrays: in the main pass's shader, arrays
+// of the coefficients spilled (Bistro's main pass 31 ms instead of 4)
 struct GiSample
 {
-	float4 r;
-	float4 g;
-	float4 b;
+	float4 r0;
+	float4 r1;
+	float4 g0;
+	float4 g1;
+	float4 b0;
+	float4 b1;
+	float4 last; // the coefficient 8s, rgb, and the weight
 	bool valid;
 };
 
@@ -987,16 +994,22 @@ GiSample GiSampleClip(GiData gi, float3 position, float3 normal)
 	GiSample result;
 	float3 biased = position + normal * (1.5 * gi.volumeOrigin.w);
 	float3 size = float3(GiLevelSize(gi, 0));
+	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
 	float3 coordinate = GiVoxelCoordinate(gi, biased, 0);
 	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
 	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
 	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
-	float weightSum = gGiVolumes[3].SampleLevel(linear, uvw, 0.0).x;
-	result.valid = weightSum > 1e-7;
-	float scale = result.valid ? 1.0 / weightSum : 0.0;
-	result.r = gGiVolumes[0].SampleLevel(linear, uvw, 0.0) * scale;
-	result.g = gGiVolumes[1].SampleLevel(linear, uvw, 0.0) * scale;
-	result.b = gGiVolumes[2].SampleLevel(linear, uvw, 0.0) * scale;
+	result.last = gGiVolumes[6].SampleLevel(linear, uvw, 0.0);
+	float weight = result.last.w;
+	result.valid = weight > 1e-7;
+	float scale = result.valid ? 1.0 / weight : 0.0;
+	result.r0 = gGiVolumes[0].SampleLevel(linear, uvw, 0.0) * scale;
+	result.r1 = gGiVolumes[1].SampleLevel(linear, uvw, 0.0) * scale;
+	result.g0 = gGiVolumes[2].SampleLevel(linear, uvw, 0.0) * scale;
+	result.g1 = gGiVolumes[3].SampleLevel(linear, uvw, 0.0) * scale;
+	result.b0 = gGiVolumes[4].SampleLevel(linear, uvw, 0.0) * scale;
+	result.b1 = gGiVolumes[5].SampleLevel(linear, uvw, 0.0) * scale;
+	result.last = float4(result.last.xyz * scale, weight);
 	return result;
 }
 
@@ -1004,9 +1017,13 @@ GiSample GiSampleClip(GiData gi, float3 position, float3 normal)
 GiSample GiSampleAt(float3 position, float3 normal)
 {
 	GiSample none;
-	none.r = 0.0;
-	none.g = 0.0;
-	none.b = 0.0;
+	none.r0 = 0.0;
+	none.r1 = 0.0;
+	none.g0 = 0.0;
+	none.g1 = 0.0;
+	none.b0 = 0.0;
+	none.b1 = 0.0;
+	none.last = 0.0;
 	none.valid = false;
 	GiData gi = GiClip(0);
 	if (gi.enabled == 0)
@@ -1031,9 +1048,13 @@ GiSample GiSampleAt(float3 position, float3 normal)
 			return coarse;
 		if (!coarse.valid)
 			return fine;
-		fine.r = lerp(coarse.r, fine.r, weight);
-		fine.g = lerp(coarse.g, fine.g, weight);
-		fine.b = lerp(coarse.b, fine.b, weight);
+		fine.r0 = lerp(coarse.r0, fine.r0, weight);
+		fine.r1 = lerp(coarse.r1, fine.r1, weight);
+		fine.g0 = lerp(coarse.g0, fine.g0, weight);
+		fine.g1 = lerp(coarse.g1, fine.g1, weight);
+		fine.b0 = lerp(coarse.b0, fine.b0, weight);
+		fine.b1 = lerp(coarse.b1, fine.b1, weight);
+		fine.last.xyz = lerp(coarse.last.xyz, fine.last.xyz, weight);
 		return fine;
 	}
 	return none;
@@ -1043,6 +1064,16 @@ GiSample GiSampleAt(float3 position, float3 normal)
 // a reflection instead, the radiance around it in a cosine lobe (a rough reflection's)
 float3 GiEvaluate(GiSample sample, float3 direction)
 {
-	float4 basis = float4(0.282095, 2.0 / 3.0 * 0.488603 * direction);
-	return max(float3(dot(sample.r, basis), dot(sample.g, basis), dot(sample.b, basis)), 0.0);
+	// the basis (see GiShBasis) times the cosine lobe's convolution over pi, per band: 1, 2/3 and 1/4
+	float3 d = direction;
+	float4 basis0 = float4(0.282095, 2.0 / 3.0 * 0.488603 * d);
+	float4 basis1 = 0.25 * float4(1.092548 * d.x * d.y, 1.092548 * d.y * d.z, 0.315392 * (3.0 * d.z * d.z - 1.0), 1.092548 * d.x * d.z);
+	float basis8 = 0.25 * 0.546274 * (d.x * d.x - d.y * d.y);
+	return max(
+		float3(
+			dot(sample.r0, basis0) + dot(sample.r1, basis1),
+			dot(sample.g0, basis0) + dot(sample.g1, basis1),
+			dot(sample.b0, basis0) + dot(sample.b1, basis1)) +
+			sample.last.xyz * basis8,
+		0.0);
 }

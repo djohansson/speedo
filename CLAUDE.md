@@ -852,7 +852,8 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   long, until one reaches across the volume; cascade c marches its interval through level c (front to back, the occupancy as opacity), the last's rays that
   get through see the environment (`EnvironmentRadiance` at roughness 0.6, without the dominant lights, which light the
   voxels themselves), and each cascade below takes what gets through its rays from its 2x2 child directions at its 8
-  nearest probes above (trilinear). Cascade 0's merged radiance becomes L1 spherical harmonics per probe. A second
+  nearest probes above (trilinear). Cascade 0's merged radiance becomes spherical harmonics of bands 0 to 2 per probe (9 coefficients a color,
+  `SHADER_TYPES_GI_SH_COUNT`, each direction weighed by its solid angle). A second
   bounce (`SPEEDO_GI_BOUNCES`, 2 by default) lights the voxels again with their direct radiance plus their albedo times
   the probes' irradiance at them (the sky's and the lights' light off the scene), and traces again: in the frame,
   nothing kept from the last.
@@ -861,8 +862,9 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   each lies away from the surfaces next to the voxel (its occupancy's gradient over its 6 neighbors, as the per pixel
   lookups weighed probes by how much they faced the surface: Sponza's inside 79% of its reference's light without, 83%
   with), premultiplied by the weight of those it sees, and that weight; a voxel that sees none, in a corner or inside a
-  wall, takes all 8 at a thousandth of the weight. They go in 4 `R16G16B16A16Sfloat` 3D images (`gGiVolumes`: red's,
-  green's and blue's harmonics, and the weight; the clips stacked along z, a lookup clamped inside its clip's slab),
+  wall, takes all 8 at a thousandth of the weight. They go in 7 `R16G16B16A16Sfloat` 3D images (`gGiVolumes`: per color
+  its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the shading reads vectors, see
+  `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab),
   written as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout
   (the bounces sample them in the pass that writes them; Main declares a storage read). rhi's 3D images:
   `ImageCreateDesc::depth` above 1 (not serialized: the cached images are 2D) and `ImageViewCreateDesc::volume`. `Shade` takes `GiIrradiance(position, normal)`
@@ -871,17 +873,19 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   over 8 voxels; there the 8 voxels around the point offset 1.5 voxels along its normal (off its own surface's voxels),
   filtered, their premultiplied harmonics over their weights (`GiIrradianceResolved`), as the bounces' lookups are.
   So a point sees each probe as much as the voxels around it do (one voxel's mask switched at its edges, which showed as
-  blocks where voxels are large), at 4 filtered reads: the per pixel lookups before, the masks of the 8 voxels around for
+  blocks where voxels are large), at 7 filtered reads: the per pixel lookups before, the masks of the 8 voxels around for
   each of 8 probes and how much each probe faced the surface, cost Bistro's main pass 3.8 ms up close in its street
   (3.4 without, 7.2 with them; resolved into a buffer, 8 voxels of two `uint4` read by hand, 5.3, and with three
-  clips 9.5 and 6.5, whose blend band was 0.9 of it; from the 3D images 3.7, and 4.0 with three clips). Known: a dark
-  blue halo around CornellBox's lamps in the indirect light, which the per pixel lookups didn't have and the reference
-  hasn't: bands 0 and 1 ringing below 0 opposite the lamp's strong warm light, red and green clamped (a debug view of
-  the colors below 0 before the clamp covered it). Tried: Hazel's non-negative reconstruction (Geomerics) removes it but
-  glows warm there, and against the references moved CornellBox to 104.7%, Sponza's wall to 105 and its inside to 77
-  (from 100.3, 87 and 83); shortening all three gradients alike to keep the lowest color at 0 leaves a blue patch (the
-  means there are bluish); shortening the band wherever it can go below 0 cost Sponza's wall 7%; exact probe visibility
-  traversal changed nothing. Two bands can't hold that light; more bands, or fewer probes seeing the lamp, would. The specular
+  clips 9.5 and 6.5, whose blend band was 0.9 of it; from the 3D images 3.7, and 4.0 with three clips, with bands 0 and
+  1 only; 4.6 with band 2). Band 2: with bands 0 and 1 alone (4 volumes) a blue fringe ringed CornellBox's lamps, red
+  and green ringing below 0 opposite the lamp's strong warm light and clamped, which the reference hasn't; tried
+  against it: Hazel's non-negative reconstruction (Geomerics: a warm glow there instead, and Sponza's inside 6% further
+  from its reference), shortening all three gradients alike (a blue patch: the means there are bluish), shortening the
+  band wherever it can go below 0 (Sponza's wall 7% darker), exact probe visibility traversal (no change). Band 2 holds
+  that light: the fringe is gone, and against references of band 2 too (their 512 rays projected the same way)
+  CornellBox gets 99.5% of its light, Sponza's wall 91.8% and its inside 86.5% (with bands 0 and 1, against theirs:
+  100.3, 87 and 83), for 1.2 ms of Bistro's street (0.6 of it the main pass) and 0.5 of Sponza. Kept as arrays of the 28
+  values in the main pass's lookup, they spilled: Bistro's main pass took 31 ms. The specular
   takes the same lookup (`GiSampleAt`: the harmonics fetched once, blended between clips, evaluated twice by
   `GiEvaluate`): the environment by the indirect light's share of the environment's irradiance (luminance, at most 1;
   all of it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection, the

@@ -197,7 +197,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiStaticVoxelBuffer, "GI Static Voxels", sizeof(GiVoxel)},
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiCascadeBuffer, "GI Cascades", 2 * sizeof(uint32_t)},
-			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", 3 * 4 * sizeof(float)},
+			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeMaskBuffer, "GI Probe Masks", sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
@@ -2004,7 +2004,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		if (total.probeMaskCount != previous.probeMaskCount)
 			InternalReplaceBuffer(myGiProbeMaskBuffer, pipeline, "GI Probe Masks", "gGiProbeMasks", total.probeMaskCount * sizeof(uint32_t));
 		if (total.probeCount != previous.probeCount)
-			InternalReplaceBuffer(myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", total.probeCount * 3 * 4 * sizeof(float));
+			InternalReplaceBuffer(myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", total.probeCount * SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float));
 	}
 	ENSUREF(
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
