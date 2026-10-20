@@ -782,6 +782,11 @@ float3 GiVoxelDebug(GiData gi, float3 position, float3 normal, uint debug)
 // clamped), blended into the next over the 8 voxels after that, so the clips meet without a seam
 float3 GiIrradiance(float3 position, float3 normal, uint debug)
 {
+	if (debug < 2u || debug > 5u)
+	{
+		GiSample sample = GiSampleAt(position, normal);
+		return sample.valid ? GiEvaluate(sample, normal) : -1.0;
+	}
 	GiData gi = GiClip(0);
 	if (gi.enabled == 0)
 		return -1.0;
@@ -963,4 +968,81 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 	gGiVolumeImages[1][texel] = g;
 	gGiVolumeImages[2][texel] = b;
 	gGiVolumeImages[3][texel] = float4(seen, 0.0, 0.0, 0.0);
+}
+
+// the irradiance's spherical harmonics (bands 0 and 1) per color around a point, from its clips' voxels (see
+// GiSampleAt), and whether any covered it
+struct GiSample
+{
+	float4 r;
+	float4 g;
+	float4 b;
+	bool valid;
+};
+
+// a clip's voxels' resolved probes around the point offset 1.5 voxels along its normal (see GiIrradianceResolved),
+// normalized by their weight
+GiSample GiSampleClip(GiData gi, float3 position, float3 normal)
+{
+	GiSample result;
+	float3 biased = position + normal * (1.5 * gi.volumeOrigin.w);
+	float3 size = float3(GiLevelSize(gi, 0));
+	float3 coordinate = GiVoxelCoordinate(gi, biased, 0);
+	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
+	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
+	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
+	float weightSum = gGiVolumes[3].SampleLevel(linear, uvw, 0.0).x;
+	result.valid = weightSum > 1e-7;
+	float scale = result.valid ? 1.0 / weightSum : 0.0;
+	result.r = gGiVolumes[0].SampleLevel(linear, uvw, 0.0) * scale;
+	result.g = gGiVolumes[1].SampleLevel(linear, uvw, 0.0) * scale;
+	result.b = gGiVolumes[2].SampleLevel(linear, uvw, 0.0) * scale;
+	return result;
+}
+
+// the finest clip that holds the point well inside, blended into the next at its edge (see GiIrradiance)
+GiSample GiSampleAt(float3 position, float3 normal)
+{
+	GiSample none;
+	none.r = 0.0;
+	none.g = 0.0;
+	none.b = 0.0;
+	none.valid = false;
+	GiData gi = GiClip(0);
+	if (gi.enabled == 0)
+		return none;
+	for (uint clipIt = 0; clipIt < gi.clipCount; clipIt++)
+	{
+		GiData clip = clipIt == 0 ? gi : GiClip(clipIt);
+		float3 coordinate = GiVoxelCoordinate(clip, position, 0);
+		float3 size = float3(GiLevelSize(clip, 0));
+		float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
+		float spacing = clip.cascadeInterval[0].w / clip.volumeOrigin.w;
+		float weight = saturate((edge - spacing) / 8.0);
+		if (clipIt + 1 == gi.clipCount)
+			return edge > 0.0 ? GiSampleClip(clip, position, normal) : none;
+		if (weight <= 0.0)
+			continue;
+		GiSample fine = GiSampleClip(clip, position, normal);
+		if (weight >= 1.0)
+			return fine;
+		GiSample coarse = GiSampleClip(GiClip(clipIt + 1), position, normal);
+		if (!fine.valid)
+			return coarse;
+		if (!coarse.valid)
+			return fine;
+		fine.r = lerp(coarse.r, fine.r, weight);
+		fine.g = lerp(coarse.g, fine.g, weight);
+		fine.b = lerp(coarse.b, fine.b, weight);
+		return fine;
+	}
+	return none;
+}
+
+// a sample's irradiance over pi (the radiance a white Lambertian surface reflects) for a surface facing direction: along
+// a reflection instead, the radiance around it in a cosine lobe (a rough reflection's)
+float3 GiEvaluate(GiSample sample, float3 direction)
+{
+	float4 basis = float4(0.282095, 2.0 / 3.0 * 0.488603 * direction);
+	return max(float3(dot(sample.r, basis), dot(sample.g, basis), dot(sample.b, basis)), 0.0);
 }

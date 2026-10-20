@@ -113,9 +113,24 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	// transmission color alone (the spec's diffuse_btdf(diffuseTransmissionColor): not the base color)
 	// the indirect lighting's (see GiIrradiance), where its probes cover the point: the environment occluded, and the light
 	// the scene bounces. else the environment's
-	float3 indirect = GiIrradiance(position, normal);
 	if (GiDebug() != 0u)
-		return indirect.x >= 0.0 ? indirect : float3(1.0, 0.0, 1.0);
+	{
+		float3 debug = GiIrradiance(position, normal);
+		return debug.x >= 0.0 ? debug : float3(1.0, 0.0, 1.0);
+	}
+	GiSample gi = GiSampleAt(position, normal);
+	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : -1.0;
+	// and the specular: the environment as much as the indirect light sees of it (its share of the environment's
+	// irradiance, which is all of it unoccluded), and, as the surface gets rough, the indirect light's radiance around the
+	// reflection (its harmonics along it: a cosine lobe, as wide as the roughest): glossy reflections of the scene, without
+	// the sky reflected inside a building
+	if (indirect.x >= 0.0)
+	{
+		float3 luminance = float3(0.2126, 0.7152, 0.0722);
+		float seen = saturate(dot(indirect, luminance) / max(dot(EnvironmentIrradiance(environment, normal), luminance), 1e-4));
+		float rough = smoothstep(0.2, 0.9, roughness);
+		environmentRadiance = lerp(environmentRadiance * seen, GiEvaluate(gi, reflected), rough);
+	}
 	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));
 	if (surface.diffuseTransmission > 0.0)
 	{

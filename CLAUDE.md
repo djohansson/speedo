@@ -868,7 +868,13 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   blue halo around CornellBox's lamps in the indirect light, which the per pixel lookups didn't have and the reference
   hasn't (summed harmonics ringing below 0 near an emitter, clamped per color; exact probe visibility traversal and
   shortening the linear band where it goes below 0 didn't remove it, and the latter cost Sponza's wall 7% of its light). The specular
-  still reflects the environment unoccluded (glossy indirect light is the next step). `SPEEDO_GI_DEBUG`: 1 the indirect
+  takes the same lookup (`GiSampleAt`: the harmonics fetched once, blended between clips, evaluated twice by
+  `GiEvaluate`): the environment by the indirect light's share of the environment's irradiance (luminance, at most 1;
+  all of it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection, the
+  scene's radiance around it in a cosine lobe as wide as the roughest. Sponza's inside lost the sky its gold and cloth
+  reflected (most of its brightness, which was the leak), Bistro's street the sky's blue sheen on its cobbles; open
+  surfaces keep theirs (DamagedHelmet 99.7% of its light, Sponza's outer wall 97.8%), for 0.06 ms of Bistro's main pass.
+  Sharp reflections of the scene itself (not the sky's, occluded) are still missing. `SPEEDO_GI_DEBUG`: 1 the indirect
   diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
   voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
   straight to the environment (seconds a frame), and 7 the cascades traced at level 0, to tell what the cascades and what

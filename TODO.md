@@ -20,7 +20,7 @@
 		SPEEDO_CAPTURE with SPEEDO_CAMERA: a big model's install comes late, and a capture 60 frames after the loads may show the frame before the camera was placed (Bistro, Sponza); 400 frames works. look at why the capture lags
 		4. done: what moves voxelized each frame over a copy of the static voxels (CesiumMan's walk)
 		5. hardware ray queries where available (desktop Vulkan, Metal through a backend that exposes them): the same cascades, triangle hits
-		6. glossy: the cascades' radiance (not only irradiance) for rough reflections, then something sharper for mirrors (screen space reflections falling back to the cascades)
+		6. glossy: started (the environment occluded by the indirect light's share of it, rough reflections from the harmonics along the reflection, see CLAUDE.md); next the cascades' radiance (not only irradiance) for glossy ones, then something sharper for mirrors (screen space reflections falling back to the cascades)
 	* considered and not chosen: DDGI probe volumes (updated with hysteresis: lag, and noise without it), ReSTIR GI and path tracing with denoisers (temporal reuse), Lumen like surface caches with screen probes (temporal), voxel cone tracing alone (cones leak and blur, but its voxels are the radiance volume here), lightmaps (static only), screen space GI alone (misses what is off screen or hidden)
 * todo: GLTF: the gaps of gfx::gltf::Import (see CLAUDE.md) and the renderer behind it
 	* KTX2: mask textures (and non-Basis normal, occlusion and metallic-roughness ones) are transcoded to rgba8 and compressed again (a second lossy step); no sample model has them
