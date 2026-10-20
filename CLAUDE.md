@@ -955,7 +955,7 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   diffuse alone, 2 the resolved weight (the share of the probes around a point that it sees), 3 and 4 the radiance of the
   voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light from 512 rays through level 0
   straight to the environment (seconds a frame), and 7 the cascades traced at level 0, to tell what the cascades and what
-  the levels lose; 8 which clip lights a point (blended as `GiSampleAt` blends them), 9 the indirect diffuse with the
+  the levels lose; 14 the surface reference (see below); 8 which clip lights a point (blended as `GiSampleAt` blends them), 9 the indirect diffuse with the
   finest clip's voxel and cascade 0 probe planes drawn over it (`GiClipDebug`).
 - **What the merge sees**: a cascade's merge only takes the probes above it that it can see (`gGiProbeMasks`, per
   probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'
@@ -1007,6 +1007,21 @@ light against the reference, but on voxels no light lit. Against the references 
 Sponza's wall 97.2%, its inside 91.4% (it read 97.7% with the leaks, which matched light the reference hasn't with light
 it has). The four cost Bistro's street 2.7 ms (18.2 to 20.9), CornellBox 2.0 and Sponza 1.6. `SPEEDO_EXPOSURE=<stops>`
 sets the exposure, to capture dark interiors comparably.
+The light changing near surfaces as the clips take over (the finest seemed darker): against the light at the surface
+itself (the Surface Reference debug view, `GiPixelReference`: 256 cosine weighted rays from the point through the
+finest clip's voxels holding it and the coarser ones', seconds a frame; the probe reference is at the probes, which is
+not where the light is wanted), the coarser clips were too bright, not the finer too dark: in Sponza's arcade up close
+clip 1's probes alone gave 119% of it, clip 2's 160%. A probe, up to a spacing off a surface, sees past what is nearer
+the surface than it is (an arcade's walls and ceiling, a curtain's folds), and a lookup in a clip's own voxels reached
+further out the coarser the clip. Now each voxel keeps the share of the hemisphere away from its nearby surfaces (its
+normal, or its occupancy's gradient) open within two cascade 0 probe spacings (16 rays when voxelizing, in
+`ComputeGiVisibility`; `GiVoxel::emissionB`'s top byte), which the resolve scales the probes by, and the lookup's offset
+is in the finest clip's voxels for every clip (in its own where that finds none of its probes seen: a coarse clip's
+voxels by a surface are the surface's). Clip 1 then gives 96% of the surface's light, clip 2 108%; the blended lighting
+against the surface reference: Sponza's wall 99%, inside 108%, arcade 83%, curtains 114%, up close 113%, CornellBox 101%.
+Under a still camera with the clips moving 7 m (`SPEEDO_GI_EYE_PATH`), the irradiance view's mean over the move went
+from 87 to 113% of its average to 91 to 107%, its largest step from 1.8% to 1.2%. No measurable cost (computed when
+voxelizing).
 The voxels' albedo took the metallic factor alone, not times the metallic-roughness texture's (as the shading does):
 Sponza's factor is the default 1, its texture saying where metal is, so every one of its voxels was black and bounced
 nothing (the Voxel Albedo debug view showed it). The measurements of Sponza here are from before that fix.

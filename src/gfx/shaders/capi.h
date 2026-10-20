@@ -171,7 +171,10 @@ extern "C"
 // the irradiance of the 8 cascade 0 probes around a point, trilinear, as the probes hold it: without the masks, the
 // resolve into the voxels and the volumes (to tell what the probes see from what the lookups make of it)
 #define DEBUG_VIEW_GI_PROBES 28u
-#define DEBUG_VIEW_COUNT 29u
+// the irradiance at the point itself: 256 cosine weighted rays from it through the voxels (seconds a frame), what the
+// probes' lookups approximate there
+#define DEBUG_VIEW_GI_SURFACE_REFERENCE 29u
+#define DEBUG_VIEW_COUNT 30u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -611,8 +614,9 @@ struct GiVoxel
 	alignas(4) UINT1(albedo); // rgba8: the diffuse albedo, linear, and 255 in a where something is
 	alignas(4) UINT1(normal); // two snorm16: the normal, octahedral
 	alignas(4) UINT1(emissionRG); // half2
-	// half, and in the upper 16 bits which of the 8 cascade 0 probes around the voxel are visible from its center (bit
-	// i: the probe at offset (i & 1, i >> 1 & 1, i >> 2) from the nearest below, see GiIrradiance)
+	// half; in bits 16 to 23 which of the 8 cascade 0 probes around the voxel are visible from it (bit i: the probe at
+	// offset (i & 1, i >> 1 & 1, i >> 2) from the nearest below), and in bits 24 to 31 the share of its near
+	// surroundings that is open, unorm8 (see ComputeGiVisibility)
 	alignas(4) UINT1(emissionB);
 };
 

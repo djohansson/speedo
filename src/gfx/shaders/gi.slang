@@ -900,7 +900,48 @@ void ComputeGiVisibility(uint3 dispatchId: SV_DispatchThreadID)
 		if (GiProbeVisible(gi, from, GiProbePosition(gi, 0, probe)))
 			mask |= 1u << cornerIt;
 	}
-	gGiVoxels[index].emissionB = (gGiVoxels[index].emissionB & 0xFFFFu) | (mask << 16);
+
+	// what its probes miss of its near surroundings: the share of the hemisphere away from the surfaces next to it (its
+	// normal, if it is one; else its occupancy's gradient) that is open as far as a probe spacing. a probe, up to a
+	// spacing off a surface, sees past what is nearer the surface than it is (an arcade's walls and ceiling, a curtain's
+	// folds), so the coarser a clip, the brighter it lit a surface: against the light at the surface itself (rays from
+	// the point), Sponza's arcade by clip 1's probes 119%, by clip 2's 160%. the resolve scales the probes by it
+	float3 away = 0.0;
+	if ((voxel.albedo >> 24) != 0u)
+		away = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+	else
+		for (uint axisIt = 0; axisIt < 3; axisIt++)
+		{
+			int3 step = int3(axisIt == 0u, axisIt == 1u, axisIt == 2u);
+			float below = GiInside(int3(at) - step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) - step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+			float above = GiInside(int3(at) + step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) + step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+			away[axisIt] = below - above;
+		}
+	float open = 1.0;
+	if (dot(away, away) > 0.0)
+	{
+		away = normalize(away);
+		float3 tangent = normalize(abs(away.y) < 0.9 ? cross(away, float3(0, 1, 0)) : cross(away, float3(1, 0, 0)));
+		float3 bitangent = cross(away, tangent);
+		// two spacings: one left the coarser clips brighter (Sponza's arcade by clip 1 101%, by clip 2 129%; two: 96 and
+		// 108%, three of them: the lit image's mean over a move of the clips from 87 to 113% of its average, now 91 to 107)
+		float reach = gi.cascadeInterval[0].w * 2.0;
+		const uint kRays = 16;
+		uint openCount = 0;
+		for (uint rayIt = 0; rayIt < kRays; rayIt++)
+		{
+			// cosine weighted, a Fibonacci spiral over the disk
+			float u = (float(rayIt) + 0.5) / float(kRays);
+			float r = sqrt(u);
+			float phi = float(rayIt) * 2.39996323;
+			float3 direction = tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + away * sqrt(max(1.0 - u, 0.0));
+			if (GiProbeVisible(gi, from, from + direction * reach))
+				openCount++;
+		}
+		open = float(openCount) / float(kRays);
+	}
+	uint openBits = uint(round(open * 255.0));
+	gGiVoxels[index].emissionB = (gGiVoxels[index].emissionB & 0xFFFFu) | (mask << 16) | (openBits << 24);
 }
 
 // the shading's debug view (GiData::debug's numbering, from PushConstants::debugView), or 0
@@ -937,8 +978,45 @@ float3 GiVoxelDebug(GiData gi, float3 position, float3 normal, uint debug)
 
 // the finest clip that holds the point well inside (more than a probe spacing from its edges, where its probes are
 // clamped), blended into the next over the 8 voxels after that, so the clips meet without a seam
+// the surface reference (DEBUG_VIEW_GI_SURFACE_REFERENCE): the irradiance at the point itself over pi, 256 cosine weighted
+// rays from it (off it two voxels along its normal, past the voxels of its back face in front of it) through the finest
+// clip's voxels that holds it and the coarser ones', the environment past them
+float3 GiPixelReference(float3 position, float3 normal)
+{
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	uint start = clipCount - 1;
+	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
+		if (GiClipWeight(GiClipViewAt(clipIt), position) > 0.0)
+		{
+			start = clipIt;
+			break;
+		}
+	GiData gi = GiClip(start);
+	GiData last = GiClip(clipCount - 1);
+	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
+	float3 origin = position + normal * (2.0 * gi.volumeOrigin.w);
+	float3 tangent = normalize(abs(normal.y) < 0.9 ? cross(normal, float3(0, 1, 0)) : cross(normal, float3(1, 0, 0)));
+	float3 bitangent = cross(normal, tangent);
+	EnvironmentData environment = gEnvironment[0];
+	const uint kRays = 256;
+	float3 sum = 0.0;
+	for (uint rayIt = 0; rayIt < kRays; rayIt++)
+	{
+		// cosine weighted, a Fibonacci spiral over the disk
+		float u = (float(rayIt) + 0.5) / float(kRays);
+		float r = sqrt(u);
+		float phi = float(rayIt) * 2.39996323;
+		float3 direction = normalize(tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + normal * sqrt(max(1.0 - u, 0.0)));
+		float4 traced = GiMarch(gi, 0, origin, direction, 0.0, far);
+		sum += traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
+	}
+	return sum / float(kRays);
+}
+
 float3 GiIrradiance(float3 position, float3 normal, uint debug, float3 view = 0.0)
 {
+	if (debug == 14u)
+		return GiPixelReference(position, normal);
 	if (debug == 8u || debug == 9u)
 		return GiClipDebug(position, normal, debug == 9u);
 	if (debug == 13u)
@@ -1062,7 +1140,10 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 		return;
 	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
 	float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
-	uint visible = gGiVoxels[gi.voxelFirst + threadId.x].emissionB >> 16;
+	uint visibility = gGiVoxels[gi.voxelFirst + threadId.x].emissionB;
+	uint visible = (visibility >> 16) & 0xFFu;
+	// the share of its near surroundings open (see ComputeGiVisibility)
+	float open = float(visibility >> 24) / 255.0;
 	float3 fraction;
 	int3 base = GiProbeBase(gi, center, fraction);
 	uint4 cascadeSize = gi.cascadeSize[0];
@@ -1099,7 +1180,7 @@ void ComputeGiResolve(uint3 dispatchId: SV_DispatchThreadID)
 		}
 		uint probeIndex = gi.probeFirst + (probe.z * cascadeSize.y + probe.y) * cascadeSize.x + probe.x;
 		for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
-			sh[shIt] += weight * gGiIrradiance[probeIndex * SHADER_TYPES_GI_SH_COUNT + shIt].rgb;
+			sh[shIt] += (weight * open) * gGiIrradiance[probeIndex * SHADER_TYPES_GI_SH_COUNT + shIt].rgb;
 		seen += weight;
 	}
 	// per color its coefficients 0 to 3 and 4 to 7, then the three colors' coefficient 8 and the weight (see GiSample)
@@ -1132,17 +1213,27 @@ struct GiSample
 
 // a clip's voxels' resolved probes around the point offset 1.5 voxels along its normal (see GiIrradianceResolved),
 // normalized by their weight
+// bias is in voxels of the finest clip, the same distance off the surface in every clip (in a clip's own voxels, a
+// coarse clip's lookup reached into the open, past what is near the surface: brighter than the finer ones), else, where
+// that finds none of its probes seen (a coarse clip's voxels around the point are the surface's), in its own voxels
 GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias)
 {
 	GiSample result;
-	float3 biased = position + bias * gi.volumeOrigin.w;
 	float3 size = float3(gi.volumeSize.xyz);
-	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
-	float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
-	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
-	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
 	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
-	result.last = gGiVolumes[6].SampleLevel(linear, uvw, 0.0);
+	float finest = gGi[gPushConstants.frameIndex][0].volumeOrigin.w;
+	float3 uvw = 0.0;
+	for (uint attemptIt = 0; attemptIt < 2; attemptIt++)
+	{
+		float3 biased = position + bias * (attemptIt == 0 ? finest : gi.volumeOrigin.w);
+		// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
+		float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
+		coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
+		uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
+		result.last = gGiVolumes[6].SampleLevel(linear, uvw, 0.0);
+		if (result.last.w > 1e-7 || finest == gi.volumeOrigin.w)
+			break;
+	}
 	float weight = result.last.w;
 	result.valid = weight > 1e-7;
 	float scale = result.valid ? 1.0 / weight : 0.0;
