@@ -823,9 +823,9 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only (a
   wall's voxel isn't lit by the sun outside it), each shadowed by a march through the voxels (the shadow atlas covers
   only what the camera sees); kept as the direct radiance. A mip chain of radiance and occupancy (each voxel the mean of
-  its 8). The cascades: cascade 0 has a probe every 4 voxels with 4x4 directions (octahedral), each cascade above half
-  the probes per axis, twice the directions per axis and an interval four times as long, until one reaches across the
-  volume; cascade c marches its interval through level c (front to back, the occupancy as opacity), the last's rays that
+  its 8). The cascades: cascade 0 has a probe every 4 voxels with 6x6 directions (octahedral) over an interval of twice that
+  spacing, each cascade above half the probes per axis, twice the directions per axis and an interval four times as
+  long, until one reaches across the volume; cascade c marches its interval through level c (front to back, the occupancy as opacity), the last's rays that
   get through see the environment (`EnvironmentRadiance` at roughness 0.6, without the dominant lights, which light the
   voxels themselves), and each cascade below takes what gets through its rays from its 2x2 child directions at its 8
   nearest probes above (trilinear). Cascade 0's merged radiance becomes L1 spherical harmonics per probe. A second
@@ -846,14 +846,22 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   probe of each cascade but the last, made when voxelizing: a building's inside, an enclosed space of the voxels'
   shells, sees none of the light outside, and pulled the streets dark). The projection to spherical harmonics weighs
   each direction by its octahedral texel's solid angle (`GiTexelSolidAngle`: they aren't equal). Against the reference
-  on Sponza's outer wall, one bounce: 56% of its light (linear) before both, 80% after (the levels: tracing at level 0
-  gives the same there; a level finer than the spacing cost twice as much for 10% more). The rest is the merge's
-  parallax (a probe above traces from itself, not along the ray): radiance cascades' bilinear fix would trace to each of
-  the 8, about 8 times the tracing. Shadow rays visit each voxel they cross once (Amanatides and Woo: exact, and half the
+  on Sponza's outer wall, one bounce (`SPEEDO_GI_BOUNCES=1`, `SPEEDO_GI_DEBUG=1` against 6, the wall's mean through the
+  tonemapper): 67% of its light with cascade 0's interval ending at its spacing, 86% at twice it, CornellBox's a
+  hundred either way. Ending at the spacing, the probes above (twice as far apart) are as far from a probe as its rays
+  reach, and the merge's parallax (a probe above traces from itself, not along the ray) loses light. Tried and dropped:
+  radiance cascades' bilinear fix (a ray from where a probe's interval starts to where each of the 8 above start theirs)
+  lost more, 59% for cascade 0 alone (55% for two), at any interval: in 3D its bridging rays leave the direction by up to
+  60 degrees and cross what the ray never meets; anisotropic mips (6 faces per voxel of the levels, composited front to
+  back along each axis, as voxel cone tracing has them) took 64%: a thin wall goes opaque in a coarse voxel the ray only
+  grazes; an interval of 4 times the spacing (88%) showed CornellBox's lamp as blobs on its walls with 4x4 directions,
+  checkers with 8x8; twice the spacing with 4x4, fainter blobs, hence 6x6. Tracing every cascade at level 0
+  (`SPEEDO_GI_DEBUG=7`) gets 80% with the old interval, so the coarse levels lose some too. Shadow rays visit each voxel they cross once (Amanatides and Woo: exact, and half the
   reads of half voxel steps). The kernels dispatch rows of `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's
   size isn't capped by a dispatch.
 
-Measured on KosmicKrisp by the frame's gpu time, two bounces, 128 voxels: CornellBox +1.4 ms (lighting the voxels
+Measured on KosmicKrisp by the frame's gpu time, two bounces, 128 voxels (before the longer interval and 6x6
+directions, which added 0.07 ms on CornellBox and 0.7 on Bistro): CornellBox +1.4 ms (lighting the voxels
 0.6, tracing 1.0, merging 0.5, the mips 0.15, the main pass's lookups 0.3), Bistro +1.7; at 256 voxels Bistro +5.8 and
 CornellBox, a cube, +15 (16 M voxels): larger scenes need the clipmap rather than a finer volume. Before the masks and
 weights: CornellBox +0.6, Bistro +1.1, ThousandsOfLights +1.1, Sponza's interior +2.0. It renders CornellBox's

@@ -45,7 +45,11 @@ Layout MakeLayout(const Bounds3f& bounds, uint32_t resolution, uint32_t probeSpa
 	}
 
 	// the cascades: each with half the probes per axis, twice the directions per axis and an interval four times as long,
-	// until one reaches across the volume
+	// until one reaches across the volume. cascade 0's interval ends at twice its probes' spacing: ending at the spacing,
+	// the probes above (twice as far apart) are as far from a probe as its rays reach, and the merge's parallax lost a
+	// third of the light on Sponza's outer wall against the reference (67% of it, 86% now; the bilinear fix, a ray from
+	// each probe to each of the 8 above, lost more: its bridging rays leave the direction by up to 60 degrees there)
+	constexpr float kIntervalScale = 2.0F;
 	float diagonal = glm::length(glm::vec3(size)) * voxelSize;
 	float spacing0 = static_cast<float>(probeSpacing) * voxelSize;
 	glm::uvec3 probes0 = (size + glm::uvec3(probeSpacing - 1)) / probeSpacing;
@@ -55,8 +59,8 @@ Layout MakeLayout(const Bounds3f& bounds, uint32_t resolution, uint32_t probeSpa
 		auto probes = glm::max((probes0 + glm::uvec3((1U << cascadeIt) - 1)) >> cascadeIt, glm::uvec3(1));
 		uint32_t side = octahedralSide << cascadeIt;
 		float scale = static_cast<float>(1U << (2 * cascadeIt));
-		float start = spacing0 * (scale - 1.0F) / 3.0F;
-		float end = spacing0 * ((scale * 4.0F) - 1.0F) / 3.0F;
+		float start = kIntervalScale * spacing0 * (scale - 1.0F) / 3.0F;
+		float end = kIntervalScale * spacing0 * ((scale * 4.0F) - 1.0F) / 3.0F;
 		data.cascadeSize[cascadeIt][0] = probes.x;
 		data.cascadeSize[cascadeIt][1] = probes.y;
 		data.cascadeSize[cascadeIt][2] = probes.z;

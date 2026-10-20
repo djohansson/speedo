@@ -1835,7 +1835,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGiBounds = frame.sceneBounds;
 		myGiItemCount = mainList.items.size();
 		constexpr uint32_t kProbeSpacing = 4;
-		constexpr uint32_t kOctahedralSide = 4;
+		// cascade 0's directions: 6x6, since its interval reaches twice its spacing (see gi::MakeLayout); with 4x4 the lamp of
+		// CornellBox showed as blobs on its walls
+		constexpr uint32_t kOctahedralSide = 6;
 		auto layout = gi::MakeLayout(frame.sceneBounds, myGiResolution, kProbeSpacing, kOctahedralSide);
 		if (layout.voxelCount != myGiLayout.voxelCount)
 		{
