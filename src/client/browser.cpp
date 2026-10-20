@@ -453,17 +453,41 @@ void WindowedApplication::InternalDrawBrowser()
 		SameLine();
 		if (Button("Refresh"))
 			state.listed = false;
-		std::filesystem::path partial;
-		for (const auto& part : state.directory)
+		// the parts that fit, from the last: the ones before them behind "...", which goes to the last of them (and shows
+		// them as its tooltip; a deep path ran off the window's edge)
+		std::vector<std::pair<std::string, std::filesystem::path>> parts;
 		{
-			partial /= part;
-			auto label = part.string();
-			if (label.empty())
-				continue;
-			SameLine();
-			PushID(partial.string().c_str());
-			if (SmallButton(label.c_str()))
-				navigate(partial);
+			std::filesystem::path partial;
+			for (const auto& part : state.directory)
+			{
+				partial /= part;
+				if (auto label = part.string(); !label.empty())
+					parts.emplace_back(std::move(label), partial);
+			}
+		}
+		const auto& style = GetStyle();
+		auto buttonWidth = [&style](const char* label) { return CalcTextSize(label).x + (2.0F * style.FramePadding.x) + style.ItemSpacing.x; };
+		SameLine();
+		float available = GetContentRegionAvail().x + style.ItemSpacing.x; // what is left of the row
+		size_t first = parts.size();
+		float used = 0.0F;
+		while (first > 0 && used + buttonWidth(parts[first - 1].first.c_str()) + (first > 1 ? buttonWidth("...") : 0.0F) <= available)
+			used += buttonWidth(parts[--first].first.c_str());
+		if (first == parts.size() && first > 0)
+			first--; // the folder itself, even if it doesn't fit
+		if (first > 0)
+		{
+			if (SmallButton("..."))
+				navigate(parts[first - 1].second);
+			SetItemTooltip("%s", parts[first - 1].second.string().c_str());
+		}
+		for (size_t partIt = first; partIt < parts.size(); partIt++)
+		{
+			if (partIt > first || first > 0)
+				SameLine();
+			PushID(parts[partIt].second.string().c_str());
+			if (SmallButton(parts[partIt].first.c_str()))
+				navigate(parts[partIt].second);
 			PopID();
 		}
 

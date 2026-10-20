@@ -50,7 +50,8 @@ Notes for working in this codebase, distilled from real build failures.
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
   views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`. The browser itself
-  (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`) lists a folder's subfolders and the
+  (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`; its path a button per folder, the
+  ones that don't fit behind "...") lists a folder's subfolders and the
   files the client loads (models, zip archives, images, panoramas) as tiles, with click, ctrl or cmd click and shift
   click selection, double click (or enter) to open or enter, and the arrow keys to step through them (scrolled into
   view); "Include subfolders" lists every loadable file below the folder instead of its folders (by their path from it),
