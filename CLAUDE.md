@@ -904,7 +904,16 @@ The clipmap, against one volume (two bounces, the frame's gpu time): Bistro in i
 with one clip, 15.7 with three (9.4 without the indirect lighting); CornellBox 6.5 (5.1), Sponza 8.8 (4.8), with three; against its reference, Sponza's inside (`0,2,0,0,90`)
 63% of the reference's light with one clip, 79% with three, its outer wall 86 and 87%. With one clip Bistro's 1.2 m voxels
 leak the sky into its narrow streets, which with three come out dark between their walls (the reference is too slow to
-run there). What's left (TODO.md): the compute's cost with three clips, glossy reflections,
+run there). Where three clips' 6.2 ms go in Bistro's street (each kernel skipped in turn, which leaves last frame's
+data: the content stays): tracing 3.6, the irradiance and the resolve 1.5, merging 1.0, lighting the voxels 0.3, the mips
+and the bounce's lighting little. Over no indirect lighting (9.4 ms): one clip +1.2 ms with one bounce, +2.1 with two;
+two clips +2.2 and +4.0; three +3.4 and +6.2. Each cascade costs about the same (half the rays of the one below, each
+twice as many steps), so the tracing goes with the clips' cascade counts, and the finer clips have the most: theirs all
+reach across the last clip. Their far cascades duplicate the coarser clips' (which their rays march through anyway), but
+can't simply hand over to them: a clip's intervals and directions are in its own probe spacing, so neither the
+intervals nor the angular resolutions of two clips' cascades line up. Tried: the voxels and radiance in 4x4x4 bricks
+(for a ray's locality whichever way it goes) cost 0.4 ms more; a whole voxel's steps instead of half saved 0.9 of the
+3.6. What's left (TODO.md): the compute's cost with three clips, glossy reflections,
 hardware ray queries, and a path traced reference to compare against.
 
 ## Descriptor sets: redundant updates consume the pool
