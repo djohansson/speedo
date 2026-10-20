@@ -937,7 +937,10 @@ reach across the last clip. Their far cascades duplicate the coarser clips' (whi
 can't simply hand over to them: a clip's intervals and directions are in its own probe spacing, so neither the
 intervals nor the angular resolutions of two clips' cascades line up. Tried: the voxels and radiance in 4x4x4 bricks
 (for a ray's locality whichever way it goes) cost 0.4 ms more; a whole voxel's steps instead of half saved 0.9 of the
-3.6. What's left (TODO.md): the compute's cost with three clips, glossy reflections,
+3.6. The march, the shadow rays and the shading's lookups read only the fields they need of the clips they
+loop over (`GiClipView`, and the march's own few), rather than copies of their `GiData` (its cascades' tables): 0.3 to
+0.6 ms less a frame (Bistro's street 16.8 to 16.2, CornellBox 6.6 to 6.3, Sponza 9.3 to 8.8). CornellBox is compared
+over its boxes alone (its whole frame's mean moved with what is drawn around them): 97.8% of its reference's light. What's left (TODO.md): the compute's cost with three clips, glossy reflections,
 hardware ray queries, and a path traced reference to compare against.
 
 ## Descriptor sets: redundant updates consume the pool

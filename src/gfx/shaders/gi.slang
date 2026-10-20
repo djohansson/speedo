@@ -105,6 +105,30 @@ GiData GiClip(uint clip)
 	return gGi[gPushConstants.frameIndex][clip];
 }
 
+// what loops over the clips read of one (the shadow rays, the shading's lookups): only these fields of its GiData,
+// rather than a copy of it all (its cascades' tables), which cost the main pass and the voxels' lighting
+struct GiClipView
+{
+	float4 volumeOrigin;
+	uint4 volumeSize;
+	uint voxelFirst;
+	uint clip;
+	uint clipCount;
+	float probeSpacing; // cascade 0's, in voxels
+};
+
+GiClipView GiClipViewAt(uint clip)
+{
+	GiClipView view;
+	view.volumeOrigin = gGi[gPushConstants.frameIndex][clip].volumeOrigin;
+	view.volumeSize = gGi[gPushConstants.frameIndex][clip].volumeSize;
+	view.voxelFirst = gGi[gPushConstants.frameIndex][clip].voxelFirst;
+	view.clip = clip;
+	view.clipCount = gGi[gPushConstants.frameIndex][clip].clipCount;
+	view.probeSpacing = gGi[gPushConstants.frameIndex][clip].cascadeInterval[0].w / view.volumeOrigin.w;
+	return view;
+}
+
 // a clip's voxel (level 0)
 GiVoxel GiVoxelAt(GiData gi, uint3 voxel)
 {
@@ -128,23 +152,35 @@ float4 GiMarch(GiData gi, uint level, float3 origin, float3 direction, float sta
 {
 	float3 radiance = 0.0;
 	float transmittance = 1.0;
-	GiData clip = gi;
+	// what the steps read of the clip they are in, and its level: only these, rather than a copy of its GiData (its
+	// cascades' tables), read field by field when the ray leaves for the next
+	uint clip = gi.clip;
+	uint clipCount = gi.clipCount;
 	uint clipLevel = level;
+	float4 volumeOrigin = gi.volumeOrigin;
+	uint3 levelSize = GiLevelSize(gi, clipLevel);
+	uint levelFirst = GiLevelFirst(gi, clipLevel);
+	float voxelSize = volumeOrigin.w * float(1u << clipLevel);
 	float t = start;
 	while (t < end && transmittance > 0.01)
 	{
-		float step = clip.volumeOrigin.w * float(1u << clipLevel) * 0.5;
+		float step = voxelSize * 0.5;
 		float3 position = origin + direction * (t + step * 0.5);
-		int3 voxel = int3(floor(GiVoxelCoordinate(clip, position, clipLevel)));
-		if (!GiInside(voxel, GiLevelSize(clip, clipLevel)))
+		int3 voxel = int3(floor((position - volumeOrigin.xyz) / voxelSize));
+		if (!GiInside(voxel, levelSize))
 		{
-			if (clip.clip + 1 >= clip.clipCount)
+			if (clip + 1 >= clipCount)
 				break;
-			clip = GiClip(clip.clip + 1);
-			clipLevel = min(clipLevel > 0u ? clipLevel - 1u : 0u, clip.volumeSize.w - 1u);
+			clip++;
+			volumeOrigin = gGi[gPushConstants.frameIndex][clip].volumeOrigin;
+			uint4 volumeSize = gGi[gPushConstants.frameIndex][clip].volumeSize;
+			clipLevel = min(clipLevel > 0u ? clipLevel - 1u : 0u, volumeSize.w - 1u);
+			levelSize = max(volumeSize.xyz >> clipLevel, uint3(1));
+			levelFirst = gGi[gPushConstants.frameIndex][clip].levelFirst[clipLevel / 4][clipLevel % 4];
+			voxelSize = volumeOrigin.w * float(1u << clipLevel);
 			continue;
 		}
-		float4 sample = GiRadianceAt(clip, clipLevel, voxel);
+		float4 sample = GiUnpackRgba16(gGiRadiance[levelFirst + GiVoxelIndex(uint3(voxel), levelSize)]);
 		radiance += transmittance * sample.rgb;
 		transmittance *= 1.0 - saturate(sample.a);
 		t += step;
@@ -160,9 +196,9 @@ float GiVisibility(GiData gi, float3 origin, float3 direction, float distance)
 	float travelled = 0.0;
 	for (uint clipIt = gi.clip; clipIt < gi.clipCount; clipIt++)
 	{
-		GiData clip = clipIt == gi.clip ? gi : GiClip(clipIt);
-		uint3 size = GiLevelSize(clip, 0);
-		float3 start = GiVoxelCoordinate(clip, origin + direction * travelled, 0);
+		GiClipView clip = GiClipViewAt(clipIt);
+		uint3 size = clip.volumeSize.xyz;
+		float3 start = (origin + direction * travelled - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
 		int3 voxel = int3(floor(start));
 		int3 stepDirection = int3(select(direction >= 0.0, 1, -1));
 		float3 inverse = 1.0 / max(abs(direction), 1e-8);
@@ -891,7 +927,7 @@ float3 GiIrradianceAt(GiData gi, float3 position, float3 normal, uint debug)
 // none; with weightOnly, the weight
 float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weightOnly = false)
 {
-	GiSample sample = GiSampleClip(gi, position, normal);
+	GiSample sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal);
 	if (weightOnly)
 		return sample.last.w;
 	return sample.valid ? GiEvaluate(sample, normal) : -1.0;
@@ -989,13 +1025,13 @@ struct GiSample
 
 // a clip's voxels' resolved probes around the point offset 1.5 voxels along its normal (see GiIrradianceResolved),
 // normalized by their weight
-GiSample GiSampleClip(GiData gi, float3 position, float3 normal)
+GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal)
 {
 	GiSample result;
 	float3 biased = position + normal * (1.5 * gi.volumeOrigin.w);
-	float3 size = float3(GiLevelSize(gi, 0));
+	float3 size = float3(gi.volumeSize.xyz);
 	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
-	float3 coordinate = GiVoxelCoordinate(gi, biased, 0);
+	float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
 	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
 	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
 	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
@@ -1025,25 +1061,24 @@ GiSample GiSampleAt(float3 position, float3 normal)
 	none.b1 = 0.0;
 	none.last = 0.0;
 	none.valid = false;
-	GiData gi = GiClip(0);
-	if (gi.enabled == 0)
+	if (gGi[gPushConstants.frameIndex][0].enabled == 0)
 		return none;
-	for (uint clipIt = 0; clipIt < gi.clipCount; clipIt++)
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
 	{
-		GiData clip = clipIt == 0 ? gi : GiClip(clipIt);
-		float3 coordinate = GiVoxelCoordinate(clip, position, 0);
-		float3 size = float3(GiLevelSize(clip, 0));
+		GiClipView clip = GiClipViewAt(clipIt);
+		float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+		float3 size = float3(clip.volumeSize.xyz);
 		float edge = min(min(coordinate.x, coordinate.y), min(coordinate.z, min(min(size.x - coordinate.x, size.y - coordinate.y), size.z - coordinate.z)));
-		float spacing = clip.cascadeInterval[0].w / clip.volumeOrigin.w;
-		float weight = saturate((edge - spacing) / 8.0);
-		if (clipIt + 1 == gi.clipCount)
+		float weight = saturate((edge - clip.probeSpacing) / 8.0);
+		if (clipIt + 1 == clipCount)
 			return edge > 0.0 ? GiSampleClip(clip, position, normal) : none;
 		if (weight <= 0.0)
 			continue;
 		GiSample fine = GiSampleClip(clip, position, normal);
 		if (weight >= 1.0)
 			return fine;
-		GiSample coarse = GiSampleClip(GiClip(clipIt + 1), position, normal);
+		GiSample coarse = GiSampleClip(GiClipViewAt(clipIt + 1), position, normal);
 		if (!fine.valid)
 			return coarse;
 		if (!coarse.valid)
