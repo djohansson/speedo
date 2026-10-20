@@ -871,8 +871,12 @@ history, no denoiser (temporal accumulation is ruled out by design: its ghosting
   (3.4 without, 7.2 with them; resolved into a buffer, 8 voxels of two `uint4` read by hand, 5.3, and with three
   clips 9.5 and 6.5, whose blend band was 0.9 of it; from the 3D images 3.7, and 4.0 with three clips). Known: a dark
   blue halo around CornellBox's lamps in the indirect light, which the per pixel lookups didn't have and the reference
-  hasn't (summed harmonics ringing below 0 near an emitter, clamped per color; exact probe visibility traversal and
-  shortening the linear band where it goes below 0 didn't remove it, and the latter cost Sponza's wall 7% of its light). The specular
+  hasn't: bands 0 and 1 ringing below 0 opposite the lamp's strong warm light, red and green clamped (a debug view of
+  the colors below 0 before the clamp covered it). Tried: Hazel's non-negative reconstruction (Geomerics) removes it but
+  glows warm there, and against the references moved CornellBox to 104.7%, Sponza's wall to 105 and its inside to 77
+  (from 100.3, 87 and 83); shortening all three gradients alike to keep the lowest color at 0 leaves a blue patch (the
+  means there are bluish); shortening the band wherever it can go below 0 cost Sponza's wall 7%; exact probe visibility
+  traversal changed nothing. Two bands can't hold that light; more bands, or fewer probes seeing the lamp, would. The specular
   takes the same lookup (`GiSampleAt`: the harmonics fetched once, blended between clips, evaluated twice by
   `GiEvaluate`): the environment by the indirect light's share of the environment's irradiance (luminance, at most 1;
   all of it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection, the

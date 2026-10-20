@@ -556,7 +556,7 @@ void WindowedApplication::PrepareDraw()
 		if (const char* walk = std::getenv("SPEEDO_CAMERA_WALK"); walk != nullptr && *walk != '\0')
 			gAutoWalk = std::strtof(walk, nullptr);
 		// either waits for the model's install, which frames the views (a big model's installs frames after its load is
-		// ready: Bistro's came after 30 frames of placements)
+		// ready: Bistro's came after 30 frames of placements), as SPEEDO_AUTOLOAD_EXIT's count does
 		const char* model = std::getenv("SPEEDO_AUTOLOAD_MODEL");
 		gAutoCameraAfterModel = model != nullptr && *model != '\0';
 		if (const char* camera = std::getenv("SPEEDO_CAMERA"); camera != nullptr && std::string_view(camera) == "frame")
@@ -626,7 +626,7 @@ void WindowedApplication::PrepareDraw()
 	// the placement
 	static std::optional<uint64_t> gAutoLoadExitStart;
 	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
-		!gAutoFrame)
+		!gAutoFrame && (!gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty()))
 	{
 		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
 		if (!gAutoLoadExitStart)
