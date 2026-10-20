@@ -116,11 +116,13 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	uint debugView = DebugView();
 	if (DebugViewGi(debugView) != 0u)
 	{
-		float3 debug = GiIrradiance(position, normal);
+		float3 debug = GiIrradiance(position, normal, GiDebug(), view);
 		return debug.x >= 0.0 ? debug : float3(1.0, 0.0, 1.0);
 	}
-	GiSample gi = GiSampleAt(position, normal);
-	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : -1.0;
+	GiSample gi = GiSampleSurface(position, normal, view);
+	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
+	// unoccluded) shone into dark interiors along their edges
+	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
 	// the debug views of the ambient light: a white surface's diffuse, whatever lights it (the indirect lighting where
 	// it covers the point, else the environment)
 	if (debugView == DEBUG_VIEW_INDIRECT_DIFFUSE)

@@ -731,7 +731,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					computeBarrier(cmd);
 					auto size = gi::LevelVoxels(glm::uvec3(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]), levelIt);
 					clips([&](uint32_t clip, const gi::Layout&)
-						  { giKernel(cmd, kGiMipEntryPoint, static_cast<uint64_t>(size.x) * size.y * size.z, clip, levelIt); });
+						  { giKernel(cmd, kGiMipEntryPoint, static_cast<uint64_t>(size.x) * size.y * size.z * 6, clip, levelIt); });
 				}
 				computeBarrier(cmd);
 				clips(

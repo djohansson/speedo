@@ -50,7 +50,8 @@ Layout MakeLayout(
 	{
 		data.levelFirst[levelIt / 4][levelIt % 4] = first.radianceCount + layout.radianceCount;
 		auto levelSize = LevelVoxels(size, levelIt);
-		layout.radianceCount += levelSize.x * levelSize.y * levelSize.z;
+		// the levels above 0 have a face per axis direction (see ComputeGiMip)
+		layout.radianceCount += levelSize.x * levelSize.y * levelSize.z * (levelIt == 0 ? 1U : 6U);
 	}
 	data.directFirst = first.radianceCount + layout.radianceCount;
 	layout.radianceCount += layout.voxelCount;
@@ -124,13 +125,17 @@ Clipmap MakeClipmap(
 {
 	ENSURE(resolution > 0 && clipCount > 0 && clipCount <= SHADER_TYPES_GI_CLIP_COUNT);
 
-	// the last clip: over the scene, with a margin of a voxel around it, so that its surfaces aren't on the volume's edge
+	// the last clip: over the scene, with a margin of one and a half cascade 0 probe spacings around it, so that a layer
+	// of probes stands outside its outermost surfaces: with a voxel of margin, the probes nearest an outer wall were in
+	// it, and its outside saw none (and was lit by the probes inside, which the merge's and the resolve's fallbacks took)
 	glm::vec3 min = bounds.GetMin();
 	glm::vec3 max = bounds.GetMax();
 	auto extent = glm::max(max - min, glm::vec3(1e-3F));
-	float voxelSize = std::max({extent.x, extent.y, extent.z}) / static_cast<float>(std::max(resolution, 3U) - 2);
-	min -= glm::vec3(voxelSize);
-	glm::uvec3 size = glm::max(glm::uvec3(glm::ceil((extent + glm::vec3(2.0F * voxelSize)) / voxelSize)), glm::uvec3(1));
+	uint32_t margin = (probeSpacing * 3 + 1) / 2;
+	float voxelSize = std::max({extent.x, extent.y, extent.z}) / static_cast<float>(std::max(resolution, 2 * margin + 1) - 2 * margin);
+	min -= glm::vec3(voxelSize * static_cast<float>(margin));
+	glm::uvec3 size = glm::max(
+		glm::uvec3(glm::ceil((extent + glm::vec3(2.0F * voxelSize * static_cast<float>(margin))) / voxelSize)), glm::uvec3(1));
 	glm::vec3 last = glm::vec3(size) * voxelSize;
 	float reach = glm::length(last);
 

@@ -987,6 +987,26 @@ boundary rounds to either side (so the offset); per pixel visibility marches cos
 The voxels' normals pointed toward the face each stands for, not away from it (as above): every voxel's shadow ray
 started in its twin across the surface, so no voxel was ever lit by a light, and a ray from in front of a wall met the
 voxel of its back face, lit from inside the wall (Voxel Radiance of Sponza's sunlit wall was black with one bounce).
+The leaks into dark interiors along their edges and corners (thin lines of the sky's light, about a voxel wide, along
+the bases of Sponza's ground floor walls and its curtains), four causes, each found with the probe visibility and
+level 0 views: a surface's voxels saw their probes from their own centers, among the surface's voxels, so they saw none
+(at a concave edge most of a lookup's 8 voxels are surfaces'), and a voxel that saw none took every probe at a
+thousandth of the weight, the sky's beyond the wall too: now a surface's voxel sees from a voxel out along its normal
+(`ComputeGiVisibility`), and one that sees none takes none; the shading's lookup goes 0.75 voxels along the normal and
+1.5 toward the eye (the line of sight is clear; the normal alone led into the other surface's voxels at an edge), twice
+as far where that finds none (`GiSampleSurface`), and a point a clip holds but whose lookup finds no probe gets no
+ambient light rather than the unoccluded environment's (`GiSample::inside`); the merge took the probes above that a
+probe can't see at a thousandth of the weight, which where it saw none was all of theirs (now none); the last clip's
+margin was a voxel, so the probes nearest the scene's outer walls were inside them and their outsides were lit from
+inside (it is one and a half cascade 0 probe spacings now: Sponza's outer wall went from 92% of its reference's light to
+97%); and the coarse levels averaged a thin surface's two faces, so a ray from inside saw the sunlit outside through
+the curtains and walls (red and yellow on the columns beside them, which level 0 hadn't): the levels above 0 are
+anisotropic now (`ComputeGiMip`: 6 faces per voxel, one per axis direction, each its children composited front to back
+along it; a ray reads the 3 faces it looks through, by its direction's squares). Last night's anisotropic mips lost
+light against the reference, but on voxels no light lit. Against the references now: CornellBox's boxes 102.6%,
+Sponza's wall 97.2%, its inside 91.4% (it read 97.7% with the leaks, which matched light the reference hasn't with light
+it has). The four cost Bistro's street 2.7 ms (18.2 to 20.9), CornellBox 2.0 and Sponza 1.6. `SPEEDO_EXPOSURE=<stops>`
+sets the exposure, to capture dark interiors comparably.
 The voxels' albedo took the metallic factor alone, not times the metallic-roughness texture's (as the shading does):
 Sponza's factor is the default 1, its texture saying where metal is, so every one of its voxels was black and bounced
 nothing (the Voxel Albedo debug view showed it). The measurements of Sponza here are from before that fix.

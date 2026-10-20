@@ -757,8 +757,8 @@ void WindowedApplication::PrepareDraw()
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
-		// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear) and auto exposure
-		// (SPEEDO_AUTO_EXPOSURE=1) to start with (as View sets them)
+		// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear), auto exposure
+		// (SPEEDO_AUTO_EXPOSURE=1) and the exposure to start with (as View sets them)
 		if (const char* tonemapper = std::getenv("SPEEDO_TONEMAPPER"); tonemapper != nullptr)
 		{
 			std::string_view name(tonemapper);
@@ -772,6 +772,9 @@ void WindowedApplication::PrepareDraw()
 		}
 		if (const char* autoExposure = std::getenv("SPEEDO_AUTO_EXPOSURE"); autoExposure != nullptr && std::string_view(autoExposure) == "1")
 			App().GetScene().GetSettings().autoExposure.store(true, std::memory_order_relaxed);
+		// SPEEDO_EXPOSURE=<stops>: the exposure (View > Exposure), e.g. to capture a dark interior as it is, comparably
+		if (const char* exposure = std::getenv("SPEEDO_EXPOSURE"); exposure != nullptr && *exposure != '\0')
+			App().GetScene().GetSettings().exposureStops.store(std::strtof(exposure, nullptr), std::memory_order_relaxed);
 		if (const char* shadows = std::getenv("SPEEDO_SHADOWS"); shadows != nullptr && std::string_view(shadows) == "0")
 			App().GetScene().GetSettings().shadows.store(false, std::memory_order_relaxed);
 		if (const char* culling = std::getenv("SPEEDO_CULLING"); culling != nullptr && std::string_view(culling) == "0")
