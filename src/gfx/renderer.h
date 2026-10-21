@@ -354,6 +354,7 @@ private:
 	uint32_t myGiClipCount = 3;
 	uint32_t myGiRayCount = 128; // at most: SPEEDO_GI_RAY_COUNT
 	uint32_t myGiRayBudget = 500000; // rays a frame over all probes (SPEEDO_GI_RAY_BUDGET): fewer per probe where more are traced
+	uint32_t myGiReferenceRayCount = 256; // SPEEDO_GI_REFERENCE_RAYS, see GiData::referenceRayCount
 	uint32_t myGiRayCountThisFrame = 128;
 	uint32_t myGiActiveProbeCount = 0; // what the last frame of this index counted (see gGiStatistics)
 	uint64_t myGiActiveProbeSum = 0; // over the frames, for SPEEDO_GPU_TIMINGS' summary

@@ -976,6 +976,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	if (const char* hysteresis = std::getenv("SPEEDO_GI_HYSTERESIS"); hysteresis != nullptr && *hysteresis != '\0')
 		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
 	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
+	if (const char* rays = std::getenv("SPEEDO_GI_REFERENCE_RAYS"); rays != nullptr && *rays != '\0')
+		myGiReferenceRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 16U, 4096U);
 	myGiBounce = bounce == nullptr || std::string_view(bounce) != "0";
 	// and whether a probe blends faster through a change of the light (SPEEDO_GI_ADAPT=1; off: on a still scene the
 	// same ray set returns every rayPhaseCount frames, and a ray that hits a sunlit patch tripped the test each time,
@@ -2364,6 +2366,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.adapt = myGiAdapt ? 1 : 0;
 		clip.moving = myGiMovingJobCount > 0 ? 1 : 0;
 		clip.dumpProbe = ~0U;
+		clip.referenceRayCount = myGiReferenceRayCount;
 		if (myGiDump)
 		{
 			// the probe nearest the dump point: by its lattice (the offsets are small)

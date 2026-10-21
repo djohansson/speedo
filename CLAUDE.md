@@ -1057,8 +1057,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
 - **The resolve and the shading**: after the probes, GI Resolve (`ComputeGiResolve`, a group per block of 4x4x4
   voxels, with its 8 probes, or 27 where it spans two cells an axis, in shared memory) gives each voxel of each clip
   the harmonics of the 8 probes around its center, each weighed as DDGI weighs them: by how much it faces the voxel's
-  open side (its occupancy's gradient over its 6 neighbors, plus a surface's voxel's own normal: by the normal alone a
-  floor's voxel at a wall's base was tested from a point straight up, as close to the wall as before; wrapped,
+  open side (its occupancy's gradient over the 3 voxels each way, the nearer counting more, plus a surface's voxel's
+  own normal: by the normal alone a floor's voxel at a wall's base was tested from a point straight up, as close to the
+  wall as before; over the 6 neighbors alone, the voxels a lookup lands in, a voxel or two off a surface, had no side,
+  so there every probe counted by its visibility alone, and a probe behind Bistro's hotel facade, whose depth toward
+  the street mixes the facade's with the window's beside it, which Chebyshev lets through, lit the wall by the window
+  with the hotel's interior: the air voxels in front of the wall resolved to 1.0 against the wall's own 0.26, 0.4 with
+  the reach, for 0.3 ms of Sponza's frame; wrapped,
   `facing^2 + 0.02`: DDGI's 0.2 for the probes behind let the probes below Sponza's floors, in the clipmap's margin and
   lit by the environment through its bottom, in where every probe of the corridor failed), by whether it sees the
   voxel's point (out that way by a fifth of a spacing, at least a voxel: DDGI's normal bias; a probe's depth map along
@@ -1113,7 +1118,8 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   `GiData::debug`): 1 the indirect diffuse alone, 2 the resolved weight (how much a point sees of the probes around it),
   3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light
   from 512 rays through the voxels straight to the environment, nothing blended (seconds a frame); 13 the surface
-  reference (`GiPixelReference`: 256 cosine weighted rays from the point itself, its spiral turned per point by a hash,
+  reference (`GiPixelReference`: `SPEEDO_GI_REFERENCE_RAYS` cosine weighted rays from the point itself, 256, fewer
+  where a frame of it runs past Metal's queue timeout, Bistro's long walks to the sky at 64; its spiral turned per point by a hash,
   else its fixed directions made radial streaks; the rays shared out among the clips that hold the point by the
   weights the shading blends them with, each ray one clip's, so a pixel costs the same however many hold it: from the
   finest alone, the edge of its box cut the vault in two shades, and every ray in every clip ran past Metal's queue

@@ -731,6 +731,9 @@ struct GiData
 	// point it was asked for (xyz)
 	alignas(4) UINT1(dumpProbe);
 	alignas(16) FLOAT4(dumpPoint);
+	// the surface reference's rays per pixel (SPEEDO_GI_REFERENCE_RAYS, 256: fewer where a frame of it runs past Metal's
+	// command queue timeout, Bistro's long walks to the sky)
+	alignas(4) UINT1(referenceRayCount);
 };
 
 struct PushConstants

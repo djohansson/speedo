@@ -1616,7 +1616,7 @@ float3 GiPixelReference(float3 position, float3 normal, float3 view)
 	float3 tangent = normalize(abs(normal.y) < 0.9 ? cross(normal, float3(0, 1, 0)) : cross(normal, float3(1, 0, 0)));
 	float3 bitangent = cross(normal, tangent);
 	EnvironmentData environment = gEnvironment[0];
-	const uint kRays = 256;
+	uint kRays = gGi[gPushConstants.frameIndex][0].referenceRayCount;
 	// the spiral turned and shifted by a hash of the point: the same directions everywhere made radial streaks (each
 	// ray's hit or miss the same over a whole surface); turned per point, they are noise instead
 	uint hash = asuint(position.x * 7919.0) * 73856093u ^ asuint(position.y * 7919.0) * 19349663u ^ asuint(position.z * 7919.0) * 83492791u;
@@ -1794,13 +1794,20 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	// voxels, a probe saw nothing). the gradient for a surface's voxel too: by its normal alone, a floor's voxel at a
 	// wall's base was tested from a point straight up, as close to the wall as before, which the sunlit probes beyond the
 	// wall saw at a grazing angle (a bright band along Sponza's floors)
+	// over the 3 voxels each way, the nearer ones counting more: the lookups land a voxel or two off a surface (see
+	// GiSampleSurface), where the 6 neighbors alone gave no side, so every probe counted by its visibility alone, and a
+	// probe behind Bistro's hotel facade, whose depth toward the street mixes the facade's with the window's beside
+	// it (Chebyshev lets the point through), lit the wall by the window with the hotel's interior
 	float3 away = 0.0;
 	for (uint axisIt = 0; axisIt < 3; axisIt++)
 	{
 		int3 step = int3(axisIt == 0u, axisIt == 1u, axisIt == 2u);
-		float below = GiInside(int3(at) - step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) - step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
-		float above = GiInside(int3(at) + step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) + step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
-		away[axisIt] = below - above;
+		for (int reachIt = 1; reachIt <= 3; reachIt++)
+		{
+			float below = GiInside(int3(at) - step * reachIt, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) - step * reachIt), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+			float above = GiInside(int3(at) + step * reachIt, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) + step * reachIt), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+			away[axisIt] += (below - above) / float(reachIt);
+		}
 	}
 	if ((voxel.albedo >> 24) != 0u)
 	{
