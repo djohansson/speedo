@@ -893,8 +893,14 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   `-2.3323,4.8044,-3.5225,0.779,449.768`), and the surface reference agreed, reading the same voxels. With the shells
   passed its far corridor at exposure 6 reads 0.045 (the reference 0.033; before 0.017 and 0.011), the mid floor 0.18
   (0.09; 0.07 and 0.04) and the near 0.42 (0.39): it still darkens with the distance, the last clip's openings being
-  what they are (two clips at 256 voxels light it, 0.13, for Sponza's 13 to 24 ms a frame, 29 with three: too much;
-  TODO.md). The one voxel shell has corner gaps only where a plane passes voxel corners exactly, which the second shell
+  what they are (two clips at 256 voxels light it, 0.13, for Sponza's 13 to 24 ms a frame, 29 with three, and three at
+  192 0.16 for 21: too much; TODO.md). A probe's rays walk from the finest clip whose box holds it (`GiFinestClipHolding`, in `ComputeGiTrace`),
+  not from its own, so the clips' probes agree where they overlap: by their own voxels, the finest clip's sun patches
+  lit its probes and not the coarser clip's beside them, so its box's edge was a step of 12% on the vault (the user's
+  "sharp discontinuity", in the surface reference as much as the probes' render, whose fade band is narrow that far
+  out), moving with the eye; the step is 8% now, over a probe spacing, and the far corridor reads 0.075 (the coarser
+  clip's probes nearest the box walk the fine voxels too). What is left of it is the coarser voxels' own lighting
+  beyond the finest box. The one voxel shell has corner gaps only where a plane passes voxel corners exactly, which the second shell
   covered: the samples' half voxel offset keeps it face connected elsewhere. The voxels' albedo is the base color times 1 minus the metallic factor times its texture's
   (by the factor alone, Sponza's voxels were all black). Those voxels are kept (GI Keep, into a buffer of their own:
   the clips voxelized, the others' voxels holding what moved last frame), lit by the lights (GI Light Static, below),

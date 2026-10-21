@@ -1156,9 +1156,26 @@ GiDepthTaps GiDepthTapsAt(float3 direction)
 	return taps;
 }
 
+// the finest clip whose box around the eye holds a point, at most clip: a coarser clip's probe standing inside a finer
+// clip walks its rays through the finer voxels first (the walks go on through the coarser clips), so that the clips'
+// probes agree where they overlap. by their own voxels, the finer clip's sun patches lit its probes and not the coarser
+// clip's beside them (its shells close more of the openings), a step at the finest clip's box edge, darker beyond,
+// that moved with the eye (Sponza's first floor vault: 12% in the reference and the probes alike)
+uint GiFinestClipHolding(float3 position, uint clip)
+{
+	for (uint clipIt = 0; clipIt < clip; clipIt++)
+	{
+		GiClipView view = GiClipViewAt(clipIt);
+		if (all(abs(position - view.fadeCenter.xyz) < view.fadeExtent.xyz))
+			return clipIt;
+	}
+	return clip;
+}
+
 // the probes' rays (a thread per probe and ray): each to the first voxel it meets (see GiMarch), as far as the clipmap
 // reaches, the environment past it; and to the first voxel it meets by the depth's rules (see GiOccluderHit), as far as
-// a probe's depth map tells (SHADER_TYPES_GI_DEPTH_REACH spacings)
+// a probe's depth map tells (SHADER_TYPES_GI_DEPTH_REACH spacings); both from the finest clip holding the probe (see
+// GiFinestClipHolding)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
@@ -1180,12 +1197,13 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	float3 direction = GiRayDirection(gi, GiProbePhase(gi, probe), rayIndex);
 	GiData last = GiClip(gi.clipCount - 1);
 	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
-	float4 traced = GiMarch(gi, origin, direction, far, true);
+	GiData walk = GiClip(GiFinestClipHolding(origin, gi.clip));
+	float4 traced = GiMarch(walk, origin, direction, far, true);
 	float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
 	// and the depth, negative where the voxel met was a surface's back (see GiOccluderHit)
 	float reach = SHADER_TYPES_GI_DEPTH_REACH * gi.probeOrigin.w;
 	bool backface;
-	float depth = GiOccluderHit(gi, origin, direction, reach, false, backface) / gi.probeOrigin.w;
+	float depth = GiOccluderHit(walk, origin, direction, reach, false, backface) / gi.probeOrigin.w;
 	gGiRays[gi.rayFirst + threadId.x] = GiPackRgba16(float4(radiance, backface ? -depth : depth));
 }
 
