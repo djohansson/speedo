@@ -1106,6 +1106,13 @@ Renderer::~Renderer()
 					line += std::format(" {}:{}/{:.3f}/{:.2f}", stepIt, values[16 + 256 + 51 + stepIt * 3] != 0.0F ? "x" : ".", static_cast<double>(values[16 + 256 + 52 + stepIt * 3]), static_cast<double>(values[16 + 256 + 53 + stepIt * 3]));
 				std::println("{}", line);
 			}
+			for (int cornerIt = 0; cornerIt < 8; cornerIt++)
+			{
+				const float* v = &values[16 + 256 + 99 + cornerIt * 10];
+				std::println("  the resolve at the point's voxel, probe {}: at ({:.1f}, {:.1f}, {:.1f}) facing {:.3f} visibility {:.3f} distance {:.3f} mean {:.3f} nearest {:.3f} weight {:.4f} red {:.3f}",
+							 cornerIt, static_cast<double>(v[0]), static_cast<double>(v[1]), static_cast<double>(v[2]), static_cast<double>(v[3]), static_cast<double>(v[4]), static_cast<double>(v[5]),
+							 static_cast<double>(v[6]), static_cast<double>(v[7]), static_cast<double>(v[8]), static_cast<double>(v[9]));
+			}
 			std::println(
 				"  the walk straight down: distance {:.3f} m, ended in clip {:.0f} after {:.0f} steps, in voxel row {:.0f}",
 				static_cast<double>(values[16 + 256 + 32]), static_cast<double>(values[16 + 256 + 33]), static_cast<double>(values[16 + 256 + 34]), static_cast<double>(values[16 + 256 + 35]));

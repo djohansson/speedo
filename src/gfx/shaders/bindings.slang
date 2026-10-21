@@ -164,7 +164,7 @@ StructuredBuffer<uint> gGiLightIndices[SHADER_TYPES_FRAME_COUNT];
 // the probes' depth maps (see SHADER_TYPES_GI_DEPTH_SIDE: half2 per texel, the mean distance and the mean of its square),
 // in two halves as the irradiance
 [[vk::binding(29, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
-RWStructuredBuffer<uint> gGiProbeDepth;
+RWStructuredBuffer<uint> gGiProbeDepth; // per texel: the mean distance, its spread and the nearest (see GiPackDepth)
 // the static voxels kept, which the clips that move shift theirs from (see ComputeGiShift)
 [[vk::binding(30, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<GiVoxel> gGiStaticVoxels;

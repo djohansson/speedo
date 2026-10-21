@@ -1023,7 +1023,11 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   the probe: its irradiance as spherical harmonics of
   bands 0 to 2 (`SHADER_TYPES_GI_SH_COUNT`, 9 coefficients a color, `gGiIrradiance`; coefficient 0's w counts the
   frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 16 by 16 octahedral texels of the
-  mean distance and the mean of its square, half2, DDGI's; a texel takes the rays near its direction by `cos^50` of
+  mean distance and the mean of its square, half2, DDGI's, and the nearest the rays within about 20 degrees met,
+  blended as the mean is (packed in the one word with the mean: the mean a half, the spread and the nearest over the
+  mean 8 bits each, `GiPackDepth`; a second word doubled what the resolve streams per block, every probe's 256
+  texels, for 2 to 3 ms a frame) (a running minimum relaxing by a percent a frame stepped whenever a nearer
+  ray came, and the weights with it: the lion wall's still frames stepped 28 of 255 rather than 14; see below); a texel takes the rays near its direction by `cos^50` of
   their angle, `SHADER_TYPES_GI_DEPTH_SHARPNESS`, four texels a thread, and keeps what it had where none is near: at
   8x8 and `cos^10` a texel toward a wall mixed the wall's distance with what is beyond it, and a sunlit probe outside
   the wall lit the points at its base inside, and Sponza's walls showed the probe cells as blotches; 16x16 cost 2 ms on
@@ -1068,7 +1072,16 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   lit by the environment through its bottom, in where every probe of the corridor failed), by whether it sees the
   voxel's point (out that way by a fifth of a spacing, at least a voxel: DDGI's normal bias; a probe's depth map along
   the direction to the point, bilinear across the octahedral map's folds, and Chebyshev's inequality where the point is
-  farther than the mean, cubed, at least a thousandth: DDGI's twentieth of a sunlit probe outside a wall lit a band
+  farther than the mean, cubed, at least a thousandth; and a point well behind the nearest thing the texel's rays
+  met, past one and a half times its distance and a tenth of a spacing, is behind the nearer of two things the texel
+  sees, the wall with the window beside it, which the mean and the variance can't tell: nearer than the mean the test
+  let the point through, and beyond it the mix's variance did; a probe inside the building by Bistro's square, its
+  texel toward the ground before the entrance at a mean of 0.39 spacings with the wall at 0.066, saw the ground at
+  0.54 at 0.55 and, alone of its cell's probes to pass, lit the square and the entrance with the interior (the user's
+  "yellow lights that don't make sense"); such a probe takes a tenth of the floor below too, since a point every probe
+  fails takes their mean, which one behind a wall, lit by what is there, pulled its way; by a tenth of a spacing
+  alone, a texel toward a floor at a grazing angle failed its probe too, meeting the floor nearer than the point all
+  the way, a continuum, where the point is within half again of the nearest. DDGI's twentieth of a sunlit probe outside a wall lit a band
   along the floors inside, and the floor only needs to be more than nothing, since the lookup normalizes; a probe whose
   depth that way is nothing sees nothing at all, being inside a surface's voxels, and is skipped, as is one marked
   inside, above), crushed below a fifth (cubed, so that a point few see takes the mean of them rather than nothing),

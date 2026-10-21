@@ -18,6 +18,29 @@ float2 GiUnpackHalf2(uint v)
 	return float2(f16tof32(v & 0xFFFFu), f16tof32(v >> 16));
 }
 
+// a probe's depth texel (gGiProbeDepth) in a word: the mean distance as a half (negative while provisional, see
+// ComputeGiProbeUpdate), the spread (the square root of the variance over the mean, up to 4) and the nearest the
+// texel's rays met over the mean, 8 bits each: a second word (two halves) doubled what the resolve streams per block,
+// every probe's 256 texels, for 2 to 3 ms a frame
+uint GiPackDepth(float mean, float meanSquare, float nearest)
+{
+	float magnitude = max(abs(mean), 1e-6);
+	float spread = sqrt(max(meanSquare - mean * mean, 0.0)) / magnitude;
+	uint spreadBits = uint(round(saturate(spread * 0.25) * 255.0));
+	uint nearestBits = uint(round(saturate(abs(nearest) / magnitude) * 255.0));
+	return (f32tof16(mean) & 0xFFFFu) | (spreadBits << 16) | (nearestBits << 24);
+}
+
+// the mean (its sign kept), its square and the nearest (the mean's sign)
+float3 GiUnpackDepth(uint v)
+{
+	float mean = f16tof32(v & 0xFFFFu);
+	float magnitude = abs(mean);
+	float spread = float((v >> 16) & 0xFFu) / 255.0 * 4.0 * magnitude;
+	float nearest = float(v >> 24) / 255.0 * magnitude;
+	return float3(mean, spread * spread + mean * mean, mean < 0.0 ? -nearest : nearest);
+}
+
 uint2 GiPackRgba16(float4 v)
 {
 	return uint2(GiPackHalf2(v.xy), GiPackHalf2(v.zw));
@@ -1263,6 +1286,8 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	float depthWeight[kTexelsPerThread];
 	float2 wideSum[kTexelsPerThread];
 	float wideWeight[kTexelsPerThread];
+	float depthMin[kTexelsPerThread];
+	float wideMin[kTexelsPerThread];
 	for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
 	{
 		uint texel = texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE;
@@ -1271,6 +1296,8 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		depthWeight[texelIt] = 0.0;
 		wideSum[texelIt] = 0.0;
 		wideWeight[texelIt] = 0.0;
+		depthMin[texelIt] = 1e9;
+		wideMin[texelIt] = 1e9;
 	}
 	float3 sh[SHADER_TYPES_GI_SH_COUNT];
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
@@ -1303,10 +1330,15 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 				float weight = pow(cosine, SHADER_TYPES_GI_DEPTH_SHARPNESS);
 				depthSum[texelIt] += weight * float2(rayDepth, rayDepth * rayDepth);
 				depthWeight[texelIt] += weight;
+				// and the nearest of the rays within about 20 degrees of the texel (see below)
+				if (weight > 0.05)
+					depthMin[texelIt] = min(depthMin[texelIt], rayDepth);
 				// and by a wide cone, for a texel no ray is near (below)
 				float wide = cosine * cosine * cosine * cosine;
 				wideSum[texelIt] += wide * float2(rayDepth, rayDepth * rayDepth);
 				wideWeight[texelIt] += wide;
+				if (wide > 0.3)
+					wideMin[texelIt] = min(wideMin[texelIt], rayDepth);
 			}
 			if (texelIndex == 0u)
 			{
@@ -1340,15 +1372,27 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		// the wide cone's value is provisional (its mean negated) until the first rays near the texel replace it whole:
 		// blended in at the hysteresis, a texel filled wide kept a wrong distance for seconds (the wide cone of a probe
 		// above a floor is the floor's distance sideways too)
+		// and the nearest thing the texel's rays met (the second word): the frame's nearest among the rays near the texel,
+		// blended as the mean is (a running minimum relaxing by a percent a frame stepped whenever a nearer ray came, and
+		// the weights with it: the lion wall's still frames stepped 28 of 255 rather than 14); provisional as the mean
+		// is. the mean and its square can't
+		// tell a texel toward a wall with a window beside it (half its rays at the wall, half far through the window) from
+		// one toward a mid distance, and Chebyshev's test let every point nearer than their mean through: a probe inside
+		// Bistro's hotel lit the facade by its windows and its entrance with the interior (see ComputeGiResolve)
 		bool near = depthWeight[texelIt] > 1e-4;
 		float2 depth = near ? depthSum[texelIt] / depthWeight[texelIt] : (wideWeight[texelIt] > 1e-4 ? float2(-wideSum[texelIt].x, wideSum[texelIt].y) / wideWeight[texelIt] : 0.0);
+		float nearest = near ? (depthMin[texelIt] < 1e8 ? depthMin[texelIt] : depth.x) : (wideWeight[texelIt] > 1e-4 ? -(wideMin[texelIt] < 1e8 ? wideMin[texelIt] : -depth.x) : 0.0);
 		if (shifted)
 		{
-			float2 held = GiUnpackHalf2(gGiProbeDepth[gi.depthPreviousFirst + fromIndex * kTexelCount + texel]);
+			float3 heldTexel = GiUnpackDepth(gGiProbeDepth[gi.depthPreviousFirst + fromIndex * kTexelCount + texel]);
+			float2 held = heldTexel.xy;
+			float heldNearest = heldTexel.z;
 			float alpha = held.x > 0.0 ? (near ? max(1.0 - gi.hysteresis, 1.0 / (age + 1.0)) : 0.0) : (near || held.x == 0.0 ? 1.0 : 0.0);
 			depth = lerp(held, depth, alpha);
+			float nearestAlpha = heldNearest > 0.0 ? (near ? max(1.0 - gi.hysteresis, 1.0 / (age + 1.0)) : 0.0) : (near || heldNearest == 0.0 ? 1.0 : 0.0);
+			nearest = lerp(heldNearest, nearest, nearestAlpha);
 		}
-		gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texel] = GiPackHalf2(depth);
+		gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texel] = GiPackDepth(depth.x, depth.y, nearest);
 	}
 	if (texelIndex != 0u)
 		return;
@@ -1534,7 +1578,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + rayIt * 2 + 1] = asuint(GiUnpackRgba16(gGiRays[rayFirst + rayIt]).a);
 		}
 		for (uint texelIt = 0; texelIt < kTexelCount; texelIt++)
-			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + texelIt] = asuint(GiUnpackHalf2(gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIt]).x);
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + texelIt] = asuint(GiUnpackDepth(gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIt]).x);
 	}
 }
 
@@ -1840,6 +1884,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		float3 weights = select(offset != 0, fraction, 1.0 - fraction);
 		float weight = 1.0;
 		float3 probePosition = gGiSharedProbePosition[slot];
+		float facingWeight = 1.0;
 		// the probes on the open side weigh more (wrapped, so that those beside it count a little; DDGI's fifth for the
 		// ones behind let the probes below Sponza's floors, in the clipmap's margin and lit by the environment through its
 		// bottom, light the floors' edges along the walls, where every probe in the corridor fails and a point takes the
@@ -1847,7 +1892,8 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		if (awayLength > 0.0)
 		{
 			float facing = dot(normalize(probePosition - center), away) * 0.5 + 0.5;
-			weight *= facing * facing + 0.02;
+			facingWeight = facing * facing + 0.02;
+			weight *= facingWeight;
 		}
 		// whether it sees the point: against the distance it sees toward the point, by Chebyshev's inequality where the
 		// point is farther, cubed, at least a thousandth (DDGI's twentieth of a sunlit probe outside a wall lit the points
@@ -1859,10 +1905,12 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		float distance = length(toProbe);
 		GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
 		float2 moments = 0.0;
+		float nearest = 1e9;
 		for (uint tapIt = 0; tapIt < 4; tapIt++)
 		{
-			float2 tap = GiUnpackHalf2(gGiSharedDepth[slot * kTexelCount + taps.texel[tapIt]]);
+			float3 tap = GiUnpackDepth(gGiSharedDepth[slot * kTexelCount + taps.texel[tapIt]]);
 			moments += taps.weight[tapIt] * float2(abs(tap.x), tap.y);
+			nearest = min(nearest, abs(tap.z));
 		}
 		if (moments.x < 1e-3 || gGiSharedSh[slot * SHADER_TYPES_GI_SH_COUNT + 5].w > 0.5)
 			continue;
@@ -1875,6 +1923,18 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			visibility = variance / (variance + delta * delta);
 			visibility *= visibility * visibility;
 		}
+		// and a point well behind the nearest thing the texel's rays met (past one and a half times its distance and a
+		// tenth of a spacing: a texel toward a floor at a grazing angle meets it nearer than the point all the way, a
+		// continuum, where the point is within half again of the nearest; by a tenth of a spacing alone, those probes
+		// failed too) is behind the nearer of two things the texel sees (the wall, with the window beside it: see
+		// ComputeGiProbeUpdate), which Chebyshev's test can't tell: nearer than their mean it let the point through, and
+		// beyond it the mix's variance did (a probe inside the building by Bistro's square, its texel toward the ground
+		// before the entrance at a mean of 0.39 spacings with the wall at 0.066, saw the ground at 0.54 at 0.55, and
+		// alone of its cell's probes, the rest failing, lit the square's ground and the entrance with the interior). such
+		// a probe gets a tenth of the floor below too: a point every probe fails takes their mean, which one behind a
+		// wall, lit by what is there, pulled its way
+		float behind = nearest < 1e8 ? smoothstep(nearest * 1.5 + 0.1, nearest * 2.0 + 0.2, d) : 0.0;
+		visibility *= 1.0 - behind;
 		weight *= max(visibility, 0.001);
 		// less of the ones seen little (DDGI's crush: below a fifth, cubed), then a little of every probe, so that a point
 		// none sees takes their mean rather than nothing (the floor after the crush: a floor before it was crushed to
@@ -1884,11 +1944,20 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		// least, which drew the cells)
 		if (weight < 0.2)
 			weight *= weight * weight * 25.0;
-		weight = max(weight, 1e-3);
+		weight = max(weight, lerp(1e-3, 1e-4, behind));
 		weight *= weights.x * weights.y * weights.z;
 		for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
 			sh[shIt] += weight * gGiSharedSh[slot * SHADER_TYPES_GI_SH_COUNT + shIt].rgb;
 		seen += weight;
+		// the resolve at the dumped point's voxel, per probe (see GI_DUMP_FLOAT_COUNT): its position, the facing weight,
+		// the visibility, the distance in spacings, the texel's mean and nearest, and the weight it ends with
+		if (gi.dumpProbe != ~0u && all(int3(at) == int3(floor(GiVoxelCoordinate(gi, gi.dumpPoint.xyz, 0)))))
+		{
+			uint dumpFirst = GI_STATISTIC_COUNT + gi.clip * GI_DUMP_FLOAT_COUNT + 16 + kTexelCount + 99 + cornerIt * 10;
+			float values[10] = {probePosition.x, probePosition.y, probePosition.z, facingWeight, visibility, d, moments.x, nearest, weight, gGiSharedSh[slot * SHADER_TYPES_GI_SH_COUNT].r};
+			for (uint valueIt = 0; valueIt < 10; valueIt++)
+				gGiStatistics[gPushConstants.frameIndex][dumpFirst + valueIt] = asuint(values[valueIt]);
+		}
 	}
 	// per color its coefficients 0 to 3 and 4 to 7, then the three colors' coefficient 8 and the weight (see GiSample)
 	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
@@ -2219,10 +2288,12 @@ float3 GiProbeStateDebug(float3 position, float3 normal)
 			float distance = length(toProbe);
 			GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
 			float2 moments = 0.0;
+			float nearest = 1e9;
 			for (uint tapIt = 0; tapIt < 4; tapIt++)
 			{
-				float2 tap = GiUnpackHalf2(gGiProbeDepth[gi.depthFirst + (probeIndex - gi.probeFirst) * kTexelCount + taps.texel[tapIt]]);
+				float3 tap = GiUnpackDepth(gGiProbeDepth[gi.depthFirst + (probeIndex - gi.probeFirst) * kTexelCount + taps.texel[tapIt]]);
 				moments += taps.weight[tapIt] * float2(abs(tap.x), tap.y);
+				nearest = min(nearest, abs(tap.z));
 			}
 			float empty = moments.x < 1e-3 ? 1.0 : 0.0;
 			float d = distance / gi.probeOrigin.w;
@@ -2234,6 +2305,8 @@ float3 GiProbeStateDebug(float3 position, float3 normal)
 				visibility = variance / (variance + delta * delta);
 				visibility *= visibility * visibility;
 			}
+			if (nearest < 1e8)
+				visibility *= 1.0 - smoothstep(nearest * 1.5 + 0.1, nearest * 2.0 + 0.2, d);
 			float failing = empty == 0.0 && inside == 0.0 && visibility < 0.5 ? 1.0 : 0.0;
 			// of the probes on the point's open side only (the ones behind its surface fail as they should)
 			if (dot(toProbe, normal) < 0.0)
