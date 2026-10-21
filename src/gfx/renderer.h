@@ -357,6 +357,7 @@ private:
 	uint32_t myGiProbeSpacing = 8;
 	float myGiHysteresis = 0.97F;
 	bool myGiBounce = true;
+	bool myGiAdapt = true;
 	uint32_t myGiProbeHalf = 0;
 	bool myGiReset = true;
 	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp

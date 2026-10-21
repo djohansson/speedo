@@ -998,6 +998,8 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	bool shifted = gi.reset == 0u && GiInside(from, gi.probeSize.xyz);
 	uint fromIndex = shifted ? GiProbeIndex(uint3(from), gi.probeSize) : 0u;
 	float age = shifted ? gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_SH_COUNT].w : 0.0;
+	// and how much its frames' light differs from what it holds, frame to frame (coefficient 1's w: its noise)
+	float noise = shifted ? gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_SH_COUNT + 1].w : 0.0;
 
 	// the rays: the texel's depth, and (the first texel's thread) the harmonics
 	float3 texelDirection = GiDirection(uint2(texelIndex % SHADER_TYPES_GI_DEPTH_SIDE, texelIndex / SHADER_TYPES_GI_DEPTH_SIDE), SHADER_TYPES_GI_DEPTH_SIDE);
@@ -1107,8 +1109,19 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		}
 	}
 	float alpha = max(1.0 - gi.hysteresis, 1.0 / (age + 1.0));
+	// DDGI's adaptive hysteresis, by the probe's own noise: the frame's mean radiance (coefficient 0, luminance) against
+	// what it holds, a difference far beyond what its frames usually differ by (four times, and half of what it holds)
+	// is a change of the light (one switched or moved, the sun turned), blended in a quarter at a time rather than a
+	// thirtieth; the usual difference is averaged over its frames (it grows through a change, so that ends the fast
+	// blending on its own). only once it has settled (16 frames): until then the age blends fast anyway
+	const float3 kLuminance = float3(0.2126, 0.7152, 0.0722);
+	float heldLuminance = dot(held[0], kLuminance);
+	float difference = abs(dot(sh[0], kLuminance) - heldLuminance);
+	if (gi.adapt != 0u && shifted && age >= 16.0 && difference > max(4.0 * noise, 0.5 * heldLuminance))
+		alpha = max(alpha, 0.25);
+	noise = shifted ? lerp(noise, difference, 0.05) : difference;
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
-		gGiIrradiance[first + shIt] = float4(lerp(held[shIt], sh[shIt], alpha), shIt == 0u ? min(age + 1.0, 65535.0) : 0.0);
+		gGiIrradiance[first + shIt] = float4(lerp(held[shIt], sh[shIt], alpha), shIt == 0u ? min(age + 1.0, 65535.0) : (shIt == 1u ? noise : 0.0));
 }
 
 // the shading's debug view (GiData::debug's numbering, from PushConstants::debugView), or 0

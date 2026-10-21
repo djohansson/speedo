@@ -968,6 +968,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
 	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
 	myGiBounce = bounce == nullptr || std::string_view(bounce) != "0";
+	// and whether a probe blends faster through a change of the light (SPEEDO_GI_ADAPT=0 for the hysteresis alone)
+	const char* adapt = std::getenv("SPEEDO_GI_ADAPT");
+	myGiAdapt = adapt == nullptr || std::string_view(adapt) != "0";
 	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
 	// (SPEEDO_SHADOW_OCCLUSION_CULLING=1 turns it on: off by default, since a shadow view sees few of the chunks hidden
 	// behind others, 6 to 11 of Bistro's 560 to 800, and its pyramid and the atlas's second render pass cost 0.5 to 1 ms)
@@ -2196,6 +2199,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.hysteresis = myGiHysteresis;
 		clip.reset = myGiReset ? 1 : 0;
 		clip.bounce = myGiBounce ? 1 : 0;
+		clip.adapt = myGiAdapt ? 1 : 0;
 	}
 	myGiReset = false;
 	auto clipData = std::span(data).first(myGiClipmap.clips.size());

@@ -703,8 +703,10 @@ struct GiData
 	alignas(4) UINT1(bounce);
 	// the frame, counted from 1 (in 24 bits): what the blocks holding something are stamped with (see gGiFlags)
 	alignas(4) UINT1(frameStamp);
+	// whether a probe blends faster through a change of the light far beyond its noise (see ComputeGiProbeUpdate;
+	// SPEEDO_GI_ADAPT=0 for the hysteresis alone)
+	alignas(4) UINT1(adapt);
 	alignas(4) UINT1(padding0);
-	alignas(4) UINT1(padding1);
 };
 
 struct PushConstants
