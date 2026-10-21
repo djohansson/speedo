@@ -28,6 +28,7 @@ bool DebugViewIsData(uint debugView)
 	case DEBUG_VIEW_GI_CLIP:
 	case DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO:
 	case DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL:
+	case DEBUG_VIEW_GI_PROBE_STATE:
 		return true;
 	default:
 		return false;

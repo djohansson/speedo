@@ -159,7 +159,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			MemoryProperty::kHostVisible});
 		myGiStatisticsBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("GI Statistics {}", frameIt)),
-			GI_STATISTIC_COUNT * sizeof(uint32_t),
+			(GI_STATISTIC_COUNT + SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT) * sizeof(uint32_t),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 		myDrawStreams.emplace_back(device);
@@ -988,6 +988,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// and whether a probe blends faster through a change of the light (SPEEDO_GI_ADAPT=0 for the hysteresis alone)
 	const char* adapt = std::getenv("SPEEDO_GI_ADAPT");
 	myGiAdapt = adapt == nullptr || std::string_view(adapt) != "0";
+	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
+	if (const char* dump = std::getenv("SPEEDO_GI_DUMP"); dump != nullptr && *dump != '\0')
+	{
+		const char* it = dump;
+		int axisIt = 0;
+		for (; axisIt < 3; axisIt++)
+		{
+			char* end = nullptr;
+			myGiDumpPoint[axisIt] = std::strtof(it, &end);
+			if (end == it)
+				break;
+			it = *end == ',' ? end + 1 : end;
+		}
+		myGiDump = axisIt == 3;
+	}
 	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
 	// (SPEEDO_SHADOW_OCCLUSION_CULLING=1 turns it on: off by default, since a shadow view sees few of the chunks hidden
 	// behind others, 6 to 11 of Bistro's 560 to 800, and its pyramid and the atlas's second render pass cost 0.5 to 1 ms)
@@ -1059,6 +1074,49 @@ Renderer::~Renderer()
 				static_cast<double>(data.fadeExtent[1]),
 				static_cast<double>(data.fadeExtent[2]),
 				static_cast<double>(data.fadeExtent[3]));
+		}
+	// and the dumped probes (SPEEDO_GI_DUMP), as they were last
+	if (myGiDump)
+		for (size_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
+		{
+			const float* values = myGiDumpValues.data() + clipIt * GI_DUMP_FLOAT_COUNT;
+			std::println(
+				"indirect lighting, clip {}'s probe nearest ({:.2f}, {:.2f}, {:.2f}): at ({:.3f}, {:.3f}, {:.3f}), offset ({:.3f}, {:.3f}, {:.3f}), age {:.0f}, inside {:.0f}, {:.0f} of {:.0f} rays met a back; depth map (rows from the map's bottom, spacings, negative provisional):",
+				clipIt, static_cast<double>(myGiDumpPoint.x), static_cast<double>(myGiDumpPoint.y), static_cast<double>(myGiDumpPoint.z),
+				static_cast<double>(values[0]), static_cast<double>(values[1]), static_cast<double>(values[2]),
+				static_cast<double>(values[3]), static_cast<double>(values[4]), static_cast<double>(values[5]),
+				static_cast<double>(values[6]), static_cast<double>(values[7]), static_cast<double>(values[8]), static_cast<double>(values[9]));
+			std::println(
+				"  lattice point at voxel ({:.4f}, {:.4f}, {:.4f}); the column of voxels through it, 4 below to 3 above (1 occupied): {:08b}",
+				static_cast<double>(values[10]), static_cast<double>(values[11]), static_cast<double>(values[12]), static_cast<uint32_t>(values[13]));
+			std::println(
+				"  straight down from where the rays were traced: the box exit at {:.3f} spacings, the walk meets a voxel at {:.3f}",
+				static_cast<double>(values[14]), static_cast<double>(values[15]));
+			std::string rays;
+			for (uint32_t rayIt = 0; rayIt < 16; rayIt++)
+				rays += std::format(" ({:+.2f}: {:.2f})", static_cast<double>(values[16 + 256 + rayIt * 2]), static_cast<double>(values[16 + 256 + rayIt * 2 + 1]));
+			std::println("  the first rays (direction's y: depth):{}", rays);
+			std::println(
+				"  the walk straight down: distance {:.3f} m, ended in clip {:.0f} after {:.0f} steps, in voxel row {:.0f}",
+				static_cast<double>(values[16 + 256 + 32]), static_cast<double>(values[16 + 256 + 33]), static_cast<double>(values[16 + 256 + 34]), static_cast<double>(values[16 + 256 + 35]));
+			{
+				uint32_t emptyCount = 0;
+				uint32_t provisionalCount = 0;
+				for (uint32_t texelIt = 0; texelIt < SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE; texelIt++)
+				{
+					float mean = values[16 + texelIt];
+					emptyCount += std::abs(mean) < 1e-3F ? 1 : 0;
+					provisionalCount += mean < -1e-3F ? 1 : 0;
+				}
+				std::println("  texels: {} empty, {} provisional", emptyCount, provisionalCount);
+			}
+			for (uint32_t rowIt = 0; rowIt < SHADER_TYPES_GI_DEPTH_SIDE; rowIt++)
+			{
+				std::string row;
+				for (uint32_t columnIt = 0; columnIt < SHADER_TYPES_GI_DEPTH_SIDE; columnIt++)
+					row += std::format("{:6.2f}", static_cast<double>(values[16 + (rowIt * SHADER_TYPES_GI_DEPTH_SIDE) + columnIt]));
+				std::println("  {}", row);
+			}
 		}
 	if (myCollectTimings && myGiStatisticFrameCount > 0)
 		std::println(
@@ -1368,6 +1426,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
 		myGiActiveProbeCount = statistics[GI_STATISTIC_ACTIVE_PROBES];
+		if (myGiDump)
+		{
+			constexpr size_t kDumpSize = SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT * sizeof(float);
+			buffer.Invalidate(sizeof(statistics), kDumpSize);
+			std::memcpy(myGiDumpValues.data(), memory.data() + sizeof(statistics), kDumpSize);
+		}
 		if (myCollectTimings && myGiActiveProbeCount > 0)
 		{
 			myGiActiveProbeSum += myGiActiveProbeCount;
@@ -2277,6 +2341,17 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.bounce = myGiBounce ? 1 : 0;
 		clip.adapt = myGiAdapt ? 1 : 0;
 		clip.moving = myGiMovingJobCount > 0 ? 1 : 0;
+		clip.dumpProbe = ~0U;
+		if (myGiDump)
+		{
+			// the probe nearest the dump point: by its lattice (the offsets are small)
+			glm::vec3 origin(clip.probeOrigin[0], clip.probeOrigin[1], clip.probeOrigin[2]);
+			glm::ivec3 nearest = glm::clamp(
+				glm::ivec3(glm::floor((myGiDumpPoint - origin) / clip.probeOrigin[3])),
+				glm::ivec3(0),
+				glm::ivec3(clip.probeSize[0], clip.probeSize[1], clip.probeSize[2]) - 1);
+			clip.dumpProbe = (static_cast<uint32_t>(nearest.z) * clip.probeSize[1] + static_cast<uint32_t>(nearest.y)) * clip.probeSize[0] + static_cast<uint32_t>(nearest.x);
+		}
 	}
 	myGiReset = false;
 	auto clipData = std::span(data).first(myGiClipmap.clips.size());

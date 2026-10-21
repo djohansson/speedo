@@ -174,7 +174,10 @@ extern "C"
 // the irradiance at the point itself: 256 cosine weighted rays from it through the voxels (seconds a frame), what the
 // probes' lookups approximate there
 #define DEBUG_VIEW_GI_SURFACE_REFERENCE 29u
-#define DEBUG_VIEW_COUNT 30u
+// the state of the 8 probes around a point, trilinear (data): red the share marked inside something, green the share
+// whose depth map toward the point is empty (no ray near that way yet), blue the share that fail the visibility test
+#define DEBUG_VIEW_GI_PROBE_STATE 30u
+#define DEBUG_VIEW_COUNT 31u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -631,6 +634,10 @@ struct CullView
 // frame's rays per probe are budgeted by (see Renderer::InternalPlanGi)
 #define GI_STATISTIC_ACTIVE_PROBES 0u
 #define GI_STATISTIC_COUNT 4u
+// a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
+// gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
+// rays that met a surface's back, the rays, then its depth map's texels' means)
+#define GI_DUMP_FLOAT_COUNT 308u
 
 struct GiVoxel
 {
@@ -720,6 +727,8 @@ struct GiData
 	// whether anything moving is voxelized this frame (a static voxel's kept light is made again where a moving block
 	// lies between it and a light, see ComputeGiLight)
 	alignas(4) UINT1(moving);
+	// the probe of this clip dumped for debugging (its index among the clip's, or ~0: see GI_DUMP_FLOAT_COUNT)
+	alignas(4) UINT1(dumpProbe);
 };
 
 struct PushConstants

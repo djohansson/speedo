@@ -971,7 +971,18 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   their angle, `SHADER_TYPES_GI_DEPTH_SHARPNESS`, four texels a thread, and keeps what it had where none is near: at
   8x8 and `cos^10` a texel toward a wall mixed the wall's distance with what is beyond it, and a sunlit probe outside
   the wall lit the points at its base inside, and Sponza's walls showed the probe cells as blotches; 16x16 cost 2 ms on
-  Sponza), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays are 3% of it), or by the
+  Sponza. A texel's first rays count whole, not by the probe's age: blended in by it, a texel first hit at age 10 held
+  a tenth of its distance, and the probe failed the test that way for a second, dark patches that followed the camera
+  as the clips scrolled; and a texel no ray is near yet takes a wide cone's rays, `cos^4`, as a provisional value, its
+  mean negated, until rays near it replace it whole: a hole was a direction the probe saw nothing in, which the test
+  took as seeing nothing at all, and with every probe of a cell new after a scroll a point took their mean unweighted,
+  the sunlit probes beyond the walls too, the leaks that followed the camera. The depth rays walk the probe's own clip
+  to its edge rather than to its box around the eye (`GiOccluderHit`'s `box`, which the shadow rays keep: what they
+  see of the coarser voxels should change with the eye), and in a coarser clip the voxel they start in doesn't count,
+  since a point outside a surface's shell in the finer clip is inside the thicker shell of the coarser: a probe over
+  the floor below the finest clip's box traced its depth in the next clip from the first step, whose shell around the
+  floor it stood in, so its depth read 0 that way and it was dead), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays
+  are 3% of it), or by the
   frames it has while fewer (so a probe starts from its first frame's rays and settles in 30), or a quarter at a time
   through a change of the light (DDGI's adaptive hysteresis, `SPEEDO_GI_ADAPT=0` without: each probe keeps how much its
   frames' mean radiance usually differs from what it holds, coefficient 1's w, and a difference of four times that and
@@ -998,13 +1009,23 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   along the floors inside, and the floor only needs to be more than nothing, since the lookup normalizes; a probe whose
   depth that way is nothing sees nothing at all, being inside a surface's voxels, and is skipped, as is one marked
   inside, above), crushed below a fifth (cubed, so that a point few see takes the mean of them rather than nothing),
-  and only then by where the point is between them (trilinear: crushing the product crushed every probe at a cell's
-  center, where each is an eighth, and the facing ones least, which drew the probes' cells as a checkerboard across
-  every wall), premultiplied, and the sum of the weights. A surface's voxel is resolved as the voxel out along its open
-  side would be (its center moved a voxel that way for the trilinear weights and the point): the lookups land in it
-  where their offset is small (in a finer clip's voxels, below), and its own cell's weights admitted a probe the voxel
-  above rejected, a bright band along Sponza's floors at their walls that survived everything else (found by sampling
-  each clip's own voxels, which has none; one or two clips have none either). They go in 7 `R16G16B16A16Sfloat` 3D images
+  then a floor of a thousandth (after the crush: a floor before it was crushed to 1e-11, which the volumes' half floats
+  hold as 0, so a point no probe saw had no light at all, black patches wherever every probe of a cell failed), and
+  only then by where the point is between them (trilinear: crushing the product crushed every probe at a cell's center,
+  where each is an eighth, and the facing ones least, which drew the probes' cells as a checkerboard across every
+  wall), premultiplied, and the sum of the weights. A surface's voxel is resolved as the voxel out along its open side
+  would be (its center moved a voxel that way for the trilinear weights and the point, within the block's cell: past
+  it, the probes read were not the ones in shared memory, black and colored garbage on the floor behind Sponza's
+  fountains): the lookups land in it where their offset is small (in a finer clip's voxels, below), and its own cell's
+  weights admitted a probe the voxel above rejected, a bright band along Sponza's floors at their walls that survived
+  everything else (found by sampling each clip's own voxels, which has none; one or two clips have none either). The
+  Probe State debug view (`GiProbeStateDebug`, a data view) shows, of the 8 probes around a point in the clip that
+  lights it, the share marked inside (red), the share whose depth toward the point is empty (green) and the share
+  failing the test (blue): every camera following artifact so far showed in it as green or blue where the lit view
+  showed nothing yet. `SPEEDO_GI_DUMP=<x,y,z>` prints, at exit, per clip the probe nearest the point: its position,
+  offset, age, backface count, its lattice point's voxel coordinates and the column of voxels through it, its depth
+  map, the first rays' depths, and a walk straight down from it (`GiOccluderHitDebug`): what found the dead floor
+  probes. They go in 7 `R16G16B16A16Sfloat` 3D images
   (`gGiVolumes`: per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the
   shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
   as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the
