@@ -70,6 +70,8 @@ private:
 	// the file browser (File > Open...): folders and the files the client loads as tiles, with multi-select, the
 	// selection previewed off-screen (see Preview), and opened side by side or as authored. ui thread, in PrepareDraw
 	void InternalDrawBrowser();
+	// View > Camera > Copy Pose (ctrl/cmd+shift+c): the view as the variables that reproduce it, to the clipboard
+	void InternalCopyPose();
 
 	
 	std::unique_ptr<gfx::RHI> myRHI;

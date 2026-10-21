@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <format>
+#include <print>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -106,6 +107,67 @@ constexpr std::array kDebugViews{
 }
 
 } // namespace ui
+
+void WindowedApplication::InternalCopyPose()
+{
+	// the first view's camera (what SPEEDO_CAMERA places: the eye, and pitch and yaw in degrees, see Views::Place), the
+	// model (and its scene and variant), the environment, the exposure, the indirect lighting, the debug view and the
+	// window's size, as the variables px/cap.sh takes (see CLAUDE.md)
+	auto camera = myViews->GetCamera(0);
+	if (!camera)
+		return;
+	const auto& desc = camera->GetDesc();
+	glm::vec3 eye = -desc.position;
+	auto& scene = windowedapplication::App().GetScene();
+	auto& settings = scene.GetSettings();
+	std::string text = std::format(
+		"SPEEDO_CAMERA={:.4f},{:.4f},{:.4f},{:.3f},{:.3f}",
+		static_cast<double>(eye.x),
+		static_cast<double>(eye.y),
+		static_cast<double>(eye.z),
+		static_cast<double>(glm::degrees(desc.cameraRotation.x)),
+		static_cast<double>(glm::degrees(desc.cameraRotation.y)));
+	{
+		auto scenes = scene.GetScenes().Read();
+		if (!scenes.Get().filePath.empty())
+			text += std::format(" SPEEDO_AUTOLOAD_MODEL='{}'", scenes.Get().filePath);
+		if (scenes.Get().current != 0)
+			text += std::format(" SPEEDO_AUTOLOAD_SCENE={}", scenes.Get().current);
+		if (scenes.Get().variant)
+			text += std::format(" SPEEDO_AUTOLOAD_VARIANT={}", *scenes.Get().variant);
+	}
+	{
+		std::string environment = scene.GetEnvironmentName().Read().Get();
+		if (!environment.empty() && environment != "Procedural sky")
+			text += std::format(" SPEEDO_AUTOLOAD_ENVIRONMENT='{}'", environment);
+	}
+	float intensity = settings.environmentIntensity.load(std::memory_order_relaxed);
+	if (intensity != 1.0F)
+		text += std::format(" SPEEDO_ENVIRONMENT_INTENSITY={:.3f}", static_cast<double>(intensity));
+	float rotation = settings.environmentRotationDegrees.load(std::memory_order_relaxed);
+	if (rotation != 0.0F)
+		text += std::format(" SPEEDO_ENVIRONMENT_ROTATION={:.2f}", static_cast<double>(rotation));
+	if (settings.autoExposure.load(std::memory_order_relaxed))
+		text += " SPEEDO_AUTO_EXPOSURE=1";
+	float stops = settings.exposureStops.load(std::memory_order_relaxed);
+	if (stops != 0.0F)
+		text += std::format(" SPEEDO_EXPOSURE={:.2f}", static_cast<double>(stops));
+	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
+	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
+		text += std::format(" SPEEDO_DEBUG_VIEW={}", debugView->key);
+	if (!GetWindows().empty())
+	{
+		const auto& state = GetWindows().front().GetState();
+		text += std::format(
+			" # window {}x{}",
+			static_cast<uint32_t>(static_cast<float>(state.width) * state.xscale),
+			static_cast<uint32_t>(static_cast<float>(state.height) * state.yscale));
+	}
+	std::println("{}", text);
+	// the clipboard is the window system's: on the main thread
+	auto [task, future] = core::CreateTask([text] { ImGui::SetClipboardText(text.c_str()); });
+	mainCalls.enqueue(task);
+}
 
 void WindowedApplication::PrepareDraw()
 {
@@ -993,6 +1055,10 @@ void WindowedApplication::PrepareDraw()
 	}
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
 		core::Application::Get()->RequestExit();
+	// the pose and the settings as the variables that reproduce them, to the clipboard (and the terminal): View > Camera
+	// > Copy Pose, for reporting what a view shows (a capture of it: px/cap.sh's variables, see CLAUDE.md)
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C, ImGuiInputFlags_RouteGlobal))
+		InternalCopyPose();
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_1, ImGuiInputFlags_RouteGlobal))
 		setSplitScreenGrid(1, 1);
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_2, ImGuiInputFlags_RouteGlobal))
@@ -1251,6 +1317,10 @@ void WindowedApplication::PrepareDraw()
 					auto [task, future] = core::CreateTask([this, camera] { myViews->UseSceneCamera(camera); });
 					rhi.drawCalls.enqueue(task);
 				};
+				if (MenuItem("Copy Pose", SHORTCUT_LABEL("Shift+C")))
+					InternalCopyPose();
+				SetItemTooltip("Copies the camera, the model and the settings as the variables that reproduce this view (SPEEDO_CAMERA=..., SPEEDO_AUTOLOAD_MODEL=...), to paste into a report.");
+				Separator();
 				auto current = myViews->GetSceneCamera();
 				if (MenuItem("Frame model", nullptr, !current.has_value()))
 					useCamera(std::nullopt);
