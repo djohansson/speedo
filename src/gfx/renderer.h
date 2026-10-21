@@ -366,13 +366,14 @@ private:
 	uint32_t myGiProbeSpacing = 8;
 	float myGiHysteresis = 0.97F;
 	bool myGiBounce = true;
-	bool myGiAdapt = true;
+	bool myGiAdapt = false;
 	bool myGiDump = false; // SPEEDO_GI_DUMP: a probe per clip dumped at exit
 	glm::vec3 myGiDumpPoint{0.0F};
 	std::array<float, SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT> myGiDumpValues{};
 	uint32_t myGiProbeHalf = 0;
 	bool myGiReset = true;
 	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
+	uint32_t myGiFramesSinceReset = 0;
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
 	std::vector<glm::vec3> myGiEyePath; // SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame
 	size_t myGiEyePathNext = 0;

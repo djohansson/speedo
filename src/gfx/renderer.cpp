@@ -56,6 +56,8 @@ constexpr uint8_t kGiTraceEntryPoint = 15;
 constexpr uint8_t kGiProbeUpdateEntryPoint = 16;
 constexpr uint8_t kGiResolveEntryPoint = 17;
 constexpr uint8_t kGiRestoreEntryPoint = 18;
+// the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
+constexpr uint32_t kGiBounceDelayFrameCount = 32;
 
 // at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
 // list's early and late per shadow view
@@ -985,9 +987,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
 	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
 	myGiBounce = bounce == nullptr || std::string_view(bounce) != "0";
-	// and whether a probe blends faster through a change of the light (SPEEDO_GI_ADAPT=0 for the hysteresis alone)
+	// and whether a probe blends faster through a change of the light (SPEEDO_GI_ADAPT=1; off: on a still scene the
+	// same ray set returns every rayPhaseCount frames, and a ray that hits a sunlit patch tripped the test each time,
+	// a jump of a quarter every 64 frames in Sponza's arcade)
 	const char* adapt = std::getenv("SPEEDO_GI_ADAPT");
-	myGiAdapt = adapt == nullptr || std::string_view(adapt) != "0";
+	myGiAdapt = adapt != nullptr && std::string_view(adapt) == "1";
 	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
 	if (const char* dump = std::getenv("SPEEDO_GI_DUMP"); dump != nullptr && *dump != '\0')
 	{
@@ -2316,6 +2320,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
 	myGiProbeHalf ^= 1;
 	myGiRayPhase = (myGiRayPhase + 1) % myGiRayPhaseCount;
+	myGiFramesSinceReset = myGiReset ? 0 : myGiFramesSinceReset + 1;
 	// the rays per probe this frame: the budget over the probes traced last time (at least 16, at most the count, in
 	// eights)
 	myGiRayCountThisFrame = myGiRayCount;
@@ -2342,7 +2347,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.rayCount = myGiRayCountThisFrame;
 		clip.hysteresis = myGiHysteresis;
 		clip.reset = myGiReset ? 1 : 0;
-		clip.bounce = myGiBounce ? 1 : 0;
+		// not for the first frames after a reset: the probes' depth maps are provisional then (see ComputeGiProbeUpdate),
+		// and what leaked through them into the voxels fed the probes, which fed the voxels, for seconds (Sponza's arcade
+		// started 8 times too bright and darkened over 200 frames)
+		clip.bounce = myGiBounce && myGiFramesSinceReset >= kGiBounceDelayFrameCount ? 1 : 0;
 		clip.adapt = myGiAdapt ? 1 : 0;
 		clip.moving = myGiMovingJobCount > 0 ? 1 : 0;
 		clip.dumpProbe = ~0U;

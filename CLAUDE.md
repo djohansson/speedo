@@ -909,7 +909,10 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   that (a moving voxel's, which differs from the static one at its place, made then: a moving voxel doesn't shadow the
   static ones' kept light), plus what its albedo reflects of the probes' light at it as the last frame resolved it
   (`GiData::bounce`, `SPEEDO_GI_BOUNCE=0` for the lights' light alone): the light bounces on, a bounce a frame, settling
-  with the blend. The shadow rays every frame cost CornellBox-Sphere 2.9 ms of its 3 clips' lighting, the kept light 1.3.
+  with the blend; not for the first 32 frames after a reset (`kGiBounceDelayFrameCount`): the probes' depth maps are
+  provisional then, and what leaked through them into the voxels fed the probes, which fed the voxels, with the loop's
+  time constant, `1 / ((1 - hysteresis) (1 - albedo))` frames: Sponza's arcade started 8 times too bright and darkened
+  for 200 frames; it rises to its level in 100 now. The shadow rays every frame cost CornellBox-Sphere 2.9 ms of its 3 clips' lighting, the kept light 1.3.
   What moves does shadow the kept light: the moving voxelizer stamps the frame into the blocks it writes (the flags'
   second word, `SHADER_TYPES_GI_FLAG_WORD_COUNT`), and a static voxel whose line to a light that lights it crosses a
   stamped block (`GiMovingShadows`: a walk over the blocks, `GiMovingBetween`) traces its shadow rays that frame; only
@@ -983,13 +986,15 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   the floor below the finest clip's box traced its depth in the next clip from the first step, whose shell around the
   floor it stood in, so its depth read 0 that way and it was dead), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays
   are 3% of it), or by the
-  frames it has while fewer (so a probe starts from its first frame's rays and settles in 30), or a quarter at a time
-  through a change of the light (DDGI's adaptive hysteresis, `SPEEDO_GI_ADAPT=0` without: each probe keeps how much its
-  frames' mean radiance usually differs from what it holds, coefficient 1's w, and a difference of four times that and
-  half of what it holds is a change rather than noise; a light stepping from 0 to 200 cd, eight frames later the probes
-  are at 139 of the instant blend's 167, 105 with the hysteresis alone, and a still camera in Sponza's arcade triggers
-  nothing: 0.98% steps as before; a slow change, AnimatedCameraLight's 12% over 100 frames, lags 7% either way, by
-  design). The probes' buffers hold
+  frames it has while fewer (so a probe starts from its first frame's rays and settles in 30), or, with
+  `SPEEDO_GI_ADAPT=1`, a quarter at a time through a change of the light (DDGI's adaptive hysteresis: each probe keeps
+  how much its frames' mean radiance usually differs from what it holds, coefficient 1's w, and a difference of four
+  times that and half of what it holds is a change rather than noise; a light stepping from 0 to 200 cd, eight frames
+  later the probes are at 139 of the instant blend's 167, 105 with the hysteresis alone). It is off by default: on a
+  still scene the same ray set returns every `rayPhaseCount` frames, and a ray that hits a sunlit patch tripped the
+  test each time, a jump of a quarter every 64 frames in Sponza's arcade (70 of 255 at exposure 9, where the plain
+  hysteresis steps 10, in a 32 frame ripple of the phases). A slow change (AnimatedCameraLight's 12% over 100 frames)
+  lags 7% either way, by design. The probes' buffers hold
   two halves, the frame's and the last's (`GiData::probeFirst`, `probePreviousFirst`, swapped each frame), and a
   probe's history is the probe at its place last frame (by the scroll), a probe new to the clip taking the coarser
   clip's light where it is (its previous half, at its place then, trilinear) as one frame's worth; on a reset (the

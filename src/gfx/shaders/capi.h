@@ -722,7 +722,7 @@ struct GiData
 	// the frame, counted from 1 (in 24 bits): what the blocks holding something are stamped with (see gGiFlags)
 	alignas(4) UINT1(frameStamp);
 	// whether a probe blends faster through a change of the light far beyond its noise (see ComputeGiProbeUpdate;
-	// SPEEDO_GI_ADAPT=0 for the hysteresis alone)
+	// SPEEDO_GI_ADAPT=1: off by default, see Renderer)
 	alignas(4) UINT1(adapt);
 	// whether anything moving is voxelized this frame (a static voxel's kept light is made again where a moving block
 	// lies between it and a light, see ComputeGiLight)
