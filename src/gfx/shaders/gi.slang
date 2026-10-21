@@ -1122,6 +1122,9 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// and how much its frames' light differs from what it holds, frame to frame (coefficient 1's w: its noise)
 	float noise = shifted ? gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_SH_COUNT + 1].w : 0.0;
 
+	// one more probe traced this frame (see GI_STATISTIC_ACTIVE_PROBES)
+	if (texelIndex == 0u)
+		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_ACTIVE_PROBES], 1u);
 	// the rays: the texel's depth, and (the first texel's thread) the harmonics
 	float3 texelDirection = GiDirection(uint2(texelIndex % SHADER_TYPES_GI_DEPTH_SIDE, texelIndex / SHADER_TYPES_GI_DEPTH_SIDE), SHADER_TYPES_GI_DEPTH_SIDE);
 	float2 depthSum = 0.0;

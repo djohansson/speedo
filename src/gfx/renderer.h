@@ -122,7 +122,8 @@ struct FrameStatistics
 	uint32_t giMovingDraws = 0;
 	uint32_t giMovingTriangles = 0;
 	uint32_t giProbeCount = 0;
-	uint32_t giRayCount = 0;
+	uint32_t giActiveProbeCount = 0; // traced last frame (the lattice's near surfaces)
+	uint32_t giRayCount = 0; // per probe this frame, by the budget
 	float giHysteresis = 0.0F;
 };
 
@@ -351,7 +352,15 @@ private:
 	// is the frame's (see GiData::probeFirst), and whether the frame keeps nothing of the last (GiData::reset)
 	uint32_t myGiResolution = 128;
 	uint32_t myGiClipCount = 3;
-	uint32_t myGiRayCount = 128;
+	uint32_t myGiRayCount = 128; // at most: SPEEDO_GI_RAY_COUNT
+	uint32_t myGiRayBudget = 500000; // rays a frame over all probes (SPEEDO_GI_RAY_BUDGET): fewer per probe where more are traced
+	uint32_t myGiRayCountThisFrame = 128;
+	uint32_t myGiActiveProbeCount = 0; // what the last frame of this index counted (see gGiStatistics)
+	uint64_t myGiActiveProbeSum = 0; // over the frames, for SPEEDO_GPU_TIMINGS' summary
+	uint64_t myGiRayCountSum = 0;
+	uint32_t myGiStatisticFrameCount = 0;
+	std::vector<Buffer> myGiStatisticsBuffers;
+	FrameGraph::BufferId myGiStatisticsId;
 	uint32_t myGiRayPhaseCount = 32;
 	uint32_t myGiRayPhase = 0;
 	uint32_t myGiProbeSpacing = 8;

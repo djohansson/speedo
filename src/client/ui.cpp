@@ -437,9 +437,10 @@ void WindowedApplication::PrepareDraw()
 						else
 						{
 							Text(
-								"%u clips, %s probes, %u rays a probe a frame, hysteresis %.2f; voxelized this frame: %u",
+								"%u clips, %s probes (%s traced), %u rays a probe a frame, hysteresis %.2f; voxelized this frame: %u",
 								frame.giClipCount,
 								compact(frame.giProbeCount).c_str(),
+								compact(frame.giActiveProbeCount).c_str(),
 								frame.giRayCount,
 								static_cast<double>(frame.giHysteresis),
 								frame.giClipsVoxelized);

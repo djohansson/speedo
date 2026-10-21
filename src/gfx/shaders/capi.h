@@ -622,6 +622,10 @@ struct CullView
 #define SHADER_TYPES_GI_FLAG_REACH 4
 #define SHADER_TYPES_GI_FLAG_STAMP_SHIFT 8u
 #define SHADER_TYPES_GI_FLAG_WORD_COUNT 2u
+// what the probes' update counts (gGiStatistics[frame], host visible): the probes traced this frame, which the next
+// frame's rays per probe are budgeted by (see Renderer::InternalPlanGi)
+#define GI_STATISTIC_ACTIVE_PROBES 0u
+#define GI_STATISTIC_COUNT 4u
 
 struct GiVoxel
 {

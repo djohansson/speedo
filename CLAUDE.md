@@ -925,7 +925,12 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   what makes a clip's cost that of its surfaces rather than its volume. The mips are made whole on a reset (the buffer
   may hold anything).
 - **The probes** (`GiData::probe*`): a lattice every `SPEEDO_GI_PROBE_SPACING` voxels (8 by default) from the clip's
-  corner, centered on voxel boundaries (so every point of a voxel interpolates the same 8), each where its lattice point
+  corner, centered on voxel boundaries (so every point of a voxel interpolates the same 8), of which only those near a
+  surface trace (the flags, below): CornellBox-Sphere 6400, Sponza's inside 4200, Bistro's street 4500, DamagedHelmet
+  10400 (its surface fills its last clip). The rays per probe are `SPEEDO_GI_RAY_COUNT` (128) at most, and
+  `SPEEDO_GI_RAY_BUDGET` (500000) over the probes traced last time (in eights, at least 16: a ray costs 4 to 8 ns here,
+  so DamagedHelmet's 10400 probes at 128 cost 10 ms; at the budget's 46 they cost 6.5, and Sponza keeps 112, Bistro
+  104, CornellBox 72). Each probe is where its lattice point
   is unless the voxels at that corner are a surface's: then 0.45 of a spacing out of them along their normals
   (`GiProbePosition`, DDGI's relocation, from the voxels each frame rather than kept, so that every kernel agrees; a
   probe on a wall's voxel shell saw nothing and was skipped, and the points nearest it took the mean of the others:
@@ -946,7 +951,9 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   roughness 0.6, without the dominant lights, which light the voxels themselves), and to the first occupied voxel as
   far as the depth map reaches (`SHADER_TYPES_GI_DEPTH_REACH`, 3 spacings: the points a probe is tested for are within
   its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). The update (a group per probe, a thread per texel
-  of its depth map, the rays through shared memory) blends them into the probe: its irradiance as spherical harmonics of
+  of its depth map, the rays through shared memory; it counts the probes traced into `gGiStatistics[frame]`, host
+  visible, read back when the frame index comes round, which `SPEEDO_GPU_TIMINGS=1` averages at exit) blends them into
+  the probe: its irradiance as spherical harmonics of
   bands 0 to 2 (`SHADER_TYPES_GI_SH_COUNT`, 9 coefficients a color, `gGiIrradiance`; coefficient 0's w counts the
   frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 8 by 8 octahedral texels of the mean
   distance and the mean of its square, half2; a texel takes the rays near its direction by `cos^10` of their angle, and
@@ -1018,9 +1025,13 @@ thing to sample with 64 rays). Renders: CornellBox's walls and ceiling smooth, w
 it, colour bleeding on the ceiling's edges and the spheres' contact shadows; Sponza's inside within a shade of its
 surface reference (its arcades a little brighter), its sunlit upper floors lit by the sky; Bistro's street lit between
 its walls. Against the old cascades: no splotches, no dark blobs at the walls' bases, no blocks behind the spheres, and
-the clips' moves change nothing measurable. What's left (TODO.md): the lighting's lag through slow changes, the cost
-(the per voxel kernels over 3 clips of 2 M voxels each, CesiumMan's 1.5 m paying 4.9 ms), glossy reflections, hardware
-ray queries, and a path traced reference.
+the clips' moves change nothing measurable. The frame's lighting skips the blocks nothing is near (their flags, from the
+last frame; the static lighting clears level 0 so the skipped voxels hold 0) and the restore copies only the blocks
+something moving was in (`ComputeGiRestore`): CesiumMan 9.65 to 9.3 ms, CornellBox 12.4 to 12.0. What a small scene
+still pays is its clips' probes and voxels near its surfaces, which fill them: DamagedHelmet 4.7 to 11.2 ms with the
+ray budget (the resolve and lighting of a last clip that is all surface, the finer clips mostly empty). What's left
+(TODO.md): that, the lighting's lag through slow changes, glossy reflections, hardware ray queries, and a path traced
+reference.
 
 ## Descriptor sets: redundant updates consume the pool
 

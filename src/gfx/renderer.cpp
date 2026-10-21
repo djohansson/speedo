@@ -157,6 +157,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT * sizeof(uint32_t),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
+		myGiStatisticsBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("GI Statistics {}", frameIt)),
+			GI_STATISTIC_COUNT * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
 		myDrawStreams.emplace_back(device);
 	}
 	myDrawRecords = {.name = "Draw Records", .binding = "gDrawRecords", .elementSize = sizeof(DrawRecord)};
@@ -182,6 +187,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myCullCounts = myGraph.ImportBuffer("Cull Counts");
 	myCullVisibility = myGraph.ImportBuffer("Cull Visibility");
 	myCullStatisticsId = myGraph.ImportBuffer("Cull Statistics");
+	myGiStatisticsId = myGraph.ImportBuffer("GI Statistics");
 	// the indirect lighting's (see InternalPlanGi): the persistent buffers, a texel each until a model is voxelized
 	myGiVoxels = myGraph.ImportBuffer("GI Voxels");
 	myGiRadiance = myGraph.ImportBuffer("GI Radiance");
@@ -706,6 +712,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			for (auto volume : myGiVolumes)
 				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
@@ -731,7 +738,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			}
 			computeBarrier(cmd);
 			clips([&](uint32_t clip, const gi::Layout& layout)
-				  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCount, clip); });
+				  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCountThisFrame, clip); });
 			computeBarrier(cmd);
 			constexpr uint64_t kTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
 			clips([&](uint32_t clip, const gi::Layout& layout)
@@ -870,6 +877,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			builder.Use(myExposureHistogram, ResourceUse::HostRead());
 			builder.Use(myCullStatisticsId, ResourceUse::HostRead());
+			builder.Use(myGiStatisticsId, ResourceUse::HostRead());
 			builder.SideEffects();
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
@@ -963,6 +971,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// take the probes' light of the last frame (SPEEDO_GI_BOUNCE=0 for the lights' light alone)
 	if (const char* rays = std::getenv("SPEEDO_GI_RAY_COUNT"); rays != nullptr && *rays != '\0')
 		myGiRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 8U, 1024U);
+	// and at most this many rays a frame over all the probes traced (SPEEDO_GI_RAY_BUDGET, 500000): a scene filling its
+	// clips with surfaces traces every probe near them (DamagedHelmet 10400 of its 98000, which at 128 rays cost 10 ms)
+	if (const char* budget = std::getenv("SPEEDO_GI_RAY_BUDGET"); budget != nullptr && *budget != '\0')
+		myGiRayBudget = std::max<uint32_t>(static_cast<uint32_t>(std::strtoul(budget, nullptr, 10)), 1U);
 	if (const char* phases = std::getenv("SPEEDO_GI_RAY_PHASE_COUNT"); phases != nullptr && *phases != '\0')
 		myGiRayPhaseCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(phases, nullptr, 10)), 1U, 256U);
 	if (const char* spacing = std::getenv("SPEEDO_GI_PROBE_SPACING"); spacing != nullptr && *spacing != '\0')
@@ -1018,6 +1030,13 @@ Renderer::~Renderer()
 				myCullStatisticFrameCount);
 		}
 	}
+	// and the indirect lighting's probes traced and rays per probe, on average per frame
+	if (myCollectTimings && myGiStatisticFrameCount > 0)
+		std::println(
+			"indirect lighting, per frame: {:.0f} probes traced, {:.1f} rays a probe ({} frames)",
+			static_cast<double>(myGiActiveProbeSum) / static_cast<double>(myGiStatisticFrameCount),
+			static_cast<double>(myGiRayCountSum) / static_cast<double>(myGiStatisticFrameCount),
+			myGiStatisticFrameCount);
 	// the medians of the passes' timings, for experiments (SPEEDO_GPU_TIMINGS=1)
 	if (!myCollectedTimings.empty())
 	{
@@ -1134,6 +1153,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				 std::pair{"gUiBlurRects", &myUiBlurRectBuffers},
 				 std::pair{"gCullJobs", &myCullJobBuffers},
 				 std::pair{"gCullStatistics", &myCullStatisticsBuffers},
+				 std::pair{"gGiStatistics", &myGiStatisticsBuffers},
 				 std::pair{"gGi", &myGiDataBuffers},
 				 std::pair{"gGiJobs", &myGiJobs.buffers},
 				 std::pair{"gGiLightCells", &myGiLightCells.buffers},
@@ -1306,6 +1326,24 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 					myCullStatisticSums[statisticIt] += statistics[statisticIt];
 				myCullStatisticFrameCount++;
 			}
+		}
+		std::memset(memory.data(), 0, sizeof(statistics));
+		buffer.Flush(0, sizeof(statistics));
+		buffer.Unmap();
+	}
+	// and what the indirect lighting's probes counted (see gGiStatistics), emptied for this frame
+	{
+		auto& buffer = myGiStatisticsBuffers[inputs.frameIndex];
+		auto memory = buffer.Map();
+		std::array<uint32_t, GI_STATISTIC_COUNT> statistics{};
+		buffer.Invalidate(0, sizeof(statistics));
+		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
+		myGiActiveProbeCount = statistics[GI_STATISTIC_ACTIVE_PROBES];
+		if (myCollectTimings && myGiActiveProbeCount > 0)
+		{
+			myGiActiveProbeSum += myGiActiveProbeCount;
+			myGiRayCountSum += myGiRayCountThisFrame;
+			myGiStatisticFrameCount++;
 		}
 		std::memset(memory.data(), 0, sizeof(statistics));
 		buffer.Flush(0, sizeof(statistics));
@@ -1517,6 +1555,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myCullVisibility, myCullVisibilityBuffer);
 	myGraph.Bind(myPreviousDepth, myPreviousDepthBuffer);
 	myGraph.Bind(myCullStatisticsId, myCullStatisticsBuffers[frame.frameIndex]);
+	myGraph.Bind(myGiStatisticsId, myGiStatisticsBuffers[frame.frameIndex]);
 	InternalPlanGi(pipeline, frame);
 	myFrameStatisticsThisFrame.occlusion = myOcclusionThisFrame;
 	myFrameStatisticsThisFrame.shadowOcclusion = myShadowOcclusionThisFrame;
@@ -2180,6 +2219,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
 	myGiProbeHalf ^= 1;
 	myGiRayPhase = (myGiRayPhase + 1) % myGiRayPhaseCount;
+	// the rays per probe this frame: the budget over the probes traced last time (at least 16, at most the count, in
+	// eights)
+	myGiRayCountThisFrame = myGiRayCount;
+	if (myGiActiveProbeCount > 0)
+		myGiRayCountThisFrame = std::clamp((myGiRayBudget / myGiActiveProbeCount) & ~7U, std::min(16U, myGiRayCount), myGiRayCount);
 	myGiFrameStamp = (myGiFrameStamp % 0xFFFFFF) + 1;
 	constexpr uint32_t kDepthTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
 	uint32_t probeTotal = myGiClipmap.total.probeCount;
@@ -2198,7 +2242,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.depthFirst = clip.probeFirst * kDepthTexelCount;
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;
-		clip.rayCount = myGiRayCount;
+		clip.rayCount = myGiRayCountThisFrame;
 		clip.hysteresis = myGiHysteresis;
 		clip.reset = myGiReset ? 1 : 0;
 		clip.bounce = myGiBounce ? 1 : 0;
@@ -2218,7 +2262,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		statistics.indirectLighting = true;
 		statistics.giClipCount = static_cast<uint32_t>(clipData.size());
 		statistics.giProbeCount = probeTotal;
-		statistics.giRayCount = myGiRayCount;
+		statistics.giActiveProbeCount = myGiActiveProbeCount;
+		statistics.giRayCount = myGiRayCountThisFrame;
 		statistics.giHysteresis = myGiHysteresis;
 		for (size_t clipIt = 0; clipIt < clipData.size(); clipIt++)
 		{

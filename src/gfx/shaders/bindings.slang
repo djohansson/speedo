@@ -171,4 +171,7 @@ RWStructuredBuffer<GiVoxel> gGiStaticVoxels;
 // per block of voxels of each clip, whether anything is voxelized near it (see SHADER_TYPES_GI_FLAG_LEVEL)
 [[vk::binding(31, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiFlags;
+// what the probes' update counts (GI_STATISTIC_*), host visible, per frame index
+[[vk::binding(32, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gGiStatistics[SHADER_TYPES_FRAME_COUNT];
 
