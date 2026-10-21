@@ -60,6 +60,12 @@ vcpkg_cmake_configure(
 	SOURCE_PATH "${SOURCE_PATH}"
 	GENERATOR Ninja
 	OPTIONS ${_shader_slang_configure_options}
+	# the debug slang optimized: the debug client runs it to compile the shaders (minutes per user profile at the
+	# toolchain's -Og without inlining, several profiles at a time in a debug regression, where the release one takes
+	# seconds), and nothing steps into it
+	OPTIONS_DEBUG
+		"-DCMAKE_C_FLAGS_DEBUG=-O2 -g"
+		"-DCMAKE_CXX_FLAGS_DEBUG=-O2 -g"
 )
 
 vcpkg_cmake_install()

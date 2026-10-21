@@ -1480,7 +1480,15 @@ meanwhile, or keeping the presents' semaphores until their images were acquired 
 destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fences it can't know a present is done);
 0 in 858 with fifo), failing
 on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
-profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. Both run in
+profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. A debug client
+compiling the shaders (a new profile, or a changed shader) took more than ten minutes a profile, with no window
+meanwhile: SPIRV-Tools' optimizer, which slang runs over every shader (`SLANG_OPTIMIZATION_LEVEL_MAXIMAL`), linked
+statically from the debug spirv-tools package at the toolchain's `-Og` without inlining. `ports/shader-slang` and the
+`ports/spirv-tools` overlay (of the upstream port, for this alone) build their debug configs with `-O2 -g`
+(`OPTIONS_DEBUG`): about 2 minutes a profile now. (Mapping the debug config to the release slang in CMake couldn't pick
+it: both dylibs share a name on the executable's rpath, and the debug directory comes first.) The validation layer's
+dylib is in `debug/lib`, so a debug client run by hand sets `DYLD_LIBRARY_PATH` to it as the script does;
+`VK_LAYER_VALIDATE_GPU_BASED=GPU_BASED_GPU_ASSISTED` adds gpu assisted validation. Both run in
 parallel: `assettest` checks its models and images on every thread (`CheckInOrder`: results printed in the serial order;
 `--jobs N`), and the script runs `-Jobs` clients at once (default 4), each worker with a user profile of its own
 (`<work>/user-<n>`: clients write pipeline caches, shader intermediates and asset caches there), a model always to the
