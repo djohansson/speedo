@@ -613,13 +613,15 @@ struct CullView
 // spacings (the points it is tested for are within its cell: see ComputeGiResolve)
 #define SHADER_TYPES_GI_DEPTH_SIDE 8u
 #define SHADER_TYPES_GI_DEPTH_REACH 3.0f
-// the flags (gGiFlags, see ComputeGiFlags): per voxel of this level of each clip (a block), in bits 8 and up the last
-// frame (GiData::frameStamp) anything was voxelized in it, bit 0 whether anything is in the 3x3x3 blocks around it, and
-// bit 3 whether bit 0 is set within SHADER_TYPES_GI_FLAG_REACH blocks along each axis (bits 1 and 2 are the spread's
-// steps along x and y)
+// the flags (gGiFlags, see ComputeGiFlags): per voxel of this level of each clip (a block) SHADER_TYPES_GI_FLAG_WORD_COUNT
+// words: in the first, bits 8 and up the last frame (GiData::frameStamp) anything was voxelized in it, bit 0 whether
+// anything is in the 3x3x3 blocks around it, and bit 3 whether bit 0 is set within SHADER_TYPES_GI_FLAG_REACH blocks
+// along each axis (bits 1 and 2 are the spread's steps along x and y); in the second, the last frame something moving
+// was voxelized in it (see ComputeGiLight)
 #define SHADER_TYPES_GI_FLAG_LEVEL 2u
 #define SHADER_TYPES_GI_FLAG_REACH 4
 #define SHADER_TYPES_GI_FLAG_STAMP_SHIFT 8u
+#define SHADER_TYPES_GI_FLAG_WORD_COUNT 2u
 
 struct GiVoxel
 {
@@ -706,7 +708,9 @@ struct GiData
 	// whether a probe blends faster through a change of the light far beyond its noise (see ComputeGiProbeUpdate;
 	// SPEEDO_GI_ADAPT=0 for the hysteresis alone)
 	alignas(4) UINT1(adapt);
-	alignas(4) UINT1(padding0);
+	// whether anything moving is voxelized this frame (a static voxel's kept light is made again where a moving block
+	// lies between it and a light, see ComputeGiLight)
+	alignas(4) UINT1(moving);
 };
 
 struct PushConstants

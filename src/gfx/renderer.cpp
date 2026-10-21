@@ -2082,7 +2082,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		if (total.radianceCount != previous.radianceCount)
 			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", total.radianceCount * 2 * sizeof(uint32_t));
 		if (total.flagCount != previous.flagCount)
-			InternalReplaceBuffer(myGiFlagBuffer, pipeline, "GI Flags", "gGiFlags", total.flagCount * sizeof(uint32_t));
+			InternalReplaceBuffer(myGiFlagBuffer, pipeline, "GI Flags", "gGiFlags", total.flagCount * SHADER_TYPES_GI_FLAG_WORD_COUNT * sizeof(uint32_t));
 		// the probes' buffers in two halves (see GiData::probeFirst)
 		if (total.probeCount != previous.probeCount)
 		{
@@ -2200,6 +2200,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.reset = myGiReset ? 1 : 0;
 		clip.bounce = myGiBounce ? 1 : 0;
 		clip.adapt = myGiAdapt ? 1 : 0;
+		clip.moving = myGiMovingJobCount > 0 ? 1 : 0;
 	}
 	myGiReset = false;
 	auto clipData = std::span(data).first(myGiClipmap.clips.size());

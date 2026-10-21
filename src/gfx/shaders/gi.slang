@@ -362,6 +362,12 @@ bool GiScrolledIn(GiData gi, int3 voxel)
 	return !GiInside(voxel + gi.scroll.xyz, GiLevelSize(gi, 0));
 }
 
+// a block's first word in gGiFlags (see SHADER_TYPES_GI_FLAG_WORD_COUNT)
+uint GiFlagIndex(GiData gi, uint block)
+{
+	return gi.flagFirst + block * SHADER_TYPES_GI_FLAG_WORD_COUNT;
+}
+
 // voxelizing: each voxel the static one kept at its place before the clip moved, or empty where it scrolled in (all of
 // the clip when it is voxelized again)
 [shader("compute")]
@@ -570,6 +576,9 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 					if (!GiInside(at, size) || (!moving && !GiScrolledIn(gi, at)))
 						continue;
 					uint index = gi.voxelFirst + GiVoxelIndex(uint3(at), size);
+					// something moving in this block this frame (see gGiFlags' second word; a plain store of the same)
+					if (moving)
+						gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(at) >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL))) + 1u] = gi.frameStamp;
 					InterlockedMax(gGiVoxels[index].albedo, voxel.albedo);
 					InterlockedMax(gGiVoxels[index].normal, voxel.normal);
 					InterlockedMax(gGiVoxels[index].emissionRG, voxel.emissionRG);
@@ -674,10 +683,11 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
 	// its block holds something this frame (see gGiFlags): a plain store, every voxel of the block storing the same (an
 	// atomic maximum kept whatever a new buffer held, and a block it said was stamped in some far frame never counted)
-	gGiFlags[gi.flagFirst + GiVoxelIndex(at >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL))] = gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
+	gGiFlags[GiFlagIndex(gi, GiVoxelIndex(at >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL)))] = gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
 	GiVoxel kept = gGiStaticVoxels[index];
 	float3 radiance;
-	if (kept.albedo == voxel.albedo && kept.normal == voxel.normal)
+	// the kept light, unless a moving block lies between the voxel and a light that lights it (its shadow)
+	if (kept.albedo == voxel.albedo && kept.normal == voxel.normal && !(gi.moving != 0u && GiMovingShadows(gi, at, voxel)))
 		radiance = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]).rgb;
 	else
 		radiance = GiDirectRadiance(gi, at, voxel, albedo);
@@ -715,7 +725,7 @@ void ComputeGiMip(uint3 dispatchId: SV_DispatchThreadID)
 	if (level <= SHADER_TYPES_GI_FLAG_LEVEL && gi.reset == 0u)
 	{
 		uint3 block = uint3(at) >> (SHADER_TYPES_GI_FLAG_LEVEL - level);
-		uint stamp = gGiFlags[gi.flagFirst + GiVoxelIndex(block, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL))] >> SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
+		uint stamp = gGiFlags[GiFlagIndex(gi, GiVoxelIndex(block, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL)))] >> SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
 		if (stamp != gi.frameStamp)
 		{
 			if (stamp + 1u == gi.frameStamp)
@@ -762,7 +772,7 @@ void ComputeGiFlags(uint3 dispatchId: SV_DispatchThreadID)
 	if (threadId.x >= size.x * size.y * size.z)
 		return;
 	int3 at = int3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
-	uint index = gi.flagFirst + threadId.x;
+	uint index = GiFlagIndex(gi, threadId.x);
 	bool set = false;
 	if (step == 0u)
 	{
@@ -771,7 +781,7 @@ void ComputeGiFlags(uint3 dispatchId: SV_DispatchThreadID)
 				for (int x = -1; x <= 1 && !set; x++)
 				{
 					int3 voxel = at + int3(x, y, z);
-					if (GiInside(voxel, size) && (gGiFlags[gi.flagFirst + GiVoxelIndex(uint3(voxel), size)] >> SHADER_TYPES_GI_FLAG_STAMP_SHIFT) == gi.frameStamp)
+					if (GiInside(voxel, size) && (gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(voxel), size))] >> SHADER_TYPES_GI_FLAG_STAMP_SHIFT) == gi.frameStamp)
 						set = true;
 				}
 		gGiFlags[index] = (gGiFlags[index] & ~0xFu) | (set ? 1u : 0u);
@@ -783,7 +793,7 @@ void ComputeGiFlags(uint3 dispatchId: SV_DispatchThreadID)
 	for (int offset = -SHADER_TYPES_GI_FLAG_REACH; offset <= SHADER_TYPES_GI_FLAG_REACH && !set; offset++)
 	{
 		int3 voxel = at + direction * offset;
-		if (GiInside(voxel, size) && (gGiFlags[gi.flagFirst + GiVoxelIndex(uint3(voxel), size)] & from) != 0u)
+		if (GiInside(voxel, size) && (gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(voxel), size))] & from) != 0u)
 			set = true;
 	}
 	gGiFlags[index] = (gGiFlags[index] & ~(from << 1)) | (set ? from << 1 : 0u);
@@ -797,7 +807,81 @@ uint GiFlagsAt(GiData gi, float3 position)
 	int3 block = int3(floor(GiVoxelCoordinate(gi, position, level)));
 	if (!GiInside(block, size))
 		return 0u;
-	return gGiFlags[gi.flagFirst + GiVoxelIndex(uint3(block), size)];
+	return gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(block), size))];
+}
+
+// whether a block something moving lies between a point and a light (a distance along direction): the blocks the line
+// crosses, visited once (Amanatides and Woo), each read for the frame something moving was voxelized in it (see
+// gGiFlags); this clip's only
+bool GiMovingBetween(GiData gi, float3 origin, float3 direction, float distance)
+{
+	const uint level = SHADER_TYPES_GI_FLAG_LEVEL;
+	uint3 size = GiLevelSize(gi, level);
+	float blockSize = gi.volumeOrigin.w * float(1u << level);
+	float3 start = (origin - gi.volumeOrigin.xyz) / blockSize;
+	int3 block = int3(floor(start));
+	int3 stepDirection = int3(select(direction >= 0.0, 1, -1));
+	float3 inverse = 1.0 / max(abs(direction), 1e-8);
+	float3 next = (select(direction >= 0.0, float3(block + 1) - start, start - float3(block))) * inverse;
+	float end = distance / blockSize;
+	float t = 0.0;
+	while (t < end && GiInside(block, size))
+	{
+		if (gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(block), size)) + 1u] == gi.frameStamp)
+			return true;
+		if (next.x < next.y && next.x < next.z)
+		{
+			t = next.x;
+			next.x += inverse.x;
+			block.x += stepDirection.x;
+		}
+		else if (next.y < next.z)
+		{
+			t = next.y;
+			next.y += inverse.y;
+			block.y += stepDirection.y;
+		}
+		else
+		{
+			t = next.z;
+			next.z += inverse.z;
+			block.z += stepDirection.z;
+		}
+	}
+	return false;
+}
+
+// whether something moving may shadow a static voxel from any of the lights that light it (as GiDirectRadiance sees
+// them): the voxel's kept light is made again then, with its shadow rays
+bool GiMovingShadows(GiData gi, uint3 at, GiVoxel voxel)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	uint3 size = GiLevelSize(gi, 0);
+	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+	float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+	uint3 cell = min(uint3(float3(at) / float3(size) * float(SHADER_TYPES_GI_LIGHT_GRID)), uint3(SHADER_TYPES_GI_LIGHT_GRID - 1));
+	uint2 range = gGiLightCells[frameIndex][gi.lightCellFirst + (cell.z * SHADER_TYPES_GI_LIGHT_GRID + cell.y) * SHADER_TYPES_GI_LIGHT_GRID + cell.x];
+	for (uint lightIt = range.x; lightIt < range.x + range.y; lightIt++)
+	{
+		LightData light = gLights[gGiLightIndices[frameIndex][lightIt]];
+		float3 toLight;
+		float distance = 1.0e30;
+		if (light.type == LIGHT_TYPE_DIRECTIONAL)
+			toLight = -light.direction.xyz;
+		else
+		{
+			float3 offset = light.positionRange.xyz - position;
+			distance = max(length(offset), 1e-4);
+			toLight = offset / distance;
+			if (light.positionRange.w > 0.0 && distance > light.positionRange.w)
+				continue;
+		}
+		if (dot(normal, toLight) <= 0.0)
+			continue;
+		if (GiMovingBetween(gi, position + normal * gi.volumeOrigin.w, toLight, distance - gi.volumeOrigin.w))
+			return true;
+	}
+	return false;
 }
 
 // the probes: a lattice over the clip (GiData::probe*), each probe's place in it (world space; a voxel corner, the
@@ -1300,7 +1384,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	bool inside = all(at < size);
 	uint3 texel = uint3(at.x, at.y, at.z + gi.clip * size.z);
 	// only the voxels within a few of a surface are looked up (see GiSampleSurface): the rest see no probe
-	if ((gGiFlags[gi.flagFirst + blockIndex] & 1u) == 0u)
+	if ((gGiFlags[GiFlagIndex(gi, blockIndex)] & 1u) == 0u)
 	{
 		if (inside)
 			for (uint volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
