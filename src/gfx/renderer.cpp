@@ -55,6 +55,7 @@ constexpr uint8_t kGiFlagsEntryPoint = 14;
 constexpr uint8_t kGiTraceEntryPoint = 15;
 constexpr uint8_t kGiProbeUpdateEntryPoint = 16;
 constexpr uint8_t kGiResolveEntryPoint = 17;
+constexpr uint8_t kGiRestoreEntryPoint = 18;
 
 // at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
 // list's early and late per shadow view
@@ -671,12 +672,14 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		"GI Restore",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			builder.Use(myGiStaticVoxels, ResourceUse::TransferSource());
-			builder.Use(myGiVoxels, ResourceUse::TransferDestination());
+			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 		},
-		[this](FrameGraph::PassContext& context)
+		[this, giKernel, clips](FrameGraph::PassContext& context)
 		{
-			CommandEncoder(context.cmd).CopyBuffer(myGiStaticVoxelBuffer, myGiVoxelBuffer, myGiClipmap.total.voxelCount * sizeof(GiVoxel));
+			// the blocks something moving was in last frame only
+			clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(context.cmd, kGiRestoreEntryPoint, layout.flagCount, clip); });
 		});
 	myGiVoxelizeMovingPass = myGraph.AddPass(
 		"GI Voxelize Moving",

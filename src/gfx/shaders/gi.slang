@@ -657,6 +657,33 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	if (albedo.a != 0.0)
 		radiance = GiDirectRadiance(gi, uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y)), voxel, albedo);
 	gGiRadiance[gi.directFirst + threadId.x] = GiPackRgba16(float4(radiance, albedo.a));
+	// and level 0 from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
+	gGiRadiance[GiLevelFirst(gi, 0) + threadId.x] = uint2(0, 0);
+}
+
+// before what moves is voxelized over the static voxels: the blocks it was voxelized in last frame (see gGiFlags'
+// second word) take the static voxels back, a thread per block (copying the whole clip took 100 MB a frame)
+[shader("compute")]
+[numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
+void ComputeGiRestore(uint3 dispatchId: SV_DispatchThreadID)
+{
+	uint3 threadId = GiThread(dispatchId);
+	GiData gi = GiClip(gPushConstants.giClip);
+	uint3 blocks = GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL);
+	if (threadId.x >= blocks.x * blocks.y * blocks.z)
+		return;
+	if (gGiFlags[GiFlagIndex(gi, threadId.x) + 1u] + 1u != gi.frameStamp)
+		return;
+	uint3 block = uint3(threadId.x % blocks.x, (threadId.x / blocks.x) % blocks.y, threadId.x / (blocks.x * blocks.y));
+	uint3 size = GiLevelSize(gi, 0);
+	for (uint voxelIt = 0; voxelIt < 64u; voxelIt++)
+	{
+		uint3 at = block * 4u + uint3(voxelIt & 3u, (voxelIt >> 2) & 3u, voxelIt >> 4);
+		if (any(at >= size))
+			continue;
+		uint index = gi.voxelFirst + GiVoxelIndex(at, size);
+		gGiVoxels[index] = gGiStaticVoxels[index];
+	}
 }
 
 // lighting the voxels each frame: a static voxel's direct radiance as kept (a moving one's made now: it differs from
@@ -672,6 +699,17 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	if (threadId.x >= size.x * size.y * size.z)
 		return;
 
+	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
+	// a block nothing was near last frame (its flags' bit 0; static voxels don't change between voxelizings) and nothing
+	// moving was in this frame or the last holds empty voxels, whose radiance is 0 since the clip was lit (see
+	// ComputeGiLightStatic): skipped, voxel unread. not after a voxelizing or a reset, when the flags are of before it
+	uint flagIndex = GiFlagIndex(gi, GiVoxelIndex(at >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL)));
+	if (gi.reset == 0u && all(gi.scroll.xyz == 0))
+	{
+		uint movingStamp = gGiFlags[flagIndex + 1u];
+		if ((gGiFlags[flagIndex] & 1u) == 0u && movingStamp != gi.frameStamp && movingStamp + 1u != gi.frameStamp)
+			return;
+	}
 	uint index = gi.voxelFirst + threadId.x;
 	GiVoxel voxel = gGiVoxels[index];
 	float4 albedo = GiUnpackRgba8(voxel.albedo);
@@ -680,10 +718,9 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 		gGiRadiance[GiLevelFirst(gi, 0) + threadId.x] = uint2(0, 0);
 		return;
 	}
-	uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
 	// its block holds something this frame (see gGiFlags): a plain store, every voxel of the block storing the same (an
 	// atomic maximum kept whatever a new buffer held, and a block it said was stamped in some far frame never counted)
-	gGiFlags[GiFlagIndex(gi, GiVoxelIndex(at >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL)))] = gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
+	gGiFlags[flagIndex] = gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
 	GiVoxel kept = gGiStaticVoxels[index];
 	float3 radiance;
 	// the kept light, unless a moving block lies between the voxel and a light that lights it (its shadow)

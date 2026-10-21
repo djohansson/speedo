@@ -1800,6 +1800,7 @@ struct Scene::Impl
 						{"ComputeGiTrace", SLANG_STAGE_COMPUTE},
 						{"ComputeGiProbeUpdate", SLANG_STAGE_COMPUTE},
 						{"ComputeGiResolve", SLANG_STAGE_COMPUTE},
+						{"ComputeGiRestore", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
