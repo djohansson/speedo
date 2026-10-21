@@ -844,7 +844,8 @@ may (its timings are dropped). `SHADER_TYPES_LIGHT_COUNT` (gLights) is 4096.
 
 ## Indirect lighting: irradiance probes over a voxel clipmap
 
-View > Indirect Lighting (`SPEEDO_GI=1` to start with it; off by default while it matures, and per frame:
+View > Indirect Lighting (on by default since 2026-10-22, the user's call once the artifacts that followed the camera
+were gone; `SPEEDO_GI=0` to start without it, and per frame:
 `FrameInputs::indirectLighting`, off drops the volumes, on voxelizes again) gives the diffuse ambient term from world
 space irradiance probes (`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), as DDGI (Majercik et al. 2019, RTXGI)
 has them, over a voxel clipmap the probes' rays march: each probe traces a set of rays a frame through the voxels'

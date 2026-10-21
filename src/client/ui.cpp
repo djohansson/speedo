@@ -851,10 +851,11 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
 		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
 			App().GetScene().GetSettings().clusteredLights.store(false, std::memory_order_relaxed);
-		// the indirect lighting (SPEEDO_GI=1) and the debug view (SPEEDO_DEBUG_VIEW: a key of ui::kDebugViews, or its
-		// number; SPEEDO_GI_DEBUG=<n> is the indirect lighting's n-th, as GiData::debug numbers them) to start with
-		if (const char* gi = std::getenv("SPEEDO_GI"); gi != nullptr && std::string_view(gi) == "1")
-			App().GetScene().GetSettings().indirectLighting.store(true, std::memory_order_relaxed);
+		// the indirect lighting (on by default; SPEEDO_GI=0 to start without it) and the debug view (SPEEDO_DEBUG_VIEW: a
+		// key of ui::kDebugViews, or its number; SPEEDO_GI_DEBUG=<n> is the indirect lighting's n-th, as GiData::debug
+		// numbers them) to start with
+		if (const char* gi = std::getenv("SPEEDO_GI"); gi != nullptr && *gi != '\0')
+			App().GetScene().GetSettings().indirectLighting.store(std::string_view(gi) != "0", std::memory_order_relaxed);
 		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_COUNT)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);

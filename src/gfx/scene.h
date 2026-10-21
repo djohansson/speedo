@@ -61,9 +61,9 @@ public:
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
 		// View, SPEEDO_DEBUG_VIEW)
 		std::atomic<uint32_t> debugView = DEBUG_VIEW_NONE;
-		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Indirect Lighting, SPEEDO_GI=1 to
-		// start with it)
-		std::atomic<bool> indirectLighting = false;
+		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Indirect Lighting; on by default
+		// since 2026-10-22, SPEEDO_GI=0 to start without it)
+		std::atomic<bool> indirectLighting = true;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

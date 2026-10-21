@@ -27,6 +27,9 @@ Preview::Preview(gfx::RHI& rhi, rhi::Extent2d extent)
 	myViews = std::make_unique<gfx::Views>(device, glm::uvec2(extent.width, extent.height));
 	myOutput = std::make_unique<gfx::ImageOutput>(device, extent);
 	myScene = std::make_unique<gfx::Scene>(rhi, *myPipeline, *myViews, *myOutput);
+	// without the indirect lighting (on by default): a preview is a thumbnail, and its own clipmap would cost what the
+	// window's does
+	myScene->GetSettings().indirectLighting.store(false, std::memory_order_relaxed);
 }
 
 Preview::~Preview() = default;
