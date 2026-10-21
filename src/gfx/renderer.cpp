@@ -1095,6 +1095,16 @@ Renderer::~Renderer()
 				static_cast<double>(values[16 + 256 + 36]), static_cast<double>(values[16 + 256 + 37]), static_cast<double>(values[16 + 256 + 38]),
 				static_cast<double>(values[16 + 256 + 39]), static_cast<double>(values[16 + 256 + 40]), static_cast<double>(values[16 + 256 + 41]), static_cast<double>(values[16 + 256 + 42]));
 			std::println(
+				"  the volumes at its voxel (last frame's resolve): red coefficients 0 to 3 ({:.5f}, {:.5f}, {:.5f}, {:.5f}), coefficient 8 ({:.5f}, {:.5f}, {:.5f}) and the weight {:.5f}",
+				static_cast<double>(values[16 + 256 + 43]), static_cast<double>(values[16 + 256 + 44]), static_cast<double>(values[16 + 256 + 45]), static_cast<double>(values[16 + 256 + 46]),
+				static_cast<double>(values[16 + 256 + 47]), static_cast<double>(values[16 + 256 + 48]), static_cast<double>(values[16 + 256 + 49]), static_cast<double>(values[16 + 256 + 50]));
+			{
+				std::string line = "  from the point along -z, per voxel (occupied, red coefficient 0, weight):";
+				for (int stepIt = 0; stepIt < 16; stepIt++)
+					line += std::format(" {}:{}/{:.3f}/{:.2f}", stepIt, values[16 + 256 + 51 + stepIt * 3] != 0.0F ? "x" : ".", static_cast<double>(values[16 + 256 + 52 + stepIt * 3]), static_cast<double>(values[16 + 256 + 53 + stepIt * 3]));
+				std::println("{}", line);
+			}
+			std::println(
 				"  the walk straight down: distance {:.3f} m, ended in clip {:.0f} after {:.0f} steps, in voxel row {:.0f}",
 				static_cast<double>(values[16 + 256 + 32]), static_cast<double>(values[16 + 256 + 33]), static_cast<double>(values[16 + 256 + 34]), static_cast<double>(values[16 + 256 + 35]));
 			{
@@ -2363,6 +2373,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 				glm::ivec3(0),
 				glm::ivec3(clip.probeSize[0], clip.probeSize[1], clip.probeSize[2]) - 1);
 			clip.dumpProbe = (static_cast<uint32_t>(nearest.z) * clip.probeSize[1] + static_cast<uint32_t>(nearest.y)) * clip.probeSize[0] + static_cast<uint32_t>(nearest.x);
+			for (int axisIt = 0; axisIt < 3; axisIt++)
+				clip.dumpPoint[axisIt] = myGiDumpPoint[axisIt];
 		}
 	}
 	myGiReset = false;

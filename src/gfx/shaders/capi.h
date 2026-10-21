@@ -640,7 +640,7 @@ struct CullView
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means)
-#define GI_DUMP_FLOAT_COUNT 316u
+#define GI_DUMP_FLOAT_COUNT 372u
 
 struct GiVoxel
 {
@@ -727,8 +727,10 @@ struct GiData
 	// whether anything moving is voxelized this frame (a static voxel's kept light is made again where a moving block
 	// lies between it and a light, see ComputeGiLight)
 	alignas(4) UINT1(moving);
-	// the probe of this clip dumped for debugging (its index among the clip's, or ~0: see GI_DUMP_FLOAT_COUNT)
+	// the probe of this clip dumped for debugging (its index among the clip's, or ~0: see GI_DUMP_FLOAT_COUNT), and the
+	// point it was asked for (xyz)
 	alignas(4) UINT1(dumpProbe);
+	alignas(16) FLOAT4(dumpPoint);
 };
 
 struct PushConstants

@@ -1360,12 +1360,21 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// ceiling), else, where more than a quarter of its rays met a surface's back (it is inside something: Sponza's outer
 	// walls are 0.6 m thick, their insides empty between the two shells, and the probes in them lit the corridors behind
 	// its curtains with nothing), away from the nearest such by its distance and a tenth of a spacing; never more than
-	// 0.45 of a spacing from the lattice point (its cell's points still interpolate it)
+	// 0.45 of a spacing from the lattice point (its cell's points still interpolate it). the corner's move is taken only
+	// where its target is clear of voxels, else the probe stays: it used to go wherever the normals pointed, and a probe
+	// behind Bistro's hotel facade, whose two targets were each in the other's voxels (the facade's and the window
+	// frames', at 28 cm), jumped between them every frame, one inside the hotel, which its emissive interior lights 30
+	// times brighter than the street: the wall by the window lit yellow on alternate frames (the user's heavy flicker)
 	float3 offset = GiProbeOffset(history);
 	{
-		float3 corner = GiCornerAway(gi, GiProbeLatticePosition(gi, probe) + offset);
+		float3 lattice = GiProbeLatticePosition(gi, probe);
+		float3 corner = GiCornerAway(gi, lattice + offset);
 		if (any(corner != 0.0))
-			offset = corner * (0.45 * gi.probeOrigin.w);
+		{
+			float3 candidate = corner * (0.45 * gi.probeOrigin.w);
+			if (all(GiCornerAway(gi, lattice + candidate) == 0.0))
+				offset = candidate;
+		}
 		else if (backfaceCount * 4u > gi.rayCount)
 			offset -= closestBackfaceDirection * ((closestBackface + 0.1) * gi.probeOrigin.w);
 		float limit = 0.45 * gi.probeOrigin.w;
@@ -1491,6 +1500,33 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 36 + axisIt] = asuint(dot(max(along, 0.0), float3(0.2126, 0.7152, 0.0722)));
 		}
 		gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 42] = asuint(dot(sh[0], float3(0.2126, 0.7152, 0.0722)) * 0.282095);
+		// and the volumes at its voxel, as the last frame's resolve left them (volume 0's red coefficients 0 to 3, and volume
+		// 6: the colors' coefficient 8 and the weight)
+		{
+			int3 at = int3(floor(GiVoxelCoordinate(gi, position, 0)));
+			uint3 texel = uint3(clamp(at, int3(0), int3(GiLevelSize(gi, 0)) - 1));
+			texel.z += gi.clip * GiLevelSize(gi, 0).z;
+			float4 v0 = gGiVolumeImages[0][texel];
+			float4 v6 = gGiVolumeImages[6][texel];
+			for (uint valueIt = 0; valueIt < 4; valueIt++)
+			{
+				gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 43 + valueIt] = asuint(v0[valueIt]);
+				gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 47 + valueIt] = asuint(v6[valueIt]);
+			}
+		}
+		// and along -z from the point asked for, 16 voxels: whether occupied, and the volumes' red coefficient 0 and weight
+		for (uint stepIt = 0; stepIt < 16; stepIt++)
+		{
+			float3 p = gi.dumpPoint.xyz - float3(0.0, 0.0, float(stepIt) * gi.volumeOrigin.w);
+			int3 at = int3(floor(GiVoxelCoordinate(gi, p, 0)));
+			bool in = GiInside(at, GiLevelSize(gi, 0));
+			uint3 texel = uint3(clamp(at, int3(0), int3(GiLevelSize(gi, 0)) - 1));
+			uint occupied = in ? (GiVoxelAt(gi, texel).albedo >> 24) : 0u;
+			texel.z += gi.clip * GiLevelSize(gi, 0).z;
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 51 + stepIt * 3] = asuint(float(occupied));
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 52 + stepIt * 3] = asuint(gGiVolumeImages[0][texel].x);
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 53 + stepIt * 3] = asuint(gGiVolumeImages[6][texel].w);
+		}
 		// and after the depth map, the first 16 rays' directions' y and depths
 		for (uint rayIt = 0; rayIt < 16u && rayIt < gi.rayCount; rayIt++)
 		{

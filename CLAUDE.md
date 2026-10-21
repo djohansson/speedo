@@ -958,7 +958,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   its corner along their normals' mean by 0.45 of a spacing at once (`GiCornerAway`; a probe on a wall's voxel shell
   saw nothing and was skipped, and the points nearest it took the mean of the others: Sponza's inside against its
   surface reference from 1.24 to 0.95 mean |log2|; a step of one and a half voxels, stopping as soon as the corner was
-  clear, left a probe's harmonics the surface's and drew dots on CornellBox's ceiling), else, where more than a quarter
+  clear, left a probe's harmonics the surface's and drew dots on CornellBox's ceiling; the move is taken only where its
+  target is clear of voxels, else the probe stays where it is: taken wherever the normals pointed, a probe behind
+  Bistro's hotel facade, whose two targets were each in the other's voxels, the facade's and the window frames' at
+  28 cm, jumped between them every frame, one of them inside the hotel, whose emissive interior is 30 times brighter
+  than the street, so the wall by the window lit yellow on alternate frames, the user's "heavy flicker": found by
+  dumping the volumes along a line into the wall, 1 to 4 and back, with every probe's light, depth and position of the
+  cell in front steady, and then the probes of the cell behind), else, where more than a quarter
   of its rays met a surface's back (`GiOccluderHit`: the voxel's normal along the ray, unless both of a triangle's faces
   wrote the voxel, a thin wall's, whose normal is either's: the voxelizer keeps which faces wrote in
   `GiVoxel::emissionB`'s bits 16 and 17), away from the nearest such by its distance and a tenth of a spacing, a frame at
@@ -1076,8 +1082,10 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   failing the test (blue): every camera following artifact so far showed in it as green or blue where the lit view
   showed nothing yet. `SPEEDO_GI_DUMP=<x,y,z>` prints, at exit, per clip the probe nearest the point: its position,
   offset, age, backface count, its lattice point's voxel coordinates and the column of voxels through it, its depth
-  map, the first rays' depths, its light along the axes, and a walk straight down from it (`GiOccluderHitDebug`):
-  what found the dead floor probes and the probe beyond the end wall. View > Camera > Copy Pose (ctrl/cmd+shift+c)
+  map, the first rays' depths, its light along the axes, a walk straight down from it (`GiOccluderHitDebug`), the
+  volumes at its voxel and along a line from the point into -z (`GiData::dumpPoint`: occupied, red coefficient 0 and
+  the weight per voxel, which is what found the alternating cell): what found the dead floor probes and the probe
+  beyond the end wall. View > Camera > Copy Pose (ctrl/cmd+shift+c)
   copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment, the
   exposure, `SPEEDO_GI`, `SPEEDO_DEBUG_VIEW`), for reports: an artifact is a pose first. They go in 7 `R16G16B16A16Sfloat` 3D images
   (`gGiVolumes`: per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the
