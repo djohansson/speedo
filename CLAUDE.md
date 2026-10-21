@@ -908,6 +908,10 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   static ones' kept light), plus what its albedo reflects of the probes' light at it as the last frame resolved it
   (`GiData::bounce`, `SPEEDO_GI_BOUNCE=0` for the lights' light alone): the light bounces on, a bounce a frame, settling
   with the blend. The shadow rays every frame cost CornellBox-Sphere 2.9 ms of its 3 clips' lighting, the kept light 1.3.
+  What moves does shadow the kept light: the moving voxelizer stamps the frame into the blocks it writes (the flags'
+  second word, `SHADER_TYPES_GI_FLAG_WORD_COUNT`), and a static voxel whose line to a light that lights it crosses a
+  stamped block (`GiMovingShadows`: a walk over the blocks, `GiMovingBetween`) traces its shadow rays that frame; only
+  with something moving in the frame (`GiData::moving`).
   Then a mip chain of radiance and occupancy, anisotropic (`ComputeGiMip`: 6 faces per voxel of the levels above 0, one
   per axis direction, each its children composited front to back along it; a ray reads the 3 faces it looks through,
   by its direction's squares: the mean of the 8 let a thin surface's lit face through to the other side, the sun on the
@@ -921,7 +925,14 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   what makes a clip's cost that of its surfaces rather than its volume. The mips are made whole on a reset (the buffer
   may hold anything).
 - **The probes** (`GiData::probe*`): a lattice every `SPEEDO_GI_PROBE_SPACING` voxels (8 by default) from the clip's
-  corner, centered on voxel boundaries (so every point of a voxel interpolates the same 8). Each frame (the GI pass, GI
+  corner, centered on voxel boundaries (so every point of a voxel interpolates the same 8), each where its lattice point
+  is unless the voxels at that corner are a surface's: then 0.45 of a spacing out of them along their normals
+  (`GiProbePosition`, DDGI's relocation, from the voxels each frame rather than kept, so that every kernel agrees; a
+  probe on a wall's voxel shell saw nothing and was skipped, and the points nearest it took the mean of the others:
+  Sponza's inside against its surface reference from 1.24 to 0.95 mean |log2|; a move of one and a half voxels left a
+  probe's harmonics the surface's, which drew dots on CornellBox's ceiling; on a thin wall's two shells, normals both
+  ways, a probe stays and is skipped). It costs: a wall on a lattice plane makes a plane of probes trace that returned
+  dead before (CornellBox +3 ms, Sponza +1). Each frame (the GI pass, GI
   Trace then GI Probe Update) each probe near a surface traces `SPEEDO_GI_RAY_COUNT` rays (128), a Fibonacci sphere of
   directions turned by the frame's phase (`GiRayDirection`: a quaternion from Roberts' R3 sequence over
   `SPEEDO_GI_RAY_PHASE_COUNT` phases, 32, then the same sets again, so what a probe holds converges to a fixed value
@@ -940,7 +951,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 8 by 8 octahedral texels of the mean
   distance and the mean of its square, half2; a texel takes the rays near its direction by `cos^10` of their angle, and
   keeps what it had where none is near), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays are 3% of it), or by the
-  frames it has while fewer (so a probe starts from its first frame's rays and settles in 30). The probes' buffers hold
+  frames it has while fewer (so a probe starts from its first frame's rays and settles in 30), or a quarter at a time
+  through a change of the light (DDGI's adaptive hysteresis, `SPEEDO_GI_ADAPT=0` without: each probe keeps how much its
+  frames' mean radiance usually differs from what it holds, coefficient 1's w, and a difference of four times that and
+  half of what it holds is a change rather than noise; a light stepping from 0 to 200 cd, eight frames later the probes
+  are at 139 of the instant blend's 167, 105 with the hysteresis alone, and a still camera in Sponza's arcade triggers
+  nothing: 0.98% steps as before; a slow change, AnimatedCameraLight's 12% over 100 frames, lags 7% either way, by
+  design). The probes' buffers hold
   two halves, the frame's and the last's (`GiData::probeFirst`, `probePreviousFirst`, swapped each frame), and a
   probe's history is the probe at its place last frame (by the scroll), a probe new to the clip taking the coarser
   clip's light where it is (its previous half, at its place then, trilinear) as one frame's worth; on a reset (the
@@ -974,7 +991,9 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   lookup: the environment by the indirect light's share of the environment's irradiance (luminance, at most 1; all of
   it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection. Kept as arrays
   of the 28 values in the main pass's lookup, they spilled: Bistro's main pass took 31 ms. The lookups cost Sponza's
-  main pass 1.5 ms (3.5 to 5.1) and Bistro's street 2.4 (3.8 to 6.2), more than they did (0.3 to 0.6): to look at.
+  main pass 1.5 ms (3.5 to 5.0) and Bistro's street 2.4 (3.8 to 6.2); the volumes' reads are 0.6 of Sponza's (bands 0
+  and 1 alone, 4 volumes: 4.45), the rest the lookup itself (the clips' weights, two attempts, the specular's second
+  evaluation), so band 2 stays.
   Its debug views (View > Debug View > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th,
   `GiData::debug`): 1 the indirect diffuse alone, 2 the resolved weight (how much a point sees of the probes around it),
   3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light
@@ -987,9 +1006,11 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's size isn't capped by a dispatch.
 
 Measured on KosmicKrisp by the frame's gpu time (2560x1440, 3 clips, 128 voxels, probes every 8, 128 rays, hysteresis
-0.97): CornellBox-Sphere 9.3 ms (4.5 without the indirect lighting; 7.5 with 32 rays, where its 3.0 ms are the voxels'
+0.97; the gpu's state drifts between runs by up to a third, so compare runs interleaved): before relocation
+CornellBox-Sphere 9.3 ms (4.5 without the indirect lighting; 7.5 with 32 rays, where its 3.0 ms are the voxels'
 lighting 1.3, the resolve 0.9, the rays 0.6, the probes' update 0.2, the mips and flags little), Sponza's inside
-(`0,2,0,0,90`) 12.0 (6.5), Bistro's street (`564,170,-2436,0,30`) 14.9 (9.9). Probes every 4 voxels cost 8 times the
+(`0,2,0,0,90`) 12.0 (6.5), Bistro's street (`564,170,-2436,0,30`) 14.9 (9.9); with it CornellBox-Sphere 12.4 (4.5;
+8.2 with 8 rays), Sponza's inside 13.0 (6.5). Probes every 4 voxels cost 8 times the
 probes (CornellBox 12.8 ms with 32 rays), with no visible gain at these voxel sizes. A still camera in Sponza's arcade
 over 80 frames after settling: the frame's mean steps by 1.2% at most between frames and stays within 1.3% of its
 average (64 rays 2.1%; hysteresis 0.9 with 128 rays 3.9% and 4%, with 64 rays 7% and 7%: the arches' light is a noisy
@@ -997,9 +1018,9 @@ thing to sample with 64 rays). Renders: CornellBox's walls and ceiling smooth, w
 it, colour bleeding on the ceiling's edges and the spheres' contact shadows; Sponza's inside within a shade of its
 surface reference (its arcades a little brighter), its sunlit upper floors lit by the sky; Bistro's street lit between
 its walls. Against the old cascades: no splotches, no dark blobs at the walls' bases, no blocks behind the spheres, and
-the clips' moves change nothing measurable. What's left (TODO.md): the lighting's lag (DDGI's adaptive hysteresis for
-lights that change), probes inside walls (DDGI's relocation), moving objects' shadows in the kept light, the lookups'
-cost, glossy reflections, hardware ray queries, and a path traced reference.
+the clips' moves change nothing measurable. What's left (TODO.md): the lighting's lag through slow changes, the cost
+(the per voxel kernels over 3 clips of 2 M voxels each, CesiumMan's 1.5 m paying 4.9 ms), glossy reflections, hardware
+ray queries, and a path traced reference.
 
 ## Descriptor sets: redundant updates consume the pool
 
