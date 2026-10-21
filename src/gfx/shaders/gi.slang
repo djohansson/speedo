@@ -1079,19 +1079,35 @@ int3 GiProbeBase(GiData gi, float3 position, out float3 fraction)
 	return base;
 }
 
-// a ray of the frame (see GiData::rayPhase): a Fibonacci sphere of rayCount directions turned by the frame's phase (a
-// quaternion from a quasirandom sequence over the phases, Roberts' R3, Shoemake's rotation: every phase's set is as
-// even as the Fibonacci sphere, where every 32nd point of one 32 times as big was a coarse spiral of its own, and the
-// phases' light differed by a quarter, which the blending showed as a 32 frame pulse of 5%), the same for every probe
-// (each probe turning the set its own way made each probe's error its own, which showed as dots where the resolve's
-// weights single a probe out; the same directions everywhere, the error is shared by the probes near each other, smooth)
-float3 GiRayDirection(GiData gi, uint rayIndex)
+// a probe's phase of the frame (see GiData::rayPhase): the frame's, plus its own start, hashed from its place in the
+// clipmap's lattice (the same wherever its clip has scrolled to). with every probe at the frame's phase, the blend's
+// ripple (the latest subset weighs 3%, the oldest of the 32 1.2%, so what a probe holds pulses with the cycle by the
+// subsets' differences) was the same across the probes of a region, which pulsed together, a 32 frame flicker of
+// Sponza's walls under auto exposure; at their own phases the ripples of a cell's 8 probes cancel in the lookup
+uint GiProbePhase(GiData gi, uint3 probe)
+{
+	float3 anchor = gGi[gPushConstants.frameIndex][gi.clipCount - 1].probeOrigin.xyz;
+	int3 lattice = int3(round((gi.probeOrigin.xyz - anchor) / gi.probeOrigin.w)) + int3(probe);
+	uint hash = uint(lattice.x) * 73856093u ^ uint(lattice.y) * 19349663u ^ uint(lattice.z) * 83492791u;
+	hash ^= hash >> 16;
+	hash *= 0x7feb352du;
+	hash ^= hash >> 15;
+	return (gi.rayPhase + hash) % gi.rayPhaseCount;
+}
+
+// a ray of a phase: a Fibonacci sphere of rayCount directions turned by the phase (a quaternion from a quasirandom
+// sequence over the phases, Roberts' R3, Shoemake's rotation: every phase's set is as even as the Fibonacci sphere,
+// where every 32nd point of one 32 times as big was a coarse spiral of its own, and the phases' light differed by a
+// quarter, which the blending showed as a 32 frame pulse of 5%). the set is the same for every probe (each probe
+// turning the set its own way made each probe's error its own, which showed as dots where the resolve's weights single
+// a probe out; the same directions everywhere, the error is shared by the probes near each other, smooth)
+float3 GiRayDirection(GiData gi, uint phase, uint rayIndex)
 {
 	float z = 1.0 - (float(rayIndex) + 0.5) * 2.0 / float(gi.rayCount);
 	float radius = sqrt(max(1.0 - z * z, 0.0));
 	float phi = float(rayIndex) * 2.39996323;
 	float3 d = float3(radius * cos(phi), radius * sin(phi), z);
-	float3 u = frac(0.5 + float(gi.rayPhase) * float3(0.8191725, 0.6710436, 0.5497005));
+	float3 u = frac(0.5 + float(phase) * float3(0.8191725, 0.6710436, 0.5497005));
 	float a = u.y * 6.28318531;
 	float b = u.z * 6.28318531;
 	float4 q = float4(sqrt(1.0 - u.x) * sin(a), sqrt(1.0 - u.x) * cos(a), sqrt(u.x) * sin(b), sqrt(u.x) * cos(b));
@@ -1176,7 +1192,7 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	// are at surfaces, among the probes of their cell), see ComputeGiProbeUpdate
 	if ((GiFlagsAt(gi, GiProbeLatticePosition(gi, probe)) & 8u) == 0u)
 		return;
-	float3 direction = GiRayDirection(gi, rayIndex);
+	float3 direction = GiRayDirection(gi, GiProbePhase(gi, probe), rayIndex);
 	GiData last = GiClip(gi.clipCount - 1);
 	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 	float4 traced = GiMarch(gi, 0, gi.debug != 7u, origin, direction, 0.0, far);
@@ -1212,6 +1228,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	if (probeIndex >= probeCount)
 		return;
 	uint3 probe = GiProbeAt(probeIndex, gi.probeSize);
+	uint phase = GiProbePhase(gi, probe);
 	// a probe nothing is voxelized near holds nothing (its rays weren't traced, see ComputeGiTrace): no light, and a
 	// depth of 0, which no point passes
 	uint first = (gi.probeFirst + probeIndex) * SHADER_TYPES_GI_SH_COUNT;
@@ -1268,7 +1285,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		if (rayLoad < gi.rayCount)
 		{
 			gGiSharedRays[texelIndex] = GiUnpackRgba16(gGiRays[rayFirst + rayLoad]);
-			gGiSharedDirections[texelIndex] = GiRayDirection(gi, rayLoad);
+			gGiSharedDirections[texelIndex] = GiRayDirection(gi, phase, rayLoad);
 		}
 		GroupMemoryBarrierWithGroupSync();
 		uint rayEnd = min(gi.rayCount - rayBase, SHADER_TYPES_GI_GROUP_SIZE);
@@ -1474,7 +1491,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		// and after the depth map, the first 16 rays' directions' y and depths
 		for (uint rayIt = 0; rayIt < 16u && rayIt < gi.rayCount; rayIt++)
 		{
-			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + rayIt * 2] = asuint(GiRayDirection(gi, rayIt).y);
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + rayIt * 2] = asuint(GiRayDirection(gi, phase, rayIt).y);
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + rayIt * 2 + 1] = asuint(GiUnpackRgba16(gGiRays[rayFirst + rayIt]).a);
 		}
 		for (uint texelIt = 0; texelIt < kTexelCount; texelIt++)

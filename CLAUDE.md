@@ -958,7 +958,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   rather than wandering, as it would under DDGI's random rotation a frame; every 32nd point of one set 32 times as
   big, tried first, was a coarse spiral of its own, and the phases' light differed by a quarter: a 32 frame pulse of
   5%), the same directions for every probe (each probe turning them its own way made each probe's error its own, which
-  showed as dots where the resolve's weights single a probe out). A ray marches the radiance front to back at the level
+  showed as dots where the resolve's weights single a probe out) but each probe at its own phase of the cycle
+  (`GiProbePhase`: the frame's plus a hash of its place in the clipmap's lattice, the same wherever its clip has
+  scrolled to): the blend's ripple (the latest subset weighs 3% of what a probe holds, the oldest of the 32 1.2%, so it
+  pulses with the cycle by the subsets' differences) was the same across the probes of a region, which pulsed together,
+  a 32 frame flicker of Sponza's walls that the user saw under auto exposure; at their own phases the ripples of a
+  cell's 8 probes cancel in the lookup (frames 16 apart at exposure 9 differed by 94 of 255 at most, 17 after). A ray
+  marches the radiance front to back at the level
   of its distance (`GiMarch` with `cone`: level 0 as far as two spacings, each level above four times as far, a cone of
   a constant angle, a half voxel step taking half a voxel's share of the opacity, `1 - (1 - a)^(1/2)`; `SPEEDO_GI_DEBUG`
   7 marches level 0 only, to tell what the levels lose), the environment past the last clip (`EnvironmentRadiance` at
