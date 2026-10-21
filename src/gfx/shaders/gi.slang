@@ -1459,6 +1459,18 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		float4 walk = GiOccluderHitDebug(gi, traced, float3(0, -1, 0), SHADER_TYPES_GI_DEPTH_REACH * gi.probeOrigin.w);
 		for (uint valueIt = 0; valueIt < 4; valueIt++)
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 32 + valueIt] = asuint(walk[valueIt]);
+		// and the light it holds: the irradiance over pi along +-x, +-y, +-z (as GiEvaluate), and the frame's rays' mean
+		float4 band0 = float4(gGiIrradiance[first].r, gGiIrradiance[first + 1].r, gGiIrradiance[first + 2].r, gGiIrradiance[first + 3].r);
+		for (uint axisIt = 0; axisIt < 6; axisIt++)
+		{
+			float3 d = 0.0;
+			d[axisIt / 2] = axisIt % 2 == 0 ? 1.0 : -1.0;
+			float3 along = 0.0;
+			for (uint shIt = 0; shIt < 4; shIt++)
+				along += gGiIrradiance[first + shIt].rgb * (shIt == 0 ? 0.282095 : 2.0 / 3.0 * 0.488603 * d[shIt - 1]);
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 36 + axisIt] = asuint(dot(max(along, 0.0), float3(0.2126, 0.7152, 0.0722)));
+		}
+		gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 42] = asuint(dot(sh[0], float3(0.2126, 0.7152, 0.0722)) * 0.282095);
 		// and after the depth map, the first 16 rays' directions' y and depths
 		for (uint rayIt = 0; rayIt < 16u && rayIt < gi.rayCount; rayIt++)
 		{
@@ -1815,29 +1827,22 @@ struct GiSample
 	bool inside; // whether a clip holds the point (though none of its voxels around it saw a probe, if not valid)
 };
 
-// a clip's voxels' resolved probes around the point offset 1.5 voxels along its normal (see GiIrradianceResolved),
-// normalized by their weight
-// bias is in voxels of the finest clip, the same distance off the surface in every clip (in a clip's own voxels, a
-// coarse clip's lookup reached into the open, past what is near the surface: brighter than the finer ones), else, where
-// that finds none of its probes seen (a coarse clip's voxels around the point are the surface's), in its own voxels
+// a clip's voxels' resolved probes around the point offset along its normal (see GiIrradianceResolved), normalized by
+// their weight; bias is in the clip's own voxels
 GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias)
 {
 	GiSample result;
 	float3 size = float3(gi.volumeSize.xyz);
 	SamplerState linear = gSamplers[SHADER_TYPES_CLAMP_SAMPLER];
-	float finest = gGi[gPushConstants.frameIndex][0].volumeOrigin.w;
-	float3 uvw = 0.0;
-	for (uint attemptIt = 0; attemptIt < 2; attemptIt++)
-	{
-		float3 biased = position + bias * (attemptIt == 0 ? finest : gi.volumeOrigin.w);
-		// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
-		float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
-		coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
-		uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
-		result.last = gGiVolumes[6].SampleLevel(linear, uvw, 0.0);
-		if (result.last.w > 1e-7 || finest == gi.volumeOrigin.w)
-			break;
-	}
+	// in the clip's own voxels: in the finest clip's, a coarse clip's lookup at a thin wall landed within the filter's
+	// reach of the wall's outer shell voxel, resolved from a point outside, where a probe outside the building passes
+	// (the end wall of Sponza's corridor, lit white by the sky beyond it, with one clip dark)
+	float3 biased = position + bias * gi.volumeOrigin.w;
+	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
+	float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
+	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.clip) * size.z;
+	float3 uvw = coordinate / float3(size.xy, size.z * float(gi.clipCount));
+	result.last = gGiVolumes[6].SampleLevel(linear, uvw, 0.0);
 	float weight = result.last.w;
 	result.valid = weight > 1e-7;
 	float scale = result.valid ? 1.0 / weight : 0.0;

@@ -1097,6 +1097,10 @@ Renderer::~Renderer()
 				rays += std::format(" ({:+.2f}: {:.2f})", static_cast<double>(values[16 + 256 + rayIt * 2]), static_cast<double>(values[16 + 256 + rayIt * 2 + 1]));
 			std::println("  the first rays (direction's y: depth):{}", rays);
 			std::println(
+				"  its light (luminance, bands 0 and 1) along +x {:.3f} -x {:.3f} +y {:.3f} -y {:.3f} +z {:.3f} -z {:.3f}; this frame's rays' mean {:.3f}",
+				static_cast<double>(values[16 + 256 + 36]), static_cast<double>(values[16 + 256 + 37]), static_cast<double>(values[16 + 256 + 38]),
+				static_cast<double>(values[16 + 256 + 39]), static_cast<double>(values[16 + 256 + 40]), static_cast<double>(values[16 + 256 + 41]), static_cast<double>(values[16 + 256 + 42]));
+			std::println(
 				"  the walk straight down: distance {:.3f} m, ended in clip {:.0f} after {:.0f} steps, in voxel row {:.0f}",
 				static_cast<double>(values[16 + 256 + 32]), static_cast<double>(values[16 + 256 + 33]), static_cast<double>(values[16 + 256 + 34]), static_cast<double>(values[16 + 256 + 35]));
 			{

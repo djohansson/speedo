@@ -1024,8 +1024,10 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   failing the test (blue): every camera following artifact so far showed in it as green or blue where the lit view
   showed nothing yet. `SPEEDO_GI_DUMP=<x,y,z>` prints, at exit, per clip the probe nearest the point: its position,
   offset, age, backface count, its lattice point's voxel coordinates and the column of voxels through it, its depth
-  map, the first rays' depths, and a walk straight down from it (`GiOccluderHitDebug`): what found the dead floor
-  probes. They go in 7 `R16G16B16A16Sfloat` 3D images
+  map, the first rays' depths, its light along the axes, and a walk straight down from it (`GiOccluderHitDebug`):
+  what found the dead floor probes and the probe beyond the end wall. View > Camera > Copy Pose (ctrl/cmd+shift+c)
+  copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment, the
+  exposure, `SPEEDO_GI`, `SPEEDO_DEBUG_VIEW`), for reports: an artifact is a pose first. They go in 7 `R16G16B16A16Sfloat` 3D images
   (`gGiVolumes`: per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the
   shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
   as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the
@@ -1034,8 +1036,11 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   takes `GiSampleSurface` in place of the environment's irradiance where a clip covers the point (the environment's
   elsewhere): the finest clip holding it more than a probe spacing from its edges, blended into the next over 8
   voxels; there the 8 voxels around the point offset 0.75 voxels along its normal and 1.5 toward the eye (the line of
-  sight is clear; the normal alone led into the other surface's voxels at a concave edge), in the finest clip's voxels
-  for every clip (in its own where that finds none), twice as far where that finds no probes, filtered, their
+  sight is clear; the normal alone led into the other surface's voxels at a concave edge), in each clip's own voxels
+  (in the finest clip's for every clip, a coarse clip's lookup at a thin wall landed within the filter's reach of the
+  wall's outer shell voxel, resolved from a point outside, where a probe outside the building passes: the end wall of
+  Sponza's corridor lit white by the sky beyond it, the leak that followed the camera as the coarse clip took over;
+  with one clip it was dark, which is what found it), twice as far where that finds no probes, filtered, their
   premultiplied harmonics over their weights (`GiEvaluate`: the cosine lobe's convolution, bands 1, 2/3, 1/4). Band
   2 is kept for CornellBox's lamps (with bands 0 and 1 alone a blue fringe ringed them). The specular takes the same
   lookup: the environment by the indirect light's share of the environment's irradiance (luminance, at most 1; all of

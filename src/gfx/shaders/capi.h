@@ -637,7 +637,7 @@ struct CullView
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means)
-#define GI_DUMP_FLOAT_COUNT 308u
+#define GI_DUMP_FLOAT_COUNT 316u
 
 struct GiVoxel
 {
