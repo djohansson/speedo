@@ -882,7 +882,20 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   occupancy, normal facing away from the face, emission; `InterlockedMax`, so that the order doesn't matter). Both
   faces, always: a double sided material's either face can be the one seen, and a triangle's winding, its vertex
   normals and the side it is drawn from needn't agree (CornellBox's generated normals point out of the box, whose walls
-  are seen from inside). The voxels' albedo is the base color times 1 minus the metallic factor times its texture's
+  are seen from inside). Each side's voxel is a shell for the lookups and the relocation; for the rays (`GiMarch`,
+  `GiOccluderHit`: the probes' rays and depth, the shadow rays, the Voxel World view) the voxel a back face alone wrote
+  (`GiVoxel::emissionB`'s faces 2: outside a solid, by the importers' outward winding) is passed, and is the surface
+  met if its twin behind is hit within two voxels (its radiance and normal), so a surface is a voxel thick for them
+  rather than two, and an opening a voxel wider a side. At 0.29 m voxels Sponza's first floor arcade lost its
+  openings' lower 0.6 m to the shells: no sun reached its floor in the last clip and its probes held no light (their
+  rays' mean 2e-5 against the next clip's 4e-3), so the corridor was black beyond the finer clips' boxes, the third
+  artifact that followed the camera (the user's poses `-7.7534,4.8126,-3.5046,0.426,448.765` and
+  `-2.3323,4.8044,-3.5225,0.779,449.768`), and the surface reference agreed, reading the same voxels. With the shells
+  passed its far corridor at exposure 6 reads 0.045 (the reference 0.033; before 0.017 and 0.011), the mid floor 0.18
+  (0.09; 0.07 and 0.04) and the near 0.42 (0.39): it still darkens with the distance, the last clip's openings being
+  what they are (two clips at 256 voxels light it, 0.13, for Sponza's 13 to 24 ms a frame, 29 with three: too much;
+  TODO.md). The one voxel shell has corner gaps only where a plane passes voxel corners exactly, which the second shell
+  covered: the samples' half voxel offset keeps it face connected elsewhere. The voxels' albedo is the base color times 1 minus the metallic factor times its texture's
   (by the factor alone, Sponza's voxels were all black). Those voxels are kept (GI Keep, into a buffer of their own:
   the clips voxelized, the others' voxels holding what moved last frame), lit by the lights (GI Light Static, below),
   and every frame with something that moves (skinned, morphed, or following an animated node: not cullable) they are
@@ -1084,9 +1097,15 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   Its debug views (View > Debug View > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th,
   `GiData::debug`): 1 the indirect diffuse alone, 2 the resolved weight (how much a point sees of the probes around it),
   3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light
-  from 512 rays through the voxels straight to the environment, nothing blended (seconds a frame); 13 the surface reference (`GiPixelReference`: 256 cosine weighted rays from the point itself, its spiral turned per
-  point by a hash, else its fixed directions made radial streaks; an origin in an occupied voxel moves out along that
-  voxel's normal; seconds a frame: capture it after a few frames); 7 which clip lights a point, 8 the indirect diffuse
+  from 512 rays through the voxels straight to the environment, nothing blended (seconds a frame); 13 the surface
+  reference (`GiPixelReference`: 256 cosine weighted rays from the point itself, its spiral turned per point by a hash,
+  else its fixed directions made radial streaks; the rays shared out among the clips that hold the point by the
+  weights the shading blends them with, each ray one clip's, so a pixel costs the same however many hold it: from the
+  finest alone, the edge of its box cut the vault in two shades, and every ray in every clip ran past Metal's queue
+  timeout; an origin in an occupied voxel, an adjacent surface's shell at a concave edge, moves out of it along the
+  voxel's normal turned toward the eye, a voxel and a half at a time, `GiReferenceOrigin`: along the normal as
+  stored, an inner shell voxel's led further into its solid, and the vault's ribs drew black lines; seconds a frame:
+  capture it after a few frames); 7 which clip lights a point, 8 the indirect diffuse
   with the finest clip's voxel and probe planes drawn over it (`GiClipDebug`); and the Voxel World and Probes views (the
   8 probes around a point as they hold them, trilinear, without the resolve's weights). The kernels dispatch rows of
   `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's size isn't capped by a dispatch.

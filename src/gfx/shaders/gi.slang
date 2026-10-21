@@ -223,6 +223,8 @@ float4 GiMarch(GiData gi, float3 origin, float3 direction, float end, bool skipE
 		bool left = false;
 		int3 block = int3(-1);
 		uint steps = 0;
+		float passedT = -1e9;
+		float3 passedRadiance = 0.0;
 		while (t < endHere)
 		{
 			// (only where it skips: the writes made the main pass's fragment shader, which holds the surface reference's
@@ -271,9 +273,20 @@ float4 GiMarch(GiData gi, float3 origin, float3 direction, float end, bool skipE
 			}
 			if (!skipped)
 			{
-				float4 found = GiUnpackRgba16(gGiRadiance[clip.radianceFirst + GiVoxelIndex(uint3(voxel), size)]);
+				uint index = GiVoxelIndex(uint3(voxel), size);
+				float4 found = GiUnpackRgba16(gGiRadiance[clip.radianceFirst + index]);
 				if (found.a > 0.0)
-					return float4(found.rgb, 0.0);
+				{
+					// the voxel a back face alone wrote is a surface's shell on its open side (see GiOccluderHit): passed, and
+					// what the ray sees of the surface when the twin behind it is met
+					if ((gGiVoxels[clip.voxelFirst + index].emissionB >> 16) == 2u)
+					{
+						passedT = t;
+						passedRadiance = found.rgb;
+					}
+					else
+						return float4(t - passedT < 2.0 ? passedRadiance : found.rgb, 0.0);
+				}
 				if (next.x < next.y && next.x < next.z)
 				{
 					t = next.x;
@@ -312,7 +325,13 @@ float4 GiMarch(GiData gi, float3 origin, float3 direction, float end, bool skipE
 // whose shell around the floor it stood on, so its depth read 0 that way and it was dead). the ray starts a thousandth
 // of a voxel in, so that from a voxel corner (the probes' lattice points) the voxel it starts in is the one it enters,
 // not whichever floor picks; and in a coarser clip the voxel it starts in doesn't count: a point outside a surface's
-// shell in the finer clip is inside the thicker shell of the coarser
+// shell in the finer clip is inside the thicker shell of the coarser. a surface writes a voxel on each of its sides (see
+// ComputeGiVoxelize); the one its back face alone wrote (faces 2: outside a solid, since the importers wind faces
+// outward) is passed, and is the surface the ray met if the twin behind it is hit within two voxels (its normal, and
+// GiMarch takes its radiance): so a surface is a voxel thick for the rays rather than two, and an opening a voxel wider
+// a side. at 0.29 m voxels Sponza's first floor arcade lost its openings' lower 0.6 m to the shells, so no sun reached
+// its floor in the last clip and no probe of it held light (the corridor black beyond the finer clips' boxes, the
+// third artifact that followed the camera); the lookups and the relocation keep both shells
 float GiOccluderHit(GiData gi, float3 origin, float3 direction, float distance, bool box, out bool backface)
 {
 	backface = false;
@@ -334,6 +353,8 @@ float GiOccluderHit(GiData gi, float3 origin, float3 direction, float distance, 
 		float t = 0.0;
 		bool left = false;
 		bool first = clipIt > gi.clip;
+		float passedT = -1e9;
+		uint passedNormal = 0;
 		while (t < end)
 		{
 			if (!GiInside(voxel, size) || t > boxExit)
@@ -344,9 +365,19 @@ float GiOccluderHit(GiData gi, float3 origin, float3 direction, float distance, 
 			GiVoxel found = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(voxel), size)];
 			if ((found.albedo >> 24) != 0u && !first)
 			{
-				float3 normal = GiFromOctahedral(float2(found.normal & 0xFFFFu, found.normal >> 16) / 65535.0 * 2.0 - 1.0);
-				backface = travelled + t > 0.0 && (found.emissionB >> 16) != 3u && dot(normal, direction) > 0.0;
-				return travelled + t * clip.volumeOrigin.w;
+				uint faces = found.emissionB >> 16;
+				if (faces == 2u)
+				{
+					passedT = t;
+					passedNormal = found.normal;
+				}
+				else
+				{
+					uint normalBits = t - passedT < 2.0 ? passedNormal : found.normal;
+					float3 normal = GiFromOctahedral(float2(normalBits & 0xFFFFu, normalBits >> 16) / 65535.0 * 2.0 - 1.0);
+					backface = travelled + t > 0.0 && faces != 3u && dot(normal, direction) > 0.0;
+					return travelled + t * clip.volumeOrigin.w;
+				}
 			}
 			first = false;
 			if (next.x < next.y && next.x < next.z)
@@ -1490,32 +1521,44 @@ float3 GiVoxelDebug(GiData gi, float3 position, float3 normal, uint debug)
 // the surface reference (DEBUG_VIEW_GI_SURFACE_REFERENCE): the irradiance at the point itself over pi, 256 cosine weighted
 // rays from it (off it two voxels along its normal, past the voxels of its back face in front of it) through the finest
 // clip's voxels that holds it and the coarser ones', the environment past them
-float3 GiPixelReference(float3 position, float3 normal)
+// the surface reference's ray origin in a clip: off the point two voxels along its normal, and out of the voxels of an
+// adjacent surface at a concave edge (its shell is two voxels thick, see ComputeGiVoxelize) along the voxel's normal
+// turned toward the eye (view: the point is seen, so that side is open; toward the point where there is none), a voxel
+// and a half at a time, else every ray starts in their radiance (CornellBox's red wall drew a line along the floor).
+// along the normal as stored, the inner shell voxel's (which points into the solid it stands for) led further in, and
+// toward the point, a pixel on a rib's side within half a voxel of the vault went either way: the vault's ribs drew
+// black lines
+float3 GiReferenceOrigin(GiData gi, float3 position, float3 normal, float3 view)
 {
-	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
-	uint start = clipCount - 1;
-	for (uint clipIt = 0; clipIt < clipCount; clipIt++)
-		if (GiClipWeight(GiClipViewAt(clipIt), position) > 0.0)
-		{
-			start = clipIt;
-			break;
-		}
-	GiData gi = GiClip(start);
-	GiData last = GiClip(clipCount - 1);
-	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 	float3 origin = position + normal * (2.0 * gi.volumeOrigin.w);
-	// at a concave edge that is inside the other surface's voxel (its shell is a voxel thick on this side too): out of
-	// it along that voxel's normal, else every ray starts in its radiance (CornellBox's red wall drew a line along the
-	// floor)
+	for (uint stepIt = 0; stepIt < 3; stepIt++)
 	{
 		int3 at = int3(floor(GiVoxelCoordinate(gi, origin, 0)));
-		if (GiInside(at, GiLevelSize(gi, 0)))
-		{
-			GiVoxel voxel = GiVoxelAt(gi, uint3(at));
-			if ((voxel.albedo >> 24) != 0u)
-				origin += GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0) * (1.5 * gi.volumeOrigin.w);
-		}
+		if (!GiInside(at, GiLevelSize(gi, 0)))
+			break;
+		GiVoxel voxel = GiVoxelAt(gi, uint3(at));
+		if ((voxel.albedo >> 24) == 0u)
+			break;
+		float3 out = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+		if (dot(out, any(view != 0.0) ? view : position - center) < 0.0)
+			out = -out;
+		origin += out * (1.5 * gi.volumeOrigin.w);
 	}
+	return origin;
+}
+
+// the surface reference (DEBUG_VIEW_GI_SURFACE_REFERENCE): the irradiance at the point itself over pi, 256 cosine weighted
+// rays from it (see GiReferenceOrigin) through the clips' voxels, the environment past them. the clips blended as the
+// shading blends them (GiSampleAt: each by its weight of what the finer ones leave): each ray is one clip's, the rays
+// shared out by the clips' weights, so a pixel costs the same however many clips hold it (tracing all of the rays in
+// each clip ran past Metal's command queue timeout); from the finest clip alone, the edge of its box around the eye
+// cut the vault in two shades, the finer shells on one side and the coarser on the other
+float3 GiPixelReference(float3 position, float3 normal, float3 view)
+{
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	GiData last = GiClip(clipCount - 1);
+	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 	float3 tangent = normalize(abs(normal.y) < 0.9 ? cross(normal, float3(0, 1, 0)) : cross(normal, float3(1, 0, 0)));
 	float3 bitangent = cross(normal, tangent);
 	EnvironmentData environment = gEnvironment[0];
@@ -1527,15 +1570,30 @@ float3 GiPixelReference(float3 position, float3 normal)
 	float turn = float(hash & 0xFFFFu) / 65536.0 * 6.28318531;
 	float shift = float(hash >> 16) / 65536.0;
 	float3 sum = 0.0;
-	for (uint rayIt = 0; rayIt < kRays; rayIt++)
+	float remaining = 1.0;
+	uint rayFirst = 0;
+	for (uint clipIt = 0; clipIt < clipCount && rayFirst < kRays; clipIt++)
 	{
-		// cosine weighted, a Fibonacci spiral over the disk
-		float u = frac((float(rayIt) + shift) / float(kRays));
-		float r = sqrt(u);
-		float phi = float(rayIt) * 2.39996323 + turn;
-		float3 direction = normalize(tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + normal * sqrt(max(1.0 - u, 0.0)));
-		float4 traced = GiMarch(gi, origin, direction, far, false);
-		sum += traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
+		float weight = clipIt + 1 == clipCount ? 1.0 : GiClipWeight(GiClipViewAt(clipIt), position);
+		if (weight <= 0.0)
+			continue;
+		uint rayEnd = clipIt + 1 == clipCount ? kRays : min(rayFirst + uint(round(remaining * weight * float(kRays))), kRays);
+		remaining *= 1.0 - weight;
+		if (rayEnd <= rayFirst)
+			continue;
+		GiData gi = GiClip(clipIt);
+		float3 origin = GiReferenceOrigin(gi, position, normal, view);
+		for (uint rayIt = rayFirst; rayIt < rayEnd; rayIt++)
+		{
+			// cosine weighted, a Fibonacci spiral over the disk
+			float u = frac((float(rayIt) + shift) / float(kRays));
+			float r = sqrt(u);
+			float phi = float(rayIt) * 2.39996323 + turn;
+			float3 direction = normalize(tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + normal * sqrt(max(1.0 - u, 0.0)));
+			float4 traced = GiMarch(gi, origin, direction, far, false);
+			sum += traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
+		}
+		rayFirst = rayEnd;
 	}
 	return sum / float(kRays);
 }
@@ -1543,7 +1601,7 @@ float3 GiPixelReference(float3 position, float3 normal)
 float3 GiIrradiance(float3 position, float3 normal, uint debug, float3 view = 0.0)
 {
 	if (debug == 13u)
-		return GiPixelReference(position, normal);
+		return GiPixelReference(position, normal, view);
 	if (debug == 7u || debug == 8u)
 		return GiClipDebug(position, normal, debug == 8u);
 	if (debug == 12u)
@@ -2002,14 +2060,25 @@ bool GiTraceVoxels(float3 origin, float3 direction, out uint hitClip, out uint h
 		float3 next = (select(direction >= 0.0, float3(voxel + 1) - start, start - float3(voxel))) * inverse;
 		float3 delta = inverse;
 		float t = 0.0;
+		float passedT = -1e9;
+		uint passedIndex = 0;
 		while (GiInside(voxel, clip.volumeSize.xyz) && stepCount++ < 4096u)
 		{
 			uint index = clip.voxelFirst + GiVoxelIndex(uint3(voxel), clip.volumeSize.xyz);
 			if ((gGiVoxels[index].albedo >> 24) != 0u)
 			{
-				hitClip = clipIt;
-				hitIndex = index;
-				return true;
+				// a back face's shell voxel passed, the surface where its twin follows (see GiOccluderHit)
+				if ((gGiVoxels[index].emissionB >> 16) == 2u)
+				{
+					passedT = t;
+					passedIndex = index;
+				}
+				else
+				{
+					hitClip = clipIt;
+					hitIndex = t - passedT < 2.0 ? passedIndex : index;
+					return true;
+				}
 			}
 			if (next.x < next.y && next.x < next.z)
 			{
