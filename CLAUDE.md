@@ -886,13 +886,15 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   copied back (GI Restore) and what moves is voxelized over them (GI Voxelize Moving: its jobs after the static ones',
   by `PushConstants::cullJobBase`), placed by `WorldPosition` (`vertex.slang`: morphed, skinned, then by the instance,
   as `VertexMain` does): it occludes, is lit and bounces light, in the frame.
-- **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, 4 probes: 32 voxels; clamped
+- **Moving clips**: a clip that follows the eye moves by whole snaps (`gi::kSnapProbes`, one probe: 8 voxels; clamped
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the
   clipmap's, and keep what they hold across a snap (the update reads each probe's history from where it was, by the
   scroll); the rays march only the levels a snap keeps aligned (`GiData::marchLevelCount`); a level's voxels are
   rounded up (`GiLevelVoxels`, `gi::LevelVoxels`); and each clip has a box around the eye that it always holds well
-  inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap and a probe spacing and a voxel), which
+  inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap; with a snap of 4 probes and a spacing and
+  a voxel more of margin, Sponza's thin clips, 68 voxels tall, kept a box a third of their height, and the finest clips
+  lit nothing on its ground floor: everything there was the last clip's, 23 cm voxels and 1.9 m probes), which
   the shading fades it out toward over a third of its half size (`GiClipWeight`) and rays leave it at
   (`GiFadeBoxExit`), so what changes as a clip snaps changes with the eye, smoothly. The shading takes each clip by its
   weight of what the finer ones leave (`GiSampleAt`). Under a still camera with the clips moving 6 m through Sponza's
@@ -925,19 +927,28 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   what makes a clip's cost that of its surfaces rather than its volume. The mips are made whole on a reset (the buffer
   may hold anything).
 - **The probes** (`GiData::probe*`): a lattice every `SPEEDO_GI_PROBE_SPACING` voxels (8 by default) from the clip's
-  corner, centered on voxel boundaries (so every point of a voxel interpolates the same 8), of which only those near a
-  surface trace (the flags, below): CornellBox-Sphere 6400, Sponza's inside 4200, Bistro's street 4500, DamagedHelmet
-  10400 (its surface fills its last clip). The rays per probe are `SPEEDO_GI_RAY_COUNT` (128) at most, and
-  `SPEEDO_GI_RAY_BUDGET` (500000) over the probes traced last time (in eights, at least 16: a ray costs 4 to 8 ns here,
-  so DamagedHelmet's 10400 probes at 128 cost 10 ms; at the budget's 46 they cost 6.5, and Sponza keeps 112, Bistro
-  104, CornellBox 72). Each probe is where its lattice point
-  is unless the voxels at that corner are a surface's: then 0.45 of a spacing out of them along their normals
-  (`GiProbePosition`, DDGI's relocation, from the voxels each frame rather than kept, so that every kernel agrees; a
-  probe on a wall's voxel shell saw nothing and was skipped, and the points nearest it took the mean of the others:
-  Sponza's inside against its surface reference from 1.24 to 0.95 mean |log2|; a move of one and a half voxels left a
-  probe's harmonics the surface's, which drew dots on CornellBox's ceiling; on a thin wall's two shells, normals both
-  ways, a probe stays and is skipped). It costs: a wall on a lattice plane makes a plane of probes trace that returned
-  dead before (CornellBox +3 ms, Sponza +1). Each frame (the GI pass, GI
+  corner (a multiple of 8, so that the resolve's blocks of 4 voxels never span two cells), centered on voxel boundaries
+  (so every point of a voxel interpolates the same 8), of which only those near a surface trace (the flags, below):
+  CornellBox-Sphere 6400, Sponza's inside 4200, Bistro's street 4500, DamagedHelmet 10400 (its surface fills its last
+  clip). The rays per probe are `SPEEDO_GI_RAY_COUNT` (128) at most, and `SPEEDO_GI_RAY_BUDGET` (500000) over the
+  probes traced last time (in eights, at least 16: a ray costs 4 to 8 ns here, so DamagedHelmet's 10400 probes at 128
+  cost 10 ms; at the budget's 46 they cost 6.5, and Sponza keeps 112, Bistro 104, CornellBox 72). Each probe is at its
+  lattice point plus an offset it keeps (coefficients 2 to 4's w; DDGI's relocation, `GiProbeOffset`,
+  `GiProbePosition`: the rays trace from where it was, `GiProbeHistory`, and the update moves it): out of the voxels at
+  its corner along their normals' mean by 0.45 of a spacing at once (`GiCornerAway`; a probe on a wall's voxel shell
+  saw nothing and was skipped, and the points nearest it took the mean of the others: Sponza's inside against its
+  surface reference from 1.24 to 0.95 mean |log2|; a step of one and a half voxels, stopping as soon as the corner was
+  clear, left a probe's harmonics the surface's and drew dots on CornellBox's ceiling), else, where more than a quarter
+  of its rays met a surface's back (`GiOccluderHit`: the voxel's normal along the ray, unless both of a triangle's faces
+  wrote the voxel, a thin wall's, whose normal is either's: the voxelizer keeps which faces wrote in
+  `GiVoxel::emissionB`'s bits 16 and 17), away from the nearest such by its distance and a tenth of a spacing, a frame at
+  a time, never more than 0.45 of a spacing from the lattice point; a probe still inside after that (Sponza's outer
+  walls are 0.6 m thick and empty between their shells) is marked (coefficient 5's w, DDGI's classification) and the
+  resolve skips it. It costs: a wall on a lattice plane makes a plane of probes trace that returned dead before
+  (CornellBox +3 ms, Sponza +1). A probe that hugs a surface sees a bright emitter in it at a steep angle, and its
+  harmonics ring: CornellBox's lamp has a yellow halo and a dark ring on the ceiling around it that the reference's
+  mild glow hasn't (TODO.md: an ambient cube or an octahedral map of irradiance in place of the harmonics; a Hanning
+  window on them gained 5% on CornellBox and lost 8% on Sponza). Each frame (the GI pass, GI
   Trace then GI Probe Update) each probe near a surface traces `SPEEDO_GI_RAY_COUNT` rays (128), a Fibonacci sphere of
   directions turned by the frame's phase (`GiRayDirection`: a quaternion from Roberts' R3 sequence over
   `SPEEDO_GI_RAY_PHASE_COUNT` phases, 32, then the same sets again, so what a probe holds converges to a fixed value
@@ -955,9 +966,12 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   visible, read back when the frame index comes round, which `SPEEDO_GPU_TIMINGS=1` averages at exit) blends them into
   the probe: its irradiance as spherical harmonics of
   bands 0 to 2 (`SHADER_TYPES_GI_SH_COUNT`, 9 coefficients a color, `gGiIrradiance`; coefficient 0's w counts the
-  frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 8 by 8 octahedral texels of the mean
-  distance and the mean of its square, half2; a texel takes the rays near its direction by `cos^10` of their angle, and
-  keeps what it had where none is near), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays are 3% of it), or by the
+  frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 16 by 16 octahedral texels of the
+  mean distance and the mean of its square, half2, DDGI's; a texel takes the rays near its direction by `cos^50` of
+  their angle, `SHADER_TYPES_GI_DEPTH_SHARPNESS`, four texels a thread, and keeps what it had where none is near: at
+  8x8 and `cos^10` a texel toward a wall mixed the wall's distance with what is beyond it, and a sunlit probe outside
+  the wall lit the points at its base inside, and Sponza's walls showed the probe cells as blotches; 16x16 cost 2 ms on
+  Sponza), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays are 3% of it), or by the
   frames it has while fewer (so a probe starts from its first frame's rays and settles in 30), or a quarter at a time
   through a change of the light (DDGI's adaptive hysteresis, `SPEEDO_GI_ADAPT=0` without: each probe keeps how much its
   frames' mean radiance usually differs from what it holds, coefficient 1's w, and a difference of four times that and
@@ -974,15 +988,23 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
 - **The resolve and the shading**: after the probes, GI Resolve (`ComputeGiResolve`, a group per block of 4x4x4
   voxels, with its 8 probes, or 27 where it spans two cells an axis, in shared memory) gives each voxel of each clip
   the harmonics of the 8 probes around its center, each weighed as DDGI weighs them: by how much it faces the voxel's
-  open side (a surface's voxel its normal, else its occupancy's gradient over its 6 neighbors; wrapped, `facing^2 +
-  0.2`), by whether it sees the voxel's point (out that way by a fifth of a spacing, at least a voxel: DDGI's normal
-  bias; a probe's depth map along the direction to the point, bilinear across the octahedral map's folds, and
-  Chebyshev's inequality where the point is farther than the mean, cubed, at least a twentieth; a probe whose depth
-  that way is nothing sees nothing at all, being inside a surface's voxels, and is skipped: the twentieth of it drew
-  dark dots at the probes), crushed below a fifth (cubed, so that a point few see takes the mean of them rather than
-  nothing), and only then by where the point is between them (trilinear: crushing the product crushed every probe at a
-  cell's center, where each is an eighth, and the facing ones least, which drew the probes' cells as a checkerboard
-  across every wall), premultiplied, and the sum of the weights. They go in 7 `R16G16B16A16Sfloat` 3D images
+  open side (its occupancy's gradient over its 6 neighbors, plus a surface's voxel's own normal: by the normal alone a
+  floor's voxel at a wall's base was tested from a point straight up, as close to the wall as before; wrapped,
+  `facing^2 + 0.02`: DDGI's 0.2 for the probes behind let the probes below Sponza's floors, in the clipmap's margin and
+  lit by the environment through its bottom, in where every probe of the corridor failed), by whether it sees the
+  voxel's point (out that way by a fifth of a spacing, at least a voxel: DDGI's normal bias; a probe's depth map along
+  the direction to the point, bilinear across the octahedral map's folds, and Chebyshev's inequality where the point is
+  farther than the mean, cubed, at least a thousandth: DDGI's twentieth of a sunlit probe outside a wall lit a band
+  along the floors inside, and the floor only needs to be more than nothing, since the lookup normalizes; a probe whose
+  depth that way is nothing sees nothing at all, being inside a surface's voxels, and is skipped, as is one marked
+  inside, above), crushed below a fifth (cubed, so that a point few see takes the mean of them rather than nothing),
+  and only then by where the point is between them (trilinear: crushing the product crushed every probe at a cell's
+  center, where each is an eighth, and the facing ones least, which drew the probes' cells as a checkerboard across
+  every wall), premultiplied, and the sum of the weights. A surface's voxel is resolved as the voxel out along its open
+  side would be (its center moved a voxel that way for the trilinear weights and the point): the lookups land in it
+  where their offset is small (in a finer clip's voxels, below), and its own cell's weights admitted a probe the voxel
+  above rejected, a bright band along Sponza's floors at their walls that survived everything else (found by sampling
+  each clip's own voxels, which has none; one or two clips have none either). They go in 7 `R16G16B16A16Sfloat` 3D images
   (`gGiVolumes`: per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the
   shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
   as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the
@@ -1017,7 +1039,8 @@ Measured on KosmicKrisp by the frame's gpu time (2560x1440, 3 clips, 128 voxels,
 CornellBox-Sphere 9.3 ms (4.5 without the indirect lighting; 7.5 with 32 rays, where its 3.0 ms are the voxels'
 lighting 1.3, the resolve 0.9, the rays 0.6, the probes' update 0.2, the mips and flags little), Sponza's inside
 (`0,2,0,0,90`) 12.0 (6.5), Bistro's street (`564,170,-2436,0,30`) 14.9 (9.9); with it CornellBox-Sphere 12.4 (4.5;
-8.2 with 8 rays), Sponza's inside 13.0 (6.5). Probes every 4 voxels cost 8 times the
+8.2 with 8 rays), Sponza's inside 13.0 (6.5); with the 16x16 depth maps and the rest of the leak fixes CornellBox-Sphere
+11.8 (4.7), Sponza's inside 14.3 (6.5). Probes every 4 voxels cost 8 times the
 probes (CornellBox 12.8 ms with 32 rays), with no visible gain at these voxel sizes. A still camera in Sponza's arcade
 over 80 frames after settling: the frame's mean steps by 1.2% at most between frames and stays within 1.3% of its
 average (64 rays 2.1%; hysteresis 0.9 with 128 rays 3.9% and 4%, with 64 rays 7% and 7%: the arches' light is a noisy

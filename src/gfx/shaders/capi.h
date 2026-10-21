@@ -608,10 +608,15 @@ struct CullView
 // the voxels' resolved probes (gGiVolumes): per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8
 // and the weight
 #define SHADER_TYPES_GI_VOLUME_COUNT 7u
-// a probe's depth map: an octahedral map of this many texels a side (gGiProbeDepth), each the mean distance to what the
-// probe sees that way and the mean of its square (half2), in probe spacings, as far as SHADER_TYPES_GI_DEPTH_REACH
-// spacings (the points it is tested for are within its cell: see ComputeGiResolve)
-#define SHADER_TYPES_GI_DEPTH_SIDE 8u
+// a probe's depth map: an octahedral map of this many texels a side (gGiProbeDepth, DDGI's 16), each the mean distance
+// to what the probe sees that way and the mean of its square (half2), in probe spacings, as far as
+// SHADER_TYPES_GI_DEPTH_REACH spacings (the points it is tested for are within its cell: see ComputeGiResolve); a texel
+// takes the rays near its direction by cos^SHADER_TYPES_GI_DEPTH_SHARPNESS of their angle to it (DDGI's 50: at 8x8 and
+// 10 a texel toward a wall mixed the wall's distance with what is beyond it, and a sunlit probe outside the wall lit the
+// points at its base inside). a probe's update handles SHADER_TYPES_GI_DEPTH_TEXELS_PER_THREAD texels a thread
+#define SHADER_TYPES_GI_DEPTH_SIDE 16u
+#define SHADER_TYPES_GI_DEPTH_SHARPNESS 50.0
+#define SHADER_TYPES_GI_DEPTH_TEXELS_PER_THREAD 4u
 #define SHADER_TYPES_GI_DEPTH_REACH 3.0f
 // the flags (gGiFlags, see ComputeGiFlags): per voxel of this level of each clip (a block) SHADER_TYPES_GI_FLAG_WORD_COUNT
 // words: in the first, bits 8 and up the last frame (GiData::frameStamp) anything was voxelized in it, bit 0 whether
@@ -632,7 +637,7 @@ struct GiVoxel
 	alignas(4) UINT1(albedo); // rgba8: the diffuse albedo, linear, and 255 in a where something is
 	alignas(4) UINT1(normal); // two snorm16: the normal, octahedral
 	alignas(4) UINT1(emissionRG); // half2
-	alignas(4) UINT1(emissionB); // half (the upper 16 bits are free)
+	alignas(4) UINT1(emissionB); // half; bits 16 and 17 which faces of a triangle wrote it (both: a thin wall's voxel)
 };
 
 struct GiData

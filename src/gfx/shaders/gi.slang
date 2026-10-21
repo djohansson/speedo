@@ -295,9 +295,13 @@ float4 GiMarch(GiData gi, uint level, float3 origin, float3 direction, float sta
 
 // how far along a ray from origin, at most distance, to the first voxel something is in (level 0's occupancy), or
 // distance where there is none. each voxel the ray crosses visited once (Amanatides and Woo), so no thin wall is stepped
-// over; where it leaves the clip it goes on through the coarser ones
-float GiOccluderDistance(GiData gi, float3 origin, float3 direction, float distance)
+// over; where it leaves the clip it goes on through the coarser ones. backface says whether the voxel met was a surface's
+// seen from behind (its normal along the ray: the ray came from inside what the surface bounds; not a thin wall's voxel,
+// which both faces wrote, nor the voxel the ray starts in), which tells a probe it is inside something (see
+// ComputeGiProbeUpdate)
+float GiOccluderHit(GiData gi, float3 origin, float3 direction, float distance, out bool backface)
 {
+	backface = false;
 	float travelled = 0.0;
 	for (uint clipIt = gi.clip; clipIt < gi.clipCount; clipIt++)
 	{
@@ -322,8 +326,13 @@ float GiOccluderDistance(GiData gi, float3 origin, float3 direction, float dista
 				left = true;
 				break;
 			}
-			if ((gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(voxel), size)].albedo >> 24) != 0u)
+			GiVoxel found = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(voxel), size)];
+			if ((found.albedo >> 24) != 0u)
+			{
+				float3 normal = GiFromOctahedral(float2(found.normal & 0xFFFFu, found.normal >> 16) / 65535.0 * 2.0 - 1.0);
+				backface = travelled + t > 0.0 && (found.emissionB >> 16) != 3u && dot(normal, direction) > 0.0;
 				return travelled + t * clip.volumeOrigin.w;
+			}
 			if (next.x < next.y && next.x < next.z)
 			{
 				t = next.x;
@@ -348,6 +357,12 @@ float GiOccluderDistance(GiData gi, float3 origin, float3 direction, float dista
 		travelled += t * clip.volumeOrigin.w;
 	}
 	return distance;
+}
+
+float GiOccluderDistance(GiData gi, float3 origin, float3 direction, float distance)
+{
+	bool backface;
+	return GiOccluderHit(gi, origin, direction, distance, backface);
 }
 
 // whether the voxels let a ray through from origin, a distance along direction (a shadow ray)
@@ -583,6 +598,9 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 					InterlockedMax(gGiVoxels[index].normal, voxel.normal);
 					InterlockedMax(gGiVoxels[index].emissionRG, voxel.emissionRG);
 					InterlockedMax(gGiVoxels[index].emissionB, voxel.emissionB);
+					// and which of the triangle's faces wrote it (bits 16 and 17): both, the voxel is a thin wall's, whose
+					// normal is either face's (see GiOccluderHit)
+					InterlockedOr(gGiVoxels[index].emissionB, (sideIt + 1u) << 16);
 				}
 			}
 		}
@@ -928,14 +946,29 @@ float3 GiProbeLatticePosition(GiData gi, uint3 probe)
 	return gi.probeOrigin.xyz + (float3(probe) + 0.5) * gi.probeOrigin.w;
 }
 
-// where a probe is: its place in the lattice, or, where the voxels at its corner are a surface's, out of them along
-// their normals by 0.45 of a spacing (DDGI's relocation, from the voxels each frame rather than kept, so that every
-// kernel agrees; a move of one and a half voxels left the probe's harmonics the surface's, which drew dots on
-// CornellBox's ceiling). a probe on a wall's voxel shell saw nothing and was skipped, and the
-// points nearest it took the mean of the others; on a thin wall's two shells (normals both ways) it stays, skipped
-float3 GiProbePosition(GiData gi, uint3 probe)
+// a probe's offset from its place in the lattice (DDGI's relocation, see ComputeGiProbeUpdate), kept with its harmonics
+// (coefficients 2 to 4's w) at a probe index of either half (see GiData::probeFirst), or none for a probe new to the
+// clip (kGiNoProbe)
+static const uint kGiNoProbe = 0xFFFFFFFFu;
+
+float3 GiProbeOffset(uint offsetIndex)
 {
-	float3 position = GiProbeLatticePosition(gi, probe);
+	if (offsetIndex == kGiNoProbe)
+		return 0.0;
+	uint first = offsetIndex * SHADER_TYPES_GI_SH_COUNT;
+	return float3(gGiIrradiance[first + 2].w, gGiIrradiance[first + 3].w, gGiIrradiance[first + 4].w);
+}
+
+// where a probe is: its place in the lattice plus its offset
+float3 GiProbePosition(GiData gi, uint3 probe, uint offsetIndex)
+{
+	return GiProbeLatticePosition(gi, probe) + GiProbeOffset(offsetIndex);
+}
+
+// which way is out of the voxels at a voxel corner (the 8 around it), where they are a surface's: their normals' mean
+// direction, or 0
+float3 GiCornerAway(GiData gi, float3 position)
+{
 	int3 corner = int3(round(GiVoxelCoordinate(gi, position, 0)));
 	uint3 size = GiLevelSize(gi, 0);
 	float3 away = 0.0;
@@ -949,9 +982,17 @@ float3 GiProbePosition(GiData gi, uint3 probe)
 			away += GiFromOctahedral(float2(found.normal & 0xFFFFu, found.normal >> 16) / 65535.0 * 2.0 - 1.0);
 	}
 	float length2 = dot(away, away);
-	if (length2 <= 1e-4)
-		return position;
-	return position + away * (0.45 * gi.probeOrigin.w / sqrt(length2));
+	return length2 > 1e-4 ? away / sqrt(length2) : 0.0;
+}
+
+// the probe at its place last frame (the clip's scroll since), or kGiNoProbe where it was outside the clip or the clip
+// was reset: where the probe's history is, in the previous half
+uint GiProbeHistory(GiData gi, uint3 probe)
+{
+	int3 from = int3(probe) + gi.scroll.xyz / int(gi.probeSize.w);
+	if (gi.reset != 0u || !GiInside(from, gi.probeSize.xyz))
+		return kGiNoProbe;
+	return gi.probePreviousFirst + GiProbeIndex(uint3(from), gi.probeSize);
 }
 
 uint GiProbeIndex(uint3 probe, uint4 probeSize)
@@ -1064,19 +1105,22 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	uint probeIndex = threadId.x / gi.rayCount;
 	uint rayIndex = threadId.x % gi.rayCount;
 	uint3 probe = GiProbeAt(probeIndex, gi.probeSize);
-	float3 origin = GiProbePosition(gi, probe);
+	// from where the probe was last frame (its update moves it after the rays)
+	float3 origin = GiProbePosition(gi, probe, GiProbeHistory(gi, probe));
 	// only the probes something is voxelized near trace (see ComputeGiFlags): the others are never looked up (the lookups
 	// are at surfaces, among the probes of their cell), see ComputeGiProbeUpdate
-	if ((GiFlagsAt(gi, origin) & 8u) == 0u)
+	if ((GiFlagsAt(gi, GiProbeLatticePosition(gi, probe)) & 8u) == 0u)
 		return;
 	float3 direction = GiRayDirection(gi, rayIndex);
 	GiData last = GiClip(gi.clipCount - 1);
 	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 	float4 traced = GiMarch(gi, 0, gi.debug != 7u, origin, direction, 0.0, far);
 	float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
+	// and the depth, negative where the voxel met was a surface's back (see GiOccluderHit)
 	float reach = SHADER_TYPES_GI_DEPTH_REACH * gi.probeOrigin.w;
-	float depth = GiOccluderDistance(gi, origin, direction, reach) / gi.probeOrigin.w;
-	gGiRays[gi.rayFirst + threadId.x] = GiPackRgba16(float4(radiance, depth));
+	bool backface;
+	float depth = GiOccluderHit(gi, origin, direction, reach, backface) / gi.probeOrigin.w;
+	gGiRays[gi.rayFirst + threadId.x] = GiPackRgba16(float4(radiance, backface ? -depth : depth));
 }
 
 // the probes (a group per probe, a thread per texel of its depth map): each blends this frame's rays into what it held
@@ -1095,7 +1139,8 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 {
 	GiData gi = GiClip(gPushConstants.giClip);
 	const uint kTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
-	static_assert(kTexelCount == SHADER_TYPES_GI_GROUP_SIZE, "a group is a probe's depth map");
+	const uint kTexelsPerThread = SHADER_TYPES_GI_DEPTH_TEXELS_PER_THREAD;
+	static_assert(kTexelCount == SHADER_TYPES_GI_GROUP_SIZE * kTexelsPerThread, "a group is a probe's depth map");
 	uint probeCount = gi.probeSize.x * gi.probeSize.y * gi.probeSize.z;
 	// the groups in rows, as the threads are (see GiThread)
 	uint probeIndex = groupId.y * (SHADER_TYPES_GI_ROW / SHADER_TYPES_GI_GROUP_SIZE) + groupId.x;
@@ -1107,7 +1152,8 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	uint first = (gi.probeFirst + probeIndex) * SHADER_TYPES_GI_SH_COUNT;
 	if ((GiFlagsAt(gi, GiProbeLatticePosition(gi, probe)) & 8u) == 0u)
 	{
-		gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIndex] = 0u;
+		for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
+			gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE] = 0u;
 		if (texelIndex == 0u)
 			for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
 				gGiIrradiance[first + shIt] = 0.0;
@@ -1115,9 +1161,9 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	}
 
 	// what it held: the probe at its place last frame, if it was in the clip (and the clip wasn't reset)
-	int3 from = int3(probe) + gi.scroll.xyz / int(gi.probeSize.w);
-	bool shifted = gi.reset == 0u && GiInside(from, gi.probeSize.xyz);
-	uint fromIndex = shifted ? GiProbeIndex(uint3(from), gi.probeSize) : 0u;
+	uint history = GiProbeHistory(gi, probe);
+	bool shifted = history != kGiNoProbe;
+	uint fromIndex = shifted ? history - gi.probePreviousFirst : 0u;
 	float age = shifted ? gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_SH_COUNT].w : 0.0;
 	// and how much its frames' light differs from what it holds, frame to frame (coefficient 1's w: its noise)
 	float noise = shifted ? gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_SH_COUNT + 1].w : 0.0;
@@ -1125,14 +1171,25 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// one more probe traced this frame (see GI_STATISTIC_ACTIVE_PROBES)
 	if (texelIndex == 0u)
 		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_ACTIVE_PROBES], 1u);
-	// the rays: the texel's depth, and (the first texel's thread) the harmonics
-	float3 texelDirection = GiDirection(uint2(texelIndex % SHADER_TYPES_GI_DEPTH_SIDE, texelIndex / SHADER_TYPES_GI_DEPTH_SIDE), SHADER_TYPES_GI_DEPTH_SIDE);
-	float2 depthSum = 0.0;
-	float depthWeight = 0.0;
+	// the rays: the thread's texels' depth (texelIndex, and every group's worth of texels after it), and (the first
+	// thread) the harmonics
+	float3 texelDirection[kTexelsPerThread];
+	float2 depthSum[kTexelsPerThread];
+	float depthWeight[kTexelsPerThread];
+	for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
+	{
+		uint texel = texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE;
+		texelDirection[texelIt] = GiDirection(uint2(texel % SHADER_TYPES_GI_DEPTH_SIDE, texel / SHADER_TYPES_GI_DEPTH_SIDE), SHADER_TYPES_GI_DEPTH_SIDE);
+		depthSum[texelIt] = 0.0;
+		depthWeight[texelIt] = 0.0;
+	}
 	float3 sh[SHADER_TYPES_GI_SH_COUNT];
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
 		sh[shIt] = 0.0;
 	float basis[SHADER_TYPES_GI_SH_COUNT];
+	uint backfaceCount = 0;
+	float closestBackface = 1e30;
+	float3 closestBackfaceDirection = 0.0;
 	uint rayFirst = gi.rayFirst + probeIndex * gi.rayCount;
 	float shScale = 4.0 * 3.14159265 / float(gi.rayCount);
 	// the rays and their directions through shared memory, a group's worth at a time
@@ -1150,32 +1207,70 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		{
 			float4 ray = gGiSharedRays[rayIt];
 			float3 direction = gGiSharedDirections[rayIt];
-			float weight = pow(max(dot(texelDirection, direction), 0.0), 10.0);
-			depthSum += weight * float2(ray.a, ray.a * ray.a);
-			depthWeight += weight;
+			float rayDepth = abs(ray.a);
+			for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
+			{
+				float weight = pow(max(dot(texelDirection[texelIt], direction), 0.0), SHADER_TYPES_GI_DEPTH_SHARPNESS);
+				depthSum[texelIt] += weight * float2(rayDepth, rayDepth * rayDepth);
+				depthWeight[texelIt] += weight;
+			}
 			if (texelIndex == 0u)
 			{
 				GiShBasis(direction, basis);
 				for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
 					sh[shIt] += ray.rgb * basis[shIt] * shScale;
+				// the rays that met a surface's back, and the nearest such
+				if (ray.a < 0.0)
+				{
+					backfaceCount++;
+					if (rayDepth < closestBackface)
+					{
+						closestBackface = rayDepth;
+						closestBackfaceDirection = direction;
+					}
+				}
 			}
 		}
 		GroupMemoryBarrierWithGroupSync();
 	}
-	float2 depth = depthWeight > 1e-4 ? depthSum / depthWeight : 0.0;
-	if (shifted)
+	for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
 	{
-		float2 held = GiUnpackHalf2(gGiProbeDepth[gi.depthPreviousFirst + fromIndex * kTexelCount + texelIndex]);
-		float alpha = depthWeight > 1e-4 ? max(1.0 - gi.hysteresis, 1.0 / (age + 1.0)) : 0.0;
-		depth = lerp(held, depth, alpha);
+		uint texel = texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE;
+		float2 depth = depthWeight[texelIt] > 1e-4 ? depthSum[texelIt] / depthWeight[texelIt] : 0.0;
+		if (shifted)
+		{
+			float2 held = GiUnpackHalf2(gGiProbeDepth[gi.depthPreviousFirst + fromIndex * kTexelCount + texel]);
+			float alpha = depthWeight[texelIt] > 1e-4 ? max(1.0 - gi.hysteresis, 1.0 / (age + 1.0)) : 0.0;
+			depth = lerp(held, depth, alpha);
+		}
+		gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texel] = GiPackHalf2(depth);
 	}
-	gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIndex] = GiPackHalf2(depth);
 	if (texelIndex != 0u)
 		return;
 
+	// where it is: its offset from its lattice point as it was (the rays were traced from there), moved on (DDGI's
+	// relocation, kept per probe): out of the voxels at its corner along their normals, as far as it may go (a probe on
+	// a wall's voxel shell saw nothing and was skipped, and the points nearest it took the mean of the others; a step of
+	// one and a half voxels, stopping as soon as the corner was clear, left it the surface's and drew dots on CornellBox's
+	// ceiling), else, where more than a quarter of its rays met a surface's back (it is inside something: Sponza's outer
+	// walls are 0.6 m thick, their insides empty between the two shells, and the probes in them lit the corridors behind
+	// its curtains with nothing), away from the nearest such by its distance and a tenth of a spacing; never more than
+	// 0.45 of a spacing from the lattice point (its cell's points still interpolate it)
+	float3 offset = GiProbeOffset(history);
+	{
+		float3 corner = GiCornerAway(gi, GiProbeLatticePosition(gi, probe) + offset);
+		if (any(corner != 0.0))
+			offset = corner * (0.45 * gi.probeOrigin.w);
+		else if (backfaceCount * 4u > gi.rayCount)
+			offset -= closestBackfaceDirection * ((closestBackface + 0.1) * gi.probeOrigin.w);
+		float limit = 0.45 * gi.probeOrigin.w;
+		float offsetLength = length(offset);
+		if (offsetLength > limit)
+			offset *= limit / offsetLength;
+	}
 	if (gi.debug == 6u)
 	{
-		float3 origin = GiProbePosition(gi, probe);
+		float3 origin = GiProbeLatticePosition(gi, probe) + offset;
 		GiData last = GiClip(gi.clipCount - 1);
 		float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 		const uint kRays = 512;
@@ -1196,7 +1291,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 				sh[shIt] += radiance * basis[shIt] * (4.0 * 3.14159265 / float(kRays));
 		}
 		for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
-			gGiIrradiance[first + shIt] = float4(sh[shIt], 0.0);
+			gGiIrradiance[first + shIt] = float4(sh[shIt], shIt == 2u ? offset.x : (shIt == 3u ? offset.y : (shIt == 4u ? offset.z : 0.0)));
 		return;
 	}
 
@@ -1244,8 +1339,15 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	if (gi.adapt != 0u && shifted && age >= 16.0 && difference > max(4.0 * noise, 0.5 * heldLuminance))
 		alpha = max(alpha, 0.25);
 	noise = shifted ? lerp(noise, difference, 0.05) : difference;
+	// and whether it is inside something still (more than a quarter of its rays met a surface's back: coefficient 5's w,
+	// DDGI's classification): the resolve skips it (Sponza's outer walls are thicker than a probe may move, and a probe
+	// between their shells, which sees 0.3 of a spacing all around, passed as seeing the points of the corridor beside)
+	float inside = backfaceCount * 4u > gi.rayCount ? 1.0 : 0.0;
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_SH_COUNT; shIt++)
-		gGiIrradiance[first + shIt] = float4(lerp(held[shIt], sh[shIt], alpha), shIt == 0u ? min(age + 1.0, 65535.0) : (shIt == 1u ? noise : 0.0));
+	{
+		float kept = shIt == 0u ? min(age + 1.0, 65535.0) : (shIt == 1u ? noise : (shIt == 2u ? offset.x : (shIt == 3u ? offset.y : (shIt == 4u ? offset.z : (shIt == 5u ? inside : 0.0)))));
+		gGiIrradiance[first + shIt] = float4(lerp(held[shIt], sh[shIt], alpha), kept);
+	}
 }
 
 // the shading's debug view (GiData::debug's numbering, from PushConstants::debugView), or 0
@@ -1401,11 +1503,12 @@ float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weig
 // Chebyshev's inequality on the mean and variance of the distance it sees that way, as DDGI tests it; and how much the
 // probe faces the voxel's open side), and the sum of the weights. a point interpolating the voxels around it so sees each
 // probe as much as the voxels around it do, at 4 filtered reads. a group per block of 4x4x4 voxels (a flag's block, see
-// ComputeGiFlags: nothing near it, the block is skipped), whose probes (at most 27: the block spans two cells an axis at
-// most, the spacing being at least 4) are read into shared memory once rather than 8 a voxel (1.2 KB each)
-groupshared float4 gGiSharedSh[27 * SHADER_TYPES_GI_SH_COUNT];
-groupshared uint gGiSharedDepth[27 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE];
-groupshared float3 gGiSharedProbePosition[27];
+// ComputeGiFlags: nothing near it, the block is skipped), whose 8 probes (the block spans one cell, the spacing being a
+// multiple of 8) are read into shared memory once rather than 8 a voxel (1.2 KB each)
+// a block's probes are 8: the spacing is a multiple of 8 voxels (Renderer checks), so a block never spans two cells
+groupshared float4 gGiSharedSh[8 * SHADER_TYPES_GI_SH_COUNT];
+groupshared uint gGiSharedDepth[8 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE];
+groupshared float3 gGiSharedProbePosition[8];
 
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -1441,6 +1544,8 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	int3 blockLast = GiProbeBase(gi, gi.volumeOrigin.xyz + (float3(block * 4u) + 3.5) * gi.volumeOrigin.w, fraction);
 	uint3 slots = uint3(blockLast - blockBase) + 2u;
 	uint slotCount = slots.x * slots.y * slots.z;
+	if (slotCount > 8u)
+		return;
 	for (uint loadIt = groupIndex; loadIt < slotCount * SHADER_TYPES_GI_SH_COUNT; loadIt += SHADER_TYPES_GI_GROUP_SIZE)
 	{
 		uint slot = loadIt / SHADER_TYPES_GI_SH_COUNT;
@@ -1457,7 +1562,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	{
 		uint slot = groupIndex;
 		uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
-		gGiSharedProbePosition[slot] = GiProbePosition(gi, probe);
+		gGiSharedProbePosition[slot] = GiProbePosition(gi, probe, gi.probeFirst + GiProbeIndex(probe, gi.probeSize));
 	}
 	GroupMemoryBarrierWithGroupSync();
 	if (!inside)
@@ -1465,24 +1570,33 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 
 	float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 	GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)];
-	// which way is away from the surfaces next to it: a surface's voxel its normal, else the occupancy's gradient over
-	// its 6 neighbors; the point the probes are tested from is out that way, by a fifth of a spacing (DDGI's normal
+	// which way is away from the surfaces next to it: the occupancy's gradient over its 6 neighbors, plus a surface's
+	// voxel's own normal; the point the probes are tested from is out that way, by a fifth of a spacing (DDGI's normal
 	// bias: a point close to a surface fails a probe's test at a grazing angle, where the probe's depth that way is of
 	// rays into the surface before it and past it), at least a voxel (from a surface voxel's center, among its surface's
-	// voxels, a probe saw nothing)
+	// voxels, a probe saw nothing). the gradient for a surface's voxel too: by its normal alone, a floor's voxel at a
+	// wall's base was tested from a point straight up, as close to the wall as before, which the sunlit probes beyond the
+	// wall saw at a grazing angle (a bright band along Sponza's floors)
 	float3 away = 0.0;
+	for (uint axisIt = 0; axisIt < 3; axisIt++)
+	{
+		int3 step = int3(axisIt == 0u, axisIt == 1u, axisIt == 2u);
+		float below = GiInside(int3(at) - step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) - step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+		float above = GiInside(int3(at) + step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) + step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
+		away[axisIt] = below - above;
+	}
 	if ((voxel.albedo >> 24) != 0u)
-		away = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
-	else
-		for (uint axisIt = 0; axisIt < 3; axisIt++)
-		{
-			int3 step = int3(axisIt == 0u, axisIt == 1u, axisIt == 2u);
-			float below = GiInside(int3(at) - step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) - step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
-			float above = GiInside(int3(at) + step, size) && (gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(int3(at) + step), size)].albedo >> 24) != 0u ? 1.0 : 0.0;
-			away[axisIt] = below - above;
-		}
+	{
+		float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		away = dot(away, away) > 0.0 ? normalize(away) + normal : normal;
+	}
 	float awayLength = length(away);
 	away = awayLength > 0.0 ? away / awayLength : away;
+	// a surface's voxel is resolved as the voxel out along its open side would be (the lookups land in it where the
+	// offset is small, a finer clip's voxels, and its own cell's weights admitted a probe the voxel above rejected: a
+	// bright band along Sponza's floors at their walls)
+	if ((voxel.albedo >> 24) != 0u)
+		center += away * gi.volumeOrigin.w;
 	float3 point = center + away * max(0.2 * gi.probeOrigin.w, gi.volumeOrigin.w);
 	int3 base = GiProbeBase(gi, center, fraction);
 	int3 slotBase = clamp(base - blockBase, int3(0), int3(1));
@@ -1499,22 +1613,28 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		float3 weights = select(offset != 0, fraction, 1.0 - fraction);
 		float weight = 1.0;
 		float3 probePosition = gGiSharedProbePosition[slot];
-		// the probes on the open side weigh more (wrapped, so that those beside it count a little)
+		// the probes on the open side weigh more (wrapped, so that those beside it count a little; DDGI's fifth for the
+		// ones behind let the probes below Sponza's floors, in the clipmap's margin and lit by the environment through its
+		// bottom, light the floors' edges along the walls, where every probe in the corridor fails and a point takes the
+		// mean of what is left)
 		if (awayLength > 0.0)
 		{
 			float facing = dot(normalize(probePosition - center), away) * 0.5 + 0.5;
-			weight *= facing * facing + 0.2;
+			weight *= facing * facing + 0.02;
 		}
 		// whether it sees the point: against the distance it sees toward the point, by Chebyshev's inequality where the
-		// point is farther, cubed, at least a twentieth, as DDGI. a probe that sees nothing that way at all (it is inside
-		// a surface's voxels: every ray of its starts in one) is skipped: the twentieth of it drew dark dots at the probes
+		// point is farther, cubed, at least a thousandth (DDGI's twentieth of a sunlit probe outside a wall lit the points
+		// at its base inside, a band along Sponza's floors: the floor only needs to be more than nothing, since the lookup
+		// normalizes, so that a point no probe sees takes their mean). a probe that sees nothing that way at all (it is
+		// inside a surface's voxels: every ray of its starts in one) is skipped: the twentieth of it drew dark dots at
+		// the probes
 		float3 toProbe = probePosition - point;
 		float distance = length(toProbe);
 		GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
 		float2 moments = 0.0;
 		for (uint tapIt = 0; tapIt < 4; tapIt++)
 			moments += taps.weight[tapIt] * GiUnpackHalf2(gGiSharedDepth[slot * kTexelCount + taps.texel[tapIt]]);
-		if (moments.x < 1e-3)
+		if (moments.x < 1e-3 || gGiSharedSh[slot * SHADER_TYPES_GI_SH_COUNT + 5].w > 0.5)
 			continue;
 		float d = distance / gi.probeOrigin.w;
 		float variance = max(moments.y - moments.x * moments.x, 0.0) + 1e-4;
@@ -1525,7 +1645,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			visibility = variance / (variance + delta * delta);
 			visibility *= visibility * visibility;
 		}
-		weight *= max(visibility, 0.05);
+		weight *= max(visibility, 0.001);
 		// a little of every probe, so that a point none sees takes their mean rather than nothing, and less of the ones
 		// seen little (DDGI's crush: below a fifth, cubed); then by where the point is between the probes (after the
 		// crush, as RTXGI has it: crushing the product crushed every probe at a cell's center, where each is an eighth,

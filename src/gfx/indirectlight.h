@@ -14,8 +14,10 @@
 namespace gfx::gi
 {
 
-// how far a clip that follows the eye moves at a time: this many of its probes (see MakeClipmap)
-inline constexpr uint32_t kSnapProbes = 4;
+// how far a clip that follows the eye moves at a time: this many of its probes (see MakeClipmap; one of 8 voxels: the box
+// around the eye a clip holds is its half size less half a snap, and Sponza's thin clips lost all of their height to a
+// snap of 4, so the finest clips lit nothing there)
+inline constexpr uint32_t kSnapProbes = 1;
 
 // a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
 [[nodiscard]] inline glm::uvec3 LevelVoxels(const glm::uvec3& size, uint32_t level)

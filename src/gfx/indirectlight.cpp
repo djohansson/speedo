@@ -103,7 +103,9 @@ Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resol
 		}
 		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, first, min, clipIt + 1 < clipCount);
 		// the box around the eye it holds wherever it snapped to: half its size, less half a snap (how far from the eye
-		// its center snaps), and a probe spacing and a voxel inside its edges (where its probes are clamped).
+		// its center snaps); the shading's weight fades a point out over the probe spacing inside the clip's edges besides
+		// (GiClipWeight), which the box needn't (a spacing and a voxel more of margin left Sponza's thin clips a box a
+		// third of their height).
 		// faded over a third of its half size: a snap then changes a point's weight by little, and smoothly as the eye moves
 		auto& data = layout.data;
 		data.fadeCenter[0] = eye.x;
@@ -114,7 +116,7 @@ Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resol
 		{
 			glm::vec3 half = glm::vec3(size) * clipVoxelSize * 0.5F;
 			float snap = clipVoxelSize * static_cast<float>(probeSpacing * kSnapProbes);
-			glm::vec3 extent = half - glm::vec3(snap * 0.5F + clipVoxelSize * static_cast<float>(probeSpacing + 1));
+			glm::vec3 extent = half - glm::vec3(snap * 0.5F);
 			data.fadeExtent[0] = extent.x;
 			data.fadeExtent[1] = extent.y;
 			data.fadeExtent[2] = extent.z;

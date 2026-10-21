@@ -966,7 +966,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		}
 	}
 	// the probes' rays a frame (SPEEDO_GI_RAY_COUNT, 128 by default), over how many frames their sets of directions
-	// repeat (SPEEDO_GI_RAY_PHASE_COUNT, 32), their spacing in voxels (SPEEDO_GI_PROBE_SPACING, 8), how much of what a
+	// repeat (SPEEDO_GI_RAY_PHASE_COUNT, 32), their spacing in voxels (SPEEDO_GI_PROBE_SPACING, 8, a multiple of 8), how much of what a
 	// probe holds it keeps a frame (SPEEDO_GI_HYSTERESIS, 0.97: the rest is the frame's rays'), and whether the voxels
 	// take the probes' light of the last frame (SPEEDO_GI_BOUNCE=0 for the lights' light alone)
 	if (const char* rays = std::getenv("SPEEDO_GI_RAY_COUNT"); rays != nullptr && *rays != '\0')
@@ -978,7 +978,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	if (const char* phases = std::getenv("SPEEDO_GI_RAY_PHASE_COUNT"); phases != nullptr && *phases != '\0')
 		myGiRayPhaseCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(phases, nullptr, 10)), 1U, 256U);
 	if (const char* spacing = std::getenv("SPEEDO_GI_PROBE_SPACING"); spacing != nullptr && *spacing != '\0')
-		myGiProbeSpacing = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(spacing, nullptr, 10)), 2U, 32U);
+		myGiProbeSpacing = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(spacing, nullptr, 10)), 8U, 32U);
+	// a multiple of 8: the resolve's blocks of 4 voxels then never span two probe cells (see ComputeGiResolve)
+	ENSUREF(myGiProbeSpacing % 8 == 0, "SPEEDO_GI_PROBE_SPACING must be a multiple of 8, not {}", myGiProbeSpacing);
 	if (const char* hysteresis = std::getenv("SPEEDO_GI_HYSTERESIS"); hysteresis != nullptr && *hysteresis != '\0')
 		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
 	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
@@ -1030,7 +1032,34 @@ Renderer::~Renderer()
 				myCullStatisticFrameCount);
 		}
 	}
-	// and the indirect lighting's probes traced and rays per probe, on average per frame
+	// and the indirect lighting's clips as they were last (origin, voxels, voxel size, the box around the eye), its probes
+	// traced and rays per probe, on average per frame
+	if (myCollectTimings && myGiStatisticFrameCount > 0)
+		for (const auto& clip : myGiClipmap.clips)
+		{
+			const auto& data = clip.data;
+			std::println(
+				"indirect lighting, clip {}: origin ({:.2f}, {:.2f}, {:.2f}), {}x{}x{} voxels of {:.3f}, probes {}x{}x{} every {}, the box around the eye ({:.2f}, {:.2f}, {:.2f}) +- ({:.2f}, {:.2f}, {:.2f}) fading over {:.2f}",
+				data.clip,
+				static_cast<double>(data.volumeOrigin[0]),
+				static_cast<double>(data.volumeOrigin[1]),
+				static_cast<double>(data.volumeOrigin[2]),
+				data.volumeSize[0],
+				data.volumeSize[1],
+				data.volumeSize[2],
+				static_cast<double>(data.volumeOrigin[3]),
+				data.probeSize[0],
+				data.probeSize[1],
+				data.probeSize[2],
+				data.probeSize[3],
+				static_cast<double>(data.fadeCenter[0]),
+				static_cast<double>(data.fadeCenter[1]),
+				static_cast<double>(data.fadeCenter[2]),
+				static_cast<double>(data.fadeExtent[0]),
+				static_cast<double>(data.fadeExtent[1]),
+				static_cast<double>(data.fadeExtent[2]),
+				static_cast<double>(data.fadeExtent[3]));
+		}
 	if (myCollectTimings && myGiStatisticFrameCount > 0)
 		std::println(
 			"indirect lighting, per frame: {:.0f} probes traced, {:.1f} rays a probe ({} frames)",
