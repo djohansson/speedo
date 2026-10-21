@@ -512,10 +512,145 @@ float4 GiOccluderHitDebug(GiData gi, float3 origin, float3 direction, float dist
 	return float4(distance, 99.0, 0.0, -1.0);
 }
 
-// whether the voxels let a ray through from origin, a distance along direction (a shadow ray)
-float GiVisibility(GiData gi, float3 origin, float3 direction, float distance)
+// whether the rays traverse the model's BVHs (GiData::trace, see bvh.slang) rather than walk the voxels: they meet the
+// triangles themselves (no surface is a voxel thick, no opening narrowed by a voxel either side, no thin wall half
+// crossed), and read the voxels' radiance where they hit (GiRadianceAtHit). what doesn't move is one BVH (gBvhNodes),
+// what moves another, placed each frame (gBvhMovingNodes[frame], see gfx::bvh::Moving)
+bool GiTracesBvh(GiData gi)
 {
+	return gi.trace == GI_TRACE_BVH;
+}
+
+// the BVH's alpha masked triangles cut out as the main pass's alpha test does (FragmentShadow): the base color's alpha or
+// the mask's red below the material's cutoff, at the hit's texcoords (BVH_ALPHA_LEVEL), so that light passes through
+// foliage's gaps (the voxels hold such a triangle whole)
+struct GiAlphaMask : IBvhFilter
+{
+	bool Accept(uint flags, uint firstIndex, float2 barycentrics)
+	{
+		if ((flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0u)
+			return true;
+		MaterialData material = gMaterialData[flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
+		float4 texCoord01 = gVertexBuffer[gIndexBuffer[firstIndex]].texCoord01 * (1.0 - barycentrics.x - barycentrics.y) +
+							gVertexBuffer[gIndexBuffer[firstIndex + 1]].texCoord01 * barycentrics.x +
+							gVertexBuffer[gIndexBuffer[firstIndex + 2]].texCoord01 * barycentrics.y;
+		if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
+		{
+			TextureView view = gTextureViews[material.baseColorView];
+			if (gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).a < material.alphaCutoff)
+				return false;
+		}
+		if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u)
+		{
+			TextureView view = gTextureViews[material.alphaView];
+			if (gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).r < material.alphaCutoff)
+				return false;
+		}
+		return true;
+	}
+}
+
+// what a ray from origin meets of the model's triangles before tmax (the nearest, or with anyHit any): the static BVH's,
+// then with moving the moving BVH's, nearer than what it met. capped if either traversal hit its step cap, which with
+// count (compute only: a write in the main pass's fragment shader, which the surface reference traces from, turned its
+// early depth test off, see GiMarch) is counted (GI_STATISTIC_CAPPED_BVH_RAYS)
+BvhHit GiTraceTriangles(GiData gi, float3 origin, float3 direction, float tmax, bool anyHit, bool moving, bool count)
+{
+	BvhHit hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, GiAlphaMask());
+	if (moving && gi.bvhMoving != 0u && !(anyHit && BvhHitSomething(hit)))
+	{
+		uint frameIndex = gPushConstants.frameIndex;
+		BvhHit movingHit = BvhTraverse2(gBvhMovingNodes[frameIndex], gBvhMovingTriangles[frameIndex], origin, direction, hit.t, anyHit, GiAlphaMask());
+		bool capped = hit.capped || movingHit.capped;
+		if (BvhHitSomething(movingHit))
+			hit = movingHit;
+		hit.capped = capped;
+	}
+	if (count && hit.capped)
+		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CAPPED_BVH_RAYS], 1u);
+	return hit;
+}
+
+// whether the voxels let a ray through from origin, a distance along direction (a shadow ray): the BVHs' triangles (any
+// hit) where the rays trace them, what moves with moving (not for the static voxels' kept light, which nothing moving
+// may shadow for good: see ComputeGiLightStatic)
+float GiVisibility(GiData gi, float3 origin, float3 direction, float distance, bool moving)
+{
+	if (GiTracesBvh(gi))
+	{
+		// a capped shadow ray is taken as shadowed: it was in something its traversal couldn't get through
+		BvhHit hit = GiTraceTriangles(gi, origin, direction, distance, true, moving, true);
+		return BvhHitSomething(hit) || hit.capped ? 0.0 : 1.0;
+	}
 	return GiOccluderDistance(gi, origin, direction, distance) < distance ? 0.0 : 1.0;
+}
+
+// the radiance where a ray met a triangle (position; normal: the triangle's, toward the side the ray came from), and the
+// emission in it (out): the voxel half a voxel off the surface on that side, which stands for the surface as seen and lit
+// from there (see ComputeGiVoxelize), else the voxel the point is in or the next one out (a voxel's samples needn't
+// land where the hit is, at a thin or curved surface); 0 if all are empty. in the finest clip from firstClip whose box
+// around the eye holds the point (the last holds everything), as the voxel walk reads a clip until it leaves that box
+float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float3 emission)
+{
+	emission = 0.0;
+	uint clipCount = gGi[gPushConstants.frameIndex][firstClip].clipCount;
+	uint clipIt = firstClip;
+	for (; clipIt + 1 < clipCount; clipIt++)
+	{
+		GiClipView view = GiClipViewAt(clipIt);
+		if (all(abs(position - view.fadeCenter.xyz) < view.fadeExtent.xyz))
+			break;
+	}
+	GiClipView clip = GiClipViewAt(clipIt);
+	uint3 size = clip.volumeSize.xyz;
+	float3 coordinate = (position - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+	const float kOffsets[3] = {0.5, 0.0, 1.0};
+	for (uint offsetIt = 0; offsetIt < 3; offsetIt++)
+	{
+		int3 voxel = int3(floor(coordinate + normal * kOffsets[offsetIt]));
+		if (!GiInside(voxel, size))
+			continue;
+		uint index = GiVoxelIndex(uint3(voxel), size);
+		float4 found = GiUnpackRgba16(gGiRadiance[clip.radianceFirst + index]);
+		if (found.a > 0.0)
+		{
+			GiVoxel met = gGiVoxels[clip.voxelFirst + index];
+			emission = float3(GiUnpackHalf2(met.emissionRG), GiUnpackHalf2(met.emissionB).x);
+			return found.rgb;
+		}
+	}
+	return 0.0;
+}
+
+// what a ray from origin meets through the BVHs (see GiTracesBvh), as far as far: its radiance (rgb, the voxels' where it
+// hits, see GiRadianceAtHit and GiMarch's emissionReach) and whether it met nothing (a: the environment's share), how
+// far it went, and whether what it met was a single sided surface seen from behind (as GiOccluderHit's backface: the ray
+// came from inside what the surface bounds). false where the rays walk the voxels instead
+struct GiRayHit
+{
+	float4 radiance;
+	float distance;
+	bool backface;
+};
+
+bool GiTraceBvh(GiData walk, float3 origin, float3 direction, float far, float emissionReach, out GiRayHit result, bool count = true)
+{
+	result.radiance = float4(0.0, 0.0, 0.0, 1.0);
+	result.distance = far;
+	result.backface = false;
+	if (!GiTracesBvh(walk))
+		return false;
+	BvhHit hit = GiTraceTriangles(walk, origin, direction, far, false, true, count);
+	if (!BvhHitSomething(hit))
+		return true;
+	result.distance = hit.t;
+	float3 emission;
+	float3 radiance = GiRadianceAtHit(walk.clip, origin + direction * hit.t, hit.normal, emission);
+	if (hit.t < emissionReach)
+		radiance = max(radiance - emission * (1.0 - (hit.t * hit.t) / (emissionReach * emissionReach)), 0.0);
+	result.radiance = float4(radiance, 0.0);
+	result.backface = !hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u;
+	return true;
 }
 
 // whether a voxel of a clip being voxelized scrolled in (wasn't in it the frame before: see GiData::scroll)
@@ -760,7 +895,7 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 
 // the lights' light off a voxel (at, of a clip): its emission plus its albedo over pi times the light reaching it from
 // the lights of its cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees)
-float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo)
+float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	uint3 size = GiLevelSize(gi, 0);
@@ -803,7 +938,7 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo)
 		if (attenuation * nDotL <= 0.0)
 			continue;
 		// the shadow rays start a voxel further from the surface (the voxel is on the side it stands for, its twin across it)
-		float visibility = GiVisibility(gi, position + normal * gi.volumeOrigin.w, toLight, distance - gi.volumeOrigin.w);
+		float visibility = GiVisibility(gi, position + normal * gi.volumeOrigin.w, toLight, distance - gi.volumeOrigin.w, moving);
 		irradiance += light.intensity.rgb * attenuation * nDotL * visibility;
 	}
 	return emission + albedo.rgb / 3.14159265 * irradiance;
@@ -824,7 +959,7 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	float4 albedo = GiUnpackRgba8(voxel.albedo);
 	float3 radiance = 0.0;
 	if (albedo.a != 0.0)
-		radiance = GiDirectRadiance(gi, uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y)), voxel, albedo);
+		radiance = GiDirectRadiance(gi, uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y)), voxel, albedo, false);
 	gGiRadiance[gi.directFirst + threadId.x] = GiPackRgba16(float4(radiance, albedo.a));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
 	gGiRadiance[gi.radianceFirst + threadId.x] = uint2(0, 0);
@@ -896,7 +1031,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	if (kept.albedo == voxel.albedo && kept.normal == voxel.normal && !(gi.moving != 0u && GiMovingShadows(gi, at, voxel)))
 		radiance = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]).rgb;
 	else
-		radiance = GiDirectRadiance(gi, at, voxel, albedo);
+		radiance = GiDirectRadiance(gi, at, voxel, albedo, true);
 	// not on a reset: the volumes hold nothing yet
 	if (gi.bounce != 0u && gi.reset == 0u)
 	{
@@ -1252,12 +1387,25 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	GiData last = GiClip(gi.clipCount - 1);
 	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
 	GiData walk = GiClip(GiFinestClipHolding(origin, gi.clip));
-	float4 traced = GiMarch(walk, origin, direction, far, true, gi.emissionReach * gi.probeOrigin.w);
-	float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
-	// and the depth, negative where the voxel met was a surface's back (see GiOccluderHit)
+	// and the depth, negative where what it met was a surface's back (see GiOccluderHit): through the BVH one query
+	// answers both
 	float reach = SHADER_TYPES_GI_DEPTH_REACH * gi.probeOrigin.w;
+	float4 traced;
 	bool backface;
-	float depth = GiOccluderHit(walk, origin, direction, reach, false, backface) / gi.probeOrigin.w;
+	float depth;
+	GiRayHit hit;
+	if (GiTraceBvh(walk, origin, direction, far, gi.emissionReach * gi.probeOrigin.w, hit))
+	{
+		traced = hit.radiance;
+		backface = hit.backface && hit.distance < reach;
+		depth = min(hit.distance, reach) / gi.probeOrigin.w;
+	}
+	else
+	{
+		traced = GiMarch(walk, origin, direction, far, true, gi.emissionReach * gi.probeOrigin.w);
+		depth = GiOccluderHit(walk, origin, direction, reach, false, backface) / gi.probeOrigin.w;
+	}
+	float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
 	// a ray that isn't finite (a NaN anywhere poisons every probe it reaches, and through the bounce every voxel, for good:
 	// lerp(NaN, x, 1) is NaN) holds nothing
 	if (any(isnan(radiance)) || any(isinf(radiance)) || isnan(depth) || isinf(depth))
@@ -1477,7 +1625,10 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			float radius = sqrt(max(1.0 - z * z, 0.0));
 			float phi = float(rayIt) * 2.39996323;
 			float3 direction = float3(radius * cos(phi), radius * sin(phi), z);
-			float4 traced = GiMarch(gi, origin, direction, far, false, gi.emissionReach * gi.probeOrigin.w);
+			GiRayHit hit;
+			float4 traced = GiTraceBvh(gi, origin, direction, far, gi.emissionReach * gi.probeOrigin.w, hit)
+								? hit.radiance
+								: GiMarch(gi, origin, direction, far, false, gi.emissionReach * gi.probeOrigin.w);
 			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
 			GiIrradianceBasis(direction, basis);
 			for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
@@ -1733,7 +1884,8 @@ float3 GiPixelReference(float3 position, float3 normal, float3 view)
 			float r = sqrt(u);
 			float phi = float(rayIt) * 2.39996323 + turn;
 			float3 direction = normalize(tangent * (r * cos(phi)) + bitangent * (r * sin(phi)) + normal * sqrt(max(1.0 - u, 0.0)));
-			float4 traced = GiMarch(gi, origin, direction, far, false);
+			GiRayHit hit;
+			float4 traced = GiTraceBvh(gi, origin, direction, far, 0.0, hit, false) ? hit.radiance : GiMarch(gi, origin, direction, far, false);
 			sum += traced.rgb + traced.a * EnvironmentRadiance(environment, direction, 0.6);
 		}
 		rayFirst = rayEnd;

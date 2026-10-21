@@ -152,6 +152,8 @@ void WindowedApplication::InternalCopyPose()
 	if (stops != 0.0F)
 		text += std::format(" SPEEDO_EXPOSURE={:.2f}", static_cast<double>(stops));
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
+	if (!settings.traceTriangles.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_TRACE=voxels";
 	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
 		text += std::format(" SPEEDO_DEBUG_VIEW={}", debugView->key);
 	if (!GetWindows().empty())
@@ -499,11 +501,12 @@ void WindowedApplication::PrepareDraw()
 						else
 						{
 							Text(
-								"%u clips, %s probes (%s traced), %u rays a probe a frame, hysteresis %.2f; voxelized this frame: %u",
+								"%u clips, %s probes (%s traced), %u rays a probe a frame through the %s, hysteresis %.2f; voxelized this frame: %u",
 								frame.giClipCount,
 								compact(frame.giProbeCount).c_str(),
 								compact(frame.giActiveProbeCount).c_str(),
 								frame.giRayCount,
+								frame.giTraceTriangles ? "triangles (BVH)" : "voxels",
 								static_cast<double>(frame.giHysteresis),
 								frame.giClipsVoxelized);
 							for (uint32_t clipIt = 0; clipIt < frame.giClipCount; clipIt++)
@@ -856,6 +859,9 @@ void WindowedApplication::PrepareDraw()
 		// numbers them) to start with
 		if (const char* gi = std::getenv("SPEEDO_GI"); gi != nullptr && *gi != '\0')
 			App().GetScene().GetSettings().indirectLighting.store(std::string_view(gi) != "0", std::memory_order_relaxed);
+		// and how its rays find what they meet (SPEEDO_GI_TRACE=voxels walks the voxels; the triangles' BVHs by default)
+		if (const char* trace = std::getenv("SPEEDO_GI_TRACE"); trace != nullptr && *trace != '\0')
+			App().GetScene().GetSettings().traceTriangles.store(std::string_view(trace) != "voxels", std::memory_order_relaxed);
 		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_COUNT)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
@@ -1389,6 +1395,22 @@ void WindowedApplication::PrepareDraw()
 				SetItemTooltip(
 					"Diffuse ambient light from irradiance probes over a voxel clipmap (experimental, SPEEDO_GI=1 to start with it): "
 					"bounced light, colour bleeding, and the sky occluded indoors. Turned on, the scene is voxelized again.");
+				if (ui::BeginMenu("Indirect Lighting Rays"))
+				{
+					// how the probes' rays (and the voxels' shadow rays) find what they meet: the model's triangles through its
+					// BVHs, or the voxels (see GiData::trace)
+					bool traceTriangles = App().GetScene().GetSettings().traceTriangles.load(std::memory_order_relaxed);
+					if (MenuItem("Triangles (BVH)", nullptr, traceTriangles))
+						App().GetScene().GetSettings().traceTriangles.store(true, std::memory_order_relaxed);
+					SetItemTooltip(
+						"The rays meet the model's triangles, through its BVHs (one of what doesn't move, one of what does, "
+						"refit each frame), and take the voxels' light where they hit: no surface a voxel thick, no opening "
+						"narrowed by the voxels, light through alpha masked gaps.");
+					if (MenuItem("Voxels", nullptr, !traceTriangles))
+						App().GetScene().GetSettings().traceTriangles.store(false, std::memory_order_relaxed);
+					SetItemTooltip("The rays walk the voxels (SPEEDO_GI_TRACE=voxels to start with them).");
+					ImGui::EndMenu();
+				}
 				if (ui::BeginMenu("Debug View"))
 				{
 					// what the views show instead of their light (see DEBUG_VIEW_*): values (base color, normals, ...) as they

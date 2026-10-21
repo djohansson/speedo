@@ -348,6 +348,9 @@ struct Scene::Impl
 	uuids::uuid myDefaultJointsUuid;
 	uuids::uuid myDefaultMorphDeltasUuid;
 	uuids::uuid myDefaultMorphWeightsUuid;
+	// bound as gBvhNodes and gBvhTriangles while the installed model has no BVH (see gfx/bvh.h): a node's worth of zeros,
+	// which GiData::trace never has the rays traverse
+	uuids::uuid myDefaultBvhUuid;
 	core::ConcurrentAccess<AnimationState> myAnimation;
 	core::ConcurrentAccess<SceneState> myScenes;
 	// gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
@@ -1062,6 +1065,15 @@ struct Scene::Impl
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.SetDescriptorData(
 				"gIndexBuffer", BufferBinding{.buffer = model->GetIndexBuffer(), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			const auto& defaultBvh = *device.GetResource<Buffer>(myDefaultBvhUuid);
+			pipeline.SetDescriptorData(
+				"gBvhNodes",
+				BufferBinding{.buffer = model->GetBvhNodeBuffer() != nullptr ? *model->GetBvhNodeBuffer() : defaultBvh, .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.SetDescriptorData(
+				"gBvhTriangles",
+				BufferBinding{.buffer = model->GetBvhTriangleBuffer() != nullptr ? *model->GetBvhTriangleBuffer() : defaultBvh, .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.SetDescriptorData(
 				"gSkinVertices",
 				BufferBinding{
@@ -1098,6 +1110,14 @@ struct Scene::Impl
 						.offset = 0,},
 					DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 					frameIt);
+				for (auto [binding, buffer] : {
+						 std::pair{"gBvhMovingNodes", model->GetMovingBvhNodeBuffer(frameIt)},
+						 std::pair{"gBvhMovingTriangles", model->GetMovingBvhTriangleBuffer(frameIt)}})
+					pipeline.SetDescriptorData(
+						binding,
+						BufferBinding{.buffer = buffer != nullptr ? *buffer : *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0},
+						DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+						frameIt);
 			}
 
 			{
@@ -1711,6 +1731,20 @@ struct Scene::Impl
 			myDefaultMorphDeltasUuid = morphDeltas->GetUuid();
 			timelineCallbacks.emplace_back(morphDeltaTransfersDone.handle);
 
+			std::array<glm::vec4, BVH_NODE_FLOAT4_COUNT> defaultBvh{};
+			core::TaskCreateInfo<void> bvhTransfersDone;
+			auto bvh = device.CreateResource<Buffer>(
+				BufferCreateDesc{
+					device.CreateDeviceObjectCreateDesc("DefaultBvh"),
+					sizeof(defaultBvh),
+					BufferUsage::kStorage,
+					MemoryProperty::kHostVisible},
+				defaultBvh.data(),
+				cmd,
+				bvhTransfersDone);
+			myDefaultBvhUuid = bvh->GetUuid();
+			timelineCallbacks.emplace_back(bvhTransfersDone.handle);
+
 			std::array<float, 1> defaultMorphWeights{};
 			core::TaskCreateInfo<void> morphWeightTransfersDone;
 			auto morphWeights = device.CreateResource<Buffer>(
@@ -1776,6 +1810,12 @@ struct Scene::Impl
 				BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphWeightsUuid), .offset = 0},
 				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 				frameIt);
+			for (const char* binding : {"gBvhMovingNodes", "gBvhMovingTriangles"})
+				pipeline.SetDescriptorData(
+					binding,
+					BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0},
+					DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+					frameIt);
 		}
 		pipeline.SetDescriptorData(
 			"gSkinVertices",
@@ -1785,6 +1825,9 @@ struct Scene::Impl
 			"gMorphDeltas",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphDeltasUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		for (const char* binding : {"gBvhNodes", "gBvhTriangles"})
+			pipeline.SetDescriptorData(
+				binding, BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 		for (uint8_t i = 0; i < SHADER_TYPES_FRAME_COUNT; i++)
 		{
@@ -1882,6 +1925,12 @@ struct Scene::Impl
 				BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphWeightsUuid), .offset = 0},
 				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 				frameIt);
+			for (const char* binding : {"gBvhMovingNodes", "gBvhMovingTriangles"})
+				pipeline.SetDescriptorData(
+					binding,
+					BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0},
+					DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+					frameIt);
 		}
 		pipeline.SetDescriptorData(
 			"gSkinVertices",
@@ -1891,6 +1940,9 @@ struct Scene::Impl
 			"gMorphDeltas",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphDeltasUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		for (const char* binding : {"gBvhNodes", "gBvhTriangles"})
+			pipeline.SetDescriptorData(
+				binding, BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
 		pipeline.SetDescriptorData(
 			"gSamplers",
@@ -1945,7 +1997,10 @@ struct Scene::Impl
 				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
 				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			myModel->Animate(frameIndex, pose, from, weight);
+			// the moving BVH only where the indirect lighting's rays trace it
+			myModel->Animate(
+				frameIndex, pose, from, weight,
+				mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed));
 			ApplyPointerValues(myRHI, graphics, *myModel);
 		}
 		
@@ -2009,6 +2064,7 @@ struct Scene::Impl
 				.culling = mySettings.culling.load(std::memory_order_relaxed),
 				.clusteredLights = mySettings.clusteredLights.load(std::memory_order_relaxed),
 				.indirectLighting = mySettings.indirectLighting.load(std::memory_order_relaxed),
+				.traceTriangles = mySettings.traceTriangles.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

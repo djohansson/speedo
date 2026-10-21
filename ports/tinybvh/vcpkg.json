@@ -1,0 +1,7 @@
+{
+  "name": "tinybvh",
+  "version": "1.9.1",
+  "description": "A single-header BVH construction and traversal library",
+  "homepage": "https://github.com/jbikker/tinybvh",
+  "license": "MIT"
+}

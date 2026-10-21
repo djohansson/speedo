@@ -61,6 +61,8 @@ struct FrameInputs
 	// whether the indirect lighting runs (see gfx/indirectlight.h): turned off, its volumes are dropped, and turned on
 	// again they are voxelized again
 	bool indirectLighting = false;
+	// whether its rays trace the model's BVHs (GI_TRACE_BVH, where it has them) or walk the voxels (GI_TRACE_VOXELS)
+	bool traceTriangles = true;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -119,6 +121,7 @@ struct FrameStatistics
 	// per axis, how many clips were voxelized this frame (moved, or the scene changed), what moves (voxelized every
 	// frame over the rest), the probes of all clips and the rays each traces a frame, and the hysteresis they blend by
 	bool indirectLighting = false;
+	bool giTraceTriangles = false; // whether the rays traced the BVHs this frame (see FrameInputs::traceTriangles)
 	uint32_t giClipCount = 0;
 	std::array<float, SHADER_TYPES_GI_CLIP_COUNT> giVoxelSize{};
 	std::array<glm::uvec3, SHADER_TYPES_GI_CLIP_COUNT> giVoxelCounts{};

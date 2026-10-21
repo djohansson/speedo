@@ -22,6 +22,11 @@
 namespace gfx
 {
 
+namespace bvh
+{
+class Moving;
+}
+
 // the indices drawn with one material and topology, contiguous in the index buffer
 struct ModelSubmesh
 {
@@ -150,6 +155,12 @@ struct ModelBuffers
 	std::vector<Buffer> joints; // ModelDesc::animation.jointCount joint matrices (at least one)
 	Buffer morphDeltas; // MorphDelta, ModelDesc::morphDeltaCount of them, if any
 	std::vector<Buffer> morphWeights; // per frame, host visible: ModelDesc::morphWeights' count of weights, if any
+	// the indirect lighting's ray tracing structure over what doesn't move (see gfx/bvh.h), if there is any
+	Buffer bvhNodes;
+	Buffer bvhTriangles;
+	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles
+	std::vector<Buffer> bvhMovingNodes;
+	std::vector<Buffer> bvhMovingTriangles;
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
@@ -165,7 +176,7 @@ enum class ModelArrangement : uint8_t
 class Model final
 {
 public:
-	Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noexcept;
+	Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload, std::unique_ptr<bvh::Moving>&& movingBvh) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
 	~Model();
@@ -184,6 +195,22 @@ public:
 		return myBuffers.instances[myBuffers.instances.size() == 1 ? 0 : frameIndex];
 	}
 	// its morph deltas, and a frame's morph weights (see MorphDelta in gfx/shaders/capi.h), or null if it has none
+	// whether it has a BVH of what moves (see bvh::Moving), and a frame's buffers of it (see ModelBuffers)
+	[[nodiscard]] bool HasMovingBvh() const noexcept { return myMovingBvh != nullptr; }
+	[[nodiscard]] const Buffer* GetMovingBvhNodeBuffer(size_t frameIndex) const noexcept
+	{
+		return frameIndex < myBuffers.bvhMovingNodes.size() ? &myBuffers.bvhMovingNodes[frameIndex] : nullptr;
+	}
+	[[nodiscard]] const Buffer* GetMovingBvhTriangleBuffer(size_t frameIndex) const noexcept
+	{
+		return frameIndex < myBuffers.bvhMovingTriangles.size() ? &myBuffers.bvhMovingTriangles[frameIndex] : nullptr;
+	}
+	// the BVH's nodes and triangles (see bvh::Data), or null if it has none
+	[[nodiscard]] const Buffer* GetBvhNodeBuffer() const noexcept { return myBuffers.bvhNodes.IsValid() ? &myBuffers.bvhNodes : nullptr; }
+	[[nodiscard]] const Buffer* GetBvhTriangleBuffer() const noexcept
+	{
+		return myBuffers.bvhTriangles.IsValid() ? &myBuffers.bvhTriangles : nullptr;
+	}
 	[[nodiscard]] const Buffer* GetMorphDeltaBuffer() const noexcept { return myBuffers.morphDeltas.IsValid() ? &myBuffers.morphDeltas : nullptr; }
 	[[nodiscard]] const Buffer* GetMorphWeightBuffer(size_t frameIndex) const noexcept
 	{
@@ -201,7 +228,7 @@ public:
 	// writes a frame's instance and joint buffers with a pose (see ScenePose: an animation at a time, looping, or the rest
 	// pose), crossfaded in over from by weight (see EvaluateNodes; 1: pose alone). call on the draw thread, once the
 	// frame's previous use of its buffers is done.
-	void Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from = {}, float weight = 1.0F);
+	void Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from = {}, float weight = 1.0F, bool placeBvh = true);
 	// what the last Animate (or the rest pose) left: the pointer values (see ScenePointerTarget, for the materials and
 	// texture transforms to follow), and the lights (ModelDesc::lights, the linked ones where their nodes are). call on
 	// the draw thread.
@@ -238,6 +265,7 @@ private:
 	ModelDesc myDesc;
 	ModelBuffers myBuffers;
 	Upload myUpload;
+	std::unique_ptr<bvh::Moving> myMovingBvh; // placed by Animate, null if nothing moves (or the rays walk the voxels)
 	// the joint matrices Animate writes, kept between its calls
 	std::vector<SceneMatrix> myJoints;
 	std::vector<float> myPointerValues;

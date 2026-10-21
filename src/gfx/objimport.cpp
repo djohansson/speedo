@@ -148,10 +148,33 @@ struct TriangleRef
 {
 	uint32_t shape = 0;
 	uint32_t face = 0;
-	uint32_t first = 0;
-	uint32_t second = 0;
+	std::array<uint32_t, 3> corners{}; // offsets into its shape's indices, in the face's order
 	uint32_t part = 0;
 };
+
+// a convex face's corners (cornerCount of them from first, in order) as triangles, by halving: the triangle of its ends and
+// its middle corner (rounded up), then each side's the same way, so triangles and quads are what a fan from the first
+// corner makes them. a fan of a face of hundreds of corners is slivers that all meet at its first, whose bounds all
+// overlap there, which no BVH separates (geodesic.zip's duals, faces of up to 384 corners: a tree hundreds of levels
+// deep, past what the traversal's stack holds); halved, they are spread over the face
+template <typename Fn>
+void ForEachFaceTriangle(uint32_t first, uint32_t cornerCount, Fn&& fn)
+{
+	if (cornerCount < 3)
+		return;
+	std::vector<std::pair<uint32_t, uint32_t>> ranges{{0, cornerCount - 1}};
+	while (!ranges.empty())
+	{
+		auto [low, high] = ranges.back();
+		ranges.pop_back();
+		if (high - low < 2)
+			continue;
+		uint32_t middle = (low + high + 1) / 2;
+		fn(std::array{first + low, first + middle, first + high});
+		ranges.emplace_back(middle, high);
+		ranges.emplace_back(low, middle);
+	}
+}
 
 [[nodiscard]] bool IsFinite(const glm::dvec3& a) { return !glm::any(glm::isnan(a)) && !glm::any(glm::isinf(a)); }
 
@@ -228,7 +251,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 		MappedMaterialReader materialReader(path.parent_path());
 		if (!tinyobj::LoadObj(
 				&reader.attrib, &reader.shapes, &reader.materials, &reader.warning, &reader.error, &stream, &materialReader,
-				/*triangulate*/ true, /*default_vcols_fallback*/ true))
+				/*triangulate*/ false, /*default_vcols_fallback*/ true))
 			return std::unexpected(std::format("failed to parse {}: {}", path.string(), reader.error));
 	}
 
@@ -329,9 +352,10 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 	auto cornersOf = [&shapes, &partFlipped](const TriangleRef& triangle)
 	{
 		const auto& indices = shapes[triangle.shape].mesh.indices;
+		const auto& [a, b, c] = triangle.corners;
 		if (triangle.part < partFlipped.size() && partFlipped[triangle.part])
-			return std::array{indices[triangle.first], indices[triangle.second + 1], indices[triangle.second]};
-		return std::array{indices[triangle.first], indices[triangle.second], indices[triangle.second + 1]};
+			return std::array{indices[a], indices[c], indices[b]};
+		return std::array{indices[a], indices[b], indices[c]};
 	};
 
 	auto smoothingGroupOf = [&shapes](const TriangleRef& triangle)
@@ -366,17 +390,17 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 				}
 				auto part = static_cast<uint32_t>(partNormalArea.size() - 1);
 
-				// faces are triangulated already, fan out anything that isn't
-				for (uint32_t second = first + 1; second + 1 < first + cornerCount; second++)
+				// tinyobj leaves faces whole (see LoadObj's triangulate): halved here
+				ForEachFaceTriangle(first, cornerCount, [&](const std::array<uint32_t, 3>& faceCorners)
 				{
-					TriangleRef triangle{.shape = shapeIt, .face = faceIt, .first = first, .second = second, .part = part};
+					TriangleRef triangle{.shape = shapeIt, .face = faceIt, .corners = faceCorners, .part = part};
 					auto corners = cornersOf(triangle);
 
 					if (std::ranges::any_of(corners, [positionCount](const auto& corner)
 						{ return corner.vertex_index < 0 || static_cast<size_t>(corner.vertex_index) >= positionCount; }))
 					{
 						stats.droppedTriangles++;
-						continue;
+						return;
 					}
 
 					stats.triangleCount++;
@@ -387,7 +411,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 					if (!std::isfinite(area) || area == 0.0)
 					{
 						stats.degenerateTriangles++;
-						continue;
+						return;
 					}
 
 					if (std::ranges::all_of(corners, [&hasNormal](const auto& corner) { return hasNormal(corner.normal_index); }))
@@ -398,7 +422,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 						partNormalArea[part] += area;
 						if (glm::dot(faceNormal, vertexNormals) > 0.0)
 							partAgreeingArea[part] += area;
-						continue;
+						return;
 					}
 
 					if (adjacentFaceOffsets.empty())
@@ -406,7 +430,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 
 					for (const auto& corner : corners)
 						adjacentFaceOffsets[corner.vertex_index]++;
-				}
+				});
 
 				first += cornerCount;
 			}

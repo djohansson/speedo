@@ -1493,6 +1493,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 						 f(GI_STATISTIC_CAPPED_STATE + 1), f(GI_STATISTIC_CAPPED_STATE + 2), f(GI_STATISTIC_CAPPED_STATE + 3), f(GI_STATISTIC_CAPPED_STATE + 4),
 						 f(GI_STATISTIC_CAPPED_STATE + 5), f(GI_STATISTIC_CAPPED_STATE + 6), f(GI_STATISTIC_CAPPED_STATE + 7));
 		}
+		if (statistics[GI_STATISTIC_CAPPED_BVH_RAYS] != 0)
+			std::println(
+				stderr, "indirect lighting: {} rays hit the BVH traversal's step cap (BVH_MAX_STEP_COUNT)", statistics[GI_STATISTIC_CAPPED_BVH_RAYS]);
 		if (myGiDump)
 		{
 			constexpr size_t kDumpSize = SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT * sizeof(float);
@@ -2428,6 +2431,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.dumpProbe = ~0U;
 		clip.emissionReach = myGiEmissionReach;
 		clip.referenceRayCount = myGiReferenceRayCount;
+		// (a model all of which moves has a moving BVH alone: its static one is the default, a node that holds nothing)
+		clip.trace = frame.traceTriangles && frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh())
+						 ? GI_TRACE_BVH
+						 : GI_TRACE_VOXELS;
+		clip.bvhMoving = frame.model != nullptr && frame.model->HasMovingBvh() ? 1 : 0;
 		if (myGiDump)
 		{
 			// the probe nearest the dump point: by its lattice (the offsets are small)
@@ -2463,6 +2471,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		statistics.giActiveProbeCount = myGiActiveProbeCount;
 		statistics.giRayCount = myGiRayCountThisFrame;
 		statistics.giHysteresis = myGiHysteresis;
+		statistics.giTraceTriangles = !clipData.empty() && clipData.front().trace == GI_TRACE_BVH;
 		for (size_t clipIt = 0; clipIt < clipData.size(); clipIt++)
 		{
 			statistics.giVoxelSize[clipIt] = clipData[clipIt].volumeOrigin[3];

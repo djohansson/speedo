@@ -1,4 +1,5 @@
 #include <gfx/model.h>
+#include <gfx/bvh.h>
 #include <gfx/importversions.h>
 #include <gfx/meshimport.h>
 
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -30,15 +32,29 @@
 namespace gfx
 {
 
-Model::Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload) noexcept
+Model::Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload, std::unique_ptr<bvh::Moving>&& movingBvh) noexcept
 	: myDesc(std::move(desc))
 	, myBuffers(std::move(buffers))
 	, myUpload(upload)
+	, myMovingBvh(std::move(movingBvh))
 	, myJoints(myDesc.animation.jointCount > 0 ? RestJoints(myDesc.animation) : std::vector<SceneMatrix>{})
 	, myPointerValues(myDesc.animation.pointerDefaults)
 	, myLights(myDesc.lights)
 	, myCameras(myDesc.cameras)
 {}
+
+// writes the moving BVH as placed to a frame's buffers (see bvh::Moving)
+static void WriteMovingBvh(const bvh::Moving& moving, Buffer& nodes, Buffer& triangles)
+{
+	auto nodeMemory = nodes.Map();
+	auto triangleMemory = triangles.Map();
+	moving.Write(nodeMemory, triangleMemory);
+	for (auto* buffer : {&nodes, &triangles})
+	{
+		buffer->Flush(0, buffer->GetDesc().size);
+		buffer->Unmap();
+	}
+}
 
 bool Model::AnimatesLights() const noexcept
 {
@@ -61,10 +77,13 @@ std::vector<const Buffer*> Model::GetUploadedBuffers() const
 		buffers.push_back(&myBuffers.morphDeltas);
 	if (myBuffers.instances.size() == 1)
 		buffers.push_back(&myBuffers.instances.front());
+	for (const auto* bvh : {&myBuffers.bvhNodes, &myBuffers.bvhTriangles})
+		if (bvh->IsValid())
+			buffers.push_back(bvh);
 	return buffers;
 }
 
-void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from, float weight)
+void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& from, float weight, bool placeBvh)
 {
 	ZoneScopedN("gfx::Model::Animate");
 
@@ -100,6 +119,13 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 	auto instanceMemory = instances.Map();
 	WriteInstances(myDesc.animation, worlds, visible, instanceMemory);
 	instances.Flush(0, instanceMemory.size());
+	// the moving BVH reads the frame's instances
+	std::vector<ModelInstance> placed;
+	if (myMovingBvh && placeBvh)
+	{
+		placed.resize(myDesc.instances.size());
+		std::memcpy(placed.data(), instanceMemory.data(), placed.size() * sizeof(ModelInstance));
+	}
 	instances.Unmap();
 
 	auto& joints = myBuffers.joints[frameIndex];
@@ -108,14 +134,22 @@ void Model::Animate(size_t frameIndex, const ScenePose& pose, const ScenePose& f
 	joints.Flush(0, jointMemory.size());
 	joints.Unmap();
 
+	std::vector<float> weights;
 	if (!myDesc.animation.morphs.empty() && frameIndex < myBuffers.morphWeights.size())
 	{
-		auto weights = EvaluateWeights(myDesc.animation, myDesc.morphWeights, pose, from, weight);
+		weights = EvaluateWeights(myDesc.animation, myDesc.morphWeights, pose, from, weight);
 		auto& weightBuffer = myBuffers.morphWeights[frameIndex];
 		auto weightMemory = weightBuffer.Map();
 		std::memcpy(weightMemory.data(), weights.data(), std::min(weightMemory.size(), weights.size() * sizeof(float)));
 		weightBuffer.Flush(0, weightMemory.size());
 		weightBuffer.Unmap();
+	}
+
+	// what moves, where the frame puts it, for the indirect lighting's rays (placeBvh: while they trace it)
+	if (myMovingBvh && placeBvh && frameIndex < myBuffers.bvhMovingNodes.size())
+	{
+		myMovingBvh->Place(myJoints, weights.empty() ? std::span<const float>(myDesc.morphWeights) : std::span<const float>(weights), placed);
+		WriteMovingBvh(*myMovingBvh, myBuffers.bvhMovingNodes[frameIndex], myBuffers.bvhMovingTriangles[frameIndex]);
 	}
 }
 
@@ -300,6 +334,34 @@ struct Staged
 	Buffer vertexStaging;
 	Buffer skinStaging; // SkinVertex per vertex, if desc.skinned
 	Buffer morphStaging; // MorphDelta, desc.morphDeltaCount of them, if any
+	// the indirect lighting's BVH of what doesn't move (see gfx/bvh.h), kept in the model's cache: none for a merged set,
+	// whose files are placed when merged (UploadStaged builds it)
+	std::optional<bvh::Data> bvh;
+};
+
+// a model's BVH (see bvh::Build), timed
+[[nodiscard]] static bvh::Data BuildBvh(
+	const ModelDesc& desc, std::span<const uint32_t> indices, std::span<const VertexP3fN3fTa4fT014fC4f> vertices, std::string_view name)
+{
+	auto start = std::chrono::steady_clock::now();
+	auto data = bvh::Build(bvh::Triangles(desc, indices, vertices), core::Application::Get()->GetExecutor());
+	if (data.triangleCount > 0)
+		std::println(
+			"{}: a BVH of {} triangles, {} nodes ({:.1f} MB), built in {:.0f} ms",
+			name,
+			data.triangleCount,
+			data.nodes.size() / BVH_NODE_FLOAT4_COUNT,
+			static_cast<double>((data.nodes.size() + data.triangles.size()) * sizeof(glm::vec4)) / (1024.0 * 1024.0),
+			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+	return data;
+}
+
+// a BVH in the model's cache: its counts, then its nodes and triangles (see LoadStaged)
+struct BvhCacheHeader
+{
+	uint32_t triangleCount = 0;
+	uint32_t nodeFloat4Count = 0;
+	uint32_t triangleFloat4Count = 0;
 };
 
 // the vertex and instance buffers are read by the shaders as storage buffers, which can't be larger than this
@@ -343,6 +405,7 @@ struct Staged
 	Buffer vertexStaging;
 	Buffer skinStaging;
 	Buffer morphStaging;
+	bvh::Data bvhData;
 	auto createStaging = [&]
 	{
 		if (desc.morphDeltaCount > 0)
@@ -397,6 +460,23 @@ struct Staged
 			progress = staging == &indexStaging ? 128 : 255;
 		}
 
+		BvhCacheHeader header;
+		if (auto result = inStream(std::span(reinterpret_cast<char*>(&header), sizeof(header))); failure(result))
+		{
+			releaseStaging();
+			return std::make_error_code(result);
+		}
+		bvhData = {
+			.nodes = std::vector<glm::vec4>(header.nodeFloat4Count),
+			.triangles = std::vector<glm::vec4>(header.triangleFloat4Count),
+			.triangleCount = header.triangleCount};
+		for (auto* values : {&bvhData.nodes, &bvhData.triangles})
+			if (auto result = inStream(std::span(reinterpret_cast<char*>(values->data()), values->size() * sizeof(glm::vec4))); failure(result))
+			{
+				releaseStaging();
+				return std::make_error_code(result);
+			}
+
 		return {};
 	};
 
@@ -417,6 +497,17 @@ struct Staged
 			if (failure(result))
 				return std::make_error_code(result);
 		}
+
+		BvhCacheHeader header{
+			.triangleCount = bvhData.triangleCount,
+			.nodeFloat4Count = static_cast<uint32_t>(bvhData.nodes.size()),
+			.triangleFloat4Count = static_cast<uint32_t>(bvhData.triangles.size())};
+		if (auto result = outStream(std::span(reinterpret_cast<const char*>(&header), sizeof(header))); failure(result))
+			return std::make_error_code(result);
+		for (const auto* values : {&bvhData.nodes, &bvhData.triangles})
+			if (auto result = outStream(std::span(reinterpret_cast<const char*>(values->data()), values->size() * sizeof(glm::vec4)));
+				failure(result))
+				return std::make_error_code(result);
 
 		// LoadAsset reports the rest, while hashing the saved cache
 		return {};
@@ -579,6 +670,9 @@ struct Staged
 
 		progress = 224;
 
+		// the indirect lighting's BVH, from the imported triangles: built once, kept in the cache with the rest
+		bvhData = BuildBvh(desc, mesh->indices, mesh->vertices, filePath);
+
 		return {};
 	};
 
@@ -590,7 +684,8 @@ struct Staged
 	if (importOptions.variant)
 		params.append(std::format("|variant-{}", *importOptions.variant));
 	params.append(std::format("|chunks-{}", mesh::kChunkTriangles));
-	params.append("|cache-v38"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
+	params.append(std::format("|{}", bvh::Version()));
+	params.append("|cache-v39"); // bump when the serialized layout (ModelDesc) changes, to invalidate stale caches
 	static constexpr size_t kSha2Size = 32;
 	std::array<uint8_t, kSha2Size> sha2;
 	picosha2::hash256(params.cbegin(), params.cend(), sha2.begin(), sha2.end());
@@ -615,7 +710,8 @@ struct Staged
 		.indexStaging = std::move(indexStaging),
 		.vertexStaging = std::move(vertexStaging),
 		.skinStaging = std::move(skinStaging),
-		.morphStaging = std::move(morphStaging)};
+		.morphStaging = std::move(morphStaging),
+		.bvh = std::move(bvhData)};
 }
 
 // the models as one: their indices and vertices in new staging buffers, and their materials and instances. side by
@@ -784,12 +880,13 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 	ZoneScopedN("gfx::Model::Upload");
 
-	auto& [desc, indexStaging, vertexStaging, skinStaging, morphStaging] = staged;
+	auto& [desc, indexStaging, vertexStaging, skinStaging, morphStaging, bvhData] = staged;
 	std::string filePath = desc.name; // for the buffers' names: desc is moved into the model
 	bool moves = !desc.animation.Empty();
 
 	ModelBuffers buffers;
 	Buffer instanceStaging;
+	std::unique_ptr<bvh::Moving> movingBvh;
 	if (moves)
 	{
 		auto worlds = EvaluateNodes(desc.animation, desc.animation.animations.size(), 0.0F);
@@ -819,6 +916,48 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			jointBuffer.Flush(0, jointMemory.size());
 			jointBuffer.Unmap();
 		}
+
+		// the indirect lighting's BVH of what moves (see bvh::Moving), placed at rest: its tree, and every frame's buffers
+		// until Animate places it, start there
+		std::vector<ModelInstance> restInstances(desc.instances.size());
+		WriteRestInstances(desc, std::as_writable_bytes(std::span(restInstances)));
+		WriteInstances(desc.animation, worlds, visible, std::as_writable_bytes(std::span(restInstances)));
+		auto indices = indexStaging.Map();
+		auto vertices = vertexStaging.Map();
+		auto skinVertices = skinStaging.IsValid() ? skinStaging.Map() : std::span<std::byte>{};
+		auto morphDeltas = morphStaging.IsValid() ? morphStaging.Map() : std::span<std::byte>{};
+		movingBvh = std::make_unique<bvh::Moving>(
+			desc,
+			std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
+			std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
+			std::span(reinterpret_cast<const SkinVertex*>(skinVertices.data()), skinVertices.size() / sizeof(SkinVertex)),
+			std::span(reinterpret_cast<const MorphDelta*>(morphDeltas.data()), morphDeltas.size() / sizeof(MorphDelta)),
+			core::Application::Get()->GetExecutor());
+		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging, &morphStaging})
+			if (staging->IsValid())
+				staging->Unmap();
+		if (movingBvh->Empty())
+			movingBvh.reset();
+		else
+		{
+			movingBvh->Place(joints, desc.morphWeights, restInstances);
+			for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+			{
+				auto hostVisible = [&](std::string_view what, size_t size)
+				{
+					return Buffer(BufferCreateDesc{
+						device.CreateDeviceObjectCreateDesc(std::format("{} ({} {})", filePath, what, frameIt)),
+						size,
+						BufferUsage::kStorage,
+						MemoryProperty::kHostVisible});
+				};
+				buffers.bvhMovingNodes.push_back(hostVisible("moving bvh nodes", movingBvh->NodeFloat4Count() * sizeof(glm::vec4)));
+				buffers.bvhMovingTriangles.push_back(
+					hostVisible("moving bvh triangles", movingBvh->TriangleFloat4Count() * sizeof(glm::vec4)));
+				WriteMovingBvh(*movingBvh, buffers.bvhMovingNodes.back(), buffers.bvhMovingTriangles.back());
+			}
+		}
+	
 	}
 	else
 	{
@@ -846,6 +985,40 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			weightBuffer.Flush(0, weightMemory.size());
 			weightBuffer.Unmap();
 		}
+	}
+
+	// the indirect lighting's BVH over what doesn't move, staged before taking the queue's lock
+	Buffer bvhNodeStaging;
+	Buffer bvhTriangleStaging;
+	// the model's from its cache, a merged set's built now from the staged triangles
+	bvh::Data bvhStatic;
+	if (bvhData)
+		bvhStatic = std::move(*bvhData);
+	else
+	{
+		auto indices = indexStaging.Map();
+		auto vertices = vertexStaging.Map();
+		bvhStatic = BuildBvh(
+			desc,
+			std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
+			std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
+			filePath);
+		vertexStaging.Unmap();
+		indexStaging.Unmap();
+	}
+	if (bvhStatic.triangleCount > 0)
+	{
+		auto stage = [&](std::string_view what, std::span<const glm::vec4> values)
+		{
+			auto staging = Buffer::CreateStaging(
+				device.CreateDeviceObjectCreateDesc(std::format("{} ({} staging)", filePath, what)), values.size_bytes());
+			auto memory = staging.Map();
+			std::memcpy(memory.data(), values.data(), values.size_bytes());
+			staging.Unmap();
+			return staging;
+		};
+		bvhNodeStaging = stage("bvh nodes", bvhStatic.nodes);
+		bvhTriangleStaging = stage("bvh triangles", bvhStatic.triangles);
 	}
 
 	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
@@ -888,10 +1061,17 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		if (!moves)
 			buffers.instances.push_back(
 				upload("instances", desc.instances.size() * sizeof(ModelInstance), BufferUsage::kStorage, std::move(instanceStaging)));
+		if (bvhNodeStaging.IsValid())
+		{
+			auto nodeSize = bvhNodeStaging.GetDesc().size;
+			auto triangleSize = bvhTriangleStaging.GetDesc().size;
+			buffers.bvhNodes = upload("bvh nodes", nodeSize, BufferUsage::kStorage, std::move(bvhNodeStaging));
+			buffers.bvhTriangles = upload("bvh triangles", triangleSize, BufferUsage::kStorage, std::move(bvhTriangleStaging));
+		}
 
 		auto uploadInfo = Upload{
 			.semaphore = &transfer->semaphore, .value = ++transfer->timeline, .queueFamilyIndex = transfer->queueFamilyIndex};
-		model = std::make_shared<Model>(std::move(desc), std::move(buffers), uploadInfo);
+		model = std::make_shared<Model>(std::move(desc), std::move(buffers), uploadInfo, std::move(movingBvh));
 
 		CommandEncoder encoder(cmd);
 		for (const auto* buffer : model->GetUploadedBuffers())
@@ -939,7 +1119,7 @@ std::string Model::ImportVersion(std::string_view filePath)
 	auto extension = std::filesystem::path(filePath).extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	if (extension == ".obj")
-		return std::format("tinyobjloader-{}|objimport-v5", kTinyObjLoaderVersion);
+		return std::format("tinyobjloader-{}|objimport-v6", kTinyObjLoaderVersion);
 	return std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v34", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion);
 }
 

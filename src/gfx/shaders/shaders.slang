@@ -26,4 +26,5 @@ __include types;
 #include "composite.slang"
 #include "uiblur.slang"
 #include "cull.slang"
+#include "bvh.slang"
 #include "gi.slang"

@@ -117,6 +117,7 @@
         "parallel-hashmap",
         "shader-slang",
         "stb",
+        "tinybvh",
         "tinyobjloader",
         {
           "name": "tracy",

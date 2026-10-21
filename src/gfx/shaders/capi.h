@@ -636,6 +636,28 @@ struct CullView
 #define SHADER_TYPES_GI_FLAG_REACH 4
 #define SHADER_TYPES_GI_FLAG_STAMP_SHIFT 8u
 #define SHADER_TYPES_GI_FLAG_WORD_COUNT 2u
+// how the indirect lighting's rays find what they meet (GiData::trace): traversing the model's BVHs (gBvhNodes of what
+// doesn't move, gBvhMovingNodes of what does, see bvh.slang; the default), reading the voxels' radiance where they hit,
+// or walking the voxels (View > Indirect Lighting Rays, SPEEDO_GI_TRACE=voxels; see GiMarch)
+#define GI_TRACE_VOXELS 0u
+#define GI_TRACE_BVH 1u
+// the BVH (gBvhNodes and gBvhTriangles, see gfx/bvh.h): tinybvh's CWBVH, a node 5 float4, a triangle 4 (Baldwin and
+// Weber's transform's 3 rows, then x the sign of the normal's largest component, y the flags below, z its first index in
+// the model's index buffer, w its index among the triangles built)
+#define BVH_NODE_FLOAT4_COUNT 5u
+#define BVH_TRIANGLE_FLOAT4_COUNT 4u
+// the moving BVH (gBvhMovingNodes and gBvhMovingTriangles, see gfx::bvh::Moving): tinybvh's BVH_GPU, a node 4 float4 (Aila
+// and Laine's: the children's bounds), a triangle 3 (its first corner and the edges from it; w: its index, its flags,
+// its first index)
+#define BVH2_NODE_FLOAT4_COUNT 4u
+#define BVH2_TRIANGLE_FLOAT4_COUNT 3u
+#define BVH_TRIANGLE_FLAG_DOUBLE_SIDED 1u
+// alpha masked: a ray passes where its material's texture alpha is below its cutoff (see GiAlphaMask)
+#define BVH_TRIANGLE_FLAG_ALPHA_MASKED 2u
+// the flags' bits from here up: its material's index in gMaterialData
+#define BVH_TRIANGLE_MATERIAL_SHIFT 8u
+// the mip level a masked triangle's alpha is read at (incoherent rays: a level below the finest, for the cache)
+#define BVH_ALPHA_LEVEL 1.0
 // what the probes' update counts (gGiStatistics[frame], host visible): the probes traced this frame, which the next
 // frame's rays per probe are budgeted by (see Renderer::InternalPlanGi)
 #define GI_STATISTIC_ACTIVE_PROBES 0u
@@ -646,7 +668,9 @@ struct CullView
 #define GI_STATISTIC_CAPPED_STATE 8u // clip, t, endHere, boxExit, voxel xyz, travelled
 // the world position under the pixel dumped (GiData::dumpPixel), which ComputeMain unprojects: xyz, then 1 once written
 #define GI_STATISTIC_DUMP_POINT 12u
-#define GI_STATISTIC_COUNT 16u
+// diagnostic: rays whose BVH traversal hit its step cap (see BVH_MAX_STEP_COUNT)
+#define GI_STATISTIC_CAPPED_BVH_RAYS 16u
+#define GI_STATISTIC_COUNT 20u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means)
@@ -753,6 +777,10 @@ struct GiData
 	// the surface reference's rays per pixel (SPEEDO_GI_REFERENCE_RAYS, 256: fewer where a frame of it runs past Metal's
 	// command queue timeout, Bistro's long walks to the sky)
 	alignas(4) UINT1(referenceRayCount);
+	// how the rays find what they meet (GI_TRACE_*): GI_TRACE_BVH only where the model has a BVH; and whether it has one
+	// of what moves (gBvhMovingNodes[frame], see gfx::bvh::Moving)
+	alignas(4) UINT1(trace);
+	alignas(4) UINT1(bvhMoving);
 };
 
 struct PushConstants

@@ -64,6 +64,9 @@ public:
 		// whether the indirect lighting runs (see FrameInputs::indirectLighting; View > Indirect Lighting; on by default
 		// since 2026-10-22, SPEEDO_GI=0 to start without it)
 		std::atomic<bool> indirectLighting = true;
+		// whether its rays trace the model's triangles (its BVHs, see gfx/bvh.h) or walk the voxels (FrameInputs::traceTriangles;
+		// View > Indirect Lighting Rays; triangles by default, SPEEDO_GI_TRACE=voxels to start with the voxels)
+		std::atomic<bool> traceTriangles = true;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

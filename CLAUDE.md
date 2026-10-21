@@ -1177,6 +1177,56 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   8 probes around a point as they hold them, trilinear, without the resolve's weights). The kernels dispatch rows of
   `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's size isn't capped by a dispatch.
 
+**Tracing the triangles** (the default since 2026-10-21, the user's choice; View > Indirect Lighting Rays switches between
+the triangles and the voxels at run time, `Scene::Settings::traceTriangles`, `FrameInputs::traceTriangles`;
+`SPEEDO_GI_TRACE=voxels` starts with the voxels, and View > Camera > Copy Pose writes it): a model loaded gets a BVH of what the voxels hold of it (`gfx::bvh::Build`, `gfx/bvh.h`: its static triangle lists that aren't
+blended or transmissive, at each instance, in world space), tinybvh's compressed wide BVH (CWBVH; the `ports/tinybvh`
+overlay, not in vcpkg's registry, pinned to a commit of its main branch), built on the executor (`TINYBVH_NO_BUILTIN_POOL`,
+its spawn, barrier and parallel for hooks over the `TaskExecutor`) when the model is imported and kept in its asset cache
+like the rest of it (after the staging buffers; `bvh::Version`, tinybvh's version and a `bvh-vN` tag, is part of the
+cache key: bump it when `Build` changes), a merged set's built at upload from the staged triangles (its files are placed
+when merged), and uploaded with the model whichever rays are chosen, so switching is immediate (`gBvhNodes`, `gBvhTriangles`; a default
+node's worth of zeros while a model has none). The rays traverse
+it in `bvh.slang` (tinybvh's OpenCL kernel, `kernels/traverse_cwbvh.cl`, ported to slang, with its dev branch's stack of a
+uint per entry, the parent node and the hit bits left, dropping groups past 24 rather than writing past the stack): the
+probes' rays (one closest hit answers the radiance and the depth, `GiTraceBvh`), the voxels' shadow rays (any hit,
+`GiVisibility`) and both references. Where a ray hits, the radiance is the voxels' (`GiRadianceAtHit`: the shell voxel half
+a voxel off the surface on the ray's side, in the finest clip whose box around the eye holds the point), so the lighting,
+the bounce and the probes are as before; what changes is what a ray meets: the triangles, with no surface a voxel thick
+and no opening narrowed by its shells. A hit carries its normal toward the ray, its side and its flags (`BvhHit`). A
+backface is a single sided triangle seen from behind (the compressed triangles' transform divides the normal by its
+largest component, whose sign `Build` keeps in their last float4's x, with `BVH_TRIANGLE_FLAG_*` and the material's index
+in y and the first index in z). Alpha masked triangles (`BVH_TRIANGLE_FLAG_ALPHA_MASKED`) are cut out as the main pass's
+alpha test does (`GiAlphaMask`, an `IBvhFilter` the traversal asks of each hit: the base color's alpha or the mask's at the
+hit's texcoords, `BVH_ALPHA_LEVEL`), so light passes through foliage's gaps, which the voxels hold whole (0.2 ms on Sponza,
+1 ms on Bistro's trees). What moves has a BVH of its own (`bvh::Moving`: what the voxels hold of it, placed each frame on
+the cpu in `Model::Animate` as `WorldPosition` places it, morphed, skinned and by the instance, and refit; per frame,
+host visible, `gBvhMovingNodes`, `gBvhMovingTriangles`; placed only while the rays trace triangles, `Animate`'s
+`placeBvh`), traced after the static one (`GiTraceTriangles`), except by the
+static voxels' kept light (`ComputeGiLightStatic`), which nothing moving may shadow for good (`GiVisibility`'s `moving`).
+Its leaves are split to at most 16 triangles before the conversion (`BVH_GPU`'s leaf references count 7 bits, and
+tinybvh clamps a bigger leaf, whose rest is never tested). One BVH for all of it, not one per submesh: BrainStem's dozens of overlapping parts each took a traversal (its frame 14.6
+ms, 11.6 with one). It is tinybvh's binary layout in Aila and Laine's form (`BVH_GPU`, `BvhTraverse2`, a port of
+`kernels/traverse_bvh2.cl`): refitting the binary tree and copying it costs BrainStem's 61000 triangles 1 ms a frame,
+where encoding a CWBVH again took 3 (the refit is of the wide tree's: converting the binary tree again collapses it by the
+new bounds, into another node count). For the static BVH the CWBVH stays: the binary layout took Bistro's frame from 25.2
+to 28.3 ms (Sponza the same). Animated models against the voxels' walk (the `Frame` scope): CesiumMan 7.3 to 7.1 ms, Fox
+the same, BrainStem (all of it moving, so every voxel's light traces the moving BVH each frame) 9.5 to 12.1.
+tinybvh's dev branch stores CWBVH triangles uncompressed (3 float4: edges and a vertex, whose cross product faces the right
+way), so moving the port to it means `BvhTraverse`'s triangle test follows (`bvh.cpp` doesn't compile without
+`CWBVH_COMPRESSED_TRIS`). A hit's normal, side and flags are read once the traversal is done (`BvhFinish`): read at
+every accepted hit, the loop carried them all and Bistro's frame took 2 ms more. Bistro's cost tried and kept: the dev branch's stack of a uint an entry (no change); ordering the
+probes' threads by ray (no help: each probe turns its ray set by its own phase, so neighbors' rays don't share
+directions). Measured (Sponza's inside, Bistro's street, CornellBox-Sphere, as below, interleaved): the
+indirect lighting's share of the frame (the `Frame` scope less a run without it) 9.9 ms walking the voxels, 10.5 tracing;
+7.6 and 11.2 (Bistro's 2.8 M triangles, 193 MB of BVH, built in 0.4 s at import; Sponza's in 40 ms); 4.9 and 3.6.
+`assettest` checks each model's BVHs in both layouts (`Build`, `BuildBinary`) as `bvh.slang` traverses them (compiled to
+c++, `src/tools/bvhkernels.slang`) against testing every triangle: nearest hits, distances, sides, barycentrics and any
+hits (`CheckBvh`; a triangle tied with a coplanar one, e.g. back to back, isn't a disagreement). Each method's
+probes against its own surface reference (Sponza's inside at exposure 3, mean |log2| at 48 pixels): voxels 0.45, the BVH
+0.38; the two references differ by 0.78, the BVH's 48% brighter (the voxels' shells take that much of the light through
+the arcades and onto the curtains). The quick tier passes with it, profile and debug (validation).
+
 Measured on KosmicKrisp by the frame's gpu time (2560x1440, 3 clips, 128 voxels, probes every 8, 128 rays, hysteresis
 0.97; the gpu's state drifts between runs by up to a third, so compare runs interleaved): before relocation
 CornellBox-Sphere 9.3 ms (4.5 without the indirect lighting; 7.5 with 32 rays, where its 3.0 ms are the voxels'
@@ -1364,7 +1414,11 @@ OBJ has no up axis or handedness, so the importer goes by the conventions the re
 faces (the projection flips y, see `Camera`), and `v` flipped so `v = 0` is the first image row. Runs of faces whose
 winding disagrees with the file's normals are flipped (mirrored exports), and missing normals are generated, smoothed
 within a smoothing group, or within 60 degrees for group 0. Some test scenes are z up (e.g. chestnut) and are loaded as
-is.
+is. Faces are triangulated by the importer, not tinyobj (`LoadObj`'s triangulate off): by halving (`ForEachFaceTriangle`:
+the triangle of a face's ends and its middle corner, then each side's), which leaves triangles and quads as a fan makes
+them. A fan of a face of hundreds of corners is slivers that all meet at one corner, which no BVH separates (a tree too
+deep for tinybvh's build and the traversal's stack), and tinyobj's own triangulation dropped most of such faces:
+`geodesic_dual_classII_20_20.obj` came in with 825000 of its 4.58 M triangles (`objimport-v6`).
 
 Rendering is linear: color textures are loaded with srgb formats (`gfx::image::Usage::kColor`, mips filtered in linear
 space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` scales it by the exposure (View > Exposure,
@@ -1618,7 +1672,15 @@ and Bistro's five zips (the scenes and three texture packs, which the scenes ref
 extracted side by side into `mcguire/bistro/`. Known asset problems that only warn: erato's normals disagree with its
 (consistent) winding on a quarter of its area, Bistro and bmw have normals that get replaced, and
 `geodesic_dual_classIII_20_10.obj` has 1419 stray vertices (at radius 1140, the others at 1), which `assettest`'s stray
-vertex check (more than 100 times the median distance from the median point; ground planes reach about 20) finds.
+vertex check (more than 100 times the median distance from the median point; ground planes reach about 20) finds. It and
+`geodesic_dual_classII_20_20.obj` (faces of up to 384 corners that overlap: most of its rays meet a triangle tied with
+another) make trees so deep and overlapping that a ray visits most of them: with a stack of 24 a ray in 40 dropped what didn't
+fit, and a dispatch of such rays ran past Metal's command queue timeout (`VK_ERROR_DEVICE_LOST`, 2 runs in 3 of the
+geodesic set). The stacks are 48 and 128 now (`BVH_STACK_SIZE`, `BVH2_STACK_SIZE`: no measurable cost, Bistro 25.13 ms
+either way), and a ray stops after `BVH_MAX_STEP_COUNT` nodes (4096; the binary layout 16384), with the nearest of what
+it met (`BvhHit::capped`; a capped shadow ray is shadowed), counted (`GI_STATISTIC_CAPPED_BVH_RAYS`, printed): every ray
+of the dual 20_20 is capped, no ray of the other test scenes. `CheckBvh` reports capped rays apart, as a warning.
+tinybvh's own stack is raised for their builds (`TINYBVH_STACK_SIZE` in `bvh.cpp`: "CombineLeafs, tree too deep" at 128).
 
 Archives of several models are sets of variants (geodesic's 86 polyhedra, sphere's tessellations and texture mappings,
 the CornellBox variants, ...), not scenes: each file stands alone at the origin, and the files of a set needn't share a

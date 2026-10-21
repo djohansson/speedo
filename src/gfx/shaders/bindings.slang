@@ -41,6 +41,13 @@ RWStructuredBuffer<uint> gExposureHistogram;
 [[vk::binding(7, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<uint> gIndexBuffer;
 
+// the model's BVH over what doesn't move (see gfx/bvh.h, bvh.slang): CWBVH nodes and triangles, for the indirect
+// lighting's rays (GiData::trace)
+[[vk::binding(8, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<float4> gBvhNodes;
+[[vk::binding(9, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<float4> gBvhTriangles;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 // the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
@@ -175,4 +182,9 @@ RWStructuredBuffer<uint> gGiFlags;
 // what the probes' update counts (GI_STATISTIC_*), host visible, per frame index
 [[vk::binding(32, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiStatistics[SHADER_TYPES_FRAME_COUNT];
+// the BVH of what of the model moves (see gfx::bvh::Moving), per frame index: its nodes and triangles (GiData::bvhMoving)
+[[vk::binding(33, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<float4> gBvhMovingNodes[SHADER_TYPES_FRAME_COUNT];
+[[vk::binding(34, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<float4> gBvhMovingTriangles[SHADER_TYPES_FRAME_COUNT];
 

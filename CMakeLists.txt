@@ -182,6 +182,7 @@ target_link_libraries(
 ###############################################################################
 
 set(GFX_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/gfx/bvh.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/camera.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/clusters.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/drawlist.cpp
@@ -499,14 +500,32 @@ add_custom_command(
 	COMMENT "Compiling the environment kernels to c++"
 	VERBATIM
 )
+# and the indirect lighting's BVH traversal (src/gfx/shaders/bvh.slang), checked against brute force (see
+# src/tools/bvhkernelsbridge.h)
+set(BVH_KERNELS_SOURCE ${SPEEDO_SOURCE_DIR}/tools/bvhkernels.slang)
+set(BVH_KERNELS_CPP ${CMAKE_CURRENT_BINARY_DIR}/bvhkernels.generated.cpp)
+add_custom_command(
+	OUTPUT ${BVH_KERNELS_CPP}
+	COMMAND
+		${SLANGC_EXECUTABLE} ${BVH_KERNELS_SOURCE} -I ${SPEEDO_SOURCE_DIR}/gfx/shaders -DSHADERTYPES_H_GPU_TARGET=true
+		-target cpp -entry BvhTrace -stage compute -entry BvhTrace2 -stage compute -o ${BVH_KERNELS_CPP}
+	DEPENDS
+		${BVH_KERNELS_SOURCE}
+		${SPEEDO_SOURCE_DIR}/gfx/shaders/bvh.slang
+		${SPEEDO_SOURCE_DIR}/gfx/shaders/capi.h
+	COMMENT "Compiling the BVH traversal to c++"
+	VERBATIM
+)
 # generated: its warnings aren't ours
-set_source_files_properties(${ENVIRONMENT_KERNELS_CPP} PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties(${ENVIRONMENT_KERNELS_CPP} ${BVH_KERNELS_CPP} PROPERTIES COMPILE_OPTIONS "-w")
 add_executable(
 	assettest
 	${SPEEDO_SOURCE_DIR}/tools/assettest.cpp
 	${SPEEDO_SOURCE_DIR}/tools/environmentkernels.cpp
 	${SPEEDO_SOURCE_DIR}/tools/environmentkernelsbridge.cpp
 	${ENVIRONMENT_KERNELS_CPP}
+	${SPEEDO_SOURCE_DIR}/tools/bvhkernelsbridge.cpp
+	${BVH_KERNELS_CPP}
 )
 
 target_compile_features(

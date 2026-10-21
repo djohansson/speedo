@@ -6,6 +6,8 @@
 
 #include <gfx/environment.h>
 #include "environmentkernels.h"
+#include "bvhkernelsbridge.h"
+#include <gfx/bvh.h>
 #include <gfx/imageimport.h>
 #include <gfx/gltfimport.h>
 #include <gfx/meshimport.h>
@@ -36,10 +38,12 @@
 #include <filesystem>
 #include <format>
 #include <iterator>
+#include <limits>
 #include <mutex>
 #include <numbers>
 #include <optional>
 #include <print>
+#include <random>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -160,7 +164,194 @@ struct ModelSummary
 	glm::dvec3 max{0.0};
 };
 
-Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, std::optional<ModelSummary>& summaryOut)
+// the indirect lighting's BVHs (gfx::bvh::Build, and BuildBinary in the moving BVH's layout) of the triangle lists (what
+// moves at rest), as bvh.slang traverses them (on the cpu, see bvhkernelsbridge.h), against testing every triangle (in double precision): rays from random points of the
+// bounds, at random triangles and in random directions; their nearest hits, which side of the triangle they met (where
+// both found the same one: coplanar triangles tie), and any hits ending short of the nearest and past it. a ray along a shared edge may slip between its triangles in one and not the other
+// (neither test is watertight), so a few disagreements only warn (two, or a hundredth of the rays). the binary layout's only
+// warn: its Moller and Trumbore test misses slivers the CWBVH's Baldwin and Weber test doesn't (it serves the moving BVH,
+// refit characters, not such meshes). a mesh whose triangles overlap everything (geodesic.zip's duals of faces of hundreds
+// of corners) has a tree deeper than the traversal's stack holds, and a ray drops what doesn't fit (one in 40 with the
+// stack of 24, none with 512); with BVH_STACK_SIZE 48 most of its rays reach the step cap instead, which only warns: a
+// capped ray is the traversal's bound on such meshes (see BVH_MAX_STEP_COUNT), not compared
+void CheckBvh(const gfx::mesh::Mesh& mesh, core::TaskExecutor& executor, Report& report)
+{
+	std::vector<gfx::bvh::Triangle> triangles;
+	for (const auto& submesh : mesh.submeshes)
+	{
+		if (submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.firstIndex + submesh.indexCount > mesh.indices.size() ||
+			submesh.firstInstance + submesh.instanceCount > mesh.instances.size())
+			continue;
+		for (uint32_t instanceIt = submesh.firstInstance; instanceIt < submesh.firstInstance + submesh.instanceCount; instanceIt++)
+			for (uint32_t indexIt = 0; indexIt + 2 < submesh.indexCount; indexIt += 3)
+			{
+				auto& triangle = triangles.emplace_back();
+				for (uint32_t cornerIt = 0; cornerIt < 3; cornerIt++)
+				{
+					auto index = mesh.indices[submesh.firstIndex + indexIt + cornerIt];
+					const auto& position = mesh.vertices[std::min<size_t>(index, mesh.vertices.size() - 1)].position;
+					triangle.corners[cornerIt] = glm::vec3(mesh.instances[instanceIt] * glm::vec4(glm::make_vec3(position), 1.0F));
+				}
+			}
+	}
+	if (triangles.empty())
+		return;
+	auto forEach = [&executor](uint32_t count, core::std_extra::function_ref<void(uint32_t)> body)
+	{ executor.ForEach(count, [&body](size_t index) { body(static_cast<uint32_t>(index)); }); };
+
+	// rays: as many as brute force tests in about 4e8 triangle tests, from random points of the triangles' bounds
+	glm::vec3 low(std::numeric_limits<float>::max());
+	glm::vec3 high(std::numeric_limits<float>::lowest());
+	for (const auto& triangle : triangles)
+		for (const auto& corner : triangle.corners)
+		{
+			low = glm::min(low, corner);
+			high = glm::max(high, corner);
+		}
+	auto rayCount = static_cast<uint32_t>(std::clamp<size_t>(400'000'000 / triangles.size(), 64, 2048));
+	std::mt19937 random(12345);
+	std::uniform_real_distribution<float> unit(0.0F, 1.0F);
+	std::vector<bvhkernels::bridge::Ray> rays(rayCount);
+	for (uint32_t rayIt = 0; rayIt < rayCount; rayIt++)
+	{
+		glm::vec3 origin = low + (high - low) * glm::vec3(unit(random), unit(random), unit(random));
+		glm::vec3 direction;
+		if (rayIt % 2 == 0)
+		{
+			const auto& target = triangles[std::min<size_t>(static_cast<size_t>(unit(random) * static_cast<float>(triangles.size())), triangles.size() - 1)];
+			direction = (target.corners[0] + target.corners[1] + target.corners[2]) / 3.0F - origin;
+		}
+		else
+			direction = glm::vec3(unit(random), unit(random), unit(random)) * 2.0F - 1.0F;
+		direction = glm::length(direction) > 0.0F ? glm::normalize(direction) : glm::vec3(0.0F, 0.0F, 1.0F);
+		rays[rayIt] = {.origin = {origin.x, origin.y, origin.z}, .end = 1e30F, .direction = {direction.x, direction.y, direction.z}};
+	}
+
+	// brute force: the nearest triangle each ray meets (Moller and Trumbore, in doubles), and whether from its front
+	constexpr double kNothing = 1e300; // the build's fast math has no infinity
+	struct Reference
+	{
+		double t = kNothing;
+		bool frontFace = false;
+		uint32_t primitive = ~0U;
+		glm::dvec2 barycentrics{0.0}; // the weights of the second and third corners
+	};
+	std::vector<Reference> references(rayCount);
+	executor.ForEach(
+		rayCount,
+		[&](size_t rayIt)
+		{
+			glm::dvec3 origin = glm::make_vec3(rays[rayIt].origin.data());
+			glm::dvec3 direction = glm::make_vec3(rays[rayIt].direction.data());
+			auto& reference = references[rayIt];
+			for (uint32_t triangleIt = 0; triangleIt < triangles.size(); triangleIt++)
+			{
+				const auto& triangle = triangles[triangleIt];
+				glm::dvec3 v0(triangle.corners[0]);
+				glm::dvec3 e1 = glm::dvec3(triangle.corners[1]) - v0;
+				glm::dvec3 e2 = glm::dvec3(triangle.corners[2]) - v0;
+				glm::dvec3 p = glm::cross(direction, e2);
+				double determinant = glm::dot(e1, p);
+				if (std::abs(determinant) < 1e-300)
+					continue;
+				glm::dvec3 s = origin - v0;
+				double u = glm::dot(s, p) / determinant;
+				glm::dvec3 q = glm::cross(s, e1);
+				double v = glm::dot(direction, q) / determinant;
+				double t = glm::dot(e2, q) / determinant;
+				if (u >= 0.0 && v >= 0.0 && u + v <= 1.0 && t > 0.0 && t < reference.t)
+					reference = {
+						.t = t, .frontFace = glm::dot(glm::cross(e1, e2), direction) < 0.0, .primitive = triangleIt, .barycentrics = {u, v}};
+			}
+		});
+
+	// both layouts: the static BVH's (a CWBVH) and the moving BVH's (binary)
+	for (bool binary : {false, true})
+	{
+		auto bvh = binary ? gfx::bvh::BuildBinary(triangles, executor) : gfx::bvh::Build(triangles, executor);
+		auto nearest = bvhkernels::bridge::Trace(
+			std::span(reinterpret_cast<const std::array<float, 4>*>(bvh.nodes.data()), bvh.nodes.size()),
+			std::span(reinterpret_cast<const std::array<float, 4>*>(bvh.triangles.data()), bvh.triangles.size()),
+			rays, binary, forEach);
+		// and any hits of the rays that hit: ending at half the nearest (none) and at one and a half times it (one)
+		std::vector<bvhkernels::bridge::Ray> anyRays;
+		for (uint32_t rayIt = 0; rayIt < rayCount; rayIt++)
+			if (references[rayIt].t < kNothing)
+				for (double scale : {0.5, 1.5})
+				{
+					auto& ray = anyRays.emplace_back(rays[rayIt]);
+					ray.end = static_cast<float>(references[rayIt].t * scale);
+					ray.anyHit = true;
+				}
+		auto any = bvhkernels::bridge::Trace(
+			std::span(reinterpret_cast<const std::array<float, 4>*>(bvh.nodes.data()), bvh.nodes.size()),
+			std::span(reinterpret_cast<const std::array<float, 4>*>(bvh.triangles.data()), bvh.triangles.size()),
+			anyRays, binary, forEach);
+
+		double size = glm::length(high - low);
+		uint32_t hits = 0;
+		uint32_t misses = 0;
+		uint32_t hitMismatches = 0;
+		uint32_t distanceMismatches = 0;
+		uint32_t faceMismatches = 0;
+		uint32_t barycentricMismatches = 0;
+		uint32_t capped = 0; // stopped at the step cap (BVH_MAX_STEP_COUNT): not compared
+		uint32_t ties = 0; // another triangle at the same distance (coplanar ones, e.g. back to back)
+		for (uint32_t rayIt = 0; rayIt < rayCount; rayIt++)
+		{
+			const auto& reference = references[rayIt];
+			const auto& hit = nearest[rayIt];
+			if (hit.capped)
+			{
+				capped++;
+				continue;
+			}
+			bool referenceHit = reference.t < kNothing;
+			bool bvhHit = hit.primitive != ~0U;
+			if (referenceHit != bvhHit)
+			{
+				hitMismatches++;
+				continue;
+			}
+			if (!referenceHit)
+			{
+				misses++;
+				continue;
+			}
+			hits++;
+			if (std::abs(static_cast<double>(hit.t) - reference.t) > 1e-4 * (size + reference.t))
+				distanceMismatches++;
+			else if (hit.primitive != reference.primitive)
+				ties++;
+			else if (hit.frontFace != reference.frontFace)
+				faceMismatches++;
+			else if (glm::any(glm::greaterThan(glm::abs(glm::dvec2(hit.barycentrics[0], hit.barycentrics[1]) - reference.barycentrics), glm::dvec2(5e-2))))
+				barycentricMismatches++;
+		}
+		uint32_t anyMismatches = 0;
+		for (size_t rayIt = 0; rayIt < anyRays.size(); rayIt++)
+			if (any[rayIt].capped)
+				capped++;
+			else
+				anyMismatches += (any[rayIt].primitive != ~0U) != (rayIt % 2 == 1) ? 1 : 0;
+
+		uint32_t mismatches = hitMismatches + distanceMismatches + faceMismatches + barycentricMismatches + anyMismatches;
+		auto message = std::format(
+			"{}: {} rays ({} hit, {} missed, {} at a triangle tied with another): {} disagree on hitting, {} on the distance, {} "
+			"on the side, {} on where, {} of {} any hits; {} capped",
+			binary ? "moving BVH" : "BVH", rayCount, hits, misses, ties, hitMismatches, distanceMismatches, faceMismatches, barycentricMismatches,
+			anyMismatches, anyRays.size(), capped);
+		if (!binary && mismatches * 100 > rayCount && mismatches > 2)
+			report.Fail("{}", message);
+		else if (mismatches > 0 || capped > 0)
+			report.Warn("{}", message);
+		else
+			report.Info("{}", message);
+	}
+}
+
+Report CheckModel(
+	const std::filesystem::path& path, core::TaskExecutor& executor, ImageChecks& texturesOut, std::optional<ModelSummary>& summaryOut)
 {
 	Report report;
 
@@ -255,6 +446,7 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 		if (outside > 0)
 			report.Fail("{} chunk vertices outside their chunk's bounds", outside);
 	}
+
 
 	if (mesh->instances.size() > 1)
 		report.Info("{} instances (EXT_mesh_gpu_instancing, or of moving nodes)", mesh->instances.size() - 1);
@@ -504,6 +696,8 @@ Report CheckModel(const std::filesystem::path& path, ImageChecks& texturesOut, s
 				"{} vertices are more than {:.0f} times as far from the median point as the median vertex (stray vertices?)",
 				stray, kStrayFactor);
 	}
+
+	CheckBvh(*mesh, executor, report);
 
 	auto size = mesh->bounds.Size();
 	if (auto boundsVolume = static_cast<double>(size.x) * size.y * size.z; boundsVolume > 0.0)
@@ -1298,11 +1492,11 @@ int main(int argc, char* argv[])
 			executor,
 			modelFiles.size(),
 			jobs,
-			[&modelFiles](size_t index)
+			[&modelFiles, &executor](size_t index)
 			{
 				auto start = std::chrono::steady_clock::now();
 				ModelCheck check;
-				check.report = CheckModel(modelFiles[index], check.textures, check.summary);
+				check.report = CheckModel(modelFiles[index], executor, check.textures, check.summary);
 				check.time = std::chrono::steady_clock::now() - start;
 				return check;
 			},
