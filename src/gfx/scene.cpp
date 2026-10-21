@@ -362,7 +362,8 @@ struct Scene::Impl
 	core::ConcurrentAccess<std::vector<DominantLightInfo>> myEnvironmentLightInfo;
 	std::atomic<float> myAutoExposureStops = 0.0F; // written by the draw thread, shown by the ui
 	std::optional<std::chrono::steady_clock::time_point> myAutoExposureLast;
-	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_EXPOSURE_BINS per frame, host visible
+	std::atomic<float> myLookDistance = 0.0F; // how far the camera looks (see FrameInputs::lookDistance), by the draw thread
+	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_HISTOGRAM_BINS per frame, host visible
 	size_t myModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
 
 
@@ -546,10 +547,12 @@ struct Scene::Impl
 	}
 
 
-	// auto exposure: what a frame's histogram (gExposureHistogram, read once the frame's previous use is done) says the
-	// scene's luminance is, the mean log2 luminance of the pixels between the 50th and 95th percentile (the darkest and the
-	// brightest left out), toward which the exposure moves, a little each frame (by elapsed time), so that it is
-	// kAutoExposureKey: the default scene (the procedural sky) keeps the exposure it had before. call on the draw thread.
+	// a frame's histograms (gExposureHistogram, read once the frame's previous use is done). auto exposure: what the
+	// scene's luminance is, the mean log2 luminance of the pixels between the 50th and 95th percentile (the darkest and
+	// the brightest left out), toward which the exposure moves, a little each frame (by elapsed time), so that it is
+	// kAutoExposureKey: the default scene (the procedural sky) keeps the exposure it had before. and how far the camera
+	// looks: the median of the drawn pixels' distances from the eye, toward which myLookDistance moves the same way (the
+	// indirect lighting's finer clips are centered toward it, see gi::MakeClipmap). call on the draw thread.
 	void UpdateAutoExposure(RHI& rhi, uint32_t frameIndex)
 	{
 		constexpr double kAutoExposureKey = 0.3;
@@ -558,14 +561,43 @@ struct Scene::Impl
 		auto now = std::chrono::steady_clock::now();
 		auto elapsed = myAutoExposureLast ? std::chrono::duration<double>(now - *myAutoExposureLast).count() : 0.0;
 		myAutoExposureLast = now;
+		// the first measure is taken as it is
+		auto adapt = [elapsed](std::atomic<float>& value, float target)
+		{
+			auto current = value.load(std::memory_order_relaxed);
+			if (elapsed <= 0.0 || elapsed > 1.0)
+				current = target;
+			else
+				current += (target - current) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));
+			value.store(current, std::memory_order_relaxed);
+		};
 
 		auto& histogram = *rhi.GetPrimaryDevice().GetResource<Buffer>(myExposureHistogramUuid);
 		auto memory = histogram.Map();
-		std::array<uint32_t, SHADER_TYPES_EXPOSURE_BINS> bins{};
+		std::array<uint32_t, SHADER_TYPES_HISTOGRAM_BINS> bins{};
 		std::memcpy(bins.data(), memory.data() + (static_cast<size_t>(frameIndex) * sizeof(bins)), sizeof(bins));
 		histogram.Unmap();
 
-		uint64_t total = std::accumulate(bins.begin(), bins.end(), uint64_t{0});
+		{
+			std::span<const uint32_t> distances(bins.data() + SHADER_TYPES_EXPOSURE_BINS, SHADER_TYPES_DISTANCE_BINS);
+			uint64_t drawn = std::accumulate(distances.begin(), distances.end(), uint64_t{0});
+			if (drawn > 0)
+			{
+				uint64_t counted = 0;
+				size_t medianBin = 0;
+				for (; medianBin + 1 < distances.size(); medianBin++)
+				{
+					counted += distances[medianBin];
+					if (counted * 2 >= drawn)
+						break;
+				}
+				auto log2Distance = SHADER_TYPES_DISTANCE_LOG2_MIN +
+									((static_cast<double>(medianBin) + 0.5) / SHADER_TYPES_DISTANCE_BINS * (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN));
+				adapt(myLookDistance, static_cast<float>(std::exp2(log2Distance)));
+			}
+		}
+
+		uint64_t total = std::accumulate(bins.begin(), bins.begin() + SHADER_TYPES_EXPOSURE_BINS, uint64_t{0});
 		if (total == 0 || !mySettings.autoExposure.load(std::memory_order_relaxed))
 			return;
 		auto low = static_cast<double>(total) * 0.5;
@@ -573,7 +605,7 @@ struct Scene::Impl
 		double counted = 0.0;
 		double sum = 0.0;
 		double weight = 0.0;
-		for (size_t binIt = 0; binIt < bins.size(); binIt++)
+		for (size_t binIt = 0; binIt < SHADER_TYPES_EXPOSURE_BINS; binIt++)
 		{
 			// the part of the bin between the percentiles
 			auto from = std::max(counted, low);
@@ -588,14 +620,7 @@ struct Scene::Impl
 		}
 		if (weight <= 0.0)
 			return;
-		auto target = static_cast<float>(std::log2(kAutoExposureKey) - (sum / weight));
-		// the first measure is taken as it is
-		auto stops = myAutoExposureStops.load(std::memory_order_relaxed);
-		if (elapsed <= 0.0 || elapsed > 1.0)
-			stops = target;
-		else
-			stops += (target - stops) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));
-		myAutoExposureStops.store(stops, std::memory_order_relaxed);
+		adapt(myAutoExposureStops, static_cast<float>(std::log2(kAutoExposureKey) - (sum / weight)));
 	}
 
 
@@ -1630,7 +1655,7 @@ struct Scene::Impl
 			timelineCallbacks.emplace_back(environmentTransfersDone.handle);
 
 			// counted into by ComputeMain, read by UpdateAutoExposure
-			std::vector<uint32_t> histograms(static_cast<size_t>(SHADER_TYPES_FRAME_COUNT) * SHADER_TYPES_EXPOSURE_BINS);
+			std::vector<uint32_t> histograms(static_cast<size_t>(SHADER_TYPES_FRAME_COUNT) * SHADER_TYPES_HISTOGRAM_BINS);
 			core::TaskCreateInfo<void> histogramTransfersDone;
 			auto histogramBuffer = device.CreateResource<Buffer>(
 				BufferCreateDesc{
@@ -1990,6 +2015,7 @@ struct Scene::Impl
 				.shadows = mySettings.shadows.load(std::memory_order_relaxed),
 				.camera = shadowCamera,
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
+				.lookDistance = myLookDistance.load(std::memory_order_relaxed),
 				.exposureHistogram = &*device.GetResource<Buffer>(myExposureHistogramUuid),
 				.graphicsQueue = target.graphicsQueue,
 				.graphicsTimeline = target.graphicsTimeline,

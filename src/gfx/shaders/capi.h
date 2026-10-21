@@ -124,6 +124,13 @@ extern "C"
 #define SHADER_TYPES_EXPOSURE_BINS 64u
 #define SHADER_TYPES_EXPOSURE_LOG2_MIN -12.0
 #define SHADER_TYPES_EXPOSURE_LOG2_MAX 12.0
+// and, after them, the drawn pixels by how far what they show is from the eye (the main depth unprojected), in this many
+// bins of log2 distance: their median is how far the camera looks, toward which the indirect lighting's finer clips are
+// centered (see FrameInputs::lookDistance and gi::MakeClipmap)
+#define SHADER_TYPES_DISTANCE_BINS 64u
+#define SHADER_TYPES_DISTANCE_LOG2_MIN -6.0
+#define SHADER_TYPES_DISTANCE_LOG2_MAX 18.0
+#define SHADER_TYPES_HISTOGRAM_BINS (SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS)
 
 // PushConstants::tonemapper
 #define TONEMAPPER_PBR_NEUTRAL 0u // Khronos PBR Neutral: base colors render as themselves, brighter ones roll off to white
@@ -591,7 +598,7 @@ struct CullView
 // occupancy, normal, emission per voxel), lit each frame into radiance and occupancy (gGiRadiance, a mip chain of levels
 // each half the one below). the probes: a lattice over the volume (GiData::probe*), each tracing GiData::rayCount rays
 // a frame through the radiance (a different subset of a fixed set every frame, see GiData::rayPhase), blended into what it holds
-// (GiData::hysteresis): its irradiance as spherical harmonics (gGiIrradiance) and the distance to what it sees per
+// (GiData::hysteresis): its irradiance along the axes (gGiIrradiance, an ambient cube) and the distance to what it sees per
 // direction (gGiProbeDepth: an octahedral map of the mean and the mean square, for a visibility test), which the shading
 // interpolates, each probe weighed by whether it sees the point (see ComputeGiResolve)
 #define SHADER_TYPES_GI_GROUP_SIZE 64u
@@ -604,11 +611,12 @@ struct CullView
 // camera and the last over the scene (gGi[frame][clip]); a clip's rays and shadow rays that leave it go on through the
 // coarser ones, and the shading takes the finest that holds a point
 #define SHADER_TYPES_GI_CLIP_COUNT 4u
-// the irradiance's spherical harmonics coefficients (bands 0 to 2) per probe and color
-#define SHADER_TYPES_GI_SH_COUNT 9u
-// the voxels' resolved probes (gGiVolumes): per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8
-// and the weight
-#define SHADER_TYPES_GI_VOLUME_COUNT 7u
+// the probes' irradiance over pi along +x, -x, +y, -y, +z and -z (an ambient cube, see GiIrradianceBasis and
+// GiEvaluate) per probe and color
+#define SHADER_TYPES_GI_IRRADIANCE_COUNT 6u
+// the voxels' resolved probes (gGiVolumes): per color its faces +x, -x, +y and -y, then red's and green's +z and -z,
+// then blue's and the weight (see GiSample)
+#define SHADER_TYPES_GI_VOLUME_COUNT 5u
 // a probe's depth map: an octahedral map of this many texels a side (gGiProbeDepth, DDGI's 16), each the mean distance
 // to what the probe sees that way and the mean of its square (half2), in probe spacings, as far as
 // SHADER_TYPES_GI_DEPTH_REACH spacings (the points it is tested for are within its cell: see ComputeGiResolve); a texel
@@ -636,11 +644,13 @@ struct CullView
 #define GI_STATISTIC_CAPPED_ORIGIN 2u
 #define GI_STATISTIC_CAPPED_DIRECTION 5u
 #define GI_STATISTIC_CAPPED_STATE 8u // clip, t, endHere, boxExit, voxel xyz, travelled
+// the world position under the pixel dumped (GiData::dumpPixel), which ComputeMain unprojects: xyz, then 1 once written
+#define GI_STATISTIC_DUMP_POINT 12u
 #define GI_STATISTIC_COUNT 16u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means)
-#define GI_DUMP_FLOAT_COUNT 420u
+#define GI_DUMP_FLOAT_COUNT 460u
 
 struct GiVoxel
 {
@@ -652,9 +662,11 @@ struct GiVoxel
 
 struct GiData
 {
-	// the volume: its corner (world space) and its voxels' size, and its voxels per axis (w unused)
+	// the volume: its corner (world space) and its voxels' size, and its voxels per axis (w unused); the stacked volumes'
+	// (gGiVolumes, the clips' slabs along z) texels per axis (xyz) and this clip's first texel along z (w)
 	alignas(16) FLOAT4(volumeOrigin);
 	alignas(16) UINT4(volumeSize);
+	alignas(16) UINT4(volumeImage);
 	// when it is voxelized (see ComputeGiShift): how far its voxels moved since the frame before, in voxels (a voxel
 	// takes the one that was at its place plus this; the others, which scrolled in, are voxelized). its size, or more,
 	// to voxelize all of it. the probes move with them (by whole probes: the clips move by whole probe cells)
@@ -663,9 +675,10 @@ struct GiData
 	// space); their count per axis, and their spacing in voxels (w)
 	alignas(16) FLOAT4(probeOrigin);
 	alignas(16) UINT4(probeSize);
-	// a clip that follows the eye: the box around the eye (xyz its center, world space) that it always holds well inside
-	// wherever it snapped to, of half its size per axis (fadeExtent.xyz), its weight fading to 0 over the outermost
-	// fadeExtent.w of it (see GiClipWeight). by the eye, which moves smoothly, rather than by the clip's snapped edges:
+	// a clip that follows the eye: the box around its center (xyz, world space: ahead of the eye, toward what the camera
+	// looks at, see gi::MakeClipmap) that it always holds well inside wherever it snapped to, of half its size per axis
+	// (fadeExtent.xyz), its weight fading to 0 over the outermost fadeExtent.w of it (see GiClipWeight). by the center,
+	// which moves smoothly, rather than by the clip's snapped edges:
 	// fading over 8 voxels from them, narrower than a snap (16), points switched from one clip to the next at once as it
 	// snapped, and the clips' lighting differs (a coarser clip's voxels are thicker, its lookups further off the surface:
 	// Sponza's inside by 15 to 25 of 255), so whole regions lit up or darkened. the last clip: a box holding everything
@@ -695,7 +708,7 @@ struct GiData
 	// (see ComputeGiFlags)
 	alignas(4) UINT1(flagFirst);
 	// the probes' buffers hold two copies of every clip's probes (halves), the frame's and the last frame's, which it
-	// reads (shifted by scroll) and blends its rays into: the clip's first probe in gGiIrradiance (SHADER_TYPES_GI_SH_COUNT
+	// reads (shifted by scroll) and blends its rays into: the clip's first probe in gGiIrradiance (SHADER_TYPES_GI_IRRADIANCE_COUNT
 	// float4 each) in this frame's half and in the last frame's, its first texel in gGiProbeDepth in each, and its first
 	// ray in gGiRays (rayCount per probe)
 	alignas(4) UINT1(probeFirst);
@@ -730,7 +743,13 @@ struct GiData
 	// the probe of this clip dumped for debugging (its index among the clip's, or ~0: see GI_DUMP_FLOAT_COUNT), and the
 	// point it was asked for (xyz)
 	alignas(4) UINT1(dumpProbe);
+	// how near an emitter a probe's ray takes its emission as from that far away, in probe spacings (see GiMarch's
+	// emissionReach; 0 is no clamp)
+	alignas(4) FLOAT1(emissionReach);
 	alignas(16) FLOAT4(dumpPoint);
+	// the pixel the point is under (SPEEDO_GI_DUMP=pixel:<x>,<y>): xy, and w 1 if so: ComputeMain writes the world
+	// position under it to GI_STATISTIC_DUMP_POINT, which the next frame dumps at
+	alignas(16) FLOAT4(dumpPixel);
 	// the surface reference's rays per pixel (SPEEDO_GI_REFERENCE_RAYS, 256: fewer where a frame of it runs past Metal's
 	// command queue timeout, Bistro's long walks to the sky)
 	alignas(4) UINT1(referenceRayCount);

@@ -204,7 +204,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiStaticVoxelBuffer, "GI Static Voxels", sizeof(GiVoxel)},
 			 std::tuple{&myGiRadianceBuffer, "GI Radiance", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiRayBuffer, "GI Rays", 2 * sizeof(uint32_t)},
-			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float)},
+			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
 			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
@@ -607,9 +607,31 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 			fn(clipIt, myGiClipmap.clips[clipIt]);
 	};
+	// the buffers made for a clipmap hold whatever their memory held before: zero before anything reads them (the
+	// kernels guard against what isn't finite, but a finite value that is wrong is light; made over Bistro's, the
+	// volumes of the square were cyan and red for a while)
+	myGiClearPass = myGraph.AddPass(
+		"GI Clear",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags})
+				builder.Use(buffer, ResourceUse::TransferDestination());
+			// the volumes too: the resolve writes only the blocks near a surface, and a lookup's filter reaches into the
+			// ones beside them
+			for (auto volume : myGiVolumes)
+				builder.Use(volume, ResourceUse::TransferDestination());
+		},
+		[this](FrameGraph::PassContext& context)
+		{
+			CommandEncoder encoder(context.cmd);
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags})
+				encoder.FillBuffer(context.graph.GetBuffer(buffer), 0, 0, 0);
+			for (auto volume : myGiVolumes)
+				context.graph.GetImage(volume).Clear(context.cmd, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
+		});
 	// a clip voxelized starts from the static voxels kept, shifted by how far it moved (none of them when all of it is
 	// voxelized again), so that only what scrolled in is voxelized
-	myGiClearPass = myGraph.AddPass(
+	myGiShiftPass = myGraph.AddPass(
 		"GI Shift",
 		[this](FrameGraph::PassBuilder& builder)
 		{
@@ -810,7 +832,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassBuilder& builder) { builder.Use(myExposureHistogram, ResourceUse::TransferDestination()); },
 		[this](FrameGraph::PassContext& context)
 		{
-			constexpr auto kHistogramSize = SHADER_TYPES_EXPOSURE_BINS * sizeof(uint32_t);
+			constexpr auto kHistogramSize = SHADER_TYPES_HISTOGRAM_BINS * sizeof(uint32_t);
 			CommandEncoder(context.cmd).FillBuffer(
 				context.graph.GetBuffer(myExposureHistogram), myFrame.inputs->frameIndex * kHistogramSize, kHistogramSize, 0);
 		});
@@ -821,6 +843,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this, &useOitLists](FrameGraph::PassBuilder& builder)
 		{
 			builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // the distances' histogram
+			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); // the dump's pixel
 			useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
 			builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
@@ -926,6 +950,14 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// around the camera)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
 		myGiClipCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(clipCount, nullptr, 10)), 1, SHADER_TYPES_GI_CLIP_COUNT);
+	// how far ahead of the eye the finer clips are centered, as a share of their half size (SPEEDO_GI_LOOK_AHEAD, 0.5 by
+	// default; 0 centers them on the eye), toward what the camera looks at (see gi::MakeClipmap)
+	if (const char* lookAhead = std::getenv("SPEEDO_GI_LOOK_AHEAD"); lookAhead != nullptr && *lookAhead != '\0')
+		myGiLookAhead = std::clamp(static_cast<float>(std::strtod(lookAhead, nullptr)), 0.0F, 1.0F);
+	// how near an emitter a probe's ray takes its emission as from that far away, in probe spacings
+	// (SPEEDO_GI_EMISSION_REACH, 0.5 by default, 0 for none: see GiMarch)
+	if (const char* reach = std::getenv("SPEEDO_GI_EMISSION_REACH"); reach != nullptr && *reach != '\0')
+		myGiEmissionReach = std::clamp(static_cast<float>(std::strtod(reach, nullptr)), 0.0F, 8.0F);
 	// every clip voxelized again every frame (SPEEDO_GI_REVOXELIZE=1): what the clips' scrolling must come to, for
 	// comparing with it (slow)
 	const char* revoxelize = std::getenv("SPEEDO_GI_REVOXELIZE");
@@ -984,12 +1016,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// a jump of a quarter every 64 frames in Sponza's arcade)
 	const char* adapt = std::getenv("SPEEDO_GI_ADAPT");
 	myGiAdapt = adapt != nullptr && std::string_view(adapt) == "1";
-	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
+	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>, or pixel:<x>,<y> for the point under a pixel: per
+	// clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
 	if (const char* dump = std::getenv("SPEEDO_GI_DUMP"); dump != nullptr && *dump != '\0')
 	{
-		const char* it = dump;
+		std::string_view text(dump);
+		bool pixel = text.starts_with("pixel:");
+		const char* it = dump + (pixel ? 6 : 0);
 		int axisIt = 0;
-		for (; axisIt < 3; axisIt++)
+		for (; axisIt < (pixel ? 2 : 3); axisIt++)
 		{
 			char* end = nullptr;
 			myGiDumpPoint[axisIt] = std::strtof(it, &end);
@@ -997,7 +1032,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				break;
 			it = *end == ',' ? end + 1 : end;
 		}
-		myGiDump = axisIt == 3;
+		myGiDump = axisIt == (pixel ? 2 : 3);
+		if (myGiDump && pixel)
+		{
+			myGiDumpPixel = glm::ivec2(glm::round(glm::vec2(myGiDumpPoint)));
+			myGiDumpPoint = glm::vec3(0.0F);
+		}
 	}
 	// occlusion culling of the main pass (SPEEDO_OCCLUSION_CULLING=0 turns it off), and of the shadow views
 	// (SPEEDO_SHADOW_OCCLUSION_CULLING=1 turns it on: off by default, since a shadow view sees few of the chunks hidden
@@ -1043,14 +1083,14 @@ Renderer::~Renderer()
 				myCullStatisticFrameCount);
 		}
 	}
-	// and the indirect lighting's clips as they were last (origin, voxels, voxel size, the box around the eye), its probes
+	// and the indirect lighting's clips as they were last (origin, voxels, voxel size, the box around its center), its probes
 	// traced and rays per probe, on average per frame
 	if (myCollectTimings && myGiStatisticFrameCount > 0)
 		for (const auto& clip : myGiClipmap.clips)
 		{
 			const auto& data = clip.data;
 			std::println(
-				"indirect lighting, clip {}: origin ({:.2f}, {:.2f}, {:.2f}), {}x{}x{} voxels of {:.3f}, probes {}x{}x{} every {}, the box around the eye ({:.2f}, {:.2f}, {:.2f}) +- ({:.2f}, {:.2f}, {:.2f}) fading over {:.2f}",
+				"indirect lighting, clip {}: origin ({:.2f}, {:.2f}, {:.2f}), {}x{}x{} voxels of {:.3f}, probes {}x{}x{} every {}, its box around ({:.2f}, {:.2f}, {:.2f}) +- ({:.2f}, {:.2f}, {:.2f}) fading over {:.2f}",
 				data.clip,
 				static_cast<double>(data.volumeOrigin[0]),
 				static_cast<double>(data.volumeOrigin[1]),
@@ -1097,11 +1137,11 @@ Renderer::~Renderer()
 				static_cast<double>(values[16 + 256 + 36]), static_cast<double>(values[16 + 256 + 37]), static_cast<double>(values[16 + 256 + 38]),
 				static_cast<double>(values[16 + 256 + 39]), static_cast<double>(values[16 + 256 + 40]), static_cast<double>(values[16 + 256 + 41]), static_cast<double>(values[16 + 256 + 42]));
 			std::println(
-				"  the volumes at its voxel (last frame's resolve): red coefficients 0 to 3 ({:.5f}, {:.5f}, {:.5f}, {:.5f}), coefficient 8 ({:.5f}, {:.5f}, {:.5f}) and the weight {:.5f}",
+				"  the volumes at its voxel (last frame's resolve): red along +x, -x, +y, -y ({:.5f}, {:.5f}, {:.5f}, {:.5f}), blue along +z, -z ({:.5f}, {:.5f}, {:.5f}) and the weight {:.5f}",
 				static_cast<double>(values[16 + 256 + 43]), static_cast<double>(values[16 + 256 + 44]), static_cast<double>(values[16 + 256 + 45]), static_cast<double>(values[16 + 256 + 46]),
 				static_cast<double>(values[16 + 256 + 47]), static_cast<double>(values[16 + 256 + 48]), static_cast<double>(values[16 + 256 + 49]), static_cast<double>(values[16 + 256 + 50]));
 			{
-				std::string line = "  from the point along -z, per voxel (occupied, red coefficient 0, weight):";
+				std::string line = "  from the point along -z, per voxel (occupied, red along +x, weight):";
 				for (int stepIt = 0; stepIt < 16; stepIt++)
 					line += std::format(" {}:{}/{:.3f}/{:.2f}", stepIt, values[16 + 256 + 51 + stepIt * 3] != 0.0F ? "x" : ".", static_cast<double>(values[16 + 256 + 52 + stepIt * 3]), static_cast<double>(values[16 + 256 + 53 + stepIt * 3]));
 				std::println("{}", line);
@@ -1458,6 +1498,10 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			constexpr size_t kDumpSize = SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT * sizeof(float);
 			buffer.Invalidate(sizeof(statistics), kDumpSize);
 			std::memcpy(myGiDumpValues.data(), memory.data() + sizeof(statistics), kDumpSize);
+			// the point under the pixel, as ComputeMain found it (see GiData::dumpPixel)
+			if (myGiDumpPixel && statistics[GI_STATISTIC_DUMP_POINT + 3] != 0)
+				for (int axisIt = 0; axisIt < 3; axisIt++)
+					myGiDumpPoint[axisIt] = std::bit_cast<float>(statistics[GI_STATISTIC_DUMP_POINT + static_cast<uint32_t>(axisIt)]);
 		}
 		if (myCollectTimings && myGiActiveProbeCount > 0)
 		{
@@ -2140,7 +2184,7 @@ void Renderer::InternalReplaceGiVolumes(Pipeline& pipeline, const glm::uvec3& ex
 		desc.mipLevels = {{.extent = {.width = extent.x, .height = extent.y}}};
 		desc.format = Format::kR16G16B16A16Sfloat;
 		desc.tiling = ImageTiling::kOptimal;
-		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
+		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled | ImageUsage::kTransferDestination; // cleared by GI Clear
 		desc.memoryFlags = MemoryProperty::kDeviceLocal;
 		desc.imageAspectFlags = ImageAspect::kColor;
 		desc.layout = ImageLayout::kUndefined;
@@ -2184,7 +2228,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		buffer.Flush(0, bytes.size());
 		buffer.Unmap();
 	};
-	for (auto pass : {myGiClearPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiPass})
+	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
 	if (!enabled)
 	{
@@ -2201,10 +2245,16 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 
 	// the clipmap, made again (and voxelized) when the model, its bounds or its draws change; a clip that moves with the
 	// camera is voxelized again
-	glm::vec3 eye = glm::inverse(frame.camera.view)[3];
+	glm::mat4 cameraToWorld = glm::inverse(frame.camera.view);
+	glm::vec3 eye = cameraToWorld[3];
+	// toward what the camera looks at (the view's -z, as far as the last frame's pixels were, see FrameInputs::lookDistance)
+	glm::vec3 look = -glm::normalize(glm::vec3(cameraToWorld[2])) * std::max(frame.lookDistance, 0.0F);
 	if (!myGiEyePath.empty())
+	{
 		eye = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
-	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, myGiResolution, myGiClipCount, myGiProbeSpacing);
+		look = glm::vec3(0.0F);
+	}
+	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, look, myGiLookAhead, myGiResolution, myGiClipCount, myGiProbeSpacing);
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
 				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize;
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
@@ -2239,7 +2289,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			InternalReplaceBuffer(myGiVoxelBuffer, pipeline, "GI Voxels", "gGiVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
 			InternalReplaceBuffer(myGiStaticVoxelBuffer, pipeline, "GI Static Voxels", "gGiStaticVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
 			const auto& size = clipmap.clips.front().data.volumeSize;
-			InternalReplaceGiVolumes(pipeline, glm::uvec3(size[0], size[1], size[2] * static_cast<uint32_t>(clipmap.clips.size())));
+			InternalReplaceGiVolumes(
+				pipeline, glm::uvec3(clipmap.clips.back().data.volumeImage[0], clipmap.clips.back().data.volumeImage[1], clipmap.clips.back().data.volumeImage[2]));
 		}
 		if (total.radianceCount != previous.radianceCount)
 			InternalReplaceBuffer(myGiRadianceBuffer, pipeline, "GI Radiance", "gGiRadiance", total.radianceCount * 2 * sizeof(uint32_t));
@@ -2250,7 +2301,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		{
 			InternalReplaceBuffer(myGiRayBuffer, pipeline, "GI Rays", "gGiRays", static_cast<uint64_t>(total.probeCount) * myGiRayCount * 2 * sizeof(uint32_t));
 			InternalReplaceBuffer(
-				myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", static_cast<uint64_t>(total.probeCount) * 2 * SHADER_TYPES_GI_SH_COUNT * 4 * sizeof(float));
+				myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", static_cast<uint64_t>(total.probeCount) * 2 * SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float));
 			InternalReplaceBuffer(
 				myGiProbeDepthBuffer,
 				pipeline,
@@ -2260,6 +2311,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		}
 		// nothing of the last frame's probes is kept
 		myGiReset = true;
+		myGiClearBuffers = true;
 	}
 	ENSUREF(
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
@@ -2269,7 +2321,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 
 	// what the voxelizer reads, when it runs: the main list's triangles of what doesn't move (opaque or alpha masked), a
 	// job per draw, then the triangle count
-	myGraph.SetEnabled(myGiClearPass, voxelize);
+	myGraph.SetEnabled(myGiClearPass, std::exchange(myGiClearBuffers, false));
+	myGraph.SetEnabled(myGiShiftPass, voxelize);
 	myGraph.SetEnabled(myGiVoxelizePass, voxelize);
 	myGraph.SetEnabled(myGiKeepPass, voxelize);
 	myGraph.SetEnabled(myGiLightStaticPass, voxelize || myGiLightsChanged);
@@ -2373,6 +2426,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.adapt = myGiAdapt ? 1 : 0;
 		clip.moving = myGiMovingJobCount > 0 ? 1 : 0;
 		clip.dumpProbe = ~0U;
+		clip.emissionReach = myGiEmissionReach;
 		clip.referenceRayCount = myGiReferenceRayCount;
 		if (myGiDump)
 		{
@@ -2385,6 +2439,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			clip.dumpProbe = (static_cast<uint32_t>(nearest.z) * clip.probeSize[1] + static_cast<uint32_t>(nearest.y)) * clip.probeSize[0] + static_cast<uint32_t>(nearest.x);
 			for (int axisIt = 0; axisIt < 3; axisIt++)
 				clip.dumpPoint[axisIt] = myGiDumpPoint[axisIt];
+			if (myGiDumpPixel)
+			{
+				clip.dumpPixel[0] = static_cast<float>(myGiDumpPixel->x);
+				clip.dumpPixel[1] = static_cast<float>(myGiDumpPixel->y);
+				clip.dumpPixel[3] = 1.0F;
+			}
 		}
 	}
 	myGiReset = false;

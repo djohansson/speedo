@@ -69,8 +69,12 @@ struct FrameInputs
 	bool shadows = true;
 	shadows::ShadowCamera camera;
 	Bounds3f sceneBounds;
-	// the exposure histograms (SHADER_TYPES_EXPOSURE_BINS per frame index), host visible: ComputeMain counts into the
-	// frame's, which the host reads once the frame is done
+	// how far what the camera looks at is (the median distance of the last frame's drawn pixels from the eye, smoothed):
+	// the indirect lighting's finer clips are centered that far ahead of the eye, at most a share of their size (see
+	// gi::MakeClipmap)
+	float lookDistance = 0.0F;
+	// the frame's histograms (SHADER_TYPES_HISTOGRAM_BINS per frame index: the exposure's bins, then the distances'),
+	// host visible: ComputeMain counts into the frame's, which the host reads once the frame is done
 	Buffer* exposureHistogram = nullptr;
 	// the queue the frame is recorded for (its pool's secondary command buffers record the views), and its timeline
 	Queue* graphicsQueue = nullptr;
@@ -207,7 +211,8 @@ private:
 	// a persistent buffer of count elements of size bound as binding (all of the frame indices' slots if perFrame), the
 	// one it replaces kept until no frame in flight can use it
 	void InternalReplaceBuffer(
-		Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size, rhi::BufferUsage usage = rhi::BufferUsage::kStorage);
+		Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size,
+		rhi::BufferUsage usage = rhi::BufferUsage::kStorage | rhi::BufferUsage::kTransferDestination); // the GI Clear pass fills them
 
 	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false);
 
@@ -352,6 +357,8 @@ private:
 	// is the frame's (see GiData::probeFirst), and whether the frame keeps nothing of the last (GiData::reset)
 	uint32_t myGiResolution = 128;
 	uint32_t myGiClipCount = 3;
+	float myGiLookAhead = 0.5F; // SPEEDO_GI_LOOK_AHEAD: how far ahead of the eye the finer clips are centered, see gi::MakeClipmap
+	float myGiEmissionReach = 0.5F; // SPEEDO_GI_EMISSION_REACH: see GiData::emissionReach
 	uint32_t myGiRayCount = 128; // at most: SPEEDO_GI_RAY_COUNT
 	uint32_t myGiRayBudget = 500000; // rays a frame over all probes (SPEEDO_GI_RAY_BUDGET): fewer per probe where more are traced
 	uint32_t myGiReferenceRayCount = 256; // SPEEDO_GI_REFERENCE_RAYS, see GiData::referenceRayCount
@@ -370,9 +377,13 @@ private:
 	bool myGiAdapt = false;
 	bool myGiDump = false; // SPEEDO_GI_DUMP: a probe per clip dumped at exit
 	glm::vec3 myGiDumpPoint{0.0F};
+	std::optional<glm::ivec2> myGiDumpPixel; // SPEEDO_GI_DUMP=pixel:<x>,<y>: the point is what is under the pixel
 	std::array<float, SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT> myGiDumpValues{};
 	uint32_t myGiProbeHalf = 0;
 	bool myGiReset = true;
+	// whether the indirect lighting's buffers are new this frame, and so cleared before anything reads them (see the GI
+	// Clear pass)
+	bool myGiClearBuffers = true;
 	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
 	uint32_t myGiFramesSinceReset = 0;
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
@@ -433,6 +444,7 @@ private:
 	FrameGraph::BufferId myGiRays;
 	FrameGraph::BufferId myGiIrradiance;
 	FrameGraph::PassId myGiClearPass;
+	FrameGraph::PassId myGiShiftPass;
 	FrameGraph::PassId myGiVoxelizePass;
 	FrameGraph::PassId myGiPass;
 	// the buffers replaced by bigger ones, with the Record that replaced them

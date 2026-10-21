@@ -58,7 +58,8 @@ Layout MakeLayout(
 	return layout;
 }
 
-Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing)
+Clipmap MakeClipmap(
+	const Bounds3f& bounds, const glm::vec3& eye, const glm::vec3& look, float lookAhead, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing)
 {
 	ENSURE(resolution > 0 && clipCount > 0 && clipCount <= SHADER_TYPES_GI_CLIP_COUNT);
 
@@ -74,38 +75,54 @@ Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resol
 	glm::uvec3 size = glm::max(
 		glm::uvec3(glm::ceil((extent + glm::vec3(2.0F * voxelSize * static_cast<float>(margin))) / voxelSize)), glm::uvec3(1));
 	glm::vec3 last = glm::vec3(size) * voxelSize;
+	// the finer clips are cubes of about the last clip's voxel count (a multiple of 4 voxels a side, the flags' blocks),
+	// no bigger than the last clip along an axis: as slabs of the scene's shape (Bistro's 122x53x128 voxels, 14.7 m tall
+	// at 27.7 cm; Sponza's 4.9 m), the ground fell out of them from a high viewpoint, and the square below the user was
+	// lit by the last clip's probes, 8.9 m apart, of which the one inside the building by its entrance passed
+	uint32_t cube = static_cast<uint32_t>(std::cbrt(static_cast<double>(size.x) * static_cast<double>(size.y) * static_cast<double>(size.z))) / 4 * 4;
 
-	// the finer ones around the eye, on a grid of kSnapProbes of their probes from the last's corner (the probes stay where
-	// they are in the world, see MakeLayout; what scrolls in is voxelized), inside the last. clamped to whole snaps:
+	// the finer ones around their centers, on a grid of kSnapProbes of their probes from the last's corner (the probes stay
+	// where they are in the world, see MakeLayout; what scrolls in is voxelized), inside the last. clamped to whole snaps:
 	// clamped to the last's far side, a clip moved by voxels that weren't whole probe cells, so its probes' history was of
-	// other places
+	// other places. a clip's center is ahead of the eye, toward what the camera looks at, by lookAhead of its half size
+	// at most: centered on the eye, a clip gave the half of it behind the eye to what is never seen, and from a roof
+	// looking at Bistro's square 27 m below, the square and the building's entrance were the last clip's (8.9 m probes),
+	// which lit the square yellow by a probe inside the building; the eye stays in the finer clips (at half the
+	// half size, two thirds of the way to the fade, see fadeExtent), so what is near it keeps the finest lighting.
+	// the centers lie along one ray, each clip's at most half its half size from the eye, which keeps every clip inside
+	// the next (the next's center is at most twice as far, its half size twice as much)
 	Clipmap clipmap;
 	Layout first;
 	for (uint32_t clipIt = 0; clipIt < clipCount; clipIt++)
 	{
 		float clipVoxelSize = voxelSize / static_cast<float>(1U << (clipCount - 1 - clipIt));
+		glm::uvec3 clipSize = clipIt + 1 < clipCount ? glm::min(glm::uvec3(cube), size * (1U << (clipCount - 1 - clipIt))) : size;
 		glm::vec3 origin = min;
+		glm::vec3 center = eye;
 		if (clipIt + 1 < clipCount)
 		{
-			glm::vec3 clipExtent = glm::vec3(size) * clipVoxelSize;
+			glm::vec3 clipExtent = glm::vec3(clipSize) * clipVoxelSize;
+			float reach = std::min({clipExtent.x, clipExtent.y, clipExtent.z}) * 0.5F * std::clamp(lookAhead, 0.0F, 1.0F);
+			float distance = glm::length(look);
+			center = eye + (distance > reach ? look * (reach / distance) : look);
 			float snap = clipVoxelSize * static_cast<float>(probeSpacing * kSnapProbes);
 			glm::vec3 snaps = glm::floor((last - clipExtent) / snap + glm::vec3(1e-4F));
-			origin = min + glm::clamp(glm::round((eye - clipExtent * 0.5F - min) / snap), glm::vec3(0.0F), snaps) * snap;
+			origin = min + glm::clamp(glm::round((center - clipExtent * 0.5F - min) / snap), glm::vec3(0.0F), snaps) * snap;
 		}
-		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, first, min);
-		// the box around the eye it holds wherever it snapped to: half its size, less half a snap (how far from the eye
-		// its center snaps); the shading's weight fades a point out over the probe spacing inside the clip's edges besides
+		auto layout = MakeLayout(origin, clipVoxelSize, clipSize, probeSpacing, first, min);
+		// the box around its center it holds wherever it snapped to: half its size, less half a snap (how far from the
+		// center it snaps); the shading's weight fades a point out over the probe spacing inside the clip's edges besides
 		// (GiClipWeight), which the box needn't (a spacing and a voxel more of margin left Sponza's thin clips a box a
 		// third of their height).
 		// faded over a third of its half size: a snap then changes a point's weight by little, and smoothly as the eye moves
 		auto& data = layout.data;
-		data.fadeCenter[0] = eye.x;
-		data.fadeCenter[1] = eye.y;
-		data.fadeCenter[2] = eye.z;
+		data.fadeCenter[0] = center.x;
+		data.fadeCenter[1] = center.y;
+		data.fadeCenter[2] = center.z;
 		data.fadeCenter[3] = 0.0F;
 		if (clipIt + 1 < clipCount)
 		{
-			glm::vec3 half = glm::vec3(size) * clipVoxelSize * 0.5F;
+			glm::vec3 half = glm::vec3(clipSize) * clipVoxelSize * 0.5F;
 			float snap = clipVoxelSize * static_cast<float>(probeSpacing * kSnapProbes);
 			glm::vec3 extent = half - glm::vec3(snap * 0.5F);
 			data.fadeExtent[0] = extent.x;
@@ -126,6 +143,18 @@ Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resol
 		first.flagCount += layout.flagCount;
 		clipmap.clips.push_back(layout);
 	}
+	// the volumes the resolve writes hold the clips' slabs along z (see GiData::volumeImage)
+	glm::uvec3 image(0);
+	for (auto& clip : clipmap.clips)
+	{
+		image.x = std::max(image.x, clip.data.volumeSize[0]);
+		image.y = std::max(image.y, clip.data.volumeSize[1]);
+		clip.data.volumeImage[3] = image.z;
+		image.z += clip.data.volumeSize[2];
+	}
+	for (auto& clip : clipmap.clips)
+		for (int axisIt = 0; axisIt < 3; axisIt++)
+			clip.data.volumeImage[axisIt] = image[axisIt];
 	clipmap.total = first;
 	return clipmap;
 }

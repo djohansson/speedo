@@ -449,7 +449,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling; GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -849,7 +849,7 @@ were gone; `SPEEDO_GI=0` to start without it, and per frame:
 `FrameInputs::indirectLighting`, off drops the volumes, on voxelizes again) gives the diffuse ambient term from world
 space irradiance probes (`gfx/indirectlight.h`, `gi.slang`; `GiData` in `capi.h`), as DDGI (Majercik et al. 2019, RTXGI)
 has them, over a voxel clipmap the probes' rays march: each probe traces a set of rays a frame through the voxels'
-radiance and blends what they see into what it holds (hysteresis), its irradiance as spherical harmonics and a depth map
+radiance and blends what they see into what it holds (hysteresis), its irradiance along the axes (an ambient cube) and a depth map
 for a visibility test; the shading interpolates the 8 probes around a point, each by whether it sees the point. Lighting
 lags by the blend (about a second to settle, nothing else is temporal: no reprojection, so no ghosting), and a still
 scene flickers by the frame's rays' share of the blend (measured below). It replaced world space radiance cascades
@@ -861,11 +861,28 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
 29.9 ms a frame on the day it was dropped, 9.3 with the probes). What it does, per frame:
 
 - **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
-  most 4) of the same voxel counts, finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by
-  default, voxels along its longest axis, a margin of one and a half probe spacings, so that a layer of probes stands
-  outside its outermost surfaces), each before it of voxels half the size of the next, centered on the camera on a grid
-  of 4 of its probes and kept inside the last; each has its own voxels, radiance, probes and flags, at its offsets in
-  the shared buffers (`GiData::voxelFirst`, `radianceFirst`, `probeFirst`, `lightCellFirst`, `flagFirst`;
+  most 4), finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
+  longest axis, a margin of one and a half probe spacings, so that a layer of probes stands outside its outermost
+  surfaces); each before it is a cube of about its voxel count (a multiple of 4 voxels a side, the flags' blocks; no
+  bigger than the last along an axis: Bistro's and Sponza's 92) of voxels half the size of the next, centered ahead of
+  the eye toward what the camera looks at (below) on a grid of its probes and kept inside the last. As slabs of the last clip's shape (Bistro's 122x53x128
+  voxels made the finest 14.7 m tall at 27.7 cm, Sponza's 4.9 m), the ground fell out of them from a high viewpoint
+  (the user's over Bistro's square, 13 m up), and the square was lit by the last clip's probes, 8.9 m apart, of a cell
+  half under the ground and one probe inside the building by its entrance. A clip's center is ahead of the eye, toward
+  what the camera looks at, by `SPEEDO_GI_LOOK_AHEAD` of its half size at most (0.5 by default; 0 centers it on the
+  eye): how far the camera looks is the median distance of the frame's drawn pixels from the eye (`ComputeMain`
+  unprojects the main depth into 64 bins of log2 distance after the exposure histogram's, `SHADER_TYPES_DISTANCE_BINS`,
+  read back with it and smoothed as the exposure is: `FrameInputs::lookDistance`), and the centers lie along the view's
+  forward, so each clip stays inside the next, and the eye stays in the finer clips, two thirds of the way to their
+  fade. Centered on the eye, half of each clip was behind it, and from the roof over Bistro's square (27 m from the
+  hotel's entrance) the square was the last clip's; with the look ahead the ground is clip 1's (4.4 m probes), the
+  entrance's facade still mostly the last's at 0.5 (its weight in clip 1 is 0.2 there). The buffers a new clipmap gets
+  are cleared first (the GI Clear pass: every GI buffer and the volumes filled with 0 when they were replaced,
+  `myGiClearBuffers`): the resolve writes only the blocks near a surface, and a lookup's filter reaches into the ones
+  beside them, which held whatever their memory had (cyan and red over Bistro's square, in one run of two). Each has its own voxels, radiance, probes
+  and flags, at its offsets in the shared buffers (`GiData::voxelFirst`, `radianceFirst`, `probeFirst`,
+  `lightCellFirst`, `flagFirst`; the resolve's volumes stack the clips' slabs along z, `GiData::volumeImage`: the
+  images' texels per axis and the clip's first along z;
   `gGi[frame][clip]`), and the kernels take theirs from `PushConstants::giClip`. The flags' offset is in words
   (`SHADER_TYPES_GI_FLAG_WORD_COUNT` a block): in blocks, each clip's second half of flags was the next clip's first,
   whose kernels rewrote them (its bits, and other blocks' stamps), so in the finer clips' far halves blocks near a
@@ -913,7 +930,7 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the
   clipmap's, and keep what they hold across a snap (the update reads each probe's history from where it was, by the
-  scroll); the flags' blocks are rounded up (`GiLevelVoxels`, `gi::LevelVoxels`); and each clip has a box around the eye that it always holds well
+  scroll); the flags' blocks are rounded up (`GiLevelVoxels`, `gi::LevelVoxels`); and each clip has a box around its center that it always holds well
   inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap; with a snap of 4 probes and a spacing and
   a voxel more of margin, Sponza's thin clips, 68 voxels tall, kept a box a third of their height, and the finest clips
   lit nothing on its ground floor: everything there was the last clip's, 23 cm voxels and 1.9 m probes), which
@@ -971,10 +988,18 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   a time, never more than 0.45 of a spacing from the lattice point; a probe still inside after that (Sponza's outer
   walls are 0.6 m thick and empty between their shells) is marked (coefficient 5's w, DDGI's classification) and the
   resolve skips it. It costs: a wall on a lattice plane makes a plane of probes trace that returned dead before
-  (CornellBox +3 ms, Sponza +1). A probe that hugs a surface sees a bright emitter in it at a steep angle, and its
-  harmonics ring: CornellBox's lamp has a yellow halo and a dark ring on the ceiling around it that the reference's
-  mild glow hasn't (TODO.md: an ambient cube or an octahedral map of irradiance in place of the harmonics; a Hanning
-  window on them gained 5% on CornellBox and lost 8% on Sponza). Each frame (the GI pass, GI
+  (CornellBox +3 ms, Sponza +1). A probe that hugs a surface sees a bright emitter in it at a steep angle: as
+  spherical harmonics (bands 0 to 2, until 2026-10-22) its light rang, a yellow halo and a dark ring on CornellBox's
+  ceiling around its lamp, and a bright compact source at a grazing angle kept 3/32 of its strength along the surface's
+  normal (the bands' 1/4 + cos/2 + 5/16 P2 at 90 degrees; a Hanning window gained 5% on CornellBox and lost 8% on
+  Sponza, and can't help: the leak is band 0's quarter, which only the higher bands cancel): Bistro's lit interiors
+  and lamps, a hundred times the sky, lit the square before the hotel's entrance yellow. The probes hold an ambient
+  cube instead (`GiIrradianceBasis`: 6 faces, the irradiance over pi along +-x, +-y and +-z, each ray weighed by its
+  cosine to the axis where it faces it, times 4 over the ray count; `GiEvaluate`: the faces a direction's components
+  point at, by the components squared): a grazing source gives a face nothing, at some accuracy between the axes (a
+  uniform sky gives a 45 degree slope 0.75 of the zenith's irradiance where 0.854 is right). CornellBox against its
+  surface reference reads 0.21 mean |log2| either way; Bistro's entrance from the roof 0.62 to 0.60 (the rest of its
+  yellow was a lamp beside a probe, below). Each frame (the GI pass, GI
   Trace then GI Probe Update) each probe near a surface traces `SPEEDO_GI_RAY_COUNT` rays (128), a Fibonacci sphere of
   directions turned by the frame's phase (`GiRayDirection`: a quaternion from Roberts' R3 sequence over
   `SPEEDO_GI_RAY_PHASE_COUNT` phases, 32, then the same sets again, so what a probe holds converges to a fixed value
@@ -993,7 +1018,16 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   skipping, Bistro's street 17.5 and 16.0), the environment past the last clip (`EnvironmentRadiance` at
   roughness 0.6, without the dominant lights, which light the voxels themselves), and to the first occupied voxel as
   far as the depth map reaches (`SHADER_TYPES_GI_DEPTH_REACH`, 3 spacings: the points a probe is tested for are within
-  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). The rays used to march a mip chain of the
+  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). A probe's ray that meets an emitter nearer than `SPEEDO_GI_EMISSION_REACH` spacings (0.5; 0 for none:
+  `GiData::emissionReach`, `GiMarch`'s `emissionReach`) takes its emission as from that far away (scaled by the square
+  of the distance over it, as a small source's irradiance falls), since what the probe holds lights the points of its
+  cell, mostly about half a spacing from it, where a source beside the probe is that far (instant radiosity clamps a
+  virtual light's contribution the same way; the references, from the points themselves, don't): a street lamp's head
+  beside one of Bistro's last clip's probes (8.9 m apart, at 4 m over the square before the hotel's entrance) lit the
+  square and the entrance's facade yellow, the probe's faces 2.4 where its neighbors' were 0.06, where the surface
+  reference has a pool under the lamp and the interior's light at the windows beside the arch; with it the entrance
+  region reads 0.48 mean |log2| against the reference (0.60 before; its mean 111 of the reference's 115, 137 before),
+  and CornellBox's lamp, 8 voxels over its probes, changes nothing (0.218 against 0.210). The rays used to march a mip chain of the
   radiance past two probe spacings (anisotropic, 6 faces a voxel composited front to back, a level per four times the
   distance: a cone of a constant angle, half voxel steps each taking half a voxel's share of its opacity), through which
   a wall a voxel thick is half empty (a quarter at the level above), so every ray that met one kept a share of its
@@ -1020,8 +1054,7 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   path never taken, turned its early depth test off, and Sponza's Main took 10 ms rather than 4.7. The update (a group per probe, a thread per texel
   of its depth map, the rays through shared memory; it counts the probes traced into `gGiStatistics[frame]`, host
   visible, read back when the frame index comes round, which `SPEEDO_GPU_TIMINGS=1` averages at exit) blends them into
-  the probe: its irradiance as spherical harmonics of
-  bands 0 to 2 (`SHADER_TYPES_GI_SH_COUNT`, 9 coefficients a color, `gGiIrradiance`; coefficient 0's w counts the
+  the probe: its irradiance faces (`SHADER_TYPES_GI_IRRADIANCE_COUNT`, 6 a color, `gGiIrradiance`; face 0's w counts the
   frames it has), and its depth map (`gGiProbeDepth`: `SHADER_TYPES_GI_DEPTH_SIDE` 16 by 16 octahedral texels of the
   mean distance and the mean of its square, half2, DDGI's, and the nearest the rays within about 20 degrees met,
   blended as the mean is (packed in the one word with the mean: the mean a half, the spread and the nearest over the
@@ -1056,11 +1089,11 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   probe's history is the probe at its place last frame (by the scroll), a probe new to the clip taking the coarser
   clip's light where it is (its previous half, at its place then, trilinear) as one frame's worth; on a reset (the
   scene changed, or the buffers were replaced: `GiData::reset`) every probe starts over and the voxels take no bounce.
-  Memory per probe: 2 x (144 B of harmonics + 256 B of depth) + 128 rays x 8 B; Sponza's 3 clips of 16x8x10 probes
+  Memory per probe: 2 x (96 B of faces + 256 B of depth) + 128 rays x 8 B; Sponza's 3 clips of 16x8x10 probes
   take 5 MB.
 - **The resolve and the shading**: after the probes, GI Resolve (`ComputeGiResolve`, a group per block of 4x4x4
   voxels, with its 8 probes, or 27 where it spans two cells an axis, in shared memory) gives each voxel of each clip
-  the harmonics of the 8 probes around its center, each weighed as DDGI weighs them: by how much it faces the voxel's
+  the irradiance faces of the 8 probes around its center, each weighed as DDGI weighs them: by how much it faces the voxel's
   open side (its occupancy's gradient over the 3 voxels each way, the nearer counting more, plus a surface's voxel's
   own normal: by the normal alone a floor's voxel at a wall's base was tested from a point straight up, as close to the
   wall as before; over the 6 neighbors alone, the voxels a lookup lands in, a voxel or two off a surface, had no side,
@@ -1098,15 +1131,16 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   Probe State debug view (`GiProbeStateDebug`, a data view) shows, of the 8 probes around a point in the clip that
   lights it, the share marked inside (red), the share whose depth toward the point is empty (green) and the share
   failing the test (blue): every camera following artifact so far showed in it as green or blue where the lit view
-  showed nothing yet. `SPEEDO_GI_DUMP=<x,y,z>` prints, at exit, per clip the probe nearest the point: its position,
+  showed nothing yet. `SPEEDO_GI_DUMP=<x,y,z>` (or `pixel:<x>,<y>`: the point under a pixel, which `ComputeMain` unprojects into
+  `GI_STATISTIC_DUMP_POINT` for the next frame's dump, `GiData::dumpPixel`: what found the entrance's probes) prints, at exit, per clip the probe nearest the point: its position,
   offset, age, backface count, its lattice point's voxel coordinates and the column of voxels through it, its depth
   map, the first rays' depths, its light along the axes, a walk straight down from it (`GiOccluderHitDebug`), the
-  volumes at its voxel and along a line from the point into -z (`GiData::dumpPoint`: occupied, red coefficient 0 and
+  volumes at its voxel and along a line from the point into -z (`GiData::dumpPoint`: occupied, red along +x and
   the weight per voxel, which is what found the alternating cell): what found the dead floor probes and the probe
   beyond the end wall. View > Camera > Copy Pose (ctrl/cmd+shift+c)
   copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment, the
-  exposure, `SPEEDO_GI`, `SPEEDO_DEBUG_VIEW`), for reports: an artifact is a pose first. They go in 7 `R16G16B16A16Sfloat` 3D images
-  (`gGiVolumes`: per color its coefficients 0 to 3 and 4 to 7, then the colors' coefficient 8 and the weight, so the
+  exposure, `SPEEDO_GI`, `SPEEDO_DEBUG_VIEW`), for reports: an artifact is a pose first. They go in 5 `R16G16B16A16Sfloat` 3D images
+  (`gGiVolumes`: per color its faces +x, -x, +y and -y, then red's and green's +z and -z, then blue's and the weight, so the
   shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
   as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the
   voxels' lighting samples them in the pass that writes them; Main declares a storage read). rhi's 3D images:
@@ -1119,14 +1153,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   wall's outer shell voxel, resolved from a point outside, where a probe outside the building passes: the end wall of
   Sponza's corridor lit white by the sky beyond it, the leak that followed the camera as the coarse clip took over;
   with one clip it was dark, which is what found it), twice as far where that finds no probes, filtered, their
-  premultiplied harmonics over their weights (`GiEvaluate`: the cosine lobe's convolution, bands 1, 2/3, 1/4). Band
-  2 is kept for CornellBox's lamps (with bands 0 and 1 alone a blue fringe ringed them). The specular takes the same
+  premultiplied faces over their weights (`GiEvaluate`). The specular takes the same
   lookup: the environment by the indirect light's share of the environment's irradiance (luminance, at most 1; all of
-  it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the harmonics along the reflection. Kept as arrays
-  of the 28 values in the main pass's lookup, they spilled: Bistro's main pass took 31 ms. The lookups cost Sponza's
-  main pass 1.5 ms (3.5 to 5.0) and Bistro's street 2.4 (3.8 to 6.2); the volumes' reads are 0.6 of Sponza's (bands 0
-  and 1 alone, 4 volumes: 4.45), the rest the lookup itself (the clips' weights, two attempts, the specular's second
-  evaluation), so band 2 stays.
+  it in the open), and, by roughness (a smoothstep from 0.2 to 0.9), the faces along the reflection. Kept as arrays
+  of the values (28 as harmonics) in the main pass's lookup, they spilled: Bistro's main pass took 31 ms. The lookups cost Sponza's
+  main pass 1.5 ms (3.5 to 5.0) and Bistro's street 2.4 (3.8 to 6.2); the volumes' reads were 0.6 of Sponza's as harmonics (bands 0
+  and 1 alone, 4 volumes: 4.45; the cube's 5 volumes hold 19 values where the harmonics' 7 held 28), the rest the lookup
+  itself (the clips' weights, two attempts, the specular's second evaluation).
   Its debug views (View > Debug View > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th,
   `GiData::debug`): 1 the indirect diffuse alone, 2 the resolved weight (how much a point sees of the probes around it),
   3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light
@@ -1150,7 +1183,9 @@ CornellBox-Sphere 9.3 ms (4.5 without the indirect lighting; 7.5 with 32 rays, w
 lighting 1.3, the resolve 0.9, the rays 0.6, the probes' update 0.2, the mips and flags little), Sponza's inside
 (`0,2,0,0,90`) 12.0 (6.5), Bistro's street (`564,170,-2436,0,30`) 14.9 (9.9); with it CornellBox-Sphere 12.4 (4.5;
 8.2 with 8 rays), Sponza's inside 13.0 (6.5); with the 16x16 depth maps and the rest of the leak fixes CornellBox-Sphere
-11.8 (4.7), Sponza's inside 14.3 (6.5). Probes every 4 voxels cost 8 times the
+11.8 (4.7), Sponza's inside 14.3 (6.5); with the ambient cube, the clips centered ahead and the emission clamp
+(2026-10-22) CornellBox-Sphere 9.8, Sponza's inside 14.5 (7.4 without, that session), Bistro's street 16.6,
+DamagedHelmet 10.4. Probes every 4 voxels cost 8 times the
 probes (CornellBox 12.8 ms with 32 rays), with no visible gain at these voxel sizes. A still camera in Sponza's arcade
 over 80 frames after settling: the frame's mean steps by 1.2% at most between frames and stays within 1.3% of its
 average (64 rays 2.1%; hysteresis 0.9 with 128 rays 3.9% and 4%, with 64 rays 7% and 7%: the arches' light is a noisy

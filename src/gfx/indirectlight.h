@@ -15,7 +15,7 @@ namespace gfx::gi
 {
 
 // how far a clip that follows the eye moves at a time: this many of its probes (see MakeClipmap; one of 8 voxels: the box
-// around the eye a clip holds is its half size less half a snap, and Sponza's thin clips lost all of their height to a
+// around its center a clip holds is its half size less half a snap, and Sponza's thin clips lost all of their height to a
 // snap of 4, so the finest clips lit nothing there)
 inline constexpr uint32_t kSnapProbes = 1;
 
@@ -43,14 +43,16 @@ struct Layout
 
 // the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): clipCount volumes, finest first, of the voxel counts of the last, which is
 // over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each before it of
-// voxels half the size of the next, centered on eye (snapped to its probes' grid, kept inside the last). total holds the
-// counts of all (its data is unused)
+// voxels half the size of the next, centered ahead of eye along look (how far the camera looks, see
+// FrameInputs::lookDistance), by lookAhead of its half size at most (snapped to its probes' grid, kept inside the last).
+// total holds the counts of all (its data is unused)
 struct Clipmap
 {
 	std::vector<Layout> clips;
 	Layout total;
 };
-[[nodiscard]] Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing);
+[[nodiscard]] Clipmap MakeClipmap(
+	const Bounds3f& bounds, const glm::vec3& eye, const glm::vec3& look, float lookAhead, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing);
 
 // the lights (as the shader sees them) that may reach each cell of the volume's SHADER_TYPES_GI_LIGHT_GRID^3: per cell
 // its first index and count (pairs of uints), and the indices. a directional light reaches every cell, a point or spot

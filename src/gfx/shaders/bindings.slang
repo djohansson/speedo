@@ -32,7 +32,8 @@ RWStructuredBuffer<OitNode> gOitNodes;
 [[vk::binding(5, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 RWStructuredBuffer<uint> gOitCounter;
 
-// auto exposure's histograms, SHADER_TYPES_EXPOSURE_BINS per frame index
+// the frames' histograms, SHADER_TYPES_HISTOGRAM_BINS per frame index: auto exposure's bins, then the distances' (see
+// SHADER_TYPES_DISTANCE_BINS)
 [[vk::binding(6, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 RWStructuredBuffer<uint> gExposureHistogram;
 
@@ -45,9 +46,9 @@ Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 // the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
 [[vk::binding(1, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D<uint> gMainStencil;
-// the indirect lighting's voxels' resolved probes (see ComputeGiResolve), the clips stacked along z: the spherical
-// harmonics times the weight of the probes seen (per color its coefficients 0 to 3 and 4 to 7, then the colors'
-// coefficient 8 and the weight: see GiSample). sampled trilinearly, and
+// the indirect lighting's voxels' resolved probes (see ComputeGiResolve), the clips stacked along z: the irradiance
+// along the axes times the weight of the probes seen (per color its faces +x, -x, +y and -y, then red's and green's +z
+// and -z, then blue's and the weight: see GiSample). sampled trilinearly, and
 // written as storage images (gGiVolumeImages), always in the general layout
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture3D<float4> gGiVolumes[SHADER_TYPES_GI_VOLUME_COUNT];
@@ -140,9 +141,9 @@ RWStructuredBuffer<uint> gCullStatistics[SHADER_TYPES_FRAME_COUNT];
 
 // the indirect lighting (see GiData): its parameters per frame index, the voxels, their radiance (rgba16f: radiance times
 // occupancy, and occupancy) by level, the probes' rays of the frame (rgba16f: the radiance along each, and the distance
-// to what it meets in probe spacings) per probe and ray, and the probes' irradiance (spherical harmonics, bands 0 to 2: a
-// float4 per coefficient, rgb; coefficient 0's w the frames the probe has accumulated), in two halves (see
-// GiData::probeFirst)
+// to what it meets in probe spacings) per probe and ray, and the probes' irradiance (an ambient cube: a float4 per face,
+// +x, -x, +y, -y, +z, -z, rgb; face 0's w the frames the probe has accumulated, 1's its noise, 2 to 4's its offset, 5's
+// whether it is inside something), in two halves (see GiData::probeFirst)
 [[vk::binding(21, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<GiData> gGi[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(22, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
