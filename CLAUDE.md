@@ -1214,7 +1214,9 @@ to 28.3 ms (Sponza the same). Animated models against the voxels' walk (the `Fra
 the same, BrainStem (all of it moving, so every voxel's light traces the moving BVH each frame) 9.5 to 12.1.
 tinybvh's dev branch stores CWBVH triangles uncompressed (3 float4: edges and a vertex, whose cross product faces the right
 way), so moving the port to it means `BvhTraverse`'s triangle test follows (`bvh.cpp` doesn't compile without
-`CWBVH_COMPRESSED_TRIS`). A hit's normal, side and flags are read once the traversal is done (`BvhFinish`): read at
+`CWBVH_COMPRESSED_TRIS`); they would also fix the compressed triangles' precision on tiny ones (under a millimetre in a room:
+living_room, salle_de_bain, San Miguel), whose barycentrics come out wrong by tens of percent and which a ray may miss for
+one behind, where the binary layout's test is right (`CheckBvh` counts those apart and warns). A hit's normal, side and flags are read once the traversal is done (`BvhFinish`): read at
 every accepted hit, the loop carried them all and Bistro's frame took 2 ms more. Bistro's cost tried and kept: the dev branch's stack of a uint an entry (no change); ordering the
 probes' threads by ray (no help: each probe turns its ray set by its own phase, so neighbors' rays don't share
 directions). Measured (Sponza's inside, Bistro's street, CornellBox-Sphere, as below, interleaved): the

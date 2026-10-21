@@ -92,6 +92,30 @@ static void FatalError(const char* message)
 	ENSUREF(false, "tinybvh: {}", message);
 }
 
+// the binary layout's triangles in its leaves' order (BVH2_TRIANGLE_FLOAT4_COUNT each: the first corner, w its index, then
+// the edges from it): tinybvh's, except where the whole tree is one leaf, which BVH_GPU::ConvertFrom wraps in a root
+// without ordering them (orderedVerts null: a mesh of one triangle, the moving BVH of AnimatedTriangle); those in the tree's
+// primitive order, as it would
+static void CopyOrderedTriangles(
+	const tinybvh::BVH& tree, const tinybvh::BVH_GPU& layout, std::span<const tinybvh::bvhvec4> corners, glm::vec4* triangles)
+{
+	if (layout.orderedVerts.data != nullptr)
+	{
+		std::memcpy(triangles, layout.orderedVerts.data, static_cast<size_t>(layout.idxCount) * BVH2_TRIANGLE_FLOAT4_COUNT * sizeof(glm::vec4));
+		return;
+	}
+	for (uint32_t indexIt = 0; indexIt < layout.idxCount; indexIt++)
+	{
+		uint32_t primitive = tree.primIdx[indexIt];
+		const auto& v0 = corners[static_cast<size_t>(primitive) * 3];
+		const auto& v1 = corners[(static_cast<size_t>(primitive) * 3) + 1];
+		const auto& v2 = corners[(static_cast<size_t>(primitive) * 3) + 2];
+		triangles[(indexIt * 3) + 0] = glm::vec4(v0.x, v0.y, v0.z, std::bit_cast<float>(primitive));
+		triangles[(indexIt * 3) + 1] = glm::vec4(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z, 0.0F);
+		triangles[(indexIt * 3) + 2] = glm::vec4(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z, 0.0F);
+	}
+}
+
 // which way a triangle faces, as the CWBVH's triangle transform loses it: the sign of its normal's largest component (the
 // one tinybvh's PrecomputeTriangle divides by, picked the same way)
 static float DominantSign(const glm::vec3& normal)
@@ -343,7 +367,7 @@ void Moving::Write(std::span<std::byte> nodes, std::span<std::byte> triangles) c
 	static_assert(sizeof(tinybvh::BVH_GPU::BVHNode) == BVH2_NODE_FLOAT4_COUNT * sizeof(glm::vec4));
 	std::memcpy(nodes.data(), impl.layout->bvhNode, NodeFloat4Count() * sizeof(glm::vec4));
 	auto* triangleData = reinterpret_cast<glm::vec4*>(triangles.data());
-	std::memcpy(triangleData, impl.layout->orderedVerts.data, TriangleFloat4Count() * sizeof(glm::vec4));
+	detail::CopyOrderedTriangles(*impl.tree, *impl.layout, impl.corners, triangleData);
 	// each triangle's flags and first index in its edges' w (its corner's holds its index)
 	for (size_t triangleIt = 0; triangleIt < TriangleFloat4Count(); triangleIt += BVH2_TRIANGLE_FLOAT4_COUNT)
 	{
@@ -378,7 +402,7 @@ Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& execut
 	data.nodes.resize(static_cast<size_t>(layout.usedNodes) * BVH2_NODE_FLOAT4_COUNT);
 	std::memcpy(data.nodes.data(), layout.bvhNode, data.nodes.size() * sizeof(glm::vec4));
 	data.triangles.resize(static_cast<size_t>(layout.idxCount) * BVH2_TRIANGLE_FLOAT4_COUNT);
-	std::memcpy(data.triangles.data(), layout.orderedVerts.data, data.triangles.size() * sizeof(glm::vec4));
+	detail::CopyOrderedTriangles(tree, layout, corners, data.triangles.data());
 	for (size_t triangleIt = 0; triangleIt < data.triangles.size(); triangleIt += BVH2_TRIANGLE_FLOAT4_COUNT)
 	{
 		auto primitive = std::bit_cast<uint32_t>(data.triangles[triangleIt].w);

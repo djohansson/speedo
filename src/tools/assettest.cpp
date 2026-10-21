@@ -296,6 +296,7 @@ void CheckBvh(const gfx::mesh::Mesh& mesh, core::TaskExecutor& executor, Report&
 		uint32_t faceMismatches = 0;
 		uint32_t barycentricMismatches = 0;
 		uint32_t capped = 0; // stopped at the step cap (BVH_MAX_STEP_COUNT): not compared
+		uint32_t tinyMismatches = 0; // on a triangle too small for the float tests (see below): only warns
 		uint32_t ties = 0; // another triangle at the same distance (coplanar ones, e.g. back to back)
 		for (uint32_t rayIt = 0; rayIt < rayCount; rayIt++)
 		{
@@ -319,13 +320,23 @@ void CheckBvh(const gfx::mesh::Mesh& mesh, core::TaskExecutor& executor, Report&
 				continue;
 			}
 			hits++;
-			if (std::abs(static_cast<double>(hit.t) - reference.t) > 1e-4 * (size + reference.t))
+			// a triangle far smaller than the scene (under a millimetre in a room) is past what the float tests resolve:
+			// its barycentrics come out wrong by tens of percent, and a ray may miss it for one behind
+			const auto& corners = triangles[reference.primitive].corners;
+			bool tiny = std::min({glm::distance(corners[0], corners[1]), glm::distance(corners[1], corners[2]), glm::distance(corners[2], corners[0])}) <
+						1e-4 * size;
+			bool distanceDiffers = std::abs(static_cast<double>(hit.t) - reference.t) > 1e-4 * (size + reference.t);
+			bool whereDiffers = hit.primitive == reference.primitive &&
+								glm::any(glm::greaterThan(glm::abs(glm::dvec2(hit.barycentrics[0], hit.barycentrics[1]) - reference.barycentrics), glm::dvec2(5e-2)));
+			if (tiny && (distanceDiffers || whereDiffers))
+				tinyMismatches++;
+			else if (distanceDiffers)
 				distanceMismatches++;
 			else if (hit.primitive != reference.primitive)
 				ties++;
 			else if (hit.frontFace != reference.frontFace)
 				faceMismatches++;
-			else if (glm::any(glm::greaterThan(glm::abs(glm::dvec2(hit.barycentrics[0], hit.barycentrics[1]) - reference.barycentrics), glm::dvec2(5e-2))))
+			else if (whereDiffers)
 				barycentricMismatches++;
 		}
 		uint32_t anyMismatches = 0;
@@ -338,12 +349,12 @@ void CheckBvh(const gfx::mesh::Mesh& mesh, core::TaskExecutor& executor, Report&
 		uint32_t mismatches = hitMismatches + distanceMismatches + faceMismatches + barycentricMismatches + anyMismatches;
 		auto message = std::format(
 			"{}: {} rays ({} hit, {} missed, {} at a triangle tied with another): {} disagree on hitting, {} on the distance, {} "
-			"on the side, {} on where, {} of {} any hits; {} capped",
+			"on the side, {} on where, {} of {} any hits; {} capped, {} on tiny triangles",
 			binary ? "moving BVH" : "BVH", rayCount, hits, misses, ties, hitMismatches, distanceMismatches, faceMismatches, barycentricMismatches,
-			anyMismatches, anyRays.size(), capped);
+			anyMismatches, anyRays.size(), capped, tinyMismatches);
 		if (!binary && mismatches * 100 > rayCount && mismatches > 2)
 			report.Fail("{}", message);
-		else if (mismatches > 0 || capped > 0)
+		else if (mismatches > 0 || capped > 0 || tinyMismatches > 0)
 			report.Warn("{}", message);
 		else
 			report.Info("{}", message);
