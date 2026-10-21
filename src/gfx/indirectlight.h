@@ -25,12 +25,11 @@ inline constexpr uint32_t kSnapProbes = 1;
 	return glm::max((size + glm::uvec3((1U << level) - 1U)) >> level, glm::uvec3(1));
 }
 
-// a volume of size voxels from origin, its levels, and its probes: one every probeSpacing voxels. the counts are what the
-// buffers hold for it: voxels (level 0), radiance texels (all levels, then the direct radiance's voxels), probes and
+// a volume of size voxels from origin, and its probes: one every probeSpacing voxels. the counts are what the
+// buffers hold for it: voxels, radiance texels (the frame's per voxel, then the direct radiance's), probes and
 // flags (see GiData::flagFirst); its GiData's offsets are after first's
 // counts (a clip before it in the buffers; the probes' halves and the rays' offsets are the renderer's, see
-// GiData::probeFirst). origin is a whole number of voxels from anchor, the clipmap's corner; moves says whether it moves
-// (by kSnapProbes probes at a time), and so how many of its levels the rays march (GiData::marchLevelCount)
+// GiData::probeFirst). origin is a whole number of voxels from anchor, the clipmap's corner
 struct Layout
 {
 	GiData data{};
@@ -40,7 +39,7 @@ struct Layout
 	uint32_t flagCount = 0;
 };
 [[nodiscard]] Layout MakeLayout(
-	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor, bool moves);
+	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor);
 
 // the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): clipCount volumes, finest first, of the voxel counts of the last, which is
 // over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each before it of

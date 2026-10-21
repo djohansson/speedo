@@ -13,13 +13,12 @@ namespace gfx::gi
 {
 
 Layout MakeLayout(
-	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor, bool moves)
+	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor)
 {
 	ENSURE(probeSpacing > 0 && voxelSize > 0.0F);
 	// where the volume is from the anchor, in its voxels (whole ones, see MakeClipmap)
 	glm::ivec3 originVoxels = glm::ivec3(glm::round((origin - anchor) / voxelSize));
 	ENSURE(glm::all(glm::greaterThanEqual(originVoxels, glm::ivec3(0))));
-	uint32_t snapVoxels = probeSpacing * kSnapProbes;
 
 	Layout layout;
 	auto& data = layout.data;
@@ -33,23 +32,15 @@ Layout MakeLayout(
 	layout.voxelCount = size.x * size.y * size.z;
 	data.voxelFirst = first.voxelCount;
 
-	// the levels, down to a voxel or SHADER_TYPES_GI_LEVEL_COUNT
-	uint32_t levelCount = std::min<uint32_t>(std::bit_width(std::max({size.x, size.y, size.z})), SHADER_TYPES_GI_LEVEL_COUNT);
-	data.volumeSize[3] = levelCount;
-	// a level's voxels stay where they are in the world as the volume moves while they are no bigger than its snaps
-	data.marchLevelCount = moves ? std::min(levelCount, static_cast<uint32_t>(std::bit_width(snapVoxels))) : levelCount;
-	for (uint32_t levelIt = 0; levelIt < levelCount; levelIt++)
-	{
-		data.levelFirst[levelIt / 4][levelIt % 4] = first.radianceCount + layout.radianceCount;
-		auto levelSize = LevelVoxels(size, levelIt);
-		// the levels above 0 have a face per axis direction (see ComputeGiMip)
-		layout.radianceCount += levelSize.x * levelSize.y * levelSize.z * (levelIt == 0 ? 1U : 6U);
-	}
-	data.directFirst = first.radianceCount + layout.radianceCount;
-	layout.radianceCount += layout.voxelCount;
+	data.volumeSize[3] = 0;
+	// the radiance: the frame's per voxel, then the static voxels' direct radiance
+	data.radianceFirst = first.radianceCount;
+	data.directFirst = first.radianceCount + layout.voxelCount;
+	layout.radianceCount = 2 * layout.voxelCount;
 	auto flagSize = LevelVoxels(size, SHADER_TYPES_GI_FLAG_LEVEL);
 	layout.flagCount = flagSize.x * flagSize.y * flagSize.z;
-	data.flagFirst = first.flagCount;
+	// in words (see GiFlagIndex): as blocks, the clips' flags overlapped, each clip's second half the next clip's first
+	data.flagFirst = first.flagCount * SHADER_TYPES_GI_FLAG_WORD_COUNT;
 
 	// the probes: every probeSpacing voxels from the volume's corner (which is a whole number of snaps from the anchor, so
 	// they stay where they are in the world as it moves)
@@ -101,7 +92,7 @@ Clipmap MakeClipmap(const Bounds3f& bounds, const glm::vec3& eye, uint32_t resol
 			glm::vec3 snaps = glm::floor((last - clipExtent) / snap + glm::vec3(1e-4F));
 			origin = min + glm::clamp(glm::round((eye - clipExtent * 0.5F - min) / snap), glm::vec3(0.0F), snaps) * snap;
 		}
-		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, first, min, clipIt + 1 < clipCount);
+		auto layout = MakeLayout(origin, clipVoxelSize, size, probeSpacing, first, min);
 		// the box around the eye it holds wherever it snapped to: half its size, less half a snap (how far from the eye
 		// its center snaps); the shading's weight fades a point out over the probe spacing inside the clip's edges besides
 		// (GiClipWeight), which the box needn't (a spacing and a voxel more of margin left Sponza's thin clips a box a

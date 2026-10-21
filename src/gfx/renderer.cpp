@@ -45,17 +45,16 @@ constexpr uint8_t kCullEntryPoint = 5;
 constexpr uint8_t kDepthPyramidEntryPoint = 6;
 constexpr uint8_t kDepthSaveEntryPoint = 7;
 constexpr uint8_t kDepthReprojectEntryPoint = 8;
-// the indirect lighting's kernels (see gi.slang), entry points 9 to 15
+// the indirect lighting's kernels (see gi.slang), entry points 9 to 17
 constexpr uint8_t kGiShiftEntryPoint = 9;
 constexpr uint8_t kGiVoxelizeEntryPoint = 10;
 constexpr uint8_t kGiLightStaticEntryPoint = 11;
 constexpr uint8_t kGiLightEntryPoint = 12;
-constexpr uint8_t kGiMipEntryPoint = 13;
-constexpr uint8_t kGiFlagsEntryPoint = 14;
-constexpr uint8_t kGiTraceEntryPoint = 15;
-constexpr uint8_t kGiProbeUpdateEntryPoint = 16;
-constexpr uint8_t kGiResolveEntryPoint = 17;
-constexpr uint8_t kGiRestoreEntryPoint = 18;
+constexpr uint8_t kGiFlagsEntryPoint = 13;
+constexpr uint8_t kGiTraceEntryPoint = 14;
+constexpr uint8_t kGiProbeUpdateEntryPoint = 15;
+constexpr uint8_t kGiResolveEntryPoint = 16;
+constexpr uint8_t kGiRestoreEntryPoint = 17;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 
@@ -722,21 +721,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{
 			auto cmd = context.cmd;
 			clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiLightEntryPoint, layout.voxelCount, clip); });
-			const auto& data = myGiClipmap.clips.back().data;
-			glm::uvec3 volumeSize(data.volumeSize[0], data.volumeSize[1], data.volumeSize[2]);
 			// the flags: the blocks near a surface (by the blocks the lighting stamped), and that spread along each axis
 			// (each step reads the one before's)
 			for (uint32_t stepIt = 0; stepIt < 4; stepIt++)
 			{
 				computeBarrier(cmd);
 				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiFlagsEntryPoint, layout.flagCount, clip, stepIt); });
-			}
-			for (uint32_t levelIt = 1; levelIt < data.volumeSize[3]; levelIt++)
-			{
-				computeBarrier(cmd);
-				auto size = gi::LevelVoxels(volumeSize, levelIt);
-				clips([&](uint32_t clip, const gi::Layout&)
-					  { giKernel(cmd, kGiMipEntryPoint, static_cast<uint64_t>(size.x) * size.y * size.z, clip, levelIt); });
 			}
 			computeBarrier(cmd);
 			clips([&](uint32_t clip, const gi::Layout& layout)
@@ -1101,7 +1091,7 @@ Renderer::~Renderer()
 				rays += std::format(" ({:+.2f}: {:.2f})", static_cast<double>(values[16 + 256 + rayIt * 2]), static_cast<double>(values[16 + 256 + rayIt * 2 + 1]));
 			std::println("  the first rays (direction's y: depth):{}", rays);
 			std::println(
-				"  its light (luminance, bands 0 and 1) along +x {:.3f} -x {:.3f} +y {:.3f} -y {:.3f} +z {:.3f} -z {:.3f}; this frame's rays' mean {:.3f}",
+				"  its light (luminance, bands 0 and 1) along +x {:.5f} -x {:.5f} +y {:.5f} -y {:.5f} +z {:.5f} -z {:.5f}; this frame's rays' mean {:.5f}",
 				static_cast<double>(values[16 + 256 + 36]), static_cast<double>(values[16 + 256 + 37]), static_cast<double>(values[16 + 256 + 38]),
 				static_cast<double>(values[16 + 256 + 39]), static_cast<double>(values[16 + 256 + 40]), static_cast<double>(values[16 + 256 + 41]), static_cast<double>(values[16 + 256 + 42]));
 			std::println(
@@ -1434,6 +1424,16 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
 		myGiActiveProbeCount = statistics[GI_STATISTIC_ACTIVE_PROBES];
+		if (statistics[GI_STATISTIC_CAPPED_RAYS] != 0)
+		{
+			auto f = [&](uint32_t index) { return std::bit_cast<float>(statistics[index]); };
+			std::println(stderr, "indirect lighting: {} rays hit the walk's step cap, one from ({:.4f}, {:.4f}, {:.4f}) along ({:.6f}, {:.6f}, {:.6f})",
+						 statistics[GI_STATISTIC_CAPPED_RAYS], f(GI_STATISTIC_CAPPED_ORIGIN), f(GI_STATISTIC_CAPPED_ORIGIN + 1), f(GI_STATISTIC_CAPPED_ORIGIN + 2),
+						 f(GI_STATISTIC_CAPPED_DIRECTION), f(GI_STATISTIC_CAPPED_DIRECTION + 1), f(GI_STATISTIC_CAPPED_DIRECTION + 2));
+			std::println(stderr, "  in clip {} at t {:.4f} of {:.4f} (box exit {:.4f}), voxel ({}, {}, {}), travelled {:.4f}", f(GI_STATISTIC_CAPPED_STATE),
+						 f(GI_STATISTIC_CAPPED_STATE + 1), f(GI_STATISTIC_CAPPED_STATE + 2), f(GI_STATISTIC_CAPPED_STATE + 3), f(GI_STATISTIC_CAPPED_STATE + 4),
+						 f(GI_STATISTIC_CAPPED_STATE + 5), f(GI_STATISTIC_CAPPED_STATE + 6), f(GI_STATISTIC_CAPPED_STATE + 7));
+		}
 		if (myGiDump)
 		{
 			constexpr size_t kDumpSize = SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT * sizeof(float);

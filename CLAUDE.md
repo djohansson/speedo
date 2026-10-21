@@ -863,11 +863,14 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   most 4) of the same voxel counts, finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by
   default, voxels along its longest axis, a margin of one and a half probe spacings, so that a layer of probes stands
   outside its outermost surfaces), each before it of voxels half the size of the next, centered on the camera on a grid
-  of 4 of its probes and kept inside the last; each has its own voxels, levels, probes and flags, at its offsets in the
-  shared buffers (`GiData::voxelFirst`, `probeFirst`, `lightCellFirst`, `flagFirst`, and the levels' firsts;
-  `gGi[frame][clip]`), and the kernels take theirs from `PushConstants::giClip`. A clip's rays (`GiMarch`) and shadow
-  rays (`GiOccluderDistance`) that leave it go on through the coarser ones (a box is never entered again), at the level
-  of the same voxel size. All are made again when the model, its bounds or its draws change; a clip that moves scrolls
+  of 4 of its probes and kept inside the last; each has its own voxels, radiance, probes and flags, at its offsets in
+  the shared buffers (`GiData::voxelFirst`, `radianceFirst`, `probeFirst`, `lightCellFirst`, `flagFirst`;
+  `gGi[frame][clip]`), and the kernels take theirs from `PushConstants::giClip`. The flags' offset is in words
+  (`SHADER_TYPES_GI_FLAG_WORD_COUNT` a block): in blocks, each clip's second half of flags was the next clip's first,
+  whose kernels rewrote them (its bits, and other blocks' stamps), so in the finer clips' far halves blocks near a
+  surface went unresolved and probes untraced, at random (found 2026-10-22 reading the flags from the rays' walk). A
+  clip's rays (`GiMarch`) and shadow rays (`GiOccluderDistance`) that leave it go on through the coarser ones (a box is
+  never entered again). All are made again when the model, its bounds or its draws change; a clip that moves scrolls
   (`GiData::scroll`, in voxels, whole probe cells): GI Shift (`ComputeGiShift`) gives each voxel the static one kept at
   its place before, or empty where it scrolled in, and only that is voxelized (its jobs are the static draws whose
   bounds reach the slabs that scrolled in, `GiClipJobs`; a triangle whose voxels in the clip were all kept skips, and a
@@ -890,8 +893,7 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   to whole snaps at the last clip's sides too), so everything a point inside it is lit by stays where it is in the
   world as it snaps: its probes are laid out from its corner (`GiData::probeOrigin`), a whole number of snaps from the
   clipmap's, and keep what they hold across a snap (the update reads each probe's history from where it was, by the
-  scroll); the rays march only the levels a snap keeps aligned (`GiData::marchLevelCount`); a level's voxels are
-  rounded up (`GiLevelVoxels`, `gi::LevelVoxels`); and each clip has a box around the eye that it always holds well
+  scroll); the flags' blocks are rounded up (`GiLevelVoxels`, `gi::LevelVoxels`); and each clip has a box around the eye that it always holds well
   inside (`GiData::fadeCenter`, `fadeExtent`: half its size less half a snap; with a snap of 4 probes and a spacing and
   a voxel more of margin, Sponza's thin clips, 68 voxels tall, kept a box a third of their height, and the finest clips
   lit nothing on its ground floor: everything there was the last clip's, 23 cm voxels and 1.9 m probes), which
@@ -917,18 +919,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   second word, `SHADER_TYPES_GI_FLAG_WORD_COUNT`), and a static voxel whose line to a light that lights it crosses a
   stamped block (`GiMovingShadows`: a walk over the blocks, `GiMovingBetween`) traces its shadow rays that frame; only
   with something moving in the frame (`GiData::moving`).
-  Then a mip chain of radiance and occupancy, anisotropic (`ComputeGiMip`: 6 faces per voxel of the levels above 0, one
-  per axis direction, each its children composited front to back along it; a ray reads the 3 faces it looks through,
-  by its direction's squares: the mean of the 8 let a thin surface's lit face through to the other side, the sun on the
-  outside of Sponza's curtains lit its arcades' columns from inside), a thread per voxel making all 6 faces, skipping
-  the blocks that hold nothing (below). The **flags** (`gGiFlags`, `ComputeGiFlags`): per block of 4x4x4 voxels
+  The **flags** (`gGiFlags`, `ComputeGiFlags`): per block of 4x4x4 voxels
   (`SHADER_TYPES_GI_FLAG_LEVEL`) the lighting stamps the frame into the blocks holding something (a plain store: an
   atomic maximum kept whatever a new buffer held, and such a block never counted again, which blacked out Sponza), then
   bit 0 says whether anything is in the 3x3x3 blocks around it and bit 3 whether that is within 4 blocks along each axis
   (three separable steps): the resolve skips the blocks without bit 0 (the lookups are within a few voxels of a surface)
   and the probes without bit 3 (a probe is only ever looked up from within its cell of a surface's lookup), which is
-  what makes a clip's cost that of its surfaces rather than its volume. The mips are made whole on a reset (the buffer
-  may hold anything).
+  what makes a clip's cost that of its surfaces rather than its volume.
 - **The probes** (`GiData::probe*`): a lattice every `SPEEDO_GI_PROBE_SPACING` voxels (8 by default) from the clip's
   corner (a multiple of 8, so that the resolve's blocks of 4 voxels never span two cells), centered on voxel boundaries
   (so every point of a voxel interpolates the same 8), of which only those near a surface trace (the flags, below):
@@ -964,13 +961,37 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   pulses with the cycle by the subsets' differences) was the same across the probes of a region, which pulsed together,
   a 32 frame flicker of Sponza's walls that the user saw under auto exposure; at their own phases the ripples of a
   cell's 8 probes cancel in the lookup (frames 16 apart at exposure 9 differed by 94 of 255 at most, 17 after). A ray
-  marches the radiance front to back at the level
-  of its distance (`GiMarch` with `cone`: level 0 as far as two spacings, each level above four times as far, a cone of
-  a constant angle, a half voxel step taking half a voxel's share of the opacity, `1 - (1 - a)^(1/2)`; `SPEEDO_GI_DEBUG`
-  7 marches level 0 only, to tell what the levels lose), the environment past the last clip (`EnvironmentRadiance` at
+  walks the voxels to the first one something is in (`GiMarch`: each voxel it crosses visited once, Amanatides and Woo,
+  through its clip to its box around the eye and on through the coarser ones; a block of 4x4x4 voxels nothing is in
+  this frame, by the flags' stamps, is crossed in one step: DamagedHelmet's frame 12.6 ms walking every voxel, 9.7
+  skipping, Bistro's street 17.5 and 16.0), the environment past the last clip (`EnvironmentRadiance` at
   roughness 0.6, without the dominant lights, which light the voxels themselves), and to the first occupied voxel as
   far as the depth map reaches (`SHADER_TYPES_GI_DEPTH_REACH`, 3 spacings: the points a probe is tested for are within
-  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). The update (a group per probe, a thread per texel
+  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). The rays used to march a mip chain of the
+  radiance past two probe spacings (anisotropic, 6 faces a voxel composited front to back, a level per four times the
+  distance: a cone of a constant angle, half voxel steps each taking half a voxel's share of its opacity), through which
+  a wall a voxel thick is half empty (a quarter at the level above), so every ray that met one kept a share of its
+  transmittance and brought the sky in behind it: Sponza's arcades were lit from outside by a thousandth of the sky
+  (their voxels hold nothing: the probes' rays read 7e-4 in the finest clip, 1.3e-4 in the next and 4e-5 in the last,
+  whose rays go coarse later), and the finest clip's box edge was a dark band that followed the camera along them (the
+  user's pose `0.7013,1.0767,-4.0779,0.008,90.314`; its corridor at exposure 10 against the surface reference's 0.000:
+  0.16 to 0.31 before, 0.007 to 0.026 now, and no band; walking the corridor after the probes settled, the far end
+  brightens evenly as it nears). Walking every voxel costs nothing in the interiors (Sponza's inside 13.1 ms against
+  13.7 with the levels, CornellBox-Sphere 9.1 against 11.8; their kernel is gone), and the open scenes paid for rays
+  walking to the sky until the block skip. A still frame at the lion wall steps 13 of 255 at most between frames at
+  exposure 9 (17 before). The references walk without it (`skipEmptyBlocks`):
+  with the blocks' reads the surface reference's fragment shader ran past Metal's command queue timeout
+  (`MTL_COMMAND_QUEUE_ERROR_TIMEOUT`, `VK_ERROR_DEVICE_LOST` within seconds, with three clips; under validation too,
+  which reported nothing else). The walk's loop has no `continue`: with one, KosmicKrisp didn't keep the block last
+  read across it, so a probe's ray starting on a block's face (the probes are at voxel corners, and a spacing of 8 is
+  a multiple of the blocks' 4) with a hair of its direction into it (`-0.000874, 0.9999, 0.013`: the push of a
+  thousandth of a voxel lost to float rounding) found the same empty block anew every iteration, its exit at 0, and
+  hung the gpu: the draw thread in `Fence::Wait` for good, no device loss (and once the machine, 2026-10-22, at the
+  lion wall pose `-6.9604,1.3018,-0.3295,7.269,-86.774`). A step cap (4096 a clip) ends such a walk, counts it in
+  `gGiStatistics` (`GI_STATISTIC_CAPPED_RAYS`, with the ray and where it was) and the renderer prints it after the
+  frame: a hang mustn't take the machine down again, and a capped ray must be seen. The cap's writes are only where the
+  walk skips: in the main pass's fragment shader (which holds the surface reference's walk) a storage write, even on a
+  path never taken, turned its early depth test off, and Sponza's Main took 10 ms rather than 4.7. The update (a group per probe, a thread per texel
   of its depth map, the rays through shared memory; it counts the probes traced into `gGiStatistics[frame]`, host
   visible, read back when the frame index comes round, which `SPEEDO_GPU_TIMINGS=1` averages at exit) blends them into
   the probe: its irradiance as spherical harmonics of
@@ -1063,10 +1084,9 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   Its debug views (View > Debug View > Indirect Lighting, see "Debug views"; `SPEEDO_GI_DEBUG=<n>` is the n-th,
   `GiData::debug`): 1 the indirect diffuse alone, 2 the resolved weight (how much a point sees of the probes around it),
   3 and 4 the radiance of the voxel behind or in front of a point, 5 its albedo; 6 a reference: each probe's light
-  from 512 rays through level 0 straight to the environment, nothing blended (seconds a frame), and 7 the rays at level
-  0; 14 the surface reference (`GiPixelReference`: 256 cosine weighted rays from the point itself, its spiral turned per
+  from 512 rays through the voxels straight to the environment, nothing blended (seconds a frame); 13 the surface reference (`GiPixelReference`: 256 cosine weighted rays from the point itself, its spiral turned per
   point by a hash, else its fixed directions made radial streaks; an origin in an occupied voxel moves out along that
-  voxel's normal; seconds a frame: capture it after a few frames); 8 which clip lights a point, 9 the indirect diffuse
+  voxel's normal; seconds a frame: capture it after a few frames); 7 which clip lights a point, 8 the indirect diffuse
   with the finest clip's voxel and probe planes drawn over it (`GiClipDebug`); and the Voxel World and Probes views (the
   8 probes around a point as they hold them, trilinear, without the resolve's weights). The kernels dispatch rows of
   `SHADER_TYPES_GI_ROW` threads (`GiThread`), so a volume's size isn't capped by a dispatch.
@@ -1086,7 +1106,7 @@ it, colour bleeding on the ceiling's edges and the spheres' contact shadows; Spo
 surface reference (its arcades a little brighter), its sunlit upper floors lit by the sky; Bistro's street lit between
 its walls. Against the old cascades: no splotches, no dark blobs at the walls' bases, no blocks behind the spheres, and
 the clips' moves change nothing measurable. The frame's lighting skips the blocks nothing is near (their flags, from the
-last frame; the static lighting clears level 0 so the skipped voxels hold 0) and the restore copies only the blocks
+last frame; the static lighting clears the frame's radiance so the skipped voxels hold 0) and the restore copies only the blocks
 something moving was in (`ComputeGiRestore`): CesiumMan 9.65 to 9.3 ms, CornellBox 12.4 to 12.0. What a small scene
 still pays is its clips' probes and voxels near its surfaces, which fill them: DamagedHelmet 4.7 to 11.2 ms with the
 ray budget (the resolve and lighting of a last clip that is all surface, the finer clips mostly empty). What's left

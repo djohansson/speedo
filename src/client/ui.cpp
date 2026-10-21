@@ -95,7 +95,6 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probe-state", "Probe State", DEBUG_VIEW_GI_PROBE_STATE, "The 8 probes around a point, trilinear: red the share marked inside something, green the share whose depth map toward the point is empty (no ray that way yet), blue the share that fail the visibility test. Black: every probe sees the point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-probes", "Probes (unmasked)", DEBUG_VIEW_GI_PROBES, "The irradiance of the 8 probes around a point as they hold it, trilinear: without their visibility and the resolve into the voxels, to tell what the probes see from what the lookups make of it."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-reference", "Reference (slow)", DEBUG_VIEW_GI_REFERENCE, "Each probe's light from 512 rays through the voxels straight to the environment, nothing blended: what the probes' rays converge to. Seconds a frame."}},
-	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-level0", "Rays at Level 0", DEBUG_VIEW_GI_LEVEL0, "The probes' rays traced through the finest voxels only: what the coarser levels lose."}},
 };
 
 [[nodiscard]] const DebugView* FindDebugView(uint32_t view)

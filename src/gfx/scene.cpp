@@ -1795,7 +1795,6 @@ struct Scene::Impl
 						{"ComputeGiVoxelize", SLANG_STAGE_COMPUTE},
 						{"ComputeGiLightStatic", SLANG_STAGE_COMPUTE},
 						{"ComputeGiLight", SLANG_STAGE_COMPUTE},
-						{"ComputeGiMip", SLANG_STAGE_COMPUTE},
 						{"ComputeGiFlags", SLANG_STAGE_COMPUTE},
 						{"ComputeGiTrace", SLANG_STAGE_COMPUTE},
 						{"ComputeGiProbeUpdate", SLANG_STAGE_COMPUTE},

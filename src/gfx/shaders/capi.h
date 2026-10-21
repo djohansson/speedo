@@ -159,25 +159,24 @@ extern "C"
 #define DEBUG_VIEW_GI_VOXEL_FRONT 19u // and in front of it
 #define DEBUG_VIEW_GI_VOXEL_ALBEDO 20u // the voxel's albedo (data)
 #define DEBUG_VIEW_GI_REFERENCE 21u // each probe's light from 512 rays straight to the environment (seconds a frame)
-#define DEBUG_VIEW_GI_LEVEL0 22u // the probes' rays traced at level 0 only
-#define DEBUG_VIEW_GI_CLIP 23u // which clip lights the point (red, green, blue, yellow: finest first), blended (data)
-#define DEBUG_VIEW_GI_GRID 24u // the indirect diffuse, with the voxels' (thin) and probes' (thick) cells of the clip drawn
+#define DEBUG_VIEW_GI_CLIP 22u // which clip lights the point (red, green, blue, yellow: finest first), blended (data)
+#define DEBUG_VIEW_GI_GRID 23u // the indirect diffuse, with the voxels' (thin) and probes' (thick) cells of the clip drawn
 // the voxels themselves, as the rays see them: each pixel's ray from the eye through the clipmap's voxels (finest
 // first, see GiTraceVoxels), and the first it meets (the environment where it meets none): its radiance, its albedo, its
 // normal (data), or which clip it is in (data)
-#define DEBUG_VIEW_GI_VOXEL_WORLD 25u
-#define DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO 26u
-#define DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL 27u
+#define DEBUG_VIEW_GI_VOXEL_WORLD 24u
+#define DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO 25u
+#define DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL 26u
 // the irradiance of the 8 probes around a point, trilinear, as the probes hold it: without their visibility, the
 // resolve into the voxels and the volumes (to tell what the probes see from what the lookups make of it)
-#define DEBUG_VIEW_GI_PROBES 28u
+#define DEBUG_VIEW_GI_PROBES 27u
 // the irradiance at the point itself: 256 cosine weighted rays from it through the voxels (seconds a frame), what the
 // probes' lookups approximate there
-#define DEBUG_VIEW_GI_SURFACE_REFERENCE 29u
+#define DEBUG_VIEW_GI_SURFACE_REFERENCE 28u
 // the state of the 8 probes around a point, trilinear (data): red the share marked inside something, green the share
 // whose depth map toward the point is empty (no ray near that way yet), blue the share that fail the visibility test
-#define DEBUG_VIEW_GI_PROBE_STATE 30u
-#define DEBUG_VIEW_COUNT 31u
+#define DEBUG_VIEW_GI_PROBE_STATE 29u
+#define DEBUG_VIEW_COUNT 30u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -598,7 +597,6 @@ struct CullView
 #define SHADER_TYPES_GI_GROUP_SIZE 64u
 // the kernels' threads are dispatched in rows of this many (a dispatch has at most 65535 groups a dimension)
 #define SHADER_TYPES_GI_ROW 4096u
-#define SHADER_TYPES_GI_LEVEL_COUNT 8u
 // the lights that light the voxels, binned into a grid of cells over the volume (gGiLightCells: a first index and count
 // into gGiLightIndices per cell)
 #define SHADER_TYPES_GI_LIGHT_GRID 16u
@@ -633,7 +631,12 @@ struct CullView
 // what the probes' update counts (gGiStatistics[frame], host visible): the probes traced this frame, which the next
 // frame's rays per probe are budgeted by (see Renderer::InternalPlanGi)
 #define GI_STATISTIC_ACTIVE_PROBES 0u
-#define GI_STATISTIC_COUNT 4u
+// diagnostic: rays whose walk hit its step cap (see GiMarch), and the last one's origin and direction
+#define GI_STATISTIC_CAPPED_RAYS 1u
+#define GI_STATISTIC_CAPPED_ORIGIN 2u
+#define GI_STATISTIC_CAPPED_DIRECTION 5u
+#define GI_STATISTIC_CAPPED_STATE 8u // clip, t, endHere, boxExit, voxel xyz, travelled
+#define GI_STATISTIC_COUNT 16u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means)
@@ -649,11 +652,9 @@ struct GiVoxel
 
 struct GiData
 {
-	// the volume: its corner (world space) and its voxels' size, its voxels per axis and its level count, and each level's
-	// first voxel in gGiRadiance
+	// the volume: its corner (world space) and its voxels' size, and its voxels per axis (w unused)
 	alignas(16) FLOAT4(volumeOrigin);
 	alignas(16) UINT4(volumeSize);
-	alignas(16) UINT4(levelFirst[2]);
 	// when it is voxelized (see ComputeGiShift): how far its voxels moved since the frame before, in voxels (a voxel
 	// takes the one that was at its place plus this; the others, which scrolled in, are voxelized). its size, or more,
 	// to voxelize all of it. the probes move with them (by whole probes: the clips move by whole probe cells)
@@ -675,8 +676,8 @@ struct GiData
 	// the debug view (PushConstants::debugView from DEBUG_VIEW_GI_FIRST, + 1; SPEEDO_GI_DEBUG): 1 shades with the
 	// indirect diffuse light alone (a white surface's), 2 with the probes' visibility (the weight of the probes around a
 	// point, see ComputeGiResolve), 3 with the radiance of the voxel behind the point (4: in front of it), 5 with its
-	// albedo (magenta where there is none, cyan outside the volume), 6 and 7 the references (see ComputeGiProbeUpdate and
-	// GiMarch), 8 the clip a point is lit by, 9 the indirect diffuse with the clip's voxel and probe cells drawn
+	// albedo (magenta where there is none, cyan outside the volume), 6 the probes' reference (see ComputeGiProbeUpdate),
+	// 7 the clip a point is lit by, 8 the indirect diffuse with the clip's voxel and probe cells drawn
 	alignas(4) UINT1(debug);
 	// the clip's first voxel in gGiVoxels and first cell in gGiLightCells; the clipmap's clip count, and this clip's index
 	// (the coarser ones follow it in gGi)
@@ -684,12 +685,11 @@ struct GiData
 	alignas(4) UINT1(lightCellFirst);
 	alignas(4) UINT1(clipCount);
 	alignas(4) UINT1(clip);
-	// the levels the rays march (see GiMarch): those whose voxels stay where they are in the world when the clip moves by
-	// its snaps (all of the last clip's, which doesn't)
-	alignas(4) UINT1(marchLevelCount);
-	// where in gGiRadiance the voxels' direct radiance is kept (after the levels): the lights' light off the static voxels,
+	// the clip's first voxel in gGiRadiance (the frame's radiance per voxel, what the rays see: ComputeGiLight), and where
+	// after them the voxels' direct radiance is kept: the lights' light off the static voxels,
 	// made when the clip is voxelized or the lights change (ComputeGiLightStatic), which the frame's lighting adds the
 	// bounce to (ComputeGiLight: a moving voxel's is made in the frame)
+	alignas(4) UINT1(radianceFirst);
 	alignas(4) UINT1(directFirst);
 	// the clip's first flag in gGiFlags: per voxel of level 2 (a 4x4x4 block), whether anything is voxelized near it
 	// (see ComputeGiFlags)
