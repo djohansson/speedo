@@ -429,6 +429,9 @@ private:
 	bool myGiLightsChanged = false;
 	Buffer myGiFlagBuffer;
 	FrameGraph::BufferId myGiFlags;
+	// per voxel which of its probes it sees, where the rays trace the BVHs (see ComputeGiResolve)
+	Buffer myGiVisibilityBuffer;
+	FrameGraph::BufferId myGiVisibility;
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;

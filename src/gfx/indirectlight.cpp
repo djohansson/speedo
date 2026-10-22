@@ -63,13 +63,17 @@ Clipmap MakeClipmap(
 {
 	ENSURE(resolution > 0 && clipCount > 0 && clipCount <= SHADER_TYPES_GI_CLIP_COUNT);
 
-	// the last clip: over the scene, with a margin of one and a half probe spacings around it, so that a layer of probes
-	// stands outside its outermost surfaces: with a voxel of margin, the probes nearest an outer wall were in it, and its
-	// outside saw none
+	// the last clip: over the scene, with a margin of a probe spacing around it, so that a layer of probes stands outside
+	// its outermost surfaces: with a voxel of margin, the probes nearest an outer wall were in it, and its outside saw
+	// none. a whole spacing, so that the scene's bounds are halfway between two planes of probes in every clip (the
+	// probes are half a spacing from a cell's corner): at one and a half, a plane of the last clip's probes lay in the
+	// scene's outermost surfaces (CornellBox's floor, back and left walls, salle_de_bain's floor), half of each probe's
+	// rays leaving through the surface it was on, and the relocation couldn't tell which way was off it (the surface's
+	// voxels on both sides of it): those probes lit the floor along CornellBox's back wall with the sky
 	glm::vec3 min = bounds.GetMin();
 	glm::vec3 max = bounds.GetMax();
 	auto extent = glm::max(max - min, glm::vec3(1e-3F));
-	uint32_t margin = (probeSpacing * 3 + 1) / 2;
+	uint32_t margin = probeSpacing;
 	float voxelSize = std::max({extent.x, extent.y, extent.z}) / static_cast<float>(std::max(resolution, 2 * margin + 1) - 2 * margin);
 	min -= glm::vec3(voxelSize * static_cast<float>(margin));
 	glm::uvec3 size = glm::max(

@@ -150,7 +150,8 @@ RWStructuredBuffer<uint> gCullStatistics[SHADER_TYPES_FRAME_COUNT];
 // occupancy, and occupancy) by level, the probes' rays of the frame (rgba16f: the radiance along each, and the distance
 // to what it meets in probe spacings) per probe and ray, and the probes' irradiance (an ambient cube: a float4 per face,
 // +x, -x, +y, -y, +z, -z, rgb; face 0's w the frames the probe has accumulated, 1's its noise, 2 to 4's its offset, 5's
-// whether it is inside something), in two halves (see GiData::probeFirst)
+// the share of its rays that met a surface's back, blended: inside above kGiInsideShare), in two halves (see
+// GiData::probeFirst)
 [[vk::binding(21, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<GiData> gGi[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(22, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
@@ -187,4 +188,8 @@ RWStructuredBuffer<uint> gGiStatistics[SHADER_TYPES_FRAME_COUNT];
 StructuredBuffer<float4> gBvhMovingNodes[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(34, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<float4> gBvhMovingTriangles[SHADER_TYPES_FRAME_COUNT];
+// which of each voxel's 8 probes see it, traced through the BVHs (see ComputeGiResolve), in two halves (this frame's and
+// the last's, see GiData::visibilityFirst)
+[[vk::binding(35, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gGiVisibility;
 

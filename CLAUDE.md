@@ -952,8 +952,12 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
 
 - **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
   most 4), finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
-  longest axis, a margin of one and a half probe spacings, so that a layer of probes stands outside its outermost
-  surfaces); each before it is a cube of about its voxel count (a multiple of 4 voxels a side, the flags' blocks; no
+  longest axis, a margin of a probe spacing, so that a layer of probes stands outside its outermost surfaces; a whole
+  spacing puts the bounds halfway between two planes of probes in every clip, the probes being half a spacing from a
+  cell's corner: at one and a half, a plane of the last clip's probes lay in the outermost surfaces, CornellBox's floor,
+  back and left walls, half of each one's rays leaving through the surface it was on and the relocation unable to tell
+  which way was off it, the surface's voxels being on both sides of it, and they lit the floor along the back wall
+  with the sky; Sponza's error against its surface reference went from 0.385 to 0.341); each before it is a cube of about its voxel count (a multiple of 4 voxels a side, the flags' blocks; no
   bigger than the last along an axis: Bistro's and Sponza's 92) of voxels half the size of the next, centered ahead of
   the eye toward what the camera looks at (below) on a grid of its probes and kept inside the last. As slabs of the last clip's shape (Bistro's 122x53x128
   voxels made the finest 14.7 m tall at 27.7 cm, Sponza's 4.9 m), the ground fell out of them from a high viewpoint
@@ -990,7 +994,12 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   occupancy, normal facing away from the face, emission; `InterlockedMax`, so that the order doesn't matter). Both
   faces, always: a double sided material's either face can be the one seen, and a triangle's winding, its vertex
   normals and the side it is drawn from needn't agree (CornellBox's generated normals point out of the box, whose walls
-  are seen from inside). Each side's voxel is a shell for the lookups and the relocation; for the rays (`GiMarch`,
+  are seen from inside). Which faces wrote a voxel is kept (`GiVoxelFaces`: 1 a front face, behind which it stands for the
+back side, 2 a back face, 3 both), and whether a double sided triangle did (`kGiVoxelDoubleSided`; a job's bit 30, from
+its draw's cull mode), and a drawn side's normal wins the voxel's (`GiPackVoxelNormal`: the front side's, either of a
+double sided triangle's, by the normal's top bit in the atomic maximum). A voxel a single sided triangle's front face
+wrote holds a side never drawn, and the resolve gives it no light (see the BVH's paragraph below). Each side's voxel is
+a shell for the lookups and the relocation; for the rays (`GiMarch`,
   `GiOccluderHit`: the probes' rays and depth, the shadow rays, the Voxel World view) the voxel a back face alone wrote
   (`GiVoxel::emissionB`'s faces 2: outside a solid, by the importers' outward winding) is passed, and is the surface
   met if its twin behind is hit within two voxels (its radiance and normal), so a surface is a voxel thick for them
@@ -1075,9 +1084,14 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   of its rays met a surface's back (`GiOccluderHit`: the voxel's normal along the ray, unless both of a triangle's faces
   wrote the voxel, a thin wall's, whose normal is either's: the voxelizer keeps which faces wrote in
   `GiVoxel::emissionB`'s bits 16 and 17), away from the nearest such by its distance and a tenth of a spacing, a frame at
-  a time, never more than 0.45 of a spacing from the lattice point; a probe still inside after that (Sponza's outer
-  walls are 0.6 m thick and empty between their shells) is marked (coefficient 5's w, DDGI's classification) and the
-  resolve skips it. It costs: a wall on a lattice plane makes a plane of probes trace that returned dead before
+  a time, never more than 0.45 of a spacing from the lattice point, and only while the probe settles (its first two
+  cycles of ray phases, again whenever it starts over); a probe still inside after that (Sponza's outer walls are 0.6 m
+  thick and empty between their shells) is marked (DDGI's classification: face 5's w holds the share of its rays that
+  met a back, blended over its frames, inside above a quarter, `kGiInsideShare`) and the resolve skips it. Both used to
+  go by the frame's rays alone, and each frame's are another set: a probe near a quarter of its rays on backs moved
+  every frame within its reach and was skipped on alternate frames, which with the BVH's rays (they meet single sided
+  walls from behind, where the voxels' walk passed them) flickered salle_de_bain's niches by up to 100 of 255 (mean
+  change 2.64 a frame, 0.11 after; Sponza's error against its reference the same, 0.377). It costs: a wall on a lattice plane makes a plane of probes trace that returned dead before
   (CornellBox +3 ms, Sponza +1). A probe that hugs a surface sees a bright emitter in it at a steep angle: as
   spherical harmonics (bands 0 to 2, until 2026-10-22) its light rang, a yellow halo and a dark ring on CornellBox's
   ceiling around its lamp, and a bright compact source at a grazing angle kept 3/32 of its strength along the surface's
@@ -1283,7 +1297,41 @@ probes' rays (one closest hit answers the radiance and the depth, `GiTraceBvh`),
 `GiVisibility`) and both references. Where a ray hits, the radiance is the voxels' (`GiRadianceAtHit`: the shell voxel half
 a voxel off the surface on the ray's side, in the finest clip whose box around the eye holds the point), so the lighting,
 the bounce and the probes are as before; what changes is what a ray meets: the triangles, with no surface a voxel thick
-and no opening narrowed by its shells. A hit carries its normal toward the ray, its side and its flags (`BvhHit`). A
+and no opening narrowed by its shells. With the triangles the resolve doesn't test the probes by their depth maps either: whether each of a voxel's 8 probes
+sees it is a ray between them through the static BVH (to the voxel's center, a surface's voxel's half a voxel out along
+its normal, stopping a twentieth of a voxel short of it: a quarter left a surface crossed within it untested, and a
+probe over CornellBox's ceiling saw a corner voxel's point 4 mm under it, a streak along the ceiling's edge; a back face
+met means the probe is behind a wall, and it is skipped, a front face hides it), kept per voxel
+(`gGiVisibility`: 2 bits a probe and a valid bit, in two halves as the probes, by the scroll) and traced again only for
+the blocks where a probe moved or is new (`gGiSharedProbeMoved`). Every probe is traced on a retrace, the ones the
+resolve then skips as inside too: skipped before the trace, their bits stayed visible, and a probe whose inside share
+hovered at the line lit what it couldn't see once it fell below, in some runs and not others. A probe weighs its
+facing's 4th power (nothing behind the voxel's open side), a thousandth of that if hidden; and the hidden ones bring
+the least light of theirs (per face and color), not their mean: a voxel no probe sees can confirm none of it, and a
+pocket no probe sees into is a shadowed one. salle_de_bain's niches, 67 units out in the last clip (3.5 m probes, 0.44 m
+voxels), took all of that: by their depth texels, half a metre wide there, the probes behind the back wall (in the
+closed space the window's emitter lights, 40 times the room's light) passed for the niches' points, and with the
+traced test no probe sees into the niches at all (the room's hug the wall plane), so their voxels took the hidden
+probes' light, and those behind the wall are straight along the niches' open side; neither the face a hiding ray meets
+nor how far from the voxel it meets it tells a wall between from a niche's lip. The niches went from white blotches
+that flickered (the largest pixel step a frame 24 of 255) to as dim as the walls around (the statue's base 0.21 to
+0.055 against the walls' 0.068, then 0.077 against 0.058 once the last clip's margin was a whole spacing, as in the
+surface reference, whose niches are as bright as its walls; steps of 2 at most). A test in the shading's lookup of which voxels are of the point's side (a
+voxel's open side, kept per voxel, read for its 8 voxels, the filter by hand where any is not) cost Sponza's main pass
+6.3 ms and wasn't needed once the voxels were right. Traced every frame it cost Bistro's street 12.6 ms; refreshed a
+voxel in 8 a frame as much (a few threads of every simd group trace), a block in 32 a frame 2.6 ms (the dispatch waits
+for its slowest group, whose threads trace 8 rays each in turn); settled, none are traced (4,700 blocks a frame while
+Sponza's probes settle, none from frame 80). All of it, with the back sides, the margin below and the shorter rays,
+against before (interleaved builds, the `Frame` scope): salle_de_bain 11.4 to 11.55 ms, Sponza 22.4 to 23.6, Bistro's
+street 25.15 to 26.5, CornellBox-Sphere 9.1 to 9.9; of that the whole spacing of margin is Sponza's 0.5 and
+CornellBox's 0.27 (its probes trace now, where they lay dead in the outer surfaces). Sponza against its
+reference 0.386 to 0.390. The voxels the back sides of single sided triangles wrote (outside the room, inside a solid)
+are given no light: resolved for that side, the row over salle_de_bain's ceiling (a single sided triangle 0.08 m under
+the row's centers) was lit from the sky through the space over it, and a wall's top, whose lookup's filter reaches
+that row, drew a bright line along every wall (0.56 against the wall's 0.13); at a wall's top the wall's room side and
+the space over the ceiling share a voxel, whose open side the occupied voxels below it turned up, so they go too
+(CornellBox the same in both ray modes; Sponza 0.385). Drawn sides' normals winning the voxel's took the room's level
+down a tenth (the light from outside it). A hit carries its normal toward the ray, its side and its flags (`BvhHit`). A
 backface is a single sided triangle seen from behind (the compressed triangles' transform divides the normal by its
 largest component, whose sign `Build` keeps in their last float4's x, with `BVH_TRIANGLE_FLAG_*` and the material's index
 in y and the first index in z). Alpha masked triangles (`BVH_TRIANGLE_FLAG_ALPHA_MASKED`) are cut out as the main pass's

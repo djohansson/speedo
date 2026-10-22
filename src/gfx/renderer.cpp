@@ -197,6 +197,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiIrradiance = myGraph.ImportBuffer("GI Irradiance");
 	myGiProbeDepth = myGraph.ImportBuffer("GI Probe Depth");
 	myGiFlags = myGraph.ImportBuffer("GI Flags");
+	myGiVisibility = myGraph.ImportBuffer("GI Visibility");
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGiVolumes[volumeIt] = myGraph.ImportImage(std::format("GI Volume {}", volumeIt));
 	myGiStaticVoxels = myGraph.ImportBuffer("GI Static Voxels");
@@ -207,7 +208,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiRayBuffer, "GI Rays", 2 * sizeof(uint32_t)},
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
-			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)}})
+			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)},
+			 std::tuple{&myGiVisibilityBuffer, "GI Visibility", sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			size,
@@ -615,7 +617,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		"GI Clear",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility})
 				builder.Use(buffer, ResourceUse::TransferDestination());
 			// the volumes too: the resolve writes only the blocks near a surface, and a lookup's filter reaches into the
 			// ones beside them
@@ -625,7 +627,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassContext& context)
 		{
 			CommandEncoder encoder(context.cmd);
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility})
 				encoder.FillBuffer(context.graph.GetBuffer(buffer), 0, 0, 0);
 			for (auto volume : myGiVolumes)
 				context.graph.GetImage(volume).Clear(context.cmd, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
@@ -735,6 +737,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiVisibility, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			for (auto volume : myGiVolumes)
@@ -1384,6 +1387,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{"gGiIrradiance", &myGiIrradianceBuffer},
 			 std::pair{"gGiProbeDepth", &myGiProbeDepthBuffer},
 			 std::pair{"gGiFlags", &myGiFlagBuffer},
+			 std::pair{"gGiVisibility", &myGiVisibilityBuffer},
 			 std::pair{"gGiStaticVoxels", &myGiStaticVoxelBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// a voxel each until a model is voxelized (a depth of 2: a volume)
@@ -1746,6 +1750,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiIrradiance, myGiIrradianceBuffer);
 	myGraph.Bind(myGiProbeDepth, myGiProbeDepthBuffer);
 	myGraph.Bind(myGiFlags, myGiFlagBuffer);
+	myGraph.Bind(myGiVisibility, myGiVisibilityBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
@@ -2307,6 +2312,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			constexpr auto kVoxelUsage = BufferUsage::kStorage | BufferUsage::kTransferSource | BufferUsage::kTransferDestination;
 			InternalReplaceBuffer(myGiVoxelBuffer, pipeline, "GI Voxels", "gGiVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
 			InternalReplaceBuffer(myGiStaticVoxelBuffer, pipeline, "GI Static Voxels", "gGiStaticVoxels", total.voxelCount * sizeof(GiVoxel), kVoxelUsage);
+			// which probes each voxel sees, in two halves as the probes (see GiData::visibilityFirst)
+			InternalReplaceBuffer(
+				myGiVisibilityBuffer, pipeline, "GI Visibility", "gGiVisibility", 2 * static_cast<uint64_t>(total.voxelCount) * sizeof(uint32_t), kVoxelUsage);
 			const auto& size = clipmap.clips.front().data.volumeSize;
 			InternalReplaceGiVolumes(
 				pipeline, glm::uvec3(clipmap.clips.back().data.volumeImage[0], clipmap.clips.back().data.volumeImage[1], clipmap.clips.back().data.volumeImage[2]));
@@ -2365,7 +2373,14 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 											  !glm::any(glm::lessThan(item.bounds.GetMax(), box.GetMin()));
 								   }))
 					continue;
-				jobs.insert(jobs.end(), {triangles, item.firstIndex, item.record, item.instanceCount | (moving ? 0x80000000U : 0U)});
+				// its instances, whether it moves (bit 31) and whether it is double sided (bit 30: see ComputeGiVoxelize)
+				ENSUREF(item.instanceCount < 0x40000000U, "GI job instance count {} past 2^30", item.instanceCount);
+				jobs.insert(
+					jobs.end(),
+					{triangles,
+					 item.firstIndex,
+					 item.record,
+					 item.instanceCount | (moving ? 0x80000000U : 0U) | (item.cullMode == CullMode::kNone ? 0x40000000U : 0U)});
 				triangles += item.indexCount / 3;
 			}
 			jobCount = static_cast<uint32_t>((jobs.size() - first) / 4);
@@ -2432,6 +2447,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = myGiProbeHalf * probeTotal + clipFirst;
 		clip.probePreviousFirst = (1 - myGiProbeHalf) * probeTotal + clipFirst;
+		clip.visibilityFirst = myGiProbeHalf * myGiClipmap.total.voxelCount + clip.voxelFirst;
+		clip.visibilityPreviousFirst = (1 - myGiProbeHalf) * myGiClipmap.total.voxelCount + clip.voxelFirst;
 		clip.depthFirst = clip.probeFirst * kDepthTexelCount;
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;

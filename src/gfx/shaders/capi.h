@@ -786,6 +786,10 @@ struct GiData
 	// of what moves (gBvhMovingNodes[frame], see gfx::bvh::Moving)
 	alignas(4) UINT1(trace);
 	alignas(4) UINT1(bvhMoving);
+	// where the rays trace the BVHs, the clip's first voxel in gGiVisibility in this frame's half and in the last frame's
+	// (see ComputeGiResolve: which of each voxel's probes see it, traced and kept)
+	alignas(4) UINT1(visibilityFirst);
+	alignas(4) UINT1(visibilityPreviousFirst);
 };
 
 struct PushConstants

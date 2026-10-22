@@ -108,6 +108,31 @@ uint3 GiLevelSize(GiData gi, uint level)
 	return GiLevelVoxels(gi.volumeSize.xyz, level);
 }
 
+// which of its triangles' faces wrote a voxel (see ComputeGiVoxelize): 1 the front's (it is behind the front face, and
+// stands for the back side), 2 the back's (in front of it: the front side), 3 both
+uint GiVoxelFaces(GiVoxel voxel)
+{
+	return (voxel.emissionB >> 16) & 3u;
+}
+
+// a double sided triangle wrote the voxel (GiVoxel::emissionB's bit 18)
+static const uint kGiVoxelDoubleSided = 1u << 18;
+
+// a voxel's normal (GiVoxel::normal: octahedral, x in 16 bits and y in 15, then whether a drawn side wrote it, see
+// ComputeGiVoxelize)
+static const uint kGiVoxelNormalDrawn = 1u << 31;
+
+uint GiPackVoxelNormal(float3 normal, bool drawn)
+{
+	float2 octahedral = GiOctahedral(normal) * 0.5 + 0.5;
+	return uint(round(octahedral.x * 65535.0)) | (uint(round(octahedral.y * 32767.0)) << 16) | (drawn ? kGiVoxelNormalDrawn : 0u);
+}
+
+float3 GiVoxelNormal(uint bits)
+{
+	return GiFromOctahedral(float2(float(bits & 0xFFFFu) / 65535.0, float((bits >> 16) & 0x7FFFu) / 32767.0) * 2.0 - 1.0);
+}
+
 uint GiVoxelIndex(uint3 voxel, uint3 size)
 {
 	return (voxel.z * size.y + voxel.y) * size.x + voxel.x;
@@ -310,7 +335,7 @@ float4 GiMarch(GiData gi, float3 origin, float3 direction, float end, bool skipE
 				{
 					// the voxel a back face alone wrote is a surface's shell on its open side (see GiOccluderHit): passed, and
 					// what the ray sees of the surface when the twin behind it is met
-					if ((gGiVoxels[clip.voxelFirst + index].emissionB >> 16) == 2u)
+					if (GiVoxelFaces(gGiVoxels[clip.voxelFirst + index]) == 2u)
 					{
 						passedT = t;
 						passedRadiance = found.rgb;
@@ -408,7 +433,7 @@ float GiOccluderHit(GiData gi, float3 origin, float3 direction, float distance, 
 			GiVoxel found = gGiVoxels[clip.voxelFirst + GiVoxelIndex(uint3(voxel), size)];
 			if ((found.albedo >> 24) != 0u && !first)
 			{
-				uint faces = found.emissionB >> 16;
+				uint faces = GiVoxelFaces(found);
 				if (faces == 2u)
 				{
 					passedT = t;
@@ -417,7 +442,7 @@ float GiOccluderHit(GiData gi, float3 origin, float3 direction, float distance, 
 				else
 				{
 					uint normalBits = t - passedT < 2.0 ? passedNormal : found.normal;
-					float3 normal = GiFromOctahedral(float2(normalBits & 0xFFFFu, normalBits >> 16) / 65535.0 * 2.0 - 1.0);
+					float3 normal = GiVoxelNormal(normalBits);
 					backface = travelled + t > 0.0 && faces != 3u && dot(normal, direction) > 0.0;
 					return travelled + t * clip.volumeOrigin.w;
 				}
@@ -733,8 +758,9 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 	float3 emission = 0.0;
 
 	uint3 size = GiLevelSize(gi, 0);
-	uint instanceCount = job.w & 0x7FFFFFFFu;
+	uint instanceCount = job.w & 0x3FFFFFFFu;
 	bool moving = (job.w >> 31) != 0u; // a job of what moves (see Renderer::InternalPlanGi)
+	bool doubleSided = ((job.w >> 30) & 1u) != 0u;
 	for (uint instanceIt = 0; instanceIt < instanceCount; instanceIt++)
 	{
 		// as the vertex stage places them (what moves: morphed and skinned); what doesn't, by the instance's transform
@@ -828,10 +854,14 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			// first, and it is lit from there (its shadow rays leave away from the surface). it took this face's normal,
 			// toward the surface: each shadow ray started in its twin across the surface and was blocked (no voxel was ever
 			// lit by a light), and a ray from in front of a wall met the voxel of its back face, lit from inside the wall
-			float2 octahedral = GiOctahedral(-facing) * 0.5 + 0.5;
+			// a drawn side's normal wins (the atomic maximum below, by its top bit): the front side's (behind the back face),
+			// either of a double sided triangle's. a voxel written by one triangle's front side and another's back, at a
+			// single sided ceiling's edge on a wall (the wall's room side and the space over the ceiling), took either
+			// normal, and was resolved as the space over the ceiling when it took the ceiling's: lit from the sky through
+			// it, it drew a bright line along salle_de_bain's walls' tops
 			GiVoxel voxel;
 			voxel.albedo = GiPackRgba8(float4(albedo, 1.0));
-			voxel.normal = (uint(round(octahedral.x * 65535.0))) | (uint(round(octahedral.y * 65535.0)) << 16);
+			voxel.normal = GiPackVoxelNormal(-facing, sideIt == 1u || doubleSided);
 			// the emission into the voxel in front of the front face only (an emitter emits from its front): into both, an
 			// interior's emissive ceiling, which meets or runs through the facade, lit the facade's own voxels at coarse
 			// voxels (the yellow around the entrance by Bistro's square, seen from the street)
@@ -885,8 +915,9 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 					InterlockedMax(gGiVoxels[index].emissionRG, voxel.emissionRG);
 					InterlockedMax(gGiVoxels[index].emissionB, voxel.emissionB);
 					// and which of the triangle's faces wrote it (bits 16 and 17): both, the voxel is a thin wall's, whose
-					// normal is either face's (see GiOccluderHit)
-					InterlockedOr(gGiVoxels[index].emissionB, (sideIt + 1u) << 16);
+					// normal is either face's (see GiOccluderHit); and whether a double sided one did (bit 18, see
+					// kGiVoxelDoubleSided)
+					InterlockedOr(gGiVoxels[index].emissionB, ((sideIt + 1u) << 16) | (doubleSided ? kGiVoxelDoubleSided : 0u));
 				}
 			}
 		}
@@ -900,7 +931,7 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 	uint frameIndex = gPushConstants.frameIndex;
 	uint3 size = GiLevelSize(gi, 0);
 	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
-	float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+	float3 normal = GiVoxelNormal(voxel.normal);
 	float3 emission = float3(GiUnpackHalf2(voxel.emissionRG), GiUnpackHalf2(voxel.emissionB).x);
 
 	uint3 cell = min(uint3(float3(at) / float3(size) * float(SHADER_TYPES_GI_LIGHT_GRID)), uint3(SHADER_TYPES_GI_LIGHT_GRID - 1));
@@ -1036,7 +1067,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	if (gi.bounce != 0u && gi.reset == 0u)
 	{
 		float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
-		float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		float3 normal = GiVoxelNormal(voxel.normal);
 		float3 bounce = GiIrradianceResolved(gi, position, normal);
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);
@@ -1147,7 +1178,7 @@ bool GiMovingShadows(GiData gi, uint3 at, GiVoxel voxel)
 	uint frameIndex = gPushConstants.frameIndex;
 	uint3 size = GiLevelSize(gi, 0);
 	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
-	float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+	float3 normal = GiVoxelNormal(voxel.normal);
 	uint3 cell = min(uint3(float3(at) / float3(size) * float(SHADER_TYPES_GI_LIGHT_GRID)), uint3(SHADER_TYPES_GI_LIGHT_GRID - 1));
 	uint2 range = gGiLightCells[frameIndex][gi.lightCellFirst + (cell.z * SHADER_TYPES_GI_LIGHT_GRID + cell.y) * SHADER_TYPES_GI_LIGHT_GRID + cell.x];
 	for (uint lightIt = range.x; lightIt < range.x + range.y; lightIt++)
@@ -1185,6 +1216,18 @@ float3 GiProbeLatticePosition(GiData gi, uint3 probe)
 // clip (kGiNoProbe)
 static const uint kGiNoProbe = 0xFFFFFFFFu;
 
+// a probe is inside something while more than this share of its rays meet a surface's back, as blended over its frames
+// (its irradiance's face 5's w, see ComputeGiProbeUpdate)
+static const float kGiInsideShare = 0.25;
+
+// where the rays trace the BVHs, the resolve keeps per voxel whether each of its 8 probes sees it (gGiVisibility: 2 bits a
+// probe, kGiVisible, kGiHidden or kGiBehind, and kGiVisibilityValid), traced again where a probe moved or the kept bits
+// aren't valid (new to the clip, or after a reset), carried over from the last frame otherwise
+static const uint kGiVisible = 0u; // nothing between them
+static const uint kGiHidden = 1u; // a surface's front between them
+static const uint kGiBehind = 2u; // a surface's back between them: the probe is behind it
+static const uint kGiVisibilityValid = 1u << 16;
+
 float3 GiProbeOffset(uint offsetIndex)
 {
 	if (offsetIndex == kGiNoProbe)
@@ -1213,7 +1256,7 @@ float3 GiCornerAway(GiData gi, float3 position)
 			continue;
 		GiVoxel found = gGiVoxels[gi.voxelFirst + GiVoxelIndex(uint3(voxel), size)];
 		if ((found.albedo >> 24) != 0u)
-			away += GiFromOctahedral(float2(found.normal & 0xFFFFu, found.normal >> 16) / 65535.0 * 2.0 - 1.0);
+			away += GiVoxelNormal(found.normal);
 	}
 	float length2 = dot(away, away);
 	return length2 > 1e-4 ? away / sqrt(length2) : 0.0;
@@ -1506,7 +1549,13 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		{
 			float4 ray = gGiSharedRays[rayIt];
 			float3 direction = gGiSharedDirections[rayIt];
-			float rayDepth = abs(ray.a);
+			// a ray that met a surface's back counts a fifth of its distance (RTXGI's): the probe is behind that surface
+			// that way, and the points on its front, at the same distance, must fail the probe's test. at the full distance
+			// a probe behind a thin wall passed for the points on its front (the BVH's rays meet a wall's back exactly where
+			// its front is, where the voxels' walk met the wall's back shell a voxel nearer): probes in the space behind
+			// salle_de_bain's back wall, by the window's emitter, lit its niches with white patches the surface reference
+			// hasn't
+			float rayDepth = ray.a < 0.0 ? -ray.a * 0.2 : ray.a;
 			for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
 			{
 				float cosine = max(dot(texelDirection[texelIt], direction), 0.0);
@@ -1532,9 +1581,9 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 				if (ray.a < 0.0)
 				{
 					backfaceCount++;
-					if (rayDepth < closestBackface)
+					if (-ray.a < closestBackface)
 					{
-						closestBackface = rayDepth;
+						closestBackface = -ray.a; // its real distance: the relocation moves by it
 						closestBackfaceDirection = direction;
 					}
 				}
@@ -1591,7 +1640,12 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// where its target is clear of voxels, else the probe stays: it used to go wherever the normals pointed, and a probe
 	// behind Bistro's hotel facade, whose two targets were each in the other's voxels (the facade's and the window
 	// frames', at 28 cm), jumped between them every frame, one inside the hotel, which its emissive interior lights 30
-	// times brighter than the street: the wall by the window lit yellow on alternate frames (the user's heavy flicker)
+	// times brighter than the street: the wall by the window lit yellow on alternate frames (the user's heavy flicker).
+	// the backface move only while the probe settles (its first two cycles of ray phases, see GiData::rayPhase; again
+	// whenever it starts over), then it stays where that left it: each frame's rays are another set, whose nearest back
+	// face is elsewhere, so a probe at a quarter of its rays on backs moved every frame within its reach, and the points
+	// it lit flickered by up to 100 of 255 (salle_de_bain's niches, whose single sided walls the BVH's rays meet from
+	// behind, where the voxels' walk passed them: both faces wrote their voxels)
 	float3 offset = GiProbeOffset(history);
 	{
 		float3 lattice = GiProbeLatticePosition(gi, probe);
@@ -1602,7 +1656,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			if (all(GiCornerAway(gi, lattice + candidate) == 0.0))
 				offset = candidate;
 		}
-		else if (backfaceCount * 4u > gi.rayCount)
+		else if (age < 2.0 * float(gi.rayPhaseCount) && backfaceCount * 4u > gi.rayCount)
 			offset -= closestBackfaceDirection * ((closestBackface + 0.1) * gi.probeOrigin.w);
 		float limit = 0.45 * gi.probeOrigin.w;
 		float offsetLength = length(offset);
@@ -1704,7 +1758,12 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// and whether it is inside something still (more than a quarter of its rays met a surface's back: face 5's w,
 	// DDGI's classification): the resolve skips it (Sponza's outer walls are thicker than a probe may move, and a probe
 	// between their shells, which sees 0.3 of a spacing all around, passed as seeing the points of the corridor beside)
-	float inside = backfaceCount * 4u > gi.rayCount ? 1.0 : 0.0;
+	// the share of its rays that met a surface's back, blended over its frames as its light is: inside while above a
+	// quarter (kGiInsideShare). this frame's share alone swings with the frame's ray set, and a probe near a quarter was
+	// skipped by the resolve on alternate frames, its light and its neighbours' taking turns at the points around it
+	// (salle_de_bain's niches flickered by up to 100 of 255)
+	float frameInside = float(backfaceCount) / float(gi.rayCount);
+	float inside = shifted ? lerp(gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_IRRADIANCE_COUNT + 5].w, frameInside, alpha) : frameInside;
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
 	{
 		float kept = shIt == 0u ? min(age + 1.0, 65535.0) : (shIt == 1u ? noise : (shIt == 2u ? offset.x : (shIt == 3u ? offset.y : (shIt == 4u ? offset.z : (shIt == 5u ? inside : 0.0)))));
@@ -1833,7 +1892,7 @@ float3 GiReferenceOrigin(GiData gi, float3 position, float3 normal, float3 view)
 		GiVoxel voxel = GiVoxelAt(gi, uint3(at));
 		if ((voxel.albedo >> 24) == 0u)
 			break;
-		float3 out = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		float3 out = GiVoxelNormal(voxel.normal);
 		float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 		if (dot(out, any(view != 0.0) ? view : position - center) < 0.0)
 			out = -out;
@@ -1967,6 +2026,8 @@ float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weig
 groupshared float4 gGiSharedIrradiance[8 * SHADER_TYPES_GI_IRRADIANCE_COUNT];
 groupshared uint gGiSharedDepth[8 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE];
 groupshared float3 gGiSharedProbePosition[8];
+// whether the probe moved since the last frame, or is new: what its voxels' traced visibility was traced from is gone
+groupshared uint gGiSharedProbeMoved[8];
 
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -1988,8 +2049,13 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	if ((gGiFlags[GiFlagIndex(gi, blockIndex)] & 1u) == 0u)
 	{
 		if (inside)
+		{
 			for (uint volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 				gGiVolumeImages[volumeIt][texel] = 0.0;
+			// nothing kept: once the block is near something again, its probes are traced anew
+			if (GiTracesBvh(gi))
+				gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
+		}
 		return;
 	}
 
@@ -2003,7 +2069,11 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	uint3 slots = uint3(blockLast - blockBase) + 2u;
 	uint slotCount = slots.x * slots.y * slots.z;
 	if (slotCount > 8u)
+	{
+		if (inside && GiTracesBvh(gi))
+			gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
 		return;
+	}
 	for (uint loadIt = groupIndex; loadIt < slotCount * SHADER_TYPES_GI_IRRADIANCE_COUNT; loadIt += SHADER_TYPES_GI_GROUP_SIZE)
 	{
 		uint slot = loadIt / SHADER_TYPES_GI_IRRADIANCE_COUNT;
@@ -2020,7 +2090,10 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	{
 		uint slot = groupIndex;
 		uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
-		gGiSharedProbePosition[slot] = GiProbePosition(gi, probe, gi.probeFirst + GiProbeIndex(probe, gi.probeSize));
+		uint current = gi.probeFirst + GiProbeIndex(probe, gi.probeSize);
+		gGiSharedProbePosition[slot] = GiProbePosition(gi, probe, current);
+		uint history = GiProbeHistory(gi, probe);
+		gGiSharedProbeMoved[slot] = history == kGiNoProbe || any(GiProbeOffset(history) != GiProbeOffset(current)) ? 1u : 0u;
 	}
 	GroupMemoryBarrierWithGroupSync();
 	if (!inside)
@@ -2028,6 +2101,22 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 
 	float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 	GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)];
+	// a voxel a single sided triangle's front face wrote holds its back side, which is never drawn (outside a room's
+	// walls, inside a solid): it holds no light for the lookups, though a drawn side wrote it too (a voxel can't tell
+	// which of it is whose). resolved for that side, the probes there lit it, and a lookup at a surface beside it, whose
+	// filter reached it, took their light: the voxel row over salle_de_bain's ceiling, a single sided triangle 0.08 m
+	// under the row's centers, lit from the sky through the space over it, drew a bright line along the walls' tops
+	// (0.56 against the wall's 0.13); at a wall's top, the wall's room side and the space over the ceiling share the row,
+	// and its open side, by the occupied voxels below it, was up. CornellBox the same, Sponza against its reference
+	// 0.390 to 0.385
+	if ((voxel.albedo >> 24) != 0u && (GiVoxelFaces(voxel) & 1u) != 0u && (voxel.emissionB & kGiVoxelDoubleSided) == 0u)
+	{
+		for (uint volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
+			gGiVolumeImages[volumeIt][texel] = 0.0;
+		if (GiTracesBvh(gi))
+			gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
+		return;
+	}
 	// which way is away from the surfaces next to it: the occupancy's gradient over its 6 neighbors, plus a surface's
 	// voxel's own normal; the point the probes are tested from is out that way, by a fifth of a spacing (DDGI's normal
 	// bias: a point close to a surface fails a probe's test at a grazing angle, where the probe's depth that way is of
@@ -2052,7 +2141,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	}
 	if ((voxel.albedo >> 24) != 0u)
 	{
-		float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		float3 normal = GiVoxelNormal(voxel.normal);
 		away = dot(away, away) > 0.0 ? normalize(away) + normal : normal;
 	}
 	float awayLength = length(away);
@@ -2063,6 +2152,32 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	if ((voxel.albedo >> 24) != 0u)
 		center += away * gi.volumeOrigin.w;
 	float3 point = center + away * max(0.2 * gi.probeOrigin.w, gi.volumeOrigin.w);
+	// where the rays trace the BVHs, whether each probe sees the voxel is a ray between them (see the loop below), kept:
+	// the bits of the voxel at its place last frame (by the scroll), traced again where any of the block's probes moved
+	// (its relocation, see ComputeGiProbeUpdate) or is new, and wherever they aren't valid: against the static BVH
+	// nothing else changes them. by block, a group's threads together: refreshed a voxel in 8 a frame, a few threads of
+	// every simd group traced, which cost as much as all of them, and a block in 32 a frame still cost Bistro's street
+	// 2.6 ms (a group's threads trace 8 rays each in turn, and the dispatch waits for the slowest group). aimed at the
+	// voxel's center, a surface's voxel's out along its own normal by half a voxel (the side it stands for): the open
+	// side the test point above goes by is a guess at the voxels around, which in a coarse clip pointed salle_de_bain's
+	// niches' points into the space behind their wall
+	bool traced = GiTracesBvh(gi);
+	uint voxelIndex = GiVoxelIndex(at, size);
+	uint visibilityBits = 0u;
+	bool retrace = false;
+	float3 tracedPoint = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+	if (traced)
+	{
+		int3 from = int3(at) + gi.scroll.xyz;
+		visibilityBits = gi.reset == 0u && GiInside(from, size) ? gGiVisibility[gi.visibilityPreviousFirst + GiVoxelIndex(uint3(from), size)] : 0u;
+		retrace = (visibilityBits & kGiVisibilityValid) == 0u;
+		for (uint slotIt = 0; slotIt < slotCount; slotIt++)
+			retrace = retrace || gGiSharedProbeMoved[slotIt] != 0u;
+		if (retrace)
+			visibilityBits = kGiVisibilityValid;
+		if ((voxel.albedo >> 24) != 0u)
+			tracedPoint += GiVoxelNormal(voxel.normal) * (0.5 * gi.volumeOrigin.w);
+	}
 	// between the block's cell's probes (the moved center may be past the cell: clamped, since only its probes are in
 	// shared memory; read past them, the floor behind Sponza's fountains came out as black and colored garbage)
 	int3 base = blockBase;
@@ -2072,6 +2187,11 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
 		sh[shIt] = 0.0;
 	float seen = 0.0;
+	// traced, the hidden probes' light apart: the least of it (see below)
+	float3 shHidden[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+		shHidden[shIt] = 1e30;
+	float hiddenWeight = 0.0;
 	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
 	{
 		int3 offset = int3(cornerIt & 1, (cornerIt >> 1) & 1, cornerIt >> 2);
@@ -2082,13 +2202,14 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		float weight = 1.0;
 		float3 probePosition = gGiSharedProbePosition[slot];
 		float facingWeight = 1.0;
+		float facing = 1.0;
 		// the probes on the open side weigh more (wrapped, so that those beside it count a little; DDGI's fifth for the
 		// ones behind let the probes below Sponza's floors, in the clipmap's margin and lit by the environment through its
 		// bottom, light the floors' edges along the walls, where every probe in the corridor fails and a point takes the
 		// mean of what is left)
 		if (awayLength > 0.0)
 		{
-			float facing = dot(normalize(probePosition - center), away) * 0.5 + 0.5;
+			facing = dot(normalize(probePosition - center), away) * 0.5 + 0.5;
 			facingWeight = facing * facing + 0.02;
 			weight *= facingWeight;
 		}
@@ -2109,12 +2230,41 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			moments += taps.weight[tapIt] * float2(abs(tap.x), tap.y);
 			nearest = min(nearest, abs(tap.z));
 		}
-		if (moments.x < 1e-3 || gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + 5].w > 0.5)
+		// traced: the nearest thing between the probe and the voxel. a surface's back means the probe is behind it, and
+		// it lights the voxel not at all, not even by the floor below (a point no probe sees takes their mean); a front
+		// only hides it. exact at any spacing, where a coarse clip's depth texel (22 degrees) is half a metre wide a few
+		// metres out, and mixes what is beside the point with what is in front of it: salle_de_bain's niches, 67 units
+		// from the eye in the last clip, were lit by the probes behind its back wall through the window beside them
+		// (white patches the surface reference hasn't). traced every frame it cost Sponza 7 ms, Bistro's street 12.6
+		uint state = kGiVisible;
+		if (traced)
+		{
+			if (retrace)
+			{
+				float3 toPoint = tracedPoint - probePosition;
+				float pointDistance = length(toPoint);
+				// short of the point by a twentieth of a voxel only: by a quarter, a surface crossed within it went untested,
+				// and a probe over CornellBox's ceiling (outside the box) saw a corner voxel's point 4 mm under it, which
+				// lit a streak along the ceiling's edge at the back
+				BvhHit hit = GiTraceTriangles(gi, probePosition, toPoint / max(pointDistance, 1e-6), max(pointDistance - 0.05 * gi.volumeOrigin.w, 0.0), false, false, true);
+				state = !BvhHitSomething(hit) && !hit.capped ? kGiVisible
+						: (!BvhHitSomething(hit) || hit.frontFace || (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u ? kGiHidden : kGiBehind);
+				visibilityBits |= state << (cornerIt * 2u);
+			}
+			else
+				state = (visibilityBits >> (cornerIt * 2u)) & 3u;
+		}
+		// after the trace: a probe skipped here keeps its state all the same (skipped before it, its bits stayed
+		// kGiVisible, and once its inside share fell below the line again, a probe behind salle_de_bain's niches' wall,
+		// hovering about it, lit them white, in some runs and not others)
+		if ((!traced && moments.x < 1e-3) || gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + 5].w > kGiInsideShare || state == kGiBehind)
 			continue;
 		float d = distance / gi.probeOrigin.w;
 		float variance = max(moments.y - moments.x * moments.x, 0.0) + 1e-4;
 		float visibility = 1.0;
-		if (d > moments.x)
+		if (traced)
+			visibility = state == kGiVisible ? 1.0 : 0.0;
+		else if (d > moments.x)
 		{
 			float delta = d - moments.x;
 			visibility = variance / (variance + delta * delta);
@@ -2130,7 +2280,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		// alone of its cell's probes, the rest failing, lit the square's ground and the entrance with the interior). such
 		// a probe gets a tenth of the floor below too: a point every probe fails takes their mean, which one behind a
 		// wall, lit by what is there, pulled its way
-		float behind = nearest < 1e8 ? smoothstep(nearest * 1.5 + 0.1, nearest * 2.0 + 0.2, d) : 0.0;
+		float behind = !traced && nearest < 1e8 ? smoothstep(nearest * 1.5 + 0.1, nearest * 2.0 + 0.2, d) : 0.0;
 		visibility *= 1.0 - behind;
 		weight *= max(visibility, 0.001);
 		// less of the ones seen little (DDGI's crush: below a fifth, cubed), then a little of every probe, so that a point
@@ -2142,6 +2292,14 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		if (weight < 0.2)
 			weight *= weight * weight * 25.0;
 		weight = max(weight, lerp(1e-3, 1e-4, behind));
+		// traced, by the facing alone, steeply (its 4th power: 1 straight ahead of the open side, a sixteenth beside it,
+		// nothing behind), a thousandth of it for a probe hidden. a niche of a coarse clip's voxel no probe sees into:
+		// with the wrap, the crush and the floor, the mean of all 8 was the two behind its back wall, by the window
+		// outside, 40 times brighter than the room's, and where one of them saw the niche's air through the window
+		// beside it, at a facing of a fiftieth, its crushed weight outweighed the hidden ones' floors in front
+		// (salle_de_bain's niches lit white)
+		if (traced)
+			weight = (state == kGiVisible ? 1.0 : 1e-3) * facing * facing * facing * facing;
 		weight *= weights.x * weights.y * weights.z;
 		// a probe holding anything that isn't finite is left out (one poisoned every voxel of its cells)
 		bool finite = true;
@@ -2149,8 +2307,17 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			finite = finite && !any(isnan(gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt].rgb)) && !any(isinf(gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt].rgb));
 		if (!finite)
 			continue;
-		for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
-			sh[shIt] += weight * gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt].rgb;
+		if (traced && state == kGiHidden)
+		{
+			for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+				shHidden[shIt] = min(shHidden[shIt], gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt].rgb);
+			hiddenWeight += weight;
+		}
+		else
+		{
+			for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+				sh[shIt] += weight * gGiSharedIrradiance[slot * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt].rgb;
+		}
 		seen += weight;
 		// the resolve at the dumped point's voxel, per probe (see GI_DUMP_FLOAT_COUNT): its position, the facing weight,
 		// the visibility, the distance in spacings, the texel's mean and nearest, and the weight it ends with
@@ -2163,6 +2330,31 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		}
 	}
 	// per color its faces +x, -x, +y and -y, then red's and green's +z and -z, then blue's and the weight (see GiSample)
+	if (traced)
+	{
+		// the hidden probes by the least light of theirs (per face and color), at their weights: a voxel no probe sees can
+		// confirm none of their light, and a pocket no probe sees into is a shadowed one. by their light, weighed by their
+		// facing (or by how far from the voxel what hides each is), the probes behind salle_de_bain's niches' back wall,
+		// in the space the window's emitter lights, straight along the niches' open side and 40 times as bright as the
+		// room's, lit the niches white: what hides a probe can't tell a wall between from a niche's lip
+		if (hiddenWeight > 0.0)
+		{
+			for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+				sh[shIt] += hiddenWeight * shHidden[shIt];
+		}
+		gGiVisibility[gi.visibilityFirst + voxelIndex] = visibilityBits;
+		// a voxel no probe sees, whose probes all face it little, sums weights the volumes' half floats can't hold (a
+		// thousandth of the facing's 4th power each, above): raised to what they hold, its light as it is, still far
+		// below a seen voxel's
+		const float kLeastSeen = 1e-4;
+		if (seen > 0.0 && seen < kLeastSeen)
+		{
+			float scale = kLeastSeen / seen;
+			for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+				sh[shIt] *= scale;
+			seen = kLeastSeen;
+		}
+	}
 	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
 	gGiVolumeImages[1][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
 	gGiVolumeImages[2][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);
@@ -2384,7 +2576,7 @@ bool GiTraceVoxels(float3 origin, float3 direction, out uint hitClip, out uint h
 			if ((gGiVoxels[index].albedo >> 24) != 0u)
 			{
 				// a back face's shell voxel passed, the surface where its twin follows (see GiOccluderHit)
-				if ((gGiVoxels[index].emissionB >> 16) == 2u)
+				if (GiVoxelFaces(gGiVoxels[index]) == 2u)
 				{
 					passedT = t;
 					passedIndex = index;
@@ -2434,7 +2626,7 @@ float3 GiVoxelWorldDebug(float3 eye, float3 direction, uint debugView)
 		return GiUnpackRgba8(voxel.albedo).rgb;
 	if (debugView == DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL)
 	{
-		float3 normal = GiFromOctahedral(float2(voxel.normal & 0xFFFFu, voxel.normal >> 16) / 65535.0 * 2.0 - 1.0);
+		float3 normal = GiVoxelNormal(voxel.normal);
 		// facing the eye or away from it (a voxel lit from behind what the eye sees): dimmed
 		return pow((normal * 0.5 + 0.5) * (dot(normal, direction) < 0.0 ? 1.0 : 0.25), 2.2);
 	}
@@ -2469,7 +2661,7 @@ float3 GiProbeStateDebug(float3 position, float3 normal)
 			float weight = weights.x * weights.y * weights.z;
 			uint probeIndex = gi.probeFirst + GiProbeIndex(probe, gi.probeSize);
 			float3 probePosition = GiProbePosition(gi, probe, probeIndex);
-			float inside = gGiIrradiance[probeIndex * SHADER_TYPES_GI_IRRADIANCE_COUNT + 5].w > 0.5 ? 1.0 : 0.0;
+			float inside = gGiIrradiance[probeIndex * SHADER_TYPES_GI_IRRADIANCE_COUNT + 5].w > kGiInsideShare ? 1.0 : 0.0;
 			float3 toProbe = probePosition - point;
 			float distance = length(toProbe);
 			GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
