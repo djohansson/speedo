@@ -41,7 +41,10 @@ class Model;
 // what a frame draws, and with what (see Renderer::Record). its callables are called during Record
 struct FrameInputs
 {
+	// the frame's slot of the per frame buffers (see SHADER_TYPES_FRAME_COUNT), and the output's image it is drawn into
+	// (see RenderOutput)
 	uint16_t frameIndex = 0;
+	uint16_t outputIndex = 0;
 	PushConstants pushConstants{}; // the frame's (Record fills in what the render target decides)
 	// the scene: the model (or none), and which of its materials are transmissive (drawn in the main pass's second phase)
 	const Model* model = nullptr;

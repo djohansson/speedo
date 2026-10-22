@@ -399,19 +399,24 @@ took no lock, waiting on the map entry with `std::atomic_ref`, which was only sa
 map isn't safe to insert into concurrently, and rehashing moves its entries. Recording isn't expected to go wide enough for
 a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move and could be waited on again) to pay.
 
-## Frame indices are swapchain images
+## Frame indices are slots, not swapchain images
 
 A frame's index (`FrameInputs::frameIndex`, `PushConstants::frameIndex`, and every per frame buffer and descriptor
-slot kept by it) is the swapchain image `vkAcquireNextImageKHR` handed out (`Swapchain::Flip`), not a counter. The
-graphics queue's fences `Draw` waits on are its queue slot's (`queues.FetchAdd()`), of the frame before the last: the
-frame that last used the image only while the swapchain hands its images out in turn, as fifo does. Mailbox and immediate
-needn't (an image a newer frame replaced comes back at once), so `Draw` also waits for the graphics timeline value the
-last frame drawn into the image signaled (`myFrameIndexTimelines`) before anything writes the frame index's buffers.
-Without it, a frame still on the gpu read buffers the next frame wrote over: once, on Windows with mailbox (the default
-where the surface has it), Sponza's indirect lighting kept a probe state no frame would have made and stayed black and
-blown out at one pose; with fifo it never showed, and KosmicKrisp has no mailbox, so the mac never saw it. Test what
-keeps state from frame to frame under mailbox too: unthrottled frames also reach states fifo's don't (e.g. the indirect
-lighting's look distance adapts over many more frames).
+slot kept by it) is its slot of `SHADER_TYPES_FRAME_COUNT`, which the frames take in turn (`Draw`'s `myFrameSlot`);
+`Draw` waits for the graphics timeline value the last frame in the slot signaled (`myFrameSlotTimelines`) before
+anything writes the slot's buffers. The swapchain image `vkAcquireNextImageKHR` handed out (`Swapchain::Flip`) is the
+frame's output index (`FrameInputs::outputIndex`, `PushConstants::outputIndex`), only for what is the image's:
+ComputeMain's and the UI blur's storage view of it (`gRWTextures` slots below `SHADER_TYPES_OUTPUT_IMAGE_COUNT`), the UI
+pass's render target and the capture. The frame index used to be the image: fifo hands the images out in turn, but
+mailbox and immediate needn't (an image a newer frame replaced comes back at once), so a frame still on the gpu read
+buffers the next frame wrote over: once, on Windows with mailbox (the default where the surface has it), Sponza's
+indirect lighting kept a probe state no frame would have made and stayed black and blown out at one pose; with fifo it
+never showed, and KosmicKrisp has no mailbox, so the mac never saw it. A wait for the image's last frame fixed that,
+but stalled whenever mailbox handed back the image just drawn. The queue ring's fences (`queues.FetchAdd()`) can't
+stand in for the slot's wait: the ring is as long as the graphics family's queue count (16 on NVIDIA), not the slots.
+Test what keeps state from frame to frame under mailbox too: unthrottled frames also reach states fifo's don't (e.g.
+the indirect lighting's look distance adapts over many more frames, and auto exposure, by time, has less of it in a run
+of as many frames).
 
 ## Command buffers: one owner each
 
@@ -468,12 +473,12 @@ Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Ex
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
-rather than branching on: its extent, frame count and per frame storage views (ComputeMain's output, bound up front),
+rather than branching on: its extent, image count and per image storage views (ComputeMain's output, bound up front),
 the target a frame is drawn into, `Prepare` after it is (re)created, and the passes that end a frame
 (`AddFinalPasses`, which see the frame being recorded through `RecordingFrame`). `SwapchainOutput` is a window's
 swapchain (looked up each time, since the rhi recreates it): the UI Uploads, UI and Present passes end its frames, and
 `Prepare` sets its frames' load and store ops. `ImageOutput` is an image (RGBA8 unorm, storage, sampled and color
-attachment, srgb encoded as the swapchain's) with a `RenderImageSet` over it, one for every frame index (frames are
+attachment, srgb encoded as the swapchain's) with a `RenderImageSet` over it, one for every frame (frames are
 serial on the graphics queue): an Output pass leaves it in `kShaderReadOnly` for the UI to sample (`GetView()`), as
 `Prepare` does before its first frame; its owner recreates it (`Resize(extent)`) and then has the scene resize. The
 output's owner keeps it alive longer than the scene. The UI shows a GPU image it doesn't own through

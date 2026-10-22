@@ -159,15 +159,16 @@ bool WindowedApplication::Draw()
 
 		graphicsSubmits = {};
 
-		// and the last frame drawn into this swapchain image, whose index is the frame index every per frame buffer is
-		// kept by (the views', the draw records, the indirect lighting's parameters, ...): the fences above are the queue
-		// slot's, of the frame before the last, which is the same frame only while the swapchain hands its images out in
-		// turn. fifo does; mailbox and immediate needn't (an image a newer frame replaced comes back at once), and the
-		// buffers of a frame still on the gpu were written over: the indirect lighting kept what that frame made of them,
-		// and Sponza's probes stayed empty, black, on Windows (KosmicKrisp has no mailbox)
-		if (myFrameIndexTimelines.size() < swapchain.GetFrames().size())
-			myFrameIndexTimelines.resize(swapchain.GetFrames().size(), 0);
-		if (auto timeline = myFrameIndexTimelines[newFrameIndex]; timeline > 0)
+		// the frame's slot of the per frame buffers (the views', the draw records, the indirect lighting's parameters,
+		// ...), the frames' in turn, and the last frame in it done: the fences above are the queue ring's, which needn't be
+		// as long as the slots (a queue per frame). the slot isn't the swapchain image (newFrameIndex), which is only
+		// for what is the image's (ComputeMain's storage view of it, the ui's render target, the capture): fifo hands
+		// the images out in turn, mailbox and immediate needn't (an image a newer frame replaced comes back at once), and
+		// buffers kept by the image were written over while a frame still on the gpu read them (Sponza's indirect
+		// lighting stayed black on Windows), or a frame waited for the one just drawn
+		auto frameSlot = static_cast<uint16_t>(myFrameSlot);
+		myFrameSlot = (myFrameSlot + 1) % SHADER_TYPES_FRAME_COUNT;
+		if (auto timeline = myFrameSlotTimelines[frameSlot]; timeline > 0)
 			graphics->semaphore.Wait(timeline);
 
 		// the queue's gpu scopes the gpu is done with, for Tracy and the renderers' pass timings (see Renderer::Record)
@@ -184,12 +185,12 @@ bool WindowedApplication::Draw()
 
 		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
 		// (see the fences above)
-		myScene->Update(*graphics, newFrameIndex);
+		myScene->Update(*graphics, frameSlot);
 		// the same for the preview, if it is drawn this frame (updates submit command buffers of their own, see
 		// UpdateBufferOnGraphics, ordered before the frame's)
 		bool drawPreview = myPreview && myPreviewVisible.load(std::memory_order_relaxed);
 		if (drawPreview)
-			myPreview->GetScene().Update(*graphics, newFrameIndex);
+			myPreview->GetScene().Update(*graphics, frameSlot);
 
 		// the frame's command buffer: recorded into by the scenes and the ui (which borrow it), and submitted below
 		auto cmd = graphicsQueue.GetPool().Begin();
@@ -204,7 +205,7 @@ bool WindowedApplication::Draw()
 			myPreview->GetScene().Record(
 				cmd,
 				Scene::FrameTarget{
-					.frameIndex = static_cast<uint16_t>(newFrameIndex),
+					.frameIndex = frameSlot,
 					.graphicsQueue = &graphicsQueue,
 					.graphicsTimeline = graphics->timeline,
 					.executor = &GetExecutor()});
@@ -217,7 +218,8 @@ bool WindowedApplication::Draw()
 		myScene->Record(
 			cmd,
 			Scene::FrameTarget{
-				.frameIndex = static_cast<uint16_t>(newFrameIndex),
+				.frameIndex = frameSlot,
+				.outputIndex = static_cast<uint16_t>(newFrameIndex),
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
@@ -317,7 +319,7 @@ bool WindowedApplication::Draw()
 			.signalSemaphoreValues = {++graphics->timeline, 1},
 			.callbacks = std::move(graphicsCallbacks)},
 			std::move(cmd));
-		myFrameIndexTimelines[newFrameIndex] = graphics->timeline;
+		myFrameSlotTimelines[frameSlot] = graphics->timeline;
 
 		graphicsSubmits |= graphicsQueue.Submit();
 

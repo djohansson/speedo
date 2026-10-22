@@ -122,7 +122,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 }
 
 
-// gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 hold the frames' render targets (for ComputeMain), and
+// gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 are the renderer's (SHADER_TYPES_RENDER_TARGET_TEXTURE), and
 // SHADER_TYPES_ENVIRONMENT_TEXTURE and SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE the environment's (and
 // SHADER_TYPES_TRANSMISSION_TEXTURE the opaque scene). material 0 is the default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
 static constexpr uint32_t kMaterialTextureId = 15;
@@ -378,10 +378,11 @@ struct Scene::Impl
 
 
 	// the push constants every draw (and ComputeMain) of a frame shares
-	PushConstants FramePushConstants(uint16_t frameIndex)
+	PushConstants FramePushConstants(uint16_t frameIndex, uint16_t outputIndex)
 	{
 		return PushConstants{
 			.frameIndex = frameIndex,
+			.outputIndex = outputIndex,
 			.lightCount = myLightCount,
 			.exposure = std::exp2(
 				mySettings.exposureStops.load(std::memory_order_relaxed) +
@@ -1481,8 +1482,8 @@ struct Scene::Impl
 		
 		auto& device = rhi.GetPrimaryDevice();
 		auto& pipeline = myPipeline;
-		auto frameCount = myOutput.GetFrameCount();
-		ENSURE(frameCount <= SHADER_TYPES_FRAME_COUNT);
+		auto imageCount = myOutput.GetImageCount();
+		ENSUREF(imageCount <= SHADER_TYPES_OUTPUT_IMAGE_COUNT, "{} output images, past SHADER_TYPES_OUTPUT_IMAGE_COUNT ({})", imageCount, SHADER_TYPES_OUTPUT_IMAGE_COUNT);
 		auto extent = myOutput.GetExtent();
 
 		// the render target, the transparency's lists and the transmission texture: the renderer's frame graph's
@@ -1513,23 +1514,23 @@ struct Scene::Impl
 			graphicsSubmits |= graphicsQueue.Submit();
 		}
 
-		// Draw only writes the current frame's element of these arrays, but a dirty set is updated as a whole: after a
-		// resize the other frames' elements would still reference the destroyed views. so write all of them up front,
-		// with the layouts Draw uses (so Draw's own writes are skipped as unchanged).
+		// Draw only writes the current output image's element of these arrays, but a dirty set is updated as a whole:
+		// after a resize the other images' elements would still reference the destroyed views. so write all of them up
+		// front, with the layouts Draw uses (so Draw's own writes are skipped as unchanged).
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
 		pipeline.SetDescriptorData(
 			"gExposureHistogram",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myExposureHistogramUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		for (unsigned frameIt = 0; frameIt < frameCount; frameIt++)
+		for (unsigned imageIt = 0; imageIt < imageCount; imageIt++)
 			pipeline.SetDescriptorData(
 				"gRWTextures",
 				ImageBinding{
 					.sampler={},
-					.imageView=myOutput.GetFrameView(frameIt),
+					.imageView=myOutput.GetImageView(imageIt),
 					.layout=ImageLayout::kGeneral},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-				frameIt);
+				imageIt);
 	}
 
 	Impl(RHI& rhi, Pipeline& pipeline, Views& views, RenderOutput& output)
@@ -2053,7 +2054,8 @@ struct Scene::Impl
 			pipeline,
 			FrameInputs{
 				.frameIndex = target.frameIndex,
-				.pushConstants = FramePushConstants(target.frameIndex),
+				.outputIndex = target.outputIndex,
+				.pushConstants = FramePushConstants(target.frameIndex, target.outputIndex),
 				.model = myModel.get(),
 				.transmissive = [&transmissive](size_t material) { return material < transmissive.size() && transmissive[material]; },
 				.scatters = [&scatters](size_t material) { return material < scatters.size() && scatters[material]; },

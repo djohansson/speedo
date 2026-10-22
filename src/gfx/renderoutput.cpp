@@ -25,17 +25,17 @@ Extent2d SwapchainOutput::GetExtent() const
 	return InternalSwapchain().GetDesc().extent;
 }
 
-uint32_t SwapchainOutput::GetFrameCount() const
+uint32_t SwapchainOutput::GetImageCount() const
 {
 	return static_cast<uint32_t>(InternalSwapchain().GetFrames().size());
 }
 
-ImageViewHandle SwapchainOutput::GetFrameView(uint32_t frameIndex) const
+ImageViewHandle SwapchainOutput::GetImageView(uint32_t imageIndex) const
 {
-	return InternalSwapchain().GetFrames()[frameIndex].GetAttachments()[0];
+	return InternalSwapchain().GetFrames()[imageIndex].GetAttachments()[0];
 }
 
-IRenderTarget& SwapchainOutput::GetTarget(uint32_t /*frameIndex*/)
+IRenderTarget& SwapchainOutput::GetTarget(uint32_t /*imageIndex*/)
 {
 	// the swapchain itself: its current (acquired) image
 	return InternalSwapchain();
@@ -71,7 +71,7 @@ void SwapchainOutput::AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId outp
 		[this, &frame](FrameGraph::PassContext& context)
 		{
 			// the ui's pipelines are made for the swapchain's frames
-			frame.pipeline->SetRenderTarget(InternalSwapchain().GetFrames()[frame.inputs->frameIndex]);
+			frame.pipeline->SetRenderTarget(InternalSwapchain().GetFrames()[frame.inputs->outputIndex]);
 			frame.inputs->drawUi(context.cmd);
 		});
 	graph.AddPass(
@@ -111,17 +111,17 @@ ImageViewHandle ImageOutput::GetView() const
 	return myTarget->GetAttachments()[0];
 }
 
-uint32_t ImageOutput::GetFrameCount() const
+uint32_t ImageOutput::GetImageCount() const
 {
-	return SHADER_TYPES_FRAME_COUNT;
+	return 1;
 }
 
-ImageViewHandle ImageOutput::GetFrameView(uint32_t /*frameIndex*/) const
+ImageViewHandle ImageOutput::GetImageView(uint32_t /*imageIndex*/) const
 {
 	return GetView();
 }
 
-IRenderTarget& ImageOutput::GetTarget(uint32_t /*frameIndex*/)
+IRenderTarget& ImageOutput::GetTarget(uint32_t /*imageIndex*/)
 {
 	return *myTarget;
 }

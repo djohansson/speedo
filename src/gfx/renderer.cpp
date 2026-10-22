@@ -862,10 +862,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				"gRWTextures",
 				ImageBinding{
 					.sampler = {},
-					.imageView = myRenderOutput.GetTarget(inputs.frameIndex).GetAttachments()[0],
-					.layout = myRenderOutput.GetTarget(inputs.frameIndex).GetLayout(0)},
+					.imageView = myRenderOutput.GetTarget(inputs.outputIndex).GetAttachments()[0],
+					.layout = myRenderOutput.GetTarget(inputs.outputIndex).GetLayout(0)},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-				inputs.frameIndex);
+				inputs.outputIndex);
 
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
 			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
@@ -880,7 +880,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
 			// cover the whole swapchain image
-			auto extent = myRenderOutput.GetTarget(inputs.frameIndex).GetExtent();
+			auto extent = myRenderOutput.GetTarget(inputs.outputIndex).GetExtent();
 			CommandEncoder(cmd).Dispatch(
 				(extent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
 				(extent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
@@ -1250,15 +1250,13 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 
 	myOitNodeCapacity = renderer::OitNodeCapacity(extent);
 
-	// a dirty set is updated as a whole, so every frame's slot is written up front, with the layouts the passes leave
-	// them in (so that later writes of the same are skipped as unchanged)
+	// with the layouts the passes leave them in (so that later writes of the same are skipped as unchanged)
 	pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
-	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
-		pipeline.SetDescriptorData(
-			"gTextures",
-			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myColor), .layout = ImageLayout::kShaderReadOnly},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE + frameIt);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myColor), .layout = ImageLayout::kShaderReadOnly},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_RENDER_TARGET_TEXTURE);
 	pipeline.SetDescriptorData(
 		"gTextures",
 		ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myTransmission), .layout = ImageLayout::kShaderReadOnly},
@@ -1723,7 +1721,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.SetEnabled(myTransmissionPass, myTwoPhases);
 	myGraph.SetEnabled(myTransmissivePhase, myTwoPhases);
 
-	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.frameIndex), 0);
+	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.outputIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
 
 	// the depth reprojection's: the frame's height and main views, and the last frame's extent (see InternalPlanCulling)

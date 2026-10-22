@@ -70,10 +70,14 @@ extern "C"
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
+// the frames in flight: every per frame buffer and descriptor slot is kept by a frame's slot (PushConstants::frameIndex),
+// which the frames take in turn
 #define SHADER_TYPES_FRAME_INDEX_BITS 2u
 #define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
-// gTextures slots: the frames' render targets' color, from this, by frame index
-#define SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE 0u
+// gRWTextures slots 0 to this - 1: the output's images (a window's swapchain images), by PushConstants::outputIndex
+#define SHADER_TYPES_OUTPUT_IMAGE_COUNT 4u
+// the gTextures slot of the main pass's color, which ComputeMain reads
+#define SHADER_TYPES_RENDER_TARGET_TEXTURE 0u
 // KHR_materials_volume_scatter: the depth of the scattering materials' nearest back faces, from the Scatter Back pass,
 // which the Scatter pass measures their thickness by; the scattering light of their front surfaces (rgb; a: the material
 // index plus 1, 0 where there is none), and their depth, from the Scatter pass, which the Scatter Blur pass blurs (see
@@ -785,7 +789,7 @@ struct GiData
 
 struct PushConstants
 {
-	// per frame
+	// per frame: its slot of the per frame buffers (see SHADER_TYPES_FRAME_COUNT)
 	alignas(4) UINT1(frameIndex);
 	// per view: gViewData's
 	alignas(4) UINT1(viewId);
@@ -829,6 +833,9 @@ struct PushConstants
 	// per frame: what the main pass's fragments show (DEBUG_VIEW_*: their light, or a debug view of the surface or the
 	// lighting), and so how ComputeMain maps it (see DebugViewIsData)
 	alignas(4) UINT1(debugView);
+	// per frame: the output's image the frame is drawn into (gRWTextures', see SHADER_TYPES_OUTPUT_IMAGE_COUNT): a
+	// window's swapchain image, which needn't follow the frame's slot (mailbox hands back whichever is free)
+	alignas(4) UINT1(outputIndex);
 };
 
 #ifdef __cplusplus

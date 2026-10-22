@@ -127,7 +127,10 @@ public:
 	// what a frame is drawn into, and with (see Record). its callables are called during Record
 	struct FrameTarget
 	{
+		// the frame's slot of the per frame buffers, whose last frame the gpu is done with (see SHADER_TYPES_FRAME_COUNT),
+		// and the output's image it is drawn into (a window's swapchain image: see RenderOutput)
 		uint16_t frameIndex = 0;
+		uint16_t outputIndex = 0;
 		Queue* graphicsQueue = nullptr;
 		uint64_t graphicsTimeline = 0;
 		// record the ui's texture uploads and draws, over a window's frames (see SwapchainOutput)

@@ -24,8 +24,8 @@ struct RecordingFrame
 	Pipeline* pipeline = nullptr;
 };
 
-// where a scene's frames go (see Renderer): ComputeMain writes each into the output's target as a storage image (frame
-// index by frame index), then the output's final passes end the frame. its owner (re)creates it, then has the scene
+// where a scene's frames go (see Renderer): ComputeMain writes each into the output's target as a storage image (by
+// the image the frame is drawn into, FrameInputs::outputIndex), then the output's final passes end the frame. its owner (re)creates it, then has the scene
 // resize after it (Scene::Resize)
 class RenderOutput
 {
@@ -35,13 +35,13 @@ public:
 	// the extent frames are drawn at
 	[[nodiscard]] virtual rhi::Extent2d GetExtent() const = 0;
 
-	// how many frame indices there are, and each one's storage view: bound up front, since a dirty descriptor set is
-	// updated as a whole (see Scene)
-	[[nodiscard]] virtual uint32_t GetFrameCount() const = 0;
-	[[nodiscard]] virtual ImageViewHandle GetFrameView(uint32_t frameIndex) const = 0;
+	// how many images there are, and each one's storage view: bound up front, since a dirty descriptor set is updated
+	// as a whole (see Scene)
+	[[nodiscard]] virtual uint32_t GetImageCount() const = 0;
+	[[nodiscard]] virtual ImageViewHandle GetImageView(uint32_t imageIndex) const = 0;
 
-	// what the frame of frameIndex is drawn into
-	[[nodiscard]] virtual IRenderTarget& GetTarget(uint32_t frameIndex) = 0;
+	// what a frame drawn into the image of imageIndex is drawn into
+	[[nodiscard]] virtual IRenderTarget& GetTarget(uint32_t imageIndex) = 0;
 
 	// puts a (re)created output in the state its first frame expects. with the gpu idle, outside a render pass
 	virtual void Prepare(CommandBufferHandle cmd) = 0;
@@ -58,9 +58,9 @@ public:
 	SwapchainOutput(RHI& rhi, WindowHandle window);
 
 	[[nodiscard]] rhi::Extent2d GetExtent() const final;
-	[[nodiscard]] uint32_t GetFrameCount() const final;
-	[[nodiscard]] ImageViewHandle GetFrameView(uint32_t frameIndex) const final;
-	[[nodiscard]] IRenderTarget& GetTarget(uint32_t frameIndex) final;
+	[[nodiscard]] uint32_t GetImageCount() const final;
+	[[nodiscard]] ImageViewHandle GetImageView(uint32_t imageIndex) const final;
+	[[nodiscard]] IRenderTarget& GetTarget(uint32_t imageIndex) final;
 	void Prepare(CommandBufferHandle cmd) final;
 	void AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId output, const RecordingFrame& frame) final;
 
@@ -72,7 +72,7 @@ private:
 };
 
 // an image, left for sampling (an off-screen view, e.g. shown in the ui): RGBA8 unorm, srgb encoded as the swapchain's
-// image is. one serves every frame index: the frames are serial on the graphics queue, and the frame graph orders each
+// image is. one serves every frame: the frames are serial on the graphics queue, and the frame graph orders each
 // frame's write after the previous frame's sampling
 class ImageOutput final : public RenderOutput
 {
@@ -88,9 +88,9 @@ public:
 	[[nodiscard]] Image& GetImage() noexcept { return *myImage; }
 
 	[[nodiscard]] rhi::Extent2d GetExtent() const final { return myExtent; }
-	[[nodiscard]] uint32_t GetFrameCount() const final;
-	[[nodiscard]] ImageViewHandle GetFrameView(uint32_t frameIndex) const final;
-	[[nodiscard]] IRenderTarget& GetTarget(uint32_t frameIndex) final;
+	[[nodiscard]] uint32_t GetImageCount() const final;
+	[[nodiscard]] ImageViewHandle GetImageView(uint32_t imageIndex) const final;
+	[[nodiscard]] IRenderTarget& GetTarget(uint32_t imageIndex) final;
 	void Prepare(CommandBufferHandle cmd) final;
 	void AddFinalPasses(FrameGraph& graph, FrameGraph::ImageId output, const RecordingFrame& frame) final;
 

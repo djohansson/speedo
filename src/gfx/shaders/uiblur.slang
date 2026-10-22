@@ -109,7 +109,7 @@ void ComputeUiBlurX(uint3 dispatchThreadId : SV_DispatchThreadID)
 void ComputeUiBlurY(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
 	Texture2D rows = gTextures[SHADER_TYPES_UI_BLUR_ROWS_TEXTURE];
-	RWTexture2D output = gRWTextures[gPushConstants.frameIndex];
+	RWTexture2D output = gRWTextures[gPushConstants.outputIndex];
 	uint2 size;
 	output.GetDimensions(size.x, size.y);
 	int2 pixel;

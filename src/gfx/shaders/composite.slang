@@ -14,8 +14,8 @@ void ComputeMain(
 {
 	uint frameIndex = gPushConstants.frameIndex;
 
-	Texture2D src = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE_BASE + frameIndex];
-	RWTexture2D dst = gRWTextures[frameIndex];
+	Texture2D src = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE];
+	RWTexture2D dst = gRWTextures[gPushConstants.outputIndex];
 
 	uint2 dstDim;
 	dst.GetDimensions(dstDim.x, dstDim.y);
