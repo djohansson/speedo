@@ -53,8 +53,10 @@ public:
 
 	// a file's thumbnail, if it is in the atlas; else starts making it (once: from the cache, else its source). ui thread
 	[[nodiscard]] std::optional<Region> Get(const std::filesystem::path& path, Source source);
-	// whether a file's thumbnail couldn't be made from its source (a model without a screenshot): Put can still give it
-	[[nodiscard]] bool Missing(const std::filesystem::path& path) const;
+	// whether a file's thumbnail should be captured (Put): it couldn't be made from its source (a model without a
+	// screenshot, an archive) and isn't cached, or the cached capture is of another version (the shaders or importers
+	// changed since), which is shown meanwhile
+	[[nodiscard]] bool NeedsCapture(const std::filesystem::path& path) const;
 	// a thumbnail made elsewhere (a model's preview capture): rgba8, any size, scaled down and cached. any thread
 	void Put(const std::filesystem::path& path, std::vector<uint8_t> rgba, uint32_t width, uint32_t height);
 
@@ -69,6 +71,7 @@ private:
 		std::optional<std::vector<uint8_t>> rgba; // none if it couldn't be made
 		uint32_t width = 0;
 		uint32_t height = 0;
+		bool stale = false; // a capture of another version (see NeedsCapture)
 	};
 	struct Entry
 	{
@@ -86,6 +89,7 @@ private:
 		ImVec2 uvMax; // of the slot's used part
 		uint64_t lastSeen = 0; // the frame Get last asked for it in
 		bool queued = false; // in myWaiting
+		bool stale = false; // its capture is of another version (see NeedsCapture)
 	};
 
 	// deletes the cached thumbnails unused for 30 days (a hit marks one used: its write time), which changes to the files
@@ -94,7 +98,8 @@ private:
 
 	// made on the task executor: from the cache, else the source (cached then). the cache is keyed by what the thumbnail
 	// is made from, so a change to any of it makes a new one: the file (an image's, a panorama's, a model's screenshot),
-	// or for a capture its file (a model, or a zip archive), the files its render reads, its importers, and renderVersion
+	// or for a capture its file (a model, or a zip archive) and the files its render reads. a capture's importers and
+	// renderVersion are its version: one of another version is returned stale
 	static std::optional<std::vector<uint8_t>> Make(
 		const std::filesystem::path& path,
 		Source source,
@@ -102,7 +107,8 @@ private:
 		const std::filesystem::path& cacheDirectory,
 		const std::string& renderVersion,
 		uint32_t& width,
-		uint32_t& height);
+		uint32_t& height,
+		bool& stale);
 
 	uint32_t mySlotSize;
 	uint32_t myColumns;

@@ -23,6 +23,7 @@
 #include <print>
 #include <span>
 #include <thread>
+#include <type_traits>
 #include <utility>
 
 #include <imgui_internal.h>
@@ -39,14 +40,18 @@ constexpr uint32_t kMaxMaking = 4;
 // a thumbnail asked for but not drawn for this many frames is no longer made (it scrolled away): asked for again, it is
 constexpr uint64_t kStaleFrames = 3;
 // the cache files: a header, then the pixels. bumped when what is made changes
-constexpr std::array<char, 4> kMagic{'T', 'H', 'M', '1'};
+constexpr std::array<char, 4> kMagic{'T', 'H', 'M', '2'};
 
 struct Header
 {
 	std::array<char, 4> magic = kMagic;
 	uint32_t width = 0;
 	uint32_t height = 0;
+	uint32_t reserved = 0;
+	// what made a capture (see CaptureKey), else 0
+	uint64_t version = 0;
 };
+static_assert(std::has_unique_object_representations_v<Header>);
 
 // a file's path, size and time, which a change to the file changes (or that it is missing)
 [[nodiscard]] std::string Stamp(const std::filesystem::path& path)
@@ -70,25 +75,38 @@ struct Header
 
 // what a model's preview capture shows depends on: the model file, every file its render reads (its buffers and
 // material files, Dependencies, and its images, ImageFiles), what imports them (Model::ImportVersion, and the textures'
-// in renderVersion), and what draws them (the shaders, in renderVersion). a change to any of them is a new key
-[[nodiscard]] std::string CaptureKey(const std::filesystem::path& path, std::string_view renderVersion)
+// in renderVersion), and what draws them (the shaders, in renderVersion). the files are its key: a change to them is
+// another model. the rest is its version, kept in the cache file: a capture of another version is shown until the
+// preview captures it again (as the key, the client's every shader change, pulled or edited, lost every capture, and an
+// archive's thumbnail is only ever one)
+struct CaptureId
+{
+	std::string key;
+	uint64_t version = 0;
+};
+[[nodiscard]] CaptureId CaptureKey(const std::filesystem::path& path, std::string_view renderVersion)
 {
 	// a zip archive holds everything its models' renders read, and they may be either kind
 	auto extension = path.extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+	std::string key;
+	std::string version;
 	if (extension == ".zip")
-		return std::format(
-			"capture|{}|{}|{}|{}",
-			Stamp(path),
-			gfx::Model::ImportVersion("model.obj"),
-			gfx::Model::ImportVersion("model.gltf"),
-			renderVersion);
-
-	auto key = std::format("capture|{}|{}|{}", Stamp(path), gfx::Model::ImportVersion(path.string()), renderVersion);
-	for (const auto& files : {gfx::mesh::Dependencies(path), gfx::mesh::ImageFiles(path)})
-		for (const auto& file : files)
-			key.append(std::format("|{}", Stamp(file)));
-	return key;
+	{
+		key = std::format("capture|{}", Stamp(path));
+		version = std::format(
+			"{}|{}|{}", gfx::Model::ImportVersion("model.obj"), gfx::Model::ImportVersion("model.gltf"), renderVersion);
+	}
+	else
+	{
+		key = std::format("capture|{}", Stamp(path));
+		for (const auto& files : {gfx::mesh::Dependencies(path), gfx::mesh::ImageFiles(path)})
+			for (const auto& file : files)
+				key.append(std::format("|{}", Stamp(file)));
+		version = std::format("{}|{}", gfx::Model::ImportVersion(path.string()), renderVersion);
+	}
+	// never 0, which other thumbnails have
+	return {.key = std::move(key), .version = XXH3_64bits(version.data(), version.size()) | 1U};
 }
 
 // how what the client draws looks, for captured thumbnails: the shader sources (every file of src/gfx/shaders, as the
@@ -173,18 +191,19 @@ struct Header
 	return std::nullopt;
 }
 
-void Save(const std::filesystem::path& cachePath, std::span<const uint8_t> rgba, uint32_t width, uint32_t height)
+void Save(const std::filesystem::path& cachePath, std::span<const uint8_t> rgba, uint32_t width, uint32_t height, uint64_t version = 0)
 {
 	std::error_code error;
 	std::filesystem::create_directories(cachePath.parent_path(), error);
-	Header header{.width = width, .height = height};
+	Header header{.width = width, .height = height, .version = version};
 	std::vector<std::byte> bytes(sizeof(Header) + rgba.size());
 	std::memcpy(bytes.data(), &header, sizeof(Header));
 	std::memcpy(bytes.data() + sizeof(Header), rgba.data(), rgba.size());
 	// written whole beside it, then renamed over it: entries of one key are made at once (a model's encodings share
 	// their screenshot), and one being read, mapped, mustn't be written in place (a reader could see it half written,
 	// and Windows refuses to write a file mapped elsewhere). where the rename fails (Windows, over a mapped file), the
-	// entry is there already, as this would have made it
+	// entry is there already: as this would have made it, or a capture of another version, captured again when it is
+	// next previewed
 	static std::atomic_uint64_t gTemporaryCount = 0;
 	auto temporaryPath = cachePath;
 	temporaryPath += std::format(
@@ -265,19 +284,22 @@ std::optional<std::vector<uint8_t>> Thumbnails::Make(
 	const std::filesystem::path& cacheDirectory,
 	const std::string& renderVersion,
 	uint32_t& width,
-	uint32_t& height)
+	uint32_t& height,
+	bool& stale)
 {
 	using namespace thumbnails;
 
 	ZoneScopedN("Thumbnails::Make");
 
+	stale = false;
+
 	// what it is made from: an image or a panorama, the file; a model, its screenshot, else its preview's capture (see
 	// CaptureKey: only ever cached, made by Put)
 	auto screenshot = source == Source::kModel ? FindScreenshot(path) : std::nullopt;
-	auto key = source == Source::kArchive ? CaptureKey(path, renderVersion)
-			   : source != Source::kModel ? std::format("{}|{}", std::to_underlying(source), Stamp(path))
-			   : screenshot				? std::format("screenshot|{}", Stamp(*screenshot))
-										: CaptureKey(path, renderVersion);
+	bool capture = source == Source::kArchive || (source == Source::kModel && !screenshot);
+	auto [key, version] = capture ? CaptureKey(path, renderVersion)
+					  : CaptureId{.key = screenshot ? std::format("screenshot|{}", Stamp(*screenshot))
+													 : std::format("{}|{}", std::to_underlying(source), Stamp(path))};
 	auto cachePath = CachePath(key, slotSize, cacheDirectory);
 	if (cachePath)
 		if (auto mapped = core::file::Map(*cachePath); mapped && mapped->size() >= sizeof(Header))
@@ -291,6 +313,7 @@ std::optional<std::vector<uint8_t>> Thumbnails::Make(
 				std::filesystem::last_write_time(*cachePath, std::filesystem::file_time_type::clock::now(), error);
 				width = header.width;
 				height = header.height;
+				stale = header.version != version;
 				const auto* pixels = reinterpret_cast<const uint8_t*>(mapped->data() + sizeof(Header));
 				return std::vector<uint8_t>(pixels, pixels + (static_cast<size_t>(width) * height * 4));
 			}
@@ -382,10 +405,11 @@ std::optional<Thumbnails::Region> Thumbnails::Get(const std::filesystem::path& p
 		.aspect = entry.aspect};
 }
 
-bool Thumbnails::Missing(const std::filesystem::path& path) const
+bool Thumbnails::NeedsCapture(const std::filesystem::path& path) const
 {
 	auto it = myEntries.find(path.string());
-	return it != myEntries.end() && it->second.state == Entry::State::kMissing;
+	return it != myEntries.end() &&
+		   (it->second.state == Entry::State::kMissing || (it->second.state == Entry::State::kReady && it->second.stale));
 }
 
 void Thumbnails::Put(const std::filesystem::path& path, std::vector<uint8_t> rgba, uint32_t width, uint32_t height)
@@ -393,8 +417,9 @@ void Thumbnails::Put(const std::filesystem::path& path, std::vector<uint8_t> rgb
 	using namespace thumbnails;
 
 	auto thumbnail = Shrink(rgba, width, height, mySlotSize);
-	if (auto cachePath = CachePath(CaptureKey(path, myRenderVersion), mySlotSize, myCacheDirectory))
-		Save(*cachePath, thumbnail, width, height);
+	auto [key, version] = CaptureKey(path, myRenderVersion);
+	if (auto cachePath = CachePath(key, mySlotSize, myCacheDirectory))
+		Save(*cachePath, thumbnail, width, height, version);
 	std::scoped_lock lock(myShared->mutex);
 	myShared->made.push_back({.key = path.string(), .rgba = std::move(thumbnail), .width = width, .height = height});
 }
@@ -477,6 +502,7 @@ void Thumbnails::Update()
 			ImTextureDataQueueUpload(myAtlas.get(), static_cast<int>(x), static_cast<int>(y), static_cast<int>(result.width), static_cast<int>(result.height));
 
 		entry.state = Entry::State::kReady;
+		entry.stale = result.stale;
 		entry.slot = slot;
 		entry.aspect = static_cast<float>(result.width) / static_cast<float>(std::max(result.height, 1U));
 		entry.uvMax = ImVec2(
@@ -504,7 +530,7 @@ void Thumbnails::Update()
 			 cacheDirectory = myCacheDirectory, renderVersion = myRenderVersion]
 			{
 				Made result{.key = key};
-				result.rgba = Make(path, source, slotSize, cacheDirectory, renderVersion, result.width, result.height);
+				result.rgba = Make(path, source, slotSize, cacheDirectory, renderVersion, result.width, result.height, result.stale);
 				{
 					std::scoped_lock lock(shared->mutex);
 					shared->made.push_back(std::move(result));

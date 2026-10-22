@@ -90,9 +90,12 @@ Notes for working in this codebase, distilled from real build failures.
   written, and on Windows the write failed while another had it mapped), keyed by what each is made from, so that changing any
   of it makes a new one: the file's path, size and time (an image's, a panorama's, a screenshot's), and for a capture
   also the files its render reads (`mesh::Dependencies`, and `mesh::ImageFiles`: the textures a gltf's uris or an mtl's
-  maps name), the importers' versions (`Model::ImportVersion`, `TextureImportVersion`: the tags their caches are keyed
-  by too) and the client's look (`RenderVersion` in `thumbnails.cpp`: a hash of the shader sources under `RootPath`, plus a
-  `renderer-vN` tag to bump when C++ changes how a model is drawn). A hit marks its entry used (its write time), and
+  maps name). A capture's version is in its header instead (`THM2`): the importers' versions (`Model::ImportVersion`,
+  `TextureImportVersion`: the tags their caches are keyed by too) and the client's look (`RenderVersion` in
+  `thumbnails.cpp`: a hash of the shader sources under `RootPath`, plus a `renderer-vN` tag to bump when C++ changes how
+  a model is drawn); a capture of another version is shown until its preview is drawn again, which captures it again
+  (`NeedsCapture`). In the key, every shader change (pulled, or a constant's comment edited) lost every capture, and an
+  archive's thumbnail is only ever one: archives' thumbnails disappeared on restarts. A hit marks its entry used (its write time), and
   making a cached `Thumbnails` prunes the entries unused for 30 days on the task executor (`Thumbnails::Prune`): what
   changes to files and shaders leave behind. Being a user texture, the
   atlas's updates are reset each frame by its owner (imgui does that for its own atlases only: `Thumbnails::Update`),

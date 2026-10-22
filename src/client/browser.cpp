@@ -769,7 +769,7 @@ void WindowedApplication::InternalDrawBrowser()
 			bool captureReady = previewReady && focus->kind != Kind::kEnvironment;
 			state.previewReadyFrames = captureReady ? state.previewReadyFrames + 1 : 0;
 			constexpr uint32_t kCaptureAfterFrames = 20;
-			if (captureReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->Missing(focus->path))
+			if (captureReady && state.previewReadyFrames == kCaptureAfterFrames && myThumbnails->NeedsCapture(focus->path))
 				preview->RequestCapture(
 					[thumbnails = myThumbnails.get(), path = focus->path](std::vector<uint8_t> rgba, uint32_t width, uint32_t height)
 					{ thumbnails->Put(path, std::move(rgba), width, height); });
