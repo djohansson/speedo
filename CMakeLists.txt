@@ -156,6 +156,7 @@ target_link_libraries(
 # windows and the window system: the windowed application base (its window, main thread work, exit wake-ups), the file
 # dialogs and imgui's platform side, between core and rhi (whose surfaces are made for the platform's windows)
 set(PLATFORM_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/platform/glfw.cpp
 	${SPEEDO_SOURCE_DIR}/platform/imguiplatform.cpp
 	${SPEEDO_SOURCE_DIR}/platform/windowedapplication.cpp)
 add_library(platform STATIC ${PLATFORM_SOURCE_FILES})
@@ -178,6 +179,7 @@ target_link_libraries(
 	PRIVATE
 		glfw
 		imgui::imgui
+		Vulkan::Headers # glfwCreateWindowSurface's types (PlatformCreateVulkanSurface)
 )
 
 ###############################################################################
@@ -329,8 +331,6 @@ target_link_libraries(
 		xxHash::xxhash
 		imgui::imgui
 		Vulkan::Vulkan
-	PRIVATE
-		glfw # vulkan surfaces of the platform's (glfw) windows
 )
 
 ###############################################################################
@@ -461,7 +461,6 @@ target_link_libraries(
 	PRIVATE
 		${SPEEDO_MIMALLOC}
 		cargs
-		glfw
 		gfx
 		rhi
 		clientlib

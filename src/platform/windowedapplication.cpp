@@ -1,4 +1,5 @@
 #include "windowedapplication.h"
+#include "glfw.h"
 
 #include <core/assert.h>
 #include <core/profiling.h>
@@ -61,18 +62,23 @@ GLFWmonitor* MonitorAt(int x, int y)
 
 } // namespace windowedapplication
 
-WindowedApplication::WindowedApplication(std::string_view name, core::Environment&& env, CreateWindowFunc createWindowFunc)
+WindowedApplication::WindowedApplication(std::string_view name, core::Environment&& env)
 	: Application(name, std::forward<core::Environment>(env))
 {
-	ENSURE(createWindowFunc != nullptr);
-
 	WindowState state{.x = 0, .y = 0, .width = kDefaultWindowWidth, .height = kDefaultWindowHeight, .fullscreenEnabled = 0U, .fullscreenMode = FULLSCREEN_MODE_EXCLUSIVE};
-	auto handle = createWindowFunc(&state);
+	auto handle = glfw::CreateNativeWindow(state);
 	ENSURE(handle != kInvalidWindowHandle);
 	myWindows.emplace_back(handle, state);
 
 	// the first window is the one the application draws its user interface in
 	SetCurrentWindow(handle);
+}
+
+WindowedApplication::~WindowedApplication()
+{
+	// after the derived application released what it drew in them (their surfaces)
+	for (const auto& window : myWindows)
+		glfw::DestroyNativeWindow(window.GetHandle());
 }
 
 bool WindowedApplication::Main()
@@ -94,7 +100,7 @@ void WindowedApplication::RequestExit() noexcept
 
 void WindowedApplication::WakeMain() noexcept
 {
-	glfwPostEmptyEvent(); // thread safe
+	glfw::WakeMain();
 }
 
 void WindowedApplication::ToggleFullscreen(WindowHandle handle)
@@ -246,22 +252,4 @@ void SetCurrentWindow(WindowHandle window)
 		platform::windowedapplication::gCurrentWindow = window;
 }
 
-void ResizeFramebuffer(WindowHandle window, int width, int height)
-{
-	if (auto app = std::static_pointer_cast<platform::WindowedApplication>(core::Application::Get()); app)
-		app->OnResizeFramebuffer(window, width, height);
-}
 
-void ToggleFullscreen(WindowHandle window)
-{
-	if (auto app = std::static_pointer_cast<platform::WindowedApplication>(core::Application::Get()); app)
-		app->RequestToggleFullscreen(window);
-}
-
-WindowState* GetWindowState(WindowHandle window)
-{
-	if (auto app = std::static_pointer_cast<platform::WindowedApplication>(core::Application::Get()); app)
-		return &app->GetWindow(window).GetState();
-
-	return nullptr;
-}

@@ -4,20 +4,28 @@ Notes for working in this codebase, distilled from real build failures.
 
 ## Layering: core ← platform ← rhi ← gfx ← client
 
-- `platform` is the window system: the windows (`platform::Window`: a native handle, its `WindowState` and whether it is
-  minimized; `WindowHandle`/`WindowState`/`CreateWindowFunc` in `platform/capi.h`, with `GetCurrentWindow`/
-  `SetCurrentWindow` and the C entry points the client's glfw callbacks call), `platform::WindowedApplication` (makes
-  the window with the client's `CreateWindowFunc`, runs `mainCalls` on the main thread in `Main`, wakes the main loop on
-  `RequestExit`, tracks minimizing in `OnResizeFramebuffer`) and imgui's platform side (`platform::imgui`, imgui's glfw
+- `platform` is the window system, and the only code that calls glfw: its backend (`platform/glfw.cpp`, `glfw.h`:
+  initializing and terminating glfw, the window's creation and destruction, its callbacks, the event loop's wait and
+  wake up, and the Vulkan surface), the windows (`platform::Window`: a native handle, its `WindowState` and whether it
+  is minimized; `WindowHandle`/`WindowState` in `platform/capi.h`, with `GetCurrentWindow`/`SetCurrentWindow` and the
+  C entry points `main.c` calls: `PlatformInit`, `PlatformWaitEvents`, `PlatformWakeMain`, `PlatformTerminate`, and
+  `PlatformCreateVulkanSurface` for rhi, its types opaque, `void*`), `platform::WindowedApplication` (makes its window
+  and destroys it, runs `mainCalls` on the main thread in `Main`, wakes the main loop on `RequestExit`, tracks
+  minimizing in `OnResizeFramebuffer`, and the window changes: fullscreen, sizes, monitors) and imgui's platform side (`platform::imgui`, imgui's glfw
   backend; its input callbacks are installed by `platform::imgui::Init` rather than the backend: they run on the main
   thread, in `glfwWaitEvents`, and fill imgui's input queue, an `ImVector`, which `ImGui::NewFrame` consumes on the ui
   thread, so each calls the window's own callback, then the backend's under a mutex that `NewFrame` returns held until
   `ImGui::NewFrame` is done; unlocked, the two once crashed in `FindLatestInputEvent` with an index out of range). It
-  links glfw and imgui privately, and knows nothing of graphics (no native file dialogs: the client's file browser
-  replaced nfd's): the server, which has no windows, doesn't link it. Alt+Enter (and View > Presentation > Fullscreen)
+  links glfw and imgui privately (and Vulkan's headers, for `glfwCreateWindowSurface`'s types), and its interface knows
+  nothing of graphics (no native file dialogs: the client's file browser replaced nfd's): the server, which has no
+  windows, doesn't link it. Its callbacks translate glfw's keys, buttons, actions and modifiers into core's input
+  vocabulary (`enum Key`, `MOUSE_BUTTON_*`, `INPUT_ACTION_*`, `INPUT_MOD_*` in `core/capi.h`, which `InputState` and the
+  views' movement keys use): nothing above platform includes glfw (the client and gfx used its key codes, rhi made the
+  surface with it, and `main.c` held the window, its callbacks and the loop). `main.c` is the arguments, the signal
+  handlers and the loop around `PlatformWaitEvents`. Alt+Enter (and View > Presentation > Fullscreen)
   goes fullscreen as `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or
   `SPEEDO_FULLSCREEN`), on the monitor the window is on (`platform::WindowedApplication::ToggleFullscreen`; it was
-  `main.c`'s, and always the primary monitor's): exclusive (`glfwSetWindowMonitor`, the default), borderless (an
+  always the primary monitor's): exclusive (`glfwSetWindowMonitor`, the default), borderless (an
   undecorated window covering the monitor, on every platform; on macOS with the menu bar and dock hidden, and composited)
   or, on macOS, native (its own space). Exclusive and native
   let macOS scan the swapchain out directly, which flickered with KosmicKrisp from mesa 26.2 (frames out of order), so
@@ -1823,7 +1831,7 @@ tables indexed through a biased base pointer.
 ## Gotcha: `<windows.h>` macros
 
 `core/file.h` includes `<windows.h>` (mio's), so everything reading files sees it, and its macros rename our code:
-`LoadImage` becomes `LoadImageW` in the files that include it (a link error, `gfx::Scene::LoadImageW`, where the
+`LoadImage` becomes `LoadImageW` (and `CreateWindow` `CreateWindowW`: platform's is `CreateNativeWindow`) in the files that include it (a link error, `gfx::Scene::LoadImageW`, where the
 definition didn't), and a function like macro named like one of its types rewrites the SDK (`capi.h`'s scalars are
 `FLOAT1`/`UINT1`/`INT1` because `UINT(name)` turned `typedef UINT (CALLBACK *YIELDPROC)` into an error in
 `mciapi.h`). `core/mio_extra.h` includes mio with `WIN32_LEAN_AND_MEAN`, `NOUSER` and `NOGDI` (mio needs only the

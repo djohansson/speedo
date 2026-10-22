@@ -21,8 +21,9 @@ extern "C"
 #include <stdbool.h>
 #endif
 
-CLIENT_API void ClientCreate(CreateWindowFunc createWindowFunc, const struct PathConfig* paths);
-CLIENT_API void ClientDestroy(DestroyWindowFunc destroyWindowFunc);
+// the client, with its window: the window system initialized first (PlatformInit)
+CLIENT_API void ClientCreate(const struct PathConfig* paths);
+CLIENT_API void ClientDestroy(void);
 CLIENT_API bool ClientMain();
 
 #ifdef __cplusplus

@@ -7,7 +7,7 @@
 namespace platform
 {
 
-// a native window (made by the application's CreateWindowFunc, e.g. glfw's): its handle, and its state as the window
+// a native window (glfw's, see platform::glfw::CreateNativeWindow): its handle, and its state as the window
 // system reports it. what is drawn in it (its surface and swapchain) is rhi's.
 class Window final
 {

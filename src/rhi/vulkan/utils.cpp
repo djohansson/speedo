@@ -16,7 +16,6 @@
 #	include <vk_mem_alloc.h>
 #endif
 
-#include <GLFW/glfw3.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -1087,15 +1086,11 @@ VkRenderPass CreateRenderPass(
 		std::array{dependency});
 }
 
-// todo: use callback
+// the platform's (its window system's surface for the window, see PlatformCreateVulkanSurface)
 VkSurfaceKHR CreateSurface(VkInstance instance, const VkAllocationCallbacks* hostAllocator, WindowHandle handle)
 {
-	VkSurfaceKHR surface;
-	VK_CHECK(glfwCreateWindowSurface(
-		instance,
-		reinterpret_cast<GLFWwindow*>(handle),
-		hostAllocator,
-		&surface));
+	VkSurfaceKHR surface = VK_NULL_HANDLE;
+	VK_CHECK(static_cast<VkResult>(PlatformCreateVulkanSurface(handle, instance, hostAllocator, &surface)));
 
 	TrackInstance(VK_OBJECT_TYPE_SURFACE_KHR, surface, "Window Surface"); // destroyed by the swapchain that takes it
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <core/capi.h>
+
 #include <bitset>
 #include <cstdint>
 
@@ -13,8 +15,8 @@ struct InputState
 	float dt = 0.0F;
 	struct Keyboard
 	{
-		static constexpr size_t kKeyCount = 512;
-		std::bitset<kKeyCount> keysDown;
+		static constexpr size_t kKeyCount = KEY_COUNT;
+		std::bitset<kKeyCount> keysDown; // by enum Key
 	} keyboard{};
 	struct Mouse
 	{

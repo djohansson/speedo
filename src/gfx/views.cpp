@@ -12,7 +12,6 @@
 #include <cmath>
 #include <format>
 
-#include <GLFW/glfw3.h>
 
 namespace gfx
 {
@@ -407,8 +406,8 @@ void Views::OnInputStateChanged(const core::InputState& input)
 	{
 		return static_cast<float>(keysDown[positiveKey]) - static_cast<float>(keysDown[negativeKey]);
 	};
-	const float deltaX = axis(GLFW_KEY_A, GLFW_KEY_D);
-	const float deltaZ = axis(GLFW_KEY_W, GLFW_KEY_S);
+	const float deltaX = axis(KEY_A, KEY_D);
+	const float deltaZ = axis(KEY_W, KEY_S);
 
 	auto& view = cameras.Get()[*myActiveCamera];
 

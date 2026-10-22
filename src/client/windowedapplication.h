@@ -66,8 +66,7 @@ public:
 protected:
 	WindowedApplication(
 		std::string_view name,
-		core::Environment&& env,
-		CreateWindowFunc createWindowFunc);
+		core::Environment&& env);
 
 private:
 	// the file browser (File > Open...): folders and the files the client loads as tiles, with multi-select, the

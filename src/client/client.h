@@ -15,7 +15,7 @@ namespace client
 class Client final : public WindowedApplication, public core::KeyboardEventHandler, public core::MouseEventHandler
 {	
 public:
-	Client(std::string_view name, core::Environment&& env, CreateWindowFunc createWindowFunc);
+	Client(std::string_view name, core::Environment&& env);
 	~Client() final;
 
 	void OnKeyboard(const KeyboardEvent& keyboard) final;

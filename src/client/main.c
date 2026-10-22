@@ -15,34 +15,12 @@
 
 #include <cargs.h>
 #include <ctrace/ctrace.h>
-#include <GLFW/glfw3.h>
-#if defined(__APPLE__)
-#	define GLFW_EXPOSE_NATIVE_COCOA
-#	include <GLFW/glfw3native.h>
-#elif defined(__WINDOWS__)
-// windows.h for SetWindowPos (see OnCreateWindow): only the kernel and user parts, without min and max
-#	ifndef WIN32_LEAN_AND_MEAN
-#		define WIN32_LEAN_AND_MEAN
-#	endif
-#	ifndef NOMINMAX
-#		define NOMINMAX
-#	endif
-#	ifndef NOGDI
-#		define NOGDI
-#	endif
-#	define GLFW_EXPOSE_NATIVE_WIN32
-#	include <GLFW/glfw3native.h>
-#endif
 #if defined(SPEEDO_USE_MIMALLOC)
 #include <mimalloc.h>
 #endif
 #if !defined(__WINDOWS__)
 #	include <pthread.h>
 #	include <unistd.h>
-#endif
-#if defined(__APPLE__)
-#	include <objc/message.h>
-#	include <objc/runtime.h>
 #endif
 
 static struct cag_option gCmdArgs[] =
@@ -68,24 +46,20 @@ static struct cag_option gCmdArgs[] =
 		.description = "Shows the command help"
 	}
 };
-static struct MouseEvent gMouse;
-static struct KeyboardEvent gKeyboard;
 static struct PathConfig gPaths;
 static atomic_bool gIsInterrupted = false;
-static atomic_bool gIsGlfwInitialized = false;
 
 static void OnInterrupt(void)
 {
 	atomic_store(&gIsInterrupted, true);
 
-	// the main loop sleeps in glfwWaitEvents() until the next window event, so wake it up
-	if (atomic_load(&gIsGlfwInitialized))
-		glfwPostEmptyEvent();
+	// the main loop sleeps in PlatformWaitEvents() until the next window event, so wake it up
+	PlatformWakeMain();
 }
 
 #ifndef __WINDOWS__
-// glfwPostEmptyEvent() is not async-signal-safe, so the SIGINT handler only writes to a pipe (which is),
-// and this thread forwards the wakeup to glfw from a regular thread context (self-pipe trick).
+// PlatformWakeMain() is not async-signal-safe, so the SIGINT handler only writes to a pipe (which is),
+// and this thread forwards the wakeup to the platform from a regular thread context (self-pipe trick).
 static int gInterruptPipe[2] = {-1, -1};
 
 static void* InterruptThreadMain(void* arg)
@@ -115,7 +89,7 @@ static void OnSignal(int sig)
 	{	
 	case SIGINT:
 #if defined(__WINDOWS__)
-		OnInterrupt(); // runs on a separate thread on windows, so calling into glfw is fine
+		OnInterrupt(); // runs on a separate thread on windows, so calling into the platform is fine
 #else
 		atomic_store(&gIsInterrupted, true);
 		(void)!write(gInterruptPipe[1], "", 1);
@@ -140,316 +114,6 @@ static void OnSignal(int sig)
 	// re-execute the faulting instruction and loop in this handler forever.
 	signal(sig, SIG_DFL);
 	raise(sig);
-}
-
-static void OnError(int error, const char* description)
-{
-	ENSURE(description != NULL);
-
-	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
-}
-
-static void OnMouseEnter(GLFWwindow* window, int entered)
-{
-	ENSURE(window != NULL);
-
-	if (entered)
-		SetCurrentWindow((WindowHandle)window);
-
-	gMouse.insideWindow = entered;
-	gMouse.flags = kWindow;
-
-	UpdateMouse(&gMouse);
-}
-
-static void OnMouseButton(GLFWwindow* window, int button, int action, int mods)
-{
-	ENSURE(window != NULL);
-
-	gMouse.button = button;
-	gMouse.action = action;
-	gMouse.mods = mods;
-	gMouse.flags = kButton;
-
-	UpdateMouse(&gMouse);
-}
-
-static void OnMouseCursorPos(GLFWwindow* window, double xpos, double ypos)
-{
-	ENSURE(window != NULL);
-
-	// glfw reports the cursor in screen coordinates, the renderer works in framebuffer pixels. their ratio is not the
-	// content (dpi) scale: on windows and x11 the two coordinate spaces are the same, on macos/wayland they differ.
-	int windowWidth, windowHeight, framebufferWidth, framebufferHeight;
-	glfwGetWindowSize(window, &windowWidth, &windowHeight);
-	glfwGetFramebufferSize(window, &framebufferWidth, &framebufferHeight);
-
-	gMouse.xpos = windowWidth > 0 ? xpos * framebufferWidth / windowWidth : xpos;
-	gMouse.ypos = windowHeight > 0 ? ypos * framebufferHeight / windowHeight : ypos;
-	// the enter callback only fires on transitions: a cursor that is already over the window when it opens never
-	// "enters" it, which left insideWindow false (and the camera inactive) until the cursor left and came back
-	gMouse.insideWindow = glfwGetWindowAttrib(window, GLFW_HOVERED);
-	gMouse.flags = kPosition;
-
-	UpdateMouse(&gMouse);
-}
-
-static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
-{
-	ENSURE(window != NULL);
-
-	gMouse.xoffset = xoffset;
-	gMouse.yoffset = yoffset;
-	gMouse.flags = kScroll;
-
-	UpdateMouse(&gMouse);
-}
-
-static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-	ENSURE(window != NULL);
-
-	static bool gFullscreenChangeTriggered = false;
-	if (key == GLFW_KEY_ENTER && mods == GLFW_MOD_ALT)
-	{
-		if (!gFullscreenChangeTriggered)
-		{
-			gFullscreenChangeTriggered = true;
-
-			ToggleFullscreen((WindowHandle)window); // see platform::WindowedApplication::ToggleFullscreen
-		}
-	}
-	else
-	{
-		gFullscreenChangeTriggered = false;
-	}
-
-	gKeyboard.key = key;
-	gKeyboard.scancode = scancode;
-	gKeyboard.action = action;
-	gKeyboard.mods = mods;
-
-	UpdateKeyboard(&gKeyboard);
-}
-
-static void OnMonitorChanged(GLFWmonitor* monitor, int event)
-{
-	ENSURE(monitor != NULL);
-
-	/*
-	if (event == GLFW_CONNECTED)
-	{
-		// The monitor was connected
-	}
-	else if (event == GLFW_DISCONNECTED)
-	{
-		// The monitor was disconnected
-	}
-	*/
-}
-
-static void OnDrop(GLFWwindow* window, int count, const char** paths)
-{
-	ENSURE(window != NULL);
-}
-
-static void OnFramebufferResize(GLFWwindow* window, int width, int height)
-{
-	ENSURE(window != NULL);
-
-	// 0x0 while minimized, which the rhi handles by skipping frames until the window is restored
-	ResizeFramebuffer((WindowHandle)window, width, height);
-}
-
-static void OnWindowContentScaleChanged(GLFWwindow* window, float xscale, float yscale)
-{
-	ENSURE(window != NULL);
-	ASSERT(xscale > 0);
-	ASSERT(yscale > 0);
-
-	struct WindowState* windowState = GetWindowState((WindowHandle)window);
-
-	ENSURE(windowState != NULL);
-
-	windowState->xscale = xscale;
-	windowState->yscale = yscale;
-}
-
-
-static void OnWindowFocusChanged(GLFWwindow* window, int focused)
-{
-	ENSURE(window != NULL);
-}
-
-static void OnWindowRefreshChanged(GLFWwindow* window)
-{
-	ENSURE(window != NULL);
-}
-
-static void OnWindowIconifyChanged(GLFWwindow* window, int iconified)
-{
-	ENSURE(window != NULL);
-
-	/*
-	if (iconified)
-	{
-		// The window was iconified
-	}
-	else
-	{
-		// The window was restored
-	}
-	*/
-}
-
-static void OnWindowMaximizeChanged(GLFWwindow* window, int maximized)
-{
-	ENSURE(window != NULL);
-
-	/*
-	if (maximized)
-	{
-		// The window was maximized
-	}
-	else
-	{
-		// The window was restored
-	}
-	*/
-}
-
-static void OnWindowSizeChanged(GLFWwindow* window, int width, int height)
-{
-	ENSURE(window != NULL);
-}
-
-static void SetWindowCallbacks(GLFWwindow* window)
-{
-	ENSURE(window != NULL);
-
-	glfwSetCursorEnterCallback(window, OnMouseEnter);
-	glfwSetMouseButtonCallback(window, OnMouseButton);
-	glfwSetCursorPosCallback(window, OnMouseCursorPos);
-	glfwSetScrollCallback(window, OnScroll);
-	glfwSetKeyCallback(window, OnKey);
-	glfwSetDropCallback(window, OnDrop);
-	glfwSetFramebufferSizeCallback(window, OnFramebufferResize);
-	glfwSetWindowFocusCallback(window, OnWindowFocusChanged);
-	glfwSetWindowRefreshCallback(window, OnWindowRefreshChanged);
-	glfwSetWindowContentScaleCallback(window, OnWindowContentScaleChanged);
-	glfwSetWindowIconifyCallback(window, OnWindowIconifyChanged);
-	glfwSetWindowMaximizeCallback(window, OnWindowMaximizeChanged);
-	glfwSetWindowSizeCallback(window, OnWindowSizeChanged);
-	glfwSetWindowTitle(window, GetApplicationName());
-}
-
-static WindowHandle OnCreateWindow(struct WindowState* inOutState)
-{
-	ENSURE(inOutState != NULL);
-	ENSURE(inOutState->width > 0);
-	ENSURE(inOutState->height > 0);
-
-	// todo: fullscreen on create
-
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
-
-	// SPEEDO_BACKGROUND=1 (automated runs, see scripts/assettest.ps1): the window opens behind the others, without taking
-	// the focus, so that test runs don't interrupt whoever is working
-	const char* backgroundSetting = getenv("SPEEDO_BACKGROUND");
-	bool background = backgroundSetting != NULL && strcmp(backgroundSetting, "1") == 0;
-	if (background)
-	{
-		glfwWindowHint(GLFW_FOCUSED, GLFW_FALSE);
-		glfwWindowHint(GLFW_FOCUS_ON_SHOW, GLFW_FALSE);
-		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-	}
-
-	// SPEEDO_PRESENTATION_TEST (see PrepareDraw): exclusive fullscreen stays up when the window loses the focus, which an
-	// automated run doesn't control (minimized, nothing is drawn, and the run's watchdog took that for a hang)
-	const char* presentationTest = getenv("SPEEDO_PRESENTATION_TEST");
-	if (presentationTest != NULL && *presentationTest != '\0')
-		glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
-
-	GLFWwindow* window  = glfwCreateWindow(
-		(int)inOutState->width,
-		(int)inOutState->height,
-		"",
-		NULL,
-		NULL);
-
-	ENSURE(window != NULL);
-
-	// SPEEDO_FULLSCREEN=exclusive (the default), borderless (see platform::WindowedApplication::ToggleFullscreen: composited, for drivers that
-	// flicker scanned out) or native (macOS only, else exclusive): how alt+enter goes fullscreen until View > Presentation
-	// picks another
-	const char* fullscreenMode = getenv("SPEEDO_FULLSCREEN");
-	inOutState->fullscreenMode = FULLSCREEN_MODE_EXCLUSIVE;
-	if (fullscreenMode != NULL && strcmp(fullscreenMode, "borderless") == 0)
-		inOutState->fullscreenMode = FULLSCREEN_MODE_BORDERLESS;
-#if defined(__APPLE__)
-	if (fullscreenMode != NULL && strcmp(fullscreenMode, "native") == 0)
-		inOutState->fullscreenMode = FULLSCREEN_MODE_NATIVE;
-#endif
-
-	if (background)
-	{
-#if defined(__APPLE__)
-		// shown behind every other window (glfw's show orders it to the front)
-		id nsWindow = glfwGetCocoaWindow(window);
-		((void (*)(id, SEL, id))objc_msgSend)(nsWindow, sel_registerName("orderBack:"), NULL);
-#elif defined(__WINDOWS__)
-		// shown at the bottom of the z-order without activating it (glfw's show, SW_SHOWNA, puts it on top)
-		SetWindowPos(glfwGetWin32Window(window), HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-#else
-		glfwShowWindow(window);
-#endif
-	}
-
-	glfwGetWindowContentScale(window, &inOutState->xscale, &inOutState->yscale);
-
-	if (glfwRawMouseMotionSupported())
-	 	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
-
-	// glfwSetInputMode(g_window.handle, GLFW_CURSOR, GLFW_CURSOR_HIDDEN);
-
-	SetWindowCallbacks(window);
-
-	return (WindowHandle)window;
-}
-
-static void OnDestroyWindow(WindowHandle window)
-{
-	ENSURE(window != kInvalidWindowHandle);
-
-	glfwDestroyWindow((GLFWwindow*)window);
-}
-
-static void* GlfwAllocate(size_t size, void* user)
-{
-#if defined(SPEEDO_USE_MIMALLOC)
-	return mi_malloc(size);
-#else
-	return malloc(size);
-#endif
-}
-
-static void GlfwDeallocate(void* block, void* user)
-{
-#if defined(SPEEDO_USE_MIMALLOC)
-	mi_free(block);
-#else
-	free(block);
-#endif
-}
-
-static void* GlfwReallocate(void* block, size_t size, void* user)
-{
-#if defined(SPEEDO_USE_MIMALLOC)
-	return mi_realloc(block, size);
-#else
-	return realloc(block, size);
-#endif
 }
 
 int main(int argc, char* argv[], char* envp[])
@@ -497,61 +161,16 @@ int main(int argc, char* argv[], char* envp[])
 		}
 	}
 
-	glfwSetErrorCallback(OnError);
-	
-	GLFWallocator allocator = { .allocate = GlfwAllocate, .reallocate = GlfwReallocate, .deallocate = GlfwDeallocate };
-	glfwInitAllocator(&allocator);
-	
-	ENSUREF(glfwInit(), "GLFW: Failed to initialize.\n");
-	atomic_store(&gIsGlfwInitialized, true);
-	ENSUREF(glfwVulkanSupported(), "GLFW: Vulkan not supported.\n");
-	
-	int monitorCount;
-	GLFWmonitor** monitors = glfwGetMonitors(&monitorCount);
-	ENSUREF(monitors != NULL && monitorCount > 0, "GLFW: No monitor connected?\n");
-	for (int monitorIt = 0; monitorIt < monitorCount; ++monitorIt)
-	{
-		GLFWmonitor* monitor = monitors[monitorIt];
-		ENSURE(monitor != NULL);
-
-		const char* name = glfwGetMonitorName(monitor);
-		ENSURE(name != NULL);
-
-		int monitorx;
-		int monitory;
-		glfwGetMonitorPos(monitor, &monitorx, &monitory);
-		
-		int physicalWidth;
-		int physicalHeight;
-		glfwGetMonitorPhysicalSize(monitor, &physicalWidth, &physicalHeight);
-		
-		const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-		ENSURE(mode != NULL);
-
-		float xscale;
-		float yscale;
-		glfwGetMonitorContentScale(monitor, &xscale, &yscale);
-
-		printf("GLFW: Connected Monitor %i: %s, Position: %ix%i, Physical Size: %ix%i, Video Mode: %ix%i@%i[%i:%i:%i], Content Scale: %fx%f\n",
-			monitorIt, name,
-			monitorx, monitory,
-			physicalWidth, physicalHeight,
-			mode->width, mode->height, mode->refreshRate, mode->redBits, mode->greenBits, mode->blueBits,
-			xscale, yscale);
-	}
-	
-	glfwSetMonitorCallback(OnMonitorChanged);
-
-	ClientCreate(OnCreateWindow, &gPaths);
-	// with a timeout: a wake up (glfwPostEmptyEvent, for mainCalls) that something peeked at before WaitMessage looked is
-	// no new message to it, and the main thread slept on until the next input (a fullscreen switch waiting for its main
-	// call stalled, twice, until then)
-	do { glfwWaitEventsTimeout(0.1); }
-	while (!(bool)glfwWindowShouldClose((GLFWwindow*)GetCurrentWindow()) && ClientMain() && !atomic_load(&gIsInterrupted));//NOLINT(performance-no-int-to-ptr)
-	ClientDestroy(OnDestroyWindow);
-	
-	atomic_store(&gIsGlfwInitialized, false);
-	glfwTerminate();
+	// the window system first: the client makes its window
+	PlatformInit();
+	ClientCreate(&gPaths);
+	// with a timeout: a wake up (for mainCalls) that something peeked at before the wait looked is no new message to it,
+	// and the main thread slept on until the next input (a fullscreen switch waiting for its main call stalled, twice,
+	// until then)
+	while (PlatformWaitEvents(0.1) && ClientMain() && !atomic_load(&gIsInterrupted))
+		;
+	ClientDestroy();
+	PlatformTerminate();
 
 	return EXIT_SUCCESS;
 }

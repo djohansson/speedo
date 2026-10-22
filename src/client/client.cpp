@@ -17,7 +17,6 @@
 #include <thread>
 #include <vector>
 
-#include <GLFW/glfw3.h>
 
 namespace client
 {
@@ -220,12 +219,12 @@ void Client::Tick()
 
 		if ((mouse.flags & MouseEvent::kButton) != 0)
 		{
-			bool leftPressed = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_PRESS);
-			bool rightPressed = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_PRESS);
-			bool middlePressed = (mouse.button == GLFW_MOUSE_BUTTON_MIDDLE && mouse.action == GLFW_PRESS);
-			bool leftReleased = (mouse.button == GLFW_MOUSE_BUTTON_LEFT && mouse.action == GLFW_RELEASE);
-			bool rightReleased = (mouse.button == GLFW_MOUSE_BUTTON_RIGHT && mouse.action == GLFW_RELEASE);
-			bool middleReleased = (mouse.button == GLFW_MOUSE_BUTTON_MIDDLE && mouse.action == GLFW_RELEASE);
+			bool leftPressed = (mouse.button == MOUSE_BUTTON_LEFT && mouse.action == INPUT_ACTION_PRESS);
+			bool rightPressed = (mouse.button == MOUSE_BUTTON_RIGHT && mouse.action == INPUT_ACTION_PRESS);
+			bool middlePressed = (mouse.button == MOUSE_BUTTON_MIDDLE && mouse.action == INPUT_ACTION_PRESS);
+			bool leftReleased = (mouse.button == MOUSE_BUTTON_LEFT && mouse.action == INPUT_ACTION_RELEASE);
+			bool rightReleased = (mouse.button == MOUSE_BUTTON_RIGHT && mouse.action == INPUT_ACTION_RELEASE);
+			bool middleReleased = (mouse.button == MOUSE_BUTTON_MIDDLE && mouse.action == INPUT_ACTION_RELEASE);
 
 			if (leftPressed)
 			{
@@ -283,9 +282,9 @@ void Client::Tick()
 	KeyboardEvent keyboard;
 	while (myKeyboardQueue.try_dequeue(keyboard))
 	{
-		if (keyboard.action == GLFW_PRESS)
+		if (keyboard.action == INPUT_ACTION_PRESS)
 			input.keyboard.keysDown[keyboard.key] = true;
-		else if (keyboard.action == GLFW_RELEASE)
+		else if (keyboard.action == INPUT_ACTION_RELEASE)
 			input.keyboard.keysDown[keyboard.key] = false;
 
 		eventsProcessed++;
@@ -308,11 +307,10 @@ bool Client::Main()
 	return WindowedApplication::Main();
 }
 
-Client::Client(std::string_view name, Environment&& env, CreateWindowFunc createWindowFunc)
+Client::Client(std::string_view name, Environment&& env)
 : WindowedApplication(
 	std::forward<std::string_view>(name),
-	std::forward<Environment>(env),
-	createWindowFunc)
+	std::forward<Environment>(env))
 , myContext(1)
 , mySocket(myContext, zmq::socket_type::req)
 {
@@ -361,7 +359,7 @@ bool ClientMain()
 	return gClientApplication.Read()->Main();
 }
 
-void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
+void ClientCreate(const PathConfig* paths)
 {
 	using namespace client;
 
@@ -382,14 +380,13 @@ void ClientCreate(CreateWindowFunc createWindowFunc, const PathConfig* paths)
 			{"RootPath", root.value()},
 			{"ResourcePath", resourcePath.value()},
 			{"UserProfilePath", userPath.value()},
-		},},
-		createWindowFunc);
+		},});
 
 	std::array<TaskHandle, 3> handles{gRpcTask.handle, gTickTask.handle, gDrawTask.handle};
 	appPtrRef->GetExecutor().Submit(handles);
 }
 
-void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
+void ClientDestroy()
 {
 	using namespace client;
 
@@ -413,17 +410,11 @@ void ClientDestroy(DestroyWindowFunc destroyWindowFunc)
 
 	ENSURE(appPtrRef);
 
-	// the app owns the vulkan surfaces/swapchains of these windows, so destroy it before the native windows
-	std::vector<WindowHandle> windows;
-	for (const auto& window : appPtrRef->GetWindows())
-		windows.emplace_back(window.GetHandle());
-
+	// the vulkan surfaces and swapchains of its windows, before the windows (which the application's destruction
+	// destroys, see platform::WindowedApplication)
 	appPtrRef->Shutdown();
 
 	// only now: tasks (e.g. loads) hold the application while they run, and Shutdown() has joined them
 	ASSERT(appPtrRef.use_count() == 1);
 	appPtrRef.reset();
-
-	for (auto window : windows)
-		destroyWindowFunc(window);
 }

@@ -418,8 +418,8 @@ bool WindowedApplication::Draw()
 }
 
 WindowedApplication::WindowedApplication(
-	std::string_view appName, core::Environment&& env, CreateWindowFunc createWindowFunc)
-	: platform::WindowedApplication(appName, std::forward<core::Environment>(env), createWindowFunc)
+	std::string_view appName, core::Environment&& env)
+	: platform::WindowedApplication(appName, std::forward<core::Environment>(env))
 	, myRHI(std::make_unique<RHI>(RHIInitializationData{
 		  .name = appName,
 		  .window = GetCurrentWindow(), // the window the platform made: the one we draw in

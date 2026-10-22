@@ -15,6 +15,7 @@
 extern "C"
 {
 #else
+#include <stdbool.h>
 #include <stdint.h>
 #endif
 
@@ -39,16 +40,21 @@ struct WindowState
 #define FULLSCREEN_MODE_EXCLUSIVE 1u // glfwSetWindowMonitor: the default
 #define FULLSCREEN_MODE_NATIVE 2u // macOS only: its own fullscreen space (toggleFullScreen:, the title bar's green button)
 
-typedef WindowHandle (*CreateWindowFunc)(struct WindowState* window);//NOLINT(modernize-use-using)
-typedef void (*DestroyWindowFunc)(WindowHandle window);//NOLINT(modernize-use-using)
 static const WindowHandle kInvalidWindowHandle = 0;//NOLINT(modernize-use-nullptr)
 
-// forward to the running platform::WindowedApplication, if any
-PLATFORM_API void ResizeFramebuffer(WindowHandle window, int width, int height);
-// asks for the window to go fullscreen as its state's fullscreenMode says, or back (alt+enter, see
-// platform::WindowedApplication::RequestToggleFullscreen)
-PLATFORM_API void ToggleFullscreen(WindowHandle window);
-PLATFORM_API struct WindowState* GetWindowState(WindowHandle window);
+// the window system (glfw, see platform/glfw.cpp): initialized before the application is made (which makes its window,
+// see platform::WindowedApplication) and terminated after it is gone. main thread
+PLATFORM_API void PlatformInit(void);
+PLATFORM_API void PlatformTerminate(void);
+// waits for the window system's events, up to timeoutSeconds, and handles them: false once the window was asked to
+// close. main thread
+PLATFORM_API bool PlatformWaitEvents(double timeoutSeconds);
+// wakes PlatformWaitEvents up. any thread (not a signal handler: not async signal safe)
+PLATFORM_API void PlatformWakeMain(void);
+// a vulkan surface of the window, for rhi (its types opaque here: platform knows nothing of graphics): instance a
+// VkInstance, allocator a const VkAllocationCallbacks* (or null), surface a VkSurfaceKHR* it is written to. returns the
+// VkResult
+PLATFORM_API int32_t PlatformCreateVulkanSurface(WindowHandle window, void* instance, const void* allocator, void* surface);
 
 // the window the application draws its user interface in, and parents its dialogues to. only the first window set
 // counts; until then, kInvalidWindowHandle.
