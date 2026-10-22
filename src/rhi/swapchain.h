@@ -109,12 +109,24 @@ public:
 	[[nodiscard]] FlipResult<G> Flip();
 	[[nodiscard]] QueuePresentInfo<G> PreparePresent();
 	[[maybe_unused]] bool WaitPresent(uint64_t presentId, uint64_t timeout = UINT64_MAX) const; //NOLINT(modernize-use-nodiscard)
+	// waits (up to timeout, in nanoseconds) until the last frame presented has been shown: before the window changes how
+	// it is shown (fullscreen), when fifo may have frames queued for the coming vertical blanks, which a display mode
+	// change leaves unshown (see client::WindowedApplication::Draw). false if it timed out, or can't tell (no
+	// VK_KHR_present_wait)
+	[[maybe_unused]] bool WaitPresented(uint64_t timeout) const; //NOLINT(modernize-use-nodiscard)
+	// whether it has presented since it was made (a released one hasn't)
+	[[nodiscard]] bool HasPresented() const noexcept { return myHasPresented; }
 
 	[[nodiscard]] auto& GetFrames() noexcept { return myFrames; }
 	[[nodiscard]] const auto& GetFrames() const noexcept { return myFrames; }
 	[[nodiscard]] auto GetCurrentFrameIndex() const noexcept { return myFrameIndex; }
 
 	void CreateSwapchain();
+	// destroys the swapchain and its frames, until the next CreateSwapchain (which it asks for, NeedsRecreate): with the
+	// gpu idle, before the window changes how it is shown (fullscreen). NVIDIA's driver on Windows waited forever in
+	// vkCreateSwapchainKHR or vkDestroySwapchainKHR for a swapchain that lived through a display mode change, even with
+	// everything it presented shown; made after it, with none before, it doesn't
+	void Release();
 	// how the swapchain presents (its mode, if the surface has it, and how many images, within the surface's limits), for
 	// the next CreateSwapchain, which it asks for (NeedsRecreate). on the thread that draws
 	void Configure(PresentationMode mode, uint32_t imageCount);
@@ -140,6 +152,8 @@ private:
 	// the frame, so they can be waited on before mySwapchain is destroyed (on resize): waiting on them afterwards is invalid.
 	std::vector<Fence<G>> myAcquireFences;
 	bool myNeedsRecreate{};
+	uint64_t myLastPresentId{}; // 0: none (see PreparePresent)
+	bool myHasPresented{};
 };
 
 } // namespace rhi

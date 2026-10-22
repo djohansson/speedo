@@ -11,10 +11,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <format>
 #include <print>
+#include <ranges>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 #include <numbers>
@@ -990,13 +993,112 @@ void WindowedApplication::PrepareDraw()
 		gAutoTurning = true;
 	}
 
+	// SPEEDO_PRESENTATION_TEST=<step>[;<step>...]: what View > Presentation and alt+enter do, a step every
+	// SPEEDO_PRESENTATION_STEP_FRAMES (20) drawn frames once the autoloads are installed (scripts/assettest.ps1
+	// -Presentation): fullscreen (in or out, as alt+enter), fullscreen=exclusive|borderless|native (how it goes in next),
+	// present=fifo|fifo_relaxed|mailbox|immediate, images=<count> (both as the menu: a mode the surface hasn't is skipped),
+	// size=<width>x<height> (the window's, in screen coordinates), monitor=<index> (the window centered on it, glfw's
+	// order: the primary first). the exit (SPEEDO_AUTOLOAD_EXIT) counts from the last
+	// step, and the run fails (traps) if no frame is drawn for 10 seconds meanwhile: a switch used to hang
+	struct PresentationTest
+	{
+		std::vector<std::string> steps;
+		size_t next = 0;
+		uint64_t stepFrame = 0;
+		uint64_t stepFrameCount = 20;
+		uint64_t lastDrawn = 0;
+		std::chrono::steady_clock::time_point lastProgress = std::chrono::steady_clock::now();
+	};
+	static PresentationTest gPresentationTest = []
+	{
+		PresentationTest test;
+		if (const char* steps = std::getenv("SPEEDO_PRESENTATION_TEST"); steps != nullptr)
+			for (auto step : std::string_view(steps) | std::views::split(';'))
+				if (!step.empty())
+					test.steps.emplace_back(std::string_view(step));
+		if (const char* frames = std::getenv("SPEEDO_PRESENTATION_STEP_FRAMES"); frames != nullptr && *frames != '\0')
+			test.stepFrameCount = std::max(1UL, std::strtoul(frames, nullptr, 10));
+		return test;
+	}();
+	if (!gPresentationTest.steps.empty() && autoLoadsReady && modelInstalled && !gAutoCamera && !gAutoFrame)
+	{
+		auto& test = gPresentationTest;
+		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
+		auto now = std::chrono::steady_clock::now();
+		if (drawn != test.lastDrawn)
+		{
+			test.lastDrawn = drawn;
+			test.lastProgress = now;
+		}
+		using namespace std::chrono_literals;
+		ENSUREF(
+			now - test.lastProgress < 10s, "SPEEDO_PRESENTATION_TEST: no frame drawn for 10 s after step {} ({})", test.next,
+			test.next > 0 ? test.steps[test.next - 1] : std::string("none"));
+		if (test.next < test.steps.size() && drawn >= test.stepFrame + test.stepFrameCount)
+		{
+			const auto& step = test.steps[test.next++];
+			test.stepFrame = drawn;
+			std::println("SPEEDO_PRESENTATION_TEST: step {} of {}, {}", test.next, test.steps.size(), step);
+			std::fflush(stdout);
+			auto value = [&step](std::string_view name) -> std::optional<std::string_view>
+			{
+				if (step.starts_with(name) && step.size() > name.size() && step[name.size()] == '=')
+					return std::string_view(step).substr(name.size() + 1);
+				return std::nullopt;
+			};
+			auto window = GetCurrentWindow();
+			if (step == "fullscreen")
+				RequestToggleFullscreen(window);
+			else if (auto mode = value("fullscreen"))
+				GetWindow(window).GetState().fullscreenMode = *mode == "borderless" ? FULLSCREEN_MODE_BORDERLESS
+															  : *mode == "native"   ? FULLSCREEN_MODE_NATIVE
+																					: FULLSCREEN_MODE_EXCLUSIVE;
+			else if (auto present = value("present"))
+			{
+				auto request = UnpackPresentation(myPresentation.load(std::memory_order_relaxed));
+				request.mode = *present == "immediate"	  ? rhi::PresentationMode::kImmediate
+							   : *present == "mailbox"	  ? rhi::PresentationMode::kMailbox
+							   : *present == "fifo_relaxed" ? rhi::PresentationMode::kFifoRelaxed
+															: rhi::PresentationMode::kFifo;
+				if ((request.modes & (1U << static_cast<uint32_t>(request.mode))) != 0)
+					myPresentationRequest.store(PackPresentation(request), std::memory_order_relaxed);
+				else
+					std::println("SPEEDO_PRESENTATION_TEST: the surface has no {}", *present);
+			}
+			else if (auto images = value("images"))
+			{
+				auto request = UnpackPresentation(myPresentation.load(std::memory_order_relaxed));
+				request.imageCount = static_cast<uint32_t>(std::strtoul(std::string(*images).c_str(), nullptr, 10));
+				myPresentationRequest.store(PackPresentation(request), std::memory_order_relaxed);
+			}
+			else if (auto monitor = value("monitor"))
+			{
+				auto index = static_cast<uint32_t>(std::strtoul(std::string(*monitor).c_str(), nullptr, 10));
+				RequestWindowChange([this, window, index] { MoveWindowToMonitor(window, index); });
+			}
+			else if (auto size = value("size"))
+			{
+				int width = 0;
+				int height = 0;
+				if (std::sscanf(std::string(*size).c_str(), "%dx%d", &width, &height) == 2 && width > 0 && height > 0)
+					RequestWindowChange([this, window, width, height] { SetWindowSize(window, width, height); });
+				else
+					std::println(stderr, "SPEEDO_PRESENTATION_TEST: expected size=<width>x<height>, got {}", step);
+			}
+			else
+				std::println(stderr, "SPEEDO_PRESENTATION_TEST: unknown step {}", step);
+		}
+	}
+	bool presentationTestDone = gPresentationTest.next == gPresentationTest.steps.size() &&
+								gDrawnFrameCount.load(std::memory_order_relaxed) >= gPresentationTest.stepFrame + gPresentationTest.stepFrameCount;
+
 	// the installs are queued to the draw thread when the loads finish, so they have happened a frame later. the count is
 	// of drawn frames (the ui thread's run ahead of them), from when the views are placed (SPEEDO_CAMERA), after the model's
 	// install: a big model's came late in a count of the ui's frames from the loads, and a capture showed the frame before
 	// the placement
 	static std::optional<uint64_t> gAutoLoadExitStart;
 	if (gAutoLoadExitFrames && std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); }) && !gAutoCamera &&
-		!gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())))
+		!gAutoFrame && modelInstalled && (gAutoPath.empty() || (gAutoPathFollowed && !myViews->OnPath())) && presentationTestDone)
 	{
 		auto drawn = gDrawnFrameCount.load(std::memory_order_relaxed);
 		if (!gAutoLoadExitStart)
@@ -1148,7 +1250,10 @@ void WindowedApplication::PrepareDraw()
 				// how the window goes fullscreen (alt+enter) and presents (see FULLSCREEN_MODE_* and Swapchain::Configure):
 				// to compare them, e.g. a driver's direct scanout on macOS
 				auto& windowState = GetWindow(GetCurrentWindow()).GetState();
-				SeparatorText("Fullscreen (Alt+Enter)");
+				SeparatorText("Fullscreen");
+				if (MenuItem("Fullscreen", "Alt+Enter", windowState.fullscreenEnabled != 0U))
+					RequestToggleFullscreen(GetCurrentWindow());
+				SetItemTooltip("In or out of fullscreen, as below.");
 				for (auto [label, mode] : std::array{
 						 std::pair{"Exclusive", FULLSCREEN_MODE_EXCLUSIVE},
 						 std::pair{"Borderless", FULLSCREEN_MODE_BORDERLESS},

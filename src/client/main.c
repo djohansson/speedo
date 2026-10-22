@@ -205,124 +205,6 @@ static void OnScroll(GLFWwindow* window, double xoffset, double yoffset)
 	UpdateMouse(&gMouse);
 }
 
-#if defined(__APPLE__)
-// borderless fullscreen (FULLSCREEN_MODE_BORDERLESS): a window covering the monitor, with the menu bar and dock hidden,
-// stays composited. exclusive and native fullscreen let macOS scan the swapchain images out directly, which flickered
-// (frames shown out of order) with KosmicKrisp from mesa 26.2; with mesa main (8fc4981) all three work, and exclusive is
-// the default
-static void SetMacPresentationOptions(unsigned long options)
-{
-	id app = ((id (*)(Class, SEL))objc_msgSend)(objc_getClass("NSApplication"), sel_registerName("sharedApplication"));
-	((void (*)(id, SEL, unsigned long))objc_msgSend)(app, sel_registerName("setPresentationOptions:"), options);
-}
-
-enum
-{
-	kMacPresentationDefault = 0,
-	kMacPresentationHideDock = 1UL << 1, // NSApplicationPresentationHideDock
-	kMacPresentationHideMenuBar = 1UL << 3, // NSApplicationPresentationHideMenuBar
-};
-#endif
-
-static void OnWindowFullscreenChanged(GLFWwindow* window)
-{
-	ENSURE(window != NULL);
-
-	struct WindowState* windowState = GetWindowState((WindowHandle)window);
-
-	ENSURE(windowState != NULL);
-
-	// windowed placement to restore when leaving fullscreen (windowState holds the fullscreen size by then)
-	static int gWindowedX = 0;
-	static int gWindowedY = 0;
-	static int gWindowedWidth = 0;
-	static int gWindowedHeight = 0;
-
-	// how it went fullscreen, to leave the same way (windowState's mode may have changed since, see View > Presentation)
-	static uint32_t gFullscreenEntered = FULLSCREEN_MODE_EXCLUSIVE;
-	uint32_t fullscreenMode = windowState->fullscreenEnabled ? gFullscreenEntered : windowState->fullscreenMode;
-	if (!windowState->fullscreenEnabled)
-		gFullscreenEntered = fullscreenMode;
-
-#if defined(__APPLE__)
-	if (fullscreenMode == FULLSCREEN_MODE_NATIVE)
-	{
-		// asynchronous: the window resizes as it moves to its space (or back), which the resize callbacks follow
-		((void (*)(id, SEL, id))objc_msgSend)(glfwGetCocoaWindow(window), sel_registerName("toggleFullScreen:"), nil);
-		windowState->fullscreenEnabled = !windowState->fullscreenEnabled;
-		return;
-	}
-#endif
-
-	if (windowState->fullscreenEnabled)
-	{
-		if (fullscreenMode == FULLSCREEN_MODE_BORDERLESS)
-		{
-#if defined(__APPLE__)
-			SetMacPresentationOptions(kMacPresentationDefault);
-#endif
-			glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
-		}
-		// for the borderless window (which has no monitor) too: it places the window
-		glfwSetWindowMonitor(
-			window,
-			NULL,
-			gWindowedX,
-			gWindowedY,
-			gWindowedWidth,
-			gWindowedHeight,
-			GLFW_DONT_CARE);
-		
-		windowState->fullscreenRefresh = 0;
-		windowState->fullscreenEnabled = false;
-	}
-	else
-	{
-		GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
-
-		if (primaryMonitor)
-		{
-			const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
-
-			ENSURE(mode != NULL);
-
-			glfwGetWindowPos(window, &gWindowedX, &gWindowedY);
-			glfwGetWindowSize(window, &gWindowedWidth, &gWindowedHeight);
-
-			windowState->x = 0;
-			windowState->y = 0;
-			windowState->width = mode->width;
-			windowState->height = mode->height;
-
-			if (fullscreenMode == FULLSCREEN_MODE_BORDERLESS)
-			{
-				// an undecorated window covering the monitor (and, on windows, its taskbar), in the monitor's mode
-				int monitorX, monitorY;
-				glfwGetMonitorPos(primaryMonitor, &monitorX, &monitorY);
-
-#if defined(__APPLE__)
-				SetMacPresentationOptions(kMacPresentationHideDock | kMacPresentationHideMenuBar);
-#endif
-				glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
-				glfwSetWindowPos(window, monitorX, monitorY);
-				glfwSetWindowSize(window, mode->width, mode->height);
-			}
-			else
-				glfwSetWindowMonitor(
-					window,
-					primaryMonitor,
-					(int)windowState->x,
-					(int)windowState->y,
-					(int)windowState->width,
-					(int)windowState->height,
-					mode->refreshRate); // not 0: glfw picks the mode closest to the requested rate, i.e. the lowest one
-
-			windowState->fullscreenRefresh = mode->refreshRate;
-			windowState->fullscreenEnabled = true;
-		}
-	}
-}
-
 static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
 	ENSURE(window != NULL);
@@ -334,7 +216,7 @@ static void OnKey(GLFWwindow* window, int key, int scancode, int action, int mod
 		{
 			gFullscreenChangeTriggered = true;
 
-			OnWindowFullscreenChanged(window);
+			ToggleFullscreen((WindowHandle)window); // see platform::WindowedApplication::ToggleFullscreen
 		}
 	}
 	else
@@ -483,6 +365,12 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 	}
 
+	// SPEEDO_PRESENTATION_TEST (see PrepareDraw): exclusive fullscreen stays up when the window loses the focus, which an
+	// automated run doesn't control (minimized, nothing is drawn, and the run's watchdog took that for a hang)
+	const char* presentationTest = getenv("SPEEDO_PRESENTATION_TEST");
+	if (presentationTest != NULL && *presentationTest != '\0')
+		glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+
 	GLFWwindow* window  = glfwCreateWindow(
 		(int)inOutState->width,
 		(int)inOutState->height,
@@ -492,7 +380,7 @@ static WindowHandle OnCreateWindow(struct WindowState* inOutState)
 
 	ENSURE(window != NULL);
 
-	// SPEEDO_FULLSCREEN=exclusive (the default), borderless (see SetMacPresentationOptions: composited, for drivers that
+	// SPEEDO_FULLSCREEN=exclusive (the default), borderless (see platform::WindowedApplication::ToggleFullscreen: composited, for drivers that
 	// flicker scanned out) or native (macOS only, else exclusive): how alt+enter goes fullscreen until View > Presentation
 	// picks another
 	const char* fullscreenMode = getenv("SPEEDO_FULLSCREEN");
@@ -655,7 +543,10 @@ int main(int argc, char* argv[], char* envp[])
 	glfwSetMonitorCallback(OnMonitorChanged);
 
 	ClientCreate(OnCreateWindow, &gPaths);
-	do { glfwWaitEvents(); }
+	// with a timeout: a wake up (glfwPostEmptyEvent, for mainCalls) that something peeked at before WaitMessage looked is
+	// no new message to it, and the main thread slept on until the next input (a fullscreen switch waiting for its main
+	// call stalled, twice, until then)
+	do { glfwWaitEventsTimeout(0.1); }
 	while (!(bool)glfwWindowShouldClose((GLFWwindow*)GetCurrentWindow()) && ClientMain() && !atomic_load(&gIsInterrupted));//NOLINT(performance-no-int-to-ptr)
 	ClientDestroy(OnDestroyWindow);
 	

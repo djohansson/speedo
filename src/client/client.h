@@ -32,7 +32,7 @@ private:
 	mutable core::ConcurrentQueue<MouseEvent> myMouseQueue;
 	mutable core::ConcurrentQueue<KeyboardEvent> myKeyboardQueue;
 	core::InputState myInput{};
-	std::array<std::chrono::high_resolution_clock::time_point, 2> myTimestamps;
+	std::array<std::chrono::steady_clock::time_point, 2> myTimestamps;
 };
 
 } // namespace client

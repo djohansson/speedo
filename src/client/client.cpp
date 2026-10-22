@@ -1,6 +1,7 @@
 #include <core/assert.h>
 #include <core/eventhandlers.h>
 #include <core/path.h>
+#include <core/time.h>
 #include <core/concurrentaccess.h>
 
 #include <client/capi.h>
@@ -187,7 +188,7 @@ void Client::OnMouse(const MouseEvent& mouse)
 
 void Client::Tick()
 {
-	auto start = std::chrono::high_resolution_clock::now();
+	auto start = std::chrono::steady_clock::now();
 
 	myTimestamps[1] = myTimestamps[0];
 	myTimestamps[0] = start;
@@ -297,7 +298,7 @@ void Client::Tick()
 
 	using namespace std::chrono_literals;
 	static constexpr std::chrono::microseconds kTickMinTime = 1000us;
-	std::this_thread::sleep_until(start + kTickMinTime);
+	core::SleepUntil(start + kTickMinTime);
 }
 
 bool Client::Main()
@@ -344,7 +345,7 @@ Client::Client(std::string_view name, Environment&& env, CreateWindowFunc create
 	gDrawTask = CreateTask(client::Draw);
 	gDrawTaskState = kTaskStateRunning;
 
-	myTimestamps[0] = std::chrono::high_resolution_clock::now();
+	myTimestamps[0] = std::chrono::steady_clock::now();
 
 	// initial OnInputStateChanged call required to initialize data structures in imgui (and potentially others)
 	// since WindowedApplication draw thread/tasks can launch before next Tick is called

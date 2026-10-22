@@ -119,6 +119,7 @@ set(CORE_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/core/nodegraph.cpp
 	${SPEEDO_SOURCE_DIR}/core/task.cpp
 	${SPEEDO_SOURCE_DIR}/core/taskexecutor.cpp
+	${SPEEDO_SOURCE_DIR}/core/time.cpp
 	${SPEEDO_SOURCE_DIR}/core/upgradablesharedmutex.cpp
 	${SPEEDO_SOURCE_DIR}/core/zip.cpp)
 add_library(core STATIC	${CORE_SOURCE_FILES})

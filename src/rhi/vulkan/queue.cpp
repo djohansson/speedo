@@ -263,7 +263,7 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Present(PresentResult* presentResult)
 	ZoneScopedN("Queue::Present");
 
 	static bool gSupportsPresentFence = GetDevice().SupportsFeature(VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR, GetInstance());
-	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetInstance());
+	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetDevice().GetPhysicalDevice());
 
 	const auto swapchainCount = static_cast<uint32_t>(myPendingPresent.swapchains.size());
 	ENSURE(swapchainCount > 0);

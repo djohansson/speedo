@@ -25,6 +25,12 @@ the order of a serial run. assettest checks its models and images on all of the 
 Inputs are directories, zip archives and panoramas (.hdr). scripts/fetch-test-assets.ps1 -Quick prints a smaller set,
 a model or two per feature, for iterating.
 
+-Presentation also runs the client through View > Presentation's options and fullscreen switches (SPEEDO_PRESENTATION_TEST:
+exclusive and borderless fullscreen in and out under each present mode and several image counts, resizes; on the
+primary monitor, then the second, if there is one), after the other client runs and one at a time: they take over the
+display, in the foreground. A run fails if a frame isn't drawn for 10 seconds (a hang), or as the other runs do. Inputs
+are optional with it.
+
 The preset defaults to the first configured release preset (else any) in build/. The client exits SPEEDO_AUTOLOAD_EXIT
 (default 30) frames after its loads have finished, and is killed after ASSETTEST_CLIENT_TIMEOUT (default 600) seconds.
 
@@ -38,6 +44,7 @@ scripts/assettest.ps1 -ClientOnly -Preset arm64-osx-clang-debug -Work /tmp/work 
 param(
 	[switch] $Client,
 	[switch] $ClientOnly,
+	[switch] $Presentation,
 	[string] $Preset,
 	[string] $Work,
 	[int] $Jobs = 4,
@@ -50,12 +57,21 @@ if ($ClientOnly)
 {
 	$Client = $true
 }
+if ($Presentation)
+{
+	$Client = $true
+	if (-not $Inputs -or $Inputs.Count -eq 0)
+	{
+		$ClientOnly = $true
+		$Inputs = @()
+	}
+}
 $check = -not $ClientOnly
 $Jobs = [Math]::Max(1, $Jobs)
 
-if (-not $Inputs -or $Inputs.Count -eq 0)
+if ((-not $Inputs -or $Inputs.Count -eq 0) -and -not $Presentation)
 {
-	[Console]::Error.WriteLine('usage: scripts/assettest.ps1 [-Client | -ClientOnly] [-Preset <name>] [-Work <dir>] [-Jobs <n>] <zip, panorama or directory>...')
+	[Console]::Error.WriteLine('usage: scripts/assettest.ps1 [-Client | -ClientOnly] [-Presentation] [-Preset <name>] [-Work <dir>] [-Jobs <n>] <zip, panorama or directory>...')
 	exit 2
 }
 
@@ -273,7 +289,7 @@ if ($Client)
 
 	# queues a client run on a model (a file, or a zip archive), drawn with image on the default material if given, and lit
 	# by an environment panorama if given (else the procedural sky)
-	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '')
+	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '', [string] $PresentationTest = '')
 	{
 		# FNV-1a, stable across runs (string hash codes are randomized per process)
 		[uint32] $hash = 2166136261
@@ -282,7 +298,8 @@ if ($Client)
 			$hash = [uint32](([uint64]($hash -bxor $byte) * 16777619) % 4294967296)
 		}
 		$script:runs.Add([pscustomobject]@{
-			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; Worker = [int]($hash % [uint32]$Jobs) + 1
+			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; PresentationTest = $PresentationTest
+			Worker = [int]($hash % [uint32]$Jobs) + 1
 			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
 		})
 	}
@@ -293,6 +310,13 @@ if ($Client)
 		$env:SPEEDO_AUTOLOAD_MODEL = $Run.Model
 		$env:SPEEDO_AUTOLOAD_IMAGE = $Run.Image
 		$env:SPEEDO_AUTOLOAD_ENVIRONMENT = $Run.Environment
+		# a presentation test (see -Presentation) in the foreground: windows minimizes and throttles background windows
+		$background = $env:SPEEDO_BACKGROUND
+		if ($Run.PresentationTest)
+		{
+			$env:SPEEDO_PRESENTATION_TEST = $Run.PresentationTest
+			$env:SPEEDO_BACKGROUND = '0'
+		}
 		try
 		{
 			$user = Join-Path $Work "user-$($Run.Worker)"
@@ -301,7 +325,8 @@ if ($Client)
 		}
 		finally
 		{
-			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT -ErrorAction SilentlyContinue
+			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT, Env:SPEEDO_PRESENTATION_TEST -ErrorAction SilentlyContinue
+			$env:SPEEDO_BACKGROUND = $background
 		}
 		$null = $Run.Process.Handle # keeps the exit code available after the process exits (windows)
 		# glfw finds no monitors while the display sleeps (on macos), and the client then fails to start: keep it awake
@@ -338,7 +363,7 @@ if ($Client)
 		}
 		$status = $Run.Process.ExitCode
 		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
-		$name = if ($Run.Model) { $Run.Model } else { $Run.Environment }
+		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Model) { $Run.Model } else { $Run.Environment }
 
 		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
@@ -453,6 +478,27 @@ if ($Client)
 	}
 
 	Invoke-ClientRuns
+
+	# the presentation tests, alone (each takes over the display): View > Presentation's options and the fullscreen
+	# switches, in and out of each fullscreen mode under each present mode, with image counts and resizes between, on the
+	# primary monitor, then the second (a step to a monitor there isn't does nothing)
+	if ($Presentation)
+	{
+		$sequence = 'fullscreen;fullscreen;fullscreen=borderless;fullscreen;fullscreen;present=immediate;fullscreen;present=fifo;' +
+			'images=4;fullscreen;fullscreen=exclusive;fullscreen;present=mailbox;fullscreen;present=immediate;fullscreen;fullscreen;' +
+			'size=1600x900;images=3;fullscreen;fullscreen;present=fifo_relaxed;fullscreen;images=2;fullscreen;present=fifo;' +
+			'size=900x700;fullscreen;fullscreen'
+		$script:runs.Clear()
+		foreach ($monitor in 0, 1)
+		{
+			Add-ClientRun '' '' "presentation-monitor$monitor" '' "monitor=$monitor;$sequence"
+		}
+		foreach ($run in $script:runs)
+		{
+			$run.Worker = 1
+		}
+		Invoke-ClientRuns
+	}
 
 	Write-Output "client: $script:pass pass, $script:fail fail."
 	if ($script:fail -gt 0)

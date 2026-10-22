@@ -36,6 +36,7 @@ bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
 	if (extent.width == 0 || extent.height == 0)
 		return false;
 
+	// from the previous one (oldSwapchain), unless a window change released it first (see Draw)
 	device.WaitIdle();
 	swapchain.CreateSwapchain();
 
@@ -91,6 +92,42 @@ bool WindowedApplication::Draw()
 	auto& pipeline = rhi.GetPrimaryDevice().GetPipeline();
 	auto& executor = GetExecutor();
 
+	// a window change (RequestWindowChange: a fullscreen switch, a size, a monitor): the main thread changes the window
+	// once nothing presented is still waiting to be shown, with no swapchain (see Swapchain::Release), and frames are
+	// skipped until it has. with fifo, frames queued for the coming vertical blanks when exclusive fullscreen changed the
+	// display mode were never shown, and NVIDIA's driver then waited for them in vkCreateSwapchainKHR (or
+	// vkDestroySwapchainKHR), forever: every switch into exclusive fullscreen under fifo hung; and a swapchain made after
+	// leaving fullscreen, under fifo, hung there when the window was resized with frames queued. while minimized too
+	// (windows minimizes exclusive fullscreen when it loses the focus): no frames are drawn then, and the switch waited for
+	// one
+	if (auto state = myWindowChangeState.load(std::memory_order_acquire); state != kWindowChangeNone)
+	{
+		if (state == kWindowChangeRequested)
+		{
+			device.WaitIdle();
+			InternalRetirePresents(swapchain);
+			swapchain.Release();
+			std::vector<core::std_extra::move_only_function<void()>> changes;
+			{
+				std::scoped_lock changesLock(myWindowChangesMutex);
+				changes = std::exchange(myWindowChanges, {});
+			}
+			myWindowChangeState.store(kWindowChangeChanging, std::memory_order_release);
+			CallOnMain(
+				[this, changes = std::move(changes)]() mutable
+				{
+					for (auto& change : changes)
+						change();
+					// resized, or not (exclusive fullscreen at the window's size): recreated either way
+					myResizeRequested.store(true, std::memory_order_release);
+					std::scoped_lock changesLock(myWindowChangesMutex);
+					myWindowChangeState.store(
+						myWindowChanges.empty() ? kWindowChangeNone : kWindowChangeRequested, std::memory_order_release);
+				});
+		}
+		return false;
+	}
+
 	if (window.IsMinimized())
 		return false;
 
@@ -101,9 +138,19 @@ bool WindowedApplication::Draw()
 		swapchain.Configure(presentation.mode, presentation.imageCount);
 	}
 
-	// e.g. a fullscreen switch can leave the swapchain at the previous size without a matching resize event
-	if (swapchain.NeedsRecreate() && !RecreateWindowDependentObjects(rhi, window))
-		return false;
+	// a resize (see OnResizeFramebuffer), or what the swapchain found out of date (e.g. a fullscreen switch can leave it
+	// at the previous size without a matching resize event)
+	if (myResizeRequested.exchange(false, std::memory_order_acquire) || swapchain.NeedsRecreate())
+	{
+		// releasing it first, and waiting for its presents, made a swapchain under fifo hang in vkDestroySwapchainKHR when
+		// the window was resized: recreated from it, as the drivers expect, it doesn't
+		if (!RecreateWindowDependentObjects(rhi, window))
+		{
+			// no area yet: again before the next frame
+			myResizeRequested.store(true, std::memory_order_release);
+			return false;
+		}
+	}
 	auto [minImageCount, maxImageCount] = swapchain.GetImageCountLimits();
 	myPresentation.store(
 		PackPresentation(Presentation{
@@ -170,6 +217,8 @@ bool WindowedApplication::Draw()
 		myFrameSlot = (myFrameSlot + 1) % SHADER_TYPES_FRAME_COUNT;
 		if (auto timeline = myFrameSlotTimelines[frameSlot]; timeline > 0)
 			graphics->semaphore.Wait(timeline);
+		// and what the slot's last frame presented with, once the present is done with it
+		InternalRetirePresents(frameSlot);
 
 		// the queue's gpu scopes the gpu is done with, for Tracy and the renderers' pass timings (see Renderer::Record)
 		if (auto* profiler = graphicsQueue.GetProfiler())
@@ -295,19 +344,16 @@ bool WindowedApplication::Draw()
 				SemaphoreType::kBinary
 			});
 		SemaphoreHandle graphicsDoneSemaphoreHandle = graphicsDoneSemaphore;
-		// keeps the semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by the
-		// swapchain instead, see Swapchain::myAcquireFences
+		// keeps the acquire semaphore alive until the gpu has waited on it. the acquire fence is owned (and waited on) by
+		// the swapchain instead, see Swapchain::myAcquireFences
 		graphicsCallbacks.emplace_back(
 			core::CreateTask(
 				[acquireNextImageSemaphore = std::move(acquireNextImageSemaphore)] {}).handle);
-		graphicsCallbacks.emplace_back(
-			core::CreateTask(
-				[&swapchain, presentIds = std::move(presentInfo.presentIds),
-				 graphicsDoneSemaphore = std::move(graphicsDoneSemaphore)]
-				 {
-					for (auto presentId : presentIds)
-						swapchain.WaitPresent(presentId);
-				 }).handle);
+		// and the present's until the present is done with it: kept by the frame's slot (see InternalRetirePresents).
+		// a timeline callback waited for each present (vkWaitForPresentKHR), blocking an executor thread for a refresh or
+		// more under fifo; it never did, since the swapchain's present ids were never on (their extension was looked
+		// for among the instance's), so the semaphores went with the frame's gpu work
+		myPresentSemaphores[frameSlot].push_back(std::move(graphicsDoneSemaphore));
 
 		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
 			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
@@ -338,14 +384,16 @@ bool WindowedApplication::Draw()
 
 			computeQueue.EnqueuePresent(std::move(presentInfo));
 			PresentResult presentResult = PresentResult::kSuccess;
-			computeSubmits |= computeQueue.Present(&presentResult);
+			auto presented = computeQueue.Present(&presentResult);
+			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
 			swapchain.OnPresentResult(presentResult);
 		}
 		else
 		{
 			graphicsQueue.EnqueuePresent(std::move(presentInfo));
 			PresentResult presentResult = PresentResult::kSuccess;
-			graphicsSubmits |= graphicsQueue.Present(&presentResult);
+			auto presented = graphicsQueue.Present(&presentResult);
+			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
 			swapchain.OnPresentResult(presentResult);
 		}
 
@@ -414,6 +462,30 @@ WindowedApplication::~WindowedApplication()
 {
 	// can't tear down the rhi here, since Application::Get() already returns null (see Shutdown())
 	ENSUREF(!myRHI, "WindowedApplication::Shutdown() must be called before the application is released");
+}
+
+void WindowedApplication::InternalRetirePresents(uint32_t frameSlot)
+{
+	// a present fence signals once the present is done with its semaphores (VK_EXT_swapchain_maintenance1); without
+	// them, a slot's frame was presented SHADER_TYPES_FRAME_COUNT frames ago, which the next acquires came after
+	constexpr uint64_t kPresentTimeout = 1'000'000'000; // ns: a present the window never shows doesn't hang the frame
+	for (const auto& fence : myPresentFences[frameSlot])
+		fence.Wait(kPresentTimeout);
+	myPresentFences[frameSlot].clear();
+	myPresentSemaphores[frameSlot].clear();
+}
+
+void WindowedApplication::InternalRetirePresents(gfx::Swapchain& swapchain)
+{
+	// every frame's present shown, before the window changes (see Draw) or the swapchain goes at shutdown: with fifo,
+	// frames queued for the coming vertical blanks when exclusive fullscreen changed the display mode were never shown,
+	// and NVIDIA's driver then waited for them in vkCreateSwapchainKHR or vkDestroySwapchainKHR, forever
+	constexpr uint64_t kPresentedTimeout = 1'000'000'000; // ns
+	bool presented = swapchain.WaitPresented(kPresentedTimeout);
+	if (!presented && swapchain.HasPresented())
+		std::this_thread::sleep_for(std::chrono::milliseconds(50)); // a few refreshes, where present waits aren't had
+	for (uint32_t slot = 0; slot < SHADER_TYPES_FRAME_COUNT; slot++)
+		InternalRetirePresents(slot);
 }
 
 void WindowedApplication::Shutdown()
@@ -485,6 +557,9 @@ void WindowedApplication::Shutdown()
 			settled = false;
 	}
 
+	// what the last frames presented with, once shown (the swapchain goes with the rhi)
+	InternalRetirePresents(rhi.GetSwapchain(GetWindow(GetCurrentWindow())));
+
 	myImGui.reset();
 	myThumbnails.reset();
 	myImagePreview.reset();
@@ -497,22 +572,33 @@ void WindowedApplication::Shutdown()
 	myRHI.reset();
 }
 
+void WindowedApplication::RequestWindowChange(core::std_extra::move_only_function<void()> change)
+{
+	// made by Draw's next frame (see Draw), after the ones asked for before
+	std::scoped_lock changesLock(myWindowChangesMutex);
+	myWindowChanges.push_back(std::move(change));
+	// unless requested already, or changing: the main call that ends that one asks again (see Draw)
+	auto none = kWindowChangeNone;
+	myWindowChangeState.compare_exchange_strong(none, kWindowChangeRequested, std::memory_order_acq_rel);
+}
+
 void WindowedApplication::OnResizeFramebuffer(WindowHandle window, int width, int height)
 {
 	using namespace windowedapplication;
-
-	std::unique_lock lock(gDrawMutex);
 
 	ZoneScopedN("WindowedApplication::OnResizeFramebuffer");
 
 	// minimizing reports 0x0: keep the swapchain, and have Draw skip frames until the window is restored
 	platform::WindowedApplication::OnResizeFramebuffer(window, width, height);
-	auto& platformWindow = GetWindow(window);
-	if (platformWindow.IsMinimized())
+	if (GetWindow(window).IsMinimized())
 		return;
 
-	// the swapchain is sized after the surface (which already has this size) rather than width/height
-	RecreateWindowDependentObjects(GetRHI(), platformWindow);
+	// recreated by Draw, on the draw thread, before its next frame (sized after the surface, which already has this
+	// size): never here. this runs on the main thread, inside the window system's calls (a fullscreen switch's
+	// glfwSetWindowMonitor), and it used to take the draw lock and recreate the swapchain itself: while Draw held the lock
+	// recreating it (out of date), which on Windows waits for the window's thread to handle its messages, the main thread
+	// waited for the lock, and neither went on (a switch out of fullscreen hung 2 runs in 3)
+	myResizeRequested.store(true, std::memory_order_release);
 }
 
 } // namespace client

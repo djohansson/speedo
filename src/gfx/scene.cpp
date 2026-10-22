@@ -1524,12 +1524,16 @@ struct Scene::Impl
 			"gExposureHistogram",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myExposureHistogramUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		for (unsigned imageIt = 0; imageIt < imageCount; imageIt++)
+		// every output slot: past the image count (fewer images than before) the first image's, never read, rather than
+		// the views of a swapchain since destroyed, which the whole set's next update handed the driver (validation's
+		// VUID-VkWriteDescriptorSet-descriptorType-02996 after going from 4 images to 3; NVIDIA's driver crashed reading
+		// one, or lost the device)
+		for (unsigned imageIt = 0; imageIt < SHADER_TYPES_OUTPUT_IMAGE_COUNT; imageIt++)
 			pipeline.SetDescriptorData(
 				"gRWTextures",
 				ImageBinding{
 					.sampler={},
-					.imageView=myOutput.GetImageView(imageIt),
+					.imageView=myOutput.GetImageView(imageIt < imageCount ? imageIt : 0),
 					.layout=ImageLayout::kGeneral},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				imageIt);

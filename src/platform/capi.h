@@ -45,6 +45,9 @@ static const WindowHandle kInvalidWindowHandle = 0;//NOLINT(modernize-use-nullpt
 
 // forward to the running platform::WindowedApplication, if any
 PLATFORM_API void ResizeFramebuffer(WindowHandle window, int width, int height);
+// asks for the window to go fullscreen as its state's fullscreenMode says, or back (alt+enter, see
+// platform::WindowedApplication::RequestToggleFullscreen)
+PLATFORM_API void ToggleFullscreen(WindowHandle window);
 PLATFORM_API struct WindowState* GetWindowState(WindowHandle window);
 
 // the window the application draws its user interface in, and parents its dialogues to. only the first window set

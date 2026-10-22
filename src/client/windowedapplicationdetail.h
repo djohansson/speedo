@@ -37,6 +37,7 @@
 #include <optional>
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include <cstddef>
 #include <cstring>
 #include <format>

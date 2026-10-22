@@ -34,6 +34,8 @@ public:
 
 	// recreates the swapchain and what is sized after it (unless minimized)
 	void OnResizeFramebuffer(WindowHandle window, int width, int height) override;
+	// the change waits for Draw to stop presenting, and for what it presented to be shown (see Draw)
+	void RequestWindowChange(core::std_extra::move_only_function<void()> change) override;
 	void OnInputStateChanged(const core::InputState& input);
 	
 	// call as soon as you want the application to redraw itself, e.g. after changing the scene or camera
@@ -90,7 +92,26 @@ private:
 	std::atomic_bool myPreviewVisible = false;
 	// the frames' slots of the per frame buffers (see SHADER_TYPES_FRAME_COUNT), taken in turn: the next one, and per
 	// slot the graphics timeline value the last frame in it signaled, which the next frame in it waits for (see Draw)
+	// the window's framebuffer was resized (OnResizeFramebuffer, main thread): Draw recreates the swapchain
+	std::atomic_bool myResizeRequested = false;
+	// a window change (RequestWindowChange): asked for, then Draw stopped and its presents shown, the main thread changing
+	// the window (Draw skips frames meanwhile), done. one at a time: the ones asked for meanwhile wait their turn
+	enum WindowChangeState : uint8_t
+	{
+		kWindowChangeNone,
+		kWindowChangeRequested,
+		kWindowChangeChanging,
+	};
+	std::atomic<WindowChangeState> myWindowChangeState = kWindowChangeNone;
+	std::mutex myWindowChangesMutex;
+	std::vector<core::std_extra::move_only_function<void()>> myWindowChanges; // guarded by myWindowChangesMutex
 	uint32_t myFrameSlot = 0;
+	// per frame slot, what its frame presented with: the semaphore the present waited on, and its present fences, where the
+	// device has them (VK_EXT_swapchain_maintenance1). released when the slot comes round again (InternalRetirePresents)
+	std::array<std::vector<gfx::Semaphore>, SHADER_TYPES_FRAME_COUNT> myPresentSemaphores;
+	std::array<std::vector<rhi::Fence<rhi::kGraphicsApi>>, SHADER_TYPES_FRAME_COUNT> myPresentFences;
+	void InternalRetirePresents(uint32_t frameSlot);
+	void InternalRetirePresents(gfx::Swapchain& swapchain);
 	std::array<uint64_t, SHADER_TYPES_FRAME_COUNT> myFrameSlotTimelines{};
 	// the window's presentation (View > Presentation): what the ui asked for, which Draw applies to the swapchain before
 	// its next frame (Swapchain::Configure), and what the swapchain has, with what the surface supports (the modes' bits,

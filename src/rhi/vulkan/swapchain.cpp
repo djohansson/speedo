@@ -209,14 +209,18 @@ QueuePresentInfo<kVk> Swapchain<kVk>::PreparePresent()
 	auto presentInfo = myFrames[myFrameIndex].PreparePresent();
 	
 	presentInfo.swapchains.push_back(mySwapchain);
+	myHasPresented = true;
 
-	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetInstance());
-	static uint64_t gPresentId = 0ULL;
+	// from 1: a present id of 0 is none
+	// a device extension (it was looked for among the instance's, so presents never had ids)
+	static bool gSupportsPresentId = SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetDevice().GetPhysicalDevice());
+	static uint64_t gPresentId = 1ULL;
 	if (gSupportsPresentId)
 	{
 		presentInfo.presentIds.resize(presentInfo.swapchains.size());
 		for (size_t i = 0; i < presentInfo.swapchains.size(); ++i)
 			presentInfo.presentIds[i] = gPresentId++;
+		myLastPresentId = presentInfo.presentIds.back();
 	}
 
 	return presentInfo;
@@ -241,6 +245,18 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 	VK_CHECK(result);
 
 	return true;
+}
+
+template <>
+bool Swapchain<kVk>::WaitPresented(uint64_t timeout) const
+{
+	ZoneScopedN("Swapchain::WaitPresented");
+
+	// none presented since it was made (or it was released, see Release: nothing left to show)
+	if (mySwapchain == nullptr || myLastPresentId == 0 || gVkWaitForPresentKHR == nullptr)
+		return false;
+
+	return WaitPresent(myLastPresentId, timeout);
 }
 
 template <>
@@ -389,6 +405,29 @@ void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 	std::swap(myFrameIndex, rhs.myFrameIndex);
 	std::swap(myAcquireFences, rhs.myAcquireFences);
 	std::swap(myNeedsRecreate, rhs.myNeedsRecreate);
+	std::swap(myLastPresentId, rhs.myLastPresentId);
+	std::swap(myHasPresented, rhs.myHasPresented);
+}
+
+template <>
+void Swapchain<kVk>::Release()
+{
+	ZoneScopedN("Swapchain::Release");
+
+	for (const auto& acquireFence : myAcquireFences)
+		acquireFence.Wait();
+	myAcquireFences.clear();
+
+	myFrames.clear();
+	if (mySwapchain != nullptr)
+	{
+		Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain);
+		vkDestroySwapchainKHR(GetDevice(), mySwapchain, &GetInstance().GetHostAllocationCallbacks());
+		mySwapchain = nullptr;
+	}
+	myLastPresentId = 0;
+	myHasPresented = false;
+	myNeedsRecreate = true;
 }
 
 template <>

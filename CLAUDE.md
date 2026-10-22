@@ -14,10 +14,12 @@ Notes for working in this codebase, distilled from real build failures.
   thread, so each calls the window's own callback, then the backend's under a mutex that `NewFrame` returns held until
   `ImGui::NewFrame` is done; unlocked, the two once crashed in `FindLatestInputEvent` with an index out of range). It
   links glfw and imgui privately, and knows nothing of graphics (no native file dialogs: the client's file browser
-  replaced nfd's): the server, which has no windows, doesn't link it. Alt+Enter goes fullscreen as
-  `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or `SPEEDO_FULLSCREEN`): exclusive
-  (`glfwSetWindowMonitor`, the default), borderless (an undecorated window covering the monitor, on every platform; on
-  macOS with the menu bar and dock hidden, and composited) or, on macOS, native (its own space). Exclusive and native
+  replaced nfd's): the server, which has no windows, doesn't link it. Alt+Enter (and View > Presentation > Fullscreen)
+  goes fullscreen as `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or
+  `SPEEDO_FULLSCREEN`), on the monitor the window is on (`platform::WindowedApplication::ToggleFullscreen`; it was
+  `main.c`'s, and always the primary monitor's): exclusive (`glfwSetWindowMonitor`, the default), borderless (an
+  undecorated window covering the monitor, on every platform; on macOS with the menu bar and dock hidden, and composited)
+  or, on macOS, native (its own space). Exclusive and native
   let macOS scan the swapchain out directly, which flickered with KosmicKrisp from mesa 26.2 (frames out of order), so
   borderless was the only mode for a while; with mesa main (8fc4981) all three work. The same menu sets the swapchain's
   presentation (`Swapchain::Configure`: `rhi::PresentationMode`, FIFO, FIFO relaxed, mailbox or immediate, of those the
@@ -28,6 +30,44 @@ Notes for working in this codebase, distilled from real build failures.
   `SHADER_TYPES_OUTPUT_IMAGE_COUNT`, 8: ComputeMain's storage view of each image is a `gRWTextures` slot), which
   `Swapchain::GetImageCountLimits` gives the menu; the swapchain's frames are the images the driver made, which may be
   more than asked for (it used to trap).
+
+  Window changes and the draw thread (NVIDIA's Windows driver, an RTX 5070, where all of this hung; found by
+  `SPEEDO_PRESENTATION_TEST`, below). The main thread never waits for the draw thread: `OnResizeFramebuffer` (called
+  inside the window system's calls, e.g. a fullscreen switch's `glfwSetWindowMonitor`) only asks `Draw` to recreate the
+  swapchain (`myResizeRequested`). It used to take the draw lock and recreate it itself, while `Draw` held the lock
+  recreating it, which on Windows waits for the window's thread to handle its messages: a switch out of fullscreen hung
+  2 runs in 3. What the application changes about the window itself (a fullscreen switch, a size, a monitor) goes
+  through `RequestWindowChange`: `Draw` stops, waits for the gpu and for what it presented to be shown
+  (`Swapchain::WaitPresented`), destroys the swapchain (`Swapchain::Release`), and has the main thread make the change
+  (`CallOnMain`, which wakes it), skipping frames until it has; then makes a new swapchain, from none. With fifo, frames
+  queued for the coming vertical blanks when exclusive fullscreen changed the display mode were never shown, and the
+  driver waited for them forever in `vkCreateSwapchainKHR` or `vkDestroySwapchainKHR` (every switch into exclusive
+  fullscreen under fifo), and a swapchain made after leaving fullscreen hung the same way when the window was resized
+  with frames queued. Every other recreation (a present mode, an image count, out of date, a resize by the user) is
+  from the previous swapchain (`oldSwapchain`), without waiting for presents: releasing first hung a fifo swapchain in
+  `vkDestroySwapchainKHR` on resizes, 5 runs in 5. The switch is handled while minimized too (Windows minimizes exclusive
+  fullscreen when it loses the focus, and the switch waited for a frame). The main loop waits for events with a timeout
+  (`glfwWaitEventsTimeout`): a fullscreen switch waiting for its main call stalled twice until the next input, as if
+  `glfwPostEmptyEvent`'s wake up had been missed. Each frame's present semaphore is kept by its frame slot
+  (`myPresentSemaphores`) until the slot comes round again and the present's fences
+  (`VK_EXT_swapchain_maintenance1`) have signaled (`InternalRetirePresents`): a timeline callback per frame waited for
+  the present with `vkWaitForPresentKHR`, which would have blocked an executor thread a refresh or more under fifo, but
+  never did: `VK_KHR_present_id` was looked for among the instance's extensions (it is a device's), so presents never
+  had ids, nor the semaphores a wait.
+
+  `SPEEDO_PRESENTATION_TEST=<step>[;<step>...]` (`PrepareDraw`) runs View > Presentation's options and the switches, a
+  step every `SPEEDO_PRESENTATION_STEP_FRAMES` (20) drawn frames once the autoloads are in: `fullscreen` (in or out),
+  `fullscreen=exclusive|borderless|native`, `present=fifo|fifo_relaxed|mailbox|immediate`, `images=<count>`,
+  `size=<width>x<height>`, `monitor=<index>`; it traps when no frame is drawn for 10 seconds (and turns glfw's
+  auto-iconify off: an automated run doesn't control the focus). `scripts/assettest.ps1 -Presentation` runs a sequence of
+  them on the primary and the second monitor, alone and in the foreground (they take over the display); the fullscreen
+  hangs above failed it every time. Once they were fixed, one run in ten crashed inside the driver or lost the device:
+  validation (below) found `gRWTextures`' slots past a swapchain's image count still naming the views of one destroyed
+  since (4 images, then 3), which the set's next whole update handed the driver; every output slot is written now (the
+  first image's past the count). It then passed 12 runs in 12 with Sponza, and clean under validation. A debug client
+  compiling the shaders on Windows ran past 20 minutes without drawing a frame: the profile client with
+  `VK_LAYER_PATH=<install>/x64-windows-clang/bin` and `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` validates too (the
+  layer prints to stdout when there is no messenger).
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
@@ -1810,6 +1850,11 @@ executable target needs `windows.rc` in its sources.
   that supports `R(Args...) const` too). Not as a `std::function`, which copies, type-erases every call and allocates
   for larger captures. A `function_ref` bound to a lambda dangles once the lambda's full expression ends: bind it in the
   call (or an aggregate built in the call, as `FrameInputs` is), or to a named lambda that outlives it.
+- Sleep until a time with `core::SleepUntil` (`core/time.h`), not `std::this_thread::sleep_until`/`sleep_for`, where
+  the time matters: on Windows those round up to the system timer's resolution, 15.6 ms unless some process raises it,
+  and the client's tick (input and the ui), paced to a millisecond, ran at 64 Hz: the camera and the ui moved at 64 Hz on
+  a 120 Hz display while frames were drawn at hundreds a second, a stutter Tracy showed nothing of (the time was a
+  sleep). It waits on a high resolution waitable timer there (ticks 1.56 ms apart, 15.4 before).
 - Tasks come from a fixed pool (`kTaskPoolSize`), and a task stays allocated until its future is gone and the executor
   purges it (`JoinAll`, or after another task runs). A waiting `ForEach` runs other tasks meanwhile, so `ForEach`es nest,
   each holding a task per thread: a model's texture loads, each compressing on every thread, took about threads squared
