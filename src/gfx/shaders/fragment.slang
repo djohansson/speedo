@@ -1,4 +1,4 @@
-// the fragment stage: ShadeFragment, and the main, scatter, shadow and transparent entry points. a part of shaders.slang, which includes it after capi.h and sky.h
+// the fragment stage: ShadeFragment, and the main, scatter, shadow, transparent and pre-pass entry points. a part of shaders.slang, which includes it after capi.h and sky.h
 
 // the main pass's color attachment, which opaque draws write (blended ones go in the per pixel lists instead, see
 // FragmentTransparent)
@@ -345,11 +345,31 @@ bool DebugSurfaceValue(
 [shader("fragment")]
 FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
+	gFragmentPixel = uint2(input.hPos.xy);
+	gFragmentShadowMask = gPushConstants.shadowMask != 0u;
+	// the traced shadows' views: the first traced light's, as filtered or as traced
+	uint debugView = gPushConstants.debugView;
+	if (debugView == DEBUG_VIEW_TRACED_SHADOW || debugView == DEBUG_VIEW_TRACED_SHADOW_RAW ||
+		debugView == DEBUG_VIEW_TRACED_SHADOW_REFERENCE)
+	{
+		FragmentOutput shown;
+		uint4 traced = gShadowTrace[gPushConstants.frameIndex][0].lights;
+		if (!gFragmentShadowMask || traced.x == SHADER_TYPES_NO_SHADOW)
+			shown.color = float4(1.0, 0.0, 1.0, 1.0);
+		else
+		{
+			// the rays' and the reference's views too: the filter passes them through then (see ShadowDenoise)
+			float visibility = gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0)).r;
+			shown.color = float4(pow(float3(visibility), 2.2), 1.0);
+		}
+		return shown;
+	}
 	float4 color = ShadeFragment(input, isFrontFace);
 
 	// alpha 1: the color target is cleared to alpha 0, so ComputeMain draws the backdrop where nothing opaque is
+	// within a half float (the sun's disk in a sharp reflection is tens of thousands, times the environment's intensity)
 	FragmentOutput output;
-	output.color = float4(color.rgb, 1.0);
+	output.color = float4(min(color.rgb, 65000.0), 1.0);
 	return output;
 }
 
@@ -365,6 +385,8 @@ struct ScatterOutput
 [shader("fragment")]
 ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
+	gFragmentPixel = uint2(input.hPos.xy);
+	gFragmentShadowMask = false;
 	ScatterOutput output;
 	output.color = ShadeFragment(input, isFrontFace, true);
 	MaterialData material = gMaterialData[input.materialId];
@@ -372,12 +394,10 @@ ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontF
 	return output;
 }
 
-// a fragment of the shadow pass: depth only, but cut out where the material is (alpha mask)
-[shader("fragment")]
-void FragmentShadow(VertexOutput input)
+// discards a fragment where its material's alpha mask cuts it out, as ShadeFragment does
+void CutOut(VertexOutput input, MaterialData material)
 {
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
-	MaterialData material = gMaterialData[input.materialId];
 	if (material.alphaCutoff <= 0.0)
 		return;
 	if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u && SampleView(material.baseColorView, v.texCoord01).a < material.alphaCutoff)
@@ -386,12 +406,52 @@ void FragmentShadow(VertexOutput input)
 		discard;
 }
 
+// a fragment of the shadow pass: depth only, but cut out where the material is (alpha mask)
+[shader("fragment")]
+void FragmentShadow(VertexOutput input)
+{
+	CutOut(input, gMaterialData[input.materialId]);
+}
+
+// the pre-pass's color attachment (SHADER_TYPES_PREPASS_NORMAL_TEXTURE): the geometry normal, as the shading takes it (the
+// vertex normal toward the side seen), 0.5 + 0.5 n in rgb, and 1 in alpha where the material takes light from behind
+// (diffuse transmission, volume scatter): what the traced shadows' rays start from (see ComputeShadowTrace)
+struct PrepassOutput
+{
+	float4 normal : SV_Target0;
+};
+
+// a fragment of the pre-pass: its depth, cut out as the main pass's are, and its geometry normal, before the main pass
+// shades what it wrote (each pixel once, see DepthTest::kEqual)
+[shader("fragment")]
+PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
+	MaterialData material = gMaterialData[input.materialId];
+	CutOut(input, material);
+	VertexP3fN3fTa4fT014fC4f v = input.vertex;
+	float3 normal;
+	if (dot(v.normal, v.normal) > 0.0)
+		normal = (isFrontFace ? 1.0 : -1.0) * normalize(v.normal);
+	else
+	{
+		// lines and points without normals: toward the eye
+		float3 eye = gViewData[gPushConstants.frameIndex][gPushConstants.viewId].eyePosition.xyz;
+		normal = normalize(eye - v.position);
+	}
+	bool fromBehind = (material.flags & (MATERIAL_FLAG_DIFFUSE_TRANSMISSION | MATERIAL_FLAG_VOLUME_SCATTER)) != 0u;
+	PrepassOutput output;
+	output.normal = float4(normal * 0.5 + 0.5, fromBehind ? 1.0 : 0.0);
+	return output;
+}
+
 // a blended fragment: pushed on its pixel's list (see OitNode), for ComputeMain to sort and blend. the depth test must
 // come first (it writes the lists, not the attachments), so it does: early fragment tests
 [shader("fragment")]
 [earlydepthstencil]
 void FragmentTransparent(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
+	gFragmentPixel = uint2(input.hPos.xy);
+	gFragmentShadowMask = false;
 	float4 color = ShadeFragment(input, isFrontFace);
 	if (color.a <= 0.0)
 		return;

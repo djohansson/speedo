@@ -128,7 +128,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 18; // after the ui blur's (SHADER_TYPES_UI_BLUR_ROWS_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 23; // after the traced shadows' (SHADER_TYPES_SHADOW_MASK_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -153,6 +153,7 @@ static_assert(
 	SHADER_TYPES_ENVIRONMENT_TEXTURE >= SHADER_TYPES_FRAME_COUNT && SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE >= SHADER_TYPES_FRAME_COUNT &&
 	kMaterialTextureId < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_UI_BLUR_ROWS_TEXTURE < kModelTextureFirstSlot);
+static_assert(SHADER_TYPES_PREPASS_NORMAL_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_SHADOW_MASK_TEXTURE < kModelTextureFirstSlot);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes
@@ -363,6 +364,7 @@ struct Scene::Impl
 	std::vector<LightData> mySceneLightData;
 	std::optional<std::vector<environment::DominantLight>> myEnvironmentLights;
 	core::ConcurrentAccess<std::vector<DominantLightInfo>> myEnvironmentLightInfo;
+	core::ConcurrentAccess<std::vector<float>> myLightSizes; // see Scene::GetLightSizes
 	std::atomic<float> myAutoExposureStops = 0.0F; // written by the draw thread, shown by the ui
 	std::optional<std::chrono::steady_clock::time_point> myAutoExposureLast;
 	std::atomic<float> myLookDistance = 0.0F; // how far the camera looks (see FrameInputs::lookDistance), by the draw thread
@@ -480,7 +482,21 @@ struct Scene::Impl
 	void SyncLights(RHI& rhi, QueueTimelineContextData& graphics)
 	{
 		std::vector<LightData> lights = mySceneLightData;
-		std::vector<environment::DominantLight> dominants(1, environment::DominantLight{.direction = environment::kSkySunDirection});
+		// the model's lights' sizes: the ui's, else a directional light the sun's, a point or spot light none
+		{
+			auto sizes = myLightSizes.Read();
+			const auto& set = sizes.Get();
+			for (size_t lightIt = 0; lightIt < lights.size(); lightIt++)
+			{
+				auto& light = lights[lightIt];
+				float size = light.type == LIGHT_TYPE_DIRECTIONAL ? environment::kSkySunRadius : 0.0F;
+				if (lightIt < set.size() && !std::isnan(set[lightIt]))
+					size = std::max(light.type == LIGHT_TYPE_DIRECTIONAL ? glm::radians(set[lightIt]) : set[lightIt], 0.0F);
+				light.size = size;
+			}
+		}
+		std::vector<environment::DominantLight> dominants(
+			1, environment::DominantLight{.direction = environment::kSkySunDirection, .angularRadius = environment::kSkySunRadius});
 		dominants.front().irradiance = glm::vec3(environment::kSkySunIrradiance);
 		if (myEnvironmentLights)
 			dominants = *myEnvironmentLights;
@@ -505,6 +521,7 @@ struct Scene::Impl
 			for (size_t channel = 0; channel < 3; channel++)
 				light.intensity[channel] = dominant.irradiance[channel] * intensity;
 			light.type = LIGHT_TYPE_DIRECTIONAL;
+			light.size = dominant.angularRadius;
 
 			glm::vec3 direction(light.direction[0], light.direction[1], light.direction[2]);
 			bool merged = merge && std::ranges::any_of(
@@ -1058,6 +1075,7 @@ struct Scene::Impl
 			UpdateMaterials(rhi, graphics, 1, materials);
 			myModelMaterialData = materials;
 			myAnimatedLights.clear();
+			myLightSizes.Write().Get().clear();
 			UpdateLights(model->GetDesc().lights);
 			// and the values animations set, at rest
 			ApplyPointerValues(rhi, graphics, *model);
@@ -1857,6 +1875,7 @@ struct Scene::Impl
 						{"FragmentTransparent", SLANG_STAGE_FRAGMENT}, // see kTransparentFragmentShader
 						{"FragmentShadow", SLANG_STAGE_FRAGMENT}, // see kShadowFragmentShader
 						{"FragmentScatter", SLANG_STAGE_FRAGMENT}, // see kScatterFragmentShader
+						{"FragmentPrepass", SLANG_STAGE_FRAGMENT}, // see kPrepassFragmentShader
 						{"ComputeMain", SLANG_STAGE_COMPUTE},
 						{"ComputeScatter", SLANG_STAGE_COMPUTE}, // see the Scatter Blur pass
 						{"ComputeScatterDenoise", SLANG_STAGE_COMPUTE}, // see the Scatter Denoise pass
@@ -1875,6 +1894,10 @@ struct Scene::Impl
 						{"ComputeGiProbeUpdate", SLANG_STAGE_COMPUTE},
 						{"ComputeGiResolve", SLANG_STAGE_COMPUTE},
 						{"ComputeGiRestore", SLANG_STAGE_COMPUTE},
+						{"ComputeShadowClassify", SLANG_STAGE_COMPUTE}, // see the Shadow Classify, Trace and Denoise passes
+						{"ComputeShadowTrace", SLANG_STAGE_COMPUTE},
+						{"ComputeShadowDenoiseX", SLANG_STAGE_COMPUTE},
+						{"ComputeShadowDenoiseY", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2004,10 +2027,11 @@ struct Scene::Impl
 				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
 				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			// the moving BVH only where the indirect lighting's rays trace it
+			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows'
 			myModel->Animate(
 				frameIndex, pose, from, weight,
-				mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed));
+				(mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed)) ||
+					(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)));
 			ApplyPointerValues(myRHI, graphics, *myModel);
 		}
 		
@@ -2077,6 +2101,8 @@ struct Scene::Impl
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),
 				.shadows = mySettings.shadows.load(std::memory_order_relaxed),
+				.tracedShadows = mySettings.tracedShadows.load(std::memory_order_relaxed),
+				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
 				.camera = shadowCamera,
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
 				.lookDistance = myLookDistance.load(std::memory_order_relaxed),
@@ -2137,6 +2163,7 @@ core::ConcurrentAccess<Scene::AnimationState>& Scene::GetAnimation() noexcept { 
 core::ConcurrentAccess<Scene::SceneState>& Scene::GetScenes() noexcept { return myImpl->myScenes; }
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { return myImpl->myEnvironmentName; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
+core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { return myImpl->myLightSizes; }
 float Scene::GetAutoExposureStops() const noexcept { return myImpl->myAutoExposureStops.load(std::memory_order_relaxed); }
 uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransientMemory.load(std::memory_order_relaxed); }
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }

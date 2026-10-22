@@ -39,6 +39,9 @@ constexpr uint8_t kShadowFragmentShader = 2;
 // multiscatter color, in its two color attachments
 constexpr uint8_t kScatterFragmentShader = 3;
 constexpr std::array kScatterBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
+// the pre-pass's fragments (FragmentPrepass, the fifth): depth, cut out by alpha masks as the main pass's are, and the
+// geometry normal in its color attachment (see Renderer: the main pass then shades only what it wrote, kEqual)
+constexpr uint8_t kPrepassFragmentShader = 4;
 static_assert(kOpaqueBlend.size() == rhi::kMaxColorAttachments);
 
 // the gMaterialData slot drawn for a submesh's material (-1: none)
@@ -184,7 +187,7 @@ private:
 // records a draw list for a view (in its viewport, set by the caller): the draws not outside frustum (if given), with
 // their state set only where it changes from the draw before (chunks of a submesh share it), each draw naming its
 // DrawRecord by its first instance (an indirect draw's commands from stream). binds
-// the pipeline variants it needs, from the default (opaque triangle list) one, which the caller bound and gets back. a specialized variant (see
+// the pipeline variants it needs (the first draw's whatever the caller bound, and the last one's stays bound). a specialized variant (see
 // GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
 // draws, and the task creating it (see Pipeline::RequestGraphicsPipeline) runs on executor, the first time it is asked for
 void RecordDrawList(
@@ -195,7 +198,8 @@ void RecordDrawList(
 	uint16_t viewIndex,
 	DrawStream& stream,
 	const Frustum* frustum = nullptr,
-	core::TaskExecutor* executor = nullptr);
+	core::TaskExecutor* executor = nullptr,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
 
 // where the gpu's culling (the Cull pass, ComputeCull) put a list's draws for a view: a place per item from commandBase
 // in commands, each run's from its first item's, and a count per run from countBase in counts
@@ -210,7 +214,8 @@ struct CulledDraws
 };
 
 // records a draw list for a view as the gpu culled it: each of its runs (see PlanDrawRuns) one indirect draw of as many
-// of its commands as its count says (or of all of them, uncounted). binds the pipeline variants it needs as RecordDrawList does
+// of its commands as its count says (or of all of them, uncounted). binds the pipeline variants it needs as RecordDrawList
+// does. both record only the items include takes (a run by its first item), if given
 void RecordCulledDrawList(
 	CommandBufferHandle cmd,
 	Pipeline& pipeline,
@@ -218,6 +223,7 @@ void RecordCulledDrawList(
 	PushConstants pushConstants,
 	uint16_t viewIndex,
 	const CulledDraws& culled,
-	core::TaskExecutor* executor = nullptr);
+	core::TaskExecutor* executor = nullptr,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include = std::nullopt);
 
 } // namespace gfx

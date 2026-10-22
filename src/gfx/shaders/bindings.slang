@@ -192,4 +192,13 @@ StructuredBuffer<float4> gBvhMovingTriangles[SHADER_TYPES_FRAME_COUNT];
 // the last's, see GiData::visibilityFirst)
 [[vk::binding(35, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiVisibility;
+// the frame's traced shadows (see ShadowTraceData), per frame index
+[[vk::binding(36, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<ShadowTraceData> gShadowTrace[SHADER_TYPES_FRAME_COUNT];
+// the pixels the traced shadows' rays are traced for (see ComputeShadowClassify): a count, then the pixels
+[[vk::binding(37, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gShadowTraceList;
+// per 8x8 tile, whether it is within the filter's reach of a traced pixel (see ComputeShadowClassify)
+[[vk::binding(38, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gShadowTraceTiles;
 

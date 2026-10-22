@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <format>
+#include <limits>
 #include <print>
 #include <ranges>
 #include <string>
@@ -83,6 +84,9 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"shadows", "Shadows", DEBUG_VIEW_SHADOWS, "The share of the direct light that reaches a point unshadowed: white lit, black shadowed, dark blue where no light faces it."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first traced light's shadow where the shadow atlas isn't sure, by 256 rays a pixel over the light's disk, unfiltered: what the filtered shadow should look like. Slow."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The weight of the probes around a point: how much of them it sees (by their depth maps). Dark where it sees little (inside walls, in corners)."}},
@@ -251,7 +255,8 @@ void WindowedApplication::PrepareDraw()
 			PushTextWrapPos(kOverlayWrapWidth);
 			TextDisabled("%s", debugView->description);
 			PopTextWrapPos();
-			if (debugView->view >= DEBUG_VIEW_GI_FIRST && !App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
+			if (debugView->view >= DEBUG_VIEW_GI_FIRST && debugView->view < DEBUG_VIEW_GI_END &&
+				!App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed))
 				TextColored(ImVec4(1.0F, 0.6F, 0.2F, 1.0F), "Indirect lighting is off (View > Indirect Lighting)");
 			TextDisabled(SHORTCUT_LABEL("0") " to go back to the light, " SHORTCUT_LABEL("[") " and " SHORTCUT_LABEL("]") " to step");
 		}
@@ -595,6 +600,45 @@ void WindowedApplication::PrepareDraw()
 					gSelectedLight = lightIt;
 				PopID();
 			}
+			// the selected light's size (LightData::size), for its shadows' penumbrae: a model's light's is set here, an
+			// environment's dominant light's is measured from its panorama
+			if (gSelectedLight && *gSelectedLight < capture.lights.size())
+			{
+				const auto& light = capture.lights[*gSelectedLight];
+				bool directional = light.type == LIGHT_TYPE_DIRECTIONAL;
+				float shown = directional ? glm::degrees(light.size) : light.size;
+				Separator();
+				if (*gSelectedLight < capture.modelLightCount)
+				{
+					SetNextItemWidth(GetFontSize() * 10.0F);
+					if (DragFloat(
+							directional ? "Angular radius (degrees)" : "Radius",
+							&shown,
+							directional ? 0.01F : 0.005F,
+							0.0F,
+							directional ? 10.0F : 1000.0F,
+							directional ? "%.3f" : "%.4g"))
+					{
+						auto sizes = App().GetScene().GetLightSizes().Write();
+						auto& set = sizes.Get();
+						if (set.size() <= *gSelectedLight)
+							set.resize(*gSelectedLight + 1, std::numeric_limits<float>::quiet_NaN());
+						set[*gSelectedLight] = shown;
+					}
+					SetItemTooltip(
+						directional ? "How big the light looks from the scene, for its shadows' penumbrae: the sun's is 0.267 degrees."
+									: "The radius of the sphere the light emits from (in the model's units), for its shadows' penumbrae: 0 is a point (hard shadows).");
+					SameLine();
+					if (SmallButton("Default"))
+					{
+						auto sizes = App().GetScene().GetLightSizes().Write();
+						if (auto& set = sizes.Get(); *gSelectedLight < set.size())
+							set[*gSelectedLight] = std::numeric_limits<float>::quiet_NaN();
+					}
+				}
+				else
+					Text("Angular radius: %.3f degrees (measured from the panorama)", static_cast<double>(shown));
+			}
 		}
 		End();
 
@@ -784,6 +828,9 @@ void WindowedApplication::PrepareDraw()
 	// model, as View > Camera > Frame model (a model with cameras starts looking through its first)
 	static std::optional<std::array<float, 5>> gAutoCamera;
 	static bool gAutoFrame = false;
+	// SPEEDO_LIGHT_SIZES=<light>=<size>[,...]: the model's lights' sizes (as View > Lights sets them: a directional light's
+	// angular radius in degrees, a point or spot light's radius), once it is installed (which clears them)
+	static std::vector<std::pair<size_t, float>> gAutoLightSizes;
 	static bool gAutoCameraAfterModel = false; // wait for the model's install (on the draw thread), which frames the views
 	// SPEEDO_CAMERA_TURN=<degrees per second>: the views turn about the vertical axis once the autoloads have installed
 	// (after SPEEDO_CAMERA's placement), for comparing renders and timings with a camera that moves
@@ -853,6 +900,10 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().exposureStops.store(std::strtof(exposure, nullptr), std::memory_order_relaxed);
 		if (const char* shadows = std::getenv("SPEEDO_SHADOWS"); shadows != nullptr && std::string_view(shadows) == "0")
 			App().GetScene().GetSettings().shadows.store(false, std::memory_order_relaxed);
+		if (const char* traced = std::getenv("SPEEDO_TRACED_SHADOWS"); traced != nullptr && std::string_view(traced) == "0")
+			App().GetScene().GetSettings().tracedShadows.store(false, std::memory_order_relaxed);
+		else if (traced != nullptr && std::string_view(traced) == "all")
+			App().GetScene().GetSettings().tracedShadowsEverywhere.store(true, std::memory_order_relaxed);
 		if (const char* culling = std::getenv("SPEEDO_CULLING"); culling != nullptr && std::string_view(culling) == "0")
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
 		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
@@ -866,7 +917,7 @@ void WindowedApplication::PrepareDraw()
 		if (const char* trace = std::getenv("SPEEDO_GI_TRACE"); trace != nullptr && *trace != '\0')
 			App().GetScene().GetSettings().traceTriangles.store(std::string_view(trace) != "voxels", std::memory_order_relaxed);
 		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
-			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_COUNT)
+			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
 		if (const char* debugView = std::getenv("SPEEDO_DEBUG_VIEW"); debugView != nullptr && *debugView != '\0')
 		{
@@ -922,6 +973,22 @@ void WindowedApplication::PrepareDraw()
 			else
 				std::println(stderr, "SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
 		}
+		if (const char* sizes = std::getenv("SPEEDO_LIGHT_SIZES"); sizes != nullptr && *sizes != '\0')
+			for (const char* it = sizes; *it != '\0';)
+			{
+				char* end = nullptr;
+				auto light = static_cast<size_t>(std::strtoul(it, &end, 10));
+				if (end == it || *end != '=')
+				{
+					std::println(stderr, "SPEEDO_LIGHT_SIZES: expected <light>=<size>[,...], got {}", sizes);
+					gAutoLightSizes.clear();
+					break;
+				}
+				it = end + 1;
+				float size = std::strtof(it, &end);
+				gAutoLightSizes.emplace_back(light, size);
+				it = *end == ',' ? end + 1 : end;
+			}
 		if (const char* path = std::getenv("SPEEDO_CAMERA_PATH"); path != nullptr && *path != '\0')
 		{
 			for (const char* it = path; *it != '\0';)
@@ -949,6 +1016,18 @@ void WindowedApplication::PrepareDraw()
 	constexpr uint64_t kInstallWaitFrameCount = 600;
 	bool modelInstalled = !gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty() ||
 						  (gAutoLoadsReadyFrame && gDrawnFrameCount.load(std::memory_order_relaxed) > *gAutoLoadsReadyFrame + kInstallWaitFrameCount);
+	if (!gAutoLightSizes.empty() && autoLoadsReady && modelInstalled && !App().GetScene().GetScenes().Read().Get().filePath.empty())
+	{
+		auto sizes = App().GetScene().GetLightSizes().Write();
+		auto& set = sizes.Get();
+		for (auto [light, size] : gAutoLightSizes)
+		{
+			if (set.size() <= light)
+				set.resize(light + 1, std::numeric_limits<float>::quiet_NaN());
+			set[light] = size;
+		}
+		gAutoLightSizes.clear();
+	}
 	if ((gAutoCamera || gAutoFrame) && autoLoadsReady && modelInstalled)
 	{
 		if (gAutoFrame)
@@ -1486,6 +1565,11 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Shadows", nullptr, &shadows))
 					App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);
 				SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
+				bool tracedShadows = App().GetScene().GetSettings().tracedShadows.load(std::memory_order_relaxed);
+				if (MenuItem("Ray Traced Shadows", nullptr, &tracedShadows, shadows))
+					App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
+				SetItemTooltip(
+					"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
 				bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
 				if (MenuItem("Culling", nullptr, &culling))
 					App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);

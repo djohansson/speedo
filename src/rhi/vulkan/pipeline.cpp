@@ -316,6 +316,12 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 	// depth only (e.g. shadows): the first blend mode says whether it writes depth
 	if (colorAttachmentCount == 0 && variant.blend[0] == BlendMode::kOpaque)
 		depthStencil.depthWriteEnable = VK_TRUE;
+	// over a pre-pass's depth: read only
+	if (variant.depthTest == DepthTest::kEqual)
+	{
+		depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+		depthStencil.depthWriteEnable = VK_FALSE;
+	}
 	depthStencil.stencilTestEnable = depthStencil.depthWriteEnable;
 	auto colorBlend = graphicsState.colorBlend;
 	colorBlend.attachmentCount = colorAttachmentCount;

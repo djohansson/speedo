@@ -23,6 +23,15 @@ const bool gCollectFrameTimes = []
 	return collect != nullptr && std::string_view(collect) == "1";
 }();
 
+// SPEEDO_UI=0: the ui isn't drawn over the window's frames (nor its panels' blur), for captures of the scene alone; it
+// still runs (the autoloads, the camera's placement, the capture itself), and its textures are still uploaded and
+// released (PrepareFrame)
+const bool gDrawUi = []
+{
+	const char* setting = std::getenv("SPEEDO_UI");
+	return setting == nullptr || std::string_view(setting) != "0";
+}();
+
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
 // returns false if the surface has no area (minimized), in which case nothing is recreated.
 bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
@@ -259,6 +268,8 @@ bool WindowedApplication::Draw()
 
 		// the ui's frame to draw over the window's: taken now, for its frosted panels' blur, recorded before the ui
 		auto uiBlurRects = myImGui->TakeFrame();
+		if (!gDrawUi)
+			uiBlurRects = {};
 		myScene->Record(
 			cmd,
 			Scene::FrameTarget{
@@ -267,7 +278,11 @@ bool WindowedApplication::Draw()
 				.graphicsQueue = &graphicsQueue,
 				.graphicsTimeline = graphics->timeline,
 				.prepareUi = [this, &graphicsCallbacks](CommandBufferHandle cmd) { myImGui->PrepareFrame(cmd, graphicsCallbacks); },
-				.drawUi = [this](CommandBufferHandle cmd) { myImGui->Draw(cmd); },
+				.drawUi = [this](CommandBufferHandle cmd)
+				{
+					if (gDrawUi)
+						myImGui->Draw(cmd);
+				},
 				.uiBlurRects = uiBlurRects,
 				.executor = &GetExecutor()});
 

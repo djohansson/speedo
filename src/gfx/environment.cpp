@@ -318,13 +318,16 @@ DominantLight ExtractDominantLight(Panorama& panorama, float referenceMean)
 
 	glm::dvec3 irradiance(0.0);
 	glm::dvec3 weightedDirection(0.0);
+	double weightSum = 0.0;
 	for (auto texel : region)
 	{
 		const float* p = &panorama.rgb[texel * 3];
 		auto excess = glm::max(glm::dvec3(p[0], p[1], p[2]) - glm::dvec3(background), glm::dvec3(0.0));
 		auto omega = solidAngle(static_cast<uint32_t>(texel / width));
 		irradiance += excess * omega;
-		weightedDirection += glm::dvec3(direction(texel)) * (glm::dot(excess, glm::dvec3(0.2126, 0.7152, 0.0722)) * omega);
+		auto weight = glm::dot(excess, glm::dvec3(0.2126, 0.7152, 0.0722)) * omega;
+		weightedDirection += glm::dvec3(direction(texel)) * weight;
+		weightSum += weight;
 	}
 	auto irradianceLuminance = glm::dot(irradiance, glm::dvec3(0.2126, 0.7152, 0.0722));
 	// what the environment gives a surface: pi times its mean radiance, for a uniform one
@@ -335,7 +338,20 @@ DominantLight ExtractDominantLight(Panorama& panorama, float referenceMean)
 		std::memcpy(&panorama.rgb[texel * 3], &background[0], sizeof(float) * 3);
 
 	auto lightDirection = glm::normalize(glm::vec3(weightedDirection));
-	return DominantLight{.direction = lightDirection, .irradiance = glm::vec3(irradiance)};
+	// its angular radius: a uniform disk of radius r has a mean squared angle about its center of r^2 / 2, so r is the
+	// square root of twice the light's (weighed by its light), at least half a texel (the panorama's resolution)
+	double spread = 0.0;
+	for (auto texel : region)
+	{
+		const float* p = &panorama.rgb[texel * 3];
+		auto excess = glm::max(glm::dvec3(p[0], p[1], p[2]) - glm::dvec3(background), glm::dvec3(0.0));
+		auto weight = glm::dot(excess, glm::dvec3(0.2126, 0.7152, 0.0722)) * solidAngle(static_cast<uint32_t>(texel / width));
+		auto angle = std::acos(std::clamp(static_cast<double>(glm::dot(direction(texel), lightDirection)), -1.0, 1.0));
+		spread += weight * angle * angle;
+	}
+	auto halfTexel = std::numbers::pi / static_cast<double>(height) * 0.5;
+	auto angularRadius = std::max(std::sqrt(2.0 * spread / std::max(weightSum, 1e-30)), halfTexel);
+	return DominantLight{.direction = lightDirection, .irradiance = glm::vec3(irradiance), .angularRadius = static_cast<float>(angularRadius)};
 }
 
 } // namespace detail

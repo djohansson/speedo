@@ -217,6 +217,8 @@ void Cascades(
 		std::copy_n(&rect[0], 4, data.atlasRect);
 		data.params[0] = 2.0F * radius / texels;
 		data.params[1] = 0.0F;
+		data.params[2] = nearest - margin;
+		data.params[3] = farthest + margin;
 		views.push_back(data);
 	}
 }
@@ -233,6 +235,8 @@ ShadowData PerspectiveView(
 	std::copy_n(&rect[0], 4, data.atlasRect);
 	data.params[0] = 2.0F * std::tan(fovY * 0.5F) / static_cast<float>(tile.size);
 	data.params[1] = 1.0F;
+	data.params[2] = nearPlane;
+	data.params[3] = farPlane;
 	return data;
 }
 

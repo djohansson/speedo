@@ -56,6 +56,11 @@ constexpr uint8_t kGiTraceEntryPoint = 14;
 constexpr uint8_t kGiProbeUpdateEntryPoint = 15;
 constexpr uint8_t kGiResolveEntryPoint = 16;
 constexpr uint8_t kGiRestoreEntryPoint = 17;
+// the traced shadows' (see tracedshadows.slang)
+constexpr uint8_t kShadowClassifyEntryPoint = 18;
+constexpr uint8_t kShadowTraceEntryPoint = 19;
+constexpr uint8_t kShadowDenoiseXEntryPoint = 20;
+constexpr uint8_t kShadowDenoiseYEntryPoint = 21;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 
@@ -74,6 +79,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// linear: shading and blending happen in linear space, and ComputeMain applies the srgb curve when it copies the
 	// result to the swapchain
 	myColor = myGraph.CreateImage({.name = "Main Color", .format = Format::kR16G16B16A16Sfloat});
+	myPrepassNormal = myGraph.CreateImage({.name = "Prepass Normal", .format = Format::kR8G8B8A8Unorm});
+	myShadowRaw = myGraph.CreateImage({.name = "Shadow Raw", .format = Format::kR8G8B8A8Unorm});
+	myShadowBlocker = myGraph.CreateImage({.name = "Shadow Blocker", .format = Format::kR16G16B16A16Sfloat});
+	myShadowRows = myGraph.CreateImage({.name = "Shadow Rows", .format = Format::kR8G8B8A8Unorm});
+	myShadowMask = myGraph.CreateImage({.name = "Shadow Mask", .format = Format::kR8G8B8A8Unorm});
+	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
+	myShadowTraceList = myGraph.CreateBuffer(
+		{.name = "Shadow Trace List", .sizeOf = [](Extent2d extent) { return (PixelCount(extent) + 1) * sizeof(uint32_t); }});
+	// and the 8x8 tiles within the filter's reach of them (gShadowTraceTiles), which the Shadow Denoise filters
+	myShadowTraceTiles = myGraph.CreateBuffer(
+		{.name = "Shadow Trace Tiles",
+		 .sizeOf = [](Extent2d extent)
+		 { return static_cast<uint64_t>((extent.width + 7) / 8) * ((extent.height + 7) / 8) * sizeof(uint32_t); }});
 	myDepth = myGraph.CreateImage(
 		{.name = "Main Depth",
 		 .format = device.FindSupportedFormat(
@@ -122,6 +140,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myLightShadowBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Light Shadows {}", frameIt)),
 			SHADER_TYPES_LIGHT_COUNT * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myShadowTraceBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Shadow Trace {}", frameIt)),
+			sizeof(ShadowTraceData),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 		myClusterViewBuffers.emplace_back(BufferCreateDesc{
@@ -544,8 +567,26 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			scatterKernel(context.cmd, ComputePipelineVariant{.entryPoint = 2});
 		});
 
-	// the main pass: the views, each in its viewport. alpha 0 where nothing opaque is drawn (opaque draws write alpha 1):
-	// there ComputeMain draws the environment
+	// the pre-pass: the main list's opaque draws' depth and geometry normals (the first phase, the draws seen last frame,
+	// then the late ones, as the main pass's were: the occlusion culling's depth is the pre-pass's), which the main pass
+	// then shades over, each pixel once (DepthTest::kEqual), and the traced shadows start from
+	auto prepass = [&](bool late)
+	{
+		auto load = late ? LoadOp::kLoad : LoadOp::kClear;
+		return myGraph.AddPass(
+			late ? "Prepass Late" : "Prepass",
+			[this, load, useCulled](FrameGraph::PassBuilder& builder)
+			{
+				useCulled(builder);
+				builder.ColorAttachment(myPrepassNormal, load, StoreOp::kStore, ClearValue{.color = {0.5F, 0.5F, 1.0F, 0.0F}});
+				builder.DepthAttachment(myDepth, load);
+				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
+			},
+			[this, late](FrameGraph::PassContext& context)
+			{ InternalDrawViews(context, *myFrame.pipeline, *myFrame.inputs, ListId::kMain, late, true); });
+	};
+	// the main pass: the views, each in its viewport, over the pre-pass's depth. alpha 0 where nothing opaque is drawn
+	// (opaque draws write alpha 1): there ComputeMain draws the environment
 	auto mainPass = [&](MainPassPhase phase, bool late = false)
 	{
 		auto load = phase == MainPassPhase::kOpaque && !late ? LoadOp::kClear : LoadOp::kLoad;
@@ -561,12 +602,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				for (auto volume : myGiVolumes)
 					builder.Use(volume, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.ColorAttachment(myColor, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
-				builder.DepthAttachment(myDepth, load);
+				builder.DepthAttachment(myDepth, LoadOp::kLoad);
 				useOitLists(builder, PipelineStage::kFragmentShader, kOitAccess);
 				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				if (phase == MainPassPhase::kTransmissive)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase, late](FrameGraph::PassContext& context)
@@ -766,9 +808,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
 		});
 
-	mainPass(MainPassPhase::kOpaque);
+	prepass(false);
 
-	// occlusion culling: the depth pyramid of what the main pass drew first (the draws seen last frame), level by level
+	// occlusion culling: the depth pyramid of what the pre-pass drew first (the draws seen last frame), level by level
 	// (each dispatch reads the one before: barriers between them, within the pass)
 	myDepthPyramidPass = myGraph.AddPass(
 		"Depth Pyramid",
@@ -778,7 +820,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myDepthPyramid, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[pyramid](FrameGraph::PassContext& context) { pyramid(context, 0); });
-	// then the rest of the main pass's draws, those it doesn't hide (and the transmissive phase's)
+	// then the rest of the main list's draws, those it doesn't hide (and the transmissive phase's)
 	myCullLatePass = myGraph.AddPass(
 		"Cull Late",
 		[this](FrameGraph::PassBuilder& builder)
@@ -798,6 +840,81 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				static_cast<uint32_t>(myCullJobs.size()) - myCullMainLateJobBase,
 				myCullMainLateJobBase);
 		});
+	myPrepassLatePass = prepass(true);
+
+	// the traced shadows (see tracedshadows.slang): a ray per pixel and traced light through the BVHs, from the pre-pass's
+	// depth, then filtered over each penumbra's width (rows, then columns), for the main pass's opaque fragments
+	auto screenKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
+	{
+		auto extent = myGraph.GetExtent();
+		kernel(cmd, ComputePipelineVariant{.entryPoint = entryPoint}, extent.width, extent.height);
+	};
+	// the pixels the atlas is sure of decided, the others listed (see ComputeShadowClassify), then traced, each by a thread
+	myShadowTraceClearPass = myGraph.AddPass(
+		"Shadow Trace Clear",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myShadowTraceList, ResourceUse::TransferDestination());
+			builder.Use(myShadowTraceTiles, ResourceUse::TransferDestination());
+		},
+		[this](FrameGraph::PassContext& context)
+		{
+			CommandEncoder encoder(context.cmd);
+			encoder.FillBuffer(context.graph.GetBuffer(myShadowTraceList), 0, sizeof(uint32_t), 0);
+			encoder.FillBuffer(context.graph.GetBuffer(myShadowTraceTiles), 0, 0, 0);
+		});
+	myShadowClassifyPass = myGraph.AddPass(
+		"Shadow Classify",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowTraceList, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myShadowTraceTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myShadowRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myShadowBlocker, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kShadowClassifyEntryPoint); });
+	myShadowTracePass = myGraph.AddPass(
+		"Shadow Trace",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowTraceList, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myShadowRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myShadowBlocker, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[kernel](FrameGraph::PassContext& context)
+		{ kernel(context.cmd, ComputePipelineVariant{.entryPoint = kShadowTraceEntryPoint}, SHADER_TYPES_SHADOW_TRACE_THREAD_COUNT, 1); });
+	myShadowDenoiseXPass = myGraph.AddPass(
+		"Shadow Denoise X",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowRaw, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowBlocker, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowTraceTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myShadowRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kShadowDenoiseXEntryPoint); });
+	myShadowDenoiseYPass = myGraph.AddPass(
+		"Shadow Denoise Y",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowBlocker, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowTraceTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myShadowMask, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kShadowDenoiseYEntryPoint); });
+
+	mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
 	// transmissive materials see the opaque scene behind them: copied, with mips for their roughness
@@ -1278,7 +1395,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_TEXTURE},
 			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_TEXTURE},
 			 std::pair{myUiBlurSource, SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE},
-			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_TEXTURE}})
+			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_TEXTURE},
+			 std::pair{myPrepassNormal, SHADER_TYPES_PREPASS_NORMAL_TEXTURE},
+			 std::pair{myShadowRaw, SHADER_TYPES_SHADOW_RAW_TEXTURE},
+			 std::pair{myShadowBlocker, SHADER_TYPES_SHADOW_BLOCKER_TEXTURE},
+			 std::pair{myShadowRows, SHADER_TYPES_SHADOW_ROWS_TEXTURE},
+			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
@@ -1288,7 +1410,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE},
 			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE},
 			 std::pair{myUiBlurSource, SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE},
-			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE}})
+			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE},
+			 std::pair{myShadowRaw, SHADER_TYPES_SHADOW_RAW_RW_TEXTURE},
+			 std::pair{myShadowBlocker, SHADER_TYPES_SHADOW_BLOCKER_RW_TEXTURE},
+			 std::pair{myShadowRows, SHADER_TYPES_SHADOW_ROWS_RW_TEXTURE},
+			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -1304,6 +1430,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		pipeline.SetDescriptorData(
 			"gLightShadows",
 			BufferBinding{.buffer = myLightShadowBuffers[frameIt], .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+		pipeline.SetDescriptorData(
+			"gShadowTrace",
+			BufferBinding{.buffer = myShadowTraceBuffers[frameIt], .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
 		for (auto [name, buffers] : std::array{
@@ -1417,6 +1548,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
 		pipeline.SetDescriptorData(
 			name, BufferBinding{.buffer = myGraph.GetBuffer(buffer), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	pipeline.SetDescriptorData(
+		"gShadowTraceList", BufferBinding{.buffer = myGraph.GetBuffer(myShadowTraceList), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	pipeline.SetDescriptorData(
+		"gShadowTraceTiles", BufferBinding{.buffer = myGraph.GetBuffer(myShadowTraceTiles), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 }
 
 void Renderer::Prepare(CommandBufferHandle cmd)
@@ -1558,6 +1693,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myDrawLists[std::to_underlying(phase)] = frame.model != nullptr
 			? BuildDrawList(*frame.model, phase, myTwoPhases, frame.transmissive, frame.specialization)
 			: DrawList{};
+	// the first phase's opaque draws shade what the pre-pass drew (the blended ones depth test as before, and the
+	// transmissive phase's draws aren't in the pre-pass: the opaque scene behind them must be drawn)
+	for (auto& item : myDrawLists[std::to_underlying(MainPassPhase::kOpaque)].items)
+		if (item.variant.fragmentShader == 0)
+			item.variant.depthTest = DepthTest::kEqual;
 	// the shadows: planned for the frame, and written for the shader to read once the frame's previous use of its
 	// buffers is done (the caller waited for its fence)
 	ENSURE(frame.lights.size() <= SHADER_TYPES_LIGHT_COUNT); // see Scene::UpdateLights
@@ -1578,6 +1718,46 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		std::ranges::copy(std::as_bytes(std::span(myShadowPlan.lightShadows)), memory.begin());
 		lightShadows.Flush(0, myShadowPlan.lightShadows.size() * sizeof(uint32_t));
 		lightShadows.Unmap();
+	}
+	// the traced shadows: the directional lights' (the brightest first), then the point and spot lights' the atlas has
+	// views of (in view), the brightest at the camera first, up to SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT, where the model
+	// has BVHs to trace
+	{
+		ShadowTraceData trace{};
+		std::ranges::fill(trace.lights, SHADER_TYPES_NO_SHADOW);
+		bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+		if (frame.tracedShadows && frame.shadows && hasBvh)
+		{
+			glm::vec3 eye(glm::inverse(frame.camera.view)[3]);
+			std::vector<std::pair<float, uint32_t>> candidates;
+			for (uint32_t lightIt = 0; lightIt < frame.lights.size(); lightIt++)
+			{
+				const auto& light = frame.lights[lightIt];
+				float luminance = (0.2126F * light.intensity[0]) + (0.7152F * light.intensity[1]) + (0.0722F * light.intensity[2]);
+				if (luminance <= 0.0F)
+					continue;
+				if (light.type == LIGHT_TYPE_DIRECTIONAL)
+					candidates.emplace_back(std::numeric_limits<float>::max() / 2.0F + luminance, lightIt);
+				else if (myShadowPlan.lightShadows[lightIt] != SHADER_TYPES_NO_SHADOW)
+				{
+					glm::vec3 position(light.positionRange[0], light.positionRange[1], light.positionRange[2]);
+					candidates.emplace_back(luminance / std::max(glm::dot(position - eye, position - eye), 1e-6F), lightIt);
+				}
+			}
+			std::ranges::sort(candidates, std::greater{});
+			for (size_t slot = 0; slot < std::min<size_t>(candidates.size(), SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT); slot++)
+				trace.lights[slot] = candidates[slot].second;
+			trace.movingBvh = frame.model->HasMovingBvh() ? 1U : 0U;
+			trace.mapped = frame.tracedShadowsEverywhere ? 0U : 1U;
+		}
+		myShadowsTraced = trace.lights[0] != SHADER_TYPES_NO_SHADOW;
+		auto& buffer = myShadowTraceBuffers[frame.frameIndex];
+		auto memory = buffer.Map();
+		std::memcpy(memory.data(), &trace, sizeof(trace));
+		buffer.Flush(0, sizeof(trace));
+		buffer.Unmap();
+		for (auto pass : {myShadowTraceClearPass, myShadowClassifyPass, myShadowTracePass, myShadowDenoiseXPass, myShadowDenoiseYPass})
+			myGraph.SetEnabled(pass, myShadowsTraced);
 	}
 	// the lights' clusters per view, written as the shadows are
 	{
@@ -1624,7 +1804,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		? BuildShadowDrawList(*frame.model, frame.transmissive)
 		: DrawList{};
 	bool shadowsDrawn = !myShadowDrawList.Empty();
-	frame.pushConstants.shadows = shadowsDrawn ? 1U : 0U;
+	frame.pushConstants.shadows = shadowsDrawn || myShadowsTraced ? 1U : 0U;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn);
 
@@ -1659,6 +1839,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		auto& buffer = InternalReserve(myDrawRecords, pipeline, frame.frameIndex, count);
 		std::vector<DrawRecord> records(count);
 		WriteDrawRecords(lists, records);
+		// the pre-pass's: the main list's, its opaque draws as the pre-pass's fragments, one pipeline a topology
+		myPrepassList = myDrawLists[std::to_underlying(MainPassPhase::kOpaque)];
+		for (auto& item : myPrepassList.items)
+			if (item.variant.fragmentShader == 0)
+				item.variant = {.topology = item.variant.topology, .blend = kOpaqueBlend, .fragmentShader = kPrepassFragmentShader};
 		if (!records.empty())
 		{
 			auto bytes = std::as_bytes(std::span(records));
@@ -2140,6 +2325,7 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	myGraph.SetEnabled(myDepthPyramidReprojectedPass, reprojected);
 	myGraph.SetEnabled(myDepthPyramidPass, lateDraws);
 	myGraph.SetEnabled(myCullLatePass, lateDraws);
+	myGraph.SetEnabled(myPrepassLatePass, lateDraws);
 	myGraph.SetEnabled(myMainLatePass, lateDraws);
 	myGraph.SetEnabled(myDepthSavePass, reprojected);
 	myGraph.SetEnabled(myShadowDepthPyramidPass, myShadowOcclusionThisFrame);
@@ -2495,7 +2681,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	write(InternalReserve(myGiLightIndices, pipeline, frame.frameIndex, std::max<size_t>(cells.indices.size(), 1)), std::as_bytes(std::span(cells.indices)));
 	// the debug view, which its references (6 and 7) trace for (see GiData::debug)
 	uint32_t debugView = frame.pushConstants.debugView;
-	uint32_t debug = debugView >= DEBUG_VIEW_GI_FIRST && debugView < DEBUG_VIEW_COUNT ? debugView - DEBUG_VIEW_GI_FIRST + 1 : 0;
+	uint32_t debug = debugView >= DEBUG_VIEW_GI_FIRST && debugView < DEBUG_VIEW_GI_END ? debugView - DEBUG_VIEW_GI_FIRST + 1 : 0;
 	{
 		auto& statistics = myFrameStatisticsThisFrame;
 		statistics.indirectLighting = true;
@@ -2523,9 +2709,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	write(myGiDataBuffers[frame.frameIndex], std::as_bytes(std::span(data)));
 }
 
-void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId listId, bool late)
+void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId listId, bool late, bool prepass)
 {
-	const auto& list = InternalList(listId);
+	const auto& list = prepass ? myPrepassList : InternalList(listId);
 	auto& graphicsQueue = *inputs.graphicsQueue;
 	auto& device = pipeline.GetDevice();
 
@@ -2554,7 +2740,21 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MATERIAL);
 	pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-	pipeline.BindPipelineAuto(cmd, {.blend = kOpaqueBlend});
+	// the variant most of its draws bind (the main list's opaque ones shade over the pre-pass's depth)
+	pipeline.BindPipelineAuto(
+		cmd,
+		{.blend = kOpaqueBlend,
+		 .fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
+		 .depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kLess});
+	// the main list's fragments take the traced shadows (at the pre-pass's depth: its blended ones don't, see
+	// FragmentTransparent), the transmissive phase's don't
+	auto pushConstants = inputs.pushConstants;
+	pushConstants.shadowMask = myShadowsTraced && !prepass && listId == ListId::kMain ? 1U : 0U;
+	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
+	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
+	std::optional<core::std_extra::function_ref<bool(const DrawItem&)>> include;
+	if (prepass)
+		include = prepassed;
 
 	for (uint32_t drawIt = 0; drawIt < viewCount; drawIt++)
 	{
@@ -2571,13 +2771,13 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 
 		if (auto culled = InternalCulledDraws(listId, viewIt, late))
 		{
-			RecordCulledDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, *culled, inputs.executor);
+			RecordCulledDrawList(cmd, pipeline, list, pushConstants, viewIt, *culled, inputs.executor, include);
 			continue;
 		}
 		std::optional<Frustum> frustum;
 		if (inputs.culling && viewIt < inputs.viewProjections.size())
 			frustum = Frustum::FromViewProjection(inputs.viewProjections[viewIt]);
-		RecordDrawList(cmd, pipeline, list, inputs.pushConstants, viewIt, *myDrawStream, frustum ? &*frustum : nullptr, inputs.executor);
+		RecordDrawList(cmd, pipeline, list, pushConstants, viewIt, *myDrawStream, frustum ? &*frustum : nullptr, inputs.executor, include);
 	}
 
 	std::vector<CommandBuffer> secondaries;

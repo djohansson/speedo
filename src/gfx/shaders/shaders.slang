@@ -28,3 +28,4 @@ __include types;
 #include "cull.slang"
 #include "bvh.slang"
 #include "gi.slang"
+#include "tracedshadows.slang"

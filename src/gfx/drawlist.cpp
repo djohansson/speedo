@@ -274,12 +274,6 @@ public:
 	{}
 	DrawState(const DrawState&) = delete;
 	DrawState& operator=(const DrawState&) = delete;
-	// gives the caller back the default (opaque triangle list) variant it bound
-	~DrawState()
-	{
-		if (myBound != GraphicsPipelineVariant{.blend = kOpaqueBlend})
-			myPipeline.BindPipelineAuto(myCmd, {.blend = kOpaqueBlend});
-	}
 
 	// whether drawing item needs other state than the draw before. a specialized variant (see
 	// GraphicsPipelineVariant::specialization) is only drawn with once its pipeline exists: until then the generic one
@@ -298,14 +292,14 @@ public:
 				myVariant.specialization = 0;
 			}
 		}
-		return myVariant != myBound || myCullMode != item.cullMode || myFrontFace != item.frontFace || myMoves != item.moves;
+		return myBound != myVariant || myCullMode != item.cullMode || myFrontFace != item.frontFace || myMoves != item.moves;
 	}
 
 	// sets the state Changes found item needs
 	void Set(const DrawItem& item)
 	{
 		CommandEncoder encoder(myCmd);
-		if (myVariant != myBound)
+		if (myBound != myVariant)
 		{
 			myBound = myVariant;
 			myPipeline.BindPipelineAuto(myCmd, myVariant);
@@ -345,7 +339,9 @@ private:
 	Pipeline& myPipeline;
 	PushConstants myPushConstants;
 	core::TaskExecutor* myExecutor = nullptr;
-	GraphicsPipelineVariant myBound{.blend = kOpaqueBlend};
+	// what the caller bound isn't assumed (the pre-pass binds another default than the main pass): the first draw binds
+	// its own, and the last one's stays bound
+	std::optional<GraphicsPipelineVariant> myBound;
 	GraphicsPipelineVariant myVariant{.blend = kOpaqueBlend}; // the one Changes found
 	// the state the draw before set (none yet: a secondary command buffer starts without dynamic state)
 	std::optional<CullMode> myCullMode;
@@ -364,7 +360,8 @@ void RecordDrawList(
 	uint16_t viewIndex,
 	DrawStream& stream,
 	const Frustum* frustum,
-	core::TaskExecutor* executor)
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
 {
 	ZoneScopedN("gfx::RecordDrawList");
 
@@ -386,6 +383,8 @@ void RecordDrawList(
 	for (const auto& item : list.items)
 	{
 		if (frustum != nullptr && item.cullable && frustum->Excludes(item.bounds))
+			continue;
+		if (include && !(*include)(item))
 			continue;
 
 		if (state.Changes(item))
@@ -426,7 +425,8 @@ void RecordCulledDrawList(
 	PushConstants pushConstants,
 	uint16_t viewIndex,
 	const CulledDraws& culled,
-	core::TaskExecutor* executor)
+	core::TaskExecutor* executor,
+	std::optional<core::std_extra::function_ref<bool(const DrawItem& item)>> include)
 {
 	ZoneScopedN("gfx::RecordCulledDrawList");
 
@@ -439,6 +439,8 @@ void RecordCulledDrawList(
 	{
 		const auto& run = list.runs[runIt];
 		const auto& item = list.items[run.first];
+		if (include && !(*include)(item))
+			continue;
 		if (state.Changes(item))
 			state.Set(item);
 		state.Push();

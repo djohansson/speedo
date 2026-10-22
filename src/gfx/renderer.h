@@ -72,6 +72,10 @@ struct FrameInputs
 	size_t modelLightCount = 0; // the first of lights are the model's, the rest the environment's (see LightCapture)
 	bool captureLights = false; // keep a copy of them and their shadow views (see Renderer::GetLightCapture)
 	bool shadows = true;
+	// whether the brightest lights' shadows are traced through the model's BVHs (see ShadowTraceData), where it has them;
+	// and at every pixel, rather than where the shadow atlas isn't sure (ShadowTraceData::mapped)
+	bool tracedShadows = true;
+	bool tracedShadowsEverywhere = false;
 	shadows::ShadowCamera camera;
 	Bounds3f sceneBounds;
 	// how far what the camera looks at is (the median distance of the last frame's drawn pixels from the eye, smoothed):
@@ -220,11 +224,25 @@ private:
 		Buffer& buffer, Pipeline& pipeline, std::string_view name, std::string_view binding, size_t size,
 		rhi::BufferUsage usage = rhi::BufferUsage::kStorage | rhi::BufferUsage::kTransferDestination); // the GI Clear pass fills them
 
-	void InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false);
+	// records a list's draws for the views (each in its viewport); prepass: the main list's opaque draws as the pre-pass's
+	// (myPrepassList, the same runs and culled commands)
+	void InternalDrawViews(
+		FrameGraph::PassContext& context, Pipeline& pipeline, const FrameInputs& inputs, ListId list, bool late = false, bool prepass = false);
 
 	FrameGraph myGraph;
 	FrameGraph::ImageId myColor;
 	FrameGraph::ImageId myDepth;
+	// the pre-pass's geometry normals (SHADER_TYPES_PREPASS_NORMAL_TEXTURE, see PrepassOutput), with the depth, which the
+	// main pass then shades over (DepthTest::kEqual) and the traced shadows start from
+	FrameGraph::ImageId myPrepassNormal;
+	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
+	// visibility filtered along rows, and along columns (what the main pass takes); each a channel per traced light
+	FrameGraph::ImageId myShadowRaw;
+	FrameGraph::ImageId myShadowBlocker;
+	FrameGraph::ImageId myShadowRows;
+	FrameGraph::ImageId myShadowMask;
+	FrameGraph::BufferId myShadowTraceList;
+	FrameGraph::BufferId myShadowTraceTiles;
 	FrameGraph::ImageId myTransmission;
 	FrameGraph::ImageId myScatter;
 	FrameGraph::ImageId myScatterDepth;
@@ -256,6 +274,14 @@ private:
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;
 	std::vector<Buffer> myLightShadowBuffers;
+	// the frame's traced shadows (gShadowTrace[frame], see ShadowTraceData), and whether any light's are
+	std::vector<Buffer> myShadowTraceBuffers;
+	bool myShadowsTraced = false;
+	FrameGraph::PassId myShadowTraceClearPass;
+	FrameGraph::PassId myShadowClassifyPass;
+	FrameGraph::PassId myShadowTracePass;
+	FrameGraph::PassId myShadowDenoiseXPass;
+	FrameGraph::PassId myShadowDenoiseYPass;
 	shadows::ShadowPlan myShadowPlan;
 	// per frame index: the clusters' views, ranges and light indices (gClusterViews, gClusters, gClusterLights), host
 	// visible
@@ -342,6 +368,7 @@ private:
 	size_t myCullVisibilityCapacity = 0;
 	FrameGraph::PassId myDepthPyramidPass;
 	FrameGraph::PassId myCullLatePass;
+	FrameGraph::PassId myPrepassLatePass;
 	FrameGraph::PassId myMainLatePass;
 	// the shadow views' occlusion culling, as the main pass's two-phase: the casters each saw last frame first (Shadows),
 	// a pyramid of the atlas (Shadow Depth Pyramid), then the rest it doesn't hide (Cull Shadows Late, Shadows Late)
@@ -495,6 +522,9 @@ private:
 	// the frame's draw lists, per phase
 	bool myTwoPhases = false;
 	std::array<DrawList, 2> myDrawLists;
+	// the main list's opaque draws as the pre-pass draws them (kPrepassFragmentShader; the blended ones left as they are,
+	// for InternalDrawViews to skip): its items, runs and records, so the main list's culled commands draw it
+	DrawList myPrepassList;
 	DrawList myScatterBackDrawList;
 	DrawList myScatterDrawList;
 };

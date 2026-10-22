@@ -537,7 +537,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid, Cull Late and Main Late after Main with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -672,7 +672,8 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   and culling is on): the main pass's opaque list is culled on the gpu in two jobs per view. The Cull pass's
   (`CULL_JOB_EARLY`) keeps the draws seen last frame (`gCullVisibility`, a word per draw and main view, one buffer kept
   from frame to frame: the main list comes first, so its place holds while its draws and the views do; it grows, which
-  loses it once), and Main draws them. The Depth Pyramid pass (`ComputeDepthPyramid`, compute entry point 6) reduces the
+  loses it once), and the Prepass draws them (see "The pre-pass", below: it took this role from Main, which shades over
+  its depth, the early draws in Main and the late in Main Late). The Depth Pyramid pass (`ComputeDepthPyramid`, compute entry point 6) reduces the
   main depth (`SHADER_TYPES_MAIN_DEPTH_TEXTURE`) into an `R32Sfloat` mip chain of the farthest depth, half its size at
   level 0 (`FrameGraph::ImageDesc::downscale`), each texel the farthest of 3x3 below so odd sizes are covered, a dispatch
   per level with barriers between, written and read as storage images of a format (`gDepthPyramid`, binding 1 of the rw
@@ -680,7 +681,8 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   (`CULL_JOB_LATE`) tests every draw in view against it (`CullOccluded`: the box's corners projected into the view's
   viewport, its nearest depth against the farthest of the at most 2x2 texels of the level where its rectangle spans two;
   a box reaching behind the eye is never hidden), keeps the ones it doesn't hide that weren't drawn first, and writes
-  each one's visibility for the next frame; Main Late draws them, loading the attachments. Blended draws
+  each one's visibility for the next frame; Prepass Late draws them, loading the attachments (and Main Late shades
+  them). Blended draws
   (`CullCandidate::late`) are only ever drawn late, after every opaque draw (the transparency's lists depth test when
   written), and the transmissive phase's list is tested against the pyramid alone (`CULL_JOB_PYRAMID`). Renders are identical with and without (eight models, BlendInstances among them),
   and with a still camera Main Late draws nothing. Measured on KosmicKrisp by the frame's gpu time (the `Frame` scope,
@@ -748,7 +750,12 @@ scattering's light. Views of values (`DebugViewIsData`) skip exposure and tonema
 The scatter pass is never in a debug view. An overlay at the bottom left names the view and what its colors mean.
 Indirect lighting's views beyond the per pixel lookups: Voxel World (radiance, albedo, normal: `ComputeMain` marches
 each pixel's ray through the clips' voxels, `GiTraceVoxels`, what the probes' rays see) and Probes (the 8 probes
-around a point, trilinear, without the resolve's weights).
+around a point, trilinear, without the resolve's weights). The traced shadows' (see "Ray traced shadows"), of the first
+traced light, magenta where none is traced: as the main pass takes them (`traced-shadow`, filtered), the rays as traced
+(`traced-shadow-raw`, a ray a pixel), and a reference (`traced-shadow-reference`: 256 rays a pixel over the light's
+disk where the atlas isn't sure, `SHADER_TYPES_SHADOW_REFERENCE_RAY_COUNT`; seconds a frame in Bistro, so capture it
+after a few frames). The last two go through the filter's passes unfiltered into the mask, which is what the main pass
+reads: the rays' image is a transient whose memory the mask takes once the filter has read it.
 
 For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` places the views at a pose a frame,
 the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
@@ -786,7 +793,8 @@ scope's duration, which `Renderer::Record` takes (`TakeTimings`), shows in the S
 `SPEEDO_GPU_TIMINGS=1` prints each pass's median of at exit, and the draw thread's median frame time.
 `SPEEDO_CAPTURE=<file>` saves the frame an autoload exit ends on (`SPEEDO_AUTOLOAD_EXIT`) as a bmp, read back from the
 swapchain image (its images are transfer sources for it): renders can be compared without the screen, which a locked
-one hides from screenshots. `Renderer::Record`
+one hides from screenshots. `SPEEDO_UI=0` leaves the ui out of the frames (and its panels' blur; it still runs: the
+autoloads, the camera's placement and the capture itself), so a capture is the scene alone. `Renderer::Record`
 also opens a `Frame` scope (in the same group) around the whole graph, whose timestamps are outside every pass: it is
 timed where passes aren't (KosmicKrisp times neither compute passes nor Main Late), so compare whole frames by it.
 The frame time unthrottled is no substitute on macOS: presentation stays at the display's rate even with
@@ -906,6 +914,78 @@ scene's center, spot cones, point ranges, each shadow view's frustum: its clip s
 projection) and markers, and the ui projects them with each view's camera, a directional light's marker where it is in the
 sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
 `resources/test-models/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
+
+## Ray traced shadows
+
+Lights have a size (`LightData::size`): a directional light's angular radius in radians, a point or spot light's radius
+in world units (the sphere it emits from), 0 for none (hard shadows). The model's directional lights take the real sun's,
+0.00465 (0.27 degrees, `environment::kSkySunRadius`), its point and spot lights none; View > Lights... sets each (degrees
+for a directional light), as does `SPEEDO_LIGHT_SIZES=<light>=<size>[,...]` (the model's lights by index; cleared when a
+model is installed, `Scene::GetLightSizes`). The procedural sky's sun is the real one too, and each dominant light of a
+panorama gets its own (`DominantLight::angularRadius`: its texels' mean squared angle from its center, weighed by their
+light, is a uniform disk's r^2 / 2; at least half a texel; `environment-v7`).
+
+**The pre-pass** (Prepass, and Prepass Late with occlusion culling): the main list's opaque draws first, their depth
+and their geometry normals toward the side seen (`FragmentPrepass`, the layout's fifth fragment entry point,
+`kPrepassFragmentShader`; `PrepassOutput`'s alpha says whether the fragment takes light from behind, diffuse transmission
+and the scattering's), `SHADER_TYPES_PREPASS_NORMAL_TEXTURE`. Main and Main Late shade over that depth, each pixel once
+(`GraphicsPipelineVariant::depthTest`, rhi's `DepthTest::kEqual`: less or equal, no writes); blended draws depth test as
+before, and the transmissive phase isn't in the pre-pass (it must see the opaque scene behind it). Renders are identical,
+and frames are faster for the overdraw no longer shaded (Bistro's street, GI on, 25.15 to 22.9 ms).
+
+**The traced shadows** (View > Ray Traced Shadows, on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all`
+to trace every pixel): for up to `SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT` (4) lights a frame (the directional ones first,
+brightest first, then the point and spot lights the atlas has views of, by their light at the camera; none of zero
+light), where the model has a BVH (see "Tracing the triangles"; `Animate` places the moving one for them too), a ray per
+pixel of the pre-pass's depth and traced light toward a point of the light's disk, through the static BVH (alpha masks
+cut out, `GiAlphaMask`) and the moving one (`ShadowOccluder`), filtered over the penumbra's width
+(`tracedshadows.slang`, `gShadowTrace[frame]`: `ShadowTraceData`, the slots' lights; the images are the frame graph's
+transients, a slot a channel). Main's opaque fragments take them for the traced lights (`ShadowFactor`, by
+`PushConstants::shadowMask`); everything else is the atlas's.
+
+- **Classify** (Shadow Classify, `ComputeShadowClassify`, compute entry point 18): where the atlas is sure, no ray
+  (`ShadowMapClassify`): its 3x3 filter all lit or all shadowed, and none of 24 taps up to 24 texels away says otherwise
+  within the penumbra it would make (a blocking texel within the half width its depth gives, plus 2 texels, of a lit
+  pixel; an unblocked one within its own blocker's reach, of a shadowed one), each compared with the pixel's tangent
+  plane where the texel is (`ShadowReceiverGradient`: a surface sloping toward the light isn't its own blocker). The
+  rest are listed (`gShadowTraceList`: a count, then the pixels) and the 8x8 tiles within the filter's reach of them
+  flagged (`gShadowTraceTiles`). Bistro's street lists 136000 pixels (4%), mostly along grazing sunlit facades. A thin
+  occluder can fall between the taps: such a pixel is decided wrongly, which the filter takes as one more sample.
+- **Trace** (Shadow Trace, `ComputeShadowTrace`, entry point 19): `SHADER_TYPES_SHADOW_TRACE_THREAD_COUNT` threads take
+  the listed pixels in turn (traced where they were classified, a group waited for its slowest pixels: as costly as
+  450000 rays). The disk's point (`ShadowDiskPoint`): one of 16 a 4x4 tile, its radius band and quarter of the circle
+  from two orthogonal latin squares over GF(4), so every row and column has all of both, within them a (0,2,2)-net,
+  turned per tile (by the order of a Vogel spiral each row of a tile had a band of its own, and a narrow penumbra came
+  out in steps along the rows). The ray starts off the surface toward the light by 1.5 pixels (more far away) and keeps
+  what it met's distance (`SHADER_TYPES_SHADOW_BLOCKER_TEXTURE`, -1 where the light doesn't reach: facing away).
+- **Filter** (Shadow Denoise X and Y, `ComputeShadowDenoiseX`/`Y`, entry points 20 and 21; flagged tiles only): rows,
+  then columns, a gaussian of the distance along the surface whose deviation is a third of the penumbra's half width
+  (`ShadowPenumbraHalfWidths`: from the pixel's blocker, else the mean of those 16 taps around met, as
+  `ShadowPenumbraHalfWidth` gives it: d tan(a) of a disk, r d / (s - d) of a sphere) and at least the step's footprint
+  on the surface (`ShadowFootprint`: a surface at a slant isn't blurred further across than along), up to 16 pixels,
+  weighed by the neighbor's distance off the pixel's tangent plane and its normal's agreement, leaving out where the
+  light doesn't reach (a pixel facing away keeps its 0: its neighbors beyond its edge alone lit it). A pixel no ray
+  around met a blocker takes the floor (its taps' places are fixed, and rays lit by chance left single pixels of
+  penumbrae unfiltered, as bright as the light). Against the reference (`traced-shadow-reference`, see "Debug views"),
+  mean error over the reference's penumbrae, of 255: ShadowScene under a 2 degree sun 7.7, its point and spot lights of
+  0.4 units 4.1 and 5.2, Sponza at the user's pose (`0.9128,4.5351,-2.4096,-2.036,-83.129`) 9.6, Bistro's street 11.0;
+  a deviation of 0.7 of the half width in pixels facing the eye, as it was, widened ShadowScene's by three fifths
+  (15). The real sun's penumbrae a pixel or two wide are 33 off: one ray a pixel can't resolve them, and their edges
+  wobble by a pixel from tile to tile, which only more rays (accumulated over frames) would fix.
+- **The atlas where nothing is traced** (the lights past the traced ones, blended, transmissive and scattering
+  fragments, a model without a BVH): percentage closer soft shadows for a light with a size (`ShadowMapSoft`, Fernando's:
+  16 taps for the blockers within the widest penumbra the point can have, 16 bilinear comparisons over the one their
+  mean distance makes, turned per pixel by interleaved gradient noise, at most 16 texels; the 3x3 filter where the
+  penumbra is under a texel and a half). Lit renders with it alone against the traced ones: a mean difference of 0.03 to
+  0.09 of 255, a little blockier. Point and spot lights have no size by default, so they cost nothing more.
+
+Cost, by the frame's gpu time (the `Frame` scope; 2560x1440, GI on, interleaved runs agreeing to 0.1 ms): Bistro's street
+31.1 ms traced, 26.0 with the atlas soft (`SPEEDO_TRACED_SHADOWS=0`), 23.1 with its 3x3 filter alone; Sponza's inside
+(`0,2,0,0,90`) 19.2, 19.3 and 16.7; ManyLights 16.4 traced (4 of its 32 lights, without sizes) against 13.9. Bistro's
+is its rays along sunlit facades seen at a grazing angle (136000 a frame, about 35 ns each against its 2.8 M triangles):
+letting the atlas decide the grazing pixels saved 1.2 ms of it, and was dropped. On the way there (GI off, Bistro's
+street, 11.0 ms with the atlas alone): every pixel traced 52.7, the classification 26.4, by the penumbra's reach 20.7,
+the listed pixels taken by persistent threads 20.3, the filter over flagged tiles only 18.3.
 
 ## Clustered lighting
 
@@ -1581,7 +1661,7 @@ candela, then the environment's dominant lights), plus image based lighting that
 (`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
 (`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
 over a ground, as bright on average as the constant ambient light of 0.3 it replaced, and a sun disk of 1.4 degrees
-radius giving the 2.2 lux of the directional light it replaced, `kSkySunDirection` (`SkyParameters`, which the shader
+radius (as drawn: its light's shadows take the real sun's 0.27, `kSkySunRadius`, see "Ray traced shadows") giving the 2.2 lux of the directional light it replaced, `kSkySunDirection` (`SkyParameters`, which the shader
 evaluates where the sky is seen sharply, `EnvironmentData::skyZenith` and on: the backdrop, and reflections below the first
 prefiltered level's roughness, blending into it; the 256 wide panorama it lights with is blurry anyway, and its sun was a
 square; a 2048 panorama took seconds to prefilter on the cpu at every start). The cpu `ProceduralSky` panorama (its sun
@@ -1721,8 +1801,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 18
-(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 23
+(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals and 19 to 22 the traced shadows' images). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

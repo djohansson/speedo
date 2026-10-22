@@ -45,6 +45,11 @@ public:
 		std::atomic<bool> mergeLights = true;
 		// whether the lights cast shadows (View > Shadows, SPEEDO_SHADOWS=0 to start without)
 		std::atomic<bool> shadows = true;
+		// whether the brightest lights' shadows are traced through the model's BVHs (FrameInputs::tracedShadows; View >
+		// Ray Traced Shadows, SPEEDO_TRACED_SHADOWS=0 to start with the atlas's alone)
+		std::atomic<bool> tracedShadows = true;
+		// and at every pixel rather than where the atlas isn't sure (SPEEDO_TRACED_SHADOWS=all, for comparisons)
+		std::atomic<bool> tracedShadowsEverywhere = false;
 		// whether the views skip the draws outside their frustum (View > Culling, SPEEDO_CULLING=0 to start without)
 		std::atomic<bool> culling = true;
 		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,
@@ -187,6 +192,11 @@ public:
 	[[nodiscard]] core::ConcurrentAccess<SceneState>& GetScenes() noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentName() noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::vector<DominantLightInfo>>& GetEnvironmentLightInfo() noexcept;
+	// the installed model's lights' sizes the ui set (LightData::size), by light: a directional light's angular radius in
+	// degrees, a point or spot light's radius; NaN (or past the end) for the default, the sun's for a directional light
+	// (environment::kSkySunRadius), 0 for a point or spot light (glTF's lights are punctual). cleared when a model is
+	// installed
+	[[nodiscard]] core::ConcurrentAccess<std::vector<float>>& GetLightSizes() noexcept;
 	// the exposure auto exposure picked, in stops (see Settings::autoExposure)
 	[[nodiscard]] float GetAutoExposureStops() const noexcept;
 	// the bytes of device memory the renderer's transients take, and would take without aliasing

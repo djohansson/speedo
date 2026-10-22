@@ -43,7 +43,9 @@ constexpr uint32_t kSkyWidth = 256;
 // directional light it replaced: 2.2, the diffuse light of a white surface facing it (0.7) times pi)
 inline const glm::vec3 kSkySunDirection{0.2592F, 0.8639F, 0.4319F}; // normalize(0.3, 1, 0.5)
 constexpr float kSkySunIrradiance = 2.2F;
-constexpr float kSkySunRadius = 0.025F; // radians (1.4 degrees, larger than the real sun's)
+// radians: the real sun's (0.2665 degrees: 0.533 across), for its disk in the sky and its shadows' penumbrae. it was 1.4
+// degrees, a stylized disk the shadows didn't use
+constexpr float kSkySunRadius = 0.00465F;
 
 // the procedural sky, as ProceduralSky draws it and the shader evaluates it where it is seen sharply (the backdrop, mirror
 // reflections; see EnvironmentData): its colors, scaled so that the sky is as bright on average as the ambient light it
@@ -76,6 +78,9 @@ struct DominantLight
 {
 	glm::vec3 direction{0.0F, 1.0F, 0.0F};
 	glm::vec3 irradiance{0.0F};
+	// radians: the radius of a uniform disk spread as it is (its light's angular spread about direction), for the
+	// penumbrae of its shadows (LightData::size)
+	float angularRadius = 0.0F;
 
 	[[nodiscard]] explicit operator bool() const noexcept { return irradiance[0] > 0.0F || irradiance[1] > 0.0F || irradiance[2] > 0.0F; }
 };

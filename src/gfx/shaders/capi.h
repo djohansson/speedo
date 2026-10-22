@@ -110,6 +110,20 @@ extern "C"
 #define SHADER_TYPES_UI_BLUR_ROWS_TEXTURE 17u
 #define SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE 11u
 #define SHADER_TYPES_UI_BLUR_RADIUS 24u
+// the traced shadows (see ShadowTraceData): the pre-pass's geometry normals (see PrepassOutput); each traced light's
+// visibility at each pixel, a ray toward a point of the light (Shadow Trace, ComputeShadowTrace), and where it met
+// something, how far from the pixel (for the penumbra's width); the visibility filtered along rows, and then columns
+// (Shadow Denoise, ComputeShadowDenoiseX and Y): what the main pass's opaque fragments take (ShadowFactor). a channel
+// a traced light (by its slot, see ShadowTraceData::lights), each written as a storage image in gRWTextures
+#define SHADER_TYPES_PREPASS_NORMAL_TEXTURE 18u
+#define SHADER_TYPES_SHADOW_RAW_TEXTURE 19u
+#define SHADER_TYPES_SHADOW_RAW_RW_TEXTURE 12u
+#define SHADER_TYPES_SHADOW_BLOCKER_TEXTURE 20u
+#define SHADER_TYPES_SHADOW_BLOCKER_RW_TEXTURE 13u
+#define SHADER_TYPES_SHADOW_ROWS_TEXTURE 21u
+#define SHADER_TYPES_SHADOW_ROWS_RW_TEXTURE 14u
+#define SHADER_TYPES_SHADOW_MASK_TEXTURE 22u
+#define SHADER_TYPES_SHADOW_MASK_RW_TEXTURE 15u
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
@@ -163,7 +177,8 @@ extern "C"
 #define DEBUG_VIEW_INDIRECT 13u // the ambient light alone: diffuse and specular (the environment's or the indirect lighting's)
 #define DEBUG_VIEW_INDIRECT_DIFFUSE 14u // the ambient irradiance over pi, a white surface's (whatever lights it)
 #define DEBUG_VIEW_INDIRECT_SPECULAR 15u // the ambient specular alone
-// the indirect lighting's (SPEEDO_GI=1): GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see GiData::debug)
+// the indirect lighting's (SPEEDO_GI=1), up to DEBUG_VIEW_GI_END: GiData::debug is the view - DEBUG_VIEW_GI_FIRST + 1 (see
+// GiData::debug)
 #define DEBUG_VIEW_GI_FIRST 16u
 #define DEBUG_VIEW_GI_IRRADIANCE 16u // its indirect diffuse alone, a white surface's (magenta where no clip covers it)
 #define DEBUG_VIEW_GI_VISIBILITY 17u // the weight of the probes around a point (how much of them it sees) (data)
@@ -188,7 +203,14 @@ extern "C"
 // the state of the 8 probes around a point, trilinear (data): red the share marked inside something, green the share
 // whose depth map toward the point is empty (no ray near that way yet), blue the share that fail the visibility test
 #define DEBUG_VIEW_GI_PROBE_STATE 29u
-#define DEBUG_VIEW_COUNT 30u
+#define DEBUG_VIEW_GI_END 30u
+// the traced shadows (see ShadowTraceData) of the first traced light (data): as the main pass takes them, filtered over
+// the penumbra's width; the rays' visibility as traced, a ray a pixel; and a reference, many rays a pixel over the
+// light's disk, unfiltered (SHADER_TYPES_SHADOW_REFERENCE_RAY_COUNT). magenta where no light's are traced
+#define DEBUG_VIEW_TRACED_SHADOW 30u
+#define DEBUG_VIEW_TRACED_SHADOW_RAW 31u
+#define DEBUG_VIEW_TRACED_SHADOW_REFERENCE 32u
+#define DEBUG_VIEW_COUNT 33u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -214,6 +236,14 @@ struct ViewData
 #define SHADER_TYPES_SHADOW_VIEW_COUNT 256u
 #define SHADER_TYPES_SHADOW_CASCADE_COUNT 4u
 #define SHADER_TYPES_NO_SHADOW 0xffffffffu
+// the lights whose shadows are traced through the model's BVHs rather than looked up in the atlas, at most this many a
+// frame (the directional lights first, then the point and spot lights brightest at the camera): each a channel of the
+// traced shadows' images (see SHADER_TYPES_SHADOW_RAW_TEXTURE)
+#define SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT 4u
+// the threads the Shadow Trace pass takes the listed pixels in turn with (see gShadowTraceList)
+#define SHADER_TYPES_SHADOW_TRACE_THREAD_COUNT 65536u
+// the rays a pixel of the traced shadows' reference (DEBUG_VIEW_TRACED_SHADOW_REFERENCE) takes over its light's disk
+#define SHADER_TYPES_SHADOW_REFERENCE_RAY_COUNT 256u
 #define SHADER_TYPES_NOT_SKINNED 0xffffffffu
 
 #define LIGHT_TYPE_DIRECTIONAL 0u
@@ -270,7 +300,21 @@ struct LightData
 	alignas(4) FLOAT1(spotScale);
 	alignas(4) FLOAT1(spotOffset);
 	alignas(4) UINT1(type);
-	alignas(4) UINT1(padding);
+	// how big it is, for its shadows' penumbrae: a directional light's angular radius (radians: the sun's 0.00465), a
+	// point or spot light's radius (world units, of the sphere it emits from); 0 for a punctual one (hard shadows)
+	alignas(4) FLOAT1(size);
+};
+
+// the frame's traced shadows (gShadowTrace[frame]): the light (gLights) each slot traces, SHADER_TYPES_NO_SHADOW for none;
+// whether the moving BVH is traced too (gBvhMovingNodes, see gfx::bvh::Moving); and whether the shadow atlas decides
+// the pixels it is sure of (see ShadowMapClassify), else every pixel is traced
+struct ShadowTraceData
+{
+	alignas(16) UINT4(lights);
+	alignas(4) UINT1(movingBvh);
+	alignas(4) UINT1(mapped);
+	alignas(4) UINT1(padding1);
+	alignas(4) UINT1(padding2);
 };
 
 // a view a light's shadow is drawn from: world to clip space (depth 0 to 1), drawn in a tile of the atlas
@@ -279,7 +323,7 @@ struct ShadowData
 	alignas(16) FLOAT4X4(viewProjection);
 	alignas(16) FLOAT4(atlasRect); // xy: the tile's corner in the atlas, zw: its size (texture coordinates)
 	// x: a texel's size in world units (orthographic), or per unit of distance from the light (perspective). y: 1 for a
-	// perspective view, else 0. zw: unused
+	// perspective view, else 0. zw: its near and far planes (what its depths 0 and 1 are, along its view)
 	alignas(16) FLOAT4(params);
 };
 
@@ -841,6 +885,9 @@ struct PushConstants
 	// per frame: the output's image the frame is drawn into (gRWTextures', see SHADER_TYPES_OUTPUT_IMAGE_COUNT): a
 	// window's swapchain image, which needn't follow the frame's slot (mailbox hands back whichever is free)
 	alignas(4) UINT1(outputIndex);
+	// per pass: whether its fragments take the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE): the main pass's opaque
+	// ones, at the depth the pre-pass drew (see ShadowTraceData)
+	alignas(4) UINT1(shadowMask);
 };
 
 #ifdef __cplusplus

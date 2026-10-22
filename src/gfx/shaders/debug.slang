@@ -29,6 +29,9 @@ bool DebugViewIsData(uint debugView)
 	case DEBUG_VIEW_GI_VOXEL_WORLD_ALBEDO:
 	case DEBUG_VIEW_GI_VOXEL_WORLD_NORMAL:
 	case DEBUG_VIEW_GI_PROBE_STATE:
+	case DEBUG_VIEW_TRACED_SHADOW:
+	case DEBUG_VIEW_TRACED_SHADOW_RAW:
+	case DEBUG_VIEW_TRACED_SHADOW_REFERENCE:
 		return true;
 	default:
 		return false;
@@ -38,7 +41,7 @@ bool DebugViewIsData(uint debugView)
 // the indirect lighting's debug view (GiData::debug's numbering: 1 and up), or 0
 uint DebugViewGi(uint debugView)
 {
-	return debugView >= DEBUG_VIEW_GI_FIRST && debugView < DEBUG_VIEW_COUNT ? debugView - DEBUG_VIEW_GI_FIRST + 1u : 0u;
+	return debugView >= DEBUG_VIEW_GI_FIRST && debugView < DEBUG_VIEW_GI_END ? debugView - DEBUG_VIEW_GI_FIRST + 1u : 0u;
 }
 
 // a heat map of t in [0, 1]: black, blue, cyan, green, yellow, red (stored linear, so its steps look even once the srgb
