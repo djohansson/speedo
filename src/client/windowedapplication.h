@@ -87,6 +87,9 @@ private:
 	std::atomic_bool myPreviewRequested = false;
 	std::atomic_bool myPreviewReady = false;
 	std::atomic_bool myPreviewVisible = false;
+	// per swapchain image (the frame index, see Draw): the graphics timeline value the last frame drawn into it signaled,
+	// which a frame drawing into it again waits for before writing the frame index's buffers
+	std::vector<uint64_t> myFrameIndexTimelines;
 	// the window's presentation (View > Presentation): what the ui asked for, which Draw applies to the swapchain before
 	// its next frame (Swapchain::Configure), and what the swapchain has, with what the surface supports (the modes' bits,
 	// and the image counts). packed by PackPresentation, 8 bits each (none: 0)

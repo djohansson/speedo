@@ -159,6 +159,17 @@ bool WindowedApplication::Draw()
 
 		graphicsSubmits = {};
 
+		// and the last frame drawn into this swapchain image, whose index is the frame index every per frame buffer is
+		// kept by (the views', the draw records, the indirect lighting's parameters, ...): the fences above are the queue
+		// slot's, of the frame before the last, which is the same frame only while the swapchain hands its images out in
+		// turn. fifo does; mailbox and immediate needn't (an image a newer frame replaced comes back at once), and the
+		// buffers of a frame still on the gpu were written over: the indirect lighting kept what that frame made of them,
+		// and Sponza's probes stayed empty, black, on Windows (KosmicKrisp has no mailbox)
+		if (myFrameIndexTimelines.size() < swapchain.GetFrames().size())
+			myFrameIndexTimelines.resize(swapchain.GetFrames().size(), 0);
+		if (auto timeline = myFrameIndexTimelines[newFrameIndex]; timeline > 0)
+			graphics->semaphore.Wait(timeline);
+
 		// the queue's gpu scopes the gpu is done with, for Tracy and the renderers' pass timings (see Renderer::Record)
 		if (auto* profiler = graphicsQueue.GetProfiler())
 			profiler->Collect();
@@ -306,6 +317,7 @@ bool WindowedApplication::Draw()
 			.signalSemaphoreValues = {++graphics->timeline, 1},
 			.callbacks = std::move(graphicsCallbacks)},
 			std::move(cmd));
+		myFrameIndexTimelines[newFrameIndex] = graphics->timeline;
 
 		graphicsSubmits |= graphicsQueue.Submit();
 

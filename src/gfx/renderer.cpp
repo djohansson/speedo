@@ -3,6 +3,7 @@
 #include <gfx/model.h>
 
 #include <core/assert.h>
+#include <core/file.h>
 #include <core/profiling.h>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -963,32 +964,46 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* revoxelize = std::getenv("SPEEDO_GI_REVOXELIZE");
 	myGiRevoxelize = revoxelize != nullptr && std::string_view(revoxelize) == "1";
 	// where the clips are centered, a point a frame and the last kept, in place of the camera (SPEEDO_GI_EYE_PATH=
-	// <x>,<y>,<z>[;...]): the clips moved under a camera that doesn't, so that what changes is what their moves change
+	// <x>,<y>,<z>[,<look x>,<look y>,<look z>][;...], or @<file> of them, which an environment variable on Windows can't
+	// hold more than 32767 characters of): the clips moved under a camera that doesn't, so that what changes is what their
+	// moves change; with a look (see gi::MakeClipmap), the frames of a run replayed (SPEEDO_GI_EYE_LOG)
 	if (const char* path = std::getenv("SPEEDO_GI_EYE_PATH"); path != nullptr && *path != '\0')
 	{
-		for (const char* it = path; *it != '\0';)
+		std::string text = path;
+		if (text.front() == '@')
 		{
-			glm::vec3 point{0.0F};
-			int axisIt = 0;
-			for (; axisIt < 3; axisIt++)
+			auto file = core::file::Map(text.substr(1));
+			ENSUREF(file.has_value(), "SPEEDO_GI_EYE_PATH: couldn't read {}", text.substr(1));
+			text.assign(reinterpret_cast<const char*>(file->data()), file->size());
+		}
+		for (const char* it = text.c_str(); *it != '\0';)
+		{
+			std::array<float, 6> values{};
+			int valueIt = 0;
+			for (; valueIt < 6 && *it != '\0' && *it != ';' && *it != '\n'; valueIt++)
 			{
 				char* end = nullptr;
-				point[axisIt] = std::strtof(it, &end);
+				values[valueIt] = std::strtof(it, &end);
 				if (end == it)
 					break;
 				it = *end == ',' ? end + 1 : end;
 			}
-			if (axisIt < 3)
+			if (valueIt != 3 && valueIt != 6)
 			{
-				std::println(stderr, "SPEEDO_GI_EYE_PATH: expected x,y,z[;...], got {}", path);
+				std::println(stderr, "SPEEDO_GI_EYE_PATH: expected x,y,z[,lx,ly,lz][;...], got {}", path);
 				myGiEyePath.clear();
 				break;
 			}
-			myGiEyePath.push_back(point);
-			if (*it == ';')
+			myGiEyePath.push_back(GiEyePoint{
+				.eye = glm::vec3(values[0], values[1], values[2]),
+				.look = valueIt == 6 ? std::optional<glm::vec3>(glm::vec3(values[3], values[4], values[5])) : std::nullopt});
+			while (*it == ';' || *it == '\n' || *it == '\r')
 				it++;
 		}
 	}
+	// each frame's center and look printed (SPEEDO_GI_EYE_LOG=1), as SPEEDO_GI_EYE_PATH takes them
+	const char* eyeLog = std::getenv("SPEEDO_GI_EYE_LOG");
+	myGiEyeLog = eyeLog != nullptr && std::string_view(eyeLog) == "1";
 	// the probes' rays a frame (SPEEDO_GI_RAY_COUNT, 128 by default), over how many frames their sets of directions
 	// repeat (SPEEDO_GI_RAY_PHASE_COUNT, 32), their spacing in voxels (SPEEDO_GI_PROBE_SPACING, 8, a multiple of 8), how much of what a
 	// probe holds it keeps a frame (SPEEDO_GI_HYSTERESIS, 0.97: the rest is the frame's rays'), and whether the voxels
@@ -2254,9 +2269,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	glm::vec3 look = -glm::normalize(glm::vec3(cameraToWorld[2])) * std::max(frame.lookDistance, 0.0F);
 	if (!myGiEyePath.empty())
 	{
-		eye = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
-		look = glm::vec3(0.0F);
+		const auto& point = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
+		eye = point.eye;
+		look = point.look.value_or(glm::vec3(0.0F));
 	}
+	if (myGiEyeLog)
+		std::println("gi eye {},{},{},{},{},{}", eye.x, eye.y, eye.z, look.x, look.y, look.z);
 	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, look, myGiLookAhead, myGiResolution, myGiClipCount, myGiProbeSpacing);
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
 				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize;

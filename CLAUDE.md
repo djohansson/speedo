@@ -399,6 +399,20 @@ took no lock, waiting on the map entry with `std::atomic_ref`, which was only sa
 map isn't safe to insert into concurrently, and rehashing moves its entries. Recording isn't expected to go wide enough for
 a sharded node map (`phmap::parallel_node_hash_map`, where entries don't move and could be waited on again) to pay.
 
+## Frame indices are swapchain images
+
+A frame's index (`FrameInputs::frameIndex`, `PushConstants::frameIndex`, and every per frame buffer and descriptor
+slot kept by it) is the swapchain image `vkAcquireNextImageKHR` handed out (`Swapchain::Flip`), not a counter. The
+graphics queue's fences `Draw` waits on are its queue slot's (`queues.FetchAdd()`), of the frame before the last: the
+frame that last used the image only while the swapchain hands its images out in turn, as fifo does. Mailbox and immediate
+needn't (an image a newer frame replaced comes back at once), so `Draw` also waits for the graphics timeline value the
+last frame drawn into the image signaled (`myFrameIndexTimelines`) before anything writes the frame index's buffers.
+Without it, a frame still on the gpu read buffers the next frame wrote over: once, on Windows with mailbox (the default
+where the surface has it), Sponza's indirect lighting kept a probe state no frame would have made and stayed black and
+blown out at one pose; with fifo it never showed, and KosmicKrisp has no mailbox, so the mac never saw it. Test what
+keeps state from frame to frame under mailbox too: unthrottled frames also reach states fifo's don't (e.g. the indirect
+lighting's look distance adapts over many more frames).
+
 ## Command buffers: one owner each
 
 A `rhi::CommandBuffer` (`rhi/command.h`) is move-only, with a single owner. What records into it borrows its handle (it
@@ -666,9 +680,11 @@ For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` pl
 the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
 `RHI::drawCalls` keeps it per producer thread only and the ui's frames run on any of the executor's, so placements
 queued in different frames landed out of order); `SPEEDO_CAPTURE_PATH=<directory>` saves each frame of the path
-(`pose-NNNN.bmp`); `SPEEDO_GI_EYE_PATH=<x,y,z>[;...]` centers the clips on a point a frame instead of the camera, so
-that under a still camera what changes is what the clips' moves change; `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip
-again every frame, what their scrolling must come to.
+(`pose-NNNN.bmp`); `SPEEDO_GI_EYE_PATH=<x,y,z>[,<look x,y,z>][;...]` (or `@<file>` of them, one a line: an
+environment variable on Windows holds 32767 characters) centers the clips on a point a frame instead of the camera, so
+that under a still camera what changes is what the clips' moves change, and with the look a run's clips replayed exactly
+(`SPEEDO_GI_EYE_LOG=1` prints each frame's as it takes them); `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip again every
+frame, what their scrolling must come to.
 
 The Statistics window (debug and profile builds) has the pass timings in two columns, then: per draw list its draws
 and triangles; the culling of the main and the shadow views (`Renderer::GetFrameStatistics` for what was tested, the

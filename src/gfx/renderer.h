@@ -390,8 +390,15 @@ private:
 	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
 	uint32_t myGiFramesSinceReset = 0;
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
-	std::vector<glm::vec3> myGiEyePath; // SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame
+	// SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame, and toward what (see gi::MakeClipmap)
+	struct GiEyePoint
+	{
+		glm::vec3 eye{0.0F};
+		std::optional<glm::vec3> look;
+	};
+	std::vector<GiEyePoint> myGiEyePath;
 	size_t myGiEyePathNext = 0;
+	bool myGiEyeLog = false; // SPEEDO_GI_EYE_LOG=1: each frame's
 	gi::Clipmap myGiClipmap;
 	const Model* myGiModel = nullptr;
 	Bounds3f myGiBounds;
