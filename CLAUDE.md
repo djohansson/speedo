@@ -509,8 +509,9 @@ Consequences:
   locking the graphics queue, which `Draw()` holds for the whole frame — that serialization is the
   point (before, aliases had separate mutexes and the loader and `Draw()` raced on the same command
   pool).
-- **Never hold locks on two queue types at once** unless you know they are distinct (`Draw()` once took the compute
-  lock inside the graphics one, only where compute was dedicated, to present from it): `UpgradableSharedMutex` is
+- **Never hold locks on two queue types at once** unless you know they are distinct (`Draw()` takes the compute lock
+  inside the graphics one to present, only where the swapchain presents from a compute family of its own, see
+  `Swapchain::GetPresentQueueType`): `UpgradableSharedMutex` is
   not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
   visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
 - Each queue has two command pools, swapped and reset per use (`SwapAndResetPool`), *without*
