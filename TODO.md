@@ -80,8 +80,9 @@
 * in progress: compute pipeline
 * in progress: resource loading / manager
 
+* done: the executables' signal handlers, interrupt wake up, arguments and sleep are core's (core/process.cpp: InstallSignalHandlers, IsInterrupted, ParseArguments, SleepSeconds), not a copy in each main.c (2026-10-22)
 * done: glfw is platform's alone (platform/glfw.cpp: initialization, the window, its callbacks, the event loop, the vulkan surface through PlatformCreateVulkanSurface), and input is in core's vocabulary (enum Key, MOUSE_BUTTON_*, INPUT_ACTION_*, INPUT_MOD_*) (2026-10-22)
-* todo: (maybe) the vulkan surface from the window's native handles (win32, a CAMetalLayer on macOS, x11/wayland) in rhi, rather than glfwCreateWindowSurface behind PlatformCreateVulkanSurface; and the signal handlers, interrupt pipe and argument parsing that client/main.c and server/main.c each have, as a core helper
+* todo: (maybe) the vulkan surface from the window's native handles (win32, a CAMetalLayer on macOS, x11/wayland) in rhi, rather than glfwCreateWindowSurface behind PlatformCreateVulkanSurface (needs testing on macOS and Linux)
 * done: fullscreen and presentation switches: the main thread no longer waits for the draw thread on a resize (a deadlock), the application's window changes stop drawing, wait for the presents and release the swapchain first (fifo's queued frames hung NVIDIA's driver across a display mode change), fullscreen on the window's monitor, View > Presentation > Fullscreen, present ids found among the device's extensions, present semaphores kept per frame slot; SPEEDO_PRESENTATION_TEST and assettest.ps1 -Presentation run them (2026-10-22)
 * done: the tick (input and the ui) ran at 64 Hz on Windows (its 1 ms sleep rounded up to 15.6), a stutter on a 120 Hz display at hundreds of frames a second: core::SleepUntil, a high resolution waitable timer (2026-10-22)
 * done: a frame's index is a slot the frames take in turn, not its swapchain image's (see CLAUDE.md "Frame indices are slots, not swapchain images"); the image is its output index, for ComputeMain's storage view, the ui's render target and the capture (2026-10-22)

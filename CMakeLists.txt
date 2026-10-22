@@ -117,6 +117,7 @@ set(CORE_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/core/file.cpp
 	${SPEEDO_SOURCE_DIR}/core/math.cpp
 	${SPEEDO_SOURCE_DIR}/core/nodegraph.cpp
+	${SPEEDO_SOURCE_DIR}/core/process.cpp
 	${SPEEDO_SOURCE_DIR}/core/task.cpp
 	${SPEEDO_SOURCE_DIR}/core/taskexecutor.cpp
 	${SPEEDO_SOURCE_DIR}/core/time.cpp
@@ -144,6 +145,7 @@ target_link_libraries(
 	core
 	PRIVATE
 		$<IF:$<TARGET_EXISTS:libdeflate::libdeflate_shared>,libdeflate::libdeflate_shared,libdeflate::libdeflate_static>
+		cargs # the executables' arguments (ParseArguments)
 	PUBLIC
 		SHA-Intrinsics
 		cpptrace::cpptrace
@@ -426,7 +428,6 @@ target_link_libraries(
 	server
 	PRIVATE
 		${SPEEDO_MIMALLOC}
-		cargs
 		serverlib
 		$<$<PLATFORM_ID:Darwin>:$<LINK_LIBRARY:FRAMEWORK,CoreFoundation>>
 )
@@ -460,7 +461,6 @@ target_link_libraries(
 	client
 	PRIVATE
 		${SPEEDO_MIMALLOC}
-		cargs
 		gfx
 		rhi
 		clientlib

@@ -21,8 +21,12 @@ Notes for working in this codebase, distilled from real build failures.
   windows, doesn't link it. Its callbacks translate glfw's keys, buttons, actions and modifiers into core's input
   vocabulary (`enum Key`, `MOUSE_BUTTON_*`, `INPUT_ACTION_*`, `INPUT_MOD_*` in `core/capi.h`, which `InputState` and the
   views' movement keys use): nothing above platform includes glfw (the client and gfx used its key codes, rhi made the
-  surface with it, and `main.c` held the window, its callbacks and the loop). `main.c` is the arguments, the signal
-  handlers and the loop around `PlatformWaitEvents`. Alt+Enter (and View > Presentation > Fullscreen)
+  surface with it, and `main.c` held the window, its callbacks and the loop). The executables' `main.c` (client and
+  server) are a few lines each: core's `InstallSignalHandlers(onInterrupt)` (`core/process.cpp`: SIGINT sets
+  `IsInterrupted` and calls `onInterrupt` from a regular thread, the self-pipe trick off Windows, here the client's
+  `PlatformWakeMain`; fatal signals are logged and raised again, but those a sanitizer reports), `ParseArguments` (cargs:
+  `-r`, `-u`, `-h`), and their loop (the client's around `PlatformWaitEvents`, the server's polling with
+  `SleepSeconds`); both had their own copy of all of it. Alt+Enter (and View > Presentation > Fullscreen)
   goes fullscreen as `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or
   `SPEEDO_FULLSCREEN`), on the monitor the window is on (`platform::WindowedApplication::ToggleFullscreen`; it was
   always the primary monitor's): exclusive (`glfwSetWindowMonitor`, the default), borderless (an

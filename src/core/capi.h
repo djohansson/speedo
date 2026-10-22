@@ -15,6 +15,7 @@
 extern "C"
 {
 #else
+#include <stdbool.h>
 #include <stdint.h>
 #endif
 
@@ -144,6 +145,19 @@ struct KeyboardEvent
 CORE_API void UpdateMouse(const struct MouseEvent* state);
 CORE_API void UpdateKeyboard(const struct KeyboardEvent* state);
 CORE_API const char* GetApplicationName(void);
+
+// what an executable's main sets up (core/process.cpp). signal handlers: an interrupt (SIGINT, ctrl-c) sets
+// IsInterrupted and calls onInterrupt (if given; e.g. to wake a main loop) from a regular thread, never the handler
+// itself (it needn't be async signal safe); a fatal signal is logged and raised again with the default action (but the
+// ones a sanitizer reports itself, in a SPEEDO_SANITIZE build)
+typedef void (*InterruptFunc)(void);//NOLINT(modernize-use-using)
+CORE_API void InstallSignalHandlers(InterruptFunc onInterrupt);
+CORE_API bool IsInterrupted(void);
+// the arguments every executable takes: -r <resource dir>, -u <user profile dir> (into paths), -h (prints the usage, of
+// programName, and returns false: exit)
+CORE_API bool ParseArguments(int argc, char* argv[], const char* programName, struct PathConfig* paths);
+// sleeps the calling thread (core::SleepUntil: to within about half a millisecond on every platform)
+CORE_API void SleepSeconds(double seconds);
 
 #ifdef __cplusplus
 }
