@@ -34,6 +34,11 @@ struct SwapchainCreateDesc : RenderTargetCreateDesc<G>
 	// the most images the application asks for (0: the surface's limit): the counts asked for (Configure, and
 	// GetImageCountLimits' second) stay within it
 	uint32_t maxImageCount = 0;
+	// the queue the frames are presented from (see GetPresentQueueType), and the families the images are drawn and
+	// presented by: shared concurrently between the two when they differ, so that neither owns them
+	QueueType presentQueueType = kQueueTypeGraphics;
+	uint32_t graphicsQueueFamily = 0;
+	uint32_t presentQueueFamily = 0;
 };
 
 template <GraphicsApi G>
@@ -131,6 +136,9 @@ public:
 	// the next CreateSwapchain, which it asks for (NeedsRecreate). on the thread that draws
 	void Configure(PresentationMode mode, uint32_t imageCount);
 	[[nodiscard]] PresentationMode GetPresentationMode() const;
+	// which queue to present from: the compute queue where its family is another than the graphics queue's and can
+	// present to the surface (a dedicated one, NVIDIA's), else the graphics queue
+	[[nodiscard]] QueueType GetPresentQueueType() const noexcept { return this->GetDesc().presentQueueType; }
 	// the modes the surface supports, as bits (1 << PresentationMode)
 	[[nodiscard]] uint32_t GetPresentationModes() const;
 	// how many images may be asked for: at least first, at most second (0: no limit), the surface's limits within the

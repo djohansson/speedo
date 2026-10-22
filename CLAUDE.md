@@ -53,7 +53,14 @@ Notes for working in this codebase, distilled from real build failures.
   (`VK_EXT_swapchain_maintenance1`) have signaled (`InternalRetirePresents`): a timeline callback per frame waited for
   the present with `vkWaitForPresentKHR`, which would have blocked an executor thread a refresh or more under fifo, but
   never did: `VK_KHR_present_id` was looked for among the instance's extensions (it is a device's), so presents never
-  had ids, nor the semaphores a wait.
+  had ids, nor the semaphores a wait. Frames are presented from the queue `Swapchain::GetPresentQueueType` says: a
+  dedicated compute queue whose family can present to the surface (NVIDIA's), the swapchain's images then shared by the
+  graphics and compute families (`VK_SHARING_MODE_CONCURRENT`), else the graphics queue (whose family the rhi picks for
+  presenting). They were presented from the compute queue without either: its family never checked for present
+  support, the images exclusively the graphics family's and never transferred (invalid; nothing reported it,
+  validation included). From the graphics queue instead, a swapchain hung in `vkDestroySwapchainKHR` when a fullscreen
+  switch released it (4 runs of the presentation test in 8, against 0 in 12 from the compute queue), so the compute
+  queue stayed, made valid; the concurrent sharing costs nothing measurable (Sponza's frame 4.94 ms against 4.83).
 
   `SPEEDO_PRESENTATION_TEST=<step>[;<step>...]` (`PrepareDraw`) runs View > Presentation's options and the switches, a
   step every `SPEEDO_PRESENTATION_STEP_FRAMES` (20) drawn frames once the autoloads are in: `fullscreen` (in or out),
@@ -502,8 +509,8 @@ Consequences:
   locking the graphics queue, which `Draw()` holds for the whole frame — that serialization is the
   point (before, aliases had separate mutexes and the loader and `Draw()` raced on the same command
   pool).
-- **Never hold locks on two queue types at once** unless you know they are distinct (e.g. the
-  compute lock inside `Draw()` is only taken when `dedicatedCompute`): `UpgradableSharedMutex` is
+- **Never hold locks on two queue types at once** unless you know they are distinct (`Draw()` once took the compute
+  lock inside the graphics one, only where compute was dedicated, to present from it): `UpgradableSharedMutex` is
   not recursive, so on a single-queue device it self-deadlocks. Lock one at a time, and when
   visiting all queue types dedupe by context (see `WindowedApplication::Shutdown()`).
 - Each queue has two command pools, swapped and reset per use (`SwapAndResetPool`), *without*

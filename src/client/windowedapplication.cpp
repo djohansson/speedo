@@ -172,11 +172,6 @@ bool WindowedApplication::Draw()
 
 	auto [acquireNextImageSemaphore, lastFrameIndex, newFrameIndex, flipSuccess] = swapchain.Flip();
 
-	// one lock at a time: queue types may alias the same context (and mutex), see Device::GetQueue
-	auto queueFamilyIndex = [&device](QueueType type) { return device.GetQueue(type).Read()->queueFamilyIndex; };
-	bool dedicatedTransfer = queueFamilyIndex(kQueueTypeTransfer) != queueFamilyIndex(kQueueTypeCompute);
-	bool dedicatedCompute = queueFamilyIndex(kQueueTypeCompute) != queueFamilyIndex(kQueueTypeGraphics);
-
 	// the timeline callbacks of the transfer queues (e.g. what the loaders' uploads release), unless the transfer queue
 	// type aliases the graphics queues, whose callbacks are run below
 	if (&device.GetQueue(kQueueTypeTransfer) != &device.GetQueue(kQueueTypeGraphics))
@@ -371,31 +366,26 @@ bool WindowedApplication::Draw()
 
 		presentInfo.waitSemaphores.emplace_back(graphicsDoneSemaphoreHandle);
 
-		if (dedicatedCompute)
+		// from the queue the swapchain says (Swapchain::GetPresentQueueType: a dedicated compute queue where its family can
+		// present, its images shared by both families, else the graphics queue)
+		PresentResult presentResult = PresentResult::kSuccess;
+		if (swapchain.GetPresentQueueType() != kQueueTypeGraphics)
 		{
-			auto compute = device.GetQueue(kQueueTypeCompute).Write();
-			auto& [computeQueue, computeSubmits] = compute->queues.FetchAdd();
-
-			for (auto& fence : computeSubmits.fences)
-				fence.Wait();
-
-			computeSubmits = {};
-			computeQueue.SwapAndResetPool();
-
-			computeQueue.EnqueuePresent(std::move(presentInfo));
-			PresentResult presentResult = PresentResult::kSuccess;
-			auto presented = computeQueue.Present(&presentResult);
+			// one lock at a time: the compute queue's is another context than the graphics queue's here (another family),
+			// so holding both doesn't deadlock (see Device::GetQueue)
+			auto present = device.GetQueue(swapchain.GetPresentQueueType()).Write();
+			auto& [presentQueue, presentSubmits] = present->queues.Get();
+			presentQueue.EnqueuePresent(std::move(presentInfo));
+			auto presented = presentQueue.Present(&presentResult);
 			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
-			swapchain.OnPresentResult(presentResult);
 		}
 		else
 		{
 			graphicsQueue.EnqueuePresent(std::move(presentInfo));
-			PresentResult presentResult = PresentResult::kSuccess;
 			auto presented = graphicsQueue.Present(&presentResult);
 			std::ranges::move(presented.fences, std::back_inserter(myPresentFences[frameSlot]));
-			swapchain.OnPresentResult(presentResult);
 		}
+		swapchain.OnPresentResult(presentResult);
 
 		// the frame rate, and the gpu submits (and their batches) per frame, over the frames of (at least) half a second
 		using namespace std::chrono_literals;

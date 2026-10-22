@@ -141,6 +141,19 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 		VK_PRESENT_MODE_FIFO_KHR,
 		maxImageCount
 	};
+	// presented from the compute queue where its family is a dedicated one that can present to the surface: on NVIDIA's
+	// Windows driver, a swapchain whose frames the graphics queue presented hung in vkDestroySwapchainKHR when a
+	// fullscreen switch released it (4 runs of the presentation test in 8; from the compute queue, 0 in 12). (the
+	// graphics family can present: devices are picked for it, see DetectAndCreateDevices)
+	auto queueFamily = [&device](QueueType type) { return static_cast<uint32_t>(device.GetQueue(type).Read()->queueFamilyIndex); };
+	config.graphicsQueueFamily = queueFamily(kQueueTypeGraphics);
+	config.presentQueueFamily = config.graphicsQueueFamily;
+	if (auto computeFamily = queueFamily(kQueueTypeCompute);
+		computeFamily != config.graphicsQueueFamily && swapchainInfo.queueFamilyPresentSupport[computeFamily] != 0U)
+	{
+		config.presentQueueType = kQueueTypeCompute;
+		config.presentQueueFamily = computeFamily;
+	}
 	// the counts that may be asked for: the surface's, within the application's (as Swapchain::GetImageCountLimits)
 	auto minImageCount = swapchainInfo.capabilities.minImageCount;
 	auto imageCountLimit = swapchainInfo.capabilities.maxImageCount;
