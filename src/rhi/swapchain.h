@@ -31,6 +31,9 @@ struct SwapchainCreateDesc : RenderTargetCreateDesc<G>
 	SurfaceHandle<G> surface{};
 	SurfaceFormat<G> surfaceFormat{};
 	PresentMode<G> presentMode{};
+	// the most images the application asks for (0: the surface's limit): the counts asked for (Configure, and
+	// GetImageCountLimits' second) stay within it
+	uint32_t maxImageCount = 0;
 };
 
 template <GraphicsApi G>
@@ -118,7 +121,8 @@ public:
 	[[nodiscard]] PresentationMode GetPresentationMode() const;
 	// the modes the surface supports, as bits (1 << PresentationMode)
 	[[nodiscard]] uint32_t GetPresentationModes() const;
-	// how many images the surface takes: at least first, at most second (0: no limit)
+	// how many images may be asked for: at least first, at most second (0: no limit), the surface's limits within the
+	// application's (SwapchainCreateDesc::maxImageCount). the driver may make more than asked for (see GetFrames)
 	[[nodiscard]] std::pair<uint32_t, uint32_t> GetImageCountLimits() const;
 	[[nodiscard]] uint32_t GetImageCount() const noexcept { return static_cast<uint32_t>(this->GetDesc().images.size()); }
 

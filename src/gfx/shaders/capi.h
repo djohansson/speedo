@@ -66,7 +66,7 @@ extern "C"
 
 #define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 10u
 #define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
-#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 3u
+#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 4u
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
@@ -74,8 +74,9 @@ extern "C"
 // which the frames take in turn
 #define SHADER_TYPES_FRAME_INDEX_BITS 2u
 #define SHADER_TYPES_FRAME_COUNT (1u << SHADER_TYPES_FRAME_INDEX_BITS)
-// gRWTextures slots 0 to this - 1: the output's images (a window's swapchain images), by PushConstants::outputIndex
-#define SHADER_TYPES_OUTPUT_IMAGE_COUNT 4u
+// gRWTextures slots 0 to this - 1: the output's images (a window's swapchain images), by PushConstants::outputIndex. a
+// window's swapchain is asked for at most this many (RHIInitializationData::maxSwapchainImageCount)
+#define SHADER_TYPES_OUTPUT_IMAGE_COUNT 8u
 // the gTextures slot of the main pass's color, which ComputeMain reads
 #define SHADER_TYPES_RENDER_TARGET_TEXTURE 0u
 // KHR_materials_volume_scatter: the depth of the scattering materials' nearest back faces, from the Scatter Back pass,
@@ -87,9 +88,9 @@ extern "C"
 // scaled by
 #define SHADER_TYPES_SCATTER_ALBEDO_TEXTURE 5u
 #define SHADER_TYPES_SCATTER_NOISY_TEXTURE 6u
-#define SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE 5u
+#define SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE 9u
 #define SHADER_TYPES_SCATTER_LIGHT_TEXTURE 7u
-#define SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE 4u
+#define SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE 8u
 #define SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE 8u
 #define SHADER_TYPES_SCATTER_TEXTURE 9u
 #define SHADER_TYPES_SCATTER_DEPTH_TEXTURE 10u
@@ -105,9 +106,9 @@ extern "C"
 // output under them and the blur's reach around them, which ComputeMain writes, blurred along x (ComputeUiBlurX), then
 // along y into the output (ComputeUiBlurY), a gaussian of this radius in pixels
 #define SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE 16u
-#define SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE 6u
+#define SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE 10u
 #define SHADER_TYPES_UI_BLUR_ROWS_TEXTURE 17u
-#define SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE 7u
+#define SHADER_TYPES_UI_BLUR_ROWS_RW_TEXTURE 11u
 #define SHADER_TYPES_UI_BLUR_RADIUS 24u
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u

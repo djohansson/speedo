@@ -23,7 +23,11 @@ Notes for working in this codebase, distilled from real build failures.
   presentation (`Swapchain::Configure`: `rhi::PresentationMode`, FIFO, FIFO relaxed, mailbox or immediate, of those the
   surface has, and an image count, applied by `Draw`, which recreates the swapchain; KosmicKrisp has FIFO and immediate,
   and takes exactly 3 images; at startup the swapchain takes mailbox, else FIFO relaxed, else FIFO), as
-  `SPEEDO_PRESENT_MODE` and `SPEEDO_SWAPCHAIN_IMAGE_COUNT` do at startup.
+  `SPEEDO_PRESENT_MODE` and `SPEEDO_SWAPCHAIN_IMAGE_COUNT` do at startup. The counts asked for stay within the surface's
+  limits and the application's (`RHIInitializationData::maxSwapchainImageCount`, the client's
+  `SHADER_TYPES_OUTPUT_IMAGE_COUNT`, 8: ComputeMain's storage view of each image is a `gRWTextures` slot), which
+  `Swapchain::GetImageCountLimits` gives the menu; the swapchain's frames are the images the driver made, which may be
+  more than asked for (it used to trap).
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
@@ -81,7 +85,9 @@ Notes for working in this codebase, distilled from real build failures.
   both importers' versions), a capture of its preview once drawn 20 frames
   (`Preview::RequestCapture`: the draw thread copies the preview's image to a host visible buffer after recording it,
   `CommandEncoder::CopyImageToBuffer`, and a graphics timeline callback hands the pixels over); cached on disk under
-  `<user profile>/thumbnails` (`THM1`: a header, then the pixels), keyed by what each is made from, so that changing any
+  `<user profile>/thumbnails` (`THM1`: a header, then the pixels; written beside the entry and renamed over it, since
+  a model's encodings share their screenshot's entry and make it at once: written in place, one could read it half
+  written, and on Windows the write failed while another had it mapped), keyed by what each is made from, so that changing any
   of it makes a new one: the file's path, size and time (an image's, a panorama's, a screenshot's), and for a capture
   also the files its render reads (`mesh::Dependencies`, and `mesh::ImageFiles`: the textures a gltf's uris or an mtl's
   maps name), the importers' versions (`Model::ImportVersion`, `TextureImportVersion`: the tags their caches are keyed
@@ -1454,7 +1460,10 @@ into 64 bins (`gExposureHistogram`, per frame index, host visible: shared memory
 `FillBuffer` before, and a barrier to the host stage after), and `UpdateAutoExposure` reads a frame's histogram after
 its fence (where `Model::Animate` writes the frame's buffers), averages the log luminance between the 50th and 95th
 percentile, and moves the exposure toward `log2(0.3) - mean` (the procedural sky keeps exposure 1) by an exponential
-decay of 2 per second; the Exposure slider is added on top.
+decay of 2 per second, of the time elapsed whatever it is, so it settles in the same time at any frame rate (fifo at 120
+Hz and mailbox at 220 followed the decay from the same targets to 2%; a frame over a second used to take the target at
+once). What it measures needn't: the indirect lighting settles by frames (its hysteresis), so a scene's first fraction
+of a second differs between frame rates. The Exposure slider is added on top.
 Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, then the environment's dominant lights), plus image based lighting that occlusion darkens. The environment

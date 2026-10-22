@@ -382,7 +382,6 @@ struct Scene::Impl
 	{
 		return PushConstants{
 			.frameIndex = frameIndex,
-			.outputIndex = outputIndex,
 			.lightCount = myLightCount,
 			.exposure = std::exp2(
 				mySettings.exposureStops.load(std::memory_order_relaxed) +
@@ -393,7 +392,8 @@ struct Scene::Impl
 			.environmentBackdrop = mySettings.environmentBackdrop.load(std::memory_order_relaxed) ? 1U : 0U,
 			.tonemapper = mySettings.tonemapper.load(std::memory_order_relaxed),
 			.shadowView = SHADER_TYPES_NO_SHADOW,
-			.debugView = std::min(mySettings.debugView.load(std::memory_order_relaxed), DEBUG_VIEW_COUNT - 1)};
+			.debugView = std::min(mySettings.debugView.load(std::memory_order_relaxed), DEBUG_VIEW_COUNT - 1),
+			.outputIndex = outputIndex};
 	}
 
 
@@ -565,11 +565,13 @@ struct Scene::Impl
 		auto now = std::chrono::steady_clock::now();
 		auto elapsed = myAutoExposureLast ? std::chrono::duration<double>(now - *myAutoExposureLast).count() : 0.0;
 		myAutoExposureLast = now;
-		// the first measure is taken as it is
+		// the first measure is taken as it is. by the time elapsed, whatever it is, so that the exposure takes as long to
+		// settle at any frame rate (a long frame, a load's, used to take the target at once past a second: whether it
+		// did depended on how the frames went)
 		auto adapt = [elapsed](std::atomic<float>& value, float target)
 		{
 			auto current = value.load(std::memory_order_relaxed);
-			if (elapsed <= 0.0 || elapsed > 1.0)
+			if (elapsed <= 0.0)
 				current = target;
 			else
 				current += (target - current) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));

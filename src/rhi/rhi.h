@@ -25,6 +25,9 @@ struct RHIInitializationData
 	SurfaceHandle<kVk> surface{}; // the window's, made by the constructor
 	// the descriptors the primary device's pipeline allocates its descriptor sets from, per type
 	std::vector<DescriptorPoolSize> descriptorPoolSizes;
+	// the most swapchain images the application keeps per image state for (0: no limit), see
+	// SwapchainCreateDesc::maxImageCount
+	uint32_t maxSwapchainImageCount = 0;
 };
 
 // the graphics api the code above rhi uses (one per build)

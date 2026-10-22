@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <format>
 #include <limits>
+#include <print>
 
 namespace rhi
 {
@@ -243,14 +244,25 @@ bool Swapchain<kVk>::WaitPresent(uint64_t presentId, uint64_t timeout) const
 }
 
 template <>
+std::pair<uint32_t, uint32_t> Swapchain<kVk>::GetImageCountLimits() const
+{
+	const auto& capabilities = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface()).capabilities;
+	auto maxImageCount = capabilities.maxImageCount;
+	if (GetDesc().maxImageCount != 0)
+		maxImageCount = maxImageCount != 0 ? std::min(maxImageCount, GetDesc().maxImageCount) : GetDesc().maxImageCount;
+	return {capabilities.minImageCount, std::max(maxImageCount, maxImageCount != 0 ? capabilities.minImageCount : 0U)};
+}
+
+template <>
 void Swapchain<kVk>::Configure(PresentationMode mode, uint32_t imageCount)
 {
 	const auto& info = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface());
 	if (std::ranges::find(info.presentModes, vk::ToVk(mode)) != info.presentModes.end())
 		InternalGetDesc().presentMode = vk::ToVk(mode);
-	imageCount = std::max(imageCount, info.capabilities.minImageCount);
-	if (info.capabilities.maxImageCount != 0)
-		imageCount = std::min(imageCount, info.capabilities.maxImageCount);
+	auto [minImageCount, maxImageCount] = GetImageCountLimits();
+	imageCount = std::max(imageCount, minImageCount);
+	if (maxImageCount != 0)
+		imageCount = std::min(imageCount, maxImageCount);
 	InternalGetDesc().images.resize(imageCount); // their handles: CreateSwapchain gets them
 	myNeedsRecreate = true;
 }
@@ -269,13 +281,6 @@ uint32_t Swapchain<kVk>::GetPresentationModes() const
 		if (auto presentation = vk::FromVk(mode); vk::ToVk(presentation) == mode)
 			modes |= 1U << static_cast<uint32_t>(presentation);
 	return modes;
-}
-
-template <>
-std::pair<uint32_t, uint32_t> Swapchain<kVk>::GetImageCountLimits() const
-{
-	const auto& capabilities = GetInstance().GetSwapchainInfo(GetDevice().GetPhysicalDevice(), GetSurface()).capabilities;
-	return {capabilities.minImageCount, capabilities.maxImageCount};
 }
 
 template <>
@@ -332,19 +337,21 @@ void Swapchain<kVk>::CreateSwapchain()
 
 	Track(static_cast<VkDevice>(device), VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain, GetName());
 
-	uint32_t frameCount = GetDesc().images.size();
-
-	ENSURE(frameCount);
-
+	// minImageCount is a minimum: the driver may make more, and the frames are the images it made
 	uint32_t imageCount;
 	VK_CHECK(vkGetSwapchainImagesKHR(
 		device, mySwapchain, &imageCount, nullptr));
 
-	ENSURE(imageCount == frameCount);
-
 	std::vector<ImageHandle<kVk>> colorImages(imageCount);
 	VK_CHECK(vkGetSwapchainImagesKHR(
 		device, mySwapchain, &imageCount, colorImages.data()));
+
+	ENSURE(imageCount);
+	if (imageCount != GetDesc().images.size())
+		std::println(
+			"swapchain: {} images asked for, the driver made {}", GetDesc().images.size(), imageCount);
+	InternalGetDesc().images.resize(imageCount);
+	uint32_t frameCount = imageCount;
 
 	myFrames.clear();
 	myFrames.reserve(frameCount);

@@ -385,7 +385,9 @@ WindowedApplication::WindowedApplication(
 	, myRHI(std::make_unique<RHI>(RHIInitializationData{
 		  .name = appName,
 		  .window = GetCurrentWindow(), // the window the platform made: the one we draw in
-		  .descriptorPoolSizes = Scene::DescriptorPoolSizes()}))
+		  .descriptorPoolSizes = Scene::DescriptorPoolSizes(),
+		  // ComputeMain's storage views of them (see RenderOutput)
+		  .maxSwapchainImageCount = SHADER_TYPES_OUTPUT_IMAGE_COUNT}))
 {
 	using namespace windowedapplication;
 

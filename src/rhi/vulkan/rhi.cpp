@@ -121,7 +121,8 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 	Instance<kVk>& instance,
 	Device<kVk>& device,
-	SurfaceHandle<kVk> surface)
+	SurfaceHandle<kVk> surface,
+	uint32_t maxImageCount)
 {
 	const auto& swapchainInfo =
 		instance.GetSwapchainInfo(device.GetPhysicalDevice(), surface);
@@ -137,8 +138,14 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 		},
 		surface,
 		{.format=VK_FORMAT_UNDEFINED, .colorSpace=VK_COLOR_SPACE_SRGB_NONLINEAR_KHR},
-		VK_PRESENT_MODE_FIFO_KHR
+		VK_PRESENT_MODE_FIFO_KHR,
+		maxImageCount
 	};
+	// the counts that may be asked for: the surface's, within the application's (as Swapchain::GetImageCountLimits)
+	auto minImageCount = swapchainInfo.capabilities.minImageCount;
+	auto imageCountLimit = swapchainInfo.capabilities.maxImageCount;
+	if (maxImageCount != 0)
+		imageCountLimit = std::max(imageCountLimit != 0 ? std::min(imageCountLimit, maxImageCount) : maxImageCount, minImageCount);
 
 	constexpr std::array<VkFormat, 4> kRequestSurfaceImageFormat{
 		VK_FORMAT_B8G8R8A8_UNORM,
@@ -183,7 +190,7 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 			config.presentMode = *modeIt;
 			if (config.presentMode == VK_PRESENT_MODE_MAILBOX_KHR)
 			{
-				ENSURE(swapchainInfo.capabilities.maxImageCount >= 3);
+				ENSURE(imageCountLimit == 0 || imageCountLimit >= 3);
 				config.images.resize(3);
 			}
 			else
@@ -211,14 +218,17 @@ SwapchainCreateDesc<kVk> DetectSuitableSwapchain(
 	}
 	if (const char* imageCount = std::getenv("SPEEDO_SWAPCHAIN_IMAGE_COUNT"); imageCount != nullptr)
 	{
-		auto count = std::max<uint32_t>(static_cast<uint32_t>(std::strtoul(imageCount, nullptr, 10)), swapchainInfo.capabilities.minImageCount);
-		if (swapchainInfo.capabilities.maxImageCount != 0)
-			count = std::min(count, swapchainInfo.capabilities.maxImageCount);
+		auto requested = static_cast<uint32_t>(std::strtoul(imageCount, nullptr, 10));
+		auto count = std::max(requested, minImageCount);
+		if (imageCountLimit != 0)
+			count = std::min(count, imageCountLimit);
+		if (count != requested)
+			std::println(stderr, "SPEEDO_SWAPCHAIN_IMAGE_COUNT={}: {} can be asked for ({} to {})", imageCount, count, minImageCount, imageCountLimit);
 		config.images.resize(count);
 	}
 	std::println(
-		"swapchain: {} images (the surface takes {} to {}), {}", config.images.size(), swapchainInfo.capabilities.minImageCount,
-		swapchainInfo.capabilities.maxImageCount,
+		"swapchain: {} images (the surface takes {} to {}, the application at most {}), {}", config.images.size(),
+		swapchainInfo.capabilities.minImageCount, swapchainInfo.capabilities.maxImageCount, maxImageCount,
 		config.presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR		 ? "immediate"
 		: config.presentMode == VK_PRESENT_MODE_MAILBOX_KHR	  ? "mailbox"
 		: config.presentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR ? "fifo relaxed"
@@ -259,7 +269,7 @@ RHI<kVk>::RHI(RHIInitializationData&& initData)
 
 	mySwapchains.push_back({
 		.window = initData.window,
-		.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface))});
+		.swapchain = Swapchain<kVk>(DetectSuitableSwapchain(myInstance, GetPrimaryDevice(), initData.surface, initData.maxSwapchainImageCount))});
 
 	//(std::get<std::filesystem::path>(Application::Get()->GetEnv().variables["UserProfilePath"]) / "pipeline.cache").string()
 }

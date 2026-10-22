@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -21,6 +22,7 @@
 #include <iterator>
 #include <print>
 #include <span>
+#include <thread>
 #include <utility>
 
 #include <imgui_internal.h>
@@ -179,8 +181,29 @@ void Save(const std::filesystem::path& cachePath, std::span<const uint8_t> rgba,
 	std::vector<std::byte> bytes(sizeof(Header) + rgba.size());
 	std::memcpy(bytes.data(), &header, sizeof(Header));
 	std::memcpy(bytes.data() + sizeof(Header), rgba.data(), rgba.size());
-	if (auto written = core::file::Write(cachePath, bytes); !written)
+	// written whole beside it, then renamed over it: entries of one key are made at once (a model's encodings share
+	// their screenshot), and one being read, mapped, mustn't be written in place (a reader could see it half written,
+	// and Windows refuses to write a file mapped elsewhere). where the rename fails (Windows, over a mapped file), the
+	// entry is there already, as this would have made it
+	static std::atomic_uint64_t gTemporaryCount = 0;
+	auto temporaryPath = cachePath;
+	temporaryPath += std::format(
+		".{:x}-{}.tmp", std::hash<std::thread::id>{}(std::this_thread::get_id()),
+		gTemporaryCount.fetch_add(1, std::memory_order_relaxed));
+	if (auto written = core::file::Write(temporaryPath, bytes); !written)
+	{
 		std::println(stderr, "Failed to cache thumbnail {}: {}", cachePath.string(), written.error().message());
+		std::filesystem::remove(temporaryPath, error);
+		return;
+	}
+	std::filesystem::rename(temporaryPath, cachePath, error);
+	if (error)
+	{
+		std::error_code removeError;
+		std::filesystem::remove(temporaryPath, removeError);
+		if (!std::filesystem::is_regular_file(cachePath, removeError))
+			std::println(stderr, "Failed to cache thumbnail {}: {}", cachePath.string(), error.message());
+	}
 }
 
 } // namespace thumbnails
@@ -214,11 +237,14 @@ void Thumbnails::Prune(const std::filesystem::path& cacheDirectory)
 	uint32_t prunedCount = 0;
 	for (std::filesystem::directory_iterator it(cacheDirectory, error), end; !error && it != end; it.increment(error))
 	{
-		if (it->path().extension() != ".thumb")
+		// and what a Save that never finished (the process ended) left
+		auto extension = it->path().extension();
+		if (extension != ".thumb" && extension != ".tmp")
 			continue;
 		std::error_code fileError;
 		auto time = it->last_write_time(fileError);
-		if (!fileError && time < oldest && std::filesystem::remove(it->path(), fileError))
+		if (!fileError && time < (extension == ".tmp" ? std::filesystem::file_time_type::clock::now() - std::chrono::days(1) : oldest) &&
+			std::filesystem::remove(it->path(), fileError))
 			prunedCount++;
 	}
 	if (prunedCount > 0)
