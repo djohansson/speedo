@@ -1539,8 +1539,15 @@ band along the curtains' lower edges down the whole corridor (`docs/reference/sp
 probes alone against the cache, lit, and the floor, as the user approved it). An entry is 3 uint4: the 6 faces' rgb as
 half floats, the samples and the rays traced 16 bits each, the mean of the samples' squares (`GiCacheSample`, the light
 along the voxel's open side), and the open side (octahedral, 8 bits a coordinate) and the rays that started inside
-something. The resolve (`GiCacheUpdate`) carries the voxel's entry over from the last frame (by the scroll; a voxel new to
-its clip from the coarser clip's, as 8 samples) and traces `SPEEDO_GI_CACHE_RAYS` (1) rays from the voxel (Roberts' R2
+something. Only the blocks of 4x4x4 voxels near a surface (the flags' bit 0) have entries, a page of 64 each from a pool
+(`gGiCache`, `GiCachePopPage`): each clip has a page table a frame (`gGiCacheBlocks`, two halves swapped each frame,
+so that a clip that scrolled finds its blocks' pages where they were), the release (`ComputeGiCacheRelease`) frees the
+pages of the blocks no longer near a surface onto a free list (`gGiCacheFree`), and the resolve takes pages for the
+blocks new to it, never both in one dispatch; the pool starts at an eighth of the clipmap's blocks and grows to a
+quarter more than the resolve counted (`GI_STATISTIC_CACHE_BLOCKS`), its pages copied over (the GI Cache Grow pass, the
+new pages pushed by `ComputeGiCachePrepare`). The resolve (`GiCacheUpdate`) carries the voxel's entry over in place (a
+voxel new to its clip from the coarser clip's, as 8 samples, where the coarser block is near a surface, so that its page
+is still its own) and traces `SPEEDO_GI_CACHE_RAYS` (1) rays from the voxel (Roberts' R2
 over the sphere, offset per voxel by its place in the world), as the probes' rays are traced, into a running mean of at
 most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves); a ray meeting a back face within a voxel and a half
 started inside something, and a voxel with more than a quarter of those is no light (the probes' alone). Lights changing
@@ -1555,18 +1562,21 @@ and the floor's band lost a quarter of its light; a sigma of 4 left blotches in 
 light toward the filtered light by the voxel's samples over them and 16 (`SPEEDO_GI_CACHE_SHOW=1`: all of it), and weighs
 the voxel in the lookups by that where the probes see it less (premultiplied by a probe weight of a ten thousandth, at
 resolution 64, where the last clip's probes don't see into the corridor, the cache's light went to half floats'
-subnormals and came out in pink, yellow and blue blotches). The passes ping-pong between a third part of the cache's
-buffer and the last frame's half, dead once the resolve has carried it over. Only what is looked up is traced and
+subnormals and came out in pink, yellow and blue blotches). The passes ping-pong between the halves of the records
+(`gGiCacheRecords`), which only the blocks a lookup read take (`GiCacheTakeRecord`, grown by
+`GI_STATISTIC_CACHE_ACTIVE_BLOCKS`). Only what is looked up is traced and
 filtered: ComputeMain stamps the blocks each pixel's lookup reads (`GiMarkSeen`, the flags' third word, in each clip that
 lights the pixel), and the resolve marks a block active (`SHADER_TYPES_GI_FLAG_CACHE_ACTIVE`) where it or a block around
 it was read in the last 2 frames (at its place then, by the scroll); the others trace a ray every 8th frame and take their
 own light unfiltered, so that the bounce doesn't change with where the camera looks (`SPEEDO_GI_CACHE_EVERYWHERE=1` does
 them all: a turn in place differs from it by a mean of 1 to 2 of 765). Costs (RTX 4070 Ti SUPER, 1920x1080, the `Frame`
 scope): Sponza's corridor 3.6 ms without it, 5.7 with it (8.2 everywhere), Bistro's street 6.5, 9.4 (12.4),
-CornellBox-Sphere 2.6, 4.7 (4.9); everywhere, a ray a voxel was 1.9 ms of Sponza's and a filter pass 0.4. Its memory is
-48 bytes a voxel three times, allocated only while it is on (`Renderer::myGiCacheBuffer`): 0.3 GB at resolution 128,
-6.4 GB at 384 (Sponza then uses 14.9 GB of the GPU's 16): storing only the blocks near a surface would take most of
-that. A still camera changes by 0.026 of 255 a pixel a frame (the probes alone, 0). Interiors come out darker than the
+CornellBox-Sphere 2.6, 4.7 (4.9); everywhere, a ray a voxel was 1.9 ms of Sponza's and a filter pass 0.4. Its storage exists only while it is on, and holds the blocks near a surface: at
+Sponza's corridor, 25,000 of the clipmap's 32,500 blocks at resolution 128 (half of their voxels hold an entry: the shell
+within 3 voxels of a surface, on both sides) and 290,000 of 730,000 at 384, a tenth of them read in a frame; with the
+pools' slack 0.1 GB at 128 and 1.1 GB at 384 (1.45 while the pool grows). An entry for every voxel of every clip, two
+halves and the filter's scratch, as it was, took 0.3 and 6.4 GB (Sponza then used 14.9 GB of the GPU's 16); paged, the
+renders are the same (to a mean of 0.2 to 0.8 of 765, still, walking and turning), and so is the frame's time. A still camera changes by 0.026 of 255 a pixel a frame (the probes alone, 0). Interiors come out darker than the
 probes alone (light measured at the surface, where corners and overhangs shade it, rather than in the open cells around
 it), and the CornellBox's and salle_de_bain's probe blotches go. The surface reference (debug view 13), captured on its
 first frame for speed, has one bounce (the voxels' starts after 32 frames) and is noisier than the cache, which the user

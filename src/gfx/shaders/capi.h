@@ -722,6 +722,10 @@ struct CullView
 #define GI_STATISTIC_DUMP_POINT 12u
 // diagnostic: rays whose BVH traversal hit its step cap (see BVH_MAX_STEP_COUNT)
 #define GI_STATISTIC_CAPPED_BVH_RAYS 16u
+// the surface cache's blocks near a surface (each wants a page) and those a lookup read (each wants a record), which the
+// pools grow to hold (see Renderer::InternalPlanGi)
+#define GI_STATISTIC_CACHE_BLOCKS 17u
+#define GI_STATISTIC_CACHE_ACTIVE_BLOCKS 18u
 #define GI_STATISTIC_COUNT 20u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
@@ -850,15 +854,28 @@ struct GiData
 	// whether the voxels take the cache's pooled light alone where there is some, rather than blended with their probes' by its
 	// samples (SPEEDO_GI_CACHE_SHOW=1: to judge it)
 	alignas(4) UINT1(cacheShow);
-	// the cache's filter (see ComputeGiCacheFilter): its passes after the noise's (SPEEDO_GI_CACHE_FILTER_PASSES, 3), the
-	// clip's first voxel in the cache's scratch (past both halves), and how many deviations of a voxel's noise a
-	// neighbour's light may differ by and still be averaged with it (SPEEDO_GI_CACHE_SIGMA, 8)
+	// the cache's filter (see ComputeGiCacheFilter): its passes after the noise's (SPEEDO_GI_CACHE_FILTER_PASSES, 3), and
+	// how many deviations of a voxel's noise a neighbour's light may differ by and still be averaged with it
+	// (SPEEDO_GI_CACHE_SIGMA, 8)
 	alignas(4) UINT1(cacheFilterPassCount);
-	alignas(4) UINT1(cacheScratchFirst);
 	alignas(4) FLOAT1(cacheSigma);
 	// whether the cache traces and filters every voxel near a surface, not only around what the lookups read
 	// (SPEEDO_GI_CACHE_EVERYWHERE=1: to compare, see ComputeGiResolve)
 	alignas(4) UINT1(cacheEverywhere);
+	// the cache's storage (see GiCachePopPage): a page of 4x4x4 entries per block near a surface, in gGiCache. the clip's
+	// first block in this frame's page table and in the last frame's (gGiCacheBlocks: two halves, swapped each frame, a
+	// page + 1 per block, 0 for none), and in the records' table past them (the filter's, this frame's active blocks);
+	// the pages gGiCache holds and the records each half of gGiCacheRecords holds; the blocks of all clips; whether the
+	// tables and the free list are made anew this frame; and the first page the free list takes in this frame (the pool
+	// grew: 0 for none)
+	alignas(4) UINT1(cacheTableFirst);
+	alignas(4) UINT1(cacheTablePreviousFirst);
+	alignas(4) UINT1(cacheRecordTableFirst);
+	alignas(4) UINT1(cachePageCapacity);
+	alignas(4) UINT1(cacheRecordCapacity);
+	alignas(4) UINT1(cacheBlockCount);
+	alignas(4) UINT1(cacheInit);
+	alignas(4) UINT1(cacheGrowFirst);
 };
 
 struct PushConstants

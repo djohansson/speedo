@@ -1910,6 +1910,8 @@ struct Scene::Impl
 						{"ComputeShadowDenoiseX", SLANG_STAGE_COMPUTE},
 						{"ComputeShadowDenoiseY", SLANG_STAGE_COMPUTE},
 						{"ComputeGiCacheFilter", SLANG_STAGE_COMPUTE}, // the GI pass's, after the resolve (last: the indices before stay)
+						{"ComputeGiCachePrepare", SLANG_STAGE_COMPUTE}, // and before it: the free pages,
+						{"ComputeGiCacheRelease", SLANG_STAGE_COMPUTE}, // and those of the blocks no longer near a surface
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

@@ -63,6 +63,13 @@ constexpr uint8_t kShadowDenoiseXEntryPoint = 20;
 constexpr uint8_t kShadowDenoiseYEntryPoint = 21;
 // the surface cache's pooling (see ComputeGiCacheFilter), after the resolve
 constexpr uint8_t kGiCacheFilterEntryPoint = 22;
+// and its storage's, before the resolve (see ComputeGiCachePrepare, ComputeGiCacheRelease)
+constexpr uint8_t kGiCachePrepareEntryPoint = 23;
+constexpr uint8_t kGiCacheReleaseEntryPoint = 24;
+// the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
+// pools grow by at least
+constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
+constexpr uint32_t kGiCachePageStep = 1024;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 
@@ -224,6 +231,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiFlags = myGraph.ImportBuffer("GI Flags");
 	myGiVisibility = myGraph.ImportBuffer("GI Visibility");
 	myGiCache = myGraph.ImportBuffer("GI Cache");
+	myGiCacheRecords = myGraph.ImportBuffer("GI Cache Records");
+	myGiCacheTables = myGraph.ImportBuffer("GI Cache Tables");
+	myGiCacheFree = myGraph.ImportBuffer("GI Cache Free");
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGiVolumes[volumeIt] = myGraph.ImportImage(std::format("GI Volume {}", volumeIt));
 	myGiStaticVoxels = myGraph.ImportBuffer("GI Static Voxels");
@@ -236,7 +246,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
 			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)},
 			 std::tuple{&myGiVisibilityBuffer, "GI Visibility", sizeof(uint32_t)},
-			 std::tuple{&myGiCacheBuffer, "GI Cache", 3 * 4 * sizeof(uint32_t)}})
+			 std::tuple{&myGiCacheBuffer, "GI Cache", 3 * 4 * sizeof(uint32_t)},
+			 std::tuple{&myGiCacheRecordBuffer, "GI Cache Records", 3 * 4 * sizeof(uint32_t)},
+			 std::tuple{&myGiCacheTableBuffer, "GI Cache Tables", sizeof(uint32_t)},
+			 std::tuple{&myGiCacheFreeBuffer, "GI Cache Free", 2 * sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			size,
@@ -773,6 +786,24 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// a frame), their levels, the probes' rays, the probes blended from them, and each voxel's probes, for the shading and
 	// the next frame's bounce. every clip is lit and has its levels before any is traced (rays go on into the coarser
 	// clips), and every clip's probes are updated before any is resolved
+	// the cache's pool grown (see InternalPlanGi): the pages it had copied into the new one, and its free list, which the
+	// GI pass then adds the new pages to (ComputeGiCachePrepare)
+	myGiCacheGrowPass = myGraph.AddPass(
+		"GI Cache Grow",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myGiCache, ResourceUse::TransferDestination());
+			builder.Use(myGiCacheFree, ResourceUse::TransferDestination());
+		},
+		[this](FrameGraph::PassContext& context)
+		{
+			CommandEncoder encoder(context.cmd);
+			// what the frames before wrote to the old buffers, under the ids the new ones are bound to now: the graph
+			// tracks the ids, so their writes aren't made visible to these reads but here
+			encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kTransfer, Access::kTransferRead);
+			encoder.CopyBuffer(myGiCacheGrowPages, context.graph.GetBuffer(myGiCache), myGiCacheGrowFirst * kGiCachePageSize);
+			encoder.CopyBuffer(myGiCacheGrowFree, context.graph.GetBuffer(myGiCacheFree), (2 + static_cast<uint64_t>(myGiCacheGrowFirst)) * sizeof(uint32_t));
+		});
 	myGiPass = myGraph.AddPass(
 		"GI",
 		[this](FrameGraph::PassBuilder& builder)
@@ -784,7 +815,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiVisibility, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			builder.Use(myGiCache, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			for (auto buffer : {myGiCache, myGiCacheRecords, myGiCacheTables, myGiCacheFree})
+				builder.Use(buffer, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			for (auto volume : myGiVolumes)
@@ -809,6 +841,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			clips([&](uint32_t clip, const gi::Layout& layout)
 				  { giKernel(cmd, kGiProbeUpdateEntryPoint, static_cast<uint64_t>(layout.probeCount) * kTexelCount, clip); });
 			computeBarrier(cmd);
+			// the cache's storage: the free list made or grown, then the pages of the blocks no longer near a surface
+			// freed, before the resolve takes pages for the blocks new to it (see GiCachePopPage)
+			if (myGiSurfaceCacheOn)
+			{
+				giKernel(cmd, kGiCachePrepareEntryPoint, myGiCachePrepareThreadCount, 0);
+				computeBarrier(cmd);
+				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiCacheReleaseEntryPoint, layout.flagCount, clip); });
+				computeBarrier(cmd);
+			}
 			clips([&](uint32_t clip, const gi::Layout& layout)
 				  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
 			// the surface cache's light filtered, a pass at a time (its noise first, see ComputeGiCacheFilter), and blended
@@ -1550,6 +1591,9 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{"gGiFlags", &myGiFlagBuffer},
 			 std::pair{"gGiVisibility", &myGiVisibilityBuffer},
 			 std::pair{"gGiCache", &myGiCacheBuffer},
+			 std::pair{"gGiCacheRecords", &myGiCacheRecordBuffer},
+			 std::pair{"gGiCacheBlocks", &myGiCacheTableBuffer},
+			 std::pair{"gGiCacheFree", &myGiCacheFreeBuffer},
 			 std::pair{"gGiStaticVoxels", &myGiStaticVoxelBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// a voxel each until a model is voxelized (a depth of 2: a volume)
@@ -1666,6 +1710,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
 		myGiActiveProbeCount = statistics[GI_STATISTIC_ACTIVE_PROBES];
+		// what the surface cache's pools must hold (see InternalPlanGi)
+		myGiCacheBlocksCounted = statistics[GI_STATISTIC_CACHE_BLOCKS];
+		myGiCacheActiveBlocksCounted = statistics[GI_STATISTIC_CACHE_ACTIVE_BLOCKS];
 		if (statistics[GI_STATISTIC_CAPPED_RAYS] != 0)
 		{
 			auto f = [&](uint32_t index) { return std::bit_cast<float>(statistics[index]); };
@@ -1968,6 +2015,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiFlags, myGiFlagBuffer);
 	myGraph.Bind(myGiVisibility, myGiVisibilityBuffer);
 	myGraph.Bind(myGiCache, myGiCacheBuffer);
+	myGraph.Bind(myGiCacheRecords, myGiCacheRecordBuffer);
+	myGraph.Bind(myGiCacheTables, myGiCacheTableBuffer);
+	myGraph.Bind(myGiCacheFree, myGiCacheFreeBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
@@ -2469,7 +2519,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		buffer.Flush(0, bytes.size());
 		buffer.Unmap();
 	};
-	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiPass})
+	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiCacheGrowPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
 	if (!enabled)
 	{
@@ -2568,15 +2618,82 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
 		"the indirect lighting's clips changed their sizes without the scene changing");
 	myGiClipmap = std::move(clipmap);
-	// the surface cache's buffer, only while it is on (48 bytes a voxel in each of its parts: gigabytes at the finer
-	// resolutions): two halves as the visibility's, and its filter's scratch (see GiData::cacheRayCount). a new one holds
-	// nothing of the frames before: the cache starts over
-	uint64_t cacheSize = frame.giSurfaceCache ? 3 * static_cast<uint64_t>(myGiClipmap.total.voxelCount) * 3 * 4 * sizeof(uint32_t) : 3 * 4 * sizeof(uint32_t);
-	bool cacheFresh = cacheSize != myGiCacheSize;
-	if (cacheFresh)
+	// the surface cache's storage (see GiCachePopPage), only while it is on: a page for each block near a surface, from a
+	// pool that starts at an eighth of the clipmap's blocks (Sponza's corridor wants three quarters of them at resolution
+	// 128, a third at 384: those within reach of a surface) and grows to a quarter more than the resolve counted wanting
+	// one (GI_STATISTIC_CACHE_BLOCKS), its pages copied over (the GI Cache Grow pass); the filter's records likewise, for
+	// the blocks a lookup read (GI_STATISTIC_CACHE_ACTIVE_BLOCKS: a tenth of those, from a sixty-fourth of the clipmap's
+	// blocks), made anew (they last a frame). made for another clipmap,
+	// or when the cache is turned on, it starts over (GiData::cacheInit). an entry for every voxel of every clip, as it
+	// was, took 6.4 GB at resolution 384
+	if (myGiCacheGrowPages.IsValid())
 	{
-		InternalReplaceBuffer(myGiCacheBuffer, pipeline, "GI Cache", "gGiCache", cacheSize, BufferUsage::kStorage | BufferUsage::kTransferDestination);
-		myGiCacheSize = cacheSize;
+		myRetiredBuffers.emplace_back(myFrameCount, std::move(myGiCacheGrowPages));
+		myRetiredBuffers.emplace_back(myFrameCount, std::move(myGiCacheGrowFree));
+	}
+	myGiCacheInit = false;
+	myGiCacheGrowFirst = 0;
+	{
+		constexpr auto kCacheUsage = BufferUsage::kStorage | BufferUsage::kTransferSource | BufferUsage::kTransferDestination;
+		auto capacityFor = [](uint64_t count)
+		{ return static_cast<uint32_t>((count * 5 / 4 + kGiCachePageStep) / kGiCachePageStep * kGiCachePageStep); };
+		auto replace = [&](Buffer& buffer, std::string_view name, std::string_view binding, uint64_t size)
+		{ InternalReplaceBuffer(buffer, pipeline, name, binding, size, kCacheUsage); };
+		uint32_t blockCount = myGiClipmap.total.flagCount;
+		if (!frame.giSurfaceCache)
+		{
+			if (myGiCachePageCapacity != 0)
+			{
+				replace(myGiCacheBuffer, "GI Cache", "gGiCache", 3 * 4 * sizeof(uint32_t));
+				replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 3 * 4 * sizeof(uint32_t));
+				replace(myGiCacheTableBuffer, "GI Cache Tables", "gGiCacheBlocks", sizeof(uint32_t));
+				replace(myGiCacheFreeBuffer, "GI Cache Free", "gGiCacheFree", 2 * sizeof(uint32_t));
+				myGiCachePageCapacity = 0;
+				myGiCacheRecordCapacity = 0;
+				myGiCacheBlockCount = 0;
+			}
+		}
+		else if (myGiCachePageCapacity == 0 || changed || blockCount != myGiCacheBlockCount)
+		{
+			myGiCachePageCapacity = capacityFor(blockCount / 8);
+			myGiCacheRecordCapacity = capacityFor(blockCount / 64);
+			myGiCacheBlockCount = blockCount;
+			myGiCacheBlocksCounted = 0;
+			myGiCacheActiveBlocksCounted = 0;
+			replace(myGiCacheBuffer, "GI Cache", "gGiCache", myGiCachePageCapacity * kGiCachePageSize);
+			replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCachePageSize);
+			// a frame's page table and the last frame's, then the records'
+			replace(myGiCacheTableBuffer, "GI Cache Tables", "gGiCacheBlocks", 3 * static_cast<uint64_t>(blockCount) * sizeof(uint32_t));
+			replace(myGiCacheFreeBuffer, "GI Cache Free", "gGiCacheFree", (2 + static_cast<uint64_t>(myGiCachePageCapacity)) * sizeof(uint32_t));
+			myGiCacheInit = true;
+		}
+		else
+		{
+			if (myGiCacheBlocksCounted > myGiCachePageCapacity)
+			{
+				// the new pool and free list, the old ones kept for this frame's copy (then retired)
+				auto grow = [&](Buffer& buffer, Buffer& from, std::string_view name, std::string_view binding, uint64_t size)
+				{
+					auto& device = pipeline.GetDevice();
+					Buffer replacement(
+						BufferCreateDesc{device.CreateDeviceObjectCreateDesc(std::string(name)), size, kCacheUsage, MemoryProperty::kDeviceLocal});
+					pipeline.SetDescriptorData(binding, BufferBinding{.buffer = replacement, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+					from = std::exchange(buffer, std::move(replacement));
+				};
+				uint32_t capacity = capacityFor(myGiCacheBlocksCounted);
+				grow(myGiCacheBuffer, myGiCacheGrowPages, "GI Cache", "gGiCache", capacity * kGiCachePageSize);
+				grow(myGiCacheFreeBuffer, myGiCacheGrowFree, "GI Cache Free", "gGiCacheFree", (2 + static_cast<uint64_t>(capacity)) * sizeof(uint32_t));
+				myGiCacheGrowFirst = myGiCachePageCapacity;
+				myGiCachePageCapacity = capacity;
+			}
+			if (myGiCacheActiveBlocksCounted > myGiCacheRecordCapacity)
+			{
+				myGiCacheRecordCapacity = capacityFor(myGiCacheActiveBlocksCounted);
+				replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCachePageSize);
+			}
+		}
+		myGiCachePrepareThreadCount = std::max(myGiCacheInit ? 3 * myGiCacheBlockCount : 0U, myGiCachePageCapacity);
+		myGraph.SetEnabled(myGiCacheGrowPass, myGiCacheGrowFirst != 0);
 	}
 	bool voxelize = std::ranges::any_of(myGiClipJobs, [](const auto& jobs) { return jobs.voxelize; });
 
@@ -2688,10 +2805,19 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
 		clip.cacheRayCount = frame.giSurfaceCache ? myGiCacheRayCount : 0U;
 		clip.cacheSampleCount = myGiCacheSampleCount;
-		clip.cacheReset = myGiLightsChanged || cacheFresh ? 1U : 0U;
+		clip.cacheReset = myGiLightsChanged || myGiCacheInit ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
-		clip.cacheScratchFirst = 2 * myGiClipmap.total.voxelCount + clip.voxelFirst;
+		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
+		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
+		clip.cacheTableFirst = myGiProbeHalf * myGiCacheBlockCount + blockFirst;
+		clip.cacheTablePreviousFirst = (1 - myGiProbeHalf) * myGiCacheBlockCount + blockFirst;
+		clip.cacheRecordTableFirst = 2 * myGiCacheBlockCount + blockFirst;
+		clip.cachePageCapacity = myGiCachePageCapacity;
+		clip.cacheRecordCapacity = myGiCacheRecordCapacity;
+		clip.cacheBlockCount = myGiCacheBlockCount;
+		clip.cacheInit = myGiCacheInit ? 1U : 0U;
+		clip.cacheGrowFirst = myGiCacheGrowFirst;
 		clip.cacheSigma = myGiCacheSigma;
 		clip.cacheEverywhere = myGiCacheEverywhere ? 1U : 0U;
 		clip.depthFirst = clip.probeFirst * kDepthTexelCount;

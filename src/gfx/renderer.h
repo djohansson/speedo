@@ -466,9 +466,31 @@ private:
 	// the surface cache (gGiCache, see GiData::cacheRayCount): FrameInputs::giSurfaceCache, SPEEDO_GI_CACHE_RAYS rays a voxel a
 	// frame, SPEEDO_GI_CACHE_SAMPLES the most samples a voxel's mean is of, and its filter's passes and edge
 	// (SPEEDO_GI_CACHE_FILTER_PASSES, SPEEDO_GI_CACHE_SIGMA: see GiData::cacheFilterPassCount)
+	// its storage (see GiCachePopPage), only while it is on: the pages (gGiCache), the filter's records (gGiCacheRecords),
+	// the blocks' page and record tables (gGiCacheBlocks) and the free pages (gGiCacheFree); the pages and records they
+	// hold (0: none made), grown to what the resolve counted (GI_STATISTIC_CACHE_*, a frame or two behind), and the
+	// blocks of the clipmap they were made for
 	Buffer myGiCacheBuffer;
-	uint64_t myGiCacheSize = 3 * 4 * sizeof(uint32_t); // the buffer's, a single entry's while the cache is off
 	FrameGraph::BufferId myGiCache;
+	Buffer myGiCacheRecordBuffer;
+	FrameGraph::BufferId myGiCacheRecords;
+	Buffer myGiCacheTableBuffer;
+	FrameGraph::BufferId myGiCacheTables;
+	Buffer myGiCacheFreeBuffer;
+	FrameGraph::BufferId myGiCacheFree;
+	uint32_t myGiCachePageCapacity = 0;
+	uint32_t myGiCacheRecordCapacity = 0;
+	uint32_t myGiCacheBlockCount = 0;
+	uint32_t myGiCacheBlocksCounted = 0; // the resolve's GI_STATISTIC_CACHE_BLOCKS
+	uint32_t myGiCacheActiveBlocksCounted = 0; // and GI_STATISTIC_CACHE_ACTIVE_BLOCKS
+	// this frame: whether the storage is made anew (GiData::cacheInit), the threads the prepare runs, and the pages and
+	// free list the pool grew from (copied by the GI Cache Grow pass, then retired: GiData::cacheGrowFirst their count)
+	bool myGiCacheInit = false;
+	uint32_t myGiCachePrepareThreadCount = 0;
+	uint32_t myGiCacheGrowFirst = 0;
+	Buffer myGiCacheGrowPages;
+	Buffer myGiCacheGrowFree;
+	FrameGraph::PassId myGiCacheGrowPass;
 	uint32_t myGiCacheRayCount = 1;
 	uint32_t myGiCacheSampleCount = 1024;
 	uint32_t myGiCacheFilterPassCount = 3;

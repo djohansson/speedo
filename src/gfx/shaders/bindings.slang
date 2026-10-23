@@ -201,9 +201,17 @@ RWStructuredBuffer<uint> gShadowTraceList;
 // per 8x8 tile, whether it is within the filter's reach of a traced pixel (see ComputeShadowClassify)
 [[vk::binding(38, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gShadowTraceTiles;
-// the surface cache (see ComputeGiResolve): per voxel near a surface, the irradiance along the axes its own rays saw,
-// accumulated over frames (3 uint4: the 6 faces' rgb as half floats, then the samples' count and how many started inside
-// something), in two halves as gGiVisibility (GiData::visibilityFirst)
+// the surface cache (see GiCacheEntry): per voxel near a surface, the irradiance along the axes its own rays saw,
+// accumulated over frames, 3 uint4 an entry, in pages of a block's 64 entries (GiData::cachePageCapacity); the
+// filter's records of this frame's active blocks, in two halves (GiData::cacheRecordCapacity); the blocks' pages and
+// records (GiData::cacheTableFirst); and the free pages (the count, the records taken this frame, then the pages: see
+// GiCachePopPage)
 [[vk::binding(39, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint4> gGiCache;
+[[vk::binding(40, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint4> gGiCacheRecords;
+[[vk::binding(41, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gGiCacheBlocks;
+[[vk::binding(42, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gGiCacheFree;
 
