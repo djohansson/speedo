@@ -379,8 +379,18 @@ bool WindowedApplication::Draw()
 		// each frame drawing a pose of SPEEDO_CAMERA_PATH for the first time (SPEEDO_CAPTURE_PATH=<directory>:
 		// pose-<NNNN>.bmp), to compare a move's frames
 		static const char* gCapturePathDirectory = std::getenv("SPEEDO_CAPTURE_PATH");
+		// SPEEDO_CAPTURE_PATH_FIRST=<pose>: from that pose on (a still pose repeated, once what settles over frames has: the
+		// indirect lighting, auto exposure); SPEEDO_CAPTURE_PATH_STRIDE=<n>: every n-th pose of those (a long move)
+		auto setting = [](const char* name, uint32_t fallback)
+		{
+			const char* value = std::getenv(name);
+			return value != nullptr && *value != '\0' ? static_cast<uint32_t>(std::strtoul(value, nullptr, 10)) : fallback;
+		};
+		static const uint32_t kCapturePathFirst = setting("SPEEDO_CAPTURE_PATH_FIRST", 0U);
+		static const uint32_t kCapturePathStride = std::max(setting("SPEEDO_CAPTURE_PATH_STRIDE", 1U), 1U);
 		if (gCapturePathDirectory != nullptr && *gCapturePathDirectory != '\0')
-			if (auto pose = myViews->GetPlacedPose())
+			if (auto pose = myViews->GetPlacedPose();
+				pose && *pose >= kCapturePathFirst && (*pose - kCapturePathFirst) % kCapturePathStride == 0)
 				capture((std::filesystem::path(gCapturePathDirectory) / std::format("pose-{:04}.bmp", *pose)).string(), nullptr);
 
 		auto presentInfo = swapchain.PreparePresent();

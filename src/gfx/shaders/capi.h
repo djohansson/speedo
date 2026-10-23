@@ -834,6 +834,10 @@ struct GiData
 	// (see ComputeGiResolve: which of each voxel's probes see it, traced and kept)
 	alignas(4) UINT1(visibilityFirst);
 	alignas(4) UINT1(visibilityPreviousFirst);
+	// a probe's cycle of ray phases in gGiIrradiance (see ComputeGiProbeUpdate), as many probes past its irradiance (in
+	// either half) as this: the sum of the cycle's frames so far (face 0's w counts them), and twice this past it, the last
+	// whole cycle's mean (face 0's w: 1 once there is one), which what it holds is blended towards
+	alignas(4) UINT1(cycleOffset);
 };
 
 struct PushConstants

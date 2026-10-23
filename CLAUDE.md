@@ -827,7 +827,8 @@ For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` pl
 the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
 `RHI::drawCalls` keeps it per producer thread only and the ui's frames run on any of the executor's, so placements
 queued in different frames landed out of order); `SPEEDO_CAPTURE_PATH=<directory>` saves each frame of the path
-(`pose-NNNN.bmp`); `SPEEDO_GI_EYE_PATH=<x,y,z>[,<look x,y,z>][;...]` (or `@<file>` of them, one a line: an
+(`pose-NNNN.bmp`; `SPEEDO_CAPTURE_PATH_FIRST=<pose>` from that pose on, to measure a still pose's frames once what
+settles over frames has; `SPEEDO_CAPTURE_PATH_STRIDE=<n>` every n-th of those, for a long move); `SPEEDO_GI_EYE_PATH=<x,y,z>[,<look x,y,z>][;...]` (or `@<file>` of them, one a line: an
 environment variable on Windows holds 32767 characters) centers the clips on a point a frame instead of the camera, so
 that under a still camera what changes is what the clips' moves change, and with the look a run's clips replayed exactly
 (`SPEEDO_GI_EYE_LOG=1` prints each frame's as it takes them); `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip again every
@@ -1334,12 +1335,21 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   still scene the same ray set returns every `rayPhaseCount` frames, and a ray that hits a sunlit patch tripped the
   test each time, a jump of a quarter every 64 frames in Sponza's arcade (70 of 255 at exposure 9, where the plain
   hysteresis steps 10, in a 32 frame ripple of the phases). A slow change (AnimatedCameraLight's 12% over 100 frames)
-  lags 7% either way, by design. The probes' buffers hold
+  lags 7% either way, by design. What the irradiance is blended towards is not the frame's rays but the mean of
+  the probe's last whole cycle of ray phases (`GiData::cycleOffset`: past both halves of the irradiance, the cycle's
+  running sum and the last cycle's mean; the running mean until the first whole cycle, and a change found by
+  `SPEEDO_GI_ADAPT` starts the cycle again from the frame): a bright source smaller than a ray set's spacing (the sky
+  through the gaps between Sponza's curtains) is met by one set of the 32, and blending each frame's rays in jumped the
+  probe once a cycle and decayed it for the other 31 frames, a 32 frame sawtooth on the floor it lit (the user's pose
+  `-9.1511,1.4025,-3.5391,26.261,106.832`, pixels from 134 to 84 of 255 and back; 3% of the pixels of the indirect
+  diffuse view stepped by 32 or more); a still scene's cycles are the same directions, so not one pixel changes from
+  frame to frame there now. A change of the light reaches the target once the probe's cycle ends, up to 32 frames
+  later, then the blend's; no measurable cost (the frame 3.51 ms either way). The probes' buffers hold
   two halves, the frame's and the last's (`GiData::probeFirst`, `probePreviousFirst`, swapped each frame), and a
   probe's history is the probe at its place last frame (by the scroll), a probe new to the clip taking the coarser
   clip's light where it is (its previous half, at its place then, trilinear) as one frame's worth; on a reset (the
   scene changed, or the buffers were replaced: `GiData::reset`) every probe starts over and the voxels take no bounce.
-  Memory per probe: 2 x (96 B of faces + 256 B of depth) + 128 rays x 8 B; Sponza's 3 clips of 16x8x10 probes
+  Memory per probe: 2 x (3 x 96 B of faces + 256 B of depth) + 128 rays x 8 B; Sponza's 3 clips of 16x8x10 probes
   take 5 MB.
 - **The resolve and the shading**: after the probes, GI Resolve (`ComputeGiResolve`, a group per block of 4x4x4
   voxels, with its 8 probes, or 27 where it spans two cells an axis, in shared memory) gives each voxel of each clip

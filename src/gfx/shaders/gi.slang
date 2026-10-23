@@ -1490,7 +1490,12 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE] = 0u;
 		if (texelIndex == 0u)
 			for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+			{
 				gGiIrradiance[first + shIt] = 0.0;
+				// and its cycle (see GiData::cycleOffset)
+				gGiIrradiance[first + gi.cycleOffset * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt] = 0.0;
+				gGiIrradiance[first + 2 * gi.cycleOffset * SHADER_TYPES_GI_IRRADIANCE_COUNT + shIt] = 0.0;
+			}
 		return;
 	}
 
@@ -1752,9 +1757,65 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	}
 	float heldLuminance = dot(heldMean, kLuminance) / float(SHADER_TYPES_GI_IRRADIANCE_COUNT);
 	float difference = abs(dot(frameMean, kLuminance) / float(SHADER_TYPES_GI_IRRADIANCE_COUNT) - heldLuminance);
-	if (gi.adapt != 0u && shifted && age >= 16.0 && difference > max(4.0 * noise, 0.5 * heldLuminance))
+	bool changed = gi.adapt != 0u && shifted && age >= 16.0 && difference > max(4.0 * noise, 0.5 * heldLuminance);
+	if (changed)
 		alpha = max(alpha, 0.25);
 	noise = shifted ? lerp(noise, difference, 0.05) : difference;
+
+	// what it is blended towards: the mean of its last whole cycle of ray phases (GiData::cycleOffset), not the frame's
+	// rays. each frame's set of directions is a 32nd of the cycle's, and a bright source smaller than the sets' spacing
+	// (the sky through the gaps between Sponza's curtains, from the corridor behind them) is met by one set of the 32: a
+	// probe blending each frame's rays in jumped by it once a cycle and decayed for the other 31 frames, a 32 frame
+	// sawtooth of half the light on the floor it lit (the user's pose -9.1511,1.4025,-3.5391,26.261,106.832: pixels from
+	// 134 to 84 of 255 and back). a still scene's every cycle is the same directions, so its mean is the same, and the
+	// probe settles on it. until its first whole cycle, the running mean of the frames it has; a change of the light (with
+	// gi.adapt) starts the cycle again from the frame
+	uint cycleFirst = first + gi.cycleOffset * SHADER_TYPES_GI_IRRADIANCE_COUNT;
+	uint meanFirst = cycleFirst + gi.cycleOffset * SHADER_TYPES_GI_IRRADIANCE_COUNT;
+	float3 cycleSum[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	float3 cycleMean[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	float cycleFrames = 0.0;
+	bool hasMean = false;
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+	{
+		cycleSum[shIt] = 0.0;
+		cycleMean[shIt] = 0.0;
+	}
+	if (shifted && age > 0.0 && !changed)
+	{
+		uint heldCycleFirst = (gi.probePreviousFirst + fromIndex + gi.cycleOffset) * SHADER_TYPES_GI_IRRADIANCE_COUNT;
+		uint heldMeanFirst = heldCycleFirst + gi.cycleOffset * SHADER_TYPES_GI_IRRADIANCE_COUNT;
+		cycleFrames = gGiIrradiance[heldCycleFirst].w;
+		hasMean = gGiIrradiance[heldMeanFirst].w > 0.0;
+		for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+		{
+			cycleSum[shIt] = gGiIrradiance[heldCycleFirst + shIt].rgb;
+			cycleMean[shIt] = gGiIrradiance[heldMeanFirst + shIt].rgb;
+		}
+	}
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+		cycleSum[shIt] += sh[shIt];
+	cycleFrames += 1.0;
+	float3 target[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	bool cycleDone = cycleFrames >= float(gi.rayPhaseCount);
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+	{
+		if (cycleDone)
+			cycleMean[shIt] = cycleSum[shIt] / cycleFrames;
+		target[shIt] = changed ? sh[shIt] : ((hasMean || cycleDone) ? cycleMean[shIt] : cycleSum[shIt] / cycleFrames);
+	}
+	hasMean = hasMean || cycleDone;
+	if (cycleDone)
+	{
+		for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+			cycleSum[shIt] = 0.0;
+		cycleFrames = 0.0;
+	}
+	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
+	{
+		gGiIrradiance[cycleFirst + shIt] = float4(cycleSum[shIt], shIt == 0u ? cycleFrames : 0.0);
+		gGiIrradiance[meanFirst + shIt] = float4(cycleMean[shIt], shIt == 0u && hasMean ? 1.0 : 0.0);
+	}
 	// and whether it is inside something still (more than a quarter of its rays met a surface's back: face 5's w,
 	// DDGI's classification): the resolve skips it (Sponza's outer walls are thicker than a probe may move, and a probe
 	// between their shells, which sees 0.3 of a spacing all around, passed as seeing the points of the corridor beside)
@@ -1767,7 +1828,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
 	{
 		float kept = shIt == 0u ? min(age + 1.0, 65535.0) : (shIt == 1u ? noise : (shIt == 2u ? offset.x : (shIt == 3u ? offset.y : (shIt == 4u ? offset.z : (shIt == 5u ? inside : 0.0)))));
-		gGiIrradiance[first + shIt] = float4(lerp(held[shIt], sh[shIt], alpha), kept);
+		gGiIrradiance[first + shIt] = float4(lerp(held[shIt], target[shIt], alpha), kept);
 	}
 	// the probe dumped for debugging (see GI_DUMP_FLOAT_COUNT)
 	if (probeIndex == gi.dumpProbe)

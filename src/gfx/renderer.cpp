@@ -2514,7 +2514,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		{
 			InternalReplaceBuffer(myGiRayBuffer, pipeline, "GI Rays", "gGiRays", static_cast<uint64_t>(total.probeCount) * myGiRayCount * 2 * sizeof(uint32_t));
 			InternalReplaceBuffer(
-				myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", static_cast<uint64_t>(total.probeCount) * 2 * SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float));
+				myGiIrradianceBuffer, pipeline, "GI Irradiance", "gGiIrradiance", static_cast<uint64_t>(total.probeCount) * 6 * SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float));
 			InternalReplaceBuffer(
 				myGiProbeDepthBuffer,
 				pipeline,
@@ -2635,6 +2635,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.probePreviousFirst = (1 - myGiProbeHalf) * probeTotal + clipFirst;
 		clip.visibilityFirst = myGiProbeHalf * myGiClipmap.total.voxelCount + clip.voxelFirst;
 		clip.visibilityPreviousFirst = (1 - myGiProbeHalf) * myGiClipmap.total.voxelCount + clip.voxelFirst;
+		// the probes' cycle sums and means, past both halves of their irradiance (see GiData::cycleOffset)
+		clip.cycleOffset = 2 * probeTotal;
 		clip.depthFirst = clip.probeFirst * kDepthTexelCount;
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;
