@@ -10,8 +10,57 @@
 #include <limits>
 #include <print>
 
+#if defined(_WIN32)
+// VK_EXT_full_screen_exclusive's types (vulkan_win32.h names windows.h's): only the kernel part
+#	ifndef WIN32_LEAN_AND_MEAN
+#		define WIN32_LEAN_AND_MEAN
+#	endif
+#	ifndef NOMINMAX
+#		define NOMINMAX
+#	endif
+#	ifndef NOGDI
+#		define NOGDI
+#	endif
+#	ifndef NOUSER
+#		define NOUSER
+#	endif
+#	include <windows.h>
+#	include <vulkan/vulkan_win32.h>
+#endif
+
 namespace rhi
 {
+
+namespace swapchain
+{
+
+#if defined(_WIN32)
+struct FullScreenExclusive
+{
+	PFN_vkAcquireFullScreenExclusiveModeEXT acquire = nullptr;
+	PFN_vkReleaseFullScreenExclusiveModeEXT release = nullptr;
+};
+
+// the extension's functions, if the device enabled it (see Device)
+const FullScreenExclusive& GetFullScreenExclusive(VkDevice device, VkPhysicalDevice physicalDevice)
+{
+	static const FullScreenExclusive gFunctions = [device, physicalDevice]
+	{
+		FullScreenExclusive functions;
+		if (SupportsExtension(VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME, physicalDevice))
+		{
+			functions.acquire = reinterpret_cast<PFN_vkAcquireFullScreenExclusiveModeEXT>(
+				vkGetDeviceProcAddr(device, "vkAcquireFullScreenExclusiveModeEXT"));
+			functions.release = reinterpret_cast<PFN_vkReleaseFullScreenExclusiveModeEXT>(
+				vkGetDeviceProcAddr(device, "vkReleaseFullScreenExclusiveModeEXT"));
+		}
+		return functions;
+	}();
+	return gFunctions;
+}
+#endif
+
+} // namespace swapchain
 
 IMPLEMENT_OBJECT_GETINSTANCE(Swapchain<kVk>);
 IMPLEMENT_DEVICEOBJECT_GETDEVICE(Swapchain<kVk>);
@@ -184,7 +233,7 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	OnPresentResult(vk::ToPresentResult(flipResult));
 	if (success)
 		myAcquireFences.emplace_back(std::move(fence));
-	else if (flipResult == VK_ERROR_OUT_OF_DATE_KHR)
+	else if (flipResult == VK_ERROR_OUT_OF_DATE_KHR || flipResult == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
 		myFrameIndex = lastFrameIndex; // image index is undefined on failure
 	else
 		VK_CHECK(flipResult);
@@ -300,6 +349,30 @@ uint32_t Swapchain<kVk>::GetPresentationModes() const
 }
 
 template <>
+void Swapchain<kVk>::SetExclusiveFullscreen(WindowHandle window) noexcept
+{
+	if (window == myExclusiveWindow)
+		return;
+	myExclusiveWindow = window;
+	myNeedsRecreate = true;
+}
+
+template <>
+void Swapchain<kVk>::InternalDestroySwapchain(SwapchainHandle<kVk> swapchain)
+{
+#if defined(_WIN32)
+	if (myExclusiveAcquired)
+	{
+		const auto& functions = swapchain::GetFullScreenExclusive(GetDevice(), GetDevice().GetPhysicalDevice());
+		functions.release(GetDevice(), swapchain);
+		myExclusiveAcquired = false;
+	}
+#endif
+	Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, swapchain);
+	vkDestroySwapchainKHR(GetDevice(), swapchain, &GetInstance().GetHostAllocationCallbacks());
+}
+
+template <>
 void Swapchain<kVk>::CreateSwapchain()
 {
 	ZoneScopedN("Swapchain::CreateSwapchain");
@@ -313,6 +386,16 @@ void Swapchain<kVk>::CreateSwapchain()
 	const auto& capabilities = GetInstance().GetSwapchainInfo(device.GetPhysicalDevice(), GetSurface()).capabilities;
 	if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
 		InternalGetDesc().extent = vk::FromVk(capabilities.currentExtent);
+
+#if defined(_WIN32)
+	// released while previous is still current: it is retired once the new one is made from it, and a retired swapchain's
+	// exclusive mode mustn't be released (VUID-vkReleaseFullScreenExclusiveModeEXT-swapchain-02677)
+	if (myExclusiveAcquired && previous != VK_NULL_HANDLE)
+	{
+		swapchain::GetFullScreenExclusive(device, device.GetPhysicalDevice()).release(device, previous);
+		myExclusiveAcquired = false;
+	}
+#endif
 
 	VkSwapchainCreateInfoKHR info{.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
 	info.surface = mySurface;
@@ -341,6 +424,22 @@ void Swapchain<kVk>::CreateSwapchain()
 	info.clipped = VK_TRUE;
 	info.oldSwapchain = previous;
 
+#if defined(_WIN32)
+	// exclusive fullscreen, where the window is in it (see SetExclusiveFullscreen): application controlled, so it is
+	// taken (below) only then, and the window's monitor named, as the extension needs for a surface of a window
+	const auto& fullScreenExclusive = swapchain::GetFullScreenExclusive(device, device.GetPhysicalDevice());
+	VkSurfaceFullScreenExclusiveWin32InfoEXT exclusiveWin32Info{.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT};
+	VkSurfaceFullScreenExclusiveInfoEXT exclusiveInfo{.sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT};
+	bool exclusive = myExclusiveWindow != kInvalidWindowHandle && fullScreenExclusive.acquire != nullptr;
+	if (exclusive)
+	{
+		exclusiveWin32Info.hmonitor = static_cast<HMONITOR>(PlatformGetWin32Monitor(myExclusiveWindow));
+		exclusiveInfo.pNext = &exclusiveWin32Info;
+		exclusiveInfo.fullScreenExclusive = VK_FULL_SCREEN_EXCLUSIVE_APPLICATION_CONTROLLED_EXT;
+		info.pNext = &exclusiveInfo;
+	}
+#endif
+
 	VK_CHECK(vkCreateSwapchainKHR(
 		device,
 		&info,
@@ -354,14 +453,21 @@ void Swapchain<kVk>::CreateSwapchain()
 			acquireFence.Wait();
 		myAcquireFences.clear();
 
-		Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, previous);
-		vkDestroySwapchainKHR(
-			device,
-			previous,
-			&GetInstance().GetHostAllocationCallbacks());
+		InternalDestroySwapchain(previous);
 	}
 
 	Track(static_cast<VkDevice>(device), VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain, GetName());
+
+#if defined(_WIN32)
+	// fails where the window hasn't the focus (VK_ERROR_INITIALIZATION_FAILED): it presents composited then, and a lost
+	// exclusive mode (a present's VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT) recreates it, which tries again
+	if (exclusive)
+	{
+		auto result = fullScreenExclusive.acquire(device, mySwapchain);
+		myExclusiveAcquired = result == VK_SUCCESS;
+		std::println("swapchain: exclusive fullscreen {}", myExclusiveAcquired ? "acquired" : std::format("not acquired ({})", static_cast<int>(result)));
+	}
+#endif
 
 	// minImageCount is a minimum: the driver may make more, and the frames are the images it made
 	uint32_t imageCount;
@@ -417,6 +523,8 @@ void Swapchain<kVk>::Swap(Swapchain& rhs) noexcept
 	std::swap(myNeedsRecreate, rhs.myNeedsRecreate);
 	std::swap(myLastPresentId, rhs.myLastPresentId);
 	std::swap(myHasPresented, rhs.myHasPresented);
+	std::swap(myExclusiveWindow, rhs.myExclusiveWindow);
+	std::swap(myExclusiveAcquired, rhs.myExclusiveAcquired);
 }
 
 template <>
@@ -431,8 +539,7 @@ void Swapchain<kVk>::Release()
 	myFrames.clear();
 	if (mySwapchain != nullptr)
 	{
-		Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain);
-		vkDestroySwapchainKHR(GetDevice(), mySwapchain, &GetInstance().GetHostAllocationCallbacks());
+		InternalDestroySwapchain(mySwapchain);
 		mySwapchain = nullptr;
 	}
 	myLastPresentId = 0;
@@ -468,13 +575,7 @@ Swapchain<kVk>::~Swapchain()
 		myAcquireFences.clear();
 
 		if (mySwapchain != nullptr)
-		{
-			Untrack(VK_OBJECT_TYPE_SWAPCHAIN_KHR, mySwapchain);
-			vkDestroySwapchainKHR(
-				GetDevice(),
-				mySwapchain,
-				&GetInstance().GetHostAllocationCallbacks());
-		}
+			InternalDestroySwapchain(mySwapchain);
 
 		if (mySurface != nullptr)
 		{

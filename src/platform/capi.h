@@ -55,6 +55,9 @@ PLATFORM_API void PlatformWakeMain(void);
 // VkInstance, allocator a const VkAllocationCallbacks* (or null), surface a VkSurfaceKHR* it is written to. returns the
 // VkResult
 PLATFORM_API int32_t PlatformCreateVulkanSurface(WindowHandle window, void* instance, const void* allocator, void* surface);
+// the monitor the window is (mostly) on, as Windows' HMONITOR, for rhi's exclusive fullscreen
+// (VK_EXT_full_screen_exclusive); null elsewhere
+PLATFORM_API void* PlatformGetWin32Monitor(WindowHandle window);
 
 // the window the application draws its user interface in, and parents its dialogues to. only the first window set
 // counts; until then, kInvalidWindowHandle.

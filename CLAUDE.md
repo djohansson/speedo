@@ -29,7 +29,11 @@ Notes for working in this codebase, distilled from real build failures.
   `SleepSeconds`); both had their own copy of all of it. Alt+Enter (and View > Presentation > Fullscreen)
   goes fullscreen as `WindowState::fullscreenMode` says (`FULLSCREEN_MODE_*`, set by View > Presentation or
   `SPEEDO_FULLSCREEN`), on the monitor the window is on (`platform::WindowedApplication::ToggleFullscreen`; it was
-  always the primary monitor's): exclusive (`glfwSetWindowMonitor`, the default), borderless (an
+  always the primary monitor's): exclusive (`glfwSetWindowMonitor`, the default; on Windows the swapchain also takes
+  the monitor, `VK_EXT_full_screen_exclusive`, application controlled, `Swapchain::SetExclusiveFullscreen` with the
+  window's `PlatformGetWin32Monitor`: without it NVIDIA's driver composited the window covering the monitor, and the
+  display's variable refresh rate never engaged, under fifo or mailbox; a lost exclusive mode recreates the swapchain,
+  as out of date), borderless (an
   undecorated window covering the monitor, on every platform; on macOS with the menu bar and dock hidden, and composited)
   or, on macOS, native (its own space). Exclusive and native
   let macOS scan the swapchain out directly, which flickered with KosmicKrisp from mesa 26.2 (frames out of order), so

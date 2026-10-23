@@ -147,6 +147,15 @@ bool WindowedApplication::Draw()
 		swapchain.Configure(presentation.mode, presentation.imageCount);
 	}
 
+	// exclusive fullscreen takes the monitor (see Swapchain::SetExclusiveFullscreen), recreating the swapchain below when
+	// it changes
+	{
+		const auto& state = window.GetState();
+		swapchain.SetExclusiveFullscreen(
+			state.fullscreenEnabled != 0U && state.fullscreenMode == FULLSCREEN_MODE_EXCLUSIVE ? GetCurrentWindow()
+																							 : kInvalidWindowHandle);
+	}
+
 	// a resize (see OnResizeFramebuffer), or what the swapchain found out of date (e.g. a fullscreen switch can leave it
 	// at the previous size without a matching resize event)
 	if (myResizeRequested.exchange(false, std::memory_order_acquire) || swapchain.NeedsRecreate())

@@ -145,6 +145,11 @@ public:
 	// application's (SwapchainCreateDesc::maxImageCount). the driver may make more than asked for (see GetFrames)
 	[[nodiscard]] std::pair<uint32_t, uint32_t> GetImageCountLimits() const;
 	[[nodiscard]] uint32_t GetImageCount() const noexcept { return static_cast<uint32_t>(this->GetDesc().images.size()); }
+	// the window when it is in exclusive fullscreen (kInvalidWindowHandle when not): the next CreateSwapchain, which it
+	// asks for if it changed, takes the window's monitor exclusively (VK_EXT_full_screen_exclusive, application
+	// controlled, on Windows; nothing elsewhere). without it, NVIDIA's driver composited the fullscreen window, and the
+	// display's variable refresh rate never engaged. on the thread that draws
+	void SetExclusiveFullscreen(WindowHandle window) noexcept;
 
 	// set when an acquire or present reports the swapchain out of date or suboptimal (e.g. after a fullscreen switch,
 	// which doesn't always come with a framebuffer resize event of the final size). cleared by CreateSwapchain.
@@ -162,6 +167,9 @@ private:
 	bool myNeedsRecreate{};
 	uint64_t myLastPresentId{}; // 0: none (see PreparePresent)
 	bool myHasPresented{};
+	WindowHandle myExclusiveWindow{}; // see SetExclusiveFullscreen
+	bool myExclusiveAcquired{}; // vkAcquireFullScreenExclusiveModeEXT succeeded on mySwapchain
+	void InternalDestroySwapchain(SwapchainHandle<G> swapchain);
 };
 
 } // namespace rhi

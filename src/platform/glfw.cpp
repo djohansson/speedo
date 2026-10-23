@@ -385,6 +385,16 @@ void PlatformWakeMain(void)
 	platform::glfw::WakeMain();
 }
 
+void* PlatformGetWin32Monitor(WindowHandle window)
+{
+#if defined(_WIN32)
+	return MonitorFromWindow(glfwGetWin32Window(reinterpret_cast<GLFWwindow*>(window)), MONITOR_DEFAULTTONEAREST); //NOLINT(performance-no-int-to-ptr)
+#else
+	(void)window;
+	return nullptr;
+#endif
+}
+
 int32_t PlatformCreateVulkanSurface(WindowHandle window, void* instance, const void* allocator, void* surface)
 {
 	return static_cast<int32_t>(glfwCreateWindowSurface(

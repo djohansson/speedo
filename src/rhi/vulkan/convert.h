@@ -441,6 +441,8 @@ namespace rhi::vk
 	case VK_SUCCESS: return PresentResult::kSuccess;
 	case VK_SUBOPTIMAL_KHR: return PresentResult::kSuboptimal;
 	case VK_ERROR_OUT_OF_DATE_KHR: return PresentResult::kOutOfDate;
+	// exclusive fullscreen lost (e.g. alt+tab): recreated, as out of date (see Swapchain::SetExclusiveFullscreen)
+	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT: return PresentResult::kOutOfDate;
 	default: return PresentResult::kError;
 	}
 }

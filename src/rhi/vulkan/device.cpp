@@ -365,6 +365,13 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 
 	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+
+#if defined(_WIN32)
+	// exclusive fullscreen (see Swapchain::SetExclusiveFullscreen; VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME is in
+	// vulkan_win32.h, which needs windows.h)
+	if (SupportsExtension("VK_EXT_full_screen_exclusive", GetDesc().physicalDevice))
+		desiredExtensions.emplace_back("VK_EXT_full_screen_exclusive");
+#endif
 	
 	VkDeviceCreateInfo deviceCreateInfo{.sType=VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
 	deviceCreateInfo.pNext = &physicalDeviceInfo.deviceFeatures;
