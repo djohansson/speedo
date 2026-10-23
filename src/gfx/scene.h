@@ -76,6 +76,9 @@ public:
 		// the indirect lighting's voxels along the scene's longest axis (FrameInputs::giResolution; View > Indirect Lighting
 		// Resolution, SPEEDO_GI_RESOLUTION to start with another): 128 by default, finer for light through narrow openings
 		std::atomic<uint32_t> giResolution = gi::kDefaultResolution;
+		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Indirect Lighting Surface
+		// Cache; on by default, SPEEDO_GI_CACHE=0 to start without it)
+		std::atomic<bool> giSurfaceCache = true;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

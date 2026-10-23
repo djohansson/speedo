@@ -1909,6 +1909,7 @@ struct Scene::Impl
 						{"ComputeShadowTrace", SLANG_STAGE_COMPUTE},
 						{"ComputeShadowDenoiseX", SLANG_STAGE_COMPUTE},
 						{"ComputeShadowDenoiseY", SLANG_STAGE_COMPUTE},
+						{"ComputeGiCacheFilter", SLANG_STAGE_COMPUTE}, // the GI pass's, after the resolve (last: the indices before stay)
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2109,6 +2110,7 @@ struct Scene::Impl
 				.indirectLighting = mySettings.indirectLighting.load(std::memory_order_relaxed),
 				.traceTriangles = mySettings.traceTriangles.load(std::memory_order_relaxed),
 				.giResolution = mySettings.giResolution.load(std::memory_order_relaxed),
+				.giSurfaceCache = mySettings.giSurfaceCache.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

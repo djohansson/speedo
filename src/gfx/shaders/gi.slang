@@ -2083,12 +2083,525 @@ float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weig
 // probe as much as the voxels around it do, at 4 filtered reads. a group per block of 4x4x4 voxels (a flag's block, see
 // ComputeGiFlags: nothing near it, the block is skipped), whose 8 probes (the block spans one cell, the spacing being a
 // multiple of 8) are read into shared memory once rather than 8 a voxel (1.2 KB each)
+// the surface cache (gGiCache, GiData::cacheRayCount): per voxel near a surface, the irradiance along the axes (an
+// ambient cube, as a probe's) that rays from the voxel itself saw, a few a frame, accumulated over frames (the resolve,
+// GiCacheUpdate), then filtered with its neighbours' on the same surface and blended into the voxel's light by the
+// samples behind it (ComputeGiCacheFilter). the probes are 8 voxels apart in their clip, 1.8 m in Sponza's last, and
+// spread the light through a gap of a few tens of centimetres (the sky under its curtains) into spots a probe cell wide,
+// which changed as the finer clips took the floor over; a voxel's own rays resolve it at the voxel's size, noisily (a
+// small bright source is met by few of its rays), which the filter takes out where it is noise. 3 uint4 an entry: the 6
+// faces' rgb as half floats (9 words); the samples its mean is of (at most GiData::cacheSampleCount) and the rays traced
+// (its directions' sequence), 16 bits each; the mean of its samples' squares (GiCacheSample: the light along the voxel's
+// open side, whose mean the faces hold), which with the mean is their variance; and the voxel's open side (octahedral, 8
+// bits a coordinate) and the rays that started inside something, 16 bits each
+struct GiCacheEntry
+{
+	float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	uint count;
+	uint inside;
+	uint sequence;
+	float moment;
+	float3 normal;
+};
+
+// how many samples the probes' light counts as, against a voxel's: its light is the cache's by its samples over them
+// and this
+static const float kGiCachePrior = 16.0;
+// how many samples of their mean square a voxel's variance is taken with besides its own (a voxel of few samples is
+// noise, however alike they came out: one sample has no variance)
+static const float kGiCacheVariancePrior = 4.0;
+// how many samples a voxel new to its clip takes the coarser clip's entry as (see GiCacheUpdate)
+static const uint kGiCacheSeedCount = 8u;
+// how often a voxel no lookup reads traces a ray (see GiCacheUpdate), and how many frames after a lookup read its block
+// it still counts as read (see ComputeGiResolve)
+static const uint kGiCacheIdleFrameCount = 8u;
+static const uint kGiCacheSeenFrameCount = 2u;
+static const float3 kGiCacheLuminance = float3(0.2126, 0.7152, 0.0722);
+
+GiCacheEntry GiCacheEmpty()
+{
+	GiCacheEntry entry;
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		entry.faces[faceIt] = 0.0;
+	entry.count = 0u;
+	entry.inside = 0u;
+	entry.sequence = 0u;
+	entry.moment = 0.0;
+	entry.normal = 0.0;
+	return entry;
+}
+
+// a unit vector in 16 bits: octahedral, 8 bits a coordinate (the filter compares them, see ComputeGiCacheFilter)
+uint GiCachePackNormal(float3 n)
+{
+	n /= max(abs(n.x) + abs(n.y) + abs(n.z), 1e-6);
+	float2 p = n.z >= 0.0 ? n.xy : (1.0 - abs(n.yx)) * select(n.xy >= 0.0, 1.0, -1.0);
+	uint2 q = uint2(round(saturate(p * 0.5 + 0.5) * 255.0));
+	return q.x | (q.y << 8);
+}
+
+float3 GiCacheUnpackNormal(uint packed)
+{
+	float2 p = float2(packed & 0xFFu, (packed >> 8) & 0xFFu) / 255.0 * 2.0 - 1.0;
+	float3 n = float3(p, 1.0 - abs(p.x) - abs(p.y));
+	if (n.z < 0.0)
+		n.xy = (1.0 - abs(n.yx)) * select(n.xy >= 0.0, 1.0, -1.0);
+	return normalize(n);
+}
+
+// the faces of an entry or a filtered record (see GiCacheTap): their rgb as half floats, in the first 9 words
+void GiCacheUnpackFaces(uint4 words[3], out float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT])
+{
+	float halves[2 * 9];
+	for (uint wordIt = 0; wordIt < 9; wordIt++)
+	{
+		float2 pair = GiUnpackHalf2(words[wordIt / 4u][wordIt % 4u]);
+		halves[wordIt * 2u] = pair.x;
+		halves[wordIt * 2u + 1u] = pair.y;
+	}
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		faces[faceIt] = float3(halves[faceIt * 3u], halves[faceIt * 3u + 1u], halves[faceIt * 3u + 2u]);
+}
+
+void GiCachePackFaces(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], out uint packed[9])
+{
+	float halves[2 * 9];
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+	{
+		halves[faceIt * 3u] = faces[faceIt].r;
+		halves[faceIt * 3u + 1u] = faces[faceIt].g;
+		halves[faceIt * 3u + 2u] = faces[faceIt].b;
+	}
+	for (uint wordIt = 0; wordIt < 9; wordIt++)
+		packed[wordIt] = GiPackHalf2(float2(halves[wordIt * 2u], halves[wordIt * 2u + 1u]));
+}
+
+GiCacheEntry GiCacheLoad(uint index)
+{
+	uint4 words[3] = {gGiCache[index * 3u], gGiCache[index * 3u + 1u], gGiCache[index * 3u + 2u]};
+	GiCacheEntry entry;
+	GiCacheUnpackFaces(words, entry.faces);
+	entry.count = words[2].y & 0xFFFFu;
+	entry.sequence = words[2].y >> 16;
+	entry.moment = asfloat(words[2].z);
+	entry.inside = words[2].w >> 16;
+	entry.normal = entry.count != 0u ? GiCacheUnpackNormal(words[2].w & 0xFFFFu) : 0.0;
+	return entry;
+}
+
+void GiCacheStore(uint index, GiCacheEntry entry)
+{
+	uint packed[9];
+	GiCachePackFaces(entry.faces, packed);
+	gGiCache[index * 3u] = uint4(packed[0], packed[1], packed[2], packed[3]);
+	gGiCache[index * 3u + 1u] = uint4(packed[4], packed[5], packed[6], packed[7]);
+	gGiCache[index * 3u + 2u] = uint4(packed[8], min(entry.count, 0xFFFFu) | ((entry.sequence & 0xFFFFu) << 16), asuint(entry.moment),
+									  GiCachePackNormal(entry.normal) | (min(entry.inside, 0xFFFFu) << 16));
+}
+
+void GiCacheClear(uint index)
+{
+	gGiCache[index * 3u] = 0u;
+	gGiCache[index * 3u + 1u] = 0u;
+	gGiCache[index * 3u + 2u] = 0u;
+}
+
+// whether an entry is light to filter: samples, and not a voxel inside something (above a quarter of its rays started
+// in something, as a probe's, kGiInsideShare)
+bool GiCacheValid(GiCacheEntry entry)
+{
+	return entry.count != 0u && float(entry.inside) <= kGiInsideShare * float(entry.count + entry.inside);
+}
+
+// a ray's sample of the light along a voxel's open side (normal), in luminance: what it adds to the faces the normal's
+// components point at, each by the component squared, as GiEvaluate reads them. their mean is the faces' light along it
+// (GiCacheLight)
+float GiCacheSample(float luminance, float3 direction, float3 normal)
+{
+	float3 along = max(direction * select(normal >= 0.0, 1.0, -1.0), 0.0);
+	return 4.0 * luminance * dot(normal * normal, along);
+}
+
+// the faces' light along a direction (a voxel's open side), in luminance (see GiEvaluate)
+float GiCacheLight(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], float3 normal)
+{
+	float3 w = normal * normal;
+	float3 x = normal.x >= 0.0 ? faces[0] : faces[1];
+	float3 y = normal.y >= 0.0 ? faces[2] : faces[3];
+	float3 z = normal.z >= 0.0 ? faces[4] : faces[5];
+	return dot(max(w.x * x + w.y * y + w.z * z, 0.0), kGiCacheLuminance);
+}
+
+// a voxel's sample of its sequence: a direction of the sphere by Roberts' R2 sequence (even over the sphere at any count,
+// so its mean converges as a quadrature's rather than a random sum's), offset per voxel by a hash of its place in the
+// world (the same wherever its clip has scrolled to), so that the voxels around a point miss differently
+float3 GiCacheDirection(int3 world, uint sequence)
+{
+	uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
+	hash ^= hash >> 16;
+	hash *= 0x7feb352du;
+	hash ^= hash >> 15;
+	float2 offset = float2(hash & 0xFFFFu, hash >> 16) / 65536.0;
+	const float kG = 1.32471795724474602596;
+	float2 uv = frac(offset + float(sequence) * float2(1.0 / kG, 1.0 / (kG * kG)));
+	float z = 1.0 - 2.0 * uv.x;
+	float radius = sqrt(max(1.0 - z * z, 0.0));
+	float phi = 6.28318530718 * uv.y;
+	return float3(radius * cos(phi), radius * sin(phi), z);
+}
+
+// a voxel's entry carried over from the last frame (the voxel at its place then, by the scroll; none after a reset or a
+// change of the lights) and cacheRayCount more rays from origin (the voxel's center, a surface's voxel's moved out along
+// its open side, normal) through the BVHs, or the voxels, as the probes' rays are, each blended into the faces' mean and
+// its square's (GiCacheSample) by the reciprocal of its samples, at most cacheSampleCount (32 in a block something
+// moving went through this frame). a ray that meets a surface's back within a voxel and a half started inside
+// something: not a sample
+void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, float3 origin, float3 normal, bool active)
+{
+	uint index = gi.visibilityFirst + GiVoxelIndex(at, size);
+	GiCacheEntry entry = GiCacheEmpty();
+	int3 from = int3(at) + gi.scroll.xyz;
+	if (gi.reset == 0u && gi.cacheReset == 0u)
+	{
+		if (GiInside(from, size))
+			entry = GiCacheLoad(gi.visibilityPreviousFirst + GiVoxelIndex(uint3(from), size));
+		else if (gi.clip + 1u < gi.clipCount)
+		{
+			// a voxel new to the clip (it scrolled in) starts from the coarser clip's entry where it is (its last frame's
+			// half, at its place then), as kGiCacheSeedCount samples, which its own rays soon outweigh: from nothing, it
+			// took the probes' light until it had samples, and the light along Sponza's curtains faded in and out near
+			// the eye as the finer clips scrolled
+			GiData coarser = GiClip(gi.clip + 1u);
+			uint3 coarserSize = GiLevelSize(coarser, 0);
+			int3 seed = int3(floor(GiVoxelCoordinate(coarser, origin, 0))) + coarser.scroll.xyz;
+			if (GiInside(seed, coarserSize))
+			{
+				GiCacheEntry seeded = GiCacheLoad(coarser.visibilityPreviousFirst + GiVoxelIndex(uint3(seed), coarserSize));
+				if (GiCacheValid(seeded))
+				{
+					entry = seeded;
+					entry.count = min(seeded.count, kGiCacheSeedCount);
+					entry.inside = 0u;
+					entry.sequence = 0u;
+				}
+			}
+		}
+	}
+	bool finite = !isnan(entry.moment) && !isinf(entry.moment);
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		finite = finite && !any(isnan(entry.faces[faceIt])) && !any(isinf(entry.faces[faceIt]));
+	if (!finite)
+		entry = GiCacheEmpty();
+	// the open side as stored, so that the samples are of the light the filter reads along it
+	entry.normal = GiCacheUnpackNormal(GiCachePackNormal(normal));
+	bool moving = gi.moving != 0u && gGiFlags[GiFlagIndex(gi, blockIndex) + 1u] == gi.frameStamp;
+	uint cap = min(moving ? min(gi.cacheSampleCount, 32u) : gi.cacheSampleCount, 0xFFFFu);
+	entry.count = min(entry.count, cap);
+	int3 world = int3(round(gi.volumeOrigin.xyz / gi.volumeOrigin.w)) + int3(at);
+	GiData last = GiClip(gi.clipCount - 1);
+	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
+	GiData walk = GiClip(GiFinestClipHolding(origin, gi.clip));
+	float insideReach = 1.5 * gi.volumeOrigin.w;
+	// a voxel no lookup reads (its block not active, see ComputeGiResolve) traces a ray every kGiCacheIdleFrameCount
+	// frames (staggered by its place), so that it isn't cold when one does
+	uint rayCount = gi.cacheRayCount;
+	if (!active)
+	{
+		uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
+		rayCount = (hash + gi.frameStamp) % kGiCacheIdleFrameCount == 0u ? 1u : 0u;
+	}
+	for (uint rayIt = 0; rayIt < rayCount; rayIt++)
+	{
+		float3 direction = GiCacheDirection(world, entry.sequence++);
+		float4 traced;
+		GiRayHit hit;
+		if (GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit))
+		{
+			if (hit.backface && hit.distance < insideReach)
+			{
+				entry.inside++;
+				continue;
+			}
+			traced = hit.radiance;
+		}
+		else
+			traced = GiMarch(walk, origin, direction, far, true, gi.volumeOrigin.w);
+		float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
+		if (any(isnan(radiance)) || any(isinf(radiance)))
+			continue;
+		float basis[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+		GiIrradianceBasis(direction, basis);
+		entry.count = min(entry.count + 1u, cap);
+		float weight = 1.0 / float(entry.count);
+		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+			entry.faces[faceIt] += (radiance * basis[faceIt] * 4.0 - entry.faces[faceIt]) * weight;
+		float light = GiCacheSample(dot(radiance, kGiCacheLuminance), direction, entry.normal);
+		entry.moment += (light * light - entry.moment) * weight;
+	}
+	// the inside rays counted over the cap's window too, so that a voxel isn't held inside for good by its first frames
+	entry.inside = min(entry.inside, cap);
+	GiCacheStore(index, entry);
+}
+
+// a voxel's light as the filter takes it (see ComputeGiCacheFilter): its faces, the variance of its light along its
+// open side (of the mean: the samples' over their count, then as the filter's passes average it), the open side, and
+// how much of the voxel's light is the cache's (0: none, it has none of its own: no samples, or inside something)
+struct GiCacheTap
+{
+	float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	float variance;
+	float confidence;
+	float3 normal;
+};
+
+GiCacheTap GiCacheNoTap()
+{
+	GiCacheTap tap;
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		tap.faces[faceIt] = 0.0;
+	tap.variance = 0.0;
+	tap.confidence = 0.0;
+	tap.normal = 0.0;
+	return tap;
+}
+
+// a filter pass's record of a voxel (in the cache's scratch, or its last frame's half, see ComputeGiCacheFilter): the
+// faces as an entry's, then the variance, the confidence and the open side
+GiCacheTap GiCacheLoadTap(uint index)
+{
+	uint4 words[3] = {gGiCache[index * 3u], gGiCache[index * 3u + 1u], gGiCache[index * 3u + 2u]};
+	GiCacheTap tap;
+	GiCacheUnpackFaces(words, tap.faces);
+	tap.variance = asfloat(words[2].y);
+	tap.confidence = asfloat(words[2].z);
+	tap.normal = GiCacheUnpackNormal(words[2].w);
+	return tap;
+}
+
+void GiCacheStoreTap(uint index, GiCacheTap tap)
+{
+	uint packed[9];
+	GiCachePackFaces(tap.faces, packed);
+	gGiCache[index * 3u] = uint4(packed[0], packed[1], packed[2], packed[3]);
+	gGiCache[index * 3u + 1u] = uint4(packed[4], packed[5], packed[6], packed[7]);
+	gGiCache[index * 3u + 2u] = uint4(packed[8], asuint(tap.variance), asuint(tap.confidence), GiCachePackNormal(tap.normal));
+}
+
+// an entry as the filter takes it unfiltered: in a block the filter doesn't run in (not active, see ComputeGiResolve),
+// with its own samples' variance
+GiCacheTap GiCacheTapOf(GiCacheEntry entry)
+{
+	if (!GiCacheValid(entry))
+		return GiCacheNoTap();
+	GiCacheTap tap;
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		tap.faces[faceIt] = entry.faces[faceIt];
+	float n = float(entry.count);
+	float light = GiCacheLight(entry.faces, entry.normal);
+	tap.variance = (n * max(entry.moment - light * light, 0.0) + kGiCacheVariancePrior * entry.moment) / (n + kGiCacheVariancePrior) / n;
+	tap.confidence = n / (n + kGiCachePrior);
+	tap.normal = entry.normal;
+	return tap;
+}
+
+// a voxel as a filter pass reads it: the pass before's record where the filter runs (an active block), the entry itself
+// where it doesn't, none in a block nothing is near (whose entries the resolve cleared)
+GiCacheTap GiCacheReadTap(GiData gi, uint source, uint3 at, uint3 size, uint3 blocks)
+{
+	uint3 block = at / 4u;
+	uint flags = gGiFlags[GiFlagIndex(gi, block.x + blocks.x * (block.y + blocks.y * block.z))];
+	if ((flags & 1u) == 0u)
+		return GiCacheNoTap();
+	if ((flags & SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) == 0u)
+		return GiCacheTapOf(GiCacheLoad(gi.visibilityFirst + GiVoxelIndex(at, size)));
+	return GiCacheLoadTap(source + GiVoxelIndex(at, size));
+}
+
+// how much two voxels' open sides agree, for the filter: to the 8th, so that a floor's voxels don't take a wall's, nor a
+// thin wall's two sides each other's
+float GiCacheAgreement(float3 a, float3 b)
+{
+	float agreement = saturate(dot(a, b));
+	agreement *= agreement;
+	agreement *= agreement;
+	return agreement * agreement;
+}
+
+// per voxel of a clip near a surface, after the resolve (which updated the cache and wrote the probes' light): the
+// cache's light filtered with its neighbours' on the same surface, as SVGF filters a frame (Schied et al. 2017; giStep
+// is the pass). the first pass estimates each voxel's noise: its samples' variance pooled with its neighbours' (the
+// 3x3x3 on its surface, by their samples), over its own samples. a voxel's own variance was no measure of it: under a
+// source smaller than its rays' spacing (the sky under Sponza's curtains) the voxel that happened to miss it measured
+// none and took none of a lucky neighbour's light, the lucky one measured plenty and took the others', and the light
+// along the curtains broke into dim blobs. then GiData::cacheFilterPassCount passes of an a-trous filter, its taps 3 a
+// side, 1, 2, 4, ... voxels apart (3 passes reach 7 voxels each way): each tap by the kernel's weight (1/4, 1/2, 1/4 an
+// axis), how much its open side agrees with the voxel's (GiCacheAgreement), how far it is off the voxel's surface along
+// its open side (a gaussian of a voxel's deviation), its confidence, and how far its light is from the voxel's against
+// what both their noise allows (exp(-difference / cacheSigma deviations of the difference)): noise is averaged out, and
+// an edge in the light brighter than the noise (the sky's along the curtains' lower edges) stays sharp. both, so that two
+// voxels take each other's light alike: by the voxel's noise alone, a noisy bright voxel took its quiet dark neighbours'
+// light and they refused its, and the light under the curtains lost a quarter (the floor's mean 0.0130 at exposure 7
+// against 0.0169 pooled without the test, 0.0146 now). the variance follows the passes (the weights' squares over their
+// sum's). the last pass moves the voxel's light towards the filtered light by its
+// confidence (GiData::cacheShow: all of it); the passes before write records, to the cache's scratch and to its last
+// frame's half in turn (dead once the resolve has carried it over). a group per block of 4x4x4 voxels, as the resolve's
+[shader("compute")]
+[numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
+void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
+{
+	GiData gi = GiClip(gPushConstants.giClip);
+	if (gi.cacheRayCount == 0u)
+		return;
+	uint pass = gPushConstants.giStep;
+	uint3 size = GiLevelSize(gi, 0);
+	uint3 blocks = GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL);
+	uint blockIndex = groupId.y * (SHADER_TYPES_GI_ROW / SHADER_TYPES_GI_GROUP_SIZE) + groupId.x;
+	if (blockIndex >= blocks.x * blocks.y * blocks.z)
+		return;
+	uint blockFlags = gGiFlags[GiFlagIndex(gi, blockIndex)];
+	if ((blockFlags & 1u) == 0u)
+		return;
+	uint3 block = uint3(blockIndex % blocks.x, (blockIndex / blocks.x) % blocks.y, blockIndex / (blocks.x * blocks.y));
+	uint3 at = block * 4u + uint3(groupIndex & 3u, (groupIndex >> 2) & 3u, groupIndex >> 4);
+	if (any(at >= size))
+		return;
+	bool last = pass >= gi.cacheFilterPassCount;
+	// a block no lookup read lately (see ComputeGiResolve) only takes its own light, in the last pass
+	bool active = (blockFlags & SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) != 0u;
+	if (!active && !last)
+		return;
+	uint index = GiVoxelIndex(at, size);
+	uint target = (pass % 2u == 0u ? gi.cacheScratchFirst : gi.visibilityPreviousFirst) + index;
+	if (pass == 0u)
+	{
+		GiCacheEntry entry = GiCacheLoad(gi.visibilityFirst + index);
+		if (!GiCacheValid(entry))
+		{
+			GiCacheStoreTap(target, GiCacheNoTap());
+			return;
+		}
+		// the samples' mean and mean square around the voxel, by their counts (each neighbour's light read along the
+		// voxel's open side, its mean square along its own, which agrees)
+		float mean = 0.0;
+		float square = 0.0;
+		float samples = 0.0;
+		for (int z = -1; z <= 1; z++)
+			for (int y = -1; y <= 1; y++)
+				for (int x = -1; x <= 1; x++)
+				{
+					int3 offset = int3(x, y, z);
+					int3 neighbour = int3(at) + offset;
+					if (!GiInside(neighbour, size))
+						continue;
+					GiCacheEntry other = (x == 0 && y == 0 && z == 0) ? entry : GiCacheLoad(gi.visibilityFirst + GiVoxelIndex(uint3(neighbour), size));
+					if (!GiCacheValid(other))
+						continue;
+					float plane = dot(float3(offset), entry.normal);
+					float weight = GiCacheAgreement(other.normal, entry.normal) * exp(-0.5 * plane * plane) * float(other.count);
+					mean += weight * GiCacheLight(other.faces, entry.normal);
+					square += weight * other.moment;
+					samples += weight;
+				}
+		mean /= samples;
+		square /= samples;
+		float n = float(entry.count);
+		GiCacheTap tap;
+		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+			tap.faces[faceIt] = entry.faces[faceIt];
+		tap.variance = (samples * max(square - mean * mean, 0.0) + kGiCacheVariancePrior * square) / (samples + kGiCacheVariancePrior) / n;
+		tap.confidence = n / (n + kGiCachePrior);
+		tap.normal = entry.normal;
+		GiCacheStoreTap(target, tap);
+		return;
+	}
+	uint source = pass % 2u == 1u ? gi.cacheScratchFirst : gi.visibilityPreviousFirst;
+	GiCacheTap self = GiCacheReadTap(gi, source, at, size, blocks);
+	if (self.confidence <= 0.0)
+	{
+		if (!last)
+			GiCacheStoreTap(target, self);
+		return;
+	}
+
+	int step = 1 << (pass - 1u);
+	float light = GiCacheLight(self.faces, self.normal);
+	float3 filtered[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		filtered[faceIt] = 0.0;
+	float weights = 0.0;
+	float variance = 0.0;
+	int reach = active ? 1 : 0;
+	for (int z = -reach; z <= reach; z++)
+		for (int y = -reach; y <= reach; y++)
+			for (int x = -reach; x <= reach; x++)
+			{
+				int3 offset = int3(x, y, z) * step;
+				int3 neighbour = int3(at) + offset;
+				if (!GiInside(neighbour, size))
+					continue;
+				GiCacheTap tap = (x == 0 && y == 0 && z == 0) ? self : GiCacheReadTap(gi, source, uint3(neighbour), size, blocks);
+				if (tap.confidence <= 0.0)
+					continue;
+				float kernel = (x == 0 ? 0.5 : 0.25) * (y == 0 ? 0.5 : 0.25) * (z == 0 ? 0.5 : 0.25);
+				float plane = dot(float3(offset), self.normal);
+				float difference = abs(GiCacheLight(tap.faces, self.normal) - light);
+				float weight = kernel * GiCacheAgreement(tap.normal, self.normal) * exp(-0.5 * plane * plane) * tap.confidence
+								 * exp(-difference / (gi.cacheSigma * sqrt(max(self.variance + tap.variance, 0.0)) + 1e-6));
+				for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+					filtered[faceIt] += weight * tap.faces[faceIt];
+				weights += weight;
+				variance += weight * weight * tap.variance;
+			}
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		filtered[faceIt] /= weights;
+	if (!last)
+	{
+		GiCacheTap record;
+		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+			record.faces[faceIt] = filtered[faceIt];
+		record.variance = variance / (weights * weights);
+		record.confidence = self.confidence;
+		record.normal = self.normal;
+		GiCacheStoreTap(target, record);
+		return;
+	}
+
+	uint3 texel = uint3(at.x, at.y, at.z + gi.volumeImage.w);
+	float4 volumes[SHADER_TYPES_GI_VOLUME_COUNT];
+	for (uint volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
+		volumes[volumeIt] = gGiVolumeImages[volumeIt][texel];
+	float seen = volumes[4].w;
+	// per color its faces +x, -x, +y and -y, then red's and green's +z and -z, then blue's and the weight (see GiSample)
+	float3 sh[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+	for (uint faceIt = 0; faceIt < 4; faceIt++)
+		sh[faceIt] = float3(volumes[0][faceIt], volumes[1][faceIt], volumes[2][faceIt]);
+	sh[4] = float3(volumes[3].x, volumes[3].z, volumes[4].x);
+	sh[5] = float3(volumes[3].y, volumes[3].w, volumes[4].y);
+	// the voxel's weight in the lookups (see GiSampleClip) is the cache's confidence where the probes see it less: its
+	// light is the voxel's own. premultiplied by the probes' weight alone, a voxel few probes see (a ten thousandth: the
+	// last clip's probes 3.7 m apart at resolution 64 don't see into Sponza's corridor) held the cache's light in half
+	// floats' subnormals, each color rounded its own way, and the corridor came out in pink, yellow and blue blotches;
+	// and a voxel no probe sees took none of it
+	float confidence = gi.cacheShow != 0u ? 1.0 : self.confidence;
+	float weight = max(seen, confidence);
+	for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+		sh[faceIt] = lerp(seen > 0.0 ? sh[faceIt] / seen : filtered[faceIt], filtered[faceIt], confidence) * weight;
+	seen = weight;
+	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
+	gGiVolumeImages[1][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
+	gGiVolumeImages[2][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);
+	gGiVolumeImages[3][texel] = float4(sh[4].r, sh[5].r, sh[4].g, sh[5].g);
+	gGiVolumeImages[4][texel] = float4(sh[4].b, sh[5].b, 0.0, seen);
+}
+
 // a block's probes are 8: the spacing is a multiple of 8 voxels (Renderer checks), so a block never spans two cells
 groupshared float4 gGiSharedIrradiance[8 * SHADER_TYPES_GI_IRRADIANCE_COUNT];
 groupshared uint gGiSharedDepth[8 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE];
 groupshared float3 gGiSharedProbePosition[8];
 // whether the probe moved since the last frame, or is new: what its voxels' traced visibility was traced from is gone
 groupshared uint gGiSharedProbeMoved[8];
+// whether a lookup read each of the 3x3x3 blocks around the block lately (see ComputeGiResolve)
+groupshared uint gGiSharedCacheSeen[27];
 
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -2116,6 +2629,8 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			// nothing kept: once the block is near something again, its probes are traced anew
 			if (GiTracesBvh(gi))
 				gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
+			if (gi.cacheRayCount != 0u)
+				GiCacheClear(gi.visibilityFirst + GiVoxelIndex(at, size));
 		}
 		return;
 	}
@@ -2133,6 +2648,10 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	{
 		if (inside && GiTracesBvh(gi))
 			gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
+		if (inside && gi.cacheRayCount != 0u)
+			GiCacheClear(gi.visibilityFirst + GiVoxelIndex(at, size));
+		if (groupIndex == 0u && gi.cacheRayCount != 0u)
+			gGiFlags[GiFlagIndex(gi, blockIndex)] &= ~SHADER_TYPES_GI_FLAG_CACHE_ACTIVE;
 		return;
 	}
 	for (uint loadIt = groupIndex; loadIt < slotCount * SHADER_TYPES_GI_IRRADIANCE_COUNT; loadIt += SHADER_TYPES_GI_GROUP_SIZE)
@@ -2156,7 +2675,29 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		uint history = GiProbeHistory(gi, probe);
 		gGiSharedProbeMoved[slot] = history == kGiNoProbe || any(GiProbeOffset(history) != GiProbeOffset(current)) ? 1u : 0u;
 	}
+	// whether the surface cache traces and filters the block this frame: a lookup read it, or one of the blocks around it
+	// (the filter's reach), in the last kGiCacheSeenFrameCount frames (GiMarkSeen, at the block's place then, by the
+	// scroll). the others trace a ray now and then, and the filter takes their own light (see ComputeGiCacheFilter): at
+	// the user's corridor pose in Sponza, the cache traced and filtered every voxel near a surface in the 3 clips, for 4
+	// ms a frame
+	if (groupIndex < 27u && gi.cacheRayCount != 0u)
+	{
+		int3 around = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL) + int3(groupIndex % 3u, (groupIndex / 3u) % 3u, groupIndex / 9u) - 1;
+		uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
+		gGiSharedCacheSeen[groupIndex] = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount ? 1u : 0u;
+	}
 	GroupMemoryBarrierWithGroupSync();
+	bool active = gi.cacheEverywhere != 0u;
+	if (gi.cacheRayCount != 0u)
+	{
+		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
+			active = active || gGiSharedCacheSeen[aroundIt] != 0u;
+		if (groupIndex == 0u)
+		{
+			uint flagIndex = GiFlagIndex(gi, blockIndex);
+			gGiFlags[flagIndex] = (gGiFlags[flagIndex] & ~SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) | (active ? SHADER_TYPES_GI_FLAG_CACHE_ACTIVE : 0u);
+		}
+	}
 	if (!inside)
 		return;
 
@@ -2176,6 +2717,8 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			gGiVolumeImages[volumeIt][texel] = 0.0;
 		if (GiTracesBvh(gi))
 			gGiVisibility[gi.visibilityFirst + GiVoxelIndex(at, size)] = 0u;
+		if (gi.cacheRayCount != 0u)
+			GiCacheClear(gi.visibilityFirst + GiVoxelIndex(at, size));
 		return;
 	}
 	// which way is away from the surfaces next to it: the occupancy's gradient over its 6 neighbors, plus a surface's
@@ -2416,6 +2959,15 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			seen = kLeastSeen;
 		}
 	}
+	// the surface cache where it is on (its light is blended in after, see ComputeGiCacheFilter): the voxels a surface is
+	// within 3 of (the lookups land a voxel or two off a surface, see GiSampleSurface); the others keep nothing
+	if (gi.cacheRayCount != 0u)
+	{
+		if (awayLength > 0.0 || (voxel.albedo >> 24) != 0u)
+			GiCacheUpdate(gi, at, size, blockIndex, center, away, active);
+		else
+			GiCacheClear(gi.visibilityFirst + voxelIndex);
+	}
 	gGiVolumeImages[0][texel] = float4(sh[0].r, sh[1].r, sh[2].r, sh[3].r);
 	gGiVolumeImages[1][texel] = float4(sh[0].g, sh[1].g, sh[2].g, sh[3].g);
 	gGiVolumeImages[2][texel] = float4(sh[0].b, sh[1].b, sh[2].b, sh[3].b);
@@ -2533,6 +3085,34 @@ GiSample GiSampleSurface(float3 position, float3 normal, float3 view)
 	if (!sample.valid && sample.inside)
 		sample = GiSampleAt(position, normal, bias * 2.0);
 	return sample;
+}
+
+// where the surface cache is on, the blocks a surface's lookup reads (GiSampleSurface's point, in each clip that lights
+// it) stamped with the frame in their flags' third word (ComputeMain, a pixel at a time): the cache traces and filters
+// around what was seen (see ComputeGiResolve)
+void GiMarkSeen(float3 position, float3 normal, float3 view)
+{
+	if (gGi[gPushConstants.frameIndex][0].enabled == 0 || gGi[gPushConstants.frameIndex][0].cacheRayCount == 0u)
+		return;
+	float3 bias = normal * 0.75 + view * 1.5;
+	uint clipCount = gGi[gPushConstants.frameIndex][0].clipCount;
+	float remaining = 1.0;
+	for (uint clipIt = 0; clipIt < clipCount && remaining > 0.0; clipIt++)
+	{
+		GiClipView clip = GiClipViewAt(clipIt);
+		float weight = GiClipWeight(clip, position);
+		if (weight <= 0.0)
+			continue;
+		remaining -= remaining * weight;
+		float3 coordinate = (position + bias * clip.volumeOrigin.w - clip.volumeOrigin.xyz) / clip.volumeOrigin.w;
+		int3 block = int3(floor(coordinate / float(1u << SHADER_TYPES_GI_FLAG_LEVEL)));
+		uint3 blocks = GiLevelVoxels(clip.volumeSize.xyz, SHADER_TYPES_GI_FLAG_LEVEL);
+		if (!GiInside(block, blocks))
+			continue;
+		uint index = clip.flagFirst + GiVoxelIndex(uint3(block), blocks) * SHADER_TYPES_GI_FLAG_WORD_COUNT + 2u;
+		if (gGiFlags[index] != clip.frameStamp)
+			gGiFlags[index] = clip.frameStamp;
+	}
 }
 
 // a sample's irradiance over pi (the radiance a white Lambertian surface reflects) for a surface facing direction: the

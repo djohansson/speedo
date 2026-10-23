@@ -145,6 +145,10 @@ void ComputeMain(
 						gGiStatistics[frameIndex][GI_STATISTIC_DUMP_POINT + 2] = asuint(at.z);
 						gGiStatistics[frameIndex][GI_STATISTIC_DUMP_POINT + 3] = 1u;
 					}
+					// the indirect lighting's blocks the pixel's lookup reads, for its surface cache (see GiMarkSeen)
+					float3 normal = gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(xy, 0)).xyz * 2.0 - 1.0;
+					if (dot(normal, normal) > 0.25)
+						GiMarkSeen(world.xyz / world.w, normalize(normal), normalize(view.eyePosition.xyz - world.xyz / world.w));
 					float distance = length(world.xyz / world.w - view.eyePosition.xyz);
 					float at = (log2(max(distance, 1e-8)) - SHADER_TYPES_DISTANCE_LOG2_MIN) / (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN);
 					uint distanceBin = uint(clamp(at * float(SHADER_TYPES_DISTANCE_BINS), 0.0, float(SHADER_TYPES_DISTANCE_BINS - 1)));

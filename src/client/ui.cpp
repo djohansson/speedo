@@ -161,6 +161,8 @@ void WindowedApplication::InternalCopyPose()
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
 	if (!settings.traceTriangles.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_TRACE=voxels";
+	if (!settings.giSurfaceCache.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_CACHE=0";
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
 		text += std::format(" SPEEDO_GI_RESOLUTION={}", resolution);
 	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
@@ -918,6 +920,9 @@ void WindowedApplication::PrepareDraw()
 		// and how its rays find what they meet (SPEEDO_GI_TRACE=voxels walks the voxels; the triangles' BVHs by default)
 		if (const char* trace = std::getenv("SPEEDO_GI_TRACE"); trace != nullptr && *trace != '\0')
 			App().GetScene().GetSettings().traceTriangles.store(std::string_view(trace) != "voxels", std::memory_order_relaxed);
+		// whether its surface cache refines the probes' light (on by default; SPEEDO_GI_CACHE=0 to start without it)
+		if (const char* cache = std::getenv("SPEEDO_GI_CACHE"); cache != nullptr && *cache != '\0')
+			App().GetScene().GetSettings().giSurfaceCache.store(std::string_view(cache) != "0", std::memory_order_relaxed);
 		// and its resolution (SPEEDO_GI_RESOLUTION: voxels along the scene's longest axis, any from 8 to 512; the menu
 		// offers gi::kResolutions)
 		if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
@@ -1607,6 +1612,14 @@ void WindowedApplication::PrepareDraw()
 					SetItemTooltip("The rays walk the voxels (SPEEDO_GI_TRACE=voxels to start with them).");
 					ImGui::EndMenu();
 				}
+				bool surfaceCache = App().GetScene().GetSettings().giSurfaceCache.load(std::memory_order_relaxed);
+				if (MenuItem("Indirect Lighting Surface Cache", nullptr, &surfaceCache))
+					App().GetScene().GetSettings().giSurfaceCache.store(surfaceCache, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Refines the probes' light at the voxels the views look up with rays from each voxel itself, one a frame, "
+					"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
+					"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
+					"with the resolution's cube.");
 				if (ui::BeginMenu("Indirect Lighting Resolution"))
 				{
 					// the last clip's voxels along the scene's longest axis (see gi::kResolutions): changing it voxelizes

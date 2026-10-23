@@ -1099,12 +1099,12 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
 
 - **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
   most 4), finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
-  longest axis; View > Indirect Lighting Resolution offers `gi::kResolutions`, 128 to 384, and a change makes the clipmap
+  longest axis; View > Indirect Lighting Resolution offers `gi::kResolutions`, 64 to 384, and a change makes the clipmap
   again, `FrameInputs::giResolution`. Finer resolves light through narrower openings: the sky under Sponza's curtains,
   a gap of a few tens of centimetres, which 128 drew as spots at the corridor's end that faded into longer, dimmer
   patches as the eye neared them (the coarser clips' probes, 1.8 m apart, giving way to the finer's; the surface
   reference has a band along the curtains' lower edges), and 256 as the reference does; at the user's pose
-  `7.7949,0.8419,-3.7077,0.531,-91.763` the frame takes 3.5 ms at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320 and 17.8 at
+  `7.7949,0.8419,-3.7077,0.531,-91.763` the frame takes (without the surface cache, below) 2.1 ms at 64, 2.6 at 96, 3.5 at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320 and 17.8 at
   384 (RTX 4070 Ti SUPER, 1920x1080; Bistro's street 18.6 at 384); a margin of a probe spacing, so that a layer of probes stands outside its outermost surfaces; a whole
   spacing puts the bounds halfway between two planes of probes in every clip, the probes being half a spacing from a
   cell's corner: at one and a half, a plane of the last clip's probes lay in the outermost surfaces, CornellBox's floor,
@@ -1214,7 +1214,8 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   bit 0 says whether anything is in the 3x3x3 blocks around it and bit 3 whether that is within 4 blocks along each axis
   (three separable steps): the resolve skips the blocks without bit 0 (the lookups are within a few voxels of a surface)
   and the probes without bit 3 (a probe is only ever looked up from within its cell of a surface's lookup), which is
-  what makes a clip's cost that of its surfaces rather than its volume.
+  what makes a clip's cost that of its surfaces rather than its volume. A block's third word is the last frame a pixel's
+  lookup read it, and bit 4 of its first whether the surface cache works on it this frame (see the surface cache, below).
 - **The probes** (`GiData::probe*`): a lattice every `SPEEDO_GI_PROBE_SPACING` voxels (8 by default) from the clip's
   corner (a multiple of 8, so that the resolve's blocks of 4 voxels never span two cells), centered on voxel boundaries
   (so every point of a voxel interpolates the same 8), of which only those near a surface trace (the flags, below):
@@ -1528,6 +1529,48 @@ hits (`CheckBvh`; a triangle tied with a coplanar one, e.g. back to back, isn't 
 probes against its own surface reference (Sponza's inside at exposure 3, mean |log2| at 48 pixels): voxels 0.45, the BVH
 0.38; the two references differ by 0.78, the BVH's 48% brighter (the voxels' shells take that much of the light through
 the arcades and onto the curtains). The quick tier passes with it, profile and debug (validation).
+
+**The surface cache** (View > Indirect Lighting Surface Cache, on by default since 2026-10-23, the user's call; `SPEEDO_GI_CACHE=0`
+to start without it, `FrameInputs::giSurfaceCache`; `gGiCache`, `GiData::cache*`, the cache section of `gi.slang`): the
+probes, 8 voxels apart (1.8 m in Sponza's last clip), spread the light through a gap of a few tens of centimetres (the sky
+under Sponza's curtains, at the user's pose `7.7949,0.8419,-3.7077,0.531,-91.763`) into spots a probe cell wide, which
+changed as the finer clips took the floor over; per voxel near a surface, the cache measures it at the voxel's size, a
+band along the curtains' lower edges down the whole corridor (`docs/reference/sponza-corridor-surface-cache.png`: the
+probes alone against the cache, lit, and the floor, as the user approved it). An entry is 3 uint4: the 6 faces' rgb as
+half floats, the samples and the rays traced 16 bits each, the mean of the samples' squares (`GiCacheSample`, the light
+along the voxel's open side), and the open side (octahedral, 8 bits a coordinate) and the rays that started inside
+something. The resolve (`GiCacheUpdate`) carries the voxel's entry over from the last frame (by the scroll; a voxel new to
+its clip from the coarser clip's, as 8 samples) and traces `SPEEDO_GI_CACHE_RAYS` (1) rays from the voxel (Roberts' R2
+over the sphere, offset per voxel by its place in the world), as the probes' rays are traced, into a running mean of at
+most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves); a ray meeting a back face within a voxel and a half
+started inside something, and a voxel with more than a quarter of those is no light (the probes' alone). Lights changing
+or a new buffer start it over. `ComputeGiCacheFilter` then filters it as SVGF filters a frame (Schied et al. 2017): a pass
+estimating each voxel's noise (its samples' variance pooled over the 3x3x3 on its surface, over its own samples: by its
+own alone, a voxel that missed a source smaller than its rays' spacing measured no noise and refused its lucky
+neighbours' light, and the curtains' light broke into dim blobs), then `SPEEDO_GI_CACHE_FILTER_PASSES` (3) passes of an
+a-trous filter (taps 1, 2 and 4 voxels apart) weighing each tap by the kernel, the open sides' agreement (to the 8th), its
+distance off the voxel's plane, its confidence, and how its light differs against `SPEEDO_GI_CACHE_SIGMA` (8) deviations
+of both voxels' noise (by the voxel's alone, noisy bright voxels took their quiet neighbours' light and not the other way,
+and the floor's band lost a quarter of its light; a sigma of 4 left blotches in it). The last pass moves the volumes'
+light toward the filtered light by the voxel's samples over them and 16 (`SPEEDO_GI_CACHE_SHOW=1`: all of it), and weighs
+the voxel in the lookups by that where the probes see it less (premultiplied by a probe weight of a ten thousandth, at
+resolution 64, where the last clip's probes don't see into the corridor, the cache's light went to half floats'
+subnormals and came out in pink, yellow and blue blotches). The passes ping-pong between a third part of the cache's
+buffer and the last frame's half, dead once the resolve has carried it over. Only what is looked up is traced and
+filtered: ComputeMain stamps the blocks each pixel's lookup reads (`GiMarkSeen`, the flags' third word, in each clip that
+lights the pixel), and the resolve marks a block active (`SHADER_TYPES_GI_FLAG_CACHE_ACTIVE`) where it or a block around
+it was read in the last 2 frames (at its place then, by the scroll); the others trace a ray every 8th frame and take their
+own light unfiltered, so that the bounce doesn't change with where the camera looks (`SPEEDO_GI_CACHE_EVERYWHERE=1` does
+them all: a turn in place differs from it by a mean of 1 to 2 of 765). Costs (RTX 4070 Ti SUPER, 1920x1080, the `Frame`
+scope): Sponza's corridor 3.6 ms without it, 5.7 with it (8.2 everywhere), Bistro's street 6.5, 9.4 (12.4),
+CornellBox-Sphere 2.6, 4.7 (4.9); everywhere, a ray a voxel was 1.9 ms of Sponza's and a filter pass 0.4. Its memory is
+48 bytes a voxel three times, allocated only while it is on (`Renderer::myGiCacheBuffer`): 0.3 GB at resolution 128,
+6.4 GB at 384 (Sponza then uses 14.9 GB of the GPU's 16): storing only the blocks near a surface would take most of
+that. A still camera changes by 0.026 of 255 a pixel a frame (the probes alone, 0). Interiors come out darker than the
+probes alone (light measured at the surface, where corners and overhangs shade it, rather than in the open cells around
+it), and the CornellBox's and salle_de_bain's probe blotches go. The surface reference (debug view 13), captured on its
+first frame for speed, has one bounce (the voxels' starts after 32 frames) and is noisier than the cache, which the user
+judged better: remake it (settled first, or accumulated) before tuning against it.
 
 Measured on KosmicKrisp by the frame's gpu time (2560x1440, 3 clips, 128 voxels, probes every 8, 128 rays, hysteresis
 0.97; the gpu's state drifts between runs by up to a third, so compare runs interleaved): before relocation

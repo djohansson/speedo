@@ -61,6 +61,8 @@ constexpr uint8_t kShadowClassifyEntryPoint = 18;
 constexpr uint8_t kShadowTraceEntryPoint = 19;
 constexpr uint8_t kShadowDenoiseXEntryPoint = 20;
 constexpr uint8_t kShadowDenoiseYEntryPoint = 21;
+// the surface cache's pooling (see ComputeGiCacheFilter), after the resolve
+constexpr uint8_t kGiCacheFilterEntryPoint = 22;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
 
@@ -221,6 +223,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiProbeDepth = myGraph.ImportBuffer("GI Probe Depth");
 	myGiFlags = myGraph.ImportBuffer("GI Flags");
 	myGiVisibility = myGraph.ImportBuffer("GI Visibility");
+	myGiCache = myGraph.ImportBuffer("GI Cache");
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGiVolumes[volumeIt] = myGraph.ImportImage(std::format("GI Volume {}", volumeIt));
 	myGiStaticVoxels = myGraph.ImportBuffer("GI Static Voxels");
@@ -232,7 +235,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			 std::tuple{&myGiIrradianceBuffer, "GI Irradiance", SHADER_TYPES_GI_IRRADIANCE_COUNT * 4 * sizeof(float)},
 			 std::tuple{&myGiProbeDepthBuffer, "GI Probe Depth", sizeof(uint32_t)},
 			 std::tuple{&myGiFlagBuffer, "GI Flags", sizeof(uint32_t)},
-			 std::tuple{&myGiVisibilityBuffer, "GI Visibility", sizeof(uint32_t)}})
+			 std::tuple{&myGiVisibilityBuffer, "GI Visibility", sizeof(uint32_t)},
+			 std::tuple{&myGiCacheBuffer, "GI Cache", 3 * 4 * sizeof(uint32_t)}})
 		*buffer = Buffer(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(name),
 			size,
@@ -659,7 +663,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		"GI Clear",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
 				builder.Use(buffer, ResourceUse::TransferDestination());
 			// the volumes too: the resolve writes only the blocks near a surface, and a lookup's filter reaches into the
 			// ones beside them
@@ -669,7 +673,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassContext& context)
 		{
 			CommandEncoder encoder(context.cmd);
-			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility})
+			for (auto buffer : {myGiVoxels, myGiStaticVoxels, myGiRadiance, myGiRays, myGiIrradiance, myGiProbeDepth, myGiFlags, myGiVisibility, myGiCache})
 				encoder.FillBuffer(context.graph.GetBuffer(buffer), 0, 0, 0);
 			for (auto volume : myGiVolumes)
 				context.graph.GetImage(volume).Clear(context.cmd, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
@@ -780,6 +784,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiProbeDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiVisibility, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myGiCache, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myGiStaticVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			for (auto volume : myGiVolumes)
@@ -806,6 +811,17 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			computeBarrier(cmd);
 			clips([&](uint32_t clip, const gi::Layout& layout)
 				  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
+			// the surface cache's light filtered, a pass at a time (its noise first, see ComputeGiCacheFilter), and blended
+			// into what the resolve wrote, where it is on
+			if (myGiSurfaceCacheOn)
+			{
+				for (uint32_t passIt = 0; passIt <= myGiCacheFilterPassCount; passIt++)
+				{
+					computeBarrier(cmd);
+					clips([&](uint32_t clip, const gi::Layout& layout)
+						  { giKernel(cmd, kGiCacheFilterEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip, passIt); });
+				}
+			}
 		});
 
 	prepass(false);
@@ -966,6 +982,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // the distances' histogram
 			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); // the dump's pixel
+			// the blocks the pixels' lookups read, for the surface cache (see GiMarkSeen)
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
 			builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
@@ -1065,7 +1084,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
 	// the indirect lighting, when FrameInputs::indirectLighting says (View > Indirect Lighting, SPEEDO_GI=1 to start with
 	// it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Indirect Lighting Resolution,
-	// SPEEDO_GI_RESOLUTION)
+	// SPEEDO_GI_RESOLUTION), and the surface cache's rays a voxel a frame and most samples (see GiData::cacheRayCount)
+	if (const char* rays = std::getenv("SPEEDO_GI_CACHE_RAYS"); rays != nullptr && *rays != '\0')
+		myGiCacheRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 1U, 64U);
+	if (const char* samples = std::getenv("SPEEDO_GI_CACHE_SAMPLES"); samples != nullptr && *samples != '\0')
+		myGiCacheSampleCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(samples, nullptr, 10)), 1U, 0xFFFFU);
+	if (const char* passes = std::getenv("SPEEDO_GI_CACHE_FILTER_PASSES"); passes != nullptr && *passes != '\0')
+		myGiCacheFilterPassCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(passes, nullptr, 10)), 1U, 4U);
+	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
+		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
+	if (const char* everywhere = std::getenv("SPEEDO_GI_CACHE_EVERYWHERE"); everywhere != nullptr)
+		myGiCacheEverywhere = std::string_view(everywhere) == "1";
+	if (const char* show = std::getenv("SPEEDO_GI_CACHE_SHOW"); show != nullptr)
+		myGiCacheShow = std::string_view(show) == "1";
 	// the clipmap's clips (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -1518,6 +1549,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{"gGiProbeDepth", &myGiProbeDepthBuffer},
 			 std::pair{"gGiFlags", &myGiFlagBuffer},
 			 std::pair{"gGiVisibility", &myGiVisibilityBuffer},
+			 std::pair{"gGiCache", &myGiCacheBuffer},
 			 std::pair{"gGiStaticVoxels", &myGiStaticVoxelBuffer}})
 		pipeline.SetDescriptorData(name, BufferBinding{.buffer = *buffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	// a voxel each until a model is voxelized (a depth of 2: a volume)
@@ -1935,6 +1967,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiProbeDepth, myGiProbeDepthBuffer);
 	myGraph.Bind(myGiFlags, myGiFlagBuffer);
 	myGraph.Bind(myGiVisibility, myGiVisibilityBuffer);
+	myGraph.Bind(myGiCache, myGiCacheBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
@@ -2423,6 +2456,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 
 	using namespace renderer;
 
+	myGiSurfaceCacheOn = frame.indirectLighting && frame.giSurfaceCache;
+
 	const auto& mainList = InternalList(ListId::kMain);
 	bool enabled = frame.indirectLighting && frame.model != nullptr && !mainList.Empty();
 	auto write = [](Buffer& buffer, std::span<const std::byte> bytes)
@@ -2533,6 +2568,16 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
 		"the indirect lighting's clips changed their sizes without the scene changing");
 	myGiClipmap = std::move(clipmap);
+	// the surface cache's buffer, only while it is on (48 bytes a voxel in each of its parts: gigabytes at the finer
+	// resolutions): two halves as the visibility's, and its filter's scratch (see GiData::cacheRayCount). a new one holds
+	// nothing of the frames before: the cache starts over
+	uint64_t cacheSize = frame.giSurfaceCache ? 3 * static_cast<uint64_t>(myGiClipmap.total.voxelCount) * 3 * 4 * sizeof(uint32_t) : 3 * 4 * sizeof(uint32_t);
+	bool cacheFresh = cacheSize != myGiCacheSize;
+	if (cacheFresh)
+	{
+		InternalReplaceBuffer(myGiCacheBuffer, pipeline, "GI Cache", "gGiCache", cacheSize, BufferUsage::kStorage | BufferUsage::kTransferDestination);
+		myGiCacheSize = cacheSize;
+	}
 	bool voxelize = std::ranges::any_of(myGiClipJobs, [](const auto& jobs) { return jobs.voxelize; });
 
 	// what the voxelizer reads, when it runs: the main list's triangles of what doesn't move (opaque or alpha masked), a
@@ -2640,6 +2685,15 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.visibilityPreviousFirst = (1 - myGiProbeHalf) * myGiClipmap.total.voxelCount + clip.voxelFirst;
 		// the probes' cycle sums and means, past both halves of their irradiance (see GiData::cycleOffset)
 		clip.cycleOffset = 2 * probeTotal;
+		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
+		clip.cacheRayCount = frame.giSurfaceCache ? myGiCacheRayCount : 0U;
+		clip.cacheSampleCount = myGiCacheSampleCount;
+		clip.cacheReset = myGiLightsChanged || cacheFresh ? 1U : 0U;
+		clip.cacheShow = myGiCacheShow ? 1U : 0U;
+		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
+		clip.cacheScratchFirst = 2 * myGiClipmap.total.voxelCount + clip.voxelFirst;
+		clip.cacheSigma = myGiCacheSigma;
+		clip.cacheEverywhere = myGiCacheEverywhere ? 1U : 0U;
 		clip.depthFirst = clip.probeFirst * kDepthTexelCount;
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;

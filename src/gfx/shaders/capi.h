@@ -679,12 +679,15 @@ struct CullView
 // the flags (gGiFlags, see ComputeGiFlags): per voxel of this level of each clip (a block) SHADER_TYPES_GI_FLAG_WORD_COUNT
 // words: in the first, bits 8 and up the last frame (GiData::frameStamp) anything was voxelized in it, bit 0 whether
 // anything is in the 3x3x3 blocks around it, and bit 3 whether bit 0 is set within SHADER_TYPES_GI_FLAG_REACH blocks
-// along each axis (bits 1 and 2 are the spread's steps along x and y); in the second, the last frame something moving
-// was voxelized in it (see ComputeGiLight)
+// along each axis (bits 1 and 2 are the spread's steps along x and y), and bit 4 whether the surface cache traces and
+// filters it this frame (SHADER_TYPES_GI_FLAG_CACHE_ACTIVE, see ComputeGiResolve); in the second, the last frame
+// something moving was voxelized in it (see ComputeGiLight); in the third, the last frame a pixel's lookup read it
+// (see GiMarkSeen)
 #define SHADER_TYPES_GI_FLAG_LEVEL 2u
 #define SHADER_TYPES_GI_FLAG_REACH 4
 #define SHADER_TYPES_GI_FLAG_STAMP_SHIFT 8u
-#define SHADER_TYPES_GI_FLAG_WORD_COUNT 2u
+#define SHADER_TYPES_GI_FLAG_CACHE_ACTIVE 16u
+#define SHADER_TYPES_GI_FLAG_WORD_COUNT 3u
 // how the indirect lighting's rays find what they meet (GiData::trace): traversing the model's BVHs (gBvhNodes of what
 // doesn't move, gBvhMovingNodes of what does, see bvh.slang; the default), reading the voxels' radiance where they hit,
 // or walking the voxels (View > Indirect Lighting Rays, SPEEDO_GI_TRACE=voxels; see GiMarch)
@@ -838,6 +841,24 @@ struct GiData
 	// either half) as this: the sum of the cycle's frames so far (face 0's w counts them), and twice this past it, the last
 	// whole cycle's mean (face 0's w: 1 once there is one), which what it holds is blended towards
 	alignas(4) UINT1(cycleOffset);
+	// the surface cache (see ComputeGiResolve): its rays a voxel a frame (0: off, the probes alone), the most samples a
+	// voxel's mean is of (a newer sample weighs at least its reciprocal), and whether what it holds is dropped this frame
+	// (the lights changed: a reset or a scene change drops it as the probes)
+	alignas(4) UINT1(cacheRayCount);
+	alignas(4) UINT1(cacheSampleCount);
+	alignas(4) UINT1(cacheReset);
+	// whether the voxels take the cache's pooled light alone where there is some, rather than blended with their probes' by its
+	// samples (SPEEDO_GI_CACHE_SHOW=1: to judge it)
+	alignas(4) UINT1(cacheShow);
+	// the cache's filter (see ComputeGiCacheFilter): its passes after the noise's (SPEEDO_GI_CACHE_FILTER_PASSES, 3), the
+	// clip's first voxel in the cache's scratch (past both halves), and how many deviations of a voxel's noise a
+	// neighbour's light may differ by and still be averaged with it (SPEEDO_GI_CACHE_SIGMA, 8)
+	alignas(4) UINT1(cacheFilterPassCount);
+	alignas(4) UINT1(cacheScratchFirst);
+	alignas(4) FLOAT1(cacheSigma);
+	// whether the cache traces and filters every voxel near a surface, not only around what the lookups read
+	// (SPEEDO_GI_CACHE_EVERYWHERE=1: to compare, see ComputeGiResolve)
+	alignas(4) UINT1(cacheEverywhere);
 };
 
 struct PushConstants

@@ -68,6 +68,8 @@ struct FrameInputs
 	bool traceTriangles = true;
 	// its voxels along the scene's longest axis (see gi::MakeClipmap): a change makes the clipmap again
 	uint32_t giResolution = gi::kDefaultResolution;
+	// whether the surface cache refines the probes' light (see GiData::cacheRayCount)
+	bool giSurfaceCache = true;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -461,6 +463,19 @@ private:
 	// per voxel which of its probes it sees, where the rays trace the BVHs (see ComputeGiResolve)
 	Buffer myGiVisibilityBuffer;
 	FrameGraph::BufferId myGiVisibility;
+	// the surface cache (gGiCache, see GiData::cacheRayCount): FrameInputs::giSurfaceCache, SPEEDO_GI_CACHE_RAYS rays a voxel a
+	// frame, SPEEDO_GI_CACHE_SAMPLES the most samples a voxel's mean is of, and its filter's passes and edge
+	// (SPEEDO_GI_CACHE_FILTER_PASSES, SPEEDO_GI_CACHE_SIGMA: see GiData::cacheFilterPassCount)
+	Buffer myGiCacheBuffer;
+	uint64_t myGiCacheSize = 3 * 4 * sizeof(uint32_t); // the buffer's, a single entry's while the cache is off
+	FrameGraph::BufferId myGiCache;
+	uint32_t myGiCacheRayCount = 1;
+	uint32_t myGiCacheSampleCount = 1024;
+	uint32_t myGiCacheFilterPassCount = 3;
+	float myGiCacheSigma = 8.0F;
+	bool myGiCacheEverywhere = false; // SPEEDO_GI_CACHE_EVERYWHERE=1: see GiData::cacheEverywhere
+	bool myGiCacheShow = false; // SPEEDO_GI_CACHE_SHOW=1: see GiData::cacheShow
+	bool myGiSurfaceCacheOn = false; // this frame (FrameInputs::giSurfaceCache), for the GI pass's filter
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;

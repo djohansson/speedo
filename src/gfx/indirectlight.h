@@ -22,11 +22,13 @@ inline constexpr uint32_t kSnapProbes = 1;
 
 // the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Indirect Lighting
 // Resolution offers. finer resolves light through narrower openings (the sky under Sponza's curtains, which 128 drew as
-// spots at the corridor's end that faded as the eye neared them: the coarser clips' probes, 1.8 m apart) at a steep
-// cost: Sponza's corridor 3.5 ms a frame at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320, 17.8 at 384 (RTX 4070 Ti SUPER,
-// 1920x1080)
+// spots at the corridor's end that faded as the eye neared them: the coarser clips' probes, 1.8 m apart; the surface
+// cache resolves it at the voxels' size, see ComputeGiCacheFilter) at a steep cost: Sponza's corridor without the cache
+// 2.1 ms a frame at 64, 2.6 at 96, 3.5 at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320, 17.8 at 384 (RTX 4070 Ti SUPER,
+// 1920x1080), the cache 0.7 ms more at 64, 1.4 at 96, 2.3 at 128, and 0.3 GB of memory at 128, 6.4 at 384
+// (Renderer::myGiCacheBuffer)
 inline constexpr uint32_t kDefaultResolution = 128;
-inline constexpr std::array<uint32_t, 5> kResolutions{128, 192, 256, 320, 384};
+inline constexpr std::array<uint32_t, 7> kResolutions{64, 96, 128, 192, 256, 320, 384};
 // what SPEEDO_GI_RESOLUTION may ask for
 inline constexpr uint32_t kMinResolution = 8;
 inline constexpr uint32_t kMaxResolution = 512;
