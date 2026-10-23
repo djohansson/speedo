@@ -90,7 +90,13 @@ Notes for working in this codebase, distilled from real build failures.
   first image's past the count). It then passed 12 runs in 12 with Sponza, and clean under validation. A debug client
   compiling the shaders on Windows ran past 20 minutes without drawing a frame: the profile client with
   `VK_LAYER_PATH=<install>/x64-windows-clang/bin` and `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` validates too (the
-  layer prints to stdout when there is no messenger).
+  layer prints to stdout when there is no messenger). For a lost device, the Crash Diagnostic Layer (the
+  `vulkan-crash-diagnostic-layer` overlay port, installed beside the validation layer:
+  `VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_crash_diagnostic`) dumps the submits and commands the gpu hadn't finished, with
+  the shader and descriptor sets of the last one started, to `<home>/cdl/<time>/cdl_dump.yaml` (its `CDL_*` variables
+  weren't taken from the environment here: the dump's settings show what was). The client's own device lost handler
+  traps at once, and printed the layer's checkpoints as strings (an access violation), so the process can end before
+  the dump is written: delay its trap while diagnosing.
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered

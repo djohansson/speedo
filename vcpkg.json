@@ -124,6 +124,7 @@
           "features": [ "gui-tools" ]
         },
         "vulkan",
+        "vulkan-crash-diagnostic-layer",
         "vulkan-headers",
         "vulkan-loader",
         "vulkan-memory-allocator",

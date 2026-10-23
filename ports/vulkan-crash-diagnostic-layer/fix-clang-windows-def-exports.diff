@@ -1,0 +1,17 @@
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index c007cf8..bfe6b44 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -109,6 +109,12 @@ if(MSVC)
+ elseif(MINGW)
+     target_sources(crash_diagnostic PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
+     target_compile_options(crash_diagnostic PRIVATE -Wa,-mbig-obj)
++elseif(WIN32)
++    # A GNU-frontend clang targeting *-windows-msvc (i.e. clang/clang++, not
++    # clang-cl) is detected as neither MSVC nor MINGW, so without this branch
++    # nothing is exported (lld-link skips the version script below). Forward the
++    # MSVC-style .def through the driver.
++    target_link_options(crash_diagnostic PRIVATE LINKER:/DEF:${CMAKE_CURRENT_SOURCE_DIR}/${LAYER_NAME}.def)
+ elseif(APPLE)
+     message(STATUS "Functions are exported via CDL_EXPORT")
+     set_target_properties(crash_diagnostic PROPERTIES SUFFIX ".dylib")

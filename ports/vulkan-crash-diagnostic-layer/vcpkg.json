@@ -1,0 +1,17 @@
+{
+  "name": "vulkan-crash-diagnostic-layer",
+  "version": "1.4.350.1",
+  "description": "Crash Diagnostic Layer (CDL): records the commands submitted and, on a lost device or a hang, dumps what the gpu had and hadn't finished",
+  "homepage": "https://github.com/LunarG/CrashDiagnosticLayer",
+  "license": "Apache-2.0",
+  "dependencies": [
+    "spirv-headers",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    "vulkan-headers",
+    "vulkan-utility-libraries",
+    "yaml-cpp"
+  ]
+}
