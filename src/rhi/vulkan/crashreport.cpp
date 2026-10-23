@@ -628,7 +628,7 @@ void Detect(VkInstance instance, VkPhysicalDevice physicalDevice)
 	VkPhysicalDeviceAddressBindingReportFeaturesEXT binding{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT, .pNext = &coherent};
 	VkPhysicalDeviceFaultFeaturesEXT fault{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT, .pNext = &binding};
 	VkPhysicalDeviceFeatures2 features{.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &fault};
-	gVkGetPhysicalDeviceFeatures2(physicalDevice, &features);
+	vkGetPhysicalDeviceFeatures2(physicalDevice, &features);
 
 	bool layer = capabilities.crashDiagnosticLayer;
 	// SPEEDO_CRASH_BREADCRUMBS=markers|checkpoints|none: one way only (if the device has it), to check it

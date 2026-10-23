@@ -135,6 +135,11 @@ template <GraphicsApi G>
 using PhysicalDeviceProperties =
 	std::conditional_t<G == kVk, VkPhysicalDeviceProperties2, std::nullptr_t>;
 
+// the core versions' (see kVulkanApiVersion): what was an extension's before is queried and enabled here
+template <GraphicsApi G>
+using PhysicalDeviceProperties11Ex =
+	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan11Properties, std::nullptr_t>;
+
 template <GraphicsApi G>
 using PhysicalDeviceProperties12Ex =
 	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan12Properties, std::nullptr_t>;
@@ -144,8 +149,16 @@ using PhysicalDeviceProperties13Ex =
 	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan13Properties, std::nullptr_t>;
 
 template <GraphicsApi G>
+using PhysicalDeviceProperties14Ex =
+	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan14Properties, std::nullptr_t>;
+
+template <GraphicsApi G>
 using PhysicalDeviceFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDeviceFeatures2, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceFeatures11Ex =
+	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan11Features, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PhysicalDeviceFeatures12Ex =
@@ -156,25 +169,10 @@ using PhysicalDeviceFeatures13Ex =
 	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan13Features, std::nullptr_t>;
 
 template <GraphicsApi G>
-using PhysicalDeviceInlineUniformBlockFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceInlineUniformBlockFeatures, std::nullptr_t>;
+using PhysicalDeviceFeatures14Ex =
+	std::conditional_t<G == kVk, VkPhysicalDeviceVulkan14Features, std::nullptr_t>;
 
-template <GraphicsApi G>
-using PhysicalDeviceInlineUniformBlockProperties =
-	std::conditional_t<G == kVk, VkPhysicalDeviceInlineUniformBlockProperties, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceDynamicRenderingFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceDynamicRenderingFeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceSynchronization2Features =
-	std::conditional_t<G == kVk, VkPhysicalDeviceSynchronization2FeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceExtendedDynamicStateFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceExtendedDynamicStateFeaturesEXT, std::nullptr_t>;
-
+// the extensions' (not core in kVulkanApiVersion)
 template <GraphicsApi G>
 using PhysicalDevicePresentIdFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDevicePresentIdFeaturesKHR, std::nullptr_t>;
@@ -182,14 +180,6 @@ using PhysicalDevicePresentIdFeatures =
 template <GraphicsApi G>
 using PhysicalDevicePresentWaitFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDevicePresentWaitFeaturesKHR, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceMultiviewFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceMultiviewFeatures, std::nullptr_t>;
-
-template <GraphicsApi G>
-using PhysicalDeviceShaderDrawParametersFeatures =
-	std::conditional_t<G == kVk, VkPhysicalDeviceShaderDrawParametersFeatures, std::nullptr_t>;
 
 template <GraphicsApi G>
 using PhysicalDeviceSwapchainMaintenance1Features =
@@ -206,10 +196,6 @@ using PhysicalDeviceAddressBindingReportFeatures =
 template <GraphicsApi G>
 using PhysicalDeviceCoherentMemoryFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDeviceCoherentMemoryFeaturesAMD, std::nullptr_t>;
-
-	template <GraphicsApi G>
-using PhysicalDevicePushDescriptorProperties = 
-	std::conditional_t<G == kVk, VkPhysicalDevicePushDescriptorPropertiesKHR, std::nullptr_t>;
 
 template <GraphicsApi G>
 using QueueHandle = std::conditional_t<G == kVk, VkQueue, std::nullptr_t>;

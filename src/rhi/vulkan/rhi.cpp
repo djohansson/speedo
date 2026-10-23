@@ -57,6 +57,17 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 		if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 			std::println("{}", physicalDeviceInfo.deviceProperties.properties.deviceName);
 
+		// the api version the instance asks for (kVulkanApiVersion): an older device is no candidate
+		const auto& properties = physicalDeviceInfo.deviceProperties.properties;
+		if (properties.apiVersion < kVulkanApiVersion)
+		{
+			std::println(
+				"{}: Vulkan {}.{}.{}, not {}.{}: skipped", properties.deviceName, VK_API_VERSION_MAJOR(properties.apiVersion),
+				VK_API_VERSION_MINOR(properties.apiVersion), VK_API_VERSION_PATCH(properties.apiVersion),
+				VK_API_VERSION_MAJOR(kVulkanApiVersion), VK_API_VERSION_MINOR(kVulkanApiVersion));
+			continue;
+		}
+
 		for (uint32_t queueFamilyIt = 0;
 				queueFamilyIt < physicalDeviceInfo.queueFamilyProperties.size();
 				queueFamilyIt++)
@@ -98,7 +109,9 @@ std::vector<Device<kVk>> DetectAndCreateDevices(Instance<kVk>& instance, Surface
 			return kDeviceTypePriority[lhsDeviceType] < kDeviceTypePriority[rhsDeviceType];
 		});
 
-	ENSUREF(!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU!");
+	ENSUREF(
+		!graphicsDeviceCandidates.empty(), "Failed to find a suitable GPU: one supporting Vulkan {}.{} that can present to the window",
+		VK_API_VERSION_MAJOR(kVulkanApiVersion), VK_API_VERSION_MINOR(kVulkanApiVersion));
 
 	// the best candidate only: everything draws on the primary device (GetPrimaryDevice), and each device made its own
 	// queues and pipeline for nothing. RenderDoc refuses a second logical device (a discrete gpu and an integrated one

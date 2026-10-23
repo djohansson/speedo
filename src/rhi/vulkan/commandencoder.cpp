@@ -27,13 +27,13 @@ void CommandEncoder<kVk>::SetScissor(const Rect& rect) const
 template <>
 void CommandEncoder<kVk>::SetCullMode(CullMode mode) const
 {
-	gVkCmdSetCullModeEXT(myCmd, vk::ToVk(mode));
+	vkCmdSetCullMode(myCmd, vk::ToVk(mode));
 }
 
 template <>
 void CommandEncoder<kVk>::SetFrontFace(FrontFace face) const
 {
-	gVkCmdSetFrontFaceEXT(myCmd, vk::ToVk(face));
+	vkCmdSetFrontFace(myCmd, vk::ToVk(face));
 }
 
 template <>

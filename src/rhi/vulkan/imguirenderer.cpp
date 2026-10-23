@@ -182,6 +182,7 @@ ImGuiRenderer<kVk>::ImGuiRenderer(Device<kVk>& device, Swapchain<kVk>& swapchain
 	initInfo.Allocator = &instance.GetHostAllocationCallbacks();
 	initInfo.CheckVkResultFn = [](VkResult result) { VK_CHECK(result); };
 	initInfo.MinAllocationSize = 64 * 1024; //NOLINT(readability-magic-numbers)
+	initInfo.ApiVersion = kVulkanApiVersion; // the core names of what it loads (dynamic rendering's)
 	initInfo.UseDynamicRendering = swapchain.GetDesc().useDynamicRendering;
 	initInfo.PipelineInfoMain.RenderPass = initInfo.UseDynamicRendering ? VK_NULL_HANDLE : swapchain.GetFrames()[0].GetHandle().first;
 	initInfo.PipelineInfoMain.Subpass = 0;

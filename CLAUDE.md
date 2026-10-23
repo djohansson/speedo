@@ -207,6 +207,21 @@ Notes for working in this codebase, distilled from real build failures.
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
   rhi, `rhi::DescriptorType` in gfx.
 
+## Vulkan 1.4
+
+The instance asks for Vulkan 1.4 (`kVulkanApiVersion`, `rhi/vulkan/utils.h`) and only devices that support it are
+candidates (`DetectAndCreateDevices`). What 1.1 to 1.4 made core is called and enabled as core: dynamic rendering,
+synchronization2, the dynamic cull mode and front face, shader draw parameters, inline uniform blocks, push descriptors,
+tooling info (`vkCmdBeginRendering`, `vkCmdPipelineBarrier2`, `vkCmdSetCullMode`, `vkCmdPushDescriptorSetWithTemplate`,
+...), not through extensions and function pointers. Features come in `PhysicalDeviceInfo`'s version structs
+(`deviceFeatures11Ex` to `deviceFeatures14Ex`, the 1.3 and 1.4 ones chained only where the device has them), then the
+extensions' (`deviceFeatureParams`: present id and wait, swapchain maintenance1, the crash reports'); the device is made
+with the whole chain, so it enables every feature it has, and `Device` checks by name the optional ones the renderer
+needs (dynamic rendering, synchronization2, shader draw parameters, timeline semaphores, push descriptors). VMA and
+imgui's backend are told the version too (imgui then loads the core dynamic rendering functions: the KHR ones aren't
+enabled). Verified on Windows (NVIDIA, 1.4.341); macOS needs KosmicKrisp or MoltenVK to report 1.4, else no device is a
+candidate.
+
 ## Crash reports
 
 A fatal Vulkan result (a lost device, out of memory, any other error) or a hang writes a crash report, in every build,

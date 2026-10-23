@@ -23,13 +23,13 @@ void OnCheckFailedDefault(VkResult result, uintptr_t count, ...);
 #define VK_CHECK(Expression, ...) \
 	VK_CHECK_RESULT_IMPL(Expression, VK_SUCCESS, OnCheckFailedDefault __VA_OPT__(,) __VA_ARGS__)
 
-extern PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2;
-extern PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2;
+// the vulkan version the instance asks for and the devices must support: what it made core (dynamic rendering,
+// synchronization2, the dynamic cull mode and front face, inline uniform blocks, push descriptors, ...) is called and
+// enabled as core, rather than through extensions
+inline constexpr uint32_t kVulkanApiVersion = VK_API_VERSION_1_4;
+
+// the extensions' functions (what isn't core in kVulkanApiVersion)
 extern PFN_vkWaitForPresentKHR gVkWaitForPresentKHR;
-extern PFN_vkGetBufferMemoryRequirements2KHR gVkGetBufferMemoryRequirements2KHR;
-extern PFN_vkGetImageMemoryRequirements2KHR gVkGetImageMemoryRequirements2KHR;
-extern PFN_vkCmdBeginRenderingKHR gVkCmdBeginRenderingKHR;
-extern PFN_vkCmdEndRenderingKHR gVkCmdEndRenderingKHR;
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 extern PFN_vkCreateDebugUtilsMessengerEXT gVkCreateDebugUtilsMessengerEXT;
 extern PFN_vkDestroyDebugUtilsMessengerEXT gVkDestroyDebugUtilsMessengerEXT;
@@ -37,10 +37,6 @@ extern PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt;
 #endif
 extern PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV;
 extern PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV;
-extern PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR;
-extern PFN_vkCmdSetCullModeEXT gVkCmdSetCullModeEXT;
-extern PFN_vkCmdSetFrontFaceEXT gVkCmdSetFrontFaceEXT;
-extern PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR;
 
 // tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject/TrackInstanceObject
 template <typename HandleT>

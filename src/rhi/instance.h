@@ -34,23 +34,15 @@ struct SwapchainInfo
 	std::vector<uint32_t> queueFamilyPresentSupport;
 };
 
+// the extensions' features (the core versions' are PhysicalDeviceInfo's own)
 template <GraphicsApi G>
 using PhysicalDeviceFeatureParams = std::variant<
-	PhysicalDeviceInlineUniformBlockFeatures<G>,
-	PhysicalDeviceDynamicRenderingFeatures<G>,
-	PhysicalDeviceSynchronization2Features<G>,
-	PhysicalDeviceExtendedDynamicStateFeatures<G>,
 	PhysicalDevicePresentIdFeatures<G>,
 	PhysicalDevicePresentWaitFeatures<G>,
-	PhysicalDeviceMultiviewFeatures<G>,
 	PhysicalDeviceSwapchainMaintenance1Features<G>,
-	PhysicalDeviceShaderDrawParametersFeatures<G>,
 	PhysicalDeviceFaultFeatures<G>,
 	PhysicalDeviceAddressBindingReportFeatures<G>,
 	PhysicalDeviceCoherentMemoryFeatures<G>>;
-
-template <GraphicsApi G>
-using PhysicalDevicePropertyParams = std::variant<PhysicalDevicePushDescriptorProperties<G>>;
 
 template <GraphicsApi G>
 using PhysicalDeviceFeatureParamsSet = core::UnorderedSet<
@@ -59,22 +51,21 @@ using PhysicalDeviceFeatureParamsSet = core::UnorderedSet<
 	core::IntrusiveTypeInfoEqualTo<PhysicalDeviceFeatureParams<G>, StructureType<G>>>;
 
 template <GraphicsApi G>
-using PhysicalDevicePropertyParamsSet = core::UnorderedSet<
-	PhysicalDevicePropertyParams<G>,
-	core::IntrusiveTypeInfoHash<PhysicalDevicePropertyParams<G>, StructureType<G>>,
-	core::IntrusiveTypeInfoEqualTo<PhysicalDevicePropertyParams<G>, StructureType<G>>>;
-
-template <GraphicsApi G>
 struct PhysicalDeviceInfo
 {
+	// each core version's features and properties, chained (1.3's and 1.4's where the device has them: see
+	// SupportsApiVersion), then the extensions'. the device is made with all of them, so it enables every feature it has
 	PhysicalDeviceFeatures<G> deviceFeatures{};
+	PhysicalDeviceFeatures11Ex<G> deviceFeatures11Ex{};
 	PhysicalDeviceFeatures12Ex<G> deviceFeatures12Ex{};
-	// PhysicalDeviceFeatures13Ex<G> deviceFeatures13Ex{};
+	PhysicalDeviceFeatures13Ex<G> deviceFeatures13Ex{};
+	PhysicalDeviceFeatures14Ex<G> deviceFeatures14Ex{};
 	PhysicalDeviceFeatureParamsSet<G> deviceFeatureParams;
 	PhysicalDeviceProperties<G> deviceProperties{};
+	PhysicalDeviceProperties11Ex<G> deviceProperties11Ex{};
 	PhysicalDeviceProperties12Ex<G> deviceProperties12Ex{};
-	// PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
-	PhysicalDevicePropertyParamsSet<G> devicePropertyParams;
+	PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
+	PhysicalDeviceProperties14Ex<G> deviceProperties14Ex{};
 	std::vector<QueueFamilyProperties<G>> queueFamilyProperties;
 };
 

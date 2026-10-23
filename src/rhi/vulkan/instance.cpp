@@ -81,40 +81,20 @@ void GetPhysicalDeviceInfo2(
 	InstanceHandle<kVk> instance,
 	PhysicalDeviceHandle<kVk> device)
 {
+	// the core versions' structs where the device has them: a struct of a version it lacks mustn't be chained
+	VkPhysicalDeviceProperties properties{};
+	vkGetPhysicalDeviceProperties(device, &properties);
+	bool has13 = properties.apiVersion >= VK_API_VERSION_1_3;
+	bool has14 = properties.apiVersion >= VK_API_VERSION_1_4;
+
+	// the extensions' (dynamic rendering, synchronization2, extended dynamic state, shader draw parameters, multiview and
+	// inline uniform blocks are core: the version structs below)
 	auto& deviceFeatureParams = deviceInfo.deviceFeatureParams;
 	deviceFeatureParams.clear();
-	deviceFeatureParams.emplace(VkPhysicalDeviceDynamicRenderingFeatures
-	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
-	});
-	deviceFeatureParams.emplace(VkPhysicalDeviceSynchronization2Features
-	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES,
-	});
-	deviceFeatureParams.emplace(VkPhysicalDeviceExtendedDynamicStateFeaturesEXT
-	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT,
-	});
-	// SV_DrawIndex (the vertex stage's draw index in an indirect draw)
-	deviceFeatureParams.emplace(VkPhysicalDeviceShaderDrawParametersFeatures
-	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES,
-	});
-	deviceFeatureParams.emplace(VkPhysicalDeviceMultiviewFeatures
-	{
-		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,
-	});
 	deviceFeatureParams.emplace(VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR
 	{
 		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_KHR,
 	});
-	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, device))
-	{
-		deviceFeatureParams.emplace(VkPhysicalDeviceInlineUniformBlockFeaturesEXT
-		{
-			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INLINE_UNIFORM_BLOCK_FEATURES_EXT,
-		});
-	}
 	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, device))
 	{
 		deviceFeatureParams.emplace(VkPhysicalDevicePresentIdFeaturesKHR
@@ -152,31 +132,32 @@ void GetPhysicalDeviceInfo2(
 		});
 	}
 	
-	deviceInfo.deviceFeatures12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-	deviceInfo.deviceFeatures12Ex.pNext = GetPNextChain(deviceFeatureParams);
+	// features 2 -> 1.1 -> 1.2 (-> 1.3 -> 1.4) -> the extensions'
+	void* extensionFeatures = GetPNextChain(deviceFeatureParams);
+	deviceInfo.deviceFeatures14Ex = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_FEATURES, .pNext = extensionFeatures};
+	deviceInfo.deviceFeatures13Ex = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+		.pNext = has14 ? static_cast<void*>(&deviceInfo.deviceFeatures14Ex) : extensionFeatures};
+	deviceInfo.deviceFeatures12Ex = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+		.pNext = has13 ? static_cast<void*>(&deviceInfo.deviceFeatures13Ex) : extensionFeatures};
+	deviceInfo.deviceFeatures11Ex = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES, .pNext = &deviceInfo.deviceFeatures12Ex};
+	deviceInfo.deviceFeatures = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &deviceInfo.deviceFeatures11Ex};
 
-	deviceInfo.deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-	deviceInfo.deviceFeatures.pNext = &deviceInfo.deviceFeatures12Ex;
-	
-	gVkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
+	vkGetPhysicalDeviceFeatures2(device, &deviceInfo.deviceFeatures);
 
-	auto& devicePropertyParams = deviceInfo.devicePropertyParams;
-	devicePropertyParams.clear();
-	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, device))
-	{
-		devicePropertyParams.emplace(VkPhysicalDevicePushDescriptorPropertiesKHR
-		{
-			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR,
-		});
-	}
+	// properties 2 -> 1.1 -> 1.2 (-> 1.3 -> 1.4)
+	deviceInfo.deviceProperties14Ex = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_4_PROPERTIES};
+	deviceInfo.deviceProperties13Ex = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES,
+		.pNext = has14 ? &deviceInfo.deviceProperties14Ex : nullptr};
+	deviceInfo.deviceProperties12Ex = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES,
+		.pNext = has13 ? &deviceInfo.deviceProperties13Ex : nullptr};
+	deviceInfo.deviceProperties11Ex = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES, .pNext = &deviceInfo.deviceProperties12Ex};
+	deviceInfo.deviceProperties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &deviceInfo.deviceProperties11Ex};
 
-	deviceInfo.deviceProperties12Ex.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
-	deviceInfo.deviceProperties12Ex.pNext = GetPNextChain(devicePropertyParams);
-	
-	deviceInfo.deviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-	deviceInfo.deviceProperties.pNext = &deviceInfo.deviceProperties12Ex;
-
-	gVkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
+	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 
 	uint32_t queueFamilyCount = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
@@ -300,7 +281,7 @@ InstanceCreateDesc<kVk>::InstanceCreateDesc(std::string&& applicationName, std::
 		.applicationVersion = VK_MAKE_VERSION(1, 0, 0),
 		.pEngineName = nullptr,
 		.engineVersion = VK_MAKE_VERSION(1, 0, 0),
-		.apiVersion = VK_API_VERSION_1_2}
+		.apiVersion = kVulkanApiVersion}
 {
 	appInfo.pApplicationName = this->applicationName.c_str();
 	appInfo.pEngineName = this->engineName.c_str();
@@ -449,7 +430,6 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 	std::fflush(stdout);
 
 	std::vector<const char*> requiredExtensions = {
-		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
 	#if defined(__OSX__)
 		VK_EXT_METAL_SURFACE_EXTENSION_NAME,
 		VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME,

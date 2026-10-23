@@ -334,13 +334,23 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 			.pQueuePriorities=queuePriorities.data(),});
 	}
 
-	std::vector<const char*> requiredExtensions = {
-		VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME,
-		VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME, // the cull mode, set per draw (see CommandEncoder::SetCullMode)
-		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
-		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,};
+	// the core version's (kVulkanApiVersion): what were extensions (dynamic rendering, synchronization2, the dynamic cull
+	// mode and front face, shader draw parameters, shader non semantic info, inline uniform blocks, push descriptors) are
+	// core in it, the features of theirs that are optional checked here
+	auto apiVersion = physicalDeviceInfo.deviceProperties.properties.apiVersion;
+	ENSUREF(
+		apiVersion >= kVulkanApiVersion, "{} supports Vulkan {}.{}, not {}.{}", physicalDeviceInfo.deviceProperties.properties.deviceName,
+		VK_API_VERSION_MAJOR(apiVersion), VK_API_VERSION_MINOR(apiVersion), VK_API_VERSION_MAJOR(kVulkanApiVersion),
+		VK_API_VERSION_MINOR(kVulkanApiVersion));
+	for (auto [supported, name] : std::initializer_list<std::pair<VkBool32, const char*>>{
+			 {physicalDeviceInfo.deviceFeatures13Ex.dynamicRendering, "dynamicRendering"},
+			 {physicalDeviceInfo.deviceFeatures13Ex.synchronization2, "synchronization2"},
+			 {physicalDeviceInfo.deviceFeatures11Ex.shaderDrawParameters, "shaderDrawParameters"}, // SV_StartInstanceLocation
+			 {physicalDeviceInfo.deviceFeatures12Ex.timelineSemaphore, "timelineSemaphore"},
+			 {physicalDeviceInfo.deviceFeatures14Ex.pushDescriptor, "pushDescriptor"}})
+		ENSUREF(supported == VK_TRUE, "Vulkan device feature not supported: {}", name);
+
+	std::vector<const char*> requiredExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
 	for (const char* extensionName : requiredExtensions)
 		ENSUREF(SupportsExtension(extensionName, GetDesc().physicalDevice), "Vulkan device extension not supported: {}", extensionName);
@@ -351,12 +361,6 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	if (SupportsExtension(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 #endif
-
-	if (SupportsExtension(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME, GetDesc().physicalDevice))
-		desiredExtensions.emplace_back(VK_EXT_INLINE_UNIFORM_BLOCK_EXTENSION_NAME);
-
-	if (SupportsExtension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, GetDesc().physicalDevice))
-		desiredExtensions.emplace_back(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 
 	if (SupportsExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
@@ -438,8 +442,14 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		functions.vkDestroyBuffer = vkDestroyBuffer;
 		functions.vkCreateImage = vkCreateImage;
 		functions.vkDestroyImage = vkDestroyImage;
-		functions.vkGetBufferMemoryRequirements2KHR = gVkGetBufferMemoryRequirements2KHR;
-		functions.vkGetImageMemoryRequirements2KHR = gVkGetImageMemoryRequirements2KHR;
+		// core since vulkan 1.1 and 1.3, in the fields vma names after their extensions
+		functions.vkGetBufferMemoryRequirements2KHR = vkGetBufferMemoryRequirements2;
+		functions.vkGetImageMemoryRequirements2KHR = vkGetImageMemoryRequirements2;
+		functions.vkBindBufferMemory2KHR = vkBindBufferMemory2;
+		functions.vkBindImageMemory2KHR = vkBindImageMemory2;
+		functions.vkGetPhysicalDeviceMemoryProperties2KHR = vkGetPhysicalDeviceMemoryProperties2;
+		functions.vkGetDeviceBufferMemoryRequirements = vkGetDeviceBufferMemoryRequirements;
+		functions.vkGetDeviceImageMemoryRequirements = vkGetDeviceImageMemoryRequirements;
 
 		// vma allocates device memory itself, in blocks: count them as it does
 		VmaDeviceMemoryCallbacks memoryCallbacks{
@@ -453,6 +463,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		VmaAllocatorCreateInfo allocatorInfo{};
 		// the crash reports' breadcrumbs ring takes device coherent memory where there is some (see crashreport.cpp)
 		allocatorInfo.flags = vk::crash::GetCapabilities().deviceCoherentMemory ? VMA_ALLOCATOR_CREATE_AMD_DEVICE_COHERENT_MEMORY_BIT : 0U;
+		allocatorInfo.vulkanApiVersion = kVulkanApiVersion;
 		allocatorInfo.physicalDevice = GetDesc().physicalDevice;
         allocatorInfo.preferredLargeHeapBlockSize = 0; // 0 = default (256Mb)
 		allocatorInfo.device = myDevice;

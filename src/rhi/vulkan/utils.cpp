@@ -24,13 +24,7 @@
 #include <cstdint>
 #include <print>
 
-PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2{};
-PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2{};
 PFN_vkWaitForPresentKHR gVkWaitForPresentKHR{};
-PFN_vkGetBufferMemoryRequirements2KHR gVkGetBufferMemoryRequirements2KHR{};
-PFN_vkGetImageMemoryRequirements2KHR gVkGetImageMemoryRequirements2KHR{};
-PFN_vkCmdBeginRenderingKHR gVkCmdBeginRenderingKHR{};
-PFN_vkCmdEndRenderingKHR gVkCmdEndRenderingKHR{};
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 PFN_vkCreateDebugUtilsMessengerEXT gVkCreateDebugUtilsMessengerEXT{};
 PFN_vkDestroyDebugUtilsMessengerEXT gVkDestroyDebugUtilsMessengerEXT{};
@@ -38,10 +32,6 @@ PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
 #endif
 PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV{};
 PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV{};
-PFN_vkCmdPipelineBarrier2KHR gVkCmdPipelineBarrier2KHR{};
-PFN_vkCmdSetCullModeEXT gVkCmdSetCullModeEXT{};
-PFN_vkCmdSetFrontFaceEXT gVkCmdSetFrontFaceEXT{};
-PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
 void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)//NOLINT(modernize-avoid-variadic-functions)
 {
@@ -74,47 +64,11 @@ void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)//NOLINT(moderni
 
 void InitInstanceExtensions(VkInstance instance)
 {
-	if (gVkGetPhysicalDeviceFeatures2 == nullptr)
-		gVkGetPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
-			vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceFeatures2"));
-	
-	ENSURE(gVkGetPhysicalDeviceFeatures2 != nullptr);
-
-	if (gVkGetPhysicalDeviceProperties2 == nullptr)
-		gVkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
-			vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
-
-	ENSURE(gVkGetPhysicalDeviceProperties2 != nullptr);
-
 	if (gVkWaitForPresentKHR == nullptr)
 		gVkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(
 			vkGetInstanceProcAddr(instance,"vkWaitForPresentKHR"));
 	
 	ENSURE(gVkWaitForPresentKHR != nullptr);
-
-	if (gVkGetBufferMemoryRequirements2KHR == nullptr)
-		gVkGetBufferMemoryRequirements2KHR = reinterpret_cast<PFN_vkGetBufferMemoryRequirements2KHR>(
-			vkGetInstanceProcAddr(instance, "vkGetBufferMemoryRequirements2KHR"));
-	
-	ENSURE(gVkGetBufferMemoryRequirements2KHR != nullptr);
-
-	if (gVkGetImageMemoryRequirements2KHR == nullptr)
-		gVkGetImageMemoryRequirements2KHR = reinterpret_cast<PFN_vkGetImageMemoryRequirements2KHR>(
-			vkGetInstanceProcAddr(instance, "vkGetImageMemoryRequirements2KHR"));
-
-	ENSURE(gVkGetImageMemoryRequirements2KHR != nullptr);
-
-	if (gVkCmdBeginRenderingKHR == nullptr)
-		gVkCmdBeginRenderingKHR = reinterpret_cast<PFN_vkCmdBeginRenderingKHR>(
-			vkGetInstanceProcAddr(instance,	"vkCmdBeginRenderingKHR"));
-
-	ENSURE(gVkCmdBeginRenderingKHR != nullptr);
-
-	if (gVkCmdEndRenderingKHR == nullptr)
-		gVkCmdEndRenderingKHR = reinterpret_cast<PFN_vkCmdEndRenderingKHR>(
-			vkGetInstanceProcAddr(instance,"vkCmdEndRenderingKHR"));
-
-	ENSURE(gVkCmdEndRenderingKHR != nullptr);
 
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	//if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
@@ -142,28 +96,6 @@ void InitInstanceExtensions(VkInstance instance)
 
 void InitDeviceExtensions(VkDevice device)
 {
-	if (gVkCmdPipelineBarrier2KHR == nullptr)
-		gVkCmdPipelineBarrier2KHR = reinterpret_cast<PFN_vkCmdPipelineBarrier2KHR>(
-			vkGetDeviceProcAddr(device, "vkCmdPipelineBarrier2KHR"));
-	
-	ENSURE(gVkCmdPipelineBarrier2KHR != nullptr);
-
-	if (gVkCmdSetCullModeEXT == nullptr)
-		gVkCmdSetCullModeEXT = reinterpret_cast<PFN_vkCmdSetCullModeEXT>(vkGetDeviceProcAddr(device, "vkCmdSetCullModeEXT"));
-
-	ENSURE(gVkCmdSetCullModeEXT != nullptr);
-
-	if (gVkCmdSetFrontFaceEXT == nullptr)
-		gVkCmdSetFrontFaceEXT = reinterpret_cast<PFN_vkCmdSetFrontFaceEXT>(vkGetDeviceProcAddr(device, "vkCmdSetFrontFaceEXT"));
-
-	ENSURE(gVkCmdSetFrontFaceEXT != nullptr);
-
-	if (gVkCmdPushDescriptorSetWithTemplateKHR == nullptr)
-		gVkCmdPushDescriptorSetWithTemplateKHR = reinterpret_cast<PFN_vkCmdPushDescriptorSetWithTemplateKHR>(
-			vkGetDeviceProcAddr(device, "vkCmdPushDescriptorSetWithTemplateKHR"));
-		
-	//ENSURE(gVkCmdPushDescriptorSetWithTemplateKHR != nullptr);
-
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
 		if (gVkSetDebugUtilsObjectNameExt == nullptr)
@@ -638,7 +570,7 @@ void TransitionImageLayout(
 	dependencyInfo.imageMemoryBarrierCount = 1;
 	dependencyInfo.pImageMemoryBarriers = &imageBarrier;
 
-	gVkCmdPipelineBarrier2KHR(commandBuffer, &dependencyInfo);
+	vkCmdPipelineBarrier2(commandBuffer, &dependencyInfo);
 }
 
 void CopyBufferToImage(

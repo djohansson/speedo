@@ -707,7 +707,7 @@ const RenderTargetBeginInfo<kVk>& RenderTarget<DerivedType, kVk>::Begin(
 			}
 		};
 
-		gVkCmdBeginRenderingKHR(cmd, &std::get<DynamicRenderingInfo<kVk>>(myRenderTargetBeginInfo.value()).renderInfo);
+		vkCmdBeginRendering(cmd, &std::get<DynamicRenderingInfo<kVk>>(myRenderTargetBeginInfo.value()).renderInfo);
 	}
 	else
 	{
@@ -739,7 +739,7 @@ void RenderTarget<DerivedType, kVk>::End(CommandBufferHandle<kVk> cmd)
 
 	if (this->GetDesc().useDynamicRendering)
 	{
-		gVkCmdEndRenderingKHR(cmd);
+		vkCmdEndRendering(cmd);
 	}
 	else
 	{

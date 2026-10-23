@@ -116,7 +116,7 @@ void Pipeline<kVk>::InternalPushDescriptorSet(
 {
 	ZoneScopedN("Pipeline::InternalPushDescriptorSet");
 
-	gVkCmdPushDescriptorSetWithTemplateKHR(
+	vkCmdPushDescriptorSetWithTemplate(
 		cmd, setTemplate, layout, setTemplate.GetDesc().set, bindingsData.data());
 }
 
@@ -233,7 +233,7 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 			set,
 			bufferOffset);
 	}
-	else if (gVkCmdPushDescriptorSetWithTemplateKHR != nullptr)
+	else // push descriptors: core in vulkan 1.4
 	{
 		mutex.lock_shared();
 
@@ -242,10 +242,6 @@ void Pipeline<kVk>::BindDescriptorSetAuto(
 			static_cast<PipelineLayoutHandle<kVk>>(layout),
 			bindingsData,
 			setTemplate);
-	}
-	else 
-	{
-		ENSUREF(false, "Push descriptor set not supported");
 	}
 
 	mutex.unlock_shared();
