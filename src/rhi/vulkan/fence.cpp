@@ -2,6 +2,7 @@
 #include <rhi/fence.h>
 #include <rhi/instance.h>
 #include <rhi/rhi.h>
+#include <rhi/vulkan/crashreport.h>
 #include <rhi/vulkan/utils.h>
 
 namespace rhi
@@ -72,7 +73,9 @@ bool Fence<kVk>::Wait(uint64_t timeout) const
 {
 	ZoneScopedN("Fence::Wait");
 
-	auto result = vkWaitForFences(GetDevice(), 1, &myFence, static_cast<VkBool32>(true), timeout);
+	auto result = vk::crash::WatchedWait(
+		timeout, [&] { return std::format("the fence {}", GetName()); },
+		[this](uint64_t wait) { return vkWaitForFences(GetDevice(), 1, &myFence, static_cast<VkBool32>(true), wait); });
 	if (result == VK_SUCCESS)
 		return true;
 
@@ -90,7 +93,10 @@ bool Fence<kVk>::Wait(
 {
 	ZoneScopedN("Fence::Wait");
 
-	auto result = vkWaitForFences(device, static_cast<uint32_t>(fences.size()), fences.data(), static_cast<VkBool32>(waitAll), timeout);
+	auto result = vk::crash::WatchedWait(
+		timeout, [&] { return std::format("{} fences", fences.size()); },
+		[&](uint64_t wait)
+		{ return vkWaitForFences(device, static_cast<uint32_t>(fences.size()), fences.data(), static_cast<VkBool32>(waitAll), wait); });
 	if (result == VK_SUCCESS)
 		return true;
 

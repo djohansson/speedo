@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "crashreport.h"
 
 #include <core/assert.h>
 
@@ -18,6 +19,7 @@
 
 
 #include <algorithm>
+#include <atomic>
 #include <cstdarg>
 #include <cstdint>
 #include <print>
@@ -41,54 +43,34 @@ PFN_vkCmdSetCullModeEXT gVkCmdSetCullModeEXT{};
 PFN_vkCmdSetFrontFaceEXT gVkCmdSetFrontFaceEXT{};
 PFN_vkCmdPushDescriptorSetWithTemplateKHR gVkCmdPushDescriptorSetWithTemplateKHR{};
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
 void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)//NOLINT(modernize-avoid-variadic-functions)
 {
-	LOG_ERROR("Vulkan error: {}", string_VkResult(result));
-	switch (result)
+	VkQueue queue = VK_NULL_HANDLE;
+	if (count == 1)
 	{
-	case VK_ERROR_DEVICE_LOST:
-		if (gVkGetQueueCheckpointData2NV != nullptr)
-		{
-			if (count != 1) [[unlikely]]
-			{
-				LOG_ERROR("Expected 1 queue for checkpoint retrieval, got {}", count);
-				return;
-			}
-			
-			va_list args;
-			va_start(args, count);
-			VkQueue queue = va_arg(args, VkQueue);
-			va_end(args);
-
-			if (queue != VK_NULL_HANDLE)
-			{
-				static thread_local std::vector<VkCheckpointData2NV> gCheckpointData;
-				uint32_t checkpointDataCount;
-				gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, nullptr);
-				std::println(stderr, "GPU marker count: {}", checkpointDataCount);
-				gCheckpointData.resize(checkpointDataCount);
-				std::ranges::fill(gCheckpointData, VkCheckpointData2NV{.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_2_NV});
-				gVkGetQueueCheckpointData2NV(queue, &checkpointDataCount, gCheckpointData.data());
-				for (const auto& checkpoint : gCheckpointData)
-					std::println(stderr, "{}", static_cast<const char*>(checkpoint.pCheckpointMarker));
-			}
-		}
-	case VK_ERROR_OUT_OF_HOST_MEMORY:
-	case VK_ERROR_OUT_OF_DEVICE_MEMORY:
-		TRAP();
-	case VK_ERROR_SURFACE_LOST_KHR:
-	case VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT:
-	case VK_TIMEOUT:
-	case VK_NOT_READY:
-	case VK_SUBOPTIMAL_KHR:
-	case VK_ERROR_OUT_OF_DATE_KHR:
-	default:
-		DEBUGTRAP();
-		break;
+		va_list args;
+		va_start(args, count);
+		queue = va_arg(args, VkQueue);
+		va_end(args);
 	}
-}
+
+	// errors: the report, and the end of the process
+	if (result < 0)
+	{
+		LOG_ERROR("Vulkan error: {}", string_VkResult(result));
+		rhi::vk::crash::ReportFatal(result, queue);
+	}
+
+	// another result than the one expected, which isn't an error: a bug where it was checked. at most a few logged (each
+	// with a stack trace), in case one repeats every frame
+	static std::atomic_uint32_t gLogged{0};
+	constexpr uint32_t kLogCount = 16;
+	if (gLogged.fetch_add(1, std::memory_order_relaxed) < kLogCount)
+		LOG_ERROR("Vulkan result: {}", string_VkResult(result));
+#if (SPEEDO_PROFILING_LEVEL > 0)
+	DEBUGTRAP();
 #endif
+}
 
 void InitInstanceExtensions(VkInstance instance)
 {

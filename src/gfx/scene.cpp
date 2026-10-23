@@ -743,6 +743,8 @@ struct Scene::Impl
 	{
 		ZoneScopedN("WindowedApplication::InstallModel");
 
+		rhi::CrashEvent(std::format("model installed: {}", model->GetDesc().name));
+
 		// each resource once: materials share textures
 		Uploads uploads;
 		for (const auto* buffer : model->GetUploadedBuffers())
@@ -1188,6 +1190,8 @@ struct Scene::Impl
 	{
 		ZoneScopedN("WindowedApplication::InstallImage");
 
+		rhi::CrashEvent(std::format("image installed: {}", image->GetName()));
+
 		TransitionThenBind(rhi, graphics, Uploads{.images = {{image, upload}}}, [this, &rhi, image, imageView](QueueTimelineContextData& graphics)
 		{
 			auto& device = rhi.GetPrimaryDevice();
@@ -1397,6 +1401,8 @@ struct Scene::Impl
 		RHI& rhi, QueueTimelineContextData& graphics, const std::shared_ptr<const EnvironmentTexture>& environment, std::string name)
 	{
 		ZoneScopedN("WindowedApplication::InstallEnvironment");
+
+		rhi::CrashEvent(std::format("environment installed: {}", name));
 
 		// a file's panoramas are uploaded (the procedural sky has none)
 		Uploads uploads;

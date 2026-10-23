@@ -642,7 +642,11 @@ void FrameGraph::Execute(CommandBufferHandle cmd, GpuProfiler* profiler)
 		GpuProfiler* insideProfiler = inside ? profiler : nullptr;
 		auto scope = framegraph::BeginPassScope(
 			inside ? nullptr : profiler, cmd, pass.name, myTimingGroup, rhi::PipelineStage::kBottomOfPipe);
+		// for crash reports, what the gpu had begun and not ended: around the pass, outside its render pass (one begun for
+		// secondary command buffers can hold nothing else)
+		CrashBreadcrumb breadcrumb(cmd, pass.name);
 		InternalRecord(cmd, pass, passIt, insideProfiler);
+		breadcrumb.End();
 		scope.End();
 	}
 }

@@ -32,6 +32,20 @@ const bool gDrawUi = []
 	return setting == nullptr || std::string_view(setting) != "0";
 }();
 
+// a presentation mode's name, for crash reports' events
+constexpr std::string_view PresentationModeName(rhi::PresentationMode mode) noexcept
+{
+	switch (mode)
+	{
+	case rhi::PresentationMode::kFifo: return "fifo";
+	case rhi::PresentationMode::kFifoRelaxed: return "fifo relaxed";
+	case rhi::PresentationMode::kMailbox: return "mailbox";
+	case rhi::PresentationMode::kImmediate: return "immediate";
+	case rhi::PresentationMode::kCount: break;
+	}
+	return "?";
+}
+
 // recreates the swapchain at the current surface size, and everything sized after it. caller holds gDrawMutex.
 // returns false if the surface has no area (minimized), in which case nothing is recreated.
 bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
@@ -48,6 +62,9 @@ bool RecreateWindowDependentObjects(RHI& rhi, platform::Window& window)
 	// from the previous one (oldSwapchain), unless a window change released it first (see Draw)
 	device.WaitIdle();
 	swapchain.CreateSwapchain();
+	rhi::CrashEvent(std::format(
+		"swapchain made: {}x{}, {}, {} images", swapchain.GetDesc().extent.width, swapchain.GetDesc().extent.height,
+		PresentationModeName(swapchain.GetPresentationMode()), swapchain.GetImageCount()));
 
 	// the window's size in screen coordinates, as its framebuffer's (the swapchain's) over its content scale
 	auto& state = window.GetState();
@@ -90,6 +107,8 @@ bool WindowedApplication::Draw()
 	FrameMark;
 	ZoneScopedN("WindowedApplication::Draw");
 
+	rhi::CrashHeartbeat();
+
 	std::unique_lock lock(gDrawMutex);
 	std::vector<core::TaskHandle> frameTasks;
 
@@ -113,6 +132,7 @@ bool WindowedApplication::Draw()
 	{
 		if (state == kWindowChangeRequested)
 		{
+			rhi::CrashEvent("window change: swapchain released");
 			device.WaitIdle();
 			InternalRetirePresents(swapchain);
 			swapchain.Release();
@@ -127,6 +147,12 @@ bool WindowedApplication::Draw()
 				{
 					for (auto& change : changes)
 						change();
+					{
+						const auto& state = GetWindow(GetCurrentWindow()).GetState();
+						rhi::CrashEvent(std::format(
+							"window changed: {}x{}{}", state.width, state.height,
+							state.fullscreenEnabled != 0U ? (state.fullscreenMode == FULLSCREEN_MODE_EXCLUSIVE ? ", exclusive fullscreen" : ", borderless fullscreen") : ""));
+					}
 					// resized, or not (exclusive fullscreen at the window's size): recreated either way
 					myResizeRequested.store(true, std::memory_order_release);
 					std::scoped_lock changesLock(myWindowChangesMutex);
@@ -140,10 +166,13 @@ bool WindowedApplication::Draw()
 	if (window.IsMinimized())
 		return false;
 
+	rhi::CrashFrame(gDrawnFrameCount.load(std::memory_order_relaxed));
+
 	// the presentation the ui asked for (View > Presentation), applied by recreating the swapchain below
 	if (auto request = myPresentationRequest.exchange(0, std::memory_order_relaxed); request != 0)
 	{
 		auto presentation = UnpackPresentation(request);
+		rhi::CrashEvent(std::format("presentation asked for: {}, {} images", PresentationModeName(presentation.mode), presentation.imageCount));
 		swapchain.Configure(presentation.mode, presentation.imageCount);
 	}
 
@@ -374,7 +403,7 @@ bool WindowedApplication::Draw()
 		// for among the instance's), so the semaphores went with the frame's gpu work
 		myPresentSemaphores[frameSlot].push_back(std::move(graphicsDoneSemaphore));
 
-		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
+		QueueDeviceSyncInfo frameSync{
 			.waitSemaphores = {graphics->semaphore, acquireNextImageSemaphoreHandle},
 			// the acquired image may still be in use by the presentation engine until the acquire semaphore signals:
 			// nothing may touch it before that (PipelineStage::kNone waited for nothing, which flickered in fullscreen)
@@ -382,8 +411,30 @@ bool WindowedApplication::Draw()
 			.waitSemaphoreValues = {lastGraphicsSubmits.maxTimelineValue, 1},
 			.signalSemaphores = {graphics->semaphore, graphicsDoneSemaphoreHandle},
 			.signalSemaphoreValues = {++graphics->timeline, 1},
-			.callbacks = std::move(graphicsCallbacks)},
-			std::move(cmd));
+			.callbacks = std::move(graphicsCallbacks)};
+		// SPEEDO_CRASH_TEST=hang: from the 100th frame drawn, the frame waits for a semaphore nothing signals, so that the
+		// next wait for it reports a hang (rhi::CrashEvent's report, see rhi/vulkan/crashreport.h), to check the reports end
+		// to end (with SPEEDO_GPU_HANG_TIMEOUT=<seconds> to see it sooner)
+		static const bool kCrashTestHang = []
+		{
+			const char* test = std::getenv("SPEEDO_CRASH_TEST");
+			return test != nullptr && std::string_view(test) == "hang";
+		}();
+		constexpr uint64_t kCrashTestFrame = 100;
+		if (kCrashTestHang && gDrawnFrameCount.load(std::memory_order_relaxed) >= kCrashTestFrame)
+		{
+			static Semaphore gNeverSignaled(
+				SemaphoreCreateDesc{device.CreateDeviceObjectCreateDesc("SPEEDO_CRASH_TEST"), SemaphoreType::kTimeline});
+			static const bool kOnce = []
+			{
+				rhi::CrashEvent("SPEEDO_CRASH_TEST=hang: the frame waits for a semaphore nothing signals");
+				return true;
+			}();
+			frameSync.waitSemaphores.push_back(gNeverSignaled);
+			frameSync.waitDstStageMasks.push_back(PipelineStage::kAllCommands);
+			frameSync.waitSemaphoreValues.push_back(1);
+		}
+		graphicsQueue.EnqueueSubmit(std::move(frameSync), std::move(cmd));
 		myFrameSlotTimelines[frameSlot] = graphics->timeline;
 
 		graphicsSubmits |= graphicsQueue.Submit();
@@ -444,12 +495,14 @@ bool WindowedApplication::Draw()
 WindowedApplication::WindowedApplication(
 	std::string_view appName, core::Environment&& env)
 	: platform::WindowedApplication(appName, std::forward<core::Environment>(env))
-	, myRHI(std::make_unique<RHI>(RHIInitializationData{
+	, myRHI((rhi::SetCrashReportDirectory(
+				 (std::get<std::filesystem::path>(GetEnv().variables["UserProfilePath"]) / "crashes").string()),
+			 std::make_unique<RHI>(RHIInitializationData{
 		  .name = appName,
 		  .window = GetCurrentWindow(), // the window the platform made: the one we draw in
 		  .descriptorPoolSizes = Scene::DescriptorPoolSizes(),
 		  // ComputeMain's storage views of them (see RenderOutput)
-		  .maxSwapchainImageCount = SHADER_TYPES_OUTPUT_IMAGE_COUNT}))
+		  .maxSwapchainImageCount = SHADER_TYPES_OUTPUT_IMAGE_COUNT})))
 {
 	using namespace windowedapplication;
 
@@ -510,6 +563,8 @@ void WindowedApplication::Shutdown()
 
 	if (!myRHI)
 		return;
+
+	rhi::CrashEvent("shutdown");
 
 	if (gFrameTimes.size() > 2)
 	{

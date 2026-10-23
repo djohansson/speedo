@@ -133,6 +133,7 @@ target_compile_definitions(
 	core
 	PUBLIC
 		SPEEDO_PROFILING_LEVEL=$<IF:$<CONFIG:release>,0,1>
+		SPEEDO_VERSION="${SPEEDO_VERSION_STRING}" # crash reports name it
 		$<$<BOOL:${SPEEDO_USE_MIMALLOC}>:SPEEDO_USE_MIMALLOC>
 )
 target_include_directories(
@@ -283,6 +284,7 @@ set(RHI_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/buffer.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/command.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/commandencoder.cpp
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/crashreport.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/descriptorset.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/device.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/deviceobject.cpp

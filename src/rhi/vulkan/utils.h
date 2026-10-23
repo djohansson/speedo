@@ -8,23 +8,20 @@
 #include <string_view>
 #include <type_traits>
 
-#if (SPEEDO_PROFILING_LEVEL > 0)
+// checked in every build, release included: an error (a lost device, out of memory, ...) writes a crash report and ends
+// the process (see crashreport.h); another unexpected result (a timeout, suboptimal, ...) is logged, and traps in builds
+// that profile. the optional argument is the queue the call was on (its checkpoints, in the report)
 void OnCheckFailedDefault(VkResult result, uintptr_t count, ...);
 #define VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, FailCallback, ...) do \
 { \
 	VkResult __result = (Expression); \
-	if (__result != ExpectedResult) \
+	if (__result != ExpectedResult) [[unlikely]] \
 		FailCallback(__result, SIZEOF__VA_ARGS__(__VA_ARGS__) __VA_OPT__(,) __VA_ARGS__); \
 } while(false)
 #define VK_CHECK_RESULT(Expression, ExpectedResult, ...) \
 	VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, OnCheckFailedDefault __VA_OPT__(,) __VA_ARGS__)
 #define VK_CHECK(Expression, ...) \
 	VK_CHECK_RESULT_IMPL(Expression, VK_SUCCESS, OnCheckFailedDefault __VA_OPT__(,) __VA_ARGS__)
-#else
-#define VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, FailCallback, ...) static_cast<void>(Expression)
-#define VK_CHECK_RESULT(Expression, ExpectedResult, ...) VK_CHECK_RESULT_IMPL(Expression, ExpectedResult, 0)
-#define VK_CHECK(Expression, ...) VK_CHECK_RESULT_IMPL(Expression, VK_SUCCESS, OnCheckFailedDefault)
-#endif
 
 extern PFN_vkGetPhysicalDeviceFeatures2 gVkGetPhysicalDeviceFeatures2;
 extern PFN_vkGetPhysicalDeviceProperties2 gVkGetPhysicalDeviceProperties2;

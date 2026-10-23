@@ -1,4 +1,5 @@
 #include <rhi/instance.h>
+#include <rhi/vulkan/crashreport.h>
 #include <rhi/vulkan/utils.h>
 
 #include <core/assert.h>
@@ -126,6 +127,28 @@ void GetPhysicalDeviceInfo2(
 		deviceFeatureParams.emplace(VkPhysicalDevicePresentWaitFeaturesKHR
 		{
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR,
+		});
+	}
+	// crash reports' (see crashreport.h: the device enables each of these extensions where it has it)
+	if (vk::crash::ChainsFeatures(VK_EXT_DEVICE_FAULT_EXTENSION_NAME, instance, device))
+	{
+		deviceFeatureParams.emplace(VkPhysicalDeviceFaultFeaturesEXT
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT,
+		});
+	}
+	if (vk::crash::ChainsFeatures(VK_EXT_DEVICE_ADDRESS_BINDING_REPORT_EXTENSION_NAME, instance, device))
+	{
+		deviceFeatureParams.emplace(VkPhysicalDeviceAddressBindingReportFeaturesEXT
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ADDRESS_BINDING_REPORT_FEATURES_EXT,
+		});
+	}
+	if (vk::crash::ChainsFeatures(VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME, instance, device))
+	{
+		deviceFeatureParams.emplace(VkPhysicalDeviceCoherentMemoryFeaturesAMD
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD,
 		});
 	}
 	
@@ -442,9 +465,13 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	VkInstanceCreateInfo info{.sType=VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
 
+	// in every build where it exists: crash reports name the objects bound around a faulting address through its messenger
+	// (see crashreport.h); validation's messages need it too
+	if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0 || vk::crash::WantsDebugUtils(myInstance))
+		requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
 	if constexpr (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
 	{
-		requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
 		static constexpr const char* kValidationLayerName = "VK_LAYER_KHRONOS_validation";
 
@@ -530,6 +557,10 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	InitInstanceExtensions(myInstance);
 
+	// before any device binds memory
+	if (vk::crash::WantsDebugUtils(myInstance))
+		vk::crash::CreateMessenger(myInstance, &myHostAllocationCallbacks);
+
 	// instance level objects are named once there is a device (see TrackInstanceObject)
 	TrackInstance(VK_OBJECT_TYPE_INSTANCE, myInstance, std::format("{} Instance", myConfig.applicationName));
 
@@ -581,6 +612,8 @@ Instance<kVk>::~Instance()
 			myInstance, gDebugUtilsMessenger, &GetHostAllocationCallbacks());
 	}
 #endif
+
+	vk::crash::DestroyMessenger(myInstance, &myHostAllocationCallbacks);
 
 	for (auto* physicalDevice : myPhysicalDevices)
 		Untrack(VK_OBJECT_TYPE_PHYSICAL_DEVICE, physicalDevice);

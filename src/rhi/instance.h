@@ -44,7 +44,10 @@ using PhysicalDeviceFeatureParams = std::variant<
 	PhysicalDevicePresentWaitFeatures<G>,
 	PhysicalDeviceMultiviewFeatures<G>,
 	PhysicalDeviceSwapchainMaintenance1Features<G>,
-	PhysicalDeviceShaderDrawParametersFeatures<G>>;
+	PhysicalDeviceShaderDrawParametersFeatures<G>,
+	PhysicalDeviceFaultFeatures<G>,
+	PhysicalDeviceAddressBindingReportFeatures<G>,
+	PhysicalDeviceCoherentMemoryFeatures<G>>;
 
 template <GraphicsApi G>
 using PhysicalDevicePropertyParams = std::variant<PhysicalDevicePushDescriptorProperties<G>>;

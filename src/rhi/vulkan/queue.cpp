@@ -2,6 +2,7 @@
 #include <rhi/device.h>
 #include <rhi/instance.h>
 #include <rhi/rhi.h>
+#include <rhi/vulkan/crashreport.h>
 #include <rhi/vulkan/utils.h>
 
 
@@ -154,9 +155,6 @@ Queue<kVk>& Queue<kVk>::operator=(Queue<kVk>&& other) noexcept
 template <>
 GpuProfiler<kVk>::Scope Queue<kVk>::InternalGpuScope(CommandBufferHandle<kVk> cmd, const SourceLocationData& srcLoc)
 {
-	if (gVkCmdSetCheckpointNV != nullptr)
-		gVkCmdSetCheckpointNV(cmd, srcLoc.name);
-
 	if (myProfiler)
 		return myProfiler->Begin(cmd, srcLoc);
 
@@ -239,6 +237,13 @@ QueueHostSyncInfo<kVk> Queue<kVk>::Submit()
 			submitBegin,
 			result.fences.back()),
 			reinterpret_cast<uintptr_t>(myQueue));
+	}
+
+	{
+		uint32_t commandBufferCount = 0;
+		for (const auto& pendingSubmit : myPendingSubmits)
+			commandBufferCount += static_cast<uint32_t>(pendingSubmit.commandBuffers.size());
+		vk::crash::OnSubmit(myQueue, commandBufferCount, maxTimelineValue);
 	}
 
 	gSubmitCount.fetch_add(1, std::memory_order_relaxed);

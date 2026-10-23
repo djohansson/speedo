@@ -3,6 +3,7 @@
 #include <rhi/rhi.h>
 #include <rhi/swapchain.h>
 #include <rhi/vulkan/convert.h>
+#include <rhi/vulkan/crashreport.h>
 #include <rhi/vulkan/utils.h>
 
 #include <algorithm>
@@ -219,13 +220,10 @@ FlipResult<kVk> Swapchain<kVk>::Flip()
 	Fence<kVk> fence(FenceCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageFence")});
 	Semaphore<kVk> semaphore(SemaphoreCreateDesc<kVk>{SuperType::CreateDeviceObjectCreateDesc("acquireNextImageSemaphore"), SemaphoreType::kBinary});
 
-	auto flipResult = vkAcquireNextImageKHR(
-		GetDevice(),
-		mySwapchain,
-		UINT64_MAX,
-		semaphore,
-		fence,
-		&myFrameIndex);
+	// without a timeout, but a hang's (see crashreport.h): a present that never happens leaves no image to acquire
+	auto flipResult = vk::crash::WatchedWait(
+		UINT64_MAX, [this] { return std::format("acquiring an image of {}", GetName()); },
+		[&](uint64_t timeout) { return vkAcquireNextImageKHR(GetDevice(), mySwapchain, timeout, semaphore, fence, &myFrameIndex); });
 
 	// suboptimal still acquires an image (and signals the fence and semaphore). out of date is expected while
 	// resizing: the frame is skipped, and the swapchain recreated before the next one (see NeedsRecreate).

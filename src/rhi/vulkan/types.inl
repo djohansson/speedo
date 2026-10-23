@@ -195,6 +195,18 @@ template <GraphicsApi G>
 using PhysicalDeviceSwapchainMaintenance1Features =
 	std::conditional_t<G == kVk, VkPhysicalDeviceSwapchainMaintenance1FeaturesKHR, std::nullptr_t>;
 
+// crash reports' (see rhi/vulkan/crashreport.h)
+template <GraphicsApi G>
+using PhysicalDeviceFaultFeatures = std::conditional_t<G == kVk, VkPhysicalDeviceFaultFeaturesEXT, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceAddressBindingReportFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDeviceAddressBindingReportFeaturesEXT, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceCoherentMemoryFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDeviceCoherentMemoryFeaturesAMD, std::nullptr_t>;
+
 	template <GraphicsApi G>
 using PhysicalDevicePushDescriptorProperties = 
 	std::conditional_t<G == kVk, VkPhysicalDevicePushDescriptorPropertiesKHR, std::nullptr_t>;

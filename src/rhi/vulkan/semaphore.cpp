@@ -2,6 +2,7 @@
 #include <rhi/device.h>
 #include <rhi/instance.h>
 #include <rhi/rhi.h>
+#include <rhi/vulkan/crashreport.h>
 #include <rhi/vulkan/utils.h>
 
 namespace rhi
@@ -101,7 +102,9 @@ bool Semaphore<kVk>::Wait(uint64_t timelineValue, uint64_t timeout) const
 	if (GetDesc().type == SemaphoreType::kTimeline)
 		waitInfo.pValues = &timelineValue;
 
-	auto result = vkWaitSemaphores(GetDevice(), &waitInfo, timeout);
+	auto result = vk::crash::WatchedWait(
+		timeout, [&] { return std::format("the semaphore {} (for {})", GetName(), timelineValue); },
+		[this, &waitInfo](uint64_t wait) { return vkWaitSemaphores(GetDevice(), &waitInfo, wait); });
 	if (result == VK_SUCCESS)
 		return true;
 
@@ -125,7 +128,9 @@ bool Semaphore<kVk>::Wait(
 	waitInfo.pSemaphores = semaphores.data();
 	waitInfo.pValues = semaphoreValues.data();
 
-	auto result = vkWaitSemaphores(device, &waitInfo, timeout);
+	auto result = vk::crash::WatchedWait(
+		timeout, [&] { return std::format("{} semaphores", semaphores.size()); },
+		[device, &waitInfo](uint64_t wait) { return vkWaitSemaphores(device, &waitInfo, wait); });
 	if (result == VK_SUCCESS)
 		return true;
 

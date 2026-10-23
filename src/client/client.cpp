@@ -7,6 +7,8 @@
 #include <client/capi.h>
 #include <client/client.h>
 
+#include <rhi/crashreport.h>
+
 #include <server/rpc/rpc.h>
 
 #include <array>
@@ -356,6 +358,7 @@ bool ClientMain()
 {
 	using namespace client;
 
+	rhi::CrashWatch(); // the main thread never waits for the draw thread: it watches it
 	return gClientApplication.Read()->Main();
 }
 

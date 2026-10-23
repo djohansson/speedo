@@ -2,6 +2,7 @@
 
 #include <rhi/buffer.h>
 #include <rhi/commandencoder.h>
+#include <rhi/crashreport.h>
 #include <rhi/device.h>
 #include <rhi/image.h>
 #include <rhi/imguirenderer.h>
@@ -29,6 +30,7 @@ using Swapchain = rhi::Swapchain<rhi::kGraphicsApi>;
 using Semaphore = rhi::Semaphore<rhi::kGraphicsApi>;
 using QueryPool = rhi::QueryPool<rhi::kGraphicsApi>;
 using GpuProfiler = rhi::GpuProfiler<rhi::kGraphicsApi>;
+using CrashBreadcrumb = rhi::CrashBreadcrumb<rhi::kGraphicsApi>;
 using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<rhi::kGraphicsApi>;
 using Queue = rhi::Queue<rhi::kGraphicsApi>;
 using CommandBuffer = rhi::CommandBuffer<rhi::kGraphicsApi>;

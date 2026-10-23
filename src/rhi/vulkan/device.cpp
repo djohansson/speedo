@@ -2,6 +2,7 @@
 #include <core/std_extra.h>
 #include <rhi/device.h>
 #include <rhi/rhi.h>
+#include <rhi/vulkan/crashreport.h>
 #include <rhi/vulkan/utils.h>
 
 #include <list>
@@ -363,8 +364,10 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 
-	if (SupportsExtension(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME, GetDesc().physicalDevice))
-		desiredExtensions.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
+	// crash reports' (breadcrumbs, device faults, address bindings), see crashreport.h: decided by what the device has and
+	// whether the Crash Diagnostic Layer is loaded
+	vk::crash::Detect(instance, GetDesc().physicalDevice);
+	vk::crash::AddDeviceExtensions(desiredExtensions, instance, GetDesc().physicalDevice);
 
 #if defined(_WIN32)
 	// exclusive fullscreen (see Swapchain::SetExclusiveFullscreen; VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME is in
@@ -448,7 +451,8 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 
 		VmaAllocator allocator;
 		VmaAllocatorCreateInfo allocatorInfo{};
-		allocatorInfo.flags = {};
+		// the crash reports' breadcrumbs ring takes device coherent memory where there is some (see crashreport.cpp)
+		allocatorInfo.flags = vk::crash::GetCapabilities().deviceCoherentMemory ? VMA_ALLOCATOR_CREATE_AMD_DEVICE_COHERENT_MEMORY_BIT : 0U;
 		allocatorInfo.physicalDevice = GetDesc().physicalDevice;
         allocatorInfo.preferredLargeHeapBlockSize = 0; // 0 = default (256Mb)
 		allocatorInfo.device = myDevice;
@@ -460,6 +464,8 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 
 		return allocator;
 	}();
+
+	vk::crash::Init(*this);
 }
 
 template <>
@@ -510,6 +516,7 @@ Device<kVk>::~Device()
 	myResources.clear();
 	myPipeline = Pipeline<kVk>{};
 	myQueues.clear();
+	vk::crash::Shutdown();
 
 	vmaDestroyAllocator(myAllocator);
 	Untrack(VK_OBJECT_TYPE_DEVICE, myDevice);

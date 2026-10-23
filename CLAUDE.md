@@ -94,9 +94,8 @@ Notes for working in this codebase, distilled from real build failures.
   `vulkan-crash-diagnostic-layer` overlay port, installed beside the validation layer:
   `VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_crash_diagnostic`) dumps the submits and commands the gpu hadn't finished, with
   the shader and descriptor sets of the last one started, to `<home>/cdl/<time>/cdl_dump.yaml` (its `CDL_*` variables
-  weren't taken from the environment here: the dump's settings show what was). The client's own device lost handler
-  traps at once, and printed the layer's checkpoints as strings (an access violation), so the process can end before
-  the dump is written: delay its trap while diagnosing.
+  weren't taken from the environment here: the dump's settings show what was). With the layer loaded, the client's own
+  crash report defers to it (see "Crash reports").
 - `rhi` is the graphics backend abstraction (instance, devices, queues, buffers, images, pipelines, swapchains),
   templated on `GraphicsApi`. It must not include `gfx` or know about the application: rhi objects find
   their instance and devices through `rhi::GetRHI<G>()`, which an `RHI<G>` serves for its whole lifetime (registered
@@ -207,6 +206,48 @@ Notes for working in this codebase, distilled from real build failures.
   `rhi/vulkan/types.inl`), so a neutral rhi type of the same name hides them inside `namespace rhi`, and is ambiguous
   in code with `using namespace rhi` (gfx's application). Pick another name, or qualify: `::DescriptorType<G>` in
   rhi, `rhi::DescriptorType` in gfx.
+
+## Crash reports
+
+A fatal Vulkan result (a lost device, out of memory, any other error) or a hang writes a crash report, in every build,
+release included (`rhi/crashreport.h`, the backend's `rhi/vulkan/crashreport.cpp`): `VK_CHECK` checks in every build
+(it discarded every result in release), and `OnCheckFailedDefault` hands an error to `vk::crash::ReportFatal`; another
+unexpected result (a timeout, suboptimal) is logged (at most 16) and traps in builds that profile. The first thread to
+meet one writes the report, the others wait for it (they used to race, each trapping), to
+`<user profile>/crashes/crash-<time>.json` (`SetCrashReportDirectory`, from the client: rhi doesn't know the
+application) and a summary line to stderr, then traps. A report has:
+
+- the kind, the result, a **signature** (a hash of the vendor, driver version, kind, result, first pass in flight and
+  fault type: the same cause on many machines groups together), the time, frame, version (`SPEEDO_VERSION`), build,
+  platform, device and driver, and the tools loaded (`VK_EXT_tooling_info`);
+- **breadcrumbs**: the frame graph's passes (`CrashBreadcrumb` around each, outside its render pass) written by the gpu
+  as each begins (top of the pipe) and ends (bottom), with `VK_AMD_buffer_marker` into a host visible ring of 4096
+  slots (device coherent with `VK_AMD_device_coherent_memory`), else `VK_NV_device_diagnostic_checkpoints` (each
+  queue's last checkpoints, encoded as sequence numbers, never pointers: the client printed driver markers as strings
+  once, an access violation under the layer), else none: the passes in flight (begun, not ended), the last completed,
+  how many hadn't begun. NVIDIA's driver has both; `SPEEDO_CRASH_BREADCRUMBS=markers|checkpoints|none` forces one;
+- the **device fault** (`VK_EXT_device_fault`): each faulting address and its type, the vendor's codes (its binary
+  saved beside the report), and the objects bound around the address (`VK_EXT_device_address_binding_report`, through
+  a debug utils messenger made in every build where the instance has the extension), the last 1024 unbound ones too
+  (`unboundSecondsAgo`): a write to freed memory names what was freed;
+- the last 64 submits (queue, command buffers, timeline value) and the last 256 **events**: what the application did
+  (`rhi::CrashEvent`: swapchains made, window changes, presentation asked for, models, images and environments
+  installed, shutdown), stamped with the frame (`CrashFrame`).
+
+**Hangs**: a fence, semaphore or acquire wait without a timeout waits `SPEEDO_GPU_HANG_TIMEOUT` (20 s, 0 for never) at
+most and reports a hang (`vk::crash::WatchedWait`); and the main thread, which never waits for the draw thread, watches
+it (`rhi::CrashWatch` in `ClientMain`, against `CrashHeartbeat` at each `Draw`, which runs when frames are skipped too),
+which catches the draw thread blocked inside a call without a timeout (a present stuck behind a semaphore never
+signaled blocked the draw thread where no wait did). `SPEEDO_CRASH_TEST=hang` makes the frames from the 100th wait for
+a semaphore nothing signals, to check reports end to end (with `SPEEDO_GPU_HANG_TIMEOUT=3`).
+
+**The Crash Diagnostic Layer** (see the presentation test's paragraph): where tooling info names it, no breadcrumbs are
+recorded, nor the queues' checkpoints read (its own), and the report says its dump has the commands in flight; the
+reporter then waits 3 s before trapping, since the layer writes its dump on the thread that met the loss first.
+
+Checked with the descriptor bug of "Descriptor sets" put back: the report named `ComputeMain` in flight, the
+presentation change two frames before, a `WRITE_INVALID` fault in a 33 MB image (a 4K swapchain image) unbound 3 s
+before, with buffer markers and with checkpoints, and deferred to the layer with it loaded.
 
 ## rhi: `Object<T>` / `DeviceObject<T>` base classes
 
