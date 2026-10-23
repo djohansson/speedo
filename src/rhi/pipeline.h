@@ -225,6 +225,14 @@ public:
 		uint32_t index);	
 
 	void SetRenderTarget(IRenderTarget<G>& renderTarget);
+
+	// writes every descriptor set afresh at its next bind, from the values set, whether or not they changed since: call
+	// after destroying and recreating what is bound (with the gpu idle). SetDescriptorData skips a value equal to the one
+	// set, and a handle equals that of an object destroyed before it was made whenever the driver reuses the address
+	// (NVIDIA's do): a swapchain's storage views recreated at a present mode change came back with the old ones' handles,
+	// the set kept the destroyed views' descriptors, and ComputeMain lost the device writing through one (1 run in 10 of
+	// the presentation test)
+	void InvalidateDescriptorSets();
 	//
 
 	// "auto" api end	

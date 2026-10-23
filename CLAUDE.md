@@ -1497,6 +1497,14 @@ per-frame re-writes of the same data (as the compute pass does) exhaust the pool
 (`VK_ERROR_OUT_OF_POOL_MEMORY`). Genuine changes (loads, resizes) still leak a little until sets are
 recycled once the gpu is done with them.
 
+A handle equal to the one set isn't the same object, though: drivers reuse a destroyed object's handle (NVIDIA's are
+addresses), so what is destroyed and made again with the gpu idle (the swapchain's storage views and the frame graph's
+transients, at every swapchain recreation) can come back with the old handles, be skipped as unchanged, and leave the
+set holding the destroyed ones' descriptors: `ComputeMain` lost the device writing through one, 1 presentation test run
+in 10 on Windows, after a present mode change (found with the crash diagnostic layer, below). So
+`Scene::CreateOutputDependentObjects` calls `Pipeline::InvalidateDescriptorSets` once it has set them, which writes
+every set afresh at its next bind. Loads aren't exposed: what they replace is retired after the new objects exist.
+
 Loaded resources (models/images from the File menu or `SPEEDO_AUTOLOAD_MODEL`/`SPEEDO_AUTOLOAD_IMAGE`)
 are installed on the draw thread via `rhi.drawCalls`, stored with `Device::ReplaceResource`, and the
 previous resource is freed via `RetireAfterGraphicsWork` once all in-flight graphics work is done.

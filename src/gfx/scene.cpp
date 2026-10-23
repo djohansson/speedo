@@ -1555,6 +1555,11 @@ struct Scene::Impl
 					.layout=ImageLayout::kGeneral},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
 				imageIt);
+
+		// the output's views and the frame graph's transients were destroyed and made again: a new one with a destroyed one's
+		// handle (which the driver may reuse) is skipped above as unchanged, and its set would keep the destroyed one's
+		// descriptor (see Pipeline::InvalidateDescriptorSets)
+		pipeline.InvalidateDescriptorSets();
 	}
 
 	Impl(RHI& rhi, Pipeline& pipeline, Views& views, RenderOutput& output)

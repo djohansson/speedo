@@ -177,6 +177,17 @@ void Pipeline<kVk>::BindDescriptorSet(
 }
 
 template <>
+void Pipeline<kVk>::InvalidateDescriptorSets()
+{
+	for (auto& [setLayout, state] : myDescriptorMap)
+	{
+		auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = state;
+		auto lock = std::lock_guard(mutex);
+		std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
+	}
+}
+
+template <>
 void Pipeline<kVk>::BindDescriptorSetAuto(
 	CommandBufferHandle<kVk> cmd,
 	uint32_t set,
