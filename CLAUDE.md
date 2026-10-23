@@ -1144,7 +1144,14 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   passes, only then): a thread per triangle of the main list's static draws (`gGiJobs`: per draw its first triangle of
   all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index buffers are storage buffers too) samples its
   surface at under half a voxel apart into the voxel half a voxel behind each of its faces (`GiVoxel`: albedo and
-  occupancy, normal facing away from the face, emission; `InterlockedMax`, so that the order doesn't matter). Both
+  occupancy, normal facing away from the face, emission; `InterlockedMax`, so that the order doesn't matter), in rows
+  of samples, at most 512 (`kGiVoxelizeSampledSteps`); a longer triangle (over 256 voxels) is rasterized along its
+  normal's dominant axis instead (`GiVoxelizeRasterize`: each voxel column whose square its projection overlaps, the
+  voxels its plane crosses there). Sampled at most 512 rows apart, as it was, a long triangle was sampled a little more
+  than a voxel apart and skipped voxel columns: at resolution 384 Sponza's corridor floor (triangles some 10 m long,
+  voxels of 2 cm in the finest clip) had lines of holes across it, which the surface cache drew as bright lines along
+  the floor; sampled half a voxel apart however long, its voxelizing took 13 ms rather than 4.4 when a clip scrolled
+  (a triangle is a thread), rasterized 3.4 (Bistro's street 3.5 to 3.0). Both
   faces, always: a double sided material's either face can be the one seen, and a triangle's winding, its vertex
   normals and the side it is drawn from needn't agree (CornellBox's generated normals point out of the box, whose walls
   are seen from inside). Which faces wrote a voxel is kept (`GiVoxelFaces`: 1 a front face, behind which it stands for the

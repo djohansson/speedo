@@ -718,6 +718,95 @@ float4 GiUnpackRgba8(uint v)
 	return float4(v & 0xFFu, (v >> 8) & 0xFFu, (v >> 16) & 0xFFu, v >> 24) / 255.0;
 }
 
+// the most rows of samples a triangle is voxelized by (see ComputeGiVoxelize): half a voxel apart, a triangle up to 256
+// voxels long; a longer one is rasterized (GiVoxelizeRasterize)
+static const uint kGiVoxelizeSampledSteps = 512u;
+
+// a voxelized triangle's side written into a voxel (see ComputeGiVoxelize): what doesn't move only where it scrolled in
+// (the rest is shifted, see ComputeGiShift), what moves everywhere
+void GiVoxelizeWrite(GiData gi, uint3 size, int3 at, GiVoxel voxel, uint sideIt, bool doubleSided, bool moving)
+{
+	if (!GiInside(at, size) || (!moving && !GiScrolledIn(gi, at)))
+		return;
+	uint index = gi.voxelFirst + GiVoxelIndex(uint3(at), size);
+	// something moving in this block this frame (see gGiFlags' second word; a plain store of the same)
+	if (moving)
+		gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(at) >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL))) + 1u] = gi.frameStamp;
+	InterlockedMax(gGiVoxels[index].albedo, voxel.albedo);
+	InterlockedMax(gGiVoxels[index].normal, voxel.normal);
+	InterlockedMax(gGiVoxels[index].emissionRG, voxel.emissionRG);
+	InterlockedMax(gGiVoxels[index].emissionB, voxel.emissionB);
+	// and which of the triangle's faces wrote it (bits 16 and 17): both, the voxel is a thin wall's, whose normal is
+	// either face's (see GiOccluderHit); and whether a double sided one did (bit 18, see kGiVoxelDoubleSided)
+	InterlockedOr(gGiVoxels[index].emissionB, ((sideIt + 1u) << 16) | (doubleSided ? kGiVoxelDoubleSided : 0u));
+}
+
+// a long triangle's side (q0, q1, q2: its corners in voxel coordinates, half a voxel behind the face) voxelized by
+// rasterizing it along its normal's dominant axis: each column of voxels along that axis whose square the triangle's
+// projection overlaps (the edges' functions at the square's corner farthest inside, with the bounds: exact, so a sliver
+// misses none), the voxels its plane crosses over the square (within the triangle's extent along the axis), within
+// the box (the clip, or the slab that scrolled in). a voxel column an iteration, where sampling half a voxel apart took
+// about four samples a voxel: voxelizing at resolution 384 when a clip scrolled, Sponza's (its corridor floor's
+// triangles some 10 m long) took 4.4 ms sampled at most 512 rows apart (with the holes), 13 sampled half a voxel apart,
+// 3.4 rasterized; Bistro's street 3.5 and 3.0. the triangles that need no more rows are sampled as they were
+void GiVoxelizeRasterize(GiData gi, uint3 size, float3 q0, float3 q1, float3 q2, float3 boxLow, float3 boxHigh, GiVoxel voxel, uint sideIt, bool doubleSided, bool moving)
+{
+	float3 n = cross(q1 - q0, q2 - q0);
+	float3 m = abs(n);
+	uint d = m.x >= m.y && m.x >= m.z ? 0u : (m.y >= m.z ? 1u : 2u);
+	if (m[d] <= 0.0)
+		return;
+	uint u = (d + 1u) % 3u;
+	uint w = (d + 2u) % 3u;
+	// the projection, counter-clockwise, so that inside is where no edge's function is below 0
+	float2 corners[3] = {float2(q0[u], q0[w]), float2(q1[u], q1[w]), float2(q2[u], q2[w])};
+	float2 ab = corners[1] - corners[0];
+	float2 ac = corners[2] - corners[0];
+	if (ab.x * ac.y - ab.y * ac.x < 0.0)
+	{
+		float2 corner = corners[1];
+		corners[1] = corners[2];
+		corners[2] = corner;
+	}
+	// the plane along d over a square: its depth at the center, give or take slope
+	float plane = dot(n, q0);
+	float slope = 0.5 * (m[u] + m[w]) / m[d];
+	float depthLow = max(min(q0[d], min(q1[d], q2[d])), boxLow[d]);
+	float depthHigh = min(max(q0[d], max(q1[d], q2[d])), boxHigh[d]);
+	float2 projectedLow = min(corners[0], min(corners[1], corners[2]));
+	float2 projectedHigh = max(corners[0], max(corners[1], corners[2]));
+	int2 low = int2(floor(max(projectedLow, float2(boxLow[u], boxLow[w]))));
+	int2 high = int2(floor(min(projectedHigh, float2(boxHigh[u], boxHigh[w]))));
+	for (int cu = low.x; cu <= high.x; cu++)
+	{
+		for (int cw = low.y; cw <= high.y; cw++)
+		{
+			float2 center = float2(float(cu), float(cw)) + 0.5;
+			bool overlaps = true;
+			for (uint edgeIt = 0; edgeIt < 3u; edgeIt++)
+			{
+				float2 from = corners[edgeIt];
+				float2 edge = corners[(edgeIt + 1u) % 3u] - from;
+				float function = edge.x * (center.y - from.y) - edge.y * (center.x - from.x);
+				overlaps = overlaps && function + 0.5 * (abs(edge.x) + abs(edge.y)) >= 0.0;
+			}
+			if (!overlaps)
+				continue;
+			float depth = (plane - n[u] * center.x - n[w] * center.y) / n[d];
+			int first = int(floor(max(depth - slope, depthLow)));
+			int last = int(floor(min(depth + slope, depthHigh)));
+			for (int k = first; k <= last; k++)
+			{
+				int3 at = 0;
+				at[d] = k;
+				at[u] = cu;
+				at[w] = cw;
+				GiVoxelizeWrite(gi, size, at, voxel, sideIt, doubleSided, moving);
+			}
+		}
+	}
+}
+
 // voxelizing: a thread per triangle of what doesn't move (gGiJobs, by their first triangles; giStep jobs), at each of
 // its instances: its surface sampled at under half a voxel apart, each voxel a sample lands in taking the triangle's
 // albedo, normal and emission (the largest of each, so that which triangle wins doesn't depend on the order)
@@ -829,8 +918,17 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 				emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0).rgb;
 			}
 		}
+		// sampled half a voxel apart along its longest edge, in rows of samples, up to kGiVoxelizeSampledSteps of them: a
+		// longer triangle is rasterized instead (GiVoxelizeRasterize). sampled at most 512 rows apart, as it was, a triangle
+		// longer than 256 voxels was sampled a little more than a voxel apart and skipped voxel columns now and then:
+		// Sponza's corridor floor, its triangles some 10 m long, had holes in lines across it at resolution 384 (voxels of
+		// 2 cm in the finest clip), where the surface cache's entries saw through it and drew bright lines along the floor.
+		// sampled half a voxel apart however long, a long triangle a thread, Sponza's voxelizing at 384 took 13 ms rather
+		// than 4.4 whenever a clip scrolled
 		float longest = max(length(p1 - p0), max(length(p2 - p1), length(p0 - p2)));
-		uint steps = clamp(uint(ceil(longest / (gi.volumeOrigin.w * 0.5))), 1u, 512u);
+		float needed = ceil(longest / (gi.volumeOrigin.w * 0.5));
+		bool rasterize = needed > float(kGiVoxelizeSampledSteps);
+		uint steps = clamp(uint(needed), 1u, kGiVoxelizeSampledSteps);
 		// a voxel behind each of its faces, half of one off it (one on a voxel boundary would round to either side),
 		// facing away from it: which face is seen and lit isn't known here (a double sided material's either, and a
 		// triangle's winding, its vertex normals and which side it is drawn from needn't agree)
@@ -868,6 +966,13 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			float3 sideEmission = sideIt == 0 ? emission : 0.0;
 			voxel.emissionRG = GiPackHalf2(sideEmission.rg);
 			voxel.emissionB = GiPackHalf2(float2(sideEmission.b, 0.0));
+			if (rasterize)
+			{
+				float3 shift = facing * (offset * gi.volumeOrigin.w);
+				GiVoxelizeRasterize(gi, size, GiVoxelCoordinate(gi, p0 - shift, 0), GiVoxelCoordinate(gi, p1 - shift, 0), GiVoxelCoordinate(gi, p2 - shift, 0),
+									boxLow, boxHigh, voxel, sideIt, doubleSided, moving);
+				continue;
+			}
 			// in voxel coordinates, the samples q = start + edgeA a + edgeB b; each row (a) only over the b whose samples
 			// are in the box: a big triangle in a fine clip was sampled far outside it, and one reaching into a slab
 			// that scrolled in all over (a ground triangle at the finest clip's half voxel spacing: thousands of samples)
@@ -902,22 +1007,7 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 					if (all(at == previous))
 						continue;
 					previous = at;
-					// what doesn't move only where it scrolled in (the rest is shifted, see ComputeGiShift); what moves
-					// everywhere
-					if (!GiInside(at, size) || (!moving && !GiScrolledIn(gi, at)))
-						continue;
-					uint index = gi.voxelFirst + GiVoxelIndex(uint3(at), size);
-					// something moving in this block this frame (see gGiFlags' second word; a plain store of the same)
-					if (moving)
-						gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(at) >> SHADER_TYPES_GI_FLAG_LEVEL, GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL))) + 1u] = gi.frameStamp;
-					InterlockedMax(gGiVoxels[index].albedo, voxel.albedo);
-					InterlockedMax(gGiVoxels[index].normal, voxel.normal);
-					InterlockedMax(gGiVoxels[index].emissionRG, voxel.emissionRG);
-					InterlockedMax(gGiVoxels[index].emissionB, voxel.emissionB);
-					// and which of the triangle's faces wrote it (bits 16 and 17): both, the voxel is a thin wall's, whose
-					// normal is either face's (see GiOccluderHit); and whether a double sided one did (bit 18, see
-					// kGiVoxelDoubleSided)
-					InterlockedOr(gGiVoxels[index].emissionB, ((sideIt + 1u) << 16) | (doubleSided ? kGiVoxelDoubleSided : 0u));
+					GiVoxelizeWrite(gi, size, at, voxel, sideIt, doubleSided, moving);
 				}
 			}
 		}
