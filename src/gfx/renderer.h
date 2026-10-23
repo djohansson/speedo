@@ -66,6 +66,8 @@ struct FrameInputs
 	bool indirectLighting = false;
 	// whether its rays trace the model's BVHs (GI_TRACE_BVH, where it has them) or walk the voxels (GI_TRACE_VOXELS)
 	bool traceTriangles = true;
+	// its voxels along the scene's longest axis (see gi::MakeClipmap): a change makes the clipmap again
+	uint32_t giResolution = gi::kDefaultResolution;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -388,7 +390,7 @@ private:
 	// subset is the frame's: GiData::rayPhase), their spacing (SPEEDO_GI_PROBE_SPACING), what they keep of a frame
 	// (SPEEDO_GI_HYSTERESIS), whether the voxels take their light (SPEEDO_GI_BOUNCE), which half of the probes' buffers
 	// is the frame's (see GiData::probeFirst), and whether the frame keeps nothing of the last (GiData::reset)
-	uint32_t myGiResolution = 128;
+	uint32_t myGiResolution = gi::kDefaultResolution; // the clipmap's (FrameInputs::giResolution, when it was made)
 	uint32_t myGiClipCount = 3;
 	float myGiLookAhead = 0.5F; // SPEEDO_GI_LOOK_AHEAD: how far ahead of the eye the finer clips are centered, see gi::MakeClipmap
 	float myGiEmissionReach = 0.5F; // SPEEDO_GI_EMISSION_REACH: see GiData::emissionReach

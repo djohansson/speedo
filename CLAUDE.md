@@ -1099,7 +1099,13 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
 
 - **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
   most 4), finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
-  longest axis, a margin of a probe spacing, so that a layer of probes stands outside its outermost surfaces; a whole
+  longest axis; View > Indirect Lighting Resolution offers `gi::kResolutions`, 128 to 384, and a change makes the clipmap
+  again, `FrameInputs::giResolution`. Finer resolves light through narrower openings: the sky under Sponza's curtains,
+  a gap of a few tens of centimetres, which 128 drew as spots at the corridor's end that faded into longer, dimmer
+  patches as the eye neared them (the coarser clips' probes, 1.8 m apart, giving way to the finer's; the surface
+  reference has a band along the curtains' lower edges), and 256 as the reference does; at the user's pose
+  `7.7949,0.8419,-3.7077,0.531,-91.763` the frame takes 3.5 ms at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320 and 17.8 at
+  384 (RTX 4070 Ti SUPER, 1920x1080; Bistro's street 18.6 at 384); a margin of a probe spacing, so that a layer of probes stands outside its outermost surfaces; a whole
   spacing puts the bounds halfway between two planes of probes in every clip, the probes being half a spacing from a
   cell's corner: at one and a half, a plane of the last clip's probes lay in the outermost surfaces, CornellBox's floor,
   back and left walls, half of each one's rays leaving through the surface it was on and the relocation unable to tell

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <gfx/gpu.h>
+#include <gfx/indirectlight.h>
 #include <gfx/meshimport.h>
 #include <gfx/model.h>
 #include <gfx/renderoutput.h>
@@ -72,6 +73,9 @@ public:
 		// whether its rays trace the model's triangles (its BVHs, see gfx/bvh.h) or walk the voxels (FrameInputs::traceTriangles;
 		// View > Indirect Lighting Rays; triangles by default, SPEEDO_GI_TRACE=voxels to start with the voxels)
 		std::atomic<bool> traceTriangles = true;
+		// the indirect lighting's voxels along the scene's longest axis (FrameInputs::giResolution; View > Indirect Lighting
+		// Resolution, SPEEDO_GI_RESOLUTION to start with another): 128 by default, finer for light through narrow openings
+		std::atomic<uint32_t> giResolution = gi::kDefaultResolution;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

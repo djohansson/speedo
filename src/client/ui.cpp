@@ -161,6 +161,8 @@ void WindowedApplication::InternalCopyPose()
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
 	if (!settings.traceTriangles.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_TRACE=voxels";
+	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
+		text += std::format(" SPEEDO_GI_RESOLUTION={}", resolution);
 	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
 		text += std::format(" SPEEDO_DEBUG_VIEW={}", debugView->key);
 	if (!GetWindows().empty())
@@ -916,6 +918,11 @@ void WindowedApplication::PrepareDraw()
 		// and how its rays find what they meet (SPEEDO_GI_TRACE=voxels walks the voxels; the triangles' BVHs by default)
 		if (const char* trace = std::getenv("SPEEDO_GI_TRACE"); trace != nullptr && *trace != '\0')
 			App().GetScene().GetSettings().traceTriangles.store(std::string_view(trace) != "voxels", std::memory_order_relaxed);
+		// and its resolution (SPEEDO_GI_RESOLUTION: voxels along the scene's longest axis, any from 8 to 512; the menu
+		// offers gi::kResolutions)
+		if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
+			App().GetScene().GetSettings().giResolution.store(
+				std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(resolution, nullptr, 10)), gfx::gi::kMinResolution, gfx::gi::kMaxResolution), std::memory_order_relaxed);
 		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
 			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
 				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
@@ -1598,6 +1605,23 @@ void WindowedApplication::PrepareDraw()
 					if (MenuItem("Voxels", nullptr, !traceTriangles))
 						App().GetScene().GetSettings().traceTriangles.store(false, std::memory_order_relaxed);
 					SetItemTooltip("The rays walk the voxels (SPEEDO_GI_TRACE=voxels to start with them).");
+					ImGui::EndMenu();
+				}
+				if (ui::BeginMenu("Indirect Lighting Resolution"))
+				{
+					// the last clip's voxels along the scene's longest axis (see gi::kResolutions): changing it voxelizes
+					// the scene again
+					auto current = App().GetScene().GetSettings().giResolution.load(std::memory_order_relaxed);
+					for (auto resolution : gfx::gi::kResolutions)
+					{
+						auto label = std::format("{}{}", resolution, resolution == gfx::gi::kDefaultResolution ? " (default)" : "");
+						if (MenuItem(label.c_str(), nullptr, current == resolution))
+							App().GetScene().GetSettings().giResolution.store(resolution, std::memory_order_relaxed);
+					}
+					SetItemTooltip(
+						"Voxels along the scene's longest side (SPEEDO_GI_RESOLUTION to start with another). Finer resolves "
+						"light through narrower openings, at a steep cost: each step about doubles the indirect lighting's "
+						"time. Changing it voxelizes the scene again.");
 					ImGui::EndMenu();
 				}
 				if (ui::BeginMenu("Debug View"))

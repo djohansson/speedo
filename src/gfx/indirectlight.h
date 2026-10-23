@@ -5,6 +5,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -18,6 +19,17 @@ namespace gfx::gi
 // around its center a clip holds is its half size less half a snap, and Sponza's thin clips lost all of their height to a
 // snap of 4, so the finest clips lit nothing there)
 inline constexpr uint32_t kSnapProbes = 1;
+
+// the last clip's voxels along the scene's longest axis (see MakeClipmap): by default, and what View > Indirect Lighting
+// Resolution offers. finer resolves light through narrower openings (the sky under Sponza's curtains, which 128 drew as
+// spots at the corridor's end that faded as the eye neared them: the coarser clips' probes, 1.8 m apart) at a steep
+// cost: Sponza's corridor 3.5 ms a frame at 128, 5.4 at 192, 8.2 at 256, 11.9 at 320, 17.8 at 384 (RTX 4070 Ti SUPER,
+// 1920x1080)
+inline constexpr uint32_t kDefaultResolution = 128;
+inline constexpr std::array<uint32_t, 5> kResolutions{128, 192, 256, 320, 384};
+// what SPEEDO_GI_RESOLUTION may ask for
+inline constexpr uint32_t kMinResolution = 8;
+inline constexpr uint32_t kMaxResolution = 512;
 
 // a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
 [[nodiscard]] inline glm::uvec3 LevelVoxels(const glm::uvec3& size, uint32_t level)

@@ -2108,6 +2108,7 @@ struct Scene::Impl
 				.clusteredLights = mySettings.clusteredLights.load(std::memory_order_relaxed),
 				.indirectLighting = mySettings.indirectLighting.load(std::memory_order_relaxed),
 				.traceTriangles = mySettings.traceTriangles.load(std::memory_order_relaxed),
+				.giResolution = mySettings.giResolution.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

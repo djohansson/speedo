@@ -1064,9 +1064,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
 	// the indirect lighting, when FrameInputs::indirectLighting says (View > Indirect Lighting, SPEEDO_GI=1 to start with
-	// it): SPEEDO_GI_RESOLUTION voxels along the scene's longest axis, 128 by default
-	if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
-		myGiResolution = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(resolution, nullptr, 10)), 8U, 512U);
+	// it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Indirect Lighting Resolution,
+	// SPEEDO_GI_RESOLUTION)
 	// the clipmap's clips (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
 	// around the camera)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
@@ -2464,9 +2463,13 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	}
 	if (myGiEyeLog)
 		std::println("gi eye {},{},{},{},{},{}", eye.x, eye.y, eye.z, look.x, look.y, look.z);
+	// another resolution: made again, as for another scene
+	auto resolution = std::clamp<uint32_t>(frame.giResolution, gi::kMinResolution, gi::kMaxResolution);
+	bool resolutionChanged = resolution != myGiResolution;
+	myGiResolution = resolution;
 	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, look, myGiLookAhead, myGiResolution, myGiClipCount, myGiProbeSpacing);
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
-				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize;
+				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged;
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
 	// place plus that. all of it is voxelized again when the scene changed, or when it moved by its size or more
 	for (uint32_t clipIt = 0; clipIt < clipmap.clips.size(); clipIt++)
