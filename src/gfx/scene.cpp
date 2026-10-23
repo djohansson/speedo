@@ -128,7 +128,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 23; // after the traced shadows' (SHADER_TYPES_SHADOW_MASK_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 26; // after the indirect lighting near field's (SHADER_TYPES_GI_NEAR_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -154,6 +154,9 @@ static_assert(
 	kMaterialTextureId < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_UI_BLUR_ROWS_TEXTURE < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_PREPASS_NORMAL_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_SHADOW_MASK_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_GI_NEAR_RAW_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_GI_NEAR_ROWS_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_GI_NEAR_TEXTURE < kModelTextureFirstSlot);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes
@@ -1912,6 +1915,9 @@ struct Scene::Impl
 						{"ComputeGiCacheFilter", SLANG_STAGE_COMPUTE}, // the GI pass's, after the resolve (last: the indices before stay)
 						{"ComputeGiCachePrepare", SLANG_STAGE_COMPUTE}, // and before it: the free pages,
 						{"ComputeGiCacheRelease", SLANG_STAGE_COMPUTE}, // and those of the blocks no longer near a surface
+						{"ComputeGiNear", SLANG_STAGE_COMPUTE}, // see the GI Near passes
+						{"ComputeGiNearX", SLANG_STAGE_COMPUTE},
+						{"ComputeGiNearY", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2113,6 +2119,8 @@ struct Scene::Impl
 				.traceTriangles = mySettings.traceTriangles.load(std::memory_order_relaxed),
 				.giResolution = mySettings.giResolution.load(std::memory_order_relaxed),
 				.giSurfaceCache = mySettings.giSurfaceCache.load(std::memory_order_relaxed),
+				.giNearField = mySettings.giNearField.load(std::memory_order_relaxed),
+				.giNearContact = mySettings.giNearContact.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

@@ -79,6 +79,12 @@ public:
 		// whether the surface cache refines the probes' light (FrameInputs::giSurfaceCache; View > Indirect Lighting Surface
 		// Cache; on by default, SPEEDO_GI_CACHE=0 to start without it)
 		std::atomic<bool> giSurfaceCache = true;
+		// whether the shading takes the near field's rays near other surfaces (FrameInputs::giNearField; View > Indirect
+		// Lighting Near Field; on by default, SPEEDO_GI_NEAR=0 to start without it)
+		std::atomic<bool> giNearField = true;
+		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Indirect Lighting Near
+		// Field Contact, SPEEDO_GI_NEAR_CONTACT to start with another)
+		std::atomic<float> giNearContact = gi::kDefaultNearContact;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

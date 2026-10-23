@@ -33,6 +33,13 @@ inline constexpr std::array<uint32_t, 7> kResolutions{64, 96, 128, 192, 256, 320
 inline constexpr uint32_t kMinResolution = 8;
 inline constexpr uint32_t kMaxResolution = 512;
 
+// the near field (see GiData::nearContact): how near what a pixel's ray meets is a contact, in voxels of the clips that
+// light the point, by default and at most (View > Indirect Lighting Near Field Contact, SPEEDO_GI_NEAR_CONTACT). 1.5 left
+// the edges of the blocks under CornellBox's spheres faintly; wider takes more of the rays' light along every
+// junction (Sponza's columns between the curtains lit a little more at 2.5)
+inline constexpr float kDefaultNearContact = 2.5F;
+inline constexpr float kMaxNearContact = 8.0F;
+
 // a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
 [[nodiscard]] inline glm::uvec3 LevelVoxels(const glm::uvec3& size, uint32_t level)
 {

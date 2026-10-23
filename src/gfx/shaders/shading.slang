@@ -123,6 +123,9 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	// where a clip holds the point but no probe is seen around it, none of its light: the environment's there (the sky
 	// unoccluded) shone into dark interiors along their edges
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
+	// near other surfaces, what the near field's rays gathered (the main pass's opaque fragments, see GiNearIrradiance)
+	if (gFragmentGiNear)
+		indirect = GiNearIrradiance(indirect, gi.valid);
 	// the debug views of the ambient light: a white surface's diffuse, whatever lights it (the indirect lighting where
 	// it covers the point, else the environment)
 	if (debugView == DEBUG_VIEW_INDIRECT_DIFFUSE)

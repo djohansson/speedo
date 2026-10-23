@@ -66,6 +66,10 @@ constexpr uint8_t kGiCacheFilterEntryPoint = 22;
 // and its storage's, before the resolve (see ComputeGiCachePrepare, ComputeGiCacheRelease)
 constexpr uint8_t kGiCachePrepareEntryPoint = 23;
 constexpr uint8_t kGiCacheReleaseEntryPoint = 24;
+// the near field's (see ginear.slang): its rays, and their filter along rows and columns
+constexpr uint8_t kGiNearEntryPoint = 25;
+constexpr uint8_t kGiNearXEntryPoint = 26;
+constexpr uint8_t kGiNearYEntryPoint = 27;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -93,6 +97,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myShadowBlocker = myGraph.CreateImage({.name = "Shadow Blocker", .format = Format::kR16G16B16A16Sfloat});
 	myShadowRows = myGraph.CreateImage({.name = "Shadow Rows", .format = Format::kR8G8B8A8Unorm});
 	myShadowMask = myGraph.CreateImage({.name = "Shadow Mask", .format = Format::kR8G8B8A8Unorm});
+	// the indirect lighting's near field (see SHADER_TYPES_GI_NEAR_RAW_TEXTURE)
+	myGiNearRaw = myGraph.CreateImage({.name = "GI Near Raw", .format = Format::kR16G16B16A16Sfloat});
+	myGiNearRows = myGraph.CreateImage({.name = "GI Near Rows", .format = Format::kR16G16B16A16Sfloat});
+	myGiNear = myGraph.CreateImage({.name = "GI Near", .format = Format::kR16G16B16A16Sfloat});
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
 	myShadowTraceList = myGraph.CreateBuffer(
 		{.name = "Shadow Trace List", .sizeOf = [](Extent2d extent) { return (PixelCount(extent) + 1) * sizeof(uint32_t); }});
@@ -626,6 +634,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase, late](FrameGraph::PassContext& context)
@@ -971,6 +980,49 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kShadowDenoiseYEntryPoint); });
 
+	// the indirect lighting's near field (see ginear.slang): a ray from every other pixel each way of the pre-pass's depth
+	// through the BVHs, a few voxels long (the radiance of what it meets, or the volume's light along it from its end),
+	// then filtered over the traced pixels around on the same surface (rows, then columns), for the main pass's opaque
+	// fragments
+	myGiNearPass = myGraph.AddPass(
+		"GI Near",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiRadiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			for (auto volume : myGiVolumes)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiNearRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			// every other pixel each way (see ComputeGiNear)
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiNearEntryPoint}, (extent.width + 1) / 2, (extent.height + 1) / 2);
+		});
+	myGiNearXPass = myGraph.AddPass(
+		"GI Near X",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiNearRaw, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiNearRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearXEntryPoint); });
+	myGiNearYPass = myGraph.AddPass(
+		"GI Near Y",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiNearRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiNear, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearYEntryPoint); });
+
 	mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
@@ -1152,6 +1204,17 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// (SPEEDO_GI_EMISSION_REACH, 0.5 by default, 0 for none: see GiMarch)
 	if (const char* reach = std::getenv("SPEEDO_GI_EMISSION_REACH"); reach != nullptr && *reach != '\0')
 		myGiEmissionReach = std::clamp(static_cast<float>(std::strtod(reach, nullptr)), 0.0F, 8.0F);
+	// the near field's rays (see GiData::nearReach): how far they go, in voxels of the clips that light the point
+	// (SPEEDO_GI_NEAR_REACH, 8 by default; how near what they meet is a contact is FrameInputs::giNearContact), the power of
+	// the share of them that met no contact which the volume's lookup is weighed by against what they gathered
+	// (SPEEDO_GI_NEAR_POWER, 2), and what the shading shows of them (SPEEDO_GI_NEAR_SHOW: 1 what they gathered alone, 2
+	// the share that met no contact, 3 and 4 the gathered light of the rays that met something, and of those that didn't)
+	if (const char* nearReach = std::getenv("SPEEDO_GI_NEAR_REACH"); nearReach != nullptr && *nearReach != '\0')
+		myGiNearReach = std::clamp(static_cast<float>(std::strtod(nearReach, nullptr)), 0.0F, 64.0F);
+	if (const char* nearPower = std::getenv("SPEEDO_GI_NEAR_POWER"); nearPower != nullptr && *nearPower != '\0')
+		myGiNearPower = std::clamp(static_cast<float>(std::strtod(nearPower, nullptr)), 0.0F, 64.0F);
+	if (const char* nearShow = std::getenv("SPEEDO_GI_NEAR_SHOW"); nearShow != nullptr && *nearShow != '\0')
+		myGiNearShow = static_cast<uint32_t>(std::strtoul(nearShow, nullptr, 10));
 	// every clip voxelized again every frame (SPEEDO_GI_REVOXELIZE=1): what the clips' scrolling must come to, for
 	// comparing with it (slow)
 	const char* revoxelize = std::getenv("SPEEDO_GI_REVOXELIZE");
@@ -1365,6 +1428,29 @@ Renderer::~Renderer()
 				"  the walk straight down: distance {:.3f} m, ended in clip {:.0f} after {:.0f} steps, in voxel row {:.0f}",
 				static_cast<double>(values[16 + 256 + 32]), static_cast<double>(values[16 + 256 + 33]), static_cast<double>(values[16 + 256 + 34]), static_cast<double>(values[16 + 256 + 35]));
 			{
+				// the point's voxel's surface cache entry, where it has one this frame (see GI_DUMP_CACHE_FIRST)
+				const float* c = &values[GI_DUMP_CACHE_FIRST];
+				auto d = [](float value) { return static_cast<double>(value); };
+				if (c[0] == 0.0F && c[1] == 0.0F)
+					std::println("  no surface cache entry at the point's voxel");
+				else
+				{
+					std::println(
+						"  the surface cache entry at the point's voxel: samples {:.0f}, inside {:.0f} (valid {:.0f}), surface {:.0f}, fresh {:.0f}, active {:.0f}, {:.0f} rays from ({:.3f}, {:.3f}, {:.3f}) walking clip {:.0f}; the voxel at ({:.3f}, {:.3f}, {:.3f}): occupied {:.0f}, faces {:.0f}, double sided {:.0f}, normal ({:.2f}, {:.2f}, {:.2f}), open side ({:.2f}, {:.2f}, {:.2f})",
+						d(c[0]), d(c[1]), d(c[17]), d(c[18]), d(c[19]), d(c[20]), d(c[27]), d(c[2]), d(c[3]), d(c[4]), d(c[21]), d(c[5]), d(c[6]), d(c[7]),
+						d(c[26]), d(c[25]), d(c[28]), d(c[22]), d(c[23]), d(c[24]), d(c[8]), d(c[9]), d(c[10]));
+					std::println(
+						"    its light (luminance) along +x {:.4f} -x {:.4f} +y {:.4f} -y {:.4f} +z {:.4f} -z {:.4f}", d(c[11]), d(c[12]), d(c[13]), d(c[14]), d(c[15]), d(c[16]));
+					for (int rayIt = 0; rayIt < std::min(8, static_cast<int>(c[27])); rayIt++)
+					{
+						const float* r = &c[30 + rayIt * 6];
+						std::println(
+							"    ray {}: direction ({:+.2f}, {:+.2f}, {:+.2f}), distance {:.3f} (-1: met nothing), light {:.4f}, a surface's back {:.0f}",
+							rayIt, d(r[0]), d(r[1]), d(r[2]), d(r[3]), d(r[4]), d(r[5]));
+					}
+				}
+			}
+			{
 				uint32_t emptyCount = 0;
 				uint32_t provisionalCount = 0;
 				for (uint32_t texelIt = 0; texelIt < SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE; texelIt++)
@@ -1473,7 +1559,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myShadowRaw, SHADER_TYPES_SHADOW_RAW_TEXTURE},
 			 std::pair{myShadowBlocker, SHADER_TYPES_SHADOW_BLOCKER_TEXTURE},
 			 std::pair{myShadowRows, SHADER_TYPES_SHADOW_ROWS_TEXTURE},
-			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_TEXTURE}})
+			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_TEXTURE},
+			 std::pair{myGiNearRaw, SHADER_TYPES_GI_NEAR_RAW_TEXTURE},
+			 std::pair{myGiNearRows, SHADER_TYPES_GI_NEAR_ROWS_TEXTURE},
+			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
@@ -1487,7 +1576,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myShadowRaw, SHADER_TYPES_SHADOW_RAW_RW_TEXTURE},
 			 std::pair{myShadowBlocker, SHADER_TYPES_SHADOW_BLOCKER_RW_TEXTURE},
 			 std::pair{myShadowRows, SHADER_TYPES_SHADOW_ROWS_RW_TEXTURE},
-			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_RW_TEXTURE}})
+			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_RW_TEXTURE},
+			 std::pair{myGiNearRaw, SHADER_TYPES_GI_NEAR_RAW_RW_TEXTURE},
+			 std::pair{myGiNearRows, SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE},
+			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -2523,6 +2615,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	};
 	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiCacheGrowPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
+	// the near field (see GiData::nearReach), where the rays trace the model's BVHs
+	bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
+	for (auto pass : {myGiNearPass, myGiNearXPass, myGiNearYPass})
+		myGraph.SetEnabled(pass, myGiNearOn);
 	if (!enabled)
 	{
 		std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
@@ -2843,6 +2940,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 						 ? GI_TRACE_BVH
 						 : GI_TRACE_VOXELS;
 		clip.bvhMoving = frame.model != nullptr && frame.model->HasMovingBvh() ? 1 : 0;
+		clip.nearReach = myGiNearOn ? myGiNearReach : 0.0F;
+		clip.nearContact = std::clamp(frame.giNearContact, 0.0F, myGiNearReach);
+		clip.nearPower = myGiNearPower;
+		clip.nearShow = myGiNearShow;
 		if (myGiDump)
 		{
 			// the probe nearest the dump point: by its lattice (the offsets are small)
@@ -2934,10 +3035,12 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 		{.blend = kOpaqueBlend,
 		 .fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
 		 .depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kLess});
-	// the main list's fragments take the traced shadows (at the pre-pass's depth: its blended ones don't, see
-	// FragmentTransparent), the transmissive phase's don't
+	// the main list's fragments take the traced shadows and the indirect lighting's near field (at the pre-pass's depth:
+	// its blended ones don't, see FragmentTransparent), the transmissive phase's don't
 	auto pushConstants = inputs.pushConstants;
-	pushConstants.shadowMask = myShadowsTraced && !prepass && listId == ListId::kMain ? 1U : 0U;
+	pushConstants.prepassImages = 0;
+	if (!prepass && listId == ListId::kMain)
+		pushConstants.prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U);
 	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
 	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
 	std::optional<core::std_extra::function_ref<bool(const DrawItem&)>> include;

@@ -163,6 +163,10 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_GI_TRACE=voxels";
 	if (!settings.giSurfaceCache.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_CACHE=0";
+	if (!settings.giNearField.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_NEAR=0";
+	if (float contact = settings.giNearContact.load(std::memory_order_relaxed); contact != gfx::gi::kDefaultNearContact)
+		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
 		text += std::format(" SPEEDO_GI_RESOLUTION={}", resolution);
 	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
@@ -923,6 +927,14 @@ void WindowedApplication::PrepareDraw()
 		// whether its surface cache refines the probes' light (on by default; SPEEDO_GI_CACHE=0 to start without it)
 		if (const char* cache = std::getenv("SPEEDO_GI_CACHE"); cache != nullptr && *cache != '\0')
 			App().GetScene().GetSettings().giSurfaceCache.store(std::string_view(cache) != "0", std::memory_order_relaxed);
+		// and whether the shading takes its near field's rays near other surfaces (on by default; SPEEDO_GI_NEAR=0 to start
+		// without them)
+		if (const char* nearField = std::getenv("SPEEDO_GI_NEAR"); nearField != nullptr && *nearField != '\0')
+			App().GetScene().GetSettings().giNearField.store(std::string_view(nearField) != "0", std::memory_order_relaxed);
+		// and how near what its rays meet is a contact (SPEEDO_GI_NEAR_CONTACT, in voxels: see gi::kDefaultNearContact)
+		if (const char* contact = std::getenv("SPEEDO_GI_NEAR_CONTACT"); contact != nullptr && *contact != '\0')
+			App().GetScene().GetSettings().giNearContact.store(
+				std::clamp(static_cast<float>(std::strtod(contact, nullptr)), 0.0F, gfx::gi::kMaxNearContact), std::memory_order_relaxed);
 		// and its resolution (SPEEDO_GI_RESOLUTION: voxels along the scene's longest axis, any from 8 to 512; the menu
 		// offers gi::kResolutions)
 		if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
@@ -1620,6 +1632,26 @@ void WindowedApplication::PrepareDraw()
 					"accumulated over time and filtered along the surface: light through narrow openings resolves at the voxels' "
 					"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
 					"with the resolution (0.3 GB at 384 in Sponza).");
+				bool nearField = App().GetScene().GetSettings().giNearField.load(std::memory_order_relaxed);
+				if (MenuItem("Indirect Lighting Near Field", nullptr, &nearField))
+					App().GetScene().GetSettings().giNearField.store(nearField, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Near other surfaces, takes the light a ray from each pixel gathers within a few voxels (filtered along the "
+					"surface) in place of the voxels' own, which can't hold what is closer than a voxel: contacts darken "
+					"smoothly, without blocks. Where the rays trace the triangles. On by default (SPEEDO_GI_NEAR=0 to start "
+					"without it).");
+				{
+					float contact = App().GetScene().GetSettings().giNearContact.load(std::memory_order_relaxed);
+					BeginDisabled(!nearField);
+					if (DragFloat("Near Field Contact", &contact, 0.05F, 0.0F, gfx::gi::kMaxNearContact, "%.2f voxels", ImGuiSliderFlags_AlwaysClamp))
+						App().GetScene().GetSettings().giNearContact.store(contact, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip(
+						"How near another surface a pixel's rays find before its light is theirs rather than the voxels', in voxels "
+						"(SPEEDO_GI_NEAR_CONTACT, %.1f by default). Wider takes the rays' light along more of every junction; "
+						"narrower leaves more of the voxels' own near contacts. Drag, or double-click to type.",
+						static_cast<double>(gfx::gi::kDefaultNearContact));
+				}
 				if (ui::BeginMenu("Indirect Lighting Resolution"))
 				{
 					// the last clip's voxels along the scene's longest axis (see gi::kResolutions): changing it voxelizes

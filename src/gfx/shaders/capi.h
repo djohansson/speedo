@@ -66,7 +66,7 @@ extern "C"
 
 #define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 10u
 #define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
-#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 4u
+#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 5u
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
@@ -124,6 +124,17 @@ extern "C"
 #define SHADER_TYPES_SHADOW_ROWS_RW_TEXTURE 14u
 #define SHADER_TYPES_SHADOW_MASK_TEXTURE 22u
 #define SHADER_TYPES_SHADOW_MASK_RW_TEXTURE 15u
+// the indirect lighting's near field (see ginear.slang): per pixel of the pre-pass's depth, what its ray from the surface
+// met within a few voxels (rgb: its radiance; a: 1 if it met nothing, 0 if it did, -1 where there is nothing to know) (GI
+// Near, ComputeGiNear), that filtered along rows, and then columns (GI Near X and Y): the light the surface gathers (rgb)
+// and the share of its rays that met nothing near (a), which the main pass's opaque fragments take near other surfaces
+// (see GiNearIrradiance), each written as a storage image in gRWTextures
+#define SHADER_TYPES_GI_NEAR_RAW_TEXTURE 23u
+#define SHADER_TYPES_GI_NEAR_RAW_RW_TEXTURE 16u
+#define SHADER_TYPES_GI_NEAR_ROWS_TEXTURE 24u
+#define SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE 17u
+#define SHADER_TYPES_GI_NEAR_TEXTURE 25u
+#define SHADER_TYPES_GI_NEAR_RW_TEXTURE 18u
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
@@ -729,8 +740,11 @@ struct CullView
 #define GI_STATISTIC_COUNT 20u
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
-// rays that met a surface's back, the rays, then its depth map's texels' means)
-#define GI_DUMP_FLOAT_COUNT 460u
+// rays that met a surface's back, the rays, then its depth map's texels' means; the resolve at the point's voxel; and
+// from GI_DUMP_CACHE_FIRST the point's voxel's surface cache entry, see GiCacheUpdate: its samples and inside rays, its
+// rays' origin, the voxel's center, open side and light per face, and the frame's first 8 rays)
+#define GI_DUMP_FLOAT_COUNT 540u
+#define GI_DUMP_CACHE_FIRST 451u
 
 struct GiVoxel
 {
@@ -879,6 +893,17 @@ struct GiData
 	alignas(4) UINT1(cacheGrowFirst);
 	// how many frames a block keeps its page after a lookup last read it (SPEEDO_GI_CACHE_KEEP_FRAMES, see GiCacheKeeps)
 	alignas(4) UINT1(cacheKeepFrameCount);
+	// the near field (see ginear.slang): how far a pixel's ray goes, in voxels of the clips that light the point (0: off,
+	// the volume's lookup alone; SPEEDO_GI_NEAR_REACH), how near what it meets is a contact, which the voxels can't hold
+	// (SPEEDO_GI_NEAR_CONTACT, in voxels too), and the power of the share of its rays that met no contact which the
+	// volume's lookup is weighed by against what the rays gathered (SPEEDO_GI_NEAR_POWER)
+	alignas(4) FLOAT1(nearReach);
+	alignas(4) FLOAT1(nearContact);
+	alignas(4) FLOAT1(nearPower);
+	// what the shading takes of it (SPEEDO_GI_NEAR_SHOW, to judge it): 0 its blend with the volume's lookup, 1 what the
+	// rays gathered alone, 2 the share of them that met no contact (gray), 3 and 4 what the rays that met something
+	// gathered, and those that didn't
+	alignas(4) UINT1(nearShow);
 };
 
 struct PushConstants
@@ -930,10 +955,14 @@ struct PushConstants
 	// per frame: the output's image the frame is drawn into (gRWTextures', see SHADER_TYPES_OUTPUT_IMAGE_COUNT): a
 	// window's swapchain image, which needn't follow the frame's slot (mailbox hands back whichever is free)
 	alignas(4) UINT1(outputIndex);
-	// per pass: whether its fragments take the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE): the main pass's opaque
-	// ones, at the depth the pre-pass drew (see ShadowTraceData)
-	alignas(4) UINT1(shadowMask);
+	// per pass: which of the images made from the pre-pass's depth its fragments take (PREPASS_IMAGE_*): the main pass's
+	// opaque ones, at the depth the pre-pass drew
+	alignas(4) UINT1(prepassImages);
 };
+// PushConstants::prepassImages: the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE, see ShadowTraceData), and the
+// indirect lighting's near field (SHADER_TYPES_GI_NEAR_TEXTURE, see GiData::nearReach)
+#define PREPASS_IMAGE_SHADOW_MASK 1u
+#define PREPASS_IMAGE_GI_NEAR 2u
 
 #ifdef __cplusplus
 }

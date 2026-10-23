@@ -70,6 +70,10 @@ struct FrameInputs
 	uint32_t giResolution = gi::kDefaultResolution;
 	// whether the surface cache refines the probes' light (see GiData::cacheRayCount)
 	bool giSurfaceCache = true;
+	// whether the main pass's opaque fragments take the near field's rays near other surfaces (see GiData::nearReach),
+	// where the indirect lighting's rays trace the BVHs, and how near what they meet is a contact (GiData::nearContact)
+	bool giNearField = true;
+	float giNearContact = gi::kDefaultNearContact;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -247,6 +251,11 @@ private:
 	FrameGraph::ImageId myShadowMask;
 	FrameGraph::BufferId myShadowTraceList;
 	FrameGraph::BufferId myShadowTraceTiles;
+	// the indirect lighting's near field (see SHADER_TYPES_GI_NEAR_RAW_TEXTURE): the rays' radiance and whether they met no
+	// contact, that filtered along rows, and along columns (what the main pass takes)
+	FrameGraph::ImageId myGiNearRaw;
+	FrameGraph::ImageId myGiNearRows;
+	FrameGraph::ImageId myGiNear;
 	FrameGraph::ImageId myTransmission;
 	FrameGraph::ImageId myScatter;
 	FrameGraph::ImageId myScatterDepth;
@@ -499,6 +508,17 @@ private:
 	uint32_t myGiCacheKeepFrameCount = 1024; // SPEEDO_GI_CACHE_KEEP_FRAMES: see GiData::cacheKeepFrameCount
 	bool myGiCacheShow = false; // SPEEDO_GI_CACHE_SHOW=1: see GiData::cacheShow
 	bool myGiSurfaceCacheOn = false; // this frame (FrameInputs::giSurfaceCache), for the GI pass's filter
+	// the near field (see GiData::nearReach): its rays' reach in voxels (SPEEDO_GI_NEAR_REACH), the power of the share that
+	// met no contact the volume's lookup is weighed by (SPEEDO_GI_NEAR_POWER), what the shading shows of it
+	// (SPEEDO_GI_NEAR_SHOW), whether it runs this frame (FrameInputs::giNearField, where the rays trace the BVHs), and its
+	// passes
+	float myGiNearReach = 8.0F;
+	float myGiNearPower = 2.0F;
+	uint32_t myGiNearShow = 0;
+	bool myGiNearOn = false;
+	FrameGraph::PassId myGiNearPass;
+	FrameGraph::PassId myGiNearXPass;
+	FrameGraph::PassId myGiNearYPass;
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;

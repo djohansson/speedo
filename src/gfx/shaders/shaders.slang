@@ -29,3 +29,4 @@ __include types;
 #include "bvh.slang"
 #include "gi.slang"
 #include "tracedshadows.slang"
+#include "ginear.slang"

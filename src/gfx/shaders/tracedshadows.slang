@@ -58,14 +58,15 @@ uint ShadowHash(uint2 v)
 // index of a Vogel spiral, each row of a tile had a band of the radius of its own (its first the middle of the disk,
 // its last the rim), so each row's penumbra was as wide as its band's, which the filter along the rows kept: a
 // narrow penumbra came out in steps along its rows (its mean error against the reference was a little lower, 32 of 255
-// against 34 on ShadowScene's narrow edges, 7.6 against 8 on its wide ones: steps show where noise doesn't)
-float2 ShadowDiskPoint(int2 pixel)
+// against 34 on ShadowScene's narrow edges, 7.6 against 8 on its wide ones: steps show where noise doesn't). seed: the
+// tiles' turns, for a pattern other than the shadows' (the near field's, see GiNearDirection)
+float2 ShadowDiskPoint(int2 pixel, uint seed = 0u)
 {
 	uint x = uint(pixel.x) & 3u;
 	uint y = uint(pixel.y) & 3u;
 	uint band = x ^ ((0x1320u >> (y * 4u)) & 3u);
 	uint quarter = (0x3120u >> ((x ^ y) * 4u)) & 3u;
-	float turn = float(ShadowHash(uint2(pixel) >> 2u) & 0xffffu) / 65536.0 * 6.28318530718;
+	float turn = float(ShadowHash((uint2(pixel) >> 2u) ^ uint2(seed, seed * 3u)) & 0xffffu) / 65536.0 * 6.28318530718;
 	float radius = sqrt((float(band * 4u + quarter) + 0.5) / 16.0);
 	float angle = (float(quarter * 4u + band) + 0.5) / 16.0 * 6.28318530718 + turn;
 	return radius * float2(cos(angle), sin(angle));

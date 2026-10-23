@@ -603,7 +603,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y (the indirect lighting's near field), Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -1008,7 +1008,7 @@ pixel of the pre-pass's depth and traced light toward a point of the light's dis
 cut out, `GiAlphaMask`) and the moving one (`ShadowOccluder`), filtered over the penumbra's width
 (`tracedshadows.slang`, `gShadowTrace[frame]`: `ShadowTraceData`, the slots' lights; the images are the frame graph's
 transients, a slot a channel). Main's opaque fragments take them for the traced lights (`ShadowFactor`, by
-`PushConstants::shadowMask`); everything else is the atlas's.
+`PushConstants::prepassImages`' `PREPASS_IMAGE_SHADOW_MASK`); everything else is the atlas's.
 
 - **Classify** (Shadow Classify, `ComputeShadowClassify`, compute entry point 18): where the atlas is sure, no ray
   (`ShadowMapClassify`): its 3x3 filter all lit or all shadowed, and none of 24 taps up to 24 texels away says otherwise
@@ -1201,6 +1201,16 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   of its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only
   (a wall's voxel isn't lit by the sun outside it), each shadowed by a ray through the voxels (the shadow atlas covers
   only what the camera sees; `GiOccluderDistance` visits each voxel the ray crosses once, Amanatides and Woo). The
+  shadow rays start a voxel out along the voxel's normal, the bounce's lookup 1.5 voxels and the point its probes are
+  tested from half a voxel, and the surface cache's rays a voxel along its open side (`GiCacheOrigin`), each no
+  further than halfway to a surface facing back at it there (`GiOpenAlong`: a ray through the static BVH, 3 voxels at
+  most, once a voxelizing in GI Light Static, kept in the direct light's alpha, in voxels; the cache tracing a ray of its
+  own each update cost Sponza 0.3 ms a frame): in the slot between salle_de_bain's bench and its wall (0.66 units, a last clip's voxel and a half), the bench
+  back's voxel faces the wall 0.26 units off, and its shadow rays started past the wall, outdoors, where the sun lit it,
+  and its bounce read the volume outdoors; whatever read it (the cache's rays in the slot, the probes', the near field's)
+  drew the slot as a band brighter than the room (488 of 765 against the wall's 330 at the user's pose
+  `13.6266,14.4950,35.7340,16.977,4.625`, the slot's wall seen from above), now 66 to 133, fading out toward its opening.
+  A voxelizing's GI Light Static took 0.14 to 0.24 ms in Sponza, 0.92 to 1.41 in Bistro's street. The
   static voxels' is kept (GI Light Static, `ComputeGiLightStatic`, into `GiData::directFirst` of `gGiRadiance`) and
   made again when a clip is voxelized or the lights change (`Renderer::myGiLights`, compared bytewise: the environment's
   rotation turns its dominant lights, which are among them); each frame GI Light (`ComputeGiLight`) gives every voxel
@@ -1411,7 +1421,9 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   map, the first rays' depths, its light along the axes, a walk straight down from it (`GiOccluderHitDebug`), the
   volumes at its voxel and along a line from the point into -z (`GiData::dumpPoint`: occupied, red along +x and
   the weight per voxel, which is what found the alternating cell): what found the dead floor probes and the probe
-  beyond the end wall. View > Camera > Copy Pose (ctrl/cmd+shift+c)
+  beyond the end wall; and the surface cache entry of the point's voxel (`GI_DUMP_CACHE_FIRST`: its samples and inside
+  rays, its rays' origin, the voxel's open side and normal, its light per face, and up to 8 of the frame's rays, their
+  distance and light: what found the slot behind salle_de_bain's bench lit by the sun, see `GiOpenAlong`). View > Camera > Copy Pose (ctrl/cmd+shift+c)
   copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment, the
   exposure, `SPEEDO_GI`, `SPEEDO_DEBUG_VIEW`), for reports: an artifact is a pose first. They go in 5 `R16G16B16A16Sfloat` 3D images
   (`gGiVolumes`: per color its faces +x, -x, +y and -y, then red's and green's +z and -z, then blue's and the weight, so the
@@ -1558,7 +1570,11 @@ blocks and grows to a quarter more than the resolve counted (`GI_STATISTIC_CACHE
 GI Cache Grow pass, the new pages pushed by `ComputeGiCachePrepare`). The resolve (`GiCacheUpdate`) carries the voxel's
 entry over in place (a voxel new to its clip from the coarser clip's, as 8 samples, where the coarser block keeps its
 page, so that it is still its own) and traces `SPEEDO_GI_CACHE_RAYS` (1) rays from the voxel (Roberts' R2
-over the sphere, offset per voxel by its place in the world), as the probes' rays are traced, into a running mean of at
+over the sphere, offset per voxel by its place in the world; a surface's voxel's out along its open side by a voxel, but no
+further than halfway to a surface facing back at it there, `GiCacheOrigin`: CornellBox's sphere a voxel off its wall had
+the voxel out along the wall's open side inside it, the entries were inside, and the wall drew a black crescent along
+the sphere, stepped at the voxels, at the user's pose `0.1488,-1.1952,0.7514,12.998,14.697` at resolution 192), as the
+probes' rays are traced, into a running mean of at
 most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves); a ray meeting a back face within a voxel and a half
 started inside something, and a voxel with more than a quarter of those is no light (the probes' alone). Lights changing
 or a new buffer start it over. `ComputeGiCacheFilter` then filters it as SVGF filters a frame (Schied et al. 2017): a pass
@@ -1591,9 +1607,38 @@ carries the probes' light into the bounce rather than its cache's (a mean of 1.3
 the first time starts from the probes' light, which showed nothing visible in a turn in place (a mean of 1.4 to 3.7 of
 765 against the dense cache's). The frame's time is the same. A still camera changes by 0.026 of 255 a pixel a frame (the probes alone, 0). Interiors come out darker than the
 probes alone (light measured at the surface, where corners and overhangs shade it, rather than in the open cells around
-it), and the CornellBox's and salle_de_bain's probe blotches go. The surface reference (debug view 13), captured on its
-first frame for speed, has one bounce (the voxels' starts after 32 frames) and is noisier than the cache, which the user
-judged better: remake it (settled first, or accumulated) before tuning against it.
+it), and the CornellBox's and salle_de_bain's probe blotches go. The surface reference (debug view 13) is no use as a
+reference (the user, 2026-10-24: too slow, and it doesn't look like one): seconds a frame, one bounce on its first frame
+(the voxels' starts after 32 frames), noisier than the cache; judge by A/B captures instead, until a real one exists
+(settled, accumulated over frames, or path traced).
+
+**The near field** (View > Indirect Lighting Near Field, on by default since 2026-10-24; `SPEEDO_GI_NEAR=0` to start without
+it, `FrameInputs::giNearField`; `ginear.slang`, `GiData::near*`; where the rays trace the BVHs): where a solid rests on a
+surface, the surface's voxels at the contact are also the solid's never drawn inside, which gets no light (see the
+resolve), and the gap beside it is thinner than a voxel, all its surfaces lit by the gap's own unlit voxels, so the
+volume's lookups there found no light, in blocks a voxel wide (the user's CornellBox poses, the 11 models side by side:
+`0.0062,-2.2486,1.2961,23.077,13.130`, black rectangles under the spheres; `0.1488,-1.1952,0.7514,12.998,14.697` at
+resolution 192, red and black blocks where the sphere touches the green wall). Every other pixel each way of the
+pre-pass's depth traces a ray from its surface through the BVHs (GI Near, `ComputeGiNear`), as far as
+`SPEEDO_GI_NEAR_REACH` (8) voxels of the clips that light the point, its direction one of 16 over a 4x4 tile of traced
+pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the radiance of what
+it meets (the voxels' there, `GiRadianceAtHit`, read a voxel and a half off the pixel's tangent plane along the hit's
+surface: within it the voxels at the hit are the pixel's surface's too, and the floor under the left sphere drew its own
+lit light as a tan crescent) or, where it meets nothing, the volume's light along it from its end. GI Near X and Y filter
+it over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the normal, as the
+traced shadows' filter): 289 rays a pixel. Main's opaque fragments (`PushConstants::prepassImages`'
+`PREPASS_IMAGE_GI_NEAR`) take what the rays gathered by how many met another surface nearer than a contact
+(`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
+volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`), and the rays' light alone where the
+lookup saw no probe (`GiNearIrradiance`). Blended by anything met within the rays' reach, the rays' light took every
+junction over: Sponza's columns between the curtains lit from the courtyard through gaps the voxels close, and a broad
+darkening along every wall. At a contact of 1.5 voxels the rectangles' edges stayed faintly; at 2.5 (the user's choice)
+faint straight edges a few voxels out are what is left, and Sponza's columns are a little lighter than at 1.5. Against
+the near field off, by mean difference of 765: Sponza 8.4 (6.4 at 1.5), Bistro's street 3.6 lit and 10.4 indirect (contact
+shading at every moulding and frame), salle_de_bain and CornellBox 1 to 2. Costs (RTX 4070 Ti SUPER, 1920x1080): Bistro's
+street 0.9 ms of rays and 0.4 of filter, Sponza's corridor 0.24 and 0.4; a ray every pixel took Bistro's 3.4 ms, and rays
+2 voxels long 1.6 (the rays' count costs, not their length). `SPEEDO_GI_NEAR_SHOW`: 1 the rays' light alone, 2 the share
+that met no contact, 3 and 4 the light of the rays that met something and of those that didn't.
 
 Measured on KosmicKrisp by the frame's gpu time (2560x1440, 3 clips, 128 voxels, probes every 8, 128 rays, hysteresis
 0.97; the gpu's state drifts between runs by up to a third, so compare runs interleaved): before relocation
@@ -1957,8 +2002,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 23
-(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals and 19 to 22 the traced shadows' images). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 26
+(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images and 23 to 25 the indirect lighting near field's). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

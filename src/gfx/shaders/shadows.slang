@@ -1,10 +1,12 @@
 // the punctual lights' shadows from the atlas, or the traced ones (see tracedshadows.slang): ShadowFactor. a part of
 // shaders.slang, which includes it after capi.h and sky.h
 
-// the fragment being shaded's pixel, and whether it takes the traced shadows there (the main pass's opaque fragments, at
-// the depth the pre-pass drew: PushConstants::shadowMask), set by the fragment entry points
+// the fragment being shaded's pixel, and whether it takes the traced shadows and the indirect lighting's near field there
+// (the main pass's opaque fragments, at the depth the pre-pass drew: PushConstants::prepassImages), set by the fragment
+// entry points
 static uint2 gFragmentPixel;
 static bool gFragmentShadowMask;
+static bool gFragmentGiNear;
 
 // which of the frame's traced shadows' slots a light is (see ShadowTraceData), or -1
 int TracedShadowSlot(uint lightIndex)

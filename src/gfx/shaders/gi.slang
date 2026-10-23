@@ -1014,9 +1014,27 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 	}
 }
 
+// how far a surface's voxel is open along its normal: from its center to a surface facing back at it there (a ray through
+// the static BVH, as GiCacheOrigin's), at most kGiOpenReach voxels (all of it where the rays walk the voxels). what pushes
+// off a voxel along its normal goes no further than halfway (its shadow rays' start, its bounce's lookup, the point its
+// probes are tested from): a voxel facing a surface within a voxel (the slot behind salle_de_bain's bench, thinner than
+// a last clip's voxel: the bench back's voxel faces the wall) reached past it. kept with the static voxels' direct light
+// (its alpha, in voxels: see ComputeGiLightStatic)
+static const float kGiOpenReach = 3.0;
+
+float GiOpenAlong(GiData gi, float3 position, float3 normal)
+{
+	float reach = kGiOpenReach * gi.volumeOrigin.w;
+	if (!GiTracesBvh(gi))
+		return reach;
+	BvhHit hit = GiTraceTriangles(gi, position, normal, reach, false, false, false);
+	return BvhHitSomething(hit) && (hit.frontFace || (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u) ? hit.t : reach;
+}
+
 // the lights' light off a voxel (at, of a clip): its emission plus its albedo over pi times the light reaching it from
-// the lights of its cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees)
-float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving)
+// the lights of its cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees).
+// open: how far it is open along its normal (see GiOpenAlong)
+float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving, float open)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	uint3 size = GiLevelSize(gi, 0);
@@ -1027,6 +1045,11 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 	uint3 cell = min(uint3(float3(at) / float3(size) * float(SHADER_TYPES_GI_LIGHT_GRID)), uint3(SHADER_TYPES_GI_LIGHT_GRID - 1));
 	uint2 range = gGiLightCells[frameIndex][gi.lightCellFirst + (cell.z * SHADER_TYPES_GI_LIGHT_GRID + cell.y) * SHADER_TYPES_GI_LIGHT_GRID + cell.x];
 	float3 irradiance = 0.0;
+	// the shadow rays start a voxel further from the surface (the voxel is on the side it stands for, its twin across
+	// it), but no further than halfway to a surface facing back at it: the bench back's voxel in the slot behind
+	// salle_de_bain's bench started them past the wall, outdoors, where the sun lit it, and whatever read it (the cache's
+	// rays in the slot, the probes', the near field's) lit the slot
+	float push = min(gi.volumeOrigin.w, 0.5 * open);
 	for (uint lightIt = range.x; lightIt < range.x + range.y; lightIt++)
 	{
 		LightData light = gLights[gGiLightIndices[frameIndex][lightIt]];
@@ -1058,8 +1081,7 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 		float nDotL = dot(normal, toLight);
 		if (attenuation * nDotL <= 0.0)
 			continue;
-		// the shadow rays start a voxel further from the surface (the voxel is on the side it stands for, its twin across it)
-		float visibility = GiVisibility(gi, position + normal * gi.volumeOrigin.w, toLight, distance - gi.volumeOrigin.w, moving);
+		float visibility = GiVisibility(gi, position + normal * push, toLight, distance - push, moving);
 		irradiance += light.intensity.rgb * attenuation * nDotL * visibility;
 	}
 	return emission + albedo.rgb / 3.14159265 * irradiance;
@@ -1079,9 +1101,16 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	GiVoxel voxel = gGiVoxels[gi.voxelFirst + threadId.x];
 	float4 albedo = GiUnpackRgba8(voxel.albedo);
 	float3 radiance = 0.0;
+	// and how far it is open along its normal (see GiOpenAlong), in voxels, kept in the alpha: what is static doesn't change
+	// it, so a ray once a voxelizing
+	float open = kGiOpenReach * gi.volumeOrigin.w;
 	if (albedo.a != 0.0)
-		radiance = GiDirectRadiance(gi, uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y)), voxel, albedo, false);
-	gGiRadiance[gi.directFirst + threadId.x] = GiPackRgba16(float4(radiance, albedo.a));
+	{
+		uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
+		open = GiOpenAlong(gi, gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w, GiVoxelNormal(voxel.normal));
+		radiance = GiDirectRadiance(gi, at, voxel, albedo, false, open);
+	}
+	gGiRadiance[gi.directFirst + threadId.x] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
 	gGiRadiance[gi.radianceFirst + threadId.x] = uint2(0, 0);
 }
@@ -1147,18 +1176,26 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	// atomic maximum kept whatever a new buffer held, and a block it said was stamped in some far frame never counted)
 	gGiFlags[flagIndex] = gi.frameStamp << SHADER_TYPES_GI_FLAG_STAMP_SHIFT;
 	GiVoxel kept = gGiStaticVoxels[index];
+	bool still = kept.albedo == voxel.albedo && kept.normal == voxel.normal;
+	float4 direct = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]);
+	// how far it is open along its normal (see GiOpenAlong): a static voxel's as kept, a moving one's as far as it reaches
+	// (not traced a frame: what moves is rarely in a slot thinner than a voxel)
+	float open = still ? direct.a * gi.volumeOrigin.w : kGiOpenReach * gi.volumeOrigin.w;
 	float3 radiance;
 	// the kept light, unless a moving block lies between the voxel and a light that lights it (its shadow)
-	if (kept.albedo == voxel.albedo && kept.normal == voxel.normal && !(gi.moving != 0u && GiMovingShadows(gi, at, voxel)))
-		radiance = GiUnpackRgba16(gGiRadiance[gi.directFirst + threadId.x]).rgb;
+	if (still && !(gi.moving != 0u && GiMovingShadows(gi, at, voxel)))
+		radiance = direct.rgb;
 	else
-		radiance = GiDirectRadiance(gi, at, voxel, albedo, true);
-	// not on a reset: the volumes hold nothing yet
+		radiance = GiDirectRadiance(gi, at, voxel, albedo, true, open);
+	// not on a reset: the volumes hold nothing yet. the probes' light 1.5 voxels out along its normal (see
+	// GiIrradianceResolved), but no further than halfway to a surface facing back at it (the slot's bench back's voxel
+	// took the light outdoors, past the wall)
 	if (gi.bounce != 0u && gi.reset == 0u)
 	{
 		float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
 		float3 normal = GiVoxelNormal(voxel.normal);
-		float3 bounce = GiIrradianceResolved(gi, position, normal);
+		GiSample sample = GiSampleClip(GiClipViewAt(gi.clip), position, normal, normal * min(1.5, 0.5 * open / gi.volumeOrigin.w));
+		float3 bounce = sample.valid ? GiEvaluate(sample, normal) : -1.0;
 		if (!any(isnan(bounce)) && !any(isinf(bounce)))
 			radiance += albedo.rgb * max(bounce, 0.0);
 	}
@@ -2433,13 +2470,29 @@ float3 GiCacheDirection(int3 world, uint sequence)
 	return float3(radius * cos(phi), radius * sin(phi), z);
 }
 
+// where a surface's voxel's cache rays start (see GiCacheUpdate): out from its center along its open side (away) by a
+// voxel, as the resolve takes the probes' light (see ComputeGiResolve), but only halfway to a surface facing back at it
+// (by how far it is open along its normal, see GiOpenAlong: a ray of its own each update cost Sponza 0.3 ms a frame).
+// between two surfaces a voxel or two apart (CornellBox's sphere a voxel off its wall), the voxel out along the wall's
+// open side was in the sphere: the rays started inside it, the entries were inside (GiCacheValid) and held no light of
+// their own, the probes around were all hidden, and the wall drew a black crescent along the sphere, stepped at the
+// voxels
+float3 GiCacheOrigin(GiData gi, uint3 at, float3 away)
+{
+	uint3 size = GiLevelSize(gi, 0);
+	float open = GiUnpackRgba16(gGiRadiance[gi.directFirst + GiVoxelIndex(at, size)]).a * gi.volumeOrigin.w;
+	float3 center = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+	return center + away * min(gi.volumeOrigin.w, 0.5 * open);
+}
+
 // a voxel's entry carried over from the last frame (in place, in its block's page: page, the page + 1; none in a page
-// new to the block, fresh, nor after a reset or a change of the lights) and cacheRayCount more rays from origin (the
-// voxel's center, a surface's voxel's moved out along its open side, normal) through the BVHs, or the voxels, as the
-// probes' rays are, each blended into the faces' mean and its square's (GiCacheSample) by the reciprocal of its samples,
-// at most cacheSampleCount (32 in a block something moving went through this frame). a ray that meets a surface's back
-// within a voxel and a half started inside something: not a sample
-void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, bool fresh, float3 origin, float3 normal, bool active)
+// new to the block, fresh, nor after a reset or a change of the lights) and cacheRayCount more rays from center (the
+// voxel's, as the resolve moved it; a surface's voxel's, surface, from out along its open side, normal: see
+// GiCacheOrigin) through the BVHs, or the voxels, as the probes' rays are, each blended into the faces' mean and its
+// square's (GiCacheSample) by the reciprocal of its samples, at most cacheSampleCount (32 in a block something moving
+// went through this frame). a ray that meets a surface's back within a voxel and a half started inside something: not
+// a sample
+void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, bool fresh, float3 center, float3 normal, bool surface, bool active)
 {
 	uint index = GiCacheEntryIndex(page, at);
 	GiCacheEntry entry = GiCacheEmpty();
@@ -2457,7 +2510,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			GiData coarser = GiClip(gi.clip + 1u);
 			uint3 coarserSize = GiLevelSize(coarser, 0);
 			uint3 coarserBlocks = GiLevelSize(coarser, SHADER_TYPES_GI_FLAG_LEVEL);
-			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, origin, 0)));
+			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, center, 0)));
 			int3 seed = voxel + coarser.scroll.xyz;
 			if (GiInside(voxel, coarserSize) && GiInside(seed, coarserSize))
 			{
@@ -2486,10 +2539,6 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	uint cap = min(moving ? min(gi.cacheSampleCount, 32u) : gi.cacheSampleCount, 0xFFFFu);
 	entry.count = min(entry.count, cap);
 	int3 world = int3(round(gi.volumeOrigin.xyz / gi.volumeOrigin.w)) + int3(at);
-	GiData last = GiClip(gi.clipCount - 1);
-	float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
-	GiData walk = GiClip(GiFinestClipHolding(origin, gi.clip));
-	float insideReach = 1.5 * gi.volumeOrigin.w;
 	// a voxel no lookup reads (its block not active, see ComputeGiResolve) traces a ray every kGiCacheIdleFrameCount
 	// frames (staggered by its place), so that it isn't cold when one does
 	uint rayCount = gi.cacheRayCount;
@@ -2498,37 +2547,84 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
 		rayCount = (hash + gi.frameStamp) % kGiCacheIdleFrameCount == 0u ? 1u : 0u;
 	}
-	for (uint rayIt = 0; rayIt < rayCount; rayIt++)
+	// the dumped point's voxel's entry (SPEEDO_GI_DUMP, see GI_DUMP_CACHE_FIRST): its counts, its rays' origin and the clip
+	// they walk, its voxel, the light it holds per face, and the frame's first 8 rays (direction, distance or -1 where it
+	// met nothing, light, whether it met a surface's back): what found the slot behind salle_de_bain's bench lit (see
+	// GiOpenAlong)
+	bool dumped = gi.dumpProbe != ~0u && all(int3(at) == int3(floor(GiVoxelCoordinate(gi, gi.dumpPoint.xyz, 0))));
+	uint dumpFirst = GI_STATISTIC_COUNT + gi.clip * GI_DUMP_FLOAT_COUNT + GI_DUMP_CACHE_FIRST;
+	if (rayCount != 0u)
 	{
-		float3 direction = GiCacheDirection(world, entry.sequence++);
-		float4 traced;
-		GiRayHit hit;
-		if (GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit))
+		float3 origin = surface ? GiCacheOrigin(gi, at, normal) : center;
+		GiData last = GiClip(gi.clipCount - 1);
+		float far = length(float3(last.volumeSize.xyz)) * last.volumeOrigin.w;
+		GiData walk = GiClip(GiFinestClipHolding(origin, gi.clip));
+		float insideReach = 1.5 * gi.volumeOrigin.w;
+		if (dumped)
 		{
-			if (hit.backface && hit.distance < insideReach)
-			{
-				entry.inside++;
-				continue;
-			}
-			traced = hit.radiance;
+			float values[3] = {origin.x, origin.y, origin.z};
+			for (uint valueIt = 0; valueIt < 3; valueIt++)
+				gGiStatistics[gPushConstants.frameIndex][dumpFirst + 2 + valueIt] = asuint(values[valueIt]);
+			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 21] = asuint(float(walk.clip));
 		}
-		else
-			traced = GiMarch(walk, origin, direction, far, true, gi.volumeOrigin.w);
-		float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
-		if (any(isnan(radiance)) || any(isinf(radiance)))
-			continue;
-		float basis[SHADER_TYPES_GI_IRRADIANCE_COUNT];
-		GiIrradianceBasis(direction, basis);
-		entry.count = min(entry.count + 1u, cap);
-		float weight = 1.0 / float(entry.count);
-		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
-			entry.faces[faceIt] += (radiance * basis[faceIt] * 4.0 - entry.faces[faceIt]) * weight;
-		float light = GiCacheSample(dot(radiance, kGiCacheLuminance), direction, entry.normal);
-		entry.moment += (light * light - entry.moment) * weight;
+		for (uint rayIt = 0; rayIt < rayCount; rayIt++)
+		{
+			float3 direction = GiCacheDirection(world, entry.sequence++);
+			float4 traced;
+			GiRayHit hit;
+			bool bvh = GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit);
+			if (dumped && rayIt < 8u)
+			{
+				float3 shown = bvh ? hit.radiance.rgb + hit.radiance.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6) : 0.0;
+				float values[6] = {direction.x, direction.y, direction.z, bvh && hit.radiance.a == 0.0 ? hit.distance : -1.0, dot(shown, kGiCacheLuminance), bvh && hit.backface ? 1.0 : 0.0};
+				for (uint valueIt = 0; valueIt < 6; valueIt++)
+					gGiStatistics[gPushConstants.frameIndex][dumpFirst + 30 + rayIt * 6 + valueIt] = asuint(values[valueIt]);
+			}
+			if (bvh)
+			{
+				if (hit.backface && hit.distance < insideReach)
+				{
+					entry.inside++;
+					continue;
+				}
+				traced = hit.radiance;
+			}
+			else
+				traced = GiMarch(walk, origin, direction, far, true, gi.volumeOrigin.w);
+			float3 radiance = traced.rgb + traced.a * EnvironmentRadiance(gEnvironment[0], direction, 0.6);
+			if (any(isnan(radiance)) || any(isinf(radiance)))
+				continue;
+			float basis[SHADER_TYPES_GI_IRRADIANCE_COUNT];
+			GiIrradianceBasis(direction, basis);
+			entry.count = min(entry.count + 1u, cap);
+			float weight = 1.0 / float(entry.count);
+			for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
+				entry.faces[faceIt] += (radiance * basis[faceIt] * 4.0 - entry.faces[faceIt]) * weight;
+			float light = GiCacheSample(dot(radiance, kGiCacheLuminance), direction, entry.normal);
+			entry.moment += (light * light - entry.moment) * weight;
+		}
 	}
 	// the inside rays counted over the cap's window too, so that a voxel isn't held inside for good by its first frames
 	entry.inside = min(entry.inside, cap);
 	GiCacheStore(index, entry);
+	if (dumped)
+	{
+		float3 voxelCenter = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+		GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)];
+		float3 voxelNormal = GiVoxelNormal(voxel.normal);
+		float values[30] = {
+			float(entry.count), float(entry.inside), 0.0, 0.0, 0.0,
+			voxelCenter.x, voxelCenter.y, voxelCenter.z, normal.x, normal.y, normal.z,
+			dot(entry.faces[0], kGiCacheLuminance), dot(entry.faces[1], kGiCacheLuminance), dot(entry.faces[2], kGiCacheLuminance),
+			dot(entry.faces[3], kGiCacheLuminance), dot(entry.faces[4], kGiCacheLuminance), dot(entry.faces[5], kGiCacheLuminance),
+			GiCacheValid(entry) ? 1.0 : 0.0, surface ? 1.0 : 0.0, fresh ? 1.0 : 0.0, active ? 1.0 : 0.0, 0.0,
+			voxelNormal.x, voxelNormal.y, voxelNormal.z, float(GiVoxelFaces(voxel)), float(voxel.albedo >> 24), float(rayCount),
+			(voxel.emissionB & kGiVoxelDoubleSided) != 0u ? 1.0 : 0.0, float(gi.clip)};
+		for (uint valueIt = 0; valueIt < 30; valueIt++)
+			if (valueIt < 2u || valueIt > 4u)
+				if (valueIt != 21u)
+					gGiStatistics[gPushConstants.frameIndex][dumpFirst + valueIt] = asuint(values[valueIt]);
+	}
 }
 
 // a voxel's light as the filter takes it (see ComputeGiCacheFilter): its faces, the variance of its light along its
@@ -3076,8 +3172,9 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 			retrace = retrace || gGiSharedProbeMoved[slotIt] != 0u;
 		if (retrace)
 			visibilityBits = kGiVisibilityValid;
+		// no further than halfway to a surface facing back at it (see GiOpenAlong)
 		if ((voxel.albedo >> 24) != 0u)
-			tracedPoint += GiVoxelNormal(voxel.normal) * (0.5 * gi.volumeOrigin.w);
+			tracedPoint += GiVoxelNormal(voxel.normal) * (min(0.5, 0.5 * GiUnpackRgba16(gGiRadiance[gi.directFirst + voxelIndex]).a) * gi.volumeOrigin.w);
 	}
 	// between the block's cell's probes (the moved center may be past the cell: clamped, since only its probes are in
 	// shared memory; read past them, the floor behind Sponza's fountains came out as black and colored garbage)
@@ -3270,7 +3367,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	if (page != 0u)
 	{
 		if (cacheEntry)
-			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, away, active);
+			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, away, (voxel.albedo >> 24) != 0u, active);
 		else
 			GiCacheClear(GiCacheEntryIndex(page, at));
 	}
