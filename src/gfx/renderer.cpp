@@ -1136,6 +1136,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
 	if (const char* everywhere = std::getenv("SPEEDO_GI_CACHE_EVERYWHERE"); everywhere != nullptr)
 		myGiCacheEverywhere = std::string_view(everywhere) == "1";
+	if (const char* keep = std::getenv("SPEEDO_GI_CACHE_KEEP_FRAMES"); keep != nullptr && *keep != '\0')
+		myGiCacheKeepFrameCount = static_cast<uint32_t>(std::strtoul(keep, nullptr, 10));
 	if (const char* show = std::getenv("SPEEDO_GI_CACHE_SHOW"); show != nullptr)
 		myGiCacheShow = std::string_view(show) == "1";
 	// the clipmap's clips (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
@@ -2618,14 +2620,14 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
 		"the indirect lighting's clips changed their sizes without the scene changing");
 	myGiClipmap = std::move(clipmap);
-	// the surface cache's storage (see GiCachePopPage), only while it is on: a page for each block near a surface, from a
-	// pool that starts at an eighth of the clipmap's blocks (Sponza's corridor wants three quarters of them at resolution
-	// 128, a third at 384: those within reach of a surface) and grows to a quarter more than the resolve counted wanting
-	// one (GI_STATISTIC_CACHE_BLOCKS), its pages copied over (the GI Cache Grow pass); the filter's records likewise, for
-	// the blocks a lookup read (GI_STATISTIC_CACHE_ACTIVE_BLOCKS: a tenth of those, from a sixty-fourth of the clipmap's
-	// blocks), made anew (they last a frame). made for another clipmap,
-	// or when the cache is turned on, it starts over (GiData::cacheInit). an entry for every voxel of every clip, as it
-	// was, took 6.4 GB at resolution 384
+	// the surface cache's storage (see GiCachePopPage), only while it is on: a page for each block that holds entries and
+	// was read lately, from a pool that starts at a thirty-second of the clipmap's blocks (all those near a surface were
+	// three quarters of them at resolution 128 in Sponza's corridor, a third at 384) and grows to a quarter more than the
+	// resolve counted wanting one (GI_STATISTIC_CACHE_BLOCKS), its pages copied over (the GI Cache Grow pass); the
+	// filter's records likewise, for the blocks a lookup read (GI_STATISTIC_CACHE_ACTIVE_BLOCKS), from a sixty-fourth of
+	// the clipmap's blocks, made anew (they last a frame). made for another clipmap, or when the cache is turned on, it
+	// starts over (GiData::cacheInit). an entry for every voxel of every clip, as it was, took 6.4 GB at resolution 384;
+	// a page for every block near a surface 1.1 GB; this, 0.3 GB
 	if (myGiCacheGrowPages.IsValid())
 	{
 		myRetiredBuffers.emplace_back(myFrameCount, std::move(myGiCacheGrowPages));
@@ -2655,15 +2657,15 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		}
 		else if (myGiCachePageCapacity == 0 || changed || blockCount != myGiCacheBlockCount)
 		{
-			myGiCachePageCapacity = capacityFor(blockCount / 8);
+			myGiCachePageCapacity = capacityFor(blockCount / 32);
 			myGiCacheRecordCapacity = capacityFor(blockCount / 64);
 			myGiCacheBlockCount = blockCount;
 			myGiCacheBlocksCounted = 0;
 			myGiCacheActiveBlocksCounted = 0;
 			replace(myGiCacheBuffer, "GI Cache", "gGiCache", myGiCachePageCapacity * kGiCachePageSize);
 			replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCachePageSize);
-			// a frame's page table and the last frame's, then the records'
-			replace(myGiCacheTableBuffer, "GI Cache Tables", "gGiCacheBlocks", 3 * static_cast<uint64_t>(blockCount) * sizeof(uint32_t));
+			// a frame's page table and the last frame's (two words a block), then the records'
+			replace(myGiCacheTableBuffer, "GI Cache Tables", "gGiCacheBlocks", 5 * static_cast<uint64_t>(blockCount) * sizeof(uint32_t));
 			replace(myGiCacheFreeBuffer, "GI Cache Free", "gGiCacheFree", (2 + static_cast<uint64_t>(myGiCachePageCapacity)) * sizeof(uint32_t));
 			myGiCacheInit = true;
 		}
@@ -2692,7 +2694,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 				replace(myGiCacheRecordBuffer, "GI Cache Records", "gGiCacheRecords", 2 * myGiCacheRecordCapacity * kGiCachePageSize);
 			}
 		}
-		myGiCachePrepareThreadCount = std::max(myGiCacheInit ? 3 * myGiCacheBlockCount : 0U, myGiCachePageCapacity);
+		myGiCachePrepareThreadCount = std::max(myGiCacheInit ? 5 * myGiCacheBlockCount : 0U, myGiCachePageCapacity);
 		myGraph.SetEnabled(myGiCacheGrowPass, myGiCacheGrowFirst != 0);
 	}
 	bool voxelize = std::ranges::any_of(myGiClipJobs, [](const auto& jobs) { return jobs.voxelize; });
@@ -2810,9 +2812,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
-		clip.cacheTableFirst = myGiProbeHalf * myGiCacheBlockCount + blockFirst;
-		clip.cacheTablePreviousFirst = (1 - myGiProbeHalf) * myGiCacheBlockCount + blockFirst;
-		clip.cacheRecordTableFirst = 2 * myGiCacheBlockCount + blockFirst;
+		clip.cacheTableFirst = 2 * (myGiProbeHalf * myGiCacheBlockCount + blockFirst);
+		clip.cacheTablePreviousFirst = 2 * ((1 - myGiProbeHalf) * myGiCacheBlockCount + blockFirst);
+		clip.cacheRecordTableFirst = 4 * myGiCacheBlockCount + blockFirst;
+		clip.cacheKeepFrameCount = myGiCacheKeepFrameCount;
 		clip.cachePageCapacity = myGiCachePageCapacity;
 		clip.cacheRecordCapacity = myGiCacheRecordCapacity;
 		clip.cacheBlockCount = myGiCacheBlockCount;

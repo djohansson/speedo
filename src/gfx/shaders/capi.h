@@ -862,9 +862,10 @@ struct GiData
 	// whether the cache traces and filters every voxel near a surface, not only around what the lookups read
 	// (SPEEDO_GI_CACHE_EVERYWHERE=1: to compare, see ComputeGiResolve)
 	alignas(4) UINT1(cacheEverywhere);
-	// the cache's storage (see GiCachePopPage): a page of 4x4x4 entries per block near a surface, in gGiCache. the clip's
-	// first block in this frame's page table and in the last frame's (gGiCacheBlocks: two halves, swapped each frame, a
-	// page + 1 per block, 0 for none), and in the records' table past them (the filter's, this frame's active blocks);
+	// the cache's storage (see GiCachePopPage): a page of 4x4x4 entries per block that holds entries and was read
+	// lately, in gGiCache. the clip's first word in this frame's page table and in the last frame's (gGiCacheBlocks: two
+	// halves, swapped each frame, two words a block: see GiCacheTableWord), and its first block in the records' table past
+	// them (the filter's, this frame's active blocks);
 	// the pages gGiCache holds and the records each half of gGiCacheRecords holds; the blocks of all clips; whether the
 	// tables and the free list are made anew this frame; and the first page the free list takes in this frame (the pool
 	// grew: 0 for none)
@@ -876,6 +877,8 @@ struct GiData
 	alignas(4) UINT1(cacheBlockCount);
 	alignas(4) UINT1(cacheInit);
 	alignas(4) UINT1(cacheGrowFirst);
+	// how many frames a block keeps its page after a lookup last read it (SPEEDO_GI_CACHE_KEEP_FRAMES, see GiCacheKeeps)
+	alignas(4) UINT1(cacheKeepFrameCount);
 };
 
 struct PushConstants

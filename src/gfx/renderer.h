@@ -496,6 +496,7 @@ private:
 	uint32_t myGiCacheFilterPassCount = 3;
 	float myGiCacheSigma = 8.0F;
 	bool myGiCacheEverywhere = false; // SPEEDO_GI_CACHE_EVERYWHERE=1: see GiData::cacheEverywhere
+	uint32_t myGiCacheKeepFrameCount = 1024; // SPEEDO_GI_CACHE_KEEP_FRAMES: see GiData::cacheKeepFrameCount
 	bool myGiCacheShow = false; // SPEEDO_GI_CACHE_SHOW=1: see GiData::cacheShow
 	bool myGiSurfaceCacheOn = false; // this frame (FrameInputs::giSurfaceCache), for the GI pass's filter
 	FrameGraph::PassId myGiRestorePass;

@@ -2206,13 +2206,38 @@ void GiCacheClear(uint index)
 	gGiCache[index * 3u + 2u] = 0u;
 }
 
-// the cache's storage: a page per block of 4x4x4 voxels near a surface (the flags' bit 0), its 64 entries in the order
-// of a group's threads, from a pool of GiData::cachePageCapacity (gGiCache). a block keeps its page while it is near a
-// surface, by the clip's page tables (gGiCacheBlocks: this frame's and the last frame's, swapped each frame, a page + 1
-// per block, so that a clip that scrolled finds its blocks' pages where they were) and is updated in place; the release
-// (ComputeGiCacheRelease) frees the pages of the blocks no longer near a surface, and the resolve takes pages for the
-// blocks new to it (ComputeGiResolve). it was an entry per voxel of every clip, two halves and the filter's scratch, 48
-// bytes each: 6.4 GB at resolution 384, where Sponza then took 14.9 GB of a 16 GB gpu
+// the cache's storage: a page per block of 4x4x4 voxels that holds entries and was read lately, its 64 entries in the
+// order of a group's threads, from a pool of GiData::cachePageCapacity (gGiCache). the clip's page tables
+// (gGiCacheBlocks: this frame's and the last frame's, swapped each frame, so that a clip that scrolled finds its blocks'
+// pages where they were) hold two words a block: its page + 1 (0: none), with kGiCacheWanted where a voxel of it held an
+// entry (the resolve sets it), and the last frame a lookup read it (or around it, see ComputeGiResolve). a block keeps
+// its page while it is near a surface, wanted it and was read within GiData::cacheKeepFrameCount frames (GiCacheKeeps),
+// and is updated in place; the release (ComputeGiCacheRelease) frees the others, and the resolve takes pages for the
+// blocks that wanted one last frame and are read now. it was an entry per voxel of every clip, two halves and the
+// filter's scratch, 48 bytes each: 6.4 GB at resolution 384, where Sponza then took 14.9 GB of a 16 GB gpu; paged for
+// every block near a surface (within the flags' reach), 1.1 GB, though half of those blocks' voxels held no entry and a
+// tenth of them were read in a frame
+static const uint kGiCacheWanted = 0x80000000u;
+
+// a block's first word in a page table (GiData::cacheTableFirst or cacheTablePreviousFirst)
+uint GiCacheTableWord(uint first, uint blockIndex)
+{
+	return first + 2u * blockIndex;
+}
+
+// the page + 1 of a page table's word
+uint GiCachePageOf(uint word)
+{
+	return word & ~kGiCacheWanted;
+}
+
+// whether a block's page (its words in the last frame's table) is carried over: it is near a surface now, wanted a page,
+// and was read within GiData::cacheKeepFrameCount frames. the release frees the pages of the others, by the same test
+bool GiCacheKeeps(GiData gi, uint word, uint lastRead, bool nearSurface)
+{
+	return GiCachePageOf(word) != 0u && (word & kGiCacheWanted) != 0u && nearSurface && gi.frameStamp - lastRead <= gi.cacheKeepFrameCount;
+}
+
 uint GiCacheVoxelInBlock(uint3 at)
 {
 	return (at.x & 3u) | ((at.y & 3u) << 2) | ((at.z & 3u) << 4);
@@ -2233,7 +2258,7 @@ uint GiCacheEntryIndex(uint page, uint3 at)
 // a voxel's page this frame, by its clip's table (0: its block has none)
 uint GiCachePageAt(GiData gi, uint3 at, uint3 blocks)
 {
-	return gGiCacheBlocks[gi.cacheTableFirst + GiCacheBlockIndex(at, blocks)];
+	return GiCachePageOf(gGiCacheBlocks[GiCacheTableWord(gi.cacheTableFirst, GiCacheBlockIndex(at, blocks))]);
 }
 
 // the free pages (gGiCacheFree: their count, the records taken this frame, then the pages), pushed by the release and
@@ -2337,17 +2362,18 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			// a voxel new to the clip (it scrolled in, or its block came near a surface) starts from the coarser clip's
 			// entry where it is, as kGiCacheSeedCount samples, which its own rays soon outweigh: from nothing, it took the
 			// probes' light until it had samples, and the light along Sponza's curtains faded in and out near the eye as
-			// the finer clips scrolled. the coarser block is read if it is near a surface this frame, so that its page is
-			// its own still (carried over, not freed): by its last frame's table, at its place then
+			// the finer clips scrolled. the coarser block is read where its page is carried over (GiCacheKeeps), so that
+			// it is its own still, not freed and taken by another: by its last frame's table, at its place then
 			GiData coarser = GiClip(gi.clip + 1u);
 			uint3 coarserSize = GiLevelSize(coarser, 0);
 			uint3 coarserBlocks = GiLevelSize(coarser, SHADER_TYPES_GI_FLAG_LEVEL);
 			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, origin, 0)));
 			int3 seed = voxel + coarser.scroll.xyz;
-			if (GiInside(voxel, coarserSize) && GiInside(seed, coarserSize) &&
-				(gGiFlags[GiFlagIndex(coarser, GiCacheBlockIndex(uint3(voxel), coarserBlocks))] & 1u) != 0u)
+			if (GiInside(voxel, coarserSize) && GiInside(seed, coarserSize))
 			{
-				uint seedPage = gGiCacheBlocks[coarser.cacheTablePreviousFirst + GiCacheBlockIndex(uint3(seed), coarserBlocks)];
+				uint word = GiCacheTableWord(coarser.cacheTablePreviousFirst, GiCacheBlockIndex(uint3(seed), coarserBlocks));
+				bool nearSurface = (gGiFlags[GiFlagIndex(coarser, GiCacheBlockIndex(uint3(voxel), coarserBlocks))] & 1u) != 0u;
+				uint seedPage = GiCacheKeeps(coarser, gGiCacheBlocks[word], gGiCacheBlocks[word + 1u], nearSurface) ? GiCachePageOf(gGiCacheBlocks[word]) : 0u;
 				GiCacheEntry seeded = seedPage != 0u ? GiCacheLoad(GiCacheEntryIndex(seedPage, uint3(seed))) : GiCacheEmpty();
 				if (GiCacheValid(seeded))
 				{
@@ -2486,7 +2512,7 @@ GiCacheTap GiCacheReadTap(GiData gi, uint half, uint3 at, uint3 blocks)
 		return GiCacheNoTap();
 	if ((flags & SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) == 0u)
 	{
-		uint page = gGiCacheBlocks[gi.cacheTableFirst + blockIndex];
+		uint page = GiCachePageOf(gGiCacheBlocks[GiCacheTableWord(gi.cacheTableFirst, blockIndex)]);
 		return page != 0u ? GiCacheTapOf(GiCacheLoad(GiCacheEntryIndex(page, at))) : GiCacheNoTap();
 	}
 	return GiCacheLoadTap(GiCacheRecordIndex(gi, half, gGiCacheBlocks[gi.cacheRecordTableFirst + blockIndex], at));
@@ -2685,7 +2711,7 @@ void ComputeGiCachePrepare(uint3 dispatchId: SV_DispatchThreadID)
 		return;
 	if (gi.cacheInit != 0u)
 	{
-		if (thread < 3u * gi.cacheBlockCount)
+		if (thread < 5u * gi.cacheBlockCount)
 			gGiCacheBlocks[thread] = 0u;
 		if (thread < gi.cachePageCapacity)
 			gGiCacheFree[2u + thread] = thread;
@@ -2702,9 +2728,9 @@ void ComputeGiCachePrepare(uint3 dispatchId: SV_DispatchThreadID)
 		GiCachePushPage(thread);
 }
 
-// the pages of the clip's blocks last frame (a thread each) that no block near a surface takes this frame (by the
-// scroll: the block at its place now isn't near one, or it left the clip) go back on the free list (see GiCachePopPage):
-// the others the resolve carries over
+// the pages of the clip's blocks last frame (a thread each) that the resolve doesn't carry over (GiCacheKeeps, by the
+// scroll: the block at its place now isn't near a surface or left the clip, held no entry, or wasn't read for a while) go
+// back on the free list (see GiCachePopPage)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiCacheRelease(uint3 dispatchId: SV_DispatchThreadID)
@@ -2714,11 +2740,13 @@ void ComputeGiCacheRelease(uint3 dispatchId: SV_DispatchThreadID)
 	uint3 blocks = GiLevelSize(gi, SHADER_TYPES_GI_FLAG_LEVEL);
 	if (gi.cacheRayCount == 0u || gi.cacheInit != 0u || thread >= blocks.x * blocks.y * blocks.z)
 		return;
-	uint page = gGiCacheBlocks[gi.cacheTablePreviousFirst + thread];
+	uint word = GiCacheTableWord(gi.cacheTablePreviousFirst, thread);
+	uint page = GiCachePageOf(gGiCacheBlocks[word]);
 	if (page == 0u)
 		return;
 	int3 block = int3(thread % blocks.x, (thread / blocks.x) % blocks.y, thread / (blocks.x * blocks.y)) - gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL);
-	if (!GiInside(block, blocks) || (gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(block), blocks))] & 1u) == 0u)
+	bool nearSurface = GiInside(block, blocks) && (gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(block), blocks))] & 1u) != 0u;
+	if (!GiCacheKeeps(gi, gGiCacheBlocks[word], gGiCacheBlocks[word + 1u], nearSurface))
 		GiCachePushPage(page - 1u);
 }
 
@@ -2728,11 +2756,11 @@ groupshared uint gGiSharedDepth[8 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI
 groupshared float3 gGiSharedProbePosition[8];
 // whether the probe moved since the last frame, or is new: what its voxels' traced visibility was traced from is gone
 groupshared uint gGiSharedProbeMoved[8];
-// whether a lookup read each of the 3x3x3 blocks around the block lately, and its page of the cache (+ 1, 0 for none)
-// and whether it is new to the block (see ComputeGiResolve)
-groupshared uint gGiSharedCacheSeen[27];
+// the block's page of the cache (+ 1, 0 for none), whether it is new to the block, and whether a lookup read it or a
+// block around it lately (see ComputeGiResolve)
 groupshared uint gGiSharedCachePage;
 groupshared uint gGiSharedCacheFresh;
+groupshared uint gGiSharedCacheActive;
 
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
@@ -2764,18 +2792,30 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		// nor a page of the cache's (the release freed the one it had)
 		if (groupIndex == 0u && gi.cacheRayCount != 0u)
 		{
-			gGiCacheBlocks[gi.cacheTableFirst + blockIndex] = 0u;
+			uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
+			gGiCacheBlocks[word] = 0u;
+			gGiCacheBlocks[word + 1u] = 0u;
 			gGiCacheBlocks[gi.cacheRecordTableFirst + blockIndex] = 0u;
 		}
 		return;
 	}
-	// the block's page of the cache (see GiCachePopPage): the one it had last frame (at its place then, by the scroll),
-	// else a free one (fresh: its entries a page's last block's), taken below
+	// the block's page of the cache (see GiCachePopPage): the one it had last frame (at its place then, by the scroll)
+	// where it keeps it (GiCacheKeeps), else, where it wanted one last frame and a lookup reads it now, a free one (fresh:
+	// its entries a page's last block's), taken below; and the last frame a lookup read it
 	uint cachePage = 0u;
+	uint cacheWanted = 0u;
+	uint cacheLastRead = 0u;
 	if (gi.cacheRayCount != 0u && groupIndex == 0u)
 	{
 		int3 from = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL);
-		cachePage = GiInside(from, blocks) ? gGiCacheBlocks[gi.cacheTablePreviousFirst + GiVoxelIndex(uint3(from), blocks)] : 0u;
+		if (GiInside(from, blocks))
+		{
+			uint word = GiCacheTableWord(gi.cacheTablePreviousFirst, GiVoxelIndex(uint3(from), blocks));
+			uint entry = gGiCacheBlocks[word];
+			cacheLastRead = gGiCacheBlocks[word + 1u];
+			cacheWanted = entry & kGiCacheWanted;
+			cachePage = GiCacheKeeps(gi, entry, cacheLastRead, true) ? GiCachePageOf(entry) : 0u;
+		}
 	}
 
 	// the block's probes: from the cell of its first voxel to the last's, 2 or 3 an axis (3 only where it spans two cells:
@@ -2795,7 +2835,9 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		// entries would be another block's
 		if (groupIndex == 0u && gi.cacheRayCount != 0u)
 		{
-			gGiCacheBlocks[gi.cacheTableFirst + blockIndex] = cachePage;
+			uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
+			gGiCacheBlocks[word] = cachePage | cacheWanted;
+			gGiCacheBlocks[word + 1u] = cacheLastRead;
 			gGiCacheBlocks[gi.cacheRecordTableFirst + blockIndex] = 0u;
 			gGiFlags[GiFlagIndex(gi, blockIndex)] &= ~SHADER_TYPES_GI_FLAG_CACHE_ACTIVE;
 		}
@@ -2827,42 +2869,41 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	// scroll). the others trace a ray now and then, and the filter takes their own light (see ComputeGiCacheFilter): at
 	// the user's corridor pose in Sponza, the cache traced and filtered every voxel near a surface in the 3 clips, for 4
 	// ms a frame
-	if (groupIndex < 27u && gi.cacheRayCount != 0u)
-	{
-		int3 around = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL) + int3(groupIndex % 3u, (groupIndex / 3u) % 3u, groupIndex / 9u) - 1;
-		uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
-		gGiSharedCacheSeen[groupIndex] = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount ? 1u : 0u;
-	}
 	if (gi.cacheRayCount != 0u && groupIndex == 0u)
 	{
-		bool fresh = cachePage == 0u;
+		bool read = gi.cacheEverywhere != 0u;
+		for (uint aroundIt = 0; aroundIt < 27u && !read; aroundIt++)
+		{
+			int3 around = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL) + int3(aroundIt % 3u, (aroundIt / 3u) % 3u, aroundIt / 9u) - 1;
+			uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
+			read = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount;
+		}
+		bool fresh = cachePage == 0u && cacheWanted != 0u && read;
 		if (fresh)
 			cachePage = GiCachePopPage();
-		gGiCacheBlocks[gi.cacheTableFirst + blockIndex] = cachePage;
+		fresh = fresh && cachePage != 0u;
+		// the wanted bit starts over: the block's voxels that hold an entry set it (below)
+		uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
+		gGiCacheBlocks[word] = cachePage;
+		gGiCacheBlocks[word + 1u] = read ? gi.frameStamp : cacheLastRead;
+		if (cachePage != 0u || (cacheWanted != 0u && read))
+			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_BLOCKS], 1u);
+		// filtered this frame where it was read and has a record (see GiCacheTakeRecord)
+		uint record = 0u;
+		if (read && cachePage != 0u)
+		{
+			record = GiCacheTakeRecord(gi);
+			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_ACTIVE_BLOCKS], 1u);
+		}
+		gGiCacheBlocks[gi.cacheRecordTableFirst + blockIndex] = record;
+		uint flagIndex = GiFlagIndex(gi, blockIndex);
+		gGiFlags[flagIndex] = (gGiFlags[flagIndex] & ~SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) | (record != 0u ? SHADER_TYPES_GI_FLAG_CACHE_ACTIVE : 0u);
 		gGiSharedCachePage = cachePage;
 		gGiSharedCacheFresh = fresh ? 1u : 0u;
-		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_BLOCKS], 1u);
+		gGiSharedCacheActive = read ? 1u : 0u;
 	}
 	GroupMemoryBarrierWithGroupSync();
-	bool active = gi.cacheEverywhere != 0u;
-	if (gi.cacheRayCount != 0u)
-	{
-		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
-			active = active || gGiSharedCacheSeen[aroundIt] != 0u;
-		// filtered this frame where it was read and has a record (see GiCacheTakeRecord)
-		if (groupIndex == 0u)
-		{
-			uint record = 0u;
-			if (active && gGiSharedCachePage != 0u)
-			{
-				record = GiCacheTakeRecord(gi);
-				InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_ACTIVE_BLOCKS], 1u);
-			}
-			gGiCacheBlocks[gi.cacheRecordTableFirst + blockIndex] = record;
-			uint flagIndex = GiFlagIndex(gi, blockIndex);
-			gGiFlags[flagIndex] = (gGiFlags[flagIndex] & ~SHADER_TYPES_GI_FLAG_CACHE_ACTIVE) | (record != 0u ? SHADER_TYPES_GI_FLAG_CACHE_ACTIVE : 0u);
-		}
-	}
+	bool active = gi.cacheRayCount != 0u && gGiSharedCacheActive != 0u;
 	uint page = gi.cacheRayCount != 0u ? gGiSharedCachePage : 0u;
 	if (!inside)
 		return;
@@ -3127,9 +3168,18 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	}
 	// the surface cache where it is on (its light is blended in after, see ComputeGiCacheFilter): the voxels a surface is
 	// within 3 of (the lookups land a voxel or two off a surface, see GiSampleSurface); the others keep nothing
+	// a voxel that holds an entry marks its block as wanting a page (see GiCacheKeeps): a block within the flags' reach
+	// of a surface but none of whose voxels hold one gives its page back next frame, and one without gets one then
+	bool cacheEntry = awayLength > 0.0 || (voxel.albedo >> 24) != 0u;
+	if (gi.cacheRayCount != 0u && cacheEntry)
+	{
+		uint word = GiCacheTableWord(gi.cacheTableFirst, blockIndex);
+		if ((gGiCacheBlocks[word] & kGiCacheWanted) == 0u)
+			InterlockedOr(gGiCacheBlocks[word], kGiCacheWanted);
+	}
 	if (page != 0u)
 	{
-		if (awayLength > 0.0 || (voxel.albedo >> 24) != 0u)
+		if (cacheEntry)
 			GiCacheUpdate(gi, at, size, blockIndex, page, gGiSharedCacheFresh != 0u, center, away, active);
 		else
 			GiCacheClear(GiCacheEntryIndex(page, at));
