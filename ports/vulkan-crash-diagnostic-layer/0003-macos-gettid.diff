@@ -1,0 +1,25 @@
+diff --git a/src/system.cpp b/src/system.cpp
+index a6a0e54..33b653e 100644
+--- a/src/system.cpp
++++ b/src/system.cpp
+@@ -31,6 +31,9 @@
+ #include <unistd.h>
+ #include <dlfcn.h>
+ #endif
++#if defined(__APPLE__)
++#include <pthread.h>  // pthread_threadid_np: macOS has no gettid
++#endif
+ 
+ #if defined(VK_USE_PLATFORM_ANDROID_KHR)
+ #include <sys/system_properties.h>
+@@ -44,6 +47,10 @@ namespace crash_diagnostic_layer {
+ int System::GetTid() {
+ #if defined(VK_USE_PLATFORM_WIN32_KHR)
+     return static_cast<int>(GetCurrentThreadId());
++#elif defined(__APPLE__)
++    uint64_t tid = 0;
++    pthread_threadid_np(nullptr, &tid);
++    return static_cast<int>(tid);
+ #else
+     return static_cast<int>(gettid());
+ #endif

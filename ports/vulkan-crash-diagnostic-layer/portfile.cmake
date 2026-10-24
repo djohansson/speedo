@@ -9,6 +9,7 @@ vcpkg_from_github(
     PATCHES
         fix-clang-windows-def-exports.diff
         0002-libcxx-and-windows-h.diff
+        0003-macos-gettid.diff
 )
 
 vcpkg_cmake_configure(
