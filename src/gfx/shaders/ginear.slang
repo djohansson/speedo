@@ -32,10 +32,13 @@ float GiNearVoxelSize(float3 position)
 // a traced pixel's ray (every other pixel each way, see ComputeGiNear): one of 16 directions over the 4x4 tile of traced
 // pixels it is in, cosine distributed about the normal (a point of the unit disk lifted onto the hemisphere, Malley's
 // method): the disk's points as the traced shadows' (ShadowDiskPoint, every row and column of a tile all four bands of
-// the radius and quarters of the circle), turned per tile by a hash of its own
-float3 GiNearDirection(int2 pixel, float3 normal)
+// the radius and quarters of the circle), turned per tile by a hash of its own. accumulated over frames (turn: the frame,
+// see GiData::nearTemporal), each frame's are another set: shifted within the tile, so that each pixel takes all 16 over
+// 16 frames, and turned by another hash (fixed, the rays' grain was fixed to the screen, which moved over the scene with
+// the camera)
+float3 GiNearDirection(int2 pixel, float3 normal, uint turn)
 {
-	float2 disk = ShadowDiskPoint(pixel >> 1, 0x9e3779b9u);
+	float2 disk = ShadowDiskPoint((pixel >> 1) + int2(turn & 3u, (turn >> 2) & 3u), 0x9e3779b9u + turn * 0x632be5abu);
 	float3 t;
 	float3 b;
 	ShadowBasis(normal, t, b);
@@ -60,7 +63,7 @@ float4 GiNearRay(int2 pixel)
 	if (voxel <= 0.0)
 		return kGiNearUnknown;
 	float reach = gi.nearReach * voxel;
-	float3 direction = GiNearDirection(pixel, surface.normal);
+	float3 direction = GiNearDirection(pixel, surface.normal, gi.nearTemporal != 0u ? gi.nearFrame : 0u);
 	// off the surface by a pixel and a half (more far from the eye), as the traced shadows' rays, against the depth's
 	// and the BVH's rounding
 	float bias = max(1.5 * surface.metersPerPixel, 1e-4 * distance(surface.position, view.eyePosition.xyz));
@@ -84,8 +87,10 @@ float4 GiNearRay(int2 pixel)
 		float alongLength = length(along);
 		if (alongLength > 1e-3)
 			point += along * (max(1.5 * voxel - above, 0.0) / alongLength);
-		float3 emission;
-		return float4(GiRadianceAtHit(0u, point, hit.normal, emission), clear);
+		// the light it reflects alone (GiHitReflected): an emitter's is the volume's, which averages it over its probes'
+		// rays and frames. a small one met by one ray in four pixels is a firefly: Bistro's lantern bulbs, a few
+		// centimetres of 3.5, speckled the walls around them white, where they give a hundredth of the daylight
+		return float4(GiHitReflected(0u, point, hit.normal), clear);
 	}
 	if (gi.nearShow == 3u)
 		return float4(0.0, 0.0, 0.0, 1.0);
@@ -117,9 +122,10 @@ void ComputeGiNear(uint3 dispatchThreadId : SV_DispatchThreadID)
 }
 
 // a pass of the near field's filter: the rays' radiance and whether they met no contact (or the rows' result) averaged
-// along the row (or column) over the traced pixels within 16 (16 or 17 of them, four tiles of the rays' directions: the
-// ends at half weight, so that each of a tile's columns counts as much), weighed by how much each is on the pixel's
-// surface (its distance off the pixel's tangent plane, against a pixel's width, and how its normal agrees, as the
+// along the row (or column) over the traced pixels within 16, by a tent of their distance (the same kernel whatever the
+// pixel's parity: a box of the 17 traced pixels around a traced one and the 16 around the others made neighbors' sums
+// differ, stripes a pixel wide, fixed to the screen, and drew a bright ray as a square), weighed by how much each is on
+// the pixel's surface (its distance off the pixel's tangent plane, against a pixel's width, and how its normal agrees, as the
 // traced shadows' filter), leaving out what is unknown
 float4 GiNearFilter(int2 pixel, int2 step, uint source)
 {
@@ -148,7 +154,7 @@ float4 GiNearFilter(int2 pixel, int2 step, uint source)
 		float3 normal = gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(at, 0)).xyz * 2.0 - 1.0;
 		float plane = abs(dot(position - center.position, center.normal)) / (2.0 * center.metersPerPixel);
 		float facing = saturate(dot(normal, center.normal) * rsqrt(max(dot(normal, normal), 1e-8)));
-		float w = exp(-plane) * pow(facing, 8.0) * (abs(offset) == 16 ? 0.5 : 1.0);
+		float w = exp(-plane) * pow(facing, 8.0) * (17.0 - abs(float(offset)));
 		total += w * value;
 		weights += w;
 	}
@@ -180,13 +186,81 @@ void ComputeGiNearY(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_GI_NEAR_RW_TEXTURE][pixel] = GiNearFilter(pixel, int2(0, 1), SHADER_TYPES_GI_NEAR_ROWS_TEXTURE);
 }
 
+// the near field over frames (GI Near Temporal; GiData::nearTemporal): the frame's filtered rays blended into what the last
+// frame's history holds where the pixel's point was then (by the view's last view projection, ViewData::
+// previousViewProjection), by GiData::nearBlend (1 where there is no history: the frame's alone). the history is bilinear
+// over the 4 pixels around that place, each only if its point was as far from the last frame's eye as this pixel's is now
+// (within 2% and the depth two pixels' steps make along the surface: else it saw something else there, revealed or
+// moved), and what moves (the main depth's stencil) takes none, so neither ghosts. the frame's history and its points'
+// distances go to the images the frame's parity says (SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE), which the main pass reads
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	GiData gi = GiClip(0);
+	uint current = gi.nearFrame & 1u;
+	RWTexture2D history = gRWTextures[SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE + current];
+	RWTexture2D distances = gRWTextures[SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE + current];
+	uint2 extent;
+	history.GetDimensions(extent.x, extent.y);
+	if (any(dispatchThreadId.xy >= extent))
+		return;
+	int2 pixel = int2(dispatchThreadId.xy);
+	float4 now = gTextures[SHADER_TYPES_GI_NEAR_TEXTURE].Load(int3(pixel, 0));
+	ViewData view;
+	ShadowSurface surface;
+	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
+	{
+		history[pixel] = kGiNearUnknown;
+		distances[pixel] = float4(-1.0);
+		return;
+	}
+	float3 toEye = view.eyePosition.xyz - surface.position;
+	distances[pixel] = float4(length(toEye));
+	float4 result = now;
+	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
+	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
+	if (now.a >= 0.0 && gi.nearBlend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
+	{
+		float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+		float expected = distance(surface.position, view.previousEyePosition.xyz);
+		float slant = abs(dot(surface.normal, normalize(toEye)));
+		float tolerance = 0.02 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
+		Texture2D last = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (current ^ 1u)];
+		Texture2D lastDistances = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + (current ^ 1u)];
+		int2 base = int2(floor(at));
+		float2 f = at - float2(base);
+		float4 total = 0.0;
+		float weights = 0.0;
+		for (int corner = 0; corner < 4; corner++)
+		{
+			int2 offset = int2(corner & 1, corner >> 1);
+			int2 tap = base + offset;
+			float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
+			bool inside = all(float2(tap) >= view.viewport.xy) && all(float2(tap) < view.viewport.xy + view.viewport.zw);
+			float4 value = inside ? last.Load(int3(tap, 0)) : kGiNearUnknown;
+			float seen = inside ? lastDistances.Load(int3(tap, 0)).r : -1.0;
+			if (value.a >= 0.0 && seen >= 0.0 && abs(seen - expected) <= tolerance)
+			{
+				total += w * value;
+				weights += w;
+			}
+		}
+		if (weights > 1e-3)
+			result = lerp(total / weights, now, gi.nearBlend);
+	}
+	history[pixel] = result;
+}
+
 // the main pass's opaque fragments' diffuse indirect light (see Shade): the volume's lookup (indirect, -1 outside the
 // clips; valid: whether it saw a probe) where no other surface is nearer than a contact (GiData::nearContact), what the
-// near field's rays gathered where all of them are, between them by the power of the share of the rays that met no
-// contact (GiData::nearPower)
+// near field's rays gathered where all of them are (over frames, its history: see ComputeGiNearTemporal), between them by
+// the power of the share of the rays that met no contact (GiData::nearPower)
 float3 GiNearIrradiance(float3 indirect, bool valid)
 {
-	float4 near = gTextures[SHADER_TYPES_GI_NEAR_TEXTURE].Load(int3(int2(gFragmentPixel), 0));
+	GiData gi = GiClip(0);
+	uint texture = gi.nearTemporal != 0u ? SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (gi.nearFrame & 1u) : SHADER_TYPES_GI_NEAR_TEXTURE;
+	float4 near = gTextures[texture].Load(int3(int2(gFragmentPixel), 0));
 	if (near.a < 0.0 || indirect.x < 0.0)
 		return indirect;
 	uint show = gGi[gPushConstants.frameIndex][0].nearShow;

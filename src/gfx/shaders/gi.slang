@@ -647,6 +647,35 @@ float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float
 	return 0.0;
 }
 
+// the radiance a ray took off the triangle it hit: the light its voxel reflects (GiRadianceAtHit, less the emission in
+// it) and the triangle's own emission (its material's, times its emissive texture at the hit's texcoords). a voxel holds
+// the most emission of what wrote it, so with the voxel's, a ray meeting anything in an emitter's voxel took all of it:
+// Bistro's lanterns, a bulb of a few centimetres (3.5, nearly white) in voxels of 30 cm with their metal frames and
+// glass, lit the walls around them yellow, a hundred times what the bulb gives, and in blotches, since only some of a
+// wall's rays met a lantern. where the rays walk the voxels there is no triangle, and the voxel's stands
+float3 GiHitReflected(uint firstClip, float3 position, float3 normal)
+{
+	float3 voxelEmission;
+	return max(GiRadianceAtHit(firstClip, position, normal, voxelEmission) - voxelEmission, 0.0);
+}
+
+float3 GiHitRadiance(uint firstClip, float3 position, BvhHit hit, out float3 emission)
+{
+	float3 reflected = GiHitReflected(firstClip, position, hit.normal);
+	MaterialData material = gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
+	emission = material.emissive.rgb;
+	if (any(emission > 0.0) && (material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
+	{
+		float2 weights = hit.barycentrics;
+		float4 texCoord01 = gVertexBuffer[gIndexBuffer[hit.firstIndex]].texCoord01 * (1.0 - weights.x - weights.y) +
+							gVertexBuffer[gIndexBuffer[hit.firstIndex + 1]].texCoord01 * weights.x +
+							gVertexBuffer[gIndexBuffer[hit.firstIndex + 2]].texCoord01 * weights.y;
+		TextureView view = gTextureViews[material.emissiveView];
+		emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).rgb;
+	}
+	return reflected + emission;
+}
+
 // what a ray from origin meets through the BVHs (see GiTracesBvh), as far as far: its radiance (rgb, the voxels' where it
 // hits, see GiRadianceAtHit and GiMarch's emissionReach) and whether it met nothing (a: the environment's share), how
 // far it went, and whether what it met was a single sided surface seen from behind (as GiOccluderHit's backface: the ray
@@ -670,7 +699,7 @@ bool GiTraceBvh(GiData walk, float3 origin, float3 direction, float far, float e
 		return true;
 	result.distance = hit.t;
 	float3 emission;
-	float3 radiance = GiRadianceAtHit(walk.clip, origin + direction * hit.t, hit.normal, emission);
+	float3 radiance = GiHitRadiance(walk.clip, origin + direction * hit.t, hit, emission);
 	if (hit.t < emissionReach)
 		radiance = max(radiance - emission * (1.0 - (hit.t * hit.t) / (emissionReach * emissionReach)), 0.0);
 	result.radiance = float4(radiance, 0.0);

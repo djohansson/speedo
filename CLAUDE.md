@@ -603,7 +603,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y (the indirect lighting's near field), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -1621,12 +1621,32 @@ volume's lookups there found no light, in blocks a voxel wide (the user's Cornel
 resolution 192, red and black blocks where the sphere touches the green wall). Every other pixel each way of the
 pre-pass's depth traces a ray from its surface through the BVHs (GI Near, `ComputeGiNear`), as far as
 `SPEEDO_GI_NEAR_REACH` (8) voxels of the clips that light the point, its direction one of 16 over a 4x4 tile of traced
-pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the radiance of what
-it meets (the voxels' there, `GiRadianceAtHit`, read a voxel and a half off the pixel's tangent plane along the hit's
-surface: within it the voxels at the hit are the pixel's surface's too, and the floor under the left sphere drew its own
-lit light as a tan crescent) or, where it meets nothing, the volume's light along it from its end. GI Near X and Y filter
-it over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the normal, as the
-traced shadows' filter): 289 rays a pixel. Main's opaque fragments (`PushConstants::prepassImages`'
+pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the light what it
+meets reflects (the voxels' there less their emission, `GiHitReflected`, read a voxel and a half off the pixel's tangent
+plane along the hit's surface: within it the voxels at the hit are the pixel's surface's too, and the floor under the
+left sphere drew its own lit light as a tan crescent) or, where it meets nothing, the volume's light along it from its
+end. Emitters' light is the volume's, which averages it over its probes' rays and frames: with the voxels' emission, a
+ray meeting anything in an emitter's voxel took all of it, and Bistro's lanterns (a bulb of a few centimetres, 3.5, in
+voxels of 30 cm with their frames and glass) lit the walls around them yellow in blotches, a hundred times what the bulb
+gives (the user's pose `3002.7041,404.1237,1410.4180,10.076,5.141`); with the bulb's own, rays rarely met it and each
+that did was a white speck. The probes' rays take a hit's own emission too (`GiHitRadiance`: the voxel's reflected light
+and the triangle's emission, its material's times its emissive texture at the hit), not its voxel's: Bistro's street
+lost the windows' emission spread over their frames and walls, 4 of 255 darker, CornellBox the same to 0.7. GI Near X
+and Y filter it over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the
+normal, as the traced shadows' filter), by a tent of the distance (a box of the 17 traced pixels around a traced one and
+the 16 around the others drew stripes a pixel wide and a bright ray as a square). GI Near Temporal
+(`ComputeGiNearTemporal`; `SPEEDO_GI_NEAR_TEMPORAL=0` without it, View > Indirect Lighting > Near Field Over Frames)
+blends that into a history reprojected by the pixel's point through the view's last view projection
+(`ViewData::previousViewProjection`, `previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where
+the view moved in the target), bilinear over the 4 pixels around where it was, each only if its point was as far from
+the last eye as this one's (`SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`; within 2% and two pixels' steps along the
+surface), none for what moves (the main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two
+images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
+from the pool); the rays turn every frame (`GiNearDirection`), each pixel taking every one of its tile's 16 directions
+over 16 frames. Fixed, the rays' grain stayed on the screen as the camera moved (the user: "fixed to the camera"; their
+pose under Sponza's curtains, `2.8260,0.3324,-2.7619,27.122,-513.942`); over frames it is smooth, and a slow turn
+smears nothing. It costs 0.9 ms a frame on KosmicKrisp (Sponza 30.1 to 31.0, Bistro's street 57.3 to 58.3). Main's
+opaque fragments (`PushConstants::prepassImages`'
 `PREPASS_IMAGE_GI_NEAR`) take what the rays gathered by how many met another surface nearer than a contact
 (`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
 volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`), and the rays' light alone where the
@@ -2002,8 +2022,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 26
-(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images and 23 to 25 the indirect lighting near field's). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 30
+(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's and 26 to 29 its history's). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

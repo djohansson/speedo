@@ -105,6 +105,15 @@ private:
 
 	std::vector<Buffer> myBuffers;
 	core::ConcurrentAccess<std::vector<gfx::Camera>> myCameras;
+	// what the last Upload wrote per view, which the next writes as its previous frame (ViewData::previousViewProjection).
+	// the draw thread's
+	struct Uploaded
+	{
+		glm::mat4 viewProjection;
+		glm::vec4 eye;
+		glm::vec4 viewport;
+	};
+	std::vector<Uploaded> myUploaded;
 	glm::uvec2 myFramebufferExtent{};
 	glm::uvec2 myGrid{1, 1};
 	std::optional<size_t> myActiveCamera;

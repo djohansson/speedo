@@ -135,6 +135,13 @@ extern "C"
 #define SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE 17u
 #define SHADER_TYPES_GI_NEAR_TEXTURE 25u
 #define SHADER_TYPES_GI_NEAR_RW_TEXTURE 18u
+// the near field accumulated over frames (GI Near Temporal, ComputeGiNearTemporal): two of each, the frame's written while
+// the last frame's is read, by the frame's parity (GiData::nearFrame): the light and share as SHADER_TYPES_GI_NEAR_TEXTURE's,
+// and each pixel's point's distance from the eye, which the next frame's reprojection checks its own against
+#define SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE 26u // and 27
+#define SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE 19u // and 20
+#define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE 28u // and 29
+#define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE 21u // and 22
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
@@ -235,6 +242,10 @@ struct ViewData
 	alignas(16) FLOAT4(eyePosition); // xyz: the camera's position, in world space (for the specular lighting)
 	alignas(16) FLOAT4X4(inverseViewProjection); // for the environment backdrop's rays (see ComputeMain)
 	alignas(16) FLOAT4(viewport); // x, y, width, height: where it is drawn in the render target, in pixels
+	// the last frame's view projection and eye (w: 1 if there was one, with the same viewport), for what is accumulated
+	// over frames to reproject (see ComputeGiNearTemporal)
+	alignas(16) FLOAT4X4(previousViewProjection);
+	alignas(16) FLOAT4(previousEyePosition);
 };
 
 // how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
@@ -904,6 +915,13 @@ struct GiData
 	// rays gathered alone, 2 the share of them that met no contact (gray), 3 and 4 what the rays that met something
 	// gathered, and those that didn't
 	alignas(4) UINT1(nearShow);
+	// the near field accumulated over frames (see ComputeGiNearTemporal; SPEEDO_GI_NEAR_TEMPORAL=0 without): whether it is
+	// (the main pass then reads it), the frame's weight in it (1 where there is no history yet; 1 over
+	// SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT), and the frames it has run, whose parity says which of its images is the frame's and
+	// which turn its rays take
+	alignas(4) UINT1(nearTemporal);
+	alignas(4) FLOAT1(nearBlend);
+	alignas(4) UINT1(nearFrame);
 };
 
 struct PushConstants

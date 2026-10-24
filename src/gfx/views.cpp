@@ -364,7 +364,19 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex)
 		views[viewIt].viewport[1] = viewport.y;
 		views[viewIt].viewport[2] = viewport.width;
 		views[viewIt].viewport[3] = viewport.height;
+		// the last frame's, where it had this view at the same place in the target (else this frame's, w 0: none)
+		glm::vec4 place(viewport.x, viewport.y, viewport.width, viewport.height);
+		bool previous = viewIt < myUploaded.size() && myUploaded[viewIt].viewport == place;
+		Uploaded uploaded{.viewProjection = viewProjection, .eye = eye, .viewport = place};
+		const auto& last = previous ? myUploaded[viewIt] : uploaded;
+		std::copy_n(&last.viewProjection[0][0], 16, &views[viewIt].previousViewProjection[0][0]); //NOLINT(readability-magic-numbers)
+		std::copy_n(&last.eye[0], 3, views[viewIt].previousEyePosition);
+		views[viewIt].previousEyePosition[3] = previous ? 1.0F : 0.0F;
+		if (myUploaded.size() <= viewIt)
+			myUploaded.resize(viewIt + 1);
+		myUploaded[viewIt] = uploaded;
 	}
+	myUploaded.resize(viewCount);
 	buffer.Flush(0, viewCount * sizeof(ViewData));
 	buffer.Unmap();
 

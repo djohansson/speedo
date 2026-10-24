@@ -165,6 +165,8 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_GI_CACHE=0";
 	if (!settings.giNearField.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_NEAR=0";
+	if (!settings.giNearTemporal.load(std::memory_order_relaxed))
+		text += " SPEEDO_GI_NEAR_TEMPORAL=0";
 	if (float contact = settings.giNearContact.load(std::memory_order_relaxed); contact != gfx::gi::kDefaultNearContact)
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
@@ -931,6 +933,9 @@ void WindowedApplication::PrepareDraw()
 		// without them)
 		if (const char* nearField = std::getenv("SPEEDO_GI_NEAR"); nearField != nullptr && *nearField != '\0')
 			App().GetScene().GetSettings().giNearField.store(std::string_view(nearField) != "0", std::memory_order_relaxed);
+		// and whether it is accumulated over frames (on by default; SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
+		if (const char* temporal = std::getenv("SPEEDO_GI_NEAR_TEMPORAL"); temporal != nullptr && *temporal != '\0')
+			App().GetScene().GetSettings().giNearTemporal.store(std::string_view(temporal) != "0", std::memory_order_relaxed);
 		// and how near what its rays meet is a contact (SPEEDO_GI_NEAR_CONTACT, in voxels: see gi::kDefaultNearContact)
 		if (const char* contact = std::getenv("SPEEDO_GI_NEAR_CONTACT"); contact != nullptr && *contact != '\0')
 			App().GetScene().GetSettings().giNearContact.store(
@@ -1651,6 +1656,18 @@ void WindowedApplication::PrepareDraw()
 						"(SPEEDO_GI_NEAR_CONTACT, %.1f by default). Wider takes the rays' light along more of every junction; "
 						"narrower leaves more of the voxels' own near contacts. Drag, or double-click to type.",
 						static_cast<double>(gfx::gi::kDefaultNearContact));
+				}
+				{
+					bool temporal = App().GetScene().GetSettings().giNearTemporal.load(std::memory_order_relaxed);
+					BeginDisabled(!nearField);
+					if (MenuItem("Near Field Over Frames", nullptr, &temporal))
+						App().GetScene().GetSettings().giNearTemporal.store(temporal, std::memory_order_relaxed);
+					EndDisabled();
+					SetItemTooltip(
+						"Accumulates the near field's rays over frames (their directions turn every frame), reprojected by the "
+						"depth: smooth rather than a grain fixed to the screen, at a lag of a few frames where the light changes. "
+						"On by default (SPEEDO_GI_NEAR_TEMPORAL=0 to start without; SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT, 16, how "
+						"many frames it remembers).");
 				}
 				if (ui::BeginMenu("Indirect Lighting Resolution"))
 				{

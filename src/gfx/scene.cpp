@@ -128,7 +128,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 26; // after the indirect lighting near field's (SHADER_TYPES_GI_NEAR_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 30; // after the indirect lighting near field history's (SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + 1)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -1918,6 +1918,7 @@ struct Scene::Impl
 						{"ComputeGiNear", SLANG_STAGE_COMPUTE}, // see the GI Near passes
 						{"ComputeGiNearX", SLANG_STAGE_COMPUTE},
 						{"ComputeGiNearY", SLANG_STAGE_COMPUTE},
+						{"ComputeGiNearTemporal", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2121,6 +2122,7 @@ struct Scene::Impl
 				.giSurfaceCache = mySettings.giSurfaceCache.load(std::memory_order_relaxed),
 				.giNearField = mySettings.giNearField.load(std::memory_order_relaxed),
 				.giNearContact = mySettings.giNearContact.load(std::memory_order_relaxed),
+				.giNearTemporal = mySettings.giNearTemporal.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),
 				.captureLights = mySettings.captureLights.load(std::memory_order_relaxed),

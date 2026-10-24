@@ -85,6 +85,9 @@ public:
 		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Indirect Lighting Near
 		// Field Contact, SPEEDO_GI_NEAR_CONTACT to start with another)
 		std::atomic<float> giNearContact = gi::kDefaultNearContact;
+		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Indirect Lighting Near
+		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
+		std::atomic<bool> giNearTemporal = true;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

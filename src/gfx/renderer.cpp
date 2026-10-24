@@ -70,6 +70,7 @@ constexpr uint8_t kGiCacheReleaseEntryPoint = 24;
 constexpr uint8_t kGiNearEntryPoint = 25;
 constexpr uint8_t kGiNearXEntryPoint = 26;
 constexpr uint8_t kGiNearYEntryPoint = 27;
+constexpr uint8_t kGiNearTemporalEntryPoint = 28;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -101,6 +102,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiNearRaw = myGraph.CreateImage({.name = "GI Near Raw", .format = Format::kR16G16B16A16Sfloat});
 	myGiNearRows = myGraph.CreateImage({.name = "GI Near Rows", .format = Format::kR16G16B16A16Sfloat});
 	myGiNear = myGraph.CreateImage({.name = "GI Near", .format = Format::kR16G16B16A16Sfloat});
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+	{
+		myGiNearHistory[historyIt] = myGraph.ImportImage(std::format("GI Near History {}", historyIt));
+		myGiNearHistoryDistance[historyIt] = myGraph.ImportImage(std::format("GI Near History Distance {}", historyIt));
+	}
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
 	myShadowTraceList = myGraph.CreateBuffer(
 		{.name = "Shadow Trace List", .sizeOf = [](Extent2d extent) { return (PixelCount(extent) + 1) * sizeof(uint32_t); }});
@@ -635,6 +641,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kFragmentShader));
+				for (auto image : myGiNearHistory)
+					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase, late](FrameGraph::PassContext& context)
@@ -1022,6 +1030,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiNear, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearYEntryPoint); });
+	// and accumulated over frames: the last frame's history reprojected and blended with this frame's (the images the
+	// frame's parity says, read and written in the general layout, see SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE)
+	myGiNearTemporalPass = myGraph.AddPass(
+		"GI Near Temporal",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			for (auto image : {myGiNearHistory[0], myGiNearHistory[1], myGiNearHistoryDistance[0], myGiNearHistoryDistance[1]})
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearTemporalEntryPoint); });
 
 	mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
@@ -1215,6 +1236,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiNearPower = std::clamp(static_cast<float>(std::strtod(nearPower, nullptr)), 0.0F, 64.0F);
 	if (const char* nearShow = std::getenv("SPEEDO_GI_NEAR_SHOW"); nearShow != nullptr && *nearShow != '\0')
 		myGiNearShow = static_cast<uint32_t>(std::strtoul(nearShow, nullptr, 10));
+	// the near field over frames: its history the last this many frames, about (the frame's weight in it the reciprocal)
+	if (const char* frames = std::getenv("SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT"); frames != nullptr && *frames != '\0')
+		myGiNearBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 1024.0F);
 	// every clip voxelized again every frame (SPEEDO_GI_REVOXELIZE=1): what the clips' scrolling must come to, for
 	// comparing with it (slow)
 	const char* revoxelize = std::getenv("SPEEDO_GI_REVOXELIZE");
@@ -1713,6 +1737,47 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			"gReprojectedDepth", BufferBinding{.buffer = myGraph.GetBuffer(myReprojectedDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		myPreviousValid = false;
 	}
+	// the near field's history at this size (holding nothing yet), bound once, both of each: the frame's parity picks
+	auto screenImage = [&device, &extent](const std::string& name, Format format)
+	{
+		ScreenImage made;
+		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
+		desc.mipLevels = {{.extent = extent}};
+		desc.format = format;
+		desc.tiling = ImageTiling::kOptimal;
+		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
+		desc.memoryFlags = MemoryProperty::kDeviceLocal;
+		desc.imageAspectFlags = ImageAspect::kColor;
+		desc.layout = ImageLayout::kUndefined;
+		made.image = std::make_unique<Image>(std::move(desc));
+		made.view = std::make_unique<ImageView>(
+			ImageViewCreateDesc{device.CreateDeviceObjectCreateDesc(name + " View"), *made.image, format, ImageAspect::kColor});
+		return made;
+	};
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+	{
+		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat);
+		myGiNearHistoryDistanceImages[historyIt] = screenImage(std::format("GI Near History Distance {}", historyIt), Format::kR32Sfloat);
+		for (auto [image, slot, rwSlot] : std::array{
+				 std::tuple{&myGiNearHistoryImages[historyIt], SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE, SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE},
+				 std::tuple{
+					 &myGiNearHistoryDistanceImages[historyIt],
+					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE,
+					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE}})
+		{
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = *image->view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				slot + historyIt);
+			pipeline.SetDescriptorData(
+				"gRWTextures",
+				ImageBinding{.sampler = {}, .imageView = *image->view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				rwSlot + historyIt);
+		}
+	}
+	myGiNearHistoryValid = false;
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
 		pipeline.SetDescriptorData(
@@ -2114,6 +2179,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myGiCacheFree, myGiCacheFreeBuffer);
 	for (uint32_t volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		myGraph.Bind(myGiVolumes[volumeIt], *myGiVolumeImages[volumeIt].image);
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+	{
+		myGraph.Bind(myGiNearHistory[historyIt], *myGiNearHistoryImages[historyIt].image);
+		myGraph.Bind(myGiNearHistoryDistance[historyIt], *myGiNearHistoryDistanceImages[historyIt].image);
+	}
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
 
 	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
@@ -2620,6 +2690,14 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
 	for (auto pass : {myGiNearPass, myGiNearXPass, myGiNearYPass})
 		myGraph.SetEnabled(pass, myGiNearOn);
+	// and over frames: last frame's history counts if the pass ran then (at this size: Resize clears it), else this frame's
+	// rays alone start it over
+	myGiNearTemporalOn = myGiNearOn && frame.giNearTemporal;
+	myGraph.SetEnabled(myGiNearTemporalPass, myGiNearTemporalOn);
+	myGiNearFrameBlend = myGiNearHistoryValid && myGiNearTemporalOn ? myGiNearBlend : 1.0F;
+	myGiNearHistoryValid = myGiNearTemporalOn;
+	if (myGiNearTemporalOn)
+		myGiNearFrame++;
 	if (!enabled)
 	{
 		std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
@@ -2944,6 +3022,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.nearContact = std::clamp(frame.giNearContact, 0.0F, myGiNearReach);
 		clip.nearPower = myGiNearPower;
 		clip.nearShow = myGiNearShow;
+		clip.nearTemporal = myGiNearTemporalOn ? 1U : 0U;
+		clip.nearBlend = myGiNearFrameBlend;
+		clip.nearFrame = myGiNearFrame;
 		if (myGiDump)
 		{
 			// the probe nearest the dump point: by its lattice (the offsets are small)

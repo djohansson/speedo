@@ -74,6 +74,8 @@ struct FrameInputs
 	// where the indirect lighting's rays trace the BVHs, and how near what they meet is a contact (GiData::nearContact)
 	bool giNearField = true;
 	float giNearContact = gi::kDefaultNearContact;
+	// and whether the near field is accumulated over frames (see GiData::nearTemporal)
+	bool giNearTemporal = true;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
 	// and the scene's bounds
 	std::span<const LightData> lights;
@@ -519,6 +521,25 @@ private:
 	FrameGraph::PassId myGiNearPass;
 	FrameGraph::PassId myGiNearXPass;
 	FrameGraph::PassId myGiNearYPass;
+	// the near field accumulated over frames (see ComputeGiNearTemporal): its history, two of each (by the frame's parity:
+	// SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE), made with the frame graph's transients; the frame's weight in it
+	// (SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT, its reciprocal), whether last frame's holds anything (it ran, at this size), and
+	// the frames it has run (GiData::nearFrame)
+	struct ScreenImage
+	{
+		std::unique_ptr<Image> image;
+		std::unique_ptr<ImageView> view;
+	};
+	std::array<ScreenImage, 2> myGiNearHistoryImages;
+	std::array<ScreenImage, 2> myGiNearHistoryDistanceImages;
+	std::array<FrameGraph::ImageId, 2> myGiNearHistory{};
+	std::array<FrameGraph::ImageId, 2> myGiNearHistoryDistance{};
+	FrameGraph::PassId myGiNearTemporalPass;
+	float myGiNearBlend = 1.0F / 16.0F;
+	float myGiNearFrameBlend = 1.0F; // this frame's (GiData::nearBlend)
+	bool myGiNearTemporalOn = false;
+	bool myGiNearHistoryValid = false;
+	uint32_t myGiNearFrame = 0;
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;
