@@ -38,8 +38,12 @@ struct Capabilities
 
 // whether the instance enables VK_EXT_debug_utils for the address binding reports (in every build where it exists)
 [[nodiscard]] bool WantsDebugUtils(VkInstance instance);
-// the instance's messenger of address bindings (where the instance has VK_EXT_debug_utils), made after the instance and
-// destroyed before it
+// the instance's messenger of address bindings, made just before the first device that enables
+// VK_EXT_device_address_binding_report (Capabilities::addressBindingReport, from Detect) is, so that it hears what the
+// device's creation binds, and destroyed before the instance. not with the instance: its message type is the device
+// extension's, which the validation layer refuses where no physical device has the extension
+// (VUID-VkDebugUtilsMessengerCreateInfoEXT-messageType-parameter, every run on KosmicKrisp). clears the capability if it
+// can't be made
 void CreateMessenger(VkInstance instance, const VkAllocationCallbacks* allocator);
 void DestroyMessenger(VkInstance instance, const VkAllocationCallbacks* allocator);
 

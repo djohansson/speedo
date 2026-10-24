@@ -372,6 +372,9 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	// whether the Crash Diagnostic Layer is loaded
 	vk::crash::Detect(instance, GetDesc().physicalDevice);
 	vk::crash::AddDeviceExtensions(desiredExtensions, instance, GetDesc().physicalDevice);
+	// the messenger of address bindings where the device enables them, before it binds any memory
+	if (vk::crash::GetCapabilities().addressBindingReport)
+		vk::crash::CreateMessenger(instance, &instance.GetHostAllocationCallbacks());
 
 #if defined(_WIN32)
 	// exclusive fullscreen (see Swapchain::SetExclusiveFullscreen; VK_EXT_FULL_SCREEN_EXCLUSIVE_EXTENSION_NAME is in

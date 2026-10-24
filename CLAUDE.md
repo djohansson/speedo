@@ -243,8 +243,10 @@ application) and a summary line to stderr, then traps. A report has:
   how many hadn't begun. NVIDIA's driver has both; `SPEEDO_CRASH_BREADCRUMBS=markers|checkpoints|none` forces one;
 - the **device fault** (`VK_EXT_device_fault`): each faulting address and its type, the vendor's codes (its binary
   saved beside the report), and the objects bound around the address (`VK_EXT_device_address_binding_report`, through
-  a debug utils messenger made in every build where the instance has the extension), the last 1024 unbound ones too
-  (`unboundSecondsAgo`): a write to freed memory names what was freed;
+  a debug utils messenger made in every build just before a device that enables it is, `crash::CreateMessenger`; made
+  with the instance, it asked for the device extension's messages where no device has it, which the validation layer
+  reports, every run on KosmicKrisp), the last 1024 unbound ones too (`unboundSecondsAgo`): a write to freed memory names
+  what was freed;
 - the last 64 submits (queue, command buffers, timeline value) and the last 256 **events**: what the application did
   (`rhi::CrashEvent`: swapchains made, window changes, presentation asked for, models, images and environments
   installed, shutdown), stamped with the frame (`CrashFrame`).

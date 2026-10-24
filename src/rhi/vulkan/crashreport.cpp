@@ -573,17 +573,21 @@ void CreateMessenger(VkInstance instance, const VkAllocationCallbacks* allocator
 {
 	using namespace detail;
 
+	if (gMessenger != VK_NULL_HANDLE)
+		return;
 	auto create = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(
 		vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT"));
-	if (create == nullptr)
-		return;
 	VkDebugUtilsMessengerCreateInfoEXT info{
 		.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT,
 		.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT,
 		.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT,
 		.pfnUserCallback = OnAddressBinding};
-	if (create(instance, &info, allocator, &gMessenger) != VK_SUCCESS)
+	if (create == nullptr || create(instance, &info, allocator, &gMessenger) != VK_SUCCESS)
+	{
 		gMessenger = VK_NULL_HANDLE;
+		gCapabilities.addressBindingReport = false;
+		std::println(stderr, "crash reports: no messenger for the address bindings, so none");
+	}
 }
 
 void DestroyMessenger(VkInstance instance, const VkAllocationCallbacks* allocator)
@@ -650,7 +654,7 @@ void Detect(VkInstance instance, VkPhysicalDevice physicalDevice)
 	std::println(
 		"crash reports: breadcrumbs by {}, device fault {}, address bindings {}{}",
 		layer ? "the Crash Diagnostic Layer" : capabilities.bufferMarker ? "buffer markers" : capabilities.checkpoints ? "checkpoints" : "nothing",
-		capabilities.deviceFault ? "yes" : "no", capabilities.addressBindingReport && gMessenger != VK_NULL_HANDLE ? "yes" : "no",
+		capabilities.deviceFault ? "yes" : "no", capabilities.addressBindingReport ? "yes" : "no",
 		capabilities.deviceCoherentMemory ? ", device coherent" : "");
 }
 

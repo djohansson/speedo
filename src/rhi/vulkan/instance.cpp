@@ -537,10 +537,6 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 
 	InitInstanceExtensions(myInstance);
 
-	// before any device binds memory
-	if (vk::crash::WantsDebugUtils(myInstance))
-		vk::crash::CreateMessenger(myInstance, &myHostAllocationCallbacks);
-
 	// instance level objects are named once there is a device (see TrackInstanceObject)
 	TrackInstance(VK_OBJECT_TYPE_INSTANCE, myInstance, std::format("{} Instance", myConfig.applicationName));
 
