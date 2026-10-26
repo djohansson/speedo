@@ -1844,7 +1844,9 @@ count; it writes depth only if one of them is `kOpaque`) and which of the layout
 normal maps share the obj convention (with `normalTexture.scale` applied to their x and y, as the spec defines it).
 Emissive (gltf `emissiveFactor` times `KHR_materials_emissive_strength` and the srgb `emissiveTexture`, obj `Ke` and
 `map_Ke`) is added after the lighting, unclamped (CornellBox's lamp, `Ke 17 12 4`, saturates to white); an emissive
-texture with a black factor isn't loaded (obj files pair `map_Ke` with `Ke 0`). Occlusion maps (gltf `occlusionTexture`,
+texture with a black factor isn't loaded, but an obj's `map_Ke` with `Ke 0` is the map alone, as exporters write it
+(`objimport-v9`: Bistro's hanging lanterns, its shop signs and every lamp of its interior emitted nothing by the
+factor). Occlusion maps (gltf `occlusionTexture`,
 by its strength) darken only the ambient term, the stand-in for the indirect light gltf applies them to; they are
 imported as `image::Usage::kOcclusion` (the red channel, linear, BC4), since gltf often packs occlusion, roughness and
 metallic into one texture's r, g and b, which kMask's luminance would mix. Each texture is a `TextureRef` (`gfx/textureref.h`: path, texcoord set, `KHR_texture_transform` as a 2x3 matrix, and its

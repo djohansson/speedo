@@ -303,6 +303,10 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 		material.normalTexture.path = resolveTexture(objMaterial.normal_texname, objMaterial.name).string();
 		material.emissive = glm::make_vec3(objMaterial.emission);
 		material.emissiveTexture.path = resolveTexture(objMaterial.emissive_texname, objMaterial.name).string();
+		// a map_Ke with a black Ke is the map alone, as exporters write it (Bistro's lanterns and lamps, all of them):
+		// the factor, by the spec, would have none of them emit
+		if (!material.emissiveTexture.path.empty() && glm::all(glm::equal(material.emissive, glm::vec3(0.0F))))
+			material.emissive = glm::vec3(1.0F);
 		material.bumpTexture.path = resolveTexture(objMaterial.bump_texname, objMaterial.name).string();
 		material.bumpScale = objMaterial.bump_texopt.bump_multiplier;
 		// Ks scales the specular (0: matte), and the Blinn-Phong exponent Ns gives the roughness
