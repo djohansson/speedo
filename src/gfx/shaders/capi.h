@@ -142,6 +142,23 @@ extern "C"
 #define SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE 19u // and 20
 #define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE 28u // and 29
 #define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE 21u // and 22
+// emissive surfaces as lights (see EmitterData, emitters.slang), each image a texel per traced pixel of the pre-pass's
+// depth (every EmitterData::stride-th pixel each way): the irradiance over pi the emitter point a traced pixel's
+// reservoir chose gives it, shadowed by a ray through the BVHs (Emitter Sample and Emitter Shade, ComputeEmitterSample
+// and ComputeEmitterShade; a: 1, -1 where there is no surface), filtered along rows, then columns (Emitter X and Y), and
+// accumulated over frames (Emitter Temporal: two of each, the frame's written while the last frame's is read, by the
+// frame's parity), with each traced pixel's surface (RGBA32F: its point, and its normal, see EmitterPackNormal; w -1
+// where there is none): what the main pass's opaque fragments add to their diffuse, upsampled (EmitterIrradiance)
+#define SHADER_TYPES_EMITTER_RAW_TEXTURE 30u
+#define SHADER_TYPES_EMITTER_RAW_RW_TEXTURE 23u
+#define SHADER_TYPES_EMITTER_ROWS_TEXTURE 31u
+#define SHADER_TYPES_EMITTER_ROWS_RW_TEXTURE 24u
+#define SHADER_TYPES_EMITTER_FILTERED_TEXTURE 32u
+#define SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE 25u
+#define SHADER_TYPES_EMITTER_HISTORY_TEXTURE 33u // and 34
+#define SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE 26u // and 27
+#define SHADER_TYPES_EMITTER_SURFACE_TEXTURE 35u // and 36
+#define SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE 28u // and 29
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
@@ -191,7 +208,7 @@ extern "C"
 #define DEBUG_VIEW_LIGHT_COUNT 10u // the lights the fragment loops over (its cluster's), a heat map up to 255
 // light (exposed and tonemapped)
 #define DEBUG_VIEW_EMISSIVE 11u
-#define DEBUG_VIEW_DIRECT 12u // the punctual lights' light alone
+#define DEBUG_VIEW_DIRECT 12u // the direct light alone: the punctual lights' and the emissive surfaces'
 #define DEBUG_VIEW_INDIRECT 13u // the ambient light alone: diffuse and specular (the environment's or the indirect lighting's)
 #define DEBUG_VIEW_INDIRECT_DIFFUSE 14u // the ambient irradiance over pi, a white surface's (whatever lights it)
 #define DEBUG_VIEW_INDIRECT_SPECULAR 15u // the ambient specular alone
@@ -228,7 +245,15 @@ extern "C"
 #define DEBUG_VIEW_TRACED_SHADOW 30u
 #define DEBUG_VIEW_TRACED_SHADOW_RAW 31u
 #define DEBUG_VIEW_TRACED_SHADOW_REFERENCE 32u
-#define DEBUG_VIEW_COUNT 33u
+// the emissive surfaces' light (see EmitterData) a white surface reflects: as the main pass takes it, filtered and
+// accumulated over frames; and the traced pixels' rays alone (a ray every EmitterData::stride-th pixel each way,
+// unfiltered); and a reference, many independent estimates a traced pixel (SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT,
+// accumulated while the camera is still), nothing reused or filtered. magenta where it isn't traced
+#define DEBUG_VIEW_EMITTERS 33u
+#define DEBUG_VIEW_EMITTERS_RAW 34u
+#define DEBUG_VIEW_EMITTERS_REFERENCE 35u
+#define DEBUG_VIEW_COUNT 36u
+#define SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT 64u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
@@ -337,6 +362,78 @@ struct ShadowTraceData
 	alignas(4) UINT1(mapped);
 	alignas(4) UINT1(padding1);
 	alignas(4) UINT1(padding2);
+};
+
+// emissive surfaces as lights (see gfx/emitters.h, emitters.slang): the installed model's emissive triangles that don't
+// move, in world space (gEmitters), whose points the main pass's pixels and the indirect lighting's voxels sample for the
+// light they give, picked through a tree of them (gEmitterTree, see EmitterNode) by how much each part of it may give
+// the point, resampled (RIS, and ReSTIR's reuse) and shadowed by rays through the BVHs; the rays of the indirect lighting
+// then take only the light what they meet reflects (their emission is what the emitters light)
+struct EmitterTriangle
+{
+	alignas(16) FLOAT4(corner); // xyz: its first corner; w: its material (gMaterialData), as uint bits
+	alignas(16) FLOAT4(edge1); // xyz: its second corner less the first; w: its first index (gIndexBuffer), as uint bits
+	alignas(16) FLOAT4(edge2); // xyz: its third corner less the first (cross(edge1, edge2) faces its front); w: EMITTER_FLAG_*
+};
+#define EMITTER_FLAG_DOUBLE_SIDED 1u // it emits from both sides
+// of a mirroring instance: its edges are swapped (so that their cross product faces its front), and so are the texture
+// coordinates' corners its barycentrics weigh
+#define EMITTER_FLAG_MIRRORED 2u
+
+// a node of the tree over the emitter triangles (a light BVH, as pbrt's BVHLightSampler: Conty Estevez and Kulla's
+// light tree), depth first: its first child right after it. what it holds is bounded by a box, a cone of the directions
+// its triangles face (an axis and the cosine of its half angle; both ways if any is double sided) and their power (area
+// times the luminance of their emission factor), which bound how much it may light a point (see EmitterImportance)
+struct EmitterNode
+{
+	alignas(16) FLOAT4(low); // xyz: its box's low corner; w: its power
+	alignas(16) FLOAT4(high); // xyz: its box's high corner; w: the cosine of its cone's half angle
+	// xyz: its cone's axis; w: EMITTER_NODE_* bits, and below them its second child's node or, a leaf, its triangle
+	alignas(16) FLOAT4(axis);
+};
+#define EMITTER_NODE_LEAF 0x80000000u
+#define EMITTER_NODE_DOUBLE_SIDED 0x40000000u
+#define EMITTER_NODE_INDEX_MASK 0x3fffffffu
+// the deepest a leaf is (the shaders' walk down to one stops there)
+#define EMITTER_NODE_DEPTH_MOST 64u
+
+// the frame's emitters (gEmitterData[frame])
+struct EmitterData
+{
+	// the triangles in gEmitters: 0 where emissive surfaces aren't lights (none, or View > Emissive Lights off), and then
+	// the indirect lighting's rays take the emission of what they meet
+	alignas(4) UINT1(count);
+	// the candidates a traced pixel resamples each frame (SPEEDO_EMITTER_CANDIDATE_COUNT), and a voxel's for each of
+	// its samples (SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT, SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT)
+	alignas(4) UINT1(candidateCount);
+	alignas(4) UINT1(voxelCandidateCount);
+	alignas(4) UINT1(voxelSampleCount);
+	// the frames the passes have run: the parity of the reservoirs' and the history's halves, and the candidates' seeds
+	alignas(4) UINT1(frame);
+	// whether the reservoirs reuse the last frame's where its pixels saw the same surface (0 where there are none yet:
+	// the first frame, a resize; SPEEDO_EMITTER_REUSE=0 for neither reuse), how much the last frame's count for at most
+	// (in this frame's candidates), and how many traced pixels around each reuses, and how far (in traced pixels)
+	alignas(4) UINT1(temporalReuse);
+	alignas(4) FLOAT1(historyCap);
+	alignas(4) UINT1(spatialCount);
+	alignas(4) FLOAT1(spatialRadius);
+	// the frame's weight in the accumulation over frames (1 where there is no history yet; 1 over
+	// SPEEDO_EMITTER_HISTORY_FRAME_COUNT)
+	alignas(4) FLOAT1(blend);
+	// whether the shadow rays trace what moves too (gBvhMovingNodes), and the debug views': 1 the rays alone, unfiltered, 2
+	// the reference (see DEBUG_VIEW_EMITTERS_RAW)
+	alignas(4) UINT1(movingBvh);
+	alignas(4) UINT1(raw);
+	// how far the filter reaches along rows and columns, in pixels (SPEEDO_EMITTER_FILTER_REACH, see EmitterFilter)
+	alignas(4) UINT1(filterReach);
+	// the traced pixels: every stride-th each way (SPEEDO_EMITTER_STRIDE)
+	alignas(4) UINT1(stride);
+	// the light below which a point's shadow ray is traced by chance, as the frame shows it (a white surface's irradiance
+	// over pi, times the exposure; SPEEDO_EMITTER_ROULETTE, 0 for every ray: see ComputeEmitterShade)
+	alignas(4) FLOAT1(roulette);
+	// how many frames a point found visible stays so without another ray while the camera doesn't move
+	// (SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT; fewer where something moves, which may come between: see ComputeEmitterShade)
+	alignas(4) UINT1(visibilityFrameCount);
 };
 
 // a view a light's shadow is drawn from: world to clip space (depth 0 to 1), drawn in a tile of the atlas
@@ -977,10 +1074,12 @@ struct PushConstants
 	// opaque ones, at the depth the pre-pass drew
 	alignas(4) UINT1(prepassImages);
 };
-// PushConstants::prepassImages: the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE, see ShadowTraceData), and the
-// indirect lighting's near field (SHADER_TYPES_GI_NEAR_TEXTURE, see GiData::nearReach)
+// PushConstants::prepassImages: the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE, see ShadowTraceData), the
+// indirect lighting's near field (SHADER_TYPES_GI_NEAR_TEXTURE, see GiData::nearReach) and the emissive surfaces' light
+// (SHADER_TYPES_EMITTER_HISTORY_TEXTURE, see EmitterData)
 #define PREPASS_IMAGE_SHADOW_MASK 1u
 #define PREPASS_IMAGE_GI_NEAR 2u
+#define PREPASS_IMAGE_EMITTERS 4u
 
 #ifdef __cplusplus
 }

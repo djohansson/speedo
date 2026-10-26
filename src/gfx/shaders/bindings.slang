@@ -48,6 +48,13 @@ StructuredBuffer<float4> gBvhNodes;
 [[vk::binding(9, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<float4> gBvhTriangles;
 
+// the model's emissive triangles that don't move (see EmitterTriangle)
+[[vk::binding(10, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<EmitterTriangle> gEmitters;
+// and the tree they are picked through (see EmitterNode)
+[[vk::binding(11, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+StructuredBuffer<EmitterNode> gEmitterTree;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 // the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
@@ -215,3 +222,10 @@ RWStructuredBuffer<uint> gGiCacheBlocks;
 [[vk::binding(42, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gGiCacheFree;
 
+// the frame's emitters (see EmitterData), per frame index
+[[vk::binding(43, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<EmitterData> gEmitterData[SHADER_TYPES_FRAME_COUNT];
+// the emitters' reservoirs per traced pixel (see EmitterReservoir): the frame's before their spatial reuse, then the
+// frame's and the last frame's after it, by the frame's parity (EmitterData::frame)
+[[vk::binding(44, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint4> gEmitterReservoirs;

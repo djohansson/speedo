@@ -161,6 +161,10 @@ struct ModelBuffers
 	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles
 	std::vector<Buffer> bvhMovingNodes;
 	std::vector<Buffer> bvhMovingTriangles;
+	// its emissive triangles that don't move and the tree over them (see gfx/emitters.h), if any, and how many
+	Buffer emitters;
+	Buffer emitterTree;
+	uint32_t emitterCount = 0;
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
@@ -205,6 +209,10 @@ public:
 	{
 		return frameIndex < myBuffers.bvhMovingTriangles.size() ? &myBuffers.bvhMovingTriangles[frameIndex] : nullptr;
 	}
+	// its emissive triangles that don't move (EmitterTriangle, see gfx/emitters.h), or null if none emits, and how many
+	[[nodiscard]] const Buffer* GetEmitterBuffer() const noexcept { return myBuffers.emitters.IsValid() ? &myBuffers.emitters : nullptr; }
+	[[nodiscard]] const Buffer* GetEmitterTreeBuffer() const noexcept { return myBuffers.emitterTree.IsValid() ? &myBuffers.emitterTree : nullptr; }
+	[[nodiscard]] uint32_t GetEmitterCount() const noexcept { return myBuffers.emitterCount; }
 	// the BVH's nodes and triangles (see bvh::Data), or null if it has none
 	[[nodiscard]] const Buffer* GetBvhNodeBuffer() const noexcept { return myBuffers.bvhNodes.IsValid() ? &myBuffers.bvhNodes : nullptr; }
 	[[nodiscard]] const Buffer* GetBvhTriangleBuffer() const noexcept

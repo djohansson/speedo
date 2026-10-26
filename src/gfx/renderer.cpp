@@ -71,6 +71,12 @@ constexpr uint8_t kGiNearEntryPoint = 25;
 constexpr uint8_t kGiNearXEntryPoint = 26;
 constexpr uint8_t kGiNearYEntryPoint = 27;
 constexpr uint8_t kGiNearTemporalEntryPoint = 28;
+// the emitters' (see emitters.slang): the reservoirs, their reuse and shadow rays, the filter and the frames
+constexpr uint8_t kEmitterSampleEntryPoint = 29;
+constexpr uint8_t kEmitterShadeEntryPoint = 30;
+constexpr uint8_t kEmitterXEntryPoint = 31;
+constexpr uint8_t kEmitterYEntryPoint = 32;
+constexpr uint8_t kEmitterTemporalEntryPoint = 33;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -107,6 +113,20 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiNearHistory[historyIt] = myGraph.ImportImage(std::format("GI Near History {}", historyIt));
 		myGiNearHistoryDistance[historyIt] = myGraph.ImportImage(std::format("GI Near History Distance {}", historyIt));
 	}
+	// emissive surfaces as lights (see SHADER_TYPES_EMITTER_RAW_TEXTURE): a texel per traced pixel (every stride-th each way,
+	// SPEEDO_EMITTER_STRIDE: 1, 2, 4 or 8): its light, filtered along rows and columns, and over frames with its surface;
+	// and the reservoirs (see Resize)
+	if (const char* stride = std::getenv("SPEEDO_EMITTER_STRIDE"); stride != nullptr && *stride != '\0')
+		myEmitterStride = std::bit_floor(std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(stride, nullptr, 10)), 1U, 8U));
+	myEmitterRaw = myGraph.CreateImage({.name = "Emitter Raw", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
+	myEmitterRows = myGraph.CreateImage({.name = "Emitter Rows", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
+	myEmitterFiltered = myGraph.CreateImage({.name = "Emitter Filtered", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+	{
+		myEmitterHistory[historyIt] = myGraph.ImportImage(std::format("Emitter History {}", historyIt));
+		myEmitterSurfaces[historyIt] = myGraph.ImportImage(std::format("Emitter Surface {}", historyIt));
+	}
+	myEmitterReservoirs = myGraph.ImportBuffer("Emitter Reservoirs");
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
 	myShadowTraceList = myGraph.CreateBuffer(
 		{.name = "Shadow Trace List", .sizeOf = [](Extent2d extent) { return (PixelCount(extent) + 1) * sizeof(uint32_t); }});
@@ -168,6 +188,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myShadowTraceBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("Shadow Trace {}", frameIt)),
 			sizeof(ShadowTraceData),
+			BufferUsage::kStorage,
+			MemoryProperty::kHostVisible});
+		myEmitterDataBuffers.emplace_back(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("Emitter Data {}", frameIt)),
+			sizeof(EmitterData),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 		myClusterViewBuffers.emplace_back(BufferCreateDesc{
@@ -643,6 +668,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				for (auto image : myGiNearHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
+				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterSurfaces[0], myEmitterSurfaces[1]})
+					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
 			[this, phase, late](FrameGraph::PassContext& context)
@@ -1044,6 +1071,70 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearTemporalEntryPoint); });
 
+	// emissive surfaces as lights (see emitters.slang): every stride-th pixel each way of the pre-pass's depth resamples
+	// emitter points into its reservoir, reusing the last frame's (and its neighbors'), and traces the chosen one's shadow
+	// ray through the BVHs; the light filtered over the traced pixels around on the same surface (rows, then columns) and
+	// over frames (the images of the frame's parity), a texel per traced pixel, which the main pass's opaque fragments
+	// upsample
+	auto tracedKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
+	{
+		auto extent = myGraph.GetExtent();
+		uint32_t stride = myEmitterStride;
+		kernel(cmd, ComputePipelineVariant{.entryPoint = entryPoint}, (extent.width + stride - 1) / stride, (extent.height + stride - 1) / stride);
+	};
+	myEmitterSamplePass = myGraph.AddPass(
+		"Emitter Sample",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			for (auto image : myEmitterSurfaces)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+		},
+		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterSampleEntryPoint); });
+	myEmitterShadePass = myGraph.AddPass(
+		"Emitter Shade",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myEmitterRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterShadeEntryPoint); });
+	myEmitterXPass = myGraph.AddPass(
+		"Emitter X",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterRaw, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterXEntryPoint); });
+	myEmitterYPass = myGraph.AddPass(
+		"Emitter Y",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterFiltered, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterYEntryPoint); });
+	myEmitterTemporalPass = myGraph.AddPass(
+		"Emitter Temporal",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myEmitterFiltered, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterSurfaces[0], myEmitterSurfaces[1]})
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterTemporalEntryPoint); });
+
 	mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
@@ -1348,6 +1439,28 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 						  : name == "hybrid"	? OcclusionMode::kHybrid
 												: OcclusionMode::kTwoPhase;
 	}
+	// the emitters' sampling (see EmitterData): the candidates a traced pixel resamples each frame, a voxel's samples and
+	// the candidates of each, the reservoirs' reuse, and the frames the light is accumulated over, about
+	auto count = [](const char* name, uint32_t& value, uint32_t least, uint32_t most)
+	{
+		if (const char* text = std::getenv(name); text != nullptr && *text != '\0')
+			value = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(text, nullptr, 10)), least, most);
+	};
+	count("SPEEDO_EMITTER_CANDIDATE_COUNT", myEmitterCandidateCount, 1, 256);
+	count("SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT", myEmitterVoxelSampleCount, 1, 256);
+	count("SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT", myEmitterVoxelCandidateCount, 1, 256);
+	count("SPEEDO_EMITTER_SPATIAL_COUNT", myEmitterSpatialCount, 0, 8); // see kEmitterSpatialCountMost
+	// the filter's reach, in pixels (at least a traced pixel each way)
+	count("SPEEDO_EMITTER_FILTER_REACH", myEmitterFilterReach, 1, 64);
+	if (const char* cap = std::getenv("SPEEDO_EMITTER_HISTORY_CAP"); cap != nullptr && *cap != '\0')
+		myEmitterHistoryCap = std::clamp(std::strtof(cap, nullptr), 1.0F, 1000.0F);
+	const char* reuse = std::getenv("SPEEDO_EMITTER_REUSE");
+	myEmitterReuse = reuse == nullptr || std::string_view(reuse) != "0";
+	if (const char* frames = std::getenv("SPEEDO_EMITTER_HISTORY_FRAME_COUNT"); frames != nullptr && *frames != '\0')
+		myEmitterBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 1024.0F);
+	if (const char* roulette = std::getenv("SPEEDO_EMITTER_ROULETTE"); roulette != nullptr && *roulette != '\0')
+		myEmitterRoulette = std::max(std::strtof(roulette, nullptr), 0.0F);
+	count("SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT", myEmitterVisibilityFrameCount, 1, 1024);
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
 	myCollectTimings = collect != nullptr && std::string_view(collect) == "1";
 }
@@ -1586,7 +1699,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_TEXTURE},
 			 std::pair{myGiNearRaw, SHADER_TYPES_GI_NEAR_RAW_TEXTURE},
 			 std::pair{myGiNearRows, SHADER_TYPES_GI_NEAR_ROWS_TEXTURE},
-			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_TEXTURE}})
+			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_TEXTURE},
+			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_TEXTURE},
+			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_TEXTURE},
+			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
@@ -1603,7 +1719,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myShadowMask, SHADER_TYPES_SHADOW_MASK_RW_TEXTURE},
 			 std::pair{myGiNearRaw, SHADER_TYPES_GI_NEAR_RAW_RW_TEXTURE},
 			 std::pair{myGiNearRows, SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE},
-			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_RW_TEXTURE}})
+			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_RW_TEXTURE},
+			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_RW_TEXTURE},
+			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_RW_TEXTURE},
+			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -1624,6 +1743,11 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		pipeline.SetDescriptorData(
 			"gShadowTrace",
 			BufferBinding{.buffer = myShadowTraceBuffers[frameIt], .offset = 0},
+			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+			frameIt);
+		pipeline.SetDescriptorData(
+			"gEmitterData",
+			BufferBinding{.buffer = myEmitterDataBuffers[frameIt], .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 			frameIt);
 		for (auto [name, buffers] : std::array{
@@ -1738,11 +1862,13 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		myPreviousValid = false;
 	}
 	// the near field's history at this size (holding nothing yet), bound once, both of each: the frame's parity picks
-	auto screenImage = [&device, &extent](const std::string& name, Format format)
+	// (and the emitters', a texel per traced pixel)
+	Extent2d traced{.width = (extent.width + myEmitterStride - 1) / myEmitterStride, .height = (extent.height + myEmitterStride - 1) / myEmitterStride};
+	auto screenImage = [&device](const std::string& name, Format format, Extent2d size)
 	{
 		ScreenImage made;
 		ImageCreateDesc desc{device.CreateDeviceObjectCreateDesc(name)};
-		desc.mipLevels = {{.extent = extent}};
+		desc.mipLevels = {{.extent = size}};
 		desc.format = format;
 		desc.tiling = ImageTiling::kOptimal;
 		desc.usageFlags = ImageUsage::kStorage | ImageUsage::kSampled;
@@ -1756,14 +1882,20 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 	};
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
-		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat);
-		myGiNearHistoryDistanceImages[historyIt] = screenImage(std::format("GI Near History Distance {}", historyIt), Format::kR32Sfloat);
+		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		myGiNearHistoryDistanceImages[historyIt] =
+			screenImage(std::format("GI Near History Distance {}", historyIt), Format::kR32Sfloat, extent);
+		// and the emitters' light's and its surfaces' (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
+		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, traced);
+		myEmitterSurfaceImages[historyIt] = screenImage(std::format("Emitter Surface {}", historyIt), Format::kR32G32B32A32Sfloat, traced);
 		for (auto [image, slot, rwSlot] : std::array{
 				 std::tuple{&myGiNearHistoryImages[historyIt], SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE, SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE},
 				 std::tuple{
 					 &myGiNearHistoryDistanceImages[historyIt],
 					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE,
-					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE}})
+					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE},
+				 std::tuple{&myEmitterHistoryImages[historyIt], SHADER_TYPES_EMITTER_HISTORY_TEXTURE, SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE},
+				 std::tuple{&myEmitterSurfaceImages[historyIt], SHADER_TYPES_EMITTER_SURFACE_TEXTURE, SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
 				"gTextures",
@@ -1778,6 +1910,19 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 		}
 	}
 	myGiNearHistoryValid = false;
+	myEmitterHistoryValid = false;
+	// the emitters' reservoirs at this size (see ComputeEmitterShade): per traced pixel a uint4, in three parts: the frame's
+	// before their spatial reuse, and after it the frame's and the last frame's
+	{
+		uint64_t tracedCount = static_cast<uint64_t>(traced.width) * traced.height;
+		myEmitterReservoirBuffer = Buffer(BufferCreateDesc{
+			device.CreateDeviceObjectCreateDesc("Emitter Reservoirs"),
+			std::max<uint64_t>(3 * tracedCount, 1) * 4 * sizeof(uint32_t),
+			BufferUsage::kStorage,
+			MemoryProperty::kDeviceLocal});
+		pipeline.SetDescriptorData(
+			"gEmitterReservoirs", BufferBinding{.buffer = myEmitterReservoirBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+	}
 	for (auto [name, buffer] : std::array{
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
 		pipeline.SetDescriptorData(
@@ -1996,6 +2141,46 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		for (auto pass : {myShadowTraceClearPass, myShadowClassifyPass, myShadowTracePass, myShadowDenoiseXPass, myShadowDenoiseYPass})
 			myGraph.SetEnabled(pass, myShadowsTraced);
 	}
+	// the emissive surfaces as lights (see EmitterData), where the model has them and BVHs to trace their shadow rays
+	// through; the last frame's reservoirs and history count if they lit it (at this size: Resize clears them)
+	{
+		bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+		uint32_t emitterCount = frame.emissiveLights && hasBvh ? frame.model->GetEmitterCount() : 0;
+		myEmittersOn = emitterCount > 0;
+		for (auto pass : {myEmitterSamplePass, myEmitterShadePass, myEmitterXPass, myEmitterYPass, myEmitterTemporalPass})
+			myGraph.SetEnabled(pass, myEmittersOn);
+		bool history = myEmitterHistoryValid && myEmittersOn;
+		EmitterData data{};
+		data.count = emitterCount;
+		data.candidateCount = myEmitterCandidateCount;
+		data.voxelCandidateCount = myEmitterVoxelCandidateCount;
+		data.voxelSampleCount = myEmitterVoxelSampleCount;
+		data.frame = myEmitterFrame;
+		data.temporalReuse = history && myEmitterReuse ? 1U : 0U;
+		data.historyCap = myEmitterHistoryCap;
+		data.spatialCount = myEmitterReuse ? myEmitterSpatialCount : 0U;
+		data.spatialRadius = myEmitterSpatialRadius;
+		data.blend = history ? myEmitterBlend : 1.0F;
+		data.movingBvh = myEmittersOn && frame.model->HasMovingBvh() ? 1U : 0U;
+		data.filterReach = myEmitterFilterReach;
+		data.stride = myEmitterStride;
+		data.roulette = myEmitterRoulette;
+		// fewer where something moves, which may come between a point and the pixel
+		data.visibilityFrameCount = data.movingBvh != 0U ? std::max(myEmitterVisibilityFrameCount / 4, 1U) : myEmitterVisibilityFrameCount;
+		data.raw = frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_RAW ? 1U : (frame.pushConstants.debugView == DEBUG_VIEW_EMITTERS_REFERENCE ? 2U : 0U);
+		// the reference accumulates every frame it is shown, evenly (a still camera's: the history is reprojected)
+		myEmitterReferenceFrameCount = data.raw == 2U && history ? myEmitterReferenceFrameCount + 1 : 0;
+		if (data.raw == 2U)
+			data.blend = 1.0F / static_cast<float>(myEmitterReferenceFrameCount + 1);
+		auto& buffer = myEmitterDataBuffers[frame.frameIndex];
+		auto memory = buffer.Map();
+		std::memcpy(memory.data(), &data, sizeof(data));
+		buffer.Flush(0, sizeof(data));
+		buffer.Unmap();
+		myEmitterHistoryValid = myEmittersOn;
+		if (myEmittersOn)
+			myEmitterFrame++;
+	}
 	// the lights' clusters per view, written as the shadows are
 	{
 		auto lights = frame.lights;
@@ -2183,8 +2368,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	{
 		myGraph.Bind(myGiNearHistory[historyIt], *myGiNearHistoryImages[historyIt].image);
 		myGraph.Bind(myGiNearHistoryDistance[historyIt], *myGiNearHistoryDistanceImages[historyIt].image);
+		myGraph.Bind(myEmitterHistory[historyIt], *myEmitterHistoryImages[historyIt].image);
+		myGraph.Bind(myEmitterSurfaces[historyIt], *myEmitterSurfaceImages[historyIt].image);
 	}
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
+	myGraph.Bind(myEmitterReservoirs, myEmitterReservoirBuffer);
 
 	// the indirect draws' commands, written as the passes record them (the frame index's previous use of them is done)
 	myDrawStream = &myDrawStreams[frame.frameIndex];
@@ -2706,10 +2894,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		return;
 	}
 	// the static voxels are lit again when the lights change (any of them: the environment's rotation turns its dominant
-	// lights, which are among them)
-	myGiLightsChanged = frame.lights.size() != myGiLights.size() || !std::ranges::equal(std::as_bytes(frame.lights), std::as_bytes(std::span(myGiLights)));
+	// lights, which are among them), and when the emissive surfaces start or stop lighting
+	myGiLightsChanged = frame.lights.size() != myGiLights.size() || !std::ranges::equal(std::as_bytes(frame.lights), std::as_bytes(std::span(myGiLights))) ||
+						myGiEmittersLit != myEmittersOn;
 	if (myGiLightsChanged)
 		myGiLights.assign(frame.lights.begin(), frame.lights.end());
+	myGiEmittersLit = myEmittersOn;
 
 	// the clipmap, made again (and voxelized) when the model, its bounds or its draws change; a clip that moves with the
 	// camera is voxelized again
@@ -3121,7 +3311,8 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	auto pushConstants = inputs.pushConstants;
 	pushConstants.prepassImages = 0;
 	if (!prepass && listId == ListId::kMain)
-		pushConstants.prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U);
+		pushConstants.prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
+									   (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
 	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
 	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
 	std::optional<core::std_extra::function_ref<bool(const DrawItem&)>> include;

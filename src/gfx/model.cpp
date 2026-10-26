@@ -1,5 +1,6 @@
 #include <gfx/model.h>
 #include <gfx/bvh.h>
+#include <gfx/emitters.h>
 #include <gfx/importversions.h>
 #include <gfx/meshimport.h>
 
@@ -80,6 +81,9 @@ std::vector<const Buffer*> Model::GetUploadedBuffers() const
 	for (const auto* bvh : {&myBuffers.bvhNodes, &myBuffers.bvhTriangles})
 		if (bvh->IsValid())
 			buffers.push_back(bvh);
+	for (const auto* emitters : {&myBuffers.emitters, &myBuffers.emitterTree})
+		if (emitters->IsValid())
+			buffers.push_back(emitters);
 	return buffers;
 }
 
@@ -1021,6 +1025,44 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 		bvhTriangleStaging = stage("bvh triangles", bvhStatic.triangles);
 	}
 
+	// its emissive triangles that don't move, as lights (see gfx/emitters.h), from the staged triangles: also before
+	// taking the queue's lock
+	Buffer emitterStaging;
+	Buffer emitterTreeStaging;
+	uint32_t emitterCount = 0;
+	{
+		auto start = std::chrono::steady_clock::now();
+		auto indices = indexStaging.Map();
+		auto vertices = vertexStaging.Map();
+		auto built = emitters::Build(
+			desc,
+			std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
+			std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount));
+		vertexStaging.Unmap();
+		indexStaging.Unmap();
+		if (!built.triangles.empty())
+		{
+			std::println(
+				"{}: {} emitter triangles ({:.3g} of area), a tree of {} nodes, in {:.0f} ms",
+				filePath,
+				built.triangles.size(),
+				built.area,
+				built.nodes.size(),
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+			auto stage = [&](std::string_view what, std::span<const std::byte> bytes)
+			{
+				auto staging = Buffer::CreateStaging(device.CreateDeviceObjectCreateDesc(std::format("{} ({} staging)", filePath, what)), bytes.size());
+				auto memory = staging.Map();
+				std::memcpy(memory.data(), bytes.data(), bytes.size());
+				staging.Unmap();
+				return staging;
+			};
+			emitterStaging = stage("emitters", std::as_bytes(std::span(built.triangles)));
+			emitterTreeStaging = stage("emitter tree", std::as_bytes(std::span(built.nodes)));
+			emitterCount = static_cast<uint32_t>(built.triangles.size());
+		}
+	}
+
 	// one queue lock at a time: the queue types may alias the same context (see Device::GetQueue)
 	auto graphicsQueueFamilyIndex = device.GetQueue(kQueueTypeGraphics).Read()->queueFamilyIndex;
 
@@ -1067,6 +1109,14 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 			auto triangleSize = bvhTriangleStaging.GetDesc().size;
 			buffers.bvhNodes = upload("bvh nodes", nodeSize, BufferUsage::kStorage, std::move(bvhNodeStaging));
 			buffers.bvhTriangles = upload("bvh triangles", triangleSize, BufferUsage::kStorage, std::move(bvhTriangleStaging));
+		}
+		if (emitterStaging.IsValid())
+		{
+			auto size = emitterStaging.GetDesc().size;
+			buffers.emitters = upload("emitters", size, BufferUsage::kStorage, std::move(emitterStaging));
+			auto treeSize = emitterTreeStaging.GetDesc().size;
+			buffers.emitterTree = upload("emitter tree", treeSize, BufferUsage::kStorage, std::move(emitterTreeStaging));
+			buffers.emitterCount = emitterCount;
 		}
 
 		auto uploadInfo = Upload{

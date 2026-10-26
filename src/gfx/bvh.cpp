@@ -125,6 +125,23 @@ static float DominantSign(const glm::vec3& normal)
 	return dominant < 0.0F ? -1.0F : 1.0F;
 }
 
+// a triangle's flags (BVH_TRIANGLE_FLAG_*) and its material's index in gMaterialData (the model's materials are 1 and up,
+// 0 the default's, for none), which a ray reads of what it meets: its alpha mask (cut out as the main pass's alpha test
+// does, by the base color's or the mask's texture), and its emission (see GiHitRadiance: only the alpha masked triangles
+// carried it, and every other one met had the default material's, black, so an emitter gave the rays nothing)
+static uint32_t TriangleFlags(const ModelSubmesh& submesh, const ModelMaterial* material)
+{
+	ENSUREF(
+		static_cast<uint64_t>(submesh.material + 1) < (1ULL << (32U - BVH_TRIANGLE_MATERIAL_SHIFT)),
+		"a BVH triangle's flags hold material indices below {}, not {}", 1ULL << (32U - BVH_TRIANGLE_MATERIAL_SHIFT), submesh.material + 1);
+	uint32_t flags = static_cast<uint32_t>(submesh.material + 1) << BVH_TRIANGLE_MATERIAL_SHIFT;
+	if (material != nullptr && material->doubleSided)
+		flags |= BVH_TRIANGLE_FLAG_DOUBLE_SIDED;
+	if (material != nullptr && material->alphaCutoff > 0.0F && (!material->diffuseTexture.empty() || !material->alphaTexture.empty()))
+		flags |= BVH_TRIANGLE_FLAG_ALPHA_MASKED;
+	return flags;
+}
+
 } // namespace detail
 
 std::vector<Triangle> Triangles(
@@ -138,16 +155,7 @@ std::vector<Triangle> Triangles(
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
 		if (material != nullptr && (material->blend || material->transmission > 0.0F))
 			continue;
-		uint32_t flags = material != nullptr && material->doubleSided ? BVH_TRIANGLE_FLAG_DOUBLE_SIDED : 0U;
-		// cut out as the main pass's alpha test does: by the base color's or the mask's texture, its material's index
-		// with it (the model's materials are 1 and up in gMaterialData)
-		if (material != nullptr && material->alphaCutoff > 0.0F && (!material->diffuseTexture.empty() || !material->alphaTexture.empty()))
-		{
-			ENSUREF(
-				static_cast<uint64_t>(submesh.material + 1) < (1ULL << (32U - BVH_TRIANGLE_MATERIAL_SHIFT)),
-				"a BVH triangle's flags hold material indices below {}, not {}", 1ULL << (32U - BVH_TRIANGLE_MATERIAL_SHIFT), submesh.material + 1);
-			flags |= BVH_TRIANGLE_FLAG_ALPHA_MASKED | (static_cast<uint32_t>(submesh.material + 1) << BVH_TRIANGLE_MATERIAL_SHIFT);
-		}
+		uint32_t flags = detail::TriangleFlags(submesh, material);
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 		{
 			const glm::mat4& transform = desc.instances[submesh.firstInstance + instanceIt];
@@ -251,9 +259,7 @@ Moving::Moving(
 		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
 		if (material != nullptr && (material->blend || material->transmission > 0.0F))
 			continue;
-		uint32_t flags = material != nullptr && material->doubleSided ? BVH_TRIANGLE_FLAG_DOUBLE_SIDED : 0U;
-		if (material != nullptr && material->alphaCutoff > 0.0F && (!material->diffuseTexture.empty() || !material->alphaTexture.empty()))
-			flags |= BVH_TRIANGLE_FLAG_ALPHA_MASKED | (static_cast<uint32_t>(submesh.material + 1) << BVH_TRIANGLE_MATERIAL_SHIFT);
+		uint32_t flags = detail::TriangleFlags(submesh, material);
 		uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
 		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 		{
@@ -416,7 +422,7 @@ std::string Version()
 {
 	// bump the tag when Build changes what it makes
 	return std::format(
-		"tinybvh-{}.{}.{}-{}|bvh-v2", TINY_BVH_VERSION_MAJOR, TINY_BVH_VERSION_MINOR, TINY_BVH_VERSION_SUB, TINY_BVH_CACHE_VERSION);
+		"tinybvh-{}.{}.{}-{}|bvh-v3", TINY_BVH_VERSION_MAJOR, TINY_BVH_VERSION_MINOR, TINY_BVH_VERSION_SUB, TINY_BVH_CACHE_VERSION);
 }
 
 } // namespace gfx::bvh

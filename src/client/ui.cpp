@@ -79,7 +79,7 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kSurface, {"material", "Material", DEBUG_VIEW_MATERIAL, "A color per material."}},
 	DebugViewEntry{DebugViewGroup::kSurface, {"texcoord", "Texcoord", DEBUG_VIEW_TEXCOORD, "Texcoord set 0 (u red, v green), repeated."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"emissive", "Emissive", DEBUG_VIEW_EMISSIVE, "The light the surfaces give off."}},
-	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The punctual lights' light alone (with their shadows)."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"direct", "Direct Light", DEBUG_VIEW_DIRECT, "The direct light alone: the punctual lights' (with their shadows) and the emissive surfaces' (View > Emissive Lights)."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect", "Ambient Light", DEBUG_VIEW_INDIRECT, "The ambient light alone, diffuse and specular: the indirect lighting's where it covers a point, else the environment's."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
@@ -87,6 +87,9 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-reference", "Traced Shadow (reference)", DEBUG_VIEW_TRACED_SHADOW_REFERENCE, "The first traced light's shadow where the shadow atlas isn't sure, by 256 rays a pixel over the light's disk, unfiltered: what the filtered shadow should look like. Slow."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters", "Emissive Light (white)", DEBUG_VIEW_EMITTERS, "The emissive surfaces' light (View > Emissive Lights) a white surface reflects, as the main pass takes it: sampled at every 4th pixel each way (SPEEDO_EMITTER_STRIDE), filtered and accumulated over frames, and upsampled. Magenta where it isn't gathered."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-raw", "Emissive Light (rays)", DEBUG_VIEW_EMITTERS_RAW, "The emissive surfaces' light as the traced pixels' rays gathered it this frame, a point and its shadow ray every 4th pixel each way, before the filter and the frames."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"emitters-reference", "Emissive Light (reference)", DEBUG_VIEW_EMITTERS_REFERENCE, "The emissive surfaces' light by 64 independent estimates every 4th pixel each way (accumulated while the camera is still), each its own candidates and shadow ray, nothing reused or filtered: what the filtered light should look like. Slow."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"light-count", "Light Count", DEBUG_VIEW_LIGHT_COUNT, "The lights each pixel loops over (its cluster's): blue 1, cyan to green about 15, red 255 or more."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-irradiance", "Irradiance", DEBUG_VIEW_GI_IRRADIANCE, "The indirect lighting's diffuse alone, a white surface's. Magenta where no clip covers a point."}},
 	DebugViewEntry{DebugViewGroup::kIndirectLighting, {"gi-visibility", "Probe Visibility", DEBUG_VIEW_GI_VISIBILITY, "The weight of the probes around a point: how much of them it sees (by their depth maps). Dark where it sees little (inside walls, in corners)."}},
@@ -167,6 +170,8 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_GI_NEAR=0";
 	if (!settings.giNearTemporal.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_NEAR_TEMPORAL=0";
+	if (!settings.emissiveLights.load(std::memory_order_relaxed))
+		text += " SPEEDO_EMISSIVE_LIGHTS=0";
 	if (float contact = settings.giNearContact.load(std::memory_order_relaxed); contact != gfx::gi::kDefaultNearContact)
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
@@ -914,6 +919,10 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().tracedShadows.store(false, std::memory_order_relaxed);
 		else if (traced != nullptr && std::string_view(traced) == "all")
 			App().GetScene().GetSettings().tracedShadowsEverywhere.store(true, std::memory_order_relaxed);
+		// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
+		// emission as they meet them)
+		if (const char* emissive = std::getenv("SPEEDO_EMISSIVE_LIGHTS"); emissive != nullptr && std::string_view(emissive) == "0")
+			App().GetScene().GetSettings().emissiveLights.store(false, std::memory_order_relaxed);
 		if (const char* culling = std::getenv("SPEEDO_CULLING"); culling != nullptr && std::string_view(culling) == "0")
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
 		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
@@ -1599,6 +1608,11 @@ void WindowedApplication::PrepareDraw()
 					App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
 				SetItemTooltip(
 					"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
+				bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
+				if (MenuItem("Emissive Lights", nullptr, &emissiveLights))
+					App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
+				SetItemTooltip(
+					"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
 				bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
 				if (MenuItem("Culling", nullptr, &culling))
 					App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);

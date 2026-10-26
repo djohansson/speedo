@@ -257,9 +257,12 @@ float GiFadeBoxExit(float4 fadeCenter, float4 fadeExtent, float3 origin, float3 
 // of its cell, mostly about half a spacing from it, where a source beside the probe is that far: a street lamp's head
 // beside one of Bistro's coarse probes (8.9 m apart) lit the square before the hotel's entrance and its facade yellow
 // (the probe's faces 2.4 where its neighbors' were 0.06), where the surface reference, from the points themselves, has a
-// pool under the lamp. instant radiosity clamps a virtual light's contribution the same way. 0 is no clamp (the references)
+// pool under the lamp. instant radiosity clamps a virtual light's contribution the same way. 0 is no clamp (the references).
+// where emissive surfaces are lights (see EmittersLight), none of their emission: what they give arrives through them
 float4 GiMarch(GiData gi, float3 origin, float3 direction, float end, bool skipEmptyBlocks, float emissionReach = 0.0)
 {
+	if (EmittersLight())
+		emissionReach = 1e30;
 	float travelled = 0.0;
 	const uint kBlockShift = SHADER_TYPES_GI_FLAG_LEVEL;
 	for (uint clipIt = gi.clip; clipIt < gi.clipCount; clipIt++)
@@ -652,7 +655,8 @@ float3 GiRadianceAtHit(uint firstClip, float3 position, float3 normal, out float
 // the most emission of what wrote it, so with the voxel's, a ray meeting anything in an emitter's voxel took all of it:
 // Bistro's lanterns, a bulb of a few centimetres (3.5, nearly white) in voxels of 30 cm with their metal frames and
 // glass, lit the walls around them yellow, a hundred times what the bulb gives, and in blotches, since only some of a
-// wall's rays met a lantern. where the rays walk the voxels there is no triangle, and the voxel's stands
+// wall's rays met a lantern. where the rays walk the voxels there is no triangle, and the voxel's stands. where emissive
+// surfaces are lights (see EmittersLight), the reflected light alone: what they give arrives through them
 float3 GiHitReflected(uint firstClip, float3 position, float3 normal)
 {
 	float3 voxelEmission;
@@ -662,6 +666,9 @@ float3 GiHitReflected(uint firstClip, float3 position, float3 normal)
 float3 GiHitRadiance(uint firstClip, float3 position, BvhHit hit, out float3 emission)
 {
 	float3 reflected = GiHitReflected(firstClip, position, hit.normal);
+	emission = 0.0;
+	if (EmittersLight())
+		return reflected;
 	MaterialData material = gMaterialData[hit.flags >> BVH_TRIANGLE_MATERIAL_SHIFT];
 	emission = material.emissive.rgb;
 	if (any(emission > 0.0) && (material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
@@ -1061,8 +1068,9 @@ float GiOpenAlong(GiData gi, float3 position, float3 normal)
 }
 
 // the lights' light off a voxel (at, of a clip): its emission plus its albedo over pi times the light reaching it from
-// the lights of its cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees).
-// open: how far it is open along its normal (see GiOpenAlong)
+// the lights of its cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees),
+// and from the emissive surfaces where they are lights (whose readers then take its emission out). open: how far it
+// is open along its normal (see GiOpenAlong)
 float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving, float open)
 {
 	uint frameIndex = gPushConstants.frameIndex;
@@ -1113,6 +1121,9 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 		float visibility = GiVisibility(gi, position + normal * push, toLight, distance - push, moving);
 		irradiance += light.intensity.rgb * attenuation * nDotL * visibility;
 	}
+	// and the emissive surfaces' (see EmitterVoxelIrradiance), from the same place, by numbers of the voxel's own
+	if (EmittersLight())
+		irradiance += EmitterVoxelIrradiance(gi, position + normal * push, normal, moving, uint2(GiVoxelIndex(at, size), gi.clip));
 	return emission + albedo.rgb / 3.14159265 * irradiance;
 }
 

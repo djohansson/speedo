@@ -86,6 +86,8 @@ struct FrameInputs
 	// and at every pixel, rather than where the shadow atlas isn't sure (ShadowTraceData::mapped)
 	bool tracedShadows = true;
 	bool tracedShadowsEverywhere = false;
+	// whether the model's emissive surfaces light the scene (see EmitterData), where it has BVHs for their shadow rays
+	bool emissiveLights = true;
 	shadows::ShadowCamera camera;
 	Bounds3f sceneBounds;
 	// how far what the camera looks at is (the median distance of the last frame's drawn pixels from the eye, smoothed):
@@ -540,6 +542,54 @@ private:
 	bool myGiNearTemporalOn = false;
 	bool myGiNearHistoryValid = false;
 	uint32_t myGiNearFrame = 0;
+	// emissive surfaces as lights (see EmitterData, emitters.slang): the frame's (gEmitterData[frame], host visible); the
+	// reservoirs per traced pixel (gEmitterReservoirs, three parts, see ComputeEmitterShade), made at the frame's size;
+	// the traced pixels' light, filtered along rows, and columns, and over frames with their surfaces (two of each, by the
+	// frame's parity); the passes; the candidates a traced pixel resamples (SPEEDO_EMITTER_CANDIDATE_COUNT) and a voxel's
+	// samples and their candidates (SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT, SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT), the
+	// reservoirs' reuse (SPEEDO_EMITTER_REUSE=0 without: over frames, capped at a count of SPEEDO_EMITTER_HISTORY_CAP times
+	// the candidates, and of SPEEDO_EMITTER_SPATIAL_COUNT traced pixels within spatialRadius of them), the filter's reach
+	// in pixels (SPEEDO_EMITTER_FILTER_REACH), the frame's weight over frames (SPEEDO_EMITTER_HISTORY_FRAME_COUNT, its
+	// reciprocal), whether they light this frame, whether the last frame's history and reservoirs hold anything (they lit
+	// it, at this size), and the frames they have lit
+	std::vector<Buffer> myEmitterDataBuffers;
+	Buffer myEmitterReservoirBuffer;
+	FrameGraph::BufferId myEmitterReservoirs;
+	FrameGraph::ImageId myEmitterRaw;
+	FrameGraph::ImageId myEmitterRows;
+	FrameGraph::ImageId myEmitterFiltered;
+	std::array<ScreenImage, 2> myEmitterHistoryImages;
+	std::array<ScreenImage, 2> myEmitterSurfaceImages;
+	std::array<FrameGraph::ImageId, 2> myEmitterHistory{};
+	std::array<FrameGraph::ImageId, 2> myEmitterSurfaces{};
+	FrameGraph::PassId myEmitterSamplePass;
+	FrameGraph::PassId myEmitterShadePass;
+	FrameGraph::PassId myEmitterXPass;
+	FrameGraph::PassId myEmitterYPass;
+	FrameGraph::PassId myEmitterTemporalPass;
+	uint32_t myEmitterCandidateCount = 4;
+	uint32_t myEmitterVoxelSampleCount = 4;
+	uint32_t myEmitterVoxelCandidateCount = 8;
+	bool myEmitterReuse = true;
+	float myEmitterHistoryCap = 20.0F;
+	uint32_t myEmitterSpatialCount = 0;
+	float myEmitterSpatialRadius = 8.0F;
+	uint32_t myEmitterFilterReach = 16;
+	// the traced pixels: every stride-th each way (SPEEDO_EMITTER_STRIDE), each a texel of the emitters' images; and how
+	// many frames a point found visible stays so under a still camera (SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT, see
+	// EmitterData::visibilityFrameCount; a quarter of it where something moves)
+	uint32_t myEmitterStride = 4;
+	uint32_t myEmitterVisibilityFrameCount = 8;
+	// the light below which a shadow ray is traced by chance (SPEEDO_EMITTER_ROULETTE, see EmitterData::roulette)
+	float myEmitterRoulette = 0.02F;
+	float myEmitterBlend = 1.0F / 16.0F;
+	bool myEmittersOn = false;
+	bool myEmitterHistoryValid = false;
+	uint32_t myEmitterFrame = 0;
+	uint32_t myEmitterReferenceFrameCount = 0; // the frames the reference (DEBUG_VIEW_EMITTERS_REFERENCE) has accumulated
+	// whether the static voxels' kept light (see ComputeGiLightStatic) has the emitters' in it: it is made again when
+	// that changes
+	bool myGiEmittersLit = false;
 	FrameGraph::PassId myGiRestorePass;
 	FrameGraph::PassId myGiVoxelizeMovingPass;
 	Buffer myGiVoxelBuffer;

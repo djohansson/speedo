@@ -30,3 +30,4 @@ __include types;
 #include "gi.slang"
 #include "tracedshadows.slang"
 #include "ginear.slang"
+#include "emitters.slang"

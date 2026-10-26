@@ -128,7 +128,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 30; // after the indirect lighting near field history's (SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + 1)
+static constexpr uint32_t kModelTextureFirstSlot = 37; // after the emitters' history's (SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -157,6 +157,10 @@ static_assert(SHADER_TYPES_PREPASS_NORMAL_TEXTURE < kModelTextureFirstSlot && SH
 static_assert(
 	SHADER_TYPES_GI_NEAR_RAW_TEXTURE < kModelTextureFirstSlot && SHADER_TYPES_GI_NEAR_ROWS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_GI_NEAR_TEXTURE < kModelTextureFirstSlot);
+static_assert(
+	SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + 1 < kModelTextureFirstSlot && SHADER_TYPES_EMITTER_RAW_TEXTURE < kModelTextureFirstSlot &&
+	SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 < kModelTextureFirstSlot);
+static_assert(SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes
@@ -353,7 +357,8 @@ struct Scene::Impl
 	uuids::uuid myDefaultMorphDeltasUuid;
 	uuids::uuid myDefaultMorphWeightsUuid;
 	// bound as gBvhNodes and gBvhTriangles while the installed model has no BVH (see gfx/bvh.h): a node's worth of zeros,
-	// which GiData::trace never has the rays traverse
+	// which GiData::trace never has the rays traverse, and as gEmitters and gEmitterTree while it has no emitters (see
+	// gfx/emitters.h: EmitterData::count is 0 then)
 	uuids::uuid myDefaultBvhUuid;
 	core::ConcurrentAccess<AnimationState> myAnimation;
 	core::ConcurrentAccess<SceneState> myScenes;
@@ -1101,6 +1106,14 @@ struct Scene::Impl
 				BufferBinding{.buffer = model->GetBvhTriangleBuffer() != nullptr ? *model->GetBvhTriangleBuffer() : defaultBvh, .offset = 0},
 				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 			pipeline.SetDescriptorData(
+				"gEmitters",
+				BufferBinding{.buffer = model->GetEmitterBuffer() != nullptr ? *model->GetEmitterBuffer() : defaultBvh, .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.SetDescriptorData(
+				"gEmitterTree",
+				BufferBinding{.buffer = model->GetEmitterTreeBuffer() != nullptr ? *model->GetEmitterTreeBuffer() : defaultBvh, .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+			pipeline.SetDescriptorData(
 				"gSkinVertices",
 				BufferBinding{
 					.buffer = model->GetSkinBuffer() != nullptr ? *model->GetSkinBuffer() : *device.GetResource<Buffer>(myDefaultSkinVerticesUuid),
@@ -1771,6 +1784,7 @@ struct Scene::Impl
 			timelineCallbacks.emplace_back(morphDeltaTransfersDone.handle);
 
 			std::array<glm::vec4, BVH_NODE_FLOAT4_COUNT> defaultBvh{};
+			static_assert(sizeof(EmitterTriangle) <= sizeof(defaultBvh) && sizeof(EmitterNode) <= sizeof(defaultBvh)); // bound as gEmitters and gEmitterTree too
 			core::TaskCreateInfo<void> bvhTransfersDone;
 			auto bvh = device.CreateResource<Buffer>(
 				BufferCreateDesc{
@@ -1864,7 +1878,7 @@ struct Scene::Impl
 			"gMorphDeltas",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphDeltasUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		for (const char* binding : {"gBvhNodes", "gBvhTriangles"})
+		for (const char* binding : {"gBvhNodes", "gBvhTriangles", "gEmitters", "gEmitterTree"})
 			pipeline.SetDescriptorData(
 				binding, BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
@@ -1919,6 +1933,11 @@ struct Scene::Impl
 						{"ComputeGiNearX", SLANG_STAGE_COMPUTE},
 						{"ComputeGiNearY", SLANG_STAGE_COMPUTE},
 						{"ComputeGiNearTemporal", SLANG_STAGE_COMPUTE},
+						{"ComputeEmitterSample", SLANG_STAGE_COMPUTE}, // see the Emitter passes
+						{"ComputeEmitterShade", SLANG_STAGE_COMPUTE},
+						{"ComputeEmitterX", SLANG_STAGE_COMPUTE},
+						{"ComputeEmitterY", SLANG_STAGE_COMPUTE},
+						{"ComputeEmitterTemporal", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -1991,7 +2010,7 @@ struct Scene::Impl
 			"gMorphDeltas",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultMorphDeltasUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-		for (const char* binding : {"gBvhNodes", "gBvhTriangles"})
+		for (const char* binding : {"gBvhNodes", "gBvhTriangles", "gEmitters", "gEmitterTree"})
 			pipeline.SetDescriptorData(
 				binding, BufferBinding{.buffer = *device.GetResource<Buffer>(myDefaultBvhUuid), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 
@@ -2048,11 +2067,13 @@ struct Scene::Impl
 				from = {.animation = state.previous, .time = static_cast<float>(state.previousTime)};
 				weight = static_cast<float>(state.fade / AnimationState::kCrossfade);
 			}
-			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows'
+			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows', the traced shadows' or
+			// the emitters'
 			myModel->Animate(
 				frameIndex, pose, from, weight,
 				(mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed)) ||
-					(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)));
+					(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)) ||
+					(mySettings.emissiveLights.load(std::memory_order_relaxed) && myModel->GetEmitterCount() > 0));
 			ApplyPointerValues(myRHI, graphics, *myModel);
 		}
 		
@@ -2129,6 +2150,7 @@ struct Scene::Impl
 				.shadows = mySettings.shadows.load(std::memory_order_relaxed),
 				.tracedShadows = mySettings.tracedShadows.load(std::memory_order_relaxed),
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
+				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.camera = shadowCamera,
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
 				.lookDistance = myLookDistance.load(std::memory_order_relaxed),

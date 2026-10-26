@@ -605,7 +605,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
 UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -1200,7 +1200,8 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   weight of what the finer ones leave (`GiSampleAt`). Under a still camera with the clips moving 6 m through Sponza's
   arcade (`SPEEDO_GI_EYE_PATH`, 120 frames), the frames' means differ from the still run's by 0.1% at most.
 - **Lighting the voxels** (`GiDirectRadiance`): each voxel's emission plus its albedo over pi times the punctual lights
-  of its cell (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only
+  of its cell and the emissive surfaces where they are lights (`EmitterVoxelIrradiance`, see "Emissive surfaces as
+  lights": the rays that read a voxel's radiance then take its emission out) (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only
   (a wall's voxel isn't lit by the sun outside it), each shadowed by a ray through the voxels (the shadow atlas covers
   only what the camera sees; `GiOccluderDistance` visits each voxel the ray crosses once, Amanatides and Woo). The
   shadow rays start a voxel out along the voxel's normal, the bounce's lookup 1.5 voxels and the point its probes are
@@ -1295,7 +1296,7 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   skipping, Bistro's street 17.5 and 16.0), the environment past the last clip (`EnvironmentRadiance` at
   roughness 0.6, without the dominant lights, which light the voxels themselves), and to the first occupied voxel as
   far as the depth map reaches (`SHADER_TYPES_GI_DEPTH_REACH`, 3 spacings: the points a probe is tested for are within
-  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). A probe's ray that meets an emitter nearer than `SPEEDO_GI_EMISSION_REACH` spacings (0.5; 0 for none:
+  its cell), into `gGiRays` (rgba16f: radiance, distance in spacings). Where emissive surfaces aren't lights (View > Emissive Lights off), a probe's ray that meets an emitter nearer than `SPEEDO_GI_EMISSION_REACH` spacings (0.5; 0 for none:
   `GiData::emissionReach`, `GiMarch`'s `emissionReach`) takes its emission as from that far away (scaled by the square
   of the distance over it, as a small source's irradiance falls), since what the probe holds lights the points of its
   cell, mostly about half a spacing from it, where a source beside the probe is that far (instant radiosity clamps a
@@ -1631,9 +1632,11 @@ end. Emitters' light is the volume's, which averages it over its probes' rays an
 ray meeting anything in an emitter's voxel took all of it, and Bistro's lanterns (a bulb of a few centimetres, 3.5, in
 voxels of 30 cm with their frames and glass) lit the walls around them yellow in blotches, a hundred times what the bulb
 gives (the user's pose `3002.7041,404.1237,1410.4180,10.076,5.141`); with the bulb's own, rays rarely met it and each
-that did was a white speck. The probes' rays take a hit's own emission too (`GiHitRadiance`: the voxel's reflected light
-and the triangle's emission, its material's times its emissive texture at the hit), not its voxel's: Bistro's street
-lost the windows' emission spread over their frames and walls, 4 of 255 darker, CornellBox the same to 0.7. GI Near X
+that did was a white speck. The emitters light the scene themselves now (see "Emissive surfaces as lights"); where they
+don't, the probes' rays take a hit's own emission (`GiHitRadiance`: the voxel's reflected light and the triangle's
+emission, its material's times its emissive texture at the hit), not its voxel's. (Only the alpha masked triangles
+carried their material then, so every other emitter a ray met gave nothing: EmissiveStrengthTest's cubes lit nothing
+around them. Every BVH triangle carries it now, `bvh-v3`.) GI Near X
 and Y filter it over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the
 normal, as the traced shadows' filter), by a tent of the distance (a box of the 17 traced pixels around a traced one and
 the 16 around the others drew stripes a pixel wide and a bright ray as a square). GI Near Temporal
@@ -1685,6 +1688,81 @@ still pays is its clips' probes and voxels near its surfaces, which fill them: D
 ray budget (the resolve and lighting of a last clip that is all surface, the finer clips mostly empty). What's left
 (TODO.md): that, the lighting's lag through slow changes, glossy reflections, hardware ray queries, and a path traced
 reference.
+
+## Emissive surfaces as lights
+
+View > Emissive Lights (on by default; `SPEEDO_EMISSIVE_LIGHTS=0` to start without, `FrameInputs::emissiveLights`,
+Copy Pose writes it): the model's emissive triangles light the scene as area lights, at the first hit and in the
+indirect lighting's voxels, with soft shadows traced through the BVHs (`emitters.slang`, `gfx/emitters.h`). Before, an
+emitter's light reached anything only through the indirect lighting's rays meeting it by chance: spread over its voxels
+it lit as if it were a voxel big (Bistro's lanterns lit the walls around them yellow, a hundred times the bulbs' light),
+met as a triangle by a ray in four pixels it was a white speck (the near field took no emission at all), and the
+triangle's emission was read through a material index only the alpha masked BVH triangles carried, so EmissiveStrengthTest's
+cubes lit nothing around them. The rays take only the light what they meet reflects now (`GiHitRadiance`; `GiMarch`
+takes a voxel's emission out), and what the emitters give arrives through these:
+
+- **The emitters** (`emitters::Build`, at upload, from the staged triangles: Bistro's 20972, 56 ms): the triangle lists'
+  triangles that don't move whose material emits (its emissive factor times its strength, or an animation sets it),
+  at each instance, in world space (`EmitterTriangle`: a corner and two edges whose cross product faces the front, a
+  mirroring instance's swapped and flagged, `EMITTER_FLAG_MIRRORED`, so its texture coordinates' corners follow; its
+  material and first index), and a tree over them (`EmitterNode`, `gEmitterTree`: a light BVH, pbrt's BVHLightSampler,
+  built by its surface area orientation heuristic: box, cone of normals, power, the area times the luminance of the
+  emission factor; the texture's isn't known there, and each point is weighed by its own). `EmitterPick` walks it from
+  the root, each child by its share of `EmitterImportance` (pbrt's `LightBounds::Importance`: power over the distance
+  to the box, by the least angles the emitters and the surface may face each other at; never 0 where something lights
+  the point), its probability the product. A global alias table by power came first: Bistro's lanterns, a small share of
+  its emitters' power, were rarely a candidate of a wall beside them, and the light was mottled in blotches
+  of the filter's size (`mean |log2|` against the reference, blurred 4 pixels: 0.150 to 0.129, and smooth to the eye).
+- **Per traced pixel** (every `SPEEDO_EMITTER_STRIDE`-th pixel each way, 4; a texel each of the emitters' images,
+  `SHADER_TYPES_EMITTER_RAW_TEXTURE` on): Emitter Sample resamples `SPEEDO_EMITTER_CANDIDATE_COUNT` (4) candidates
+  (RIS: a point of each picked triangle, uniformly, by the luminance of the irradiance it would give unshadowed, nearer
+  than two pixels taken as two pixels away), and merges the reservoir of the traced pixel where its point was last frame
+  (ReSTIR's temporal reuse: by the view's last view projection, where that point was the same surface,
+  `EmitterTolerance` and normals within 25 degrees, not where the stencil says something moves; its count capped at
+  `SPEEDO_EMITTER_HISTORY_CAP`, 20, times the candidates; `SPEEDO_EMITTER_REUSE=0` without). Emitter Shade traces the
+  chosen point's shadow ray (`ShadowOccluder`: the static and moving BVHs, alpha masks cut out), writes the irradiance
+  over pi, and keeps the reservoir for the next frame (`gEmitterReservoirs`: three parts, the frame's before the spatial
+  reuse and after it the frame's and the last frame's, by parity; triangle, barycentrics as unorm16, W, and M and the
+  visibility's age, 16 bits each). A point its ray finds hidden is kept as the candidates it stood for, of no light
+  (RTXDI's discard of invisible samples): kept as it was, a back wall's reservoir held the brighter cube behind the
+  partition as often as its own, and half of EmissiveStrengthTest's pixels were black. Under a still camera a point found
+  visible stays so for `SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT` (8) frames without a ray (a quarter of that where something
+  moves; `EmitterViewStill`): 1.3 to 1.6 ms of Bistro's street, whose walls mostly keep searching (their candidates
+  are windows behind facades, discarded), more where the reservoirs settle. Below `SPEEDO_EMITTER_ROULETTE` (0.02) of the frame's white (the
+  unshadowed estimate times the exposure) the ray is traced by chance, weighed up by it: Bistro's street by day under auto
+  exposure, 2.5 ms (65.4 to 67.9 with every ray).
+- **Filter and frames**, at the traced pixels: Emitter X and Y (`EmitterFilter`: the traced pixels within
+  `SPEEDO_EMITTER_FILTER_REACH`, 16, pixels along rows and columns, on the same surface, by a tent, as the near field's),
+  Emitter Temporal (blended by 1 over `SPEEDO_EMITTER_HISTORY_FRAME_COUNT`, 16, into the history the frame's parity says,
+  `SHADER_TYPES_EMITTER_HISTORY_TEXTURE`, bilinear from where the point was, each traced pixel only where its last surface,
+  `SHADER_TYPES_EMITTER_SURFACE_TEXTURE`, RGBA32F: its point and its normal packed exactly, `EmitterPackNormal`, was the
+  same). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) upsample it (`EmitterIrradiance`: bilinear over the 2x2
+  traced pixels around, each by how much it is on the fragment's surface, else the 3x3 by that alone) and add the base
+  color times it to their direct light (Direct Light's debug view has it; blended and scattering fragments don't).
+- **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled
+  points of `SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT` (8) candidates each, shadowed as the punctual lights' are, in the static
+  voxels' kept light (made again when emitters start or stop lighting) and the moving ones' each frame. An animated
+  emission is the frame's at the pixels, and the kept light's until the next voxelizing.
+- **Debug views**: Emissive Light (white), its rays (unfiltered) and a reference (`DEBUG_VIEW_EMITTERS_REFERENCE`, 64
+  independent estimates a traced pixel, accumulated while the camera is still: compare at stride 2, and only converged:
+  the tonemapper compresses a noisy reference: a single frame of EmissiveStrengthTest's was 2% darker than 40 frames').
+
+What was measured against the references (EmissiveStrengthTest at its frame, 40 frames; Bistro's lantern pose,
+`3002.7041,404.1237,1410.4180,10.076,5.141` at exposure 6, 96 frames; mean, and `mean |log2|` blurred 4 and 24 pixels):
+the defaults are within 0.3% (EmissiveStrengthTest 0.089, Bistro 0.189 and 0.093; stride 2: 0.073, 0.138 and 0.069, a
+rod's shadow and thin trims a stride 4 loses). Spatial reuse (`SPEEDO_EMITTER_SPATIAL_COUNT`, 0; up to 8 traced pixels
+within `spatialRadius`) by counts (1/M) came out 2.6% and 6% darker (a neighbor that couldn't have picked a point counted
+as if it had tried); by the generalized balance heuristic (as merged now) 0.2% and still 6% with the discard (a
+neighbor's point hidden there but not here), as bright as the reference without the discard but noisier than no spatial
+reuse (Bistro, every other pixel traced: 0.180 against 0.129), so the discard applies only without it. Dropping a hidden point's count with it made
+the light 40% too bright. Offsetting the traced pixels in turn over the stride's square made each frame's temporal reuse
+a point beside the last, with the spatial reuse's bias (6% darker at stride 4). 4 candidates are as good as 8 with the
+tree. Costs (KosmicKrisp, 2560x1440, GI on, the frame's gpu time): Bistro's street 58.4 to 63.8 ms, its lantern pose 70.2
+to 75.4, EmissiveStrengthTest 15.3 to 16.3, CornellBox-Original 29.3 to 30.4; the first version (every other pixel, 8
+candidates by power, the filter and frames at every pixel) took Bistro's street 49 ms more (GI off), 25 of them its shadow
+rays, 1.7 a candidate, 4.4 the filter. Not yet: the emitters' specular (a glossy floor reflects no lantern), what moves emitting,
+a textured emitter's power by its texture (DamagedHelmet's triangles all candidates by the factor), and the light on blended
+surfaces.
 
 ## Descriptor sets: redundant updates consume the pool
 
@@ -2031,8 +2109,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 30
-(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's and 26 to 29 its history's). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 37
+(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's and 30 to 36 the emitters'). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

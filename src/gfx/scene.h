@@ -51,6 +51,9 @@ public:
 		std::atomic<bool> tracedShadows = true;
 		// and at every pixel rather than where the atlas isn't sure (SPEEDO_TRACED_SHADOWS=all, for comparisons)
 		std::atomic<bool> tracedShadowsEverywhere = false;
+		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Emissive Lights,
+		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
+		std::atomic<bool> emissiveLights = true;
 		// whether the views skip the draws outside their frustum (View > Culling, SPEEDO_CULLING=0 to start without)
 		std::atomic<bool> culling = true;
 		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,
