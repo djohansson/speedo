@@ -141,6 +141,9 @@ struct AdjacentFace
 // faces in smoothing group 0 (off, or not given) are smoothed with the faces around them that are within this angle,
 // so that hard edges stay hard and curved surfaces without normals come out smooth
 constexpr double kCreaseAngleCos = 0.5; // 60 degrees
+// a mesh's file normals are used if the area weighted cosine between its faces and their vertex normals is at least this
+// (see partGenerated)
+constexpr double kMinNormalAlignment = 0.5;
 
 // a triangle of a face in a shape: corners first, second and second + 1 of the shape's indices. part numbers the runs
 // of faces with the same material in the shapes, which often are separate objects, merged into one group on export.
@@ -368,6 +371,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 	std::vector<std::vector<TriangleRef>> trianglesByMaterial(mesh.materials.size() + 1);
 	std::vector<uint32_t> adjacentFaceOffsets; // per position, then turned into offsets into adjacentFaces
 	std::vector<double> partAgreeingArea;
+	std::vector<double> partAlignedArea; // the area times the cosine between the face and its vertex normals' mean
 	std::vector<double> partNormalArea;
 	{
 		ZoneScopedN("obj::Import::triangles");
@@ -386,6 +390,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 				{
 					partMaterial = material;
 					partAgreeingArea.push_back(0.0);
+					partAlignedArea.push_back(0.0);
 					partNormalArea.push_back(0.0);
 				}
 				auto part = static_cast<uint32_t>(partNormalArea.size() - 1);
@@ -422,14 +427,9 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 						partNormalArea[part] += area;
 						if (glm::dot(faceNormal, vertexNormals) > 0.0)
 							partAgreeingArea[part] += area;
-						return;
+						if (auto length = glm::length(vertexNormals); length > 0.0)
+							partAlignedArea[part] += glm::dot(faceNormal, vertexNormals) / length;
 					}
-
-					if (adjacentFaceOffsets.empty())
-						adjacentFaceOffsets.resize(positionCount + 1);
-
-					for (const auto& corner : corners)
-						adjacentFaceOffsets[corner.vertex_index]++;
 				});
 
 				first += cornerCount;
@@ -438,54 +438,103 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 	}
 
 	double agreeingArea = 0.0;
+	double alignedArea = 0.0;
 	double normalArea = 0.0;
 	partFlipped.resize(partNormalArea.size());
+	// a mesh whose file normals don't follow its faces (the area weighted cosine between a face and its vertex normals,
+	// after the flips, below kMinNormalAlignment) has them generated instead, as if the file had none. erato's are turned
+	// 90 degrees about y from its faces, exported in another frame than its positions (a face toward +z has a normal along
+	// +x): the sign alone agreed on three quarters of its area, the cosine is 0.14, and with them the indirect lighting
+	// looked along the normals into the statue, its robe dark and blotched, changing as the camera moved the clips. the
+	// rest of the McGuire set is at 0.76 (white_oak) or more, most at 1. the whole mesh, not each part: foliage's normals
+	// are bent up and out on purpose, across its faces (scrubPine, San Miguel's trees, 264 of Bistro's parts are below a
+	// half)
+	std::vector<bool> partGenerated(partNormalArea.size());
 	for (size_t partIt = 0; partIt < partNormalArea.size(); partIt++)
 	{
 		partFlipped[partIt] = partAgreeingArea[partIt] < 0.5 * partNormalArea[partIt];
 		if (partFlipped[partIt])
 			stats.flippedParts++;
 
+		auto aligned = partFlipped[partIt] ? -partAlignedArea[partIt] : partAlignedArea[partIt];
 		normalArea += partNormalArea[partIt];
 		agreeingArea += partFlipped[partIt] ? partNormalArea[partIt] - partAgreeingArea[partIt] : partAgreeingArea[partIt];
+		alignedArea += aligned;
 	}
 	if (normalArea > 0.0)
+	{
 		stats.windingAgreement = agreeingArea / normalArea;
+		stats.normalAlignment = alignedArea / normalArea;
+	}
+	if (normalArea > 0.0 && alignedArea < kMinNormalAlignment * normalArea)
+		for (size_t partIt = 0; partIt < partNormalArea.size(); partIt++)
+			if (partNormalArea[partIt] > 0.0)
+			{
+				partGenerated[partIt] = true;
+				stats.regeneratedParts++;
+			}
 
 	if (isCancelled())
 		return std::unexpected("cancelled");
 
-	// the faces around the positions of corners without normals, which their normals are generated from
+	// whether a corner takes the file's normal: there is one, and its part's follow its faces (partGenerated)
+	auto usesFileNormal = [&hasNormal, &partGenerated](const TriangleRef& triangle, const tinyobj::index_t& corner)
+	{
+		return hasNormal(corner.normal_index) && !(triangle.part < partGenerated.size() && partGenerated[triangle.part]);
+	};
+
+	// the faces around the positions of corners whose normals are generated (without one in the file, or of a part whose
+	// normals don't follow its faces), which their normals are generated from: every face there, also those with normals
+	// of their own, so that a corner without one among corners with one takes its neighborhood's shape
 	std::vector<AdjacentFace> adjacentFaces;
-	if (!adjacentFaceOffsets.empty())
 	{
 		ZoneScopedN("obj::Import::adjacency");
 
-		uint32_t offset = 0;
-		for (auto& count : adjacentFaceOffsets)
-			offset += std::exchange(count, offset);
-
-		adjacentFaces.resize(offset);
-		auto next = adjacentFaceOffsets;
+		std::vector<bool> generatedAt;
 		for (const auto& triangles : trianglesByMaterial)
-		{
 			for (const auto& triangle : triangles)
 			{
-				auto corners = cornersOf(triangle);
-				if (std::ranges::all_of(corners, [&hasNormal](const auto& corner) { return hasNormal(corner.normal_index); }))
-					continue;
-
-				auto faceNormal = faceNormalOf(corners);
-				auto area = glm::length(faceNormal);
-				if (!std::isfinite(area) || area == 0.0)
-					continue;
-
-				AdjacentFace face{
-					.normal = glm::vec3(faceNormal),
-					.smoothingGroup = smoothingGroupOf(triangle)};
-				for (const auto& corner : corners)
-					adjacentFaces[next[corner.vertex_index]++] = face;
+				for (const auto& corner : cornersOf(triangle))
+					if (!usesFileNormal(triangle, corner))
+					{
+						if (generatedAt.empty())
+							generatedAt.resize(positionCount);
+						generatedAt[corner.vertex_index] = true;
+					}
 			}
+
+		if (!generatedAt.empty())
+		{
+			auto forEachFace = [&](auto&& visit)
+			{
+				for (const auto& triangles : trianglesByMaterial)
+					for (const auto& triangle : triangles)
+					{
+						auto corners = cornersOf(triangle);
+						auto faceNormal = faceNormalOf(corners);
+						auto area = glm::length(faceNormal);
+						if (!std::isfinite(area) || area == 0.0)
+							continue;
+						for (const auto& corner : corners)
+							if (generatedAt[corner.vertex_index])
+								visit(triangle, corner, faceNormal);
+					}
+			};
+			adjacentFaceOffsets.resize(positionCount + 1);
+			forEachFace([&](const TriangleRef&, const tinyobj::index_t& corner, const glm::dvec3&) { adjacentFaceOffsets[corner.vertex_index]++; });
+
+			uint32_t offset = 0;
+			for (auto& count : adjacentFaceOffsets)
+				offset += std::exchange(count, offset);
+
+			adjacentFaces.resize(offset);
+			auto next = adjacentFaceOffsets;
+			forEachFace(
+				[&](const TriangleRef& triangle, const tinyobj::index_t& corner, const glm::dvec3& faceNormal)
+				{
+					adjacentFaces[next[corner.vertex_index]++] =
+						AdjacentFace{.normal = glm::vec3(faceNormal), .smoothingGroup = smoothingGroupOf(triangle)};
+				});
 		}
 	}
 
@@ -520,9 +569,8 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 
 		bool firstVertex = true;
 
-		auto addVertex = [&](const tinyobj::index_t& corner, const glm::dvec3& faceNormal, int32_t material, uint32_t smoothingGroup) -> uint32_t
+		auto addVertex = [&](const tinyobj::index_t& corner, const glm::dvec3& faceNormal, int32_t material, uint32_t smoothingGroup, bool fileNormal) -> uint32_t
 		{
-			bool fileNormal = hasNormal(corner.normal_index);
 			bool fileTexCoord = corner.texcoord_index >= 0 && static_cast<size_t>(corner.texcoord_index) < texCoordCount;
 
 			glm::dvec3 n;
@@ -624,7 +672,7 @@ std::expected<Mesh, std::string> Import(const std::filesystem::path& path, core:
 				auto smoothingGroup = smoothingGroupOf(triangle);
 
 				for (const auto& corner : corners)
-					mesh.indices.push_back(addVertex(corner, faceNormal, material, smoothingGroup));
+					mesh.indices.push_back(addVertex(corner, faceNormal, material, smoothingGroup, usesFileNormal(triangle, corner)));
 			}
 
 			submesh.indexCount = static_cast<uint32_t>(mesh.indices.size()) - submesh.firstIndex;

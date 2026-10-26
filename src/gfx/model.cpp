@@ -1119,7 +1119,7 @@ std::string Model::ImportVersion(std::string_view filePath)
 	auto extension = std::filesystem::path(filePath).extension().string();
 	std::ranges::transform(extension, extension.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 	if (extension == ".obj")
-		return std::format("tinyobjloader-{}|objimport-v6", kTinyObjLoaderVersion);
+		return std::format("tinyobjloader-{}|objimport-v8", kTinyObjLoaderVersion);
 	return std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v34", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion);
 }
 

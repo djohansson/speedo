@@ -180,7 +180,7 @@ struct Stats
 	size_t degenerateTriangles = 0; // zero area, kept
 	size_t droppedTriangles = 0; // referencing vertex data that doesn't exist (and lines and points that do)
 	size_t generatedNormals = 0; // vertices without a normal in the file, computed from the faces around them
-	size_t repairedNormals = 0; // zero length or non-finite normals in the file, replaced by the face normal
+	size_t repairedNormals = 0; // normals in the file that can't be used, replaced: zero length or non-finite, or (obj) of a regenerated part
 	size_t invalidTangents = 0; // zero length or non-finite tangents in the file (or w = 0), left for the shader to derive
 	// gltf: vertices given MikkTSpace tangents, for normal mapped triangles without TANGENT (split where their corners'
 	// tangents differ)
@@ -194,6 +194,12 @@ struct Stats
 	// with them (dot(face normal, vertex normals) > 0), after flipping parts. below 1 means some triangles disagree
 	// with their normals, which can be fine (e.g. for two sided surfaces). negative if no triangle has normals from the file.
 	double windingAgreement = -1.0;
+	// obj: of the triangles with normals from the file, the area weighted cosine between a face and its vertex normals'
+	// mean, after flipping parts (near 1 for a mesh whose normals follow its faces), negative if none has; and the parts
+	// whose normals were generated instead, the mesh's not following its faces (a cosine below a half: normals exported
+	// in another frame than the positions, as erato's)
+	double normalAlignment = -1.0;
+	size_t regeneratedParts = 0;
 	std::vector<std::string> warnings; // from the parser, about textures that couldn't be found, and what was skipped
 };
 

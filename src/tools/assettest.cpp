@@ -725,6 +725,10 @@ Report CheckModel(
 		else if (stats.windingAgreement < 0.9)
 			report.Warn("winding disagrees with the file's normals on {:.1f}% of the area", 100.0 * (1.0 - stats.windingAgreement));
 	}
+	if (stats.normalAlignment >= 0.0)
+		report.Info("file normals follow their faces: cosine {:.2f}", stats.normalAlignment);
+	if (stats.regeneratedParts > 0)
+		report.Warn("{} parts' file normals don't follow their faces: generated instead", stats.regeneratedParts);
 	// generated normals follow the winding, so this checks the importer rather than the file
 	if (!mesh->hasNormals && total > 0.0 && agreeing / total < 0.99)
 		report.Fail("winding disagrees with the generated normals on {:.1f}% of the area", 100.0 * (1.0 - (agreeing / total)));
