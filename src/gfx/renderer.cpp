@@ -6,6 +6,7 @@
 #include <core/file.h>
 #include <core/profiling.h>
 
+#include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
@@ -16,6 +17,7 @@
 #include <numeric>
 #include <optional>
 #include <print>
+#include <ranges>
 #include <string_view>
 
 namespace gfx
@@ -83,6 +85,9 @@ constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
 constexpr uint32_t kGiCachePageStep = 1024;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
+// the frames after lights last changed gradually (see Renderer::myGiLightsGradual) for which the surface cache samples
+// as where something moves, so that it follows them: about a second
+constexpr uint32_t kGiLightsFollowFrameCount = 64;
 
 // at most: the main list's early and late jobs, the transmissive and the scatter lists' per main view, and the shadow
 // list's early and late per shadow view
@@ -2895,8 +2900,35 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	}
 	// the static voxels are lit again when the lights change (any of them: the environment's rotation turns its dominant
 	// lights, which are among them), and when the emissive surfaces start or stop lighting
+	myGiEmittersToggled = myGiEmittersLit != myEmittersOn;
 	myGiLightsChanged = frame.lights.size() != myGiLights.size() || !std::ranges::equal(std::as_bytes(frame.lights), std::as_bytes(std::span(myGiLights))) ||
 						myGiEmittersLit != myEmittersOn;
+	// a change is gradual where the same lights only turned and dimmed a little (the sky's sun as the time of day
+	// advances, drawn again every 0.05 degrees): the surface cache then keeps what it has and follows them, sampling as
+	// where something moves (at most 32 samples, see GiCacheUpdate), for kGiLightsFollowFrameCount frames after the
+	// last change, rather than starting over every frame (one ray a voxel, never accumulated)
+	myGiLightsGradual = myGiLightsChanged && frame.lights.size() == myGiLights.size() && myGiEmittersLit == myEmittersOn &&
+						std::ranges::all_of(
+							std::views::iota(size_t{0}, frame.lights.size()),
+							[&frame, this](size_t lightIt)
+							{
+								constexpr float kTurnDegrees = 2.0F;
+								constexpr float kDimRatio = 1.25F;
+								const auto& now = frame.lights[lightIt];
+								const auto& last = myGiLights[lightIt];
+								auto luminance = [](const LightData& light)
+								{ return (0.2126F * light.intensity[0]) + (0.7152F * light.intensity[1]) + (0.0722F * light.intensity[2]); };
+								float ratio = (luminance(now) + 1e-6F) / (luminance(last) + 1e-6F);
+								return now.type == last.type && std::ranges::equal(now.positionRange, last.positionRange) && now.size == last.size &&
+									   glm::dot(glm::make_vec3(now.direction), glm::make_vec3(last.direction)) >= std::cos(glm::radians(kTurnDegrees)) &&
+									   ratio <= kDimRatio && ratio >= 1.0F / kDimRatio;
+							});
+	if (myGiLightsGradual)
+		myGiLightsFollowFrames = kGiLightsFollowFrameCount;
+	else if (myGiLightsChanged)
+		myGiLightsFollowFrames = 0;
+	else if (myGiLightsFollowFrames > 0)
+		myGiLightsFollowFrames--;
 	if (myGiLightsChanged)
 		myGiLights.assign(frame.lights.begin(), frame.lights.end());
 	myGiEmittersLit = myEmittersOn;
@@ -3171,8 +3203,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.cycleOffset = 2 * probeTotal;
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
 		clip.cacheRayCount = frame.giSurfaceCache ? myGiCacheRayCount : 0U;
-		clip.cacheSampleCount = myGiCacheSampleCount;
-		clip.cacheReset = myGiLightsChanged || myGiCacheInit ? 1U : 0U;
+		// following lights that change gradually (see myGiLightsGradual) as where something moves
+		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(myGiCacheSampleCount, 32U) : myGiCacheSampleCount;
+		clip.cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
@@ -3194,6 +3227,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.rayCount = myGiRayCountThisFrame;
 		clip.hysteresis = myGiHysteresis;
 		clip.reset = myGiReset ? 1 : 0;
+		// the lights alone changed: the part of the static voxels' light they don't change is kept (see GiData::keptFirst)
+		clip.lightsOnly = myGiLightsChanged && !myGiEmittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
 		// not for the first frames after a reset: the probes' depth maps are provisional then (see ComputeGiProbeUpdate),
 		// and what leaked through them into the voxels fed the probes, which fed the voxels, for seconds (Sponza's arcade
 		// started 8 times too bright and darkened over 200 frames)

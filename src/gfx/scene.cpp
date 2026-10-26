@@ -23,6 +23,7 @@
 #include <xxhash.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
@@ -128,7 +129,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 37; // after the emitters' history's (SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1)
+static constexpr uint32_t kModelTextureFirstSlot = 38; // after the sky's view (SHADER_TYPES_SKY_VIEW_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -161,6 +162,7 @@ static_assert(
 	SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + 1 < kModelTextureFirstSlot && SHADER_TYPES_EMITTER_RAW_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(SHADER_TYPES_SKY_VIEW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 && SHADER_TYPES_SKY_VIEW_TEXTURE < kModelTextureFirstSlot);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes
@@ -339,6 +341,12 @@ struct Scene::Impl
 	uuids::uuid myEnvironmentSheenImageUuid;
 	uuids::uuid myEnvironmentSheenViewUuid;
 	core::ConcurrentAccess<std::string> myEnvironmentName;
+	// the installed environment if it is the sky, which UpdateSky draws again as the time of day moves its sun (see
+	// kSkyRedrawAngle), the sun it was last drawn for, and the time of day's clock (draw thread)
+	std::shared_ptr<const EnvironmentTexture> mySky;
+	glm::vec3 mySkySunDrawn{0.0F};
+	std::chrono::steady_clock::time_point myTimeLast = std::chrono::steady_clock::now();
+	std::atomic<bool> mySkyInstalled = false;
 
 	uuids::uuid mySamplersUuid;
 	uuids::uuid myModelSamplersUuid; // the loaded model's samplers, see InstallModel. nil until one is loaded
@@ -482,9 +490,96 @@ struct Scene::Impl
 	}
 
 
+	// toward the sky's sun, where the time of day puts it (in the panorama's space, see environment::SunDirection)
+	glm::vec3 SkySunDirection() const
+	{
+		return environment::SunDirection(
+			mySettings.latitude.load(std::memory_order_relaxed),
+			mySettings.dayOfYear.load(std::memory_order_relaxed),
+			mySettings.timeOfDay.load(std::memory_order_relaxed));
+	}
+
+	// the sky's dominant lights for its sun: the sun as a directional light, none once it is below the horizon
+	static std::vector<environment::DominantLight> SkyLights(const glm::vec3& sun)
+	{
+		auto light = environment::SkySun(sun);
+		return light ? std::vector<environment::DominantLight>{light} : std::vector<environment::DominantLight>{};
+	}
+
+	// gEnvironment's sky fields for its sun (see EnvironmentData::skySun): its disk's radiance, its illuminance through
+	// the atmosphere over its solid angle
+	static void FillSkyData(EnvironmentData& data, const glm::vec3& sun)
+	{
+		std::copy_n(glm::value_ptr(sun), 3, data.skySun);
+		float cosRadius = std::cos(environment::kSkySunRadius);
+		data.skySun[3] = cosRadius;
+		auto radiance = environment::SkySun(sun).irradiance / (2.0F * glm::pi<float>() * (1.0F - cosRadius));
+		std::copy_n(glm::value_ptr(radiance), 3, data.skySunRadiance);
+		data.skySunRadiance[3] = 1.0F;
+	}
+
+	// draws the sky again where the sun has moved more than this (degrees) since it was last drawn (see UpdateSky): a
+	// still sun's minute at real time, so that a time advancing slowly draws it every few seconds, and fast, every frame
+	static constexpr float kSkyRedrawAngle = 0.05F;
+
+	// the time of day advanced (Settings::advanceTime) by the real time since the last frame, and the sky drawn again for
+	// its sun when it has moved (see kSkyRedrawAngle): gEnvironment's sky fields, its view of itself, its panorama and the
+	// prefiltering, before the frame (the same queue), into the installed environment, and its dominant lights. draw thread.
+	void UpdateSky(RHI& rhi, QueueTimelineContextData& graphics)
+	{
+		auto now = std::chrono::steady_clock::now();
+		auto elapsed = std::chrono::duration<double>(now - myTimeLast).count();
+		myTimeLast = now;
+		float speed = mySettings.timeSpeed.load(std::memory_order_relaxed);
+		if (mySettings.advanceTime.load(std::memory_order_relaxed) && speed != 0.0F)
+		{
+			double hours = mySettings.timeOfDay.load(std::memory_order_relaxed) + (elapsed * speed / 3600.0);
+			hours = std::fmod(hours, 24.0);
+			mySettings.timeOfDay.store(static_cast<float>(hours < 0.0 ? hours + 24.0 : hours), std::memory_order_relaxed);
+		}
+		if (!mySky)
+			return;
+		auto sun = SkySunDirection();
+		if (glm::dot(sun, mySkySunDrawn) >= std::cos(glm::radians(kSkyRedrawAngle)))
+			return;
+
+		auto& device = rhi.GetPrimaryDevice();
+		auto& environmentBuffer = *device.GetResource<Buffer>(myEnvironmentUuid);
+		EnvironmentData data{};
+		FillSkyData(data, sun);
+		// the sky fields alone: the irradiance is the filter's to write
+		static_assert(offsetof(EnvironmentData, skySunRadiance) == offsetof(EnvironmentData, skySun) + sizeof(data.skySun));
+		auto first = reinterpret_cast<const std::byte*>(&data) + offsetof(EnvironmentData, skySun);
+		UpdateBufferOnGraphics(graphics, environmentBuffer, offsetof(EnvironmentData, skySun), std::span(first, sizeof(data.skySun) + sizeof(data.skySunRadiance)));
+		RecordEnvironment(graphics, *mySky, environmentBuffer);
+		myEnvironmentLights = SkyLights(sun);
+		mySkySunDrawn = sun;
+		// the frame binds what it draws with: the main layout, as before
+		myPipeline.BindLayoutAuto(myPipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+	}
+
+	// prefilters an environment on the gpu (see EnvironmentFilter::Record), before the frames that sample it (the same
+	// queue), keeping what it reads until the gpu is done. draw thread.
+	void RecordEnvironment(QueueTimelineContextData& graphics, const EnvironmentTexture& environment, const Buffer& environmentBuffer)
+	{
+		auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+		auto cmd = graphicsQueue.GetPool().Begin();
+		auto used = myEnvironmentFilter->Record(cmd, myPipeline, environment, environmentBuffer);
+		cmd.End();
+		graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
+			.waitSemaphores = {graphics.semaphore},
+			.waitDstStageMasks = {PipelineStage::kAllCommands},
+			.waitSemaphoreValues = {graphics.timeline},
+			.signalSemaphores = {graphics.semaphore},
+			.signalSemaphoreValues = {++graphics.timeline}},
+			std::move(cmd));
+		graphicsSubmits |= graphicsQueue.Submit();
+		RetireAfterGraphicsWork(graphics, std::move(used));
+	}
+
 	// uploads gLights if it changed: the model's lights, then the environment's dominant lights as directional lights
 	// (turned and scaled as the environment is: they were taken out of it, see environment::ExtractDominantLights), or
-	// before any environment is installed, a light where the procedural sky's sun is. if one of the model's directional
+	// before any environment is installed, the sky's sun where the time of day puts it. if one of the model's directional
 	// lights already shines from where one of them does (within kMergeAngle), they are the same light, merged: the model's
 	// (as authored, and maybe animated) is kept alone, unless merging is off (mySettings.mergeLights). call on the draw thread.
 	void SyncLights(RHI& rhi, QueueTimelineContextData& graphics)
@@ -503,11 +598,7 @@ struct Scene::Impl
 				light.size = size;
 			}
 		}
-		std::vector<environment::DominantLight> dominants(
-			1, environment::DominantLight{.direction = environment::kSkySunDirection, .angularRadius = environment::kSkySunRadius});
-		dominants.front().irradiance = glm::vec3(environment::kSkySunIrradiance);
-		if (myEnvironmentLights)
-			dominants = *myEnvironmentLights;
+		std::vector<environment::DominantLight> dominants = myEnvironmentLights ? *myEnvironmentLights : SkyLights(SkySunDirection());
 
 		// the panorama's space to the world's (the inverse of the shader's EnvironmentDirection)
 		float angle = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed));
@@ -579,12 +670,20 @@ struct Scene::Impl
 	// a frame's histograms (gExposureHistogram, read once the frame's previous use is done). auto exposure: what the
 	// scene's luminance is, the mean log2 luminance of the pixels between the 50th and 95th percentile (the darkest and
 	// the brightest left out), toward which the exposure moves, a little each frame (by elapsed time), so that it is
-	// kAutoExposureKey: the default scene (the procedural sky) keeps the exposure it had before. and how far the camera
-	// looks: the median of the drawn pixels' distances from the eye, toward which myLookDistance moves the same way (the
-	// indirect lighting's finer clips are centered toward it, see gi::MakeClipmap). call on the draw thread.
+	// kAutoExposureKey, less up to kNightStops as the scene darkens from daylight's luminance to a lit street's at night (see
+	// kDaylightLog2): a night shown darker than a day, as the eye and a photographer have it (with one key, Bistro at night
+	// was lifted 8.7 stops to look as bright as at noon, 2.5). and how far the camera looks: the median of the drawn
+	// pixels' distances from the eye, toward which myLookDistance moves the same way (the indirect lighting's finer clips
+	// are centered toward it, see gi::MakeClipmap). call on the draw thread.
 	void UpdateAutoExposure(RHI& rhi, uint32_t frameIndex)
 	{
-		constexpr double kAutoExposureKey = 0.3;
+		constexpr double kAutoExposureKey = 0.2;
+		// the scene's mean log2 luminance (in the renderer's units) of daylight and of night: 2^-4, about 2900 cd/m^2 scaled
+		// as the sky's sun is (see SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE), EV100 14, a sunny street (Bistro's at noon, -4.2),
+		// and 2^-11, 22 cd/m^2, EV100 7, a lit street at night (Bistro's, -10.5); between them the key falls linearly
+		constexpr double kDaylightLog2 = -4.0;
+		constexpr double kNightLog2 = -11.0;
+		constexpr double kNightStops = 2.0;
 		constexpr double kAdaptationSpeed = 2.0; // per second, of what is left to the target, as an exponential decay
 
 		auto now = std::chrono::steady_clock::now();
@@ -651,7 +750,9 @@ struct Scene::Impl
 		}
 		if (weight <= 0.0)
 			return;
-		adapt(myAutoExposureStops, static_cast<float>(std::log2(kAutoExposureKey) - (sum / weight)));
+		double mean = sum / weight;
+		double darkness = std::clamp((kDaylightLog2 - mean) / (kDaylightLog2 - kNightLog2), 0.0, 1.0);
+		adapt(myAutoExposureStops, static_cast<float>(std::log2(kAutoExposureKey) - (kNightStops * darkness) - mean));
 	}
 
 
@@ -1420,7 +1521,7 @@ struct Scene::Impl
 
 		rhi::CrashEvent(std::format("environment installed: {}", name));
 
-		// a file's panoramas are uploaded (the procedural sky has none)
+		// a file's panoramas are uploaded (the sky has none)
 		Uploads uploads;
 		for (const auto* texture : {&environment->original, &environment->lighting})
 			if (*texture)
@@ -1442,37 +1543,20 @@ struct Scene::Impl
 					.samplerId = kDefaultSamplerId,
 					.levelCount = static_cast<float>(environment->levelCount),
 					.sheenLevelCount = static_cast<float>(environment->sheenLevelCount)};
-				if (const auto& sky = environment->sky)
-				{
-					std::copy_n(glm::value_ptr(sky->zenith), 3, data.skyZenith);
-					data.skyZenith[3] = 1.0F;
-					std::copy_n(glm::value_ptr(sky->horizon), 3, data.skyHorizon);
-					std::copy_n(glm::value_ptr(sky->ground), 3, data.skyGround);
-					std::copy_n(glm::value_ptr(sky->sunDirection), 3, data.skySun);
-					data.skySun[3] = sky->sunCosRadius;
-					data.skySunRadiance[0] = sky->sunRadiance;
-				}
+				// the sky for the sun where the time of day puts it now (UpdateSky draws it again as it moves)
+				auto sun = SkySunDirection();
+				if (environment->sky)
+					FillSkyData(data, sun);
 				// the irradiance is the filter's to write, after the rest
 				UpdateBufferOnGraphics(graphics, environmentBuffer, 0, std::as_bytes(std::span(&data, 1)));
 
-				// prefiltered on the gpu, before the frames that sample it (the same queue)
-				{
-					auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
-					auto cmd = graphicsQueue.GetPool().Begin();
-					auto used = myEnvironmentFilter->Record(cmd, pipeline, *environment, environmentBuffer);
-					cmd.End();
-					graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
-						.waitSemaphores = {graphics.semaphore},
-						.waitDstStageMasks = {PipelineStage::kAllCommands},
-						.waitSemaphoreValues = {graphics.timeline},
-						.signalSemaphores = {graphics.semaphore},
-						.signalSemaphoreValues = {++graphics.timeline}},
-						std::move(cmd));
-					graphicsSubmits |= graphicsQueue.Submit();
-					// what the filter reads (the source, a file's panoramas) and its views, until the gpu is done
-					RetireAfterGraphicsWork(graphics, std::move(used));
-					RetireAfterGraphicsWork(graphics, std::make_shared<std::shared_ptr<const EnvironmentTexture>>(environment));
-				}
+				// prefiltered on the gpu, before the frames that sample it (the same queue); what the filter reads (the source,
+				// a file's panoramas) kept until the gpu is done, and the sky's for as long as it is installed
+				RecordEnvironment(graphics, *environment, environmentBuffer);
+				RetireAfterGraphicsWork(graphics, std::make_shared<std::shared_ptr<const EnvironmentTexture>>(environment));
+				mySky = environment->sky ? environment : nullptr;
+				mySkySunDrawn = sun;
+				mySkyInstalled.store(environment->sky, std::memory_order_relaxed);
 
 				pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
 				pipeline.SetDescriptorData(
@@ -1494,13 +1578,13 @@ struct Scene::Impl
 				myEnvironmentViewUuid = view->GetUuid();
 				myEnvironmentSheenImageUuid = sheenImage->GetUuid();
 				myEnvironmentSheenViewUuid = sheenView->GetUuid();
-				myEnvironmentLights = environment->dominantLights;
+				myEnvironmentLights = environment->sky ? SkyLights(sun) : environment->dominantLights;
 				myEnvironmentName.Write().Get() = std::move(name);
 			});
 	}
 
 
-	// loads an environment panorama (or without one, the procedural sky) and has the draw thread install it, unless the
+	// loads an environment panorama (or without one, the sky) and has the draw thread install it, unless the
 	// load was cancelled. call from a load (see gLoads).
 	void LoadAndInstallEnvironment(RHI& rhi, std::optional<std::string> filePath, std::atomic_uint8_t& progress)
 	{
@@ -1509,7 +1593,7 @@ struct Scene::Impl
 		if (!*environment) // cancelled or failed
 			return;
 
-		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Procedural sky");
+		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
 		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
 			[this, &rhi, environment = std::move(environment), name = std::move(name)](QueueTimelineContextData* graphics)
 			{ InstallEnvironment(rhi, *graphics, environment, name); });
@@ -1947,6 +2031,12 @@ struct Scene::Impl
 
 		myEnvironmentFilter = std::make_unique<EnvironmentFilter>(device, pipeline, shaderLoader, shaderIncludePath / "environment.slang");
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kGraphics);
+		// the sky's view of itself, which the backdrop samples where the sky is the environment (see SkyRadiance)
+		pipeline.SetDescriptorData(
+			"gTextures",
+			ImageBinding{.sampler = {}, .imageView = myEnvironmentFilter->GetSkyView(), .layout = ImageLayout::kGeneral},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			SHADER_TYPES_SKY_VIEW_TEXTURE);
 
 		pipeline.SetDescriptorData(
 			"gMaterialData",
@@ -2077,6 +2167,7 @@ struct Scene::Impl
 			ApplyPointerValues(myRHI, graphics, *myModel);
 		}
 		
+		UpdateSky(myRHI, graphics);
 		SyncLights(myRHI, graphics);
 	}
 
@@ -2209,6 +2300,7 @@ void Scene::Record(CommandBufferHandle cmd, const FrameTarget& target)
 Scene::Settings& Scene::GetSettings() noexcept { return myImpl->mySettings; }
 core::ConcurrentAccess<Scene::AnimationState>& Scene::GetAnimation() noexcept { return myImpl->myAnimation; }
 core::ConcurrentAccess<Scene::SceneState>& Scene::GetScenes() noexcept { return myImpl->myScenes; }
+bool Scene::IsSkyInstalled() const noexcept { return myImpl->mySkyInstalled.load(std::memory_order_relaxed); }
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { return myImpl->myEnvironmentName; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
 core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { return myImpl->myLightSizes; }

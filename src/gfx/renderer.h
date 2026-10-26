@@ -471,6 +471,14 @@ private:
 	FrameGraph::PassId myGiLightStaticPass;
 	std::vector<LightData> myGiLights;
 	bool myGiLightsChanged = false;
+	// and whether they changed a little (the same lights, turned and dimmed a little: the sky's sun as the time of day
+	// advances), for how many frames more the surface cache follows them rather than starting over (see
+	// kGiLightsFollowFrameCount)
+	bool myGiLightsGradual = false;
+	uint32_t myGiLightsFollowFrames = 0;
+	// whether the emitters started or stopped lighting this frame (the static voxels' kept part of their light is then made
+	// again, see GiData::lightsOnly)
+	bool myGiEmittersToggled = false;
 	Buffer myGiFlagBuffer;
 	FrameGraph::BufferId myGiFlags;
 	// per voxel which of its probes it sees, where the rays trace the BVHs (see ComputeGiResolve)

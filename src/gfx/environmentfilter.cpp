@@ -9,6 +9,7 @@
 
 #include <format>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace gfx
@@ -26,6 +27,9 @@ constexpr ComputePipelineVariant kCopy{.entryPoint = 2};
 constexpr ComputePipelineVariant kSpecular{.entryPoint = 3};
 constexpr ComputePipelineVariant kSheen{.entryPoint = 4};
 constexpr ComputePipelineVariant kIrradiance{.entryPoint = 5};
+constexpr ComputePipelineVariant kSkyTransmittance{.entryPoint = 6};
+constexpr ComputePipelineVariant kSkyMultipleScattering{.entryPoint = 7};
+constexpr ComputePipelineVariant kSkyView{.entryPoint = 8};
 
 // the irradiance is projected from the first mip of the source at most this wide (as the cpu reference)
 constexpr uint32_t kIrradianceSourceWidth = 128;
@@ -53,6 +57,9 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 						{"EnvironmentSpecular", SLANG_STAGE_COMPUTE},
 						{"EnvironmentSheen", SLANG_STAGE_COMPUTE},
 						{"EnvironmentIrradiance", SLANG_STAGE_COMPUTE},
+						{"EnvironmentSkyTransmittance", SLANG_STAGE_COMPUTE},
+						{"EnvironmentSkyMultipleScattering", SLANG_STAGE_COMPUTE},
+						{"EnvironmentSkyView", SLANG_STAGE_COMPUTE},
 					},
 				.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 				.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -64,12 +71,32 @@ EnvironmentFilter::EnvironmentFilter(Device& device, Pipeline& pipeline, ShaderL
 			.addressModeU = AddressMode::kRepeat,
 			.addressModeV = AddressMode::kClampToEdge,
 			.addressModeW = AddressMode::kClampToEdge}}});
+
+	auto table = [&device](const char* name, uint32_t width, uint32_t height)
+	{
+		Texture texture;
+		texture.image = std::make_shared<Image>(ImageCreateDesc{
+			device.CreateDeviceObjectCreateDesc(name),
+			{{.extent = {.width = width, .height = height}}},
+			Format::kR16G16B16A16Sfloat,
+			ImageTiling::kOptimal,
+			ImageUsage::kStorage | ImageUsage::kSampled,
+			MemoryProperty::kDeviceLocal,
+			ImageAspect::kColor,
+			ImageLayout::kUndefined});
+		texture.view = std::make_shared<ImageView>(ImageViewCreateDesc{
+			device.CreateDeviceObjectCreateDesc(std::format("{} View", name)), *texture.image, Format::kR16G16B16A16Sfloat, ImageAspect::kColor});
+		return texture;
+	};
+	mySkyTransmittance = table("Sky Transmittance", SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH, SHADER_TYPES_SKY_TRANSMITTANCE_HEIGHT);
+	mySkyMultipleScattering = table("Sky Multiple Scattering", SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE);
+	mySkyView = table("Sky View", SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT);
 }
 
 EnvironmentFilter::~EnvironmentFilter() = default;
 
 std::shared_ptr<void> EnvironmentFilter::Record(
-	CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer) const
+	CommandBufferHandle cmd, Pipeline& pipeline, const EnvironmentTexture& environment, const Buffer& environmentBuffer)
 {
 	using namespace environmentfilter;
 
@@ -98,8 +125,11 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	auto& sheenLevels = *environment.sheenTexture.image;
 	auto sourceLevelCount = static_cast<uint32_t>(source.GetDesc().mipLevels.size());
 
+	// the frames before may still read the levels, the sky's view and gEnvironment (a sky drawn again as the sun moves):
+	// what this writes waits for them
+	encoder.Barrier(PipelineStage::kFragmentShader | PipelineStage::kComputeShader, Access::kNone, PipelineStage::kComputeShader, Access::kNone);
 	// every image in kGeneral throughout: written as storage, read by texel or sampled
-	for (auto* image : {&source, &levels, &sheenLevels})
+	for (auto* image : {&source, &levels, &sheenLevels, mySkyTransmittance.image.get(), mySkyMultipleScattering.image.get(), mySkyView.image.get()})
 		image->Transition(cmd, ImageLayout::kGeneral, ImageAspect::kColor);
 	if (environment.lighting)
 		for (const auto* texture : {&environment.lighting, &environment.original})
@@ -110,6 +140,10 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	pipeline.BindLayoutAuto(myLayout, PipelineBindPoint::kCompute);
 	pipeline.SetDescriptorData("gSampler", ImageBinding{.sampler = (*mySampler)[0]}, kSet);
 	pipeline.SetDescriptorData("gEnvironment", BufferBinding{.buffer = environmentBuffer, .offset = 0}, kSet);
+	auto sampled = [](const Texture& texture) { return ImageBinding{.sampler = {}, .imageView = *texture.view, .layout = ImageLayout::kGeneral}; };
+	pipeline.SetDescriptorData("gSkyTransmittance", sampled(mySkyTransmittance), kSet);
+	pipeline.SetDescriptorData("gSkyMultipleScattering", sampled(mySkyMultipleScattering), kSet);
+	pipeline.SetDescriptorData("gSkyView", sampled(mySkyView), kSet);
 
 	auto general = [](const ImageView& view) { return ImageBinding{.sampler = {}, .imageView = view, .layout = ImageLayout::kGeneral}; };
 	// one kernel over an output level: what it reads (by texel), and the roughness it is for
@@ -127,7 +161,7 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 		encoder.Barrier(PipelineStage::kComputeShader, Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
 	};
 
-	// the source's level 0: the procedural sky drawn, or the file's lighting panorama copied; then its pyramid
+	// the source's level 0: the sky drawn, or the file's lighting panorama copied; then its pyramid
 	std::vector<std::shared_ptr<ImageView>> sourceMips;
 	for (uint32_t level = 0; level < sourceLevelCount; level++)
 		sourceMips.push_back(mipView(source, level));
@@ -138,9 +172,23 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 	pipeline.SetDescriptorData("gInput", general(*sourceMips[0]), kSet);
 	pipeline.SetDescriptorData("gSource", ImageBinding{.sampler = {}, .imageView = *environment.sourceView, .layout = ImageLayout::kGeneral}, kSet);
 	if (environment.lighting)
+	{
 		dispatch(kCopy, environment.lighting.view.get(), *sourceMips[0], extentOf(source, 0), 0.0F);
+	}
 	else
+	{
+		// the sky: its tables the first time (the atmosphere doesn't change), its view of itself for the sun now, and its
+		// panorama from that
+		auto extentOfTable = [](const Texture& texture) { return texture.image->GetDesc().mipLevels[0].extent; };
+		if (!mySkyTablesMade)
+		{
+			dispatch(kSkyTransmittance, nullptr, *mySkyTransmittance.view, extentOfTable(mySkyTransmittance), 0.0F);
+			dispatch(kSkyMultipleScattering, nullptr, *mySkyMultipleScattering.view, extentOfTable(mySkyMultipleScattering), 0.0F);
+			mySkyTablesMade = true;
+		}
+		dispatch(kSkyView, nullptr, *mySkyView.view, extentOfTable(mySkyView), 0.0F);
 		dispatch(kSky, nullptr, *sourceMips[0], extentOf(source, 0), 0.0F);
+	}
 	for (uint32_t level = 1; level < sourceLevelCount; level++)
 		dispatch(kDownsample, sourceMips[level - 1].get(), *sourceMips[level], extentOf(source, level), 0.0F);
 
@@ -179,7 +227,9 @@ std::shared_ptr<void> EnvironmentFilter::Record(
 
 	for (auto& view : sourceMips)
 		views->push_back(std::move(view));
-	return views;
+	// and the descriptor sets this took (a new one at every dispatch, its images changing), freed once the gpu is done with
+	// these commands rather than never: the sky is drawn again every frame while the time of day advances fast
+	return std::make_shared<std::pair<decltype(views), std::shared_ptr<void>>>(views, pipeline.TakeDescriptorSets(kSet));
 }
 
 } // namespace gfx

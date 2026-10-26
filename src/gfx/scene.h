@@ -1,5 +1,6 @@
 #pragma once
 
+#include <gfx/environment.h>
 #include <gfx/gpu.h>
 #include <gfx/indirectlight.h>
 #include <gfx/meshimport.h>
@@ -62,9 +63,11 @@ public:
 		// whether the renderer keeps a copy of each frame's lights and shadow views (Renderer::GetLightCapture), for the
 		// ui's light gizmos (View > Lights)
 		std::atomic<bool> captureLights = false;
-		// the final image is scaled by 2^exposureStops before tonemapping (with auto exposure, on top of what it picks)
+		// the final image is scaled by 2^exposureStops before tonemapping (with auto exposure, on top of what it picks:
+		// View > Auto Exposure, on by default since 2026-10-26, the user's call with the sky's time of day; SPEEDO_AUTO_EXPOSURE=0
+		// to start without, as captures compared at a fixed exposure need)
 		std::atomic<float> exposureStops = 0.0F;
-		std::atomic<bool> autoExposure = false;
+		std::atomic<bool> autoExposure = true;
 		// the tonemapper (TONEMAPPER_*)
 		std::atomic<uint32_t> tonemapper = TONEMAPPER_PBR_NEUTRAL;
 		// what the views show (DEBUG_VIEW_*: the light, or a debug view of the surfaces or the lighting; View > Debug
@@ -96,6 +99,15 @@ public:
 		std::atomic<float> environmentIntensity = 1.0F;
 		std::atomic<float> environmentRotationDegrees = 0.0F;
 		std::atomic<bool> environmentBackdrop = true;
+		// the sky's time of day (hours of local solar time, 0 to 24), latitude (degrees, north positive) and day of the
+		// year, which put its sun (see environment::SunDirection; View > Environment, SPEEDO_TIME_OF_DAY, SPEEDO_LATITUDE,
+		// SPEEDO_DAY_OF_YEAR), and whether the time advances, and how fast, in multiples of real time (View > Environment >
+		// Advance Time and Time Speed, SPEEDO_TIME_SPEED); the draw thread advances it
+		std::atomic<float> timeOfDay = environment::kSkyDefaultTimeOfDay;
+		std::atomic<float> latitude = environment::kSkyDefaultLatitude;
+		std::atomic<float> dayOfYear = environment::kSkyDefaultDayOfYear;
+		std::atomic<bool> advanceTime = false;
+		std::atomic<float> timeSpeed = 60.0F;
 	};
 
 	// which of the installed model's animations plays (see Model::Animate), and its clock. the ui thread reads and
@@ -192,7 +204,7 @@ public:
 		ModelArrangement arrangement = ModelArrangement::kSideBySide);
 	// an image, on the default material (material 0)
 	void LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);
-	// an environment panorama (or without one, the procedural sky)
+	// an environment panorama (or without one, the sky)
 	void LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress);
 
 	// resizes what is sized after the output (its render targets), after the output was (re)created (the window's
@@ -209,6 +221,8 @@ public:
 	[[nodiscard]] Settings& GetSettings() noexcept;
 	[[nodiscard]] core::ConcurrentAccess<AnimationState>& GetAnimation() noexcept;
 	[[nodiscard]] core::ConcurrentAccess<SceneState>& GetScenes() noexcept;
+	// whether the installed environment is the sky (which the time of day moves the sun of, see Settings::timeOfDay)
+	[[nodiscard]] bool IsSkyInstalled() const noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentName() noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::vector<DominantLightInfo>>& GetEnvironmentLightInfo() noexcept;
 	// the installed model's lights' sizes the ui set (LightData::size), by light: a directional light's angular radius in

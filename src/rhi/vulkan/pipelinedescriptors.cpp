@@ -188,6 +188,21 @@ void Pipeline<kVk>::InvalidateDescriptorSets()
 }
 
 template <>
+std::shared_ptr<void> Pipeline<kVk>::TakeDescriptorSets(uint32_t set)
+{
+	const auto layoutIt = InternalGetLayout();
+	ENSURE(layoutIt != myPipelineLayouts.end());
+	const auto& setLayout = layoutIt->GetDescriptorSetLayout(set);
+	auto& [mutex, setState, bindingsMap, bindingsData, setTemplate, setOptionalArrayList] = myDescriptorMap.at(setLayout);
+	auto lock = std::lock_guard(mutex);
+	if (!setOptionalArrayList || setOptionalArrayList->empty())
+		return {};
+	auto taken = std::make_shared<DescriptorSetArrayList<kVk>>(std::exchange(*setOptionalArrayList, {}));
+	std::atomic_ref(setState).store(DescriptorSetStatus::kDirty, std::memory_order_release);
+	return taken;
+}
+
+template <>
 void Pipeline<kVk>::BindDescriptorSetAuto(
 	CommandBufferHandle<kVk> cmd,
 	uint32_t set,

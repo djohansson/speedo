@@ -194,7 +194,7 @@ struct State
 	ImTextureID texture = ImTextureID_Invalid;
 	std::optional<std::filesystem::path> previewWanted;
 	std::filesystem::path previewShown;
-	bool previewEnvironment = false; // a file's panorama, rather than the procedural sky
+	bool previewEnvironment = false; // a file's panorama, rather than the sky
 	std::shared_ptr<PreviewLoad> previewLoad = std::make_shared<PreviewLoad>();
 	uint32_t previewReadyFrames = 0; // the frames the focused model's preview has been drawn in, loaded
 };
@@ -418,14 +418,14 @@ void WindowedApplication::InternalDrawBrowser()
 	myThumbnails->Update();
 	myImagePreview->Update();
 
-	// the preview: made by the draw thread once asked for, then lit by the procedural sky
+	// the preview: made by the draw thread once asked for, then lit by the sky
 	RequestPreview();
 	auto* preview = GetPreview();
 	if (preview && state.texture == ImTextureID_Invalid)
 	{
 		state.texture = myImGui->AddTexture(preview->GetOutput().GetView());
 		(void)gLoads.Enqueue(
-			"Preview: procedural sky",
+			"Preview: sky",
 			[preview](std::atomic_uint8_t& progress) { preview->GetScene().LoadEnvironment(std::nullopt, progress); });
 	}
 

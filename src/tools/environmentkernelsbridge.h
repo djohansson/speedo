@@ -22,8 +22,8 @@ struct Level
 	std::vector<std::array<float, 4>> texels;
 };
 
-// a file's panoramas (the original and the lighting one, rgb floats row by row), or the procedural sky (environment's
-// sky fields, then sourceWidth wide)
+// a file's panoramas (the original and the lighting one, rgb floats row by row), or the sky (for the sun in environment's
+// sky fields, its panorama sourceWidth wide)
 struct Input
 {
 	uint32_t width = 0;
@@ -37,6 +37,9 @@ struct Output
 {
 	std::vector<Level> levels; // kLevelCount, from the source's width
 	std::vector<Level> sheenLevels; // kLevelCount, from an eighth of it
+	// the sky's: its panorama (the source's level 0, without its sun), and its transmittance table (see sky.h)
+	Level skyPanorama;
+	Level skyTransmittance;
 };
 
 // calls body(index) for each index below count, on several threads, and returns once all are done (the other side's

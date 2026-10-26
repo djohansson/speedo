@@ -7,12 +7,13 @@
 #include <glm/gtc/type_ptr.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace environmentkernels
 {
 
-gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data, core::TaskExecutor& executor)
+gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data, core::TaskExecutor& executor, Sky* sky)
 {
 	using namespace gfx::environment;
 
@@ -25,16 +26,12 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 		input.original = source.original->rgb.data();
 		input.lighting = source.lighting->rgb.data();
 	}
-	else if (source.sky != nullptr)
+	else if (source.skySun)
 	{
-		const auto& sky = *source.sky;
-		std::copy_n(glm::value_ptr(sky.zenith), 3, environmentData.skyZenith);
-		environmentData.skyZenith[3] = 1.0F;
-		std::copy_n(glm::value_ptr(sky.horizon), 3, environmentData.skyHorizon);
-		std::copy_n(glm::value_ptr(sky.ground), 3, environmentData.skyGround);
-		std::copy_n(glm::value_ptr(sky.sunDirection), 3, environmentData.skySun);
-		environmentData.skySun[3] = sky.sunCosRadius;
-		environmentData.skySunRadiance[0] = sky.sunRadiance;
+		auto sun = glm::normalize(*source.skySun);
+		std::copy_n(glm::value_ptr(sun), 3, environmentData.skySun);
+		environmentData.skySun[3] = std::cos(kSkySunRadius);
+		environmentData.skySunRadiance[3] = 1.0F;
 	}
 	auto output = bridge::Prefilter(
 		input,
@@ -42,6 +39,21 @@ gfx::environment::Environment Prefilter(const Source& source, std::vector<std::b
 		environmentData,
 		[&executor](uint32_t count, core::std_extra::function_ref<void(uint32_t index)> body)
 		{ executor.ForEach(count, [&body](size_t index) { body(static_cast<uint32_t>(index)); }); });
+
+	if (sky != nullptr && source.skySun)
+	{
+		const auto& panorama = output.skyPanorama;
+		sky->panorama = {.width = panorama.width, .height = panorama.height};
+		sky->panorama.rgb.reserve(panorama.texels.size() * 3);
+		for (const auto& texel : panorama.texels)
+			sky->panorama.rgb.insert(sky->panorama.rgb.end(), texel.begin(), texel.begin() + 3);
+		const auto& table = output.skyTransmittance;
+		sky->transmittanceWidth = table.width;
+		sky->transmittanceHeight = table.height;
+		sky->transmittance.clear();
+		for (const auto& texel : table.texels)
+			sky->transmittance.emplace_back(texel[0], texel[1], texel[2]);
+	}
 
 	// as the layout gfx::environment::Environment has: the levels, then the sheen levels, as half floats
 	Environment environment;

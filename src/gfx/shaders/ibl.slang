@@ -1,4 +1,4 @@
-// image based lighting: environment lookups (prefiltered radiance, sheen, irradiance), the procedural sky. a part of shaders.slang, which includes it after capi.h and sky.h
+// image based lighting: environment lookups (prefiltered radiance, sheen, irradiance), the sky. a part of shaders.slang, which includes it after capi.h and sky.h
 
 // the environment (see EnvironmentData): a world direction in the panorama's space, turned back by its rotation
 float3 EnvironmentDirection(float3 d)
@@ -37,26 +37,27 @@ float3 EnvironmentIrradiance(EnvironmentData environment, float3 n)
 	return max(result, 0.0) * gPushConstants.environmentIntensity;
 }
 
-// the procedural sky's radiance in a direction (in the panorama's space), sun included (see EnvironmentData::skyZenith):
-// as gfx::environment::SkyRadiance, and the sun's disk, its edge soft over a fifth of its radius (a pixel or two)
+// the sky's radiance in a direction (in the panorama's space), sun included (see EnvironmentData::skySun): its view of
+// itself (see sky.h), and the sun's disk through the atmosphere, its edge soft over a fifth of its radius (a pixel or two;
+// the angle as twice the asin of half the chord, which keeps its precision where acos of the cosine loses it)
 float3 SkyRadiance(EnvironmentData environment, float3 d)
 {
-	float3 color = SkyGradient(environment, d);
+	float3 color = SkyViewRadiance(gTextures[SHADER_TYPES_SKY_VIEW_TEXTURE], gSamplers[environment.samplerId], d, environment.skySun.xyz);
 	float radius = acos(environment.skySun.w);
-	float angle = acos(clamp(dot(d, environment.skySun.xyz), -1.0, 1.0));
-	return color + environment.skySunRadiance.x * (1.0 - smoothstep(radius * 0.9, radius * 1.1, angle));
+	float angle = 2.0 * asin(min(0.5 * length(d - environment.skySun.xyz), 1.0));
+	return color + environment.skySunRadiance.rgb * (1.0 - smoothstep(radius * 0.9, radius * 1.1, angle));
 }
 
 // the radiance reflected along r, prefiltered for a roughness (the split sum's first term), scaled by the intensity.
-// roughness 0 is the panorama itself, as the backdrop shows it. the procedural sky is evaluated where it is sharper
-// than its panorama: below the first prefiltered level's roughness, blending into it
+// roughness 0 is the panorama itself, as the backdrop shows it. the sky is evaluated where it is sharper than its
+// panorama: below the first prefiltered level's roughness, blending into it
 float3 EnvironmentRadiance(EnvironmentData environment, float3 r, float roughness)
 {
 	float lod = roughness * (environment.levelCount - 1.0);
 	float3 d = EnvironmentDirection(r);
 	float2 uv = EnvironmentCoordinates(d);
 	float3 sampled = gTextures[environment.textureId].SampleLevel(gSamplers[environment.samplerId], uv, lod).rgb;
-	if (environment.skyZenith.w > 0.0 && lod < 1.0)
+	if (environment.skySunRadiance.w > 0.0 && lod < 1.0)
 		sampled = lerp(SkyRadiance(environment, d), sampled, lod);
 	return sampled * gPushConstants.environmentIntensity;
 }

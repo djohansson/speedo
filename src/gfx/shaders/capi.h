@@ -159,6 +159,45 @@ extern "C"
 #define SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE 26u // and 27
 #define SHADER_TYPES_EMITTER_SURFACE_TEXTURE 35u // and 36
 #define SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE 28u // and 29
+// the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
+// the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
+#define SHADER_TYPES_SKY_VIEW_TEXTURE 37u
+
+// the sky's atmosphere, Earth's (Hillaire 2020, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique",
+// after Bruneton's: see atmosphere.h): in kilometres. the ground and the top of the atmosphere, from the planet's center,
+// and the eye's height over the ground
+#define SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS 6360.0
+#define SHADER_TYPES_ATMOSPHERE_TOP_RADIUS 6460.0
+#define SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE 0.0005
+// air (Rayleigh): scattering per km at the ground, rgb, falling off by exp(-altitude / its scale height)
+#define SHADER_TYPES_ATMOSPHERE_RAYLEIGH_R 5.802e-3
+#define SHADER_TYPES_ATMOSPHERE_RAYLEIGH_G 13.558e-3
+#define SHADER_TYPES_ATMOSPHERE_RAYLEIGH_B 33.1e-3
+#define SHADER_TYPES_ATMOSPHERE_RAYLEIGH_SCALE_HEIGHT 8.0
+// aerosols (Mie): scattering and extinction per km at the ground, grey, their scale height, and the phase's asymmetry
+#define SHADER_TYPES_ATMOSPHERE_MIE_SCATTERING 3.996e-3
+#define SHADER_TYPES_ATMOSPHERE_MIE_EXTINCTION 4.440e-3
+#define SHADER_TYPES_ATMOSPHERE_MIE_SCALE_HEIGHT 1.2
+#define SHADER_TYPES_ATMOSPHERE_MIE_G 0.8
+// ozone: absorption per km at its densest, rgb, in a layer 30 km thick around 25 km up, densest in its middle
+#define SHADER_TYPES_ATMOSPHERE_OZONE_R 0.650e-3
+#define SHADER_TYPES_ATMOSPHERE_OZONE_G 1.881e-3
+#define SHADER_TYPES_ATMOSPHERE_OZONE_B 0.085e-3
+#define SHADER_TYPES_ATMOSPHERE_OZONE_CENTER 25.0
+#define SHADER_TYPES_ATMOSPHERE_OZONE_HALF_WIDTH 15.0
+// the ground's albedo (the planet's, below the horizon: what the scene's own ground doesn't cover)
+#define SHADER_TYPES_ATMOSPHERE_GROUND_ALBEDO 0.3
+// the sun's illuminance at the top of the atmosphere, white, in the renderer's lux: its light at the ground at the
+// default time of day (59 degrees up, see gfx::environment::kSkyDefaultTimeOfDay) is the 2.2 the directional light of the
+// sky before it gave (the real sun's is about 120000: the renderer's light is scaled down, the exposure with it)
+#define SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE 2.6
+// the sky's tables: the transmittance to the top of the atmosphere (by altitude and angle), the light scattered more than
+// once (by altitude and the sun's angle), and the sky's view of itself (SHADER_TYPES_SKY_VIEW_TEXTURE)
+#define SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH 256u
+#define SHADER_TYPES_SKY_TRANSMITTANCE_HEIGHT 64u
+#define SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE 32u
+#define SHADER_TYPES_SKY_VIEW_WIDTH 256u
+#define SHADER_TYPES_SKY_VIEW_HEIGHT 128u
 #define SHADER_TYPES_UI_BLUR_RECT_COUNT 32u
 #define SHADER_TYPES_UI_BLUR_GROUP_SIZE 64u
 // the gSamplers slot of a linear sampler that clamps to the edge (for screen space lookups)
@@ -309,13 +348,11 @@ struct EnvironmentData
 	alignas(4) FLOAT1(levelCount);
 	// the same for KHR_materials_sheen's Charlie lobe, in SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE (sampled with samplerId)
 	alignas(4) FLOAT1(sheenLevelCount);
-	// the procedural sky (gfx::environment::SkyParameters), which the shader evaluates where it is seen sharply (the
-	// backdrop, mirror reflections) rather than sampling the panorama's few texels: rgb of its colors, and skyZenith.w 1
-	// if the environment is the procedural sky (else 0, and none of these are used). skySun: xyz towards the sun (in the
-	// panorama's space), w the cosine of its radius; skySunRadiance.x its disk's radiance
-	alignas(16) FLOAT4(skyZenith);
-	alignas(16) FLOAT4(skyHorizon);
-	alignas(16) FLOAT4(skyGround);
+	// the sky (see atmosphere.h), which the shader evaluates where it is seen sharply (the backdrop, mirror reflections)
+	// from its view of itself (SHADER_TYPES_SKY_VIEW_TEXTURE) rather than sampling the panorama's few texels, and which
+	// the filter draws the panorama from. skySun: xyz towards the sun (in the panorama's space), w the cosine of its
+	// radius; skySunRadiance: rgb its disk's radiance through the atmosphere, w 1 if the environment is the sky (else 0,
+	// and none of these are used)
 	alignas(16) FLOAT4(skySun);
 	alignas(16) FLOAT4(skySunRadiance);
 };
@@ -907,6 +944,10 @@ struct GiData
 	// bounce to (ComputeGiLight: a moving voxel's is made in the frame)
 	alignas(4) UINT1(radianceFirst);
 	alignas(4) UINT1(directFirst);
+	// and where the part of it the lights don't change is kept: the emissive surfaces' light off the static voxels, and how
+	// far each is open along its normal (see GiOpenAlong), made when the clip is voxelized or the emitters start or stop
+	// lighting, so that a light that moves (the sky's sun as the time of day advances) lights the voxels again alone
+	alignas(4) UINT1(keptFirst);
 	// the clip's first flag in gGiFlags: per voxel of level 2 (a 4x4x4 block), whether anything is voxelized near it
 	// (see ComputeGiFlags)
 	alignas(4) UINT1(flagFirst);
@@ -932,6 +973,9 @@ struct GiData
 	// whether nothing is kept from the last frame (the scene changed, or the buffers were replaced): every probe starts
 	// from its rays, and the voxels are lit by the lights alone
 	alignas(4) UINT1(reset);
+	// whether ComputeGiLightStatic lights the static voxels again for the lights alone (they changed, the clip wasn't
+	// voxelized, and the emitters lit as before), taking the part of their light kept (see keptFirst) as it is
+	alignas(4) UINT1(lightsOnly);
 	// whether the voxels' radiance adds what their albedo reflects of the probes' light at them (the last frame's: the
 	// light bounces on, a bounce a frame; SPEEDO_GI_BOUNCE=0 for the lights' light alone)
 	alignas(4) UINT1(bounce);

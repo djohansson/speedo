@@ -17,6 +17,9 @@ void EnvironmentCopy(ComputeVaryingInput* varyingInput, void* entryPointParams, 
 void EnvironmentSpecular(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentSheen(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 void EnvironmentIrradiance(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
+void EnvironmentSkyTransmittance(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
+void EnvironmentSkyMultipleScattering(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
+void EnvironmentSkyView(ComputeVaryingInput* varyingInput, void* entryPointParams, void* globalParams);
 }
 
 // the prelude only declares it: the kernels pass it back to the textures, whose one sampler it is (linear, around in u,
@@ -52,6 +55,12 @@ struct CpuImage
 			uint32_t levelHeight = std::max(levelWidth / 2, 1U);
 			levels.push_back({levelWidth, levelHeight, std::vector<Texel>(static_cast<size_t>(levelWidth) * levelHeight)});
 		}
+	}
+
+	// one level of any shape (the sky's tables)
+	CpuImage(uint32_t width, uint32_t height)
+	{
+		levels.push_back({width, height, std::vector<Texel>(static_cast<size_t>(width) * height)});
 	}
 
 	CpuImage(uint32_t width, const float* rgb)
@@ -168,6 +177,9 @@ struct Globals
 	RWTexture2D<Texel> output;
 	RWStructuredBuffer<EnvironmentData> environment;
 	EnvironmentFilterConstants* filter;
+	Texture2D<Texel> skyTransmittance;
+	Texture2D<Texel> skyMultipleScattering;
+	Texture2D<Texel> skyView;
 };
 
 using Kernel = void (*)(ComputeVaryingInput*, void*, void*);
@@ -231,6 +243,17 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 		Run(kernel, globals, extent.width, extent.height, forEach);
 	};
 
+	// the sky's tables (bound for every kernel, as the gpu's), drawn only for the sky
+	CpuImage skyTransmittance(SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH, SHADER_TYPES_SKY_TRANSMITTANCE_HEIGHT);
+	CpuImage skyMultipleScattering(SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE, SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE);
+	CpuImage skyView(SHADER_TYPES_SKY_VIEW_WIDTH, SHADER_TYPES_SKY_VIEW_HEIGHT);
+	CpuView skyTransmittanceView(skyTransmittance, 0, 1);
+	CpuView skyMultipleScatteringView(skyMultipleScattering, 0, 1);
+	CpuView skyViewView(skyView, 0, 1);
+	globals.skyTransmittance.texture = &skyTransmittanceView;
+	globals.skyMultipleScattering.texture = &skyMultipleScatteringView;
+	globals.skyView.texture = &skyViewView;
+
 	// the source's level 0 and its pyramid
 	std::optional<CpuView> lightingView;
 	if (lighting)
@@ -239,7 +262,12 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 		dispatch(EnvironmentCopy, &*lightingView, sourceImage, 0, 0.0F);
 	}
 	else
+	{
+		dispatch(EnvironmentSkyTransmittance, nullptr, skyTransmittance, 0, 0.0F);
+		dispatch(EnvironmentSkyMultipleScattering, nullptr, skyMultipleScattering, 0, 0.0F);
+		dispatch(EnvironmentSkyView, nullptr, skyView, 0, 0.0F);
 		dispatch(EnvironmentSky, nullptr, sourceImage, 0, 0.0F);
+	}
 	for (uint32_t level = 1; level < sourceLevelCount; level++)
 	{
 		CpuView above(sourceImage, level - 1, 1);
@@ -270,15 +298,22 @@ Output Prefilter(const Input& input, uint32_t levelCount, EnvironmentData& envir
 	EnvironmentIrradiance(&one, nullptr, &globals);
 
 	Output output;
+	auto copyOf = [](const CpuImage::Level& level)
+	{
+		Level copy{level.width, level.height, std::vector<std::array<float, 4>>(level.texels.size())};
+		for (size_t texel = 0; texel < level.texels.size(); texel++)
+			for (int c = 0; c < 4; c++)
+				copy.texels[texel][static_cast<size_t>(c)] = level.texels[texel][c];
+		return copy;
+	};
 	for (auto [image, out] : {std::pair{&levels, &output.levels}, std::pair{&sheenLevels, &output.sheenLevels}})
 		for (const auto& level : image->levels)
-		{
-			Level copy{level.width, level.height, std::vector<std::array<float, 4>>(level.texels.size())};
-			for (size_t texel = 0; texel < level.texels.size(); texel++)
-				for (int c = 0; c < 4; c++)
-					copy.texels[texel][static_cast<size_t>(c)] = level.texels[texel][c];
-			out->push_back(std::move(copy));
-		}
+			out->push_back(copyOf(level));
+	if (!lighting)
+	{
+		output.skyPanorama = copyOf(sourceImage.levels.front());
+		output.skyTransmittance = copyOf(skyTransmittance.levels.front());
+	}
 	return output;
 }
 

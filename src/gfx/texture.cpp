@@ -325,18 +325,14 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 	ENSURE(app);
 	auto cancelled = [&app] { return app->IsExitRequested(); };
 
-	std::string name = filePath ? std::string(*filePath) : std::string("procedural sky");
+	std::string name = filePath ? std::string(*filePath) : std::string("sky");
 	EnvironmentTexture result;
 	uint32_t width = environment::kSkyWidth; // the source's
 
 	if (!filePath)
 	{
-		// nothing to load: the filter draws it from its parameters, and its sun is known
-		const auto& sky = environment::ProceduralSkyParameters();
-		result.sky = sky;
-		environment::DominantLight sun{.direction = sky.sunDirection, .angularRadius = environment::kSkySunRadius};
-		sun.irradiance = glm::vec3(environment::kSkySunIrradiance);
-		result.dominantLights = {sun};
+		// nothing to load: the filter draws it, and the scene sets its sun by the time of day (see InstallEnvironment)
+		result.sky = true;
 	}
 	else
 	{

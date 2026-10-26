@@ -33,10 +33,12 @@ Layout MakeLayout(
 	data.voxelFirst = first.voxelCount;
 
 	data.volumeSize[3] = 0;
-	// the radiance: the frame's per voxel, then the static voxels' direct radiance
+	// the radiance: the frame's per voxel, then the static voxels' direct radiance, then the part of it the lights don't
+	// change (see GiData::keptFirst)
 	data.radianceFirst = first.radianceCount;
 	data.directFirst = first.radianceCount + layout.voxelCount;
-	layout.radianceCount = 2 * layout.voxelCount;
+	data.keptFirst = first.radianceCount + (2 * layout.voxelCount);
+	layout.radianceCount = 3 * layout.voxelCount;
 	auto flagSize = LevelVoxels(size, SHADER_TYPES_GI_FLAG_LEVEL);
 	layout.flagCount = flagSize.x * flagSize.y * flagSize.z;
 	// in words (see GiFlagIndex): as blocks, the clips' flags overlapped, each clip's second half the next clip's first

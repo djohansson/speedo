@@ -1067,11 +1067,33 @@ float GiOpenAlong(GiData gi, float3 position, float3 normal)
 	return BvhHitSomething(hit) && (hit.frontFace || (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) != 0u) ? hit.t : reach;
 }
 
+// the shadow rays of a voxel's light start a voxel further from the surface (the voxel is on the side it stands for, its
+// twin across it), but no further than halfway to a surface facing back at it: the bench back's voxel in the slot behind
+// salle_de_bain's bench started them past the wall, outdoors, where the sun lit it, and whatever read it (the cache's rays
+// in the slot, the probes', the near field's) lit the slot. open: how far it is open along its normal (see GiOpenAlong)
+float GiLightPush(GiData gi, float open)
+{
+	return min(gi.volumeOrigin.w, 0.5 * open);
+}
+
+// the emissive surfaces' light off a voxel where they are lights (see EmitterVoxelIrradiance): its albedo over pi times
+// it, from where its shadow rays start (GiLightPush), by numbers of the voxel's own
+float3 GiEmitterRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving, float open)
+{
+	if (!EmittersLight())
+		return 0.0;
+	float3 position = gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w;
+	float3 normal = GiVoxelNormal(voxel.normal);
+	float3 irradiance = EmitterVoxelIrradiance(
+		gi, position + normal * GiLightPush(gi, open), normal, moving, uint2(GiVoxelIndex(at, GiLevelSize(gi, 0)), gi.clip));
+	return albedo.rgb / 3.14159265 * irradiance;
+}
+
 // the lights' light off a voxel (at, of a clip): its emission plus its albedo over pi times the light reaching it from
 // the lights of its cell, each shadowed by a ray through the voxels (the shadow atlas only covers what the camera sees),
-// and from the emissive surfaces where they are lights (whose readers then take its emission out). open: how far it
-// is open along its normal (see GiOpenAlong)
-float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving, float open)
+// and with emitters, from the emissive surfaces where they are lights (GiEmitterRadiance; whose readers then take its
+// emission out). open: how far it is open along its normal (see GiOpenAlong)
+float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool moving, float open, bool emitters)
 {
 	uint frameIndex = gPushConstants.frameIndex;
 	uint3 size = GiLevelSize(gi, 0);
@@ -1082,11 +1104,7 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 	uint3 cell = min(uint3(float3(at) / float3(size) * float(SHADER_TYPES_GI_LIGHT_GRID)), uint3(SHADER_TYPES_GI_LIGHT_GRID - 1));
 	uint2 range = gGiLightCells[frameIndex][gi.lightCellFirst + (cell.z * SHADER_TYPES_GI_LIGHT_GRID + cell.y) * SHADER_TYPES_GI_LIGHT_GRID + cell.x];
 	float3 irradiance = 0.0;
-	// the shadow rays start a voxel further from the surface (the voxel is on the side it stands for, its twin across
-	// it), but no further than halfway to a surface facing back at it: the bench back's voxel in the slot behind
-	// salle_de_bain's bench started them past the wall, outdoors, where the sun lit it, and whatever read it (the cache's
-	// rays in the slot, the probes', the near field's) lit the slot
-	float push = min(gi.volumeOrigin.w, 0.5 * open);
+	float push = GiLightPush(gi, open);
 	for (uint lightIt = range.x; lightIt < range.x + range.y; lightIt++)
 	{
 		LightData light = gLights[gGiLightIndices[frameIndex][lightIt]];
@@ -1121,14 +1139,14 @@ float3 GiDirectRadiance(GiData gi, uint3 at, GiVoxel voxel, float4 albedo, bool 
 		float visibility = GiVisibility(gi, position + normal * push, toLight, distance - push, moving);
 		irradiance += light.intensity.rgb * attenuation * nDotL * visibility;
 	}
-	// and the emissive surfaces' (see EmitterVoxelIrradiance), from the same place, by numbers of the voxel's own
-	if (EmittersLight())
-		irradiance += EmitterVoxelIrradiance(gi, position + normal * push, normal, moving, uint2(GiVoxelIndex(at, size), gi.clip));
-	return emission + albedo.rgb / 3.14159265 * irradiance;
+	return emission + albedo.rgb / 3.14159265 * irradiance + (emitters ? GiEmitterRadiance(gi, at, voxel, albedo, moving, open) : 0.0);
 }
 
 // the static voxels' direct radiance (GiData::directFirst), when the clip is voxelized or the lights change: before what
-// moves is voxelized over them, so that nothing moving shadows it for good
+// moves is voxelized over them, so that nothing moving shadows it for good. the part the lights don't change (the
+// emitters' light, and how far each voxel is open along its normal, see GiOpenAlong: a ray once a voxelizing) is kept
+// (GiData::keptFirst) and taken as it is where the lights changed alone (GiData::lightsOnly): with the emitters' samples
+// and shadow rays every time, the sky's sun moving every frame cost Bistro's street 72 ms a frame, 13 without them
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
@@ -1141,15 +1159,27 @@ void ComputeGiLightStatic(uint3 dispatchId: SV_DispatchThreadID)
 	GiVoxel voxel = gGiVoxels[gi.voxelFirst + threadId.x];
 	float4 albedo = GiUnpackRgba8(voxel.albedo);
 	float3 radiance = 0.0;
-	// and how far it is open along its normal (see GiOpenAlong), in voxels, kept in the alpha: what is static doesn't change
-	// it, so a ray once a voxelizing
+	float3 kept = 0.0;
+	// how far it is open, in voxels in the alpha of both
 	float open = kGiOpenReach * gi.volumeOrigin.w;
 	if (albedo.a != 0.0)
 	{
 		uint3 at = uint3(threadId.x % size.x, (threadId.x / size.x) % size.y, threadId.x / (size.x * size.y));
-		open = GiOpenAlong(gi, gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w, GiVoxelNormal(voxel.normal));
-		radiance = GiDirectRadiance(gi, at, voxel, albedo, false, open);
+		if (gi.lightsOnly != 0u)
+		{
+			float4 keptValue = GiUnpackRgba16(gGiRadiance[gi.keptFirst + threadId.x]);
+			kept = keptValue.rgb;
+			open = keptValue.a * gi.volumeOrigin.w;
+		}
+		else
+		{
+			open = GiOpenAlong(gi, gi.volumeOrigin.xyz + (float3(at) + 0.5) * gi.volumeOrigin.w, GiVoxelNormal(voxel.normal));
+			kept = GiEmitterRadiance(gi, at, voxel, albedo, false, open);
+		}
+		radiance = GiDirectRadiance(gi, at, voxel, albedo, false, open, false) + kept;
 	}
+	if (gi.lightsOnly == 0u)
+		gGiRadiance[gi.keptFirst + threadId.x] = GiPackRgba16(float4(kept, open / gi.volumeOrigin.w));
 	gGiRadiance[gi.directFirst + threadId.x] = GiPackRgba16(float4(radiance, open / gi.volumeOrigin.w));
 	// and the frame's radiance from nothing: the frame's lighting skips the blocks nothing is near, whose voxels must hold 0
 	gGiRadiance[gi.radianceFirst + threadId.x] = uint2(0, 0);
@@ -1226,7 +1256,7 @@ void ComputeGiLight(uint3 dispatchId: SV_DispatchThreadID)
 	if (still && !(gi.moving != 0u && GiMovingShadows(gi, at, voxel)))
 		radiance = direct.rgb;
 	else
-		radiance = GiDirectRadiance(gi, at, voxel, albedo, true, open);
+		radiance = GiDirectRadiance(gi, at, voxel, albedo, true, open, true);
 	// not on a reset: the volumes hold nothing yet. the probes' light 1.5 voxels out along its normal (see
 	// GiIrradianceResolved), but no further than halfway to a surface facing back at it (the slot's bench back's voxel
 	// took the light outdoors, past the wall)

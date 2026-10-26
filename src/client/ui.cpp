@@ -147,8 +147,19 @@ void WindowedApplication::InternalCopyPose()
 	}
 	{
 		std::string environment = scene.GetEnvironmentName().Read().Get();
-		if (!environment.empty() && environment != "Procedural sky")
+		if (!environment.empty() && environment != "Physical sky")
 			text += std::format(" SPEEDO_AUTOLOAD_ENVIRONMENT='{}'", environment);
+	}
+	// the sky's sun: the time of day, and where and when, and how fast the time advances, where not the defaults
+	if (scene.IsSkyInstalled())
+	{
+		text += std::format(" SPEEDO_TIME_OF_DAY={:.3f}", static_cast<double>(settings.timeOfDay.load(std::memory_order_relaxed)));
+		if (float latitude = settings.latitude.load(std::memory_order_relaxed); latitude != gfx::environment::kSkyDefaultLatitude)
+			text += std::format(" SPEEDO_LATITUDE={:.2f}", static_cast<double>(latitude));
+		if (float day = settings.dayOfYear.load(std::memory_order_relaxed); day != gfx::environment::kSkyDefaultDayOfYear)
+			text += std::format(" SPEEDO_DAY_OF_YEAR={:.0f}", static_cast<double>(day));
+		if (settings.advanceTime.load(std::memory_order_relaxed))
+			text += std::format(" SPEEDO_TIME_SPEED={:.4g}", static_cast<double>(settings.timeSpeed.load(std::memory_order_relaxed)));
 	}
 	float intensity = settings.environmentIntensity.load(std::memory_order_relaxed);
 	if (intensity != 1.0F)
@@ -156,8 +167,8 @@ void WindowedApplication::InternalCopyPose()
 	float rotation = settings.environmentRotationDegrees.load(std::memory_order_relaxed);
 	if (rotation != 0.0F)
 		text += std::format(" SPEEDO_ENVIRONMENT_ROTATION={:.2f}", static_cast<double>(rotation));
-	if (settings.autoExposure.load(std::memory_order_relaxed))
-		text += " SPEEDO_AUTO_EXPOSURE=1";
+	if (!settings.autoExposure.load(std::memory_order_relaxed))
+		text += " SPEEDO_AUTO_EXPOSURE=0";
 	float stops = settings.exposureStops.load(std::memory_order_relaxed);
 	if (stops != 0.0F)
 		text += std::format(" SPEEDO_EXPOSURE={:.2f}", static_cast<double>(stops));
@@ -895,8 +906,8 @@ void WindowedApplication::PrepareDraw()
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
-		// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear), auto exposure
-		// (SPEEDO_AUTO_EXPOSURE=1) and the exposure to start with (as View sets them)
+		// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear), auto exposure (on by default:
+		// SPEEDO_AUTO_EXPOSURE=0 without) and the exposure to start with (as View sets them)
 		if (const char* tonemapper = std::getenv("SPEEDO_TONEMAPPER"); tonemapper != nullptr)
 		{
 			std::string_view name(tonemapper);
@@ -908,9 +919,10 @@ void WindowedApplication::PrepareDraw()
 									 : TONEMAPPER_PBR_NEUTRAL,
 				std::memory_order_relaxed);
 		}
-		if (const char* autoExposure = std::getenv("SPEEDO_AUTO_EXPOSURE"); autoExposure != nullptr && std::string_view(autoExposure) == "1")
-			App().GetScene().GetSettings().autoExposure.store(true, std::memory_order_relaxed);
-		// SPEEDO_EXPOSURE=<stops>: the exposure (View > Exposure), e.g. to capture a dark interior as it is, comparably
+		if (const char* autoExposure = std::getenv("SPEEDO_AUTO_EXPOSURE"); autoExposure != nullptr && *autoExposure != '\0')
+			App().GetScene().GetSettings().autoExposure.store(std::string_view(autoExposure) != "0", std::memory_order_relaxed);
+		// SPEEDO_EXPOSURE=<stops>: the exposure (View > Exposure), e.g. to capture a dark interior as it is, comparably (with
+		// SPEEDO_AUTO_EXPOSURE=0: else it is added to what auto exposure picks)
 		if (const char* exposure = std::getenv("SPEEDO_EXPOSURE"); exposure != nullptr && *exposure != '\0')
 			App().GetScene().GetSettings().exposureStops.store(std::strtof(exposure, nullptr), std::memory_order_relaxed);
 		if (const char* shadows = std::getenv("SPEEDO_SHADOWS"); shadows != nullptr && std::string_view(shadows) == "0")
@@ -974,13 +986,34 @@ void WindowedApplication::PrepareDraw()
 			App().GetScene().GetSettings().environmentRotationDegrees.store(std::strtof(rotation, nullptr), std::memory_order_relaxed);
 		if (const char* intensity = std::getenv("SPEEDO_ENVIRONMENT_INTENSITY"); intensity != nullptr && *intensity != '\0')
 			App().GetScene().GetSettings().environmentIntensity.store(std::max(std::strtof(intensity, nullptr), 0.0F), std::memory_order_relaxed);
-		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama, else the procedural sky
+		// the sky's sun to start with (as View > Environment sets it): the time of day (hours of local solar time, or
+		// hours:minutes), the latitude (degrees) and the day of the year, and the time advancing, as many times as fast as
+		// real time (0: still)
+		if (const char* time = std::getenv("SPEEDO_TIME_OF_DAY"); time != nullptr && *time != '\0')
+		{
+			char* end = nullptr;
+			float hours = std::strtof(time, &end);
+			if (end != nullptr && *end == ':')
+				hours = std::floor(hours) + (std::strtof(end + 1, nullptr) / 60.0F);
+			App().GetScene().GetSettings().timeOfDay.store(std::clamp(hours, 0.0F, 24.0F), std::memory_order_relaxed);
+		}
+		if (const char* latitude = std::getenv("SPEEDO_LATITUDE"); latitude != nullptr && *latitude != '\0')
+			App().GetScene().GetSettings().latitude.store(std::clamp(std::strtof(latitude, nullptr), -90.0F, 90.0F), std::memory_order_relaxed);
+		if (const char* day = std::getenv("SPEEDO_DAY_OF_YEAR"); day != nullptr && *day != '\0')
+			App().GetScene().GetSettings().dayOfYear.store(std::clamp(std::strtof(day, nullptr), 1.0F, 365.0F), std::memory_order_relaxed);
+		if (const char* speed = std::getenv("SPEEDO_TIME_SPEED"); speed != nullptr && *speed != '\0')
+		{
+			float multiple = std::strtof(speed, nullptr);
+			App().GetScene().GetSettings().timeSpeed.store(multiple, std::memory_order_relaxed);
+			App().GetScene().GetSettings().advanceTime.store(multiple != 0.0F, std::memory_order_relaxed);
+		}
+		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama, else the sky
 		std::optional<std::string> environmentPath;
 		if (const char* autoLoadEnvironment = std::getenv("SPEEDO_AUTOLOAD_ENVIRONMENT");
 			autoLoadEnvironment != nullptr && *autoLoadEnvironment != '\0')
 			environmentPath = (resourcePath / autoLoadEnvironment).string();
 		gAutoLoads.emplace_back(gLoads.Enqueue(
-			environmentPath.value_or("Procedural sky"),
+			environmentPath.value_or("Physical sky"),
 			[&rhi, environmentPath](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(environmentPath, progress); }));
 		if (const char* autoLoadImage = std::getenv("SPEEDO_AUTOLOAD_IMAGE"); autoLoadImage != nullptr && *autoLoadImage != '\0')
 			gAutoLoads.emplace_back(gLoads.Enqueue(
@@ -1417,7 +1450,7 @@ void WindowedApplication::PrepareDraw()
 			}
 			if (ui::BeginMenu("Environment"))
 			{
-				// what lights the scene (see InstallEnvironment): the procedural sky, or a panorama file
+				// what lights the scene (see InstallEnvironment): the sky, or a panorama file
 				std::string current = App().GetScene().GetEnvironmentName().Read().Get();
 				TextDisabled("%s", current.empty() ? "None" : current.c_str());
 				{
@@ -1434,6 +1467,36 @@ void WindowedApplication::PrepareDraw()
 					bool backdrop = App().GetScene().GetSettings().environmentBackdrop.load(std::memory_order_relaxed);
 					if (MenuItem("Backdrop", nullptr, &backdrop))
 						App().GetScene().GetSettings().environmentBackdrop.store(backdrop, std::memory_order_relaxed);
+					// the sky's sun: where the time of day puts it, at a latitude on a day of the year, and the time advancing
+					if (App().GetScene().IsSkyInstalled())
+					{
+						auto& settings = App().GetScene().GetSettings();
+						Separator();
+						float hours = settings.timeOfDay.load(std::memory_order_relaxed);
+						int minutes = static_cast<int>(std::round(hours * 60.0F)) % (24 * 60);
+						// shown as hours and minutes (the format has no conversion: it is the label), typed as hours
+						auto shown = std::format("{:02}:{:02}", minutes / 60, minutes % 60);
+						if (DragFloat("Time of Day", &hours, 0.01F, 0.0F, 24.0F, shown.c_str(), ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							settings.timeOfDay.store(hours, std::memory_order_relaxed);
+						SetItemTooltip("Local solar time (12:00: the sun highest), which puts the sun. Drag, or double-click to type hours (18.5 for 18:30).");
+						bool advance = settings.advanceTime.load(std::memory_order_relaxed);
+						if (MenuItem("Advance Time", nullptr, &advance))
+							settings.advanceTime.store(advance, std::memory_order_relaxed);
+						SetItemTooltip("The time of day moves on by itself, Time Speed times as fast as real time.");
+						float speed = settings.timeSpeed.load(std::memory_order_relaxed);
+						if (DragFloat("Time Speed", &speed, 1.0F, 0.1F, 100000.0F, "%.4gx", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
+							settings.timeSpeed.store(speed, std::memory_order_relaxed);
+						SetItemTooltip("How many times as fast as real time the time of day advances: 60 is an hour a minute, 3600 an hour a second.");
+						float latitude = settings.latitude.load(std::memory_order_relaxed);
+						if (DragFloat("Latitude", &latitude, 0.1F, -90.0F, 90.0F, "%.2f deg", ImGuiSliderFlags_AlwaysClamp))
+							settings.latitude.store(latitude, std::memory_order_relaxed);
+						SetItemTooltip("Where on Earth, north positive (48.86: Paris).");
+						float day = settings.dayOfYear.load(std::memory_order_relaxed);
+						if (DragFloat("Day of Year", &day, 0.5F, 1.0F, 365.0F, "%.0f", ImGuiSliderFlags_AlwaysClamp))
+							settings.dayOfYear.store(day, std::memory_order_relaxed);
+						SetItemTooltip("1 the 1st of January, 172 the 21st of June (the longest day north of the equator).");
+						Separator();
+					}
 					// its strongest light sources, directional lights (with shadows) rather than part of the environment
 					{
 						auto info = App().GetScene().GetEnvironmentLightInfo().Read();
@@ -1460,9 +1523,9 @@ void WindowedApplication::PrepareDraw()
 						"the model's. Off: both light the scene.");
 				}
 				Separator();
-				if (MenuItem("Procedural sky"))
+				if (MenuItem("Physical sky"))
 					(void)gLoads.Enqueue(
-						"Procedural sky",
+						"Physical sky",
 						[&rhi](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(std::nullopt, progress); });
 				if (MenuItem("Open Environment...", SHORTCUT_LABEL("E"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kEnvironment))
 				{

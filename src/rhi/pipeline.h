@@ -233,6 +233,13 @@ public:
 	// the set kept the destroyed views' descriptors, and ComputeMain lost the device writing through one (1 run in 10 of
 	// the presentation test)
 	void InvalidateDescriptorSets();
+
+	// hands over the descriptor sets the bound layout's set has taken so far (a bind of changed values takes a new one from
+	// the pool, which never has it back), to destroy once the gpu is done with the commands that bound them; its next bind
+	// takes a fresh one, of the values set. for a layout whose bindings change at every dispatch: the environment filter's,
+	// whose sky is drawn again every frame while the time of day advances fast (20 sets a frame, the pool's storage images
+	// gone within minutes). empty where the set has taken none
+	[[nodiscard]] std::shared_ptr<void> TakeDescriptorSets(uint32_t set);
 	//
 
 	// "auto" api end	

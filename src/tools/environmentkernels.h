@@ -2,7 +2,10 @@
 
 #include <gfx/environment.h>
 
+#include <glm/vec3.hpp>
+
 #include <cstddef>
+#include <optional>
 #include <vector>
 
 namespace core
@@ -17,17 +20,28 @@ namespace environmentkernels
 {
 
 // what to prefilter: a file's panoramas (the original, dominant lights included, and the lighting one without them, see
-// gfx::environment::ExtractDominantLights), or the procedural sky's parameters, at its source width
+// gfx::environment::ExtractDominantLights), or the sky for a sun (toward it, in the panorama's space), at its source width
 struct Source
 {
 	const gfx::environment::Panorama* original = nullptr;
 	const gfx::environment::Panorama* lighting = nullptr;
-	const gfx::environment::SkyParameters* sky = nullptr;
+	std::optional<glm::vec3> skySun;
 	uint32_t skyWidth = gfx::environment::kSkyWidth;
 };
 
+// what the kernels drew of the sky: its panorama (without its sun), and its transmittance table (see sky.h), rgb row by row
+struct Sky
+{
+	gfx::environment::Panorama panorama;
+	uint32_t transmittanceWidth = 0;
+	uint32_t transmittanceHeight = 0;
+	std::vector<glm::vec3> transmittance;
+};
+
 // the levels and sheen levels (as R16G16B16A16 half floats in data, laid out as gfx::environment::Environment says) and
-// the irradiance (dominantLights is left empty: the caller has them), the kernels run on executor's threads
-[[nodiscard]] gfx::environment::Environment Prefilter(const Source& source, std::vector<std::byte>& data, core::TaskExecutor& executor);
+// the irradiance (dominantLights is left empty: the caller has them), the kernels run on executor's threads; and for the
+// sky, what they drew of it into sky (if given)
+[[nodiscard]] gfx::environment::Environment Prefilter(
+	const Source& source, std::vector<std::byte>& data, core::TaskExecutor& executor, Sky* sky = nullptr);
 
 } // namespace environmentkernels

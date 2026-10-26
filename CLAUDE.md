@@ -121,7 +121,7 @@ Notes for working in this codebase, distilled from real build failures.
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
-  views and `ImageOutput`, lit by the procedural sky, shown by the ui with `ImGuiLayer::AddTexture`; dragged, it orbits
+  views and `ImageOutput`, lit by the sky, shown by the ui with `ImGuiLayer::AddTexture`; dragged, it orbits
   the model (`Views::Orbit`: around the bounds' center, at the camera's distance). The browser itself
   (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`; its path a button per folder, the
   ones that don't fit behind "...") lists a folder's subfolders and the
@@ -136,7 +136,7 @@ Notes for working in this codebase, distilled from real build failures.
   atlas holds more than a browser filling a 4K window shows, about 300 tiles, which the 256 slots it had didn't); listings run on the task executor (a big tree takes
   a while), a newer one dropping an older one's result; it previews the entry last clicked if it is a model, a zip archive (its
   models side by side, extracted as opening it does: `ExtractArchive`, `FindModels`) or a panorama (one preview load at
-  a time, the latest selection's next; a model after a panorama brings the procedural sky back), and shows it only once it
+  a time, the latest selection's next; a model after a panorama brings the sky back), and shows it only once it
   is the focused entry's: the scene's file path is the name `Scene::LoadModels` returned for it (a model's path, or a set's
   name); until then an empty square ("Loading..."), and nothing for an entry without a preview (a folder), or an archive
   without models ("Nothing to preview"): the last preview stayed up, which looked like the new entry's; and
@@ -975,7 +975,7 @@ lookups (`GatherRed`, four comparisons each). The rule holds for whatever replac
 pushed off its surface goes to the side its query goes to (a shadow test's light, a reflected ray's viewer, a refracted
 or transmitted ray's far side), not along the normal regardless, which faces the viewer on double sided materials; on
 the wrong side, the surface occludes or hits itself (missing transmitted light, black speckles in refractions). View > Shadows toggles them (`SPEEDO_SHADOWS=0` starts without). View > Lights... (`SPEEDO_SHOW_LIGHTS=1`) lists gLights (the model's,
-then the environment's dominant lights, or the procedural sky's sun, unless merged: a model sun more than 5 degrees from
+then the environment's dominant lights, or the sky's sun, unless merged: a model sun more than 5 degrees from
 the sky's makes two sets of shadows) and draws them over the views as an imgui overlay (no shader or pipeline of its own):
 the renderer keeps a copy of a frame's lights, shadow views and scene bounds while it is open (`FrameInputs::captureLights`,
 `Renderer::GetLightCapture`), `gfx::BuildLightGizmos` turns it into world space lines (a directional light's arrow into the
@@ -990,7 +990,7 @@ Lights have a size (`LightData::size`): a directional light's angular radius in 
 in world units (the sphere it emits from), 0 for none (hard shadows). The model's directional lights take the real sun's,
 0.00465 (0.27 degrees, `environment::kSkySunRadius`), its point and spot lights none; View > Lights... sets each (degrees
 for a directional light), as does `SPEEDO_LIGHT_SIZES=<light>=<size>[,...]` (the model's lights by index; cleared when a
-model is installed, `Scene::GetLightSizes`). The procedural sky's sun is the real one too, and each dominant light of a
+model is installed, `Scene::GetLightSizes`). The sky's sun is the real one too, and each dominant light of a
 panorama gets its own (`DominantLight::angularRadius`: its texels' mean squared angle from its center, weighed by their
 light, is a uniform disk's r^2 / 2; at least half a texel; `environment-v7`).
 
@@ -1216,7 +1216,14 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   A voxelizing's GI Light Static took 0.14 to 0.24 ms in Sponza, 0.92 to 1.41 in Bistro's street. The
   static voxels' is kept (GI Light Static, `ComputeGiLightStatic`, into `GiData::directFirst` of `gGiRadiance`) and
   made again when a clip is voxelized or the lights change (`Renderer::myGiLights`, compared bytewise: the environment's
-  rotation turns its dominant lights, which are among them); each frame GI Light (`ComputeGiLight`) gives every voxel
+  rotation turns its dominant lights, which are among them, and the sky's sun moves with the time of day). The part the
+  lights don't change, the emitters' light and how far each voxel is open (`GiOpenAlong`), is kept apart
+  (`GiData::keptFirst`) and taken as it is where the lights changed alone (`GiData::lightsOnly`): remade with them, the
+  sun moving every frame cost Bistro's street 72 ms a frame (its emitters' samples and shadow rays per voxel), 10 now. A
+  change of the same lights turned by under 2 degrees and dimmed by under a quarter is gradual
+  (`Renderer::myGiLightsGradual`): the surface cache keeps what it has rather than starting over, sampling as where
+  something moves (32 samples at most) for `kGiLightsFollowFrameCount` (64) frames after, so that it follows the sun
+  rather than restarting every frame. Each frame GI Light (`ComputeGiLight`) gives every voxel
   that (a moving voxel's, which differs from the static one at its place, made then: a moving voxel doesn't shadow the
   static ones' kept light), plus what its albedo reflects of the probes' light at it as the last frame resolved it
   (`GiData::bounce`, `SPEEDO_GI_BOUNCE=0` for the lights' light alone): the light bounces on, a bounce a frame, settling
@@ -1776,6 +1783,54 @@ rays, 1.7 a candidate, 4.4 the filter. Not yet: the emitters' specular (a glossy
 a textured emitter's power by its texture (DamagedHelmet's triangles all candidates by the factor), and the light on blended
 surfaces.
 
+## The sky: Earth's atmosphere and the time of day
+
+The default environment (View > Environment > Physical sky; without `SPEEDO_AUTOLOAD_ENVIRONMENT`) is Earth's atmosphere
+lit by the sun, after Hillaire 2020 ("A Scalable and Production Ready Sky and Atmosphere Rendering Technique") and his
+reference implementation: air (Rayleigh), aerosols (Mie, Cornette and Shanks' phase) and ozone, with Bruneton's
+coefficients in km (`SHADER_TYPES_ATMOSPHERE_*` in `capi.h`), in `sky.h`, which `environment.slang` and the main layout
+share. It replaced a stylized gradient whose sun was fixed.
+
+- **Tables** (`gfx::EnvironmentFilter`'s, storage images in the general layout): the transmittance to the top of the
+  atmosphere (256x64, Bruneton's mapping by the distance to the top and to the horizon, 40 steps) and the light scattered
+  twice or more (32x32, Hillaire's isotropic approximation: 64 directions of 20 steps, serially, since the tests run the
+  kernels on the cpu without shared memory), made once; the sky's view of itself (256x128, `SHADER_TYPES_SKY_VIEW_TEXTURE`,
+  slot 37: by the angle from the zenith, the rows closer together near the horizon, and the azimuth from the sun's, 0 to
+  180 degrees, since the sky is symmetric about the sun's vertical plane; 32 steps, the ground below the horizon at
+  albedo 0.3 lit by the sun), made at every redraw. `EnvironmentSky` draws the panorama (256 wide, without the sun) from
+  it, and the prefilter runs on that as on a file's. The backdrop and mirror reflections sample the view (`SkyRadiance`)
+  and add the sun's disk at the real radius (0.27 degrees) through the atmosphere (`EnvironmentData::skySunRadiance`, from
+  the cpu).
+- **The sun** is a directional light (`environment::SkySun`): `SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE` (2.6, white, in
+  the renderer's lux, so that the default sun gives the 2.2 of the sky before) through the atmosphere
+  (`environment::SunTransmittance`: the same optical depth in doubles, 256 steps, within half a percent of the table, which
+  `assettest` checks), none below the horizon. Where the time of day puts it (`environment::SunDirection`): the
+  declination by the day of the year, the hour angle by local solar time (15 degrees an hour from noon), +x east and -z
+  north; the defaults Paris (Bistro's), the 21st of June, 10:30: 59 degrees up in the south east, where the fixed sun was.
+  View > Environment (with the sky installed): Time of Day (shown as hours and minutes, typed as hours), Advance Time and
+  Time Speed (a multiple of real time, 60 an hour a minute), Latitude, Day of Year; `SPEEDO_TIME_OF_DAY` (hours or
+  hours:minutes), `SPEEDO_TIME_SPEED` (nonzero advances), `SPEEDO_LATITUDE`, `SPEEDO_DAY_OF_YEAR`; Copy Pose writes them.
+- **Redraws**: the draw thread advances the time (`Scene::UpdateSky`, by the real time between frames) and draws the sky
+  again where the sun has moved more than `kSkyRedrawAngle` (0.05 degrees: every 12 seconds at real time, every frame at
+  600x): the sky fields of `gEnvironment` alone (the irradiance is the filter's), the view, the panorama and the
+  prefiltering, into the installed environment, the filter's first barrier waiting for the frames still reading it, and
+  its descriptor sets handed back once the gpu is done (`Pipeline::TakeDescriptorSets`, see "Descriptor sets": 3000
+  frames at 3600x, a redraw each, where the pool would have run out of storage images within minutes). A redraw costs
+  about 3 ms on KosmicKrisp (DamagedHelmet without indirect lighting, the time at 3600x: 9.1 ms frames
+  against a 6.1 ms `Frame` scope); Bistro's street with the sun moving every frame 82.7 to 92.9 ms (2560x1440, GI on: the
+  voxels lit again for the sun and the cache following it, see "Lighting the voxels").
+- **What it looks like**: a deep blue zenith at noon ((0.021, 0.043, 0.096)), the sky 8% of a horizontal surface's light
+  at noon (a very clear day's: Hillaire's aerosols are few; hazier skies give 10 to 30%), so shade is about 3 stops below
+  sunlight, where the gradient gave half of it; a red sun near the horizon ((1.08, 0.36, 0.05) at 3 degrees up), a pink
+  sky after sunset and the blue hour purple (the ozone), and at midnight in June at Paris (the sun 17.7 degrees down) a
+  sky 4e-8 of noon's: night is black, lit by the emissive surfaces (see "Emissive surfaces as lights").
+- **Tests**: `assettest`'s sky check draws it with the kernels on the cpu, checks its panorama with the sun added as any
+  environment (the sun the one dominant light, where and as bright as put), the table against the cpu's transmittance at
+  90, 30, 10 and 3 degrees up, the zenith blue at noon, the sky's share of the noon light (5 to 40%), the sun red at 3
+  degrees up, and midnight dark.
+- **Not yet** (TODO.md): aerial perspective (the haze between the eye and far surfaces), clouds, the moon and the stars,
+  the aerosols as a setting (turbidity), and the time of day's redraw cost spread over frames.
+
 ## Descriptor sets: redundant updates consume the pool
 
 Array bindings set element by element (`SetDescriptorData(name, value, set, index)`) store their elements in index
@@ -1790,7 +1845,17 @@ full; old arrays are never recycled. So `SetDescriptorData` skips writes whose v
 (`pipeline::SameBinding`, compared per field since the Vulkan structs have padding) — otherwise
 per-frame re-writes of the same data (as the compute pass does) exhaust the pool within seconds
 (`VK_ERROR_OUT_OF_POOL_MEMORY`). Genuine changes (loads, resizes) still leak a little until sets are
-recycled once the gpu is done with them.
+recycled once the gpu is done with them. A layout whose bindings change at every dispatch hands its sets over instead
+(`Pipeline::TakeDescriptorSets(set)`: the set's arrays so far, to destroy once the gpu is done with the commands that bound
+them, which frees them back to the pool; the next bind takes a fresh one): the environment filter's, 20 sets a sky redraw,
+every frame while the time of day advances fast, which would have emptied the pool's storage images within minutes. Push
+descriptors would be the other way, but rhi's push path (`InternalPushDescriptorSet`, never used) doesn't work yet: with
+the Environment layout's set 1 flagged, validation reported the template's set 1 not to be the flagged layout
+(`VUID-VkDescriptorUpdateTemplateCreateInfo-templateType-00353`) and a set layout with a binding number twice
+(`VUID-VkDescriptorSetLayoutCreateInfo-binding-00279`), and KosmicKrisp crashed in `vkCmdPushDescriptorSetWithTemplate`.
+The reflection keys that layout's sets 1 and 16777216 (its push constants', declared in set 0), and the pipeline layout
+lays its set layouts out in the order of those keys (`DescriptorSetLayoutFlatMap`, `GetDescriptorSetLayoutHandles`):
+where to look first (TODO.md).
 
 A handle equal to the one set isn't the same object, though: drivers reuse a destroyed object's handle (NVIDIA's are
 addresses), so what is destroyed and made again with the gpu idle (the swapchain's storage views and the frame graph's
@@ -1967,12 +2032,15 @@ space), the main render target is `R16G16B16A16_SFLOAT`, and `ComputeMain` scale
 in stops), tonemaps it (`PushConstants::tonemapper`, View > Tonemapper or `SPEEDO_TONEMAPPER`: Khronos PBR Neutral, the
 default, which leaves colors up to about 0.76 as they are; ACES, Hill's fit; AgX, Wrensch's fit of the base look;
 Reinhard on luminance; linear) and applies the srgb curve when it copies to the swapchain, which stays unorm since it is a
-storage image (and imgui's colors are srgb already). Auto exposure (View > Auto Exposure, `SPEEDO_AUTO_EXPOSURE=1`; off
-by default) needs no pass of its own: ComputeMain counts the scene's pixels by their log2 luminance, before exposure,
+storage image (and imgui's colors are srgb already). Auto exposure (View > Auto Exposure, on by default since 2026-10-26, the user's call with the sky's time of
+day; `SPEEDO_AUTO_EXPOSURE=0` without, which captures compared at a fixed exposure need) needs no pass of its own: ComputeMain counts the scene's pixels by their log2 luminance, before exposure,
 into 64 bins (`gExposureHistogram`, per frame index, host visible: shared memory per group, then atomics; emptied with
 `FillBuffer` before, and a barrier to the host stage after), and `UpdateAutoExposure` reads a frame's histogram after
 its fence (where `Model::Animate` writes the frame's buffers), averages the log luminance between the 50th and 95th
-percentile, and moves the exposure toward `log2(0.3) - mean` (the procedural sky keeps exposure 1) by an exponential
+percentile, and moves the exposure toward `log2(0.2) - mean`, less up to 2 stops as the mean falls from daylight's
+(2^-4 in the renderer's units: 2900 cd/m^2 scaled as the sky's sun is, EV100 14, Bistro's street at noon -4.2) to a lit
+street's at night (2^-11, 22 cd/m^2, EV100 7; Bistro's -10.5): a night darker than a day, as the eye and a photographer
+have it (one key of 0.3 lifted Bistro's night 8.7 stops, to look as bright as noon at 2.5), by an exponential
 decay of 2 per second, of the time elapsed whatever it is, so it settles in the same time at any frame rate (fifo at 120
 Hz and mailbox at 220 followed the decay from the same targets to 2%; a frame over a second used to take the target at
 once). What it measures needn't: the indirect lighting settles by frames (its hysteresis), so a scene's first fraction
@@ -1981,13 +2049,9 @@ Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, then the environment's dominant lights), plus image based lighting that occlusion darkens. The environment
 (`gfx/environment.h`, cpu only) is an equirectangular panorama (+y up, -z at its center), a Radiance `.hdr` file
-(`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, `environment::ProceduralSky` (a sky
-over a ground, as bright on average as the constant ambient light of 0.3 it replaced, and a sun disk of 1.4 degrees
-radius (as drawn: its light's shadows take the real sun's 0.27, `kSkySunRadius`, see "Ray traced shadows") giving the 2.2 lux of the directional light it replaced, `kSkySunDirection` (`SkyParameters`, which the shader
-evaluates where the sky is seen sharply, `EnvironmentData::skyZenith` and on: the backdrop, and reflections below the first
-prefiltered level's roughness, blending into it; the 256 wide panorama it lights with is blurry anyway, and its sun was a
-square; a 2048 panorama took seconds to prefilter on the cpu at every start). The cpu `ProceduralSky` panorama (its sun
-drawn with 4x4 samples per texel, scaled to exactly that irradiance) tests the dominant light extraction. A panorama's strongest compact light sources are its dominant lights (not
+(`environment::Import`, scaled to 2048 wide) or, by default and in automated runs, the sky (see "The sky", below: Earth's
+atmosphere, its sun where the time of day puts it). A sun disk drawn into the sky's panorama (`environment::AddSun`, 4x4
+samples per texel, scaled to exactly its irradiance) tests the dominant light extraction. A panorama's strongest compact light sources are its dominant lights (not
 necessarily a sun: a softbox in neutral.hdr, windows in ennis.hdr and papermill.hdr), which
 `environment::ExtractDominantLights` takes out, up to `kMaxDominantLights` (4), each found in what the ones before left
 (its brightest texel, if 50 times the mean of what is left, and the texels around it within 15 degrees brighter than 2%
@@ -2001,12 +2065,12 @@ counted twice. View > Environment lists them. Where one of the model's direction
 one (checked each frame, after the rotation), they are the same light, merged: the model's alone is kept (as authored, maybe animated), and View > Environment says so (and
 turns merging off and on, `gMergeLights`; `SPEEDO_MERGE_LIGHTS=0` starts without). The
 Khronos panoramas' bright sources are clipped, so most come out at 3 to 5% of the mean (field, footprint_court, doge2
-and pisa have none; papermill has 4, all windows); the procedural sky's sun is 37%, and `assettest` checks it is the one
+and pisa have none; papermill has 4, all windows); the sky's sun is 57%, and `assettest` checks it is the one
 dominant light found, where and as bright as it was put (and the lighting levels against the panorama's mean less the
 dominant lights' share). The client prefilters on the gpu (`gfx::EnvironmentFilter`, `environment.slang`, a layout of its
 own, "Environment", kernels selected by `ComputePipelineVariant`): `LoadEnvironment` decodes a file and takes its dominant
 lights out on the cpu (cached, `environment-vN`: the original and lighting panoramas as half floats, and the lights), and
-uploads both panoramas; the procedural sky needs nothing (its sun is known, and the source is drawn by `EnvironmentSky`).
+uploads both panoramas; the sky needs nothing (the filter draws its source, `EnvironmentSky`, and its sun is known).
 `InstallEnvironment` then records the filter on the draw thread (after the uploads are acquired, writing the rest of
 `gEnvironment` first): the source pyramid (`EnvironmentDownsample`, by solid angle, down to 8 wide), level 0 (the original,
 or the sky's source), the GGX and Charlie levels, and the irradiance (one group, into `gEnvironment[0]`), each kernel over
@@ -2123,8 +2187,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 37
-(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's and 30 to 36 the emitters'). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 38
+(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
@@ -2147,9 +2211,9 @@ or frames them on its bounds (`Views::SetScene`, `Views::FrameBounds`).
 
 File > "Open..." is the file browser, which loads models, zip archives, environments (`.hdr`) and images, by their type
 (`LoadAndInstallFile`), and several models at once (side by side or as authored); View > Environment > Open
-Environment... is the same browser for panoramas only (`BrowserPurpose::kEnvironment`, with listing options of its own); View > Environment picks the procedural sky or opens
+Environment... is the same browser for panoramas only (`BrowserPurpose::kEnvironment`, with listing options of its own); View > Environment picks the physical sky or opens
 a panorama. `SPEEDO_AUTOLOAD_MODEL`, `SPEEDO_AUTOLOAD_IMAGE` and `SPEEDO_AUTOLOAD_ENVIRONMENT` take paths absolute or
-relative to the resource directory (without an environment, the procedural sky loads, as one of the autoloads). Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
+relative to the resource directory (without an environment, the sky loads, as one of the autoloads). Zip archives (opened, or a `.zip` in `SPEEDO_AUTOLOAD_MODEL`, which loads all of its models) are extracted
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `core::zip` (`core/zip.h`: our own
 reader, libdeflate's inflate and crc-32), then loaded from there like any other files; with several models the user picks one. The extractor reads
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),

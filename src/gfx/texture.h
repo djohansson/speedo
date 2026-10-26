@@ -45,12 +45,13 @@ struct Texture
 // an environment for the gpu to prefilter (see EnvironmentFilter, and environment::Environment for what the levels
 // are): its levels as the mips of a R16G16B16A16_SFLOAT texture and its sheen levels as another's (storage images,
 // written by the filter), the source pyramid it filters from, and its dominant lights. a file's panoramas (the original,
-// dominant lights included, and the lighting one without them) are uploaded for it; the procedural sky has none (the
-// filter draws it from its parameters, which the shader evaluates too: see EnvironmentData)
+// dominant lights included, and the lighting one without them) are uploaded for it; the sky has none (the filter draws it
+// for the sun where the time of day puts it, which the scene updates, and its sun is a dominant light by the same: see
+// EnvironmentData and gfx::environment::SkySun)
 struct EnvironmentTexture
 {
 	std::vector<environment::DominantLight> dominantLights;
-	std::optional<environment::SkyParameters> sky;
+	bool sky = false;
 	Texture texture;
 	Texture sheenTexture;
 	std::shared_ptr<Image> source; // its pyramid, down to 8 texels wide
@@ -64,8 +65,8 @@ struct EnvironmentTexture
 };
 
 // loads an environment panorama file (e.g. Radiance .hdr) through the asset cache (decoded, its dominant lights taken
-// out), or the procedural sky (see environment::ProceduralSky) without one, for the gpu to prefilter (see
-// EnvironmentFilter). empty if cancelled or failed.
+// out), or the sky (see environment::SkySun) without one, for the gpu to prefilter (see EnvironmentFilter). empty if
+// cancelled or failed.
 [[nodiscard]] EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress);
 
 } // namespace gfx

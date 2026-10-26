@@ -488,7 +488,8 @@ endif()
 set(ENVIRONMENT_KERNELS_SOURCE ${SPEEDO_SOURCE_DIR}/gfx/shaders/environment.slang)
 set(ENVIRONMENT_KERNELS_CPP ${CMAKE_CURRENT_BINARY_DIR}/environmentkernels.generated.cpp)
 set(ENVIRONMENT_KERNELS_ENTRY_POINTS)
-foreach(entry EnvironmentSky EnvironmentDownsample EnvironmentCopy EnvironmentSpecular EnvironmentSheen EnvironmentIrradiance)
+foreach(entry EnvironmentSky EnvironmentDownsample EnvironmentCopy EnvironmentSpecular EnvironmentSheen EnvironmentIrradiance
+		EnvironmentSkyTransmittance EnvironmentSkyMultipleScattering EnvironmentSkyView)
 	list(APPEND ENVIRONMENT_KERNELS_ENTRY_POINTS -entry ${entry} -stage compute)
 endforeach()
 add_custom_command(

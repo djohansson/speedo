@@ -5,6 +5,7 @@
 // asset failed.
 
 #include <gfx/environment.h>
+#include <gfx/shaders/capi.h>
 #include "environmentkernels.h"
 #include "bvhkernelsbridge.h"
 #include <gfx/bvh.h>
@@ -1192,13 +1193,13 @@ Report CheckImage(const std::filesystem::path& path, std::optional<uint32_t> emb
 // panorama's (filtering moves light around, it doesn't add or remove any), and the irradiance's mean over the sphere
 // (its constant term) the panorama's mean too
 // an environment prefiltered as the client does it: its dominant lights taken out on the cpu, and its levels and
-// irradiance from the gpu's kernels, run on the cpu (see environmentkernels). panorama: a file's, or the procedural sky's
-// (sky: then the kernels draw it from its parameters, without its sun, and its sun is expectedLight, which the dominant
-// light found in its panorama must match)
+// irradiance from the gpu's kernels, run on the cpu (see environmentkernels). panorama: a file's, or the sky's with its sun
+// added (skySun: then the kernels draw it for that sun, without it, and its sun is expectedLight, which the dominant light
+// found in its panorama must match)
 Report CheckEnvironment(
 	core::TaskExecutor& executor,
 	const gfx::environment::Panorama& panorama,
-	const gfx::environment::SkyParameters* sky = nullptr,
+	std::optional<glm::vec3> skySun = std::nullopt,
 	const std::optional<gfx::environment::DominantLight>& expectedLight = std::nullopt)
 {
 	using namespace gfx::environment;
@@ -1208,7 +1209,7 @@ Report CheckEnvironment(
 	auto lighting = panorama;
 	auto dominantLights = ExtractDominantLights(lighting);
 	std::optional<Environment> environment = environmentkernels::Prefilter(
-		sky != nullptr ? environmentkernels::Source{.sky = sky, .skyWidth = panorama.width}
+		skySun ? environmentkernels::Source{.skySun = skySun, .skyWidth = panorama.width}
 					   : environmentkernels::Source{.original = &panorama, .lighting = &lighting},
 		data,
 		executor);
@@ -1301,8 +1302,8 @@ Report CheckEnvironment(
 	{
 		const auto& level = environment->levels[levelIt];
 		auto levelMean = luminance(MeanRadiance(level, data));
-		// level 0 is the panorama, dominant lights included (but the procedural sky's has no sun: the shader draws it)
-		auto error = std::abs(levelMean / (levelIt == 0 && sky == nullptr ? mean : lightingMean) - 1.0);
+		// level 0 is the panorama, dominant lights included (but the sky's has no sun: the shader draws it)
+		auto error = std::abs(levelMean / (levelIt == 0 && !skySun ? mean : lightingMean) - 1.0);
 		if (!std::isfinite(levelMean))
 			report.Fail("level {} has values that aren't finite", levelIt);
 		else if (error > 0.1)
@@ -1334,6 +1335,123 @@ Report CheckEnvironment(
 	auto down = EvaluateIrradiance(*environment, glm::vec3(0.0F, -1.0F, 0.0F));
 	report.Info("irradiance up {:.4g}, down {:.4g}", luminance(up), luminance(down));
 
+	return report;
+}
+
+// the sky (the client's default environment, see sky.h), as the kernels draw it on the cpu: for the default time of day,
+// its panorama with its sun added checked as any environment (its sun the one dominant light found, where and as bright as
+// it was put), and the atmosphere: the transmittance table against gfx::environment::SunTransmittance (which the sun's
+// light is), the zenith bluer than red at noon, the sun red near the horizon, the sky's share of the light at noon as a
+// clear sky's, and the night dark
+Report CheckSky(core::TaskExecutor& executor)
+{
+	using namespace gfx::environment;
+
+	auto luminance = [](const glm::dvec3& rgb) { return glm::dot(rgb, glm::dvec3(0.2126, 0.7152, 0.0722)); };
+	auto sunAt = [](float timeOfDay) { return SunDirection(kSkyDefaultLatitude, kSkyDefaultDayOfYear, timeOfDay); };
+	auto draw = [&executor](const glm::vec3& sun)
+	{
+		std::vector<std::byte> data;
+		environmentkernels::Sky sky;
+		(void)environmentkernels::Prefilter({.skySun = sun}, data, executor, &sky);
+		return sky;
+	};
+	// the irradiance a panorama gives a surface facing up, by solid angle
+	auto irradianceUp = [](const Panorama& panorama)
+	{
+		glm::dvec3 sum(0.0);
+		for (uint32_t y = 0; y < panorama.height / 2; y++)
+		{
+			double theta = (y + 0.5) / panorama.height * std::numbers::pi;
+			double solidAngle = (2.0 * std::numbers::pi / panorama.width) * (std::numbers::pi / panorama.height) * std::sin(theta);
+			for (uint32_t x = 0; x < panorama.width; x++)
+				sum += glm::dvec3(glm::make_vec3(&panorama.rgb[(static_cast<size_t>(y) * panorama.width + x) * 3])) * (std::cos(theta) * solidAngle);
+		}
+		return sum;
+	};
+
+	auto sun = sunAt(kSkyDefaultTimeOfDay);
+	auto sky = draw(sun);
+	auto panorama = sky.panorama;
+	auto skySun = SkySun(sun);
+	AddSun(panorama, skySun);
+	auto report = CheckEnvironment(executor, panorama, sun, skySun);
+	report.Info(
+		"sun ({:.3f}, {:.3f}, {:.3f}), {:.1f} degrees up, irradiance ({:.3f}, {:.3f}, {:.3f})",
+		sun.x, sun.y, sun.z, glm::degrees(std::asin(sun.y)), skySun.irradiance.x, skySun.irradiance.y, skySun.irradiance.z);
+
+	// the transmittance table where the sun's light is looked up (from the eye's altitude), against the cpu's: as sky.h's
+	// SkyTransmittanceUv, bilinear
+	auto tableAt = [&sky](double mu)
+	{
+		double bottom = SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS;
+		double top = SHADER_TYPES_ATMOSPHERE_TOP_RADIUS;
+		double r = bottom + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE;
+		double h = std::sqrt((top * top) - (bottom * bottom));
+		double rho = std::sqrt((r * r) - (bottom * bottom));
+		double d = (-r * mu) + std::sqrt((r * r * ((mu * mu) - 1.0)) + (top * top));
+		double xMu = (d - (top - r)) / (rho + h - (top - r));
+		double xR = rho / h;
+		auto width = static_cast<double>(sky.transmittanceWidth);
+		auto height = static_cast<double>(sky.transmittanceHeight);
+		double x = std::clamp(xMu, 0.0, 1.0) * (width - 1.0);
+		double y = std::clamp(xR, 0.0, 1.0) * (height - 1.0);
+		auto x0 = std::min(static_cast<uint32_t>(x), sky.transmittanceWidth - 2);
+		auto y0 = std::min(static_cast<uint32_t>(y), sky.transmittanceHeight - 2);
+		auto texel = [&sky](uint32_t tx, uint32_t ty) { return glm::dvec3(sky.transmittance[(static_cast<size_t>(ty) * sky.transmittanceWidth) + tx]); };
+		double fx = x - x0;
+		double fy = y - y0;
+		return glm::mix(glm::mix(texel(x0, y0), texel(x0 + 1, y0), fx), glm::mix(texel(x0, y0 + 1), texel(x0 + 1, y0 + 1), fx), fy);
+	};
+	for (double elevation : {90.0, 30.0, 10.0, 3.0})
+	{
+		double mu = std::sin(glm::radians(elevation));
+		auto cpu = glm::dvec3(SunTransmittance(glm::vec3(static_cast<float>(std::sqrt(1.0 - (mu * mu))), static_cast<float>(mu), 0.0F)));
+		auto table = tableAt(mu);
+		double error = 0.0;
+		for (int c = 0; c < 3; c++)
+			error = std::max(error, std::abs(table[c] / std::max(cpu[c], 1e-6) - 1.0));
+		report.Info("transmittance at {} degrees: ({:.4f}, {:.4f}, {:.4f}), the table's ({:.4f}, {:.4f}, {:.4f})", elevation, cpu.x, cpu.y, cpu.z, table.x, table.y, table.z);
+		if (error > 0.05)
+			report.Fail("the transmittance table is {:.1f}% off the sun's at {} degrees up", error * 100.0, elevation);
+		else if (error > 0.02)
+			report.Warn("the transmittance table is {:.1f}% off the sun's at {} degrees up", error * 100.0, elevation);
+	}
+
+	// noon: the zenith blue, and the sky's share of a horizontal surface's light a clear sky's (8%: Hillaire's atmosphere has
+	// almost no aerosols, a very clear day's; hazier ones give 10 to 30%)
+	auto noonSun = sunAt(12.0F);
+	auto noon = draw(noonSun);
+	glm::dvec3 zenith(0.0);
+	for (uint32_t x = 0; x < noon.panorama.width; x++)
+		zenith += glm::dvec3(glm::make_vec3(&noon.panorama.rgb[static_cast<size_t>(x) * 3]));
+	report.Info("zenith at noon ({:.4f}, {:.4f}, {:.4f})", zenith.x / noon.panorama.width, zenith.y / noon.panorama.width, zenith.z / noon.panorama.width);
+	if (!(zenith.z > zenith.y && zenith.y > zenith.x))
+		report.Fail("the zenith at noon isn't blue");
+	auto skyLight = luminance(irradianceUp(noon.panorama));
+	auto sunLight = luminance(glm::dvec3(SkySun(noonSun).irradiance)) * noonSun.y;
+	auto share = skyLight / (skyLight + sunLight);
+	report.Info("noon: the sky gives {:.3f} of a horizontal surface's {:.3f}, {:.1f}%", skyLight, skyLight + sunLight, share * 100.0);
+	if (share < 0.05 || share > 0.4)
+		report.Fail("the sky gives {:.1f}% of the light at noon, where a clear sky gives 5 to 30%", share * 100.0);
+
+	// the sun near the horizon (3 degrees up): red
+	float sunsetTime = 12.0F;
+	while (sunsetTime < 24.0F && sunAt(sunsetTime).y > std::sin(glm::radians(3.0F)))
+		sunsetTime += 1.0F / 60.0F;
+	auto evening = SkySun(sunAt(sunsetTime)).irradiance;
+	report.Info("the sun at {:.2f} h, 3 degrees up: ({:.4f}, {:.4f}, {:.4f})", sunsetTime, evening.x, evening.y, evening.z);
+	if (!(evening.x > evening.y && evening.y > evening.z))
+		report.Fail("the sun 3 degrees up isn't red");
+
+	// midnight (the sun 18 degrees down in June at Paris): dark, by a thousandth of noon at least, and no sun
+	auto midnightSun = sunAt(0.0F);
+	auto midnight = draw(midnightSun);
+	auto night = luminance(MeanRadiance(midnight.panorama));
+	auto day = luminance(MeanRadiance(noon.panorama));
+	report.Info("midnight: the sun {:.1f} degrees up, the sky's mean radiance {:.3g} (noon's {:.3g})", glm::degrees(std::asin(midnightSun.y)), night, day);
+	if (SkySun(midnightSun) || !(night < day * 1e-3))
+		report.Fail("the sky isn't dark at midnight");
 	return report;
 }
 
@@ -1575,15 +1693,13 @@ int main(int argc, char* argv[])
 			});
 	}
 
-	// the procedural sky (the client's default environment), and the environment files
+	// the sky (the client's default environment), and the environment files
 	ResultCounts environmentResults{};
 	if (images)
 	{
 		auto start = std::chrono::steady_clock::now();
-		gfx::environment::DominantLight skySun{.direction = gfx::environment::kSkySunDirection};
-		skySun.irradiance = glm::vec3(gfx::environment::kSkySunIrradiance);
-		auto report = CheckEnvironment(executor, gfx::environment::ProceduralSky(), &gfx::environment::ProceduralSkyParameters(), skySun);
-		Print("procedural sky", report, std::chrono::steady_clock::now() - start);
+		auto report = CheckSky(executor);
+		Print("sky", report, std::chrono::steady_clock::now() - start);
 		Count(environmentResults, report.result)++;
 
 		std::ranges::sort(environmentFiles);

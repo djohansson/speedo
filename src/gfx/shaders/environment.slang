@@ -2,7 +2,7 @@
 // gfx::environment::Prefilter's steps (environment.cpp, the reference the tests check), each a kernel writing one mip
 // level of an output through gOutput. the source is the panorama without its dominant lights (they light the scene as
 // directional lights), with its pyramid down to 8 texels wide: uploaded for a file, drawn by EnvironmentSky for the
-// procedural sky.
+// sky (see sky.h).
 module environment;
 
 #include "capi.h"
@@ -18,7 +18,7 @@ Texture2D gInput;
 // the mip level written
 [[vk::binding(3, 1)]]
 RWTexture2D<float4> gOutput;
-// gEnvironment: the procedural sky's parameters (read), and the irradiance (written by EnvironmentIrradiance)
+// gEnvironment: the sky's sun (read), and the irradiance (written by EnvironmentIrradiance)
 [[vk::binding(4, 1)]]
 RWStructuredBuffer<EnvironmentData> gEnvironment;
 
@@ -26,6 +26,16 @@ RWStructuredBuffer<EnvironmentData> gEnvironment;
 [[vk::binding(0, 0)]]
 [[vk::push_constant]]
 ConstantBuffer<EnvironmentFilterConstants> gFilter;
+
+// the sky's tables (see sky.h), sampled with gSampler at their texels' centers and between them (SkySubUv: never past
+// their edges, so its wrapping in u doesn't matter): the transmittance, the multiple scattering, and the sky's view of
+// itself, each written through gOutput by its kernel before the next reads it
+[[vk::binding(5, 1)]]
+Texture2D gSkyTransmittance;
+[[vk::binding(6, 1)]]
+Texture2D gSkyMultipleScattering;
+[[vk::binding(7, 1)]]
+Texture2D gSkyView;
 
 #include "sky.h"
 
@@ -83,14 +93,128 @@ float SourceHeight()
 	return float(height);
 }
 
-// the procedural sky without its sun: the source's level 0
+// the sky's transmittance table (SHADER_TYPES_SKY_TRANSMITTANCE_WIDTH by _HEIGHT, see SkyTransmittanceUv): from each
+// radius and angle to the top of the atmosphere, the optical depth in 40 steps
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void EnvironmentSkyTransmittance(uint3 id : SV_DispatchThreadID)
+{
+	float2 uv;
+	if (!OutputTexel(id.xy, uv))
+		return;
+	float r;
+	float mu;
+	SkyTransmittanceParameters(uv, r, mu);
+	float3 origin = float3(0.0, r, 0.0);
+	float3 direction = float3(sqrt(max(1.0 - mu * mu, 0.0)), mu, 0.0);
+	float end = max(SkySphere(origin, direction, SHADER_TYPES_ATMOSPHERE_TOP_RADIUS), 0.0);
+	const uint kStepCount = 40;
+	float step = end / float(kStepCount);
+	float3 depth = 0.0;
+	for (uint stepIt = 0; stepIt < kStepCount; stepIt++)
+	{
+		float3 position = origin + direction * ((float(stepIt) + 0.5) * step);
+		depth += SkyMediumAt(length(position) - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS).extinction * step;
+	}
+	gOutput[id.xy] = float4(exp(-depth), 1.0);
+}
+
+// the sky's multiple scattering table (SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE square, see SkyMultipleScattering): from
+// each altitude, the sun at each angle, the light scattered once toward it over 64 directions and the share of light
+// scattered again (an isotropic phase, Hillaire's approximation), in 20 steps each; serially, without shared memory (the
+// tests run the kernels on the cpu, where a group's threads run one after another)
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void EnvironmentSkyMultipleScattering(uint3 id : SV_DispatchThreadID)
+{
+	float2 uv;
+	if (!OutputTexel(id.xy, uv))
+		return;
+	float size = float(SHADER_TYPES_SKY_MULTIPLE_SCATTERING_SIDE);
+	float muSun = saturate(SkyUnit(uv.x, size)) * 2.0 - 1.0;
+	float r = SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + max(saturate(SkyUnit(uv.y, size)) *
+		(SHADER_TYPES_ATMOSPHERE_TOP_RADIUS - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS), SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE);
+	float3 origin = float3(0.0, r, 0.0);
+	float3 sunDirection = float3(sqrt(max(1.0 - muSun * muSun, 0.0)), muSun, 0.0);
+	const uint kSideCount = 8;
+	const uint kStepCount = 20;
+	float isotropic = 1.0 / (4.0 * kSkyPi);
+	float3 once = 0.0; // the light scattered once toward the point, over the directions
+	float3 again = 0.0; // the share of light scattered toward the point, an isotropic source's
+	for (uint directionIt = 0; directionIt < kSideCount * kSideCount; directionIt++)
+	{
+		float theta = 2.0 * kSkyPi * (float(directionIt % kSideCount) + 0.5) / float(kSideCount);
+		float cosPhi = 1.0 - 2.0 * (float(directionIt / kSideCount) + 0.5) / float(kSideCount);
+		float sinPhi = sqrt(max(1.0 - cosPhi * cosPhi, 0.0));
+		float3 direction = float3(cos(theta) * sinPhi, cosPhi, sin(theta) * sinPhi);
+		float toBottom = SkySphere(origin, direction, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS);
+		float toTop = SkySphere(origin, direction, SHADER_TYPES_ATMOSPHERE_TOP_RADIUS);
+		float end = toBottom >= 0.0 ? (toTop >= 0.0 ? min(toTop, toBottom) : toBottom) : toTop;
+		if (end <= 0.0)
+			continue;
+		float step = end / float(kStepCount);
+		float3 transmittance = 1.0;
+		for (uint stepIt = 0; stepIt < kStepCount; stepIt++)
+		{
+			float3 position = origin + direction * ((float(stepIt) + 0.5) * step);
+			float radius = length(position);
+			SkyMedium medium = SkyMediumAt(radius - SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS);
+			float3 sun = SkyTransmittance(gSkyTransmittance, gSampler, radius, dot(position / radius, sunDirection)) *
+						 SkySunVisible(position, sunDirection);
+			float3 through = exp(-medium.extinction * step);
+			float3 scattered = transmittance * (medium.scattering - medium.scattering * through) / max(medium.extinction, 1e-9);
+			once += scattered * sun * isotropic;
+			again += scattered;
+			transmittance *= through;
+		}
+		if (toBottom >= 0.0 && toBottom <= end)
+		{
+			float3 ground = origin + direction * toBottom;
+			float radius = length(ground);
+			float muGround = dot(ground / radius, sunDirection);
+			once += transmittance * SkyTransmittance(gSkyTransmittance, gSampler, radius, muGround) * saturate(muGround) *
+					(SHADER_TYPES_ATMOSPHERE_GROUND_ALBEDO / kSkyPi);
+		}
+	}
+	// the means over the sphere (its solid angle times the isotropic phase is 1), and every order past the second as a
+	// geometric series of the share scattered again
+	float count = float(kSideCount * kSideCount);
+	once /= count;
+	again /= count;
+	gOutput[id.xy] = float4(once / max(1.0 - again, 1e-3), 1.0);
+}
+
+// the sky's view of itself (SHADER_TYPES_SKY_VIEW_WIDTH by _HEIGHT, see SkyViewUv), the sun at its angle in
+// gEnvironment[0].skySun: the light scattered toward the eye along each view, and the ground's below the horizon, in the
+// renderer's units (times SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE)
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void EnvironmentSkyView(uint3 id : SV_DispatchThreadID)
+{
+	float2 uv;
+	if (!OutputTexel(id.xy, uv))
+		return;
+	float viewZenithCos;
+	float sunViewCos;
+	SkyViewParameters(uv, viewZenithCos, sunViewCos);
+	float muSun = clamp(gEnvironment[0].skySun.y, -1.0, 1.0);
+	float3 sunDirection = float3(sqrt(max(1.0 - muSun * muSun, 0.0)), muSun, 0.0);
+	float sinZenith = sqrt(max(1.0 - viewZenithCos * viewZenithCos, 0.0));
+	float3 direction = float3(sinZenith * sunViewCos, viewZenithCos, sinZenith * sqrt(max(1.0 - sunViewCos * sunViewCos, 0.0)));
+	float3 origin = float3(0.0, SHADER_TYPES_ATMOSPHERE_BOTTOM_RADIUS + SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE, 0.0);
+	float3 light = SkyScatteredLight(gSkyTransmittance, gSkyMultipleScattering, gSampler, origin, direction, sunDirection, 32);
+	gOutput[id.xy] = float4(light * SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE, 1.0);
+}
+
+// the sky without its sun (a directional light, see gfx::environment::SunIrradiance): the source's level 0, from its view
+// of itself
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void EnvironmentSky(uint3 id : SV_DispatchThreadID)
 {
 	float2 uv;
 	if (OutputTexel(id.xy, uv))
-		gOutput[id.xy] = float4(SkyGradient(gEnvironment[0], Direction(uv)), 1.0);
+		gOutput[id.xy] = float4(SkyViewRadiance(gSkyView, gSampler, Direction(uv), gEnvironment[0].skySun.xyz), 1.0);
 }
 
 // a mip of the source's pyramid: each texel the mean of the four above it by their solid angles (rows nearer the poles

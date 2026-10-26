@@ -39,36 +39,27 @@ constexpr uint32_t kSkyWidth = 256;
 [[nodiscard]] std::expected<Panorama, std::string> Import(
 	std::span<const std::byte> data, std::string_view name, uint32_t maxWidth = kMaxFileWidth);
 
-// the procedural sky's sun: where it is (towards it), and the irradiance it gives a surface facing it (lux, as the
-// directional light it replaced: 2.2, the diffuse light of a white surface facing it (0.7) times pi)
-inline const glm::vec3 kSkySunDirection{0.2592F, 0.8639F, 0.4319F}; // normalize(0.3, 1, 0.5)
-constexpr float kSkySunIrradiance = 2.2F;
-// radians: the real sun's (0.2665 degrees: 0.533 across), for its disk in the sky and its shadows' penumbrae. it was 1.4
-// degrees, a stylized disk the shadows didn't use
+// radians: the real sun's (0.2665 degrees: 0.533 across), for its disk in the sky and its shadows' penumbrae
 constexpr float kSkySunRadius = 0.00465F;
 
-// the procedural sky, as ProceduralSky draws it and the shader evaluates it where it is seen sharply (the backdrop, mirror
-// reflections; see EnvironmentData): its colors, scaled so that the sky is as bright on average as the ambient light it
-// replaced (0.3), and its sun disk, of a radiance giving kSkySunIrradiance
-struct SkyParameters
-{
-	glm::vec3 zenith{0.0F};
-	glm::vec3 horizon{0.0F};
-	glm::vec3 ground{0.0F};
-	glm::vec3 sunDirection{0.0F}; // towards it
-	float sunCosRadius = 1.0F;
-	float sunRadiance = 0.0F;
-};
-[[nodiscard]] const SkyParameters& ProceduralSkyParameters();
+// the sky, the default environment where no file is loaded: Earth's atmosphere lit by the sun (see shaders/sky.h; the gpu
+// draws it, its panorama kSkyWidth wide: what lights the scene is blurry, the prefiltered levels and the irradiance, and
+// the shader draws what is seen sharply itself), the sun where the time of day puts it, at a latitude on a day of the
+// year. the defaults: Paris (Bistro's), the 21st of June, half past ten in the morning (local solar time): 59 degrees up
+// in the south east, where the sky's sun was before it moved
+constexpr float kSkyDefaultLatitude = 48.86F; // degrees, north positive
+constexpr float kSkyDefaultDayOfYear = 172.0F; // 1 the 1st of January
+constexpr float kSkyDefaultTimeOfDay = 10.5F; // hours of local solar time: 12 the sun highest
 
-// the procedural sky's radiance (without its sun) in a direction (unit length), as the shader's SkyRadiance
-[[nodiscard]] glm::vec3 SkyRadiance(const SkyParameters& sky, const glm::vec3& direction);
+// toward the sun (a unit vector in the panorama's space: +x east, +y up, -z north, where the cameras look by default),
+// at a latitude (degrees), a day of the year and a time of day (hours): the declination by the day (Cooper's), the hour
+// angle by the time (15 degrees an hour from noon; no equation of time)
+[[nodiscard]] glm::vec3 SunDirection(float latitudeDegrees, float dayOfYear, float timeOfDay);
 
-// the default environment, where no file is loaded (and for tests): a sky over a ground, as bright on average as the
-// constant ambient light it replaced (0.3), and a sun (see SkyParameters). a small panorama: what lights the scene is
-// blurry (the prefiltered levels, the irradiance; the sun is a directional light), and the shader draws what is seen
-// sharply itself
-[[nodiscard]] Panorama ProceduralSky(uint32_t width = kSkyWidth);
+// the atmosphere's transmittance toward a direction (a unit vector, +y up), from the eye's altitude
+// (SHADER_TYPES_ATMOSPHERE_EYE_ALTITUDE) to the top of the atmosphere, as the sky's transmittance table has it: 0 where the
+// planet is in the way (the sun below the horizon)
+[[nodiscard]] glm::vec3 SunTransmittance(const glm::vec3& direction);
 
 // a panorama's dominant light: a strong compact light source (the sun, a lamp, a window), which lights the scene
 // as a directional light (with shadows) instead of as part of the environment. direction: towards it (in the
@@ -84,6 +75,14 @@ struct DominantLight
 
 	[[nodiscard]] explicit operator bool() const noexcept { return irradiance[0] > 0.0F || irradiance[1] > 0.0F || irradiance[2] > 0.0F; }
 };
+
+// the sky's sun toward a direction (see SunDirection), as a directional light: the sun's illuminance at the top of the
+// atmosphere (SHADER_TYPES_ATMOSPHERE_SUN_ILLUMINANCE) through it (SunTransmittance), none below the horizon
+[[nodiscard]] DominantLight SkySun(const glm::vec3& direction);
+
+// a sun's disk (kSkySunRadius) added to a panorama, its texels covered in part where its edge crosses them (4x4 samples
+// each), giving exactly its irradiance: for tests of the dominant lights' extraction
+void AddSun(Panorama& panorama, const DominantLight& sun);
 
 // at most this many dominant lights are taken out of a panorama
 constexpr size_t kMaxDominantLights = 4;
