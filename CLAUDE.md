@@ -1714,31 +1714,40 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   its emitters' power, were rarely a candidate of a wall beside them, and the light was mottled in blotches
   of the filter's size (`mean |log2|` against the reference, blurred 4 pixels: 0.150 to 0.129, and smooth to the eye).
 - **Per traced pixel** (every `SPEEDO_EMITTER_STRIDE`-th pixel each way, 4; a texel each of the emitters' images,
-  `SHADER_TYPES_EMITTER_RAW_TEXTURE` on): Emitter Sample resamples `SPEEDO_EMITTER_CANDIDATE_COUNT` (4) candidates
+  `SHADER_TYPES_EMITTER_RAW_TEXTURE` on): Emitter Sample resamples `SPEEDO_EMITTER_CANDIDATE_COUNT` (8) candidates
   (RIS: a point of each picked triangle, uniformly, by the luminance of the irradiance it would give unshadowed, nearer
-  than two pixels taken as two pixels away), and merges the reservoir of the traced pixel where its point was last frame
-  (ReSTIR's temporal reuse: by the view's last view projection, where that point was the same surface,
-  `EmitterTolerance` and normals within 25 degrees, not where the stencil says something moves; its count capped at
-  `SPEEDO_EMITTER_HISTORY_CAP`, 20, times the candidates; `SPEEDO_EMITTER_REUSE=0` without). Emitter Shade traces the
-  chosen point's shadow ray (`ShadowOccluder`: the static and moving BVHs, alpha masks cut out), writes the irradiance
-  over pi, and keeps the reservoir for the next frame (`gEmitterReservoirs`: three parts, the frame's before the spatial
-  reuse and after it the frame's and the last frame's, by parity; triangle, barycentrics as unorm16, W, and M and the
-  visibility's age, 16 bits each). A point its ray finds hidden is kept as the candidates it stood for, of no light
-  (RTXDI's discard of invisible samples): kept as it was, a back wall's reservoir held the brighter cube behind the
-  partition as often as its own, and half of EmissiveStrengthTest's pixels were black. Under a still camera a point found
-  visible stays so for `SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT` (8) frames without a ray (a quarter of that where something
-  moves; `EmitterViewStill`): 1.3 to 1.6 ms of Bistro's street, whose walls mostly keep searching (their candidates
-  are windows behind facades, discarded), more where the reservoirs settle. Below `SPEEDO_EMITTER_ROULETTE` (0.02) of the frame's white (the
-  unshadowed estimate times the exposure) the ray is traced by chance, weighed up by it: Bistro's street by day under auto
-  exposure, 2.5 ms (65.4 to 67.9 with every ray).
+  than two pixels taken as two pixels away), and Emitter Shade traces the chosen point's shadow ray (`ShadowOccluder`:
+  the static and moving BVHs, alpha masks cut out) and writes the irradiance over pi. Each frame's sample is its own:
+  ReSTIR's temporal reuse (`SPEEDO_EMITTER_REUSE=1`: the reservoir of the traced pixel where its point was last frame,
+  by the view's last view projection, where that point was the same surface, `EmitterTolerance` and normals within 25
+  degrees, not where the stencil says something moves; its count capped at `SPEEDO_EMITTER_HISTORY_CAP`, 20, times the
+  candidates; kept in `gEmitterReservoirs`: three parts, the frame's before the spatial reuse and after it the frame's
+  and the last frame's, by parity; triangle, barycentrics as unorm16, W, and M and the visibility's age, 16 bits each)
+  keeps a point for many frames, so Emitter Temporal's frames are of one sample, not independent ones, and gain little.
+  It was the default until Bistro's string lights at night (hundreds of colored bulbs across its streets and its lit
+  windows, the user's pose `-906.5073,218.3646,-40.5114,-7.916,60.803` at `SPEEDO_ENVIRONMENT_INTENSITY=0.002`,
+  exposure 5) came out a grainy colored wash: against the reference (mean |log2|, still) 0.235 with it and 16 frames
+  (cap 4 0.186, cap 1 0.164: the more history, the worse), 0.154 without it, 0.140 with 8 candidates (4 candidates were
+  as good as 8 with it), 0.132 with 16; at the end of a turn there 0.334 against 0.239; Bistro's lantern pose 0.181 to
+  0.089, EmissiveStrengthTest 0.064 to 0.033, CornellBox-Original 0.029 to 0.015, the means the same. With the reuse,
+  a point its ray finds hidden is kept as the candidates it stood for, of no light (RTXDI's discard of invisible
+  samples: kept as it was, a back wall's reservoir held the brighter cube behind the partition as often as its own, and
+  half of EmissiveStrengthTest's pixels were black), and under a still camera a point found visible stays so for
+  `SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT` (8) frames without a ray (a quarter of that where something moves;
+  `EmitterViewStill`). Below `SPEEDO_EMITTER_ROULETTE` (0.02) of the frame's white (the unshadowed estimate times the
+  exposure) the ray is traced by chance, weighed up by it: Bistro's street by day under auto exposure, 2.5 ms (65.4 to
+  67.9 with every ray).
 - **Filter and frames**, at the traced pixels: Emitter X and Y (`EmitterFilter`: the traced pixels within
   `SPEEDO_EMITTER_FILTER_REACH`, 16, pixels along rows and columns, on the same surface, by a tent, as the near field's),
-  Emitter Temporal (blended by 1 over `SPEEDO_EMITTER_HISTORY_FRAME_COUNT`, 16, into the history the frame's parity says,
+  Emitter Temporal (blended by 1 over `SPEEDO_EMITTER_HISTORY_FRAME_COUNT`, 32, into the history the frame's parity says,
   `SHADER_TYPES_EMITTER_HISTORY_TEXTURE`, bilinear from where the point was, each traced pixel only where its last surface,
   `SHADER_TYPES_EMITTER_SURFACE_TEXTURE`, RGBA32F: its point and its normal packed exactly, `EmitterPackNormal`, was the
-  same). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) upsample it (`EmitterIrradiance`: bilinear over the 2x2
-  traced pixels around, each by how much it is on the fragment's surface, else the 3x3 by that alone) and add the base
-  color times it to their direct light (Direct Light's debug view has it; blended and scattering fragments don't).
+  same; 16 frames, 0.154 against 0.188 at the string lights' pose). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`)
+  upsample it (`EmitterIrradiance`: bilinear over the 2x2 traced pixels around, each by how much it is on the fragment's
+  surface, else the 3x3 by that alone, else, thin geometry between the traced pixels, a frame's side or a ledge's edge,
+  the 3x3 by how their normals agree, never 0: left without light, those fragments were dark dashes along every edge at
+  night, magenta in the debug views, which the tonemapper made white streaks at exposure 5) and add the base color
+  times it to their direct light (Direct Light's debug view has it; blended and scattering fragments don't).
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled
   points of `SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT` (8) candidates each, shadowed as the punctual lights' are, in the static
   voxels' kept light (made again when emitters start or stop lighting) and the moving ones' each frame. An animated
@@ -1748,17 +1757,20 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   the tonemapper compresses a noisy reference: a single frame of EmissiveStrengthTest's was 2% darker than 40 frames').
 
 What was measured against the references (EmissiveStrengthTest at its frame, 40 frames; Bistro's lantern pose,
-`3002.7041,404.1237,1410.4180,10.076,5.141` at exposure 6, 96 frames; mean, and `mean |log2|` blurred 4 and 24 pixels):
-the defaults are within 0.3% (EmissiveStrengthTest 0.089, Bistro 0.189 and 0.093; stride 2: 0.073, 0.138 and 0.069, a
-rod's shadow and thin trims a stride 4 loses). Spatial reuse (`SPEEDO_EMITTER_SPATIAL_COUNT`, 0; up to 8 traced pixels
+`3002.7041,404.1237,1410.4180,10.076,5.141` at exposure 6, 96 frames; mean, and `mean |log2|` blurred 4 and 24 pixels),
+with the temporal reuse, before it was turned off (above): within 0.3% (EmissiveStrengthTest 0.089, Bistro 0.189 and
+0.093; stride 2: 0.073, 0.138 and 0.069, a rod's shadow and thin trims a stride 4 loses). The reference uses the same
+tree and candidates as the frames, so it checks what they converge to, not the tree's own densities. Spatial reuse (`SPEEDO_EMITTER_SPATIAL_COUNT`, 0; up to 8 traced pixels
 within `spatialRadius`) by counts (1/M) came out 2.6% and 6% darker (a neighbor that couldn't have picked a point counted
 as if it had tried); by the generalized balance heuristic (as merged now) 0.2% and still 6% with the discard (a
 neighbor's point hidden there but not here), as bright as the reference without the discard but noisier than no spatial
 reuse (Bistro, every other pixel traced: 0.180 against 0.129), so the discard applies only without it. Dropping a hidden point's count with it made
 the light 40% too bright. Offsetting the traced pixels in turn over the stride's square made each frame's temporal reuse
-a point beside the last, with the spatial reuse's bias (6% darker at stride 4). 4 candidates are as good as 8 with the
-tree. Costs (KosmicKrisp, 2560x1440, GI on, the frame's gpu time): Bistro's street 58.4 to 63.8 ms, its lantern pose 70.2
-to 75.4, EmissiveStrengthTest 15.3 to 16.3, CornellBox-Original 29.3 to 30.4; the first version (every other pixel, 8
+a point beside the last, with the spatial reuse's bias (6% darker at stride 4). Costs (KosmicKrisp, 2560x1440, GI on, the
+frame's gpu time), with the reuse: Bistro's street 58.4 to 63.8 ms, its lantern pose 70.2 to 75.4, EmissiveStrengthTest
+15.3 to 16.3, CornellBox-Original 29.3 to 30.4; without it and 8 candidates, 4.1 ms more at the string lights' pose
+(80.9 to 85.0, interleaved: the rays every frame 2.3, the candidates 1.8), the lantern pose 76.8 to 81.2, the others the
+same; the first version (every other pixel, 8
 candidates by power, the filter and frames at every pixel) took Bistro's street 49 ms more (GI off), 25 of them its shadow
 rays, 1.7 a candidate, 4.4 the filter. Not yet: the emitters' specular (a glossy floor reflects no lantern), what moves emitting,
 a textured emitter's power by its texture (DamagedHelmet's triangles all candidates by the factor), and the light on blended

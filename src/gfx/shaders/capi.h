@@ -411,8 +411,9 @@ struct EmitterData
 	// the frames the passes have run: the parity of the reservoirs' and the history's halves, and the candidates' seeds
 	alignas(4) UINT1(frame);
 	// whether the reservoirs reuse the last frame's where its pixels saw the same surface (0 where there are none yet:
-	// the first frame, a resize; SPEEDO_EMITTER_REUSE=0 for neither reuse), how much the last frame's count for at most
-	// (in this frame's candidates), and how many traced pixels around each reuses, and how far (in traced pixels)
+	// the first frame, a resize; and by default: SPEEDO_EMITTER_REUSE=1 for both reuses, see ComputeEmitterSample), how
+	// much the last frame's count for at most (in this frame's candidates), and how many traced pixels around each
+	// reuses, and how far (in traced pixels)
 	alignas(4) UINT1(temporalReuse);
 	alignas(4) FLOAT1(historyCap);
 	alignas(4) UINT1(spatialCount);

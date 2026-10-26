@@ -567,10 +567,10 @@ private:
 	FrameGraph::PassId myEmitterXPass;
 	FrameGraph::PassId myEmitterYPass;
 	FrameGraph::PassId myEmitterTemporalPass;
-	uint32_t myEmitterCandidateCount = 4;
+	uint32_t myEmitterCandidateCount = 8;
 	uint32_t myEmitterVoxelSampleCount = 4;
 	uint32_t myEmitterVoxelCandidateCount = 8;
-	bool myEmitterReuse = true;
+	bool myEmitterReuse = false; // SPEEDO_EMITTER_REUSE=1, see ComputeEmitterSample
 	float myEmitterHistoryCap = 20.0F;
 	uint32_t myEmitterSpatialCount = 0;
 	float myEmitterSpatialRadius = 8.0F;
@@ -582,7 +582,7 @@ private:
 	uint32_t myEmitterVisibilityFrameCount = 8;
 	// the light below which a shadow ray is traced by chance (SPEEDO_EMITTER_ROULETTE, see EmitterData::roulette)
 	float myEmitterRoulette = 0.02F;
-	float myEmitterBlend = 1.0F / 16.0F;
+	float myEmitterBlend = 1.0F / 32.0F; // 1 over SPEEDO_EMITTER_HISTORY_FRAME_COUNT
 	bool myEmittersOn = false;
 	bool myEmitterHistoryValid = false;
 	uint32_t myEmitterFrame = 0;

@@ -1455,7 +1455,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	if (const char* cap = std::getenv("SPEEDO_EMITTER_HISTORY_CAP"); cap != nullptr && *cap != '\0')
 		myEmitterHistoryCap = std::clamp(std::strtof(cap, nullptr), 1.0F, 1000.0F);
 	const char* reuse = std::getenv("SPEEDO_EMITTER_REUSE");
-	myEmitterReuse = reuse == nullptr || std::string_view(reuse) != "0";
+	myEmitterReuse = reuse != nullptr && std::string_view(reuse) == "1";
 	if (const char* frames = std::getenv("SPEEDO_EMITTER_HISTORY_FRAME_COUNT"); frames != nullptr && *frames != '\0')
 		myEmitterBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 1024.0F);
 	if (const char* roulette = std::getenv("SPEEDO_EMITTER_ROULETTE"); roulette != nullptr && *roulette != '\0')

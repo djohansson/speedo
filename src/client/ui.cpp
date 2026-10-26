@@ -1422,9 +1422,11 @@ void WindowedApplication::PrepareDraw()
 				TextDisabled("%s", current.empty() ? "None" : current.c_str());
 				{
 					float intensity = App().GetScene().GetSettings().environmentIntensity.load(std::memory_order_relaxed);
-					if (DragFloat("Intensity", &intensity, 0.01F, 0.0F, 100.0F, "%.2f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+					// not rounded to what it shows: at "%.2f" a night's 0.002 came out 0 or 0.01, typed or dragged
+					if (DragFloat("Intensity", &intensity, 0.01F, 0.0F, 100.0F, "%.3g",
+								  ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoRoundToFormat))
 						App().GetScene().GetSettings().environmentIntensity.store(intensity, std::memory_order_relaxed);
-					SetItemTooltip("Scales its light. Drag, or double-click to type.");
+					SetItemTooltip("Scales its light (0.002 or so for a night, with the exposure raised 5 stops). Drag, or double-click to type.");
 					float rotation = App().GetScene().GetSettings().environmentRotationDegrees.load(std::memory_order_relaxed);
 					if (DragFloat("Rotation", &rotation, 0.5F, -180.0F, 180.0F, "%.1f deg", ImGuiSliderFlags_WrapAround))
 						App().GetScene().GetSettings().environmentRotationDegrees.store(rotation, std::memory_order_relaxed);

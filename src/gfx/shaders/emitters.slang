@@ -6,11 +6,11 @@
 // times the bulbs' light); so those rays take only the light what they meet reflects (GiHitRadiance), and what the
 // emitters give arrives through these. per traced pixel (every EmitterData::stride-th pixel each way), resampled
 // importance sampling (RIS, Talbot et al. 2005) over candidates picked down a tree of the emitters by how much each part
-// of it may light the pixel (EmitterPick, a light BVH), and the reservoir reused from the last frame's where it saw the
-// same surface (and from the pixels around: ReSTIR, Bitterli et al. 2020; Emitter Sample, then Emitter Shade, which
-// traces the chosen point's shadow ray), filtered over the traced pixels (Emitter X and Y) and accumulated over frames
-// (Emitter Temporal): the irradiance over pi the main pass's diffuse takes, upsampled (EmitterIrradiance). a part of
-// shaders.slang, which includes it after ginear.slang
+// of it may light the pixel (EmitterPick, a light BVH; Emitter Sample, then Emitter Shade, which traces the chosen
+// point's shadow ray; the reservoirs can be reused from the last frame's and the pixels around, as ReSTIR does, Bitterli
+// et al. 2020, but aren't by default: see ComputeEmitterSample), filtered over the traced pixels (Emitter X and Y) and
+// accumulated over frames (Emitter Temporal): the irradiance over pi the main pass's diffuse takes, upsampled
+// (EmitterIrradiance). a part of shaders.slang, which includes it after ginear.slang
 
 // the emitters' textures are read at a coarse level: a point's light stands for the area around it
 static const float kEmitterTextureLevel = 3.0;
@@ -422,11 +422,18 @@ bool EmitterViewStill(ViewData view)
 		   all(view.previousViewProjection[3] == view.viewProjection[3]);
 }
 
-// the Emitter Sample pass: per traced pixel, its candidates resampled, then merged with the reservoir of the traced pixel
-// where its point was last frame (by the view's last view projection, if that traced pixel's point was the same surface,
-// see EmitterTolerance: else it saw something else; and not where something moves, the stencil), whose count is capped
-// (EmitterData::historyCap, so that the frame's candidates keep a share), into the frame's reservoirs before the spatial
-// reuse (gEmitterReservoirs' first part)
+// the Emitter Sample pass: per traced pixel, its candidates resampled, then, with EmitterData::temporalReuse
+// (SPEEDO_EMITTER_REUSE=1), merged with the reservoir of the traced pixel where its point was last frame (by the view's
+// last view projection, if that traced pixel's point was the same surface, see EmitterTolerance: else it saw something
+// else; and not where something moves, the stencil), whose count is capped (EmitterData::historyCap, so that the frame's
+// candidates keep a share), into the frame's reservoirs before the spatial reuse (gEmitterReservoirs' first part). the
+// reuse is off by default: a reservoir keeps its point for many frames, so the frames Emitter Temporal blends are of one
+// sample rather than independent ones, and it gains little from them. against the reference (mean |log2|, still), with
+// the reuse and its cap of 20 against 8 candidates and 32 frames without: Bistro's string lights at night (hundreds of
+// colored bulbs and lit windows, the user's pose -906.5073,218.3646,-40.5114,-7.916,60.803) 0.235 to 0.140 (cap 4
+// 0.186, cap 1 0.164: the more history, the worse), and at the end of a turn 0.334 to 0.239; Bistro's lantern pose 0.181
+// to 0.089, EmissiveStrengthTest 0.064 to 0.033, CornellBox-Original 0.029 to 0.015; 4.1 ms more of Bistro's 81 (the
+// rays every frame, without the reuse's known visibility, 2.3; the candidates, 1.8)
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeEmitterSample(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -770,7 +777,10 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 // normal): the irradiance over pi the passes above gathered over frames at the traced pixels around its pixel, upsampled:
 // bilinear over the 2x2 around it, each by how much it is on the fragment's surface (its point's distance off the
 // fragment's tangent plane, against 1% of the distance to the eye, and how its normal agrees), or where none is, the 3x3
-// around the nearest by that alone; -1 where none of those is either (or nothing was gathered)
+// around the nearest by that alone, or where none of those is either (thin geometry between the traced pixels: a frame's
+// side, a ledge's edge, a mullion), the 3x3 by how their normals agree, never 0; -1 where nothing was gathered. left at
+// -1, those fragments took no emitter light, dark dashes along the edges at night (Bistro's string lights, the user's
+// pose -906.5073,218.3646,-40.5114,-7.916,60.803; magenta in the debug views, as white as the tonemapper makes it)
 float3 EmitterIrradiance(float3 position, float3 normal)
 {
 	if (!gFragmentEmitters)
@@ -807,6 +817,8 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 	{
 		total = 0.0;
 		weights = 0.0;
+		float3 alikeTotal = 0.0;
+		float alikeWeights = 0.0;
 		int2 nearest = int2(round(at));
 		for (int y = -1; y <= 1; y++)
 			for (int x = -1; x <= 1; x++)
@@ -818,10 +830,18 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 				float4 seen = surfaces.Load(int3(tap, 0));
 				if (value.a < 0.0 || seen.w < 0.0)
 					continue;
-				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(saturate(dot(EmitterUnpackNormal(seen.w), normal)), 8.0);
+				float facing = saturate(dot(EmitterUnpackNormal(seen.w), normal));
+				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(facing, 8.0);
 				total += w * value.rgb;
 				weights += w;
+				alikeTotal += (facing + 0.01) * value.rgb;
+				alikeWeights += facing + 0.01;
 			}
+		if (weights <= 1e-6)
+		{
+			total = alikeTotal;
+			weights = alikeWeights;
+		}
 	}
-	return weights > 1e-6 ? total / weights : -1.0;
+	return weights > 0.0 ? total / weights : -1.0;
 }
