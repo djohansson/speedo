@@ -2532,10 +2532,17 @@ float GiCacheLight(float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT], float3 normal
 	return dot(max(w.x * x + w.y * y + w.z * z, 0.0), kGiCacheLuminance);
 }
 
+// the share of a voxel's cache rays over the hemisphere its open side faces (see GiCacheDirection)
+static const float kGiCacheForwardShare = 0.75;
+
 // a voxel's sample of its sequence: a direction of the sphere by Roberts' R2 sequence (even over the sphere at any count,
 // so its mean converges as a quadrature's rather than a random sum's), offset per voxel by a hash of its place in the
-// world (the same wherever its clip has scrolled to), so that the voxels around a point miss differently
-float3 GiCacheDirection(int3 world, uint sequence)
+// world (the same wherever its clip has scrolled to), so that the voxels around a point miss differently. about a voxel's
+// open side (normal: unit, or zero for the sphere evenly), kGiCacheForwardShare of them over the hemisphere it faces, whose
+// faces are what the shading reads mostly, and the rest over the other (the first coordinate stratified by the side, so
+// the sequence stays even), each sample weighed by its side's density (GiCacheEstimate). over the open side's hemisphere
+// alone, Sponza's interior came out 6% darker: the lookups read faces of the other side too, at edges and corners
+float3 GiCacheDirection(int3 world, uint sequence, float3 normal)
 {
 	uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
 	hash ^= hash >> 16;
@@ -2544,10 +2551,28 @@ float3 GiCacheDirection(int3 world, uint sequence)
 	float2 offset = float2(hash & 0xFFFFu, hash >> 16) / 65536.0;
 	const float kG = 1.32471795724474602596;
 	float2 uv = frac(offset + float(sequence) * float2(1.0 / kG, 1.0 / (kG * kG)));
-	float z = 1.0 - 2.0 * uv.x;
+	bool sided = dot(normal, normal) > 0.5;
+	float z = !sided ? 1.0 - 2.0 * uv.x
+			  : uv.x < kGiCacheForwardShare ? uv.x / kGiCacheForwardShare
+										: -(uv.x - kGiCacheForwardShare) / (1.0 - kGiCacheForwardShare);
 	float radius = sqrt(max(1.0 - z * z, 0.0));
 	float phi = 6.28318530718 * uv.y;
-	return float3(radius * cos(phi), radius * sin(phi), z);
+	float3 local = float3(radius * cos(phi), radius * sin(phi), z);
+	if (!sided)
+		return local;
+	float3 t;
+	float3 b;
+	ShadowBasis(normal, t, b);
+	return local.x * t + local.y * b + local.z * normal;
+}
+
+// what a cache ray's sample stands for, as a uniform sphere's sample would (1: the sphere evenly): its side's
+// hemisphere's density against the sphere's (see GiCacheDirection)
+float GiCacheEstimate(float3 direction, float3 normal)
+{
+	if (dot(normal, normal) <= 0.5)
+		return 1.0;
+	return dot(direction, normal) >= 0.0 ? 0.5 / kGiCacheForwardShare : 0.5 / (1.0 - kGiCacheForwardShare);
 }
 
 // where a surface's voxel's cache rays start (see GiCacheUpdate): out from its center along its open side (away) by a
@@ -2649,7 +2674,11 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		}
 		for (uint rayIt = 0; rayIt < rayCount; rayIt++)
 		{
-			float3 direction = GiCacheDirection(world, entry.sequence++);
+			float3 direction = GiCacheDirection(world, entry.sequence++, normal);
+			// the rays mostly over the open side's hemisphere where it has one (see GiCacheDirection), each sample weighed by
+			// its side's density: half the rays over the sphere added little to the faces the shading reads, and their mean
+			// was as noisy as of half as many
+			float estimate = GiCacheEstimate(direction, normal);
 			float4 traced;
 			GiRayHit hit;
 			bool bvh = GiTraceBvh(walk, origin, direction, far, gi.volumeOrigin.w, hit);
@@ -2664,7 +2693,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			{
 				if (hit.backface && hit.distance < insideReach)
 				{
-					entry.inside += kGiCacheInsideScale;
+					entry.inside += uint(round(float(kGiCacheInsideScale) * estimate));
 					continue;
 				}
 				traced = hit.radiance;
@@ -2679,8 +2708,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			entry.count = min(entry.count + 1u, cap);
 			float weight = 1.0 / float(entry.count);
 			for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
-				entry.faces[faceIt] += (radiance * basis[faceIt] * 4.0 - entry.faces[faceIt]) * weight;
-			float light = GiCacheSample(dot(radiance, kGiCacheLuminance), direction, entry.normal);
+				entry.faces[faceIt] += (radiance * basis[faceIt] * (4.0 * estimate) - entry.faces[faceIt]) * weight;
+			float light = GiCacheSample(dot(radiance, kGiCacheLuminance), direction, entry.normal) * estimate;
 			entry.moment += (light * light - entry.moment) * weight;
 		}
 	}

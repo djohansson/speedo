@@ -193,6 +193,9 @@ public:
 	[[nodiscard]] std::string_view GetOcclusionModeName() const noexcept;
 	// what the cpu planned for the last frame recorded. any thread.
 	[[nodiscard]] FrameStatistics GetFrameStatistics() const;
+	// whether the last frame recorded traced the surface cache's warm-up rays (its first frames after it started over,
+	// see InternalPlanGi): those frames cost more, so a measure of the settled frame time leaves them out. the draw thread's
+	[[nodiscard]] bool IsLightingWarmingUp() const noexcept { return myGiCacheWarming; }
 
 private:
 	// the frame's draw lists, in the order their records and culling candidates are written
@@ -446,6 +449,7 @@ private:
 	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
 	uint32_t myGiFramesSinceReset = 0;
 	uint32_t myGiFramesSinceCacheReset = 0; // and since the surface cache last started over (GiData::cacheReset)
+	bool myGiCacheWarming = false; // see IsLightingWarmingUp
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
 	// SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame, and toward what (see gi::MakeClipmap)
 	struct GiEyePoint

@@ -21,7 +21,8 @@ changes too.
 convergence: the frames and seconds until the image stays within 10%, 5% and twice its noise of the settled one. The
 captures (about 15 MB each at 2560x1440) are deleted afterwards unless -KeepCaptures.
 
-Without any of the three, all of them. The measure is the draw thread's frame time (the median of its half seconds),
+Without any of the three, all of them. The measure is the draw thread's frame time (the median of its half seconds once
+the lighting has warmed up: the surface cache's first 256 frames trace 4 rays a voxel, which the client times apart),
 which is the gpu's where the draw thread waits on its fences (check with a sampling profiler): KosmicKrisp's
 timestamps miss most compute passes, and the Frame scope (printed beside it) a third of a frame heavy with them. The
 gpu's clock drifts between runs, so the defaults are measured more than once.
@@ -42,7 +43,7 @@ param(
 	[switch] $Features,
 	[switch] $Passes,
 	[switch] $Convergence,
-	[int] $Frames = 400,
+	[int] $Frames = 600,
 	[int] $ConvergenceFrames = 1200,
 	[int] $Stride = 10,
 	[string] $Size = '2560x1440',
@@ -184,6 +185,7 @@ function Invoke-Client([hashtable] $Scene, [hashtable] $Variables, [string] $Log
 	return [pscustomobject]@{
 		Exit = $process.ExitCode
 		Draw = & $number '(?m)^frame time: ([0-9.]+) ms'
+		Warm = & $number '(?m)^frame time warming up: ([0-9.]+) ms'
 		FrameScope = & $number '(?m)^  Frame: ([0-9.]+)'
 		Exposure = & $number '(?m)^auto exposure: ([-+0-9.]+) EV'
 		Log = $Log
@@ -318,7 +320,9 @@ foreach ($sceneName in $Scenes)
 		{
 			$frameMs = if ([double]::IsNaN($defaultResult.Draw)) { 0 } else { $defaultResult.Draw }
 			Write-Report '```'
-			& $convergenceTool $captures --frame-ms $frameMs.ToString([Globalization.CultureInfo]::InvariantCulture) | ForEach-Object { Write-Report $_ }
+			# the warm-up's frames at their own time (the renderer's kGiCacheWarmFrameCount)
+			$warm = if ([double]::IsNaN($defaultResult.Warm)) { @() } else { @('--warm-ms', $defaultResult.Warm.ToString([Globalization.CultureInfo]::InvariantCulture), '--warm-frames', '256') }
+			& $convergenceTool $captures --frame-ms $frameMs.ToString([Globalization.CultureInfo]::InvariantCulture) @warm | ForEach-Object { Write-Report $_ }
 			Write-Report '```'
 		}
 		if (-not $KeepCaptures)

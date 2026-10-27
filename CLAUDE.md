@@ -873,7 +873,9 @@ timed where passes aren't (KosmicKrisp times neither compute passes nor Main Lat
 too, though: Bistro's evening frame read 43.4 ms by it and 67.3 ms by the draw thread, which a sampling profiler showed
 waiting on its fences (the gpu's time), and leaving out any GI pass didn't move it, where San Miguel's agreed within 2
 ms. So on KosmicKrisp measure a frame by the draw thread's frame time (fifo, printed at exit; check that the draw thread
-waits on its fences), and a pass by the frame time it frees left out (`SPEEDO_SKIP_PASSES=<pass>[;...]`, the GI pass's
+waits on its fences; the half seconds the lighting warms up in, `Renderer::IsLightingWarmingUp`, the surface cache's
+first 256 frames of 4 rays a voxel, are printed apart, as "frame time warming up": they cost Bistro 16 ms a frame, and a
+run of 400 frames measured mostly them), and a pass by the frame time it frees left out (`SPEEDO_SKIP_PASSES=<pass>[;...]`, the GI pass's
 steps by name: `framegraph::Skipped`; a pass whose output decides another's work changes that too). The costs of compute
 heavy features recorded here by the `Frame` scope are undercounts on KosmicKrisp: the near field's 0.9 ms was 16 to 19
 ms at the benchmark poses. `scripts/perfbaseline.ps1` measures features, passes and how long the lighting takes to
@@ -1605,8 +1607,12 @@ frame near a surface has no page), never both in one dispatch; the pool starts a
 blocks and grows to a quarter more than the resolve counted (`GI_STATISTIC_CACHE_BLOCKS`), its pages copied over (the
 GI Cache Grow pass, the new pages pushed by `ComputeGiCachePrepare`). The resolve (`GiCacheUpdate`) carries the voxel's
 entry over in place (a voxel new to its clip from the coarser clip's, as 8 samples, where the coarser block keeps its
-page, so that it is still its own) and traces `SPEEDO_GI_CACHE_RAYS` (1) rays from the voxel (Roberts' R2
-over the sphere, offset per voxel by its place in the world; a surface's voxel's out along its open side by a voxel, but no
+page, so that it is still its own) and traces `SPEEDO_GI_CACHE_RAYS` (1) rays from the voxel (Roberts' R2, offset per
+voxel by its place in the world, three quarters of them over the hemisphere its open side faces and the rest over the
+other, each sample weighed by its side's density, `kGiCacheForwardShare`, `GiCacheEstimate`: over the sphere evenly,
+half the rays added little to the faces the lookups read; over the open side's hemisphere alone, Sponza's interior came
+out 6% darker, the lookups reading the other side's faces at edges and corners; split, Sponza came within 5% of settled
+after 620 frames rather than 960, its noise 0.0052 rather than 0.006, and settled as before to 0.025 mean |log2|; a surface's voxel's out along its open side by a voxel, but no
 further than halfway to a surface facing back at it there, `GiCacheOrigin`: CornellBox's sphere a voxel off its wall had
 the voxel out along the wall's open side inside it, the entries were inside, and the wall drew a black crescent along
 the sphere, stepped at the voxels, at the user's pose `0.1488,-1.1952,0.7514,12.998,14.697` at resolution 192), as the

@@ -13,10 +13,11 @@ bool WindowedApplication::gShowTps = false;
 namespace windowedapplication
 {
 
-// with SPEEDO_GPU_TIMINGS=1, the frame time of each half second the frame rate is measured over (milliseconds), whose
-// median Shutdown prints: unthrottled (SPEEDO_PRESENT_MODE=immediate) the gpu's whole frame, where a backend doesn't
+// with SPEEDO_GPU_TIMINGS=1, the frame time of each half second the frame rate is measured over (milliseconds), and
+// whether the lighting warmed up in it (Renderer::IsLightingWarmingUp), whose medians Shutdown prints: the settled
+// frames' and the warm-up's. unthrottled (SPEEDO_PRESENT_MODE=immediate) the gpu's whole frame, where a backend doesn't
 // time every pass (KosmicKrisp, see "GPU timings" in CLAUDE.md)
-std::vector<float> gFrameTimes;
+std::vector<std::pair<float, bool>> gFrameTimes;
 const bool gCollectFrameTimes = []
 {
 	const char* collect = std::getenv("SPEEDO_GPU_TIMINGS");
@@ -478,7 +479,9 @@ bool WindowedApplication::Draw()
 		static uint32_t gFpsFrameCount = 0;
 		static uint64_t gFpsSubmitCount = Queue::GetSubmitCount();
 		static uint64_t gFpsSubmitBatchCount = Queue::GetSubmitBatchCount();
+		static bool gFpsWarming = false;
 		gFpsFrameCount++;
+		gFpsWarming = gFpsWarming || (myScene && myScene->GetRenderer().IsLightingWarmingUp());
 		gDrawnFrameCount.fetch_add(1, std::memory_order_relaxed);
 		if (auto now = std::chrono::steady_clock::now(); now - gFpsTime >= 500ms)
 		{
@@ -487,10 +490,11 @@ bool WindowedApplication::Draw()
 			auto frames = static_cast<float>(gFpsFrameCount);
 			gFramesPerSecond.store(frames / std::chrono::duration<float>(now - gFpsTime).count(), std::memory_order_relaxed);
 			if (windowedapplication::gCollectFrameTimes)
-				windowedapplication::gFrameTimes.push_back(std::chrono::duration<float, std::milli>(now - gFpsTime).count() / frames);
+				windowedapplication::gFrameTimes.emplace_back(std::chrono::duration<float, std::milli>(now - gFpsTime).count() / frames, gFpsWarming);
 			gSubmitsPerFrame.store(static_cast<float>(submitCount - gFpsSubmitCount) / frames, std::memory_order_relaxed);
 			gSubmitBatchesPerFrame.store(static_cast<float>(submitBatchCount - gFpsSubmitBatchCount) / frames, std::memory_order_relaxed);
 			gFpsFrameCount = 0;
+			gFpsWarming = false;
 			gFpsTime = now;
 			gFpsSubmitCount = submitCount;
 			gFpsSubmitBatchCount = submitBatchCount;
@@ -578,10 +582,24 @@ void WindowedApplication::Shutdown()
 
 	if (gFrameTimes.size() > 2)
 	{
-		// the first half seconds load and compile
-		auto times = std::vector(gFrameTimes.begin() + static_cast<ptrdiff_t>(gFrameTimes.size() / 4), gFrameTimes.end());
-		std::ranges::sort(times);
-		std::println("frame time: {:.3f} ms (median of {} half seconds)", times[times.size() / 2], times.size());
+		// the settled frames: those after the lighting first warmed up but not warming up again (its warm-up rays cost Bistro
+		// 16 ms a frame for its first 256 frames, which a run of 400 frames measured as most of its frame time), else, where
+		// it never warmed up (no indirect lighting, or no surface cache), past the first half seconds' load and compile
+		auto warmed = std::ranges::find_if(gFrameTimes, [](const auto& time) { return time.second; });
+		auto first = warmed != gFrameTimes.end() ? warmed : gFrameTimes.begin() + static_cast<ptrdiff_t>(gFrameTimes.size() / 4);
+		std::vector<float> settled;
+		std::vector<float> warming;
+		for (const auto& [time, warmingUp] : std::ranges::subrange(first, gFrameTimes.end()))
+			(warmingUp ? warming : settled).push_back(time);
+		auto median = [](std::vector<float>& times)
+		{
+			std::ranges::sort(times);
+			return times[times.size() / 2];
+		};
+		if (!settled.empty())
+			std::println("frame time: {:.3f} ms (median of {} half seconds)", median(settled), settled.size());
+		if (!warming.empty())
+			std::println("frame time warming up: {:.3f} ms (median of {} half seconds)", median(warming), warming.size());
 	}
 	// what auto exposure settled on, to capture the same view at it (SPEEDO_AUTO_EXPOSURE=0 SPEEDO_EXPOSURE=<stops>):
 	// measured as it adapts, a capture's change mixes the exposure's with the scene's

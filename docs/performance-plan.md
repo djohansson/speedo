@@ -238,6 +238,9 @@ The three kept together, by the settling from a cold start (frames, and seconds 
 | Bistro, with the filter held (second round) | 50 (3.4 s) | 80 (5.4 s) | 170 (11.5 s) | 0.014 |
 | San Miguel, with the filter held | 80 (6.9 s) | 310 (26.7 s) | 1080 (93 s) | 0.007 |
 | Sponza (2400 frames), with the filter held | 240 (8.9 s) | 960 (35.5 s) | 2220 (82 s) | 0.006 |
+| Bistro, with the cache's rays split (third round) | 50 (3.4 s) | 80 (5.4 s) | 280 (19 s) | 0.014 |
+| San Miguel, with the cache's rays split | 90 (7.7 s) | 300 (25.8 s) | 1060 (91 s) | 0.007 |
+| Sponza (2400 frames), with the cache's rays split | 160 (5.9 s) | 620 (23.0 s) | 2180 (81 s) | 0.005 |
 
 San Miguel's 5% comes later: the cache's shorter early window is noisier while it settles. The step isn't done: the
 cache's tail is what is left of it.
@@ -278,3 +281,29 @@ a sixteenth of the pixels instead of a quarter: Bistro 65.4 to 54.3 ms, San Migu
 its frames barely noisier (Sponza's 0.014 apart against 0.012), but coarser at contacts (Sponza at frame 600 0.042
 from stride 2, three times the frames' noise: the curtains' contact on the floor lighter over a wider band, a few darker
 spots along the sunlit edge). Left at 2 for the user to judge.
+
+### Step 2, the third round (2026-10-27 night)
+
+- **Kept: the surface cache's rays split by the voxel's open side**: three quarters over the hemisphere it faces and a
+  quarter over the other, each sample weighed by its side's density (`kGiCacheForwardShare`, `GiCacheEstimate`). Over
+  the sphere evenly half the rays added little to the faces the lookups read; over the open side's hemisphere alone
+  Sponza settled 6% darker (0.19 mean |log2| from before: the lookups read the other side's faces too, at edges and
+  corners, and the air voxels' open sides are only their occupancy's gradient). Split, the settled images are as before
+  (Sponza 0.025, Bistro 0.012, San Miguel 0.033, about their noise), Sponza comes within 10% of settled after 160 frames
+  rather than 240 and within 5% after 620 rather than 960, its noise 0.0052 rather than 0.006; Bistro and San Miguel as
+  before (the table above). No cost (Bistro 80.7 ms against 81.1, interleaved twice).
+- **Kept: ComputeMain a thread per pixel**: it ran a thread per 16x16 pixels, 14400 threads at 2560x1440, too few to
+  hide its reads. Its own cost in Bistro (with the cache off, whose block marks it also does) 2.2 ms rather than 4.5; the
+  images are identical.
+- **Found on the way: the warm-up rays' cost.** The cache's 4 rays a voxel for its first 256 frames (the second round)
+  cost Bistro 15 ms a frame while they last (80.3 ms against 65.4), San Miguel 6 (94.4 against 88.1) and Sponza 4.5 (35.9
+  against 31.3), and a run of 400 frames measured mostly them: the client now prints the frames after the warm-up apart
+  (`Renderer::IsLightingWarmingUp`, "frame time" and "frame time warming up"), `perfbaseline.ps1` runs 600 frames and
+  gives `convergence` both (`--warm-ms`, `--warm-frames`), so that its seconds count the warm-up at its own frame time.
+
+The settled frame times now (2560x1440, fifo, after the warm-up, frames 256 to 700): Bistro 65.4 ms, San Miguel 88.1
+(87.4 to 88.9 over four runs; 84.2 at the near field's round, over frames 100 to 400 of another session: the gpu's state
+drifts between sessions, so compare within one), Sponza 31.3 (33.9).
+
+What is left of step 2: a warm start (the settled cache and probes saved with the scene), and the time of day's
+relighting spread over frames. Step 3, the upscaling, cuts every per pixel pass, which is now most of the frame.

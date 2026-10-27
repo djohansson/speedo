@@ -28,9 +28,6 @@ using namespace rhi;
 namespace renderer
 {
 
-// ComputeMain has 16x16 threads per group, each copying a 16x16 pixel bucket
-constexpr uint32_t kComputePixelsPerGroup = 16U * 16U;
-
 [[nodiscard]] uint64_t PixelCount(Extent2d extent)
 {
 	return std::max<uint64_t>(static_cast<uint64_t>(extent.width) * extent.height, 1);
@@ -1250,12 +1247,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			auto pushConstants = inputs.pushConstants;
 			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 
-			// cover the whole swapchain image
+			// a thread per pixel of the swapchain image
 			auto extent = myRenderOutput.GetTarget(inputs.outputIndex).GetExtent();
-			CommandEncoder(cmd).Dispatch(
-				(extent.width + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
-				(extent.height + kComputePixelsPerGroup - 1) / kComputePixelsPerGroup,
-				1U);
+			CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(ComputePipelineVariant{}), extent.width, extent.height);
 		});
 
 	// for the host to read the histogram once the frame is done (see UpdateAutoExposure)
@@ -2889,6 +2883,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	using namespace renderer;
 
 	myGiSurfaceCacheOn = frame.indirectLighting && frame.giSurfaceCache;
+	myGiCacheWarming = false;
 
 	const auto& mainList = InternalList(ListId::kMain);
 	bool enabled = frame.indirectLighting && frame.model != nullptr && !mainList.Empty();
@@ -3236,8 +3231,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// and 4 rays a voxel (at least) while the light settles, its first kGiCacheWarmFrameCount frames: what it averages then
 	// is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza within 10%
 	// of settled after 240 frames rather than 460, within 5% after 920 rather than 1460: 4 rays throughout cost 4.8 ms of its
-	// 34 a frame, and were noisier, 0.011 against 0.007)
+	// 34 a frame, and were noisier, 0.011 against 0.007). while they last Bistro's frame takes 80 ms rather than 65, San
+	// Miguel's 94 rather than 88, Sponza's 36 rather than 31 (see IsLightingWarmingUp)
 	uint32_t cacheRayCount = myGiTimeBased && myGiFramesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
+	myGiCacheWarming = frame.giSurfaceCache && cacheRayCount > myGiCacheRayCount;
 	// the rays per probe this frame: the budget over the probes traced last time (at least 16, at most the count, in
 	// eights)
 	myGiRayCountThisFrame = myGiRayCount;

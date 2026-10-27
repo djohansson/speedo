@@ -2,15 +2,15 @@
 // saved (SPEEDO_CAPTURE_PATH, SPEEDO_CAPTURE_PATH_STRIDE: pose-<frame>.bmp), at a fixed exposure (auto exposure settles
 // by time, and its changes would be measured with the lighting's). see docs/performance-plan.md, step 1.
 //
-// usage: convergence <dir> [--settled <captures>] [--blur <pixels>] [--frame-ms <ms>]
+// usage: convergence <dir> [--settled <captures>] [--blur <pixels>] [--frame-ms <ms>] [--warm-ms <ms> --warm-frames <n>]
 //
 // the settled image is the mean of the last --settled captures (default 8: their noise averaged). each capture's
 // difference from it is the mean |log2| of their linear luminance (srgb decoded), both blurred over --blur pixels
 // (default 24: the lighting's error rather than its grain), where the settled image is above a floor (black is noise in
 // log terms). the noise is the last captures' mean difference from the settled image, at the blur and at 4 pixels: a
 // difference that stays near it is noise, not unsettled light. prints the curve, the noise, and the frames (and seconds,
-// given --frame-ms, the frame time measured without captures) after which the difference stays under 0.1, 0.05 and
-// twice the noise.
+// given --frame-ms, the frame time measured without captures; the first --warm-frames frames at --warm-ms, the lighting's
+// warm-up, see Renderer::IsLightingWarmingUp) after which the difference stays under 0.1, 0.05 and twice the noise.
 
 #include <core/file.h>
 
@@ -147,13 +147,15 @@ int main(int argc, char** argv)
 {
 	if (argc < 2)
 	{
-		std::println(stderr, "usage: convergence <dir> [--settled <captures>] [--blur <pixels>] [--frame-ms <ms>]");
+		std::println(stderr, "usage: convergence <dir> [--settled <captures>] [--blur <pixels>] [--frame-ms <ms>] [--warm-ms <ms> --warm-frames <n>]");
 		return 1;
 	}
 	std::filesystem::path dir = argv[1];
 	size_t settledCount = 8;
 	int radius = 24;
 	double frameMs = 0.0;
+	double warmMs = 0.0;
+	int warmFrameCount = 0;
 	for (int argIt = 2; argIt + 1 < argc; argIt += 2)
 	{
 		std::string_view name = argv[argIt];
@@ -163,6 +165,10 @@ int main(int argc, char** argv)
 			radius = std::atoi(argv[argIt + 1]);
 		else if (name == "--frame-ms")
 			frameMs = std::strtod(argv[argIt + 1], nullptr);
+		else if (name == "--warm-ms")
+			warmMs = std::strtod(argv[argIt + 1], nullptr);
+		else if (name == "--warm-frames")
+			warmFrameCount = std::atoi(argv[argIt + 1]);
 	}
 
 	// the captures by frame (pose-<frame>.bmp)
@@ -228,6 +234,13 @@ int main(int argc, char** argv)
 		auto from = SettledFrom(curve, threshold);
 		if (!from)
 			std::println("under {:.3f}: not within the run", threshold);
+		else if (frameMs > 0.0 && warmMs > 0.0 && warmFrameCount > 0)
+		{
+			int warm = std::min(*from, warmFrameCount);
+			double seconds = (warm * warmMs + (*from - warm) * frameMs) / 1000.0;
+			std::println(
+				"under {:.3f}: from frame {} ({:.1f} s at {:.1f} ms a frame, the first {} at {:.1f})", threshold, *from, seconds, frameMs, warmFrameCount, warmMs);
+		}
 		else if (frameMs > 0.0)
 			std::println("under {:.3f}: from frame {} ({:.1f} s at {:.1f} ms a frame)", threshold, *from, *from * frameMs / 1000.0, frameMs);
 		else
