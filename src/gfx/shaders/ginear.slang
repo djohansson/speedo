@@ -80,13 +80,30 @@ float4 GiNearRay(int2 pixel)
 		// the radiance of what it met, the voxels' there (see GiRadianceAtHit). within a voxel and a half of the pixel's
 		// tangent plane, the voxels at the hit are the pixel's surface's too (a contact, a corner), holding whichever's
 		// light won them (the floor's, lit, under a sphere resting on it): read a voxel and a half off the plane instead,
-		// along the hit's surface (the pixel's normal in its tangent plane)
+		// along the hit's surface (the pixel's normal in its tangent plane), as far as it takes to get there (the reads
+		// half a voxel and a voxel along the hit's normal then stay half a voxel off the plane at least). a surface facing
+		// the pixel's that doesn't get there within 3 voxels that way (a sphere's underside near the floor it rests on) is
+		// in a gap thinner than the voxels, which hold neither side's light there, and which little light reaches: none.
+		// moved a voxel and a half whatever the slope, as it was, the reads under CornellBox's spheres crossed the floor
+		// into its underside's voxels, lit by the gap between it and the box under it, a bright crescent around each
+		// sphere's contact; and reading the floor's own voxel there instead, the sun's patch beside a sphere lit its
+		// contact
 		float3 point = origin + direction * hit.t;
-		float above = dot(point - surface.position, surface.normal);
-		float3 along = surface.normal - hit.normal * dot(surface.normal, hit.normal);
-		float alongLength = length(along);
-		if (alongLength > 1e-3)
-			point += along * (max(1.5 * voxel - above, 0.0) / alongLength);
+		float needed = max(1.5 * voxel - dot(point - surface.position, surface.normal), 0.0);
+		if (needed > 0.0)
+		{
+			float3 along = surface.normal - hit.normal * dot(surface.normal, hit.normal);
+			float alongLength = length(along);
+			float move = alongLength > 1e-3 ? needed / alongLength : 3.0 * voxel + 1.0;
+			if (move > 3.0 * voxel)
+			{
+				if (dot(hit.normal, surface.normal) < 0.0)
+					return float4(0.0, 0.0, 0.0, clear);
+				move = 3.0 * voxel;
+			}
+			if (alongLength > 1e-3)
+				point += along * (move / alongLength);
+		}
 		// the light it reflects alone (GiHitReflected): an emitter's is the volume's, which averages it over its probes'
 		// rays and frames. a small one met by one ray in four pixels is a firefly: Bistro's lantern bulbs, a few
 		// centimetres of 3.5, speckled the walls around them white, where they give a hundredth of the daylight

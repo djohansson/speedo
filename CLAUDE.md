@@ -1645,7 +1645,13 @@ pre-pass's depth traces a ray from its surface through the BVHs (GI Near, `Compu
 pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the light what it
 meets reflects (the voxels' there less their emission, `GiHitReflected`, read a voxel and a half off the pixel's tangent
 plane along the hit's surface: within it the voxels at the hit are the pixel's surface's too, and the floor under the
-left sphere drew its own lit light as a tan crescent) or, where it meets nothing, the volume's light along it from its
+left sphere drew its own lit light as a tan crescent; moved as far along it as reaching that height takes, and a
+surface facing the pixel's that doesn't get there within 3 voxels, a sphere's underside near the floor it rests on, is
+in a gap thinner than the voxels, which hold neither side's light there, and gives none: moved a voxel and a half
+whatever the slope, the underside rose a fraction of that, the reads along its normal crossed the floor into its
+underside's voxels, lit by the gap below, and each sphere had a bright crescent around its contact, the user's pose
+`0.8869,-1.0542,1.2337,17.751,7.611`; reading the floor's own voxel there, the sun's patch beside a sphere lit its
+contact) or, where it meets nothing, the volume's light along it from its
 end. Emitters' light is the volume's, which averages it over its probes' rays and frames: with the voxels' emission, a
 ray meeting anything in an emitter's voxel took all of it, and Bistro's lanterns (a bulb of a few centimetres, 3.5, in
 voxels of 30 cm with their frames and glass) lit the walls around them yellow in blotches, a hundred times what the bulb
