@@ -1612,8 +1612,10 @@ the voxel out along the wall's open side inside it, the entries were inside, and
 the sphere, stepped at the voxels, at the user's pose `0.1488,-1.1952,0.7514,12.998,14.697` at resolution 192), as the
 probes' rays are traced, into a running mean of at
 most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves), and at most half the frames since it started over
-(at least 32; `SPEEDO_GI_TIME_BASED=0` without): its first frames' samples, read while the probes and the bounce build up
-and overshoot, then fall out sooner (Sponza from a cold start within 10% of settled after 460 frames rather than 840;
+(at least 32; `SPEEDO_GI_TIME_BASED=0` without), tracing 4 rays a voxel for its first 256 frames
+(`kGiCacheWarmFrameCount`, then `SPEEDO_GI_CACHE_RAYS`): its first frames' samples, read while the probes and the
+bounce build up and overshoot, then fall out sooner (Sponza from a cold start within 10% of settled after 280 frames
+rather than 840, 460 with one ray; 4 rays throughout, 240 but 4.8 ms a frame and noisier;
 the tail, a mean of a light still settling, fades as 1 over the frames either way: Sponza's still changed 2% 2000 frames
 in, see docs/performance-plan.md); a ray meeting a back face within a voxel and a half started inside something, and a
 voxel with more than a quarter of those is no light (the probes' alone). The samples and those rays are kept over one

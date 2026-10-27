@@ -206,6 +206,9 @@ and runs of 2400 frames, since at 1200 the "settled" captures were still moving)
   (a probe blends towards its last whole cycle's mean, the same directions each cycle).
 - **Kept: the cache's window at most half the frames since it started over**: Sponza within 10% after 460 frames rather
   than 840. The tail is unchanged: Sponza still changes 2% 2000 frames in, either way.
+- **Kept: 4 rays a voxel for the cache's first 256 frames** (then 1): Sponza within 10% after 280 frames rather than
+  460, for 4.8 ms a frame over those frames (4 rays throughout: 240 frames, but 4.8 ms always and noisier); its 5% point
+  and noise as before.
 - **Kept: the cache's inside rays over the samples' window** (a bug: clamped apart, a voxel with a tenth of its rays
   inside went dark after 3400 frames). Few of Sponza's voxels have any, so it changed nothing measurable there.
 - **Tried and dropped**: a lower cap (128 or 216 samples: five times the noise, no sooner settled), the samples weighed
@@ -231,6 +234,7 @@ The three kept together, by the settling from a cold start (frames, and seconds 
 | San Miguel, after | 100 (8.6 s) | 420 (36 s) | 1090 (94 s) | 0.007 |
 | Sponza (2400 frames), before | 840 (31 s) | 1440 (53 s) | 2140 (79 s) | 0.007 |
 | Sponza (2400 frames), after | 460 (17 s) | 1460 (54 s) | 2160 (80 s) | 0.007 |
+| Sponza (2400 frames), after, with the warm-up rays | 280 (10 s) | 1480 (55 s) | 2200 (81 s) | 0.007 |
 
 San Miguel's 5% comes later: the cache's shorter early window is noisier while it settles. The step isn't done: the
 cache's tail is what is left of it.

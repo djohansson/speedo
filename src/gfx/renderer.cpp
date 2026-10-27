@@ -85,6 +85,8 @@ constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
 constexpr uint32_t kGiCachePageStep = 1024;
 // the frames after a reset of the indirect lighting before its voxels take the probes' light (see InternalPlanGi)
 constexpr uint32_t kGiBounceDelayFrameCount = 32;
+// the frames after the surface cache starts over during which it traces 4 rays a voxel (see cacheRayCount in InternalPlanGi)
+constexpr uint32_t kGiCacheWarmFrameCount = 256;
 // the frames after lights last changed gradually (see Renderer::myGiLightsGradual) for which the surface cache samples
 // as where something moves, so that it follows them: about a second
 constexpr uint32_t kGiLightsFollowFrameCount = 64;
@@ -3226,6 +3228,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	bool cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit || myGiReset;
 	myGiFramesSinceCacheReset = cacheReset ? 0 : myGiFramesSinceCacheReset + 1;
 	uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(myGiFramesSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount) : myGiCacheSampleCount;
+	// and 4 rays a voxel (at least) while the light settles, its first kGiCacheWarmFrameCount frames: what it averages then
+	// is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza within 10%
+	// of settled after 240 frames rather than 460, within 5% after 920 rather than 1460: 4 rays throughout cost 4.8 ms of its
+	// 34 a frame, and were noisier, 0.011 against 0.007)
+	uint32_t cacheRayCount = myGiTimeBased && myGiFramesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
 	// the rays per probe this frame: the budget over the probes traced last time (at least 16, at most the count, in
 	// eights)
 	myGiRayCountThisFrame = myGiRayCount;
@@ -3251,7 +3258,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// the probes' cycle sums and means, past both halves of their irradiance (see GiData::cycleOffset)
 		clip.cycleOffset = 2 * probeTotal;
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
-		clip.cacheRayCount = frame.giSurfaceCache ? myGiCacheRayCount : 0U;
+		clip.cacheRayCount = frame.giSurfaceCache ? cacheRayCount : 0U;
 		// following lights that change gradually (see myGiLightsGradual) as where something moves
 		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(cacheSampleCount, 32U) : cacheSampleCount;
 		clip.cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit ? 1U : 0U;
