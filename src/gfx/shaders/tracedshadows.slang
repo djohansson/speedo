@@ -147,6 +147,34 @@ float ShadowMapClassify(uint lightIndex, LightData light, ShadowSurface surface,
 	float texelSize = ShadowTexelSize(place.view, toLightDistance);
 	float2 gradient = ShadowReceiverGradient(place, surface.position, surface.normal, texelSize);
 	float slack = abs(dot(abs(gradient), texel)) * 2.0 + 1e-5; // a texel's depth of slack, as the filter's normal offset
+	float2 low = place.view.atlasRect.xy + texel;
+	float2 high = place.view.atlasRect.xy + place.view.atlasRect.zw - texel;
+
+	// the filter's verdict where the pixel itself is (without the normal offset), its 4x4 texels compared with its tangent
+	// plane within a texel's slope: where they disagree, the verdict is the bias's, and the rays decide. a contact shadow
+	// within the offset's reach (Bistro's cornice band under its ledge, the user's pose 2991.8064,394.9334,1467.5278,-0.016,5.767:
+	// the offset lookup lit and sure, the ledge's texels over the band itself nearer than its plane) came out in the
+	// atlas's staircase, a sawtooth of teeth along the ledge; a concave corner's other surface (CornellBox's back wall at
+	// its side wall and floor, the user's pose 0.0465,-0.0665,1.2875,-1.722,0.393: the filter, comparing the texels with
+	// the pixel's own depth, shadowed and sure, the side wall's texels within a texel's slope of the back wall's plane) a
+	// dark line a texel wide along every edge
+	{
+		float4 clip = mul(place.view.viewProjection, float4(surface.position, 1.0));
+		float3 ndc = clip.xyz / max(clip.w, 1e-6);
+		float2 uvHere = place.view.atlasRect.xy + (ndc.xy * 0.5 + 0.5) * place.view.atlasRect.zw;
+		float tight = abs(dot(abs(gradient), texel)) + 1e-5;
+		int2 base = int2(floor(uvHere * atlasSize - 0.5));
+		uint blocked = 0u;
+		for (uint texelIt = 0; texelIt < 4u; texelIt++)
+		{
+			float2 uvAt = clamp((float2(base + int2(texelIt & 1u, texelIt >> 1u)) + 0.5) * texel, low, high);
+			float stored = atlas.Load(int3(int2(uvAt * atlasSize), 0)).r;
+			blocked += stored < ndc.z + dot(gradient, uvAt - uvHere) - tight ? 1u : 0u;
+		}
+		if (filtered >= 1.0 ? blocked != 0u : blocked != 4u)
+			return -1.0;
+	}
+
 	float planeDistance = ShadowViewDistance(place.view, place.depth);
 	// a shadowed pixel's own blocker: the reach of its penumbra
 	float ownReach = 0.0;
@@ -156,8 +184,6 @@ float ShadowMapClassify(uint lightIndex, LightData light, ShadowSurface surface,
 		ownReach = ShadowPenumbraHalfWidth(light, max(planeDistance - ShadowViewDistance(place.view, stored), 0.0), toLightDistance);
 	}
 	float margin = 2.0 * texelSize;
-	float2 low = place.view.atlasRect.xy + texel;
-	float2 high = place.view.atlasRect.xy + place.view.atlasRect.zw - texel;
 	float turn = float(ShadowHash(uint2(pixel)) & 0xffffu) / 65536.0 * 6.28318530718;
 	for (uint tapIt = 0; tapIt < 24; tapIt++)
 	{

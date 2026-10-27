@@ -126,8 +126,15 @@ DrawList BuildShadowDrawList(const Model& model, core::std_extra::function_ref<b
 			return item.variant.topology != PrimitiveTopology::kTriangleList || item.variant.fragmentShader != 0 ||
 				   (material >= 0 && std::cmp_less(material, materials.size()) && transmissive(static_cast<size_t>(material)));
 		});
+	// both faces of every caster: a single sided triangle blocks the light from behind too, as the traced shadows' rays
+	// and the indirect lighting's voxels have it. culled as the main pass draws them, CornellBox's ceiling, its back to
+	// the sun, cast nothing, the box's inside was lit where the rays (which the atlas sends its unsure pixels to) found it
+	// in shadow, and its corners drew dark lines (the user's pose 0.0465,-0.0665,1.2875,-1.722,0.393)
 	for (auto& item : list.items)
+	{
 		item.variant.fragmentShader = kShadowFragmentShader;
+		item.cullMode = CullMode::kNone;
+	}
 	return list;
 }
 

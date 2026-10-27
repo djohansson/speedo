@@ -962,7 +962,10 @@ lights between pillars) shows all of them shadowed, the Shadows pass taking 0.46
 (4.3: each pixel filters a shadow per light in reach, 4 to 9 here). A light's tile size changes by octaves as the camera
 moves, which shows as its shadow sharpening or softening at once. The views go in `gShadowViews[frame]` (`ShadowData`: view projection, atlas rectangle, texel size) and each
 light's first in `gLightShadows[frame]`, host visible buffers per frame index. The Shadows pass draws each view in its
-tile with `BuildShadowDrawList` (opaque and alpha masked triangles; not blended or transmissive), `VertexMain` taking the
+tile with `BuildShadowDrawList` (opaque and alpha masked triangles; not blended or transmissive; both faces of every
+caster, as the traced shadows' rays and the indirect lighting's voxels have a single sided triangle block light from
+behind: culled as the main pass draws them, CornellBox's ceiling cast nothing and the box's inside was lit where the rays
+found it in shadow; 0.5 ms more of Shadows on Bistro, 3.69 to 4.15 in its street), `VertexMain` taking the
 view from `PushConstants::shadowView` and `FragmentShadow` (the layout's third fragment entry point) cutting out alpha
 masks. A pipeline without color attachments writes depth if its variant's first blend mode is `kOpaque`, and pipelines
 are cached per render target attachment formats too (the shadow pass made the main pass's default variant for the depth
@@ -1016,7 +1019,15 @@ transients, a slot a channel). Main's opaque fragments take them for the traced 
   (`ShadowMapClassify`): its 3x3 filter all lit or all shadowed, and none of 24 taps up to 24 texels away says otherwise
   within the penumbra it would make (a blocking texel within the half width its depth gives, plus 2 texels, of a lit
   pixel; an unblocked one within its own blocker's reach, of a shadowed one), each compared with the pixel's tangent
-  plane where the texel is (`ShadowReceiverGradient`: a surface sloping toward the light isn't its own blocker). The
+  plane where the texel is (`ShadowReceiverGradient`: a surface sloping toward the light isn't its own blocker), and
+  the 2x2 texels where the pixel itself is (without the filter's normal offset) agreeing with the verdict within a
+  texel's slope of its tangent plane (none blocking a lit one, all a shadowed one): where they disagree, the verdict is
+  the bias's. a contact shadow within the offset's reach was lit and sure (Bistro's cornice band under its ledge, the
+  user's pose `2991.8064,394.9334,1467.5278,-0.016,5.767`: a sawtooth of the atlas's texels along the ledge, which
+  tracing every pixel didn't have), and a concave corner's other surface, nearer than the pixel's own depth but within
+  a texel's slope of its plane, shadowed and sure (the dark lines along CornellBox's edges). The cost: Bistro's street
+  75.1 to 76.1 ms, the cornice pose 79.8 to 82.4 (the pixels traced; a 4x4 footprint traced the mouldings' curves too,
+  77.2 and 84.8). A faint dashed highlight is left along one of the cornice's creases. The
   rest are listed (`gShadowTraceList`: a count, then the pixels) and the 8x8 tiles within the filter's reach of them
   flagged (`gShadowTraceTiles`). Bistro's street lists 136000 pixels (4%), mostly along grazing sunlit facades. A thin
   occluder can fall between the taps: such a pixel is decided wrongly, which the filter takes as one more sample.
