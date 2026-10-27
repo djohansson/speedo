@@ -236,3 +236,16 @@ San Miguel's 5% comes later: the cache's shorter early window is noisier while i
 cache's tail is what is left of it.
 
 `SPEEDO_GI_TIME_BASED=0` restores the per frame hysteresis and the cache's whole window, for comparisons.
+
+### The near field at the traced pixels (2026-10-27)
+
+Its filter (GI Near X and Y) and its frames (GI Near Temporal) ran at every pixel though the rays are traced at one
+pixel in four (5.4, 8.5 and 9.3 ms of Bistro's, San Miguel's and Sponza's frames); they run at the traced pixels now,
+and the main pass upsamples by the traced pixels' surfaces, as the emitters' light (`GiNearUpsample`). Frame times:
+Bistro 67.5 to 65.4 ms, San Miguel 86.0 to 84.2, Sponza 37.1 to 33.9. The images differ from before by about twice the
+frames' noise (Sponza at frame 600: 0.028 mean |log2| at 4 pixels, its frames 0.012 apart; CornellBox's spheres
+0.016), a contact a few pixels wide (Sponza's curtains on the floor) a little lighter. `SPEEDO_GI_NEAR_STRIDE=4` traces
+a sixteenth of the pixels instead of a quarter: Bistro 65.4 to 54.3 ms, San Miguel 84.2 to 75.2, Sponza 33.9 to 29.7,
+its frames barely noisier (Sponza's 0.014 apart against 0.012), but coarser at contacts (Sponza at frame 600 0.042
+from stride 2, three times the frames' noise: the curtains' contact on the floor lighter over a wider band, a few darker
+spots along the sunlit edge). Left at 2 for the user to judge.

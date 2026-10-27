@@ -124,9 +124,10 @@ extern "C"
 #define SHADER_TYPES_SHADOW_ROWS_RW_TEXTURE 14u
 #define SHADER_TYPES_SHADOW_MASK_TEXTURE 22u
 #define SHADER_TYPES_SHADOW_MASK_RW_TEXTURE 15u
-// the indirect lighting's near field (see ginear.slang): per pixel of the pre-pass's depth, what its ray from the surface
-// met within a few voxels (rgb: its radiance; a: 1 if it met nothing, 0 if it did, -1 where there is nothing to know) (GI
-// Near, ComputeGiNear), that filtered along rows, and then columns (GI Near X and Y): the light the surface gathers (rgb)
+// the indirect lighting's near field (see ginear.slang): per traced pixel of the pre-pass's depth (every
+// GiData::nearStride-th each way: the others hold nothing), what its ray from the surface met within a few voxels (rgb:
+// its radiance; a: 1 if it met nothing, 0 if it did, -1 where there is nothing to know) (GI Near, ComputeGiNear), that
+// filtered along rows, and then columns (GI Near X and Y): the light the surface gathers (rgb)
 // and the share of its rays that met nothing near (a), which the main pass's opaque fragments take near other surfaces
 // (see GiNearIrradiance), each written as a storage image in gRWTextures
 #define SHADER_TYPES_GI_NEAR_RAW_TEXTURE 23u
@@ -135,9 +136,10 @@ extern "C"
 #define SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE 17u
 #define SHADER_TYPES_GI_NEAR_TEXTURE 25u
 #define SHADER_TYPES_GI_NEAR_RW_TEXTURE 18u
-// the near field accumulated over frames (GI Near Temporal, ComputeGiNearTemporal): two of each, the frame's written while
-// the last frame's is read, by the frame's parity (GiData::nearFrame): the light and share as SHADER_TYPES_GI_NEAR_TEXTURE's,
-// and each pixel's point's distance from the eye, which the next frame's reprojection checks its own against
+// the near field accumulated over frames (GI Near Temporal, ComputeGiNearTemporal), at the traced pixels: two of each, the
+// frame's written while the last frame's is read, by the frame's parity (GiData::nearFrame): the light and share as
+// SHADER_TYPES_GI_NEAR_TEXTURE's, and each traced pixel's surface (its point, and its normal packed as the emitters', RGBA32F),
+// which the next frame's reprojection checks its own against and the main pass upsamples by (GiNearUpsample)
 #define SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE 26u // and 27
 #define SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE 19u // and 20
 #define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE 28u // and 29
@@ -1064,6 +1066,9 @@ struct GiData
 	alignas(4) UINT1(nearTemporal);
 	alignas(4) FLOAT1(nearBlend);
 	alignas(4) UINT1(nearFrame);
+	// the pixels whose rays are traced, every nearStride-th each way (SPEEDO_GI_NEAR_STRIDE, 2 or 4): the filter takes the
+	// traced pixels within its reach, and each traced pixel's ray is one of 16 directions over the 4x4 of them it is in
+	alignas(4) UINT1(nearStride);
 };
 
 struct PushConstants

@@ -533,6 +533,7 @@ private:
 	// (SPEEDO_GI_NEAR_SHOW), whether it runs this frame (FrameInputs::giNearField, where the rays trace the BVHs), and its
 	// passes
 	float myGiNearReach = 8.0F;
+	uint32_t myGiNearStride = 2; // SPEEDO_GI_NEAR_STRIDE: every n-th pixel each way traced (see GiData::nearStride)
 	float myGiNearPower = 2.0F;
 	uint32_t myGiNearShow = 0;
 	bool myGiNearOn = false;

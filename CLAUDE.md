@@ -1661,7 +1661,9 @@ resolve), and the gap beside it is thinner than a voxel, all its surfaces lit by
 volume's lookups there found no light, in blocks a voxel wide (the user's CornellBox poses, the 11 models side by side:
 `0.0062,-2.2486,1.2961,23.077,13.130`, black rectangles under the spheres; `0.1488,-1.1952,0.7514,12.998,14.697` at
 resolution 192, red and black blocks where the sphere touches the green wall). Every other pixel each way of the
-pre-pass's depth traces a ray from its surface through the BVHs (GI Near, `ComputeGiNear`), as far as
+pre-pass's depth (`SPEEDO_GI_NEAR_STRIDE`, 2; 4 traces a sixteenth of the pixels: 4 to 11 ms less at the benchmark poses,
+coarser at contacts, docs/performance-plan.md) traces a ray from its surface
+through the BVHs (GI Near, `ComputeGiNear`), as far as
 `SPEEDO_GI_NEAR_REACH` (8) voxels of the clips that light the point, its direction one of 16 over a 4x4 tile of traced
 pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the light what it
 meets reflects (the voxels' there less their emission, `GiHitReflected`, read a voxel and a half off the pixel's tangent
@@ -1682,15 +1684,18 @@ don't, the probes' rays take a hit's own emission (`GiHitRadiance`: the voxel's 
 emission, its material's times its emissive texture at the hit), not its voxel's. (Only the alpha masked triangles
 carried their material then, so every other emitter a ray met gave nothing: EmissiveStrengthTest's cubes lit nothing
 around them. Every BVH triangle carries it now, `bvh-v3`.) GI Near X
-and Y filter it over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the
+and Y filter it at the traced pixels alone (at every pixel, as they were, the filter and the frames cost Bistro 5.4 ms,
+San Miguel 8.5 and Sponza 9.3 at the benchmark poses; at the traced pixels the frames take 2.1, 1.8 and 3.2 ms less, the
+main pass's upsampling taking some back, and differ from before by about twice the frames' noise, a contact a few pixels
+wide a little lighter), over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the
 normal, as the traced shadows' filter), by a tent of the distance (a box of the 17 traced pixels around a traced one and
 the 16 around the others drew stripes a pixel wide and a bright ray as a square). GI Near Temporal
 (`ComputeGiNearTemporal`; `SPEEDO_GI_NEAR_TEMPORAL=0` without it, View > Indirect Lighting > Near Field Over Frames)
 blends that into a history reprojected by the pixel's point through the view's last view projection
 (`ViewData::previousViewProjection`, `previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where
-the view moved in the target), bilinear over the 4 pixels around where it was, each only if its point was as far from
-the last eye as this one's (`SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`; within 2% and two pixels' steps along the
-surface), none for what moves (the main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two
+the view moved in the target), bilinear over the 4 traced pixels around where it was, each only if its point was as far
+from the last eye as this one's (by the traced pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: point
+and packed normal; within 2% and two strides' steps along the surface), none for what moves (the main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two
 images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
 from the pool); the rays turn every frame (`GiNearDirection`), each pixel taking every one of its tile's 16 directions
 over 16 frames. Fixed, the rays' grain stayed on the screen as the camera moved (the user: "fixed to the camera"; their
@@ -1699,7 +1704,9 @@ smears nothing. It costs 0.9 ms a frame on KosmicKrisp by the `Frame` scope (Spo
 to 58.3), which misses compute work there: by the draw thread's frame time, 18.9 ms at Bistro's evening benchmark pose
 and 16.4 at San Miguel's, its rays 10, its filter 4 to 8 (every pixel) and its frames 1 (docs/performance-plan.md). Main's
 opaque fragments (`PushConstants::prepassImages`'
-`PREPASS_IMAGE_GI_NEAR`) take what the rays gathered by how many met another surface nearer than a contact
+`PREPASS_IMAGE_GI_NEAR`) take what the rays gathered, upsampled from the traced pixels (`GiNearUpsample`: bilinear over
+the 2x2 around, each by how much it is on the fragment's surface, as the emitters' light, with their fallbacks; the frames'
+pass runs whether or not over frames, blending by 1 without, since it writes the surfaces the upsampling weighs by), by how many met another surface nearer than a contact
 (`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
 volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`), and the rays' light alone where the
 lookup saw no probe (`GiNearIrradiance`). Blended by anything met within the rays' reach, the rays' light took every

@@ -671,7 +671,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				for (auto image : myGiNearHistory)
+				for (auto image : {myGiNearHistory[0], myGiNearHistory[1], myGiNearHistoryDistance[0], myGiNearHistoryDistance[1]})
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterSurfaces[0], myEmitterSurfaces[1]})
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
@@ -1044,10 +1044,24 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		},
 		[this, kernel](FrameGraph::PassContext& context)
 		{
-			// every other pixel each way (see ComputeGiNear)
+			// every myGiNearStride-th pixel each way (see ComputeGiNear)
 			auto extent = myGraph.GetExtent();
-			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiNearEntryPoint}, (extent.width + 1) / 2, (extent.height + 1) / 2);
+			kernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kGiNearEntryPoint},
+				(extent.width + myGiNearStride - 1) / myGiNearStride,
+				(extent.height + myGiNearStride - 1) / myGiNearStride);
 		});
+	// the filter and the frames at the traced pixels, a thread each (see ComputeGiNearX)
+	auto nearKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
+	{
+		auto extent = myGraph.GetExtent();
+		kernel(
+			cmd,
+			ComputePipelineVariant{.entryPoint = entryPoint},
+			(extent.width + myGiNearStride - 1) / myGiNearStride,
+			(extent.height + myGiNearStride - 1) / myGiNearStride);
+	};
 	myGiNearXPass = myGraph.AddPass(
 		"GI Near X",
 		[this](FrameGraph::PassBuilder& builder)
@@ -1057,7 +1071,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiNearRaw, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myGiNearRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
-		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearXEntryPoint); });
+		[nearKernel](FrameGraph::PassContext& context) { nearKernel(context.cmd, kGiNearXEntryPoint); });
 	myGiNearYPass = myGraph.AddPass(
 		"GI Near Y",
 		[this](FrameGraph::PassBuilder& builder)
@@ -1067,7 +1081,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiNearRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myGiNear, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
-		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearYEntryPoint); });
+		[nearKernel](FrameGraph::PassContext& context) { nearKernel(context.cmd, kGiNearYEntryPoint); });
 	// and accumulated over frames: the last frame's history reprojected and blended with this frame's (the images the
 	// frame's parity says, read and written in the general layout, see SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE)
 	myGiNearTemporalPass = myGraph.AddPass(
@@ -1080,7 +1094,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto image : {myGiNearHistory[0], myGiNearHistory[1], myGiNearHistoryDistance[0], myGiNearHistoryDistance[1]})
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
-		[screenKernel](FrameGraph::PassContext& context) { screenKernel(context.cmd, kGiNearTemporalEntryPoint); });
+		[nearKernel](FrameGraph::PassContext& context) { nearKernel(context.cmd, kGiNearTemporalEntryPoint); });
 
 	// emissive surfaces as lights (see emitters.slang): every stride-th pixel each way of the pre-pass's depth resamples
 	// emitter points into its reservoir, reusing the last frame's (and its neighbors'), and traces the chosen one's shadow
@@ -1334,6 +1348,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the share that met no contact, 3 and 4 the gathered light of the rays that met something, and of those that didn't)
 	if (const char* nearReach = std::getenv("SPEEDO_GI_NEAR_REACH"); nearReach != nullptr && *nearReach != '\0')
 		myGiNearReach = std::clamp(static_cast<float>(std::strtod(nearReach, nullptr)), 0.0F, 64.0F);
+	if (const char* nearStride = std::getenv("SPEEDO_GI_NEAR_STRIDE"); nearStride != nullptr && *nearStride != '\0')
+		myGiNearStride = std::string_view(nearStride) == "4" ? 4U : 2U;
 	if (const char* nearPower = std::getenv("SPEEDO_GI_NEAR_POWER"); nearPower != nullptr && *nearPower != '\0')
 		myGiNearPower = std::clamp(static_cast<float>(std::strtod(nearPower, nullptr)), 0.0F, 64.0F);
 	if (const char* nearShow = std::getenv("SPEEDO_GI_NEAR_SHOW"); nearShow != nullptr && *nearShow != '\0')
@@ -1896,8 +1912,9 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		// and its traced pixels' surfaces (point and packed normal, as the emitters'), which the main pass upsamples by
 		myGiNearHistoryDistanceImages[historyIt] =
-			screenImage(std::format("GI Near History Distance {}", historyIt), Format::kR32Sfloat, extent);
+			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		// and the emitters' light's and its surfaces' (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
 		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, traced);
 		myEmitterSurfaceImages[historyIt] = screenImage(std::format("Emitter Surface {}", historyIt), Format::kR32G32B32A32Sfloat, traced);
@@ -2891,13 +2908,14 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
 	for (auto pass : {myGiNearPass, myGiNearXPass, myGiNearYPass})
 		myGraph.SetEnabled(pass, myGiNearOn);
-	// and over frames: last frame's history counts if the pass ran then (at this size: Resize clears it), else this frame's
-	// rays alone start it over
+	// and over frames: last frame's history counts if the frames are on and it ran then (at this size: Resize clears it),
+	// else this frame's rays alone start it over. the pass runs with the near field whether or not (the frame's alone:
+	// blended by 1), since the main pass upsamples its traced pixels' surfaces
 	myGiNearTemporalOn = myGiNearOn && frame.giNearTemporal;
-	myGraph.SetEnabled(myGiNearTemporalPass, myGiNearTemporalOn);
+	myGraph.SetEnabled(myGiNearTemporalPass, myGiNearOn);
 	myGiNearFrameBlend = myGiNearHistoryValid && myGiNearTemporalOn ? myGiNearBlend : 1.0F;
 	myGiNearHistoryValid = myGiNearTemporalOn;
-	if (myGiNearTemporalOn)
+	if (myGiNearOn)
 		myGiNearFrame++;
 	if (!enabled)
 	{
@@ -3281,6 +3299,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.nearTemporal = myGiNearTemporalOn ? 1U : 0U;
 		clip.nearBlend = myGiNearFrameBlend;
 		clip.nearFrame = myGiNearFrame;
+		clip.nearStride = myGiNearStride;
 		if (myGiDump)
 		{
 			// the probe nearest the dump point: by its lattice (the offsets are small)

@@ -125,7 +125,7 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	float3 indirect = gi.valid ? GiEvaluate(gi, normal) : (gi.inside ? 0.0 : -1.0);
 	// near other surfaces, what the near field's rays gathered (the main pass's opaque fragments, see GiNearIrradiance)
 	if (gFragmentGiNear)
-		indirect = GiNearIrradiance(indirect, gi.valid);
+		indirect = GiNearIrradiance(indirect, gi.valid, position, surface.geometryNormal);
 	// the emissive surfaces' light (the main pass's opaque fragments, see EmitterIrradiance): what a white surface reflects
 	// of it, -1 where it isn't gathered
 	float3 emitted = EmitterIrradiance(position, surface.geometryNormal);
