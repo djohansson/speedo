@@ -127,37 +127,38 @@ Miguel (its middle default ran slow), so San Miguel's figures carry about 1.5 ms
 ### The M4 Pro (KosmicKrisp), 2560x1440, 2026-10-27
 
 Bistro's evening pose: **67.5 ms a frame (15 fps)**; the sun is at the horizon at 20:00, so the shadows cost nothing and
-the light is the emitters' and the sky's. San Miguel: **86 ms (12 fps)**, the sun up.
+the light is the emitters' and the sky's. San Miguel: **86 ms (12 fps)**, the sun up. Sponza, looking into its
+interior, lit mostly by the bounce: **37 ms (27 fps)**.
 
 What each feature frees (each off in turn):
 
-| feature | Bistro (ms) | San Miguel (ms) |
-|---|---|---|
-| indirect lighting (all of it) | 43.5 | 32.0 |
-| its near field | 18.9 | 16.4 |
-| its surface cache | 11.1 | 7.2 |
-| the emitters | 10.8 | 6.7 |
-| the traced shadows (the atlas's soft filter in Main instead) | 0 | 2.0 |
-| the shadows (atlas, traced, and Main's filtering) | 0 | 26.7 |
-| all of them (the raster floor: 12.7 and 21.0 ms) | 54.7 | 65.0 |
+| feature | Bistro (ms) | San Miguel (ms) | Sponza (ms) |
+|---|---|---|---|
+| indirect lighting (all of it) | 43.5 | 32.0 | 25.7 |
+| its near field | 18.9 | 16.4 | 9.9 |
+| its surface cache | 11.1 | 7.2 | 5.6 |
+| the emitters | 10.8 | 6.7 | 0 |
+| the traced shadows (the atlas's soft filter in Main instead) | 0 | 2.0 | 0.5 |
+| the shadows (atlas, traced, and Main's filtering) | 0 | 26.7 | 4.1 |
+| all of them (the raster floor: 12.7, 21.0 and 8.3 ms) | 54.7 | 65.0 | 28.7 |
 
 What each pass frees (left out alone):
 
-| pass | Bistro (ms) | San Miguel (ms) |
-|---|---|---|
-| GI Near (the near field's rays, every other pixel each way) | 10.4 | 9.6 |
-| GI Near X and Y (its filter, every pixel) | 4.4 | 7.7 |
-| GI Near Temporal | 1.0 | 0.8 |
-| GI Resolve (with the cache's ray per voxel and the probes' visibility rays) | 12.6 | 8.2 |
-| GI Trace (the probes' rays: 3756 and 1664 probes at 128) | 7.3 | 2.4 |
-| GI Cache Filter | 3.3 | 2.7 |
-| GI Probe Update | 1.5 | 0.7 |
-| Emitter Sample (8 candidates a traced pixel) | 8.6 | 3.9 |
-| Emitter Shade (the shadow rays) | 5.3 | 1.2 |
-| Main | 9.4 | 15.8 |
-| ComputeMain (4.5 its own in Bistro) | 14.5 | 10.7 |
-| Shadows (the atlas: San Miguel's two sided casters, 4 cascades) | 0 | 9.9 |
-| Shadow Classify (with the rays it sends) / Trace / Denoise X and Y | 0 | 7.5 / 3.0 / 3.3 |
+| pass | Bistro (ms) | San Miguel (ms) | Sponza (ms) |
+|---|---|---|---|
+| GI Near (the near field's rays, every other pixel each way) | 10.4 | 9.6 | 5.7 |
+| GI Near X and Y (its filter, every pixel) | 4.4 | 7.7 | 7.6 |
+| GI Near Temporal | 1.0 | 0.8 | 1.7 |
+| GI Resolve (with the cache's ray per voxel and the probes' visibility rays) | 12.6 | 8.2 | 12.2 |
+| GI Trace (the probes' rays: 3756 and 1664 at 128 rays, 4069 at 120) | 7.3 | 2.4 | 2.4 |
+| GI Cache Filter | 3.3 | 2.7 | 2.6 |
+| GI Probe Update | 1.5 | 0.7 | 1.3 |
+| Emitter Sample (8 candidates a traced pixel) | 8.6 | 3.9 | 0.2 |
+| Emitter Shade (the shadow rays) | 5.3 | 1.2 | 0.1 |
+| Main | 9.4 | 15.8 | 4.2 |
+| ComputeMain (4.5 its own in Bistro) | 14.5 | 10.7 | 7.4 |
+| Shadows (the atlas: San Miguel's two sided casters, 4 cascades) | 0 | 9.9 | -7.4 (every pixel traced then) |
+| Shadow Classify (with the rays it sends) / Trace / Denoise X and Y | 0 | 7.5 / 3.0 / 3.3 | 2.3 / 0.5 / 1.0 |
 
 How long the lighting takes to settle from a cold start (the difference from the settled image at a 24 pixel blur,
 `convergence`'s default; the noise is the last captures' spread):
@@ -168,6 +169,7 @@ How long the lighting takes to settle from a cold start (the difference from the
 | San Miguel | 130 (11 s) | 350 (30 s) | 1090 (94 s) | 0.005 / 0.014 |
 | San Miguel, surface cache off | 110 (9.5 s) | 150 (13 s) | 360 (31 s) | 0.004 / 0.012 |
 | San Miguel, bounce off | 70 (6 s) | 320 (28 s) | 1090 (94 s) | 0.006 / 0.014 |
+| Sponza | 410 (15 s) | 760 (28 s) | 1080 (40 s) | 0.005 / 0.007 |
 
 What changes late is the light in what only the indirect lighting lights (San Miguel's arcade, the shade under its
 trees, its far wall), brightening: the surface cache's running mean (up to 1024 samples, a ray per voxel a frame, a
@@ -191,3 +193,46 @@ slowly within it.
 
 The RTX 4070 Ti SUPER's numbers are still to be measured (`pwsh scripts/perfbaseline.ps1 -Preset
 x64-windows-clang-profile`).
+
+## Progress
+
+### Step 2, the first evening (2026-10-27)
+
+What was tried on the cache's tail, by the settling time from a cold start (`scripts/perfbaseline.ps1 -Convergence`,
+and runs of 2400 frames, since at 1200 the "settled" captures were still moving):
+
+- **Kept: the probes' hysteresis by time** (`SPEEDO_GI_HYSTERESIS` is the blend at 60 frames a second; at 27 frames a
+  second 0.935, at 12 0.86): with the cache off, Sponza within 5% after 170 frames rather than 220. Free on a still scene
+  (a probe blends towards its last whole cycle's mean, the same directions each cycle).
+- **Kept: the cache's window at most half the frames since it started over**: Sponza within 10% after 460 frames rather
+  than 840. The tail is unchanged: Sponza still changes 2% 2000 frames in, either way.
+- **Kept: the cache's inside rays over the samples' window** (a bug: clamped apart, a voxel with a tenth of its rays
+  inside went dark after 3400 frames). Few of Sponza's voxels have any, so it changed nothing measurable there.
+- **Tried and dropped**: a lower cap (128 or 216 samples: five times the noise, no sooner settled), the samples weighed
+  by their place (2 / (n + 1): noisier, the same curve), the cache following its probes' change at once (overshot from
+  a cold start, since the probes start from nothing; gated after 64 frames, no change), the probes' light as a prior
+  ramped to full at 32 samples (no change), its pages never released and every block active (no change), 8 ray phases
+  and a hysteresis of 0.9 (no change: the probes aren't what is slow with the cache on).
+
+What it leaves: the cache averages, at a ray a voxel a frame, a light that is itself still settling (the bounce builds up
+through it), and a mean whose window grows with time forgets that only as 1 over the frames; a fixed short window
+forgets it geometrically but is five times as noisy. With the cache off, Sponza is within its noise after 600 frames,
+with it not after 2400. The next things to try: more rays a voxel while the light settles (the plan's "more rays after a
+reset"), measuring the cache's light against its probes' rather than alone (so that what it averages doesn't move as the
+light builds up: tried naively above, it needs the probes' warm-up handled), and a warm start.
+
+The three kept together, by the settling from a cold start (frames, and seconds at the baseline's frame times):
+
+| | within 10% | within 5% | within twice the noise | noise (24 px) |
+|---|---|---|---|---|
+| Bistro, before | 70 (4.7 s) | 140 (9.5 s) | 800 (54 s) | 0.014 |
+| Bistro, after | 70 (4.7 s) | 100 (6.8 s) | 400 (27 s) | 0.014 |
+| San Miguel, before | 130 (11 s) | 350 (30 s) | 1090 (94 s) | 0.005 |
+| San Miguel, after | 100 (8.6 s) | 420 (36 s) | 1090 (94 s) | 0.007 |
+| Sponza (2400 frames), before | 840 (31 s) | 1440 (53 s) | 2140 (79 s) | 0.007 |
+| Sponza (2400 frames), after | 460 (17 s) | 1460 (54 s) | 2160 (80 s) | 0.007 |
+
+San Miguel's 5% comes later: the cache's shorter early window is noisier while it settles. The step isn't done: the
+cache's tail is what is left of it.
+
+`SPEEDO_GI_TIME_BASED=0` restores the per frame hysteresis and the cache's whole window, for comparisons.

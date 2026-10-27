@@ -18,6 +18,7 @@
 #include <core/std_extra.h>
 
 #include <array>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <utility>
@@ -423,6 +424,12 @@ private:
 	uint32_t myGiRayPhase = 0;
 	uint32_t myGiProbeSpacing = 8;
 	float myGiHysteresis = 0.97F;
+	// the probes' blend by time rather than frames, and the surface cache's window by the frames since it started over
+	// (SPEEDO_GI_TIME_BASED=0 neither, as they were): SPEEDO_GI_HYSTERESIS is the blend at 60 frames a second, raised to the
+	// frames' length in sixtieths, smoothed over about ten (myGiFrameSeconds)
+	bool myGiTimeBased = true;
+	double myGiFrameSeconds = 1.0 / 60.0;
+	std::optional<std::chrono::steady_clock::time_point> myGiFrameTime;
 	bool myGiBounce = true;
 	bool myGiAdapt = false;
 	bool myGiDump = false; // SPEEDO_GI_DUMP: a probe per clip dumped at exit
@@ -436,6 +443,7 @@ private:
 	bool myGiClearBuffers = true;
 	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
 	uint32_t myGiFramesSinceReset = 0;
+	uint32_t myGiFramesSinceCacheReset = 0; // and since the surface cache last started over (GiData::cacheReset)
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
 	// SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame, and toward what (see gi::MakeClipmap)
 	struct GiEyePoint

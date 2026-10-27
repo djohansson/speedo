@@ -1382,8 +1382,11 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   see of the coarser voxels should change with the eye), and in a coarser clip the voxel they start in doesn't count,
   since a point outside a surface's shell in the finer clip is inside the thicker shell of the coarser: a probe over
   the floor below the finest clip's box traced its depth in the next clip from the first step, whose shell around the
-  floor it stood in, so its depth read 0 that way and it was dead), by `SPEEDO_GI_HYSTERESIS` (0.97: the frame's rays
-  are 3% of it), or by the
+  floor it stood in, so its depth read 0 that way and it was dead), by `SPEEDO_GI_HYSTERESIS` (0.97 at 60 frames a
+  second: the frame's rays are 3% of it; raised to the frames' length in sixtieths otherwise, smoothed over about ten,
+  so that a probe follows a change in the same time at any frame rate: `Renderer::myGiTimeBased`, `SPEEDO_GI_TIME_BASED=0`
+  per frame; by frames, five times as long at San Miguel's 12 frames a second, and with the cache off Sponza at 27 came
+  within 5% of settled after 220 frames, 170 by time), or by the
   frames it has while fewer (so a probe starts from its first frame's rays and settles in 30), or, with
   `SPEEDO_GI_ADAPT=1`, a quarter at a time through a change of the light (DDGI's adaptive hysteresis: each probe keeps
   how much its frames' mean radiance usually differs from what it holds, coefficient 1's w, and a difference of four
@@ -1608,8 +1611,14 @@ further than halfway to a surface facing back at it there, `GiCacheOrigin`: Corn
 the voxel out along the wall's open side inside it, the entries were inside, and the wall drew a black crescent along
 the sphere, stepped at the voxels, at the user's pose `0.1488,-1.1952,0.7514,12.998,14.697` at resolution 192), as the
 probes' rays are traced, into a running mean of at
-most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves); a ray meeting a back face within a voxel and a half
-started inside something, and a voxel with more than a quarter of those is no light (the probes' alone). Lights changing
+most `SPEEDO_GI_CACHE_SAMPLES` (1024; 32 where something moves), and at most half the frames since it started over
+(at least 32; `SPEEDO_GI_TIME_BASED=0` without): its first frames' samples, read while the probes and the bounce build up
+and overshoot, then fall out sooner (Sponza from a cold start within 10% of settled after 460 frames rather than 840;
+the tail, a mean of a light still settling, fades as 1 over the frames either way: Sponza's still changed 2% 2000 frames
+in, see docs/performance-plan.md); a ray meeting a back face within a voxel and a half started inside something, and a
+voxel with more than a quarter of those is no light (the probes' alone). The samples and those rays are kept over one
+window, scaled down together past the cap (the inside rays in sixteenths): clamped apart, the samples stopped at the cap
+while the inside rays went on to it, so a voxel with a tenth of its rays inside crossed a quarter after 3400 frames. Lights changing
 or a new buffer start it over. `ComputeGiCacheFilter` then filters it as SVGF filters a frame (Schied et al. 2017): a pass
 estimating each voxel's noise (its samples' variance pooled over the 3x3x3 on its surface, over its own samples: by its
 own alone, a voxel that missed a source smaller than its rays' spacing measured no noise and refused its lucky

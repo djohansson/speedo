@@ -2290,7 +2290,7 @@ float3 GiIrradianceResolved(GiData gi, float3 position, float3 normal, bool weig
 // faces' rgb as half floats (9 words); the samples its mean is of (at most GiData::cacheSampleCount) and the rays traced
 // (its directions' sequence), 16 bits each; the mean of its samples' squares (GiCacheSample: the light along the voxel's
 // open side, whose mean the faces hold), which with the mean is their variance; and the voxel's open side (octahedral, 8
-// bits a coordinate) and the rays that started inside something, 16 bits each
+// bits a coordinate) and the rays that started inside something (in sixteenths), 16 bits each
 struct GiCacheEntry
 {
 	float3 faces[SHADER_TYPES_GI_IRRADIANCE_COUNT];
@@ -2498,9 +2498,14 @@ uint GiCacheRecordIndex(GiData gi, uint half, uint record, uint3 at)
 
 // whether an entry is light to filter: samples, and not a voxel inside something (above a quarter of its rays started
 // in something, as a probe's, kGiInsideShare)
+// the inside rays (see GiCacheEntry) are kept in sixteenths, so that their scaling with the samples (see GiCacheUpdate)
+// doesn't round away
+static const uint kGiCacheInsideScale = 16u;
+
 bool GiCacheValid(GiCacheEntry entry)
 {
-	return entry.count != 0u && float(entry.inside) <= kGiInsideShare * float(entry.count + entry.inside);
+	float inside = float(entry.inside) / float(kGiCacheInsideScale);
+	return entry.count != 0u && inside <= kGiInsideShare * (float(entry.count) + inside);
 }
 
 // a ray's sample of the light along a voxel's open side (normal), in luminance: what it adds to the faces the normal's
@@ -2654,7 +2659,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			{
 				if (hit.backface && hit.distance < insideReach)
 				{
-					entry.inside++;
+					entry.inside += kGiCacheInsideScale;
 					continue;
 				}
 				traced = hit.radiance;
@@ -2674,8 +2679,18 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			entry.moment += (light * light - entry.moment) * weight;
 		}
 	}
-	// the inside rays counted over the cap's window too, so that a voxel isn't held inside for good by its first frames
-	entry.inside = min(entry.inside, cap);
+	// the samples and the inside rays over one window, the cap's: past it both scaled down together, so that the inside
+	// rays' share stays the share of the latest rays. clamped apart, the samples stopped at the cap while the inside rays
+	// went on to it, so a voxel with a tenth of its rays inside crossed a quarter (no light) after 3400 frames, a fifth
+	// after 1700, and Sponza's interior darkened for thousands of frames after a cold start
+	float inside = float(entry.inside) / float(kGiCacheInsideScale);
+	float total = float(entry.count) + inside;
+	if (total > float(cap))
+	{
+		float scale = float(cap) / total;
+		entry.count = uint(float(entry.count) * scale);
+		entry.inside = uint(round(float(entry.inside) * scale));
+	}
 	GiCacheStore(index, entry);
 	if (dumped)
 	{
@@ -2683,7 +2698,7 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		GiVoxel voxel = gGiVoxels[gi.voxelFirst + GiVoxelIndex(at, size)];
 		float3 voxelNormal = GiVoxelNormal(voxel.normal);
 		float values[30] = {
-			float(entry.count), float(entry.inside), 0.0, 0.0, 0.0,
+			float(entry.count), float(entry.inside) / float(kGiCacheInsideScale), 0.0, 0.0, 0.0,
 			voxelCenter.x, voxelCenter.y, voxelCenter.z, normal.x, normal.y, normal.z,
 			dot(entry.faces[0], kGiCacheLuminance), dot(entry.faces[1], kGiCacheLuminance), dot(entry.faces[2], kGiCacheLuminance),
 			dot(entry.faces[3], kGiCacheLuminance), dot(entry.faces[4], kGiCacheLuminance), dot(entry.faces[5], kGiCacheLuminance),

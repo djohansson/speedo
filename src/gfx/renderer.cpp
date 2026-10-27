@@ -1404,6 +1404,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	ENSUREF(myGiProbeSpacing % 8 == 0, "SPEEDO_GI_PROBE_SPACING must be a multiple of 8, not {}", myGiProbeSpacing);
 	if (const char* hysteresis = std::getenv("SPEEDO_GI_HYSTERESIS"); hysteresis != nullptr && *hysteresis != '\0')
 		myGiHysteresis = std::clamp(std::strtof(hysteresis, nullptr), 0.0F, 0.99F);
+	if (const char* timeBased = std::getenv("SPEEDO_GI_TIME_BASED"); timeBased != nullptr && *timeBased != '\0')
+		myGiTimeBased = std::string_view(timeBased) != "0";
 	const char* bounce = std::getenv("SPEEDO_GI_BOUNCE");
 	if (const char* rays = std::getenv("SPEEDO_GI_REFERENCE_RAYS"); rays != nullptr && *rays != '\0')
 		myGiReferenceRayCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(rays, nullptr, 10)), 16U, 4096U);
@@ -3183,6 +3185,29 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGiProbeHalf ^= 1;
 	myGiRayPhase = (myGiRayPhase + 1) % myGiRayPhaseCount;
 	myGiFramesSinceReset = myGiReset ? 0 : myGiFramesSinceReset + 1;
+	// the frames' length, smoothed over about ten (a stall shouldn't move the blend), and the probes' blend by it (see
+	// myGiTimeBased): a probe takes as long to follow a change at any frame rate (by frames, five times as long at San
+	// Miguel's 12 frames a second as at 60)
+	auto frameTime = std::chrono::steady_clock::now();
+	if (myGiFrameTime)
+	{
+		double seconds = std::clamp(std::chrono::duration<double>(frameTime - *myGiFrameTime).count(), 1.0 / 480.0, 0.25);
+		myGiFrameSeconds += (seconds - myGiFrameSeconds) * 0.1;
+	}
+	myGiFrameTime = frameTime;
+	float hysteresis = myGiHysteresis;
+	if (myGiTimeBased)
+	{
+		constexpr float kMinHysteresis = 0.8F;
+		hysteresis = std::clamp(static_cast<float>(std::pow(static_cast<double>(myGiHysteresis), myGiFrameSeconds * 60.0)), std::min(kMinHysteresis, myGiHysteresis), 0.995F);
+	}
+	// the surface cache's window: at most half the frames since it started over (and at least 32), so that the samples of
+	// its first frames, while the probes and the bounce build up (and overshoot), fall out as that ends rather than as 1
+	// over the samples: by its whole window from the start, a mean of up to 1024 samples, Sponza's interior still darkened
+	// 1200 frames after a cold start, where without the cache it settled by 600 (docs/performance-plan.md)
+	bool cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit || myGiReset;
+	myGiFramesSinceCacheReset = cacheReset ? 0 : myGiFramesSinceCacheReset + 1;
+	uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(myGiFramesSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount) : myGiCacheSampleCount;
 	// the rays per probe this frame: the budget over the probes traced last time (at least 16, at most the count, in
 	// eights)
 	myGiRayCountThisFrame = myGiRayCount;
@@ -3210,7 +3235,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
 		clip.cacheRayCount = frame.giSurfaceCache ? myGiCacheRayCount : 0U;
 		// following lights that change gradually (see myGiLightsGradual) as where something moves
-		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(myGiCacheSampleCount, 32U) : myGiCacheSampleCount;
+		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(cacheSampleCount, 32U) : cacheSampleCount;
 		clip.cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
@@ -3231,7 +3256,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;
 		clip.rayCount = myGiRayCountThisFrame;
-		clip.hysteresis = myGiHysteresis;
+		clip.hysteresis = hysteresis;
 		clip.reset = myGiReset ? 1 : 0;
 		// the lights alone changed: the part of the static voxels' light they don't change is kept (see GiData::keptFirst)
 		clip.lightsOnly = myGiLightsChanged && !myGiEmittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
