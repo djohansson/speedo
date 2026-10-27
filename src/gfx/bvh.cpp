@@ -9,9 +9,11 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <mutex>
+#include <string_view>
 #include <vector>
 
 #include <glm/gtc/type_ptr.hpp>
@@ -173,6 +175,24 @@ std::vector<Triangle> Triangles(
 	return triangles;
 }
 
+namespace detail
+{
+
+// how the static BVH is built: with spatial splits (tinybvh's BuildHQ, an SBVH: a triangle spanning several nodes'
+// space is referenced from each, so the nodes overlap less and rays visit fewer), or binned SAH alone
+// (SPEEDO_BVH_BUILD=fast, tinybvh's Build, as it was)
+[[nodiscard]] bool SpatialSplits()
+{
+	static const bool spatialSplits = []
+	{
+		const char* build = std::getenv("SPEEDO_BVH_BUILD");
+		return build == nullptr || std::string_view(build) != "fast";
+	}();
+	return spatialSplits;
+}
+
+} // namespace detail
+
 Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor)
 {
 	ZoneScopedN("gfx::bvh::Build");
@@ -194,7 +214,10 @@ Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor)
 	detail::Executor context{.executor = executor};
 	tinybvh::BVH8_CWBVH cwbvh(tinybvh::BVHContext{
 		.spawn = detail::Spawn, .barrier = detail::Barrier, .parallel_for = detail::ParallelFor, .userdata = &context});
-	cwbvh.Build(corners.data(), data.triangleCount);
+	if (detail::SpatialSplits())
+		cwbvh.BuildHQ(corners.data(), data.triangleCount);
+	else
+		cwbvh.Build(corners.data(), data.triangleCount);
 
 	data.nodes.resize(cwbvh.usedBlocks);
 	std::memcpy(data.nodes.data(), cwbvh.bvh8Data, data.nodes.size() * sizeof(glm::vec4));
@@ -422,7 +445,12 @@ std::string Version()
 {
 	// bump the tag when Build changes what it makes
 	return std::format(
-		"tinybvh-{}.{}.{}-{}|bvh-v3", TINY_BVH_VERSION_MAJOR, TINY_BVH_VERSION_MINOR, TINY_BVH_VERSION_SUB, TINY_BVH_CACHE_VERSION);
+		"tinybvh-{}.{}.{}-{}|bvh-v3{}",
+		TINY_BVH_VERSION_MAJOR,
+		TINY_BVH_VERSION_MINOR,
+		TINY_BVH_VERSION_SUB,
+		TINY_BVH_CACHE_VERSION,
+		detail::SpatialSplits() ? "-sbvh" : "");
 }
 
 } // namespace gfx::bvh

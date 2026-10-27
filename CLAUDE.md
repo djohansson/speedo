@@ -1543,7 +1543,11 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
 the triangles and the voxels at run time, `Scene::Settings::traceTriangles`, `FrameInputs::traceTriangles`;
 `SPEEDO_GI_TRACE=voxels` starts with the voxels, and View > Camera > Copy Pose writes it): a model loaded gets a BVH of what the voxels hold of it (`gfx::bvh::Build`, `gfx/bvh.h`: its static triangle lists that aren't
 blended or transmissive, at each instance, in world space), tinybvh's compressed wide BVH (CWBVH; the `ports/tinybvh`
-overlay, not in vcpkg's registry, pinned to a commit of its main branch), built on the executor (`TINYBVH_NO_BUILTIN_POOL`,
+overlay, not in vcpkg's registry, pinned to a commit of its main branch), built with spatial splits (tinybvh's `BuildHQ`, an
+SBVH: a triangle spanning several nodes' space is referenced from each, so they overlap less and rays visit fewer;
+`SPEEDO_BVH_BUILD=fast` binned SAH alone, `Build`, as it was, a cache entry of its own: Bistro's frame 66.0 to 57.6 ms,
+San Miguel's 88.7 to 87.1, Sponza's 31.8 to 30.4, at 214.6 MB of BVH rather than 193 and 0.58 s of build rather than
+0.4) on the executor (`TINYBVH_NO_BUILTIN_POOL`,
 its spawn, barrier and parallel for hooks over the `TaskExecutor`) when the model is imported and kept in its asset cache
 like the rest of it (after the staging buffers; `bvh::Version`, tinybvh's version and a `bvh-vN` tag, is part of the
 cache key: bump it when `Build` changes), a merged set's built at upload from the staged triangles (its files are placed
@@ -1617,7 +1621,7 @@ every accepted hit, the loop carried them all and Bistro's frame took 2 ms more.
 probes' threads by ray (no help: each probe turns its ray set by its own phase, so neighbors' rays don't share
 directions). Measured (Sponza's inside, Bistro's street, CornellBox-Sphere, as below, interleaved): the
 indirect lighting's share of the frame (the `Frame` scope less a run without it) 9.9 ms walking the voxels, 10.5 tracing;
-7.6 and 11.2 (Bistro's 2.8 M triangles, 193 MB of BVH, built in 0.4 s at import; Sponza's in 40 ms); 4.9 and 3.6.
+7.6 and 11.2 (Bistro's 2.8 M triangles, 193 MB of BVH, built in 0.4 s at import, without spatial splits; Sponza's in 40 ms); 4.9 and 3.6.
 `assettest` checks each model's BVHs in both layouts (`Build`, `BuildBinary`) as `bvh.slang` traverses them (compiled to
 c++, `src/tools/bvhkernels.slang`) against testing every triangle: nearest hits, distances, sides, barycentrics and any
 hits (`CheckBvh`; a triangle tied with a coplanar one, e.g. back to back, isn't a disagreement). Each method's

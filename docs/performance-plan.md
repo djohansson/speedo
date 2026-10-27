@@ -329,3 +329,14 @@ since the last frame, from where the vertex stage places those draws in the last
 resolve takes where the nearest pixel moves: CesiumMan walking and the Fox show no trails. What it lacks: FSR, DLSS and
 MetalFX behind the same interface, and the temporal filters of the near field and the emitters taking the upscaler's
 history instead of their own.
+
+### Step 4, the software path (2026-10-28 night)
+
+KosmicKrisp exposes neither `VK_KHR_ray_query` nor `VK_KHR_acceleration_structure` on the M4 Pro (mesa 8fc4981), so the
+hardware ray path waits for a desktop gpu to be measured on; the software path is what can be measured here.
+
+- **Kept: the static BVH built with spatial splits** (tinybvh's `BuildHQ`, an SBVH; `SPEEDO_BVH_BUILD=fast` for binned
+  SAH alone, as it was): every ray that traverses it (the probes', the resolve's visibility rays, the surface cache's, the
+  near field's, the traced shadows' and the emitters') visits fewer nodes. Frame times, interleaved twice each: Bistro
+  66.0 to 57.6 ms, San Miguel 88.7 to 87.1, Sponza 31.8 to 30.4. The BVHs take a tenth more memory (Bistro 193 to 215
+  MB) and half again the build (0.4 to 0.58 s, San Miguel's 10 M triangles 2.0 s), once, at import.
