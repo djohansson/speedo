@@ -417,12 +417,15 @@ void FragmentShadow(VertexOutput input)
 	CutOut(input, gMaterialData[input.materialId]);
 }
 
-// the pre-pass's color attachment (SHADER_TYPES_PREPASS_NORMAL_TEXTURE): the geometry normal, as the shading takes it (the
-// vertex normal toward the side seen), 0.5 + 0.5 n in rgb, and 1 in alpha where the material takes light from behind
-// (diffuse transmission, volume scatter): what the traced shadows' rays start from (see ComputeShadowTrace)
+// the pre-pass's color attachments: the geometry normal, as the shading takes it (the vertex normal toward the side
+// seen), 0.5 + 0.5 n in rgb, and 1 in alpha where the material takes light from behind (diffuse transmission, volume
+// scatter): what the traced shadows' rays start from (see ComputeShadowTrace; SHADER_TYPES_PREPASS_NORMAL_TEXTURE); and
+// where the point was in the last frame, in the render target's pixels from where it is, the jitters taken out
+// (SHADER_TYPES_PREPASS_MOTION_TEXTURE): what temporal upscaling reprojects what moves by
 struct PrepassOutput
 {
 	float4 normal : SV_Target0;
+	float4 motion : SV_Target1;
 };
 
 // a fragment of the pre-pass: its depth, cut out as the main pass's are, and its geometry normal, before the main pass
@@ -445,6 +448,11 @@ PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontF
 	bool fromBehind = (material.flags & (MATERIAL_FLAG_DIFFUSE_TRANSMISSION | MATERIAL_FLAG_VOLUME_SCATTER)) != 0u;
 	PrepassOutput output;
 	output.normal = float4(normal * 0.5 + 0.5, fromBehind ? 1.0 : 0.0);
+	ViewData view = gViewData[gPushConstants.frameIndex][gPushConstants.viewId];
+	float4 current = mul(view.viewProjection, float4(v.position, 1.0));
+	float4 previous = mul(view.previousViewProjection, float4(input.previousPosition, 1.0));
+	float2 motion = previous.w > 0.0 ? ((previous.xy / previous.w - view.jitter.zw) - (current.xy / current.w - view.jitter.xy)) * 0.5 * view.viewport.zw : 0.0;
+	output.motion = float4(motion, 0.0, 0.0);
 	return output;
 }
 

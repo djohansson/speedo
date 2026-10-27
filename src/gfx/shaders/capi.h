@@ -164,6 +164,9 @@ extern "C"
 // the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
 // the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
 #define SHADER_TYPES_SKY_VIEW_TEXTURE 37u
+// the gTextures slot of the pre-pass's motion: where each pixel's point was in the last frame, in the render target's
+// pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
+#define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
 // temporal upscaling (see ComputeResolve, PushConstants::upscale): the frame's composite at the render size (linear,
 // before exposure: ComputeMain's output there, a: 1 where something was drawn), which the Resolve pass upsamples into the
 // output, and its history at the output's size (two, the frame's by its parity: rgb the resolved light, before exposure;
@@ -705,8 +708,11 @@ struct DrawRecord
 	alignas(4) UINT1(morphDeltaBase);
 	alignas(4) UINT1(morphFirstVertex);
 	alignas(4) UINT1(morphWeightBase);
-	alignas(4) UINT1(padding);
+	alignas(4) UINT1(flags); // DRAW_FLAG_*
 };
+// DrawRecord::flags: it moves (skinned, morphed, or following animated nodes), so the vertex stage places it where it
+// was in the last frame too, for its motion (see FragmentPrepass)
+#define DRAW_FLAG_MOVES 1u
 
 // an indexed indirect draw's command (VkDrawIndexedIndirectCommand's layout)
 struct DrawIndexedIndirectCommand

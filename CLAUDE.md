@@ -950,7 +950,12 @@ history where the nearest of the 3x3 was (reprojected by its depth through the l
 out; bicubic, Catmull-Rom in 5 reads), clipped to the box of the 3x3's colors (their mean and 1.25 deviations, in YCoCg),
 blended by the weight of the samples each holds (the history's at most 16, in its alpha), in light compressed as
 `c / (1 + luminance)` (Karis), so that a bright sample doesn't flicker. What moves (the main depth's stencil) keeps a
-history weight of 1 at most: its depth reprojects where it is, not where it was, so it has no motion vectors yet.
+history by its own motion, since its depth reprojects where it is, not where it was: the pre-pass writes each pixel's
+motion since the last frame (`SHADER_TYPES_PREPASS_MOTION_TEXTURE`, its second color attachment, RG16F, in the render
+target's pixels, the jitters taken out: `FragmentPrepass`), from where the vertex stage places what moves in the last
+frame (`VertexOutput::previousPosition`: `WorldPosition` with the last frame slot's instances, joints and morph weights,
+for the draws `DRAW_FLAG_MOVES` marks; the rest where they are), and the resolve takes it where the nearest of the 3x3
+moves (the stencil), the depth's reprojection elsewhere. CesiumMan walking and the Fox at balanced show no trails.
 Measured by the draw thread's settled frame time at the benchmark poses (2560x1440 output, GI on; off, native, balanced
 and performance): Bistro 65.1, 64.6, 47.7 and 40.9 ms; San Miguel 86.6, 83.1, 65.0 and 57.3; Sponza 31.5, 33.3, 26.5
 and 23.8: a quarter of the heavier scenes' frame at balanced, short of the pixels' 55% since the probes, the voxels and
@@ -2279,8 +2284,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 38
-(0 the main color, 1 to 3 temporal upscaling's composite and history, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 39
+(0 the main color, 1 to 3 temporal upscaling's composite and history, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

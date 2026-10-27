@@ -258,6 +258,7 @@ private:
 	// the pre-pass's geometry normals (SHADER_TYPES_PREPASS_NORMAL_TEXTURE, see PrepassOutput), with the depth, which the
 	// main pass then shades over (DepthTest::kEqual) and the traced shadows start from
 	FrameGraph::ImageId myPrepassNormal;
+	FrameGraph::ImageId myPrepassMotion; // SHADER_TYPES_PREPASS_MOTION_TEXTURE
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
 	// visibility filtered along rows, and along columns (what the main pass takes); each a channel per traced light
 	FrameGraph::ImageId myShadowRaw;

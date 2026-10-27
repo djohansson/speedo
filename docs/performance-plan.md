@@ -324,7 +324,8 @@ sharpened (RCAS) into the swapchain; the textures' mips biased by the render sca
 
 What scales with the pixels went to 45% and 25% of its cost; the rest (the probes, the voxels, the surface cache, the
 shadow atlas, the culling) didn't. Still images at balanced are a little softer than off, native as sharp (Sponza's
-stone and window grate at 2x zoom); turning at 30 degrees a second shows no ghosting. What it lacks: motion vectors for
-what moves (skinned, morphed, animated nodes: they keep a history weight of 1, so they alias and shimmer), FSR, DLSS and
+stone and window grate at 2x zoom); turning at 30 degrees a second shows no ghosting. Then motion vectors for what moves (skinned, morphed, following animated nodes: the pre-pass writes each pixel's motion
+since the last frame, from where the vertex stage places those draws in the last frame slot's buffers), which the
+resolve takes where the nearest pixel moves: CesiumMan walking and the Fox show no trails. What it lacks: FSR, DLSS and
 MetalFX behind the same interface, and the temporal filters of the near field and the emitters taking the upscaler's
 history instead of their own.

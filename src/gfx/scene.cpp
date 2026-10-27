@@ -130,7 +130,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 38; // after the sky's view (SHADER_TYPES_SKY_VIEW_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 39; // after the pre-pass's motion (SHADER_TYPES_PREPASS_MOTION_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -167,6 +167,7 @@ static_assert(
 	SHADER_TYPES_COMPOSITE_TEXTURE > SHADER_TYPES_RENDER_TARGET_TEXTURE && SHADER_TYPES_RESOLVE_HISTORY_TEXTURE + 1 < SHADER_TYPES_MAIN_DEPTH_TEXTURE &&
 	SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 && SHADER_TYPES_COMPOSITE_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_SKY_VIEW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 && SHADER_TYPES_SKY_VIEW_TEXTURE < kModelTextureFirstSlot);
+static_assert(SHADER_TYPES_PREPASS_MOTION_TEXTURE > SHADER_TYPES_SKY_VIEW_TEXTURE && SHADER_TYPES_PREPASS_MOTION_TEXTURE < kModelTextureFirstSlot);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes

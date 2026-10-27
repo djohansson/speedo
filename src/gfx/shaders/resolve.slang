@@ -7,15 +7,14 @@
 // is, each by how near the point it saw (its center less the jitter) is to the output pixel's center (a gaussian of
 // about half a render pixel, Blackman-Harris's as Karis fits it), and its history: the last frame's resolve where the
 // point the nearest of the 3x3 sees was (reprojected by its depth through the last frame's view projection, the jitters
-// taken out), bicubic, clipped to the box of the 3x3's colors (their mean, and a deviation and a quarter around it:
-// light the history holds that isn't this frame's), and blended in by the weight of the samples each holds (at most
+// taken out; what moves by its motion, see FragmentPrepass, since its depth is where it is now), bicubic, clipped to
+// the box of the 3x3's colors (their mean, and a deviation and a quarter around it: light the history holds that isn't
+// this frame's), and blended in by the weight of the samples each holds (at most
 // kResolveHistoryWeight: at the output's size about a tenth of the frame's a frame; where the render pixels are fewer
 // than the output's, less of their weight lands on each output pixel, which takes more frames). blended as a
-// tonemapper's curve compresses the light (Karis), so that a bright sample doesn't flicker as the jitter moves. what
-// moves (the main depth's stencil) keeps little history: its depth is where it is now, not where it was
+// tonemapper's curve compresses the light (Karis), so that a bright sample doesn't flicker as the jitter moves.
 
 static const float kResolveHistoryWeight = 16.0;
-static const float kResolveMovingWeight = 1.0;
 static const float kResolveClipDeviations = 1.25;
 
 float ResolveLuminance(float3 color)
@@ -81,9 +80,10 @@ float4 ResolveSampleBicubic(Texture2D source, SamplerState linear, float2 uv, fl
 [numthreads(16, 16, 1)]
 void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-	RWTexture2D output = gRWTextures[gPushConstants.outputIndex];
+	uint parity = (gPushConstants.upscale & UPSCALE_PARITY) != 0u ? 1u : 0u;
+	RWTexture2D resolved = gRWTextures[SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE + parity];
 	uint2 outputSize;
-	output.GetDimensions(outputSize.x, outputSize.y);
+	resolved.GetDimensions(outputSize.x, outputSize.y);
 	uint2 xy = dispatchThreadId.xy;
 	if (any(xy >= outputSize))
 		return;
@@ -100,7 +100,7 @@ void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float exposure = data ? 1.0 : gPushConstants.exposure;
 
 	// the 3x3 render pixels around it: their light by their points' distance from its center, the box of their colors,
-	// the nearest of them, and whether anything there moves
+	// and the nearest of them, and whether it moves
 	Texture2D composite = gTextures[SHADER_TYPES_COMPOSITE_TEXTURE];
 	Texture2D depths = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE];
 	int2 center = int2(floor(position + jitter));
@@ -110,7 +110,7 @@ void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 square = 0.0;
 	int2 nearest = clamp(center, int2(0), renderSize - 1);
 	float nearestDepth = 2.0;
-	bool moving = false;
+	bool nearestMoves = false;
 	for (int y = -1; y <= 1; y++)
 	{
 		for (int x = -1; x <= 1; x++)
@@ -129,8 +129,8 @@ void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 			{
 				nearestDepth = depth;
 				nearest = pixel;
+				nearestMoves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 			}
-			moving = moving || (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 		}
 	}
 	float3 current = sum / max(sampleWeight, 1e-6);
@@ -138,7 +138,6 @@ void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float3 deviation = sqrt(max(square / 9.0 - mean * mean, 0.0));
 
 	// the history: the last frame's resolve where the nearest pixel's point was, clipped to the box
-	uint parity = (gPushConstants.upscale & UPSCALE_PARITY) != 0u ? 1u : 0u;
 	float3 history = current;
 	float historyWeight = 0.0;
 	if ((gPushConstants.upscale & UPSCALE_HISTORY) != 0u && inView && view.previousEyePosition.w != 0.0)
@@ -152,6 +151,9 @@ void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 			float2 motion = (previousClip.xy / previousClip.w - view.jitter.zw) - (nearestNdc - view.jitter.xy);
 			float2 ndc = (position - view.viewport.xy) / view.viewport.zw * 2.0 - 1.0 + motion;
 			float2 previous = (ndc * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy;
+			// what moves by its own motion (its depth reprojects where it is now, not where it was)
+			if (nearestMoves)
+				previous = position + gTextures[SHADER_TYPES_PREPASS_MOTION_TEXTURE].Load(int3(nearest, 0)).xy;
 			if (all(previous >= view.viewport.xy) && all(previous < view.viewport.xy + view.viewport.zw))
 			{
 				float4 sampled = ResolveSampleBicubic(
@@ -161,13 +163,13 @@ void ComputeResolve(uint3 dispatchThreadId : SV_DispatchThreadID)
 					float2(outputSize));
 				float3 ycocg = ResolveToYCoCg(ResolveCompress(max(sampled.rgb, 0.0) * exposure));
 				history = ResolveFromYCoCg(ResolveClip(ycocg, mean, deviation * kResolveClipDeviations));
-				historyWeight = clamp(sampled.a, 0.0, moving ? kResolveMovingWeight : kResolveHistoryWeight);
+				historyWeight = clamp(sampled.a, 0.0, kResolveHistoryWeight);
 			}
 		}
 	}
 	float weight = historyWeight + sampleWeight;
-	float3 resolved = ResolveExpand((history * historyWeight + current * sampleWeight) / max(weight, 1e-6)) / exposure;
-	gRWTextures[SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE + parity].Store(xy, float4(resolved, min(weight, kResolveHistoryWeight)));
+	float3 light = ResolveExpand((history * historyWeight + current * sampleWeight) / max(weight, 1e-6)) / exposure;
+	resolved.Store(xy, float4(light, min(weight, kResolveHistoryWeight)));
 
 }
 

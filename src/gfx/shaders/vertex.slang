@@ -70,6 +70,8 @@ struct VertexOutput : IInterpolants
 	float modelScale;
 	// the draw's material (see DrawRecord), for the fragment stage
 	nointerpolation uint materialId;
+	// where the point was in the last frame, in world space (where it moves, see DRAW_FLAG_MOVES; else where it is)
+	float3 previousPosition;
 };
 
 // VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)
@@ -142,6 +144,11 @@ VertexMainOutput VertexMain(InputStream input)
 	output.vertex.color = v.color;
 	output.modelScale = pow(abs(determinant(linear)), 1.0 / 3.0);
 	output.materialId = draw.materialId;
+	// the last frame's buffers are its slot's, the one before (what moves writes its instances, joints and weights per
+	// frame slot; what doesn't binds one buffer in every slot)
+	output.previousPosition = worldPosition;
+	if ((draw.flags & DRAW_FLAG_MOVES) != 0u)
+		output.previousPosition = WorldPosition(draw, input.vertexId, input.instanceId, (frameIndex + SHADER_TYPES_FRAME_COUNT - 1u) % SHADER_TYPES_FRAME_COUNT);
 
 	return { output, 1.0 };
 }

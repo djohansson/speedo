@@ -193,7 +193,8 @@ void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> re
 					.morphTargetCount = item.morphTargetCount,
 					.morphDeltaBase = item.morphDeltaBase,
 					.morphFirstVertex = item.morphFirstVertex,
-				.morphWeightBase = item.morphWeightBase};
+				.morphWeightBase = item.morphWeightBase,
+				.flags = item.moves ? DRAW_FLAG_MOVES : 0U};
 		}
 	}
 }

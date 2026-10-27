@@ -110,6 +110,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// result to the swapchain
 	myColor = myGraph.CreateImage({.name = "Main Color", .format = Format::kR16G16B16A16Sfloat});
 	myPrepassNormal = myGraph.CreateImage({.name = "Prepass Normal", .format = Format::kR8G8B8A8Unorm});
+	// where each pixel's point was in the last frame, in the render target's pixels from it (see FragmentPrepass)
+	myPrepassMotion = myGraph.CreateImage({.name = "Prepass Motion", .format = Format::kR16G16Sfloat});
 	myShadowRaw = myGraph.CreateImage({.name = "Shadow Raw", .format = Format::kR8G8B8A8Unorm});
 	myShadowBlocker = myGraph.CreateImage({.name = "Shadow Blocker", .format = Format::kR16G16B16A16Sfloat});
 	myShadowRows = myGraph.CreateImage({.name = "Shadow Rows", .format = Format::kR8G8B8A8Unorm});
@@ -649,6 +651,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			{
 				useCulled(builder);
 				builder.ColorAttachment(myPrepassNormal, load, StoreOp::kStore, ClearValue{.color = {0.5F, 0.5F, 1.0F, 0.0F}});
+				builder.ColorAttachment(myPrepassMotion, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, load);
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
@@ -1216,21 +1219,23 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the backdrop, the transparency's resolve, exposure and tonemapping, into the swapchain image (ComputeMain); or, with
 	// temporal upscaling, the backdrop and the transparency's resolve at the render size (Composite), which the Resolve
 	// pass upsamples into the swapchain image, exposed and tonemapped (see ComputeResolve). a thread per pixel of what
-	// each writes, with the output's image bound in its slot
-	auto outputKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, Extent2d extent)
+	// each writes, with the output's image bound in its slot by the passes that write it (and declare it, so that it is
+	// in the general layout by then: bound before, its layout was the acquired image's, undefined)
+	auto outputKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, Extent2d extent, bool writesOutput)
 	{
 		const auto& inputs = *myFrame.inputs;
 		auto& pipeline = *myFrame.pipeline;
 
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
-		pipeline.SetDescriptorData(
-			"gRWTextures",
-			ImageBinding{
-				.sampler = {},
-				.imageView = myRenderOutput.GetTarget(inputs.outputIndex).GetAttachments()[0],
-				.layout = myRenderOutput.GetTarget(inputs.outputIndex).GetLayout(0)},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-			inputs.outputIndex);
+		if (writesOutput)
+			pipeline.SetDescriptorData(
+				"gRWTextures",
+				ImageBinding{
+					.sampler = {},
+					.imageView = myRenderOutput.GetTarget(inputs.outputIndex).GetAttachments()[0],
+					.layout = myRenderOutput.GetTarget(inputs.outputIndex).GetLayout(0)},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				inputs.outputIndex);
 
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
 		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
@@ -1266,7 +1271,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, outputKernel](FrameGraph::PassContext& context)
-		{ outputKernel(context.cmd, ComputePipelineVariant{}, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent()); });
+		{ outputKernel(context.cmd, ComputePipelineVariant{}, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent(), true); });
 	myCompositePass = myGraph.AddPass(
 		"Composite",
 		[this, &useComposited](FrameGraph::PassBuilder& builder)
@@ -1274,13 +1279,14 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			useComposited(builder);
 			builder.Use(myComposite, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
-		[this, outputKernel](FrameGraph::PassContext& context) { outputKernel(context.cmd, ComputePipelineVariant{}, myGraph.GetExtent()); });
+		[this, outputKernel](FrameGraph::PassContext& context) { outputKernel(context.cmd, ComputePipelineVariant{}, myGraph.GetExtent(), false); });
 	myResolvePass = myGraph.AddPass(
 		"Resolve",
 		[this](FrameGraph::PassBuilder& builder)
 		{
 			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // where each pixel was (and its stencil)
+			builder.Use(myPrepassMotion, ResourceUse::Sampled(PipelineStage::kComputeShader)); // and what moves, by its motion
 			for (auto image : myResolveHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
@@ -1289,7 +1295,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			outputKernel(
 				context.cmd,
 				ComputePipelineVariant{.entryPoint = kResolveEntryPoint},
-				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent());
+				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent(),
+				false);
 		});
 	mySharpenPass = myGraph.AddPass(
 		"Sharpen",
@@ -1305,7 +1312,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			outputKernel(
 				context.cmd,
 				ComputePipelineVariant{.entryPoint = kSharpenEntryPoint},
-				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent());
+				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent(),
+				true);
 		});
 
 	// for the host to read the histogram once the frame is done (see UpdateAutoExposure)
@@ -1772,6 +1780,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myUiBlurSource, SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE},
 			 std::pair{myUiBlurRows, SHADER_TYPES_UI_BLUR_ROWS_TEXTURE},
 			 std::pair{myPrepassNormal, SHADER_TYPES_PREPASS_NORMAL_TEXTURE},
+			 std::pair{myPrepassMotion, SHADER_TYPES_PREPASS_MOTION_TEXTURE},
 			 std::pair{myShadowRaw, SHADER_TYPES_SHADOW_RAW_TEXTURE},
 			 std::pair{myShadowBlocker, SHADER_TYPES_SHADOW_BLOCKER_TEXTURE},
 			 std::pair{myShadowRows, SHADER_TYPES_SHADOW_ROWS_TEXTURE},
@@ -2363,7 +2372,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myPrepassList = myDrawLists[std::to_underlying(MainPassPhase::kOpaque)];
 		for (auto& item : myPrepassList.items)
 			if (item.variant.fragmentShader == 0)
-				item.variant = {.topology = item.variant.topology, .blend = kOpaqueBlend, .fragmentShader = kPrepassFragmentShader};
+				item.variant = {.topology = item.variant.topology, .blend = kPrepassBlend, .fragmentShader = kPrepassFragmentShader};
 		if (!records.empty())
 		{
 			auto bytes = std::as_bytes(std::span(records));
@@ -3492,7 +3501,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 	// the variant most of its draws bind (the main list's opaque ones shade over the pre-pass's depth)
 	pipeline.BindPipelineAuto(
 		cmd,
-		{.blend = kOpaqueBlend,
+		{.blend = prepass ? kPrepassBlend : kOpaqueBlend,
 		 .fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
 		 .depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kLess});
 	// the main list's fragments take the traced shadows and the indirect lighting's near field (at the pre-pass's depth:

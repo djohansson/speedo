@@ -199,10 +199,16 @@ bool WindowedApplication::Draw()
 			return false;
 		}
 	}
-	// a change of the render size (View > Upscaling), with the gpu done with the render targets
+	// a change of the render size (View > Upscaling), with the graphics queues done with the render targets (theirs alone),
+	// waited for under their lock: a device wait raced the loaders' submits on the queues aliased to them (KosmicKrisp's
+	// transfer queue is its graphics queue; validation's threading errors, at a startup with SPEEDO_UPSCALING)
 	else if (App().GetScene().NeedsResize())
 	{
-		rhi.GetPrimaryDevice().WaitIdle();
+		{
+			auto graphics = device.GetQueue(kQueueTypeGraphics).Write();
+			for (auto& [queue, submits] : graphics->queues)
+				queue.WaitIdle();
+		}
 		App().GetScene().Resize();
 	}
 	auto [minImageCount, maxImageCount] = swapchain.GetImageCountLimits();
