@@ -75,6 +75,8 @@ struct FrameInputs
 	// where the indirect lighting's rays trace the BVHs, and how near what they meet is a contact (GiData::nearContact)
 	bool giNearField = true;
 	float giNearContact = gi::kDefaultNearContact;
+	// and every how many pixels each way its rays are traced (see GiData::nearStride: 2 or 4)
+	uint32_t giNearStride = 2;
 	// and whether the near field is accumulated over frames (see GiData::nearTemporal)
 	bool giNearTemporal = true;
 	// the lights (gLights, as the shader sees them), and whether they cast shadows: fitted to the camera (the first view)
@@ -533,7 +535,7 @@ private:
 	// (SPEEDO_GI_NEAR_SHOW), whether it runs this frame (FrameInputs::giNearField, where the rays trace the BVHs), and its
 	// passes
 	float myGiNearReach = 8.0F;
-	uint32_t myGiNearStride = 2; // SPEEDO_GI_NEAR_STRIDE: every n-th pixel each way traced (see GiData::nearStride)
+	uint32_t myGiNearStride = 2; // the frame's FrameInputs::giNearStride (see GiData::nearStride)
 	float myGiNearPower = 2.0F;
 	uint32_t myGiNearShow = 0;
 	bool myGiNearOn = false;

@@ -1663,8 +1663,9 @@ resolve), and the gap beside it is thinner than a voxel, all its surfaces lit by
 volume's lookups there found no light, in blocks a voxel wide (the user's CornellBox poses, the 11 models side by side:
 `0.0062,-2.2486,1.2961,23.077,13.130`, black rectangles under the spheres; `0.1488,-1.1952,0.7514,12.998,14.697` at
 resolution 192, red and black blocks where the sphere touches the green wall). Every other pixel each way of the
-pre-pass's depth (`SPEEDO_GI_NEAR_STRIDE`, 2; 4 traces a sixteenth of the pixels: 4 to 11 ms less at the benchmark poses,
-coarser at contacts, docs/performance-plan.md) traces a ray from its surface
+pre-pass's depth (View > Near Field Rays, `FrameInputs::giNearStride`, `SPEEDO_GI_NEAR_STRIDE`, 2; 4 traces a sixteenth of
+the pixels: 4 to 11 ms less at the benchmark poses, coarser at contacts, docs/performance-plan.md; a change starts the
+frames' history over) traces a ray from its surface
 through the BVHs (GI Near, `ComputeGiNear`), as far as
 `SPEEDO_GI_NEAR_REACH` (8) voxels of the clips that light the point, its direction one of 16 over a 4x4 tile of traced
 pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the light what it

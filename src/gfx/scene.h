@@ -91,6 +91,9 @@ public:
 		// and how near what its rays meet is a contact, in voxels (FrameInputs::giNearContact; View > Indirect Lighting Near
 		// Field Contact, SPEEDO_GI_NEAR_CONTACT to start with another)
 		std::atomic<float> giNearContact = gi::kDefaultNearContact;
+		// and every how many pixels each way its rays are traced (FrameInputs::giNearStride: 2, a quarter of the pixels, or 4, a
+		// sixteenth; View > Indirect Lighting Near Field Rays, SPEEDO_GI_NEAR_STRIDE to start with another)
+		std::atomic<uint32_t> giNearStride = 2;
 		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Indirect Lighting Near
 		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
 		std::atomic<bool> giNearTemporal = true;

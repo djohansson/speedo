@@ -2234,6 +2234,7 @@ struct Scene::Impl
 				.giSurfaceCache = mySettings.giSurfaceCache.load(std::memory_order_relaxed),
 				.giNearField = mySettings.giNearField.load(std::memory_order_relaxed),
 				.giNearContact = mySettings.giNearContact.load(std::memory_order_relaxed),
+				.giNearStride = mySettings.giNearStride.load(std::memory_order_relaxed),
 				.giNearTemporal = mySettings.giNearTemporal.load(std::memory_order_relaxed),
 				.lights = myLightData,
 				.modelLightCount = std::min(mySceneLightData.size(), myLightData.size()),

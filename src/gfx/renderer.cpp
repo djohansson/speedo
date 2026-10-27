@@ -1350,8 +1350,6 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the share that met no contact, 3 and 4 the gathered light of the rays that met something, and of those that didn't)
 	if (const char* nearReach = std::getenv("SPEEDO_GI_NEAR_REACH"); nearReach != nullptr && *nearReach != '\0')
 		myGiNearReach = std::clamp(static_cast<float>(std::strtod(nearReach, nullptr)), 0.0F, 64.0F);
-	if (const char* nearStride = std::getenv("SPEEDO_GI_NEAR_STRIDE"); nearStride != nullptr && *nearStride != '\0')
-		myGiNearStride = std::string_view(nearStride) == "4" ? 4U : 2U;
 	if (const char* nearPower = std::getenv("SPEEDO_GI_NEAR_POWER"); nearPower != nullptr && *nearPower != '\0')
 		myGiNearPower = std::clamp(static_cast<float>(std::strtod(nearPower, nullptr)), 0.0F, 64.0F);
 	if (const char* nearShow = std::getenv("SPEEDO_GI_NEAR_SHOW"); nearShow != nullptr && *nearShow != '\0')
@@ -2908,6 +2906,13 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// the near field (see GiData::nearReach), where the rays trace the model's BVHs
 	bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
 	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
+	// every how many pixels its rays are traced (FrameInputs::giNearStride): a change starts the frames over, their history
+	// being laid out on the traced pixels
+	if (uint32_t stride = frame.giNearStride == 4 ? 4U : 2U; stride != myGiNearStride)
+	{
+		myGiNearStride = stride;
+		myGiNearHistoryValid = false;
+	}
 	for (auto pass : {myGiNearPass, myGiNearXPass, myGiNearYPass})
 		myGraph.SetEnabled(pass, myGiNearOn);
 	// and over frames: last frame's history counts if the frames are on and it ran then (at this size: Resize clears it),

@@ -187,6 +187,8 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_EMISSIVE_LIGHTS=0";
 	if (float contact = settings.giNearContact.load(std::memory_order_relaxed); contact != gfx::gi::kDefaultNearContact)
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
+	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != 2)
+		text += std::format(" SPEEDO_GI_NEAR_STRIDE={}", stride);
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
 		text += std::format(" SPEEDO_GI_RESOLUTION={}", resolution);
 	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
@@ -963,6 +965,9 @@ void WindowedApplication::PrepareDraw()
 		if (const char* contact = std::getenv("SPEEDO_GI_NEAR_CONTACT"); contact != nullptr && *contact != '\0')
 			App().GetScene().GetSettings().giNearContact.store(
 				std::clamp(static_cast<float>(std::strtod(contact, nullptr)), 0.0F, gfx::gi::kMaxNearContact), std::memory_order_relaxed);
+		// and every how many pixels each way its rays are traced (SPEEDO_GI_NEAR_STRIDE: 2, the default, or 4)
+		if (const char* stride = std::getenv("SPEEDO_GI_NEAR_STRIDE"); stride != nullptr && *stride != '\0')
+			App().GetScene().GetSettings().giNearStride.store(std::string_view(stride) == "4" ? 4U : 2U, std::memory_order_relaxed);
 		// and its resolution (SPEEDO_GI_RESOLUTION: voxels along the scene's longest axis, any from 8 to 512; the menu
 		// offers gi::kResolutions)
 		if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
@@ -1757,6 +1762,24 @@ void WindowedApplication::PrepareDraw()
 						"(SPEEDO_GI_NEAR_CONTACT, %.1f by default). Wider takes the rays' light along more of every junction; "
 						"narrower leaves more of the voxels' own near contacts. Drag, or double-click to type.",
 						static_cast<double>(gfx::gi::kDefaultNearContact));
+				}
+				{
+					// every how many pixels each way the near field's rays are traced (see GiData::nearStride)
+					BeginDisabled(!nearField);
+					if (ui::BeginMenu("Near Field Rays"))
+					{
+						uint32_t stride = App().GetScene().GetSettings().giNearStride.load(std::memory_order_relaxed);
+						for (auto [label, value, tooltip] : std::array{
+								 std::tuple{"Every 2nd pixel", 2U, "A quarter of the pixels trace a ray (the default)."},
+								 std::tuple{"Every 4th pixel", 4U, "A sixteenth of the pixels trace a ray: 4 to 11 ms less a frame at the benchmark poses, coarser at contacts (SPEEDO_GI_NEAR_STRIDE=4)."}})
+						{
+							if (MenuItem(label, nullptr, stride == value))
+								App().GetScene().GetSettings().giNearStride.store(value, std::memory_order_relaxed);
+							SetItemTooltip("%s", tooltip);
+						}
+						ImGui::EndMenu();
+					}
+					EndDisabled();
 				}
 				{
 					bool temporal = App().GetScene().GetSettings().giNearTemporal.load(std::memory_order_relaxed);
