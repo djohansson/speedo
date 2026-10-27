@@ -7,6 +7,7 @@
 #include <gfx/model.h>
 #include <gfx/renderoutput.h>
 #include <gfx/shaders/capi.h>
+#include <gfx/upscaling.h>
 
 #include <core/concurrentaccess.h>
 #include <core/std_extra.h>
@@ -97,6 +98,9 @@ public:
 		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Indirect Lighting Near
 		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
 		std::atomic<bool> giNearTemporal = true;
+		// temporal upscaling (FrameInputs::upscaling; View > Upscaling, SPEEDO_UPSCALING): a change resizes what is sized
+		// after the output, before the next frame (see NeedsResize)
+		std::atomic<Upscaling> upscaling = Upscaling::kOff;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;
@@ -213,6 +217,9 @@ public:
 	// resizes what is sized after the output (its render targets), after the output was (re)created (the window's
 	// swapchain, or ImageOutput::Resize). call with the gpu idle, holding the draw lock.
 	void Resize();
+	// whether the render targets need resizing for a change of Settings::upscaling (the render size): call Resize, as for
+	// the output's, before the next frame. draw thread.
+	[[nodiscard]] bool NeedsResize() const noexcept;
 
 	// updates the frame's buffers for the frame about to be recorded, after its fence: the exposure histogram it read,
 	// the animation and what it moves, and the lights. draw thread.

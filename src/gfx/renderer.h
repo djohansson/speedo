@@ -10,6 +10,7 @@
 #include <gfx/renderoutput.h>
 #include <gfx/shaders/capi.h>
 #include <gfx/shadows.h>
+#include <gfx/upscaling.h>
 
 #include <glm/glm.hpp>
 
@@ -108,6 +109,9 @@ struct FrameInputs
 	core::std_extra::function_ref<void(CommandBufferHandle cmd)> drawUi = NoUi;
 	// the ui's frosted panels (see Scene::FrameTarget::uiBlurRects)
 	std::span<const UiBlurRect> uiBlurRects;
+	// temporal upscaling (see ComputeResolve): the frame is rendered at the extent Resize was given and resolved into the
+	// output's, which Resize's extent must be RenderScale of, unless off
+	Upscaling upscaling = Upscaling::kOff;
 	// runs tasks in the background (creating pipelines, see RecordDrawList), if given
 	core::TaskExecutor* executor = nullptr;
 };
@@ -166,10 +170,11 @@ public:
 	Renderer(Device& device, RenderOutput& output);
 	~Renderer();
 
-	// (re)creates the transients for the swapchain's extent (the gpu must be done with the previous ones) and points the
-	// descriptors at them: the render target's color (in every frame's slot), the transmission texture and the
-	// transparency's lists. nothing if the extent is the same.
-	void Resize(Device& device, Pipeline& pipeline, rhi::Extent2d extent);
+	// (re)creates the transients for the extent frames are rendered at, and outputExtent, the output's, which they are
+	// upscaled to (the same without upscaling, see FrameInputs::upscaling; the gpu must be done with the previous ones), and
+	// points the descriptors at them: the render target's color (in every frame's slot), the transmission texture and the
+	// transparency's lists. nothing if the extents are the same.
+	void Resize(Device& device, Pipeline& pipeline, rhi::Extent2d extent, rhi::Extent2d outputExtent);
 
 	// puts the transients that are sampled without being written every frame in a layout their descriptors allow (call
 	// after Resize, before the next frame)
@@ -277,6 +282,11 @@ private:
 	// along x (see SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE)
 	FrameGraph::ImageId myUiBlurSource;
 	FrameGraph::ImageId myUiBlurRows;
+	// temporal upscaling (see ComputeResolve): the frame's composite at the render size, which the Resolve pass upsamples
+	// into the output (SHADER_TYPES_COMPOSITE_TEXTURE), and its history (two, the frame's by its parity, see
+	// myResolveHistoryImages)
+	FrameGraph::ImageId myComposite;
+	std::array<FrameGraph::ImageId, 2> myResolveHistory{};
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
@@ -293,6 +303,12 @@ private:
 	FrameGraph::PassId myScatterDenoisePass;
 	FrameGraph::PassId myUiBlurXPass;
 	FrameGraph::PassId myUiBlurYPass;
+	// the frame's composite: into the output (ComputeMain), or at the render size and upscaled (Composite, then Resolve and
+	// Sharpen)
+	FrameGraph::PassId myComputeMainPass;
+	FrameGraph::PassId myCompositePass;
+	FrameGraph::PassId myResolvePass;
+	FrameGraph::PassId mySharpenPass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
 	std::vector<Buffer> myShadowViewBuffers;
@@ -557,6 +573,12 @@ private:
 	};
 	std::array<ScreenImage, 2> myGiNearHistoryImages;
 	std::array<ScreenImage, 2> myGiNearHistoryDistanceImages;
+	// temporal upscaling's history at the output's size (SHADER_TYPES_RESOLVE_HISTORY_TEXTURE), whether the last frame's
+	// holds a frame at this size, and the frames resolved (the history's parity)
+	std::array<ScreenImage, 2> myResolveHistoryImages;
+	bool myResolveHistoryValid = false;
+	uint32_t myResolveFrame = 0;
+	Upscaling myUpscaling = Upscaling::kOff; // the frame's (FrameInputs::upscaling)
 	std::array<FrameGraph::ImageId, 2> myGiNearHistory{};
 	std::array<FrameGraph::ImageId, 2> myGiNearHistoryDistance{};
 	FrameGraph::PassId myGiNearTemporalPass;

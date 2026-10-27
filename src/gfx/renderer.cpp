@@ -28,6 +28,9 @@ using namespace rhi;
 namespace renderer
 {
 
+// within the push constants every Vulkan device holds (maxPushConstantsSize is at least 128)
+static_assert(sizeof(PushConstants) <= 128);
+
 [[nodiscard]] uint64_t PixelCount(Extent2d extent)
 {
 	return std::max<uint64_t>(static_cast<uint64_t>(extent.width) * extent.height, 1);
@@ -76,6 +79,9 @@ constexpr uint8_t kEmitterShadeEntryPoint = 30;
 constexpr uint8_t kEmitterXEntryPoint = 31;
 constexpr uint8_t kEmitterYEntryPoint = 32;
 constexpr uint8_t kEmitterTemporalEntryPoint = 33;
+// temporal upscaling (see ComputeResolve)
+constexpr uint8_t kResolveEntryPoint = 34;
+constexpr uint8_t kSharpenEntryPoint = 35;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -162,8 +168,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the ui's frosted panels' backdrop, before and after its blur along x (SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE): the
 	// frame's size (only the panels and the blur's reach around them are used), placed over the transients the frame is
 	// done with by then
-	myUiBlurSource = myGraph.CreateImage({.name = "UI Blur Source", .format = Format::kR16G16B16A16Sfloat});
-	myUiBlurRows = myGraph.CreateImage({.name = "UI Blur Rows", .format = Format::kR16G16B16A16Sfloat});
+	myUiBlurSource = myGraph.CreateImage({.name = "UI Blur Source", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
+	myUiBlurRows = myGraph.CreateImage({.name = "UI Blur Rows", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
+	// temporal upscaling (see ComputeResolve): the frame's composite at the render size, and its history at the output's
+	myComposite = myGraph.CreateImage({.name = "Composite", .format = Format::kR16G16B16A16Sfloat});
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+		myResolveHistory[historyIt] = myGraph.ImportImage(std::format("Resolve History {}", historyIt));
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -1203,53 +1213,99 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				context.graph.GetBuffer(myExposureHistogram), myFrame.inputs->frameIndex * kHistogramSize, kHistogramSize, 0);
 		});
 
-	// the backdrop, the transparency's resolve, exposure and tonemapping, into the swapchain image
-	myGraph.AddPass(
+	// the backdrop, the transparency's resolve, exposure and tonemapping, into the swapchain image (ComputeMain); or, with
+	// temporal upscaling, the backdrop and the transparency's resolve at the render size (Composite), which the Resolve
+	// pass upsamples into the swapchain image, exposed and tonemapped (see ComputeResolve). a thread per pixel of what
+	// each writes, with the output's image bound in its slot
+	auto outputKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, Extent2d extent)
+	{
+		const auto& inputs = *myFrame.inputs;
+		auto& pipeline = *myFrame.pipeline;
+
+		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
+		pipeline.SetDescriptorData(
+			"gRWTextures",
+			ImageBinding{
+				.sampler = {},
+				.imageView = myRenderOutput.GetTarget(inputs.outputIndex).GetAttachments()[0],
+				.layout = myRenderOutput.GetTarget(inputs.outputIndex).GetLayout(0)},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+			inputs.outputIndex);
+
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+		// the backdrop's: the views, the environment and its sampler; and the transparency lists
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
+		pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		pipeline.BindPipelineAuto(cmd, variant);
+
+		auto pushConstants = inputs.pushConstants;
+		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+
+		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), extent.width, extent.height);
+	};
+	auto useComposited = [this, &useOitLists](FrameGraph::PassBuilder& builder)
+	{
+		builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
+		builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // the distances' histogram
+		builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); // the dump's pixel
+		// the blocks the pixels' lookups read, for the surface cache (see GiMarkSeen)
+		builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+		builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
+		builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+	};
+	myComputeMainPass = myGraph.AddPass(
 		"ComputeMain",
-		[this, &useOitLists](FrameGraph::PassBuilder& builder)
+		[this, &useComposited](FrameGraph::PassBuilder& builder)
 		{
-			builder.Use(myColor, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // the distances' histogram
-			builder.Use(myGiStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite)); // the dump's pixel
-			// the blocks the pixels' lookups read, for the surface cache (see GiMarkSeen)
-			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myGiFlags, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
-			useOitLists(builder, PipelineStage::kComputeShader, Access::kShaderRead);
-			builder.Use(myExposureHistogram, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			useComposited(builder);
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
-		[this](FrameGraph::PassContext& context)
+		[this, outputKernel](FrameGraph::PassContext& context)
+		{ outputKernel(context.cmd, ComputePipelineVariant{}, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent()); });
+	myCompositePass = myGraph.AddPass(
+		"Composite",
+		[this, &useComposited](FrameGraph::PassBuilder& builder)
 		{
-			const auto& inputs = *myFrame.inputs;
-			auto& pipeline = *myFrame.pipeline;
-			auto cmd = context.cmd;
-
-			pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
-			pipeline.SetDescriptorData(
-				"gRWTextures",
-				ImageBinding{
-					.sampler = {},
-					.imageView = myRenderOutput.GetTarget(inputs.outputIndex).GetAttachments()[0],
-					.layout = myRenderOutput.GetTarget(inputs.outputIndex).GetLayout(0)},
-				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-				inputs.outputIndex);
-
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
-			// the backdrop's: the views, the environment and its sampler; and the transparency lists
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_VIEW);
-			pipeline.BindDescriptorSetAuto(cmd, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
-			pipeline.BindPipelineAuto(cmd, ComputePipelineVariant{});
-
-			auto pushConstants = inputs.pushConstants;
-			pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
-
-			// a thread per pixel of the swapchain image
-			auto extent = myRenderOutput.GetTarget(inputs.outputIndex).GetExtent();
-			CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(ComputePipelineVariant{}), extent.width, extent.height);
+			useComposited(builder);
+			builder.Use(myComposite, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, outputKernel](FrameGraph::PassContext& context) { outputKernel(context.cmd, ComputePipelineVariant{}, myGraph.GetExtent()); });
+	myResolvePass = myGraph.AddPass(
+		"Resolve",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // where each pixel was (and its stencil)
+			for (auto image : myResolveHistory)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+		},
+		[this, outputKernel](FrameGraph::PassContext& context)
+		{
+			outputKernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kResolveEntryPoint},
+				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent());
+		});
+	mySharpenPass = myGraph.AddPass(
+		"Sharpen",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			for (auto image : myResolveHistory)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[this, outputKernel](FrameGraph::PassContext& context)
+		{
+			outputKernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kSharpenEntryPoint},
+				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent());
 		});
 
 	// for the host to read the histogram once the frame is done (see UpdateAutoExposure)
@@ -1680,11 +1736,11 @@ std::vector<std::pair<std::string, double>> Renderer::GetPassTimings() const
 	return myPassTimings.Read().Get();
 }
 
-void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
+void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Extent2d outputExtent)
 {
 	ZoneScopedN("Renderer::Resize");
 
-	if (!myGraph.Compile(device, extent))
+	if (!myGraph.Compile(device, extent, outputExtent))
 		return;
 
 	myOitNodeCapacity = renderer::OitNodeCapacity(extent);
@@ -1725,7 +1781,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_TEXTURE},
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_TEXTURE},
-			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_TEXTURE}})
+			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_TEXTURE},
+			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
@@ -1745,7 +1802,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 			 std::pair{myGiNear, SHADER_TYPES_GI_NEAR_RW_TEXTURE},
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_RW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_RW_TEXTURE},
-			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE}})
+			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE},
+			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -1933,6 +1991,22 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent)
 				rwSlot + historyIt);
 		}
 	}
+	// temporal upscaling's history at the output's size (holding nothing yet), bound once, both: the frame's parity picks
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+	{
+		myResolveHistoryImages[historyIt] = screenImage(std::format("Resolve History {}", historyIt), Format::kR16G16B16A16Sfloat, outputExtent);
+		pipeline.SetDescriptorData(
+			"gTextures",
+			ImageBinding{.sampler = {}, .imageView = *myResolveHistoryImages[historyIt].view, .layout = ImageLayout::kGeneral},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+			SHADER_TYPES_RESOLVE_HISTORY_TEXTURE + historyIt);
+		pipeline.SetDescriptorData(
+			"gRWTextures",
+			ImageBinding{.sampler = {}, .imageView = *myResolveHistoryImages[historyIt].view, .layout = ImageLayout::kGeneral},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+			SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE + historyIt);
+	}
+	myResolveHistoryValid = false;
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
 	// the emitters' reservoirs at this size (see ComputeEmitterShade): per traced pixel a uint4, in three parts: the frame's
@@ -2358,6 +2432,24 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.outputIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
+
+	// temporal upscaling (see ComputeResolve): the frame composited at the render size and resolved into the output with
+	// its history, the frame's by its parity; else composited into the output
+	myUpscaling = frame.upscaling;
+	bool upscale = myUpscaling != Upscaling::kOff;
+	myGraph.SetEnabled(myComputeMainPass, !upscale);
+	myGraph.SetEnabled(myCompositePass, upscale);
+	myGraph.SetEnabled(myResolvePass, upscale);
+	myGraph.SetEnabled(mySharpenPass, upscale);
+	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+		myGraph.Bind(myResolveHistory[historyIt], *myResolveHistoryImages[historyIt].image);
+	frame.pushConstants.upscale = 0;
+	if (upscale)
+	{
+		frame.pushConstants.upscale = UPSCALE_COMPOSITE | (myResolveHistoryValid ? UPSCALE_HISTORY : 0U) | ((myResolveFrame & 1U) != 0U ? UPSCALE_PARITY : 0U);
+		myResolveFrame++;
+	}
+	myResolveHistoryValid = upscale;
 
 	// the depth reprojection's: the frame's height and main views, and the last frame's extent (see InternalPlanCulling)
 	frame.pushConstants.framebufferHeight = myGraph.GetExtent().height;
@@ -3322,8 +3414,11 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 				clip.dumpPoint[axisIt] = myGiDumpPoint[axisIt];
 			if (myGiDumpPixel)
 			{
-				clip.dumpPixel[0] = static_cast<float>(myGiDumpPixel->x);
-				clip.dumpPixel[1] = static_cast<float>(myGiDumpPixel->y);
+				// in the render target's pixels (the output's, scaled: see FrameInputs::upscaling)
+				auto extent = myGraph.GetExtent();
+				auto outputExtent = myGraph.GetOutputExtent();
+				clip.dumpPixel[0] = static_cast<float>(myGiDumpPixel->x) * static_cast<float>(extent.width) / static_cast<float>(std::max(outputExtent.width, 1U));
+				clip.dumpPixel[1] = static_cast<float>(myGiDumpPixel->y) * static_cast<float>(extent.height) / static_cast<float>(std::max(outputExtent.height, 1U));
 				clip.dumpPixel[3] = 1.0F;
 			}
 		}

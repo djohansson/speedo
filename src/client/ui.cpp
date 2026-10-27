@@ -189,6 +189,8 @@ void WindowedApplication::InternalCopyPose()
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != 2)
 		text += std::format(" SPEEDO_GI_NEAR_STRIDE={}", stride);
+	if (auto upscaling = settings.upscaling.load(std::memory_order_relaxed); upscaling != gfx::Upscaling::kOff)
+		text += std::format(" SPEEDO_UPSCALING={}", gfx::UpscalingName(upscaling));
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
 		text += std::format(" SPEEDO_GI_RESOLUTION={}", resolution);
 	if (const auto* debugView = ui::FindDebugView(settings.debugView.load(std::memory_order_relaxed)))
@@ -965,6 +967,14 @@ void WindowedApplication::PrepareDraw()
 		if (const char* contact = std::getenv("SPEEDO_GI_NEAR_CONTACT"); contact != nullptr && *contact != '\0')
 			App().GetScene().GetSettings().giNearContact.store(
 				std::clamp(static_cast<float>(std::strtod(contact, nullptr)), 0.0F, gfx::gi::kMaxNearContact), std::memory_order_relaxed);
+		// temporal upscaling (SPEEDO_UPSCALING=off|native|quality|balanced|performance, see gfx::Upscaling)
+		if (const char* upscaling = std::getenv("SPEEDO_UPSCALING"); upscaling != nullptr && *upscaling != '\0')
+		{
+			if (auto parsed = gfx::ParseUpscaling(upscaling))
+				App().GetScene().GetSettings().upscaling.store(*parsed, std::memory_order_relaxed);
+			else
+				std::println(stderr, "SPEEDO_UPSCALING={}: not off, native, quality, balanced or performance", upscaling);
+		}
 		// and every how many pixels each way its rays are traced (SPEEDO_GI_NEAR_STRIDE: 2, the default, or 4)
 		if (const char* stride = std::getenv("SPEEDO_GI_NEAR_STRIDE"); stride != nullptr && *stride != '\0')
 			App().GetScene().GetSettings().giNearStride.store(std::string_view(stride) == "4" ? 4U : 2U, std::memory_order_relaxed);
@@ -1853,6 +1863,23 @@ void WindowedApplication::PrepareDraw()
 					for (auto [name, tonemapper] : kTonemappers)
 						if (MenuItem(name, nullptr, current == tonemapper))
 							App().GetScene().GetSettings().tonemapper.store(tonemapper, std::memory_order_relaxed);
+					ImGui::EndMenu();
+				}
+				if (ui::BeginMenu("Upscaling"))
+				{
+					// temporal upscaling (see ComputeResolve): the render size a share of the output's, resolved into it over frames
+					auto current = App().GetScene().GetSettings().upscaling.load(std::memory_order_relaxed);
+					for (auto [label, upscaling, tooltip] : std::array{
+							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (the default)."},
+							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at the output's size and resolved over frames: temporal antialiasing alone (SPEEDO_UPSCALING=native)."},
+							 std::tuple{"Quality (77%)", gfx::Upscaling::kQuality, "Rendered at 77% of the output's size each way, 59% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=quality)."},
+							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% of the output's size each way, 45% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=balanced)."},
+							 std::tuple{"Performance (50%)", gfx::Upscaling::kPerformance, "Rendered at half the output's size each way, a quarter of its pixels, and upscaled over frames (SPEEDO_UPSCALING=performance)."}})
+					{
+						if (MenuItem(label, nullptr, current == upscaling))
+							App().GetScene().GetSettings().upscaling.store(upscaling, std::memory_order_relaxed);
+						SetItemTooltip("%s", tooltip);
+					}
 					ImGui::EndMenu();
 				}
 			}

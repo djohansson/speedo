@@ -66,7 +66,7 @@ extern "C"
 
 #define SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS 10u
 #define SHADER_TYPES_GLOBAL_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_TEXTURE_INDEX_BITS)
-#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 5u
+#define SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT (1u << SHADER_TYPES_GLOBAL_RW_TEXTURE_INDEX_BITS)
 #define SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS 6u
 #define SHADER_TYPES_GLOBAL_SAMPLER_COUNT (1u << SHADER_TYPES_GLOBAL_SAMPLER_INDEX_BITS)
@@ -164,6 +164,14 @@ extern "C"
 // the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
 // the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
 #define SHADER_TYPES_SKY_VIEW_TEXTURE 37u
+// temporal upscaling (see ComputeResolve, PushConstants::upscale): the frame's composite at the render size (linear,
+// before exposure: ComputeMain's output there, a: 1 where something was drawn), which the Resolve pass upsamples into the
+// output, and its history at the output's size (two, the frame's by its parity: rgb the resolved light, before exposure;
+// a: the weight of the samples it holds)
+#define SHADER_TYPES_COMPOSITE_TEXTURE 1u
+#define SHADER_TYPES_COMPOSITE_RW_TEXTURE 32u
+#define SHADER_TYPES_RESOLVE_HISTORY_TEXTURE 2u // and 3
+#define SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE 30u // and 31
 
 // the sky's atmosphere, Earth's (Hillaire 2020, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique",
 // after Bruneton's: see atmosphere.h): in kilometres. the ground and the top of the atmosphere, from the planet's center,
@@ -312,6 +320,12 @@ struct ViewData
 	// over frames to reproject (see ComputeGiNearTemporal)
 	alignas(16) FLOAT4X4(previousViewProjection);
 	alignas(16) FLOAT4(previousEyePosition);
+	// how far its projection is offset, in normalized device coordinates, for temporal upscaling (see Views::Upload): xy this
+	// frame's, zw the last frame's (0 without)
+	alignas(16) FLOAT4(jitter);
+	// the bias of its textures' mip levels: with temporal upscaling, those of the output's size, a little sharper still,
+	// since the resolve averages what the jittered frames sampled (see Views::Upload)
+	alignas(4) FLOAT1(textureLodBias);
 };
 
 // how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
@@ -1123,6 +1137,8 @@ struct PushConstants
 	// per pass: which of the images made from the pre-pass's depth its fragments take (PREPASS_IMAGE_*): the main pass's
 	// opaque ones, at the depth the pre-pass drew
 	alignas(4) UINT1(prepassImages);
+	// per frame: temporal upscaling (UPSCALE_*, see ComputeResolve)
+	alignas(4) UINT1(upscale);
 };
 // PushConstants::prepassImages: the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE, see ShadowTraceData), the
 // indirect lighting's near field (SHADER_TYPES_GI_NEAR_TEXTURE, see GiData::nearReach) and the emissive surfaces' light
@@ -1130,6 +1146,12 @@ struct PushConstants
 #define PREPASS_IMAGE_SHADOW_MASK 1u
 #define PREPASS_IMAGE_GI_NEAR 2u
 #define PREPASS_IMAGE_EMITTERS 4u
+// PushConstants::upscale: ComputeMain composites into SHADER_TYPES_COMPOSITE_TEXTURE at the render size rather than into
+// the output (the Resolve pass then upsamples it); the last frame's history holds a frame at this size; which history
+// is the frame's (SHADER_TYPES_RESOLVE_HISTORY_TEXTURE + 1 if set)
+#define UPSCALE_COMPOSITE 1u
+#define UPSCALE_HISTORY 2u
+#define UPSCALE_PARITY 4u
 
 #ifdef __cplusplus
 }

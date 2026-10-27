@@ -15,7 +15,10 @@ void ComputeMain(
 	uint frameIndex = gPushConstants.frameIndex;
 
 	Texture2D src = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE];
-	RWTexture2D dst = gRWTextures[gPushConstants.outputIndex];
+	// with temporal upscaling (UPSCALE_COMPOSITE), the composite at the render size, linear and before exposure, which the
+	// Resolve pass upsamples into the output and tonemaps (see ComputeResolve)
+	bool composite = (gPushConstants.upscale & UPSCALE_COMPOSITE) != 0u;
+	RWTexture2D dst = gRWTextures[composite ? SHADER_TYPES_COMPOSITE_RW_TEXTURE : gPushConstants.outputIndex];
 
 	uint2 dstDim;
 	dst.GetDimensions(dstDim.x, dstDim.y);
@@ -147,12 +150,17 @@ void ComputeMain(
 			}
 		}
 
-		float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);
-		dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
+		if (composite)
+			dst.Store(xy, float4(max(color.rgb, 0.0), 1.0));
+		else
+		{
+			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);
+			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
 
-		// the ui's frosted panels' backdrop: under them and within the blur's reach, linear, for the UI Blur passes
-		if (gPushConstants.uiBlurRectCount != 0u && UiBlurReaches(xy))
-			gRWTextures[SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE].Store(xy, float4(saturate(mapped), 1.0));
+			// the ui's frosted panels' backdrop: under them and within the blur's reach, linear, for the UI Blur passes
+			if (gPushConstants.uiBlurRectCount != 0u && UiBlurReaches(xy))
+				gRWTextures[SHADER_TYPES_UI_BLUR_SOURCE_RW_TEXTURE].Store(xy, float4(saturate(mapped), 1.0));
+		}
 	}
 
 	GroupMemoryBarrierWithGroupSync();

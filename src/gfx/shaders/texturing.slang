@@ -49,7 +49,7 @@ float2 ViewTexCoord(TextureView view, float4 texCoord01)
 
 float4 SampleView(TextureView view, float2 uv)
 {
-	return gTextures[view.textureId].Sample(gSamplers[view.samplerId], uv);
+	return gTextures[view.textureId].SampleBias(gSamplers[view.samplerId], uv, gViewData[gPushConstants.frameIndex][gPushConstants.viewId].textureLodBias);
 }
 
 float4 SampleView(uint viewId, float4 texCoord01)

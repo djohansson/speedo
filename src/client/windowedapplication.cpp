@@ -199,6 +199,12 @@ bool WindowedApplication::Draw()
 			return false;
 		}
 	}
+	// a change of the render size (View > Upscaling), with the gpu done with the render targets
+	else if (App().GetScene().NeedsResize())
+	{
+		rhi.GetPrimaryDevice().WaitIdle();
+		App().GetScene().Resize();
+	}
 	auto [minImageCount, maxImageCount] = swapchain.GetImageCountLimits();
 	myPresentation.store(
 		PackPresentation(Presentation{

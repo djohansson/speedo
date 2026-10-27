@@ -34,6 +34,42 @@ Views::Views(Device& device, glm::uvec2 framebufferExtent)
 
 Views::~Views() = default;
 
+ViewportCreateDesc ScaleViewport(const ViewportCreateDesc& viewport, glm::vec2 scale)
+{
+	auto scaled = viewport;
+	auto x = static_cast<uint32_t>(static_cast<float>(viewport.x) * scale.x);
+	auto y = static_cast<uint32_t>(static_cast<float>(viewport.y) * scale.y);
+	auto right = static_cast<uint32_t>(static_cast<float>(viewport.x + viewport.width) * scale.x);
+	auto bottom = static_cast<uint32_t>(static_cast<float>(viewport.y + viewport.height) * scale.y);
+	scaled.x = static_cast<uint16_t>(x);
+	scaled.y = static_cast<uint16_t>(y);
+	scaled.width = static_cast<uint16_t>(std::max(right, x + 1) - x);
+	scaled.height = static_cast<uint16_t>(std::max(bottom, y + 1) - y);
+	return scaled;
+}
+
+namespace views
+{
+
+// the textures' mip bias while jittering (see ViewData::textureLodBias), past the render scale's: the resolve averages
+// what the frames sampled, so they may sample finer (FSR 2 takes a whole level, which shimmers more)
+constexpr float kJitterTextureLodBias = -0.5F;
+
+// the radical inverse of index in base: Halton's sequence
+[[nodiscard]] float Halton(uint32_t index, uint32_t base)
+{
+	float fraction = 1.0F;
+	float result = 0.0F;
+	for (; index > 0; index /= base)
+	{
+		fraction /= static_cast<float>(base);
+		result += fraction * static_cast<float>(index % base);
+	}
+	return result;
+}
+
+} // namespace views
+
 // lays out a camera per view, over the framebuffer
 void Views::InternalLayout()
 {
@@ -324,7 +360,7 @@ bool Views::OnPath() const
 	return path.Get().next < path.Get().poses.size();
 }
 
-std::vector<Camera> Views::Upload(uint32_t frameIndex)
+std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, bool jitter)
 {
 	ZoneScopedN("Views::Upload");
 
@@ -347,19 +383,31 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex)
 	ENSUREF(cameras.size() <= SHADER_TYPES_VIEW_COUNT, "{} views, more than SHADER_TYPES_VIEW_COUNT ({})", cameras.size(), SHADER_TYPES_VIEW_COUNT);
 	auto viewCount = cameras.size();
 
+	// the jitter's point this frame: Halton's in bases 2 and 3 (from its second point: the first, 0, is a corner of the pixel), over
+	// more points the fewer pixels a frame renders (8 at the output's size), so that each output pixel's samples cover it
+	glm::vec2 offset{0.0F};
+	if (jitter)
+	{
+		auto pointCount = std::clamp(static_cast<uint32_t>(std::lround(8.0F / (viewportScale.x * viewportScale.y))), 8U, 64U);
+		auto index = (myJitterFrame++ % pointCount) + 1;
+		offset = glm::vec2(views::Halton(index, 2) - 0.5F, views::Halton(index, 3) - 0.5F);
+	}
+
 	auto& buffer = myBuffers[frameIndex];
 	auto memory = buffer.Map();
 	auto* views = reinterpret_cast<ViewData*>(memory.data());
 	for (size_t viewIt = 0; viewIt < viewCount; viewIt++)
 	{
 		const auto& camera = cameras[viewIt];
-		auto viewProjection = camera.GetProjectionMatrix() * camera.GetViewMatrix();
+		auto viewport = ScaleViewport(camera.GetDesc().viewport, viewportScale);
+		// the offset in normalized device coordinates, a translation of clip space by w (so as well for orthographic views)
+		glm::vec2 ndcJitter = offset * 2.0F / glm::vec2(static_cast<float>(viewport.width), static_cast<float>(viewport.height));
+		auto viewProjection = glm::translate(glm::mat4(1.0F), glm::vec3(ndcJitter, 0.0F)) * camera.GetProjectionMatrix() * camera.GetViewMatrix();
 		std::copy_n(&viewProjection[0][0], 16, &views[viewIt].viewProjection[0][0]); //NOLINT(readability-magic-numbers)
 		auto eye = glm::inverse(camera.GetViewMatrix())[3];
 		std::copy_n(&eye[0], 4, views[viewIt].eyePosition);
 		auto inverseViewProjection = glm::inverse(viewProjection);
 		std::copy_n(&inverseViewProjection[0][0], 16, &views[viewIt].inverseViewProjection[0][0]); //NOLINT(readability-magic-numbers)
-		const auto& viewport = camera.GetDesc().viewport;
 		views[viewIt].viewport[0] = viewport.x;
 		views[viewIt].viewport[1] = viewport.y;
 		views[viewIt].viewport[2] = viewport.width;
@@ -367,11 +415,16 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex)
 		// the last frame's, where it had this view at the same place in the target (else this frame's, w 0: none)
 		glm::vec4 place(viewport.x, viewport.y, viewport.width, viewport.height);
 		bool previous = viewIt < myUploaded.size() && myUploaded[viewIt].viewport == place;
-		Uploaded uploaded{.viewProjection = viewProjection, .eye = eye, .viewport = place};
+		Uploaded uploaded{.viewProjection = viewProjection, .eye = eye, .viewport = place, .jitter = ndcJitter};
 		const auto& last = previous ? myUploaded[viewIt] : uploaded;
 		std::copy_n(&last.viewProjection[0][0], 16, &views[viewIt].previousViewProjection[0][0]); //NOLINT(readability-magic-numbers)
 		std::copy_n(&last.eye[0], 3, views[viewIt].previousEyePosition);
 		views[viewIt].previousEyePosition[3] = previous ? 1.0F : 0.0F;
+		views[viewIt].jitter[0] = ndcJitter.x;
+		views[viewIt].jitter[1] = ndcJitter.y;
+		views[viewIt].jitter[2] = last.jitter.x;
+		views[viewIt].jitter[3] = last.jitter.y;
+		views[viewIt].textureLodBias = jitter ? std::log2(std::min(viewportScale.x, viewportScale.y)) + views::kJitterTextureLodBias : 0.0F;
 		if (myUploaded.size() <= viewIt)
 			myUploaded.resize(viewIt + 1);
 		myUploaded[viewIt] = uploaded;

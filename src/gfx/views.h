@@ -21,6 +21,10 @@
 namespace gfx
 {
 
+// a viewport of the output's in the render target, which is scale of its size each way (see FrameInputs::upscaling): its
+// edges at the scaled ones, rounded down, so that a grid's cells stay side by side
+[[nodiscard]] ViewportCreateDesc ScaleViewport(const ViewportCreateDesc& viewport, glm::vec2 scale);
+
 // the views of a window, split screen in a grid: a camera each, controlled with the mouse and keyboard over its view,
 // and the buffers (one per frame) the shaders read the views' view projections from
 class Views final
@@ -81,8 +85,10 @@ public:
 	// writes the views (ViewData: view projections, eyes, viewports) to frameIndex's buffer from the cameras as they are
 	// now, and returns those cameras: what the frame draws with, so what it culls by and fits its shadows and clusters
 	// to. the other frame indices' buffers may still be in use. call on the draw thread, recording that frame (after its
-	// fence)
-	[[nodiscard]] std::vector<Camera> Upload(uint32_t frameIndex);
+	// fence). with temporal upscaling (see FrameInputs::upscaling) the frame is rendered at viewportScale of the output's
+	// size each way, and with jitter its projections are offset by a point of a sequence a frame, within a pixel (the
+	// cameras returned aren't: what is culled and fitted by doesn't need it)
+	[[nodiscard]] std::vector<Camera> Upload(uint32_t frameIndex, glm::vec2 viewportScale = glm::vec2(1.0F), bool jitter = false);
 
 	// a path of poses (eye and rotation, as Place takes them): Upload places the views at the next before each frame it
 	// writes, so one pose a frame, and keeps them at the last (SPEEDO_CAMERA_PATH: an exact, repeatable move, whatever the
@@ -112,8 +118,10 @@ private:
 		glm::mat4 viewProjection;
 		glm::vec4 eye;
 		glm::vec4 viewport;
+		glm::vec2 jitter;
 	};
 	std::vector<Uploaded> myUploaded;
+	uint32_t myJitterFrame = 0; // the frames jittered (Upload's), the sequence's place
 	glm::uvec2 myFramebufferExtent{};
 	glm::uvec2 myGrid{1, 1};
 	std::optional<size_t> myActiveCamera;

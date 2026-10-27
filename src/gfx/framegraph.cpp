@@ -346,10 +346,11 @@ void FrameGraph::InternalCreateTransients(Device& device)
 		if (resource.image)
 		{
 			const auto& desc = resource.imageDesc;
+			const auto& frame = desc.outputSized ? myOutputExtent : myExtent;
 			auto extent = desc.extent.width > 0 ? desc.extent
 												: Extent2d{
-													  .width = std::max((myExtent.width + desc.downscale - 1) / desc.downscale, 1U),
-													  .height = std::max((myExtent.height + desc.downscale - 1) / desc.downscale, 1U)};
+													  .width = std::max((frame.width + desc.downscale - 1) / desc.downscale, 1U),
+													  .height = std::max((frame.height + desc.downscale - 1) / desc.downscale, 1U)};
 			std::vector<ImageMipLevelDesc> mipLevels{{.extent = extent}};
 			while (desc.mipChain && (extent.width > 1 || extent.height > 1))
 			{
@@ -499,7 +500,7 @@ void FrameGraph::InternalCreateTransients(Device& device)
 	}
 }
 
-bool FrameGraph::Compile(Device& device, Extent2d extent)
+bool FrameGraph::Compile(Device& device, Extent2d extent, Extent2d outputExtent)
 {
 	ZoneScopedN("FrameGraph::Compile");
 
@@ -508,10 +509,13 @@ bool FrameGraph::Compile(Device& device, Extent2d extent)
 		InternalCull();
 		myCompiled = true;
 	}
-	else if (extent.width == myExtent.width && extent.height == myExtent.height)
+	else if (
+		extent.width == myExtent.width && extent.height == myExtent.height && outputExtent.width == myOutputExtent.width &&
+		outputExtent.height == myOutputExtent.height)
 		return false;
 
 	myExtent = extent;
+	myOutputExtent = outputExtent;
 	InternalCreateTransients(device);
 	return true;
 }

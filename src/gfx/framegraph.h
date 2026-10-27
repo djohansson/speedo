@@ -77,6 +77,9 @@ public:
 		bool mipChain = false;
 		// without an extent: the frame's divided by this, rounded up (so that its texels cover all of the frame's)
 		uint32_t downscale = 1;
+		// without an extent: the output's (see Compile) rather than the frame's, for what is drawn after the frame is
+		// upscaled to it (the ui's frosted panels' backdrop)
+		bool outputSized = false;
 	};
 	// a transient buffer of size bytes (computed from the frame's extent if sizeOf is set)
 	struct BufferDesc
@@ -145,9 +148,11 @@ public:
 	// a disabled pass is skipped by Execute, with nothing else changed (default: enabled)
 	void SetEnabled(PassId pass, bool enabled);
 
-	// culls, and (re)creates the transients for extent if it changed or they don't exist yet. the gpu must be done with
-	// the previous transients. returns whether it (re)created them, after which their views and buffers have changed.
-	bool Compile(Device& device, rhi::Extent2d extent);
+	// culls, and (re)creates the transients for extent (the frame's, which they are sized after) and outputExtent (the
+	// output's, which the frame is upscaled to: see ImageDesc::outputSized) if either changed or they don't exist yet. the
+	// gpu must be done with the previous transients. returns whether it (re)created them, after which their views and
+	// buffers have changed.
+	bool Compile(Device& device, rhi::Extent2d extent, rhi::Extent2d outputExtent);
 
 	// binds an imported image: as an attachment of a render target (e.g. the swapchain's current frame), or alone
 	void Bind(ImageId image, IRenderTarget& target, uint32_t index);
@@ -165,6 +170,7 @@ public:
 	[[nodiscard]] const ImageView& GetView(ImageId image) const; // all of a sampled or storage transient's mips
 	[[nodiscard]] Buffer& GetBuffer(BufferId buffer) const;
 	[[nodiscard]] rhi::Extent2d GetExtent() const noexcept { return myExtent; }
+	[[nodiscard]] rhi::Extent2d GetOutputExtent() const noexcept { return myOutputExtent; }
 	// the bytes of device memory the transients take, and how many they would take without sharing it
 	[[nodiscard]] uint64_t GetTransientMemorySize() const noexcept { return myTransientMemorySize; }
 	[[nodiscard]] uint64_t GetUnaliasedTransientMemorySize() const noexcept { return myUnaliasedTransientMemorySize; }
@@ -239,6 +245,7 @@ private:
 	std::vector<MemoryBlock> myBlocks;
 	uint64_t myTimingGroup = GpuProfiler::NewGroup();
 	rhi::Extent2d myExtent{};
+	rhi::Extent2d myOutputExtent{};
 	bool myCompiled = false;
 	uint64_t myTransientMemorySize = 0;
 	uint64_t myUnaliasedTransientMemorySize = 0;

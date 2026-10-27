@@ -123,7 +123,8 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 }
 
 
-// gTextures slots 0 to SHADER_TYPES_FRAME_COUNT - 1 are the renderer's (SHADER_TYPES_RENDER_TARGET_TEXTURE), and
+// gTextures slot 0 is the renderer's main color (SHADER_TYPES_RENDER_TARGET_TEXTURE), 1 to 3 temporal upscaling's
+// (SHADER_TYPES_COMPOSITE_TEXTURE, SHADER_TYPES_RESOLVE_HISTORY_TEXTURE), and
 // SHADER_TYPES_ENVIRONMENT_TEXTURE and SHADER_TYPES_ENVIRONMENT_SHEEN_TEXTURE the environment's (and
 // SHADER_TYPES_TRANSMISSION_TEXTURE the opaque scene). material 0 is the default material, for models (or parts of them) without one: it samples this slot, which opening an image replaces.
 static constexpr uint32_t kMaterialTextureId = 15;
@@ -162,6 +163,9 @@ static_assert(
 	SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + 1 < kModelTextureFirstSlot && SHADER_TYPES_EMITTER_RAW_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_COMPOSITE_TEXTURE > SHADER_TYPES_RENDER_TARGET_TEXTURE && SHADER_TYPES_RESOLVE_HISTORY_TEXTURE + 1 < SHADER_TYPES_MAIN_DEPTH_TEXTURE &&
+	SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 && SHADER_TYPES_COMPOSITE_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(SHADER_TYPES_SKY_VIEW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 && SHADER_TYPES_SKY_VIEW_TEXTURE < kModelTextureFirstSlot);
 
 
@@ -382,6 +386,9 @@ struct Scene::Impl
 	core::ConcurrentAccess<std::vector<DominantLightInfo>> myEnvironmentLightInfo;
 	core::ConcurrentAccess<std::vector<float>> myLightSizes; // see Scene::GetLightSizes
 	std::atomic<float> myAutoExposureStops = 0.0F; // written by the draw thread, shown by the ui
+	// the upscaling the render targets were last sized for (Settings::upscaling, see CreateOutputDependentObjects). the
+	// draw thread's
+	Upscaling myUpscaling = Upscaling::kOff;
 	std::optional<std::chrono::steady_clock::time_point> myAutoExposureLast;
 	std::atomic<float> myLookDistance = 0.0F; // how far the camera looks (see FrameInputs::lookDistance), by the draw thread
 	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_HISTOGRAM_BINS per frame, host visible
@@ -1600,6 +1607,31 @@ struct Scene::Impl
 		rhi.drawCalls.enqueue(installTask);
 	}
 
+	// the size frames are rendered at (see Settings::upscaling): RenderScale of the output's each way, rounded
+	[[nodiscard]] rhi::Extent2d RenderExtent() const
+	{
+		auto extent = myOutput.GetExtent();
+		float scale = RenderScale(myUpscaling);
+		return {
+			.width = std::max(static_cast<uint32_t>(std::lround(static_cast<float>(extent.width) * scale)), 1U),
+			.height = std::max(static_cast<uint32_t>(std::lround(static_cast<float>(extent.height) * scale)), 1U)};
+	}
+	// and over the output's, each way (the views' viewports' scale)
+	[[nodiscard]] glm::vec2 RenderViewportScale() const
+	{
+		auto extent = myOutput.GetExtent();
+		auto render = RenderExtent();
+		return {
+			static_cast<float>(render.width) / static_cast<float>(std::max(extent.width, 1U)),
+			static_cast<float>(render.height) / static_cast<float>(std::max(extent.height, 1U))};
+	}
+	[[nodiscard]] static std::vector<ViewportCreateDesc> ScaledViewports(std::vector<ViewportCreateDesc> viewports, glm::vec2 scale)
+	{
+		for (auto& viewport : viewports)
+			viewport = ScaleViewport(viewport, scale);
+		return viewports;
+	}
+
 	// (re)creates what is sized after the output (see RenderOutput), which its owner has (re)created. call with the gpu
 	// idle
 	void CreateOutputDependentObjects(RHI& rhi)
@@ -1612,8 +1644,10 @@ struct Scene::Impl
 		ENSUREF(imageCount <= SHADER_TYPES_OUTPUT_IMAGE_COUNT, "{} output images, past SHADER_TYPES_OUTPUT_IMAGE_COUNT ({})", imageCount, SHADER_TYPES_OUTPUT_IMAGE_COUNT);
 		auto extent = myOutput.GetExtent();
 
-		// the render target, the transparency's lists and the transmission texture: the renderer's frame graph's
-		myRenderer->Resize(device, pipeline, extent);
+		// the render target, the transparency's lists and the transmission texture: the renderer's frame graph's, at the
+		// render size (a share of the output's with temporal upscaling)
+		myUpscaling = mySettings.upscaling.load(std::memory_order_relaxed);
+		myRenderer->Resize(device, pipeline, RenderExtent(), extent);
 		myTransientMemory = myRenderer->GetGraph().GetTransientMemorySize();
 		myUnaliasedTransientMemory = myRenderer->GetGraph().GetUnaliasedTransientMemorySize();
 
@@ -2022,6 +2056,8 @@ struct Scene::Impl
 						{"ComputeEmitterX", SLANG_STAGE_COMPUTE},
 						{"ComputeEmitterY", SLANG_STAGE_COMPUTE},
 						{"ComputeEmitterTemporal", SLANG_STAGE_COMPUTE},
+						{"ComputeResolve", SLANG_STAGE_COMPUTE}, // see the Resolve pass (temporal upscaling)
+						{"ComputeSharpen", SLANG_STAGE_COMPUTE},
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
@@ -2199,7 +2235,8 @@ struct Scene::Impl
 		// the views as this frame draws them (the cameras may move while it records): what it culls by and fits its
 		// shadows (to the first view) and clusters to
 		auto& views = myViews;
-		auto cameras = views.Upload(target.frameIndex);
+		auto viewportScale = RenderViewportScale();
+		auto cameras = views.Upload(target.frameIndex, viewportScale, myUpscaling != Upscaling::kOff);
 		std::vector<glm::mat4> viewProjections;
 		for (const auto& camera : cameras)
 			viewProjections.push_back(camera.GetProjectionMatrix() * camera.GetViewMatrix());
@@ -2224,7 +2261,7 @@ struct Scene::Impl
 				.scatters = [&scatters](size_t material) { return material < scatters.size() && scatters[material]; },
 				.specialization = kTiers ? std::optional<core::std_extra::function_ref<uint16_t(size_t)>>(specializationOf) : std::nullopt,
 				.grid = views.GetGrid(),
-				.viewports = views.GetViewports(),
+				.viewports = ScaledViewports(views.GetViewports(), viewportScale),
 				.viewProjections = std::move(viewProjections),
 				.culling = mySettings.culling.load(std::memory_order_relaxed),
 				.clusteredLights = mySettings.clusteredLights.load(std::memory_order_relaxed),
@@ -2252,6 +2289,7 @@ struct Scene::Impl
 				.prepareUi = target.prepareUi,
 				.drawUi = target.drawUi,
 				.uiBlurRects = target.uiBlurRects,
+				.upscaling = myUpscaling,
 				.executor = target.executor});
 	}
 };
@@ -2286,6 +2324,11 @@ void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uin
 void Scene::Resize()
 {
 	myImpl->CreateOutputDependentObjects(myImpl->myRHI);
+}
+
+bool Scene::NeedsResize() const noexcept
+{
+	return myImpl->mySettings.upscaling.load(std::memory_order_relaxed) != myImpl->myUpscaling;
 }
 
 void Scene::Update(QueueTimelineContextData& graphics, uint32_t frameIndex)

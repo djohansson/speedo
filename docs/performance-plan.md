@@ -307,3 +307,24 @@ drifts between sessions, so compare within one), Sponza 31.3 (33.9).
 
 What is left of step 2: a warm start (the settled cache and probes saved with the scene), and the time of day's
 relighting spread over frames. Step 3, the upscaling, cuts every per pixel pass, which is now most of the frame.
+
+### Step 3, the first version (2026-10-28 night)
+
+Temporal upscaling of our own (CLAUDE.md, "Temporal upscaling"): View > Upscaling, `SPEEDO_UPSCALING=off|native|quality|
+balanced|performance` (1, 1, 0.77, 0.67 and 0.5 of the output's size each way), off by default until judged by eye. The
+frame rendered at the render size with jittered projections, composited there (ComputeMain), resolved into a history at
+the output's size (reprojected by depth, clipped to the neighbourhood, blended by sample weight), tonemapped and
+sharpened (RCAS) into the swapchain; the textures' mips biased by the render scale and half a level more.
+
+| | off | native | balanced | performance |
+|---|---|---|---|---|
+| Bistro (ms) | 65.1 | 64.6 | 47.7 (-27%) | 40.9 (-37%) |
+| San Miguel | 86.6 | 83.1 | 65.0 (-25%) | 57.3 (-34%) |
+| Sponza | 31.5 | 33.3 | 26.5 (-16%) | 23.8 (-24%) |
+
+What scales with the pixels went to 45% and 25% of its cost; the rest (the probes, the voxels, the surface cache, the
+shadow atlas, the culling) didn't. Still images at balanced are a little softer than off, native as sharp (Sponza's
+stone and window grate at 2x zoom); turning at 30 degrees a second shows no ghosting. What it lacks: motion vectors for
+what moves (skinned, morphed, animated nodes: they keep a history weight of 1, so they alias and shimmer), FSR, DLSS and
+MetalFX behind the same interface, and the temporal filters of the near field and the emitters taking the upscaler's
+history instead of their own.

@@ -606,8 +606,8 @@ Consequences:
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main,
-Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain, Exposure Readback, UI Blur X and Y, UI Uploads,
-UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
+Resolve and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
 rather than branching on: its extent, image count and per image storage views (ComputeMain's output, bound up front),
@@ -923,6 +923,39 @@ recording frame's buffer, from the cameras as they are then, and returns those c
 camera. It replaced `UpdateBuffers`, which wrote every frame index's buffer whenever a camera changed, including frames
 still in flight, so a frame could draw with a newer camera than it had been culled by (a chunk at the screen's edge
 missing for a frame while the camera turned). Nothing else uploads the views: a change shows in the next frame.
+
+## Temporal upscaling
+
+View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx::Upscaling` in `gfx/upscaling.h`;
+Copy Pose writes it; off by default): the frame rendered at a share of the output's size each way (`RenderScale`: 1,
+0.77, 0.67, 0.5) and resolved into it over frames; native resolves at the output's size, temporal antialiasing alone.
+`Scene::Settings::upscaling`; a change resizes the render targets before the next frame (`Scene::NeedsResize`, which the
+client's `Draw` checks with the gpu idle, as for a window's resize). The frame graph has two extents
+(`FrameGraph::Compile(device, extent, outputExtent)`): the transients are the render size's, but those sized after the
+output (`ImageDesc::outputSized`: the ui's frosted panels' backdrop). The views' viewports are scaled into the render
+target (`ScaleViewport`, in `Views::Upload` for `ViewData::viewport` and in the scene for `FrameInputs::viewports`, the
+same rounding), and their projections offset within a pixel, a point of Halton's (2, 3) a frame (`Views::Upload`'s
+jitter: 8 points at the output's size, more the fewer pixels a frame renders, `ViewData::jitter`, this frame's and the
+last's in normalized device coordinates; the cameras `Upload` returns, which culling and the shadows fit to, aren't), and
+the materials' textures sample their mips by the output's size, half a level finer still (`ViewData::textureLodBias`,
+`SampleView`'s `SampleBias`). Then ComputeMain composites at the render size (the Composite pass:
+`PushConstants::upscale`'s `UPSCALE_COMPOSITE`, into `SHADER_TYPES_COMPOSITE_TEXTURE`, linear, before exposure; the
+exposure and distance histograms and the surface cache's block marks as before), Resolve (`ComputeResolve`,
+`resolve.slang`) resolves it with the last frame's history into the frame's (`SHADER_TYPES_RESOLVE_HISTORY_TEXTURE`, two
+at the output's size, the frame's by its parity: `UPSCALE_PARITY`, `UPSCALE_HISTORY` whether the last holds a frame at
+this size), and Sharpen (`ComputeSharpen`) tonemaps that into the swapchain, sharpened by Lottes' RCAS (FSR's): what the
+resolve's reconstruction filter softens. The resolve: each output pixel takes the composite's 3x3 render pixels around
+it, each by a gaussian of how near the point it saw (its center less the jitter) is to the output pixel's center, and its
+history where the nearest of the 3x3 was (reprojected by its depth through the last view projection, the jitters taken
+out; bicubic, Catmull-Rom in 5 reads), clipped to the box of the 3x3's colors (their mean and 1.25 deviations, in YCoCg),
+blended by the weight of the samples each holds (the history's at most 16, in its alpha), in light compressed as
+`c / (1 + luminance)` (Karis), so that a bright sample doesn't flicker. What moves (the main depth's stencil) keeps a
+history weight of 1 at most: its depth reprojects where it is, not where it was, so it has no motion vectors yet.
+Measured by the draw thread's settled frame time at the benchmark poses (2560x1440 output, GI on; off, native, balanced
+and performance): Bistro 65.1, 64.6, 47.7 and 40.9 ms; San Miguel 86.6, 83.1, 65.0 and 57.3; Sponza 31.5, 33.3, 26.5
+and 23.8: a quarter of the heavier scenes' frame at balanced, short of the pixels' 55% since the probes, the voxels and
+the shadow atlas don't scale with the pixels. With upscaling off the images are as before (the frame graph's Composite,
+Resolve and Sharpen passes disabled, ComputeMain's as it was).
 
 ## Culling: chunks, and frustums per view
 
@@ -2247,7 +2280,7 @@ first 1023 used to be drawn with the default one, with a warning; the index used
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
 (`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 38
-(0-3 are the frames' render targets, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself). Bump textures are height maps in
+(0 the main color, 1 to 3 temporal upscaling's composite and history, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the
