@@ -244,4 +244,14 @@ private:
 	uint64_t myUnaliasedTransientMemorySize = 0;
 };
 
+namespace framegraph
+{
+
+// whether SPEEDO_SKIP_PASSES names a pass (Execute leaves it out), or a step a pass checks for itself (the GI pass's:
+// "GI Light", "GI Flags", "GI Trace", "GI Probe Update", "GI Cache Release", "GI Resolve", "GI Cache Filter"), to measure
+// each by the frame's time without it
+[[nodiscard]] bool Skipped(std::string_view name);
+
+} // namespace framegraph
+
 } // namespace gfx

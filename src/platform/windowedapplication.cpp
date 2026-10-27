@@ -13,6 +13,8 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <optional>
 
@@ -66,6 +68,23 @@ WindowedApplication::WindowedApplication(std::string_view name, core::Environmen
 	: Application(name, std::forward<core::Environment>(env))
 {
 	WindowState state{.x = 0, .y = 0, .width = kDefaultWindowWidth, .height = kDefaultWindowHeight, .fullscreenEnabled = 0U, .fullscreenMode = FULLSCREEN_MODE_EXCLUSIVE};
+	// SPEEDO_WINDOW_SIZE=<width>x<height>: the window's framebuffer in pixels, the same on every machine (for measurements:
+	// the default, 1280x720 in the window system's units, is 2560x1440 pixels on a display scaled 2x and 1280x720 at 1x).
+	// the window is made at the monitor's content scale (GLFW_SCALE_TO_MONITOR), so asked for in pixels over it
+	if (const char* size = std::getenv("SPEEDO_WINDOW_SIZE"); size != nullptr && *size != '\0')
+	{
+		char* end = nullptr;
+		auto width = std::strtoul(size, &end, 10);
+		auto height = *end == 'x' ? std::strtoul(end + 1, nullptr, 10) : 0UL;
+		float xscale = 1.0F;
+		float yscale = 1.0F;
+		glfwGetMonitorContentScale(glfwGetPrimaryMonitor(), &xscale, &yscale);
+		if (width != 0 && height != 0 && xscale > 0.0F && yscale > 0.0F)
+		{
+			state.width = static_cast<uint32_t>(std::lround(static_cast<float>(width) / xscale));
+			state.height = static_cast<uint32_t>(std::lround(static_cast<float>(height) / yscale));
+		}
+	}
 	auto handle = glfw::CreateNativeWindow(state);
 	ENSURE(handle != kInvalidWindowHandle);
 	myWindows.emplace_back(handle, state);

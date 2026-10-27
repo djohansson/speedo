@@ -874,36 +874,42 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this, giKernel, computeBarrier, clips](FrameGraph::PassContext& context)
 		{
 			auto cmd = context.cmd;
-			clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiLightEntryPoint, layout.voxelCount, clip); });
+			// each step skippable by name, to measure it (framegraph::Skipped)
+			using framegraph::Skipped;
+			if (!Skipped("GI Light"))
+				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiLightEntryPoint, layout.voxelCount, clip); });
 			// the flags: the blocks near a surface (by the blocks the lighting stamped), and that spread along each axis
 			// (each step reads the one before's)
-			for (uint32_t stepIt = 0; stepIt < 4; stepIt++)
+			for (uint32_t stepIt = 0; stepIt < 4 && !Skipped("GI Flags"); stepIt++)
 			{
 				computeBarrier(cmd);
 				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiFlagsEntryPoint, layout.flagCount, clip, stepIt); });
 			}
 			computeBarrier(cmd);
-			clips([&](uint32_t clip, const gi::Layout& layout)
-				  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCountThisFrame, clip); });
+			if (!Skipped("GI Trace"))
+				clips([&](uint32_t clip, const gi::Layout& layout)
+					  { giKernel(cmd, kGiTraceEntryPoint, static_cast<uint64_t>(layout.probeCount) * myGiRayCountThisFrame, clip); });
 			computeBarrier(cmd);
 			constexpr uint64_t kTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
-			clips([&](uint32_t clip, const gi::Layout& layout)
-				  { giKernel(cmd, kGiProbeUpdateEntryPoint, static_cast<uint64_t>(layout.probeCount) * kTexelCount, clip); });
+			if (!Skipped("GI Probe Update"))
+				clips([&](uint32_t clip, const gi::Layout& layout)
+					  { giKernel(cmd, kGiProbeUpdateEntryPoint, static_cast<uint64_t>(layout.probeCount) * kTexelCount, clip); });
 			computeBarrier(cmd);
 			// the cache's storage: the free list made or grown, then the pages of the blocks no longer near a surface
 			// freed, before the resolve takes pages for the blocks new to it (see GiCachePopPage)
-			if (myGiSurfaceCacheOn)
+			if (myGiSurfaceCacheOn && !Skipped("GI Cache Release"))
 			{
 				giKernel(cmd, kGiCachePrepareEntryPoint, myGiCachePrepareThreadCount, 0);
 				computeBarrier(cmd);
 				clips([&](uint32_t clip, const gi::Layout& layout) { giKernel(cmd, kGiCacheReleaseEntryPoint, layout.flagCount, clip); });
 				computeBarrier(cmd);
 			}
-			clips([&](uint32_t clip, const gi::Layout& layout)
-				  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
+			if (!Skipped("GI Resolve"))
+				clips([&](uint32_t clip, const gi::Layout& layout)
+					  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
 			// the surface cache's light filtered, a pass at a time (its noise first, see ComputeGiCacheFilter), and blended
 			// into what the resolve wrote, where it is on
-			if (myGiSurfaceCacheOn)
+			if (myGiSurfaceCacheOn && !Skipped("GI Cache Filter"))
 			{
 				for (uint32_t passIt = 0; passIt <= myGiCacheFilterPassCount; passIt++)
 				{

@@ -1,4 +1,5 @@
 # TODO
+* plan (2026-10-27, the user agreed on it): frame rate and the lighting's convergence time in the heavier scenes (Bistro, San Miguel), towards a cross-platform game platform: a measurement baseline, faster convergence, temporal upscaling, hardware ray queries behind the software BVH, then rich worlds (docs/performance-plan.md, with the baseline's numbers)
 * plan (in this order): culling follow-ups, measured as before (the frame's gpu time, the `Frame` scope, and the cull statistics; SPEEDO_CAMERA, SPEEDO_CAMERA_TURN and SPEEDO_CAMERA_WALK for repeatable views)
 	1. (low value until instanced content shows up: of the test sets only SimpleInstancing uses EXT_mesh_gpu_instancing, everything else is flattened) per instance culling: one draw's instances share its bounds now, so an instanced submesh is culled whole (bounds per instance, and the cull kernel writing the instances it keeps)
 	2. (small: the pyramid takes 0.14 ms) the depth pyramid in one dispatch (shared memory, as AMD's single pass downsampler) instead of a dispatch per level with barriers between

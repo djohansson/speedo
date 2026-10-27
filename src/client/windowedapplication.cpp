@@ -583,6 +583,10 @@ void WindowedApplication::Shutdown()
 		std::ranges::sort(times);
 		std::println("frame time: {:.3f} ms (median of {} half seconds)", times[times.size() / 2], times.size());
 	}
+	// what auto exposure settled on, to capture the same view at it (SPEEDO_AUTO_EXPOSURE=0 SPEEDO_EXPOSURE=<stops>):
+	// measured as it adapts, a capture's change mixes the exposure's with the scene's
+	if (myScene && myScene->GetSettings().autoExposure.load(std::memory_order_relaxed))
+		std::println("auto exposure: {:+.2f} EV", static_cast<double>(myScene->GetAutoExposureStops()));
 
 	auto& rhi = GetRHI();
 	auto& device = rhi.GetPrimaryDevice();

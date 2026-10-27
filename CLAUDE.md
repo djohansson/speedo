@@ -825,7 +825,8 @@ disk where the atlas isn't sure, `SHADER_TYPES_SHADOW_REFERENCE_RAY_COUNT`; seco
 after a few frames). The last two go through the filter's passes unfiltered into the mask, which is what the main pass
 reads: the rays' image is a transient whose memory the mask takes once the filter has read it.
 
-For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` places the views at a pose a frame,
+For comparing renders of a move: `SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...]` (or `@<file>` of them, separated by `;`
+or lines: a still pose repeated for 1200 frames is more than a Windows environment variable holds) places the views at a pose a frame,
 the last kept (`Views::FollowPath`, applied by `Upload`: the draw calls the ui queues needn't run in their order, since
 `RHI::drawCalls` keeps it per producer thread only and the ui's frames run on any of the executor's, so placements
 queued in different frames landed out of order); `SPEEDO_CAPTURE_PATH=<directory>` saves each frame of the path
@@ -863,10 +864,21 @@ scope's duration, which `Renderer::Record` takes (`TakeTimings`), shows in the S
 `SPEEDO_CAPTURE=<file>` saves the frame an autoload exit ends on (`SPEEDO_AUTOLOAD_EXIT`) as a bmp, read back from the
 swapchain image (its images are transfer sources for it): renders can be compared without the screen, which a locked
 one hides from screenshots. `SPEEDO_UI=0` leaves the ui out of the frames (and its panels' blur; it still runs: the
-autoloads, the camera's placement and the capture itself), so a capture is the scene alone. `Renderer::Record`
+autoloads, the camera's placement and the capture itself), so a capture is the scene alone. `SPEEDO_WINDOW_SIZE=<width>x<height>`
+makes the window's framebuffer that many pixels whatever the display's scale (the default, 1280x720 in the window
+system's units, is 2560x1440 pixels on the Mac's display and 1280x720 on a Windows display at 100%), so that
+measurements match across machines. `Renderer::Record`
 also opens a `Frame` scope (in the same group) around the whole graph, whose timestamps are outside every pass: it is
-timed where passes aren't (KosmicKrisp times neither compute passes nor Main Late), so compare whole frames by it.
-The frame time unthrottled is no substitute on macOS: presentation stays at the display's rate even with
+timed where passes aren't (KosmicKrisp times neither compute passes nor Main Late). It misses most compute work there
+too, though: Bistro's evening frame read 43.4 ms by it and 67.3 ms by the draw thread, which a sampling profiler showed
+waiting on its fences (the gpu's time), and leaving out any GI pass didn't move it, where San Miguel's agreed within 2
+ms. So on KosmicKrisp measure a frame by the draw thread's frame time (fifo, printed at exit; check that the draw thread
+waits on its fences), and a pass by the frame time it frees left out (`SPEEDO_SKIP_PASSES=<pass>[;...]`, the GI pass's
+steps by name: `framegraph::Skipped`; a pass whose output decides another's work changes that too). The costs of compute
+heavy features recorded here by the `Frame` scope are undercounts on KosmicKrisp: the near field's 0.9 ms was 16 to 19
+ms at the benchmark poses. `scripts/perfbaseline.ps1` measures features, passes and how long the lighting takes to
+settle (`build/<preset>/convergence`, from captures) at the benchmark poses (docs/performance-plan.md, with the M4 Pro's
+baseline). The frame time unthrottled is no substitute for the gpu's on macOS: presentation stays at the display's rate even with
 `SPEEDO_PRESENT_MODE=immediate` (in the background, at least), so frames take one or two refreshes. A timestamp is plausible if it is not 0, not before the one
 before it in its command buffer, and not more than 250 ms after it: Tracy gets the one before in place of the others,
 and a grouped scope is timed only if both of its are plausible. KosmicKrisp only writes timestamps where its own Metal
@@ -1674,7 +1686,9 @@ images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a desc
 from the pool); the rays turn every frame (`GiNearDirection`), each pixel taking every one of its tile's 16 directions
 over 16 frames. Fixed, the rays' grain stayed on the screen as the camera moved (the user: "fixed to the camera"; their
 pose under Sponza's curtains, `2.8260,0.3324,-2.7619,27.122,-513.942`); over frames it is smooth, and a slow turn
-smears nothing. It costs 0.9 ms a frame on KosmicKrisp (Sponza 30.1 to 31.0, Bistro's street 57.3 to 58.3). Main's
+smears nothing. It costs 0.9 ms a frame on KosmicKrisp by the `Frame` scope (Sponza 30.1 to 31.0, Bistro's street 57.3
+to 58.3), which misses compute work there: by the draw thread's frame time, 18.9 ms at Bistro's evening benchmark pose
+and 16.4 at San Miguel's, its rays 10, its filter 4 to 8 (every pixel) and its frames 1 (docs/performance-plan.md). Main's
 opaque fragments (`PushConstants::prepassImages`'
 `PREPASS_IMAGE_GI_NEAR`) take what the rays gathered by how many met another surface nearer than a contact
 (`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the

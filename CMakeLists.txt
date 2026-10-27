@@ -563,6 +563,21 @@ target_link_libraries(
 		xxHash::xxhash
 )
 
+# how long a still view takes to settle, from its captures (docs/performance-plan.md, step 1), see
+# src/tools/convergence.cpp
+add_executable(convergence ${SPEEDO_SOURCE_DIR}/tools/convergence.cpp)
+target_compile_features(
+	convergence
+	PUBLIC
+		cxx_std_26
+)
+target_link_libraries(
+	convergence
+	PRIVATE
+		${SPEEDO_MIMALLOC}
+		core
+)
+
 # the executables' narrow strings are UTF-8 on windows too (windows.manifest sets the process's ANSI code page):
 # libc++'s path::string() threw on file names the system's code page can't represent. lld-link can merge a manifest into
 # the one it makes only with libxml2 or mt.exe, so the executables embed it as a resource (windows.rc), and the link rule
@@ -571,7 +586,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
 	foreach(lang C CXX)
 		string(REPLACE "/MANIFEST:EMBED" "/MANIFEST:NO" CMAKE_${lang}_LINK_EXECUTABLE "${CMAKE_${lang}_LINK_EXECUTABLE}")
 	endforeach()
-	foreach(target server client assettest filebench)
+	foreach(target server client assettest filebench convergence)
 		target_sources(${target} PRIVATE ${SPEEDO_SOURCE_DIR}/windows.rc)
 	endforeach()
 	# the resource compiler's includes aren't tracked: without this, a changed manifest wasn't embedded

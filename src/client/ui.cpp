@@ -1,5 +1,6 @@
 #include "windowedapplicationdetail.h"
 
+#include <core/file.h>
 #include <gfx/lightgizmos.h>
 
 #include <version.h>
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1060,10 +1062,27 @@ void WindowedApplication::PrepareDraw()
 				gAutoLightSizes.emplace_back(light, size);
 				it = *end == ',' ? end + 1 : end;
 			}
+		// SPEEDO_CAMERA_PATH=<x,y,z,pitch,yaw>[;...], or @<file> of them (separated by ; or lines), which an environment
+		// variable on Windows can't hold more than 32767 characters of: a still pose repeated for 1200 frames is 50000
 		if (const char* path = std::getenv("SPEEDO_CAMERA_PATH"); path != nullptr && *path != '\0')
 		{
-			for (const char* it = path; *it != '\0';)
+			std::string text = path;
+			if (text.front() == '@')
 			{
+				if (auto file = core::file::Map(text.substr(1)))
+					text.assign(reinterpret_cast<const char*>(file->data()), file->size());
+				else
+				{
+					std::println(stderr, "SPEEDO_CAMERA_PATH: couldn't read {}", text.substr(1));
+					text.clear();
+				}
+			}
+			for (const char* it = text.c_str();;)
+			{
+				while (*it == ';' || std::isspace(static_cast<unsigned char>(*it)) != 0)
+					it++;
+				if (*it == '\0')
+					break;
 				auto pose = parsePose(it);
 				if (!pose)
 				{
@@ -1072,8 +1091,6 @@ void WindowedApplication::PrepareDraw()
 					break;
 				}
 				gAutoPath.push_back(*pose);
-				if (*it == ';')
-					it++;
 			}
 		}
 	}

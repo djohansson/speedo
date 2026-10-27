@@ -4,9 +4,14 @@
 #include <core/profiling.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 #include <numeric>
+#include <ranges>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace gfx
 {
@@ -614,6 +619,23 @@ GpuProfiler::Scope BeginPassScope(
 	return profiler->Begin(cmd, name, kLocation, group, stage);
 }
 
+// SPEEDO_SKIP_PASSES=<name>[;<name>...]: passes left out as if disabled, to measure what each costs by the frame's time
+// without it where the gpu's timestamps can't (KosmicKrisp times almost none of the passes); what is drawn is then
+// undefined, and a pass whose output decides another's work (a classification, a cull) changes that work too
+bool Skipped(std::string_view name)
+{
+	static const auto kSkipped = []
+	{
+		std::vector<std::string> names;
+		if (const char* value = std::getenv("SPEEDO_SKIP_PASSES"); value != nullptr)
+			for (auto part : std::views::split(std::string_view(value), ';'))
+				if (!part.empty())
+					names.emplace_back(part.begin(), part.end());
+		return names;
+	}();
+	return std::ranges::contains(kSkipped, name);
+}
+
 } // namespace framegraph
 
 void FrameGraph::Execute(CommandBufferHandle cmd, GpuProfiler* profiler)
@@ -628,7 +650,7 @@ void FrameGraph::Execute(CommandBufferHandle cmd, GpuProfiler* profiler)
 	for (uint32_t passIt = 0; passIt < myPasses.size(); passIt++)
 	{
 		auto& pass = myPasses[passIt];
-		if (!pass.live || !pass.enabled)
+		if (!pass.live || !pass.enabled || framegraph::Skipped(pass.name))
 			continue;
 
 		ZoneScoped;
