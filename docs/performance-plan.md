@@ -235,11 +235,36 @@ The three kept together, by the settling from a cold start (frames, and seconds 
 | Sponza (2400 frames), before | 840 (31 s) | 1440 (53 s) | 2140 (79 s) | 0.007 |
 | Sponza (2400 frames), after | 460 (17 s) | 1460 (54 s) | 2160 (80 s) | 0.007 |
 | Sponza (2400 frames), after, with the warm-up rays | 280 (10 s) | 1480 (55 s) | 2200 (81 s) | 0.007 |
+| Bistro, with the filter held (second round) | 50 (3.4 s) | 80 (5.4 s) | 170 (11.5 s) | 0.014 |
+| San Miguel, with the filter held | 80 (6.9 s) | 310 (26.7 s) | 1080 (93 s) | 0.007 |
+| Sponza (2400 frames), with the filter held | 240 (8.9 s) | 960 (35.5 s) | 2220 (82 s) | 0.006 |
 
 San Miguel's 5% comes later: the cache's shorter early window is noisier while it settles. The step isn't done: the
 cache's tail is what is left of it.
 
 `SPEEDO_GI_TIME_BASED=0` restores the per frame hysteresis and the cache's whole window, for comparisons.
+
+### Step 2, the second round (2026-10-27 night)
+
+What the tail was, found by dumping a point's probes and cache entry at frames 300, 1000 and 2400
+(`SPEEDO_GI_DUMP=pixel:...`): the probes were identical to five digits from frame 300 on, the cache entry's light only
+noisy; what drifted for 2000 frames was the cache's filter. Its edges stop at the noise of the voxels' means, a variance
+over the voxel's samples, which shrank as they grew to 1024, so the filter smoothed less and less and the light it had
+spread into darker voxels withdrew: the image darkened as the samples grew, whatever their window. Held at the noise of
+a mean of 64 samples (`kGiCacheFilterCount`; 32 the same), Sponza comes within 10% of settled after 240 frames (280
+before) and within 5% after 960 (1480), the settled image within 0.03 of before.
+
+- **Tried and dropped**: restarting the cache's entries at 256, 512 and 1024 frames (32 samples kept: the image jumped
+  away from settled at each, the loosened filter brightening it, which is what pointed at the filter); the bounce taking
+  the probes' light rather than the cache-blended volumes, to take the cache out of the loop the bounce makes (no faster,
+  and 9% brighter); a cap of 256 samples with the filter held (three times the noise: the cache needs its long window).
+- **What is left**: the window's growth, half the frames since the cache started over, to 1024 at frame 2048, forgets
+  the first frames' samples as 1 over the frames (Sponza 2% off at frame 2000). Shortening it costs noise (a voxel's
+  light is mostly the few rays that find a bright opening), so what remains is lower variance sampling (rays guided
+  toward where the light comes from) or a warm start (the settled cache saved with the scene).
+- **A watchdog fix found on the way**: after a shader change, the draw thread's first frames create the GI's compute
+  pipelines cold, over 20 s in all on KosmicKrisp, and the crash watch reported a hang at startup (three of the quick
+  tier's first runs, and a measurement): a pipeline the draw thread creates now counts as its heartbeat.
 
 ### The near field at the traced pixels (2026-10-27)
 

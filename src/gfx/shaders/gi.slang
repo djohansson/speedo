@@ -2307,6 +2307,11 @@ static const float kGiCachePrior = 16.0;
 // how many samples of their mean square a voxel's variance is taken with besides its own (a voxel of few samples is
 // noise, however alike they came out: one sample has no variance)
 static const float kGiCacheVariancePrior = 4.0;
+// the most samples the noise the filter stops at (its edges, see ComputeGiCacheFilter) is taken as the mean of: the variance
+// of a mean of the voxel's samples, as it was, shrank as they grew to 1024, the filter smoothed less and less, and the light
+// it had spread from bright voxels into darker ones withdrew for as long (Sponza's interior still darkened 2400 frames
+// after a cold start, its probes settled by 300); held at this, the filter is the same once a voxel has as many
+static const float kGiCacheFilterCount = 64.0;
 // how many samples a voxel new to its clip takes the coarser clip's entry as (see GiCacheUpdate)
 static const uint kGiCacheSeedCount = 8u;
 // how often a voxel no lookup reads traces a ray (see GiCacheUpdate), and how many frames after a lookup read its block
@@ -2767,7 +2772,7 @@ GiCacheTap GiCacheTapOf(GiCacheEntry entry)
 		tap.faces[faceIt] = entry.faces[faceIt];
 	float n = float(entry.count);
 	float light = GiCacheLight(entry.faces, entry.normal);
-	tap.variance = (n * max(entry.moment - light * light, 0.0) + kGiCacheVariancePrior * entry.moment) / (n + kGiCacheVariancePrior) / n;
+	tap.variance = (n * max(entry.moment - light * light, 0.0) + kGiCacheVariancePrior * entry.moment) / (n + kGiCacheVariancePrior) / min(n, kGiCacheFilterCount);
 	tap.confidence = n / (n + kGiCachePrior);
 	tap.normal = entry.normal;
 	return tap;
@@ -2882,7 +2887,7 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 		GiCacheTap tap;
 		for (uint faceIt = 0; faceIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; faceIt++)
 			tap.faces[faceIt] = entry.faces[faceIt];
-		tap.variance = (samples * max(square - mean * mean, 0.0) + kGiCacheVariancePrior * square) / (samples + kGiCacheVariancePrior) / n;
+		tap.variance = (samples * max(square - mean * mean, 0.0) + kGiCacheVariancePrior * square) / (samples + kGiCacheVariancePrior) / min(n, kGiCacheFilterCount);
 		tap.confidence = n / (n + kGiCachePrior);
 		tap.normal = entry.normal;
 		GiCacheStoreTap(target, tap);

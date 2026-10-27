@@ -1627,7 +1627,10 @@ own alone, a voxel that missed a source smaller than its rays' spacing measured 
 neighbours' light, and the curtains' light broke into dim blobs), then `SPEEDO_GI_CACHE_FILTER_PASSES` (3) passes of an
 a-trous filter (taps 1, 2 and 4 voxels apart) weighing each tap by the kernel, the open sides' agreement (to the 8th), its
 distance off the voxel's plane, its confidence, and how its light differs against `SPEEDO_GI_CACHE_SIGMA` (8) deviations
-of both voxels' noise (by the voxel's alone, noisy bright voxels took their quiet neighbours' light and not the other way,
+of both voxels' noise, the noise of a mean of at most 64 of their samples (`kGiCacheFilterCount`: as the variance of the
+mean of all of a voxel's samples, it shrank as they grew to 1024, the filter smoothed less and less, and the light it had
+spread from bright voxels into darker ones withdrew for as long: Sponza's interior darkened 2000 frames after a cold
+start, its probes settled by 300; held, it came within 5% of settled after 960 frames rather than 1480) (by the voxel's alone, noisy bright voxels took their quiet neighbours' light and not the other way,
 and the floor's band lost a quarter of its light; a sigma of 4 left blotches in it). The last pass moves the volumes'
 light toward the filtered light by the voxel's samples over them and 16 (`SPEEDO_GI_CACHE_SHOW=1`: all of it), and weighs
 the voxel in the lookups by that where the probes see it less (premultiplied by a probe weight of a ten thousandth, at

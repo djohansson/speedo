@@ -23,7 +23,8 @@ void CrashEvent(std::string_view what);
 // the frame being drawn, which events, submits and breadcrumbs are stamped with. the draw thread, as each frame starts
 void CrashFrame(uint64_t frame);
 
-// the draw thread's heartbeat: each time it is about to draw a frame, or skip one (minimized, a window change)
+// the draw thread's heartbeat: each time it is about to draw a frame, or skip one (minimized, a window change), and each
+// time it has created a pipeline it bound (cold, a GI kernel takes seconds to compile on KosmicKrisp)
 void CrashHeartbeat();
 // the watchdog, from a thread that never waits for the draw thread (the main thread, several times a second): once there
 // has been a heartbeat, one older than the hang timeout (SPEEDO_GPU_HANG_TIMEOUT, 20 s) is a hang, reported. it catches

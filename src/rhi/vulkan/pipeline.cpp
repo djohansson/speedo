@@ -1,3 +1,4 @@
+#include <rhi/crashreport.h>
 #include <rhi/pipeline.h>
 #include <rhi/rhi.h>
 #include <rhi/vulkan/convert.h>
@@ -423,6 +424,10 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant v
 			ASSERTF(false, "Not implemented");
 		}
 	}
+	// the draw thread made progress (CrashWatch): after a shader change, its first frames create the GI's compute pipelines
+	// cold, which KosmicKrisp compiles in Metal, over 20 s in all, and the watch reported a hang at startup (here, where the
+	// draw thread binds, not in the background jobs of RequestGraphicsPipeline, whose progress isn't the draw thread's)
+	CrashHeartbeat();
 	lock.lock();
 	myPipelineMap.at(key) = handle;
 	sync.created.notify_all();
