@@ -1365,6 +1365,9 @@ void WindowedApplication::PrepareDraw()
 			IM_COL32(255, 255, 255, 40));
 		drawList->PopClipRect();
 
+		// the menus' on/off settings are checkboxes: as menu items, unchecked, they showed no mark and read as headings (the
+		// user couldn't find Advance Time), and a checkbox keeps the menu open to watch what it changes. menu items pick one
+		// of several (a check on the current one) or open a window
 		if (ui::BeginMenu("File"))
 		{
 			if (MenuItem("Open...", SHORTCUT_LABEL("O"), gShowBrowser && gBrowserPurpose == BrowserPurpose::kFiles))
@@ -1401,9 +1404,9 @@ void WindowedApplication::PrepareDraw()
 				// to compare them, e.g. a driver's direct scanout on macOS
 				auto& windowState = GetWindow(GetCurrentWindow()).GetState();
 				SeparatorText("Fullscreen");
-				if (MenuItem("Fullscreen", "Alt+Enter", windowState.fullscreenEnabled != 0U))
+				if (bool fullscreen = windowState.fullscreenEnabled != 0U; Checkbox("Fullscreen", &fullscreen))
 					RequestToggleFullscreen(GetCurrentWindow());
-				SetItemTooltip("In or out of fullscreen, as below.");
+				SetItemTooltip("In or out of fullscreen (Alt+Enter), as below.");
 				for (auto [label, mode] : std::array{
 						 std::pair{"Exclusive", FULLSCREEN_MODE_EXCLUSIVE},
 						 std::pair{"Borderless", FULLSCREEN_MODE_BORDERLESS},
@@ -1465,7 +1468,7 @@ void WindowedApplication::PrepareDraw()
 						App().GetScene().GetSettings().environmentRotationDegrees.store(rotation, std::memory_order_relaxed);
 					SetItemTooltip("Turns it about the vertical axis. Drag, or double-click to type.");
 					bool backdrop = App().GetScene().GetSettings().environmentBackdrop.load(std::memory_order_relaxed);
-					if (MenuItem("Backdrop", nullptr, &backdrop))
+					if (Checkbox("Backdrop", &backdrop))
 						App().GetScene().GetSettings().environmentBackdrop.store(backdrop, std::memory_order_relaxed);
 					// the sky's sun: where the time of day puts it, at a latitude on a day of the year, and the time advancing
 					if (App().GetScene().IsSkyInstalled())
@@ -1480,7 +1483,7 @@ void WindowedApplication::PrepareDraw()
 							settings.timeOfDay.store(hours, std::memory_order_relaxed);
 						SetItemTooltip("Local solar time (12:00: the sun highest), which puts the sun. Drag, or double-click to type hours (18.5 for 18:30).");
 						bool advance = settings.advanceTime.load(std::memory_order_relaxed);
-						if (MenuItem("Advance Time", nullptr, &advance))
+						if (Checkbox("Advance Time", &advance))
 							settings.advanceTime.store(advance, std::memory_order_relaxed);
 						SetItemTooltip("The time of day moves on by itself, Time Speed times as fast as real time.");
 						float speed = settings.timeSpeed.load(std::memory_order_relaxed);
@@ -1516,7 +1519,7 @@ void WindowedApplication::PrepareDraw()
 						}
 					}
 					bool merge = App().GetScene().GetSettings().mergeLights.load(std::memory_order_relaxed);
-					if (MenuItem("Merge with the model's lights", nullptr, &merge))
+					if (Checkbox("Merge with the model's lights", &merge))
 						App().GetScene().GetSettings().mergeLights.store(merge, std::memory_order_relaxed);
 					SetItemTooltip(
 						"Treats a dominant light and a directional light of the model's within 5 degrees of it as one, "
@@ -1587,7 +1590,7 @@ void WindowedApplication::PrepareDraw()
 				// the installed model's animations (see Model::Animate)
 				auto animation = App().GetScene().GetAnimation().Write();
 				auto& state = animation.Get();
-				MenuItem("Play", nullptr, &state.playing);
+				Checkbox("Play", &state.playing);
 				if (MenuItem("Restart"))
 					state.time = 0.0;
 				Separator();
@@ -1629,8 +1632,8 @@ void WindowedApplication::PrepareDraw()
 				}
 				ImGui::EndMenu();
 			}
-			MenuItem("FPS", nullptr, &gShowFps);
-			MenuItem("TPS", nullptr, &gShowTps);
+			Checkbox("FPS", &gShowFps);
+			Checkbox("TPS", &gShowTps);
 			Separator();
 			{
 				// logarithmic: model scales span many orders of magnitude (see Views::FrameBounds). a drag box rather than a
@@ -1659,35 +1662,37 @@ void WindowedApplication::PrepareDraw()
 					App().GetScene().GetSettings().exposureStops.store(stops, std::memory_order_relaxed);
 				SetItemTooltip("Scales the image by 2^EV before tonemapping (with auto exposure, on top of what it picks). Drag, or double-click to type.");
 				bool autoExposure = App().GetScene().GetSettings().autoExposure.load(std::memory_order_relaxed);
-				if (MenuItem("Auto Exposure", nullptr, &autoExposure))
+				if (Checkbox("Auto Exposure", &autoExposure))
 					App().GetScene().GetSettings().autoExposure.store(autoExposure, std::memory_order_relaxed);
 				SetItemTooltip("Adapts the exposure to the scene's brightness over time.");
 				if (autoExposure)
 					TextDisabled("Auto: %+.2f EV", App().GetScene().GetAutoExposureStops());
 				bool shadows = App().GetScene().GetSettings().shadows.load(std::memory_order_relaxed);
-				if (MenuItem("Shadows", nullptr, &shadows))
+				if (Checkbox("Shadows", &shadows))
 					App().GetScene().GetSettings().shadows.store(shadows, std::memory_order_relaxed);
 				SetItemTooltip("The lights' shadows: cascades for directional lights, cubes for point lights, a view per spot light.");
 				bool tracedShadows = App().GetScene().GetSettings().tracedShadows.load(std::memory_order_relaxed);
-				if (MenuItem("Ray Traced Shadows", nullptr, &tracedShadows, shadows))
+				BeginDisabled(!shadows);
+				if (Checkbox("Ray Traced Shadows", &tracedShadows))
 					App().GetScene().GetSettings().tracedShadows.store(tracedShadows, std::memory_order_relaxed);
+				EndDisabled();
 				SetItemTooltip(
 					"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
 				bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
-				if (MenuItem("Emissive Lights", nullptr, &emissiveLights))
+				if (Checkbox("Emissive Lights", &emissiveLights))
 					App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);
 				SetItemTooltip(
 					"Emissive surfaces light the scene as area lights: points of them picked through a tree of them by how much each may give, at every 4th pixel each way (and in the indirect lighting's voxels), shadowed by rays through the model's BVH. Off, the indirect lighting's rays take their emission as they meet them.");
 				bool culling = App().GetScene().GetSettings().culling.load(std::memory_order_relaxed);
-				if (MenuItem("Culling", nullptr, &culling))
+				if (Checkbox("Culling", &culling))
 					App().GetScene().GetSettings().culling.store(culling, std::memory_order_relaxed);
 				SetItemTooltip("Skips the chunks of the model outside each view's frustum, and each shadow view's.");
 				bool clusteredLights = App().GetScene().GetSettings().clusteredLights.load(std::memory_order_relaxed);
-				if (MenuItem("Clustered Lights", nullptr, &clusteredLights))
+				if (Checkbox("Clustered Lights", &clusteredLights))
 					App().GetScene().GetSettings().clusteredLights.store(clusteredLights, std::memory_order_relaxed);
 				SetItemTooltip("Shades each pixel with only the lights that may reach its cluster (a tile of the view and a slice of depth), not all of them.");
 				bool indirectLighting = App().GetScene().GetSettings().indirectLighting.load(std::memory_order_relaxed);
-				if (MenuItem("Indirect Lighting", nullptr, &indirectLighting))
+				if (Checkbox("Indirect Lighting", &indirectLighting))
 					App().GetScene().GetSettings().indirectLighting.store(indirectLighting, std::memory_order_relaxed);
 				SetItemTooltip(
 					"Diffuse ambient light from irradiance probes over a voxel clipmap (experimental, SPEEDO_GI=1 to start with it): "
@@ -1709,7 +1714,7 @@ void WindowedApplication::PrepareDraw()
 					ImGui::EndMenu();
 				}
 				bool surfaceCache = App().GetScene().GetSettings().giSurfaceCache.load(std::memory_order_relaxed);
-				if (MenuItem("Indirect Lighting Surface Cache", nullptr, &surfaceCache))
+				if (Checkbox("Indirect Lighting Surface Cache", &surfaceCache))
 					App().GetScene().GetSettings().giSurfaceCache.store(surfaceCache, std::memory_order_relaxed);
 				SetItemTooltip(
 					"Refines the probes' light at the voxels the views look up with rays from each voxel itself, one a frame, "
@@ -1717,7 +1722,7 @@ void WindowedApplication::PrepareDraw()
 					"size rather than the probes' spacing. On by default (SPEEDO_GI_CACHE=0 to start without it); its memory grows "
 					"with the resolution (0.3 GB at 384 in Sponza).");
 				bool nearField = App().GetScene().GetSettings().giNearField.load(std::memory_order_relaxed);
-				if (MenuItem("Indirect Lighting Near Field", nullptr, &nearField))
+				if (Checkbox("Indirect Lighting Near Field", &nearField))
 					App().GetScene().GetSettings().giNearField.store(nearField, std::memory_order_relaxed);
 				SetItemTooltip(
 					"Near other surfaces, takes the light a ray from each pixel gathers within a few voxels (filtered along the "
@@ -1739,7 +1744,7 @@ void WindowedApplication::PrepareDraw()
 				{
 					bool temporal = App().GetScene().GetSettings().giNearTemporal.load(std::memory_order_relaxed);
 					BeginDisabled(!nearField);
-					if (MenuItem("Near Field Over Frames", nullptr, &temporal))
+					if (Checkbox("Near Field Over Frames", &temporal))
 						App().GetScene().GetSettings().giNearTemporal.store(temporal, std::memory_order_relaxed);
 					EndDisabled();
 					SetItemTooltip(
