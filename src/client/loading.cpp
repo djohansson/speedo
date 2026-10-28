@@ -33,9 +33,14 @@ std::optional<std::filesystem::path> ExtractArchive(const std::filesystem::path&
 
 	auto key = std::hash<std::string>{}(std::format("{}|{}|{}", absolute.string(), size, time));
 	auto directory = userProfilePath / "archives" / std::format("{}-{:016x}", archive.stem().string(), key);
+	// done, by this extractor: its marker's length says which (1 byte, before an entry shorter than a page was cut to its
+	// size: its file kept the tail of the page mio made it, which failed geodesic.zip's small objs), and an older one's
+	// extraction is done again, in the same place
+	static constexpr std::array kMarker{std::byte{'2'}, std::byte{'\n'}};
 	auto marker = directory / ".extracted";
-	if (std::filesystem::exists(marker, error))
+	if (std::filesystem::exists(marker, error) && std::filesystem::file_size(marker, error) == kMarker.size() && !error)
 		return directory;
+	error.clear();
 
 	// a previous extraction that didn't finish
 	std::filesystem::remove_all(directory, error);
@@ -50,7 +55,6 @@ std::optional<std::filesystem::path> ExtractArchive(const std::filesystem::path&
 		return std::nullopt;
 	}
 
-	static constexpr std::array kMarker{std::byte{'\n'}};
 	if (auto written = core::file::Write(marker, kMarker); !written)
 		std::println(stderr, "Failed to write {}: {}", marker.string(), written.error().message());
 

@@ -1040,6 +1040,9 @@ struct GiData
 	alignas(4) UINT1(cacheRayCount);
 	alignas(4) UINT1(cacheSampleCount);
 	alignas(4) UINT1(cacheReset);
+	// whether its voxels' means have their whole window (SPEEDO_GI_CACHE_SAMPLES) and the light is still: they then trace
+	// a ray every other frame, the same samples over twice the frames (see GiCacheUpdate)
+	alignas(4) UINT1(cacheSettled);
 	// whether the voxels take the cache's pooled light alone where there is some, rather than blended with their probes' by its
 	// samples (SPEEDO_GI_CACHE_SHOW=1: to judge it)
 	alignas(4) UINT1(cacheShow);

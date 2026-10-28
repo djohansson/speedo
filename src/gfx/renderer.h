@@ -557,6 +557,9 @@ private:
 	uint32_t myGiCacheSampleCount = 1024;
 	uint32_t myGiCacheFilterPassCount = 3;
 	float myGiCacheSigma = 8.0F;
+	// the frames since the cache started over after which it is settled (see GiData::cacheSettled):
+	// SPEEDO_GI_CACHE_SETTLED_FRAMES, by default twice its samples, when its window has them all
+	uint32_t myGiCacheSettledFrameCount = 0;
 	bool myGiCacheEverywhere = false; // SPEEDO_GI_CACHE_EVERYWHERE=1: see GiData::cacheEverywhere
 	uint32_t myGiCacheKeepFrameCount = 1024; // SPEEDO_GI_CACHE_KEEP_FRAMES: see GiData::cacheKeepFrameCount
 	bool myGiCacheShow = false; // SPEEDO_GI_CACHE_SHOW=1: see GiData::cacheShow

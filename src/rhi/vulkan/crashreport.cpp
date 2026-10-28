@@ -54,6 +54,10 @@ Capabilities gCapabilities;
 std::string gDirectory;
 std::atomic_uint64_t gFrame{0};
 std::atomic_int64_t gHeartbeat{0}; // nanoseconds since kStart of the draw thread's last heartbeat (0: none yet)
+// the busy spans open (see CrashBusy), and when the first of them began (nanoseconds since kStart)
+std::atomic_int32_t gBusyCount{0};
+std::atomic_int64_t gBusySince{0};
+constexpr uint64_t kBusyTimeout = 120ULL * 1'000'000'000ULL;
 std::atomic_bool gReporting{false};
 
 // the log of events
@@ -845,8 +849,35 @@ void CrashWatch()
 	if (heartbeat == 0 || timeout == ~0ULL)
 		return;
 	auto now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - kStart).count();
+	// busy: from where the span began, for longer (see CrashBusy)
+	if (gBusyCount.load(std::memory_order_acquire) > 0)
+	{
+		auto since = gBusySince.load(std::memory_order_relaxed);
+		if (now > since && static_cast<uint64_t>(now - since) > std::max(timeout, kBusyTimeout))
+			vk::crash::ReportHang(std::format("the draw thread has been busy for {} s", std::max(timeout, kBusyTimeout) / kNanosecondsPerSecond));
+		return;
+	}
 	if (now > heartbeat && static_cast<uint64_t>(now - heartbeat) > timeout)
 		vk::crash::ReportHang(std::format("the draw thread hasn't drawn or skipped a frame for {} s", timeout / kNanosecondsPerSecond));
+}
+
+CrashBusy::CrashBusy()
+{
+	using namespace vk::crash::detail;
+
+	if (gBusyCount.fetch_add(1, std::memory_order_acq_rel) == 0)
+		gBusySince.store(
+			std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - kStart).count(),
+			std::memory_order_relaxed);
+}
+
+CrashBusy::~CrashBusy()
+{
+	using namespace vk::crash::detail;
+
+	// the span made progress: a heartbeat as it ends
+	if (gBusyCount.fetch_sub(1, std::memory_order_acq_rel) == 1)
+		CrashHeartbeat();
 }
 
 template <>

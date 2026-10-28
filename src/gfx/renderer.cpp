@@ -1396,6 +1396,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheFilterPassCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(passes, nullptr, 10)), 1U, 4U);
 	if (const char* sigma = std::getenv("SPEEDO_GI_CACHE_SIGMA"); sigma != nullptr && *sigma != '\0')
 		myGiCacheSigma = std::max(std::strtof(sigma, nullptr), 0.0F);
+	if (const char* settled = std::getenv("SPEEDO_GI_CACHE_SETTLED_FRAMES"); settled != nullptr && *settled != '\0')
+		myGiCacheSettledFrameCount = static_cast<uint32_t>(std::strtoul(settled, nullptr, 10));
 	if (const char* everywhere = std::getenv("SPEEDO_GI_CACHE_EVERYWHERE"); everywhere != nullptr)
 		myGiCacheEverywhere = std::string_view(everywhere) == "1";
 	if (const char* keep = std::getenv("SPEEDO_GI_CACHE_KEEP_FRAMES"); keep != nullptr && *keep != '\0')
@@ -3408,6 +3410,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		// following lights that change gradually (see myGiLightsGradual) as where something moves
 		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(cacheSampleCount, 32U) : cacheSampleCount;
 		clip.cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit ? 1U : 0U;
+		uint32_t settledFrameCount = myGiCacheSettledFrameCount > 0 ? myGiCacheSettledFrameCount : 2 * myGiCacheSampleCount;
+		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && myGiFramesSinceCacheReset >= settledFrameCount ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's

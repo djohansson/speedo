@@ -2652,6 +2652,13 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 		uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
 		rayCount = (hash + gi.frameStamp) % kGiCacheIdleFrameCount == 0u ? 1u : 0u;
 	}
+	// and once settled (GiData::cacheSettled), where nothing moves, every other frame (staggered by its place): its mean is
+	// of the same samples, over twice the frames, of a light that doesn't change
+	else if (gi.cacheSettled != 0u && !moving)
+	{
+		uint hash = uint(world.x) * 73856093u ^ uint(world.y) * 19349663u ^ uint(world.z) * 83492791u;
+		rayCount = ((hash + gi.frameStamp) & 1u) == 0u ? rayCount : 0u;
+	}
 	// the dumped point's voxel's entry (SPEEDO_GI_DUMP, see GI_DUMP_CACHE_FIRST): its counts, its rays' origin and the clip
 	// they walk, its voxel, the light it holds per face, and the frame's first 8 rays (direction, distance or -1 where it
 	// met nothing, light, whether it met a surface's back): what found the slot behind salle_de_bain's bench lit (see

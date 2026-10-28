@@ -361,3 +361,6 @@ judges by eye before it is on by default. Tried and dropped tonight: the surface
 with the volume's light beyond (1.7 and 0.5 ms of Bistro's 57: its cost is the rays' count and their hits' shading, not
 their length), and tracing only the blocks a lookup read rather than the ring around them too (0.5 to 0.9 ms: the ring
 was a small part of it). The cache's update is 11 of the resolve's 13.7 ms in Bistro (2.7 without the cache).
+- **Kept: the settled surface cache traces every other frame** (once its window has all its samples, 2048 frames after
+  it started over, and nothing moves): Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4, in the long run only. Its rays
+  are a fifth of its cost in Bistro's resolve; what the rest is needs a gpu profiler (Nsight on the RTX machine).

@@ -402,6 +402,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant v
 		if (it->second == nullptr)
 		{
 			ZoneScopedN("Pipeline::InternalGetPipeline::wait");
+			CrashBusy busy; // another thread compiles it (see CrashBusy)
 			sync.created.wait(lock, [this, key] { return myPipelineMap.at(key) != nullptr; });
 		}
 		return myPipelineMap.at(key);
@@ -412,6 +413,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalGetPipeline(GraphicsPipelineVariant v
 	PipelineHandle<kVk> handle{};
 	{
 		ZoneScopedN("Pipeline::InternalGetPipeline::create");
+		CrashBusy busy; // inside the driver's compile (see CrashBusy)
 		switch (myBindPoint)
 		{
 		case PipelineBindPoint::kGraphics:

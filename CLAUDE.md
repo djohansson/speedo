@@ -255,7 +255,10 @@ application) and a summary line to stderr, then traps. A report has:
 most and reports a hang (`vk::crash::WatchedWait`); and the main thread, which never waits for the draw thread, watches
 it (`rhi::CrashWatch` in `ClientMain`, against `CrashHeartbeat` at each `Draw`, which runs when frames are skipped too),
 which catches the draw thread blocked inside a call without a timeout (a present stuck behind a semaphore never
-signaled blocked the draw thread where no wait did). `SPEEDO_CRASH_TEST=hang` makes the frames from the 100th wait for
+signaled blocked the draw thread where no wait did). What makes progress where no heartbeat can tell (a pipeline created cold, inside the
+driver's call, or one the draw thread waits for a background job to create) is a busy span (`rhi::CrashBusy`), which
+the watch gives 120 s from where it began: four clients compiling at once on KosmicKrisp, two waited past the timeout
+for their first frames' pipelines. `SPEEDO_CRASH_TEST=hang` makes the frames from the 100th wait for
 a semaphore nothing signals, to check reports end to end (with `SPEEDO_GPU_HANG_TIMEOUT=3`).
 
 **The Crash Diagnostic Layer** (see the presentation test's paragraph): where tooling info names it, no breadcrumbs are
@@ -1703,7 +1706,11 @@ filtered: ComputeMain stamps the blocks each pixel's lookup reads (`GiMarkSeen`,
 lights the pixel), and the resolve marks a block active (`SHADER_TYPES_GI_FLAG_CACHE_ACTIVE`) where it or a block around
 it was read in the last 2 frames (at its place then, by the scroll); the others trace a ray every 8th frame and take their
 own light unfiltered, so that the bounce doesn't change with where the camera looks (`SPEEDO_GI_CACHE_EVERYWHERE=1` does
-them all: a turn in place differs from it by a mean of 1 to 2 of 765). Costs (RTX 4070 Ti SUPER, 1920x1080, the `Frame`
+them all: a turn in place differs from it by a mean of 1 to 2 of 765). Once its window has all its samples (twice
+`SPEEDO_GI_CACHE_SAMPLES` frames after it started over, `SPEEDO_GI_CACHE_SETTLED_FRAMES` to say when) and the sun isn't
+being followed, a voxel where nothing moves traces every other frame (`GiData::cacheSettled`): the same samples over
+twice the frames, of a light that doesn't change (Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4: its rays are a
+fifth of its 11 ms in Bistro's resolve, the rest the entries' work). Costs (RTX 4070 Ti SUPER, 1920x1080, the `Frame`
 scope): Sponza's corridor 3.6 ms without it, 5.7 with it (8.2 everywhere), Bistro's street 6.5, 9.4 (12.4),
 CornellBox-Sphere 2.6, 4.7 (4.9); everywhere, a ray a voxel was 1.9 ms of Sponza's and a filter pass 0.4. Its storage exists only while it is on, and holds the blocks that hold entries and were
 read lately: at Sponza's corridor, near nothing at resolution 128 and 0.3 GB at 384. An entry for every voxel of every
@@ -2331,7 +2338,10 @@ relative to the resource directory (without an environment, the sky loads, as on
 once into `<user profile>/archives/<name>-<hash of path, size and time>` with `core::zip` (`core/zip.h`: our own
 reader, libdeflate's inflate and crc-32), then loaded from there like any other files; with several models the user picks one. The extractor reads
 each entry by its local header: some archives have stale central directory entries (cube.zip in the McGuire archive),
-which unzip ignores too. `assettest` takes zip archives as well, extracting them the same way.
+which unzip ignores too. An entry shorter than a page is cut to its size once written: mio makes a new file a page long, of
+whatever its stack held, and only ever grows it (`core::file::Write` cut its files already), so geodesic.zip's small objs
+had garbage tails that failed to parse; the `.extracted` marker's length says which extractor made a directory, and an
+older one's extraction is done again in place (`ExtractArchive`). `assettest` takes zip archives as well, extracting them the same way.
 
 `scripts/assettest.ps1 <zips or dirs>` (PowerShell, as the other scripts) runs the `assettest` tool (imports every model and image and checks the result:
 index ranges, normals, winding, missing textures, mip chains, unwritten blocks, compression error), and with `-Client`

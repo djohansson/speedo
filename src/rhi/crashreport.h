@@ -32,6 +32,20 @@ void CrashHeartbeat();
 // for the device to be idle)
 void CrashWatch();
 
+// a span in which the draw thread is busy with something long that makes progress where no heartbeat can tell (a
+// pipeline created cold, inside the driver's call, or one it waits for a background job to create): the watch gives it
+// 120 s from where the span began rather than the hang timeout from the last heartbeat. four clients compiling at once
+// on KosmicKrisp, two waited past the timeout for their first frames' pipelines
+class CrashBusy final
+{
+public:
+	CrashBusy();
+	~CrashBusy();
+
+	CrashBusy(const CrashBusy&) = delete;
+	CrashBusy& operator=(const CrashBusy&) = delete;
+};
+
 // a span of gpu work in a command buffer, by name (a frame graph pass): the gpu writes when it begins (at the top of the
 // pipe) and ends (at the bottom), so that a report can tell what had begun and not ended when the device was lost or
 // hung: with VK_AMD_buffer_marker (into a host visible ring), else VK_NV_device_diagnostic_checkpoints (the queues' last

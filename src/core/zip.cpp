@@ -381,6 +381,18 @@ std::expected<void, std::string> ExtractAll(
 						Fail(std::format("crc mismatch for {}", entry->name));
 						return;
 					}
+					out.unmap();
+					// mio makes a new file a page long (of whatever its stack held) and only ever grows it: an entry
+					// shorter than a page kept that page's tail, as core::file::Write's files would have (geodesic.zip's
+					// small objs failed to parse: "a zero value for vertex index")
+					std::error_code sizeError;
+					if (std::filesystem::file_size(path, sizeError) != located->size && !sizeError)
+						std::filesystem::resize_file(path, located->size, sizeError);
+					if (sizeError)
+					{
+						Fail(std::format("failed to write {}: {}", path.string(), sizeError.message()));
+						return;
+					}
 				}
 
 				auto extracted = extractedSize += entry->size; // as totalSize counts
