@@ -28,8 +28,11 @@ Preview::Preview(gfx::RHI& rhi, rhi::Extent2d extent)
 	myOutput = std::make_unique<gfx::ImageOutput>(device, extent);
 	myScene = std::make_unique<gfx::Scene>(rhi, *myPipeline, *myViews, *myOutput);
 	// without the indirect lighting (on by default): a preview is a thumbnail, and its own clipmap would cost what the
-	// window's does
+	// window's does; nor the models' BVHs, so without the rays that need them (the traced shadows: the atlas's alone, and
+	// the emitters' light): a set's took seconds to build (San Miguel's archive, both its models), which a preview given up
+	// went on with; nor is a file's read from its cache
 	myScene->GetSettings().indirectLighting.store(false, std::memory_order_relaxed);
+	myScene->GetSettings().modelBvhs.store(false, std::memory_order_relaxed);
 }
 
 Preview::~Preview() = default;

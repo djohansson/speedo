@@ -114,7 +114,7 @@ struct CaptureId
 // how things look
 [[nodiscard]] std::string RenderVersion()
 {
-	constexpr std::string_view kRendererTag = "renderer-v1";
+	constexpr std::string_view kRendererTag = "renderer-v2"; // v2: previews without the rays the BVHs serve (see Preview)
 	auto root = std::get<std::filesystem::path>(core::Application::Get()->GetEnv().variables["RootPath"]);
 	std::vector<std::filesystem::path> files;
 	std::error_code error;

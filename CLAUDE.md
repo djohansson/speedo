@@ -121,7 +121,9 @@ Notes for working in this codebase, distilled from real build failures.
   `client/windowedapplicationdetail.h` (internal): `App()`, the frame statistics, the archive choice, the extensions
   the dialogs filter by and the load functions.
   The file browser's preview is `client::Preview` (`client/preview.h`): a second, off-screen scene with its own pipeline,
-  views and `ImageOutput`, lit by the sky, shown by the ui with `ImGuiLayer::AddTexture`; dragged, it orbits
+  views and `ImageOutput`, lit by the sky, without the indirect lighting or the models' BVHs (`Scene::Settings::modelBvhs`, `ModelBvh::kNone`:
+  no file's read from its cache, no set's built, which took San Miguel's archive seconds that a preview given up went on
+  with; so the atlas's shadows alone and no emitters' light), shown by the ui with `ImGuiLayer::AddTexture`; dragged, it orbits
   the model (`Views::Orbit`: around the bounds' center, at the camera's distance). The browser itself
   (File > Open..., `client/browser.cpp`, `WindowedApplication::InternalDrawBrowser`; its path a button per folder, the
   ones that don't fit behind "...") lists a folder's subfolders and the
@@ -144,7 +146,9 @@ Notes for working in this codebase, distilled from real build failures.
   several always used, or as authored, each file where it is), the rest each by its type. `SPEEDO_BROWSE=<dir>`,
   `SPEEDO_BROWSE_SELECT=<path>[;<path>...]` (paths from the folder), `SPEEDO_BROWSE_ENVIRONMENT=1`, `SPEEDO_BROWSE_RECURSIVE=0`,
   `SPEEDO_BROWSE_KINDS=<models,archives,images,panoramas>` and `SPEEDO_BROWSE_OPEN=side-by-side|as-authored` drive it at
-  startup, for tests and screenshots. Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
+  startup, for tests and screenshots (`SPEEDO_BROWSE_OPEN_FRAME_COUNT=<n>` opens once the preview has loaded the selection
+  that many frames: a double click, whose first click started it; a preview is given up when the browser closes, its
+  loads cancelled). Tiles show thumbnails (`client::Thumbnails`, `client/thumbnails.h`): rgba8 in
   one imgui texture registered with `ImGui::RegisterUserTexture` (an atlas of 160 pixel slots, 24x24, reused least
   recently drawn first: imgui's 1024 descriptor sets wouldn't hold a texture each), made on the task executor (4 at a
   time, newest asked for first, skipped once scrolled away): an image decoded (`image::Decode`) and scaled down, a

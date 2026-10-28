@@ -178,6 +178,16 @@ enum class ModelArrangement : uint8_t
 	kAsAuthored,
 };
 
+// whether a model is loaded with its BVHs (see gfx/bvh.h), which its rays trace: the traced shadows, the emitters' shadows
+// and the indirect lighting's (the renderer leaves out what needs them where a model has none). none for a scene that
+// traces no rays (the file browser's preview): a file's isn't read from its cache, nor a set's built (seconds for San
+// Miguel's archive, which a preview given up kept building)
+enum class ModelBvh : uint8_t
+{
+	kBuild,
+	kNone,
+};
+
 // a mesh on the gpu: its index, vertex and instance buffers, drawn a submesh (material, topology and instances) at a time
 class Model final
 {
@@ -258,7 +268,11 @@ public:
 	// cancelled (the application is exiting, or cancelled says so: a preview the browser no longer wants), or failed (the reason is printed to stderr).
 	// options: a gltf file's scene and material variant to load (see mesh::ImportOptions), else its default ones.
 	[[nodiscard]] static std::shared_ptr<Model> Load(
-		std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {}, core::CancelledFn cancelled = core::NeverCancelled);
+		std::string_view filePath,
+		std::atomic_uint8_t& progress,
+		const mesh::ImportOptions& options = {},
+		ModelBvh bvh = ModelBvh::kBuild,
+		core::CancelledFn cancelled = core::NeverCancelled);
 	// what a model file is imported with (its importer's version and its decoders'): part of its cache key, and of
 	// anything derived from how it looks (e.g. its thumbnail)
 	[[nodiscard]] static std::string ImportVersion(std::string_view filePath);
@@ -270,6 +284,7 @@ public:
 		std::span<const std::string_view> filePaths,
 		std::atomic_uint8_t& progress,
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		ModelBvh bvh = ModelBvh::kBuild,
 		core::CancelledFn cancelled = core::NeverCancelled);
 
 private:

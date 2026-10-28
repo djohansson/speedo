@@ -1358,9 +1358,10 @@ struct Scene::Impl
 		ModelArrangement arrangement = ModelArrangement::kSideBySide,
 		core::CancelledFn cancelled = core::NeverCancelled)
 	{
+		auto bvh = mySettings.modelBvhs.load(std::memory_order_relaxed) ? ModelBvh::kBuild : ModelBvh::kNone;
 		auto model = (options.scene || options.variant) && filePaths.size() == 1
-						 ? Model::Load(filePaths.front(), progress, options, cancelled)
-						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, cancelled);
+						 ? Model::Load(filePaths.front(), progress, options, bvh, cancelled)
+						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, bvh, cancelled);
 		if (!model) // cancelled or failed
 			return std::nullopt;
 

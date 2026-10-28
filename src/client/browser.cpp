@@ -312,6 +312,9 @@ void WindowedApplication::InternalDrawBrowser()
 
 	static State gState;
 	static bool gOpenOnStart = false;
+	// the frames the preview loads the selection before it opens (SPEEDO_BROWSE_OPEN_FRAME_COUNT: a double click after the
+	// first click started its preview, for tests of giving the preview up), 0 at once
+	static uint32_t gOpenFrameCount = 0;
 	auto& state = gState;
 	auto& rhi = GetRHI();
 
@@ -403,6 +406,8 @@ void WindowedApplication::InternalDrawBrowser()
 			{
 				state.sideBySide = std::string_view(openNow) != "as-authored";
 				gOpenOnStart = true;
+				if (const char* frames = std::getenv("SPEEDO_BROWSE_OPEN_FRAME_COUNT"); frames != nullptr)
+					gOpenFrameCount = static_cast<uint32_t>(std::strtoul(frames, nullptr, 10));
 			}
 		}
 	}
@@ -461,8 +466,11 @@ void WindowedApplication::InternalDrawBrowser()
 		gShowBrowser = false;
 	};
 
-	if (std::exchange(gOpenOnStart, false))
+	if (gOpenOnStart && (gOpenFrameCount == 0 || (!state.previewShown.empty() && --gOpenFrameCount == 0)))
+	{
+		gOpenOnStart = false;
 		open();
+	}
 
 	// centered in the window below the menu bar, at three quarters of it, each time it opens (moving or resizing it holds
 	// until it is closed)

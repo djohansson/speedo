@@ -57,6 +57,10 @@ public:
 		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Emissive Lights,
 		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
 		std::atomic<bool> emissiveLights = true;
+		// whether the models loaded from now on get their BVHs (see ModelBvh), which the traced shadows, the emitters' light and the
+		// indirect lighting's rays need (the renderer leaves those out without them): off for a scene that traces no rays
+		// (the file browser's preview)
+		std::atomic<bool> modelBvhs = true;
 		// whether the views skip the draws outside their frustum (View > Culling, SPEEDO_CULLING=0 to start without)
 		std::atomic<bool> culling = true;
 		// whether each fragment loops over only the lights that may reach its cluster (View > Clustered Lights,

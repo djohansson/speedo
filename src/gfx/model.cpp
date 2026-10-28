@@ -394,6 +394,7 @@ struct BvhCacheHeader
 	std::string_view filePath,
 	std::atomic_uint8_t& progress,
 	const mesh::ImportOptions& importOptions,
+	ModelBvh bvh,
 	core::CancelledFn cancelledAlso)
 {
 	using namespace rhi;
@@ -468,6 +469,9 @@ struct BvhCacheHeader
 			progress = staging == &indexStaging ? 128 : 255;
 		}
 
+		// its BVH last, left unread where none is wanted
+		if (bvh == ModelBvh::kNone)
+			return {};
 		BvhCacheHeader header;
 		if (auto result = inStream(std::span(reinterpret_cast<char*>(&header), sizeof(header))); failure(result))
 		{
@@ -719,7 +723,7 @@ struct BvhCacheHeader
 		.vertexStaging = std::move(vertexStaging),
 		.skinStaging = std::move(skinStaging),
 		.morphStaging = std::move(morphStaging),
-		.bvh = std::move(bvhData)};
+		.bvh = bvh == ModelBvh::kBuild ? std::move(bvhData) : bvh::Data{}};
 }
 
 // the models as one: their indices and vertices in new staging buffers, and their materials and instances. side by
@@ -882,7 +886,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 // uploads a model's staged indices, vertices and skin vertices on the transfer queue (see Model::Load). its instances
 // go in a device local buffer too, unless it moves: then each frame has a host visible instance and joint buffer,
 // which Model::Animate writes (starting at rest)
-[[nodiscard]] static std::shared_ptr<Model> UploadStaged(Device& device, Staged&& staged)
+[[nodiscard]] static std::shared_ptr<Model> UploadStaged(Device& device, Staged&& staged, ModelBvh bvh)
 {
 	using namespace rhi;
 
@@ -927,42 +931,46 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 		// the indirect lighting's BVH of what moves (see bvh::Moving), placed at rest: its tree, and every frame's buffers
 		// until Animate places it, start there
-		std::vector<ModelInstance> restInstances(desc.instances.size());
-		WriteRestInstances(desc, std::as_writable_bytes(std::span(restInstances)));
-		WriteInstances(desc.animation, worlds, visible, std::as_writable_bytes(std::span(restInstances)));
-		auto indices = indexStaging.Map();
-		auto vertices = vertexStaging.Map();
-		auto skinVertices = skinStaging.IsValid() ? skinStaging.Map() : std::span<std::byte>{};
-		auto morphDeltas = morphStaging.IsValid() ? morphStaging.Map() : std::span<std::byte>{};
-		movingBvh = std::make_unique<bvh::Moving>(
-			desc,
-			std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
-			std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
-			std::span(reinterpret_cast<const SkinVertex*>(skinVertices.data()), skinVertices.size() / sizeof(SkinVertex)),
-			std::span(reinterpret_cast<const MorphDelta*>(morphDeltas.data()), morphDeltas.size() / sizeof(MorphDelta)),
-			core::Application::Get()->GetExecutor());
-		for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging, &morphStaging})
-			if (staging->IsValid())
-				staging->Unmap();
-		if (movingBvh->Empty())
-			movingBvh.reset();
-		else
+		// (none without the BVHs, see ModelBvh: what moves would then be traced alone)
+		if (bvh == ModelBvh::kBuild)
 		{
-			movingBvh->Place(joints, desc.morphWeights, restInstances);
-			for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+			std::vector<ModelInstance> restInstances(desc.instances.size());
+			WriteRestInstances(desc, std::as_writable_bytes(std::span(restInstances)));
+			WriteInstances(desc.animation, worlds, visible, std::as_writable_bytes(std::span(restInstances)));
+			auto indices = indexStaging.Map();
+			auto vertices = vertexStaging.Map();
+			auto skinVertices = skinStaging.IsValid() ? skinStaging.Map() : std::span<std::byte>{};
+			auto morphDeltas = morphStaging.IsValid() ? morphStaging.Map() : std::span<std::byte>{};
+			movingBvh = std::make_unique<bvh::Moving>(
+				desc,
+				std::span(reinterpret_cast<const uint32_t*>(indices.data()), desc.indexCount),
+				std::span(reinterpret_cast<const VertexP3fN3fTa4fT014fC4f*>(vertices.data()), desc.vertexCount),
+				std::span(reinterpret_cast<const SkinVertex*>(skinVertices.data()), skinVertices.size() / sizeof(SkinVertex)),
+				std::span(reinterpret_cast<const MorphDelta*>(morphDeltas.data()), morphDeltas.size() / sizeof(MorphDelta)),
+				core::Application::Get()->GetExecutor());
+			for (auto* staging : {&indexStaging, &vertexStaging, &skinStaging, &morphStaging})
+				if (staging->IsValid())
+					staging->Unmap();
+			if (movingBvh->Empty())
+				movingBvh.reset();
+			else
 			{
-				auto hostVisible = [&](std::string_view what, size_t size)
+				movingBvh->Place(joints, desc.morphWeights, restInstances);
+				for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 				{
-					return Buffer(BufferCreateDesc{
-						device.CreateDeviceObjectCreateDesc(std::format("{} ({} {})", filePath, what, frameIt)),
-						size,
-						BufferUsage::kStorage,
-						MemoryProperty::kHostVisible});
-				};
-				buffers.bvhMovingNodes.push_back(hostVisible("moving bvh nodes", movingBvh->NodeFloat4Count() * sizeof(glm::vec4)));
-				buffers.bvhMovingTriangles.push_back(
-					hostVisible("moving bvh triangles", movingBvh->TriangleFloat4Count() * sizeof(glm::vec4)));
-				WriteMovingBvh(*movingBvh, buffers.bvhMovingNodes.back(), buffers.bvhMovingTriangles.back());
+					auto hostVisible = [&](std::string_view what, size_t size)
+					{
+						return Buffer(BufferCreateDesc{
+							device.CreateDeviceObjectCreateDesc(std::format("{} ({} {})", filePath, what, frameIt)),
+							size,
+							BufferUsage::kStorage,
+							MemoryProperty::kHostVisible});
+					};
+					buffers.bvhMovingNodes.push_back(hostVisible("moving bvh nodes", movingBvh->NodeFloat4Count() * sizeof(glm::vec4)));
+					buffers.bvhMovingTriangles.push_back(
+						hostVisible("moving bvh triangles", movingBvh->TriangleFloat4Count() * sizeof(glm::vec4)));
+					WriteMovingBvh(*movingBvh, buffers.bvhMovingNodes.back(), buffers.bvhMovingTriangles.back());
+				}
 			}
 		}
 	
@@ -1154,7 +1162,7 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 } // namespace model
 
 std::shared_ptr<Model> Model::Load(
-	std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, core::CancelledFn cancelled)
+	std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, ModelBvh bvh, core::CancelledFn cancelled)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -1162,10 +1170,10 @@ std::shared_ptr<Model> Model::Load(
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
-	auto staged = model::LoadStaged(device, filePath, progress, options, cancelled);
+	auto staged = model::LoadStaged(device, filePath, progress, options, bvh, cancelled);
 	if (!staged || cancelled()) // cancelled or failed
 		return {};
-	return model::UploadStaged(device, std::move(*staged));
+	return model::UploadStaged(device, std::move(*staged), bvh);
 }
 
 std::string Model::ImportVersion(std::string_view filePath)
@@ -1179,7 +1187,7 @@ std::string Model::ImportVersion(std::string_view filePath)
 }
 
 std::shared_ptr<Model> Model::Load(
-	std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement, core::CancelledFn cancelled)
+	std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement, ModelBvh bvh, core::CancelledFn cancelled)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -1212,7 +1220,7 @@ std::shared_ptr<Model> Model::Load(
 		}
 
 		std::atomic_uint8_t fileProgress = 0;
-		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {}, cancelled);
+		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {}, bvh, cancelled);
 		if (!staged) // cancelled or failed
 		{
 			failed = true;
@@ -1245,8 +1253,11 @@ std::shared_ptr<Model> Model::Load(
 	auto merged = model::Merge(device, std::move(models), std::move(name), arrangement);
 	if (!merged)
 		return {};
+	// its BVH built from the staged triangles once placed (by UploadStaged), unless none is wanted
+	if (bvh == ModelBvh::kNone)
+		merged->bvh = bvh::Data{};
 
-	return model::UploadStaged(device, std::move(*merged));
+	return model::UploadStaged(device, std::move(*merged), bvh);
 }
 //NOLINTEND(readability-magic-numbers)
 
