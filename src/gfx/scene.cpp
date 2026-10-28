@@ -1355,11 +1355,12 @@ struct Scene::Impl
 		const std::vector<std::string>& filePaths,
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},
-		ModelArrangement arrangement = ModelArrangement::kSideBySide)
+		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		core::CancelledFn cancelled = core::NeverCancelled)
 	{
 		auto model = (options.scene || options.variant) && filePaths.size() == 1
-						 ? Model::Load(filePaths.front(), progress, options)
-						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement);
+						 ? Model::Load(filePaths.front(), progress, options, cancelled)
+						 : Model::Load(std::vector<std::string_view>(filePaths.begin(), filePaths.end()), progress, arrangement, cancelled);
 		if (!model) // cancelled or failed
 			return std::nullopt;
 
@@ -1477,17 +1478,17 @@ struct Scene::Impl
 		std::atomic_size_t done = 0;
 		core::Application::Get()->GetExecutor().ForEach(
 			distinct.size(),
-			[&distinct, &loaded, &progress, &done](size_t textureIt)
+			[&distinct, &loaded, &progress, &done, cancelled](size_t textureIt)
 			{
-				if (core::Application::Get()->IsExitRequested())
+				if (core::Application::Get()->IsExitRequested() || cancelled())
 					return;
 
 				const auto& load = *distinct[textureIt];
 				std::atomic_uint8_t textureProgress = 0;
-				loaded[textureIt] = LoadTexture(load.path, textureProgress, load.options, load.embeddedImage);
+				loaded[textureIt] = LoadTexture(load.path, textureProgress, load.options, load.embeddedImage, cancelled);
 				progress = static_cast<uint8_t>(255 * ++done / distinct.size());
 			});
-		if (core::Application::Get()->IsExitRequested())
+		if (core::Application::Get()->IsExitRequested() || cancelled())
 			return std::nullopt;
 
 		for (size_t loadIt = 0; loadIt < loads.size(); loadIt++)
@@ -1594,11 +1595,12 @@ struct Scene::Impl
 
 	// loads an environment panorama (or without one, the sky) and has the draw thread install it, unless the
 	// load was cancelled. call from a load (see gLoads).
-	void LoadAndInstallEnvironment(RHI& rhi, std::optional<std::string> filePath, std::atomic_uint8_t& progress)
+	void LoadAndInstallEnvironment(
+		RHI& rhi, std::optional<std::string> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled = core::NeverCancelled)
 	{
 		auto environment = std::make_shared<const EnvironmentTexture>(
-			gfx::LoadEnvironment(filePath ? std::optional<std::string_view>(*filePath) : std::nullopt, progress));
-		if (!*environment) // cancelled or failed
+			gfx::LoadEnvironment(filePath ? std::optional<std::string_view>(*filePath) : std::nullopt, progress, cancelled));
+		if (!*environment || cancelled()) // cancelled or failed
 			return;
 
 		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
@@ -2307,9 +2309,13 @@ std::vector<DescriptorPoolSize> Scene::DescriptorPoolSizes()
 }
 
 std::optional<std::string> Scene::LoadModels(
-	const std::vector<std::string>& filePaths, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, ModelArrangement arrangement)
+	const std::vector<std::string>& filePaths,
+	std::atomic_uint8_t& progress,
+	const mesh::ImportOptions& options,
+	ModelArrangement arrangement,
+	core::CancelledFn cancelled)
 {
-	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement);
+	return myImpl->LoadAndInstallModels(myImpl->myRHI, filePaths, progress, options, arrangement, cancelled);
 }
 
 void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)
@@ -2317,9 +2323,9 @@ void Scene::LoadImage(std::string_view filePath, std::atomic_uint8_t& progress)
 	myImpl->LoadAndInstallImage(myImpl->myRHI, filePath, progress);
 }
 
-void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress)
+void Scene::LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled)
 {
-	myImpl->LoadAndInstallEnvironment(myImpl->myRHI, std::move(filePath), progress);
+	myImpl->LoadAndInstallEnvironment(myImpl->myRHI, std::move(filePath), progress, cancelled);
 }
 
 void Scene::Resize()

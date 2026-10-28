@@ -738,7 +738,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	}
 	surfaces[traced] = float4(surface.position, EmitterPackNormal(surface.normal));
 	float4 now = gTextures[SHADER_TYPES_EMITTER_FILTERED_TEXTURE].Load(int3(traced, 0));
-	float4 result = now;
+	float4 result = now.a >= 0.0 ? float4(now.rgb, 1.0) : now;
 	float blend = data.raw == 1u ? 1.0 : data.blend;
 	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
@@ -767,8 +767,38 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			total += w * value;
 			weights += w;
 		}
+		// none of them on its surface: those of the 3x3 around that were (within the tolerance of its tangent plane, a few
+		// strides away), as a shorter history (a quarter of the frames, at most). with temporal upscaling's jitter a
+		// traced pixel on thin geometry (a ledge, a window frame) sees it in some frames and what is behind in others, and
+		// started over each time it came back, while its neighbours along it had seen it
+		if (weights <= 1e-3)
+		{
+			int2 nearest = int2(round(at));
+			float reach = 3.0 * float(data.stride) * surface.metersPerPixel + tolerance;
+			for (int y = -1; y <= 1; y++)
+				for (int x = -1; x <= 1; x++)
+				{
+					int2 tap = nearest + int2(x, y);
+					if (any(tap < 0) || any(tap >= int2(extent)))
+						continue;
+					float4 value = last.Load(int3(tap, 0));
+					float4 seen = lastSurfaces.Load(int3(tap, 0));
+					if (value.a < 0.0 || seen.w < 0.0 || abs(dot(seen.xyz - surface.position, surface.normal)) > tolerance ||
+						distance(seen.xyz, surface.position) > reach || dot(EmitterUnpackNormal(seen.w), surface.normal) < 0.9)
+						continue;
+					total += float4(value.rgb, min(value.a, 0.25 / blend));
+					weights += 1.0;
+				}
+		}
+		// a mean of the frames the history holds (its alpha, see EmitterIrradiance), at most the history's (1 over the
+		// blend): blended by the blend alone, a history started over took its first frame's sample as all of it and let it
+		// go at a thirty-second a frame, and with temporal upscaling's jitter a traced pixel at an edge flips between the
+		// surfaces there every few frames, which drew speckles along every window frame of Bistro at night
 		if (weights > 1e-3)
-			result = lerp(total / weights, now, blend);
+		{
+			float count = min(total.a / weights + 1.0, 1.0 / blend);
+			result = float4(lerp(total.rgb / weights, now.rgb, max(1.0 / count, blend)), count);
+		}
 	}
 	history[traced] = result;
 }
@@ -809,7 +839,9 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 		if (value.a < 0.0 || seen.w < 0.0)
 			continue;
 		float similar = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(saturate(dot(EmitterUnpackNormal(seen.w), normal)), 8.0);
-		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * similar;
+		// and by how many frames it holds (its history's alpha): a traced pixel that started over (at an edge, under
+		// the jitter) counts for little beside ones that hold their frames on the same surface
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * similar * max(value.a, 1.0);
 		total += w * value.rgb;
 		weights += w;
 	}
@@ -831,11 +863,11 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 				if (value.a < 0.0 || seen.w < 0.0)
 					continue;
 				float facing = saturate(dot(EmitterUnpackNormal(seen.w), normal));
-				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(facing, 8.0);
+				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(facing, 8.0) * max(value.a, 1.0);
 				total += w * value.rgb;
 				weights += w;
-				alikeTotal += (facing + 0.01) * value.rgb;
-				alikeWeights += facing + 0.01;
+				alikeTotal += (facing + 0.01) * max(value.a, 1.0) * value.rgb;
+				alikeWeights += (facing + 0.01) * max(value.a, 1.0);
 			}
 		if (weights <= 1e-6)
 		{

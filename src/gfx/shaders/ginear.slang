@@ -247,8 +247,10 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
 	if (now.a >= 0.0 && gi.nearBlend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
 	{
-		// where the point was, in traced pixels
-		float2 at = ((clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy) / float(stride) - 0.5;
+		// where the point was, in traced pixels (the traced pixel k's center is at k stride + 0.5: as x / stride - 0.5, the
+		// history was fetched (stride - 1) / 2 pixels off each way every frame, and the frames' grain slid down and right,
+		// a pixel and a half a frame at a stride of 4, twice that on the screen at half the render size)
+		float2 at = ((clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5) / float(stride);
 		float expected = distance(surface.position, view.previousEyePosition.xyz);
 		float slant = abs(dot(surface.normal, normalize(toEye)));
 		float tolerance = 0.02 * expected + 2.0 * float(stride) * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);

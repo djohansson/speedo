@@ -9,6 +9,7 @@
 #include <gfx/shaders/capi.h>
 #include <gfx/upscaling.h>
 
+#include <core/cancelled.h>
 #include <core/concurrentaccess.h>
 #include <core/std_extra.h>
 
@@ -198,7 +199,8 @@ public:
 	// what the pipeline's descriptor sets are allocated from (see RHIInitializationData::descriptorPoolSizes)
 	[[nodiscard]] static std::vector<rhi::DescriptorPoolSize> DescriptorPoolSizes();
 
-	// load, and have the draw thread install, unless the load is cancelled. call from a load task (see core::LoadQueue).
+	// load, and have the draw thread install, unless the load is cancelled (the application exits, or cancelled says so:
+	// it is checked where the load takes long, and before the install). call from a load task (see core::LoadQueue).
 	// a model, or several side by side as one (see Model::Load), with its materials' textures. options: a gltf file's
 	// scene and material variant to load (one file only), else its default ones
 	// several files are arranged as arrangement says (see ModelArrangement). returns the name of the model installed (see
@@ -208,11 +210,12 @@ public:
 		const std::vector<std::string>& filePaths,
 		std::atomic_uint8_t& progress,
 		const mesh::ImportOptions& options = {},
-		ModelArrangement arrangement = ModelArrangement::kSideBySide);
+		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		core::CancelledFn cancelled = core::NeverCancelled);
 	// an image, on the default material (material 0)
 	void LoadImage(std::string_view filePath, std::atomic_uint8_t& progress);
 	// an environment panorama (or without one, the sky)
-	void LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress);
+	void LoadEnvironment(std::optional<std::string> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled = core::NeverCancelled);
 
 	// resizes what is sized after the output (its render targets), after the output was (re)created (the window's
 	// swapchain, or ImageOutput::Resize). call with the gpu idle, holding the draw lock.

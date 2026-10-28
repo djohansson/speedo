@@ -124,7 +124,11 @@ std::string TextureImportVersion()
 }
 
 Texture LoadTexture(
-	std::string_view filePath, std::atomic_uint8_t& progress, const image::Options& options, std::optional<uint32_t> embeddedImage)
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	const image::Options& options,
+	std::optional<uint32_t> embeddedImage,
+	core::CancelledFn cancelledAlso)
 {
 	using namespace rhi;
 
@@ -137,7 +141,7 @@ Texture LoadTexture(
 	// loading is given up when the application exits (only where it takes long; decoding itself can't be interrupted)
 	auto app = core::Application::Get();
 	ENSURE(app);
-	auto cancelled = [&app] { return app->IsExitRequested(); };
+	auto cancelled = [&app, cancelledAlso] { return app->IsExitRequested() || cancelledAlso(); };
 	// compressed on the executor's threads (a load task waits for them, helping out meanwhile)
 	auto importOptions = options;
 	importOptions.executor = &app->GetExecutor();
@@ -311,7 +315,7 @@ void PackHalf(const environment::Panorama& panorama, std::span<std::byte> memory
 
 } // namespace detail
 
-EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress)
+EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelledAlso)
 {
 	using namespace rhi;
 
@@ -323,7 +327,7 @@ EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std
 
 	auto app = core::Application::Get();
 	ENSURE(app);
-	auto cancelled = [&app] { return app->IsExitRequested(); };
+	auto cancelled = [&app, cancelledAlso] { return app->IsExitRequested() || cancelledAlso(); };
 
 	std::string name = filePath ? std::string(*filePath) : std::string("sky");
 	EnvironmentTexture result;

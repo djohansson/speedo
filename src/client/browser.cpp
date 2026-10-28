@@ -164,6 +164,9 @@ struct Listing
 struct PreviewLoad
 {
 	std::atomic_bool loading = false;
+	// given up: the browser closed (an entry opened, or the window closed), see InternalDrawBrowser. its loads stop where
+	// they take long and install nothing
+	std::atomic_bool cancelled = false;
 	std::mutex mutex;
 	// what it installs in the preview scene, once it is known (see Scene::LoadModels: a model's path, or a set's name),
 	// and whether there was nothing to show (an archive without models, or a load that failed). guarded by mutex
@@ -721,15 +724,17 @@ void WindowedApplication::InternalDrawBrowser()
 					std::format("Preview: {}", path.filename().string()),
 					[preview, path, environment, archive, restoreSky, load = state.previewLoad](std::atomic_uint8_t& progress)
 					{
+						auto cancelled = [&load] { return load->cancelled.load(std::memory_order_relaxed); };
 						std::optional<std::string> model;
-						if (environment)
+						// (one still queued when the browser closed starts no work)
+						if (environment && !cancelled())
 						{
-							preview->GetScene().LoadEnvironment(path.string(), progress);
+							preview->GetScene().LoadEnvironment(path.string(), progress, cancelled);
 						}
-						else
+						else if (!environment && !cancelled())
 						{
 							if (restoreSky)
-								preview->GetScene().LoadEnvironment(std::nullopt, progress);
+								preview->GetScene().LoadEnvironment(std::nullopt, progress, cancelled);
 							// an archive's models side by side, extracted (once, as opening it does)
 							std::vector<std::string> models;
 							if (!archive)
@@ -737,8 +742,8 @@ void WindowedApplication::InternalDrawBrowser()
 							else if (auto directory = ExtractArchive(path, progress))
 								for (const auto& found : FindModels(*directory))
 									models.push_back(found.string());
-							if (!models.empty())
-								model = preview->GetScene().LoadModels(models, progress);
+							if (!models.empty() && !cancelled())
+								model = preview->GetScene().LoadModels(models, progress, {}, ModelArrangement::kSideBySide, cancelled);
 						}
 						{
 							std::scoped_lock lock(load->mutex);
@@ -872,6 +877,17 @@ void WindowedApplication::InternalDrawBrowser()
 		EndDisabled();
 	}
 	End();
+
+	// closed (an entry opened, or the window closed): what the preview was loading is given up (its loads stop where they
+	// take long and install nothing: they went on loading into a preview nobody saw), and it starts afresh when the
+	// browser opens again
+	if (!gShowBrowser)
+	{
+		state.previewLoad->cancelled.store(true, std::memory_order_relaxed);
+		state.previewLoad = std::make_shared<PreviewLoad>();
+		state.previewShown.clear();
+		state.previewWanted.reset();
+	}
 
 	SetPreviewVisible(gShowBrowser && state.texture != ImTextureID_Invalid);
 }

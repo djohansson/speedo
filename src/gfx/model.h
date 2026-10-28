@@ -9,6 +9,8 @@
 #include <gfx/textureref.h>
 #include <gfx/upload.h>
 
+#include <core/cancelled.h>
+
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -253,10 +255,10 @@ public:
 	// loads a model file (.obj, .gltf or .glb) through the asset cache (see core::file::LoadAsset and mesh::Import) and
 	// uploads it on the
 	// primary device's transfer queue. returns once the upload is submitted (see GetUpload), or null if the load was
-	// cancelled because the application is exiting, or failed (the reason is printed to stderr).
+	// cancelled (the application is exiting, or cancelled says so: a preview the browser no longer wants), or failed (the reason is printed to stderr).
 	// options: a gltf file's scene and material variant to load (see mesh::ImportOptions), else its default ones.
 	[[nodiscard]] static std::shared_ptr<Model> Load(
-		std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {});
+		std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options = {}, core::CancelledFn cancelled = core::NeverCancelled);
 	// what a model file is imported with (its importer's version and its decoders'): part of its cache key, and of
 	// anything derived from how it looks (e.g. its thumbnail)
 	[[nodiscard]] static std::string ImportVersion(std::string_view filePath);
@@ -267,7 +269,8 @@ public:
 	[[nodiscard]] static std::shared_ptr<Model> Load(
 		std::span<const std::string_view> filePaths,
 		std::atomic_uint8_t& progress,
-		ModelArrangement arrangement = ModelArrangement::kSideBySide);
+		ModelArrangement arrangement = ModelArrangement::kSideBySide,
+		core::CancelledFn cancelled = core::NeverCancelled);
 
 private:
 	ModelDesc myDesc;

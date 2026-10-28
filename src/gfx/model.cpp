@@ -390,7 +390,11 @@ struct BvhCacheHeader
 // loads a model file through the asset cache into staging buffers, filled before the upload takes the transfer
 // queue's lock. nothing if cancelled or failed (the reason is printed to stderr).
 [[nodiscard]] static std::optional<Staged> LoadStaged(
-	Device& device, std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& importOptions)
+	Device& device,
+	std::string_view filePath,
+	std::atomic_uint8_t& progress,
+	const mesh::ImportOptions& importOptions,
+	core::CancelledFn cancelledAlso)
 {
 	using namespace rhi;
 
@@ -399,7 +403,7 @@ struct BvhCacheHeader
 	// loading is given up when the application exits (only where it takes long; parsing itself can't be interrupted)
 	auto app = core::Application::Get();
 	ENSURE(app);
-	auto cancelled = [&app] { return app->IsExitRequested(); };
+	auto cancelled = [&app, cancelledAlso] { return app->IsExitRequested() || cancelledAlso(); };
 
 	auto fitsDevice = [&device, filePath](const ModelDesc& desc) { return FitsDevice(device, desc, filePath); };
 
@@ -1149,7 +1153,8 @@ static void WriteRestInstances(const ModelDesc& desc, std::span<std::byte> memor
 
 } // namespace model
 
-std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options)
+std::shared_ptr<Model> Model::Load(
+	std::string_view filePath, std::atomic_uint8_t& progress, const mesh::ImportOptions& options, core::CancelledFn cancelled)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -1157,8 +1162,8 @@ std::shared_ptr<Model> Model::Load(std::string_view filePath, std::atomic_uint8_
 	ENSURE(rhi);
 	auto& device = rhi->GetPrimaryDevice();
 
-	auto staged = model::LoadStaged(device, filePath, progress, options);
-	if (!staged) // cancelled or failed
+	auto staged = model::LoadStaged(device, filePath, progress, options, cancelled);
+	if (!staged || cancelled()) // cancelled or failed
 		return {};
 	return model::UploadStaged(device, std::move(*staged));
 }
@@ -1173,7 +1178,8 @@ std::string Model::ImportVersion(std::string_view filePath)
 	return std::format("cgltf-{}|draco-{}|meshoptimizer-{}|gltfimport-v34", kCgltfVersion, kDracoVersion, kMeshoptimizerVersion);
 }
 
-std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement)
+std::shared_ptr<Model> Model::Load(
+	std::span<const std::string_view> filePaths, std::atomic_uint8_t& progress, ModelArrangement arrangement, core::CancelledFn cancelled)
 {
 	ZoneScopedN("gfx::Model::Load");
 
@@ -1206,7 +1212,7 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 		}
 
 		std::atomic_uint8_t fileProgress = 0;
-		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {});
+		auto staged = model::LoadStaged(device, filePaths[fileIt], filePaths.size() == 1 ? progress : fileProgress, {}, cancelled);
 		if (!staged) // cancelled or failed
 		{
 			failed = true;
@@ -1219,7 +1225,7 @@ std::shared_ptr<Model> Model::Load(std::span<const std::string_view> filePaths, 
 		loadFile(0);
 	else
 		core::Application::Get()->GetExecutor().ForEach(filePaths.size(), loadFile);
-	if (failed)
+	if (failed || cancelled())
 		return {};
 
 	std::vector<model::Staged> models;

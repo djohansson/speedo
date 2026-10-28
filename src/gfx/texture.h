@@ -3,6 +3,8 @@
 #include <gfx/environment.h>
 #include <gfx/gpu.h>
 #include <gfx/imageimport.h>
+
+#include <core/cancelled.h>
 #include <gfx/upload.h>
 
 #include <array>
@@ -36,11 +38,13 @@ struct Texture
 // derived from how they look (e.g. a model's thumbnail)
 [[nodiscard]] std::string TextureImportVersion();
 
+// cancelled: given up where it takes long (as when the application exits), returning an empty texture
 [[nodiscard]] Texture LoadTexture(
 	std::string_view filePath,
 	std::atomic_uint8_t& progress,
 	const image::Options& options = {},
-	std::optional<uint32_t> embeddedImage = std::nullopt);
+	std::optional<uint32_t> embeddedImage = std::nullopt,
+	core::CancelledFn cancelled = core::NeverCancelled);
 
 // an environment for the gpu to prefilter (see EnvironmentFilter, and environment::Environment for what the levels
 // are): its levels as the mips of a R16G16B16A16_SFLOAT texture and its sheen levels as another's (storage images,
@@ -67,6 +71,7 @@ struct EnvironmentTexture
 // loads an environment panorama file (e.g. Radiance .hdr) through the asset cache (decoded, its dominant lights taken
 // out), or the sky (see environment::SkySun) without one, for the gpu to prefilter (see EnvironmentFilter). empty if
 // cancelled or failed.
-[[nodiscard]] EnvironmentTexture LoadEnvironment(std::optional<std::string_view> filePath, std::atomic_uint8_t& progress);
+[[nodiscard]] EnvironmentTexture LoadEnvironment(
+	std::optional<std::string_view> filePath, std::atomic_uint8_t& progress, core::CancelledFn cancelled = core::NeverCancelled);
 
 } // namespace gfx
