@@ -344,3 +344,20 @@ hardware ray path waits for a desktop gpu to be measured on; the software path i
   had the same view in the same tile and nothing that moves is in its frustum, `SPEEDO_SHADOW_CACHE=0` without): San
   Miguel's still pose 86.9 to 68.4 ms, Sponza's 30.35 to 29.37, Bistro's evening the same (its sun is down). Renders
   identical with and without, still and along a moving path.
+
+### Where the night left the frame times (2026-10-28 morning)
+
+Warm pipelines (the first run after a shader change draws with the generic pipelines while the specialized compile:
+Sponza 33.3 ms against 29.3, which the tables above partly include), 2560x1440 output, GI on, settled:
+
+| | start of the night | now, upscaling off | balanced (67%) | performance (50%) |
+|---|---|---|---|---|
+| Bistro (20:00) | 67.5 ms | 57.6 (-15%) | 42.2 (-37%) | 36.3 (-46%) |
+| San Miguel | 86.0 | 68.3 (-21%) | 46.3 (-46%) | 39.1 (-55%) |
+| Sponza | 37.1 | 29.4 (-21%) | 24.4 (-34%) | 21.6 (-42%) |
+
+Off: ComputeMain a thread per pixel, the SBVH, the shadow atlas's cache. The rest is the upscaling, which the user
+judges by eye before it is on by default. Tried and dropped tonight: the surface cache's rays bounded to 16 or 32 voxels
+with the volume's light beyond (1.7 and 0.5 ms of Bistro's 57: its cost is the rays' count and their hits' shading, not
+their length), and tracing only the blocks a lookup read rather than the ring around them too (0.5 to 0.9 ms: the ring
+was a small part of it). The cache's update is 11 of the resolve's 13.7 ms in Bistro (2.7 without the cache).

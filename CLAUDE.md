@@ -959,10 +959,11 @@ target's pixels, the jitters taken out: `FragmentPrepass`), from where the verte
 frame (`VertexOutput::previousPosition`: `WorldPosition` with the last frame slot's instances, joints and morph weights,
 for the draws `DRAW_FLAG_MOVES` marks; the rest where they are), and the resolve takes it where the nearest of the 3x3
 moves (the stencil), the depth's reprojection elsewhere. CesiumMan walking and the Fox at balanced show no trails.
-Measured by the draw thread's settled frame time at the benchmark poses (2560x1440 output, GI on; off, native, balanced
-and performance): Bistro 65.1, 64.6, 47.7 and 40.9 ms; San Miguel 86.6, 83.1, 65.0 and 57.3; Sponza 31.5, 33.3, 26.5
-and 23.8: a quarter of the heavier scenes' frame at balanced, short of the pixels' 55% since the probes, the voxels and
-the shadow atlas don't scale with the pixels. With upscaling off the images are as before (the frame graph's Composite,
+Measured by the draw thread's settled frame time at the benchmark poses (2560x1440 output, GI on), with the SBVH and
+the shadow atlas's cache, warm pipelines (the first run after a shader change draws with the generic ones while the
+specialized compile): off, balanced and performance, Bistro 57.6, 42.2 and 36.3 ms; San Miguel 68.3, 46.3 and 39.1;
+Sponza 29.4, 24.4 and 21.6: a quarter to a third of the heavier scenes' frame at balanced, short of the pixels' 55%
+since the probes, the voxels and the surface cache don't scale with the pixels. With upscaling off the images are as before (the frame graph's Composite,
 Resolve and Sharpen passes disabled, ComputeMain's as it was).
 
 ## Culling: chunks, and frustums per view
