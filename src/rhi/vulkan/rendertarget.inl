@@ -28,6 +28,7 @@ public:
 	void ClearAll(
 		CommandBufferHandle<kVk> cmd,
 		std::span<const ClearValue> values) const final;
+	void ClearRect(CommandBufferHandle<kVk> cmd, const ClearValue& value, uint32_t index, const Rect& rect) const final;
 
 	void Blit(
 		CommandBufferHandle<kVk> cmd,
@@ -566,6 +567,18 @@ void RenderTarget<DerivedType, kVk>::ClearAll(
 	}
 
 	vkCmdClearAttachments(cmd, clearAttachments.size(), clearAttachments.data(), 1, &rect);
+}
+
+template <typename DerivedType>
+void RenderTarget<DerivedType, kVk>::ClearRect(CommandBufferHandle<kVk> cmd, const ClearValue& value, uint32_t index, const Rect& rect) const
+{
+	auto aspect = AspectOf(this->GetDesc().imageFormats[index]);
+	VkClearAttachment attachment{.aspectMask = vk::ToVk(aspect), .colorAttachment = index, .clearValue = vk::ToVk(value, aspect)};
+	VkClearRect clearRect{
+		.rect = {.offset = {.x = rect.x, .y = rect.y}, .extent = {.width = rect.width, .height = rect.height}},
+		.baseArrayLayer = 0,
+		.layerCount = this->GetDesc().layerCount};
+	vkCmdClearAttachments(cmd, 1, &attachment, 1, &clearRect);
 }
 
 template <typename DerivedType>

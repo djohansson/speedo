@@ -157,6 +157,12 @@ void Swapchain<kVk>::ClearAll(
 }
 
 template <>
+void Swapchain<kVk>::ClearRect(CommandBufferHandle<kVk> cmd, const ClearValue& value, uint32_t index, const Rect& rect) const
+{
+	myFrames[myFrameIndex].ClearRect(cmd, value, index, rect);
+}
+
+template <>
 void Swapchain<kVk>::Clear(
 	CommandBufferHandle<kVk> cmd, const ClearValue& value, uint32_t index)
 {

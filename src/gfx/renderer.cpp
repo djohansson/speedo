@@ -188,7 +188,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		{.name = "Shadow Atlas",
 		 .format = Format::kD32Sfloat,
 		 .aspect = ImageAspect::kDepth,
-		 .extent = {.width = shadows::kAtlasSize, .height = shadows::kAtlasSize}});
+		 .extent = {.width = shadows::kAtlasSize, .height = shadows::kAtlasSize},
+		 .persistent = true});
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
 		myShadowViewBuffers.emplace_back(BufferCreateDesc{
@@ -512,6 +513,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		auto pushConstants = inputs.pushConstants;
 		for (uint32_t viewIt = 0; viewIt < myShadowPlan.views.size(); viewIt++)
 		{
+			if (myShadowViewKept[viewIt] != 0)
+				continue;
 			const auto& tile = myShadowPlan.tiles[viewIt];
 			encoder.SetViewport(Viewport{
 				.x = static_cast<float>(tile.x),
@@ -522,6 +525,12 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				.maxDepth = 1.0F});
 			encoder.SetScissor(rhi::Rect{
 				.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
+			if (!late)
+				context.target->ClearRect(
+					cmd,
+					ClearValue{.depth = 1.0F},
+					0,
+					rhi::Rect{.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
 			pushConstants.shadowView = viewIt;
 			if (auto culled = InternalCulledDraws(ListId::kShadow, viewIt, late))
 			{
@@ -536,7 +545,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		"Shadows",
 		[this, useCulled](FrameGraph::PassBuilder& builder)
 		{
-			builder.DepthAttachment(myShadowAtlas, LoadOp::kClear);
+			builder.DepthAttachment(myShadowAtlas, LoadOp::kLoad); // the tiles kept (see InternalPlanShadowCache)
 			useCulled(builder);
 		},
 		[shadowDraws](FrameGraph::PassContext& context) { shadowDraws(context, false); });
@@ -1364,6 +1373,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* indirect = std::getenv("SPEEDO_INDIRECT_DRAWS");
 	for (auto& stream : myDrawStreams)
 		stream.indirect = indirect == nullptr || std::string_view(indirect) != "0";
+	// the shadow atlas's tiles kept from frame to frame while their views don't change (see InternalPlanShadowCache),
+	// unless SPEEDO_SHADOW_CACHE=0
+	if (const char* cache = std::getenv("SPEEDO_SHADOW_CACHE"); cache != nullptr)
+		myShadowCacheOn = std::string_view(cache) != "0";
 	// the gpu culls the draws (the Cull passes) where the draws are indirect, unless SPEEDO_GPU_CULLING=0 (the cpu does,
 	// by the frustum). it compacts the draws it keeps and counts them (DrawIndexedIndirectCount) where the count is native;
 	// where it is emulated (KosmicKrisp: a compute kernel and an encoder split per count) every draw keeps its place, of
@@ -2335,7 +2348,8 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool shadowsDrawn = !myShadowDrawList.Empty();
 	frame.pushConstants.shadows = shadowsDrawn || myShadowsTraced ? 1U : 0U;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
-	myGraph.SetEnabled(myShadowPass, shadowsDrawn);
+	InternalPlanShadowCache(frame);
+	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
 
 	// the scattering materials' light, if any are drawn
 	myScatterDrawList = frame.model != nullptr
@@ -2601,6 +2615,35 @@ namespace renderer
 }
 
 } // namespace renderer
+
+void Renderer::InternalPlanShadowCache(const FrameInputs& frame)
+{
+	ZoneScopedN("Renderer::planShadowCache");
+
+	// a view keeps its tile where the last frame had the same view (bytewise: view projection, tile, texel size) in it,
+	// drawn from the same model and shadow draws, while the atlas holds what that frame left (see
+	// FrameGraph::IsPersistentValid), unless something that moves is in its frustum. the plan lays its views out the same
+	// while nothing changes, so views are compared by their place in it: one moved elsewhere is drawn again
+	auto viewCount = myShadowPlan.views.size();
+	myShadowViewKept.assign(viewCount, 0);
+	if (myShadowCacheOn && myGraph.IsPersistentValid(myShadowAtlas) && frame.model == myShadowCachedModel &&
+		myShadowDrawList.items.size() == myShadowCachedDrawCount)
+	{
+		for (size_t viewIt = 0; viewIt < std::min(viewCount, myShadowCachedViews.size()); viewIt++)
+		{
+			const auto& view = myShadowPlan.views[viewIt];
+			if (std::memcmp(&view, &myShadowCachedViews[viewIt], sizeof(ShadowData)) != 0)
+				continue;
+			auto frustum = Frustum::FromViewProjection(glm::make_mat4(&view.viewProjection[0][0]));
+			bool moving = std::ranges::any_of(
+				myShadowDrawList.items, [&frustum](const DrawItem& item) { return item.moves && !frustum.Excludes(item.bounds); });
+			myShadowViewKept[viewIt] = moving ? 0 : 1;
+		}
+	}
+	myShadowCachedViews.assign(myShadowPlan.views.begin(), myShadowPlan.views.end());
+	myShadowCachedModel = frame.model;
+	myShadowCachedDrawCount = myShadowDrawList.items.size();
+}
 
 void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 {

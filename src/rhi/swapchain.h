@@ -100,6 +100,7 @@ public:
 		uint32_t dstIndex) final;
 
 	void Clear(CommandBufferHandle<G> cmd, const ClearValue& value, uint32_t index) final;
+	void ClearRect(CommandBufferHandle<G> cmd, const ClearValue& value, uint32_t index, const Rect& rect) const final;
 
 	void Transition(CommandBufferHandle<G> cmd, ImageLayout layout, ImageAspect aspectFlags, uint32_t index) final;
 

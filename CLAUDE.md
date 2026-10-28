@@ -674,8 +674,11 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   overlapping no placed transient whose pass lifetime overlaps (`Image`/`Buffer`'s placing constructors,
   `vmaCreateAliasing*2`; requirements from a temporary resource, since Vulkan 1.2 has no desc query). Their contents
   don't outlive the frame: the first use in a frame must write them (`Compile` checks: no read, no `kLoad`), and is
-  preceded by `Image::Discard` and a barrier from whatever last used the same bytes. Views exist for sampled or storage
-  transients only. The Statistics window shows the bytes, aliased and not.
+  preceded by `Image::Discard` and a barrier from whatever last used the same bytes, but a persistent one's
+  (`ImageDesc::persistent`: the shadow atlas, whose tiles are kept from frame to frame), which is placed where no other
+  transient's bytes are and keeps what the last frame left, once a frame has used it after `Compile` made it
+  (`IsPersistentValid`). Views exist for sampled or storage transients only. The Statistics window shows the bytes,
+  aliased and not.
 - **Imported** resources (the swapchain, the exposure histograms) are bound each frame (`Bind`); passes writing them are
   never culled (others: only if something needed reads what they write, or `SideEffects`).
 - **Depth stencil formats** attach both: `RenderTarget`'s dynamic rendering took a combined format's depth branch
@@ -1037,6 +1040,15 @@ the renderer keeps a copy of a frame's lights, shadow views and scene bounds whi
 scene's center, spot cones, point ranges, each shadow view's frustum: its clip space box through the inverse view
 projection) and markers, and the ui projects them with each view's camera, a directional light's marker where it is in the
 sky (the direction at w = 0), at the view's edge when it is out of it, dimmed when behind the camera.
+The atlas keeps its tiles from frame to frame (a persistent transient, loaded rather than cleared): a view that the last
+frame also had in the same tile (its view projection, tile and texel size bytewise, the same model and shadow draws)
+isn't drawn again, unless something that moves is in its frustum (`Renderer::InternalPlanShadowCache`); the others'
+tiles are cleared (`IRenderTarget::ClearRect`) and drawn, and the pass is skipped when every view is kept.
+`SPEEDO_SHADOW_CACHE=0` draws them all every frame. Point and spot lights keep theirs while the camera moves (their
+tiles change size by octaves), the sun's cascades while it is still (they follow the view, snapped to texels: the far
+ones, of big texels, change less often). San Miguel's still pose 86.9 to 68.4 ms (its two sided foliage four times over;
+more than the 9.9 ms the baseline's left out Shadows pass freed, not yet understood), Sponza's 30.35 to 29.37,
+Bistro's evening the same (its sun is down); renders identical, still and along a path.
 `resources/test-models/gltf/ShadowScene.gltf` has a sun, a point and a spot light over boxes on a ground plane.
 
 ## Ray traced shadows

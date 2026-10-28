@@ -295,14 +295,15 @@ void FrameGraph::InternalCull()
 			continue;
 		for (const auto& [index, use] : pass.uses)
 			ENSUREF(
-				myResources[index].imported || myResources[index].firstPass != passIt || use.Writes(),
+				myResources[index].imported || myResources[index].imageDesc.persistent || myResources[index].firstPass != passIt ||
+					use.Writes(),
 				"{}: the first use of transient {} reads it",
 				pass.name,
 				myResources[index].name);
 		for (const auto& attachment : pass.attachments)
 			ENSUREF(
-				myResources[attachment.resource].imported || myResources[attachment.resource].firstPass != passIt ||
-					attachment.load != LoadOp::kLoad,
+				myResources[attachment.resource].imported || myResources[attachment.resource].imageDesc.persistent ||
+					myResources[attachment.resource].firstPass != passIt || attachment.load != LoadOp::kLoad,
 				"{}: the first use of transient {} loads it",
 				pass.name,
 				myResources[attachment.resource].name);
@@ -384,8 +385,13 @@ void FrameGraph::InternalCreateTransients(Device& device)
 	// placement: images and buffers in blocks of their own (so that no buffer-image granularity applies between them),
 	// per set of memory types they allow. largest first, each at the lowest offset where it overlaps none of the
 	// transients placed there whose lifetimes overlap its own.
+	// (a persistent one's lifetime is every frame's: it overlaps them all)
 	auto lifetimesOverlap = [this](uint32_t a, uint32_t b)
-	{ return !(myResources[a].lastPass < myResources[b].firstPass || myResources[b].lastPass < myResources[a].firstPass); };
+	{
+		const auto& ra = myResources[a];
+		const auto& rb = myResources[b];
+		return ra.imageDesc.persistent || rb.imageDesc.persistent || !(ra.lastPass < rb.firstPass || rb.lastPass < ra.firstPass);
+	};
 	auto bytesOverlap = [this](uint32_t a, uint32_t b)
 	{
 		const auto& ra = myResources[a];
@@ -516,6 +522,8 @@ bool FrameGraph::Compile(Device& device, Extent2d extent, Extent2d outputExtent)
 
 	myExtent = extent;
 	myOutputExtent = outputExtent;
+	for (auto& resource : myResources)
+		resource.persistentValid = false;
 	InternalCreateTransients(device);
 	return true;
 }
@@ -564,11 +572,14 @@ void FrameGraph::InternalBarriers(CommandBufferHandle cmd, Pass& pass, uint32_t 
 		auto prior = resource.state;
 		bool layoutChange = resource.image && use.layout != ImageLayout::kUndefined && InternalLayout(resource) != use.layout;
 
-		if (!resource.imported && !resource.usedThisFrame)
+		if (!resource.imported && !resource.usedThisFrame && resource.imageDesc.persistent && resource.persistentValid)
+			resource.usedThisFrame = true; // what the last frame left in it, as it left it
+		else if (!resource.imported && !resource.usedThisFrame)
 		{
 			// the first use this frame: after whatever last used its memory (it, or a transient over the same bytes), whose
 			// contents it doesn't need (see ImageDesc)
 			resource.usedThisFrame = true;
+			resource.persistentValid = resource.imageDesc.persistent;
 			for (auto other : resource.overlaps)
 			{
 				const auto& state = myResources[other].state;
@@ -641,6 +652,11 @@ bool Skipped(std::string_view name)
 }
 
 } // namespace framegraph
+
+bool FrameGraph::IsPersistentValid(ImageId image) const
+{
+	return myResources[image.index].persistentValid;
+}
 
 void FrameGraph::Execute(CommandBufferHandle cmd, GpuProfiler* profiler)
 {

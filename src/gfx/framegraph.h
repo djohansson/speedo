@@ -80,6 +80,10 @@ public:
 		// without an extent: the output's (see Compile) rather than the frame's, for what is drawn after the frame is
 		// upscaled to it (the ui's frosted panels' backdrop)
 		bool outputSized = false;
+		// its contents outlive the frame (the shadow atlas's tiles, cached while their views don't change): placed apart,
+		// where no other transient's bytes are, and its first use in a frame may read or load what the last frame left;
+		// it holds nothing once Compile has (re)created it (see IsPersistentValid)
+		bool persistent = false;
 	};
 	// a transient buffer of size bytes (computed from the frame's extent if sizeOf is set)
 	struct BufferDesc
@@ -171,6 +175,9 @@ public:
 	[[nodiscard]] Buffer& GetBuffer(BufferId buffer) const;
 	[[nodiscard]] rhi::Extent2d GetExtent() const noexcept { return myExtent; }
 	[[nodiscard]] rhi::Extent2d GetOutputExtent() const noexcept { return myOutputExtent; }
+	// whether a persistent transient (see ImageDesc::persistent) holds what an earlier frame left in it: false from the
+	// Compile that (re)created it until a frame has used it
+	[[nodiscard]] bool IsPersistentValid(ImageId image) const;
 	// the bytes of device memory the transients take, and how many they would take without sharing it
 	[[nodiscard]] uint64_t GetTransientMemorySize() const noexcept { return myTransientMemorySize; }
 	[[nodiscard]] uint64_t GetUnaliasedTransientMemorySize() const noexcept { return myUnaliasedTransientMemorySize; }
@@ -209,6 +216,7 @@ private:
 		uint32_t lastPass = 0;
 		AccessState state;
 		bool usedThisFrame = false;
+		bool persistentValid = false; // see IsPersistentValid
 	};
 	struct Attachment
 	{

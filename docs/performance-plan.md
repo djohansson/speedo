@@ -340,3 +340,7 @@ hardware ray path waits for a desktop gpu to be measured on; the software path i
   near field's, the traced shadows' and the emitters') visits fewer nodes. Frame times, interleaved twice each: Bistro
   66.0 to 57.6 ms, San Miguel 88.7 to 87.1, Sponza 31.8 to 30.4. The BVHs take a tenth more memory (Bistro 193 to 215
   MB) and half again the build (0.4 to 0.58 s, San Miguel's 10 M triangles 2.0 s), once, at import.
+- **Kept: the shadow atlas's tiles cached** (a persistent transient of the frame graph; a view kept where the last frame
+  had the same view in the same tile and nothing that moves is in its frustum, `SPEEDO_SHADOW_CACHE=0` without): San
+  Miguel's still pose 86.9 to 68.4 ms, Sponza's 30.35 to 29.37, Bistro's evening the same (its sun is down). Renders
+  identical with and without, still and along a moving path.

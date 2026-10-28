@@ -77,6 +77,8 @@ struct IRenderTarget
 		CommandBufferHandle<G> cmd,
 		const ClearValue& value,
 		uint32_t index) = 0;
+	// an attachment cleared within rect, inside the render target's render pass (begun)
+	virtual void ClearRect(CommandBufferHandle<G> cmd, const ClearValue& value, uint32_t index, const Rect& rect) const = 0;
 
 	virtual void Transition(
 		CommandBufferHandle<G> cmd,

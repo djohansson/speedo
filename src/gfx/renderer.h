@@ -323,6 +323,16 @@ private:
 	FrameGraph::PassId myShadowDenoiseXPass;
 	FrameGraph::PassId myShadowDenoiseYPass;
 	shadows::ShadowPlan myShadowPlan;
+	// the atlas's tiles kept from frame to frame (the atlas is persistent, see FrameGraph::ImageDesc::persistent): the last
+	// frame's views (tile and view projection), the model and shadow draws they were drawn from, and per view of this
+	// frame's whether it keeps its tile (the same view in the same tile, nothing that moves in its frustum: see
+	// InternalPlanShadowCache). SPEEDO_SHADOW_CACHE=0 draws every view every frame
+	std::vector<ShadowData> myShadowCachedViews;
+	const Model* myShadowCachedModel = nullptr;
+	size_t myShadowCachedDrawCount = 0;
+	std::vector<uint8_t> myShadowViewKept;
+	bool myShadowCacheOn = true;
+	void InternalPlanShadowCache(const FrameInputs& frame);
 	// per frame index: the clusters' views, ranges and light indices (gClusterViews, gClusters, gClusterLights), host
 	// visible
 	std::vector<Buffer> myClusterViewBuffers;
