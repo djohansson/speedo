@@ -3317,6 +3317,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 				jobs.scroll = scroll;
 		}
 		jobs.voxelize = jobs.scroll != glm::ivec3(0);
+		if (myGiEyeLog && jobs.voxelize)
+			std::println("gi clip {} scrolled {},{},{}", clipIt, jobs.scroll.x, jobs.scroll.y, jobs.scroll.z);
 	}
 	if (changed)
 	{

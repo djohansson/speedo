@@ -844,7 +844,7 @@ queued in different frames landed out of order); `SPEEDO_CAPTURE_PATH=<directory
 settles over frames has; `SPEEDO_CAPTURE_PATH_STRIDE=<n>` every n-th of those, for a long move); `SPEEDO_GI_EYE_PATH=<x,y,z>[,<look x,y,z>][;...]` (or `@<file>` of them, one a line: an
 environment variable on Windows holds 32767 characters) centers the clips on a point a frame instead of the camera, so
 that under a still camera what changes is what the clips' moves change, and with the look a run's clips replayed exactly
-(`SPEEDO_GI_EYE_LOG=1` prints each frame's as it takes them); `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip again every
+(`SPEEDO_GI_EYE_LOG=1` prints each frame's as it takes them, and each clip's scroll); `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip again every
 frame, what their scrolling must come to.
 
 The Statistics window (debug and profile builds) has the pass timings in two columns, then: per draw list its draws
