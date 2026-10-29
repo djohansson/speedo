@@ -241,6 +241,8 @@ public:
 	// whether the installed environment is the sky (which the time of day moves the sun of, see Settings::timeOfDay)
 	[[nodiscard]] bool IsSkyInstalled() const noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentName() noexcept;
+	// and its file (empty for the sky), as it was loaded
+	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentPath() noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::vector<DominantLightInfo>>& GetEnvironmentLightInfo() noexcept;
 	// the installed model's lights' sizes the ui set (LightData::size), by light: a directional light's angular radius in
 	// degrees, a point or spot light's radius; NaN (or past the end) for the default, the sun's for a directional light

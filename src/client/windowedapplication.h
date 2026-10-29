@@ -74,6 +74,8 @@ private:
 	void InternalDrawBrowser();
 	// View > Camera > Copy Pose (ctrl/cmd+shift+c): the view as the variables that reproduce it, to the clipboard
 	void InternalCopyPose();
+	// View > Camera > Paste Pose (ctrl/cmd+shift+v): a pose of Copy Pose's from the clipboard, applied (see PrepareDraw)
+	void InternalPastePose();
 
 	
 	std::unique_ptr<gfx::RHI> myRHI;

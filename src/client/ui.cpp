@@ -1,6 +1,7 @@
 #include "windowedapplicationdetail.h"
 
 #include <core/file.h>
+#include <core/utils.h>
 #include <gfx/lightgizmos.h>
 
 #include <version.h>
@@ -17,6 +18,8 @@
 #include <cstdlib>
 #include <format>
 #include <limits>
+#include <mutex>
+#include <optional>
 #include <print>
 #include <ranges>
 #include <string>
@@ -117,13 +120,211 @@ constexpr std::array kDebugViews{
 	return nullptr;
 }
 
+// the tonemappers by the names SPEEDO_TONEMAPPER takes
+constexpr std::array<std::pair<std::string_view, uint32_t>, 5> kTonemappers{{
+	{"pbr-neutral", TONEMAPPER_PBR_NEUTRAL},
+	{"aces", TONEMAPPER_ACES},
+	{"agx", TONEMAPPER_AGX},
+	{"reinhard", TONEMAPPER_REINHARD},
+	{"linear", TONEMAPPER_LINEAR},
+}};
+
+// a pose as Copy Pose writes it (NAME=value ..., a value in quotes where it has spaces, then "# window <width>x<height>",
+// the window's framebuffer), or as a shell takes it (with export or env, or the client's path, among the variables)
+struct Pose
+{
+	core::UnorderedMap<std::string, std::string> variables;
+	std::optional<std::array<uint32_t, 2>> windowSize;
+
+	// a variable's value, or null where it isn't set
+	[[nodiscard]] const char* Get(const char* name) const
+	{
+		auto it = variables.find(std::string(name));
+		return it != variables.end() ? it->second.c_str() : nullptr;
+	}
+};
+
+// none where the text has no SPEEDO_CAMERA: it isn't a pose
+[[nodiscard]] std::optional<Pose> ParsePose(std::string_view text)
+{
+	Pose pose;
+	size_t at = 0;
+	auto space = [&text](size_t it) { return std::isspace(static_cast<unsigned char>(text[it])) != 0; };
+	auto skipSpace = [&] { while (at < text.size() && space(at)) at++; };
+	for (skipSpace(); at < text.size(); skipSpace())
+	{
+		if (text[at] == '#')
+		{
+			unsigned width = 0;
+			unsigned height = 0;
+			auto end = text.find('\n', at);
+			std::string comment(text.substr(at + 1, end == std::string_view::npos ? std::string_view::npos : end - at - 1));
+			if (std::sscanf(comment.c_str(), " window %ux%u", &width, &height) == 2 && width > 0 && height > 0)
+				pose.windowSize = std::array<uint32_t, 2>{width, height};
+			at = end == std::string_view::npos ? text.size() : end;
+			continue;
+		}
+		size_t start = at;
+		while (at < text.size() && text[at] != '=' && !space(at))
+			at++;
+		std::string name(text.substr(start, at - start));
+		if (at == text.size() || text[at] != '=')
+			continue; // a word that names no variable
+		at++;
+		std::string value;
+		if (at < text.size() && (text[at] == '\'' || text[at] == '"'))
+		{
+			char quote = text[at++];
+			auto end = text.find(quote, at);
+			value = text.substr(at, end == std::string_view::npos ? std::string_view::npos : end - at);
+			at = end == std::string_view::npos ? text.size() : end + 1;
+		}
+		else
+		{
+			start = at;
+			while (at < text.size() && !space(at))
+				at++;
+			value = text.substr(start, at - start);
+		}
+		pose.variables[std::move(name)] = std::move(value);
+	}
+	if (!pose.variables.contains("SPEEDO_CAMERA"))
+		return std::nullopt;
+	return pose;
+}
+
+// the settings a pose names (see InternalCopyPose), as View sets them, from the variables that reproduce them, at startup
+// from the environment and from a pose pasted (Paste Pose): lookup(name) is a variable's value, or null where it isn't
+// set, which leaves its setting as it is, or where resetMissing (a pose names only what isn't the default) sets the default
+template <typename Lookup>
+void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool resetMissing)
+{
+	static const gfx::Scene::Settings kDefaults;
+	auto apply = [&lookup, resetMissing](auto& setting, const auto& fallback, const char* name, auto parse)
+	{
+		if (const char* value = lookup(name); value != nullptr && *value != '\0')
+		{
+			if (auto parsed = parse(value))
+				setting.store(*parsed, std::memory_order_relaxed);
+			else
+				std::println(stderr, "{}={}: not understood", name, value);
+		}
+		else if (resetMissing)
+			setting.store(fallback.load(std::memory_order_relaxed), std::memory_order_relaxed);
+	};
+	auto unless = [](std::string_view off) { return [off](const char* value) { return std::optional<bool>(std::string_view(value) != off); }; };
+	auto number = [](float low, float high)
+	{ return [low, high](const char* value) { return std::optional<float>(std::clamp(std::strtof(value, nullptr), low, high)); }; };
+	constexpr float kAny = std::numeric_limits<float>::max();
+	// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear)
+	apply(
+		settings.tonemapper,
+		kDefaults.tonemapper,
+		"SPEEDO_TONEMAPPER",
+		[](const char* value) -> std::optional<uint32_t>
+		{
+			for (auto [name, tonemapper] : kTonemappers)
+				if (name == value)
+					return tonemapper;
+			return std::nullopt;
+		});
+	// auto exposure (on by default: SPEEDO_AUTO_EXPOSURE=0 without), and SPEEDO_EXPOSURE=<stops>: the exposure (View >
+	// Exposure), e.g. to capture a dark interior as it is, comparably (with SPEEDO_AUTO_EXPOSURE=0: else it is added to
+	// what auto exposure picks)
+	apply(settings.autoExposure, kDefaults.autoExposure, "SPEEDO_AUTO_EXPOSURE", unless("0"));
+	apply(settings.exposureStops, kDefaults.exposureStops, "SPEEDO_EXPOSURE", number(-kAny, kAny));
+	// the shadows (SPEEDO_SHADOWS=0 without), and the ray traced ones (SPEEDO_TRACED_SHADOWS=0 for the atlas alone, all to
+	// trace every pixel)
+	apply(settings.shadows, kDefaults.shadows, "SPEEDO_SHADOWS", unless("0"));
+	apply(settings.tracedShadows, kDefaults.tracedShadows, "SPEEDO_TRACED_SHADOWS", unless("0"));
+	apply(
+		settings.tracedShadowsEverywhere,
+		kDefaults.tracedShadowsEverywhere,
+		"SPEEDO_TRACED_SHADOWS",
+		[](const char* value) { return std::optional<bool>(std::string_view(value) == "all"); });
+	// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
+	// emission as they meet them)
+	apply(settings.emissiveLights, kDefaults.emissiveLights, "SPEEDO_EMISSIVE_LIGHTS", unless("0"));
+	// the indirect lighting (on by default; SPEEDO_GI=0 to start without it), how its rays find what they meet
+	// (SPEEDO_GI_TRACE=voxels walks the voxels; the triangles' BVHs by default), whether its surface cache refines the
+	// probes' light (SPEEDO_GI_CACHE=0 without), whether the shading takes its near field's rays near other surfaces
+	// (SPEEDO_GI_NEAR=0 without them), accumulated over frames (SPEEDO_GI_NEAR_TEMPORAL=0 without), how near what they
+	// meet is a contact (SPEEDO_GI_NEAR_CONTACT, in voxels: see gi::kDefaultNearContact), every how many pixels each way
+	// they are traced (SPEEDO_GI_NEAR_STRIDE: 2, the default, or 4), and its resolution (SPEEDO_GI_RESOLUTION: voxels
+	// along the scene's longest axis, any from 8 to 512; the menu offers gi::kResolutions)
+	apply(settings.indirectLighting, kDefaults.indirectLighting, "SPEEDO_GI", unless("0"));
+	apply(settings.traceTriangles, kDefaults.traceTriangles, "SPEEDO_GI_TRACE", unless("voxels"));
+	apply(settings.giSurfaceCache, kDefaults.giSurfaceCache, "SPEEDO_GI_CACHE", unless("0"));
+	apply(settings.giNearField, kDefaults.giNearField, "SPEEDO_GI_NEAR", unless("0"));
+	apply(settings.giNearTemporal, kDefaults.giNearTemporal, "SPEEDO_GI_NEAR_TEMPORAL", unless("0"));
+	apply(settings.giNearContact, kDefaults.giNearContact, "SPEEDO_GI_NEAR_CONTACT", number(0.0F, gfx::gi::kMaxNearContact));
+	apply(
+		settings.giNearStride,
+		kDefaults.giNearStride,
+		"SPEEDO_GI_NEAR_STRIDE",
+		[](const char* value) { return std::optional<uint32_t>(std::string_view(value) == "4" ? 4U : 2U); });
+	apply(
+		settings.giResolution,
+		kDefaults.giResolution,
+		"SPEEDO_GI_RESOLUTION",
+		[](const char* value)
+		{
+			return std::optional<uint32_t>(
+				std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(value, nullptr, 10)), gfx::gi::kMinResolution, gfx::gi::kMaxResolution));
+		});
+	// temporal upscaling (SPEEDO_UPSCALING=off|native|quality|balanced|performance, see gfx::Upscaling)
+	apply(settings.upscaling, kDefaults.upscaling, "SPEEDO_UPSCALING", [](const char* value) { return gfx::ParseUpscaling(value); });
+	// the debug view (SPEEDO_DEBUG_VIEW: a key of kDebugViews, or its number)
+	apply(
+		settings.debugView,
+		kDefaults.debugView,
+		"SPEEDO_DEBUG_VIEW",
+		[](const char* value) -> std::optional<uint32_t>
+		{
+			auto view = static_cast<uint32_t>(std::strtoul(value, nullptr, 10));
+			for (const auto& entry : kDebugViews)
+				if (std::string_view(value) == entry.view.key)
+					view = entry.view.view;
+			return view < DEBUG_VIEW_COUNT ? std::optional<uint32_t>(view) : std::nullopt;
+		});
+	// the environment's rotation (degrees) and intensity (as View > Environment sets them)
+	apply(settings.environmentRotationDegrees, kDefaults.environmentRotationDegrees, "SPEEDO_ENVIRONMENT_ROTATION", number(-kAny, kAny));
+	apply(settings.environmentIntensity, kDefaults.environmentIntensity, "SPEEDO_ENVIRONMENT_INTENSITY", number(0.0F, kAny));
+	// the sky's sun (as View > Environment sets it): the time of day (hours of local solar time, or hours:minutes), the
+	// latitude (degrees) and the day of the year, and the time advancing, as many times as fast as real time (0: still)
+	apply(
+		settings.timeOfDay,
+		kDefaults.timeOfDay,
+		"SPEEDO_TIME_OF_DAY",
+		[](const char* value)
+		{
+			char* end = nullptr;
+			float hours = std::strtof(value, &end);
+			if (end != nullptr && *end == ':')
+				hours = std::floor(hours) + (std::strtof(end + 1, nullptr) / 60.0F);
+			return std::optional<float>(std::clamp(hours, 0.0F, 24.0F));
+		});
+	apply(settings.latitude, kDefaults.latitude, "SPEEDO_LATITUDE", number(-90.0F, 90.0F));
+	apply(settings.dayOfYear, kDefaults.dayOfYear, "SPEEDO_DAY_OF_YEAR", number(1.0F, 365.0F));
+	apply(settings.timeSpeed, kDefaults.timeSpeed, "SPEEDO_TIME_SPEED", number(-kAny, kAny));
+	apply(
+		settings.advanceTime,
+		kDefaults.advanceTime,
+		"SPEEDO_TIME_SPEED",
+		[](const char* value) { return std::optional<bool>(std::strtof(value, nullptr) != 0.0F); });
+}
+
+// a pose's text read from the clipboard (on the main thread, see InternalPastePose), for the next PrepareDraw
+static std::mutex gPastedPoseMutex;
+static std::optional<std::string> gPastedPose;
+
 } // namespace ui
 
 void WindowedApplication::InternalCopyPose()
 {
 	// the first view's camera (what SPEEDO_CAMERA places: the eye, and pitch and yaw in degrees, see Views::Place), the
-	// model (and its scene and variant), the environment, the exposure, the indirect lighting, the debug view and the
-	// window's size, as the variables px/cap.sh takes (see CLAUDE.md)
+	// model (and its scene and variant), the environment, the settings that aren't the defaults (see ui::ApplyPoseSettings)
+	// and the window's size, as the variables px/cap.sh takes (see CLAUDE.md), which Paste Pose applies again
 	auto camera = myViews->GetCamera(0);
 	if (!camera)
 		return;
@@ -148,8 +349,8 @@ void WindowedApplication::InternalCopyPose()
 			text += std::format(" SPEEDO_AUTOLOAD_VARIANT={}", *scenes.Get().variant);
 	}
 	{
-		std::string environment = scene.GetEnvironmentName().Read().Get();
-		if (!environment.empty() && environment != "Physical sky")
+		std::string environment = scene.GetEnvironmentPath().Read().Get();
+		if (!environment.empty())
 			text += std::format(" SPEEDO_AUTOLOAD_ENVIRONMENT='{}'", environment);
 	}
 	// the sky's sun: the time of day, and where and when, and how fast the time advances, where not the defaults
@@ -174,6 +375,16 @@ void WindowedApplication::InternalCopyPose()
 	float stops = settings.exposureStops.load(std::memory_order_relaxed);
 	if (stops != 0.0F)
 		text += std::format(" SPEEDO_EXPOSURE={:.2f}", static_cast<double>(stops));
+	if (uint32_t tonemapper = settings.tonemapper.load(std::memory_order_relaxed); tonemapper != TONEMAPPER_PBR_NEUTRAL)
+		for (auto [name, value] : ui::kTonemappers)
+			if (value == tonemapper)
+				text += std::format(" SPEEDO_TONEMAPPER={}", name);
+	if (!settings.shadows.load(std::memory_order_relaxed))
+		text += " SPEEDO_SHADOWS=0";
+	if (!settings.tracedShadows.load(std::memory_order_relaxed))
+		text += " SPEEDO_TRACED_SHADOWS=0";
+	else if (settings.tracedShadowsEverywhere.load(std::memory_order_relaxed))
+		text += " SPEEDO_TRACED_SHADOWS=all";
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
 	if (!settings.traceTriangles.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_TRACE=voxels";
@@ -206,6 +417,19 @@ void WindowedApplication::InternalCopyPose()
 	std::println("{}", text);
 	// the clipboard is the window system's: on the main thread
 	auto [task, future] = core::CreateTask([text] { ImGui::SetClipboardText(text.c_str()); });
+	mainCalls.enqueue(task);
+}
+
+void WindowedApplication::InternalPastePose()
+{
+	// the clipboard is the window system's: read on the main thread, and applied by the next PrepareDraw
+	auto [task, future] = core::CreateTask(
+		[]
+		{
+			const char* text = ImGui::GetClipboardText();
+			std::scoped_lock lock(ui::gPastedPoseMutex);
+			ui::gPastedPose = std::string(text != nullptr ? text : "");
+		});
 	mainCalls.enqueue(task);
 }
 
@@ -912,118 +1136,20 @@ void WindowedApplication::PrepareDraw()
 					else
 						LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
 				}));
-		// the tonemapper (SPEEDO_TONEMAPPER: pbr-neutral, aces, agx, reinhard or linear), auto exposure (on by default:
-		// SPEEDO_AUTO_EXPOSURE=0 without) and the exposure to start with (as View sets them)
-		if (const char* tonemapper = std::getenv("SPEEDO_TONEMAPPER"); tonemapper != nullptr)
-		{
-			std::string_view name(tonemapper);
-			App().GetScene().GetSettings().tonemapper.store(
-				name == "aces"		 ? TONEMAPPER_ACES
-				: name == "agx"		 ? TONEMAPPER_AGX
-				: name == "reinhard" ? TONEMAPPER_REINHARD
-				: name == "linear"	 ? TONEMAPPER_LINEAR
-									 : TONEMAPPER_PBR_NEUTRAL,
-				std::memory_order_relaxed);
-		}
-		if (const char* autoExposure = std::getenv("SPEEDO_AUTO_EXPOSURE"); autoExposure != nullptr && *autoExposure != '\0')
-			App().GetScene().GetSettings().autoExposure.store(std::string_view(autoExposure) != "0", std::memory_order_relaxed);
-		// SPEEDO_EXPOSURE=<stops>: the exposure (View > Exposure), e.g. to capture a dark interior as it is, comparably (with
-		// SPEEDO_AUTO_EXPOSURE=0: else it is added to what auto exposure picks)
-		if (const char* exposure = std::getenv("SPEEDO_EXPOSURE"); exposure != nullptr && *exposure != '\0')
-			App().GetScene().GetSettings().exposureStops.store(std::strtof(exposure, nullptr), std::memory_order_relaxed);
-		if (const char* shadows = std::getenv("SPEEDO_SHADOWS"); shadows != nullptr && std::string_view(shadows) == "0")
-			App().GetScene().GetSettings().shadows.store(false, std::memory_order_relaxed);
-		if (const char* traced = std::getenv("SPEEDO_TRACED_SHADOWS"); traced != nullptr && std::string_view(traced) == "0")
-			App().GetScene().GetSettings().tracedShadows.store(false, std::memory_order_relaxed);
-		else if (traced != nullptr && std::string_view(traced) == "all")
-			App().GetScene().GetSettings().tracedShadowsEverywhere.store(true, std::memory_order_relaxed);
-		// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
-		// emission as they meet them)
-		if (const char* emissive = std::getenv("SPEEDO_EMISSIVE_LIGHTS"); emissive != nullptr && std::string_view(emissive) == "0")
-			App().GetScene().GetSettings().emissiveLights.store(false, std::memory_order_relaxed);
+		// the settings a pose names (see ui::ApplyPoseSettings: the tonemapper, the exposure, the shadows, the emissive
+		// lights, the indirect lighting, temporal upscaling, the debug view, the environment's rotation and intensity and the
+		// sky's sun), as View sets them; SPEEDO_GI_DEBUG=<n> first, the indirect lighting's n-th debug view, as GiData::debug
+		// numbers them, which SPEEDO_DEBUG_VIEW takes over from
+		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
+			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
+				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
+		ui::ApplyPoseSettings(App().GetScene().GetSettings(), [](const char* name) -> const char* { return std::getenv(name); }, false);
 		if (const char* culling = std::getenv("SPEEDO_CULLING"); culling != nullptr && std::string_view(culling) == "0")
 			App().GetScene().GetSettings().culling.store(false, std::memory_order_relaxed);
 		if (const char* clustered = std::getenv("SPEEDO_CLUSTERED_LIGHTS"); clustered != nullptr && std::string_view(clustered) == "0")
 			App().GetScene().GetSettings().clusteredLights.store(false, std::memory_order_relaxed);
-		// the indirect lighting (on by default; SPEEDO_GI=0 to start without it) and the debug view (SPEEDO_DEBUG_VIEW: a
-		// key of ui::kDebugViews, or its number; SPEEDO_GI_DEBUG=<n> is the indirect lighting's n-th, as GiData::debug
-		// numbers them) to start with
-		if (const char* gi = std::getenv("SPEEDO_GI"); gi != nullptr && *gi != '\0')
-			App().GetScene().GetSettings().indirectLighting.store(std::string_view(gi) != "0", std::memory_order_relaxed);
-		// and how its rays find what they meet (SPEEDO_GI_TRACE=voxels walks the voxels; the triangles' BVHs by default)
-		if (const char* trace = std::getenv("SPEEDO_GI_TRACE"); trace != nullptr && *trace != '\0')
-			App().GetScene().GetSettings().traceTriangles.store(std::string_view(trace) != "voxels", std::memory_order_relaxed);
-		// whether its surface cache refines the probes' light (on by default; SPEEDO_GI_CACHE=0 to start without it)
-		if (const char* cache = std::getenv("SPEEDO_GI_CACHE"); cache != nullptr && *cache != '\0')
-			App().GetScene().GetSettings().giSurfaceCache.store(std::string_view(cache) != "0", std::memory_order_relaxed);
-		// and whether the shading takes its near field's rays near other surfaces (on by default; SPEEDO_GI_NEAR=0 to start
-		// without them)
-		if (const char* nearField = std::getenv("SPEEDO_GI_NEAR"); nearField != nullptr && *nearField != '\0')
-			App().GetScene().GetSettings().giNearField.store(std::string_view(nearField) != "0", std::memory_order_relaxed);
-		// and whether it is accumulated over frames (on by default; SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
-		if (const char* temporal = std::getenv("SPEEDO_GI_NEAR_TEMPORAL"); temporal != nullptr && *temporal != '\0')
-			App().GetScene().GetSettings().giNearTemporal.store(std::string_view(temporal) != "0", std::memory_order_relaxed);
-		// and how near what its rays meet is a contact (SPEEDO_GI_NEAR_CONTACT, in voxels: see gi::kDefaultNearContact)
-		if (const char* contact = std::getenv("SPEEDO_GI_NEAR_CONTACT"); contact != nullptr && *contact != '\0')
-			App().GetScene().GetSettings().giNearContact.store(
-				std::clamp(static_cast<float>(std::strtod(contact, nullptr)), 0.0F, gfx::gi::kMaxNearContact), std::memory_order_relaxed);
-		// temporal upscaling (SPEEDO_UPSCALING=off|native|quality|balanced|performance, see gfx::Upscaling)
-		if (const char* upscaling = std::getenv("SPEEDO_UPSCALING"); upscaling != nullptr && *upscaling != '\0')
-		{
-			if (auto parsed = gfx::ParseUpscaling(upscaling))
-				App().GetScene().GetSettings().upscaling.store(*parsed, std::memory_order_relaxed);
-			else
-				std::println(stderr, "SPEEDO_UPSCALING={}: not off, native, quality, balanced or performance", upscaling);
-		}
-		// and every how many pixels each way its rays are traced (SPEEDO_GI_NEAR_STRIDE: 2, the default, or 4)
-		if (const char* stride = std::getenv("SPEEDO_GI_NEAR_STRIDE"); stride != nullptr && *stride != '\0')
-			App().GetScene().GetSettings().giNearStride.store(std::string_view(stride) == "4" ? 4U : 2U, std::memory_order_relaxed);
-		// and its resolution (SPEEDO_GI_RESOLUTION: voxels along the scene's longest axis, any from 8 to 512; the menu
-		// offers gi::kResolutions)
-		if (const char* resolution = std::getenv("SPEEDO_GI_RESOLUTION"); resolution != nullptr && *resolution != '\0')
-			App().GetScene().GetSettings().giResolution.store(
-				std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(resolution, nullptr, 10)), gfx::gi::kMinResolution, gfx::gi::kMaxResolution), std::memory_order_relaxed);
-		if (const char* giDebug = std::getenv("SPEEDO_GI_DEBUG"); giDebug != nullptr && *giDebug != '\0')
-			if (auto index = static_cast<uint32_t>(std::strtoul(giDebug, nullptr, 10)); index > 0 && DEBUG_VIEW_GI_FIRST + index - 1 < DEBUG_VIEW_GI_END)
-				App().GetScene().GetSettings().debugView.store(DEBUG_VIEW_GI_FIRST + index - 1, std::memory_order_relaxed);
-		if (const char* debugView = std::getenv("SPEEDO_DEBUG_VIEW"); debugView != nullptr && *debugView != '\0')
-		{
-			std::string_view name(debugView);
-			uint32_t view = static_cast<uint32_t>(std::strtoul(debugView, nullptr, 10));
-			for (const auto& entry : ui::kDebugViews)
-				if (name == entry.view.key)
-					view = entry.view.view;
-			if (view < DEBUG_VIEW_COUNT)
-				App().GetScene().GetSettings().debugView.store(view, std::memory_order_relaxed);
-		}
 		if (const char* merge = std::getenv("SPEEDO_MERGE_LIGHTS"); merge != nullptr && std::string_view(merge) == "0")
 			App().GetScene().GetSettings().mergeLights.store(false, std::memory_order_relaxed);
-		// the environment's rotation (degrees) and intensity to start with (as View > Environment sets them)
-		if (const char* rotation = std::getenv("SPEEDO_ENVIRONMENT_ROTATION"); rotation != nullptr && *rotation != '\0')
-			App().GetScene().GetSettings().environmentRotationDegrees.store(std::strtof(rotation, nullptr), std::memory_order_relaxed);
-		if (const char* intensity = std::getenv("SPEEDO_ENVIRONMENT_INTENSITY"); intensity != nullptr && *intensity != '\0')
-			App().GetScene().GetSettings().environmentIntensity.store(std::max(std::strtof(intensity, nullptr), 0.0F), std::memory_order_relaxed);
-		// the sky's sun to start with (as View > Environment sets it): the time of day (hours of local solar time, or
-		// hours:minutes), the latitude (degrees) and the day of the year, and the time advancing, as many times as fast as
-		// real time (0: still)
-		if (const char* time = std::getenv("SPEEDO_TIME_OF_DAY"); time != nullptr && *time != '\0')
-		{
-			char* end = nullptr;
-			float hours = std::strtof(time, &end);
-			if (end != nullptr && *end == ':')
-				hours = std::floor(hours) + (std::strtof(end + 1, nullptr) / 60.0F);
-			App().GetScene().GetSettings().timeOfDay.store(std::clamp(hours, 0.0F, 24.0F), std::memory_order_relaxed);
-		}
-		if (const char* latitude = std::getenv("SPEEDO_LATITUDE"); latitude != nullptr && *latitude != '\0')
-			App().GetScene().GetSettings().latitude.store(std::clamp(std::strtof(latitude, nullptr), -90.0F, 90.0F), std::memory_order_relaxed);
-		if (const char* day = std::getenv("SPEEDO_DAY_OF_YEAR"); day != nullptr && *day != '\0')
-			App().GetScene().GetSettings().dayOfYear.store(std::clamp(std::strtof(day, nullptr), 1.0F, 365.0F), std::memory_order_relaxed);
-		if (const char* speed = std::getenv("SPEEDO_TIME_SPEED"); speed != nullptr && *speed != '\0')
-		{
-			float multiple = std::strtof(speed, nullptr);
-			App().GetScene().GetSettings().timeSpeed.store(multiple, std::memory_order_relaxed);
-			App().GetScene().GetSettings().advanceTime.store(multiple != 0.0F, std::memory_order_relaxed);
-		}
 		// the environment: SPEEDO_AUTOLOAD_ENVIRONMENT's panorama, else the sky
 		std::optional<std::string> environmentPath;
 		if (const char* autoLoadEnvironment = std::getenv("SPEEDO_AUTOLOAD_ENVIRONMENT");
@@ -1110,14 +1236,112 @@ void WindowedApplication::PrepareDraw()
 		}
 	}
 
-	// the autoloaded model installed (its file named by the scene), or given up on 600 drawn frames after the loads were
-	// ready: one that failed never installs, and the run must still end (and report it)
-	bool autoLoadsReady = std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); });
+	// the model a pasted pose loads (its file, as the scene names it once installed, its scene and variant), which its
+	// camera waits for; at startup, any
+	struct AutoModel
+	{
+		std::string filePath;
+		uint32_t scene = 0;
+		std::optional<uint32_t> variant;
+	};
+	static std::optional<AutoModel> gAutoModel;
 	static std::optional<uint64_t> gAutoLoadsReadyFrame;
+	constexpr uint32_t kAutoCameraRepeatCount = 30;
+	static uint32_t gAutoCameraRepeats = kAutoCameraRepeatCount;
+	auto modelIs = [](const AutoModel& model)
+	{
+		auto scenes = App().GetScene().GetScenes().Read();
+		return scenes.Get().filePath == model.filePath && scenes.Get().current == model.scene && scenes.Get().variant == model.variant;
+	};
+
+	// a pose pasted (View > Camera > Paste Pose, ctrl/cmd+shift+v): its settings (those it doesn't name back to their
+	// defaults, which Copy Pose leaves out), its model and environment where they aren't the ones installed (no model
+	// named keeps the installed one), the window's framebuffer at its size (unless fullscreen), and its camera, placed as
+	// SPEEDO_CAMERA's once those are in: a view reported as a pose recreated exactly, to look at and mark
+	if (auto text = [] { std::scoped_lock lock(ui::gPastedPoseMutex); return std::exchange(ui::gPastedPose, std::nullopt); }())
+	{
+		if (auto pose = ui::ParsePose(*text))
+		{
+			std::println("Paste Pose: {}", *text);
+			auto& scene = App().GetScene();
+			ui::ApplyPoseSettings(scene.GetSettings(), [&pose](const char* name) { return pose->Get(name); }, true);
+			gAutoCameraAfterModel = false;
+			gAutoModel.reset();
+			if (const char* model = pose->Get("SPEEDO_AUTOLOAD_MODEL"))
+			{
+				mesh::ImportOptions options;
+				if (const char* index = pose->Get("SPEEDO_AUTOLOAD_SCENE"))
+					options.scene = std::strtoull(index, nullptr, 10);
+				if (const char* variant = pose->Get("SPEEDO_AUTOLOAD_VARIANT"))
+					options.variant = std::strtoull(variant, nullptr, 10);
+				AutoModel wanted{
+					.filePath = (resourcePath / model).string(),
+					.scene = static_cast<uint32_t>(options.scene.value_or(0)),
+					.variant = options.variant ? std::optional<uint32_t>(static_cast<uint32_t>(*options.variant)) : std::nullopt};
+				if (!modelIs(wanted))
+				{
+					gAutoLoads.emplace_back(gLoads.Enqueue(
+						model,
+						[&rhi, path = wanted.filePath, options](std::atomic_uint8_t& progress)
+						{
+							if ((options.scene || options.variant) && mesh::IsModelFile(path))
+								App().GetScene().LoadModels({path}, progress, options);
+							else
+								LoadAndInstallFile(rhi, path, progress, ArchiveModels::kAll);
+						}));
+					gAutoModel = std::move(wanted);
+					gAutoCameraAfterModel = true;
+					gAutoLoadsReadyFrame.reset();
+				}
+			}
+			std::string environment;
+			if (const char* named = pose->Get("SPEEDO_AUTOLOAD_ENVIRONMENT"))
+				environment = (resourcePath / named).string();
+			if (environment != scene.GetEnvironmentPath().Read().Get())
+			{
+				auto path = environment.empty() ? std::nullopt : std::optional<std::string>(environment);
+				gAutoLoads.emplace_back(gLoads.Enqueue(
+					path.value_or("Physical sky"),
+					[path](std::atomic_uint8_t& progress) { App().GetScene().LoadEnvironment(path, progress); }));
+			}
+			if (pose->windowSize && !GetWindows().empty())
+			{
+				const auto& state = GetWindows().front().GetState();
+				auto [width, height] = *pose->windowSize;
+				if (state.fullscreenEnabled != 0U)
+					std::println("Paste Pose: the window is fullscreen, so not {}x{}", width, height);
+				else if (static_cast<uint32_t>(static_cast<float>(state.width) * state.xscale) != width ||
+						 static_cast<uint32_t>(static_cast<float>(state.height) * state.yscale) != height)
+				{
+					auto window = GetCurrentWindow();
+					int screenWidth = static_cast<int>(std::lround(static_cast<float>(width) / state.xscale));
+					int screenHeight = static_cast<int>(std::lround(static_cast<float>(height) / state.yscale));
+					RequestWindowChange([this, window, screenWidth, screenHeight] { SetWindowSize(window, screenWidth, screenHeight); });
+				}
+			}
+			const char* camera = pose->Get("SPEEDO_CAMERA");
+			gAutoCamera.reset();
+			gAutoFrame = std::string_view(camera) == "frame";
+			if (const char* it = camera; !gAutoFrame)
+			{
+				gAutoCamera = parsePose(it);
+				if (!gAutoCamera)
+					std::println(stderr, "Paste Pose: SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
+			}
+			gAutoCameraRepeats = kAutoCameraRepeatCount;
+		}
+		else
+			std::println(stderr, "Paste Pose: the clipboard holds no pose (SPEEDO_CAMERA=... as Copy Pose writes it): {}", *text);
+	}
+
+	// the autoloaded model installed (its file named by the scene; a pasted pose's, that one), or given up on 600 drawn
+	// frames after the loads were ready: one that failed never installs, and the run must still end (and report it)
+	bool autoLoadsReady = std::ranges::all_of(gAutoLoads, [](const auto& load) { return load.IsReady(); });
 	if (autoLoadsReady && !gAutoLoadsReadyFrame)
 		gAutoLoadsReadyFrame = gDrawnFrameCount.load(std::memory_order_relaxed);
 	constexpr uint64_t kInstallWaitFrameCount = 600;
-	bool modelInstalled = !gAutoCameraAfterModel || !App().GetScene().GetScenes().Read().Get().filePath.empty() ||
+	bool modelInstalled = !gAutoCameraAfterModel ||
+						  (gAutoModel ? modelIs(*gAutoModel) : !App().GetScene().GetScenes().Read().Get().filePath.empty()) ||
 						  (gAutoLoadsReadyFrame && gDrawnFrameCount.load(std::memory_order_relaxed) > *gAutoLoadsReadyFrame + kInstallWaitFrameCount);
 	if (!gAutoLightSizes.empty() && autoLoadsReady && modelInstalled && !App().GetScene().GetScenes().Read().Get().filePath.empty())
 	{
@@ -1149,7 +1373,6 @@ void WindowedApplication::PrepareDraw()
 				{ myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F)); });
 			rhi.drawCalls.enqueue(task);
 		}
-		static uint32_t gAutoCameraRepeats = 30;
 		if (--gAutoCameraRepeats == 0)
 		{
 			gAutoCamera.reset();
@@ -1349,6 +1572,19 @@ void WindowedApplication::PrepareDraw()
 	// > Copy Pose, for reporting what a view shows (a capture of it: px/cap.sh's variables, see CLAUDE.md)
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C, ImGuiInputFlags_RouteGlobal))
 		InternalCopyPose();
+	// and a pose of those from the clipboard, applied: View > Camera > Paste Pose (SPEEDO_PASTE_POSE_FRAME=<n> pastes once
+	// n frames are drawn, for tests)
+	static uint64_t gPastePoseFrame = []
+	{
+		const char* frame = std::getenv("SPEEDO_PASTE_POSE_FRAME");
+		return frame != nullptr ? std::strtoull(frame, nullptr, 10) : 0;
+	}();
+	if (Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V, ImGuiInputFlags_RouteGlobal) ||
+		(gPastePoseFrame != 0 && gDrawnFrameCount.load(std::memory_order_relaxed) >= gPastePoseFrame))
+	{
+		gPastePoseFrame = 0;
+		InternalPastePose();
+	}
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_1, ImGuiInputFlags_RouteGlobal))
 		setSplitScreenGrid(1, 1);
 	if (Shortcut(ImGuiMod_Ctrl | ImGuiKey_2, ImGuiInputFlags_RouteGlobal))
@@ -1648,6 +1884,12 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Copy Pose", SHORTCUT_LABEL("Shift+C")))
 					InternalCopyPose();
 				SetItemTooltip("Copies the camera, the model and the settings as the variables that reproduce this view (SPEEDO_CAMERA=..., SPEEDO_AUTOLOAD_MODEL=...), to paste into a report.");
+				if (MenuItem("Paste Pose", SHORTCUT_LABEL("Shift+V")))
+					InternalPastePose();
+				SetItemTooltip("Applies a pose Copy Pose copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (those it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera once the model is in.");
+				if (MenuItem("Paste Pose", SHORTCUT_LABEL("Shift+V")))
+					InternalPastePose();
+				SetItemTooltip("Applies a pose Copy Pose copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (the ones it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera, once the model is in.");
 				Separator();
 				auto current = myViews->GetSceneCamera();
 				if (MenuItem("Frame model", nullptr, !current.has_value()))

@@ -1556,8 +1556,17 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   beyond the end wall; and the surface cache entry of the point's voxel (`GI_DUMP_CACHE_FIRST`: its samples and inside
   rays, its rays' origin, the voxel's open side and normal, its light per face, and up to 8 of the frame's rays, their
   distance and light: what found the slot behind salle_de_bain's bench lit by the sun, see `GiOpenAlong`). View > Camera > Copy Pose (ctrl/cmd+shift+c)
-  copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment, the
-  exposure, `SPEEDO_GI`, `SPEEDO_DEBUG_VIEW`), for reports: an artifact is a pose first. They go in 5 `R16G16B16A16Sfloat` 3D images
+  copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment's path,
+  and the settings that aren't their defaults, `ui::ApplyPoseSettings`'s: the exposure, the tonemapper, the shadows,
+  `SPEEDO_GI` and the indirect lighting's, the upscaling, the sky's time, `SPEEDO_DEBUG_VIEW`; then `# window <w>x<h>`,
+  the framebuffer), for reports: an artifact is a pose first. View > Camera > Paste Pose (ctrl/cmd+shift+v;
+  `SPEEDO_PASTE_POSE_FRAME=<n>` once n frames are drawn, for tests) applies such a text from the clipboard
+  (`ui::ParsePose`; a shell's `export`/`env` words are skipped) to the running client: the settings by the same function
+  the startup takes them from the environment with, those it leaves out back to their defaults, the model and the
+  environment loaded where they aren't the ones installed (by the scene's file path, scene and variant, and
+  `Scene::GetEnvironmentPath`), the window's framebuffer resized to the comment's size unless fullscreen, and the camera
+  placed as `SPEEDO_CAMERA`'s once the pasted model is installed: Bistro pasted over DamagedHelmet came out as a run
+  started with the same variables (a mean of 1.7 of 255, the lighting's frames). They go in 5 `R16G16B16A16Sfloat` 3D images
   (`gGiVolumes`: per color its faces +x, -x, +y and -y, then red's and green's +z and -z, then blue's and the weight, so the
   shading reads vectors, see `GiSample`; the clips stacked along z, a lookup clamped inside its clip's slab), written
   as storage images (`gGiVolumeImages`) and sampled with the clamping sampler, always in the general layout (the

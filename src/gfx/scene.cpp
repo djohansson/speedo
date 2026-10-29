@@ -353,6 +353,7 @@ struct Scene::Impl
 	uuids::uuid myEnvironmentSheenImageUuid;
 	uuids::uuid myEnvironmentSheenViewUuid;
 	core::ConcurrentAccess<std::string> myEnvironmentName;
+	core::ConcurrentAccess<std::string> myEnvironmentPath; // its file, empty for the sky
 	// the installed environment if it is the sky, which UpdateSky draws again as the time of day moves its sun (see
 	// kSkyRedrawAngle), the sun it was last drawn for, and the time of day's clock (draw thread)
 	std::shared_ptr<const EnvironmentTexture> mySky;
@@ -1532,7 +1533,11 @@ struct Scene::Impl
 
 	// makes an uploaded environment the one the scene is lit by, retiring the previous one. call on the draw thread.
 	void InstallEnvironment(
-		RHI& rhi, QueueTimelineContextData& graphics, const std::shared_ptr<const EnvironmentTexture>& environment, std::string name)
+		RHI& rhi,
+		QueueTimelineContextData& graphics,
+		const std::shared_ptr<const EnvironmentTexture>& environment,
+		std::string name,
+		std::string path)
 	{
 		ZoneScopedN("WindowedApplication::InstallEnvironment");
 
@@ -1547,7 +1552,7 @@ struct Scene::Impl
 			rhi,
 			graphics,
 			uploads,
-			[this, &rhi, environment, name = std::move(name)](QueueTimelineContextData& graphics) mutable
+			[this, &rhi, environment, name = std::move(name), path = std::move(path)](QueueTimelineContextData& graphics) mutable
 			{
 				auto& device = rhi.GetPrimaryDevice();
 				auto& pipeline = myPipeline;
@@ -1597,6 +1602,7 @@ struct Scene::Impl
 				myEnvironmentSheenViewUuid = sheenView->GetUuid();
 				myEnvironmentLights = environment->sky ? SkyLights(sun) : environment->dominantLights;
 				myEnvironmentName.Write().Get() = std::move(name);
+				myEnvironmentPath.Write().Get() = std::move(path);
 			});
 	}
 
@@ -1613,8 +1619,8 @@ struct Scene::Impl
 
 		auto name = filePath ? std::filesystem::path(*filePath).filename().string() : std::string("Physical sky");
 		auto [installTask, installFuture] = core::CreateTask<QueueTimelineContextData*>(
-			[this, &rhi, environment = std::move(environment), name = std::move(name)](QueueTimelineContextData* graphics)
-			{ InstallEnvironment(rhi, *graphics, environment, name); });
+			[this, &rhi, environment = std::move(environment), name = std::move(name), path = filePath.value_or(std::string())](
+				QueueTimelineContextData* graphics) { InstallEnvironment(rhi, *graphics, environment, name, path); });
 		rhi.drawCalls.enqueue(installTask);
 	}
 
@@ -2366,6 +2372,7 @@ core::ConcurrentAccess<Scene::AnimationState>& Scene::GetAnimation() noexcept { 
 core::ConcurrentAccess<Scene::SceneState>& Scene::GetScenes() noexcept { return myImpl->myScenes; }
 bool Scene::IsSkyInstalled() const noexcept { return myImpl->mySkyInstalled.load(std::memory_order_relaxed); }
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { return myImpl->myEnvironmentName; }
+core::ConcurrentAccess<std::string>& Scene::GetEnvironmentPath() noexcept { return myImpl->myEnvironmentPath; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
 core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { return myImpl->myLightSizes; }
 float Scene::GetAutoExposureStops() const noexcept { return myImpl->myAutoExposureStops.load(std::memory_order_relaxed); }
