@@ -1887,9 +1887,6 @@ void WindowedApplication::PrepareDraw()
 				if (MenuItem("Paste Pose", SHORTCUT_LABEL("Shift+V")))
 					InternalPastePose();
 				SetItemTooltip("Applies a pose Copy Pose copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (those it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera once the model is in.");
-				if (MenuItem("Paste Pose", SHORTCUT_LABEL("Shift+V")))
-					InternalPastePose();
-				SetItemTooltip("Applies a pose Copy Pose copied (SPEEDO_CAMERA=... SPEEDO_AUTOLOAD_MODEL=... # window ...): its settings (the ones it leaves out back to their defaults), its model and environment if they aren't the ones loaded, the window's size, and the camera, once the model is in.");
 				Separator();
 				auto current = myViews->GetSceneCamera();
 				if (MenuItem("Frame model", nullptr, !current.has_value()))
