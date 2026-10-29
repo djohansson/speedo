@@ -2521,8 +2521,12 @@ dylib is in `debug/lib`, so a debug client run by hand sets `DYLD_LIBRARY_PATH` 
 `VK_LAYER_VALIDATE_GPU_BASED=GPU_BASED_GPU_ASSISTED` adds gpu assisted validation. Both run in
 parallel: `assettest` checks its models and images on every thread (`CheckInOrder`: results printed in the serial order;
 `--jobs N`), and the script runs `-Jobs` clients at once (default 4), each worker with a user profile of its own
-(`<work>/user-<n>`: clients write pipeline caches, shader intermediates and asset caches there), a model always to the
-same worker (FNV-1a of its label), so its caches stay warm; on macos a new worker profile is an APFS clone (`cp -c`) of
+(`<work>/user-<n>`: clients write pipeline caches, shader intermediates and asset caches there), a model to the same
+worker (FNV-1a of its label), so its caches stay warm, each worker's longest first (by what each took the last time with
+the preset, `<work>/logs/<preset>/durations.tsv`), and a worker with none of its own left takes the shortest of the
+busiest worker's (the most time left; short, so cheap to load without its caches): assigned once and for all, the
+workers that ran out waited for the one with the most, and the end of a run was one worker's alone (the full debug run
+took 909 s for 2613 s of clients, of which 4 workers needed 653; with the stealing, on its first run without durations, 843 s for 3333 s, a fourth of which is 833: the stolen runs import again in the other profile, which the durations make the short ones); on macos a new worker profile is an APFS clone (`cp -c`) of
 `<work>/user`, the serial runs' profile. Results print in the serial order, and the logs are kept per preset (`<work>/logs/<preset>`: a debug run after a profile one overwrote its logs, so a profile failure couldn't be read). That took the full regression from about 30
 minutes to 5 or 6 (130 to 175 s profile, 180 s debug, warm). (Before each client, the script also used to wait a second in `caffeinate -u -t 1` to wake the
 display; it wakes it once now.) For iterating, `fetch-test-assets.ps1 -Quick` prints a quick tier instead

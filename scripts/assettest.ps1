@@ -18,7 +18,9 @@ run (which is slow with a debug preset). The client needs a vulkan driver: set V
 by hand. On macOS the display is woken and kept awake while the client runs (glfw finds no monitors while it sleeps).
 
 Client runs go -Jobs at once (default 4), each worker with a user profile dir of its own under <work> (user-1 to
-user-N), and a model always to the same worker (by a hash of its name), whose caches stay warm. On macOS a new worker's
+user-N), and a model to the same worker (by a hash of its name), whose caches stay warm, each worker's longest first (by
+what they took last time, <work>/logs/<preset>/durations.tsv); a worker with none of its own left takes the shortest
+of the busiest worker's (the most time left), so that the end of a run isn't one worker's alone. On macOS a new worker's
 dir starts as a copy-on-write clone of <work>/user if that exists (the profile dir of serial runs), warm too. Results are printed in
 the order of a serial run. assettest checks its models and images on all of the cpu's threads.
 
@@ -284,7 +286,8 @@ if ($Client)
 
 	# the client runs, queued by Add-ClientRun and run by Invoke-ClientRuns: $Jobs at once, each worker with a user profile
 	# of its own (<work>/user-<n>: clients write their pipeline cache, shader intermediates and asset caches there), a
-	# run always going to the same worker (by a hash of its label), whose caches stay warm from one test to the next
+	# run going to the same worker (by a hash of its label), whose caches stay warm from one test to the next, unless
+	# another worker with none of its own left takes it (see Invoke-ClientRuns)
 	$script:runs = [System.Collections.Generic.List[object]]::new()
 
 	# queues a client run on a model (a file, or a zip archive), drawn with image on the default material if given, and lit
@@ -301,6 +304,7 @@ if ($Client)
 			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; PresentationTest = $PresentationTest
 			Worker = [int]($hash % [uint32]$Jobs) + 1
 			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
+			Estimate = 0.0; Seconds = 0; TimedOut = $false
 		})
 	}
 
@@ -363,6 +367,8 @@ if ($Client)
 		}
 		$status = $Run.Process.ExitCode
 		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
+		$Run.Seconds = $seconds
+		$Run.TimedOut = $TimedOut
 		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Model) { $Run.Model } else { $Run.Environment }
 
 		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
@@ -381,8 +387,33 @@ if ($Client)
 		$Run.Done = $true
 	}
 
-	# runs the queued runs, one at a time per worker, and prints their results in the order they were queued
-	function Invoke-ClientRuns
+	# what each client run took the last time it ran with this preset (label, tab, seconds), by which each worker takes its
+	# longest first and an idle worker takes another's shortest
+	$durationsFile = Join-Path $logs 'durations.tsv'
+	function Read-Durations
+	{
+		$durations = @{}
+		if (Test-Path -LiteralPath $durationsFile)
+		{
+			foreach ($line in Get-Content -LiteralPath $durationsFile)
+			{
+				$label, $seconds = $line -split "`t", 2
+				if ($label -and $seconds -as [double])
+				{
+					$durations[$label] = [double]$seconds
+				}
+			}
+		}
+		return $durations
+	}
+
+	# runs the queued runs, one at a time per worker, and prints their results in the order they were queued. each worker
+	# runs its own (by the hash of their labels, whose caches it holds) longest first, by what they took last time (the
+	# median of the known for one never run); a worker with none of its own left takes the shortest of the busiest worker's
+	# (the most estimated time left), a model it may have no caches of, but which is short: assigned once and for all, as
+	# they were, the workers that ran out waited for the one with the most, and the end of a run was one worker's alone.
+	# -Alone keeps them to their workers (the presentation tests, all one worker's: each takes over the display)
+	function Invoke-ClientRuns([switch] $Alone)
 	{
 		# a new worker's profile starts as a copy of the serial runs' (<work>/user), on macos as a clone (copy-on-write, so
 		# it takes no time or space until it changes), so that its caches are warm
@@ -401,20 +432,30 @@ if ($Client)
 		{
 			& $caffeinate -u -t 1
 		}
+		$durations = Read-Durations
+		$known = @($durations.Values | Sort-Object)
+		$default = if ($known.Count -gt 0) { $known[[int]($known.Count / 2)] } else { 60.0 }
 		$queues = @{}
+		foreach ($worker in 1..$Jobs)
+		{
+			$queues[$worker] = [System.Collections.Generic.List[object]]::new()
+		}
 		foreach ($run in $script:runs)
 		{
-			if (-not $queues.ContainsKey($run.Worker))
-			{
-				$queues[$run.Worker] = [System.Collections.Generic.Queue[object]]::new()
-			}
-			$queues[$run.Worker].Enqueue($run)
+			$run.Estimate = if ($durations.ContainsKey($run.Label)) { $durations[$run.Label] } else { $default }
+			$queues[$run.Worker].Add($run)
+		}
+		foreach ($worker in 1..$Jobs)
+		{
+			$sorted = @($queues[$worker] | Sort-Object -Stable -Property @{ Expression = 'Estimate'; Descending = $true })
+			$queues[$worker] = [System.Collections.Generic.List[object]]::new()
+			foreach ($run in $sorted) { $queues[$worker].Add($run) }
 		}
 		$running = @{}
 		$printed = 0
 		while ($printed -lt $script:runs.Count)
 		{
-			foreach ($worker in @($queues.Keys))
+			foreach ($worker in 1..$Jobs)
 			{
 				$run = $running[$worker]
 				if ($run -and ($run.Process.HasExited -or ((Get-Date) - $run.Start).TotalSeconds -gt $timeout))
@@ -423,10 +464,41 @@ if ($Client)
 					$running.Remove($worker)
 					$run = $null
 				}
-				if (-not $run -and $queues[$worker].Count -gt 0)
+				if ($run)
 				{
-					$running[$worker] = $queues[$worker].Dequeue()
-					Start-ClientRun $running[$worker]
+					continue
+				}
+				$next = $null
+				if ($queues[$worker].Count -gt 0)
+				{
+					$next = $queues[$worker][0]
+					$queues[$worker].RemoveAt(0)
+				}
+				elseif (-not $Alone)
+				{
+					$busiest = $null
+					$most = 0.0
+					foreach ($other in 1..$Jobs)
+					{
+						$left = ($queues[$other] | Measure-Object -Property Estimate -Sum).Sum
+						if ($queues[$other].Count -gt 0 -and $left -gt $most)
+						{
+							$busiest = $other
+							$most = $left
+						}
+					}
+					if ($busiest)
+					{
+						$last = $queues[$busiest].Count - 1
+						$next = $queues[$busiest][$last]
+						$queues[$busiest].RemoveAt($last)
+						$next.Worker = $worker
+					}
+				}
+				if ($next)
+				{
+					$running[$worker] = $next
+					Start-ClientRun $next
 				}
 			}
 			while ($printed -lt $script:runs.Count -and $script:runs[$printed].Done)
@@ -436,6 +508,17 @@ if ($Client)
 			}
 			Start-Sleep -Milliseconds 50
 		}
+
+		# what they took, for the next run's order (the runs timed out keep what they took before)
+		$durations = Read-Durations
+		foreach ($run in $script:runs)
+		{
+			if (-not $run.TimedOut)
+			{
+				$durations[$run.Label] = $run.Seconds
+			}
+		}
+		$durations.GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)`t$($_.Value)" } | Set-Content -LiteralPath $durationsFile
 	}
 
 	# an archive of several models is one run, with its first image (its textures can be missing, or its models leave
@@ -497,7 +580,7 @@ if ($Client)
 		{
 			$run.Worker = 1
 		}
-		Invoke-ClientRuns
+		Invoke-ClientRuns -Alone
 	}
 
 	Write-Output "client: $script:pass pass, $script:fail fail."
