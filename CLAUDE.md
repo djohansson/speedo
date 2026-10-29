@@ -1851,7 +1851,13 @@ the view didn't move; both frames' jitters taken out, `PixelHistoryAt`, see the 
 around where it was, each only if its point was as far from the last eye as this one's and its normal within 25 degrees
 (by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: RG32F, distance and packed normal; within a
 fifth of a percent and two pixels' depth along the surface), else the 3x3 around that are (`PixelHistory`), none for what moves (the
-main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
+main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), a frame far brighter than what the history
+holds taken as at most 8 times that, or that and a quarter of the frame's white more (`HistoryFireflyClamp`, the
+emitters': a traced pixel's ray that meets what is bright, the voxels by a lit window's interior from a window frame's side
+across the opening, is a sixteenth of the pixels around at a stride of 4, and faded over the 16 frames, white fireflies
+along Bistro's window frames at night, the user's pose `724.7479,659.6074,-2775.4233,-21.034,93.844` at 02:14: pixels
+that jumped over 80 frames 2291 to 582, 393 with the near field off; in its light alone 1568 to 244, its mean the same),
+into two images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
 from the pool); the rays turn every frame (`GiNearDirection`), each pixel taking every one of its tile's 16 directions
 over 16 frames. Fixed, the rays' grain stayed on the screen as the camera moved (the user: "fixed to the camera"; their
 pose under Sponza's curtains, `2.8260,0.3324,-2.7619,27.122,-513.942`); over frames it is smooth, and a slow turn
@@ -1972,7 +1978,7 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   field's frames per pixel too: 50.9 ms either way, 60.1 without upscaling). Checked by the distance alone, within 1%,
   the history blurred across window frames and railings (227). A frame far brighter than what a settled history (8
   frames or more) holds is taken as at most 8 times that, or that and a quarter of the frame's white more
-  (`kEmitterFireflyRise`, `kEmitterFireflyFloor`): an emitter point the candidates favour (unshadowed and near) that
+  (`kFireflyRise`, `kFireflyFloor`: `HistoryFireflyClamp`, which the near field's history takes too): an emitter point the candidates favour (unshadowed and near) that
   seldom reaches the pixel, a lit window's interior beside its curtain, is the whole unshadowed light the once in tens
   of frames its ray gets through, a 32nd of which was a blob that faded over 32 frames (the user's night time lapse,
   `-827.3380,155.1481,33.8635,-9.897,72.297` from 00:19; the frames its random numbers pick, 63, 103 and 146, whatever

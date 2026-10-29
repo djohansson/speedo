@@ -329,8 +329,16 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		Texture2D lastSurfaces = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + (current ^ 1u)];
 		float weights;
 		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights);
+		// and a frame far brighter than what the history holds taken as at most a few times that (HistoryFireflyClamp, as
+		// the emitters' light): a traced pixel's ray of the frame that meets what is bright, the voxels by a lit window's
+		// interior from a window frame's side across the opening, is a sixteenth of what the pixels around take (at a
+		// stride of 4), and faded over the history's 16 frames: white fireflies along the window frames at night (the
+		// user's pose over Bistro's facades, 724.7479,659.6074,-2775.4233,-21.034,93.844 at 02:14)
 		if (weights > 1e-3)
-			result = lerp(total / weights, now, gi.nearBlend);
+		{
+			float4 kept = total / weights;
+			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb), now.a), gi.nearBlend);
+		}
 	}
 	history[pixel] = result;
 }
