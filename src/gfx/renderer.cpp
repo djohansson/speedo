@@ -1673,6 +1673,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myEmitterReuse = reuse != nullptr && std::string_view(reuse) == "1";
 	if (const char* frames = std::getenv("SPEEDO_EMITTER_HISTORY_FRAME_COUNT"); frames != nullptr && *frames != '\0')
 		myEmitterBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 1024.0F);
+	if (const char* frames = std::getenv("SPEEDO_EMITTER_STILL_FRAME_COUNT"); frames != nullptr && *frames != '\0')
+		myEmitterStillBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 2048.0F);
 	if (const char* roulette = std::getenv("SPEEDO_EMITTER_ROULETTE"); roulette != nullptr && *roulette != '\0')
 		myEmitterRoulette = std::max(std::strtof(roulette, nullptr), 0.0F);
 	count("SPEEDO_EMITTER_VISIBILITY_FRAME_COUNT", myEmitterVisibilityFrameCount, 1, 1024);
@@ -2446,6 +2448,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		data.spatialCount = myEmitterReuse ? myEmitterSpatialCount : 0U;
 		data.spatialRadius = myEmitterSpatialRadius;
 		data.blend = history ? myEmitterBlend : 1.0F;
+		// a still view's history grows where nothing may change the emitters' light: what moves may shadow it, and an animated
+		// material change it (the counts are half floats, exact to 2048)
+		data.stillBlend = history && !frame.model->Moves() ? std::min(myEmitterStillBlend, data.blend) : data.blend;
 		data.movingBvh = myEmittersOn && frame.model->HasMovingBvh() ? 1U : 0U;
 		data.filterReach = myEmitterFilterReach;
 		data.stride = myEmitterStride;
@@ -2456,7 +2461,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		// the reference accumulates every frame it is shown, evenly (a still camera's: the history is reprojected)
 		myEmitterReferenceFrameCount = data.raw == 2U && history ? myEmitterReferenceFrameCount + 1 : 0;
 		if (data.raw == 2U)
-			data.blend = 1.0F / static_cast<float>(myEmitterReferenceFrameCount + 1);
+			data.blend = data.stillBlend = 1.0F / static_cast<float>(myEmitterReferenceFrameCount + 1);
 		auto& buffer = myEmitterDataBuffers[frame.frameIndex];
 		auto memory = buffer.Map();
 		std::memcpy(memory.data(), &data, sizeof(data));

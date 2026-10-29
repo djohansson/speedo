@@ -279,13 +279,14 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 
 // the near field over frames (GI Near Temporal; GiData::nearTemporal), per pixel of the pre-pass's depth: the frame's
 // filtered rays upsampled from the traced pixels around (GiNearUpsample), blended into what the last frame's history
-// holds where the pixel's point was then (by the view's last view projection, ViewData::previousViewProjection, the last
-// jitter's), by GiData::nearBlend (1 where there is no history, or the frames are off: the frame's alone). the history
-// is bilinear over the 4 pixels around that place, each only if its point was as far from the last frame's eye as this
-// pixel's is now (within a fifth of a percent and the depth two pixels make along the surface: else it saw something
-// else there, revealed or moved) and its normal within 25 degrees, and what moves (the main depth's stencil) takes none,
-// so neither ghosts. the frame's history and its pixels' surfaces (distance and normal, as the emitters') go to the
-// images the frame's parity says (SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE). per pixel rather than per traced pixel, as the
+// holds where the pixel's point was then (by the view's last view projection, ViewData::previousViewProjection, the
+// jitters taken out: see PixelHistoryAt), by GiData::nearBlend (1 where there is no history, or the frames are off: the
+// frame's alone). the history is bilinear over the 4 pixels around that place, each only if its point was as far from
+// the last frame's eye as this pixel's is now (within a fifth of a percent and the depth two pixels make along the
+// surface: else it saw something else there, revealed or moved) and its normal within 25 degrees, else the 3x3 around
+// that are (see PixelHistory), and what moves (the main depth's stencil) takes none, so neither ghosts. the frame's
+// history and its pixels' surfaces (distance and normal, as the emitters') go to the images the frame's parity says
+// (SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE). per pixel rather than per traced pixel, as the
 // emitters' (see ComputeEmitterTemporal): under temporal upscaling's jitter, the pixels upsampled from a traced pixel at
 // an edge changed as a block, which the upscaler passed on (the near field's light alone, the indirect diffuse debug view
 // with SPEEDO_GI_NEAR_SHOW=1, at the user's San Miguel pose 7.6715,4.3834,1.7963,-22.087,-88.462 at performance, a
@@ -320,30 +321,14 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
 	if (now.a >= 0.0 && gi.nearBlend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
 	{
-		float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+		float2 at = PixelHistoryAt(view, clip);
 		float expected = distance(surface.position, view.previousEyePosition.xyz);
 		float slant = abs(dot(surface.normal, normalize(toEye)));
 		float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
 		Texture2D last = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (current ^ 1u)];
 		Texture2D lastSurfaces = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + (current ^ 1u)];
-		int2 base = int2(floor(at));
-		float2 f = at - float2(base);
-		float4 total = 0.0;
-		float weights = 0.0;
-		for (int corner = 0; corner < 4; corner++)
-		{
-			int2 offset = int2(corner & 1, corner >> 1);
-			int2 tap = base + offset;
-			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
-				continue;
-			float4 value = last.Load(int3(tap, 0));
-			float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
-			if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), surface.normal) < 0.9)
-				continue;
-			float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
-			total += w * value;
-			weights += w;
-		}
+		float weights;
+		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights);
 		if (weights > 1e-3)
 			result = lerp(total / weights, now, gi.nearBlend);
 	}

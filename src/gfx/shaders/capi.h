@@ -353,8 +353,9 @@ struct ViewData
 	alignas(16) FLOAT4(eyePosition); // xyz: the camera's position, in world space (for the specular lighting)
 	alignas(16) FLOAT4X4(inverseViewProjection); // for the environment backdrop's rays (see ComputeMain)
 	alignas(16) FLOAT4(viewport); // x, y, width, height: where it is drawn in the render target, in pixels
-	// the last frame's view projection and eye (w: 1 if there was one, with the same viewport), for what is accumulated
-	// over frames to reproject (see ComputeGiNearTemporal)
+	// the last frame's view projection and eye (w: 1 if there was one, with the same viewport, 2 if the view hasn't moved
+	// since: its view projection without the jitter the same), for what is accumulated over frames to reproject (see
+	// ComputeGiNearTemporal)
 	alignas(16) FLOAT4X4(previousViewProjection);
 	alignas(16) FLOAT4(previousEyePosition);
 	// how far its projection is offset, in normalized device coordinates, for temporal upscaling (see Views::Upload): xy this
@@ -511,8 +512,10 @@ struct EmitterData
 	alignas(4) UINT1(spatialCount);
 	alignas(4) FLOAT1(spatialRadius);
 	// the frame's weight in the accumulation over frames (1 where there is no history yet; 1 over
-	// SPEEDO_EMITTER_HISTORY_FRAME_COUNT)
+	// SPEEDO_EMITTER_HISTORY_FRAME_COUNT), and its least while the view is still, where nothing may change the emitters'
+	// light (1 over SPEEDO_EMITTER_STILL_FRAME_COUNT; the blend where the model moves: see ComputeEmitterTemporal)
 	alignas(4) FLOAT1(blend);
+	alignas(4) FLOAT1(stillBlend);
 	// whether the shadow rays trace what moves too (gBvhMovingNodes), and the debug views': 1 the rays alone, unfiltered, 2
 	// the reference (see DEBUG_VIEW_EMITTERS_RAW)
 	alignas(4) UINT1(movingBvh);

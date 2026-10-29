@@ -402,7 +402,8 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, 
 		auto viewport = ScaleViewport(camera.GetDesc().viewport, viewportScale);
 		// the offset in normalized device coordinates, a translation of clip space by w (so as well for orthographic views)
 		glm::vec2 ndcJitter = offset * 2.0F / glm::vec2(static_cast<float>(viewport.width), static_cast<float>(viewport.height));
-		auto viewProjection = glm::translate(glm::mat4(1.0F), glm::vec3(ndcJitter, 0.0F)) * camera.GetProjectionMatrix() * camera.GetViewMatrix();
+		auto unjittered = camera.GetProjectionMatrix() * camera.GetViewMatrix();
+		auto viewProjection = glm::translate(glm::mat4(1.0F), glm::vec3(ndcJitter, 0.0F)) * unjittered;
 		std::copy_n(&viewProjection[0][0], 16, &views[viewIt].viewProjection[0][0]); //NOLINT(readability-magic-numbers)
 		auto eye = glm::inverse(camera.GetViewMatrix())[3];
 		std::copy_n(&eye[0], 4, views[viewIt].eyePosition);
@@ -415,11 +416,12 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, 
 		// the last frame's, where it had this view at the same place in the target (else this frame's, w 0: none)
 		glm::vec4 place(viewport.x, viewport.y, viewport.width, viewport.height);
 		bool previous = viewIt < myUploaded.size() && myUploaded[viewIt].viewport == place;
-		Uploaded uploaded{.viewProjection = viewProjection, .eye = eye, .viewport = place, .jitter = ndcJitter};
+		Uploaded uploaded{.viewProjection = viewProjection, .unjittered = unjittered, .eye = eye, .viewport = place, .jitter = ndcJitter};
 		const auto& last = previous ? myUploaded[viewIt] : uploaded;
 		std::copy_n(&last.viewProjection[0][0], 16, &views[viewIt].previousViewProjection[0][0]); //NOLINT(readability-magic-numbers)
 		std::copy_n(&last.eye[0], 3, views[viewIt].previousEyePosition);
-		views[viewIt].previousEyePosition[3] = previous ? 1.0F : 0.0F;
+		// 2 where the view hasn't moved since (the jittered view projections differ every frame while it is still)
+		views[viewIt].previousEyePosition[3] = previous ? (last.unjittered == unjittered ? 2.0F : 1.0F) : 0.0F;
 		views[viewIt].jitter[0] = ndcJitter.x;
 		views[viewIt].jitter[1] = ndcJitter.y;
 		views[viewIt].jitter[2] = last.jitter.x;

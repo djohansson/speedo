@@ -1846,10 +1846,11 @@ the 16 around the others drew stripes a pixel wide and a bright ray as a square)
 at every pixel of the pre-pass's depth, upsamples that from the traced pixels (`GiNearUpsample`: bilinear over the 2x2
 around, each by how much it is on the pixel's surface, as the emitters' light, with their fallbacks) and blends it into a
 history reprojected by the pixel's point through the view's last view projection (`ViewData::previousViewProjection`,
-`previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where the view moved in the target; the last
-jitter included), bilinear over the 4 pixels around where it was, each only if its point was as far from the last eye as
-this one's and its normal within 25 degrees (by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`:
-RG32F, distance and packed normal; within a fifth of a percent and two pixels' depth along the surface), none for what moves (the
+`previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where the view moved in the target, 2 where
+the view didn't move; both frames' jitters taken out, `PixelHistoryAt`, see the emitters'), bilinear over the 4 pixels
+around where it was, each only if its point was as far from the last eye as this one's and its normal within 25 degrees
+(by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: RG32F, distance and packed normal; within a
+fifth of a percent and two pixels' depth along the surface), else the 3x3 around that are (`PixelHistory`), none for what moves (the
 main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
 from the pool); the rays turn every frame (`GiNearDirection`), each pixel taking every one of its tile's 16 directions
 over 16 frames. Fixed, the rays' grain stayed on the screen as the camera moved (the user: "fixed to the camera"; their
@@ -1957,10 +1958,11 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   or a ledge's edge, the 3x3 by how their normals agree, never 0: left without light, those pixels were dark dashes along
   every edge at night, magenta in the debug views, which the tonemapper made white streaks at exposure 5), blended by 1
   over the frames it holds, at least 1 over `SPEEDO_EMITTER_HISTORY_FRAME_COUNT` (32), into the history the frame's parity
-  says (`SHADER_TYPES_EMITTER_HISTORY_TEXTURE`), bilinear from where the point was (the last view projection, its jitter
-  included), each pixel only where its last surface (`SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE`, RG32F: the distance
-  from the eye and the packed normal) was the same (within a fifth of a percent and two pixels' depth along the surface,
-  normals within 25 degrees; 16 frames, 0.154 against 0.188 at the string lights' pose). It was accumulated at the
+  says (`SHADER_TYPES_EMITTER_HISTORY_TEXTURE`), bilinear from where the point was (the last view projection, both frames'
+  jitters taken out, `PixelHistoryAt`), each pixel only where its last surface (`SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE`,
+  RG32F: the distance from the eye and the packed normal) was the same (within a fifth of a percent and two pixels' depth
+  along the surface, normals within 25 degrees; 16 frames, 0.154 against 0.188 at the string lights' pose), else the 3x3
+  around that was (`PixelHistory`). It was accumulated at the
   traced pixels, which the main pass upsampled, until temporal upscaling's jitter: a traced pixel at an edge saw one
   surface in some frames and the other in others, the pixels upsampled from it changed as a block, and the upscaler's
   clamp to the 3x3 around passed that on as the frame's light: speckles on every edge, ledge and leaf the emitters light
@@ -1976,7 +1978,21 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   `-827.3380,155.1481,33.8635,-9.897,72.297` from 00:19; the frames its random numbers pick, 63, 103 and 146, whatever
   the time). The curtain's pixels that jumped went from about 420 to 76 over 200 frames; the reference is 11% brighter
   there than the frames (8% before), the light those rare frames carry, and the frame as bright as it to 0.1% (4 times
-  took 19% and 1%). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
+  took 19% and 1%). While the view is still and the model has no animation (`EmitterData::stillBlend`;
+  `ViewData::previousEyePosition`'s w 2, which `Views::Upload` sets by the view projections without the jitter), the
+  history holds up to `SPEEDO_EMITTER_STILL_FRAME_COUNT` (256) frames, back to 32 once the view moves: a mean of the last
+  32 frames' samples never settles, and what was left of their noise wandered at the pace the frames replaced it, light
+  creeping over the walls (the user's night pose in Bistro's street, `-752.4570,186.6341,97.5802,-1.211,63.522` at 00:57,
+  a near field stride of 4, performance: where the user pasted, a mean change of 1.74 of 255 over 20 frames, 1.65 of it
+  the emitters'; theirs at the render size without upscaling 1.81, now 0.27; 1024 frames gain little). With the 3x3's
+  history at edges (`PixelHistory`) and the jitters taken out (`PixelHistoryAt`), the pose's 1.74 is 0.83. What is left
+  is FSR's: on a still frame with nothing traced it repeats with its jitter's cycle (32 frames at performance: 0.10
+  between frames 32 apart, 0.53 between 16), and what noise is left in the emitters' light flips its locks and shading
+  change tests at thin features, window frames' and pilasters' edges (0.77 with FSR at the render size, 0.27 without).
+  `EmitterViewStill` compared the jittered view projections, which never found a view still under upscaling (it gates
+  the visibility reuse, `SPEEDO_EMITTER_REUSE=1`). The near field's history takes the same 3x3 and reprojection, but not
+  the still frames: its alpha holds the contact share, and a count would need another channel (its share of the pose's
+  creep, alone, 0.42). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
   it at their pixel (`EmitterIrradiance`) and add the base color times it to their direct light (Direct Light's debug
   view has it; blended and scattering fragments don't).
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled

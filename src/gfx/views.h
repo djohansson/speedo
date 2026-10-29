@@ -116,6 +116,7 @@ private:
 	struct Uploaded
 	{
 		glm::mat4 viewProjection;
+		glm::mat4 unjittered; // the view projection without the jitter, by which the next tells whether the view moved
 		glm::vec4 eye;
 		glm::vec4 viewport;
 		glm::vec2 jitter;

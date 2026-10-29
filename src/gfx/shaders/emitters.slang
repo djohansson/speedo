@@ -401,6 +401,71 @@ float3 EmitterUnpackNormal(float packed)
 	return normalize(normal);
 }
 
+// where a pixel's history is in the last frame's images (PixelHistory's at, in pixels, their centers whole): the pixel
+// moved as its point did (clip: the point by the view's last view projection), both frames' jitters taken out, as
+// temporal upscaling's motion is (UpscaleMotion). a pixel's history holds what its jittered samples saw over frames,
+// all of its area, so a still view's is the pixel's own; through the last jittered view projection alone, as it was,
+// a still view's pixel was the last frame's moved by the two jitters' difference, a sub-pixel offset another way every
+// frame: every frame's history was resampled bilinearly there, blurred and shifted back and forth, which crept over the
+// walls however many frames it held (the user's night pose in Bistro's street, with 256 frames 0.82 of 255 over 20
+// frames, 1024 0.77)
+float2 PixelHistoryAt(ViewData view, float4 clip)
+{
+	float2 ndc = clip.xy / clip.w - view.jitter.zw + view.jitter.xy;
+	return (ndc * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+}
+
+// a pixel's history over frames (Emitter Temporal's, GI Near Temporal's): the last frame's light at where the pixel's
+// point was then (at, PixelHistoryAt), bilinear over the 4 pixels around, each only where it saw the
+// pixel's surface (lastSurfaces: its distance from the last eye within tolerance of expected, and its normal within 25
+// degrees), or where none of them did, the 3x3 around that did, by their nearness; the sum and its weights (0: none).
+// the 3x3 is for edges under temporal upscaling's jitter: a pixel at an edge sees one surface in some frames and the
+// other in others, where the 4 around may all have seen the other last frame, and its history started over from the
+// frame's light alone, as noisy as a frame is: streaks along every window frame and pilaster that crept as the frames
+// replaced them (the user's night pose in Bistro's street, -752.4570,186.6341,97.5802,-1.211,63.522)
+float4 PixelHistory(Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float expected, float tolerance, float3 normal, out float weights)
+{
+	int2 base = int2(floor(at));
+	float2 f = at - float2(base);
+	float4 total = 0.0;
+	weights = 0.0;
+	for (int corner = 0; corner < 4; corner++)
+	{
+		int2 offset = int2(corner & 1, corner >> 1);
+		int2 tap = base + offset;
+		if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+			continue;
+		float4 value = last.Load(int3(tap, 0));
+		float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
+		if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), normal) < 0.9)
+			continue;
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
+		total += w * value;
+		weights += w;
+	}
+	if (weights > 1e-3)
+		return total;
+	total = 0.0;
+	weights = 0.0;
+	int2 center = int2(round(at));
+	for (int y = -1; y <= 1; y++)
+		for (int x = -1; x <= 1; x++)
+		{
+			int2 tap = center + int2(x, y);
+			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+				continue;
+			float4 value = last.Load(int3(tap, 0));
+			float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
+			if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), normal) < 0.9)
+				continue;
+			float2 d = float2(tap) - at;
+			float w = 1.0 / (1.0 + dot(d, d));
+			total += w * value;
+			weights += w;
+		}
+	return total;
+}
+
 // a traced pixel's surface (the pre-pass's), and how near an emitter point counts (two pixels' widths there)
 bool EmitterSurfaceAt(int2 pixel, out ViewData view, out ShadowSurface surface, out float nearest2)
 {
@@ -421,12 +486,13 @@ float EmitterTolerance(ViewData view, ShadowSurface surface, uint stride)
 	return 0.02 * length(toEye) + float(stride) * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
 }
 
-// whether a view is where it was last frame (so a traced pixel is the same point, see ComputeEmitterShade)
+// whether a view is where it was last frame (so a traced pixel is the same point, but for temporal upscaling's jitter,
+// see ComputeEmitterShade): Views::Upload marks it (ViewData::previousEyePosition's w), by its view projection without
+// the jitter. comparing the view projections here, as this did, never found a view still under upscaling: the jittered
+// ones differ every frame
 bool EmitterViewStill(ViewData view)
 {
-	return view.previousEyePosition.w > 0.0 && all(view.previousViewProjection[0] == view.viewProjection[0]) &&
-		   all(view.previousViewProjection[1] == view.viewProjection[1]) && all(view.previousViewProjection[2] == view.viewProjection[2]) &&
-		   all(view.previousViewProjection[3] == view.viewProjection[3]);
+	return view.previousEyePosition.w > 1.5;
 }
 
 // the Emitter Sample pass: per traced pixel, its candidates resampled, then, with EmitterData::temporalReuse
@@ -789,10 +855,11 @@ float4 EmitterUpsample(int2 pixel, float3 position, float3 normal, float3 eye, u
 
 // the Emitter Temporal pass: per pixel of the pre-pass's depth, the frame's filtered light upsampled from the traced
 // pixels around (EmitterUpsample), blended into what the last frame's history holds where its point was then (by the
-// view's last view projection, the last jitter's): bilinear over the 4 pixels around that place, each only where its
-// point was as far from the last eye (within a fifth of a percent and the depth two pixels make along the surface) and
-// its normal within 25 degrees, and none where something moves (the main depth's stencil), so neither ghosts; by 1 over
-// the frames it holds (its alpha), at least EmitterData::blend (1 where there is no history: the frame's alone); into
+// view's last view projection, the jitters taken out: see PixelHistoryAt): bilinear over the 4 pixels around that
+// place, each only where its point was as far from the last eye (within a fifth of a percent and the depth two pixels
+// make along the surface) and its normal within 25 degrees, else the 3x3 around that are (see PixelHistory), and none
+// where something moves (the main depth's stencil), so neither ghosts; by 1 over the frames it holds (its alpha), at least EmitterData::blend
+// (EmitterData::stillBlend while the view is still; 1 where there is no history: the frame's alone); into
 // the images of the frame's parity, with each pixel's surface (its distance from the eye and its normal), which the next
 // frame checks its history by. per pixel rather than per traced pixel: under temporal upscaling's jitter, a traced
 // pixel at an edge saw one surface in some frames and the other in others, and which traced pixels a pixel's upsampling
@@ -831,36 +898,27 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
 	if (now.a >= 0.0 && blend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
 	{
-		float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+		float2 at = PixelHistoryAt(view, clip);
 		float expected = distance(surface.position, view.previousEyePosition.xyz);
 		float slant = abs(dot(surface.normal, normalize(toEye)));
 		float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
 		Texture2D last = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + (current ^ 1u)];
 		Texture2D lastSurfaces = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + (current ^ 1u)];
-		int2 base = int2(floor(at));
-		float2 f = at - float2(base);
-		float4 total = 0.0;
-		float weights = 0.0;
-		for (int corner = 0; corner < 4; corner++)
-		{
-			int2 offset = int2(corner & 1, corner >> 1);
-			int2 tap = base + offset;
-			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
-				continue;
-			float4 value = last.Load(int3(tap, 0));
-			float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
-			if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), surface.normal) < 0.9)
-				continue;
-			float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
-			total += w * value;
-			weights += w;
-		}
+		float weights;
+		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights);
 		// a mean of the frames the history holds, at most the history's (1 over the blend): blended by the blend alone, a
-		// history started over took its first frame's light as all of it and let it go at a thirty-second a frame
+		// history started over took its first frame's light as all of it and let it go at a thirty-second a frame. while
+		// the view is still and nothing may change the emitters' light, the history grows to EmitterData::stillBlend's
+		// frames, back to the blend's once the view moves: a mean of the last 32 frames' samples never settles, and what
+		// is left of their noise wanders at the pace the frames replace it, which a still view shows as light creeping over
+		// the walls (the user's night pose in Bistro's street, -752.4570,186.6341,97.5802,-1.211,63.522 at 00:57, a near
+		// field stride of 4 and performance: what was drawn changed by a mean of 1.74 of 255 over 20 frames, 1.65 of it
+		// the emitters' light)
+		float least = data.raw == 0u && EmitterViewStill(view) ? data.stillBlend : blend;
 		if (weights > 1e-3)
 		{
 			float3 kept = total.rgb / weights;
-			float count = min(total.a / weights + 1.0, 1.0 / blend);
+			float count = min(total.a / weights + 1.0, 1.0 / least);
 			// and a frame far brighter than what a settled history holds taken as at most a few times that (see
 			// kEmitterFireflyRise): a point its candidates favour (unshadowed, near) but which seldom reaches it, an emissive
 			// window's interior beside its curtain, is the whole unshadowed light the once in tens of frames its ray gets
@@ -877,7 +935,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 				if (luminance > bound)
 					sample *= bound / luminance;
 			}
-			result = float4(lerp(kept, sample, max(1.0 / count, blend)), count);
+			result = float4(lerp(kept, sample, max(1.0 / count, least)), count);
 		}
 	}
 	history[pixel] = result;

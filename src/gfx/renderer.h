@@ -669,6 +669,7 @@ private:
 	// the light below which a shadow ray is traced by chance (SPEEDO_EMITTER_ROULETTE, see EmitterData::roulette)
 	float myEmitterRoulette = 0.02F;
 	float myEmitterBlend = 1.0F / 32.0F; // 1 over SPEEDO_EMITTER_HISTORY_FRAME_COUNT
+	float myEmitterStillBlend = 1.0F / 256.0F; // 1 over SPEEDO_EMITTER_STILL_FRAME_COUNT (see EmitterData::stillBlend)
 	bool myEmittersOn = false;
 	bool myEmitterHistoryValid = false;
 	uint32_t myEmitterFrame = 0;
