@@ -138,8 +138,8 @@ extern "C"
 // the near field upsampled to every pixel and accumulated over frames (GI Near Temporal, ComputeGiNearTemporal): two of
 // each, the frame's written while the last frame's is read, by the frame's parity (GiData::nearFrame): the light and share
 // as SHADER_TYPES_GI_NEAR_TEXTURE's, which the main pass's opaque fragments take near other surfaces (see
-// GiNearIrradiance), and each pixel's surface (RG32F: its distance from the eye, -1 where there is none, and its
-// normal packed as the emitters'), which the next frame's reprojection checks its own against
+// GiNearIrradiance), and each pixel's surface (RGBA32F: its distance from the eye, -1 where there is none, its normal
+// packed as the emitters', and the frames its history holds), which the next frame's reprojection checks its own against
 #define SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE 26u // and 27
 #define SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE 19u // and 20
 #define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE 28u // and 29
@@ -1124,10 +1124,12 @@ struct GiData
 	alignas(4) UINT1(nearShow);
 	// the near field accumulated over frames (see ComputeGiNearTemporal; SPEEDO_GI_NEAR_TEMPORAL=0 without): whether it is
 	// (the main pass then reads it), the frame's weight in it (1 where there is no history yet; 1 over
-	// SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT), and the frames it has run, whose parity says which of its images is the frame's and
-	// which turn its rays take
+	// SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT), its least while the view is still and nothing may change the near field's light
+	// (1 over SPEEDO_GI_NEAR_STILL_FRAME_COUNT; the blend where the model moves or the lights changed lately), and the frames
+	// it has run, whose parity says which of its images is the frame's and which turn its rays take
 	alignas(4) UINT1(nearTemporal);
 	alignas(4) FLOAT1(nearBlend);
+	alignas(4) FLOAT1(nearStillBlend);
 	alignas(4) UINT1(nearFrame);
 	// the pixels whose rays are traced, every nearStride-th each way (SPEEDO_GI_NEAR_STRIDE, 2 or 4): the filter takes the
 	// traced pixels within its reach, and each traced pixel's ray is one of 16 directions over the 4x4 of them it is in

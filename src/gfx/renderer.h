@@ -621,6 +621,7 @@ private:
 	std::array<FrameGraph::ImageId, 2> myGiNearHistoryDistance{};
 	FrameGraph::PassId myGiNearTemporalPass;
 	float myGiNearBlend = 1.0F / 16.0F;
+	float myGiNearStillBlend = 1.0F / 256.0F; // 1 over SPEEDO_GI_NEAR_STILL_FRAME_COUNT (see GiData::nearStillBlend)
 	float myGiNearFrameBlend = 1.0F; // this frame's (GiData::nearBlend)
 	bool myGiNearTemporalOn = false;
 	bool myGiNearHistoryValid = false;

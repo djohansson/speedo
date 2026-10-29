@@ -314,8 +314,8 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		return;
 	}
 	float3 toEye = view.eyePosition.xyz - surface.position;
-	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), 0.0, 0.0);
 	float4 now = GiNearUpsample(pixel, surface, view, int(max(gi.nearStride, 1u)));
+	float count = 1.0; // the frames the history holds
 	float4 result = now;
 	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
 	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
@@ -328,19 +328,28 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		Texture2D last = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE + (current ^ 1u)];
 		Texture2D lastSurfaces = gTextures[SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + (current ^ 1u)];
 		float weights;
-		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights);
+		float held;
+		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights, held);
+		// the frame blended in by 1 over the frames the history holds, at least the blend, or while the view is still and
+		// nothing may change its light the still blend (GiData::nearStillBlend), as the emitters' light (see
+		// ComputeEmitterTemporal): a mean of the last 16 frames' rays never settles, and what was left of their noise
+		// wandered at the pace the frames replaced it, the light in a lit window's opening never still (the user's pose over
+		// Bistro's facades, 724.7479,659.6074,-2775.4233,-21.034,93.844 at 02:14)
 		// and a frame far brighter than what the history holds taken as at most a few times that (HistoryFireflyClamp, as
 		// the emitters' light): a traced pixel's ray of the frame that meets what is bright, the voxels by a lit window's
 		// interior from a window frame's side across the opening, is a sixteenth of what the pixels around take (at a
 		// stride of 4), and faded over the history's 16 frames: white fireflies along the window frames at night (the
-		// user's pose over Bistro's facades, 724.7479,659.6074,-2775.4233,-21.034,93.844 at 02:14)
+		// same pose)
 		if (weights > 1e-3)
 		{
 			float4 kept = total / weights;
-			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb), now.a), gi.nearBlend);
+			float least = EmitterViewStill(view) ? gi.nearStillBlend : gi.nearBlend;
+			count = min(max(held / weights, 1.0) + 1.0, 1.0 / least);
+			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb), now.a), max(1.0 / count, least));
 		}
 	}
 	history[pixel] = result;
+	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), count, 0.0);
 }
 
 // the main pass's opaque fragments' diffuse indirect light (see Shade): the volume's lookup (indirect, -1 outside the

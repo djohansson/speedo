@@ -432,13 +432,15 @@ float2 PixelHistoryAt(ViewData view, float4 clip)
 // the 3x3 is for edges under temporal upscaling's jitter: a pixel at an edge sees one surface in some frames and the
 // other in others, where the 4 around may all have seen the other last frame, and its history started over from the
 // frame's light alone, as noisy as a frame is: streaks along every window frame and pilaster that crept as the frames
-// replaced them (the user's night pose in Bistro's street, -752.4570,186.6341,97.5802,-1.211,63.522)
-float4 PixelHistory(Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float expected, float tolerance, float3 normal, out float weights)
+// replaced them (the user's night pose in Bistro's street, -752.4570,186.6341,97.5802,-1.211,63.522). held: the sum of
+// the surfaces' third channels by the same weights (the near field's frame counts; the emitters' are in their light's alpha)
+float4 PixelHistory(Texture2D last, Texture2D lastSurfaces, ViewData view, float2 at, float expected, float tolerance, float3 normal, out float weights, out float held)
 {
 	int2 base = int2(floor(at));
 	float2 f = at - float2(base);
 	float4 total = 0.0;
 	weights = 0.0;
+	held = 0.0;
 	for (int corner = 0; corner < 4; corner++)
 	{
 		int2 offset = int2(corner & 1, corner >> 1);
@@ -446,17 +448,19 @@ float4 PixelHistory(Texture2D last, Texture2D lastSurfaces, ViewData view, float
 		if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
 			continue;
 		float4 value = last.Load(int3(tap, 0));
-		float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
+		float3 seen = lastSurfaces.Load(int3(tap, 0)).xyz;
 		if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), normal) < 0.9)
 			continue;
 		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
 		total += w * value;
 		weights += w;
+		held += w * seen.z;
 	}
 	if (weights > 1e-3)
 		return total;
 	total = 0.0;
 	weights = 0.0;
+	held = 0.0;
 	int2 center = int2(round(at));
 	for (int y = -1; y <= 1; y++)
 		for (int x = -1; x <= 1; x++)
@@ -465,13 +469,14 @@ float4 PixelHistory(Texture2D last, Texture2D lastSurfaces, ViewData view, float
 			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
 				continue;
 			float4 value = last.Load(int3(tap, 0));
-			float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
+			float3 seen = lastSurfaces.Load(int3(tap, 0)).xyz;
 			if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), normal) < 0.9)
 				continue;
 			float2 d = float2(tap) - at;
 			float w = 1.0 / (1.0 + dot(d, d));
 			total += w * value;
 			weights += w;
+			held += w * seen.z;
 		}
 	return total;
 }
@@ -915,7 +920,8 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		Texture2D last = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + (current ^ 1u)];
 		Texture2D lastSurfaces = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + (current ^ 1u)];
 		float weights;
-		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights);
+		float held;
+		float4 total = PixelHistory(last, lastSurfaces, view, at, expected, tolerance, surface.normal, weights, held);
 		// a mean of the frames the history holds, at most the history's (1 over the blend): blended by the blend alone, a
 		// history started over took its first frame's light as all of it and let it go at a thirty-second a frame. while
 		// the view is still and nothing may change the emitters' light, the history grows to EmitterData::stillBlend's

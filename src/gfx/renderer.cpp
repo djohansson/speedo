@@ -1543,6 +1543,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// the near field over frames: its history the last this many frames, about (the frame's weight in it the reciprocal)
 	if (const char* frames = std::getenv("SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT"); frames != nullptr && *frames != '\0')
 		myGiNearBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 1024.0F);
+	// and while the view is still and nothing may change its light (see GiData::nearStillBlend)
+	if (const char* frames = std::getenv("SPEEDO_GI_NEAR_STILL_FRAME_COUNT"); frames != nullptr && *frames != '\0')
+		myGiNearStillBlend = 1.0F / std::clamp(static_cast<float>(std::strtod(frames, nullptr)), 1.0F, 2048.0F);
 	// every clip voxelized again every frame (SPEEDO_GI_REVOXELIZE=1): what the clips' scrolling must come to, for
 	// comparing with it (slow)
 	const char* revoxelize = std::getenv("SPEEDO_GI_REVOXELIZE");
@@ -2125,9 +2128,10 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
-		// and its pixels' surfaces (distance and packed normal, as the emitters'), which the next frame checks its history by
+		// and its pixels' surfaces (distance and packed normal, as the emitters', and the frames its history holds), which the
+		// next frame checks its history by
 		myGiNearHistoryDistanceImages[historyIt] =
-			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32Sfloat, extent);
+			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
 		// and the emitters' light's per pixel and the pixels' surfaces (distance and packed normal), and the traced
 		// pixels' surfaces (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
 		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
@@ -3633,6 +3637,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.nearShow = myGiNearShow;
 		clip.nearTemporal = myGiNearTemporalOn ? 1U : 0U;
 		clip.nearBlend = myGiNearFrameBlend;
+		// a still view's history grows where nothing may change the near field's light: what moves, and the lights changing
+		// (the sun as the time of day advances: the volume it reads is lit again)
+		bool settled = frame.model != nullptr && !frame.model->Moves() && !myGiLightsChanged && myGiLightsFollowFrames == 0;
+		clip.nearStillBlend = settled ? std::min(myGiNearStillBlend, myGiNearFrameBlend) : myGiNearFrameBlend;
 		clip.nearFrame = myGiNearFrame;
 		clip.nearStride = myGiNearStride;
 		if (myGiDump)

@@ -1849,7 +1849,8 @@ history reprojected by the pixel's point through the view's last view projection
 `previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where the view moved in the target, 2 where
 the view didn't move; both frames' jitters taken out, `PixelHistoryAt`, see the emitters'), bilinear over the 4 pixels
 around where it was, each only if its point was as far from the last eye as this one's and its normal within 25 degrees
-(by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: RG32F, distance and packed normal; within a
+(by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: RGBA32F, distance, packed normal and the frames
+the history holds; within a
 fifth of a percent and two pixels' depth along the surface), else the 3x3 around that are (`PixelHistory`), none for what moves (the
 main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), a frame far brighter than what the history
 holds taken as at most 8 times that, or that and a quarter of the frame's white more (`HistoryFireflyClamp`, the
@@ -1996,9 +1997,12 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   between frames 32 apart, 0.53 between 16), and what noise is left in the emitters' light flips its locks and shading
   change tests at thin features, window frames' and pilasters' edges (0.77 with FSR at the render size, 0.27 without).
   `EmitterViewStill` compared the jittered view projections, which never found a view still under upscaling (it gates
-  the visibility reuse, `SPEEDO_EMITTER_REUSE=1`). The near field's history takes the same 3x3 and reprojection, but not
-  the still frames: its alpha holds the contact share, and a count would need another channel (its share of the pose's
-  creep, alone, 0.42). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
+  the visibility reuse, `SPEEDO_EMITTER_REUSE=1`). The near field's history takes the same 3x3, reprojection and still
+  frames (`GiData::nearStillBlend`, `SPEEDO_GI_NEAR_STILL_FRAME_COUNT`, 256, where the model doesn't move and the lights
+  haven't changed, nor are being followed: the volume it reads is lit again as the time of day advances), its count in
+  its surfaces' third channel (RGBA32F; its alpha holds the contact share): the light in a lit window's opening, the
+  user's pose over Bistro's facades `724.7479,659.6074,-2775.4233,-21.034,93.844` at 02:14, changed by 1.36 of 255 over
+  20 frames, 0.22 with the near field off, now 0.28. Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
   it at their pixel (`EmitterIrradiance`) and add the base color times it to their direct light (Direct Light's debug
   view has it; blended and scattering fragments don't).
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled
