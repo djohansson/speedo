@@ -189,7 +189,7 @@ void WindowedApplication::InternalCopyPose()
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
 	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != 2)
 		text += std::format(" SPEEDO_GI_NEAR_STRIDE={}", stride);
-	if (auto upscaling = settings.upscaling.load(std::memory_order_relaxed); upscaling != gfx::Upscaling::kOff)
+	if (auto upscaling = settings.upscaling.load(std::memory_order_relaxed); upscaling != gfx::kDefaultUpscaling)
 		text += std::format(" SPEEDO_UPSCALING={}", gfx::UpscalingName(upscaling));
 	if (auto resolution = settings.giResolution.load(std::memory_order_relaxed); resolution != gfx::gi::kDefaultResolution)
 		text += std::format(" SPEEDO_GI_RESOLUTION={}", resolution);
@@ -1867,13 +1867,13 @@ void WindowedApplication::PrepareDraw()
 				}
 				if (ui::BeginMenu("Upscaling"))
 				{
-					// temporal upscaling (see ComputeResolve): the render size a share of the output's, resolved into it over frames
+					// temporal upscaling (FSR 2's, see upscale.slang): the render size a share of the output's, reconstructed at it over frames
 					auto current = App().GetScene().GetSettings().upscaling.load(std::memory_order_relaxed);
 					for (auto [label, upscaling, tooltip] : std::array{
-							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (the default)."},
-							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at the output's size and resolved over frames: temporal antialiasing alone (SPEEDO_UPSCALING=native)."},
+							 std::tuple{"Off", gfx::Upscaling::kOff, "Rendered at the output's size, without a history (SPEEDO_UPSCALING=off)."},
+							 std::tuple{"Native", gfx::Upscaling::kNative, "Rendered at the output's size and reconstructed over frames by FSR 3.1: its antialiasing alone (SPEEDO_UPSCALING=native)."},
 							 std::tuple{"Quality (77%)", gfx::Upscaling::kQuality, "Rendered at 77% of the output's size each way, 59% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=quality)."},
-							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% of the output's size each way, 45% of its pixels, and upscaled over frames (SPEEDO_UPSCALING=balanced)."},
+							 std::tuple{"Balanced (67%)", gfx::Upscaling::kBalanced, "Rendered at 67% of the output's size each way, 45% of its pixels, and upscaled over frames (the default)."},
 							 std::tuple{"Performance (50%)", gfx::Upscaling::kPerformance, "Rendered at half the output's size each way, a quarter of its pixels, and upscaled over frames (SPEEDO_UPSCALING=performance)."}})
 					{
 						if (MenuItem(label, nullptr, current == upscaling))

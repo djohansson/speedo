@@ -229,3 +229,8 @@ StructuredBuffer<EmitterData> gEmitterData[SHADER_TYPES_FRAME_COUNT];
 // frame's and the last frame's after it, by the frame's parity (EmitterData::frame)
 [[vk::binding(44, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint4> gEmitterReservoirs;
+
+// temporal upscaling's reconstructed previous depth (see ComputeUpscaleReconstruct): per render pixel the nearest depth
+// of the points that were there the last frame, a float's bits (an atomic minimum), cleared to the far plane each frame
+[[vk::binding(45, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gUpscaleDepth;

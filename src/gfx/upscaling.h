@@ -8,9 +8,9 @@
 namespace gfx
 {
 
-// temporal upscaling (see ComputeResolve): the frame rendered at a share of the output's size each way and resolved
-// into it over frames, from jittered projections (see Views::Upload). off draws at the output's size as before, without
-// a history; native resolves at the output's size (temporal antialiasing alone). View > Upscaling, SPEEDO_UPSCALING
+// temporal upscaling (FSR 2's, see upscale.slang): the frame rendered at a share of the output's size each way and
+// reconstructed at it over frames, from jittered projections (see Views::Upload). off draws at the output's size,
+// without a history; native reconstructs at the output's size (antialiasing alone). View > Upscaling, SPEEDO_UPSCALING
 enum class Upscaling : uint8_t
 {
 	kOff,
@@ -20,6 +20,8 @@ enum class Upscaling : uint8_t
 	kPerformance,
 };
 inline constexpr std::array kUpscalings{Upscaling::kOff, Upscaling::kNative, Upscaling::kQuality, Upscaling::kBalanced, Upscaling::kPerformance};
+// the default (since 2026-10-29, the user's call once FSR 3.1 was ported)
+inline constexpr Upscaling kDefaultUpscaling = Upscaling::kBalanced;
 
 // the share of the output's size each way a frame is rendered at
 [[nodiscard]] constexpr float RenderScale(Upscaling upscaling) noexcept

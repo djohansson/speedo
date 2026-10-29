@@ -167,14 +167,44 @@ extern "C"
 // the gTextures slot of the pre-pass's motion: where each pixel's point was in the last frame, in the render target's
 // pixels from it, unjittered (see FragmentPrepass), which temporal upscaling reprojects what moves by
 #define SHADER_TYPES_PREPASS_MOTION_TEXTURE 38u
-// temporal upscaling (see ComputeResolve, PushConstants::upscale): the frame's composite at the render size (linear,
-// before exposure: ComputeMain's output there, a: 1 where something was drawn), which the Resolve pass upsamples into the
-// output, and its history at the output's size (two, the frame's by its parity: rgb the resolved light, before exposure;
-// a: the weight of the samples it holds)
+// temporal upscaling (FSR 3.1's, see upscale.slang, PushConstants::upscale): the frame's composite at the render size
+// (linear, before exposure: ComputeMain's output there; a: the reactive mask, the blended layers' coverage), and the
+// accumulated color at the output's size (two, the frame's by its parity: rgb the light, before exposure; a: the lock)
 #define SHADER_TYPES_COMPOSITE_TEXTURE 1u
 #define SHADER_TYPES_COMPOSITE_RW_TEXTURE 32u
-#define SHADER_TYPES_RESOLVE_HISTORY_TEXTURE 2u // and 3
-#define SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE 30u // and 31
+#define SHADER_TYPES_UPSCALE_COLOR_TEXTURE 2u // and 3
+#define SHADER_TYPES_UPSCALE_COLOR_RW_TEXTURE 30u // and 31
+// and FSR's other images: of the frame, at the render size, the dilated depth (the nearest of each pixel's 3x3) and
+// motion (its motion, in the render target's uv), the farthest depth (in meters, the scene's units), the reactive masks
+// dilated (the reactiveness, the disocclusion, the shading change, the accumulation) and the luma instability; at half
+// the render size and below, the shading change's pyramid (three levels: the mean luma difference since the last frame,
+// and the mean of its sign), the farthest depth's mean and the shading change; kept from frame to frame, at the render
+// size, the luma, the accumulation and the luma history (the last 4 frames' lumas, unexposed), two of each by the
+// frame's parity; and at the output's size the new locks
+#define SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE 39u
+#define SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE 33u
+#define SHADER_TYPES_UPSCALE_DILATED_MOTION_TEXTURE 40u
+#define SHADER_TYPES_UPSCALE_DILATED_MOTION_RW_TEXTURE 34u
+#define SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_TEXTURE 41u
+#define SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_RW_TEXTURE 35u
+#define SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_TEXTURE 42u // to 44
+#define SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_RW_TEXTURE 36u // to 38
+#define SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_MIP_TEXTURE 45u
+#define SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_MIP_RW_TEXTURE 39u
+#define SHADER_TYPES_UPSCALE_SHADING_CHANGE_TEXTURE 46u
+#define SHADER_TYPES_UPSCALE_SHADING_CHANGE_RW_TEXTURE 40u
+#define SHADER_TYPES_UPSCALE_REACTIVE_TEXTURE 47u
+#define SHADER_TYPES_UPSCALE_REACTIVE_RW_TEXTURE 41u
+#define SHADER_TYPES_UPSCALE_LUMA_INSTABILITY_TEXTURE 48u
+#define SHADER_TYPES_UPSCALE_LUMA_INSTABILITY_RW_TEXTURE 42u
+#define SHADER_TYPES_UPSCALE_LUMA_TEXTURE 49u // and 50
+#define SHADER_TYPES_UPSCALE_LUMA_RW_TEXTURE 43u // and 44
+#define SHADER_TYPES_UPSCALE_ACCUMULATION_TEXTURE 51u // and 52
+#define SHADER_TYPES_UPSCALE_ACCUMULATION_RW_TEXTURE 45u // and 46
+#define SHADER_TYPES_UPSCALE_LUMA_HISTORY_TEXTURE 53u // and 54
+#define SHADER_TYPES_UPSCALE_LUMA_HISTORY_RW_TEXTURE 47u // and 48
+#define SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE 55u
+#define SHADER_TYPES_UPSCALE_NEW_LOCKS_RW_TEXTURE 49u
 
 // the sky's atmosphere, Earth's (Hillaire 2020, "A Scalable and Production Ready Sky and Atmosphere Rendering Technique",
 // after Bruneton's: see atmosphere.h): in kilometres. the ground and the top of the atmosphere, from the planet's center,
@@ -1146,7 +1176,7 @@ struct PushConstants
 	// per pass: which of the images made from the pre-pass's depth its fragments take (PREPASS_IMAGE_*): the main pass's
 	// opaque ones, at the depth the pre-pass drew
 	alignas(4) UINT1(prepassImages);
-	// per frame: temporal upscaling (UPSCALE_*, see ComputeResolve)
+	// per frame: temporal upscaling (UPSCALE_*, see upscale.slang)
 	alignas(4) UINT1(upscale);
 };
 // PushConstants::prepassImages: the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE, see ShadowTraceData), the
@@ -1156,8 +1186,8 @@ struct PushConstants
 #define PREPASS_IMAGE_GI_NEAR 2u
 #define PREPASS_IMAGE_EMITTERS 4u
 // PushConstants::upscale: ComputeMain composites into SHADER_TYPES_COMPOSITE_TEXTURE at the render size rather than into
-// the output (the Resolve pass then upsamples it); the last frame's history holds a frame at this size; which history
-// is the frame's (SHADER_TYPES_RESOLVE_HISTORY_TEXTURE + 1 if set)
+// the output (the Upscale passes then reconstruct it at the output's); the last frame's history holds a frame at this size;
+// which of each pair of images kept from frame to frame is the frame's (the first, or the second if set)
 #define UPSCALE_COMPOSITE 1u
 #define UPSCALE_HISTORY 2u
 #define UPSCALE_PARITY 4u

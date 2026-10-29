@@ -16,7 +16,7 @@ void ComputeMain(
 
 	Texture2D src = gTextures[SHADER_TYPES_RENDER_TARGET_TEXTURE];
 	// with temporal upscaling (UPSCALE_COMPOSITE), the composite at the render size, linear and before exposure, which the
-	// Resolve pass upsamples into the output and tonemaps (see ComputeResolve)
+	// Upscale passes reconstruct at the output's size (see upscale.slang)
 	bool composite = (gPushConstants.upscale & UPSCALE_COMPOSITE) != 0u;
 	RWTexture2D dst = gRWTextures[composite ? SHADER_TYPES_COMPOSITE_RW_TEXTURE : gPushConstants.outputIndex];
 
@@ -78,6 +78,9 @@ void ComputeMain(
 			}
 		}
 
+		// how much of the pixel the blended layers cover, temporal upscaling's reactive mask (see UpscaleReactiveMask): they
+		// draw no motion of their own, so their history would follow what is behind them
+		float coverage = 0.0;
 		// the blended fragments over the rest: the pixel's list, its nearest layers sorted near to far (by insertion),
 		// then blended far to near
 		uint node = gOitHeads[y * gPushConstants.framebufferWidth + x];
@@ -110,6 +113,7 @@ void ComputeMain(
 				OitNode layer = gOitNodes[layers[layerIt - 1]];
 				float alpha = float(layer.alphaDepth >> 24) / 255.0;
 				color.rgb = color.rgb * (1.0 - alpha) + UnpackR11G11B10(layer.color);
+				coverage = coverage + alpha - coverage * alpha;
 			}
 		}
 
@@ -151,7 +155,7 @@ void ComputeMain(
 		}
 
 		if (composite)
-			dst.Store(xy, float4(max(color.rgb, 0.0), 1.0));
+			dst.Store(xy, float4(max(color.rgb, 0.0), coverage));
 		else
 		{
 			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);

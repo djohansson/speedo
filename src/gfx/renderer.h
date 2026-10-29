@@ -109,7 +109,7 @@ struct FrameInputs
 	core::std_extra::function_ref<void(CommandBufferHandle cmd)> drawUi = NoUi;
 	// the ui's frosted panels (see Scene::FrameTarget::uiBlurRects)
 	std::span<const UiBlurRect> uiBlurRects;
-	// temporal upscaling (see ComputeResolve): the frame is rendered at the extent Resize was given and resolved into the
+	// temporal upscaling (see upscale.slang): the frame is rendered at the extent Resize was given and reconstructed at the
 	// output's, which Resize's extent must be RenderScale of, unless off
 	Upscaling upscaling = Upscaling::kOff;
 	// runs tasks in the background (creating pipelines, see RecordDrawList), if given
@@ -283,11 +283,27 @@ private:
 	// along x (see SHADER_TYPES_UI_BLUR_SOURCE_TEXTURE)
 	FrameGraph::ImageId myUiBlurSource;
 	FrameGraph::ImageId myUiBlurRows;
-	// temporal upscaling (see ComputeResolve): the frame's composite at the render size, which the Resolve pass upsamples
-	// into the output (SHADER_TYPES_COMPOSITE_TEXTURE), and its history (two, the frame's by its parity, see
-	// myResolveHistoryImages)
+	// temporal upscaling (FSR 3.1's, see upscale.slang): the frame's composite at the render size, which the Upscale
+	// passes reconstruct at the output's (SHADER_TYPES_COMPOSITE_TEXTURE); their images of the frame (the dilated depth and
+	// motion, the farthest depth, the shading change's pyramid and the farthest depth's mean, the shading change, the
+	// dilated reactive masks, the luma instability) and the reconstructed previous depth; and what they keep from frame to
+	// frame (see myUpscaleImages: at the render size the luma, the accumulation and the luma history, two of each by the
+	// frame's parity; at the output's the accumulated color, two, and the new locks)
 	FrameGraph::ImageId myComposite;
-	std::array<FrameGraph::ImageId, 2> myResolveHistory{};
+	FrameGraph::ImageId myUpscaleDilatedDepth;
+	FrameGraph::ImageId myUpscaleDilatedMotion;
+	FrameGraph::ImageId myUpscaleFarthestDepth;
+	std::array<FrameGraph::ImageId, 3> myUpscaleShadingChangeMips{};
+	FrameGraph::ImageId myUpscaleFarthestDepthMip;
+	FrameGraph::ImageId myUpscaleShadingChange;
+	FrameGraph::ImageId myUpscaleReactive;
+	FrameGraph::ImageId myUpscaleLumaInstability;
+	FrameGraph::BufferId myUpscaleDepth;
+	std::array<FrameGraph::ImageId, 2> myUpscaleLuma{};
+	std::array<FrameGraph::ImageId, 2> myUpscaleAccumulation{};
+	std::array<FrameGraph::ImageId, 2> myUpscaleLumaHistory{};
+	std::array<FrameGraph::ImageId, 2> myUpscaleColor{};
+	FrameGraph::ImageId myUpscaleNewLocks;
 	RenderOutput& myRenderOutput;
 	FrameGraph::ImageId myOutput;
 	FrameGraph::ImageId myShadowAtlas;
@@ -304,11 +320,12 @@ private:
 	FrameGraph::PassId myScatterDenoisePass;
 	FrameGraph::PassId myUiBlurXPass;
 	FrameGraph::PassId myUiBlurYPass;
-	// the frame's composite: into the output (ComputeMain), or at the render size and upscaled (Composite, then Resolve and
-	// Sharpen)
+	// the frame's composite: into the output (ComputeMain), or at the render size and upscaled (Composite, then the Upscale
+	// passes and Sharpen)
 	FrameGraph::PassId myComputeMainPass;
 	FrameGraph::PassId myCompositePass;
-	FrameGraph::PassId myResolvePass;
+	// clear, prepare inputs, shading change pyramid, shading change, prepare reactivity, luma instability, accumulate
+	std::array<FrameGraph::PassId, 7> myUpscalePasses{};
 	FrameGraph::PassId mySharpenPass;
 
 	// per frame index: the shadows' views and each light's first (gShadowViews, gLightShadows), host visible
@@ -587,11 +604,18 @@ private:
 	};
 	std::array<ScreenImage, 2> myGiNearHistoryImages;
 	std::array<ScreenImage, 2> myGiNearHistoryDistanceImages;
-	// temporal upscaling's history at the output's size (SHADER_TYPES_RESOLVE_HISTORY_TEXTURE), whether the last frame's
-	// holds a frame at this size, and the frames resolved (the history's parity)
-	std::array<ScreenImage, 2> myResolveHistoryImages;
-	bool myResolveHistoryValid = false;
-	uint32_t myResolveFrame = 0;
+	// what temporal upscaling keeps from frame to frame (see myUpscaleLuma and the rest), whether the last frame's hold a
+	// frame at this size, and the frames upscaled (their parity)
+	struct UpscaleImages
+	{
+		std::array<ScreenImage, 2> luma;
+		std::array<ScreenImage, 2> accumulation;
+		std::array<ScreenImage, 2> lumaHistory;
+		std::array<ScreenImage, 2> color;
+		ScreenImage newLocks;
+	} myUpscaleImages;
+	bool myUpscaleHistoryValid = false;
+	uint32_t myUpscaleFrame = 0;
 	Upscaling myUpscaling = Upscaling::kOff; // the frame's (FrameInputs::upscaling)
 	std::array<FrameGraph::ImageId, 2> myGiNearHistory{};
 	std::array<FrameGraph::ImageId, 2> myGiNearHistoryDistance{};

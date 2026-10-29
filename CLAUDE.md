@@ -614,7 +614,7 @@ A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph`
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
 stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
-Resolve and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
+the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
 Where a scene's frames go is a `gfx::RenderOutput` (`gfx/renderoutput.h`), which the scene and its renderer are given
 rather than branching on: its extent, image count and per image storage views (ComputeMain's output, bound up front),
@@ -937,41 +937,72 @@ missing for a frame while the camera turned). Nothing else uploads the views: a 
 ## Temporal upscaling
 
 View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx::Upscaling` in `gfx/upscaling.h`;
-Copy Pose writes it; off by default): the frame rendered at a share of the output's size each way (`RenderScale`: 1,
-0.77, 0.67, 0.5) and resolved into it over frames; native resolves at the output's size, temporal antialiasing alone.
-`Scene::Settings::upscaling`; a change resizes the render targets before the next frame (`Scene::NeedsResize`, which the
-client's `Draw` checks with the gpu idle, as for a window's resize). The frame graph has two extents
-(`FrameGraph::Compile(device, extent, outputExtent)`): the transients are the render size's, but those sized after the
-output (`ImageDesc::outputSized`: the ui's frosted panels' backdrop). The views' viewports are scaled into the render
-target (`ScaleViewport`, in `Views::Upload` for `ViewData::viewport` and in the scene for `FrameInputs::viewports`, the
-same rounding), and their projections offset within a pixel, a point of Halton's (2, 3) a frame (`Views::Upload`'s
-jitter: 8 points at the output's size, more the fewer pixels a frame renders, `ViewData::jitter`, this frame's and the
-last's in normalized device coordinates; the cameras `Upload` returns, which culling and the shadows fit to, aren't), and
-the materials' textures sample their mips by the output's size, half a level finer still (`ViewData::textureLodBias`,
-`SampleView`'s `SampleBias`). Then ComputeMain composites at the render size (the Composite pass:
-`PushConstants::upscale`'s `UPSCALE_COMPOSITE`, into `SHADER_TYPES_COMPOSITE_TEXTURE`, linear, before exposure; the
-exposure and distance histograms and the surface cache's block marks as before), Resolve (`ComputeResolve`,
-`resolve.slang`) resolves it with the last frame's history into the frame's (`SHADER_TYPES_RESOLVE_HISTORY_TEXTURE`, two
-at the output's size, the frame's by its parity: `UPSCALE_PARITY`, `UPSCALE_HISTORY` whether the last holds a frame at
-this size), and Sharpen (`ComputeSharpen`) tonemaps that into the swapchain, sharpened by Lottes' RCAS (FSR's): what the
-resolve's reconstruction filter softens. The resolve: each output pixel takes the composite's 3x3 render pixels around
-it, each by a gaussian of how near the point it saw (its center less the jitter) is to the output pixel's center, and its
-history where the nearest of the 3x3 was (reprojected by its depth through the last view projection, the jitters taken
-out; bicubic, Catmull-Rom in 5 reads), clipped to the box of the 3x3's colors (their mean and 1.25 deviations, in YCoCg),
-blended by the weight of the samples each holds (the history's at most 16, in its alpha), in light compressed as
-`c / (1 + luminance)` (Karis), so that a bright sample doesn't flicker. What moves (the main depth's stencil) keeps a
-history by its own motion, since its depth reprojects where it is, not where it was: the pre-pass writes each pixel's
-motion since the last frame (`SHADER_TYPES_PREPASS_MOTION_TEXTURE`, its second color attachment, RG16F, in the render
-target's pixels, the jitters taken out: `FragmentPrepass`), from where the vertex stage places what moves in the last
-frame (`VertexOutput::previousPosition`: `WorldPosition` with the last frame slot's instances, joints and morph weights,
-for the draws `DRAW_FLAG_MOVES` marks; the rest where they are), and the resolve takes it where the nearest of the 3x3
-moves (the stencil), the depth's reprojection elsewhere. CesiumMan walking and the Fox at balanced show no trails.
+Copy Pose writes it where it isn't the default; balanced by default since 2026-10-29, the user's call once FSR 3.1 was
+ported, `kDefaultUpscaling`, the file browser's preview too; `SPEEDO_UPSCALING=off` for measurements of the frame at the
+output's size): the frame rendered at a share of the output's size each way (`RenderScale`: 1,
+0.77, 0.67, 0.5) and reconstructed at it over frames by AMD's FSR 3.1 upscaler, ported (`upscale.slang`); native
+reconstructs at the output's size, its antialiasing alone. `Scene::Settings::upscaling`; a change resizes the render
+targets before the next frame (`Scene::NeedsResize`, which the client's `Draw` checks with the gpu idle, as for a
+window's resize). The frame graph has two extents (`FrameGraph::Compile(device, extent, outputExtent)`): the transients
+are the render size's, but those sized after the output (`ImageDesc::outputSized`: the ui's frosted panels' backdrop).
+The views' viewports are scaled into the render target (`ScaleViewport`, in `Views::Upload` for `ViewData::viewport` and
+in the scene for `FrameInputs::viewports`, the same rounding), and their projections offset within a pixel, a point of
+Halton's (2, 3) a frame (`Views::Upload`'s jitter: 8 points at the output's size, more the fewer pixels a frame renders,
+FSR's phase count, `ViewData::jitter`, this frame's and the last's in normalized device coordinates; the cameras `Upload`
+returns, which culling and the shadows fit to, aren't), and the materials' textures sample their mips by the output's
+size, half a level finer still (`ViewData::textureLodBias`, `SampleView`'s `SampleBias`; FSR recommends a whole level,
+which shimmered more). Then ComputeMain composites at the render size (the Composite pass: `PushConstants::upscale`'s
+`UPSCALE_COMPOSITE`, into `SHADER_TYPES_COMPOSITE_TEXTURE`, linear, before exposure, its alpha the blended layers'
+coverage, FSR's reactive mask; the exposure and distance histograms and the surface cache's block marks as before), the
+Upscale passes reconstruct it, and Sharpen (`ComputeSharpen`) tonemaps that into the swapchain, sharpened by Lottes'
+RCAS (FSR's).
+
+The Upscale passes are FSR 3.1's (the FidelityFX SDK 1.1.4's fsr3upscaler, MIT licensed, its notice in `upscale.slang`),
+each a compute entry point: Upscale Clear (the reconstructed previous depth, `gUpscaleDepth`, a float's bits per pixel,
+to the far plane), Prepare Inputs (the dilated depth and motion, the nearest of each pixel's 3x3 and its motion; that
+depth pushed to where the point was, an atomic minimum; the farthest depth; the luma), Shading Change Pyramid and Shading
+Change (how the luma changed since the last frame where each point was: the smallest relative difference between sorted
+sets of 5 lumas, so that an edge the jitter moved hasn't changed, its mean and its sign's over three levels from half the
+render size, one pass through shared memory where FSR's single pass downsampler makes six; noise, whose signs disagree,
+is no change), Prepare Reactivity (the disocclusion, by the reconstructed depth; the motion's divergence; the shading
+change with the reactive mask; the accumulation, a third more a frame up to whole, none after a shading change, a third
+less after a disocclusion; and new locks where thin features are), Luma Instability (a pixel's luma unlike the last
+frame's but like one of the three before, from a history of 4 lumas) and Accumulate (at the output's size: the history
+where the point was, Lanczos 2 over 4x4; this frame's 3x3 by an approximated Lanczos 2 as wide as the render pixels are;
+the history clamped onto the ellipsoid of the 3x3's deviations, 3 of them, down to 1 where the point moves, is near,
+hasn't accumulated, reacts or its shading changed, luma counting 1.7 times, but kept where it is locked or its luma
+flickers; blended by the accumulation against this frame's sixteenth). What they keep from frame to frame, two of each by
+the frame's parity (`UPSCALE_PARITY`; `UPSCALE_HISTORY` whether the last holds a frame at this size), is the luma, the
+accumulation and the luma history at the render size and the color (its alpha the lock) at the output's; the new locks
+are one image at the output's. What is ours: the motion (`UpscaleMotion`: what moves by the pre-pass's motion, the rest
+by its depth through the view's last view projection, the jitters taken out), the views (viewports of one render target,
+each pixel's jitter and history its view's), the exposure (the frame's, FSR's `Exposure()`, with a pre-exposure of 1),
+depth near 0, the scene's units as meters, FSR's default settings, and no transparency and composition mask. What moves
+(the main depth's stencil) keeps a history by its own motion, since its depth reprojects where it is, not where it was:
+the pre-pass writes each pixel's motion since the last frame (`SHADER_TYPES_PREPASS_MOTION_TEXTURE`, its second color
+attachment, RG16F, in the render target's pixels, the jitters taken out: `FragmentPrepass`), from where the vertex stage
+places what moves in the last frame (`VertexOutput::previousPosition`: `WorldPosition` with the last frame slot's
+instances, joints and morph weights, for the draws `DRAW_FLAG_MOVES` marks; the rest where they are).
+
+FSR 2.2 came first (its depth clip, locks and lock luma, luma instability at the output's size, a box of 1 deviation at
+the output's size and up to 20 at a quarter of its pixels, whose clamp cut the accumulation to a tenth): steadier than
+the resolve it replaced at performance, but at native it flickered at every edge twice as much (a center-weighted 1
+deviation box clamped the history wherever the jitter moved an edge pixel's sample across). The resolve before it, ours,
+was a TAA (a 3x3 gaussian, a box of 1.25 deviations, a history weight of at most 16).
+Stability, by the mean change of the output between consecutive frames of a still pose (frames 300 to 305, 0 to 255, the
+user's Bistro pose `-994.4661,340.8679,-53.6291,-8.370,78.594` in the evening, `SPEEDO_EXPOSURE=10`, the old binary built
+beside the new and run in the same session): FSR 3.1 against the resolve, performance 0.432 and 0.602, at 600 times real
+time (the sun moving) 0.776 and 1.210; native 0.434 and 0.458, at 600 times 0.674 and 0.832 (FSR 2.2: performance 0.554
+and 0.964, native 0.956 and 1.616). What is left is the traced features' grain (the near field's and the emitters', a
+texel per 2 or 4 pixels: see their sections), which no upscaler takes out.
 Measured by the draw thread's settled frame time at the benchmark poses (2560x1440 output, GI on), with the SBVH and
 the shadow atlas's cache, warm pipelines (the first run after a shader change draws with the generic ones while the
-specialized compile): off, balanced and performance, Bistro 57.6, 42.2 and 36.3 ms; San Miguel 68.3, 46.3 and 39.1;
-Sponza 29.4, 24.4 and 21.6: a quarter to a third of the heavier scenes' frame at balanced, short of the pixels' 55%
-since the probes, the voxels and the surface cache don't scale with the pixels. With upscaling off the images are as before (the frame graph's Composite,
-Resolve and Sharpen passes disabled, ComputeMain's as it was).
+specialized compile): off, balanced and performance with the resolve before FSR, Bistro 57.6, 42.2 and 36.3 ms; San
+Miguel 68.3, 46.3 and 39.1; Sponza 29.4, 24.4 and 21.6: a quarter to a third of the heavier scenes' frame at balanced,
+short of the pixels' 55% since the probes, the voxels and the surface cache don't scale with the pixels. FSR 3.1 costs
+0.8 ms more than the resolve did at Bistro's performance (37.1 against 36.3 ms, the history reprojected by its approximated
+Lanczos rather than the reference, FSR's option, which took 37.5). With upscaling off the images are as before (the frame graph's Composite, Upscale and Sharpen passes
+disabled, ComputeMain's as it was).
 
 ## Culling: chunks, and frustums per view
 
@@ -2312,8 +2343,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 39
-(0 the main color, 1 to 3 temporal upscaling's composite and history, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 56
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

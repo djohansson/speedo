@@ -103,9 +103,9 @@ public:
 		// and whether the near field is accumulated over frames (FrameInputs::giNearTemporal; View > Indirect Lighting Near
 		// Field Over Frames, SPEEDO_GI_NEAR_TEMPORAL=0 to start without)
 		std::atomic<bool> giNearTemporal = true;
-		// temporal upscaling (FrameInputs::upscaling; View > Upscaling, SPEEDO_UPSCALING): a change resizes what is sized
-		// after the output, before the next frame (see NeedsResize)
-		std::atomic<Upscaling> upscaling = Upscaling::kOff;
+		// temporal upscaling (FrameInputs::upscaling; View > Upscaling, SPEEDO_UPSCALING; balanced by default, kDefaultUpscaling): a
+		// change resizes what is sized after the output, before the next frame (see NeedsResize)
+		std::atomic<Upscaling> upscaling = kDefaultUpscaling;
 		// the environment's intensity (radiance scale) and rotation about +y (degrees), and whether it is drawn as the
 		// backdrop (see PushConstants::environmentIntensity)
 		std::atomic<float> environmentIntensity = 1.0F;

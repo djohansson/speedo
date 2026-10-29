@@ -79,9 +79,14 @@ constexpr uint8_t kEmitterShadeEntryPoint = 30;
 constexpr uint8_t kEmitterXEntryPoint = 31;
 constexpr uint8_t kEmitterYEntryPoint = 32;
 constexpr uint8_t kEmitterTemporalEntryPoint = 33;
-// temporal upscaling (see ComputeResolve)
-constexpr uint8_t kResolveEntryPoint = 34;
-constexpr uint8_t kSharpenEntryPoint = 35;
+// temporal upscaling (FSR 3.1's, see upscale.slang)
+constexpr uint8_t kUpscalePrepareInputsEntryPoint = 34;
+constexpr uint8_t kUpscaleShadingChangePyramidEntryPoint = 35;
+constexpr uint8_t kUpscaleShadingChangeEntryPoint = 36;
+constexpr uint8_t kUpscalePrepareReactivityEntryPoint = 37;
+constexpr uint8_t kUpscaleLumaInstabilityEntryPoint = 38;
+constexpr uint8_t kUpscaleAccumulateEntryPoint = 39;
+constexpr uint8_t kSharpenEntryPoint = 40;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -172,10 +177,29 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// done with by then
 	myUiBlurSource = myGraph.CreateImage({.name = "UI Blur Source", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
 	myUiBlurRows = myGraph.CreateImage({.name = "UI Blur Rows", .format = Format::kR16G16B16A16Sfloat, .outputSized = true});
-	// temporal upscaling (see ComputeResolve): the frame's composite at the render size, and its history at the output's
+	// temporal upscaling (FSR 3.1's, see upscale.slang): the frame's composite at the render size, the Upscale passes'
+	// images of the frame, and what they keep from frame to frame (see myUpscaleImages)
 	myComposite = myGraph.CreateImage({.name = "Composite", .format = Format::kR16G16B16A16Sfloat});
+	myUpscaleDilatedDepth = myGraph.CreateImage({.name = "Upscale Dilated Depth", .format = Format::kR32Sfloat});
+	myUpscaleDilatedMotion = myGraph.CreateImage({.name = "Upscale Dilated Motion", .format = Format::kR16G16Sfloat});
+	myUpscaleFarthestDepth = myGraph.CreateImage({.name = "Upscale Farthest Depth", .format = Format::kR16Sfloat});
+	for (uint32_t levelIt = 0; levelIt < myUpscaleShadingChangeMips.size(); levelIt++)
+		myUpscaleShadingChangeMips[levelIt] = myGraph.CreateImage(
+			{.name = std::format("Upscale Shading Change Mip {}", levelIt), .format = Format::kR16G16Sfloat, .downscale = 2U << levelIt});
+	myUpscaleFarthestDepthMip = myGraph.CreateImage({.name = "Upscale Farthest Depth Mip", .format = Format::kR16Sfloat, .downscale = 2});
+	myUpscaleShadingChange = myGraph.CreateImage({.name = "Upscale Shading Change", .format = Format::kR16Sfloat, .downscale = 2});
+	myUpscaleReactive = myGraph.CreateImage({.name = "Upscale Reactive", .format = Format::kR8G8B8A8Unorm});
+	myUpscaleLumaInstability = myGraph.CreateImage({.name = "Upscale Luma Instability", .format = Format::kR16Sfloat});
+	myUpscaleDepth = myGraph.CreateBuffer(
+		{.name = "Upscale Depth", .sizeOf = [](Extent2d extent) { return PixelCount(extent) * sizeof(uint32_t); }});
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
-		myResolveHistory[historyIt] = myGraph.ImportImage(std::format("Resolve History {}", historyIt));
+	{
+		myUpscaleLuma[historyIt] = myGraph.ImportImage(std::format("Upscale Luma {}", historyIt));
+		myUpscaleAccumulation[historyIt] = myGraph.ImportImage(std::format("Upscale Accumulation {}", historyIt));
+		myUpscaleLumaHistory[historyIt] = myGraph.ImportImage(std::format("Upscale Luma History {}", historyIt));
+		myUpscaleColor[historyIt] = myGraph.ImportImage(std::format("Upscale Color {}", historyIt));
+	}
+	myUpscaleNewLocks = myGraph.ImportImage("Upscale New Locks");
 	// the order independent transparency's per pixel lists (see OitNode): their heads (a node index per pixel of the
 	// render target), nodes and counter
 	myOitHeads = myGraph.CreateBuffer(
@@ -1226,8 +1250,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		});
 
 	// the backdrop, the transparency's resolve, exposure and tonemapping, into the swapchain image (ComputeMain); or, with
-	// temporal upscaling, the backdrop and the transparency's resolve at the render size (Composite), which the Resolve
-	// pass upsamples into the swapchain image, exposed and tonemapped (see ComputeResolve). a thread per pixel of what
+	// temporal upscaling, the backdrop and the transparency's resolve at the render size (Composite), which the Upscale
+	// passes reconstruct at the output's and Sharpen maps into the swapchain image (see upscale.slang). a thread per pixel of what
 	// each writes, with the output's image bound in its slot by the passes that write it (and declare it, so that it is
 	// in the general layout by then: bound before, its layout was the acquired image's, undefined)
 	auto outputKernel = [this](CommandBufferHandle cmd, ComputePipelineVariant variant, Extent2d extent, bool writesOutput)
@@ -1289,29 +1313,104 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myComposite, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[this, outputKernel](FrameGraph::PassContext& context) { outputKernel(context.cmd, ComputePipelineVariant{}, myGraph.GetExtent(), false); });
-	myResolvePass = myGraph.AddPass(
-		"Resolve",
-		[this](FrameGraph::PassBuilder& builder)
+	// FSR 3.1's passes (see upscale.slang): the reconstructed previous depth cleared to the far plane; the inputs prepared
+	// (the dilated depth and motion, the depth pushed to where the points were, the farthest depth, the luma); the shading
+	// change's pyramid (and the farthest depth's mean) and the shading change; the reactivity (the dilated reactive masks,
+	// the accumulation, the new locks); the luma instability; and the accumulation at the output's size. what is kept from
+	// frame to frame, two of each, is declared both, read and written: the frame's parity picks which (see UPSCALE_PARITY)
+	auto useKept = [this](FrameGraph::PassBuilder& builder, std::span<const FrameGraph::ImageId> images)
+	{
+		for (auto image : images)
+			builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+	};
+	auto upscaleKernel = [this, outputKernel](FrameGraph::PassContext& context, uint8_t entryPoint, Extent2d extent)
+	{ outputKernel(context.cmd, ComputePipelineVariant{.entryPoint = entryPoint}, extent, false); };
+	auto halfExtent = [this] { return Extent2d{.width = (myGraph.GetExtent().width + 1) / 2, .height = (myGraph.GetExtent().height + 1) / 2}; };
+	myUpscalePasses[0] = myGraph.AddPass(
+		"Upscale Clear",
+		[this](FrameGraph::PassBuilder& builder) { builder.Use(myUpscaleDepth, ResourceUse::TransferDestination()); },
+		[this](FrameGraph::PassContext& context)
+		{
+			constexpr uint32_t kFarPlane = 0x3F800000U; // 1.0F
+			CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myUpscaleDepth), 0, PixelCount(myGraph.GetExtent()) * sizeof(uint32_t), kFarPlane);
+		});
+	myUpscalePasses[1] = myGraph.AddPass(
+		"Upscale Prepare Inputs",
+		[this, useKept](FrameGraph::PassBuilder& builder)
 		{
 			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // where each pixel was (and its stencil)
-			builder.Use(myPrepassMotion, ResourceUse::Sampled(PipelineStage::kComputeShader)); // and what moves, by its motion
-			for (auto image : myResolveHistory)
-				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader)); // and its stencil: what moves
+			builder.Use(myPrepassMotion, ResourceUse::Sampled(PipelineStage::kComputeShader)); // what moves, by its motion
+			builder.Use(myUpscaleDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			for (auto image : {myUpscaleDilatedDepth, myUpscaleDilatedMotion, myUpscaleFarthestDepth})
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			useKept(builder, myUpscaleLuma);
 		},
-		[this, outputKernel](FrameGraph::PassContext& context)
+		[this, upscaleKernel](FrameGraph::PassContext& context) { upscaleKernel(context, kUpscalePrepareInputsEntryPoint, myGraph.GetExtent()); });
+	myUpscalePasses[2] = myGraph.AddPass(
+		"Upscale Shading Change Pyramid",
+		[this, useKept](FrameGraph::PassBuilder& builder)
 		{
-			outputKernel(
-				context.cmd,
-				ComputePipelineVariant{.entryPoint = kResolveEntryPoint},
-				myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent(),
-				false);
-		});
+			builder.Use(myUpscaleDilatedMotion, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUpscaleFarthestDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			useKept(builder, myUpscaleLuma);
+			for (auto image : myUpscaleShadingChangeMips)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myUpscaleFarthestDepthMip, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		// a thread per texel at half the render size (2x2 pixels), a group of 8x8 for 8x8, 4x4 and 2x2 of the levels
+		[upscaleKernel, halfExtent](FrameGraph::PassContext& context) { upscaleKernel(context, kUpscaleShadingChangePyramidEntryPoint, halfExtent()); });
+	myUpscalePasses[3] = myGraph.AddPass(
+		"Upscale Shading Change",
+		[this](FrameGraph::PassBuilder& builder)
+		{
+			for (auto image : myUpscaleShadingChangeMips)
+				builder.Use(image, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUpscaleShadingChange, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+		},
+		[upscaleKernel, halfExtent](FrameGraph::PassContext& context) { upscaleKernel(context, kUpscaleShadingChangeEntryPoint, halfExtent()); });
+	myUpscalePasses[4] = myGraph.AddPass(
+		"Upscale Prepare Reactivity",
+		[this, useKept](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader)); // the reactive mask
+			for (auto image : {myUpscaleDilatedDepth, myUpscaleDilatedMotion, myUpscaleShadingChange})
+				builder.Use(image, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUpscaleDepth, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myUpscaleReactive, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			useKept(builder, myUpscaleLuma);
+			useKept(builder, myUpscaleAccumulation);
+			useKept(builder, std::span(&myUpscaleNewLocks, 1));
+		},
+		[this, upscaleKernel](FrameGraph::PassContext& context) { upscaleKernel(context, kUpscalePrepareReactivityEntryPoint, myGraph.GetExtent()); });
+	myUpscalePasses[5] = myGraph.AddPass(
+		"Upscale Luma Instability",
+		[this, useKept](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myUpscaleDilatedMotion, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUpscaleReactive, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myUpscaleLumaInstability, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			useKept(builder, myUpscaleLuma);
+			useKept(builder, myUpscaleLumaHistory);
+		},
+		[this, upscaleKernel](FrameGraph::PassContext& context) { upscaleKernel(context, kUpscaleLumaInstabilityEntryPoint, myGraph.GetExtent()); });
+	myUpscalePasses[6] = myGraph.AddPass(
+		"Upscale Accumulate",
+		[this, useKept](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myComposite, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			for (auto image : {myUpscaleDilatedMotion, myUpscaleReactive, myUpscaleLumaInstability, myUpscaleFarthestDepthMip})
+				builder.Use(image, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			useKept(builder, myUpscaleColor);
+			useKept(builder, std::span(&myUpscaleNewLocks, 1));
+		},
+		[this, upscaleKernel](FrameGraph::PassContext& context)
+		{ upscaleKernel(context, kUpscaleAccumulateEntryPoint, myRenderOutput.GetTarget(myFrame.inputs->outputIndex).GetExtent()); });
 	mySharpenPass = myGraph.AddPass(
 		"Sharpen",
 		[this](FrameGraph::PassBuilder& builder)
 		{
-			for (auto image : myResolveHistory)
+			for (auto image : myUpscaleColor)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			builder.Use(myOutput, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			builder.Use(myUiBlurSource, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
@@ -1806,7 +1905,17 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_TEXTURE},
 			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_TEXTURE},
-			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_TEXTURE}})
+			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_TEXTURE},
+			 std::pair{myUpscaleDilatedDepth, SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE},
+			 std::pair{myUpscaleDilatedMotion, SHADER_TYPES_UPSCALE_DILATED_MOTION_TEXTURE},
+			 std::pair{myUpscaleFarthestDepth, SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_TEXTURE},
+			 std::pair{myUpscaleShadingChangeMips[0], SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_TEXTURE},
+			 std::pair{myUpscaleShadingChangeMips[1], SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_TEXTURE + 1},
+			 std::pair{myUpscaleShadingChangeMips[2], SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_TEXTURE + 2},
+			 std::pair{myUpscaleFarthestDepthMip, SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_MIP_TEXTURE},
+			 std::pair{myUpscaleShadingChange, SHADER_TYPES_UPSCALE_SHADING_CHANGE_TEXTURE},
+			 std::pair{myUpscaleReactive, SHADER_TYPES_UPSCALE_REACTIVE_TEXTURE},
+			 std::pair{myUpscaleLumaInstability, SHADER_TYPES_UPSCALE_LUMA_INSTABILITY_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
@@ -1827,7 +1936,17 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{myEmitterRaw, SHADER_TYPES_EMITTER_RAW_RW_TEXTURE},
 			 std::pair{myEmitterRows, SHADER_TYPES_EMITTER_ROWS_RW_TEXTURE},
 			 std::pair{myEmitterFiltered, SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE},
-			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_RW_TEXTURE}})
+			 std::pair{myComposite, SHADER_TYPES_COMPOSITE_RW_TEXTURE},
+			 std::pair{myUpscaleDilatedDepth, SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE},
+			 std::pair{myUpscaleDilatedMotion, SHADER_TYPES_UPSCALE_DILATED_MOTION_RW_TEXTURE},
+			 std::pair{myUpscaleFarthestDepth, SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_RW_TEXTURE},
+			 std::pair{myUpscaleShadingChangeMips[0], SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_RW_TEXTURE},
+			 std::pair{myUpscaleShadingChangeMips[1], SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_RW_TEXTURE + 1},
+			 std::pair{myUpscaleShadingChangeMips[2], SHADER_TYPES_UPSCALE_SHADING_CHANGE_MIP_RW_TEXTURE + 2},
+			 std::pair{myUpscaleFarthestDepthMip, SHADER_TYPES_UPSCALE_FARTHEST_DEPTH_MIP_RW_TEXTURE},
+			 std::pair{myUpscaleShadingChange, SHADER_TYPES_UPSCALE_SHADING_CHANGE_RW_TEXTURE},
+			 std::pair{myUpscaleReactive, SHADER_TYPES_UPSCALE_REACTIVE_RW_TEXTURE},
+			 std::pair{myUpscaleLumaInstability, SHADER_TYPES_UPSCALE_LUMA_INSTABILITY_RW_TEXTURE}})
 		pipeline.SetDescriptorData(
 			"gRWTextures",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
@@ -1964,6 +2083,8 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			"gPreviousDepth", BufferBinding{.buffer = myPreviousDepthBuffer, .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		pipeline.SetDescriptorData(
 			"gReprojectedDepth", BufferBinding{.buffer = myGraph.GetBuffer(myReprojectedDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		pipeline.SetDescriptorData(
+			"gUpscaleDepth", BufferBinding{.buffer = myGraph.GetBuffer(myUpscaleDepth), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 		myPreviousValid = false;
 	}
 	// the near field's history at this size (holding nothing yet), bound once, both of each: the frame's parity picks
@@ -2015,22 +2136,47 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				rwSlot + historyIt);
 		}
 	}
-	// temporal upscaling's history at the output's size (holding nothing yet), bound once, both: the frame's parity picks
+	// what temporal upscaling keeps from frame to frame (holding nothing yet: the first frame takes no history, see
+	// UPSCALE_HISTORY), bound once, both of each: the frame's parity picks. the luma, the accumulation and the luma
+	// history at the render size, the color at the output's
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
-		myResolveHistoryImages[historyIt] = screenImage(std::format("Resolve History {}", historyIt), Format::kR16G16B16A16Sfloat, outputExtent);
-		pipeline.SetDescriptorData(
-			"gTextures",
-			ImageBinding{.sampler = {}, .imageView = *myResolveHistoryImages[historyIt].view, .layout = ImageLayout::kGeneral},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
-			SHADER_TYPES_RESOLVE_HISTORY_TEXTURE + historyIt);
-		pipeline.SetDescriptorData(
-			"gRWTextures",
-			ImageBinding{.sampler = {}, .imageView = *myResolveHistoryImages[historyIt].view, .layout = ImageLayout::kGeneral},
-			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
-			SHADER_TYPES_RESOLVE_HISTORY_RW_TEXTURE + historyIt);
+		myUpscaleImages.luma[historyIt] = screenImage(std::format("Upscale Luma {}", historyIt), Format::kR16Sfloat, extent);
+		myUpscaleImages.accumulation[historyIt] = screenImage(std::format("Upscale Accumulation {}", historyIt), Format::kR16Sfloat, extent);
+		myUpscaleImages.lumaHistory[historyIt] = screenImage(std::format("Upscale Luma History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		myUpscaleImages.color[historyIt] = screenImage(std::format("Upscale Color {}", historyIt), Format::kR16G16B16A16Sfloat, outputExtent);
+		for (auto [image, slot, rwSlot] : std::array{
+				 std::tuple{&myUpscaleImages.luma[historyIt], SHADER_TYPES_UPSCALE_LUMA_TEXTURE, SHADER_TYPES_UPSCALE_LUMA_RW_TEXTURE},
+				 std::tuple{&myUpscaleImages.accumulation[historyIt], SHADER_TYPES_UPSCALE_ACCUMULATION_TEXTURE, SHADER_TYPES_UPSCALE_ACCUMULATION_RW_TEXTURE},
+				 std::tuple{&myUpscaleImages.lumaHistory[historyIt], SHADER_TYPES_UPSCALE_LUMA_HISTORY_TEXTURE, SHADER_TYPES_UPSCALE_LUMA_HISTORY_RW_TEXTURE},
+				 std::tuple{&myUpscaleImages.color[historyIt], SHADER_TYPES_UPSCALE_COLOR_TEXTURE, SHADER_TYPES_UPSCALE_COLOR_RW_TEXTURE}})
+		{
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = *image->view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				slot + historyIt);
+			pipeline.SetDescriptorData(
+				"gRWTextures",
+				ImageBinding{.sampler = {}, .imageView = *image->view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				rwSlot + historyIt);
+		}
 	}
-	myResolveHistoryValid = false;
+	// the new locks: what the first frame's accumulation reads of them is garbage, but it reads none (no history), and
+	// clears every pixel's
+	myUpscaleImages.newLocks = screenImage("Upscale New Locks", Format::kR16Sfloat, outputExtent);
+	pipeline.SetDescriptorData(
+		"gTextures",
+		ImageBinding{.sampler = {}, .imageView = *myUpscaleImages.newLocks.view, .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+		SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE);
+	pipeline.SetDescriptorData(
+		"gRWTextures",
+		ImageBinding{.sampler = {}, .imageView = *myUpscaleImages.newLocks.view, .layout = ImageLayout::kGeneral},
+		DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+		SHADER_TYPES_UPSCALE_NEW_LOCKS_RW_TEXTURE);
+	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
 	// the emitters' reservoirs at this size (see ComputeEmitterShade): per traced pixel a uint4, in three parts: the frame's
@@ -2458,23 +2604,30 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	myGraph.Bind(myOutput, myRenderOutput.GetTarget(frame.outputIndex), 0);
 	myGraph.Bind(myExposureHistogram, *frame.exposureHistogram);
 
-	// temporal upscaling (see ComputeResolve): the frame composited at the render size and resolved into the output with
-	// its history, the frame's by its parity; else composited into the output
+	// temporal upscaling (see upscale.slang): the frame composited at the render size and reconstructed at the output's with
+	// what it keeps, the frame's by its parity; else composited into the output
 	myUpscaling = frame.upscaling;
 	bool upscale = myUpscaling != Upscaling::kOff;
 	myGraph.SetEnabled(myComputeMainPass, !upscale);
 	myGraph.SetEnabled(myCompositePass, upscale);
-	myGraph.SetEnabled(myResolvePass, upscale);
+	for (auto pass : myUpscalePasses)
+		myGraph.SetEnabled(pass, upscale);
 	myGraph.SetEnabled(mySharpenPass, upscale);
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
-		myGraph.Bind(myResolveHistory[historyIt], *myResolveHistoryImages[historyIt].image);
+	{
+		myGraph.Bind(myUpscaleLuma[historyIt], *myUpscaleImages.luma[historyIt].image);
+		myGraph.Bind(myUpscaleAccumulation[historyIt], *myUpscaleImages.accumulation[historyIt].image);
+		myGraph.Bind(myUpscaleLumaHistory[historyIt], *myUpscaleImages.lumaHistory[historyIt].image);
+		myGraph.Bind(myUpscaleColor[historyIt], *myUpscaleImages.color[historyIt].image);
+	}
+	myGraph.Bind(myUpscaleNewLocks, *myUpscaleImages.newLocks.image);
 	frame.pushConstants.upscale = 0;
 	if (upscale)
 	{
-		frame.pushConstants.upscale = UPSCALE_COMPOSITE | (myResolveHistoryValid ? UPSCALE_HISTORY : 0U) | ((myResolveFrame & 1U) != 0U ? UPSCALE_PARITY : 0U);
-		myResolveFrame++;
+		frame.pushConstants.upscale = UPSCALE_COMPOSITE | (myUpscaleHistoryValid ? UPSCALE_HISTORY : 0U) | ((myUpscaleFrame & 1U) != 0U ? UPSCALE_PARITY : 0U);
+		myUpscaleFrame++;
 	}
-	myResolveHistoryValid = upscale;
+	myUpscaleHistoryValid = upscale;
 
 	// the depth reprojection's: the frame's height and main views, and the last frame's extent (see InternalPlanCulling)
 	frame.pushConstants.framebufferHeight = myGraph.GetExtent().height;
