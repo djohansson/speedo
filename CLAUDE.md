@@ -1130,7 +1130,12 @@ transients, a slot a channel). Main's opaque fragments take them for the traced 
   tracing every pixel didn't have), and a concave corner's other surface, nearer than the pixel's own depth but within
   a texel's slope of its plane, shadowed and sure (the dark lines along CornellBox's edges). The cost: Bistro's street
   75.1 to 76.1 ms, the cornice pose 79.8 to 82.4 (the pixels traced; a 4x4 footprint traced the mouldings' curves too,
-  77.2 and 84.8). A faint dashed highlight is left along one of the cornice's creases. The
+  77.2 and 84.8). A faint dashed highlight is left along one of the cornice's creases. For a lit verdict a texel there
+  blocks within a quarter of a texel's slope, if it is a texel's size or more before the plane: a facade in a far
+  cascade under a high sun slopes so steeply in the light's view that a texel's slope was as deep as its eave's overhang,
+  and the band under the eave was lit and sure between traced pixels, teeth again (the user's pose
+  `-1033.9612,281.2515,-184.0673,-3.357,86.270` at 12:23); about a percent more pixels traced, Bistro's street at noon
+  37.6 to 38.0 ms (a quarter of the slope without the size, every frame and moulding traced, 38.3). The
   rest are listed (`gShadowTraceList`: a count, then the pixels) and the 8x8 tiles within the filter's reach of them
   flagged (`gShadowTraceTiles`). Bistro's street lists 136000 pixels (4%), mostly along grazing sunlit facades. A thin
   occluder can fall between the taps: such a pixel is decided wrongly, which the filter takes as one more sample.

@@ -157,19 +157,28 @@ float ShadowMapClassify(uint lightIndex, LightData light, ShadowSurface surface,
 	// atlas's staircase, a sawtooth of teeth along the ledge; a concave corner's other surface (CornellBox's back wall at
 	// its side wall and floor, the user's pose 0.0465,-0.0665,1.2875,-1.722,0.393: the filter, comparing the texels with
 	// the pixel's own depth, shadowed and sure, the side wall's texels within a texel's slope of the back wall's plane) a
-	// dark line a texel wide along every edge
+	// dark line a texel wide along every edge. for a lit verdict a texel counts within a quarter of that slope, if it is a
+	// texel's size or more before the plane (a blocker whose shadow can span texels): a facade in a far cascade, under a
+	// high sun, slopes so steeply in the light's view that its texel's slope was as deep as its eave's overhang, and the band
+	// under the eave came out lit and sure between the traced pixels, the atlas's staircase again (the user's pose
+	// -1033.9612,281.2515,-184.0673,-3.357,86.270 at 12:23). it traces about a percent more of the pixels: Bistro's street
+	// at noon 37.6 to 38.0 ms (a quarter of the slope alone, the frames and mouldings before their walls traced too, 38.3)
 	{
 		float4 clip = mul(place.view.viewProjection, float4(surface.position, 1.0));
 		float3 ndc = clip.xyz / max(clip.w, 1e-6);
 		float2 uvHere = place.view.atlasRect.xy + (ndc.xy * 0.5 + 0.5) * place.view.atlasRect.zw;
-		float tight = abs(dot(abs(gradient), texel)) + 1e-5;
+		float tight = abs(dot(abs(gradient), texel)) * (filtered >= 1.0 ? 0.25 : 1.0) + 1e-5;
 		int2 base = int2(floor(uvHere * atlasSize - 0.5));
 		uint blocked = 0u;
 		for (uint texelIt = 0; texelIt < 4u; texelIt++)
 		{
 			float2 uvAt = clamp((float2(base + int2(texelIt & 1u, texelIt >> 1u)) + 0.5) * texel, low, high);
 			float stored = atlas.Load(int3(int2(uvAt * atlasSize), 0)).r;
-			blocked += stored < ndc.z + dot(gradient, uvAt - uvHere) - tight ? 1u : 0u;
+			float planeAt = ndc.z + dot(gradient, uvAt - uvHere);
+			bool nearer = stored < planeAt - tight;
+			if (filtered >= 1.0 && nearer)
+				nearer = ShadowViewDistance(place.view, planeAt) - ShadowViewDistance(place.view, stored) > texelSize;
+			blocked += nearer ? 1u : 0u;
 		}
 		if (filtered >= 1.0 ? blocked != 0u : blocked != 4u)
 			return -1.0;
