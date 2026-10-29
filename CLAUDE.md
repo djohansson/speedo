@@ -1968,7 +1968,15 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   exposure 5: 6066 pixels a frame changed by more than 32 of 255, against 356 without upscaling; 738 per pixel, most of
   them the bulbs themselves, which the view draws and the jitter samples or not; at no measurable cost with the near
   field's frames per pixel too: 50.9 ms either way, 60.1 without upscaling). Checked by the distance alone, within 1%,
-  the history blurred across window frames and railings (227). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
+  the history blurred across window frames and railings (227). A frame far brighter than what a settled history (8
+  frames or more) holds is taken as at most 8 times that, or that and a quarter of the frame's white more
+  (`kEmitterFireflyRise`, `kEmitterFireflyFloor`): an emitter point the candidates favour (unshadowed and near) that
+  seldom reaches the pixel, a lit window's interior beside its curtain, is the whole unshadowed light the once in tens
+  of frames its ray gets through, a 32nd of which was a blob that faded over 32 frames (the user's night time lapse,
+  `-827.3380,155.1481,33.8635,-9.897,72.297` from 00:19; the frames its random numbers pick, 63, 103 and 146, whatever
+  the time). The curtain's pixels that jumped went from about 420 to 76 over 200 frames; the reference is 11% brighter
+  there than the frames (8% before), the light those rare frames carry, and the frame as bright as it to 0.1% (4 times
+  took 19% and 1%). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
   it at their pixel (`EmitterIrradiance`) and add the base color times it to their direct light (Direct Light's debug
   view has it; blended and scattering fragments don't).
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled

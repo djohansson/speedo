@@ -18,6 +18,13 @@ static const float kEmitterTextureLevel = 3.0;
 // the most traced pixels around a traced pixel its reservoir is merged with (EmitterData::spatialCount)
 static const uint kEmitterSpatialCountMost = 8u;
 
+// a pixel's light over frames (see ComputeEmitterTemporal) takes a frame's as at most kEmitterFireflyRise times what it
+// holds, or what it holds and kEmitterFireflyFloor of the frame's white more where that is more, once it holds
+// kEmitterFireflyFrameCount frames
+static const float kEmitterFireflyRise = 8.0;
+static const float kEmitterFireflyFloor = 0.25;
+static const float kEmitterFireflyFrameCount = 8.0;
+
 // whether emissive surfaces light the scene this frame (else the indirect lighting's rays take their emission)
 bool EmittersLight()
 {
@@ -852,8 +859,25 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// history started over took its first frame's light as all of it and let it go at a thirty-second a frame
 		if (weights > 1e-3)
 		{
+			float3 kept = total.rgb / weights;
 			float count = min(total.a / weights + 1.0, 1.0 / blend);
-			result = float4(lerp(total.rgb / weights, now.rgb, max(1.0 / count, blend)), count);
+			// and a frame far brighter than what a settled history holds taken as at most a few times that (see
+			// kEmitterFireflyRise): a point its candidates favour (unshadowed, near) but which seldom reaches it, an emissive
+			// window's interior beside its curtain, is the whole unshadowed light the once in tens of frames its ray gets
+			// through, which a 32nd of drew a blob that faded over 32 frames (Bistro's curtains at night, the user's pose
+			// -827.3380,155.1481,33.8635,-9.897,72.297). the reference is 11% brighter there than the frames (8% without), the
+			// light those rare frames carry, which this leaves out, and the whole frame within 0.1% of it (at 4 times: 19% there,
+			// 1% over the frame)
+			float3 sample = now.rgb;
+			if (count > kEmitterFireflyFrameCount && data.raw == 0u)
+			{
+				float keptLuminance = EmitterLuminance(kept);
+				float bound = max(kEmitterFireflyRise * keptLuminance, keptLuminance + kEmitterFireflyFloor / max(gPushConstants.exposure, 1e-6));
+				float luminance = EmitterLuminance(sample);
+				if (luminance > bound)
+					sample *= bound / luminance;
+			}
+			result = float4(lerp(kept, sample, max(1.0 / count, blend)), count);
 		}
 	}
 	history[pixel] = result;
