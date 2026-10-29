@@ -3,16 +3,11 @@
 #include <core/profiling.h>
 
 #include <atomic>
+#include <format>
 
 // #if !defined(__cpp_lib_atomic_shared_ptr) || __cpp_lib_atomic_shared_ptr < 201711L
 // static_assert(false, "std::atomic<std::shared_ptr> is not supported by the standard library!");
 // #endif
-
-#ifdef _WIN32
-#	include <windows.h>
-#else
-#	include <pthread.h>
-#endif
 
 namespace core
 {
@@ -20,74 +15,17 @@ namespace core
 namespace detail
 {
 
-#ifdef _WIN32
-
-const DWORD MS_VC_EXCEPTION = 0x406D1388;
-
-#pragma pack(push, 8)
-typedef struct _THREADNAME_INFO
-{
-	DWORD dwType;	  // Must be 0x1000.
-	LPCSTR szName;	  // Pointer to name (in user addr space).
-	DWORD dwThreadID; // Thread ID (-1=caller thread).
-	DWORD dwFlags;	  // Reserved for future use, must be zero.
-} THREADNAME_INFO;
-#pragma pack(pop)
-
-void SetThreadName(uint32_t dwThreadID, const char* threadName)
-{
-	THREADNAME_INFO info;
-	info.dwType = 0x1000;
-	info.szName = threadName;
-	info.dwThreadID = dwThreadID;
-	info.dwFlags = 0;
-
-	__try
-	{
-		RaiseException(MS_VC_EXCEPTION, 0, sizeof(info) / sizeof(ULONG_PTR), (ULONG_PTR*)&info);
-	}
-	__except (EXCEPTION_EXECUTE_HANDLER)
-	{}
-}
-
-void SetThreadName(const char* threadName)
-{
-	SetThreadName(GetCurrentThreadId(), threadName);
-}
-
-void SetThreadName(std::jthread& thread, const char* threadName)
-{
-	SetThreadName(::GetThreadId(static_cast<HANDLE>(thread.native_handle())), threadName);
-}
-
-#elif defined(__APPLE__)
-
-void SetThreadName(const char* threadName)
-{
-	pthread_setname_np(threadName);
-}
-
-void SetThreadName(std::jthread& /*thread*/, const char* threadName)
-{
-	SetThreadName(threadName);
-}
-
-#else
-
-void SetThreadName(std::jthread& thread, const char* threadName)
-{
-	auto handle = thread.native_handle();
-	pthread_setname_np(handle, threadName);
-}
-
-#endif
-
 enum TaskExecutorState : uint8_t
 {
 	kTaskExecutorInitializing = 0,
 	kTaskExecutorRunning = 1,
 };
 static std::atomic<TaskExecutorState> gTaskExecutorState = kTaskExecutorInitializing;
+
+[[nodiscard]] static std::string ThreadName(uint32_t threadIndex)
+{
+	return std::format("TaskThread {}", threadIndex);
+}
 
 } // namespace detail
 
@@ -101,8 +39,13 @@ TaskExecutor::TaskExecutor(uint32_t threadCount)
 
 	myThreads.reserve(threadCount);
 
+	// named, and with stacks as a main thread's (see kThreadStackByteCount)
 	for (uint32_t threadIt = 0; threadIt < threadCount; threadIt++)
-		myThreads.emplace_back(std::bind_front(&TaskExecutor::InternalThreadMain, this), threadIt);
+		myThreads.emplace_back(
+			std_extra::jthread::name_hint(ThreadName(threadIt)),
+			std_extra::jthread::stack_size_hint(kThreadStackByteCount),
+			std::bind_front(&TaskExecutor::InternalThreadMain, this),
+			threadIt);
 
 	gTaskExecutorState.store(kTaskExecutorRunning, std::memory_order_release);
 	gTaskExecutorState.notify_all();
@@ -230,12 +173,10 @@ void TaskExecutor::InternalThreadMain(uint32_t threadIndex)
 
 	gTaskExecutorState.wait(kTaskExecutorInitializing, std::memory_order_acquire);
 	
-	auto threadName = std::format("TaskThread {}", threadIndex);
-	SetThreadName(myThreads[threadIndex], threadName.c_str());
 #if defined(TRACY_ENABLE)
-	// and Tracy's, which it keeps a list of its own for (it doesn't read the os's: only the thread id showed), the task
-	// threads in a group of their own
-	tracy::SetThreadNameWithHint(threadName.c_str(), 1);
+	// the name in Tracy's too (the thread was given it as it started, see TaskExecutor), which it keeps a list of its own
+	// for (it doesn't read the os's: only the thread id showed), the task threads in a group of their own
+	tracy::SetThreadNameWithHint(ThreadName(threadIndex).c_str(), 1);
 #endif
 			
 	auto stopToken = myStopSource.get_token();

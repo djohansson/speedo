@@ -118,6 +118,7 @@ set(CORE_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/core/math.cpp
 	${SPEEDO_SOURCE_DIR}/core/nodegraph.cpp
 	${SPEEDO_SOURCE_DIR}/core/process.cpp
+	${SPEEDO_SOURCE_DIR}/core/std_extra.cpp
 	${SPEEDO_SOURCE_DIR}/core/task.cpp
 	${SPEEDO_SOURCE_DIR}/core/taskexecutor.cpp
 	${SPEEDO_SOURCE_DIR}/core/time.cpp

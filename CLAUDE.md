@@ -2579,6 +2579,15 @@ executable target needs `windows.rc` in its sources.
   and the client's tick (input and the ui), paced to a millisecond, ran at 64 Hz: the camera and the ui moved at 64 Hz on
   a 120 Hz display while frames were drawn at hundreds a second, a stutter Tracy showed nothing of (the time was a
   sleep). It waits on a high resolution waitable timer there (ticks 1.56 ms apart, 15.4 before).
+- The executor's threads are `core::std_extra::jthread`s: `std::jthread` with P2019's thread attributes (the threads'
+  name and stack size passed as `jthread::name_hint` and `jthread::stack_size_hint` before the callable), std's where a
+  standard library has them (`__cpp_lib_thread_attributes`; none yet, P2019R9 is at LEWG), else a polyfill whose platform
+  code is in `core/std_extra.cpp` (pthreads, `_beginthreadex`), so the scheduler has none (its own thread naming went).
+  A `std::thread` can't be given a stack size, and macOS gives one 512 KB, which a debug client loading rungholt ran past
+  (`SIGBUS` in a stack guard, a client run in the full debug regression): a thread waiting in `Join` or `ForEach` runs
+  whatever is ready meanwhile, so nested waits stack task upon task (the BVH builder's spatial splits wait on a parallel
+  loop in each partition, running another partition meanwhile, which waits in turn), and the ui's tick landed on top, its
+  `PrepareDraw` frame big in a debug build. The task threads' stacks are a main thread's, 8 MB (`kThreadStackByteCount`).
 - Tasks come from a fixed pool (`kTaskPoolSize`), and a task stays allocated until its future is gone and the executor
   purges it (`JoinAll`, or after another task runs). A waiting `ForEach` runs other tasks meanwhile, so `ForEach`es nest,
   each holding a task per thread: a model's texture loads, each compressing on every thread, took about threads squared

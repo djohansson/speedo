@@ -4,11 +4,16 @@
 
 #include <algorithm>
 #include <bit>
+#include <concepts>
 #include <cstddef>
 #include <functional>
 #include <memory>
 #include <new>
+#include <stop_token>
+#include <string>
 #include <string_view>
+#include <system_error>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -343,6 +348,174 @@ public:
 
 	R operator()(Args... args) const { return Base::InternalInvoke(std::forward<Args>(args)...); }
 };
+#endif
+
+// a thread of execution that takes a stop token and joins on destruction, as std::jthread, with P2019's thread
+// attributes (std::thread::name_hint and std::thread::stack_size_hint, hints passed before the callable), which no
+// standard library has yet: std's where it has them, else this one, which starts its thread through the platform's api
+// (std_extra.cpp). a std::thread can't be given a stack size, and macOS gives one 512 KB
+#if defined(__cpp_lib_thread_attributes)
+using std::jthread;
+#else
+namespace detail
+{
+
+// starts a thread of execution running body, with a stack of about stackSize bytes (0: the platform's default), named
+// name (empty: unnamed), and returns its native handle and id once it runs; throws std::system_error where it can't
+[[nodiscard]] std::pair<std::thread::native_handle_type, std::thread::id>
+StartThread(size_t stackSize, std::string_view name, move_only_function<void()> body);
+void JoinThread(std::thread::native_handle_type handle);
+void DetachThread(std::thread::native_handle_type handle);
+
+} // namespace detail
+
+class jthread
+{
+public:
+	using id = std::thread::id;
+	using native_handle_type = std::thread::native_handle_type;
+
+	// the thread's name, for debuggers and profilers, copied before the constructor returns
+	template <std::same_as<char> T>
+	class name_hint
+	{
+	public:
+		constexpr explicit name_hint(std::basic_string_view<T> name) noexcept : myName(name) {}
+		name_hint(name_hint&&) = delete;
+		name_hint(const name_hint&) = delete;
+
+		[[nodiscard]] constexpr std::basic_string_view<T> get() const noexcept { return myName; }
+
+	private:
+		std::basic_string_view<T> myName;
+	};
+	template <typename T>
+	name_hint(const T*) -> name_hint<T>;
+	template <typename T>
+	name_hint(std::basic_string<T>) -> name_hint<T>;
+
+	// the size in bytes the thread's stack should have, rounded as the platform needs (0: its default)
+	class stack_size_hint
+	{
+	public:
+		constexpr explicit stack_size_hint(size_t size) noexcept : mySize(size) {}
+
+		[[nodiscard]] constexpr size_t get() const noexcept { return mySize; }
+
+	private:
+		size_t mySize;
+	};
+
+	jthread() noexcept = default;
+	template <typename F, typename... Args>
+	requires(!std::is_same_v<std::remove_cvref_t<F>, jthread>)
+	explicit jthread(F&& f, Args&&... args)//NOLINT(bugprone-forwarding-reference-overload)
+		: mySource()
+	{
+		InternalStart(0, {}, std::forward<F>(f), std::forward<Args>(args)...);
+	}
+	~jthread()
+	{
+		if (joinable())
+		{
+			request_stop();
+			join();
+		}
+	}
+	jthread(const jthread&) = delete;
+	jthread(jthread&& other) noexcept
+		: myHandle(std::exchange(other.myHandle, {}))
+		, myId(std::exchange(other.myId, {}))
+		, mySource(std::exchange(other.mySource, std::stop_source(std::nostopstate)))
+	{}
+	jthread& operator=(const jthread&) = delete;
+	jthread& operator=(jthread&& other) noexcept
+	{
+		if (this != &other)
+		{
+			if (joinable())
+			{
+				request_stop();
+				join();
+			}
+			myHandle = std::exchange(other.myHandle, {});
+			myId = std::exchange(other.myId, {});
+			mySource = std::exchange(other.mySource, std::stop_source(std::nostopstate));
+		}
+		return *this;
+	}
+
+	void swap(jthread& other) noexcept
+	{
+		std::swap(myHandle, other.myHandle);
+		std::swap(myId, other.myId);
+		std::swap(mySource, other.mySource);
+	}
+	[[nodiscard]] bool joinable() const noexcept { return myId != id(); }
+	void join()
+	{
+		if (!joinable())
+			throw std::system_error(std::make_error_code(std::errc::invalid_argument), "jthread::join: not joinable");
+		if (myId == std::this_thread::get_id())
+			throw std::system_error(std::make_error_code(std::errc::resource_deadlock_would_occur), "jthread::join: itself");
+		detail::JoinThread(myHandle);
+		myHandle = {};
+		myId = {};
+	}
+	void detach()
+	{
+		if (!joinable())
+			throw std::system_error(std::make_error_code(std::errc::invalid_argument), "jthread::detach: not joinable");
+		detail::DetachThread(myHandle);
+		myHandle = {};
+		myId = {};
+	}
+	[[nodiscard]] id get_id() const noexcept { return myId; }
+	[[nodiscard]] native_handle_type native_handle() { return myHandle; }
+
+	[[nodiscard]] std::stop_source get_stop_source() noexcept { return mySource; }
+	[[nodiscard]] std::stop_token get_stop_token() const noexcept { return mySource.get_token(); }
+	bool request_stop() noexcept { return mySource.request_stop(); }
+
+	[[nodiscard]] static unsigned int hardware_concurrency() noexcept { return std::thread::hardware_concurrency(); }
+
+private:
+	// the attributes before the callable taken, then the thread started: the callable and its arguments decayed here, in
+	// the constructing thread, and called with the stop token first where they take it
+	template <typename First, typename... Rest>
+	void InternalStart(size_t stackSize, std::string_view name, First&& first, Rest&&... rest)
+	{
+		using Type = std::remove_cvref_t<First>;
+		if constexpr (std::is_same_v<Type, stack_size_hint>)
+			InternalStart(first.get(), name, std::forward<Rest>(rest)...);
+		else if constexpr (std::is_same_v<Type, name_hint<char>>)
+			InternalStart(stackSize, first.get(), std::forward<Rest>(rest)...);
+		else
+		{
+			static_assert(
+				std::is_invocable_v<std::decay_t<First>, std::decay_t<Rest>...> ||
+				std::is_invocable_v<std::decay_t<First>, std::stop_token, std::decay_t<Rest>...>);
+			move_only_function<void()> body =
+				[token = mySource.get_token(), f = auto(std::forward<First>(first)), ... args = auto(std::forward<Rest>(rest))]() mutable
+			{
+				if constexpr (std::is_invocable_v<decltype(f), std::stop_token, decltype(args)...>)
+					std::invoke(std::move(f), std::move(token), std::move(args)...);
+				else
+					std::invoke(std::move(f), std::move(args)...);
+			};
+			std::tie(myHandle, myId) = detail::StartThread(stackSize, name, std::move(body));
+		}
+	}
+
+	native_handle_type myHandle{};
+	id myId;
+	std::stop_source mySource{std::nostopstate};
+};
+
+inline void swap(jthread& lhs, jthread& rhs) noexcept
+{
+	lhs.swap(rhs);
+}
 #endif
 
 } // namespace std_extra

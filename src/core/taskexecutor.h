@@ -67,7 +67,13 @@ private:
 
 	void InternalThreadMain(uint32_t threadIndex);
 
-	std::vector<std::jthread> myThreads;
+	// the threads' stacks: a main thread's on macOS and Linux (a std::thread's on macOS is 512 KB). a thread waiting in Join
+	// or ForEach runs whatever is ready meanwhile, so nested waits stack task upon task: the BVH builder's spatial splits wait
+	// on a parallel loop in each partition, and while waiting run another partition, which waits in turn, and the ui's tick
+	// (PrepareDraw's frame, big in a debug build) landed on top of rungholt's and ran past the 512 KB
+	static constexpr size_t kThreadStackByteCount = size_t{8} << 20;
+
+	std::vector<std_extra::jthread> myThreads;
 	std::stop_source myStopSource;
 	// idle threads wait for this to change: it is bumped after work is submitted (with wakeThreads) and on stop. an
 	// atomic rather than a condition variable, so submitting takes no lock, and a thread can't miss a wake between
