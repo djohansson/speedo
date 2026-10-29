@@ -8,9 +8,9 @@
 // importance sampling (RIS, Talbot et al. 2005) over candidates picked down a tree of the emitters by how much each part
 // of it may light the pixel (EmitterPick, a light BVH; Emitter Sample, then Emitter Shade, which traces the chosen
 // point's shadow ray; the reservoirs can be reused from the last frame's and the pixels around, as ReSTIR does, Bitterli
-// et al. 2020, but aren't by default: see ComputeEmitterSample), filtered over the traced pixels (Emitter X and Y) and
-// accumulated over frames (Emitter Temporal): the irradiance over pi the main pass's diffuse takes, upsampled
-// (EmitterIrradiance). a part of shaders.slang, which includes it after ginear.slang
+// et al. 2020, but aren't by default: see ComputeEmitterSample), filtered over the traced pixels (Emitter X and Y),
+// then upsampled to every pixel and accumulated over frames there (Emitter Temporal): the irradiance over pi the main
+// pass's diffuse takes (EmitterIrradiance). a part of shaders.slang, which includes it after ginear.slang
 
 // the emitters' textures are read at a coarse level: a point's light stands for the area around it
 static const float kEmitterTextureLevel = 3.0;
@@ -489,7 +489,8 @@ void ComputeEmitterSample(uint3 dispatchThreadId : SV_DispatchThreadID)
 // around (within spatialRadius of them, on the same surface: their points within EmitterTolerance of its tangent plane,
 // their normals within 25 degrees); its point's light, shadowed by its ray from off the surface (by a pixel and a half,
 // more far from the eye, as the traced shadows'), into the raw image; and the reservoir into the part of the frame's
-// parity, which the next frame's Emitter Sample reuses
+// parity, which the next frame's Emitter Sample reuses, and the traced pixel's surface into the image of the frame's
+// parity, which Emitter Temporal upsamples by and the next frame's Emitter Sample checks its reuse against
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -504,6 +505,7 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	int2 traced = int2(dispatchThreadId.xy);
 	int2 pixel = traced * int(data.stride);
 	RWTexture2D raw = gRWTextures[SHADER_TYPES_EMITTER_RAW_RW_TEXTURE];
+	RWTexture2D surfaces = gRWTextures[SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + (data.frame & 1u)];
 	ViewData view;
 	ShadowSurface surface;
 	float nearest2;
@@ -511,8 +513,10 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 	{
 		gEmitterReservoirs[part * tracedCount + index] = EmitterPack(EmitterEmpty());
 		raw[traced] = float4(0.0, 0.0, 0.0, -1.0);
+		surfaces[traced] = float4(0.0, 0.0, 0.0, -1.0);
 		return;
 	}
+	surfaces[traced] = float4(surface.position, EmitterPackNormal(surface.normal));
 	EmitterRandom random = EmitterRandomAt(uint2(pixel), data.frame ^ 0x5bd1e995u);
 	// the reservoirs merged: the pixel's, then its neighbors', and the surfaces they were made for
 	EmitterReservoir merged[1 + kEmitterSpatialCountMost];
@@ -708,122 +712,22 @@ void ComputeEmitterY(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_EMITTER_FILTERED_RW_TEXTURE][traced] = EmitterFilter(traced, int2(0, 1), SHADER_TYPES_EMITTER_ROWS_TEXTURE);
 }
 
-// the Emitter Temporal pass: per traced pixel, the filtered light blended into what the last frame's history holds where
-// its point was then (by the view's last view projection), by EmitterData::blend (1 where there is no history: the
-// frame's alone): bilinear over the 4 traced pixels around that place, each only where its point was the same surface
-// (see EmitterTolerance), and none where something moves (the main depth's stencil), so neither ghosts; into the images
-// of the frame's parity, with each traced pixel's surface, which the next frame checks its history by and the main pass
-// upsamples by
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
+// the frame's filtered light at a pixel (its point and normal, the pre-pass's), from the traced pixels around (their
+// surfaces as the frame's Emitter Shade wrote them): bilinear over the 2x2 around it, each by how much it is on the
+// pixel's surface (its point's distance off the pixel's tangent plane, against 1% of the distance to the eye, and how its
+// normal agrees), or where none is, the 3x3 around the nearest by that alone, or where none of those is either (thin
+// geometry between the traced pixels: a frame's side, a ledge's edge, a mullion), the 3x3 by how their normals agree,
+// never 0; kGiNearUnknown where nothing was gathered. left unknown, those pixels took no emitter light, dark dashes along
+// the edges at night (Bistro's string lights, the user's pose -906.5073,218.3646,-40.5114,-7.916,60.803; magenta in the
+// debug views, as white as the tonemapper makes it)
+float4 EmitterUpsample(int2 pixel, float3 position, float3 normal, float3 eye, uint stride, uint current)
 {
-	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
-	uint current = data.frame & 1u;
-	RWTexture2D history = gRWTextures[SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE + current];
-	RWTexture2D surfaces = gRWTextures[SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + current];
-	uint2 extent;
-	history.GetDimensions(extent.x, extent.y);
-	if (any(dispatchThreadId.xy >= extent))
-		return;
-	int2 traced = int2(dispatchThreadId.xy);
-	int2 pixel = traced * int(data.stride);
-	ViewData view;
-	ShadowSurface surface;
-	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
-	{
-		history[traced] = kGiNearUnknown;
-		surfaces[traced] = float4(0.0, 0.0, 0.0, -1.0);
-		return;
-	}
-	surfaces[traced] = float4(surface.position, EmitterPackNormal(surface.normal));
-	float4 now = gTextures[SHADER_TYPES_EMITTER_FILTERED_TEXTURE].Load(int3(traced, 0));
-	float4 result = now.a >= 0.0 ? float4(now.rgb, 1.0) : now;
-	float blend = data.raw == 1u ? 1.0 : data.blend;
-	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
-	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
-	if (now.a >= 0.0 && blend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
-	{
-		float2 at = ((clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5) / float(data.stride);
-		float tolerance = EmitterTolerance(view, surface, data.stride);
-		Texture2D last = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + (current ^ 1u)];
-		Texture2D lastSurfaces = gTextures[SHADER_TYPES_EMITTER_SURFACE_TEXTURE + (current ^ 1u)];
-		int2 base = int2(floor(at));
-		float2 f = at - float2(base);
-		float4 total = 0.0;
-		float weights = 0.0;
-		for (int corner = 0; corner < 4; corner++)
-		{
-			int2 offset = int2(corner & 1, corner >> 1);
-			int2 tap = base + offset;
-			if (any(tap < 0) || any(tap >= int2(extent)))
-				continue;
-			float4 value = last.Load(int3(tap, 0));
-			float4 seen = lastSurfaces.Load(int3(tap, 0));
-			if (value.a < 0.0 || seen.w < 0.0 || distance(seen.xyz, surface.position) > tolerance ||
-				dot(EmitterUnpackNormal(seen.w), surface.normal) < 0.9)
-				continue;
-			float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
-			total += w * value;
-			weights += w;
-		}
-		// none of them on its surface: those of the 3x3 around that were (within the tolerance of its tangent plane, a few
-		// strides away), as a shorter history (a quarter of the frames, at most). with temporal upscaling's jitter a
-		// traced pixel on thin geometry (a ledge, a window frame) sees it in some frames and what is behind in others, and
-		// started over each time it came back, while its neighbours along it had seen it
-		if (weights <= 1e-3)
-		{
-			int2 nearest = int2(round(at));
-			float reach = 3.0 * float(data.stride) * surface.metersPerPixel + tolerance;
-			for (int y = -1; y <= 1; y++)
-				for (int x = -1; x <= 1; x++)
-				{
-					int2 tap = nearest + int2(x, y);
-					if (any(tap < 0) || any(tap >= int2(extent)))
-						continue;
-					float4 value = last.Load(int3(tap, 0));
-					float4 seen = lastSurfaces.Load(int3(tap, 0));
-					if (value.a < 0.0 || seen.w < 0.0 || abs(dot(seen.xyz - surface.position, surface.normal)) > tolerance ||
-						distance(seen.xyz, surface.position) > reach || dot(EmitterUnpackNormal(seen.w), surface.normal) < 0.9)
-						continue;
-					total += float4(value.rgb, min(value.a, 0.25 / blend));
-					weights += 1.0;
-				}
-		}
-		// a mean of the frames the history holds (its alpha, see EmitterIrradiance), at most the history's (1 over the
-		// blend): blended by the blend alone, a history started over took its first frame's sample as all of it and let it
-		// go at a thirty-second a frame, and with temporal upscaling's jitter a traced pixel at an edge flips between the
-		// surfaces there every few frames, which drew speckles along every window frame of Bistro at night
-		if (weights > 1e-3)
-		{
-			float count = min(total.a / weights + 1.0, 1.0 / blend);
-			result = float4(lerp(total.rgb / weights, now.rgb, max(1.0 / count, blend)), count);
-		}
-	}
-	history[traced] = result;
-}
-
-// the main pass's opaque fragments' light from the emitters (see Shade; position, normal: the fragment's, its geometry
-// normal): the irradiance over pi the passes above gathered over frames at the traced pixels around its pixel, upsampled:
-// bilinear over the 2x2 around it, each by how much it is on the fragment's surface (its point's distance off the
-// fragment's tangent plane, against 1% of the distance to the eye, and how its normal agrees), or where none is, the 3x3
-// around the nearest by that alone, or where none of those is either (thin geometry between the traced pixels: a frame's
-// side, a ledge's edge, a mullion), the 3x3 by how their normals agree, never 0; -1 where nothing was gathered. left at
-// -1, those fragments took no emitter light, dark dashes along the edges at night (Bistro's string lights, the user's
-// pose -906.5073,218.3646,-40.5114,-7.916,60.803; magenta in the debug views, as white as the tonemapper makes it)
-float3 EmitterIrradiance(float3 position, float3 normal)
-{
-	if (!gFragmentEmitters)
-		return -1.0;
-	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
-	uint current = data.frame & 1u;
-	Texture2D light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + current];
+	Texture2D light = gTextures[SHADER_TYPES_EMITTER_FILTERED_TEXTURE];
 	Texture2D surfaces = gTextures[SHADER_TYPES_EMITTER_SURFACE_TEXTURE + current];
 	uint2 extent;
 	light.GetDimensions(extent.x, extent.y);
-	ViewData view = gViewData[gPushConstants.frameIndex][gPushConstants.viewId];
-	float scale = max(0.01 * distance(position, view.eyePosition.xyz), 1e-6);
-	float2 at = float2(gFragmentPixel) / float(data.stride);
+	float scale = max(0.01 * distance(position, eye), 1e-6);
+	float2 at = float2(pixel) / float(stride);
 	int2 base = int2(floor(at));
 	float2 f = at - float2(base);
 	float3 total = 0.0;
@@ -839,9 +743,7 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 		if (value.a < 0.0 || seen.w < 0.0)
 			continue;
 		float similar = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(saturate(dot(EmitterUnpackNormal(seen.w), normal)), 8.0);
-		// and by how many frames it holds (its history's alpha): a traced pixel that started over (at an edge, under
-		// the jitter) counts for little beside ones that hold their frames on the same surface
-		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * similar * max(value.a, 1.0);
+		float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y) * similar;
 		total += w * value.rgb;
 		weights += w;
 	}
@@ -863,11 +765,11 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 				if (value.a < 0.0 || seen.w < 0.0)
 					continue;
 				float facing = saturate(dot(EmitterUnpackNormal(seen.w), normal));
-				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(facing, 8.0) * max(value.a, 1.0);
+				float w = exp(-abs(dot(seen.xyz - position, normal)) / scale) * pow(facing, 8.0);
 				total += w * value.rgb;
 				weights += w;
-				alikeTotal += (facing + 0.01) * max(value.a, 1.0) * value.rgb;
-				alikeWeights += (facing + 0.01) * max(value.a, 1.0);
+				alikeTotal += (facing + 0.01) * value.rgb;
+				alikeWeights += facing + 0.01;
 			}
 		if (weights <= 1e-6)
 		{
@@ -875,5 +777,96 @@ float3 EmitterIrradiance(float3 position, float3 normal)
 			weights = alikeWeights;
 		}
 	}
-	return weights > 0.0 ? total / weights : -1.0;
+	return weights > 0.0 ? float4(total / weights, 1.0) : kGiNearUnknown;
+}
+
+// the Emitter Temporal pass: per pixel of the pre-pass's depth, the frame's filtered light upsampled from the traced
+// pixels around (EmitterUpsample), blended into what the last frame's history holds where its point was then (by the
+// view's last view projection, the last jitter's): bilinear over the 4 pixels around that place, each only where its
+// point was as far from the last eye (within a fifth of a percent and the depth two pixels make along the surface) and
+// its normal within 25 degrees, and none where something moves (the main depth's stencil), so neither ghosts; by 1 over
+// the frames it holds (its alpha), at least EmitterData::blend (1 where there is no history: the frame's alone); into
+// the images of the frame's parity, with each pixel's surface (its distance from the eye and its normal), which the next
+// frame checks its history by. per pixel rather than per traced pixel: under temporal upscaling's jitter, a traced
+// pixel at an edge saw one surface in some frames and the other in others, and which traced pixels a pixel's upsampling
+// took changed with it, a change over a block of pixels at once, which the upscaler's clamp to the 3x3 around takes for
+// the frame's light: speckles on every edge, ledge and leaf the emitters light (Bistro's string lights, the user's
+// evening pose -994.4661,340.8679,-53.6291,-8.370,78.594 at 19.817, the left tree's leaves, the balcony's railing; 6066
+// pixels a frame changed by more than 32 of 255 in the emitters' debug view at exposure 5, against 356 without
+// upscaling)
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	uint current = data.frame & 1u;
+	RWTexture2D history = gRWTextures[SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE + current];
+	RWTexture2D surfaces = gRWTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE + current];
+	uint2 extent;
+	history.GetDimensions(extent.x, extent.y);
+	if (any(dispatchThreadId.xy >= extent))
+		return;
+	int2 pixel = int2(dispatchThreadId.xy);
+	ViewData view;
+	ShadowSurface surface;
+	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
+	{
+		history[pixel] = kGiNearUnknown;
+		surfaces[pixel] = float4(-1.0, 0.0, 0.0, 0.0);
+		return;
+	}
+	float3 toEye = view.eyePosition.xyz - surface.position;
+	surfaces[pixel] = float4(length(toEye), EmitterPackNormal(surface.normal), 0.0, 0.0);
+	float4 now = EmitterUpsample(pixel, surface.position, surface.normal, view.eyePosition.xyz, data.stride, current);
+	float4 result = now;
+	float blend = data.raw == 1u ? 1.0 : data.blend;
+	bool moves = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
+	float4 clip = mul(view.previousViewProjection, float4(surface.position, 1.0));
+	if (now.a >= 0.0 && blend < 1.0 && view.previousEyePosition.w > 0.0 && !moves && clip.w > 0.0)
+	{
+		float2 at = (clip.xy / clip.w * 0.5 + 0.5) * view.viewport.zw + view.viewport.xy - 0.5;
+		float expected = distance(surface.position, view.previousEyePosition.xyz);
+		float slant = abs(dot(surface.normal, normalize(toEye)));
+		float tolerance = 0.002 * expected + 2.0 * surface.metersPerPixel * sqrt(max(1.0 - slant * slant, 0.0)) / max(slant, 0.05);
+		Texture2D last = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + (current ^ 1u)];
+		Texture2D lastSurfaces = gTextures[SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + (current ^ 1u)];
+		int2 base = int2(floor(at));
+		float2 f = at - float2(base);
+		float4 total = 0.0;
+		float weights = 0.0;
+		for (int corner = 0; corner < 4; corner++)
+		{
+			int2 offset = int2(corner & 1, corner >> 1);
+			int2 tap = base + offset;
+			if (any(float2(tap) < view.viewport.xy) || any(float2(tap) >= view.viewport.xy + view.viewport.zw))
+				continue;
+			float4 value = last.Load(int3(tap, 0));
+			float2 seen = lastSurfaces.Load(int3(tap, 0)).xy;
+			if (value.a < 0.0 || seen.x < 0.0 || abs(seen.x - expected) > tolerance || dot(EmitterUnpackNormal(seen.y), surface.normal) < 0.9)
+				continue;
+			float w = (offset.x != 0 ? f.x : 1.0 - f.x) * (offset.y != 0 ? f.y : 1.0 - f.y);
+			total += w * value;
+			weights += w;
+		}
+		// a mean of the frames the history holds, at most the history's (1 over the blend): blended by the blend alone, a
+		// history started over took its first frame's light as all of it and let it go at a thirty-second a frame
+		if (weights > 1e-3)
+		{
+			float count = min(total.a / weights + 1.0, 1.0 / blend);
+			result = float4(lerp(total.rgb / weights, now.rgb, max(1.0 / count, blend)), count);
+		}
+	}
+	history[pixel] = result;
+}
+
+// the main pass's opaque fragments' light from the emitters (see Shade): the irradiance over pi Emitter Temporal gathered
+// at the fragment's pixel (whose surface the fragment is: the main list's opaque fragments shade at the pre-pass's
+// depth), -1 where nothing was gathered
+float3 EmitterIrradiance()
+{
+	if (!gFragmentEmitters)
+		return -1.0;
+	EmitterData data = gEmitterData[gPushConstants.frameIndex][0];
+	float4 light = gTextures[SHADER_TYPES_EMITTER_HISTORY_TEXTURE + (data.frame & 1u)].Load(int3(gFragmentPixel, 0));
+	return light.a >= 0.0 ? light.rgb : -1.0;
 }

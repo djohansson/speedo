@@ -128,29 +128,31 @@ extern "C"
 // GiData::nearStride-th each way: the others hold nothing), what its ray from the surface met within a few voxels (rgb:
 // its radiance; a: 1 if it met nothing, 0 if it did, -1 where there is nothing to know) (GI Near, ComputeGiNear), that
 // filtered along rows, and then columns (GI Near X and Y): the light the surface gathers (rgb)
-// and the share of its rays that met nothing near (a), which the main pass's opaque fragments take near other surfaces
-// (see GiNearIrradiance), each written as a storage image in gRWTextures
+// and the share of its rays that met nothing near (a), each written as a storage image in gRWTextures
 #define SHADER_TYPES_GI_NEAR_RAW_TEXTURE 23u
 #define SHADER_TYPES_GI_NEAR_RAW_RW_TEXTURE 16u
 #define SHADER_TYPES_GI_NEAR_ROWS_TEXTURE 24u
 #define SHADER_TYPES_GI_NEAR_ROWS_RW_TEXTURE 17u
 #define SHADER_TYPES_GI_NEAR_TEXTURE 25u
 #define SHADER_TYPES_GI_NEAR_RW_TEXTURE 18u
-// the near field accumulated over frames (GI Near Temporal, ComputeGiNearTemporal), at the traced pixels: two of each, the
-// frame's written while the last frame's is read, by the frame's parity (GiData::nearFrame): the light and share as
-// SHADER_TYPES_GI_NEAR_TEXTURE's, and each traced pixel's surface (its point, and its normal packed as the emitters', RGBA32F),
-// which the next frame's reprojection checks its own against and the main pass upsamples by (GiNearUpsample)
+// the near field upsampled to every pixel and accumulated over frames (GI Near Temporal, ComputeGiNearTemporal): two of
+// each, the frame's written while the last frame's is read, by the frame's parity (GiData::nearFrame): the light and share
+// as SHADER_TYPES_GI_NEAR_TEXTURE's, which the main pass's opaque fragments take near other surfaces (see
+// GiNearIrradiance), and each pixel's surface (RG32F: its distance from the eye, -1 where there is none, and its
+// normal packed as the emitters'), which the next frame's reprojection checks its own against
 #define SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE 26u // and 27
 #define SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE 19u // and 20
 #define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE 28u // and 29
 #define SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE 21u // and 22
-// emissive surfaces as lights (see EmitterData, emitters.slang), each image a texel per traced pixel of the pre-pass's
-// depth (every EmitterData::stride-th pixel each way): the irradiance over pi the emitter point a traced pixel's
-// reservoir chose gives it, shadowed by a ray through the BVHs (Emitter Sample and Emitter Shade, ComputeEmitterSample
-// and ComputeEmitterShade; a: 1, -1 where there is no surface), filtered along rows, then columns (Emitter X and Y), and
-// accumulated over frames (Emitter Temporal: two of each, the frame's written while the last frame's is read, by the
-// frame's parity), with each traced pixel's surface (RGBA32F: its point, and its normal, see EmitterPackNormal; w -1
-// where there is none): what the main pass's opaque fragments add to their diffuse, upsampled (EmitterIrradiance)
+// emissive surfaces as lights (see EmitterData, emitters.slang), a texel per traced pixel of the pre-pass's depth (every
+// EmitterData::stride-th pixel each way): the irradiance over pi the emitter point a traced pixel's reservoir chose gives
+// it, shadowed by a ray through the BVHs (Emitter Sample and Emitter Shade, ComputeEmitterSample and ComputeEmitterShade;
+// a: 1, -1 where there is no surface), with each traced pixel's surface (two, the frame's written while the last frame's
+// is read, by the frame's parity; RGBA32F: its point, and its normal, see EmitterPackNormal; w -1 where there is none),
+// filtered along rows, then columns (Emitter X and Y); then per pixel, upsampled and accumulated over frames (Emitter
+// Temporal: two of each by the frame's parity, the light, a the frames it holds, and each pixel's surface, RG32F: its
+// distance from the eye, -1 where there is none, and its normal, see EmitterPackNormal): what the main pass's opaque
+// fragments add to their diffuse (EmitterIrradiance)
 #define SHADER_TYPES_EMITTER_RAW_TEXTURE 30u
 #define SHADER_TYPES_EMITTER_RAW_RW_TEXTURE 23u
 #define SHADER_TYPES_EMITTER_ROWS_TEXTURE 31u
@@ -161,6 +163,8 @@ extern "C"
 #define SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE 26u // and 27
 #define SHADER_TYPES_EMITTER_SURFACE_TEXTURE 35u // and 36
 #define SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE 28u // and 29
+#define SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE 56u // and 57
+#define SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE 50u // and 51
 // the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
 // the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
 #define SHADER_TYPES_SKY_VIEW_TEXTURE 37u

@@ -1804,24 +1804,29 @@ main pass's upsampling taking some back, and differ from before by about twice t
 wide a little lighter), over the traced pixels within 16 along rows, then columns, on the pixel's surface (by the plane and the
 normal, as the traced shadows' filter), by a tent of the distance (a box of the 17 traced pixels around a traced one and
 the 16 around the others drew stripes a pixel wide and a bright ray as a square). GI Near Temporal
-(`ComputeGiNearTemporal`; `SPEEDO_GI_NEAR_TEMPORAL=0` without it, View > Indirect Lighting > Near Field Over Frames)
-blends that into a history reprojected by the pixel's point through the view's last view projection
-(`ViewData::previousViewProjection`, `previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where
-the view moved in the target), bilinear over the 4 traced pixels around where it was, each only if its point was as far
-from the last eye as this one's (by the traced pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`: point
-and packed normal; within 2% and two strides' steps along the surface), none for what moves (the main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two
-images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
+(`ComputeGiNearTemporal`; `SPEEDO_GI_NEAR_TEMPORAL=0` without it, View > Indirect Lighting > Near Field Over Frames),
+at every pixel of the pre-pass's depth, upsamples that from the traced pixels (`GiNearUpsample`: bilinear over the 2x2
+around, each by how much it is on the pixel's surface, as the emitters' light, with their fallbacks) and blends it into a
+history reprojected by the pixel's point through the view's last view projection (`ViewData::previousViewProjection`,
+`previousEyePosition`, which `Views::Upload` keeps from its last upload, w 0 where the view moved in the target; the last
+jitter included), bilinear over the 4 pixels around where it was, each only if its point was as far from the last eye as
+this one's and its normal within 25 degrees (by the pixels' surfaces, `SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE`:
+RG32F, distance and packed normal; within a fifth of a percent and two pixels' depth along the surface), none for what moves (the
+main depth's stencil), by 1 over `SPEEDO_GI_NEAR_HISTORY_FRAME_COUNT` (16), into two images each, the frame's by its parity (`GiData::nearFrame`, fixed slots: a descriptor written every frame takes a set
 from the pool); the rays turn every frame (`GiNearDirection`), each pixel taking every one of its tile's 16 directions
 over 16 frames. Fixed, the rays' grain stayed on the screen as the camera moved (the user: "fixed to the camera"; their
 pose under Sponza's curtains, `2.8260,0.3324,-2.7619,27.122,-513.942`); over frames it is smooth, and a slow turn
 smears nothing. It costs 0.9 ms a frame on KosmicKrisp by the `Frame` scope (Sponza 30.1 to 31.0, Bistro's street 57.3
 to 58.3), which misses compute work there: by the draw thread's frame time, 18.9 ms at Bistro's evening benchmark pose
-and 16.4 at San Miguel's, its rays 10, its filter 4 to 8 (every pixel) and its frames 1 (docs/performance-plan.md). Main's
-opaque fragments (`PushConstants::prepassImages`'
-`PREPASS_IMAGE_GI_NEAR`) take what the rays gathered, upsampled from the traced pixels (`GiNearUpsample`: bilinear over
-the 2x2 around, each by how much it is on the fragment's surface, as the emitters' light, with their fallbacks; the frames'
-pass runs whether or not over frames, blending by 1 without, since it writes the surfaces the upsampling weighs by), by how many met another surface nearer than a contact
-(`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
+and 16.4 at San Miguel's, its rays 10, its filter 4 to 8 (every pixel) and its frames 1 (docs/performance-plan.md). The frames were
+the traced pixels', which the main pass upsampled, until temporal upscaling's jitter made the pixels upsampled from a
+traced pixel at an edge change as a block, as the emitters' did (see "Emissive surfaces as lights"): per pixel, the
+near field's light alone (the indirect diffuse debug view with `SPEEDO_GI_NEAR_SHOW=1`) at the user's San Miguel pose
+`7.6715,4.3834,1.7963,-22.087,-88.462` (performance, a stride of 4, resolution 64) went from 870 pixels a frame changing
+by more than 32 of 255 to 447, and by more than 64 from 200 to 41, and its leaves and branches came out crisper. Main's
+opaque fragments (`PushConstants::prepassImages`' `PREPASS_IMAGE_GI_NEAR`) take what the rays gathered at their pixel
+(the frames' pass runs whether or not over frames, blending by 1 without), by how many met another surface nearer than a
+contact (`FrameInputs::giNearContact`: View > Indirect Lighting Near Field Contact, `SPEEDO_GI_NEAR_CONTACT`, 2.5 voxels), the
 volume's lookup by the square of the share that met none (`SPEEDO_GI_NEAR_POWER`), and the rays' light alone where the
 lookup saw no probe (`GiNearIrradiance`). Blended by anything met within the rays' reach, the rays' light took every
 junction over: Sponza's columns between the curtains lit from the courtyard through gaps the voxels close, and a broad
@@ -1905,17 +1910,29 @@ takes a voxel's emission out), and what the emitters give arrives through these:
   `EmitterViewStill`). Below `SPEEDO_EMITTER_ROULETTE` (0.02) of the frame's white (the unshadowed estimate times the
   exposure) the ray is traced by chance, weighed up by it: Bistro's street by day under auto exposure, 2.5 ms (65.4 to
   67.9 with every ray).
-- **Filter and frames**, at the traced pixels: Emitter X and Y (`EmitterFilter`: the traced pixels within
-  `SPEEDO_EMITTER_FILTER_REACH`, 16, pixels along rows and columns, on the same surface, by a tent, as the near field's),
-  Emitter Temporal (blended by 1 over `SPEEDO_EMITTER_HISTORY_FRAME_COUNT`, 32, into the history the frame's parity says,
-  `SHADER_TYPES_EMITTER_HISTORY_TEXTURE`, bilinear from where the point was, each traced pixel only where its last surface,
-  `SHADER_TYPES_EMITTER_SURFACE_TEXTURE`, RGBA32F: its point and its normal packed exactly, `EmitterPackNormal`, was the
-  same; 16 frames, 0.154 against 0.188 at the string lights' pose). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`)
-  upsample it (`EmitterIrradiance`: bilinear over the 2x2 traced pixels around, each by how much it is on the fragment's
-  surface, else the 3x3 by that alone, else, thin geometry between the traced pixels, a frame's side or a ledge's edge,
-  the 3x3 by how their normals agree, never 0: left without light, those fragments were dark dashes along every edge at
-  night, magenta in the debug views, which the tonemapper made white streaks at exposure 5) and add the base color
-  times it to their direct light (Direct Light's debug view has it; blended and scattering fragments don't).
+- **Filter and frames**: Emitter X and Y at the traced pixels (`EmitterFilter`: the traced pixels within
+  `SPEEDO_EMITTER_FILTER_REACH`, 16, pixels along rows and columns, on the same surface, by a tent, as the near field's);
+  then Emitter Temporal at every pixel of the pre-pass's depth: the frame's filtered light upsampled (`EmitterUpsample`:
+  bilinear over the 2x2 traced pixels around, each by how much it is on the pixel's surface, by the traced pixels'
+  surfaces as Emitter Shade wrote them, `SHADER_TYPES_EMITTER_SURFACE_TEXTURE`, RGBA32F: the point and the normal packed
+  exactly, `EmitterPackNormal`; else the 3x3 by that alone, else, thin geometry between the traced pixels, a frame's side
+  or a ledge's edge, the 3x3 by how their normals agree, never 0: left without light, those pixels were dark dashes along
+  every edge at night, magenta in the debug views, which the tonemapper made white streaks at exposure 5), blended by 1
+  over the frames it holds, at least 1 over `SPEEDO_EMITTER_HISTORY_FRAME_COUNT` (32), into the history the frame's parity
+  says (`SHADER_TYPES_EMITTER_HISTORY_TEXTURE`), bilinear from where the point was (the last view projection, its jitter
+  included), each pixel only where its last surface (`SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE`, RG32F: the distance
+  from the eye and the packed normal) was the same (within a fifth of a percent and two pixels' depth along the surface,
+  normals within 25 degrees; 16 frames, 0.154 against 0.188 at the string lights' pose). It was accumulated at the
+  traced pixels, which the main pass upsampled, until temporal upscaling's jitter: a traced pixel at an edge saw one
+  surface in some frames and the other in others, the pixels upsampled from it changed as a block, and the upscaler's
+  clamp to the 3x3 around passed that on as the frame's light: speckles on every edge, ledge and leaf the emitters light
+  (the user's evening pose `-994.4661,340.8679,-53.6291,-8.370,78.594` at 19.817, balanced, the emitters' debug view at
+  exposure 5: 6066 pixels a frame changed by more than 32 of 255, against 356 without upscaling; 738 per pixel, most of
+  them the bulbs themselves, which the view draws and the jitter samples or not; at no measurable cost with the near
+  field's frames per pixel too: 50.9 ms either way, 60.1 without upscaling). Checked by the distance alone, within 1%,
+  the history blurred across window frames and railings (227). Main's opaque fragments (`PREPASS_IMAGE_EMITTERS`) take
+  it at their pixel (`EmitterIrradiance`) and add the base color times it to their direct light (Direct Light's debug
+  view has it; blended and scattering fragments don't).
 - **The voxels** (`EmitterVoxelIrradiance`, in `GiDirectRadiance`): `SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT` (4) resampled
   points of `SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT` (8) candidates each, shadowed as the punctual lights' are, in the static
   voxels' kept light (made again when emitters start or stop lighting) and the moving ones' each frame. An animated
@@ -2348,8 +2365,8 @@ buffer, the old one retired after the gpu's work; NodePerformanceTest has 10000 
 first 1023 used to be drawn with the default one, with a warning; the index used to share a push constant with the view,
 10 bits). The scatter pass writes a scattering material's index + 1 to a half float, exact to 2048: one past that is a
 hard failure. Their diffuse, alpha
-(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 56
-(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images). Bump textures are height maps in
+(`map_d`, `kMask`: BC4) and normal (`norm`, `kNormal`, else `map_bump`/`bump`, `kBump`: both BC5) textures are loaded with the model and go in `gTextures` slots from 58
+(0 the main color, 1 to 3 temporal upscaling's composite and color, 4 the main depth (the depth pyramid's source), 12 the environment's, 15 the texture of material 0 that opening an image loads, 16 and 17 the menu bar blur's, 18 the pre-pass's normals, 19 to 22 the traced shadows' images, 23 to 25 the indirect lighting near field's, 26 to 29 its history's, 30 to 36 the emitters' and 37 the sky's view of itself, 38 the pre-pass's motion, 39 to 55 temporal upscaling's other images, 56 and 57 the emitters' pixels' surfaces). Bump textures are height maps in
 most mtl files, but some are normal maps: the importer tells them apart by color (normal maps are bluish), turns
 heights into normals (scaled by `-bm`), and stores all of them with +y along +v as sampled, i.e. down the image (the
 obj importer flips v). Vertices carry gltf's tangents (`VertexP3fN3fTa4fT014fC4f::tangent`: xyz along +u, w the

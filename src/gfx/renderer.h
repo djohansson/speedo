@@ -627,14 +627,15 @@ private:
 	uint32_t myGiNearFrame = 0;
 	// emissive surfaces as lights (see EmitterData, emitters.slang): the frame's (gEmitterData[frame], host visible); the
 	// reservoirs per traced pixel (gEmitterReservoirs, three parts, see ComputeEmitterShade), made at the frame's size;
-	// the traced pixels' light, filtered along rows, and columns, and over frames with their surfaces (two of each, by the
-	// frame's parity); the passes; the candidates a traced pixel resamples (SPEEDO_EMITTER_CANDIDATE_COUNT) and a voxel's
-	// samples and their candidates (SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT, SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT), the
-	// reservoirs' reuse (SPEEDO_EMITTER_REUSE=0 without: over frames, capped at a count of SPEEDO_EMITTER_HISTORY_CAP times
-	// the candidates, and of SPEEDO_EMITTER_SPATIAL_COUNT traced pixels within spatialRadius of them), the filter's reach
-	// in pixels (SPEEDO_EMITTER_FILTER_REACH), the frame's weight over frames (SPEEDO_EMITTER_HISTORY_FRAME_COUNT, its
-	// reciprocal), whether they light this frame, whether the last frame's history and reservoirs hold anything (they lit
-	// it, at this size), and the frames they have lit
+	// the traced pixels' light, filtered along rows, and columns, and their surfaces (two, by the frame's parity); the
+	// light per pixel over frames, with each pixel's surface (two of each, by the frame's parity); the passes; the
+	// candidates a traced pixel resamples (SPEEDO_EMITTER_CANDIDATE_COUNT) and a voxel's samples and their candidates
+	// (SPEEDO_EMITTER_VOXEL_SAMPLE_COUNT, SPEEDO_EMITTER_VOXEL_CANDIDATE_COUNT), the reservoirs' reuse
+	// (SPEEDO_EMITTER_REUSE=0 without: over frames, capped at a count of SPEEDO_EMITTER_HISTORY_CAP times the candidates,
+	// and of SPEEDO_EMITTER_SPATIAL_COUNT traced pixels within spatialRadius of them), the filter's reach in pixels
+	// (SPEEDO_EMITTER_FILTER_REACH), the frame's weight over frames (SPEEDO_EMITTER_HISTORY_FRAME_COUNT, its reciprocal),
+	// whether they light this frame, whether the last frame's history and reservoirs hold anything (they lit it, at this
+	// size), and the frames they have lit
 	std::vector<Buffer> myEmitterDataBuffers;
 	Buffer myEmitterReservoirBuffer;
 	FrameGraph::BufferId myEmitterReservoirs;
@@ -643,8 +644,10 @@ private:
 	FrameGraph::ImageId myEmitterFiltered;
 	std::array<ScreenImage, 2> myEmitterHistoryImages;
 	std::array<ScreenImage, 2> myEmitterSurfaceImages;
+	std::array<ScreenImage, 2> myEmitterPixelSurfaceImages;
 	std::array<FrameGraph::ImageId, 2> myEmitterHistory{};
 	std::array<FrameGraph::ImageId, 2> myEmitterSurfaces{};
+	std::array<FrameGraph::ImageId, 2> myEmitterPixelSurfaces{};
 	FrameGraph::PassId myEmitterSamplePass;
 	FrameGraph::PassId myEmitterShadePass;
 	FrameGraph::PassId myEmitterXPass;

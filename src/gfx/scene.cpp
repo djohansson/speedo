@@ -130,7 +130,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 56; // after temporal upscaling's (SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 58; // after the emitters' pixels' surfaces (SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -172,6 +172,9 @@ static_assert(
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE > SHADER_TYPES_PREPASS_MOTION_TEXTURE && SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE > SHADER_TYPES_COMPOSITE_RW_TEXTURE &&
 	SHADER_TYPES_UPSCALE_NEW_LOCKS_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE > SHADER_TYPES_UPSCALE_NEW_LOCKS_TEXTURE && SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + 1 < kModelTextureFirstSlot &&
+	SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE > SHADER_TYPES_UPSCALE_NEW_LOCKS_RW_TEXTURE && SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 
 
 // what makes texture views the same, to share them: the transform by its bits, so that the key hashes as bytes

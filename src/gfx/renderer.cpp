@@ -131,8 +131,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiNearHistoryDistance[historyIt] = myGraph.ImportImage(std::format("GI Near History Distance {}", historyIt));
 	}
 	// emissive surfaces as lights (see SHADER_TYPES_EMITTER_RAW_TEXTURE): a texel per traced pixel (every stride-th each way,
-	// SPEEDO_EMITTER_STRIDE: 1, 2, 4 or 8): its light, filtered along rows and columns, and over frames with its surface;
-	// and the reservoirs (see Resize)
+	// SPEEDO_EMITTER_STRIDE: 1, 2, 4 or 8): its light, filtered along rows and columns, and its surface; per pixel, the
+	// light over frames and its surface; and the reservoirs (see Resize)
 	if (const char* stride = std::getenv("SPEEDO_EMITTER_STRIDE"); stride != nullptr && *stride != '\0')
 		myEmitterStride = std::bit_floor(std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(stride, nullptr, 10)), 1U, 8U));
 	myEmitterRaw = myGraph.CreateImage({.name = "Emitter Raw", .format = Format::kR16G16B16A16Sfloat, .downscale = myEmitterStride});
@@ -142,6 +142,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	{
 		myEmitterHistory[historyIt] = myGraph.ImportImage(std::format("Emitter History {}", historyIt));
 		myEmitterSurfaces[historyIt] = myGraph.ImportImage(std::format("Emitter Surface {}", historyIt));
+		myEmitterPixelSurfaces[historyIt] = myGraph.ImportImage(std::format("Emitter Pixel Surface {}", historyIt));
 	}
 	myEmitterReservoirs = myGraph.ImportBuffer("Emitter Reservoirs");
 	// the pixels whose shadows the atlas isn't sure of, for the rays (gShadowTraceList: a count, then a pixel each)
@@ -715,10 +716,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					builder.Use(myTransmission, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kFragmentShader));
 				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				builder.Use(myGiNear, ResourceUse::Sampled(PipelineStage::kFragmentShader));
-				for (auto image : {myGiNearHistory[0], myGiNearHistory[1], myGiNearHistoryDistance[0], myGiNearHistoryDistance[1]})
+				for (auto image : myGiNearHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
-				for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterSurfaces[0], myEmitterSurfaces[1]})
+				for (auto image : myEmitterHistory)
 					builder.Use(image, ResourceUse::Storage(PipelineStage::kFragmentShader, Access::kShaderRead));
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
@@ -1097,7 +1097,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				(extent.width + myGiNearStride - 1) / myGiNearStride,
 				(extent.height + myGiNearStride - 1) / myGiNearStride);
 		});
-	// the filter and the frames at the traced pixels, a thread each (see ComputeGiNearX)
+	// the filter at the traced pixels, a thread each (see ComputeGiNearX)
 	auto nearKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
 	{
 		auto extent = myGraph.GetExtent();
@@ -1127,8 +1127,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myGiNear, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[nearKernel](FrameGraph::PassContext& context) { nearKernel(context.cmd, kGiNearYEntryPoint); });
-	// and accumulated over frames: the last frame's history reprojected and blended with this frame's (the images the
-	// frame's parity says, read and written in the general layout, see SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE)
+	// then per pixel, upsampled from the traced pixels around and accumulated over frames: the last frame's history
+	// reprojected and blended with this frame's (the images the frame's parity says, read and written in the general layout,
+	// see SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE)
 	myGiNearTemporalPass = myGraph.AddPass(
 		"GI Near Temporal",
 		[this](FrameGraph::PassBuilder& builder)
@@ -1139,13 +1140,17 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			for (auto image : {myGiNearHistory[0], myGiNearHistory[1], myGiNearHistoryDistance[0], myGiNearHistoryDistance[1]})
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
-		[nearKernel](FrameGraph::PassContext& context) { nearKernel(context.cmd, kGiNearTemporalEntryPoint); });
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kGiNearTemporalEntryPoint}, extent.width, extent.height);
+		});
 
 	// emissive surfaces as lights (see emitters.slang): every stride-th pixel each way of the pre-pass's depth resamples
 	// emitter points into its reservoir, reusing the last frame's (and its neighbors'), and traces the chosen one's shadow
-	// ray through the BVHs; the light filtered over the traced pixels around on the same surface (rows, then columns) and
-	// over frames (the images of the frame's parity), a texel per traced pixel, which the main pass's opaque fragments
-	// upsample
+	// ray through the BVHs; the light filtered over the traced pixels around on the same surface (rows, then columns), a
+	// texel per traced pixel, then upsampled to every pixel and accumulated over frames there (the images of the frame's
+	// parity), which the main pass's opaque fragments take
 	auto tracedKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
 	{
 		auto extent = myGraph.GetExtent();
@@ -1171,6 +1176,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myEmitterReservoirs, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			builder.Use(myEmitterRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			for (auto image : myEmitterSurfaces)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterShadeEntryPoint); });
 	myEmitterXPass = myGraph.AddPass(
@@ -1193,6 +1200,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myEmitterFiltered, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 		},
 		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterYEntryPoint); });
+	// then per pixel: upsampled from the traced pixels around and accumulated over frames (see ComputeEmitterTemporal)
 	myEmitterTemporalPass = myGraph.AddPass(
 		"Emitter Temporal",
 		[this](FrameGraph::PassBuilder& builder)
@@ -1200,10 +1208,16 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
 			builder.Use(myEmitterFiltered, ResourceUse::Sampled(PipelineStage::kComputeShader));
-			for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterSurfaces[0], myEmitterSurfaces[1]})
+			for (auto image : myEmitterSurfaces)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			for (auto image : {myEmitterHistory[0], myEmitterHistory[1], myEmitterPixelSurfaces[0], myEmitterPixelSurfaces[1]})
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 		},
-		[tracedKernel](FrameGraph::PassContext& context) { tracedKernel(context.cmd, kEmitterTemporalEntryPoint); });
+		[this, kernel](FrameGraph::PassContext& context)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterTemporalEntryPoint}, extent.width, extent.height);
+		});
 
 	mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
@@ -2088,7 +2102,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		myPreviousValid = false;
 	}
 	// the near field's history at this size (holding nothing yet), bound once, both of each: the frame's parity picks
-	// (and the emitters', a texel per traced pixel)
+	// (and the emitters', with their traced pixels' surfaces, a texel per traced pixel)
 	Extent2d traced{.width = (extent.width + myEmitterStride - 1) / myEmitterStride, .height = (extent.height + myEmitterStride - 1) / myEmitterStride};
 	auto screenImage = [&device](const std::string& name, Format format, Extent2d size)
 	{
@@ -2109,11 +2123,13 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myGiNearHistoryImages[historyIt] = screenImage(std::format("GI Near History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
-		// and its traced pixels' surfaces (point and packed normal, as the emitters'), which the main pass upsamples by
+		// and its pixels' surfaces (distance and packed normal, as the emitters'), which the next frame checks its history by
 		myGiNearHistoryDistanceImages[historyIt] =
-			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
-		// and the emitters' light's and its surfaces' (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
-		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, traced);
+			screenImage(std::format("GI Near Surface {}", historyIt), Format::kR32G32Sfloat, extent);
+		// and the emitters' light's per pixel and the pixels' surfaces (distance and packed normal), and the traced
+		// pixels' surfaces (see SHADER_TYPES_EMITTER_SURFACE_TEXTURE)
+		myEmitterHistoryImages[historyIt] = screenImage(std::format("Emitter History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		myEmitterPixelSurfaceImages[historyIt] = screenImage(std::format("Emitter Pixel Surface {}", historyIt), Format::kR32G32Sfloat, extent);
 		myEmitterSurfaceImages[historyIt] = screenImage(std::format("Emitter Surface {}", historyIt), Format::kR32G32B32A32Sfloat, traced);
 		for (auto [image, slot, rwSlot] : std::array{
 				 std::tuple{&myGiNearHistoryImages[historyIt], SHADER_TYPES_GI_NEAR_HISTORY_TEXTURE, SHADER_TYPES_GI_NEAR_HISTORY_RW_TEXTURE},
@@ -2122,6 +2138,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE,
 					 SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_RW_TEXTURE},
 				 std::tuple{&myEmitterHistoryImages[historyIt], SHADER_TYPES_EMITTER_HISTORY_TEXTURE, SHADER_TYPES_EMITTER_HISTORY_RW_TEXTURE},
+				 std::tuple{&myEmitterPixelSurfaceImages[historyIt], SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE, SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE},
 				 std::tuple{&myEmitterSurfaceImages[historyIt], SHADER_TYPES_EMITTER_SURFACE_TEXTURE, SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE}})
 		{
 			pipeline.SetDescriptorData(
@@ -2664,6 +2681,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGraph.Bind(myGiNearHistoryDistance[historyIt], *myGiNearHistoryDistanceImages[historyIt].image);
 		myGraph.Bind(myEmitterHistory[historyIt], *myEmitterHistoryImages[historyIt].image);
 		myGraph.Bind(myEmitterSurfaces[historyIt], *myEmitterSurfaceImages[historyIt].image);
+		myGraph.Bind(myEmitterPixelSurfaces[historyIt], *myEmitterPixelSurfaceImages[historyIt].image);
 	}
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);
 	myGraph.Bind(myEmitterReservoirs, myEmitterReservoirBuffer);

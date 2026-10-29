@@ -50,6 +50,7 @@ enum class Format : uint8_t
 	kR32Sfloat, // from here on not serialized (the values before are)
 	kR32G32B32A32Sfloat,
 	kR16G16Sfloat,
+	kR32G32Sfloat,
 };
 
 enum class ImageLayout : uint8_t
