@@ -546,6 +546,15 @@ struct Scene::Impl
 		auto now = std::chrono::steady_clock::now();
 		auto elapsed = std::chrono::duration<double>(now - myTimeLast).count();
 		myTimeLast = now;
+		// for comparing runs: as many seconds a drawn frame once a model is in (SPEEDO_TIME_FRAME_SECONDS), so that two runs
+		// have the sun where it was at the same frame, whatever their loads and frames took
+		static const double kFrameSeconds = []
+		{
+			const char* seconds = std::getenv("SPEEDO_TIME_FRAME_SECONDS");
+			return seconds != nullptr && *seconds != '\0' ? std::max(std::strtod(seconds, nullptr), 0.0) : -1.0;
+		}();
+		if (kFrameSeconds >= 0.0)
+			elapsed = myModel ? kFrameSeconds : 0.0;
 		float speed = mySettings.timeSpeed.load(std::memory_order_relaxed);
 		if (mySettings.advanceTime.load(std::memory_order_relaxed) && speed != 0.0F)
 		{
