@@ -53,6 +53,20 @@ static const float kUpscaleLockMax = 2.0;
 static const float kUpscaleVelocityFactor = 1.0;
 static const float kUpscaleAccumulationAddedPerFrame = 1.0 / 3.0;
 static const float kUpscaleMinDisocclusionAccumulation = -1.0 / 3.0;
+// ours: a render pixel's log2 luma, its running mean and variance by this share a frame (see UpscaleGateShadingChange),
+// how many of its deviations it may stray before a shading change counts, and the least deviation (log2 units)
+static const float kUpscaleLumaStatisticsBlend = 1.0 / 16.0;
+static const float kUpscaleLumaSurpriseDeviations = 3.0;
+static const float kUpscaleLumaLeastDeviation = 0.05;
+// and the deviation from which the history is kept where it swings (none below the first, all past both: see
+// ComputeUpscaleLumaInstability)
+static const float kUpscaleLumaSwingLeastDeviation = 0.25;
+static const float kUpscaleLumaSwingDeviationRange = 0.5;
+// and its drift, the running mean of its log2 luma's difference from its mean by this share a frame, and the shares of
+// its deviation from which the pixel drifts (not at all below the first, wholly past both: see UpscaleDrifting)
+static const float kUpscaleLumaDriftBlend = 1.0 / 8.0;
+static const float kUpscaleLumaDriftLeast = 0.4;
+static const float kUpscaleLumaDriftRange = 0.4;
 // the shading change's samples (SHADING_CHANGE_SET_SIZE), the first of its pyramid's levels it reads, and how many
 static const int kUpscaleShadingChangeSetSize = 5;
 static const int kUpscaleShadingChangeMipStart = 0;
@@ -683,24 +697,72 @@ float UpscaleThinFeatureConfidence(int2 pixel)
 }
 
 // how much the pixel has accumulated (UpdateAccumulation): the last frame's where the point was, none after a shading
-// change, a third less after a disocclusion; a third more for the next frame (into the frame's of the two)
-float UpscaleUpdateAccumulation(int2 pixel, float2 uv, float2 motion, float disocclusion, float shadingChange, ViewData view)
+// change, a third less after a disocclusion; a third more for the next frame (into the frame's of the two), with the
+// luma's statistics (see UpscaleGateShadingChange)
+float UpscaleUpdateAccumulation(int2 pixel, float disocclusion, float shadingChange, float4 last, float3 statistics)
 {
-	float2 reprojectedUv = uv + motion;
-	float accumulation = 0.0;
-	if (UpscaleHasHistory() && UpscaleUvInside(reprojectedUv, view))
-	{
-		int2 renderSize = UpscaleRenderSize();
-		accumulation = saturate(gTextures[SHADER_TYPES_UPSCALE_ACCUMULATION_TEXTURE + (UpscaleParity() ^ 1u)]
-									.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], UpscaleClampUv(reprojectedUv, renderSize, renderSize), 0.0)
-									.r);
-	}
+	float accumulation = saturate(last.r);
 	accumulation = lerp(accumulation, 0.0, shadingChange);
 	accumulation = lerp(accumulation, min(kUpscaleMinDisocclusionAccumulation, accumulation), disocclusion);
 	accumulation *= float(round(accumulation * 100.0) > 1.0);
 	gRWTextures[SHADER_TYPES_UPSCALE_ACCUMULATION_RW_TEXTURE + UpscaleParity()].Store(
-		uint2(pixel), float4(saturate(accumulation + kUpscaleAccumulationAddedPerFrame), 0.0, 0.0, 0.0));
+		uint2(pixel), float4(saturate(accumulation + kUpscaleAccumulationAddedPerFrame), statistics));
 	return accumulation;
+}
+
+// the last frame's accumulation where the point was (r; 0 without), and its luma's statistics (g, b, a)
+float4 UpscaleLastAccumulation(float2 uv, float2 motion, ViewData view, out bool valid)
+{
+	float2 reprojectedUv = uv + motion;
+	valid = UpscaleHasHistory() && UpscaleUvInside(reprojectedUv, view);
+	if (!valid)
+		return 0.0;
+	int2 renderSize = UpscaleRenderSize();
+	return gTextures[SHADER_TYPES_UPSCALE_ACCUMULATION_TEXTURE + (UpscaleParity() ^ 1u)].SampleLevel(
+		gSamplers[SHADER_TYPES_CLAMP_SAMPLER], UpscaleClampUv(reprojectedUv, renderSize, renderSize), 0.0);
+}
+
+// ours, not FSR's: the shading change (the pyramid's, before the reactive mask joins it) only as far as the pixel's
+// luma strays from what it usually is, its log2 beyond kUpscaleLumaSurpriseDeviations deviations of its running mean
+// (by kUpscaleLumaStatisticsBlend a frame, kept with the accumulation where the point was: statistics, the frame's
+// taken in, for the next frame; started over without a history or where revealed). a feature thinner than a render
+// pixel is hit by some of the jitter's samples and missed by others, a vertical one whole: its luma swings between
+// what it has shown before, which FSR's shading change took for the light changing every frame, and which took its
+// locks and its accumulation, so that it showed each frame's samples as they were (AnisotropyBarnLamp's filament
+// through its bulb, the user's pose 0.1543,-0.1653,0.3783,-5.337,-31.820 at balanced); a change of the light takes the
+// luma past what it was
+// how much a render pixel's luma drifts rather than swings (0 to 1), by its statistics (see UpscaleGateShadingChange):
+// its running mean of differences from its mean against its deviation. a swing (a thin feature the jitter hits or misses)
+// comes back, and its differences cancel; a moving shadow or object pushes the luma one way for frames, and they add
+float UpscaleDrifting(float drift, float variance)
+{
+	return saturate((abs(drift) / max(sqrt(max(variance, 0.0)), kUpscaleLumaLeastDeviation) - kUpscaleLumaDriftLeast) / kUpscaleLumaDriftRange);
+}
+
+float UpscaleGateShadingChange(int2 pixel, float shadingChange, float disocclusion, float4 last, bool valid, out float3 statistics)
+{
+	float luma = log2(max(gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()].Load(int3(pixel, 0)).r, 1e-6));
+	if (!valid || disocclusion > 0.5)
+	{
+		statistics = float3(luma, 0.0, 0.0);
+		return shadingChange;
+	}
+	float mean = last.g;
+	float variance = max(last.b, 0.0);
+	float difference = luma - mean;
+	float allowed = kUpscaleLumaSurpriseDeviations * max(sqrt(variance), kUpscaleLumaLeastDeviation);
+	float gate = saturate((abs(difference) - allowed) / allowed);
+	// a change past what the pixel allows moves its mean there at once, and its variance by at most what it allows
+	// (about half again a frame): a swing that keeps coming back grows the variance in about ten frames, but a change of
+	// the light, a step, barely does. taking the whole step into the variance, as it first did, a model appearing over
+	// the backdrop (DamagedHelmet installed) was then within its pixels' deviations, its shading change gated and its
+	// history kept: it faded in over the backdrop for half a second
+	float clamped = min(abs(difference), allowed);
+	statistics = float3(gate > 0.0 ? luma : mean + kUpscaleLumaStatisticsBlend * difference,
+		(1.0 - kUpscaleLumaStatisticsBlend) * (variance + kUpscaleLumaStatisticsBlend * clamped * clamped),
+		lerp(last.a, difference, kUpscaleLumaDriftBlend));
+	// and none where the luma drifts (UpscaleDrifting): FSR's shading change, as it was
+	return shadingChange * max(gate, UpscaleDrifting(statistics.z, statistics.y));
 }
 
 // the reactivity prepared (PrepareReactivity), per render pixel: the dilated reactive masks (the reactiveness, the
@@ -726,11 +788,20 @@ void ComputeUpscalePrepareReactivity(uint3 dispatchThreadId : SV_DispatchThreadI
 	int2 shadingChangeSize = UpscaleShadingChangeRenderSize();
 	float2 shadingChangeUv = UpscaleClampUv(
 		uv - UpscaleJitter(view) / float2(renderSize), shadingChangeSize, UpscaleTextureSize(SHADER_TYPES_UPSCALE_SHADING_CHANGE_TEXTURE));
+	bool valid;
+	float4 last = UpscaleLastAccumulation(uv, motion, view, valid);
+	float3 statistics;
 	float shadingChange = max(
 		UpscaleDilatedReactiveMask(pixel),
-		saturate(gTextures[SHADER_TYPES_UPSCALE_SHADING_CHANGE_TEXTURE].SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], shadingChangeUv, 0.0).r));
+		UpscaleGateShadingChange(
+			pixel,
+			saturate(gTextures[SHADER_TYPES_UPSCALE_SHADING_CHANGE_TEXTURE].SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], shadingChangeUv, 0.0).r),
+			disocclusion,
+			last,
+			valid,
+			statistics));
 	float reactiveness = UpscaleMotionDivergence(uv, motion, dilatedDepth, view);
-	float accumulation = UpscaleUpdateAccumulation(pixel, uv, motion, disocclusion, shadingChange, view);
+	float accumulation = UpscaleUpdateAccumulation(pixel, disocclusion, shadingChange, last, statistics);
 	// unorm in FSR
 	gRWTextures[SHADER_TYPES_UPSCALE_REACTIVE_RW_TEXTURE].Store(uint2(pixel), saturate(float4(reactiveness, disocclusion, shadingChange, accumulation)));
 
@@ -793,6 +864,18 @@ void ComputeUpscaleLumaInstability(uint3 dispatchThreadId : SV_DispatchThreadID)
 			// the history shifted
 			lumaHistory = float4(currentFrameLuma, lumaHistory.xyz) / exposure;
 			lumaInstabilityFactor = lumaInstability * float(lumaHistory[3] != 0.0);
+			// ours: and as much as the pixel's luma swings over frames (its log2's deviation, see UpscaleGateShadingChange):
+			// FSR's looks back 4 frames, which the jitter's sequence of up to 64 points outlasts, so that a feature thinner than
+			// a render pixel that some of its samples miss had its history clamped onto the frames that missed it, and came and
+			// went (AnisotropyBarnLamp's filament; FSR's locks, which keep a thin feature's history, are made at the output
+			// pixel a sample lands on, another as the jitter moves, and reached what keeps it at none of them); but not where
+			// it drifts (UpscaleDrifting): a shadow or an object moving keeps the luma moving one way, and its history, kept,
+			// trailed it and faded out over frames (the user's pose over Bistro's square at 13:21 at 600 times real time:
+			// bright bands along every moving shadow's edge)
+			float4 statistics = gTextures[SHADER_TYPES_UPSCALE_ACCUMULATION_TEXTURE + UpscaleParity()].Load(int3(pixel, 0));
+			float deviation = sqrt(max(statistics.b, 0.0));
+			lumaInstabilityFactor = max(lumaInstabilityFactor,
+				saturate((deviation - kUpscaleLumaSwingLeastDeviation) / kUpscaleLumaSwingDeviationRange) * (1.0 - UpscaleDrifting(statistics.a, statistics.b)));
 			float velocityWeight = 1.0 - saturate(UpscaleVelocity4K(motion) / 20.0);
 			lumaInstabilityFactor *= velocityWeight * (1.0 - masks[kUpscaleDisocclusion]) * (1.0 - masks[kUpscaleReactive]) *
 									 (1.0 - masks[kUpscaleShadingChange]);

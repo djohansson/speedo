@@ -1015,6 +1015,30 @@ attachment, RG16F, in the render target's pixels, the jitters taken out: `Fragme
 places what moves in the last frame (`VertexOutput::previousPosition`: `WorldPosition` with the last frame slot's
 instances, joints and morph weights, for the draws `DRAW_FLAG_MOVES` marks; the rest where they are).
 
+Ours too, beyond FSR: each render pixel keeps its log2 luma's running mean and variance (by a sixteenth a frame, with
+the accumulation, `Upscale Accumulation` RGBA16F, where the point was; started over without a history or where
+revealed), and the shading change counts only as far as the frame's luma strays past 3 of its deviations
+(`UpscaleGateShadingChange`), and the history is kept where the luma swings (FSR's luma instability, as much as the
+deviation passes a quarter of a stop, all of it at three quarters: `kUpscaleLumaSwing*`). A feature thinner than a render
+pixel is hit by some of the jitter's samples and missed by others (a vertical one whole), and FSR took that for the
+light changing every frame: the shading change took its locks (made at the output pixel a sample lands on, another as
+the jitter moves, they never built) and its accumulation, and the history was clamped onto the frames that missed it,
+so it showed each frame's samples as they were: AnisotropyBarnLamp's filament through its bulb (the user's pose
+`0.1543,-0.1653,0.3783,-5.337,-31.820`, balanced) jumped in 5867 pixels over 40 still frames and now in 471 (native 881,
+now none), changing by 0.080 of 255 a frame and 0.097 over 20, now 0.020 and 0.038, drawn as whole glowing strands
+rather than dashes; the thin features at the user's night pose in Bistro's street crept 0.77 over 20 frames, now 0.51. A
+change past the deviations moves the mean there at once and the variance by at most what it allows (a swing that keeps
+coming back grows it in about ten frames, a step barely does): taking the whole step in, a model appearing over the
+backdrop was within its pixels' deviations, its shading change gated and its history kept, and DamagedHelmet faded in
+over half a second (CubeVisibility's toggles are a frame, as before). And neither the history is kept nor the shading
+change gated where the luma drifts rather than swings (`UpscaleDrifting`: the running mean of its differences from its
+mean, by an eighth a frame, the statistics' fourth channel, against its deviation: a swing's cancel, a moving shadow's or
+object's add up): kept there, moving shadows' edges trailed their light and faded out over frames, bright bands along
+every one at the user's pose over Bistro's square at 13:21 at 600 times real time (`-790.9853,245.9946,216.9426,-0.435,66.449`):
+against the same frames with upscaling off (`SPEEDO_TIME_FRAME_SECONDS` alike), a mean of 7.80 of 255 off before the
+gate, 8.27 with it, 7.60 with the drift too; the filament's 471 jumping pixels 555. Still and turning renders are
+otherwise the same (Sponza 0.05 of 255, DamagedHelmet 0.14, Bistro's street 0.15; turning at the same angles 0.10).
+
 FSR 2.2 came first (its depth clip, locks and lock luma, luma instability at the output's size, a box of 1 deviation at
 the output's size and up to 20 at a quarter of its pixels, whose clamp cut the accumulation to a tenth): steadier than
 the resolve it replaced at performance, but at native it flickered at every edge twice as much (a center-weighted 1

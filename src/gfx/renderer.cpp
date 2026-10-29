@@ -1406,6 +1406,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myUpscaleLumaInstability, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			useKept(builder, myUpscaleLuma);
 			useKept(builder, myUpscaleLumaHistory);
+			useKept(builder, myUpscaleAccumulation); // the luma's statistics
 		},
 		[this, upscaleKernel](FrameGraph::PassContext& context) { upscaleKernel(context, kUpscaleLumaInstabilityEntryPoint, myGraph.GetExtent()); });
 	myUpscalePasses[6] = myGraph.AddPass(
@@ -2160,12 +2161,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 		}
 	}
 	// what temporal upscaling keeps from frame to frame (holding nothing yet: the first frame takes no history, see
-	// UPSCALE_HISTORY), bound once, both of each: the frame's parity picks. the luma, the accumulation and the luma
-	// history at the render size, the color at the output's
+	// UPSCALE_HISTORY), bound once, both of each: the frame's parity picks. the luma, the accumulation (and the luma's
+	// log mean and variance, see UpscaleGateShadingChange) and the luma history at the render size, the color at the output's
 	for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
 	{
 		myUpscaleImages.luma[historyIt] = screenImage(std::format("Upscale Luma {}", historyIt), Format::kR16Sfloat, extent);
-		myUpscaleImages.accumulation[historyIt] = screenImage(std::format("Upscale Accumulation {}", historyIt), Format::kR16Sfloat, extent);
+		myUpscaleImages.accumulation[historyIt] = screenImage(std::format("Upscale Accumulation {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
 		myUpscaleImages.lumaHistory[historyIt] = screenImage(std::format("Upscale Luma History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
 		myUpscaleImages.color[historyIt] = screenImage(std::format("Upscale Color {}", historyIt), Format::kR16G16B16A16Sfloat, outputExtent);
 		for (auto [image, slot, rwSlot] : std::array{

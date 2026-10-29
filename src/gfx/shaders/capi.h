@@ -183,8 +183,8 @@ extern "C"
 // dilated (the reactiveness, the disocclusion, the shading change, the accumulation) and the luma instability; at half
 // the render size and below, the shading change's pyramid (three levels: the mean luma difference since the last frame,
 // and the mean of its sign), the farthest depth's mean and the shading change; kept from frame to frame, at the render
-// size, the luma, the accumulation and the luma history (the last 4 frames' lumas, unexposed), two of each by the
-// frame's parity; and at the output's size the new locks
+// size, the luma, the accumulation (and the luma's log mean and variance) and the luma history (the last 4 frames'
+// lumas, unexposed), two of each by the frame's parity; and at the output's size the new locks
 #define SHADER_TYPES_UPSCALE_DILATED_DEPTH_TEXTURE 39u
 #define SHADER_TYPES_UPSCALE_DILATED_DEPTH_RW_TEXTURE 33u
 #define SHADER_TYPES_UPSCALE_DILATED_MOTION_TEXTURE 40u
