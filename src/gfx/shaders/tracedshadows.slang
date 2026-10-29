@@ -26,7 +26,7 @@ bool ShadowSurfaceAt(int2 pixel, ViewData view, out ShadowSurface surface)
 {
 	surface = (ShadowSurface)0;
 	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r;
-	if (depth >= 1.0)
+	if (depth <= 0.0)
 		return false;
 	float4 normal = gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(pixel, 0));
 	surface.position = ShadowPosition(view, float2(pixel), depth);
@@ -108,7 +108,8 @@ float ShadowViewDistance(ShadowData view, float depth)
 {
 	float n = view.params.z;
 	float f = view.params.w;
-	return view.params.y > 0.0 ? n * f / max(f - depth * (f - n), 1e-12) : n + depth * (f - n);
+	// depth reversed: 1 at the near plane, 0 at the far
+	return view.params.y > 0.0 ? n * f / max(n + depth * (f - n), 1e-12) : f - depth * (f - n);
 }
 
 // half the width of a light's penumbra a blocker d before a point makes, s from the light: a disk of angular radius a,
@@ -175,7 +176,7 @@ float ShadowMapClassify(uint lightIndex, LightData light, ShadowSurface surface,
 			float2 uvAt = clamp((float2(base + int2(texelIt & 1u, texelIt >> 1u)) + 0.5) * texel, low, high);
 			float stored = atlas.Load(int3(int2(uvAt * atlasSize), 0)).r;
 			float planeAt = ndc.z + dot(gradient, uvAt - uvHere);
-			bool nearer = stored < planeAt - tight;
+			bool nearer = stored > planeAt + tight; // depth reversed: nearer the light is larger
 			if (filtered >= 1.0 && nearer)
 				nearer = ShadowViewDistance(place.view, planeAt) - ShadowViewDistance(place.view, stored) > texelSize;
 			blocked += nearer ? 1u : 0u;
@@ -202,7 +203,7 @@ float ShadowMapClassify(uint lightIndex, LightData light, ShadowSurface surface,
 		float stored = atlas.Load(int3(int2(uv * atlasSize), 0)).r;
 		float plane = place.depth + dot(gradient, uv - place.uv);
 		float reach = length((uv - place.uv) * atlasSize) * texelSize;
-		bool blocks = stored < plane - slack;
+		bool blocks = stored > plane + slack;
 		if (filtered >= 1.0 && blocks)
 		{
 			float d = max(ShadowViewDistance(place.view, plane) - ShadowViewDistance(place.view, stored), 0.0);
@@ -440,7 +441,7 @@ float4 ShadowPenumbraHalfWidths(int2 pixel, ShadowSurface surface, ShadowTraceDa
 float ShadowFootprint(ViewData view, int2 pixel, int2 step, ShadowSurface surface)
 {
 	float2 at = float2(pixel + step);
-	float3 near = ShadowPosition(view, at, 0.0);
+	float3 near = ShadowPosition(view, at, 1.0); // the near plane: depth reversed
 	float3 direction = normalize(ShadowPosition(view, at, 0.5) - near);
 	float slant = dot(direction, surface.normal);
 	float most = 16.0 * surface.metersPerPixel;
@@ -503,7 +504,7 @@ float4 ShadowDenoise(int2 pixel, int2 step, uint source, uint target)
 		if (any(float2(at) < low) || any(float2(at) >= high))
 			continue;
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(at, 0)).r;
-		if (depth >= 1.0)
+		if (depth <= 0.0)
 			continue;
 		float3 position = ShadowPosition(view, float2(at), depth);
 		float3 normal = gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(at, 0)).xyz * 2.0 - 1.0;

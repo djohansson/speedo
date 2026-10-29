@@ -122,7 +122,7 @@ public:
 			ImageId image,
 			rhi::LoadOp load,
 			rhi::StoreOp store = rhi::StoreOp::kStore,
-			const rhi::ClearValue& clear = {.depth = 1.0F, .stencil = 0});
+			const rhi::ClearValue& clear = {.depth = 0.0F, .stencil = 0});
 		// how a raster pass records its commands: inline (default) or in secondary command buffers
 		void Contents(rhi::SubpassContents contents);
 		// keeps the pass even if nothing in the graph reads what it writes (writes to imported resources do that already)

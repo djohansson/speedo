@@ -142,9 +142,10 @@ RWStructuredBuffer<uint> gCullCounts[SHADER_TYPES_FRAME_COUNT];
 // per draw and main view, whether it was seen (1) the last frame that culled it: one buffer, frames run in order
 [[vk::binding(17, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gCullVisibility;
-// the depth reprojection (see ComputeDepthSave, ComputeDepthReproject): the last frame's depth of what doesn't move (1,
+// the depth reprojection (see ComputeDepthSave, ComputeDepthReproject): the last frame's depth of what doesn't move (0,
 // the far plane, where something moved), a float per pixel, and the frame's depth reprojected from it, a float's bits
-// per pixel (an atomic minimum: depths are positive, so their bits order as they do)
+// per pixel (an atomic maximum, the nearest being the largest, the depth reversed: depths are positive, so their bits
+// order as they do)
 [[vk::binding(18, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<float> gPreviousDepth;
 [[vk::binding(19, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
@@ -231,6 +232,7 @@ StructuredBuffer<EmitterData> gEmitterData[SHADER_TYPES_FRAME_COUNT];
 RWStructuredBuffer<uint4> gEmitterReservoirs;
 
 // temporal upscaling's reconstructed previous depth (see ComputeUpscaleReconstruct): per render pixel the nearest depth
-// of the points that were there the last frame, a float's bits (an atomic minimum), cleared to the far plane each frame
+// of the points that were there the last frame, a float's bits (an atomic maximum: the depth reversed), cleared to the
+// far plane each frame
 [[vk::binding(45, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gUpscaleDepth;

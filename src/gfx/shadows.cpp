@@ -20,9 +20,9 @@ namespace gfx::shadows
 namespace detail
 {
 
-// gl's clip space to vulkan's, as the cameras' (see Camera::UpdateProjectionMatrix): y down, depth 0 to 1. it reverses
-// the winding, so the shadow pass culls the faces the main pass does
-const glm::mat4 kClip{1.0F, 0.0F, 0.0F, 0.0F, 0.0F, -1.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.5F, 0.0F, 0.0F, 0.0F, 0.5F, 1.0F};
+// gl's clip space to vulkan's, as the cameras' (see Camera::UpdateProjectionMatrix): y down, depth reversed (1 at the
+// near plane, 0 at the far). it reverses the winding, so the shadow pass culls the faces the main pass does
+const glm::mat4 kClip{1.0F, 0.0F, 0.0F, 0.0F, 0.0F, -1.0F, 0.0F, 0.0F, 0.0F, 0.0F, -0.5F, 0.0F, 0.0F, 0.0F, 0.5F, 1.0F};
 
 // the share of the cascades' splits that is logarithmic (the rest uniform): Zhang's practical split scheme
 constexpr float kSplitLambda = 0.75F;
@@ -148,8 +148,8 @@ void Cascades(
 	for (size_t i = 0; i < 4; i++)
 	{
 		glm::vec2 ndc((i & 1U) != 0 ? 1.0F : -1.0F, (i & 2U) != 0 ? 1.0F : -1.0F);
-		auto nearPoint = camera.inverseViewProjection * glm::vec4(ndc, 0.0F, 1.0F);
-		auto farPoint = camera.inverseViewProjection * glm::vec4(ndc, 1.0F, 1.0F);
+		auto nearPoint = camera.inverseViewProjection * glm::vec4(ndc, 1.0F, 1.0F); // depth reversed
+		auto farPoint = camera.inverseViewProjection * glm::vec4(ndc, 0.0F, 1.0F);
 		nearCorners[i] = glm::vec3(nearPoint) / nearPoint.w;
 		farCorners[i] = glm::vec3(farPoint) / farPoint.w;
 	}

@@ -537,7 +537,7 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 			any(float2(at) >= view.viewport.xy + view.viewport.zw))
 			continue;
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(at, 0)).r;
-		if (depth >= 1.0)
+		if (depth <= 0.0)
 			continue;
 		float3 position = ShadowPosition(view, float2(at), depth);
 		float3 normal = normalize(gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(at, 0)).xyz * 2.0 - 1.0);
@@ -675,7 +675,7 @@ float4 EmitterFilter(int2 traced, int2 step, uint source)
 		if (value.a < 0.0)
 			continue;
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(atPixel, 0)).r;
-		if (depth >= 1.0)
+		if (depth <= 0.0)
 			continue;
 		float3 position = ShadowPosition(view, float2(atPixel), depth);
 		float3 normal = gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(atPixel, 0)).xyz * 2.0 - 1.0;

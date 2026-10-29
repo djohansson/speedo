@@ -18,7 +18,7 @@ struct RenderTargetCreateDesc : DeviceObjectCreateDesc<G>
 	std::vector<ImageLayout> imageLayouts;
 	std::vector<ImageAspect> imageAspectFlags;
 	std::vector<ImageHandle<G>> images;
-	std::vector<ClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depth = 1.0F, .stencil = 0}}; // one per image
+	std::vector<ClearValue> clearValues{{.color = {0.2F, 0.2F, 0.2F, 1.0F}}, {.depth = 0.0F, .stencil = 0}}; // one per image
 	uint32_t layerCount = 1;
 	bool useDynamicRendering = true;
 };

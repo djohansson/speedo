@@ -788,8 +788,8 @@ window (`CloseOnEscape`, called between its `Begin` and `End`: `Shortcut`'s defa
   stencil (`CommandEncoder::SetStencilReference`, dynamic: 1 for draws that aren't cullable, written by every pipeline
   that writes depth; `gMainStencil` reads it). The next frame pushes each saved pixel to where its point is seen now
   (Depth Reproject, `ComputeDepthReproject`, entry point 8: the view's last inverse view projection, then the current
-  view projection; `CullView::previous*`), the nearest landing on a pixel kept (`InterlockedMin` of the float's bits into
-  `gReprojectedDepth`, a transient cleared to the far plane), and builds the pyramid from it (Depth Pyramid Reprojected,
+  view projection; `CullView::previous*`), the nearest landing on a pixel kept (`InterlockedMax` of the float's bits, the depth being reversed, into
+  `gReprojectedDepth`, a transient cleared to the far plane, 0), and builds the pyramid from it (Depth Pyramid Reprojected,
   `PushConstants::depthPyramidSource`). Every point pushed is on a surface that doesn't move, so it is no nearer than
   what the pixel sees now; pixels nothing lands on (revealed, or the gaps when coming closer) hide nothing; rounding is
   made up for by a bias farther and the pyramid's 3x3. `reprojected` culls once (Cull Reprojected, `CULL_JOB_PYRAMID`)
@@ -934,6 +934,35 @@ camera. It replaced `UpdateBuffers`, which wrote every frame index's buffer when
 still in flight, so a frame could draw with a newer camera than it had been culled by (a chunk at the screen's edge
 missing for a frame while the camera turned). Nothing else uploads the views: a change shows in the next frame.
 
+## Depth: reversed
+
+Depth is reversed: 1 at the near plane, 0 at the far (or at infinity), the cameras' and the shadow views' projections
+taking gl's clip space to vulkan's as `kClip` does (`camera.cpp`, `shadows.cpp`: y down, and z' = (w - z) / 2), the depth
+test keeping the greater (`rhi::DepthTest::kNearer`, `VK_COMPARE_OP_GREATER`; `kEqual`, the main pass's over the
+pre-pass's depth, greater or equal) and depth cleared to 0 (`ClearValue`'s default, the frame graph's, `RenderImageSet`'s,
+the shadow tiles'). A float's exponent then holds the precision where a perspective depth has none, near 0: the distance
+two surfaces can be told apart at grows with the distance, not with its square. Standard (0 near, 1 far, a float's
+mantissa near 1 alone), a window's shutter and the lit interior a few centimetres behind it fought 50 m away (the user's
+night time lapse over Bistro, `-827.3380,155.1481,33.8635,-9.897,72.297`, the window's mean change between frames 6.49 of
+255 at native and 0.74 at performance, 0.12 at both reversed), as did a sign's lettering and its board, and dots on a
+ledge. What reads depth by its convention: the sky (`depth <= 0.0`: nothing drawn), the depth pyramid (the farthest is the
+smallest: `min`) and occlusion (`CullOccluded`: a box's nearest depth is its largest, hidden when below the farthest
+under it; a corner nearer than the near plane, `clip.z > clip.w`, isn't), the depth reprojection (an `InterlockedMax` of
+the bits, a transient cleared to 0, the bias farther a factor), temporal upscaling (FSR's inverted depth:
+`FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH`'s comparisons, its reconstructed depth an atomic maximum), the shadow atlas
+(a blocker's depth is larger than the point's; `ShadowViewDistance` unprojects a depth along its view), the transparency's
+sort key (the depth's float bits taken from the near plane's, increasing with the distance) and the backdrop's rays (from
+depth 1, the near plane, to 0.5). The frustum's planes swap: `planes[4]` (z >= 0) is the far one and `planes[5]` the near,
+which the clusters slice from. Unprojections through the inverse view projections need nothing, and are more precise:
+what starts from a point unprojected from the depth (the traced shadows' rays, the near field's and the emitters') was
+off by a standard depth's step along the view, 7 mm at 30 m with a near plane a ten-thousandth of the far (the views'
+framing, `Views::FrameBounds`), and Sponza's framed sun shadows came out a pixel lower along its facade than they do now,
+closer to where the atlas alone puts them (which shades the fragment's own position). Against the same tree
+with standard depth (2560x1440, captures of 14 scenes and settings: Bistro at night and in its streets, Sponza under each
+occlusion mode, CornellBox, ShadowScene, ManyLights, the blending, scattering and transmission tests): the same means,
+each scene within 0.03 of 255 a pixel where nothing fought (Bistro 0.1 to 0.3, its noise), and the same draws culled and
+hidden (Bistro through its arch 46.8 a frame two-phase, 46.5 reprojected and hybrid; the shadow views' occlusion 11.9).
+
 ## Temporal upscaling
 
 View > Upscaling (`SPEEDO_UPSCALING=off|native|quality|balanced|performance`, `gfx::Upscaling` in `gfx/upscaling.h`;
@@ -960,7 +989,7 @@ RCAS (FSR's).
 The Upscale passes are FSR 3.1's (the FidelityFX SDK 1.1.4's fsr3upscaler, MIT licensed, its notice in `upscale.slang`),
 each a compute entry point: Upscale Clear (the reconstructed previous depth, `gUpscaleDepth`, a float's bits per pixel,
 to the far plane), Prepare Inputs (the dilated depth and motion, the nearest of each pixel's 3x3 and its motion; that
-depth pushed to where the point was, an atomic minimum; the farthest depth; the luma), Shading Change Pyramid and Shading
+depth pushed to where the point was, an atomic maximum; the farthest depth; the luma), Shading Change Pyramid and Shading
 Change (how the luma changed since the last frame where each point was: the smallest relative difference between sorted
 sets of 5 lumas, so that an edge the jitter moved hasn't changed, its mean and its sign's over three levels from half the
 render size, one pass through shared memory where FSR's single pass downsampler makes six; noise, whose signs disagree,
@@ -977,7 +1006,7 @@ accumulation and the luma history at the render size and the color (its alpha th
 are one image at the output's. What is ours: the motion (`UpscaleMotion`: what moves by the pre-pass's motion, the rest
 by its depth through the view's last view projection, the jitters taken out), the views (viewports of one render target,
 each pixel's jitter and history its view's), the exposure (the frame's, FSR's `Exposure()`, with a pre-exposure of 1),
-depth near 0, the scene's units as meters, FSR's default settings, and no transparency and composition mask. What moves
+depth inverted (near 1, see "Depth: reversed"), the scene's units as meters, FSR's default settings, and no transparency and composition mask. What moves
 (the main depth's stencil) keeps a history by its own motion, since its depth reprojects where it is, not where it was:
 the pre-pass writes each pixel's motion since the last frame (`SHADER_TYPES_PREPASS_MOTION_TEXTURE`, its second color
 attachment, RG16F, in the render target's pixels, the jitters taken out: `FragmentPrepass`), from where the vertex stage
@@ -1022,7 +1051,7 @@ MorphStressTest, RiggedFigure at frozen times). The chunk size is part of the mo
 chunk whose vertices leave its bounds; its encodings comparison counts the submeshes before chunking.
 
 `RecordDrawList` takes the view's `gfx::Frustum` (`gfx/frustum.h`: six planes from a view projection, Gribb and Hartmann;
-an infinite far plane comes out as zeros, which culls nothing) and skips the draws whose bounds are outside a plane. The
+an infinite far plane comes out as (0, 0, 0, near), which culls nothing) and skips the draws whose bounds are outside a plane. The
 main pass culls by `FrameInputs::viewProjections` (the cameras `Views::Upload` wrote to the frame's view buffer, so the
 cpu culls by what the gpu draws with), the shadow pass by each shadow view's (no depth clamp, so a caster in front of
 a shadow view's near plane casts nothing anyway). View > Culling (`SPEEDO_CULLING=0`) turns it off. Each draw costs about a
@@ -1104,7 +1133,7 @@ light, is a uniform disk's r^2 / 2; at least half a texel; `environment-v7`).
 and their geometry normals toward the side seen (`FragmentPrepass`, the layout's fifth fragment entry point,
 `kPrepassFragmentShader`; `PrepassOutput`'s alpha says whether the fragment takes light from behind, diffuse transmission
 and the scattering's), `SHADER_TYPES_PREPASS_NORMAL_TEXTURE`. Main and Main Late shade over that depth, each pixel once
-(`GraphicsPipelineVariant::depthTest`, rhi's `DepthTest::kEqual`: less or equal, no writes); blended draws depth test as
+(`GraphicsPipelineVariant::depthTest`, rhi's `DepthTest::kEqual`: greater or equal, the depth being reversed, no writes); blended draws depth test as
 before, and the transmissive phase isn't in the pre-pass (it must see the opaque scene behind it). Renders are identical,
 and frames are faster for the overdraw no longer shaded (Bistro's street, GI on, 25.15 to 22.9 ms).
 
@@ -2096,7 +2125,7 @@ drawn after a view's opaque submeshes, unsorted, with the main layout's second f
 (`FragmentTransparent`, `[earlydepthstencil]`: its writes must only happen for fragments that pass the depth test, which
 the opaque `FragmentMain` can't force, since alpha masked fragments must not write depth) and no color writes (every
 `BlendMode` `kNone`, so no depth writes either). Each fragment takes a node (`OitNode`, 12 bytes: premultiplied color as
-R11G11B10, alpha and a 24 bit depth, the next node) from `gOitNodes` by `gOitCounter` and pushes it on its pixel's list
+R11G11B10, alpha and 24 bits of the distance, the reversed depth's float bits, the next node) from `gOitNodes` by `gOitCounter` and pushes it on its pixel's list
 (`gOitHeads`, `InterlockedExchange`); `ComputeMain` keeps the pixel's 16 nearest layers sorted (insertion) and blends
 them back to front over the opaque color or the backdrop. The buffers are the frame graph's transients, sized with the
 render target (4 nodes per pixel, past which fragments are dropped), and cleared before each main pass
@@ -2288,8 +2317,8 @@ hemisphere with `cos = u^k` instead, k growing as the roughness drops, weighted 
 `SPEEDO_ENVIRONMENT_INTENSITY`/`SPEEDO_ENVIRONMENT_ROTATION` in degrees), applied to every lookup
 (`EnvironmentDirection`). It is the backdrop too: the main color target is cleared to alpha 0 and opaque draws write
 alpha 1, so `ComputeMain` knows where nothing is, finds the view the pixel is in (`ViewData::viewport`, `viewCount`)
-and samples the panorama along the ray through it (`ViewData::inverseViewProjection`, unprojected at depths 0 and 0.5,
-which works for infinite far planes and orthographic views too). Outside the views (letterboxing) the clear color
+and samples the panorama along the ray through it (`ViewData::inverseViewProjection`, unprojected at depths 1, the near plane,
+and 0.5, which works for infinite far planes and orthographic views too). Outside the views (letterboxing) the clear color
 stays. Equirectangular rows near the
 poles cover less of the sphere: the pyramid's mips weigh rows by their sine, and a sample's mip goes by the texel's real
 solid angle, otherwise the rough levels drift from the panorama's mean (papermill's by 15%), which `assettest` checks

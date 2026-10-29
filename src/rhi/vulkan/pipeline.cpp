@@ -146,7 +146,7 @@ void Pipeline<kVk>::InternalResetGraphicsState()
 		.flags = 0,
 		.depthTestEnable = VK_TRUE,
 		.depthWriteEnable = VK_TRUE,
-		.depthCompareOp = VK_COMPARE_OP_LESS,
+		.depthCompareOp = VK_COMPARE_OP_GREATER, // depth reversed: 1 at the near plane (see DepthTest)
 		.depthBoundsTestEnable = VK_FALSE,
 		// what writes depth writes the stencil's first bit too, the reference (dynamic: CommandEncoder::SetStencilReference)
 		.stencilTestEnable = VK_FALSE,
@@ -320,7 +320,7 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateGraphicsPipeline(
 	// over a pre-pass's depth: read only
 	if (variant.depthTest == DepthTest::kEqual)
 	{
-		depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+		depthStencil.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 		depthStencil.depthWriteEnable = VK_FALSE;
 	}
 	depthStencil.stencilTestEnable = depthStencil.depthWriteEnable;

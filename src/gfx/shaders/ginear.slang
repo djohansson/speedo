@@ -170,7 +170,7 @@ float4 GiNearFilter(int2 pixel, int2 step, uint source)
 		if (value.a < 0.0)
 			continue;
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(at, 0)).r;
-		if (depth >= 1.0)
+		if (depth <= 0.0)
 			continue;
 		float3 position = ShadowPosition(view, float2(at), depth);
 		float3 normal = gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(at, 0)).xyz * 2.0 - 1.0;
@@ -233,7 +233,7 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 			continue;
 		float4 value = light.Load(int3(tap, 0));
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(tap, 0)).r;
-		if (value.a < 0.0 || depth >= 1.0)
+		if (value.a < 0.0 || depth <= 0.0)
 			continue;
 		float3 position = ShadowPosition(view, float2(tap), depth);
 		float3 normal = normalize(gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(tap, 0)).xyz * 2.0 - 1.0);
@@ -257,7 +257,7 @@ float4 GiNearUpsample(int2 pixel, ShadowSurface surface, ViewData view, int stri
 					continue;
 				float4 value = light.Load(int3(tap, 0));
 				float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(tap, 0)).r;
-				if (value.a < 0.0 || depth >= 1.0)
+				if (value.a < 0.0 || depth <= 0.0)
 					continue;
 				float3 position = ShadowPosition(view, float2(tap), depth);
 				float3 normal = normalize(gTextures[SHADER_TYPES_PREPASS_NORMAL_TEXTURE].Load(int3(tap, 0)).xyz * 2.0 - 1.0);

@@ -43,7 +43,7 @@ bool CullOccluded(CullView view, float3 boundsMin, float3 boundsMax)
 
 	float2 screenMin = float2(1.0e30);
 	float2 screenMax = float2(-1.0e30);
-	float nearest = 1.0;
+	float nearest = 0.0; // depth reversed: the nearest is the largest
 	[unroll]
 	for (uint cornerIt = 0; cornerIt < 8; cornerIt++)
 	{
@@ -52,13 +52,13 @@ bool CullOccluded(CullView view, float3 boundsMin, float3 boundsMax)
 			(cornerIt & 2) != 0 ? boundsMax.y : boundsMin.y,
 			(cornerIt & 4) != 0 ? boundsMax.z : boundsMin.z);
 		float4 clip = mul(view.viewProjection, float4(corner, 1.0));
-		if (clip.w <= 1.0e-6 || clip.z < 0.0)
-			return false;
+		if (clip.w <= 1.0e-6 || clip.z > clip.w)
+			return false; // nearer than the near plane
 		float3 ndc = clip.xyz / clip.w;
 		float2 pixel = view.viewport.xy + (ndc.xy * 0.5 + 0.5) * view.viewport.zw;
 		screenMin = min(screenMin, pixel);
 		screenMax = max(screenMax, pixel);
-		nearest = min(nearest, ndc.z);
+		nearest = max(nearest, ndc.z);
 	}
 	screenMin = max(screenMin, view.viewport.xy);
 	screenMax = min(screenMax, view.viewport.xy + view.viewport.zw - 1.0);
@@ -78,11 +78,11 @@ bool CullOccluded(CullView view, float3 boundsMin, float3 boundsMax)
 	uint2 levelSize = max(size >> level, uint2(1));
 	uint2 first = min(uint2(screenMin) >> (level + 1), levelSize - 1);
 	uint2 last = min(uint2(screenMax) >> (level + 1), levelSize - 1);
-	float farthest = 0.0;
+	float farthest = 1.0;
 	for (uint y = first.y; y <= last.y; y++)
 		for (uint x = first.x; x <= last.x; x++)
-			farthest = max(farthest, PyramidTexel(view.pyramid, level, uint2(x, y)));
-	return nearest > farthest;
+			farthest = min(farthest, PyramidTexel(view.pyramid, level, uint2(x, y)));
+	return nearest < farthest;
 }
 
 // a draw a job keeps takes the next place of its run's commands (in any order: opaque draws depth test, and blended ones
@@ -188,7 +188,7 @@ void ComputeDepthPyramid(uint3 threadId: SV_DispatchThreadID)
 	if (threadId.x >= size.x || threadId.y >= size.y)
 		return;
 
-	float farthest = 0.0;
+	float farthest = 1.0; // depth reversed: the farthest is the smallest
 	uint2 sourceSize = uint2(gPushConstants.framebufferWidth, gPushConstants.framebufferHeight);
 	if (level > 0)
 		sourceSize = PyramidSize(pyramid, level - 1);
@@ -205,7 +205,7 @@ void ComputeDepthPyramid(uint3 threadId: SV_DispatchThreadID)
 				depth = asfloat(gReprojectedDepth[source.y * sourceSize.x + source.x]);
 			else
 				depth = gTextures[sourceKind == 2 ? SHADER_TYPES_SHADOW_ATLAS_TEXTURE : SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(source, 0)).r;
-			farthest = max(farthest, depth);
+			farthest = min(farthest, depth);
 		}
 	if (pyramid == 0)
 		gDepthPyramid[NonUniformResourceIndex(level)][threadId.xy] = farthest;
@@ -228,7 +228,7 @@ void ComputeDepthSave(uint3 threadId: SV_DispatchThreadID)
 		return;
 	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(threadId.xy, 0)).r;
 	bool moves = (gMainStencil.Load(int3(threadId.xy, 0)) & 1) != 0;
-	gPreviousDepth[threadId.y * width + threadId.x] = moves ? 1.0 : depth;
+	gPreviousDepth[threadId.y * width + threadId.x] = moves ? 0.0 : depth;
 }
 
 [shader("compute")]
@@ -239,7 +239,7 @@ void ComputeDepthReproject(uint3 threadId: SV_DispatchThreadID)
 	if (threadId.x >= previousWidth || threadId.y >= gPushConstants.previousHeight)
 		return;
 	float depth = gPreviousDepth[threadId.y * previousWidth + threadId.x];
-	if (depth >= 1.0)
+	if (depth <= 0.0)
 		return;
 
 	float2 pixel = float2(threadId.xy) + 0.5;
@@ -256,14 +256,14 @@ void ComputeDepthReproject(uint3 threadId: SV_DispatchThreadID)
 		if (clip.w <= 1.0e-6)
 			return;
 		float3 now = clip.xyz / clip.w;
-		if (now.z < 0.0 || now.z >= 1.0)
+		if (now.z > 1.0 || now.z <= 0.0)
 			return;
 		float2 target = view.viewport.xy + (now.xy * 0.5 + 0.5) * view.viewport.zw;
 		if (any(target < view.viewport.xy) || any(target >= view.viewport.xy + view.viewport.zw))
 			return;
-		float biased = min(now.z + (1.0 - now.z) * 1.0e-3, 1.0);
+		float biased = now.z * (1.0 - 1.0e-3); // farther: depth reversed, 0 at the far plane
 		uint2 at = uint2(target);
-		InterlockedMin(gReprojectedDepth[at.y * gPushConstants.framebufferWidth + at.x], asuint(biased));
+		InterlockedMax(gReprojectedDepth[at.y * gPushConstants.framebufferWidth + at.x], asuint(biased));
 		return;
 	}
 }

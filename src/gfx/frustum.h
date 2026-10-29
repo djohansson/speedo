@@ -10,8 +10,8 @@ namespace gfx
 {
 
 // a view's frustum as six planes in world space (xyz the inward normal, w the distance), from its view projection
-// (Gribb and Hartmann): -w <= x, y <= w and 0 <= z <= w in Vulkan's clip space. an infinite far plane comes out as all
-// zeros, which culls nothing
+// (Gribb and Hartmann): -w <= x, y <= w and 0 <= z <= w in Vulkan's clip space, the depth reversed: planes[4] (z >= 0) is
+// the far plane, planes[5] (z <= w) the near. an infinite far plane comes out as (0, 0, 0, near), which culls nothing
 struct Frustum
 {
 	std::array<glm::vec4, 6> planes{};

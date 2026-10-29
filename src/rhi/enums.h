@@ -225,12 +225,13 @@ constexpr size_t kMaxColorAttachments = 4;
 // topology, a blend mode per color attachment of the render target (it writes depth only if one of them is kOpaque:
 // the others test depth but don't write it; without color attachments, if the first is), and which of the layout's fragment entry points it runs (by their order
 // in it), for layouts with several
-// how a pipeline tests depth: kLess passes nearer fragments and writes theirs where a blend mode is kOpaque (see
-// GraphicsPipelineVariant); kEqual passes those at the depth a pre-pass wrote, without writing (less or equal, which
-// tolerates a pipeline computing a position a hair nearer), so each pixel is shaded once
+// how a pipeline tests depth, which is reversed (1 at the near plane, 0 at the far, as the projections make it: float depth
+// keeps its precision with the distance then): kNearer passes nearer fragments (greater) and writes theirs where a blend
+// mode is kOpaque (see GraphicsPipelineVariant); kEqual passes those at the depth a pre-pass wrote, without writing
+// (greater or equal, which tolerates a pipeline computing a position a hair nearer), so each pixel is shaded once
 enum class DepthTest : uint16_t
 {
-	kLess,
+	kNearer,
 	kEqual,
 };
 
@@ -239,7 +240,7 @@ struct GraphicsPipelineVariant
 	PrimitiveTopology topology = PrimitiveTopology::kTriangleList;
 	std::array<BlendMode, kMaxColorAttachments> blend{};
 	uint8_t fragmentShader = 0;
-	DepthTest depthTest = DepthTest::kLess;
+	DepthTest depthTest = DepthTest::kNearer;
 	// the value of the shaders' specialization constant 0 (what it means is the shaders' business; 0 by default)
 	uint16_t specialization = 0;
 
@@ -339,11 +340,11 @@ struct Rect
 	uint32_t height = 0;
 };
 
-// a color (rgba) or a depth and stencil value, by what the cleared image holds
+// a color (rgba) or a depth and stencil value, by what the cleared image holds (depth 0: the far plane, see DepthTest)
 struct ClearValue
 {
 	std::array<float, 4> color{};
-	float depth = 1.0F;
+	float depth = 0.0F;
 	uint32_t stencil = 0;
 };
 

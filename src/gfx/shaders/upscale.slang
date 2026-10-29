@@ -27,14 +27,15 @@
 // point was), and the views are viewports of one render target (a grid of them), each pixel's jitter and history its
 // view's. the color comes before exposure (the composite), with the frame's exposure (PushConstants::exposure, auto
 // exposure's and the slider's) as FSR's and a pre-exposure of 1 (so the history is linear before exposure, and FSR's
-// DeltaPreExposure is 1); HDR input (FFX_FSR3UPSCALER_OPTION_HDR_COLOR_INPUT); depth near 0 (not inverted); motion at the
+// DeltaPreExposure is 1); HDR input (FFX_FSR3UPSCALER_OPTION_HDR_COLOR_INPUT); depth inverted, near 1
+// (FFX_FSR3UPSCALER_OPTION_INVERTED_DEPTH); motion at the
 // render size (LOW_RESOLUTION_MOTION_VECTORS); FSR's defaults for its settings (velocity factor 1, reactiveness and
 // shading change scale 1, a third of accumulation a frame, a third less on disocclusion); the scene's units its meters;
 // the reactive mask the blended layers' coverage (the composite's alpha, see ComputeMain), and no transparency and
 // composition mask. FSR's luma pyramid serves its auto exposure, which ours replaces, and the farthest depth's level its
 // accumulation reads, made here with the shading change's pyramid, whose three levels one pass reduces in shared memory
 // (FSR's single pass downsampler makes six). the reconstructed previous depth is a buffer of float bits (an atomic
-// minimum), cleared before the frame's inputs are prepared. what the first frame after a reset reads of the last frame
+// maximum), cleared before the frame's inputs are prepared. what the first frame after a reset reads of the last frame
 // (the luma, the accumulation, the luma history) counts as none.
 
 static const float kUpscaleFp16Min = 6.10e-05;
@@ -357,9 +358,9 @@ void ComputeUpscalePrepareInputs(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (UpscaleOnScreen(at, renderSize))
 		{
 			float depth = depths.Load(int3(at, 0)).r;
-			if (depth < nearestDepth)
+			if (depth > nearestDepth)
 			{
-				farthestDepth = max(farthestDepth, depth);
+				farthestDepth = min(farthestDepth, depth);
 				nearest = at;
 				nearestDepth = depth;
 			}
@@ -378,7 +379,7 @@ void ComputeUpscalePrepareInputs(uint3 dispatchThreadId : SV_DispatchThreadID)
 		{
 			int2 at = bilinear.basePosition + kUpscaleBilinearOffsets[sampleIt];
 			if (UpscaleOnScreen(at, renderSize))
-				InterlockedMin(gUpscaleDepth[at.y * renderSize.x + at.x], asuint(nearestDepth));
+				InterlockedMax(gUpscaleDepth[at.y * renderSize.x + at.x], asuint(nearestDepth));
 		}
 	}
 

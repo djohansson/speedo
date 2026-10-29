@@ -423,7 +423,9 @@ struct EnvironmentFilterConstants
 struct OitNode
 {
 	alignas(4) UINT1(color); // rgb times alpha, as R11G11B10 floats (r in the low bits)
-	alignas(4) UINT1(alphaDepth); // alpha as 8 bit unorm in the high bits, depth (0 near, 1 far) as 24 bit unorm below
+	// alpha as 8 bit unorm in the high bits, below it the distance in 24 bits: the depth's float bits (reversed, 1 near and
+	// 0 far) taken from the near plane's, the top 24 of their 30, 0 near and growing farther, as precise far away as near
+	alignas(4) UINT1(alphaDepth);
 	alignas(4) UINT1(next); // the pixel's next node, or SHADER_TYPES_OIT_NONE
 };
 
@@ -527,13 +529,14 @@ struct EmitterData
 	alignas(4) UINT1(visibilityFrameCount);
 };
 
-// a view a light's shadow is drawn from: world to clip space (depth 0 to 1), drawn in a tile of the atlas
+// a view a light's shadow is drawn from: world to clip space (depth reversed, 1 at its near plane to 0 at its far), drawn
+// in a tile of the atlas
 struct ShadowData
 {
 	alignas(16) FLOAT4X4(viewProjection);
 	alignas(16) FLOAT4(atlasRect); // xy: the tile's corner in the atlas, zw: its size (texture coordinates)
 	// x: a texel's size in world units (orthographic), or per unit of distance from the light (perspective). y: 1 for a
-	// perspective view, else 0. zw: its near and far planes (what its depths 0 and 1 are, along its view)
+	// perspective view, else 0. zw: its near and far planes (what its depths 1 and 0 are, along its view)
 	alignas(16) FLOAT4(params);
 };
 

@@ -69,8 +69,8 @@ ClusterPlan Plan(std::span<const LightData> lights, std::span<const glm::mat4> v
 		auto& view = plan.views[viewIt];
 
 		// depth: from the near plane along the view, to the scene's farthest point, or the far plane if it is nearer
-		auto nearPlane = Normalized(frustum.planes[4]);
-		auto farPlane = Normalized(frustum.planes[5]);
+		auto nearPlane = Normalized(frustum.planes[5]); // the depth reversed, see Frustum
+		auto farPlane = Normalized(frustum.planes[4]);
 		if (nearPlane == glm::vec4(0.0F))
 			continue;
 		float range = 0.0F;

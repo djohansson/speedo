@@ -112,7 +112,7 @@ float3 ScatterPosition(ViewData view, float2 pixel, float depth)
 float ScatterThickness(float2 pixel, uint viewId, float3 position)
 {
 	float depth = gTextures[SHADER_TYPES_SCATTER_BACK_DEPTH_TEXTURE].Load(int3(int2(pixel), 0)).r;
-	if (depth >= 1.0)
+	if (depth <= 0.0)
 		return -1.0;
 	ViewData view = gViewData[gPushConstants.frameIndex][viewId];
 	return distance(position, ScatterPosition(view, floor(pixel), depth));

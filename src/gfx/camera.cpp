@@ -23,6 +23,8 @@ void Camera::UpdateProjectionMatrix()
 	{
 	case ViewType::Perspective:
 	case ViewType::Orthographic: {
+		// gl's clip space to vulkan's: y down, and depth reversed, 1 at the near plane to 0 at the far (float depth keeps
+		// its precision with the distance then: standard, 0 near, two surfaces a centimetre apart fought 50 m away)
 		static const glm::mat4 kClip{
 			1.0F,
 			0.0F,
@@ -34,7 +36,7 @@ void Camera::UpdateProjectionMatrix()
 			0.0F,
 			0.0F,
 			0.0F,
-			0.5F,
+			-0.5F,
 			0.0F,
 			0.0F,
 			0.0F,

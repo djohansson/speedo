@@ -53,7 +53,7 @@ void ComputeMain(
 				if (any(local < 0.0) || any(local >= 1.0))
 					continue;
 				float2 ndc = local * 2.0 - 1.0;
-				float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
+				float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 1.0, 1.0)); // the near plane: depth reversed
 				float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.5, 1.0));
 				float3 ray = normalize(farPoint.xyz / farPoint.w - nearPoint.xyz / nearPoint.w);
 				color.rgb = EnvironmentRadiance(gEnvironment[0], ray, 0.0);
@@ -71,7 +71,7 @@ void ComputeMain(
 			{
 				float2 local = (float2(xy) + 0.5 - view.viewport.xy) / view.viewport.zw;
 				float2 ndc = local * 2.0 - 1.0;
-				float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 0.0, 1.0));
+				float4 nearPoint = mul(view.inverseViewProjection, float4(ndc, 1.0, 1.0)); // the near plane: depth reversed
 				float4 farPoint = mul(view.inverseViewProjection, float4(ndc, 0.5, 1.0));
 				float3 ray = normalize(farPoint.xyz / farPoint.w - nearPoint.xyz / nearPoint.w);
 				color.rgb = GiVoxelWorldDebug(view.eyePosition.xyz, ray, debugView);

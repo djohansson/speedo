@@ -446,7 +446,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassBuilder& builder) { builder.Use(myReprojectedDepth, ResourceUse::TransferDestination()); },
 		[this](FrameGraph::PassContext& context)
 		{
-			constexpr uint32_t kFarPlane = 0x3F800000U; // 1.0F
+			constexpr uint32_t kFarPlane = 0; // 0.0F: depth reversed
 			CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myReprojectedDepth), 0, PixelCount(myGraph.GetExtent()) * sizeof(uint32_t), kFarPlane);
 		});
 	myDepthReprojectPass = myGraph.AddPass(
@@ -553,7 +553,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			if (!late)
 				context.target->ClearRect(
 					cmd,
-					ClearValue{.depth = 1.0F},
+					ClearValue{.depth = 0.0F}, // the far plane: depth reversed
 					0,
 					rhi::Rect{.x = static_cast<int32_t>(tile.x), .y = static_cast<int32_t>(tile.y), .width = tile.size, .height = tile.size});
 			pushConstants.shadowView = viewIt;
@@ -1345,7 +1345,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassBuilder& builder) { builder.Use(myUpscaleDepth, ResourceUse::TransferDestination()); },
 		[this](FrameGraph::PassContext& context)
 		{
-			constexpr uint32_t kFarPlane = 0x3F800000U; // 1.0F
+			constexpr uint32_t kFarPlane = 0; // 0.0F: depth reversed
 			CommandEncoder(context.cmd).FillBuffer(context.graph.GetBuffer(myUpscaleDepth), 0, PixelCount(myGraph.GetExtent()) * sizeof(uint32_t), kFarPlane);
 		});
 	myUpscalePasses[1] = myGraph.AddPass(
@@ -1585,7 +1585,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				it++;
 		}
 	}
-	// each frame's center and look printed (SPEEDO_GI_EYE_LOG=1), as SPEEDO_GI_EYE_PATH takes them
+	// each frame's center and look printed (SPEEDO_GI_EYE_LOG=1), as SPEEDO_GI_EYE_PATH takes them, and each clip's scroll
 	const char* eyeLog = std::getenv("SPEEDO_GI_EYE_LOG");
 	myGiEyeLog = eyeLog != nullptr && std::string_view(eyeLog) == "1";
 	// the probes' rays a frame (SPEEDO_GI_RAY_COUNT, 128 by default), over how many frames their sets of directions
@@ -3721,7 +3721,7 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 		cmd,
 		{.blend = prepass ? kPrepassBlend : kOpaqueBlend,
 		 .fragmentShader = prepass ? kPrepassFragmentShader : uint8_t{0},
-		 .depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kLess});
+		 .depthTest = !prepass && listId == ListId::kMain ? DepthTest::kEqual : DepthTest::kNearer});
 	// the main list's fragments take the traced shadows and the indirect lighting's near field (at the pre-pass's depth:
 	// its blended ones don't, see FragmentTransparent), the transmissive phase's don't
 	auto pushConstants = inputs.pushConstants;

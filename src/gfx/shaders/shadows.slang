@@ -76,9 +76,9 @@ uint PlaceInShadowMap(uint lightIndex, LightData light, float3 position, float3 
 		float2 local = ndc.xy * 0.5 + 0.5;
 		// a cascade covers the point if its filter stays inside the tile: else the next (farther) one
 		float2 margin = 2.5 * texel / shadow.atlasRect.zw;
-		if (any(local < margin) || any(local > 1.0 - margin) || ndc.z > 1.0)
-			continue;
-		if (ndc.z < 0.0)
+		if (any(local < margin) || any(local > 1.0 - margin) || ndc.z < 0.0)
+			continue; // past its far plane (depth reversed: 0 there)
+		if (ndc.z > 1.0)
 			return kShadowMapNearer;
 		place.view = shadow;
 		place.uv = shadow.atlasRect.xy + local * shadow.atlasRect.zw;
@@ -105,7 +105,7 @@ float ShadowMapFilter(float2 uv, float depth)
 			float2 f = st - base;
 			// the four texels around: x (0, 1), y (1, 1), z (1, 0), w (0, 0)
 			float4 stored = atlas.GatherRed(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], (base + 1.0) * texel);
-			float4 visible = select(stored >= depth, float4(1.0), float4(0.0));
+			float4 visible = select(stored <= depth, float4(1.0), float4(0.0)); // depth reversed: farther is smaller
 			lit += lerp(lerp(visible.w, visible.z, f.x), lerp(visible.x, visible.y, f.x), f.y);
 		}
 	return lit / 9.0;
@@ -185,7 +185,7 @@ float ShadowMapSoft(ShadowMapPlace place, LightData light, float3 position, floa
 		float2 uv = clamp(place.uv + radius * float2(cos(angle), sin(angle)) * texel, low, high);
 		float stored = atlas.Load(int3(int2(uv * atlasSize), 0)).r;
 		float plane = place.depth + dot(gradient, uv - place.uv);
-		if (stored < plane - slack)
+		if (stored > plane + slack)
 		{
 			blockerSum += max(ShadowViewDistance(place.view, plane) - ShadowViewDistance(place.view, stored), 0.0);
 			blockerCount += 1.0;
@@ -216,7 +216,7 @@ float ShadowMapSoft(ShadowMapPlace place, LightData light, float3 position, floa
 			dot(gradient, corner + float2(0.0, texel.y)), dot(gradient, corner + texel), dot(gradient, corner + float2(texel.x, 0.0)),
 			dot(gradient, corner));
 		float4 stored = atlas.GatherRed(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], (base + 1.0) * texel);
-		float4 visible = select(stored >= plane - slack, float4(1.0), float4(0.0));
+		float4 visible = select(stored <= plane + slack, float4(1.0), float4(0.0));
 		lit += lerp(lerp(visible.w, visible.z, f.x), lerp(visible.x, visible.y, f.x), f.y);
 	}
 	return lit / float(kShadowSoftTapCount);

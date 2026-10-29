@@ -481,7 +481,7 @@ void FragmentTransparent(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 
 	OitNode result;
 	result.color = PackR11G11B10(color.rgb * saturate(color.a));
-	result.alphaDepth = (uint(saturate(color.a) * 255.0 + 0.5) << 24) | uint(saturate(input.hPos.z) * 16777215.0 + 0.5);
+	result.alphaDepth = (uint(saturate(color.a) * 255.0 + 0.5) << 24) | ((0x3f800000u - asuint(saturate(input.hPos.z))) >> 6);
 	result.next = next;
 	gOitNodes[node] = result;
 }

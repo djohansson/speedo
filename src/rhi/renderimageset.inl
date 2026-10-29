@@ -43,7 +43,7 @@ RenderTargetCreateDesc<G> CreateRenderTargetCreateDesc(std::span<const std::shar
 	}
 
 	// see RenderTarget::SetClearValue
-	outDesc.clearValues.assign(images.size(), ClearValue{.color = {0.2F, 0.2F, 0.2F, 1.0F}, .depth = 1.0F, .stencil = 0});
+	outDesc.clearValues.assign(images.size(), ClearValue{.color = {0.2F, 0.2F, 0.2F, 1.0F}, .depth = 0.0F, .stencil = 0});
 
 	// todo: configure
 	outDesc.layerCount = 1;
