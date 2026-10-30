@@ -1,0 +1,17 @@
+{
+  "name": "spirv-llvm-translator",
+  "version": "23.1.2",
+  "description": "A library and tool for translation between LLVM IR and SPIR-V. For mesa's OpenCL C compiler (mesa_clc), which KosmicKrisp's kernels are built with.",
+  "homepage": "https://github.com/KhronosGroup/SPIRV-LLVM-Translator",
+  "license": "Apache-2.0 WITH LLVM-exception",
+  "dependencies": [
+    {
+      "name": "llvm",
+      "default-features": false
+    },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    }
+  ]
+}

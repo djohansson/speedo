@@ -36,6 +36,11 @@
       "features": [ "compiler-rt", "libcxxabi" ],
       "platform": "!windows",
       "host": true
+    },
+    {
+      "name": "mesa",
+      "platform": "osx & arm64",
+      "host": true
     }
   ],
   "features": {

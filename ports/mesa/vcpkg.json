@@ -1,0 +1,28 @@
+{
+  "name": "mesa",
+  "version": "26.3.0",
+  "description": "Mesa's KosmicKrisp alone: a Vulkan driver over Metal, from the djohansson/mesa fork, which adds ray queries to it (VK_KHR_acceleration_structure, VK_KHR_ray_query).",
+  "homepage": "https://github.com/djohansson/mesa",
+  "license": "MIT",
+  "supports": "osx & arm64",
+  "dependencies": [
+    {
+      "name": "llvm",
+      "default-features": false,
+      "features": [
+        "clang"
+      ]
+    },
+    "spirv-llvm-translator",
+    "spirv-tools",
+    {
+      "name": "vcpkg-get-python-packages",
+      "host": true
+    },
+    {
+      "name": "vcpkg-tool-meson",
+      "host": true
+    },
+    "zstd"
+  ]
+}
