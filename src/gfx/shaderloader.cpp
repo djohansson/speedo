@@ -360,15 +360,21 @@ std::string ShaderLoader::SlangConfiguration::ToString() const
 	for (const auto& [name, stage] : entryPoints)
 		entryPointsString.append(std::format("[{}, {}]", name, static_cast<SlangStageIntegral>(stage)));
 
+	// the definitions select code (BVH_RAY_QUERY), so a cached compile is only another's with the same ones
+	std::string definitionsString;
+	for (const auto& [name, value] : preprocessorDefinitions)
+		definitionsString.append(std::format("[{}={}]", name, value));
+
 	return std::format(
 		"sourceLanguage: {}, entryPoints: {}, "
-		"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}",
+		"optimizationLevel: {}, debugInfoLevel: {}, debugInfoFormat: {}, matrixLayoutMode: {}, definitions: {}",
 		static_cast<SlangSourceLanguageIntegral>(sourceLanguage),
 		entryPointsString,
 		static_cast<SlangOptimizationLevelIntegral>(optimizationLevel),
 		static_cast<SlangDebugInfoLevelIntegral>(debugInfoLevel),
 		static_cast<SlangDebugInfoFormatIntegral>(debugInfoFormat),
-		static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode));
+		static_cast<SlangMatrixLayoutModeIntegral>(matrixLayoutMode),
+		definitionsString);
 }
 
 rhi::ShaderSet ShaderLoader::Load(const std::filesystem::path& file, const SlangConfiguration& config)
