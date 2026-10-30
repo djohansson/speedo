@@ -72,6 +72,25 @@ void UpdateBufferOnGraphics(
 	graphicsSubmits |= graphicsQueue.Submit();
 }
 
+void RecordOnGraphics(QueueTimelineContextData& graphics, core::std_extra::function_ref<void(CommandBufferHandle)> record)
+{
+	auto& [graphicsQueue, graphicsSubmits] = graphics.queues.Get();
+
+	auto cmd = graphicsQueue.GetPool().Begin();
+	record(cmd);
+	cmd.End();
+
+	graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
+		.waitSemaphores = {graphics.semaphore},
+		.waitDstStageMasks = {PipelineStage::kAllCommands},
+		.waitSemaphoreValues = {graphics.timeline},
+		.signalSemaphores = {graphics.semaphore},
+		.signalSemaphoreValues = {++graphics.timeline}},
+		std::move(cmd));
+
+	graphicsSubmits |= graphicsQueue.Submit();
+}
+
 namespace detail
 {
 

@@ -565,13 +565,13 @@ struct GiAlphaMask : IBvhFilter
 		if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
 		{
 			TextureView view = gTextureViews[material.baseColorView];
-			if (gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).a < material.alphaCutoff)
+			if (SampleViewLevel(view, ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).a < material.alphaCutoff)
 				return false;
 		}
 		if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u)
 		{
 			TextureView view = gTextureViews[material.alphaView];
-			if (gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).r < material.alphaCutoff)
+			if (SampleViewLevel(view, ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).r < material.alphaCutoff)
 				return false;
 		}
 		return true;
@@ -584,6 +584,9 @@ struct GiAlphaMask : IBvhFilter
 // early depth test off, see GiMarch) is counted (GI_STATISTIC_CAPPED_BVH_RAYS)
 BvhHit GiTraceTriangles(GiData gi, float3 origin, float3 direction, float tmax, bool anyHit, bool moving, bool count)
 {
+#if BVH_RAY_QUERY
+	return BvhTraceScene(origin, direction, tmax, anyHit, moving && gi.bvhMoving != 0u, GiAlphaMask());
+#else
 	BvhHit hit = BvhTraverse(gBvhNodes, gBvhTriangles, origin, direction, tmax, anyHit, GiAlphaMask());
 	if (moving && gi.bvhMoving != 0u && !(anyHit && BvhHitSomething(hit)))
 	{
@@ -597,6 +600,7 @@ BvhHit GiTraceTriangles(GiData gi, float3 origin, float3 direction, float tmax, 
 	if (count && hit.capped)
 		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CAPPED_BVH_RAYS], 1u);
 	return hit;
+#endif
 }
 
 // whether the voxels let a ray through from origin, a distance along direction (a shadow ray): the BVHs' triangles (any
@@ -678,7 +682,7 @@ float3 GiHitRadiance(uint firstClip, float3 position, BvhHit hit, out float3 emi
 							gVertexBuffer[gIndexBuffer[hit.firstIndex + 1]].texCoord01 * weights.x +
 							gVertexBuffer[gIndexBuffer[hit.firstIndex + 2]].texCoord01 * weights.y;
 		TextureView view = gTextureViews[material.emissiveView];
-		emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).rgb;
+		emission *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), BVH_ALPHA_LEVEL).rgb;
 	}
 	return reflected + emission;
 }
@@ -936,7 +940,7 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			if ((material.flags & MATERIAL_FLAG_TEXTURE) != 0u)
 			{
 				TextureView view = gTextureViews[material.baseColorView];
-				color *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0);
+				color *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), 6.0);
 			}
 			// metallic is the factor times the texture's (its green, see image::Usage::kMetallicRoughness), as the shading
 			// has it: by the factor alone (1 by default, the texture saying where), Sponza's voxels were all black
@@ -944,14 +948,14 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			if ((material.flags & MATERIAL_FLAG_METALLIC_ROUGHNESS_TEXTURE) != 0u)
 			{
 				TextureView view = gTextureViews[material.metallicRoughnessView];
-				metallic *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0).g;
+				metallic *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), 6.0).g;
 			}
 			albedo = color.rgb * (1.0 - metallic);
 			emission = material.emissive.rgb;
 			if ((material.flags & MATERIAL_FLAG_EMISSIVE_TEXTURE) != 0u)
 			{
 				TextureView view = gTextureViews[material.emissiveView];
-				emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), 6.0).rgb;
+				emission *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), 6.0).rgb;
 			}
 		}
 		// sampled half a voxel apart along its longest edge, in rows of samples, up to kGiVoxelizeSampledSteps of them: a

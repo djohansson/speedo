@@ -196,6 +196,12 @@ RWStructuredBuffer<uint> gGiStatistics[SHADER_TYPES_FRAME_COUNT];
 StructuredBuffer<float4> gBvhMovingNodes[SHADER_TYPES_FRAME_COUNT];
 [[vk::binding(34, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 StructuredBuffer<float4> gBvhMovingTriangles[SHADER_TYPES_FRAME_COUNT];
+#if BVH_RAY_QUERY
+// where the device's ray queries trace instead (see gfx/accelerationstructures.h), its top level structure per frame index:
+// what doesn't move (gBvhTriangles' triangles) and what moves (gBvhMovingTriangles[frame]'s), see BvhTraceScene
+[[vk::binding(46, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RaytracingAccelerationStructure gBvhScene[SHADER_TYPES_FRAME_COUNT];
+#endif
 // which of each voxel's 8 probes see it, traced through the BVHs (see ComputeGiResolve), in two halves (this frame's and
 // the last's, see GiData::visibilityFirst)
 [[vk::binding(35, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]

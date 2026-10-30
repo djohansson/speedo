@@ -3,6 +3,7 @@
 #include <gfx/gpu.h>
 #include <gfx/upload.h>
 
+#include <core/std_extra.h>
 #include <core/task.h>
 
 #include <cstddef>
@@ -33,6 +34,10 @@ void RetireAfterGraphicsWork(QueueTimelineContextData& graphics, std::shared_ptr
 // submitted so far, and before all that follows. call on the draw thread.
 void UpdateBufferOnGraphics(
 	QueueTimelineContextData& graphics, const Buffer& buffer, uint64_t offset, std::span<const std::byte> data);
+
+// records commands (record(cmd)) in a submission on the graphics queue that is ordered after all graphics work submitted so
+// far, and before all that follows. call on the draw thread.
+void RecordOnGraphics(QueueTimelineContextData& graphics, core::std_extra::function_ref<void(CommandBufferHandle)> record);
 
 namespace detail
 {

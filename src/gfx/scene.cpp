@@ -5,6 +5,7 @@
 #include <core/profiling.h>
 #include <core/task.h>
 #include <core/taskexecutor.h>
+#include <gfx/accelerationstructures.h>
 #include <gfx/environment.h>
 #include <gfx/environmentfilter.h>
 #include <gfx/gpu.h>
@@ -119,6 +120,9 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 		{.type = rhi::DescriptorType::kUniformBufferDynamic, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kStorageBufferDynamic, .count = kBufferBaseCount},
 		{.type = rhi::DescriptorType::kInputAttachment, .count = kBufferBaseCount},
+		// gBvhScene, a frame index's each, in a set of the model's buffers, which takes a new one whenever one of them
+		// changes: as many as of the buffers (the pipeline leaves the type out where the device has no ray queries)
+		{.type = rhi::DescriptorType::kAccelerationStructure, .count = kBufferBaseCount},
 	};
 }
 
@@ -381,6 +385,10 @@ struct Scene::Impl
 	// which GiData::trace never has the rays traverse, and as gEmitters and gEmitterTree while it has no emitters (see
 	// gfx/emitters.h: EmitterData::count is 0 then)
 	uuids::uuid myDefaultBvhUuid;
+	// bound as gBvhScene while the installed model has nothing the device's ray queries trace (see AccelerationStructures):
+	// top level structures of no instances. null where the device has no ray queries
+	std::unique_ptr<AccelerationStructures> myDefaultAccelerationStructures;
+	bool myMovingPlaced = false; // whether this frame's Update placed what moves, for the rays (see Model::Animate)
 	core::ConcurrentAccess<AnimationState> myAnimation;
 	core::ConcurrentAccess<SceneState> myScenes;
 	// gLights (SHADER_TYPES_LIGHT_COUNT of them): the installed model's, or the default light. draw thread.
@@ -867,6 +875,17 @@ struct Scene::Impl
 	}
 
 
+	// binds what the device's ray queries trace (gBvhScene, a top level structure per frame index). the main layout bound
+	void BindAccelerationStructures(const AccelerationStructures& structures)
+	{
+		for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
+			myPipeline.SetDescriptorData(
+				"gBvhScene",
+				static_cast<::AccelerationStructureHandle<rhi::kGraphicsApi>>(structures.GetTopLevel(frameIt)),
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
+	}
+
 	// makes an uploaded model the one being drawn, with its materials and their textures (by material), retiring the
 	// previous ones. call on the draw thread.
 	void InstallModel(
@@ -1284,6 +1303,17 @@ struct Scene::Impl
 						DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
 						frameIt);
 			}
+			// what the device's ray queries trace of it, built in a submission before the frames that trace it (the default's
+			// of nothing where it has none)
+			if (auto* structures = model->GetAccelerationStructures())
+			{
+				std::shared_ptr<Buffer> scratch;
+				RecordOnGraphics(graphics, [&scratch, structures](CommandBufferHandle cmd) { scratch = structures->RecordBuild(cmd); });
+				RetireAfterGraphicsWork(graphics, std::move(scratch));
+				BindAccelerationStructures(*structures);
+			}
+			else if (myDefaultAccelerationStructures)
+				BindAccelerationStructures(*myDefaultAccelerationStructures);
 
 			{
 				auto scenes = myScenes.Write();
@@ -1956,6 +1986,12 @@ struct Scene::Impl
 			myDefaultMorphWeightsUuid = morphWeights->GetUuid();
 			timelineCallbacks.emplace_back(morphWeightTransfersDone.handle);
 
+			if (device.GetLimits().rayQuery)
+			{
+				myDefaultAccelerationStructures = std::make_unique<AccelerationStructures>(device, "Default", AccelerationStructures::Triangles{});
+				ENSURE(myDefaultAccelerationStructures->RecordBuild(cmd) == nullptr); // nothing static: no scratch
+			}
+
 			cmd.End();
 
 			graphicsQueue.EnqueueSubmit(QueueDeviceSyncInfo{
@@ -1977,6 +2013,11 @@ struct Scene::Impl
 
 		auto shaderSourceFile = shaderIncludePath / "shaders.slang";
 
+		// the device's ray queries where it has them (BVH_RAY_QUERY, see AccelerationStructures), else gfx's BVHs traversed
+		auto definitions = ShaderLoader::SlangConfiguration{}.preprocessorDefinitions;
+		if (device.GetLimits().rayQuery)
+			definitions.emplace_back("BVH_RAY_QUERY", "1");
+
 		auto zPrepassLayout = pipeline.CreateLayout(
 			"VertexZPrepass",
 			shaderLoader.Load(
@@ -1986,6 +2027,7 @@ struct Scene::Impl
 					.entryPoints = {{"VertexZPrepass", SLANG_STAGE_VERTEX}},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+					.preprocessorDefinitions = definitions,
 				}));
 
 		pipeline.BindLayoutAuto(zPrepassLayout, PipelineBindPoint::kGraphics);
@@ -2092,6 +2134,7 @@ struct Scene::Impl
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,
+					.preprocessorDefinitions = definitions,
 				}));
 
 		pipeline.BindLayoutAuto(mainLayout, PipelineBindPoint::kGraphics);
@@ -2114,6 +2157,8 @@ struct Scene::Impl
 			"gLights",
 			BufferBinding{.buffer = *device.GetResource<Buffer>(myLightsUuid), .offset = 0},
 			DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
+		if (myDefaultAccelerationStructures)
+			BindAccelerationStructures(*myDefaultAccelerationStructures);
 
 		pipeline.SetDescriptorData(
 			"gEnvironment",
@@ -2199,6 +2244,14 @@ struct Scene::Impl
 
 	void Update(QueueTimelineContextData& graphics, uint32_t frameIndex)
 	{
+		myMovingPlaced = false;
+		// what doesn't move compacted, once its build is done (see AccelerationStructures::RecordCompaction)
+		if (auto* structures = myModel ? myModel->GetAccelerationStructures() : nullptr; structures != nullptr && structures->CanCompact())
+		{
+			std::shared_ptr<void> previous;
+			RecordOnGraphics(graphics, [&previous, structures](CommandBufferHandle cmd) { previous = structures->RecordCompaction(cmd); });
+			RetireAfterGraphicsWork(graphics, std::move(previous));
+		}
 		// the frame's exposure histogram, and instance and joint buffers, now that the frame's previous use of them is done
 		// (see the fences above)
 		UpdateAutoExposure(myRHI, frameIndex);
@@ -2226,11 +2279,11 @@ struct Scene::Impl
 			}
 			// the moving BVH only where rays trace it: the indirect lighting's, or the traced shadows', the traced shadows' or
 			// the emitters'
-			myModel->Animate(
-				frameIndex, pose, from, weight,
+			myMovingPlaced =
 				(mySettings.indirectLighting.load(std::memory_order_relaxed) && mySettings.traceTriangles.load(std::memory_order_relaxed)) ||
-					(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)) ||
-					(mySettings.emissiveLights.load(std::memory_order_relaxed) && myModel->GetEmitterCount() > 0));
+				(mySettings.shadows.load(std::memory_order_relaxed) && mySettings.tracedShadows.load(std::memory_order_relaxed)) ||
+				(mySettings.emissiveLights.load(std::memory_order_relaxed) && myModel->GetEmitterCount() > 0);
+			myModel->Animate(frameIndex, pose, from, weight, myMovingPlaced);
 			ApplyPointerValues(myRHI, graphics, *myModel);
 		}
 		
@@ -2242,6 +2295,10 @@ struct Scene::Impl
 	{
 		auto& device = myRHI.GetPrimaryDevice();
 		auto& pipeline = myPipeline;
+
+		// what moves, where this frame's Update placed it, for the device's ray queries
+		if (myModel && myMovingPlaced && myModel->GetAccelerationStructures() != nullptr)
+			myModel->GetAccelerationStructures()->RecordUpdate(cmd, target.frameIndex);
 
 		// which materials are transmissive (the main pass's second phase), counting those an animation turns on, and which
 		// layer groups their pipelines can skip (unless SPEEDO_SHADER_TIERS=0: the generic pipelines for all)

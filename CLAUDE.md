@@ -219,7 +219,8 @@ synchronization2, the dynamic cull mode and front face, shader draw parameters, 
 tooling info (`vkCmdBeginRendering`, `vkCmdPipelineBarrier2`, `vkCmdSetCullMode`, `vkCmdPushDescriptorSetWithTemplate`,
 ...), not through extensions and function pointers. Features come in `PhysicalDeviceInfo`'s version structs
 (`deviceFeatures11Ex` to `deviceFeatures14Ex`, the 1.3 and 1.4 ones chained only where the device has them), then the
-extensions' (`deviceFeatureParams`: present id and wait, swapchain maintenance1, the crash reports'); the device is made
+extensions' (`deviceFeatureParams`: present id and wait, swapchain maintenance1, the crash reports', the ray queries' where
+wanted, see "Hardware ray queries"); the device is made
 with the whole chain, so it enables every feature it has, and `Device` checks by name the optional ones the renderer
 needs (dynamic rendering, synchronization2, shader draw parameters, timeline semaphores, push descriptors). VMA and
 imgui's backend are told the version too (imgui then loads the core dynamic rendering functions: the KHR ones aren't
@@ -1749,6 +1750,50 @@ probes against its own surface reference (Sponza's inside at exposure 3, mean |l
 0.38; the two references differ by 0.78, the BVH's 48% brighter (the voxels' shells take that much of the light through
 the arcades and onto the curtains). The quick tier passes with it, profile and debug (validation).
 
+**Hardware ray queries** (where the device has `VK_KHR_ray_query` and its acceleration structures, `DeviceLimits::rayQuery`,
+decided in rhi: `WantsRayQueries` enables the extensions and chains their features; `SPEEDO_RAY_QUERY=0` keeps the BVHs, as
+KosmicKrisp and MoltenVK do, having neither): the main layout is compiled with `BVH_RAY_QUERY` (the scene's preprocessor
+definitions, a shader cache entry of its own), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
+the indirect lighting's, the traced shadows', the emitters' and the near field's) is a ray query (`BvhTraceScene` in
+`bvh.slang`) of `gBvhScene[frame]`: a top level structure per frame index of two instances (`gfx::AccelerationStructures`,
+`gfx/accelerationstructures.h`, the model's), what doesn't move, built once when the model is installed from its triangles
+in world space (`bvh::RayQueryTriangles` of `bvh::Triangles`, the CWBVH's input: 3 float4 a triangle, the corners, w the
+flags and the first index), and what moves, refit each frame from where `Model::Animate` placed it (`bvh::Moving` without
+its tree, `WriteRayQueryTriangles`, into the frame index's host visible buffer; `AccelerationStructures::RecordUpdate` at
+the start of `Scene::Record`, then the frame index's top level structure built again). The instances' masks tell them apart
+(`BVH_RAY_QUERY_MASK_*`: the static voxels' kept light queries what doesn't move alone). Each bottom level structure is its
+opaque triangles, then its alpha masked ones as a geometry of their own that isn't opaque: their hits are the query's
+candidates, which `GiAlphaMask` accepts or not (`CommitNonOpaqueTriangleHit`), and their first is the instance's custom
+index (24 bits: a hard failure past 16 M opaque triangles). A hit's normal, side, flags and first index are read from its
+triangle's corners in `gBvhTriangles` (or `gBvhMovingTriangles[frame]`), which hold those triangles instead of the BVHs: no
+CWBVH is uploaded nor a set's built, nor the moving tree built or refit on the cpu (BrainStem's 1 ms a frame). A model
+without any (the file browser's preview) has the scene's default bound, top level structures of no instances. rhi:
+`rhi::AccelerationStructure` (a structure in a buffer of its own; `GetSizes`), `CommandEncoder::BuildAccelerationStructure`
+(builds and updates), `Buffer::GetDeviceAddress`, `BufferUsage::kDeviceAddress`, `kAccelerationStructureStorage` and
+`kAccelerationStructureInput`, the builds' stage and accesses, and `DescriptorType::kAccelerationStructure` bindings
+(reflected from slang's `RaytracingAccelerationStructure`, bound by their handle; a pool without ray queries leaves the
+type out); VMA allocates with device addresses only where there are ray queries.
+Checked on lavapipe (mesa's cpu driver, which has ray queries: `VK_DRIVER_FILES=<mesa>/share/vulkan/icd.d/lvp_icd.aarch64.json`,
+a frame in seconds at `SPEEDO_WINDOW_SIZE=320x180`, with `SPEEDO_GPU_HANG_TIMEOUT=0` and a user profile of its own: its
+pipeline cache isn't the mac's), against the BVHs on the same driver (`SPEEDO_RAY_QUERY=0`), frame by frame
+(`SPEEDO_GI_TIME_BASED=0`, a fixed exposure, upscaling off, `SPEEDO_ANIMATION_TIME`: an animated model's pose by the
+clock differed between runs): ShadowScene's traced rays (`traced-shadow-raw`) differ in 45 pixels, all where the BVH let
+light through the edge between two triangles (the device's test is watertight); CesiumMan's (skinned, refit each frame)
+are identical, and its indirect diffuse within 0.004 of 255; DiffuseTransmissionPlant's (alpha masked leaves, every pixel
+traced) differ on its thin stems, which the CWBVH's compressed triangles miss (their slivers: see tinybvh's dev branch, above)
+and light through themselves, where the shadow atlas has them in shadow as the ray queries do; its indirect diffuse is
+darker by 2.7 of 255 on average, for the same reason. Clean under the validation layer. Compute work over many materials'
+textures (the voxelizer, the rays' alpha masks and emission, the emitters) indexes them as non-uniform (`SampleViewLevel`):
+Vulkan requires it of an index that varies across a wave's threads, and without it a driver may sample one thread's
+texture for all. On the mac, KosmicKrisp has no ray queries yet (Metal has acceleration structures and intersection
+queries: the driver's to expose, or a Metal backend), so it keeps the BVHs. What doesn't move is built
+to be compacted: once its build is done (`CanCompact`, its compacted size queried and read without waiting at each
+`Scene::Update`), it is copied into a structure of that size (`RecordCompaction`; `rhi::QueryType`,
+`CommandEncoder::WriteAccelerationStructureCompactedSize` and `CopyAccelerationStructure`), the instances naming it
+written in order with the frames and the top level structures built again (lavapipe doesn't compact: 6.8 MB either way
+for DiffuseTransmissionPlant). Not yet: measured on a desktop gpu (NVIDIA: Bistro, San Miguel and BrainStem against
+`SPEEDO_RAY_QUERY=0`, and the structures' memory against the BVHs'), a structure per model instanced into a scene.
+
 **The surface cache** (View > Indirect Lighting Surface Cache, on by default since 2026-10-23, the user's call; `SPEEDO_GI_CACHE=0`
 to start without it, `FrameInputs::giSurfaceCache`; `gGiCache`, `GiData::cache*`, the cache section of `gi.slang`): the
 probes, 8 voxels apart (1.8 m in Sponza's last clip), spread the light through a gap of a few tens of centimetres (the sky
@@ -2113,6 +2158,9 @@ Array bindings set element by element (`SetDescriptorData(name, value, set, inde
 order, which the update template walks: a new index goes before the first range above it. (It used to be appended,
 which swapped elements whenever one was set below an existing one: model sampler slot 0 got the default sampler set
 earlier in slot 2.)
+An acceleration structure array's elements are written an update template entry each (`InternalUpdateDescriptorSetTemplate`):
+the validation layer (1.4.350) read a range's handles side by side, past the entries' stride, and reported the bytes after
+the first as invalid handles (`VUID-VkWriteDescriptorSetAccelerationStructureKHR-pAccelerationStructures-03580`).
 
 
 Binding a descriptor set that is marked dirty (`BindDescriptorSetAuto` → `InternalUpdateDescriptorSet`)

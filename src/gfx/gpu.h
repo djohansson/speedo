@@ -1,5 +1,6 @@
 #pragma once
 
+#include <rhi/accelerationstructure.h>
 #include <rhi/buffer.h>
 #include <rhi/commandencoder.h>
 #include <rhi/crashreport.h>
@@ -29,6 +30,7 @@ using ImageViewCreateDesc = rhi::ImageViewCreateDesc<rhi::kGraphicsApi>;
 using Swapchain = rhi::Swapchain<rhi::kGraphicsApi>;
 using Semaphore = rhi::Semaphore<rhi::kGraphicsApi>;
 using QueryPool = rhi::QueryPool<rhi::kGraphicsApi>;
+using QueryPoolCreateDesc = rhi::QueryPoolCreateDesc<rhi::kGraphicsApi>;
 using GpuProfiler = rhi::GpuProfiler<rhi::kGraphicsApi>;
 using CrashBreadcrumb = rhi::CrashBreadcrumb<rhi::kGraphicsApi>;
 using SemaphoreCreateDesc = rhi::SemaphoreCreateDesc<rhi::kGraphicsApi>;
@@ -52,5 +54,7 @@ using ImageBinding = rhi::ImageBinding<rhi::kGraphicsApi>;
 using IRenderTarget = rhi::IRenderTarget<rhi::kGraphicsApi>;
 using RenderTargetBeginInfo = rhi::RenderTargetBeginInfo<rhi::kGraphicsApi>;
 using MemoryBlock = rhi::MemoryBlock<rhi::kGraphicsApi>;
+using AccelerationStructure = rhi::AccelerationStructure<rhi::kGraphicsApi>;
+using AccelerationStructureCreateDesc = rhi::AccelerationStructureCreateDesc<rhi::kGraphicsApi>;
 
 } // namespace gfx

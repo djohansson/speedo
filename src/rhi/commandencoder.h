@@ -1,5 +1,6 @@
 #pragma once
 
+#include <rhi/accelerationstructure.h>
 #include <rhi/shaderset.h>
 #include <rhi/types.h>
 
@@ -19,6 +20,12 @@ class Image;
 
 template <GraphicsApi G>
 class CommandBuffer;
+
+template <GraphicsApi G>
+class AccelerationStructure;
+
+template <GraphicsApi G>
+class QueryPool;
 
 // records commands into a command buffer, in rhi's neutral terms. it doesn't own the command buffer: construct one
 // wherever a command buffer is at hand.
@@ -64,6 +71,21 @@ public:
 	// makes the memory accesses (srcAccess) of the commands before, in srcStages, visible to the accesses (dstAccess) of
 	// the commands after, in dstStages, which wait for them
 	void Barrier(PipelineStage srcStages, Access srcAccess, PipelineStage dstStages, Access dstAccess) const;
+	// builds structure of geometries (as AccelerationStructure::GetSizes was given them, with flags), with scratch memory
+	// at scratchAddress (aligned to DeviceLimits::accelerationStructureScratchAlignment, of the sizes' buildScratchSize, or
+	// updateScratchSize to update): an update refits the structure, last built with kAllowUpdate of geometries of the same
+	// counts, to where their triangles are now. outside of render passes
+	void BuildAccelerationStructure(
+		const AccelerationStructure<G>& structure,
+		std::span<const AccelerationStructureGeometry> geometries,
+		AccelerationStructureBuildFlags flags,
+		uint64_t scratchAddress,
+		bool update = false) const;
+	// writes the compacted size of a structure built with kAllowCompaction (after a barrier from its build) to a query of a
+	// pool of QueryType::kAccelerationStructureCompactedSize, reset before
+	void WriteAccelerationStructureCompactedSize(const AccelerationStructure<G>& structure, const QueryPool<G>& pool, uint32_t query) const;
+	// copies a structure into another, compacted (built with kAllowCompaction, into one of its compacted size) or not
+	void CopyAccelerationStructure(const AccelerationStructure<G>& source, const AccelerationStructure<G>& destination, bool compact) const;
 	// runs secondary command buffers (see CommandPool::BeginSecondary), inside the render target they were begun for:
 	// takes them, each ended if it is still recording and handed back to its pool
 	void ExecuteCommands(std::vector<CommandBuffer<G>>&& secondaries) const;

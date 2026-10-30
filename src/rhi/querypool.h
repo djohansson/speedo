@@ -14,10 +14,18 @@ namespace rhi
 template <GraphicsApi G>
 class QueryPool;
 
+// what a query pool's queries hold
+enum class QueryType : uint8_t
+{
+	kTimestamp,
+	kAccelerationStructureCompactedSize, // see CommandEncoder::WriteAccelerationStructureCompactedSize
+};
+
 template <GraphicsApi G>
 struct QueryPoolCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	uint32_t count = 0;
+	QueryType type = QueryType::kTimestamp;
 };
 
 template <GraphicsApi G>
@@ -27,7 +35,7 @@ struct ObjectTraits<QueryPool<G>>
 };
 
 // gpu timestamps: count of them, written by commands (in ticks of DeviceLimits::timestampPeriod nanoseconds), read
-// back by the host once the commands are done
+// back by the host once the commands are done (or acceleration structures' compacted sizes, by QueryPoolCreateDesc::type)
 template <GraphicsApi G>
 class QueryPool final : public DeviceObject<QueryPool<G>>
 {

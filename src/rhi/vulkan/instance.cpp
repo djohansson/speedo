@@ -131,6 +131,18 @@ void GetPhysicalDeviceInfo2(
 			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD,
 		});
 	}
+	// ray queries' (see DeviceLimits::rayQuery: the device enables their extensions where it has them)
+	if (WantsRayQueries(device))
+	{
+		deviceFeatureParams.emplace(VkPhysicalDeviceAccelerationStructureFeaturesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
+		});
+		deviceFeatureParams.emplace(VkPhysicalDeviceRayQueryFeaturesKHR
+		{
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR,
+		});
+	}
 	
 	// features 2 -> 1.1 -> 1.2 (-> 1.3 -> 1.4) -> the extensions'
 	void* extensionFeatures = GetPNextChain(deviceFeatureParams);
@@ -156,6 +168,12 @@ void GetPhysicalDeviceInfo2(
 		.pNext = has13 ? &deviceInfo.deviceProperties13Ex : nullptr};
 	deviceInfo.deviceProperties11Ex = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES, .pNext = &deviceInfo.deviceProperties12Ex};
 	deviceInfo.deviceProperties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &deviceInfo.deviceProperties11Ex};
+	if (WantsRayQueries(device))
+	{
+		deviceInfo.accelerationStructureProperties = {
+			.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR, .pNext = deviceInfo.deviceProperties.pNext};
+		deviceInfo.deviceProperties.pNext = &deviceInfo.accelerationStructureProperties;
+	}
 
 	vkGetPhysicalDeviceProperties2(device, &deviceInfo.deviceProperties);
 

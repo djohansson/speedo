@@ -37,6 +37,14 @@ extern PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt;
 #endif
 extern PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV;
 extern PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV;
+// ray queries' acceleration structures (null unless the device enables them, see WantsRayQueries)
+extern PFN_vkCreateAccelerationStructureKHR gVkCreateAccelerationStructureKHR;
+extern PFN_vkDestroyAccelerationStructureKHR gVkDestroyAccelerationStructureKHR;
+extern PFN_vkGetAccelerationStructureBuildSizesKHR gVkGetAccelerationStructureBuildSizesKHR;
+extern PFN_vkGetAccelerationStructureDeviceAddressKHR gVkGetAccelerationStructureDeviceAddressKHR;
+extern PFN_vkCmdBuildAccelerationStructuresKHR gVkCmdBuildAccelerationStructuresKHR;
+extern PFN_vkCmdWriteAccelerationStructuresPropertiesKHR gVkCmdWriteAccelerationStructuresPropertiesKHR;
+extern PFN_vkCmdCopyAccelerationStructureKHR gVkCmdCopyAccelerationStructureKHR;
 
 // tracks (and names) a vulkan object, or stops tracking it, see rhi::TrackObject/TrackInstanceObject
 template <typename HandleT>
@@ -68,6 +76,9 @@ void InitDeviceExtensions(VkDevice device);
 
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkInstance device);
 [[nodiscard]] bool SupportsExtension(const char* extensionName, VkPhysicalDevice device);
+// whether a device is made with ray queries (VK_KHR_ray_query, its acceleration structures and their deferred host
+// operations, see DeviceLimits::rayQuery): where it has the extensions, unless SPEEDO_RAY_QUERY=0
+[[nodiscard]] bool WantsRayQueries(VkPhysicalDevice device);
 
 template <typename T>
 [[nodiscard]] extern bool SupportsFeature(const T& feature);

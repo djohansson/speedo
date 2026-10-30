@@ -139,6 +139,22 @@ void Pipeline<kVk>::InternalUpdateDescriptorSetTemplate(
 		{
 			auto rangeCount = high - low;
 
+			// an acceleration structure an entry: the validation layer (1.4.350) reads a range's handles side by side,
+			// past the stride, and reported the bytes after the first one's as invalid handles
+			if (type == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+			{
+				for (uint32_t elementIt = 0; elementIt < rangeCount; elementIt++)
+					entries.emplace_back(DescriptorUpdateTemplateEntry<kVk>{
+						.dstBinding=index,
+						.dstArrayElement=low + elementIt,
+						.descriptorCount=1,
+						.descriptorType=type,
+						.offset=(offset + rangeOffset + elementIt) * sizeof(BindingVariant<kVk>),
+						.stride=sizeof(BindingVariant<kVk>)});
+				rangeOffset += rangeCount;
+				continue;
+			}
+
 			entries.emplace_back(DescriptorUpdateTemplateEntry<kVk>{
 				.dstBinding=index,
 				.dstArrayElement=low,

@@ -92,7 +92,7 @@ enum class ImageUsage : uint8_t
 };
 RHI_FLAGS(ImageUsage)
 
-enum class BufferUsage : uint8_t
+enum class BufferUsage : uint16_t
 {
 	kNone = 0,
 	kTransferSource = 1U << 0U,
@@ -102,6 +102,11 @@ enum class BufferUsage : uint8_t
 	kIndex = 1U << 4U,
 	kVertex = 1U << 5U,
 	kIndirect = 1U << 6U, // indirect draws' commands (see CommandEncoder::DrawIndexedIndirect)
+	// ray queries' (DeviceLimits::rayQuery): a buffer whose address is read (Buffer::GetDeviceAddress), one an acceleration
+	// structure lives in, and one a build reads its triangles or instances from (see AccelerationStructure)
+	kDeviceAddress = 1U << 7U,
+	kAccelerationStructureStorage = 1U << 8U,
+	kAccelerationStructureInput = 1U << 9U,
 };
 RHI_FLAGS(BufferUsage)
 
@@ -167,6 +172,7 @@ enum class PipelineStage : uint16_t
 	kEarlyFragmentTests = 1U << 10U, // depth and stencil tests (and attachment loads) before fragment shading
 	kLateFragmentTests = 1U << 11U, // the same after it (and attachment stores)
 	kDrawIndirect = 1U << 12U, // where indirect draws read their commands and counts
+	kAccelerationStructureBuild = 1U << 13U, // acceleration structure builds (see CommandEncoder::BuildAccelerationStructure)
 };
 RHI_FLAGS(PipelineStage)
 
@@ -185,6 +191,9 @@ enum class Access : uint16_t
 	kDepthStencilAttachmentRead = 1U << 9U,
 	kDepthStencilAttachmentWrite = 1U << 10U,
 	kIndirectCommandRead = 1U << 11U, // indirect draws' commands and counts
+	// an acceleration structure's, by ray queries and builds (its writes are builds', see CommandEncoder::BuildAccelerationStructure)
+	kAccelerationStructureRead = 1U << 12U,
+	kAccelerationStructureWrite = 1U << 13U,
 };
 RHI_FLAGS(Access)
 
@@ -359,6 +368,10 @@ struct DeviceLimits
 	// the count is emulated, at a cost per call and per slot of its maxDrawCount rather than per draw made (KosmicKrisp:
 	// Metal has no draw count indirect, see CLAUDE.md, "The gpu's culling")
 	bool drawIndirectCountEmulated = false;
+	// ray queries against acceleration structures (VK_KHR_ray_query, see AccelerationStructure), where the device has them
+	// and SPEEDO_RAY_QUERY isn't 0
+	bool rayQuery = false;
+	uint32_t accelerationStructureScratchAlignment = 0; // of a build's scratch address, in bytes
 };
 
 // the shader stages a shader, binding or push constant range is used in

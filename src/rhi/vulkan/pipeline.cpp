@@ -643,7 +643,8 @@ Pipeline<kVk>::Pipeline(CreateDescType&& desc)
 
 			std::vector<VkDescriptorPoolSize> poolSizes;
 			for (const auto& [type, count] : GetDesc().descriptorPoolSizes)
-				poolSizes.push_back({.type = vk::ToVk(type), .descriptorCount = count});
+				if (type != DescriptorType::kAccelerationStructure || GetDevice().GetLimits().rayQuery) // else not a type the device knows
+					poolSizes.push_back({.type = vk::ToVk(type), .descriptorCount = count});
 			ENSURE(!poolSizes.empty());
 
 			VkDescriptorPoolInlineUniformBlockCreateInfo inlineUniformBlockInfo{

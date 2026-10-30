@@ -81,11 +81,23 @@ DeviceObjectCreateDesc<kVk> Device<kVk>::CreateDeviceObjectCreateDesc(std::strin
 	};
 }
 
+// an extension's features, where the instance chained them (see GetPhysicalDeviceInfo2)
+template <typename T>
+[[nodiscard]] static const T* FindFeatures(const PhysicalDeviceInfo<kVk>& info)
+{
+	for (const auto& params : info.deviceFeatureParams)
+		if (const auto* features = std::get_if<T>(&params))
+			return features;
+	return nullptr;
+}
+
 template <>
 DeviceLimits Device<kVk>::GetLimits() const
 {
 	const auto& info = GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice());
 	const auto& limits = info.deviceProperties.properties.limits;
+	const auto* rayQuery = FindFeatures<VkPhysicalDeviceRayQueryFeaturesKHR>(info);
+	const auto* accelerationStructure = FindFeatures<VkPhysicalDeviceAccelerationStructureFeaturesKHR>(info);
 	return DeviceLimits{
 		.maxStorageBufferRange = limits.maxStorageBufferRange,
 		.maxPerStageSampledImages = limits.maxPerStageDescriptorSampledImages,
@@ -94,7 +106,10 @@ DeviceLimits Device<kVk>::GetLimits() const
 		.drawIndirectCount = info.deviceFeatures12Ex.drawIndirectCount == VK_TRUE,
 		// mesa's kk_cmd_draw.c (main, 44fd0fde, 2026-10-19): a compute kernel per call zeroes the commands past the
 		// count, then all maxDrawCount are drawn. revisit once it builds Metal indirect command buffers on the gpu
-		.drawIndirectCountEmulated = info.deviceProperties12Ex.driverID == VK_DRIVER_ID_MESA_KOSMICKRISP};
+		.drawIndirectCountEmulated = info.deviceProperties12Ex.driverID == VK_DRIVER_ID_MESA_KOSMICKRISP,
+		.rayQuery = WantsRayQueries(GetPhysicalDevice()) && info.deviceFeatures12Ex.bufferDeviceAddress == VK_TRUE && rayQuery != nullptr &&
+					rayQuery->rayQuery == VK_TRUE && accelerationStructure != nullptr && accelerationStructure->accelerationStructure == VK_TRUE,
+		.accelerationStructureScratchAlignment = info.accelerationStructureProperties.minAccelerationStructureScratchOffsetAlignment};
 }
 
 template <>
@@ -368,6 +383,12 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	if (SupportsExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME, GetDesc().physicalDevice))
 		desiredExtensions.emplace_back(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
 
+	// ray queries' (see DeviceLimits::rayQuery), whose features the instance chained (GetPhysicalDeviceInfo2)
+	if (WantsRayQueries(GetDesc().physicalDevice))
+		for (const char* extensionName :
+			 {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME})
+			desiredExtensions.emplace_back(extensionName);
+
 	// crash reports' (breadcrumbs, device faults, address bindings), see crashreport.h: decided by what the device has and
 	// whether the Crash Diagnostic Layer is loaded
 	vk::crash::Detect(instance, GetDesc().physicalDevice);
@@ -393,6 +414,7 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 	VK_CHECK(vkCreateDevice(GetDesc().physicalDevice, &deviceCreateInfo, &instance.GetHostAllocationCallbacks(), &myDevice));
 
 	InitDeviceExtensions(myDevice);
+	std::println("ray queries: {}", GetLimits().rayQuery ? "yes" : "no (the shaders traverse gfx's BVHs)");
 
 	Track(myDevice, VK_OBJECT_TYPE_DEVICE, myDevice, GetName());
 	NameInstanceObjects<kVk>(myDevice, GetDesc().physicalDevice); // the instance, our physical device and surface, tracked before there was a device
@@ -466,6 +488,10 @@ Device<kVk>::Device(CreateDescType&& desc, const Instance<kVk>& instance)
 		VmaAllocatorCreateInfo allocatorInfo{};
 		// the crash reports' breadcrumbs ring takes device coherent memory where there is some (see crashreport.cpp)
 		allocatorInfo.flags = vk::crash::GetCapabilities().deviceCoherentMemory ? VMA_ALLOCATOR_CREATE_AMD_DEVICE_COHERENT_MEMORY_BIT : 0U;
+		// buffers whose addresses are read (BufferUsage::kDeviceAddress: ray queries' acceleration structures and their inputs;
+		// VMA then allocates all its memory with addresses)
+		if (WantsRayQueries(GetPhysicalDevice()) && GetInstance().GetPhysicalDeviceInfo(GetPhysicalDevice()).deviceFeatures12Ex.bufferDeviceAddress == VK_TRUE)
+			allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 		allocatorInfo.vulkanApiVersion = kVulkanApiVersion;
 		allocatorInfo.physicalDevice = GetDesc().physicalDevice;
         allocatorInfo.preferredLargeHeapBlockSize = 0; // 0 = default (256Mb)

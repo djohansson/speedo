@@ -52,6 +52,14 @@ float4 SampleView(TextureView view, float2 uv)
 	return gTextures[view.textureId].SampleBias(gSamplers[view.samplerId], uv, gViewData[gPushConstants.frameIndex][gPushConstants.viewId].textureLodBias);
 }
 
+// a view's texture at a level, where the view needn't be the same across a wave's threads (compute over many materials:
+// the voxelizer, the rays' hits, the emitters): the texture and sampler indexed as non-uniform, which Vulkan requires of
+// such an index (without it, a driver may sample the first thread's texture for all)
+float4 SampleViewLevel(TextureView view, float2 uv, float level)
+{
+	return gTextures[NonUniformResourceIndex(view.textureId)].SampleLevel(gSamplers[NonUniformResourceIndex(view.samplerId)], uv, level);
+}
+
 float4 SampleView(uint viewId, float4 texCoord01)
 {
 	TextureView view = gTextureViews[viewId];

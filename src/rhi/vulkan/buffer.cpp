@@ -163,6 +163,14 @@ void Buffer<kVk>::Invalidate(size_t offset, size_t size)
 }
 
 template <>
+uint64_t Buffer<kVk>::GetDeviceAddress() const
+{
+	ENSURE(Any(GetDesc().usageFlags & BufferUsage::kDeviceAddress));
+	VkBufferDeviceAddressInfo info{.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .buffer = GetBuffer()};
+	return vkGetBufferDeviceAddress(GetDevice(), &info);
+}
+
+template <>
 Buffer<kVk>::~Buffer()
 {
 	if (IsValid())

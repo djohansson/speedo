@@ -96,6 +96,9 @@ static rhi::DescriptorType GetDescriptorType(
 		case SLANG_STRUCTURED_BUFFER:
 			type = rhi::DescriptorType::kStorageBuffer;
 			break;
+		case SLANG_ACCELERATION_STRUCTURE:
+			type = rhi::DescriptorType::kAccelerationStructure;
+			break;
 		default:
 			ASSERT(false); // please implement me!
 			break;

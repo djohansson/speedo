@@ -922,6 +922,18 @@ struct CullView
 // its first index)
 #define BVH2_NODE_FLOAT4_COUNT 4u
 #define BVH2_TRIANGLE_FLOAT4_COUNT 3u
+// where the device's ray queries trace instead (BVH_RAY_QUERY, see gfx/accelerationstructures.h), gBvhTriangles and
+// gBvhMovingTriangles hold what their bottom level structures are built of: a triangle 3 float4 (its corners; w: its
+// flags, its first index, 0), the opaque ones first, then the alpha masked (a geometry of their own, whose first is the
+// instance's custom index). the top level structure's instances: what doesn't move, then what does
+#define BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT 3u
+#define BVH_RAY_QUERY_MASK_STATIC 1u
+#define BVH_RAY_QUERY_MASK_MOVING 2u
+#define BVH_RAY_QUERY_INSTANCE_MOVING 1u
+// whether the shaders' rays query the device's structures (gfx::Scene compiles them with it where DeviceLimits::rayQuery)
+#ifndef BVH_RAY_QUERY
+#define BVH_RAY_QUERY 0
+#endif
 #define BVH_TRIANGLE_FLAG_DOUBLE_SIDED 1u
 // alpha masked: a ray passes where its material's texture alpha is below its cutoff (see GiAlphaMask)
 #define BVH_TRIANGLE_FLAG_ALPHA_MASKED 2u

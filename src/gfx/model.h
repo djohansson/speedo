@@ -24,6 +24,8 @@
 namespace gfx
 {
 
+class AccelerationStructures;
+
 namespace bvh
 {
 class Moving;
@@ -157,16 +159,28 @@ struct ModelBuffers
 	std::vector<Buffer> joints; // ModelDesc::animation.jointCount joint matrices (at least one)
 	Buffer morphDeltas; // MorphDelta, ModelDesc::morphDeltaCount of them, if any
 	std::vector<Buffer> morphWeights; // per frame, host visible: ModelDesc::morphWeights' count of weights, if any
-	// the indirect lighting's ray tracing structure over what doesn't move (see gfx/bvh.h), if there is any
+	// the indirect lighting's ray tracing structure over what doesn't move (see gfx/bvh.h), if there is any (where the
+	// device's ray queries trace instead, the triangles alone, as their structures are built of: see bvh::RayQueryData)
 	Buffer bvhNodes;
 	Buffer bvhTriangles;
-	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles
+	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles (with ray queries, the triangles
+	// alone)
 	std::vector<Buffer> bvhMovingNodes;
 	std::vector<Buffer> bvhMovingTriangles;
 	// its emissive triangles that don't move and the tree over them (see gfx/emitters.h), if any, and how many
 	Buffer emitters;
 	Buffer emitterTree;
 	uint32_t emitterCount = 0;
+};
+
+// how many of a model's triangles the device's ray queries trace (see AccelerationStructures), of what doesn't move
+// (ModelBuffers::bvhTriangles) and what does (ModelBuffers::bvhMovingTriangles), and how many of each are opaque
+struct ModelRayQueryCounts
+{
+	uint32_t staticCount = 0;
+	uint32_t staticOpaqueCount = 0;
+	uint32_t movingCount = 0;
+	uint32_t movingOpaqueCount = 0;
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
@@ -192,7 +206,13 @@ enum class ModelBvh : uint8_t
 class Model final
 {
 public:
-	Model(ModelDesc&& desc, ModelBuffers&& buffers, const Upload& upload, std::unique_ptr<bvh::Moving>&& movingBvh) noexcept;
+	// with rayQueries, makes the structures the device's ray queries trace (see AccelerationStructures) of buffers' triangles
+	Model(
+		ModelDesc&& desc,
+		ModelBuffers&& buffers,
+		const Upload& upload,
+		std::unique_ptr<bvh::Moving>&& movingBvh,
+		const std::optional<ModelRayQueryCounts>& rayQueries = std::nullopt) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
 	~Model();
@@ -211,6 +231,9 @@ public:
 		return myBuffers.instances[myBuffers.instances.size() == 1 ? 0 : frameIndex];
 	}
 	// its morph deltas, and a frame's morph weights (see MorphDelta in gfx/shaders/capi.h), or null if it has none
+	// whether its rays have anything to trace: a BVH, of what doesn't move or what moves (or the triangles the device's ray
+	// queries trace instead, see GetAccelerationStructures)
+	[[nodiscard]] bool HasBvh() const noexcept { return myBuffers.bvhNodes.IsValid() || myBuffers.bvhTriangles.IsValid() || myMovingBvh != nullptr; }
 	// whether it has a BVH of what moves (see bvh::Moving), and a frame's buffers of it (see ModelBuffers)
 	[[nodiscard]] bool HasMovingBvh() const noexcept { return myMovingBvh != nullptr; }
 	[[nodiscard]] const Buffer* GetMovingBvhNodeBuffer(size_t frameIndex) const noexcept
@@ -221,6 +244,8 @@ public:
 	{
 		return frameIndex < myBuffers.bvhMovingTriangles.size() ? &myBuffers.bvhMovingTriangles[frameIndex] : nullptr;
 	}
+	// what the device's ray queries trace of it (see AccelerationStructures), or null where they don't, or it has no BVHs
+	[[nodiscard]] AccelerationStructures* GetAccelerationStructures() const noexcept { return myAccelerationStructures.get(); }
 	// its emissive triangles that don't move (EmitterTriangle, see gfx/emitters.h), or null if none emits, and how many
 	[[nodiscard]] const Buffer* GetEmitterBuffer() const noexcept { return myBuffers.emitters.IsValid() ? &myBuffers.emitters : nullptr; }
 	[[nodiscard]] const Buffer* GetEmitterTreeBuffer() const noexcept { return myBuffers.emitterTree.IsValid() ? &myBuffers.emitterTree : nullptr; }
@@ -292,6 +317,7 @@ private:
 	ModelBuffers myBuffers;
 	Upload myUpload;
 	std::unique_ptr<bvh::Moving> myMovingBvh; // placed by Animate, null if nothing moves (or the rays walk the voxels)
+	std::unique_ptr<AccelerationStructures> myAccelerationStructures; // see GetAccelerationStructures
 	// the joint matrices Animate writes, kept between its calls
 	std::vector<SceneMatrix> myJoints;
 	std::vector<float> myPointerValues;

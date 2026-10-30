@@ -102,7 +102,7 @@ EmitterPoint EmitterPointAt(uint triangle, float2 barycentrics)
 							gVertexBuffer[gIndexBuffer[first + 1]].texCoord01 * weights.x +
 							gVertexBuffer[gIndexBuffer[first + 2]].texCoord01 * weights.y;
 		TextureView view = gTextureViews[material.emissiveView];
-		point.emission *= gTextures[view.textureId].SampleLevel(gSamplers[view.samplerId], ViewTexCoord(view, texCoord01), kEmitterTextureLevel).rgb;
+		point.emission *= SampleViewLevel(view, ViewTexCoord(view, texCoord01), kEmitterTextureLevel).rgb;
 	}
 	return point;
 }
