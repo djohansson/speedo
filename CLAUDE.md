@@ -1756,17 +1756,20 @@ KosmicKrisp and MoltenVK do, having neither): the main layout is compiled with `
 definitions, a shader cache entry of its own), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
 the indirect lighting's, the traced shadows', the emitters' and the near field's) is a ray query (`BvhTraceScene` in
 `bvh.slang`) of `gBvhScene[frame]`: a top level structure per frame index of two instances (`gfx::AccelerationStructures`,
-`gfx/accelerationstructures.h`, the model's), what doesn't move, built once when the model is installed from its triangles
-in world space (`bvh::RayQueryTriangles` of `bvh::Triangles`, the CWBVH's input: 3 float4 a triangle, the corners, w the
-flags and the first index), and what moves, refit each frame from where `Model::Animate` placed it (`bvh::Moving` without
-its tree, `WriteRayQueryTriangles`, into the frame index's host visible buffer; `AccelerationStructures::RecordUpdate` at
+`gfx/accelerationstructures.h`, the model's), what doesn't move, built once when the model is installed of the model's own
+indices and vertices (no copy of its triangles: a geometry per triangle list and instance of those `bvh::Triangles` takes,
+`bvh::RayQueryGeometries`, each placed by its instance's transform, `ModelBuffers::bvhTransforms`), and what moves, refit
+each frame from where `Model::Animate` placed it (`bvh::Moving` without its tree, `WriteRayQueryCorners`, a float4 a corner
+into the frame index's host visible buffer; `AccelerationStructures::RecordUpdate` at
 the start of `Scene::Record`, then the frame index's top level structure built again). The instances' masks tell them apart
-(`BVH_RAY_QUERY_MASK_*`: the static voxels' kept light queries what doesn't move alone). Each bottom level structure is its
-opaque triangles, then its alpha masked ones as a geometry of their own that isn't opaque: their hits are the query's
-candidates, which `GiAlphaMask` accepts or not (`CommitNonOpaqueTriangleHit`), and their first is the instance's custom
-index (24 bits: a hard failure past 16 M opaque triangles). A hit's normal, side, flags and first index are read from its
-triangle's corners in `gBvhTriangles` (or `gBvhMovingTriangles[frame]`), which hold those triangles instead of the BVHs: no
-CWBVH is uploaded nor a set's built, nor the moving tree built or refit on the cpu (BrainStem's 1 ms a frame). A model
+(`BVH_RAY_QUERY_MASK_*`: the static voxels' kept light queries what doesn't move alone). The alpha masked geometries
+aren't opaque: their hits are the query's candidates, which `GiAlphaMask` accepts or not (`CommitNonOpaqueTriangleHit`). A
+hit's flags and first index come from its geometry's entry in `gBvhTriangles` (a uint4 a geometry: the flags, the first
+index, and the instance or, of what moves, the first corner; what moves' first geometry is its instance's custom index), and
+its normal and side from its corners: the model's vertices placed by `gModelInstances`, or the frame's corners of what moves.
+No CWBVH is uploaded nor a set's built, nor the moving tree built or refit on the cpu (BrainStem's 1 ms a frame), and no
+copy of the triangles is kept: they were 3 float4 a triangle at first (Bistro's 2.8 M, 134 MB), a uint4 and a transform a
+geometry now, renders and the traced rays identical (lavapipe). A model
 without any (the file browser's preview) has the scene's default bound, top level structures of no instances. rhi:
 `rhi::AccelerationStructure` (a structure in a buffer of its own; `GetSizes`), `CommandEncoder::BuildAccelerationStructure`
 (builds and updates), `Buffer::GetDeviceAddress`, `BufferUsage::kDeviceAddress`, `kAccelerationStructureStorage` and

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <gfx/accelerationstructures.h>
 #include <gfx/bounds.h>
 #include <gfx/gpu.h>
 #include <gfx/meshimport.h>
@@ -23,8 +24,6 @@
 
 namespace gfx
 {
-
-class AccelerationStructures;
 
 namespace bvh
 {
@@ -160,11 +159,13 @@ struct ModelBuffers
 	Buffer morphDeltas; // MorphDelta, ModelDesc::morphDeltaCount of them, if any
 	std::vector<Buffer> morphWeights; // per frame, host visible: ModelDesc::morphWeights' count of weights, if any
 	// the indirect lighting's ray tracing structure over what doesn't move (see gfx/bvh.h), if there is any (where the
-	// device's ray queries trace instead, the triangles alone, as their structures are built of: see bvh::RayQueryData)
+	// device's ray queries trace instead, see AccelerationStructures: no nodes, the geometries' table in bvhTriangles,
+	// BVH_RAY_QUERY_GEOMETRY_*, and their transforms in bvhTransforms)
 	Buffer bvhNodes;
 	Buffer bvhTriangles;
-	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles (with ray queries, the triangles
-	// alone)
+	Buffer bvhTransforms;
+	// and of what moves (see bvh::Moving), per frame, host visible: its nodes and triangles (with ray queries, its corners
+	// alone, see bvh::Moving::WriteRayQueryCorners)
 	std::vector<Buffer> bvhMovingNodes;
 	std::vector<Buffer> bvhMovingTriangles;
 	// its emissive triangles that don't move and the tree over them (see gfx/emitters.h), if any, and how many
@@ -173,14 +174,13 @@ struct ModelBuffers
 	uint32_t emitterCount = 0;
 };
 
-// how many of a model's triangles the device's ray queries trace (see AccelerationStructures), of what doesn't move
-// (ModelBuffers::bvhTriangles) and what does (ModelBuffers::bvhMovingTriangles), and how many of each are opaque
-struct ModelRayQueryCounts
+// the geometries the device's ray queries trace of a model (see AccelerationStructures), of what doesn't move (the
+// model's indices and vertices, placed by ModelBuffers::bvhTransforms) and of what moves (ModelBuffers::bvhMovingTriangles'
+// corners)
+struct ModelRayQueries
 {
-	uint32_t staticCount = 0;
-	uint32_t staticOpaqueCount = 0;
-	uint32_t movingCount = 0;
-	uint32_t movingOpaqueCount = 0;
+	std::vector<AccelerationStructures::Geometry> staticGeometries;
+	std::vector<AccelerationStructures::Geometry> movingGeometries;
 };
 
 // how several model files loaded as one (Model::Load of several) are placed: side by side in a grid in the xy plane,
@@ -212,7 +212,7 @@ public:
 		ModelBuffers&& buffers,
 		const Upload& upload,
 		std::unique_ptr<bvh::Moving>&& movingBvh,
-		const std::optional<ModelRayQueryCounts>& rayQueries = std::nullopt) noexcept;
+		std::optional<ModelRayQueries>&& rayQueries = std::nullopt) noexcept;
 	Model(const Model&) = delete;
 	Model(Model&&) noexcept = delete;
 	~Model();

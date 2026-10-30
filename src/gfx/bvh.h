@@ -58,15 +58,18 @@ struct Triangle
 // a CWBVH over triangles, built on the executor's threads
 [[nodiscard]] Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor);
 
-// what the device's ray queries trace of triangles instead (DeviceLimits::rayQuery, see gfx/accelerationstructures.h): each
-// triangle's corners, BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT float4 a triangle (w: its flags, its first index, 0), the opaque
-// ones first, then the alpha masked (a geometry of their own, see BVH_TRIANGLE_FLAG_ALPHA_MASKED), and how many are opaque
-struct RayQueryData
+// what the device's ray queries trace of what doesn't move instead (DeviceLimits::rayQuery, see
+// gfx/accelerationstructures.h): no copy of its triangles, but the model's own indices and vertices, a geometry per
+// triangle list and instance of those Triangles takes, placed by the instance's transform (alpha masked ones aren't
+// opaque: the shaders test them); and per geometry what the shaders read of a hit (BVH_RAY_QUERY_GEOMETRY_*)
+struct RayQueryGeometry
 {
-	std::vector<glm::vec4> triangles;
-	uint32_t opaqueCount = 0;
+	uint32_t flags = 0; // BVH_TRIANGLE_FLAG_* and the material
+	uint32_t firstIndex = 0;
+	uint32_t triangleCount = 0;
+	uint32_t instance = 0; // what doesn't move: its instance; what moves: its first corner in a frame's corners
 };
-[[nodiscard]] RayQueryData RayQueryTriangles(std::span<const Triangle> triangles);
+[[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc);
 
 // the same in the moving BVH's layout (tinybvh's BVH_GPU, see Moving; BVH2_NODE_FLOAT4_COUNT and
 // BVH2_TRIANGLE_FLOAT4_COUNT), for assettest's check of its traversal (BvhTraverse2)
@@ -102,17 +105,17 @@ public:
 	// places the triangles where a frame's joint matrices (mesh to world), morph weights and instances put them (on the
 	// executor's threads), and fits the BVH to them: the first time builds its tree (the counts above are known from
 	// then on), later times refit it (without a tree, tree false at construction: what the device's ray queries
-	// trace, WriteRayQueryTriangles, needs none)
+	// trace, WriteRayQueryCorners, needs none)
 	void Place(std::span<const SceneMatrix> joints, std::span<const float> morphWeights, std::span<const ModelInstance> instances);
 
 	// writes the BVH as placed last to a frame's buffers' memory (NodeFloat4Count and TriangleFloat4Count float4s)
 	void Write(std::span<std::byte> nodes, std::span<std::byte> triangles) const;
 
-	// the triangles, the opaque ones first (whose count this is), as placed last, for the device's ray queries
-	// (TriangleCount * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT float4s, see RayQueryData)
-	[[nodiscard]] uint32_t TriangleCount() const noexcept;
-	[[nodiscard]] uint32_t OpaqueTriangleCount() const noexcept;
-	void WriteRayQueryTriangles(std::span<std::byte> triangles) const;
+	// what the device's ray queries trace of it instead: its parts as geometries (see RayQueryGeometry; their instance is
+	// their first corner), and their corners as placed last, a float4 each (w 0), three a triangle
+	[[nodiscard]] std::vector<RayQueryGeometry> RayQueryGeometries() const;
+	[[nodiscard]] uint32_t CornerCount() const noexcept;
+	void WriteRayQueryCorners(std::span<std::byte> corners) const;
 
 private:
 	struct Impl;

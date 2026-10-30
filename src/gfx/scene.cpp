@@ -1988,7 +1988,7 @@ struct Scene::Impl
 
 			if (device.GetLimits().rayQuery)
 			{
-				myDefaultAccelerationStructures = std::make_unique<AccelerationStructures>(device, "Default", AccelerationStructures::Triangles{});
+				myDefaultAccelerationStructures = std::make_unique<AccelerationStructures>(device, "Default", AccelerationStructures::Inputs{});
 				ENSURE(myDefaultAccelerationStructures->RecordBuild(cmd) == nullptr); // nothing static: no scratch
 			}
 
