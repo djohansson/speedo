@@ -55,50 +55,75 @@ static void BuildBarrier(const CommandEncoder& encoder)
 
 } // namespace accelerationstructures
 
-std::vector<AccelerationStructureGeometry> AccelerationStructures::Geometries(const Buffer& triangles, uint32_t count, uint32_t opaqueCount)
+std::vector<AccelerationStructureGeometry> AccelerationStructures::StaticGeometries() const
 {
-	constexpr uint32_t kStride = 4 * sizeof(float); // a corner a float4
-	static_assert(BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT == 3);
+	constexpr uint64_t kTransformSize = 12 * sizeof(float);
 	std::vector<AccelerationStructureGeometry> geometries;
-	uint64_t address = triangles.GetDeviceAddress();
-	if (opaqueCount > 0)
+	uint64_t vertices = myInputs.vertices->GetDeviceAddress();
+	uint64_t indices = myInputs.indices->GetDeviceAddress();
+	uint64_t transforms = myInputs.transforms->GetDeviceAddress();
+	for (size_t geometryIt = 0; geometryIt < myInputs.staticGeometries.size(); geometryIt++)
+	{
+		const auto& geometry = myInputs.staticGeometries[geometryIt];
 		geometries.emplace_back(AccelerationStructureTriangles{
-			.vertexAddress = address, .vertexStride = kStride, .triangleCount = opaqueCount, .opaque = true});
-	if (count > opaqueCount)
-		geometries.emplace_back(AccelerationStructureTriangles{
-			.vertexAddress = address + (static_cast<uint64_t>(opaqueCount) * 3 * kStride),
-			.vertexStride = kStride,
-			.triangleCount = count - opaqueCount,
-			.opaque = false});
+			.vertexAddress = vertices,
+			.vertexStride = myInputs.vertexStride,
+			.vertexCount = myInputs.vertexCount,
+			.indexAddress = indices + (static_cast<uint64_t>(geometry.first) * sizeof(uint32_t)),
+			.transformAddress = transforms + (geometryIt * kTransformSize),
+			.triangleCount = geometry.triangleCount,
+			.opaque = geometry.opaque});
+	}
 	return geometries;
 }
 
-AccelerationStructures::AccelerationStructures(Device& device, std::string_view name, const Triangles& triangles)
+std::vector<AccelerationStructureGeometry> AccelerationStructures::MovingGeometries(uint32_t frameIndex) const
+{
+	constexpr uint32_t kCornerSize = 4 * sizeof(float);
+	std::vector<AccelerationStructureGeometry> geometries;
+	uint64_t corners = myInputs.movingCorners[frameIndex].GetDeviceAddress();
+	for (const auto& geometry : myInputs.movingGeometries)
+		geometries.emplace_back(AccelerationStructureTriangles{
+			.vertexAddress = corners + (static_cast<uint64_t>(geometry.first) * kCornerSize),
+			.vertexStride = kCornerSize,
+			.vertexCount = geometry.triangleCount * 3,
+			.triangleCount = geometry.triangleCount,
+			.opaque = geometry.opaque});
+	return geometries;
+}
+
+AccelerationStructures::AccelerationStructures(Device& device, std::string_view name, Inputs&& inputs)
 	: myDevice(device)
-	, myTriangles(triangles)
+	, myInputs(std::move(inputs))
 {
 	ZoneScopedN("gfx::AccelerationStructures");
 
 	using namespace accelerationstructures;
 
-	// an instance's custom index (where its alpha masked triangles start) has 24 bits
+	// an instance's custom index (what moves' first geometry among all) has 24 bits
 	constexpr uint32_t kCustomIndexCount = 1U << 24U;
-	ENSUREF(
-		triangles.staticOpaqueCount < kCustomIndexCount && triangles.movingOpaqueCount < kCustomIndexCount,
-		"{}: more opaque triangles than a ray query instance's custom index holds ({})", name, kCustomIndexCount);
-
-	if (triangles.staticTriangles != nullptr && triangles.staticCount > 0)
+	auto staticGeometryCount = static_cast<uint32_t>(myInputs.staticGeometries.size());
+	ENSUREF(staticGeometryCount < kCustomIndexCount, "{}: more geometries than a ray query instance's custom index holds ({})", name, kCustomIndexCount);
+	auto triangleCount = [](const std::vector<Geometry>& geometries)
 	{
-		auto geometries = Geometries(*triangles.staticTriangles, triangles.staticCount, triangles.staticOpaqueCount);
+		uint64_t count = 0;
+		for (const auto& geometry : geometries)
+			count += geometry.triangleCount;
+		return count;
+	};
+
+	if (!myInputs.staticGeometries.empty())
+	{
+		auto geometries = StaticGeometries();
 		myStaticSizes = AccelerationStructure::GetSizes(device, AccelerationStructureType::kBottomLevel, geometries, kStaticFlags);
 		myStatic.emplace(AccelerationStructureCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("{} (static structure)", name)), AccelerationStructureType::kBottomLevel,
 			myStaticSizes.structureSize});
 	}
-	bool moves = !triangles.movingTriangles.empty() && triangles.movingCount > 0;
+	bool moves = !myInputs.movingCorners.empty() && !myInputs.movingGeometries.empty();
 	if (moves)
 	{
-		auto geometries = Geometries(triangles.movingTriangles.front(), triangles.movingCount, triangles.movingOpaqueCount);
+		auto geometries = MovingGeometries(0);
 		myMovingSizes = AccelerationStructure::GetSizes(
 			device, AccelerationStructureType::kBottomLevel, geometries,
 			AccelerationStructureBuildFlags::kPreferFastBuild | AccelerationStructureBuildFlags::kAllowUpdate);
@@ -107,11 +132,11 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 	myTopLevelSizes = AccelerationStructure::GetSizes(device, AccelerationStructureType::kTopLevel, instanceGeometry, AccelerationStructureBuildFlags::kPreferFastTrace);
 	myTopLevelScratchOffset = AlignUp(std::max(myMovingSizes.buildScratchSize, myMovingSizes.updateScratchSize), device.GetLimits().accelerationStructureScratchAlignment);
 
-	if (triangles.staticCount + triangles.movingCount > 0)
+	if (staticGeometryCount + myInputs.movingGeometries.size() > 0)
 		std::println(
-			"{}: ray query structures of {} triangles that don't move ({} alpha masked, {:.1f} MB) and {} that do ({} alpha masked, {:.1f} MB a frame)",
-			name, triangles.staticCount, triangles.staticCount - triangles.staticOpaqueCount, static_cast<double>(myStaticSizes.structureSize) / (1 << 20),
-			triangles.movingCount, triangles.movingCount - triangles.movingOpaqueCount, static_cast<double>(myMovingSizes.structureSize) / (1 << 20));
+			"{}: ray query structures of {} triangles that don't move ({} geometries, {:.1f} MB) and {} that do ({} geometries, {:.1f} MB a frame)",
+			name, triangleCount(myInputs.staticGeometries), staticGeometryCount, static_cast<double>(myStaticSizes.structureSize) / (1 << 20),
+			triangleCount(myInputs.movingGeometries), myInputs.movingGeometries.size(), static_cast<double>(myMovingSizes.structureSize) / (1 << 20));
 
 	for (uint32_t frameIt = 0; frameIt < SHADER_TYPES_FRAME_COUNT; frameIt++)
 	{
@@ -127,10 +152,10 @@ AccelerationStructures::AccelerationStructures(Device& device, std::string_view 
 
 		// what doesn't move, and what moves as the frame index's structure has it (the shaders tell them apart by their index)
 		std::array<AccelerationStructureInstance, 2> instances{};
-		instances[0].customIndexAndMask = triangles.staticOpaqueCount | (BVH_RAY_QUERY_MASK_STATIC << 24U);
+		instances[0].customIndexAndMask = BVH_RAY_QUERY_MASK_STATIC << 24U;
 		instances[0].structureAddress = myStatic ? myStatic->GetDeviceAddress() : 0;
 		static_assert(BVH_RAY_QUERY_INSTANCE_MOVING == 1);
-		instances[1].customIndexAndMask = triangles.movingOpaqueCount | (BVH_RAY_QUERY_MASK_MOVING << 24U);
+		instances[1].customIndexAndMask = staticGeometryCount | (BVH_RAY_QUERY_MASK_MOVING << 24U);
 		instances[1].structureAddress = moves ? myMoving.back().GetDeviceAddress() : 0;
 		auto& instanceBuffer = myInstances.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("{} (instances {})", name, frameIt)),
@@ -162,14 +187,14 @@ std::shared_ptr<Buffer> AccelerationStructures::RecordBuild(CommandBufferHandle 
 		myCompactedSizeQuery->Reset(cmd, 0, 1);
 		encoder.BuildAccelerationStructure(
 			*myStatic,
-			Geometries(*myTriangles.staticTriangles, myTriangles.staticCount, myTriangles.staticOpaqueCount),
+			StaticGeometries(),
 			kStaticFlags,
 			ScratchAddress(myDevice, *scratch));
 	}
 	for (uint32_t frameIt = 0; frameIt < myMoving.size(); frameIt++)
 		encoder.BuildAccelerationStructure(
 			myMoving[frameIt],
-			Geometries(myTriangles.movingTriangles[frameIt], myTriangles.movingCount, myTriangles.movingOpaqueCount),
+			MovingGeometries(frameIt),
 			AccelerationStructureBuildFlags::kPreferFastBuild | AccelerationStructureBuildFlags::kAllowUpdate,
 			ScratchAddress(myDevice, myScratch[frameIt]));
 	BuildBarrier(encoder);
@@ -193,7 +218,7 @@ void AccelerationStructures::RecordUpdate(CommandBufferHandle cmd, uint32_t fram
 	CommandEncoder encoder(cmd);
 	encoder.BuildAccelerationStructure(
 		myMoving[frameIndex],
-		Geometries(myTriangles.movingTriangles[frameIndex], myTriangles.movingCount, myTriangles.movingOpaqueCount),
+		MovingGeometries(frameIndex),
 		AccelerationStructureBuildFlags::kPreferFastBuild | AccelerationStructureBuildFlags::kAllowUpdate,
 		ScratchAddress(myDevice, myScratch[frameIndex]),
 		true);

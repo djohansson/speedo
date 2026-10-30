@@ -27,13 +27,18 @@ enum class AccelerationStructureType : uint8_t
 	kTopLevel,
 };
 
-// a bottom level structure's triangles: their corners in a buffer (BufferUsage::kAccelerationStructureInput and
-// kDeviceAddress) from address, three floats each, vertexStride bytes apart, three a triangle (no indices). an opaque
-// geometry's triangles are hit wherever a ray meets them; another's are candidates, which the query's shader accepts or not
+// a bottom level structure's triangles, in buffers with BufferUsage::kAccelerationStructureInput and kDeviceAddress: their
+// vertices from vertexAddress, a position of three floats at the start of each, vertexStride bytes apart, vertexCount of
+// them; their indices (uint32) from indexAddress, three a triangle (0: none, the vertices three a triangle); and a
+// transform placing them (3x4 floats, row major, at transformAddress; 0: none). an opaque geometry's triangles are hit
+// wherever a ray meets them; another's are candidates, which the query's shader accepts or not
 struct AccelerationStructureTriangles
 {
 	uint64_t vertexAddress = 0;
 	uint32_t vertexStride = 0;
+	uint32_t vertexCount = 0;
+	uint64_t indexAddress = 0;
+	uint64_t transformAddress = 0;
 	uint32_t triangleCount = 0;
 	bool opaque = true;
 };

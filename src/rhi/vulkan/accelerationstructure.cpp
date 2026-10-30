@@ -43,8 +43,10 @@ static Geometries ToVk(std::span<const AccelerationStructureGeometry> geometries
 				.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT,
 				.vertexData = {.deviceAddress = triangles->vertexAddress},
 				.vertexStride = triangles->vertexStride,
-				.maxVertex = triangles->triangleCount > 0 ? (triangles->triangleCount * 3) - 1 : 0,
-				.indexType = VK_INDEX_TYPE_NONE_KHR};
+				.maxVertex = triangles->vertexCount > 0 ? triangles->vertexCount - 1 : 0,
+				.indexType = triangles->indexAddress != 0 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_NONE_KHR,
+				.indexData = {.deviceAddress = triangles->indexAddress},
+				.transformData = {.deviceAddress = triangles->transformAddress}};
 			vkGeometry.flags = triangles->opaque ? VK_GEOMETRY_OPAQUE_BIT_KHR : 0;
 			result.counts.push_back(triangles->triangleCount);
 		}

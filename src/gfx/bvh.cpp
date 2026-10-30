@@ -261,8 +261,7 @@ struct Moving::Impl
 	std::vector<tinybvh::bvhvec4> corners;
 	std::unique_ptr<tinybvh::BVH> tree;
 	std::unique_ptr<tinybvh::BVH_GPU> layout;
-	bool buildsTree = true; // false: placed for the device's ray queries alone (see WriteRayQueryTriangles)
-	uint32_t opaqueTriangleCount = 0; // the parts' triangles are the opaque ones first
+	bool buildsTree = true; // false: placed for the device's ray queries alone (see WriteRayQueryCorners)
 };
 
 Moving::Moving(
@@ -279,34 +278,26 @@ Moving::Moving(
 	impl.context.reset(new detail::Executor{.executor = executor}); // NOLINT(cppcoreguidelines-owning-memory): an aggregate with a mutex
 	size_t cornerCount = 0;
 	impl.buildsTree = tree;
-	// the opaque parts first, then the alpha masked (the ray queries' geometries, see RayQueryData)
-	for (bool masked : {false, true})
+	for (const auto& submesh : desc.submeshes)
 	{
-		for (const auto& submesh : desc.submeshes)
+		if (!submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
+			continue;
+		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
+		if (material != nullptr && (material->blend || material->transmission > 0.0F))
+			continue;
+		uint32_t flags = detail::TriangleFlags(submesh, material);
+		uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
+		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
 		{
-			if (!submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
-				continue;
-			const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
-			if (material != nullptr && (material->blend || material->transmission > 0.0F))
-				continue;
-			uint32_t flags = detail::TriangleFlags(submesh, material);
-			if (((flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) != 0U) != masked)
-				continue;
-			uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
-			for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
-			{
-				impl.parts.push_back(Impl::Part{
-					.submesh = submesh,
-					.instance = submesh.firstInstance + instanceIt,
-					.jointBase = jointBase,
-					.flags = flags,
-					.firstCorner = cornerCount});
-				cornerCount += submesh.indexCount / 3 * 3;
-				impl.partOfTriangle.resize(cornerCount / 3, static_cast<uint32_t>(impl.parts.size() - 1));
-			}
+			impl.parts.push_back(Impl::Part{
+				.submesh = submesh,
+				.instance = submesh.firstInstance + instanceIt,
+				.jointBase = jointBase,
+				.flags = flags,
+				.firstCorner = cornerCount});
+			cornerCount += submesh.indexCount / 3 * 3;
+			impl.partOfTriangle.resize(cornerCount / 3, static_cast<uint32_t>(impl.parts.size() - 1));
 		}
-		if (!masked)
-			impl.opaqueTriangleCount = static_cast<uint32_t>(cornerCount / 3);
 	}
 	if (impl.parts.empty())
 		return;
@@ -421,39 +412,31 @@ void Moving::Write(std::span<std::byte> nodes, std::span<std::byte> triangles) c
 	}
 }
 
-uint32_t Moving::TriangleCount() const noexcept
+std::vector<RayQueryGeometry> Moving::RayQueryGeometries() const
 {
-	return static_cast<uint32_t>(myImpl->corners.size() / 3);
+	std::vector<RayQueryGeometry> geometries;
+	for (const auto& part : myImpl->parts)
+		geometries.push_back(RayQueryGeometry{
+			.flags = part.flags,
+			.firstIndex = part.submesh.firstIndex,
+			.triangleCount = part.submesh.indexCount / 3,
+			.instance = static_cast<uint32_t>(part.firstCorner)});
+	return geometries;
 }
 
-uint32_t Moving::OpaqueTriangleCount() const noexcept
+uint32_t Moving::CornerCount() const noexcept
 {
-	return myImpl->opaqueTriangleCount;
+	return static_cast<uint32_t>(myImpl->corners.size());
 }
 
-void Moving::WriteRayQueryTriangles(std::span<std::byte> triangles) const
+void Moving::WriteRayQueryCorners(std::span<std::byte> corners) const
 {
-	ZoneScopedN("gfx::bvh::Moving::WriteRayQueryTriangles");
+	ZoneScopedN("gfx::bvh::Moving::WriteRayQueryCorners");
 
 	const auto& impl = *myImpl;
-	ENSURE(triangles.size() >= static_cast<size_t>(TriangleCount()) * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT * sizeof(glm::vec4));
-	auto* data = reinterpret_cast<glm::vec4*>(triangles.data());
-	impl.context->executor.ForEach(
-		impl.parts.size(),
-		[&](size_t partIt)
-		{
-			const auto& part = impl.parts[partIt];
-			for (size_t cornerIt = 0; cornerIt < part.submesh.indexCount / 3 * 3; cornerIt++)
-			{
-				const auto& corner = impl.corners[part.firstCorner + cornerIt];
-				uint32_t w = 0;
-				if (cornerIt % 3 == 0)
-					w = part.flags;
-				else if (cornerIt % 3 == 1)
-					w = static_cast<uint32_t>(part.submesh.firstIndex + cornerIt - 1);
-				data[part.firstCorner + cornerIt] = glm::vec4(corner.x, corner.y, corner.z, std::bit_cast<float>(w));
-			}
-		});
+	ENSURE(corners.size() >= impl.corners.size() * sizeof(glm::vec4));
+	static_assert(sizeof(tinybvh::bvhvec4) == sizeof(glm::vec4));
+	std::memcpy(corners.data(), impl.corners.data(), impl.corners.size() * sizeof(glm::vec4));
 }
 
 Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& executor)
@@ -490,24 +473,22 @@ Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& execut
 	return data;
 }
 
-RayQueryData RayQueryTriangles(std::span<const Triangle> triangles)
+std::vector<RayQueryGeometry> RayQueryGeometries(const ModelDesc& desc)
 {
-	RayQueryData data;
-	data.triangles.reserve(triangles.size() * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT);
-	auto add = [&data](const Triangle& triangle)
+	std::vector<RayQueryGeometry> geometries;
+	for (const auto& submesh : desc.submeshes)
 	{
-		data.triangles.emplace_back(triangle.corners[0], std::bit_cast<float>(triangle.flags));
-		data.triangles.emplace_back(triangle.corners[1], std::bit_cast<float>(triangle.firstIndex));
-		data.triangles.emplace_back(triangle.corners[2], 0.0F);
-	};
-	for (const auto& triangle : triangles)
-		if ((triangle.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0U)
-			add(triangle);
-	data.opaqueCount = static_cast<uint32_t>(data.triangles.size() / BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT);
-	for (const auto& triangle : triangles)
-		if ((triangle.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) != 0U)
-			add(triangle);
-	return data;
+		if (submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
+			continue;
+		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
+		if (material != nullptr && (material->blend || material->transmission > 0.0F))
+			continue;
+		uint32_t flags = detail::TriangleFlags(submesh, material);
+		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
+			geometries.push_back(RayQueryGeometry{
+				.flags = flags, .firstIndex = submesh.firstIndex, .triangleCount = submesh.indexCount / 3, .instance = submesh.firstInstance + instanceIt});
+	}
+	return geometries;
 }
 
 std::string Version()
