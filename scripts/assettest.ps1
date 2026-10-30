@@ -17,7 +17,8 @@ preset: asan and ubsan; a tsan preset: tsan). -ClientOnly skips the assettest
 run (which is slow with a debug preset). The client needs a vulkan driver: set VK_DRIVER_FILES etc. as for running it
 by hand. On macOS the display is woken and kept awake while the client runs (glfw finds no monitors while it sleeps).
 
-Client runs go -Jobs at once (default 4), each worker with a user profile dir of its own under <work> (user-1 to
+Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, MESA_KK_EXPERIMENTAL=ray_query, which made
+the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
 user-N), and a model to the same worker (by a hash of its name), whose caches stay warm, each worker's longest first (by
 what they took last time, <work>/logs/<preset>/durations.tsv); a worker with none of its own left takes the shortest
 of the busiest worker's (the most time left), so that the end of a run isn't one worker's alone. On macOS a new worker's
@@ -70,6 +71,13 @@ if ($Presentation)
 }
 $check = -not $ClientOnly
 $Jobs = [Math]::Max(1, $Jobs)
+# KosmicKrisp's ray queries (MESA_KK_EXPERIMENTAL=ray_query): several clients tracing at once made the gpu restart
+# ("CDM Kill timeout"), clients stuck exiting and the machine panic, where one at a time never did
+if ($env:MESA_KK_EXPERIMENTAL -match 'ray_query' -and $Jobs -gt 1)
+{
+	[Console]::Error.WriteLine("MESA_KK_EXPERIMENTAL has ray_query: running the clients one at a time (-Jobs $Jobs asked for)")
+	$Jobs = 1
+}
 
 if ((-not $Inputs -or $Inputs.Count -eq 0) -and -not $Presentation)
 {
