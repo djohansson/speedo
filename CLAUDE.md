@@ -2993,3 +2993,27 @@ every clang module: the fork links such an archive by its path, as it does clang
 version) is static, as LLVM is (a shared one with LLVM linked in would register LLVM's options twice), and built against
 the SPIRV-Headers commit it pins (`spirv-headers-tag.conf`), put ahead of LLVM's include directory, the install tree's,
 which holds vcpkg's older spirv-headers (`0001-*`).
+
+**Updating the mesa fork from upstream.** The fork's `main` is upstream's alone, and `kk-ray-query` is our commits on
+top of it. The checkout is `~/Repos/mesa`, with the remotes `origin` (gitlab.freedesktop.org/mesa/mesa, fetched
+anonymously: no token needed) and `github` (github.com/djohansson/mesa, which `kk-ray-query` tracks). GitHub can't follow
+a GitLab project, so it is updated by hand:
+
+1. `git fetch origin main`, then `git push github origin/main:main`.
+2. `git switch kk-ray-query`, `git rebase origin/main` (resolve, then build and test it as below), then
+   `git push --force-with-lease github kk-ray-query`.
+3. In `ports/mesa`: `REF` the branch's new head (`git rev-parse kk-ray-query`); `SHA512` its archive's
+   (`curl -sL https://github.com/djohansson/mesa/archive/<REF>.tar.gz | shasum -a 512`, or the hash vcpkg's mismatch
+   error prints); and `version` in `vcpkg.json` mesa's `VERSION` file's, without its `-devel`.
+4. `cmake --preset <preset>` builds the port again (the host triplet's tree); run the quick tier on it (the scripts take
+   its driver by default), and the ray query checks of "Hardware ray queries" one client at a time.
+5. Commit the port and push.
+
+Iterate on the driver itself in the checkout's own build, against Homebrew's LLVM and libraries (`brew install llvm
+spirv-llvm-translator spirv-tools meson ninja`, and `.venv`, a Python venv with mako, pyyaml and packaging): once,
+`meson setup build -Dbuildtype=debugoptimized -Dvulkan-drivers=kosmickrisp -Dgallium-drivers= -Dplatforms=macos
+-Dopengl=false -Dgles1=disabled -Dgles2=disabled -Degl=disabled -Dglx=disabled -Dllvm=enabled -Dtools= -Dvulkan-layers=
+--prefix=$PWD/install`; then `ninja -C build install` (seconds when incremental), with
+`PATH=$PWD/.venv/bin:/opt/homebrew/opt/llvm/bin:$PATH` and `SDKROOT=$(xcrun --show-sdk-path)`, and run the client on it
+with `VK_DRIVER_FILES=~/Repos/mesa/install/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`. Commit there, push the
+branch, then do steps 3 to 5.
