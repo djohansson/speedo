@@ -189,6 +189,7 @@ target_link_libraries(
 ###############################################################################
 
 set(GFX_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/gfx/accelerationstructures.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/bvh.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/camera.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/clusters.cpp
@@ -283,6 +284,7 @@ target_link_libraries(
 ###############################################################################
 
 set(RHI_SOURCE_FILES
+	${SPEEDO_SOURCE_DIR}/rhi/vulkan/accelerationstructure.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/buffer.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/command.cpp
 	${SPEEDO_SOURCE_DIR}/rhi/vulkan/commandencoder.cpp

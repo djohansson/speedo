@@ -92,6 +92,8 @@ public:
 	void Unmap();
 	void Flush(size_t offset, size_t size);
 	void Invalidate(size_t offset, size_t size);
+	// the address shaders and acceleration structure builds read it at (BufferUsage::kDeviceAddress)
+	[[nodiscard]] uint64_t GetDeviceAddress() const;
 
 private:
 	ValueType myBuffer{};

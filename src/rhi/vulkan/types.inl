@@ -198,6 +198,17 @@ using PhysicalDeviceCoherentMemoryFeatures =
 	std::conditional_t<G == kVk, VkPhysicalDeviceCoherentMemoryFeaturesAMD, std::nullptr_t>;
 
 template <GraphicsApi G>
+using PhysicalDeviceAccelerationStructureFeatures =
+	std::conditional_t<G == kVk, VkPhysicalDeviceAccelerationStructureFeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceRayQueryFeatures = std::conditional_t<G == kVk, VkPhysicalDeviceRayQueryFeaturesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
+using PhysicalDeviceAccelerationStructureProperties =
+	std::conditional_t<G == kVk, VkPhysicalDeviceAccelerationStructurePropertiesKHR, std::nullptr_t>;
+
+template <GraphicsApi G>
 using QueueHandle = std::conditional_t<G == kVk, VkQueue, std::nullptr_t>;
 
 template <GraphicsApi G>

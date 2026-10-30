@@ -82,6 +82,9 @@ emitters each run now. Measured by step 1's costs, and by A/B captures against t
 
 ### 4. Cheaper rays: hardware ray queries behind the software BVH
 
+Status (2026-10-30): the ray queries are in, where the device has them (CLAUDE.md, "Hardware ray queries"), checked against
+the BVHs on lavapipe; they wait for a measurement on a desktop gpu. KosmicKrisp has none, so the M4 keeps the BVHs.
+
 Rays are now in nearly every system: the traced shadows, the emitters' shadow rays, the near field, the probes' rays,
 the probes' visibility, the voxels' shadow rays and the surface cache. `VK_KHR_ray_query` in the compute kernels where
 the device has it (NVIDIA, AMD and Intel desktop gpus; the M4 Pro has hardware ray tracing in Metal, whether KosmicKrisp

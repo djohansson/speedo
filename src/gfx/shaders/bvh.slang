@@ -353,3 +353,63 @@ BvhHit BvhTraverse2<Filter : IBvhFilter>(
 	}
 	return BvhFinish2(hit, triangles, hitTriangle, direction);
 }
+
+#if BVH_RAY_QUERY
+// a ray query's triangle (see gfx/accelerationstructures.h): its first float4, in what doesn't move (gBvhTriangles) or what
+// moves (gBvhMovingTriangles[frame]) by its instance, from its geometry's first (the opaque ones from 0, the alpha masked
+// from the instance's custom index) and its index in its geometry
+uint BvhRayQueryTriangle(uint customIndex, uint geometry, uint primitive)
+{
+	return ((geometry == 0u ? 0u : customIndex) + primitive) * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT;
+}
+
+float4 BvhRayQueryRead(uint instance, uint at)
+{
+	if (instance == BVH_RAY_QUERY_INSTANCE_MOVING)
+		return gBvhMovingTriangles[gPushConstants.frameIndex][at];
+	return gBvhTriangles[at];
+}
+
+// the nearest triangle a ray from origin along direction meets before tmax (or with anyHit any), of those filter accepts,
+// as the device's ray queries find it in gBvhScene[frame] (where they trace instead of BvhTraverse and BvhTraverse2): what
+// doesn't move, and with moving what moves too. what it says is as theirs (never capped)
+BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, bool moving, Filter filter)
+{
+	RayDesc ray;
+	ray.Origin = origin;
+	ray.TMin = 0.0;
+	ray.Direction = direction;
+	ray.TMax = tmax;
+	RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+	query.TraceRayInline(
+		gBvhScene[gPushConstants.frameIndex],
+		anyHit ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE,
+		moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC,
+		ray);
+	// the candidates are the alpha masked triangles (their geometry isn't opaque): hit where the filter accepts them
+	while (query.Proceed())
+	{
+		uint instance = query.CandidateInstanceIndex();
+		uint at = BvhRayQueryTriangle(query.CandidateInstanceID(), query.CandidateGeometryIndex(), query.CandidatePrimitiveIndex());
+		if (filter.Accept(asuint(BvhRayQueryRead(instance, at).w), asuint(BvhRayQueryRead(instance, at + 1u).w), query.CandidateTriangleBarycentrics()))
+			query.CommitNonOpaqueTriangleHit();
+	}
+	if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+		return BvhNothing(tmax);
+	uint instance = query.CommittedInstanceIndex();
+	uint at = BvhRayQueryTriangle(query.CommittedInstanceID(), query.CommittedGeometryIndex(), query.CommittedPrimitiveIndex());
+	float4 corner0 = BvhRayQueryRead(instance, at);
+	float4 corner1 = BvhRayQueryRead(instance, at + 1u);
+	float4 corner2 = BvhRayQueryRead(instance, at + 2u);
+	BvhHit hit = BvhNothing(tmax);
+	hit.t = query.CommittedRayT();
+	hit.barycentrics = query.CommittedTriangleBarycentrics();
+	hit.primitive = at / BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT;
+	hit.flags = asuint(corner0.w);
+	hit.firstIndex = asuint(corner1.w);
+	float3 normal = normalize(cross(corner1.xyz - corner0.xyz, corner2.xyz - corner0.xyz));
+	hit.frontFace = dot(normal, direction) < 0.0;
+	hit.normal = hit.frontFace ? normal : -normal;
+	return hit;
+}
+#endif

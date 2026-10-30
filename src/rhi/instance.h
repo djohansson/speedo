@@ -42,7 +42,9 @@ using PhysicalDeviceFeatureParams = std::variant<
 	PhysicalDeviceSwapchainMaintenance1Features<G>,
 	PhysicalDeviceFaultFeatures<G>,
 	PhysicalDeviceAddressBindingReportFeatures<G>,
-	PhysicalDeviceCoherentMemoryFeatures<G>>;
+	PhysicalDeviceCoherentMemoryFeatures<G>,
+	PhysicalDeviceAccelerationStructureFeatures<G>,
+	PhysicalDeviceRayQueryFeatures<G>>;
 
 template <GraphicsApi G>
 using PhysicalDeviceFeatureParamsSet = core::UnorderedSet<
@@ -66,6 +68,7 @@ struct PhysicalDeviceInfo
 	PhysicalDeviceProperties12Ex<G> deviceProperties12Ex{};
 	PhysicalDeviceProperties13Ex<G> deviceProperties13Ex{};
 	PhysicalDeviceProperties14Ex<G> deviceProperties14Ex{};
+	PhysicalDeviceAccelerationStructureProperties<G> accelerationStructureProperties{}; // chained where the device has ray queries
 	std::vector<QueueFamilyProperties<G>> queueFamilyProperties;
 };
 

@@ -29,7 +29,7 @@ QueryPool<kVk>::QueryPool(CreateDescType&& desc)
 		[this, &desc]
 		{
 			VkQueryPoolCreateInfo createInfo{.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
-			createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			createInfo.queryType = desc.type == QueryType::kTimestamp ? VK_QUERY_TYPE_TIMESTAMP : VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR;
 			createInfo.queryCount = desc.count;
 			QueryPoolHandle<kVk> pool;
 			VK_CHECK(vkCreateQueryPool(desc.device, &createInfo, &GetInstance().GetHostAllocationCallbacks(), &pool));

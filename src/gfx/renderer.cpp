@@ -326,6 +326,15 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
 		myDrawStreams.emplace_back(device);
+		// the statistics are read before a frame writes them, the first time each slot comes round: emptied (lavapipe's
+		// memory held its allocator's bytes, which read as 538976288 capped rays)
+		for (auto* buffer : {&myCullStatisticsBuffers.back(), &myGiStatisticsBuffers.back()})
+		{
+			auto memory = buffer->Map();
+			std::memset(memory.data(), 0, memory.size());
+			buffer->Flush(0, memory.size());
+			buffer->Unmap();
+		}
 	}
 	myDrawRecords = {.name = "Draw Records", .binding = "gDrawRecords", .elementSize = sizeof(DrawRecord)};
 	InternalCreate(myDrawRecords, device, SHADER_TYPES_DRAW_RECORD_COUNT);
@@ -2625,7 +2634,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	{
 		ShadowTraceData trace{};
 		std::ranges::fill(trace.lights, SHADER_TYPES_NO_SHADOW);
-		bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+		bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
 		if (frame.tracedShadows && frame.shadows && hasBvh)
 		{
 			std::vector<glm::vec3> eyes;
@@ -2668,7 +2677,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	// the emissive surfaces as lights (see EmitterData), where the model has them and BVHs to trace their shadow rays
 	// through; the last frame's reservoirs and history count if they lit it (at this size: Resize clears them)
 	{
-		bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+		bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
 		uint32_t emitterCount = frame.emissiveLights && hasBvh ? frame.model->GetEmitterCount() : 0;
 		myEmittersOn = emitterCount > 0;
 		for (auto pass : {myEmitterSamplePass, myEmitterShadePass, myEmitterXPass, myEmitterYPass, myEmitterTemporalPass})
@@ -3491,7 +3500,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	for (auto pass : {myGiClearPass, myGiShiftPass, myGiVoxelizePass, myGiKeepPass, myGiLightStaticPass, myGiRestorePass, myGiVoxelizeMovingPass, myGiCacheGrowPass, myGiPass})
 		myGraph.SetEnabled(pass, enabled);
 	// the near field (see GiData::nearReach), where the rays trace the model's BVHs
-	bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+	bool hasBvh = frame.model != nullptr && frame.model->HasBvh();
 	myGiNearOn = enabled && frame.giNearField && frame.traceTriangles && hasBvh && myGiNearReach > 0.0F;
 	// every how many pixels its rays are traced (FrameInputs::giNearStride): a change starts the frames over, their history
 	// being laid out on the traced pixels
@@ -3864,7 +3873,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	constexpr uint32_t kDepthTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
 	uint32_t probeTotal = myGiClipmap.total.probeCount;
 	// (a model all of which moves has a moving BVH alone: its static one is the default, a node that holds nothing)
-	myGiTraceBvh = frame.traceTriangles && frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
+	// (a model all of which moves has a moving BVH alone; under ray queries the triangles' geometries stand for the BVH)
+	myGiTraceBvh = frame.traceTriangles && frame.model != nullptr && frame.model->HasBvh();
 	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 	{
 		auto& clip = data[clipIt];

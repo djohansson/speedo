@@ -58,6 +58,16 @@ struct Triangle
 // a CWBVH over triangles, built on the executor's threads
 [[nodiscard]] Data Build(std::span<const Triangle> triangles, core::TaskExecutor& executor);
 
+// what the device's ray queries trace of triangles instead (DeviceLimits::rayQuery, see gfx/accelerationstructures.h): each
+// triangle's corners, BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT float4 a triangle (w: its flags, its first index, 0), the opaque
+// ones first, then the alpha masked (a geometry of their own, see BVH_TRIANGLE_FLAG_ALPHA_MASKED), and how many are opaque
+struct RayQueryData
+{
+	std::vector<glm::vec4> triangles;
+	uint32_t opaqueCount = 0;
+};
+[[nodiscard]] RayQueryData RayQueryTriangles(std::span<const Triangle> triangles);
+
 // the same in the moving BVH's layout (tinybvh's BVH_GPU, see Moving; BVH2_NODE_FLOAT4_COUNT and
 // BVH2_TRIANGLE_FLOAT4_COUNT), for assettest's check of its traversal (BvhTraverse2)
 [[nodiscard]] Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& executor);
@@ -78,7 +88,8 @@ public:
 		std::span<const VertexP3fN3fTa4fT014fC4f> vertices,
 		std::span<const SkinVertex> skinVertices,
 		std::span<const MorphDelta> morphDeltas,
-		core::TaskExecutor& executor);
+		core::TaskExecutor& executor,
+		bool tree = true);
 	~Moving();
 	Moving(const Moving&) = delete;
 	Moving& operator=(const Moving&) = delete;
@@ -90,11 +101,18 @@ public:
 
 	// places the triangles where a frame's joint matrices (mesh to world), morph weights and instances put them (on the
 	// executor's threads), and fits the BVH to them: the first time builds its tree (the counts above are known from
-	// then on), later times refit it
+	// then on), later times refit it (without a tree, tree false at construction: what the device's ray queries
+	// trace, WriteRayQueryTriangles, needs none)
 	void Place(std::span<const SceneMatrix> joints, std::span<const float> morphWeights, std::span<const ModelInstance> instances);
 
 	// writes the BVH as placed last to a frame's buffers' memory (NodeFloat4Count and TriangleFloat4Count float4s)
 	void Write(std::span<std::byte> nodes, std::span<std::byte> triangles) const;
+
+	// the triangles, the opaque ones first (whose count this is), as placed last, for the device's ray queries
+	// (TriangleCount * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT float4s, see RayQueryData)
+	[[nodiscard]] uint32_t TriangleCount() const noexcept;
+	[[nodiscard]] uint32_t OpaqueTriangleCount() const noexcept;
+	void WriteRayQueryTriangles(std::span<std::byte> triangles) const;
 
 private:
 	struct Impl;

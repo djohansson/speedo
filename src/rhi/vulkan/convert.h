@@ -156,6 +156,12 @@ namespace rhi::vk
 		flags |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
 	if (Any(usage & BufferUsage::kIndirect))
 		flags |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+	if (Any(usage & BufferUsage::kDeviceAddress))
+		flags |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+	if (Any(usage & BufferUsage::kAccelerationStructureStorage))
+		flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+	if (Any(usage & BufferUsage::kAccelerationStructureInput))
+		flags |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
 	return flags;
 }
 
@@ -248,6 +254,8 @@ namespace rhi::vk
 		flags |= VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 	if (Any(stages & PipelineStage::kDrawIndirect))
 		flags |= VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT;
+	if (Any(stages & PipelineStage::kAccelerationStructureBuild))
+		flags |= VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
 	return flags;
 }
 
@@ -278,6 +286,10 @@ namespace rhi::vk
 		flags |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 	if (Any(access & Access::kIndirectCommandRead))
 		flags |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+	if (Any(access & Access::kAccelerationStructureRead))
+		flags |= VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+	if (Any(access & Access::kAccelerationStructureWrite))
+		flags |= VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
 	return flags;
 }
 

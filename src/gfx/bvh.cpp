@@ -261,6 +261,8 @@ struct Moving::Impl
 	std::vector<tinybvh::bvhvec4> corners;
 	std::unique_ptr<tinybvh::BVH> tree;
 	std::unique_ptr<tinybvh::BVH_GPU> layout;
+	bool buildsTree = true; // false: placed for the device's ray queries alone (see WriteRayQueryTriangles)
+	uint32_t opaqueTriangleCount = 0; // the parts' triangles are the opaque ones first
 };
 
 Moving::Moving(
@@ -269,32 +271,42 @@ Moving::Moving(
 	std::span<const VertexP3fN3fTa4fT014fC4f> vertices,
 	std::span<const SkinVertex> skinVertices,
 	std::span<const MorphDelta> morphDeltas,
-	core::TaskExecutor& executor)
+	core::TaskExecutor& executor,
+	bool tree)
 	: myImpl(std::make_unique<Impl>())
 {
 	auto& impl = *myImpl;
 	impl.context.reset(new detail::Executor{.executor = executor}); // NOLINT(cppcoreguidelines-owning-memory): an aggregate with a mutex
 	size_t cornerCount = 0;
-	for (const auto& submesh : desc.submeshes)
+	impl.buildsTree = tree;
+	// the opaque parts first, then the alpha masked (the ray queries' geometries, see RayQueryData)
+	for (bool masked : {false, true})
 	{
-		if (!submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
-			continue;
-		const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
-		if (material != nullptr && (material->blend || material->transmission > 0.0F))
-			continue;
-		uint32_t flags = detail::TriangleFlags(submesh, material);
-		uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
-		for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
+		for (const auto& submesh : desc.submeshes)
 		{
-			impl.parts.push_back(Impl::Part{
-				.submesh = submesh,
-				.instance = submesh.firstInstance + instanceIt,
-				.jointBase = jointBase,
-				.flags = flags,
-				.firstCorner = cornerCount});
-			cornerCount += submesh.indexCount / 3 * 3;
-			impl.partOfTriangle.resize(cornerCount / 3, static_cast<uint32_t>(impl.parts.size() - 1));
+			if (!submesh.moves || submesh.topology != rhi::PrimitiveTopology::kTriangleList || submesh.indexCount < 3)
+				continue;
+			const ModelMaterial* material = submesh.material >= 0 ? &desc.materials[static_cast<size_t>(submesh.material)] : nullptr;
+			if (material != nullptr && (material->blend || material->transmission > 0.0F))
+				continue;
+			uint32_t flags = detail::TriangleFlags(submesh, material);
+			if (((flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) != 0U) != masked)
+				continue;
+			uint32_t jointBase = submesh.skin >= 0 ? desc.animation.skins[static_cast<size_t>(submesh.skin)].jointBase : SHADER_TYPES_NOT_SKINNED;
+			for (uint32_t instanceIt = 0; instanceIt < submesh.instanceCount; instanceIt++)
+			{
+				impl.parts.push_back(Impl::Part{
+					.submesh = submesh,
+					.instance = submesh.firstInstance + instanceIt,
+					.jointBase = jointBase,
+					.flags = flags,
+					.firstCorner = cornerCount});
+				cornerCount += submesh.indexCount / 3 * 3;
+				impl.partOfTriangle.resize(cornerCount / 3, static_cast<uint32_t>(impl.parts.size() - 1));
+			}
 		}
+		if (!masked)
+			impl.opaqueTriangleCount = static_cast<uint32_t>(cornerCount / 3);
 	}
 	if (impl.parts.empty())
 		return;
@@ -368,6 +380,8 @@ void Moving::Place(std::span<const SceneMatrix> joints, std::span<const float> m
 				impl.corners[part.firstCorner + cornerIt] = tinybvh::bvhvec4(position.x, position.y, position.z, 0.0F);
 			}
 		});
+	if (!impl.buildsTree)
+		return;
 	// the binary tree built the first time (and refit at once: the refit orders its nodes, which Bonsai's builder doesn't,
 	// so the count is the refit one's from then on), refit since, and copied to the GPU layout
 	if (!impl.tree)
@@ -407,6 +421,41 @@ void Moving::Write(std::span<std::byte> nodes, std::span<std::byte> triangles) c
 	}
 }
 
+uint32_t Moving::TriangleCount() const noexcept
+{
+	return static_cast<uint32_t>(myImpl->corners.size() / 3);
+}
+
+uint32_t Moving::OpaqueTriangleCount() const noexcept
+{
+	return myImpl->opaqueTriangleCount;
+}
+
+void Moving::WriteRayQueryTriangles(std::span<std::byte> triangles) const
+{
+	ZoneScopedN("gfx::bvh::Moving::WriteRayQueryTriangles");
+
+	const auto& impl = *myImpl;
+	ENSURE(triangles.size() >= static_cast<size_t>(TriangleCount()) * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT * sizeof(glm::vec4));
+	auto* data = reinterpret_cast<glm::vec4*>(triangles.data());
+	impl.context->executor.ForEach(
+		impl.parts.size(),
+		[&](size_t partIt)
+		{
+			const auto& part = impl.parts[partIt];
+			for (size_t cornerIt = 0; cornerIt < part.submesh.indexCount / 3 * 3; cornerIt++)
+			{
+				const auto& corner = impl.corners[part.firstCorner + cornerIt];
+				uint32_t w = 0;
+				if (cornerIt % 3 == 0)
+					w = part.flags;
+				else if (cornerIt % 3 == 1)
+					w = static_cast<uint32_t>(part.submesh.firstIndex + cornerIt - 1);
+				data[part.firstCorner + cornerIt] = glm::vec4(corner.x, corner.y, corner.z, std::bit_cast<float>(w));
+			}
+		});
+}
+
 Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& executor)
 {
 	ZoneScopedN("gfx::bvh::BuildBinary");
@@ -438,6 +487,26 @@ Data BuildBinary(std::span<const Triangle> triangles, core::TaskExecutor& execut
 		data.triangles[triangleIt + 1].w = std::bit_cast<float>(triangles[primitive].flags);
 		data.triangles[triangleIt + 2].w = std::bit_cast<float>(triangles[primitive].firstIndex);
 	}
+	return data;
+}
+
+RayQueryData RayQueryTriangles(std::span<const Triangle> triangles)
+{
+	RayQueryData data;
+	data.triangles.reserve(triangles.size() * BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT);
+	auto add = [&data](const Triangle& triangle)
+	{
+		data.triangles.emplace_back(triangle.corners[0], std::bit_cast<float>(triangle.flags));
+		data.triangles.emplace_back(triangle.corners[1], std::bit_cast<float>(triangle.firstIndex));
+		data.triangles.emplace_back(triangle.corners[2], 0.0F);
+	};
+	for (const auto& triangle : triangles)
+		if ((triangle.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) == 0U)
+			add(triangle);
+	data.opaqueCount = static_cast<uint32_t>(data.triangles.size() / BVH_RAY_QUERY_TRIANGLE_FLOAT4_COUNT);
+	for (const auto& triangle : triangles)
+		if ((triangle.flags & BVH_TRIANGLE_FLAG_ALPHA_MASKED) != 0U)
+			add(triangle);
 	return data;
 }
 

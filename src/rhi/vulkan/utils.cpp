@@ -22,7 +22,9 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdint>
+#include <cstdlib>
 #include <print>
+#include <string_view>
 
 PFN_vkWaitForPresentKHR gVkWaitForPresentKHR{};
 #if (SPEEDO_GRAPHICS_VALIDATION_LEVEL > 0)
@@ -32,6 +34,13 @@ PFN_vkSetDebugUtilsObjectNameEXT gVkSetDebugUtilsObjectNameExt{};
 #endif
 PFN_vkCmdSetCheckpointNV gVkCmdSetCheckpointNV{};
 PFN_vkGetQueueCheckpointData2NV gVkGetQueueCheckpointData2NV{};
+PFN_vkCreateAccelerationStructureKHR gVkCreateAccelerationStructureKHR{};
+PFN_vkDestroyAccelerationStructureKHR gVkDestroyAccelerationStructureKHR{};
+PFN_vkGetAccelerationStructureBuildSizesKHR gVkGetAccelerationStructureBuildSizesKHR{};
+PFN_vkGetAccelerationStructureDeviceAddressKHR gVkGetAccelerationStructureDeviceAddressKHR{};
+PFN_vkCmdBuildAccelerationStructuresKHR gVkCmdBuildAccelerationStructuresKHR{};
+PFN_vkCmdWriteAccelerationStructuresPropertiesKHR gVkCmdWriteAccelerationStructuresPropertiesKHR{};
+PFN_vkCmdCopyAccelerationStructureKHR gVkCmdCopyAccelerationStructureKHR{};
 
 void OnCheckFailedDefault(VkResult result, uintptr_t count, ...)//NOLINT(modernize-avoid-variadic-functions)
 {
@@ -117,6 +126,15 @@ void InitDeviceExtensions(VkDevice device)
 			vkGetDeviceProcAddr(device, "vkGetQueueCheckpointData2NV"));
 
 	//ENSURE(gVkGetQueueCheckpointData2NV != nullptr);
+
+	auto load = [device]<typename T>(T& function, const char* name) { function = reinterpret_cast<T>(vkGetDeviceProcAddr(device, name)); };
+	load(gVkCreateAccelerationStructureKHR, "vkCreateAccelerationStructureKHR");
+	load(gVkDestroyAccelerationStructureKHR, "vkDestroyAccelerationStructureKHR");
+	load(gVkGetAccelerationStructureBuildSizesKHR, "vkGetAccelerationStructureBuildSizesKHR");
+	load(gVkGetAccelerationStructureDeviceAddressKHR, "vkGetAccelerationStructureDeviceAddressKHR");
+	load(gVkCmdBuildAccelerationStructuresKHR, "vkCmdBuildAccelerationStructuresKHR");
+	load(gVkCmdWriteAccelerationStructuresPropertiesKHR, "vkCmdWriteAccelerationStructuresPropertiesKHR");
+	load(gVkCmdCopyAccelerationStructureKHR, "vkCmdCopyAccelerationStructureKHR");
 }
 
 bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
@@ -153,6 +171,17 @@ bool SupportsExtension(const char* extensionName, VkPhysicalDevice device)
 		{
 			return strcmp(extensionName, extension.extensionName) == 0;
 		}) != std::ranges::end(deviceExtensions);
+}
+
+bool WantsRayQueries(VkPhysicalDevice device)
+{
+	static const bool kEnabled = []
+	{
+		const char* rayQuery = std::getenv("SPEEDO_RAY_QUERY");
+		return rayQuery == nullptr || std::string_view(rayQuery) != "0";
+	}();
+	return kEnabled && SupportsExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, device) &&
+		   SupportsExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME, device) && SupportsExtension(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, device);
 }
 
 bool SupportsExtension(const char* extensionName, VkInstance instance)
