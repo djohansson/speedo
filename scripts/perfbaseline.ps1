@@ -29,7 +29,8 @@ gpu's clock drifts between runs, so the defaults are measured more than once.
 
 San Miguel loads from its extracted archive in the user profile (<root>/.speedo/archives/San_Miguel-*/san-miguel.obj):
 open San_Miguel.zip in the client once if it isn't there. The client needs a vulkan driver (VK_DRIVER_FILES etc. as for
-running it by hand). Logs and captures go to -Work (default a new temporary directory); the tables are printed and
+running it by hand; on macOS the mesa port's KosmicKrisp by default, from the install tree). Logs and captures go to
+-Work (default a new temporary directory); the tables are printed and
 written to <work>/baseline.md.
 
 .EXAMPLE
@@ -100,6 +101,13 @@ elseif ($IsLinux)
 else
 {
 	$env:PATH = "$lib$separator$env:PATH"
+}
+# the vulkan driver, unless one is chosen: on macOS the mesa port's KosmicKrisp (a host dependency, as
+# scripts/assettest.ps1 finds it)
+if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
+{
+	$icd = Get-ChildItem -Path (Join-Path $root 'install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json') -ErrorAction SilentlyContinue | Select-Object -First 1
+	if ($icd) { $env:VK_DRIVER_FILES = $icd.FullName }
 }
 
 if (-not $Work)

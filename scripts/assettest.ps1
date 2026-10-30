@@ -15,7 +15,8 @@ support are skipped there), with a user profile dir under <work>, and fails a mo
 load failures, failed asserts, validation errors (validation needs a debug preset) or sanitizer reports (a sanitize
 preset: asan and ubsan; a tsan preset: tsan). -ClientOnly skips the assettest
 run (which is slow with a debug preset). The client needs a vulkan driver: set VK_DRIVER_FILES etc. as for running it
-by hand. On macOS the display is woken and kept awake while the client runs (glfw finds no monitors while it sleeps).
+by hand (on macOS the mesa port's KosmicKrisp is the default, from the install tree). On macOS the display is woken and
+kept awake while the client runs (glfw finds no monitors while it sleeps).
 
 Client runs go -Jobs at once (default 4; one with KosmicKrisp's ray queries, MESA_KK_EXPERIMENTAL=ray_query, which made
 the gpu restart and the machine panic when several clients traced at once), each worker with a user profile dir of its own under <work> (user-1 to
@@ -138,6 +139,13 @@ else
 if (-not $env:VK_LAYER_PATH)
 {
 	$env:VK_LAYER_PATH = if ($IsWindows) { $lib } else { Join-Path $installDir 'share/vulkan/explicit_layer.d' }
+}
+# the vulkan driver, unless one is chosen: on macOS the mesa port's KosmicKrisp, a host dependency, so in the host
+# triplet's install tree
+if ($IsMacOS -and -not $env:VK_DRIVER_FILES -and -not $env:VK_ICD_FILENAMES)
+{
+	$icd = Get-ChildItem -Path (Join-Path $root 'install/*/share/vulkan/icd.d/kosmickrisp_mesa_icd.*.json') -ErrorAction SilentlyContinue | Select-Object -First 1
+	if ($icd) { $env:VK_DRIVER_FILES = $icd.FullName }
 }
 # a sanitize or tsan preset's reports: with stacks, symbolized by the host llvm's llvm-symbolizer. tsan reports and goes
 # on, exiting with 66 at the end: the client runs fail on the reports below

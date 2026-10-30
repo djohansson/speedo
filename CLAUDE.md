@@ -1752,9 +1752,9 @@ the arcades and onto the curtains). The quick tier passes with it, profile and d
 
 **Hardware ray queries** (where the device has `VK_KHR_ray_query` and its acceleration structures, `DeviceLimits::rayQuery`,
 decided in rhi: `WantsRayQueries` enables the extensions and chains their features; `SPEEDO_RAY_QUERY=0` keeps the BVHs, as
-KosmicKrisp and MoltenVK do, having neither): the main layout is compiled with `BVH_RAY_QUERY` (the scene's preprocessor
-definitions, which are part of the shader cache's key: they weren't at first, and a profile that had compiled one way
-handed those shaders to the other, ray queries with no structure bound, which traced no shadow at all), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
+MoltenVK and an upstream KosmicKrisp do, having neither): the main layout is compiled with `BVH_RAY_QUERY` (the scene's
+preprocessor definitions, which are part of the shader cache's key: they weren't at first, and a profile that had compiled
+one way handed those shaders to the other, ray queries with no structure bound, which traced no shadow at all), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
 the indirect lighting's, the traced shadows', the emitters' and the near field's) is a ray query (`BvhTraceScene` in
 `bvh.slang`) of `gBvhScene[frame]`: a top level structure per frame index of two instances (`gfx::AccelerationStructures`,
 `gfx/accelerationstructures.h`, the model's), what doesn't move, built once when the model is installed of the model's own
@@ -1789,8 +1789,22 @@ and light through themselves, where the shadow atlas has them in shadow as the r
 darker by 2.7 of 255 on average, for the same reason. Clean under the validation layer. Compute work over many materials'
 textures (the voxelizer, the rays' alpha masks and emission, the emitters) indexes them as non-uniform (`SampleViewLevel`):
 Vulkan requires it of an index that varies across a wave's threads, and without it a driver may sample one thread's
-texture for all. On the mac, KosmicKrisp has no ray queries yet (Metal has acceleration structures and intersection
-queries: the driver's to expose, or a Metal backend), so it keeps the BVHs. What doesn't move is built
+texture for all. On the mac, the mesa port's KosmicKrisp has them behind `MESA_KK_EXPERIMENTAL=ray_query` (the
+djohansson/mesa fork, see "vcpkg": Metal 4's acceleration structures and intersection queries), against the BVHs on it,
+frame by frame as above: ShadowScene's traced rays identical, its lit frame within 0.012 of 255; CesiumMan 0.004,
+DiffuseTransmissionPlant 0.002, Sponza 0.002 and Bistro 0.010 at their benchmark poses; San Miguel 0.066, its leaves'
+dappled sunlight, where the CWBVH's compressed triangles lose precision; clean under the validation layer and Metal's
+(`MTL_DEBUG_LAYER=1`). Settled frame times at the benchmark poses (2560x1440, GI on, interleaved runs), ray queries
+against the BVHs: Bistro 40.6 against 43.6 ms, Sponza 26.3 against 26.0, San Miguel 48.7 against 47.1; warming up 47.9
+against 54.8, 28.0 against 28.8, 53.1 against 55.4. Metal compacts: Bistro's static structure 258 to 145 MB, San Miguel's
+906 to 572. Never run several ray query clients at once there (`assettest.ps1` runs them one at a time when
+`MESA_KK_EXPERIMENTAL` has `ray_query`): four, or a small model beside a big one, made the gpu restart ("CDM Kill
+timeout" in `/Library/Logs/DiagnosticReports/gpuEvent-client-*.ips`, the clients losing the device with
+`MTL4CommandQueueErrorTimeout`), clients stuck exiting, and an hour later the machine panicked (IOKit's termination queue
+backed up behind them); one at a time never did, nor the BVHs in parallel, and not with the structures built but no ray
+traced. Not understood yet: a standalone Metal program tracing with a texture sampled in its candidate loop had
+"Impacting Interactivity" kills under four processes, but no gpu restart, and speedo's simple models (no alpha masks,
+so no candidates) restarted it too. What doesn't move is built
 to be compacted: once its build is done (`CanCompact`, its compacted size queried and read without waiting at each
 `Scene::Update`), it is copied into a structure of that size (`RecordCompaction`; `rhi::QueryType`,
 `CommandEncoder::WriteAccelerationStructureCompactedSize` and `CopyAccelerationStructure`), the instances naming it
@@ -2963,3 +2977,19 @@ through the pthread key destructor `free`, which is interposed to `mi_free`. mim
 included, so every exiting thread frees a block mimalloc doesn't own. Debug builds print
 `mi_free: invalid pointer`, and both builds leak 32 bytes per thread. The patch interposes `free` with a check
 that forwards foreign pointers to `malloc_zone_from_ptr(p)`.
+
+`ports/mesa` (an overlay of vcpkg's, whose mesa is the OpenGL one) builds KosmicKrisp alone, the Vulkan driver over Metal,
+from the djohansson/mesa fork's `kk-ray-query` branch (github.com/djohansson/mesa: upstream's `main`, from
+gitlab.freedesktop.org/mesa/mesa, and the branch on top of it), which adds ray queries to it (`VK_KHR_acceleration_structure`,
+`VK_KHR_ray_query`; see "Hardware ray queries"): the client's on macOS, a host dependency, since it is a driver the loader
+loads at run time, not a library linked, so it builds with the host LLVM the toolchain builds anyway (its clang, whose
+`mesa_clc` compiles KosmicKrisp's OpenCL kernels at build time; the driver links no LLVM). Its manifest
+(`install/arm64-osx-release/share/vulkan/icd.d/kosmickrisp_mesa_icd.aarch64.json`) names the driver by its path from the
+manifest, so it holds wherever the tree is; `assettest.ps1` and `perfbaseline.ps1` take it as `VK_DRIVER_FILES` unless one
+is set. LLVM is static and without RTTI (`-Dshared-llvm=disabled -Dcpp_rtti=false`), and its static libraries are ThinLTO
+bitcode (the host triplet's `-flto=thin`), which meson's architecture check on macOS (`lipo`) can't read, so it rejected
+every clang module: the fork links such an archive by its path, as it does clang's resource headers from beside its tools
+(vcpkg's LLVM keeps them there). `ports/spirv-llvm-translator` (not in vcpkg's registry: `mesa_clc` needs it, of LLVM's
+version) is static, as LLVM is (a shared one with LLVM linked in would register LLVM's options twice), and built against
+the SPIRV-Headers commit it pins (`spirv-headers-tag.conf`), put ahead of LLVM's include directory, the install tree's,
+which holds vcpkg's older spirv-headers (`0001-*`).

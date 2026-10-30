@@ -1,0 +1,19 @@
+diff --git a/lib/SPIRV/CMakeLists.txt b/lib/SPIRV/CMakeLists.txt
+index 1c32ce7..2ca66f8 100644
+--- a/lib/SPIRV/CMakeLists.txt
++++ b/lib/SPIRV/CMakeLists.txt
+@@ -70,12 +70,12 @@ add_llvm_library(LLVMSPIRVLib
+ 
+ target_include_directories(LLVMSPIRVLib
+   PRIVATE
+-    ${LLVM_INCLUDE_DIRS}
+-    ${LLVM_SPIRV_INCLUDE_DIRS}
+     # TODO: Consider using SPIRV-Headers' as a header-only INTERFACE
+     # instead. Right now this runs into exporting issues with
+     # the LLVM in-tree builds.
+     ${LLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR}/include
++    ${LLVM_INCLUDE_DIRS}
++    ${LLVM_SPIRV_INCLUDE_DIRS}
+     ${CMAKE_CURRENT_SOURCE_DIR}
+     ${CMAKE_CURRENT_SOURCE_DIR}/libSPIRV
+     ${CMAKE_CURRENT_SOURCE_DIR}/Mangler
