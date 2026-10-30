@@ -1753,7 +1753,8 @@ the arcades and onto the curtains). The quick tier passes with it, profile and d
 **Hardware ray queries** (where the device has `VK_KHR_ray_query` and its acceleration structures, `DeviceLimits::rayQuery`,
 decided in rhi: `WantsRayQueries` enables the extensions and chains their features; `SPEEDO_RAY_QUERY=0` keeps the BVHs, as
 KosmicKrisp and MoltenVK do, having neither): the main layout is compiled with `BVH_RAY_QUERY` (the scene's preprocessor
-definitions, a shader cache entry of its own), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
+definitions, which are part of the shader cache's key: they weren't at first, and a profile that had compiled one way
+handed those shaders to the other, ray queries with no structure bound, which traced no shadow at all), and every ray the BVHs answered (`GiTraceTriangles` and `ShadowOccluder`:
 the indirect lighting's, the traced shadows', the emitters' and the near field's) is a ray query (`BvhTraceScene` in
 `bvh.slang`) of `gBvhScene[frame]`: a top level structure per frame index of two instances (`gfx::AccelerationStructures`,
 `gfx/accelerationstructures.h`, the model's), what doesn't move, built once when the model is installed of the model's own
