@@ -958,7 +958,10 @@ struct CullView
 // pools grow to hold (see Renderer::InternalPlanGi)
 #define GI_STATISTIC_CACHE_BLOCKS 17u
 #define GI_STATISTIC_CACHE_ACTIVE_BLOCKS 18u
-#define GI_STATISTIC_COUNT 20u
+// and per clip (two words each from here: its probes traced, and its blocks wanting a page), since a frame updates only
+// some of the clips (see GiData::updated): the ray budget and the cache's pool go by every clip's, as each last counted
+#define GI_STATISTIC_CLIP_FIRST 20u
+#define GI_STATISTIC_COUNT (GI_STATISTIC_CLIP_FIRST + 2u * SHADER_TYPES_GI_CLIP_COUNT)
 // a probe dumped for debugging (SPEEDO_GI_DUMP=<x,y,z>: per clip the probe nearest the point writes its state after
 // gGiStatistics[frame]'s statistics, GI_DUMP_FLOAT_COUNT floats per clip: its position (3), offset (3), age, inside, the
 // rays that met a surface's back, the rays, then its depth map's texels' means; the resolve at the point's voxel; and
@@ -1064,8 +1067,15 @@ struct GiData
 	// whether the voxels' radiance adds what their albedo reflects of the probes' light at them (the last frame's: the
 	// light bounces on, a bounce a frame; SPEEDO_GI_BOUNCE=0 for the lights' light alone)
 	alignas(4) UINT1(bounce);
-	// the frame, counted from 1 (in 24 bits): what the blocks holding something are stamped with (see gGiFlags)
+	// the frame, counted from 1 (in 24 bits): what the blocks holding something are stamped with (see gGiFlags). like
+	// rayPhase, the halves (probeFirst, visibilityFirst, cacheTableFirst) and the cache's window, the clip's own: it
+	// advances only in the frames the clip is updated (updated: the finest level's clips every frame, the coarser levels'
+	// in turn, see Renderer::InternalPlanGi), so that its probes take every phase and its blocks every stamp as a clip
+	// updated every frame does. a clip not updated keeps everything it holds as its last update left it, which a finer
+	// clip's probe or cache entry new to it starts from: its current half then, its previous half (the frame before's)
+	// where it is being updated in the same frame (see GiCoarserHalf)
 	alignas(4) UINT1(frameStamp);
+	alignas(4) UINT1(updated);
 	// whether a probe blends faster through a change of the light far beyond its noise (see ComputeGiProbeUpdate;
 	// SPEEDO_GI_ADAPT=1: off by default, see Renderer)
 	alignas(4) UINT1(adapt);

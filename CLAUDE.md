@@ -1393,6 +1393,25 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   (`GiFadeBoxExit`), so what changes as a clip snaps changes with the eye, smoothly. The shading takes each clip by its
   weight of what the finer ones leave (`GiSampleAt`). Under a still camera with the clips moving 6 m through Sponza's
   arcade (`SPEEDO_GI_EYE_PATH`, 120 frames), the frames' means differ from the still run's by 0.1% at most.
+- **The coarser clips in turn** (`GiData::updated`, `Renderer::InternalPlanGi`; `SPEEDO_GI_STAGGER=0` updates every clip
+  every frame): the finest level's clips are updated every frame, the coarser levels' a level a frame (with 3 levels the
+  second's every other frame and the last's in the frames between), since a clip costs about as much as another (its
+  voxels near a surface: Bistro's evening 38.4 ms with 3 clips, 33.9 with 2, 30.2 with 1; Sponza 22.3, 19.2 and 16.5);
+  every clip in a frame that resets, starts the surface cache or dumps, and a clip voxelized (moved) whenever. A clip
+  not updated keeps all it holds (its voxels, light, probes, volumes, cache) as its last update left it, which the
+  shading, the rays walking on into it and the finer clips read. Each clip has a clock (`Renderer::GiClipClock`) that
+  advances only when it is updated: its frame stamp, ray phase, halves (probes, visibility, the cache's tables) and the
+  cache's window and warm-up count its updates, so that it takes every ray phase (by the global frame, a clip updated
+  every other frame would only ever trace half of them), its blend is the frame's raised to the frames since its last
+  update (in sixtieths of a second where by time), it is frozen only after two laps of its own phases, and what changed
+  while it waited (the lights, the emitters, the cache started over) is taken in at its next update (`relight`). A finer
+  clip's probe or cache entry new to it starts from the coarser clip's current half where that isn't updated in the
+  frame, the previous one where it is (`GiCoarserHalf`). The ray budget and the cache's pool go by every clip's count
+  as it last counted (`GI_STATISTIC_CLIP_FIRST`): by the frame's, the rays per probe rose and the pool shrank. What
+  the coarser clips light follows a change over twice the frames: walking along Sponza's corridor, the far corridor
+  differs from every clip every frame by 0.16 of 255 (still: 0.09, the captures' noise 0.07), smooth, with no seams.
+  Interleaved runs started at a nominal thermal state (on an evening the machine ran about 40% slower than its
+  baseline, see docs/performance-plan.md): Sponza 31.3 to 28.2 ms, Bistro 53.5 to 51.1, San Miguel 61.8 to 61.1.
 - **Lighting the voxels** (`GiDirectRadiance`): each voxel's emission plus its albedo over pi times the punctual lights
   of its cell and the emissive surfaces where they are lights (`EmitterVoxelIrradiance`, see "Emissive surfaces as
   lights": the rays that read a voxel's radiance then take its emission out) (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only

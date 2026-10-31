@@ -429,6 +429,39 @@ dropped). The entries left unread and unwritten where no ray adds to them change
 
 The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22.05.
 
+### The evening of 2026-10-31
+
+- **Kept: the coarser clips updated in turn** (step 4's "coarser clips updated every few frames"; `GiData::updated`,
+  `SPEEDO_GI_STAGGER=0` for every clip every frame): the finest level's clips every frame, the coarser levels' a level
+  a frame, each by a clock of its own (its frame stamp, ray phases, halves and the cache's window count its updates, its
+  blend is raised to the frames between them), what changed while it waited taken in at its next update. A clip costs
+  about as much as another (Bistro 38.4 ms with 3 clips, 33.9 with 2, 30.2 with 1; Sponza 22.3, 19.2, 16.5). Measured
+  interleaved, each client started at a nominal thermal state (see below): Sponza 31.3 to 28.2 ms, Bistro 53.5 to 51.1,
+  San Miguel 61.8 to 61.1 (its finest clip is most of its cost). The probes traced a frame went from 4070 to 2707 in
+  Sponza at the same 120 rays a probe (the budget goes by every clip's probes, as each last counted). Still captures as
+  before to the noise (0.09 of 255 against 0.07); walking along Sponza's corridor, the far corridor, which the coarser
+  clips light, follows the move over twice the frames: 0.16 of 255 from before against a noise of 0.02, smooth.
+- **The machine this evening**: about half an hour after the user left, every run took about twice as long (Sponza 40 ms
+  rather than 22, the `Frame` scope 22.9 rather than 11.8), whichever build: macOS's idle state (UserIsActive 0, the
+  display about to turn off). A user activity assertion held for the session (`caffeinate -u -d -i -t <seconds>`) took
+  most of it back, but the heavier scenes then heated the machine to a "fair" thermal state within a few runs (Bistro's
+  frame from 55 to 120 ms over six runs), and even cooled to nominal before each client the frames stayed about 40%
+  longer than in the morning (Bistro 51 to 53 ms rather than 38). So the numbers above are relative, of runs started
+  alike; the morning's are the baseline to compare with.
+
+- **Tried and dropped: the surface cache's blocks marked by the lookups' footprint**, every block of the 2x2x2 voxels a
+  lookup filters (rather than the point's block alone), and the blocks around those read no longer traced and filtered:
+  Bistro 38.24 to 34.79 ms, Sponza 22.0 to about 20.8, but against the cache traced and filtered everywhere
+  (`SPEEDO_GI_CACHE_EVERYWHERE=1`, walking along Sponza's corridor) 0.42 of 255 rather than 0.25, five times the pixels
+  off by more than 8, blotches across the vault: what the blocks around are there for. The blocks around traced but not
+  filtered (their raw entries the read blocks' taps): 37.11 ms and 21.35, 0.31 to 0.33, three times the pixels: the
+  blocks around cost Bistro 2.3 ms of rays and 1.15 of filtering. Left as they are; whether 1.15 ms is worth the vault's
+  faint blotches in motion is a call to make looking at it.
+- **Tried and dropped: the emitters' candidates walking the light tree together** (at each node, the candidates there
+  split between the children by the same share each would take alone, so a node's importances are computed once for
+  all of them): Bistro 38.84 ms against 38.96 to 39.03, San Miguel within its noise. The candidates cost about 0.2 ms
+  each at Bistro's pose (8 of them 38.36 ms, 4 37.62, 1 36.81), and the tree's shared levels are little of that.
+
 Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace
 printed at each level), which held the GPU through the next runs (Sponza 42 ms rather than 23) until it was found. The

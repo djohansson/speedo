@@ -155,6 +155,14 @@ GiData GiClip(uint clip)
 	return gGi[gPushConstants.frameIndex][clip];
 }
 
+// which half of a coarser clip's probes or cache tables a finer clip's probe or cache entry new to it starts from (see
+// GiData::updated): as the coarser clip last left them, its previous half where it is updated this frame too (its
+// kernels write the current one meanwhile, and its scroll shifts what the previous holds), else its current
+uint GiCoarserHalf(GiData coarser, uint current, uint previous)
+{
+	return coarser.updated != 0u ? previous : current;
+}
+
 // what loops over the clips read of one (the shadow rays, the shading's lookups): only these fields of its GiData,
 // rather than a copy of it all, which cost the main pass and the voxels' lighting
 struct GiClipView
@@ -1742,7 +1750,10 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// one more probe traced this frame (see GI_STATISTIC_ACTIVE_PROBES; one holding what it has too, as the budget's rays
 	// a probe are of the probes that trace in turn)
 	if (texelIndex == 0u)
+	{
 		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_ACTIVE_PROBES], 1u);
+		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + 2u * gi.clip], 1u);
+	}
 	// holding what it has this frame (see GiProbeFrozen): copied over from its place last frame, its light, place, depth
 	// and cycle as they were
 	if (GiProbeFrozen(gi, probe, history))
@@ -1976,9 +1987,10 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	}
 	else if (gi.reset == 0u && gi.coarser != gi.clip)
 	{
-		// new to the clip: its view's coarser clip's probes around it as they were last frame (at their places then: shifted by
-		// its scroll too; none if it was voxelized whole), trilinear, as one frame's worth
+		// new to the clip: its view's coarser clip's probes around it as it last left them (see GiCoarserHalf; at their places
+		// then: shifted by its scroll too; none if it was voxelized whole), trilinear, as one frame's worth
 		GiData above = GiClip(gi.coarser);
+		uint aboveHalf = GiCoarserHalf(above, above.probeFirst, above.probePreviousFirst);
 		if (all(abs(above.scroll.xyz) < int3(above.volumeSize.xyz)))
 		{
 			float3 fraction;
@@ -1989,7 +2001,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 				uint3 aboveProbe = uint3(clamp(base + offset, int3(0), int3(above.probeSize.xyz) - 1));
 				float3 weights = select(offset != 0, fraction, 1.0 - fraction);
 				float weight = weights.x * weights.y * weights.z;
-				uint aboveFirst = (above.probePreviousFirst + GiProbeIndex(aboveProbe, above.probeSize)) * SHADER_TYPES_GI_IRRADIANCE_COUNT;
+				uint aboveFirst = (aboveHalf + GiProbeIndex(aboveProbe, above.probeSize)) * SHADER_TYPES_GI_IRRADIANCE_COUNT;
 				for (uint shIt = 0; shIt < SHADER_TYPES_GI_IRRADIANCE_COUNT; shIt++)
 					held[shIt] += weight * gGiIrradiance[aboveFirst + shIt].rgb;
 			}
@@ -2669,7 +2681,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			// entry where it is, as kGiCacheSeedCount samples, which its own rays soon outweigh: from nothing, it took the
 			// probes' light until it had samples, and the light along Sponza's curtains faded in and out near the eye as
 			// the finer clips scrolled. the coarser block is read where its page is carried over (GiCacheKeeps), so that
-			// it is its own still, not freed and taken by another: by its last frame's table, at its place then
+			// it is its own still, not freed and taken by another: by the table it last left (see GiCoarserHalf), at its
+			// place then
 			GiData coarser = GiClip(gi.coarser);
 			uint3 coarserSize = GiLevelSize(coarser, 0);
 			uint3 coarserBlocks = GiLevelSize(coarser, SHADER_TYPES_GI_FLAG_LEVEL);
@@ -2677,7 +2690,8 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 			int3 seed = voxel + coarser.scroll.xyz;
 			if (GiInside(voxel, coarserSize) && GiInside(seed, coarserSize))
 			{
-				uint word = GiCacheTableWord(coarser.cacheTablePreviousFirst, GiCacheBlockIndex(uint3(seed), coarserBlocks));
+				uint table = GiCoarserHalf(coarser, coarser.cacheTableFirst, coarser.cacheTablePreviousFirst);
+				uint word = GiCacheTableWord(table, GiCacheBlockIndex(uint3(seed), coarserBlocks));
 				bool nearSurface = (gGiFlags[GiFlagIndex(coarser, GiCacheBlockIndex(uint3(voxel), coarserBlocks))] & 1u) != 0u;
 				uint seedPage = GiCacheKeeps(coarser, gGiCacheBlocks[word], gGiCacheBlocks[word + 1u], nearSurface) ? GiCachePageOf(gGiCacheBlocks[word]) : 0u;
 				GiCacheEntry seeded = seedPage != 0u ? GiCacheLoad(GiCacheEntryIndex(seedPage, uint3(seed))) : GiCacheEmpty();
@@ -3280,7 +3294,10 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 		gGiCacheBlocks[word] = cachePage;
 		gGiCacheBlocks[word + 1u] = read ? gi.frameStamp : cacheLastRead;
 		if (cachePage != 0u || (cacheWanted != 0u && read))
+		{
 			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CACHE_BLOCKS], 1u);
+			InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_CLIP_FIRST + 2u * gi.clip + 1u], 1u);
+		}
 		// filtered this frame where it was read and has a record (see GiCacheTakeRecord)
 		uint record = 0u;
 		if (read && cachePage != 0u)

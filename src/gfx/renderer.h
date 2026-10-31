@@ -475,7 +475,36 @@ private:
 	std::vector<Buffer> myGiStatisticsBuffers;
 	FrameGraph::BufferId myGiStatisticsId;
 	uint32_t myGiRayPhaseCount = 32;
-	uint32_t myGiRayPhase = 0; // over two laps of the phases (see GiData::rayPhase)
+	// the coarser levels' clips updated in turn, a level a frame, the finest level's every frame (see GiData::updated),
+	// and every clip in a frame that resets, starts the surface cache or dumps, and a clip voxelized (moved) whenever:
+	// SPEEDO_GI_STAGGER=0 updates every clip every frame
+	bool myGiStagger = true;
+	uint32_t myGiStaggerFrame = 0;
+	// a clip's clock, which advances only in the frames it is updated, and what changed since it was last updated, which
+	// its next update takes in (see GiData::frameStamp)
+	struct GiClipClock
+	{
+		uint32_t frameStamp = 0; // see GiData::frameStamp
+		uint32_t rayPhase = 0; // over two laps of the phases (see GiData::rayPhase)
+		uint32_t probeHalf = 0; // which half of the probes' buffers and the cache's tables is this update's (see GiData::probeFirst)
+		uint32_t updatesSinceCacheReset = 0; // since its surface cache last started over (GiData::cacheReset)
+		// since it was last updated: the frames (in sixtieths of a second where the probes blend by time, see
+		// myGiTimeBased), which its blend is raised to, and whether the lights changed, the emitters started or stopped
+		// lighting or the cache started over
+		double frames = 0.0;
+		bool lightsChanged = false;
+		bool emittersToggled = false;
+		bool cacheReset = false;
+		bool updated = true; // this frame
+		bool relight = false; // this frame: its static voxels lit again for the lights changed since (GI Light Static)
+	};
+	std::vector<GiClipClock> myGiClipClocks;
+	// which clips each frame index's frame updated (a bit each), and what each counted the last time it was (its probes
+	// traced and its cache's blocks wanting a page, see GI_STATISTIC_CLIP_FIRST): the ray budget and the cache's pool go
+	// by every clip's
+	std::array<uint32_t, SHADER_TYPES_FRAME_COUNT> myGiClipsUpdated{};
+	std::array<uint32_t, SHADER_TYPES_GI_CLIP_COUNT> myGiClipProbeCounts{};
+	std::array<uint32_t, SHADER_TYPES_GI_CLIP_COUNT> myGiClipCacheBlockCounts{};
 	// the probes hold what they have every second lap once the scene has been still for two (see GiData::probeFreeze):
 	// SPEEDO_GI_PROBE_FREEZE=0 for never, and the frames it has been still
 	bool myGiProbeFreeze = true;
@@ -494,14 +523,11 @@ private:
 	glm::vec3 myGiDumpPoint{0.0F};
 	std::optional<glm::ivec2> myGiDumpPixel; // SPEEDO_GI_DUMP=pixel:<x>,<y>: the point is what is under the pixel
 	std::array<float, SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT> myGiDumpValues{};
-	uint32_t myGiProbeHalf = 0;
 	bool myGiReset = true;
 	// whether the indirect lighting's buffers are new this frame, and so cleared before anything reads them (see the GI
 	// Clear pass)
 	bool myGiClearBuffers = true;
-	uint32_t myGiFrameStamp = 0; // see GiData::frameStamp
 	uint32_t myGiFramesSinceReset = 0;
-	uint32_t myGiFramesSinceCacheReset = 0; // and since the surface cache last started over (GiData::cacheReset)
 	bool myGiCacheWarming = false; // see IsLightingWarmingUp
 	bool myGiRevoxelize = false; // SPEEDO_GI_REVOXELIZE=1: every clip voxelized again every frame
 	// SPEEDO_GI_EYE_PATH: where the clips are centered, a point a frame, and toward what (see gi::MakeClipmap)

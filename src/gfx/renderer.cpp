@@ -759,11 +759,13 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		CommandEncoder(cmd).Barrier(
 			PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite, PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite);
 	};
-	// per clip (see gi::MakeClipmap): those moved or new are voxelized, every one is lit and its probes updated
+	// per clip updated this frame (see gi::MakeClipmap, GiData::updated): those moved or new are voxelized, every one is
+	// lit and its probes updated
 	auto clips = [this](auto&& fn)
 	{
 		for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
-			fn(clipIt, myGiClipmap.clips[clipIt]);
+			if (clipIt >= myGiClipClocks.size() || myGiClipClocks[clipIt].updated)
+				fn(clipIt, myGiClipmap.clips[clipIt]);
 	};
 	// the buffers made for a clipmap hold whatever their memory held before: zero before anything reads them (the
 	// kernels guard against what isn't finite, but a finite value that is wrong is light; made over Bistro's, the
@@ -851,7 +853,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			clips(
 				[&](uint32_t clip, const gi::Layout& layout)
 				{
-					if (myGiClipJobs[clip].voxelize || myGiLightsChanged)
+					if (myGiClipJobs[clip].voxelize || myGiClipClocks[clip].relight)
 						giKernel(context.cmd, kGiLightStaticEntryPoint, layout.voxelCount, clip);
 				});
 		});
@@ -1629,6 +1631,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myGiAdapt = adapt != nullptr && std::string_view(adapt) == "1";
 	if (const char* freeze = std::getenv("SPEEDO_GI_PROBE_FREEZE"); freeze != nullptr)
 		myGiProbeFreeze = std::string_view(freeze) != "0";
+	if (const char* stagger = std::getenv("SPEEDO_GI_STAGGER"); stagger != nullptr)
+		myGiStagger = std::string_view(stagger) != "0";
 	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>, or pixel:<x>,<y> for the point under a pixel: per
 	// clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
 	if (const char* dump = std::getenv("SPEEDO_GI_DUMP"); dump != nullptr && *dump != '\0')
@@ -2313,9 +2317,19 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		std::array<uint32_t, GI_STATISTIC_COUNT> statistics{};
 		buffer.Invalidate(0, sizeof(statistics));
 		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
-		myGiActiveProbeCount = statistics[GI_STATISTIC_ACTIVE_PROBES];
+		// per clip, of those that frame updated (see GiData::updated): the rays per probe are budgeted by every clip's
+		// probes, and the cache's pool holds every clip's pages; the records are taken by the frame's clips alone
+		for (uint32_t clipIt = 0; clipIt < SHADER_TYPES_GI_CLIP_COUNT; clipIt++)
+		{
+			if ((myGiClipsUpdated[inputs.frameIndex] & (1U << clipIt)) == 0)
+				continue;
+			myGiClipProbeCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (2 * clipIt)];
+			myGiClipCacheBlockCounts[clipIt] = statistics[GI_STATISTIC_CLIP_FIRST + (2 * clipIt) + 1];
+		}
+		myGiClipsUpdated[inputs.frameIndex] = 0;
+		myGiActiveProbeCount = std::accumulate(myGiClipProbeCounts.begin(), myGiClipProbeCounts.end(), 0U);
 		// what the surface cache's pools must hold (see InternalPlanGi)
-		myGiCacheBlocksCounted = statistics[GI_STATISTIC_CACHE_BLOCKS];
+		myGiCacheBlocksCounted = std::accumulate(myGiClipCacheBlockCounts.begin(), myGiClipCacheBlockCounts.end(), 0U);
 		myGiCacheActiveBlocksCounted = statistics[GI_STATISTIC_CACHE_ACTIVE_BLOCKS];
 		if (statistics[GI_STATISTIC_CAPPED_RAYS] != 0)
 		{
@@ -2340,9 +2354,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 				for (int axisIt = 0; axisIt < 3; axisIt++)
 					myGiDumpPoint[axisIt] = std::bit_cast<float>(statistics[GI_STATISTIC_DUMP_POINT + static_cast<uint32_t>(axisIt)]);
 		}
-		if (myCollectTimings && myGiActiveProbeCount > 0)
+		if (myCollectTimings && statistics[GI_STATISTIC_ACTIVE_PROBES] > 0)
 		{
-			myGiActiveProbeSum += myGiActiveProbeCount;
+			myGiActiveProbeSum += statistics[GI_STATISTIC_ACTIVE_PROBES];
 			myGiRayCountSum += myGiRayCountThisFrame;
 			myGiStatisticFrameCount++;
 		}
@@ -3389,9 +3403,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 				"gGiProbeDepth",
 				static_cast<uint64_t>(total.probeCount) * 2 * SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE * sizeof(uint32_t));
 		}
-		// nothing of the last frame's probes is kept
+		// nothing of the last frame's probes is kept, nor what the clips counted
 		myGiReset = true;
 		myGiClearBuffers = true;
+		myGiClipsUpdated.fill(0);
+		myGiClipProbeCounts.fill(0);
+		myGiClipCacheBlockCounts.fill(0);
 	}
 	ENSUREF(
 		clipmap.total.voxelCount == myGiClipmap.total.voxelCount || changed,
@@ -3482,7 +3499,6 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGraph.SetEnabled(myGiShiftPass, voxelize);
 	myGraph.SetEnabled(myGiVoxelizePass, voxelize);
 	myGraph.SetEnabled(myGiKeepPass, voxelize);
-	myGraph.SetEnabled(myGiLightStaticPass, voxelize || myGiLightsChanged);
 	{
 		// a job per draw (its first triangle of the run, first index, DrawRecord and instances), the triangle count after:
 		// per clip voxelized, the static draws whose bounds reach it, then what moves, every frame (for every clip)
@@ -3551,11 +3567,9 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGraph.SetEnabled(myGiVoxelizeMovingPass, myGiMovingJobCount > 0);
 	}
 
-	// the lights per cell of each clip, and the parameters: the probes' halves (this frame's and the last's: swapped each
-	// frame), the rays' subset of the frame (see GiData::rayPhase), and the blending's
+	// the lights per cell of each clip, and the parameters: the probes' halves (this update's and the last's: swapped each
+	// update), the rays' subset of the update (see GiData::rayPhase), and the blending's
 	std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
-	myGiProbeHalf ^= 1;
-	myGiRayPhase = (myGiRayPhase + 1) % (2 * myGiRayPhaseCount);
 	myGiFramesSinceReset = myGiReset ? 0 : myGiFramesSinceReset + 1;
 	// and the frames the scene has been still: nothing reset, the lights unchanged and not being followed, nothing moving
 	// (see GiData::probeFreeze)
@@ -3571,32 +3585,46 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGiFrameSeconds += (seconds - myGiFrameSeconds) * 0.1;
 	}
 	myGiFrameTime = frameTime;
-	float hysteresis = myGiHysteresis;
-	if (myGiTimeBased)
+	// which clips are updated this frame (see GiData::updated): the finest level's every frame, the coarser levels' in
+	// turn, a level a frame (with 3 levels, the second's every other frame and the last's in the frames between), since
+	// a clip costs about as much as another (its voxels near a surface, which each has about as many of: Bistro's evening
+	// 38.4 ms with 3 clips, 33.9 with 2, 30.2 with 1; Sponza 22.3, 19.2 and 16.5); every clip in a frame that keeps
+	// nothing of the last (a reset), starts the cache (its tables) or dumps (every clip's probe, as one frame has them);
+	// and a clip voxelized (it moved) whenever, its buffers following its place. its clock advances (GiData::frameStamp)
+	if (myGiClipClocks.size() != myGiClipmap.clips.size())
+		myGiClipClocks.assign(myGiClipmap.clips.size(), GiClipClock{});
+	uint32_t coarseLevelCount = std::max(myGiClipmap.clips.back().data.level, 1U);
+	myGiStaggerFrame = (myGiStaggerFrame + 1) % coarseLevelCount;
+	bool everyClip = !myGiStagger || myGiReset || myGiCacheInit || myGiDump;
+	myGiClipsUpdated[frame.frameIndex] = 0;
+	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 	{
-		constexpr float kMinHysteresis = 0.8F;
-		hysteresis = std::clamp(static_cast<float>(std::pow(static_cast<double>(myGiHysteresis), myGiFrameSeconds * 60.0)), std::min(kMinHysteresis, myGiHysteresis), 0.995F);
+		auto& clock = myGiClipClocks[clipIt];
+		uint32_t level = myGiClipmap.clips[clipIt].data.level;
+		clock.frames += myGiTimeBased ? myGiFrameSeconds * 60.0 : 1.0;
+		clock.lightsChanged = clock.lightsChanged || myGiLightsChanged;
+		clock.emittersToggled = clock.emittersToggled || myGiEmittersToggled;
+		clock.cacheReset = clock.cacheReset || (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit;
+		clock.updated = everyClip || level == 0 || (level - 1) % coarseLevelCount == myGiStaggerFrame || myGiClipJobs[clipIt].voxelize;
+		clock.relight = false;
+		if (!clock.updated)
+			continue;
+		myGiClipsUpdated[frame.frameIndex] |= 1U << clipIt;
+		clock.probeHalf ^= 1;
+		clock.rayPhase = (clock.rayPhase + 1) % (2 * myGiRayPhaseCount);
+		clock.frameStamp = (clock.frameStamp % 0xFFFFFF) + 1;
+		clock.updatesSinceCacheReset = clock.cacheReset || myGiReset ? 0 : clock.updatesSinceCacheReset + 1;
+		clock.relight = clock.lightsChanged;
 	}
-	// the surface cache's window: at most half the frames since it started over (and at least 32), so that the samples of
-	// its first frames, while the probes and the bounce build up (and overshoot), fall out as that ends rather than as 1
-	// over the samples: by its whole window from the start, a mean of up to 1024 samples, Sponza's interior still darkened
-	// 1200 frames after a cold start, where without the cache it settled by 600 (docs/performance-plan.md)
-	bool cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit || myGiReset;
-	myGiFramesSinceCacheReset = cacheReset ? 0 : myGiFramesSinceCacheReset + 1;
-	uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(myGiFramesSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount) : myGiCacheSampleCount;
-	// and 4 rays a voxel (at least) while the light settles, its first kGiCacheWarmFrameCount frames: what it averages then
-	// is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza within 10%
-	// of settled after 240 frames rather than 460, within 5% after 920 rather than 1460: 4 rays throughout cost 4.8 ms of its
-	// 34 a frame, and were noisier, 0.011 against 0.007). while they last Bistro's frame takes 80 ms rather than 65, San
-	// Miguel's 94 rather than 88, Sponza's 36 rather than 31 (see IsLightingWarmingUp)
-	uint32_t cacheRayCount = myGiTimeBased && myGiFramesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
-	myGiCacheWarming = frame.giSurfaceCache && cacheRayCount > myGiCacheRayCount;
-	// the rays per probe this frame: the budget over the probes traced last time (at least 16, at most the count, in
-	// eights)
+	myGraph.SetEnabled(myGiLightStaticPass, voxelize || std::ranges::any_of(myGiClipClocks, [](const auto& clock) { return clock.relight; }));
+	// (while the finest clips' cache warms up, see IsLightingWarmingUp and the cache's rays below)
+	myGiCacheWarming = frame.giSurfaceCache && myGiTimeBased && myGiClipClocks.front().updatesSinceCacheReset < kGiCacheWarmFrameCount &&
+					   myGiCacheRayCount < 4;
+	// the rays per probe this frame: the budget over the probes every clip traced the last time it was updated (at least
+	// 16, at most the count, in eights): the coarser clips updated in turn trace as many rays a probe as every frame
 	myGiRayCountThisFrame = myGiRayCount;
 	if (myGiActiveProbeCount > 0)
 		myGiRayCountThisFrame = std::clamp((myGiRayBudget / myGiActiveProbeCount) & ~7U, std::min(16U, myGiRayCount), myGiRayCount);
-	myGiFrameStamp = (myGiFrameStamp % 0xFFFFFF) + 1;
 	constexpr uint32_t kDepthTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
 	uint32_t probeTotal = myGiClipmap.total.probeCount;
 	// (a model all of which moves has a moving BVH alone: its static one is the default, a node that holds nothing)
@@ -3607,30 +3635,46 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip = myGiClipmap.clips[clipIt].data;
 		for (int axisIt = 0; axisIt < 3; axisIt++)
 			clip.scroll[axisIt] = myGiClipJobs[clipIt].scroll[axisIt];
-		clip.rayPhase = myGiRayPhase;
+		auto& clock = myGiClipClocks[clipIt];
+		clip.updated = clock.updated ? 1U : 0U;
+		clip.rayPhase = clock.rayPhase;
 		clip.rayPhaseCount = myGiRayPhaseCount;
-		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount && !myGiDump ? 1U : 0U;
-		clip.frameStamp = myGiFrameStamp;
+		// still for two laps of its own phases
+		uint32_t interval = myGiStagger && clip.level > 0 ? coarseLevelCount : 1U;
+		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount * interval && !myGiDump ? 1U : 0U;
+		clip.frameStamp = clock.frameStamp;
 		uint32_t clipFirst = clip.probeFirst;
-		clip.probeFirst = myGiProbeHalf * probeTotal + clipFirst;
-		clip.probePreviousFirst = (1 - myGiProbeHalf) * probeTotal + clipFirst;
-		clip.visibilityFirst = myGiProbeHalf * myGiClipmap.total.voxelCount + clip.voxelFirst;
-		clip.visibilityPreviousFirst = (1 - myGiProbeHalf) * myGiClipmap.total.voxelCount + clip.voxelFirst;
+		clip.probeFirst = clock.probeHalf * probeTotal + clipFirst;
+		clip.probePreviousFirst = (1 - clock.probeHalf) * probeTotal + clipFirst;
+		clip.visibilityFirst = clock.probeHalf * myGiClipmap.total.voxelCount + clip.voxelFirst;
+		clip.visibilityPreviousFirst = (1 - clock.probeHalf) * myGiClipmap.total.voxelCount + clip.voxelFirst;
 		// the probes' cycle sums and means, past both halves of their irradiance (see GiData::cycleOffset)
 		clip.cycleOffset = 2 * probeTotal;
+		// the surface cache's window: at most half the updates since it started over (and at least 32), so that the samples
+		// of its first updates, while the probes and the bounce build up (and overshoot), fall out as that ends rather than
+		// as 1 over the samples: by its whole window from the start, a mean of up to 1024 samples, Sponza's interior still
+		// darkened 1200 frames after a cold start, where without the cache it settled by 600 (docs/performance-plan.md)
+		uint32_t cacheSampleCount = myGiTimeBased ? std::clamp(clock.updatesSinceCacheReset / 2, std::min(32U, myGiCacheSampleCount), myGiCacheSampleCount)
+												  : myGiCacheSampleCount;
+		// and 4 rays a voxel (at least) while the light settles, its first kGiCacheWarmFrameCount updates: what it averages
+		// then is still moving, and the window being in samples, 4 a frame also forget it in a quarter of the frames (Sponza
+		// within 10% of settled after 240 frames rather than 460, within 5% after 920 rather than 1460: 4 rays throughout
+		// cost 4.8 ms of its 34 a frame, and were noisier, 0.011 against 0.007). while they last Bistro's frame takes 80 ms
+		// rather than 65, San Miguel's 94 rather than 88, Sponza's 36 rather than 31 (see IsLightingWarmingUp)
+		uint32_t cacheRayCount = myGiTimeBased && clock.updatesSinceCacheReset < kGiCacheWarmFrameCount ? std::max(myGiCacheRayCount, 4U) : myGiCacheRayCount;
 		// the surface cache (FrameInputs::giSurfaceCache), dropped when the lights change (their light is in it)
 		clip.cacheRayCount = frame.giSurfaceCache ? cacheRayCount : 0U;
 		// following lights that change gradually (see myGiLightsGradual) as where something moves
 		clip.cacheSampleCount = myGiLightsFollowFrames > 0 ? std::min(cacheSampleCount, 32U) : cacheSampleCount;
-		clip.cacheReset = (myGiLightsChanged && !myGiLightsGradual) || myGiCacheInit ? 1U : 0U;
+		clip.cacheReset = clock.updated && clock.cacheReset ? 1U : 0U;
 		uint32_t settledFrameCount = myGiCacheSettledFrameCount > 0 ? myGiCacheSettledFrameCount : 2 * myGiCacheSampleCount;
-		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && myGiFramesSinceCacheReset >= settledFrameCount ? 1U : 0U;
+		clip.cacheSettled = myGiTimeBased && myGiLightsFollowFrames == 0 && clock.updatesSinceCacheReset >= settledFrameCount ? 1U : 0U;
 		clip.cacheShow = myGiCacheShow ? 1U : 0U;
 		clip.cacheFilterPassCount = myGiCacheFilterPassCount;
 		// the cache's tables (see GiData::cacheTableFirst): the clip's blocks from its first flag's
 		uint32_t blockFirst = clip.flagFirst / SHADER_TYPES_GI_FLAG_WORD_COUNT;
-		clip.cacheTableFirst = 2 * (myGiProbeHalf * myGiCacheBlockCount + blockFirst);
-		clip.cacheTablePreviousFirst = 2 * ((1 - myGiProbeHalf) * myGiCacheBlockCount + blockFirst);
+		clip.cacheTableFirst = 2 * (clock.probeHalf * myGiCacheBlockCount + blockFirst);
+		clip.cacheTablePreviousFirst = 2 * ((1 - clock.probeHalf) * myGiCacheBlockCount + blockFirst);
 		clip.cacheRecordTableFirst = 4 * myGiCacheBlockCount + blockFirst;
 		clip.cacheKeepFrameCount = myGiCacheKeepFrameCount;
 		clip.cachePageCapacity = myGiCachePageCapacity;
@@ -3644,10 +3688,27 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.depthPreviousFirst = clip.probePreviousFirst * kDepthTexelCount;
 		clip.rayFirst = clipFirst * myGiRayCount;
 		clip.rayCount = myGiRayCountThisFrame;
+		// what a probe keeps of what it held an update: the blend a frame (by time, see myGiTimeBased: at 60 frames a second)
+		// raised to the frames since the clip was last updated, so that a clip updated every other frame follows a change in
+		// as long as one updated every frame
+		auto hysteresis = static_cast<float>(std::pow(static_cast<double>(myGiHysteresis), clock.frames));
+		if (myGiTimeBased)
+		{
+			constexpr float kMinHysteresis = 0.8F;
+			hysteresis = std::clamp(hysteresis, std::min(kMinHysteresis, myGiHysteresis), 0.995F);
+		}
 		clip.hysteresis = hysteresis;
 		clip.reset = myGiReset ? 1 : 0;
-		// the lights alone changed: the part of the static voxels' light they don't change is kept (see GiData::keptFirst)
-		clip.lightsOnly = myGiLightsChanged && !myGiEmittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
+		// the lights alone changed (since the clip was last updated): the part of the static voxels' light they don't change
+		// is kept (see GiData::keptFirst)
+		clip.lightsOnly = clock.updated && clock.lightsChanged && !clock.emittersToggled && !myGiReset && !myGiClipJobs[clipIt].voxelize ? 1 : 0;
+		if (clock.updated)
+		{
+			clock.frames = 0.0;
+			clock.lightsChanged = false;
+			clock.emittersToggled = false;
+			clock.cacheReset = false;
+		}
 		// not for the first frames after a reset: the probes' depth maps are provisional then (see ComputeGiProbeUpdate),
 		// and what leaked through them into the voxels fed the probes, which fed the voxels, for seconds (Sponza's arcade
 		// started 8 times too bright and darkened over 200 frames)
