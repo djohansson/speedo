@@ -2089,6 +2089,7 @@ struct Scene::Impl
 						{"ComputeUpscaleLumaInstability", SLANG_STAGE_COMPUTE},
 						{"ComputeUpscaleAccumulate", SLANG_STAGE_COMPUTE},
 						{"ComputeSharpen", SLANG_STAGE_COMPUTE},
+						{"ComputeGiResolveTraced", SLANG_STAGE_COMPUTE}, // see the GI Resolve step
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

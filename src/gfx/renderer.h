@@ -581,6 +581,7 @@ private:
 	uint32_t myGiCacheKeepFrameCount = 1024; // SPEEDO_GI_CACHE_KEEP_FRAMES: see GiData::cacheKeepFrameCount
 	bool myGiCacheShow = false; // SPEEDO_GI_CACHE_SHOW=1: see GiData::cacheShow
 	bool myGiSurfaceCacheOn = false; // this frame (FrameInputs::giSurfaceCache), for the GI pass's filter
+	bool myGiTraceBvh = false; // this frame: the rays trace the BVHs (GI_TRACE_BVH, see ComputeGiResolveTraced)
 	// the near field (see GiData::nearReach): its rays' reach in voxels (SPEEDO_GI_NEAR_REACH), the power of the share that
 	// met no contact the volume's lookup is weighed by (SPEEDO_GI_NEAR_POWER), what the shading shows of it
 	// (SPEEDO_GI_NEAR_SHOW), whether it runs this frame (FrameInputs::giNearField, where the rays trace the BVHs), and its

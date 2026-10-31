@@ -3073,10 +3073,26 @@ groupshared uint gGiSharedProbeMoved[8];
 groupshared uint gGiSharedCachePage;
 groupshared uint gGiSharedCacheFresh;
 groupshared uint gGiSharedCacheActive;
+// whether a lookup read each of the 27 blocks around lately
+groupshared uint gGiSharedCacheSeen[27];
 
+// the resolve where the probes' rays walk the voxels: each probe tested by its depth map (kDepthMaps, see GiResolve)
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
+{
+	GiResolve<true>(groupId, groupIndex);
+}
+
+// and where they trace the BVHs: each probe tested by a ray, so the depth maps aren't read, nor held in shared memory
+[shader("compute")]
+[numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
+void ComputeGiResolveTraced(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
+{
+	GiResolve<false>(groupId, groupIndex);
+}
+
+void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 {
 	GiData gi = GiClip(gPushConstants.giClip);
 	uint3 size = GiLevelSize(gi, 0);
@@ -3161,11 +3177,14 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
 		gGiSharedIrradiance[loadIt] = gGiIrradiance[(gi.probeFirst + GiProbeIndex(probe, gi.probeSize)) * SHADER_TYPES_GI_IRRADIANCE_COUNT + loadIt % SHADER_TYPES_GI_IRRADIANCE_COUNT];
 	}
-	for (uint loadIt = groupIndex; loadIt < slotCount * kTexelCount; loadIt += SHADER_TYPES_GI_GROUP_SIZE)
+	if (kDepthMaps)
 	{
-		uint slot = loadIt / kTexelCount;
-		uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
-		gGiSharedDepth[loadIt] = gGiProbeDepth[gi.depthFirst + GiProbeIndex(probe, gi.probeSize) * kTexelCount + loadIt % kTexelCount];
+		for (uint loadIt = groupIndex; loadIt < slotCount * kTexelCount; loadIt += SHADER_TYPES_GI_GROUP_SIZE)
+		{
+			uint slot = loadIt / kTexelCount;
+			uint3 probe = uint3(clamp(blockBase + int3(slot % slots.x, (slot / slots.x) % slots.y, slot / (slots.x * slots.y)), int3(0), int3(gi.probeSize.xyz) - 1));
+			gGiSharedDepth[loadIt] = gGiProbeDepth[gi.depthFirst + GiProbeIndex(probe, gi.probeSize) * kTexelCount + loadIt % kTexelCount];
+		}
 	}
 	if (groupIndex < slotCount)
 	{
@@ -3180,16 +3199,20 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	// (the filter's reach), in the last kGiCacheSeenFrameCount frames (GiMarkSeen, at the block's place then, by the
 	// scroll). the others trace a ray now and then, and the filter takes their own light (see ComputeGiCacheFilter): at
 	// the user's corridor pose in Sponza, the cache traced and filtered every voxel near a surface in the 3 clips, for 4
-	// ms a frame
+	// ms a frame. a thread each of the 27 blocks: by the first thread alone, one after another (it stopped at the first
+	// read, so the loads couldn't overlap), the group's other threads waiting, and most blocks are read by no lookup
+	if (gi.cacheRayCount != 0u && groupIndex < 27u)
+	{
+		int3 around = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL) + int3(groupIndex % 3u, (groupIndex / 3u) % 3u, groupIndex / 9u) - 1;
+		uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
+		gGiSharedCacheSeen[groupIndex] = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount ? 1u : 0u;
+	}
+	GroupMemoryBarrierWithGroupSync();
 	if (gi.cacheRayCount != 0u && groupIndex == 0u)
 	{
 		bool read = gi.cacheEverywhere != 0u;
-		for (uint aroundIt = 0; aroundIt < 27u && !read; aroundIt++)
-		{
-			int3 around = int3(block) + gi.scroll.xyz / int(1u << SHADER_TYPES_GI_FLAG_LEVEL) + int3(aroundIt % 3u, (aroundIt / 3u) % 3u, aroundIt / 9u) - 1;
-			uint seen = GiInside(around, blocks) ? gGiFlags[GiFlagIndex(gi, GiVoxelIndex(uint3(around), blocks)) + 2u] : 0u;
-			read = seen != 0u && gi.frameStamp - seen <= kGiCacheSeenFrameCount;
-		}
+		for (uint aroundIt = 0; aroundIt < 27u; aroundIt++)
+			read = read || gGiSharedCacheSeen[aroundIt] != 0u;
 		bool fresh = cachePage == 0u && cacheWanted != 0u && read;
 		if (fresh)
 			cachePage = GiCachePopPage();
@@ -3284,7 +3307,7 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 	// voxel's center, a surface's voxel's out along its own normal by half a voxel (the side it stands for): the open
 	// side the test point above goes by is a guess at the voxels around, which in a coarse clip pointed salle_de_bain's
 	// niches' points into the space behind their wall
-	bool traced = GiTracesBvh(gi);
+	bool traced = !kDepthMaps || GiTracesBvh(gi);
 	uint voxelIndex = GiVoxelIndex(at, size);
 	uint visibilityBits = 0u;
 	bool retrace = false;
@@ -3345,14 +3368,17 @@ void ComputeGiResolve(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
 		// the probes
 		float3 toProbe = probePosition - point;
 		float distance = length(toProbe);
-		GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
 		float2 moments = 0.0;
 		float nearest = 1e9;
-		for (uint tapIt = 0; tapIt < 4; tapIt++)
+		if (kDepthMaps)
 		{
-			float3 tap = GiUnpackDepth(gGiSharedDepth[slot * kTexelCount + taps.texel[tapIt]]);
-			moments += taps.weight[tapIt] * float2(abs(tap.x), tap.y);
-			nearest = min(nearest, abs(tap.z));
+			GiDepthTaps taps = GiDepthTapsAt(-toProbe / max(distance, 1e-6));
+			for (uint tapIt = 0; tapIt < 4; tapIt++)
+			{
+				float3 tap = GiUnpackDepth(gGiSharedDepth[slot * kTexelCount + taps.texel[tapIt]]);
+				moments += taps.weight[tapIt] * float2(abs(tap.x), tap.y);
+				nearest = min(nearest, abs(tap.z));
+			}
 		}
 		// traced: the nearest thing between the probe and the voxel. a surface's back means the probe is behind it, and
 		// it lights the voxel not at all, not even by the floor below (a point no probe sees takes their mean); a front

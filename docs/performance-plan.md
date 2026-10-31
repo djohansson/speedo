@@ -364,3 +364,23 @@ was a small part of it). The cache's update is 11 of the resolve's 13.7 ms in Bi
 - **Kept: the settled surface cache traces every other frame** (once its window has all its samples, 2048 frames after
   it started over, and nothing moves): Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4, in the long run only. Its rays
   are a fifth of its cost in Bistro's resolve; what the rest is needs a gpu profiler (Nsight on the RTX machine).
+
+### Since then (2026-10-28 to 2026-10-31)
+
+What landed for the look rather than the frame time: AMD's FSR 3.1 upscaler, ported, in place of our resolve, and
+balanced the default since 2026-10-29 (the user's call); the emitters' and the near field's light accumulated over frames
+at every pixel rather than at the traced pixels (the jitter changed the pixels upsampled from a traced pixel at an edge as
+a block); both histories up to 256 frames while the view is still, with a clamp on fireflies; depth reversed; a thin
+feature's history kept by the upscaler. The frame at the benchmark poses, balanced (the default), warm pipelines, on
+2026-10-31 before the change below: Bistro 43.65 ms, San Miguel 47.10, Sponza 26.02 (42.2, 46.3 and 24.4 on 2026-10-28
+with the resolve before FSR, which costs 0.8 ms more).
+
+- **Kept: the resolve without the probes' depth maps where the rays trace the BVHs** (`ComputeGiResolveTraced`): there
+  each probe is tested by a ray, but the kernel still loaded its block's 8 probes' depth maps into 8 KB of shared memory,
+  which no result used: Bistro 43.65 to 41.26 ms, San Miguel 47.10 to 45.57, Sponza 26.02 to 23.52 (two interleaved
+  rounds each, agreeing to 0.05 ms; the renders the same, to the run to run noise of the captures).
+- **Kept: the cache's 27 blocks around a block checked by a thread each**, not by the group's first thread one after
+  another: Bistro 41.32 to 41.16, San Miguel 45.78 to 45.58, Sponza 23.62 to 23.28.
+- **Tried and dropped**: the voxels' walk compiled out of the probes' rays and the cache's where the rays trace the BVHs
+  (a fallback never taken there): no change (Bistro 41.21 against 41.19, Sponza 23.24 against 23.23), so it costs the
+  kernels nothing.

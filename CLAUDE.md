@@ -1685,7 +1685,11 @@ its normal, stopping a twentieth of a voxel short of it: a quarter left a surfac
 probe over CornellBox's ceiling saw a corner voxel's point 4 mm under it, a streak along the ceiling's edge; a back face
 met means the probe is behind a wall, and it is skipped, a front face hides it), kept per voxel
 (`gGiVisibility`: 2 bits a probe and a valid bit, in two halves as the probes, by the scroll) and traced again only for
-the blocks where a probe moved or is new (`gGiSharedProbeMoved`). Every probe is traced on a retrace, the ones the
+the blocks where a probe moved or is new (`gGiSharedProbeMoved`). The resolve is then a kernel of its own (`ComputeGiResolveTraced`,
+`GiResolve<false>`), which neither reads the depth maps nor holds them in shared memory: the generic one, a group
+loading its 8 probes' 256 texels each, 8 KB of shared memory, whatever the rays traced, cost Bistro's frame 2.4 ms, San
+Miguel's 1.5 and Sponza's 2.5 at the benchmark poses (43.65 to 41.26, 47.10 to 45.57 and 26.02 to 23.52 ms, balanced),
+the renders the same. Every probe is traced on a retrace, the ones the
 resolve then skips as inside too: skipped before the trace, their bits stayed visible, and a probe whose inside share
 hovered at the line lit what it couldn't see once it fell below, in some runs and not others. A probe weighs its
 facing's 4th power (nothing behind the voxel's open side), a thousandth of that if hidden; and the hidden ones bring
@@ -1808,7 +1812,8 @@ subnormals and came out in pink, yellow and blue blotches). The passes ping-pong
 `GI_STATISTIC_CACHE_ACTIVE_BLOCKS`). Only what is looked up is traced and
 filtered: ComputeMain stamps the blocks each pixel's lookup reads (`GiMarkSeen`, the flags' third word, in each clip that
 lights the pixel), and the resolve marks a block active (`SHADER_TYPES_GI_FLAG_CACHE_ACTIVE`) where it or a block around
-it was read in the last 2 frames (at its place then, by the scroll); the others trace a ray every 8th frame and take their
+it was read in the last 2 frames (at its place then, by the scroll; a thread each of the 27 blocks: by the first alone,
+one after another, the frame took 0.16 to 0.34 ms more); the others trace a ray every 8th frame and take their
 own light unfiltered, so that the bounce doesn't change with where the camera looks (`SPEEDO_GI_CACHE_EVERYWHERE=1` does
 them all: a turn in place differs from it by a mean of 1 to 2 of 765). Once its window has all its samples (twice
 `SPEEDO_GI_CACHE_SAMPLES` frames after it started over, `SPEEDO_GI_CACHE_SETTLED_FRAMES` to say when) and the sun isn't

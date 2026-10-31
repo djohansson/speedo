@@ -87,6 +87,8 @@ constexpr uint8_t kUpscalePrepareReactivityEntryPoint = 37;
 constexpr uint8_t kUpscaleLumaInstabilityEntryPoint = 38;
 constexpr uint8_t kUpscaleAccumulateEntryPoint = 39;
 constexpr uint8_t kSharpenEntryPoint = 40;
+// the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
+constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -950,8 +952,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				computeBarrier(cmd);
 			}
 			if (!Skipped("GI Resolve"))
+			{
+				uint8_t resolve = myGiTraceBvh ? kGiResolveTracedEntryPoint : kGiResolveEntryPoint;
 				clips([&](uint32_t clip, const gi::Layout& layout)
-					  { giKernel(cmd, kGiResolveEntryPoint, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
+					  { giKernel(cmd, resolve, static_cast<uint64_t>(layout.flagCount) * SHADER_TYPES_GI_GROUP_SIZE, clip); });
+			}
 			// the surface cache's light filtered, a pass at a time (its noise first, see ComputeGiCacheFilter), and blended
 			// into what the resolve wrote, where it is on
 			if (myGiSurfaceCacheOn && !Skipped("GI Cache Filter"))
@@ -3572,6 +3577,8 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGiFrameStamp = (myGiFrameStamp % 0xFFFFFF) + 1;
 	constexpr uint32_t kDepthTexelCount = SHADER_TYPES_GI_DEPTH_SIDE * SHADER_TYPES_GI_DEPTH_SIDE;
 	uint32_t probeTotal = myGiClipmap.total.probeCount;
+	// (a model all of which moves has a moving BVH alone: its static one is the default, a node that holds nothing)
+	myGiTraceBvh = frame.traceTriangles && frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
 	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 	{
 		auto& clip = data[clipIt];
@@ -3627,10 +3634,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		clip.dumpProbe = ~0U;
 		clip.emissionReach = myGiEmissionReach;
 		clip.referenceRayCount = myGiReferenceRayCount;
-		// (a model all of which moves has a moving BVH alone: its static one is the default, a node that holds nothing)
-		clip.trace = frame.traceTriangles && frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh())
-						 ? GI_TRACE_BVH
-						 : GI_TRACE_VOXELS;
+		clip.trace = myGiTraceBvh ? GI_TRACE_BVH : GI_TRACE_VOXELS;
 		clip.bvhMoving = frame.model != nullptr && frame.model->HasMovingBvh() ? 1 : 0;
 		clip.nearReach = myGiNearOn ? myGiNearReach : 0.0F;
 		clip.nearContact = std::clamp(frame.giNearContact, 0.0F, myGiNearReach);
