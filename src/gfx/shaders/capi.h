@@ -934,6 +934,28 @@ struct CullView
 #ifndef BVH_RAY_QUERY
 #define BVH_RAY_QUERY 0
 #endif
+// diagnostic (BVH_RAY_QUERY_WATCH, SPEEDO_RAY_QUERY_WATCH=1, see gfx/rayquerywatch.h): what the ray queries of compute
+// shaders do, in gRayQueryWatch (host visible), for a crash report to tell after the gpu hung. the queries begun and ended,
+// the most candidates one took, the queries begun while their slot was taken, then a slot per query in flight: a query
+// claims the slot its ticket (the count begun before it) names if that is free, and frees it once it ends, so that a slot
+// still claimed after a hang is a query that never ended. written with atomics, which reach memory as they happen
+#ifndef BVH_RAY_QUERY_WATCH
+#define BVH_RAY_QUERY_WATCH 0
+#endif
+#define RAY_QUERY_WATCH_BEGUN 0u
+#define RAY_QUERY_WATCH_ENDED 1u
+#define RAY_QUERY_WATCH_MAX_CANDIDATES 2u
+#define RAY_QUERY_WATCH_UNRECORDED 3u
+// the replayed rays that hit something (SPEEDO_RAY_QUERY_REPLAY, see ComputeRayQueryReplay)
+#define RAY_QUERY_WATCH_REPLAY_HITS 4u
+#define RAY_QUERY_WATCH_HEADER_COUNT 8u
+#define RAY_QUERY_WATCH_SLOT_COUNT 1024u
+// a slot's words: its ticket + 1 (0: free); the frame index, and bits 8 and 9 any hit and moving; the candidates taken so
+// far (every 16th); the origin (3) and direction (3); tmax; the dispatch's giClip and giStep (bits 8 up); and its stage
+#define RAY_QUERY_WATCH_SLOT_WORD_COUNT 12u
+#define RAY_QUERY_WATCH_STAGE_BEGUN 1u // before TraceRayInline
+#define RAY_QUERY_WATCH_STAGE_TRACED 2u // after it, before Proceed first returned
+#define RAY_QUERY_WATCH_STAGE_CANDIDATES 3u // Proceed returned a candidate
 #define BVH_TRIANGLE_FLAG_DOUBLE_SIDED 1u
 // alpha masked: a ray passes where its material's texture alpha is below its cutoff (see GiAlphaMask)
 #define BVH_TRIANGLE_FLAG_ALPHA_MASKED 2u

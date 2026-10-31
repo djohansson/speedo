@@ -379,11 +379,83 @@ void BvhRayQueryCorners(uint instance, uint4 geometry, uint primitive, out float
 	}
 }
 
+#if BVH_RAY_QUERY_WATCH
+// diagnostic (see RAY_QUERY_WATCH_BEGUN): whether the watch records here, in compute shaders only (a fragment shader's
+// storage writes, even on a path never taken, turn its early depth test off, see GiMarch's cap)
+bool RayQueryWatchHere()
+{
+	__stage_switch
+	{
+	case compute:
+		return true;
+	default:
+		return false;
+	}
+}
+
+// a query begun: counted, and recorded in the slot its ticket names if that is free. its slot's first word, or ~0u
+uint RayQueryWatchBegin(float3 origin, float3 direction, float tmax, bool anyHit, bool moving)
+{
+	if (!RayQueryWatchHere())
+		return ~0u;
+	uint ticket;
+	InterlockedAdd(gRayQueryWatch[RAY_QUERY_WATCH_BEGUN], 1u, ticket);
+	uint slot = RAY_QUERY_WATCH_HEADER_COUNT + (ticket % RAY_QUERY_WATCH_SLOT_COUNT) * RAY_QUERY_WATCH_SLOT_WORD_COUNT;
+	uint previous;
+	InterlockedCompareExchange(gRayQueryWatch[slot], 0u, ticket + 1u, previous);
+	if (previous != 0u)
+	{
+		InterlockedAdd(gRayQueryWatch[RAY_QUERY_WATCH_UNRECORDED], 1u);
+		return ~0u;
+	}
+	uint words[RAY_QUERY_WATCH_SLOT_WORD_COUNT - 1u] = {
+		gPushConstants.frameIndex | (anyHit ? 0x100u : 0u) | (moving ? 0x200u : 0u),
+		0u,
+		asuint(origin.x), asuint(origin.y), asuint(origin.z),
+		asuint(direction.x), asuint(direction.y), asuint(direction.z),
+		asuint(tmax),
+		gPushConstants.giClip | (gPushConstants.giStep << 8u),
+		RAY_QUERY_WATCH_STAGE_BEGUN,
+	};
+	uint ignored;
+	for (uint wordIt = 0; wordIt < RAY_QUERY_WATCH_SLOT_WORD_COUNT - 1u; wordIt++)
+		InterlockedExchange(gRayQueryWatch[slot + 1u + wordIt], words[wordIt], ignored);
+	return slot;
+}
+
+// where a query recorded in slot is: its stage, and the candidates it has taken
+void RayQueryWatchStage(uint slot, uint stage, uint candidates)
+{
+	if (slot == ~0u)
+		return;
+	uint ignored;
+	InterlockedExchange(gRayQueryWatch[slot + 2u], candidates, ignored);
+	InterlockedExchange(gRayQueryWatch[slot + RAY_QUERY_WATCH_SLOT_WORD_COUNT - 1u], stage, ignored);
+}
+
+// a query ended, after it took candidates: counted, and its slot freed
+void RayQueryWatchEnd(uint slot, uint candidates)
+{
+	if (!RayQueryWatchHere())
+		return;
+	InterlockedAdd(gRayQueryWatch[RAY_QUERY_WATCH_ENDED], 1u);
+	InterlockedMax(gRayQueryWatch[RAY_QUERY_WATCH_MAX_CANDIDATES], candidates);
+	if (slot == ~0u)
+		return;
+	uint ignored;
+	InterlockedExchange(gRayQueryWatch[slot], 0u, ignored);
+}
+#endif
+
 // the nearest triangle a ray from origin along direction meets before tmax (or with anyHit any), of those filter accepts,
 // as the device's ray queries find it in gBvhScene[frame] (where they trace instead of BvhTraverse and BvhTraverse2): what
 // doesn't move, and with moving what moves too. what it says is as theirs (never capped)
 BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float tmax, bool anyHit, bool moving, Filter filter)
 {
+#if BVH_RAY_QUERY_WATCH
+	uint watch = RayQueryWatchBegin(origin, direction, tmax, anyHit, moving);
+	uint candidates = 0u;
+#endif
 	RayDesc ray;
 	ray.Origin = origin;
 	ray.TMin = 0.0;
@@ -395,13 +467,23 @@ BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float
 		anyHit ? RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH : RAY_FLAG_NONE,
 		moving ? (BVH_RAY_QUERY_MASK_STATIC | BVH_RAY_QUERY_MASK_MOVING) : BVH_RAY_QUERY_MASK_STATIC,
 		ray);
+#if BVH_RAY_QUERY_WATCH
+	RayQueryWatchStage(watch, RAY_QUERY_WATCH_STAGE_TRACED, 0u);
+#endif
 	// the candidates are the alpha masked triangles (their geometry isn't opaque): hit where the filter accepts them
 	while (query.Proceed())
 	{
+#if BVH_RAY_QUERY_WATCH
+		if ((candidates++ & 15u) == 0u)
+			RayQueryWatchStage(watch, RAY_QUERY_WATCH_STAGE_CANDIDATES, candidates);
+#endif
 		uint4 geometry = BvhRayQueryGeometry(query.CandidateInstanceID(), query.CandidateGeometryIndex());
 		if (filter.Accept(geometry.x, geometry.y + query.CandidatePrimitiveIndex() * 3u, query.CandidateTriangleBarycentrics()))
 			query.CommitNonOpaqueTriangleHit();
 	}
+#if BVH_RAY_QUERY_WATCH
+	RayQueryWatchEnd(watch, candidates);
+#endif
 	if (query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
 		return BvhNothing(tmax);
 	uint4 geometry = BvhRayQueryGeometry(query.CommittedInstanceID(), query.CommittedGeometryIndex());
@@ -419,4 +501,25 @@ BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float
 	hit.normal = hit.frontFace ? normal : -normal;
 	return hit;
 }
+
+#if BVH_RAY_QUERY_WATCH
+// diagnostic (SPEEDO_RAY_QUERY_REPLAY, see gfx/rayquerywatch.h): rays a crash report's watch had in flight, traced again as
+// they were (a thread per ray along x, per repetition along y), the watch counting them, and those that hit something
+// (so that the queries' results are used). gRayQueryReplay: the count, then per ray its origin and tmax, then its direction
+// and flags (bit 0 any hit, 1 moving)
+[shader("compute")]
+[numthreads(64, 1, 1)]
+void ComputeRayQueryReplay(uint3 dispatchId: SV_DispatchThreadID)
+{
+	uint count = asuint(gRayQueryReplay[0].x);
+	if (dispatchId.x >= count)
+		return;
+	float4 originTmax = gRayQueryReplay[1u + dispatchId.x * 2u];
+	float4 directionFlags = gRayQueryReplay[2u + dispatchId.x * 2u];
+	uint flags = asuint(directionFlags.w);
+	BvhHit hit = BvhTraceScene(originTmax.xyz, directionFlags.xyz, originTmax.w, (flags & 1u) != 0u, (flags & 2u) != 0u, BvhOpaque());
+	if (hit.t < originTmax.w)
+		InterlockedAdd(gRayQueryWatch[RAY_QUERY_WATCH_REPLAY_HITS], 1u);
+}
+#endif
 #endif

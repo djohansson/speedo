@@ -201,6 +201,14 @@ StructuredBuffer<float4> gBvhMovingTriangles[SHADER_TYPES_FRAME_COUNT];
 // what doesn't move (gBvhTriangles' triangles) and what moves (gBvhMovingTriangles[frame]'s), see BvhTraceScene
 [[vk::binding(46, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RaytracingAccelerationStructure gBvhScene[SHADER_TYPES_FRAME_COUNT];
+#if BVH_RAY_QUERY_WATCH
+// diagnostic: what the ray queries do, host visible (see RAY_QUERY_WATCH_BEGUN)
+[[vk::binding(47, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gRayQueryWatch;
+// diagnostic: the rays replayed (see ComputeRayQueryReplay): their count in the first's x, then two a ray
+[[vk::binding(48, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+StructuredBuffer<float4> gRayQueryReplay;
+#endif
 #endif
 // which of each voxel's 8 probes see it, traced through the BVHs (see ComputeGiResolve), in two halves (this frame's and
 // the last's, see GiData::visibilityFirst)

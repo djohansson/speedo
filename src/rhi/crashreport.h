@@ -2,7 +2,10 @@
 
 #include <rhi/types.h>
 
+#include <core/std_extra.h>
+
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace rhi
@@ -22,6 +25,12 @@ void CrashEvent(std::string_view what);
 
 // the frame being drawn, which events, submits and breadcrumbs are stamped with. the draw thread, as each frame starts
 void CrashFrame(uint64_t frame);
+
+// a section of the application's own in a report (what only it can tell of what the gpu was doing): write returns its
+// json (a value: an object, an array, ...), which the report writes under name. it runs on the reporting thread, whichever
+// that is, with the device lost or hung: it may read what the gpu wrote to host visible memory, but take no lock another
+// thread may hold. set while what it reads lives; an empty write removes it
+void SetCrashReportSection(std::string_view name, core::std_extra::move_only_function<std::string()> write);
 
 // the draw thread's heartbeat: each time it is about to draw a frame, or skip one (minimized, a window change), and each
 // time it has created a pipeline it bound (cold, a GI kernel takes seconds to compile on KosmicKrisp)
