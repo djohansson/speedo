@@ -1026,9 +1026,14 @@ struct GiData
 	// the frame's rays are a set of rayCount directions (a Fibonacci sphere) turned by the frame's phase (rayPhase, the
 	// next each frame, of rayPhaseCount; see GiRayDirection), the same for every probe: over rayPhaseCount frames a probe
 	// traces the same sets each time around, so that what it holds converges rather than wanders (a set turned at random
-	// every frame, as DDGI's, wanders by the frame's rays' share)
+	// every frame, as DDGI's, wanders by the frame's rays' share). rayPhase runs over two laps of the phases, a probe's
+	// second lap being the one it may hold what it has in (see probeFreeze)
 	alignas(4) UINT1(rayPhase);
 	alignas(4) UINT1(rayPhaseCount);
+	// whether the scene has been still for two laps of the phases (nothing reset, the lights unchanged and not followed,
+	// nothing moving, SPEEDO_GI_PROBE_FREEZE=0 for never): a probe that has settled then holds what it has every second lap
+	// rather than tracing (see GiProbeFrozen)
+	alignas(4) UINT1(probeFreeze);
 	// how much of what a probe held it keeps a frame (the rest is this frame's rays'); a probe new to the clip takes the
 	// coarser clip's light where it is, and more of its own rays until it has as many frames as that
 	alignas(4) FLOAT1(hysteresis);

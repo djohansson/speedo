@@ -384,3 +384,52 @@ with the resolve before FSR, which costs 0.8 ms more).
 - **Tried and dropped**: the voxels' walk compiled out of the probes' rays and the cache's where the rays trace the BVHs
   (a fallback never taken there): no change (Bistro 41.21 against 41.19, Sponza 23.24 against 23.23), so it costs the
   kernels nothing.
+- **Kept: settled probes hold what they have every second lap of their ray phases** where the scene is still (nothing
+  reset, the lights unchanged, nothing moving; `SPEEDO_GI_PROBE_FREEZE=0` for never): in a still scene a probe's next
+  cycle traces the same directions over the same light as its last, so its mean would be the same. Bistro 41.36 to
+  38.31 ms, San Miguel 45.70 to 44.49, Sponza 23.47 to 22.05; still captures as before to the noise, a walk without
+  upscaling 0.040 of 255 from before against a noise of 0.028 (with it, differences at edges alone, the same to the eye).
+
+The baseline at the defaults (balanced), 2026-10-31, after the resolve's change and before the probes': what each
+feature frees, then each pass (the draw thread's frame time; Bistro 41.1 ms, San Miguel 45.6, its GPU drifting up 2 ms
+over the passes' runs, so its last rows read low):
+
+| feature | Bistro (ms) | San Miguel (ms) |
+|---|---|---|
+| indirect lighting (all of it) | 24.3 | 18.4 |
+| its surface cache | 7.8 | 6.1 |
+| its near field | 6.4 | 6.2 |
+| the emitters | 4.9 | 3.7 |
+| the shadows (atlas, traced, and Main's filtering) | 0 | 4.3 |
+| the traced shadows | 0 | 0.5 |
+| all of them (the raster floor: 11.8 and 19.2 ms) | 29.3 | 26.4 |
+| the sun moving (60x), costs | 0.6 | 3.7 |
+
+| pass | Bistro (ms) | San Miguel (ms) |
+|---|---|---|
+| GI Resolve (with the surface cache's rays) | 8.8 | 6.4 |
+| Main | 5.3 | 9.5 |
+| GI Trace (the probes' rays) | 5.0 | 2.1 |
+| GI Near | 3.8 | 4.1 |
+| Emitter Sample | 3.4 | 1.7 |
+| GI Cache Filter | 3.1 | 2.6 |
+| Emitter Shade | 1.6 | 0.3 |
+| GI Near Temporal | 1.3 | 0.7 |
+| GI Probe Update | 1.2 | 0.6 |
+| GI Near X and Y | 1.1 | 1.5 |
+| Emitter Temporal | 1.0 | 0.7 |
+| Shadow Classify / Trace / Denoise X and Y | 0 | 3.6 / 1.5 / 1.6 |
+
+With upscaling on, ComputeMain's work is the Composite pass's, then the upscaler's and Sharpen's, which the script's pass
+list didn't name; it does now. What the surface cache costs is its rays (none at all: Bistro 41.2 to 34.4 ms, Sponza 23.2
+to 20.1), and most of those are the blocks around the ones a lookup read, traced every frame and filtered for the
+filter's taps and the lookups' filter at a block's edge (left out: 3.9 and 2.25 ms, but patches across Sponza's vault at
+0.33 of 255 from before; traced every 4th frame: 0.84 and 0.26, faint patches still converging at frame 600; both
+dropped). The entries left unread and unwritten where no ray adds to them changed nothing.
+
+The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22.05.
+
+Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
+`std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace
+printed at each level), which held the GPU through the next runs (Sponza 42 ms rather than 23) until it was found. The
+handler runs once now: a second terminate exits at once.

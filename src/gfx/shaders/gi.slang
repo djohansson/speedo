@@ -1495,13 +1495,43 @@ int3 GiProbeBase(GiData gi, float3 position, out float3 fraction)
 // Sponza's walls under auto exposure; at their own phases the ripples of a cell's 8 probes cancel in the lookup
 uint GiProbePhase(GiData gi, uint3 probe)
 {
+	return GiProbeLapPhase(gi, probe) % gi.rayPhaseCount;
+}
+
+// a probe's phase over two laps of them (GiData::rayPhase): its phase, and in the second lap (see GiProbeFrozen)
+uint GiProbeLapPhase(GiData gi, uint3 probe)
+{
 	float3 anchor = gGi[gPushConstants.frameIndex][gi.clipCount - 1].probeOrigin.xyz;
 	int3 lattice = int3(round((gi.probeOrigin.xyz - anchor) / gi.probeOrigin.w)) + int3(probe);
 	uint hash = uint(lattice.x) * 73856093u ^ uint(lattice.y) * 19349663u ^ uint(lattice.z) * 83492791u;
 	hash ^= hash >> 16;
 	hash *= 0x7feb352du;
 	hash ^= hash >> 15;
-	return (gi.rayPhase + hash) % gi.rayPhaseCount;
+	uint laps = 2u * gi.rayPhaseCount;
+	return (gi.rayPhase + hash % laps) % laps;
+}
+
+// the frames a probe has (face 0's w) before it may hold what it has for a lap (see GiProbeFrozen), in laps of its ray
+// phases
+static const uint kGiFreezeLapCount = 4u;
+
+// whether a probe holds what it has this frame rather than tracing (where the scene is still, GiData::probeFreeze): every
+// second lap of its ray phases, once it has settled (kGiFreezeLapCount laps of frames) and was in the clip last frame
+// (history: what it holds is copied over, see ComputeGiProbeUpdate). its target, the last whole cycle's mean, is that
+// of a cycle of the same directions as the next would be, so in a still scene the next cycle's is the same, and holding
+// it changes nothing. decided as the lap starts (by the frames it has then) and kept for the lap (the last mean's face 1
+// w), so that the laps it holds are whole and each cycle it traces still takes every phase once: by the frames it had
+// each frame, a probe that reached them within a lap held the rest of it, and the cycle it was in lacked those phases
+bool GiProbeFrozen(GiData gi, uint3 probe, uint history)
+{
+	if (gi.probeFreeze == 0u || history == kGiNoProbe)
+		return false;
+	uint lapPhase = GiProbeLapPhase(gi, probe);
+	if (lapPhase < gi.rayPhaseCount)
+		return false;
+	if (lapPhase == gi.rayPhaseCount)
+		return gGiIrradiance[history * SHADER_TYPES_GI_IRRADIANCE_COUNT].w >= float(kGiFreezeLapCount * gi.rayPhaseCount);
+	return gGiIrradiance[(history + 2u * gi.cycleOffset) * SHADER_TYPES_GI_IRRADIANCE_COUNT + 1u].w != 0.0;
 }
 
 // a ray of a phase: a Fibonacci sphere of rayCount directions turned by the phase (a quaternion from a quasirandom
@@ -1618,10 +1648,11 @@ void ComputeGiTrace(uint3 dispatchId: SV_DispatchThreadID)
 	uint rayIndex = threadId.x % gi.rayCount;
 	uint3 probe = GiProbeAt(probeIndex, gi.probeSize);
 	// from where the probe was last frame (its update moves it after the rays)
-	float3 origin = GiProbePosition(gi, probe, GiProbeHistory(gi, probe));
+	uint history = GiProbeHistory(gi, probe);
+	float3 origin = GiProbePosition(gi, probe, history);
 	// only the probes something is voxelized near trace (see ComputeGiFlags): the others are never looked up (the lookups
-	// are at surfaces, among the probes of their cell), see ComputeGiProbeUpdate
-	if ((GiFlagsAt(gi, GiProbeLatticePosition(gi, probe)) & 8u) == 0u)
+	// are at surfaces, among the probes of their cell), see ComputeGiProbeUpdate; nor those holding what they have
+	if ((GiFlagsAt(gi, GiProbeLatticePosition(gi, probe)) & 8u) == 0u || GiProbeFrozen(gi, probe, history))
 		return;
 	float3 direction = GiRayDirection(gi, GiProbePhase(gi, probe), rayIndex);
 	GiData last = GiClip(gi.clipCount - 1);
@@ -1704,9 +1735,32 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 	// and how much its frames' light differs from what it holds, frame to frame (face 1's w: its noise)
 	float noise = shifted ? gGiIrradiance[(gi.probePreviousFirst + fromIndex) * SHADER_TYPES_GI_IRRADIANCE_COUNT + 1].w : 0.0;
 
-	// one more probe traced this frame (see GI_STATISTIC_ACTIVE_PROBES)
+	// one more probe traced this frame (see GI_STATISTIC_ACTIVE_PROBES; one holding what it has too, as the budget's rays
+	// a probe are of the probes that trace in turn)
 	if (texelIndex == 0u)
 		InterlockedAdd(gGiStatistics[gPushConstants.frameIndex][GI_STATISTIC_ACTIVE_PROBES], 1u);
+	// holding what it has this frame (see GiProbeFrozen): copied over from its place last frame, its light, place, depth
+	// and cycle as they were
+	if (GiProbeFrozen(gi, probe, history))
+	{
+		for (uint texelIt = 0; texelIt < kTexelsPerThread; texelIt++)
+		{
+			uint texel = texelIndex + texelIt * SHADER_TYPES_GI_GROUP_SIZE;
+			gGiProbeDepth[gi.depthFirst + probeIndex * kTexelCount + texel] = gGiProbeDepth[gi.depthPreviousFirst + fromIndex * kTexelCount + texel];
+		}
+		if (texelIndex < 3u * SHADER_TYPES_GI_IRRADIANCE_COUNT)
+		{
+			// the light, the cycle's running sum and its last mean (see GiData::cycleOffset)
+			uint part = texelIndex / SHADER_TYPES_GI_IRRADIANCE_COUNT;
+			uint face = texelIndex % SHADER_TYPES_GI_IRRADIANCE_COUNT;
+			float4 held = gGiIrradiance[(gi.probePreviousFirst + fromIndex + part * gi.cycleOffset) * SHADER_TYPES_GI_IRRADIANCE_COUNT + face];
+			// and that it holds for the rest of the lap (cleared by the mean's next write, when it traces)
+			if (part == 2u && face == 1u)
+				held.w = 1.0;
+			gGiIrradiance[first + part * gi.cycleOffset * SHADER_TYPES_GI_IRRADIANCE_COUNT + face] = held;
+		}
+		return;
+	}
 	// the rays: the thread's texels' depth (texelIndex, and every group's worth of texels after it), and (the first
 	// thread) the irradiance faces
 	float3 texelDirection[kTexelsPerThread];

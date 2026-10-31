@@ -1555,7 +1555,17 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   `-9.1511,1.4025,-3.5391,26.261,106.832`, pixels from 134 to 84 of 255 and back; 3% of the pixels of the indirect
   diffuse view stepped by 32 or more); a still scene's cycles are the same directions, so not one pixel changes from
   frame to frame there now. A change of the light reaches the target once the probe's cycle ends, up to 32 frames
-  later, then the blend's; no measurable cost (the frame 3.51 ms either way). The probes' buffers hold
+  later, then the blend's; no measurable cost (the frame 3.51 ms either way). So, where the scene is still (nothing
+  reset, the lights unchanged and not being followed, nothing moving, for two laps of the phases: `GiData::probeFreeze`,
+  `SPEEDO_GI_PROBE_FREEZE=0` for never), a probe that has settled (4 laps of frames) holds what it has every second lap
+  rather than tracing (`GiProbeFrozen`: `rayPhase` runs over two laps, a probe's second its own by the phase's hash;
+  copied over from its place last frame, its light, place, depth and cycle; decided as the lap starts and kept for it,
+  the last mean's face 1 w, so that the laps it holds are whole and each cycle it traces still takes every phase once;
+  counted for the ray budget as tracing): its next cycle's mean would be its last's. Bistro 41.36 to 38.31 ms, San Miguel
+  45.70 to 44.49, Sponza 23.47 to 22.05 at the benchmark poses (balanced); still, the captures as before to their run to
+  run noise; walking along Sponza's corridor, without upscaling 0.040 of 255 from before against a noise of 0.028 (a
+  probe's light follows the clips' boxes around the eye, which move with it, a lap later), with it 0.35 at the edges
+  alone (the upscaler's locks; 0.105 at an eighth of the size against 0.04), the same to the eye. The probes' buffers hold
   two halves, the frame's and the last's (`GiData::probeFirst`, `probePreviousFirst`, swapped each frame), and a
   probe's history is the probe at its place last frame (by the scroll), a probe new to the clip taking the coarser
   clip's light where it is (its previous half, at its place then, trilinear) as one frame's worth; on a reset (the
@@ -1818,8 +1828,13 @@ own light unfiltered, so that the bounce doesn't change with where the camera lo
 them all: a turn in place differs from it by a mean of 1 to 2 of 765). Once its window has all its samples (twice
 `SPEEDO_GI_CACHE_SAMPLES` frames after it started over, `SPEEDO_GI_CACHE_SETTLED_FRAMES` to say when) and the sun isn't
 being followed, a voxel where nothing moves traces every other frame (`GiData::cacheSettled`): the same samples over
-twice the frames, of a light that doesn't change (Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4: its rays are a
-fifth of its 11 ms in Bistro's resolve, the rest the entries' work). Costs (RTX 4070 Ti SUPER, 1920x1080, the `Frame`
+twice the frames, of a light that doesn't change (Bistro 57.5 to 56.3 ms, San Miguel 68.3 to 67.4, in runs of thousands
+of frames). Its rays are most of its cost, and the blocks around those read (traced every frame and filtered, for the
+filter's taps and the lookups' filter at a block's edge) most of those: at the benchmark poses (balanced, 2026-10-31)
+no rays at all took Bistro's frame from 41.2 to 34.4 ms and Sponza's from 23.2 to 20.1, and leaving the blocks around
+out 3.9 and 2.25 ms (patches across Sponza's vault at 0.33 of 255 from before: kept), tracing them every 4th frame
+0.84 and 0.26 (faint patches still converging at frame 600: dropped), the entries left unread and unwritten where no
+ray adds to them nothing. Costs (RTX 4070 Ti SUPER, 1920x1080, the `Frame`
 scope): Sponza's corridor 3.6 ms without it, 5.7 with it (8.2 everywhere), Bistro's street 6.5, 9.4 (12.4),
 CornellBox-Sphere 2.6, 4.7 (4.9); everywhere, a ray a voxel was 1.9 ms of Sponza's and a filter pass 0.4. Its storage exists only while it is on, and holds the blocks that hold entries and were
 read lately: at Sponza's corridor, near nothing at resolution 128 and 0.3 GB at 384. An entry for every voxel of every

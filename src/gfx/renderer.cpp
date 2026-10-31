@@ -1626,6 +1626,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// a jump of a quarter every 64 frames in Sponza's arcade)
 	const char* adapt = std::getenv("SPEEDO_GI_ADAPT");
 	myGiAdapt = adapt != nullptr && std::string_view(adapt) == "1";
+	if (const char* freeze = std::getenv("SPEEDO_GI_PROBE_FREEZE"); freeze != nullptr)
+		myGiProbeFreeze = std::string_view(freeze) != "0";
 	// a probe dumped at exit for debugging (SPEEDO_GI_DUMP=<x,y,z>, or pixel:<x>,<y> for the point under a pixel: per
 	// clip the one nearest the point, see GI_DUMP_FLOAT_COUNT)
 	if (const char* dump = std::getenv("SPEEDO_GI_DUMP"); dump != nullptr && *dump != '\0')
@@ -3537,8 +3539,12 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	// frame), the rays' subset of the frame (see GiData::rayPhase), and the blending's
 	std::array<GiData, SHADER_TYPES_GI_CLIP_COUNT> data{};
 	myGiProbeHalf ^= 1;
-	myGiRayPhase = (myGiRayPhase + 1) % myGiRayPhaseCount;
+	myGiRayPhase = (myGiRayPhase + 1) % (2 * myGiRayPhaseCount);
 	myGiFramesSinceReset = myGiReset ? 0 : myGiFramesSinceReset + 1;
+	// and the frames the scene has been still: nothing reset, the lights unchanged and not being followed, nothing moving
+	// (see GiData::probeFreeze)
+	bool still = !myGiReset && !myGiLightsChanged && !myGiEmittersToggled && myGiLightsFollowFrames == 0 && myGiMovingJobCount == 0 && !myGiAdapt;
+	myGiStillFrameCount = still ? myGiStillFrameCount + 1 : 0;
 	// the frames' length, smoothed over about ten (a stall shouldn't move the blend), and the probes' blend by it (see
 	// myGiTimeBased): a probe takes as long to follow a change at any frame rate (by frames, five times as long at San
 	// Miguel's 12 frames a second as at 60)
@@ -3587,6 +3593,7 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 			clip.scroll[axisIt] = myGiClipJobs[clipIt].scroll[axisIt];
 		clip.rayPhase = myGiRayPhase;
 		clip.rayPhaseCount = myGiRayPhaseCount;
+		clip.probeFreeze = myGiProbeFreeze && myGiStillFrameCount >= 2 * myGiRayPhaseCount && !myGiDump ? 1U : 0U;
 		clip.frameStamp = myGiFrameStamp;
 		uint32_t clipFirst = clip.probeFirst;
 		clip.probeFirst = myGiProbeHalf * probeTotal + clipFirst;

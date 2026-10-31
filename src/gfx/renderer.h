@@ -470,7 +470,11 @@ private:
 	std::vector<Buffer> myGiStatisticsBuffers;
 	FrameGraph::BufferId myGiStatisticsId;
 	uint32_t myGiRayPhaseCount = 32;
-	uint32_t myGiRayPhase = 0;
+	uint32_t myGiRayPhase = 0; // over two laps of the phases (see GiData::rayPhase)
+	// the probes hold what they have every second lap once the scene has been still for two (see GiData::probeFreeze):
+	// SPEEDO_GI_PROBE_FREEZE=0 for never, and the frames it has been still
+	bool myGiProbeFreeze = true;
+	uint32_t myGiStillFrameCount = 0;
 	uint32_t myGiProbeSpacing = 8;
 	float myGiHysteresis = 0.97F;
 	// the probes' blend by time rather than frames, and the surface cache's window by the frames since it started over
