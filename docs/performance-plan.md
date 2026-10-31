@@ -486,6 +486,28 @@ The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22
 The frame now (balanced, 2026-10-31, after the evening): Bistro 33.86 ms, San Miguel 40.92, Sponza 18.62 (with every
 2nd pixel's near field, 37.36, 43.85 and 19.93).
 
+What each pass frees left out, then (`perfbaseline.ps1 -Passes`; the frame 33.8 ms at Bistro and 40.7 at San Miguel;
+a pass whose output decides another's work frees that too: GI Light and GI Flags starve everything after them, and
+Composite marks the blocks the surface cache works on, so its row is mostly the cache's):
+
+| pass | Bistro (ms) | San Miguel (ms) |
+|---|---|---|
+| Main | 5.8 | 9.8 |
+| Composite (the cache's work) | 9.3 | 6.9 |
+| GI Resolve (with the cache's rays) | 8.0 | 6.5 |
+| Emitter Sample (with Shade's rays) | 3.9 | 1.8 |
+| Shadow Classify (with Trace and Denoise) | 0.5 | 3.5 |
+| GI Near / Near Temporal | 1.6 / 1.9 | 1.6 / 0.8 |
+| GI Cache Filter | 1.4 | 1.9 |
+| the Upscale passes and Sharpen | about 3 | about 2 |
+
+Main is half shading and half geometry: drawn with the base color debug view (`SPEEDO_DEBUG_VIEW=base-color`, which
+returns before the lighting) the `Frame` scope reads 26.5 ms rather than 30.6 at San Miguel and 17.5 rather than 20.6 at
+Bistro, so of San Miguel's 9.6 ms of Main the lighting is 4.1 and the rest, about 5.5, is its triangles transformed and
+rasterized a second time after the pre-pass (and the textures the surface reads). Forcing early depth tests on Main's
+fragments (`[earlydepthstencil]`, which its discards don't need now that it writes no depth) changed nothing. What would
+take the second geometry pass out is shading from what the pre-pass wrote (a visibility buffer), a larger change.
+
 Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace
 printed at each level), which held the GPU through the next runs (Sponza 42 ms rather than 23) until it was found. The
