@@ -330,12 +330,17 @@ Instance<kVk>::GetSwapchainInfo(PhysicalDeviceHandle<kVk> device, SurfaceHandle<
 template <>
 Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 : myConfig(std::forward<InstanceCreateDesc<kVk>>(desc))
+// the instance's allocations zeroed: KosmicKrisp allocates its instance with vk_alloc and never sets force_vk_vendor in it
+// (mesa main of 2026-10-30), whose nonzero value replaces its vendor id (Apple's, 0x106b), so the vendor id was whatever
+// the memory held, another in each process: every pipeline cache was another vendor's to the next process (the cache's
+// header), thrown away (all pipelines made cold at every start), and the crash reports' signature, which hashes the
+// vendor, never grouped two runs. vulkan promises no zeroed memory, so drop this once the driver sets it
 , myHostAllocationCallbacks{
 	.pUserData = nullptr,
 #if defined(SPEEDO_USE_MIMALLOC)
-	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope allocationScope)
 	{
-		return mi_malloc_aligned(size, alignment);
+		return allocationScope == VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE ? mi_zalloc_aligned(size, alignment) : mi_malloc_aligned(size, alignment);
 	},
 	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
@@ -346,9 +351,12 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 		mi_free(pMemory);
 	},
 #elif defined(__WINDOWS__)
-	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope allocationScope)
 	{
-		return _aligned_malloc(size, alignment);
+		void* memory = _aligned_malloc(size, alignment);
+		if (memory != nullptr && allocationScope == VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE)
+			std::memset(memory, 0, size);
+		return memory;
 	},
 	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
 	{
@@ -360,9 +368,12 @@ Instance<kVk>::Instance(InstanceCreateDesc<kVk>&& desc)
 	},
 #else
 	// realloc keeps no alignment, so a reallocation is a new allocation and a copy
-	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/)
+	.pfnAllocation = [](void* /*pUserData*/, size_t size, size_t alignment, VkSystemAllocationScope allocationScope)
 	{
-		return instance::AlignedAllocate(size, alignment);
+		void* memory = instance::AlignedAllocate(size, alignment);
+		if (memory != nullptr && allocationScope == VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE)
+			std::memset(memory, 0, size);
+		return memory;
 	},
 	.pfnReallocation = [](void* /*pUserData*/, void* pOriginal, size_t size, size_t alignment, VkSystemAllocationScope /*allocationScope*/) -> void*
 	{

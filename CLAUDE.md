@@ -239,6 +239,9 @@ application) and a summary line to stderr, then traps. A report has:
 - the kind, the result, a **signature** (a hash of the vendor, driver version, kind, result, first pass in flight and
   fault type: the same cause on many machines groups together), the time, frame, version (`SPEEDO_VERSION`), build,
   platform, device and driver, and the tools loaded (`VK_EXT_tooling_info`);
+  (KosmicKrisp's vendor id was the uninitialized memory of its instance, another in each process, which also threw
+  every pipeline cache away, its header being another vendor's to the next process: the instance's host allocations are
+  zeroed, see `instance.cpp`, until the driver allocates it zeroed: mesa's `kk: zero-initialize the instance`, `vk_zalloc`);
 - **breadcrumbs**: the frame graph's passes (`CrashBreadcrumb` around each, outside its render pass) written by the gpu
   as each begins (top of the pipe) and ends (bottom), with `VK_AMD_buffer_marker` into a host visible ring of 4096
   slots (device coherent with `VK_AMD_device_coherent_memory`), else `VK_NV_device_diagnostic_checkpoints` (each

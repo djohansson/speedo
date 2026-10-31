@@ -53,10 +53,23 @@ PipelineCacheHandle<kVk> LoadPipelineCache(const std::filesystem::path& cacheFil
 
 		const auto* header = reinterpret_cast<const PipelineCacheHeader<kVk>*>(cacheData.data());
 
+		const auto& properties = instance.GetPhysicalDeviceInfo(device.GetPhysicalDevice()).deviceProperties.properties;
 		if (cacheData.empty() ||
 			!IsCacheValid(*header, instance.GetPhysicalDeviceInfo(device.GetPhysicalDevice()).deviceProperties))
 		{
-			std::println(stderr, "Invalid pipeline cache, creating new.");
+			if (cacheData.size() < sizeof(PipelineCacheHeader<kVk>))
+				std::println(stderr, "Invalid pipeline cache ({} bytes), creating new.", cacheData.size());
+			else
+				std::println(
+					stderr,
+					"Invalid pipeline cache (header {} bytes, version {}, vendor {:#x} against {:#x}, device {:#x} against {:#x}, uuid {}), creating new.",
+					header->headerLength,
+					header->cacheHeaderVersion,
+					header->vendorID,
+					properties.vendorID,
+					header->deviceID,
+					properties.deviceID,
+					memcmp(header->pipelineCacheUUID.data(), properties.pipelineCacheUUID, VK_UUID_SIZE) == 0 ? "the same" : "another");
 			cacheData.clear();
 		}
 

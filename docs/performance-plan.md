@@ -433,3 +433,8 @@ Found on the way: a client sent SIGTERM as it starts can spin for minutes rather
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace
 printed at each level), which held the GPU through the next runs (Sponza 42 ms rather than 23) until it was found. The
 handler runs once now: a second terminate exits at once.
+
+And every client run printed "Invalid pipeline cache, creating new" (36 runs of 52 in a profile regression): KosmicKrisp
+never sets its vendor id override and allocates its instance unzeroed, so its vendor id was another in each process and
+every cache another vendor's; all pipelines were made cold at each start (the measurements here are after the warm-up
+frames, by when they were made). The instance's host allocations are zeroed now.
