@@ -461,6 +461,15 @@ The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22
   split between the children by the same share each would take alone, so a node's importances are computed once for
   all of them): Bistro 38.84 ms against 38.96 to 39.03, San Miguel within its noise. The candidates cost about 0.2 ms
   each at Bistro's pose (8 of them 38.36 ms, 4 37.62, 1 36.81), and the tree's shared levels are little of that.
+- **Tried and dropped: the near field's traced pixels moved within the stride's square**, a place a frame in a Bayer
+  order (the rays' turn skewed so that each place takes every direction), so that at a stride of 4 the frames' history
+  at every pixel would take rays traced at the pixel itself: against a stride of 2, Bistro still 0.327 of 255 rather than
+  stride 4's 0.335 (16828 pixels off by more than 8 rather than 25176; stride 2 against itself 0.056), turning 0.227
+  rather than 0.246, Sponza 0.102 rather than 0.108. What a stride of 4 loses is at thin features (window frames,
+  foliage), where the filter's taps on the pixel's surface are a stride apart: half as many, wherever the rays start.
+- **Not tried: the emitter triangles' texture coordinates stored with them** (sparing a candidate the index and vertex
+  reads before its texture's): the emitters' textures skipped in the candidates altogether took Bistro from 54.2 to 53.1
+  ms at most (rounds of a drifting machine, from -3.8 to +0.8 ms apart), of which the reads would be a part.
 
 Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace
