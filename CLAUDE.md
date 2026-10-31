@@ -1804,7 +1804,44 @@ timeout" in `/Library/Logs/DiagnosticReports/gpuEvent-client-*.ips`, the clients
 backed up behind them); one at a time never did, nor the BVHs in parallel, and not with the structures built but no ray
 traced. Not understood yet: a standalone Metal program tracing with a texture sampled in its candidate loop had
 "Impacting Interactivity" kills under four processes, but no gpu restart, and speedo's simple models (no alpha masks,
-so no candidates) restarted it too. What doesn't move is built
+so no candidates) restarted it too. Nor is it two clients tracing: one ray query client beside three of the BVHs
+restarted it once in three runs ("progress timeout"), the ray query client's GI pass (BoxTextured's, milliseconds alone)
+in flight for 10 s at frame 20 by its breadcrumbs (KosmicKrisp has buffer markers), the BVH client's Prepass with it.
+The driver's synchronization shows no race that contention would expose (a producer barrier of every stage, the
+acceleration structures' included, where each encoder ends; every pipeline barrier over dispatches, blits and the
+builds; every structure in a heap of the device's residency set), and its Metal code keeps `intersection_query`'s rules.
+`SPEEDO_RAY_QUERY_WATCH=1` (`gfx/rayquerywatch.h`, the shaders' `BVH_RAY_QUERY_WATCH`) watches the queries of compute
+shaders: counted as they begin and end in a host visible buffer, each recorded in a slot while in flight (its ray, its
+dispatch's clip and step, how far it got), which a crash report reads (`rhi::SetCrashReportSection`), and each compute
+dispatch a breadcrumb of its own (by its entry point's index). Written with atomics, it survives the restart: in the next
+one ("CDM Kill timeout", a restart of the channel), GI Resolve (entry point 16) of clip 0 was in flight at frame 27, and
+1296 of its queries never ended, every one inside the query (670 after `TraceRayInline`, waiting in `Proceed`, 126
+before it had returned; no candidates, BoxTextured is opaque), from 26 probes over one face of the box, short visibility
+rays, while 181650 queries begun after the last of them ended: a set of threads (a core's?) stopped in the ray queries,
+not the gpu. Every restart so far caught the GI pass early in a run (frames 20 to 28, while GI Resolve's visibility rays
+are traced: only where probes moved or are new). The rays aren't it: `SPEEDO_RAY_QUERY_REPLAY=<file>` (a ray a line, as
+the report lists them; the Ray Query Replay pass, `ComputeRayQueryReplay`, traces each `SPEEDO_RAY_QUERY_REPLAY_REPEAT`
+times a frame) traced those 796 alone, 1024 times a frame for 300 frames (245 M queries), and every one ended, for 0.5 ms
+a frame. A standalone Metal 4 program (no Vulkan: an MTL4 queue, argument tables, a residency set, three cubes'
+structures, the instance structure rebuilt every frame, a dispatch of those rays through `intersection_query` a frame)
+restarted the gpu beside three BVH clients ("CDM Kill timeout", blamed on a BVH client, its GI in flight), but not beside
+three Metal programs of plain compute (short dispatches, 58 ms ones, or 65 ms ones whose every thread runs that long),
+nor four of itself: so far every restart had a ray tracing process and speedo on KosmicKrisp, the stuck work either's
+(`src/tools/macos`: `rtrepro.mm`, its rays and `contend.ps1`, which runs processes at once and stops them at the first
+restart). With the clients' indirect lighting, traced shadows, emitters, upscaling and ui off, it restarted all the same,
+and took the machine down: nine more restarts 5 s apart, then WindowServer missed its watchdog and the machine froze (a
+forced restart, as once before). It isn't memory (three programs wiring 2.5 GB each and making it resident every
+frame), nor presentation (three windows presenting every refresh), nor timestamps (counter heaps around 16 dispatches a
+frame), and it isn't ray tracing: it is pipelines made and dispatched at once through an `MTL4CommandQueue`
+(`rtrepro compile`: a kernel of unique source after another, each dispatched once). Three of them alone restart the gpu
+within 2 or 3 s ("CDM Kill timeout"), every run, once the shader cache holds their kernels (about 1700 pipelines a
+second each; compiling for real, 50 a second, they survived), one alone sometimes, whichever compiler made them
+(`MTL4Compiler` or `MTLDevice`'s); through an `MTLCommandQueue` they never did (4000 to 6000 a second), nor made but
+not dispatched. speedo's restarts came in its clients' first frames, where KosmicKrisp (Metal 4 throughout) makes their
+pipelines, from a warm pipeline cache, and the ray queries' processes with them. Reported to Apple as FB25381275 (2026-10-31), with `rtrepro`.
+Don't run such experiments without asking. Metal's shader validation (`MTL_SHADER_VALIDATION=1`) crashes in
+MetalTools at the first commit with KosmicKrisp, with or without ray queries; Metal 4 has no encoder execution status,
+and a restart's kernel log says only its type. What doesn't move is built
 to be compacted: once its build is done (`CanCompact`, its compacted size queried and read without waiting at each
 `Scene::Update`), it is copied into a structure of that size (`RecordCompaction`; `rhi::QueryType`,
 `CommandEncoder::WriteAccelerationStructureCompactedSize` and `CopyAccelerationStructure`), the instances naming it
