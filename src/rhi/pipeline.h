@@ -283,6 +283,9 @@ private:
 	
 	// todo: should be handled differently to cater for multithread and explicit binds.
 	DescriptorPoolHandle<G> myDescriptorPool{};
+	// guards myDescriptorPool (see DescriptorSetArrayCreateDesc::poolMutex): the draw thread allocates sets from it while
+	// a timeline callback frees those a sky redraw took (see TakeDescriptorSets); shared, since the arrays lock it
+	std::shared_ptr<std::mutex> myDescriptorPoolMutex = std::make_shared<std::mutex>();
 
 	// todo: move pipeline map & cache to its own class, and pass in reference to it.
 	PipelineMapType myPipelineMap; // a null handle while it is being created

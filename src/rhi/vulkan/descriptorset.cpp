@@ -152,7 +152,10 @@ DescriptorSetArray<kVk>::DescriptorSetArray(
 			allocInfo.descriptorPool = desc.pool;
 			allocInfo.descriptorSetCount = layouts.size();
 			allocInfo.pSetLayouts = layouts.data();
-			VK_CHECK(vkAllocateDescriptorSets(desc.device, &allocInfo, sets.data()));
+			{
+				auto lock = std::lock_guard(*desc.poolMutex);
+				VK_CHECK(vkAllocateDescriptorSets(desc.device, &allocInfo, sets.data()));
+			}
 
 			for (size_t setIt = 0; setIt < sets.size(); setIt++)
 				Track(desc.device, VK_OBJECT_TYPE_DESCRIPTOR_SET, sets[setIt], std::format("{} {}", GetDebugName(desc), setIt));
@@ -168,6 +171,11 @@ DescriptorSetArray<kVk>::~DescriptorSetArray()
 	{
 		for (auto* set : myDescriptorSets)
 			Untrack(VK_OBJECT_TYPE_DESCRIPTOR_SET, set);
+		// on whichever thread drops the array: a timeline callback's, for the sets a pipeline handed over (see
+		// Pipeline::TakeDescriptorSets), while the draw thread allocates from the same pool. unguarded, the two
+		// corrupted KosmicKrisp's list of the pool's sets while the time of day advanced (a sky redraw takes its sets
+		// every 12 seconds at real time), which crashed destroying the pool at shutdown
+		auto lock = std::lock_guard(*GetDesc().poolMutex);
 		vkFreeDescriptorSets(
 			GetDevice(),
 			GetDesc().pool,

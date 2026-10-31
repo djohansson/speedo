@@ -56,6 +56,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 						DescriptorSetArrayCreateDesc<kVk>{
 							GetDevice().CreateDeviceObjectCreateDesc("DescriptorSetArray"),
 							myDescriptorPool,
+							myDescriptorPoolMutex,
 						},
 						setLayout),
 					0);
@@ -67,6 +68,7 @@ void Pipeline<kVk>::InternalPrepareDescriptorSets()
 template <>
 void Pipeline<kVk>::InternalResetDescriptorPool()
 {
+	auto lock = std::lock_guard(*myDescriptorPoolMutex);
 	vkResetDescriptorPool(GetDevice(), myDescriptorPool, 0);
 }
 
@@ -89,7 +91,7 @@ void Pipeline<kVk>::InternalUpdateDescriptorSet(
 	{
 		setArrayList.emplace_front(std::make_tuple(
 			DescriptorSetArray<kVk>(
-				DescriptorSetArrayCreateDesc<kVk>{GetDevice().CreateDeviceObjectCreateDesc("DescriptorSetArray"), myDescriptorPool}, setLayout),
+				DescriptorSetArrayCreateDesc<kVk>{GetDevice().CreateDeviceObjectCreateDesc("DescriptorSetArray"), myDescriptorPool, myDescriptorPoolMutex}, setLayout),
 			~0));
 	}
 

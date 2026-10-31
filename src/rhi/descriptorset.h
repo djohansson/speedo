@@ -8,6 +8,8 @@
 #include <array>
 #include <flat_map>
 #include <list>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <tuple>
@@ -103,6 +105,9 @@ template <GraphicsApi G>
 struct DescriptorSetArrayCreateDesc final : DeviceObjectCreateDesc<G>
 {
 	DescriptorPoolHandle<G> pool{};
+	// the pool's guard (its owner's, see Pipeline::myDescriptorPoolMutex), held while sets are allocated from it and freed
+	// back: a pool is externally synchronized, and arrays are freed on other threads than they are allocated on
+	std::shared_ptr<std::mutex> poolMutex;
 };
 
 template <GraphicsApi G>

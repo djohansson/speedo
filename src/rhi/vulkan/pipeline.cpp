@@ -684,6 +684,7 @@ void Pipeline<kVk>::Swap(Pipeline& rhs) noexcept
 	DeviceObject<Pipeline<kVk>>::Swap(rhs);
 	std::swap(myDescriptorMap, rhs.myDescriptorMap);
 	std::swap(myDescriptorPool, rhs.myDescriptorPool);
+	std::swap(myDescriptorPoolMutex, rhs.myDescriptorPoolMutex);
 	std::swap(myPipelineMap, rhs.myPipelineMap);
 	std::swap(myPipelineMapSync, rhs.myPipelineMapSync);
 	std::swap(myCache, rhs.myCache);

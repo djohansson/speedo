@@ -2186,7 +2186,12 @@ per-frame re-writes of the same data (as the compute pass does) exhaust the pool
 recycled once the gpu is done with them. A layout whose bindings change at every dispatch hands its sets over instead
 (`Pipeline::TakeDescriptorSets(set)`: the set's arrays so far, to destroy once the gpu is done with the commands that bound
 them, which frees them back to the pool; the next bind takes a fresh one): the environment filter's, 20 sets a sky redraw,
-every frame while the time of day advances fast, which would have emptied the pool's storage images within minutes. Push
+every frame while the time of day advances fast, which would have emptied the pool's storage images within minutes. Those
+handed over are freed in a timeline callback, on an executor thread, while the draw thread allocates from the same pool,
+which Vulkan requires to be externally synchronized: every allocation, free and reset of a pipeline's pool holds its
+mutex (`Pipeline::myDescriptorPoolMutex`, shared with each `DescriptorSetArray`, `DescriptorSetArrayCreateDesc::poolMutex`).
+Unguarded, the two corrupted KosmicKrisp's list of the pool's sets while the time of day advanced, and destroying the pool
+crashed at shutdown (`kk_descriptor_set_destroy`, unlinking a set already freed). Push
 descriptors would be the other way, but rhi's push path (`InternalPushDescriptorSet`, never used) doesn't work yet: with
 the Environment layout's set 1 flagged, validation reported the template's set 1 not to be the flagged layout
 (`VUID-VkDescriptorUpdateTemplateCreateInfo-templateType-00353`) and a set layout with a binding number twice
