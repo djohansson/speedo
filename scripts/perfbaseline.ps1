@@ -275,7 +275,10 @@ foreach ($sceneName in $Scenes)
 			'GI Light', 'GI Flags', 'GI Trace', 'GI Probe Update', 'GI Cache Release', 'GI Resolve', 'GI Cache Filter',
 			'', 'GI Near', 'GI Near X', 'GI Near Y', 'GI Near Temporal',
 			'Emitter Sample', 'Emitter Shade', 'Emitter X', 'Emitter Y', 'Emitter Temporal',
-			'Main', 'Main Late', 'ComputeMain', ''
+			'Main', 'Main Late', 'ComputeMain',
+			# with temporal upscaling (the default) ComputeMain's work is Composite's, then the upscaler's and Sharpen's
+			'Composite', 'Upscale Prepare Inputs', 'Upscale Shading Change Pyramid', 'Upscale Shading Change',
+			'Upscale Prepare Reactivity', 'Upscale Luma Instability', 'Upscale Accumulate', 'Sharpen', ''
 		)
 		$rows = @()
 		$index = 0
