@@ -258,19 +258,23 @@ extern "C"
 #define SHADER_TYPES_OIT_MAX_LAYERS 16u
 #define SHADER_TYPES_OIT_NODES_PER_PIXEL 4u
 
-// auto exposure: ComputeMain counts the frame's pixels by their log2 luminance (before exposure) in this many bins of
-// gExposureHistogram (per frame index), from SHADER_TYPES_EXPOSURE_LOG2_MIN to SHADER_TYPES_EXPOSURE_LOG2_MAX (the
-// first and last bins also take what is below and above), which the cpu reads back to adapt the exposure
+// auto exposure: ComputeMain counts each view's pixels by their log2 luminance (before exposure) in this many bins of
+// gExposureHistogram (per frame index and view: split screen's views see different light, a sunlit roof beside a dark
+// corridor, and each takes its own exposure, ViewData::exposure), from SHADER_TYPES_EXPOSURE_LOG2_MIN to
+// SHADER_TYPES_EXPOSURE_LOG2_MAX (the first and last bins also take what is below and above), which the cpu reads back to
+// adapt the exposures
 #define SHADER_TYPES_EXPOSURE_BINS 64u
 #define SHADER_TYPES_EXPOSURE_LOG2_MIN -12.0
 #define SHADER_TYPES_EXPOSURE_LOG2_MAX 12.0
 // and, after them, the drawn pixels by how far what they show is from the eye (the main depth unprojected), in this many
-// bins of log2 distance: their median is how far the camera looks, toward which the indirect lighting's finer clips are
-// centered (see FrameInputs::lookDistance and gi::MakeClipmap)
+// bins of log2 distance: their median is how far the view looks, toward which its indirect lighting's finer clips are
+// centered (see FrameInputs::lookDistances and gi::MakeClipmap)
 #define SHADER_TYPES_DISTANCE_BINS 64u
 #define SHADER_TYPES_DISTANCE_LOG2_MIN -6.0
 #define SHADER_TYPES_DISTANCE_LOG2_MAX 18.0
 #define SHADER_TYPES_HISTOGRAM_BINS (SHADER_TYPES_EXPOSURE_BINS + SHADER_TYPES_DISTANCE_BINS)
+// a frame index's, every view's
+#define SHADER_TYPES_FRAME_HISTOGRAM_BINS (SHADER_TYPES_SPLIT_VIEW_COUNT * SHADER_TYPES_HISTOGRAM_BINS)
 
 // PushConstants::tonemapper
 #define TONEMAPPER_PBR_NEUTRAL 0u // Khronos PBR Neutral: base colors render as themselves, brighter ones roll off to white
@@ -342,6 +346,9 @@ extern "C"
 #define SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT 64u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
+// the main views split screen has at most (View > Layout's 2x2): each with its own exposure and look distance (see
+// SHADER_TYPES_EXPOSURE_BINS)
+#define SHADER_TYPES_SPLIT_VIEW_COUNT 4u
 // gMaterialData's size to begin with: the installed model's materials are 1 and up (0 is the default material), and it
 // grows to hold them (see Scene's GrowMaterials)
 #define SHADER_TYPES_MATERIAL_COUNT 1024u
@@ -364,6 +371,9 @@ struct ViewData
 	// the bias of its textures' mip levels: with temporal upscaling, those of the output's size, a little sharper still,
 	// since the resolve averages what the jittered frames sampled (see Views::Upload)
 	alignas(4) FLOAT1(textureLodBias);
+	// what its image is scaled by before tonemapping: the exposure in stops (View > Exposure) and its auto exposure's (by its
+	// own pixels, see SHADER_TYPES_EXPOSURE_BINS), as a factor
+	alignas(4) FLOAT1(exposure);
 };
 
 // how many lights gLights holds: a model's, then the environment's dominant lights (ThousandsOfLights.gltf has 4000)
@@ -1147,7 +1157,7 @@ struct PushConstants
 	alignas(4) UINT1(frameIndex);
 	// per view: gViewData's
 	alignas(4) UINT1(viewId);
-	// per frame: how many of gLights light the scene, and the exposure the final image is scaled by before tonemapping
+	// per frame: how many of gLights light the scene, and the first view's exposure (each view's is ViewData::exposure)
 	alignas(4) UINT1(lightCount);
 	alignas(4) FLOAT1(exposure);
 	// per frame: the environment's (see EnvironmentData) radiance scale, and its rotation about +y in radians (positive

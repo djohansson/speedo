@@ -116,10 +116,10 @@ bool UpscaleHasHistory()
 	return (gPushConstants.upscale & UPSCALE_HISTORY) != 0u;
 }
 
-// FSR's Exposure(): the frame's (1 for a debug view of values, shown as they are, see DebugViewIsData)
-float UpscaleExposure()
+// FSR's Exposure(): the pixel's view's (1 for a debug view of values, shown as they are, see DebugViewIsData)
+float UpscaleExposure(ViewData view)
 {
-	return DebugViewIsData(gPushConstants.debugView) ? 1.0 : gPushConstants.exposure;
+	return DebugViewIsData(gPushConstants.debugView) ? 1.0 : view.exposure;
 }
 
 // the render size over the output's (FSR's DownscaleFactor)
@@ -471,7 +471,7 @@ float UpscaleLumaDifference(int2 pixel, float2 uv, float2 motion, ViewData view)
 	int2 renderSize = UpscaleRenderSize();
 	Texture2D lumas = gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()];
 	Texture2D previousLumas = gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + (UpscaleParity() ^ 1u)];
-	float exposure = UpscaleExposure();
+	float exposure = UpscaleExposure(view);
 
 	UpscaleSampleSet current;
 	int2 base = int2(floor((uv + UpscaleJitter(view) / float2(renderSize)) * float2(renderSize)));
@@ -663,12 +663,15 @@ float UpscaleThinFeatureConfidence(int2 pixel)
 	};
 	int2 renderSize = UpscaleRenderSize();
 	Texture2D lumas = gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()];
+	ViewData view;
+	ViewAt(pixel, view);
+	float exposure = UpscaleExposure(view);
 	float samples[9];
 	float lumaMinimum = kUpscaleFp32Max;
 	float lumaMaximum = kUpscaleFp32Min;
 	for (int sampleIt = 0; sampleIt < 9; sampleIt++)
 	{
-		samples[sampleIt] = lumas.Load(int3(UpscaleClampLoad(pixel, kOffsets[sampleIt], renderSize), 0)).r * UpscaleExposure();
+		samples[sampleIt] = lumas.Load(int3(UpscaleClampLoad(pixel, kOffsets[sampleIt], renderSize), 0)).r * exposure;
 		lumaMinimum = min(lumaMinimum, samples[sampleIt]);
 		lumaMaximum = max(lumaMaximum, samples[sampleIt]);
 	}
@@ -840,7 +843,7 @@ void ComputeUpscaleLumaInstability(uint3 dispatchThreadId : SV_DispatchThreadID)
 		float4 masks = saturate(gTextures[SHADER_TYPES_UPSCALE_REACTIVE_TEXTURE].SampleLevel(linearClamp, uvSampler, 0.0));
 		if (masks[kUpscaleAccumulation] > 0.9)
 		{
-			float exposure = UpscaleExposure();
+			float exposure = UpscaleExposure(view);
 			float currentFrameLuma = gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()].SampleLevel(linearClamp, uvSampler, 0.0).r * exposure;
 			lumaHistory = gTextures[SHADER_TYPES_UPSCALE_LUMA_HISTORY_TEXTURE + (UpscaleParity() ^ 1u)]
 							  .SampleLevel(linearClamp, UpscaleClampUv(reprojectedUv, renderSize, renderSize), 0.0) *
@@ -994,7 +997,7 @@ void UpscaleReprojectHistoryColor(UpscaleParams params, inout UpscaleData data)
 {
 	float4 history = UpscaleSampleLanczos2(
 		gTextures[SHADER_TYPES_UPSCALE_COLOR_TEXTURE + (UpscaleParity() ^ 1u)], params.reprojectedUv, UpscaleDisplaySize());
-	data.historyColor = UpscaleRgbToYCoCg(history.rgb * UpscaleExposure());
+	data.historyColor = UpscaleRgbToYCoCg(history.rgb * UpscaleExposure(params.view));
 	data.lock = history.w;
 }
 
@@ -1054,7 +1057,7 @@ void UpscaleUpsampledColorAndWeight(UpscaleParams params, inout UpscaleData data
 	bool initialSample = params.accumulation == 0.0;
 
 	float3 samples[9];
-	float exposure = UpscaleExposure();
+	float exposure = UpscaleExposure(params.view);
 	int sampleIndex = 0;
 	for (int row = 0; row < 3; row++)
 	{
@@ -1180,7 +1183,7 @@ void ComputeUpscaleAccumulate(uint3 dispatchThreadId : SV_DispatchThreadID)
 	UpscaleUpsampledColorAndWeight(params, data);
 	UpscaleRectifyHistory(params, data);
 	UpscaleAccumulate(data);
-	data.historyColor = max(data.historyColor / UpscaleExposure(), 0.0);
+	data.historyColor = max(data.historyColor / UpscaleExposure(params.view), 0.0);
 
 	gRWTextures[SHADER_TYPES_UPSCALE_COLOR_RW_TEXTURE + UpscaleParity()].Store(uint2(outputPixel), float4(data.historyColor, data.lock));
 	// the pixel's new lock taken
@@ -1193,10 +1196,10 @@ void ComputeUpscaleAccumulate(uint3 dispatchThreadId : SV_DispatchThreadID)
 // blend of jittered samples softens what it resolves by about the reconstruction filter's width; this takes that back
 static const float kSharpenStops = 0.5;
 
-// the light as the output shows it, before the srgb curve
-float3 SharpenMapped(float3 color, bool data)
+// the light as the output shows it, before the srgb curve (by the exposure of the view the pixel is in)
+float3 SharpenMapped(float3 color, bool data, float exposure)
 {
-	return saturate(data ? max(color, 0.0) : Tonemap(max(color, 0.0) * gPushConstants.exposure));
+	return saturate(data ? max(color, 0.0) : Tonemap(max(color, 0.0) * exposure));
 }
 
 [shader("compute")]
@@ -1212,11 +1215,14 @@ void ComputeSharpen(uint3 dispatchThreadId : SV_DispatchThreadID)
 	Texture2D resolved = gTextures[SHADER_TYPES_UPSCALE_COLOR_TEXTURE + UpscaleParity()];
 	bool data = DebugViewIsData(gPushConstants.debugView);
 	int2 last = int2(size) - 1;
-	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb, data);
-	float3 b = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, -1), int2(0), last), 0)).rgb, data);
-	float3 d = SharpenMapped(resolved.Load(int3(clamp(xy + int2(-1, 0), int2(0), last), 0)).rgb, data);
-	float3 f = SharpenMapped(resolved.Load(int3(clamp(xy + int2(1, 0), int2(0), last), 0)).rgb, data);
-	float3 h = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, 1), int2(0), last), 0)).rgb, data);
+	ViewData view;
+	UpscaleViewAtUv((float2(xy) + 0.5) / float2(size), view);
+	float exposure = view.exposure;
+	float3 e = SharpenMapped(resolved.Load(int3(xy, 0)).rgb, data, exposure);
+	float3 b = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, -1), int2(0), last), 0)).rgb, data, exposure);
+	float3 d = SharpenMapped(resolved.Load(int3(clamp(xy + int2(-1, 0), int2(0), last), 0)).rgb, data, exposure);
+	float3 f = SharpenMapped(resolved.Load(int3(clamp(xy + int2(1, 0), int2(0), last), 0)).rgb, data, exposure);
+	float3 h = SharpenMapped(resolved.Load(int3(clamp(xy + int2(0, 1), int2(0), last), 0)).rgb, data, exposure);
 	float3 lowest = min(min(b, d), min(f, h));
 	float3 highest = max(max(b, d), max(f, h));
 	float3 toZero = lowest / max(4.0 * highest, 1e-5);

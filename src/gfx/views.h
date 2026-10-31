@@ -57,6 +57,8 @@ public:
 	// CameraCreateDesc::cameraRotation), keeping its projection (e.g. SPEEDO_CAMERA, for measurements and screenshots).
 	// any thread
 	void Place(const glm::vec3& eye, const glm::vec3& rotation);
+	// and one view's (SPEEDO_CAMERA_VIEWS: a camera of its own each, as split screen has them), if there is that view
+	void Place(size_t view, const glm::vec3& eye, const glm::vec3& rotation);
 	// turns every view about the vertical axis (radians of yaw), and moves it forward (along where it looks), where it is
 	void Turn(float yaw, float forward = 0.0F);
 	// moves every view around the scene's bounds' center (radians of yaw about the vertical, and of pitch, positive
@@ -87,8 +89,9 @@ public:
 	// to. the other frame indices' buffers may still be in use. call on the draw thread, recording that frame (after its
 	// fence). with temporal upscaling (see FrameInputs::upscaling) the frame is rendered at viewportScale of the output's
 	// size each way, and with jitter its projections are offset by a point of a sequence a frame, within a pixel (the
-	// cameras returned aren't: what is culled and fitted by doesn't need it)
-	[[nodiscard]] std::vector<Camera> Upload(uint32_t frameIndex, glm::vec2 viewportScale = glm::vec2(1.0F), bool jitter = false);
+	// cameras returned aren't: what is culled and fitted by doesn't need it), and each view's image scaled by its exposure
+	// before tonemapping (ViewData::exposure; past those given, the first's, 1 without any)
+	[[nodiscard]] std::vector<Camera> Upload(uint32_t frameIndex, glm::vec2 viewportScale = glm::vec2(1.0F), bool jitter = false, std::span<const float> exposures = {});
 
 	// a path of poses (eye and rotation, as Place takes them): Upload places the views at the next before each frame it
 	// writes, so one pose a frame, and keeps them at the last (SPEEDO_CAMERA_PATH: an exact, repeatable move, whatever the

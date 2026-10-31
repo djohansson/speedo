@@ -54,7 +54,10 @@ uint PlaceInShadowMap(uint lightIndex, LightData light, float3 position, float3 
 	atlas.GetDimensions(atlasSize.x, atlasSize.y);
 	float2 texel = 1.0 / atlasSize;
 
-	uint viewCount = light.type == LIGHT_TYPE_DIRECTIONAL ? SHADER_TYPES_SHADOW_CASCADE_COUNT : 1u;
+	// a directional light's cascades: each main view's (split screen's), finest first over all of them (see shadows::Plan),
+	// so the first that covers the point is the finest any view has (fitted to the first view alone, the other views'
+	// points were only where its far cascades reached)
+	uint viewCount = light.type == LIGHT_TYPE_DIRECTIONAL ? SHADER_TYPES_SHADOW_CASCADE_COUNT * max(gPushConstants.mainViewCount, 1u) : 1u;
 	for (uint cascade = 0; cascade < viewCount; cascade++)
 	{
 		ShadowData shadow = gShadowViews[frameIndex][viewIndex + cascade];

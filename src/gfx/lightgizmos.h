@@ -21,6 +21,7 @@ struct LightCapture
 	size_t modelLightCount = 0; // the first ones are the model's, the rest the environment's
 	std::vector<ShadowData> shadowViews;
 	std::vector<uint32_t> lightShadows; // per light: its first shadow view, or SHADER_TYPES_NO_SHADOW
+	uint32_t cascadeSets = 1; // a directional light's cascades, one set per view (all finest first: see shadows::Plan)
 	Bounds3f sceneBounds;
 };
 
@@ -54,8 +55,8 @@ struct LightGizmos
 	std::vector<Marker> markers;
 };
 
-// how many shadow views a light of a type has (see ShadowData)
-[[nodiscard]] uint32_t ShadowViewCount(uint32_t lightType);
+// how many shadow views a light of a type has (see ShadowData): a directional light's cascades for each of cascadeSets views
+[[nodiscard]] uint32_t ShadowViewCount(uint32_t lightType, uint32_t cascadeSets = 1);
 
 [[nodiscard]] LightGizmos BuildLightGizmos(const LightCapture& capture, const LightGizmoOptions& options);
 

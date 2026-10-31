@@ -11,6 +11,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <limits>
 #include <numeric>
 #include <optional>
 
@@ -242,7 +243,7 @@ ShadowData PerspectiveView(
 
 } // namespace detail
 
-ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, const Bounds3f& sceneBounds)
+ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera> cameras, const Bounds3f& sceneBounds)
 {
 	using namespace detail;
 
@@ -253,13 +254,33 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 	// nothing to cast shadows: no scene (an empty or inverted box)
 	const auto& min = sceneBounds.GetMin();
 	const auto& max = sceneBounds.GetMax();
-	if (lights.empty() || !glm::all(glm::lessThanEqual(min, max)) || !glm::any(glm::lessThan(min, max)))
+	if (lights.empty() || cameras.empty() || !glm::all(glm::lessThanEqual(min, max)) || !glm::any(glm::lessThan(min, max)))
 		return plan;
 
 	auto sceneCorners = Corners(sceneBounds);
-	auto eye = glm::vec3(glm::inverse(camera.view)[3]);
+	// what each camera sees: its eye, and its projection and frustum (a light whose range is outside all of them lights
+	// nothing seen)
+	struct Seen
+	{
+		glm::vec3 eye{};
+		glm::mat4 view{1.0F};
+		glm::mat4 projection{1.0F};
+		Frustum frustum;
+	};
+	std::vector<Seen> seen;
+	for (const auto& camera : cameras)
+	{
+		auto viewProjection = glm::inverse(camera.inverseViewProjection);
+		seen.push_back(
+			{glm::vec3(glm::inverse(camera.view)[3]), camera.view, viewProjection * glm::inverse(camera.view), Frustum::FromViewProjection(viewProjection)});
+	}
+	auto cameraCount = static_cast<uint32_t>(cameras.size());
+	// a directional light's cascades, per camera: as big as one view's for two, half that from three (a view of a 2x2 grid
+	// has a quarter of the pixels, so its cascades a quarter of the texels, and the four views' a quarter of the atlas, as
+	// one view's)
+	uint32_t cascadeCells = cameraCount > 2 ? kCascadeCells / 2 : kCascadeCells;
 
-	// by priority: directional lights by intensity, then the others by their intensity at the camera
+	// by priority: directional lights by intensity, then the others by their intensity at the nearest eye
 	std::vector<size_t> order(lights.size());
 	std::iota(order.begin(), order.end(), 0);
 	auto priority = [&](size_t index)
@@ -269,14 +290,12 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 		if (light.type == LIGHT_TYPE_DIRECTIONAL)
 			return 1e30F + luminance;
 		glm::vec3 position(light.positionRange[0], light.positionRange[1], light.positionRange[2]);
-		return luminance / std::max(glm::dot(position - eye, position - eye), 1e-4F);
+		float nearest = std::numeric_limits<float>::max();
+		for (const auto& view : seen)
+			nearest = std::min(nearest, glm::dot(position - view.eye, position - view.eye));
+		return luminance / std::max(nearest, 1e-4F);
 	};
 	std::ranges::stable_sort(order, [&](size_t a, size_t b) { return priority(a) > priority(b); });
-
-	// what the camera sees: a light whose range is outside it lights nothing seen
-	auto viewProjection = glm::inverse(camera.inverseViewProjection);
-	auto projection = viewProjection * glm::inverse(camera.view);
-	auto frustum = Frustum::FromViewProjection(viewProjection);
 
 	// the candidates, by priority: each light's views and the size of their tiles (in cells) it would like
 	struct Candidate
@@ -295,7 +314,7 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 		const auto& light = lights[index];
 		if (Luminance(light.intensity) <= 0.0F)
 			continue;
-		uint32_t tileCount = light.type == LIGHT_TYPE_DIRECTIONAL ? SHADER_TYPES_SHADOW_CASCADE_COUNT : light.type == LIGHT_TYPE_POINT ? 6 : 1;
+		uint32_t tileCount = light.type == LIGHT_TYPE_DIRECTIONAL ? SHADER_TYPES_SHADOW_CASCADE_COUNT * cameraCount : light.type == LIGHT_TYPE_POINT ? 6 : 1;
 		if (viewTotal + tileCount > SHADER_TYPES_SHADOW_VIEW_COUNT)
 			continue;
 
@@ -307,20 +326,28 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 			reach = std::max(reach, glm::distance(corner, position));
 		if (light.positionRange[3] > 0.0F)
 			reach = std::min(reach, light.positionRange[3]);
-		uint32_t cells = kCascadeCells;
+		uint32_t cells = cascadeCells;
 		if (light.type != LIGHT_TYPE_DIRECTIONAL)
 		{
 			if (reach <= 0.0F)
 				continue;
-			// what it can light (a spot light's cone, not its whole range): out of view, it lights nothing seen
+			// what it can light (a spot light's cone, not its whole range): out of every view, it lights nothing seen; else
+			// sized for the view it looks biggest in
 			auto sphere = *LightReach(light, reach);
 			Bounds3f range;
 			range.SetMin(sphere.center - glm::vec3(sphere.radius));
 			range.SetMax(sphere.center + glm::vec3(sphere.radius));
-			if (frustum.Excludes(range))
+			bool inView = false;
+			cells = 1;
+			for (const auto& view : seen)
+				if (!view.frustum.Excludes(range))
+				{
+					inView = true;
+					cells = std::max(
+						cells, CellsFor(view.projection, view.view, sphere.center, sphere.radius, light.type == LIGHT_TYPE_POINT ? kPointFaceCells : kSpotCells));
+				}
+			if (!inView)
 				continue;
-			cells = CellsFor(
-				projection, camera.view, sphere.center, sphere.radius, light.type == LIGHT_TYPE_POINT ? kPointFaceCells : kSpotCells);
 		}
 		candidates.push_back({index, position, direction, reach, tileCount, cells});
 		viewTotal += tileCount;
@@ -372,7 +399,28 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 		auto first = static_cast<uint32_t>(plan.views.size());
 		if (light.type == LIGHT_TYPE_DIRECTIONAL)
 		{
-			Cascades(direction, camera, sceneCorners, lightTiles, plan.views);
+			// each camera's cascades, then all of them finest first (by texel size, then cascade): the shader takes the first
+			// that covers a point (see PlaceInShadowMap), which is then the finest any view has. one camera's are in that
+			// order already; by cascade then camera, a far view's nearest cascade, a big one, covered a close-up view's
+			// points before its own finer one, and the normal offset of a few of its texels lost the contact shadow of an
+			// awning on the facade under it, in Bistro. (taking the finest that covers a point in the shader instead, every
+			// cascade tested, cost the main pass 2.2 ms of San Miguel's frame and 1 of Sponza's, with one view)
+			std::vector<std::pair<ShadowData, ShadowPlan::Tile>> cascades;
+			for (uint32_t cameraIt = 0; cameraIt < cameraCount; cameraIt++)
+			{
+				std::vector<ShadowPlan::Tile> cameraTiles(lightTiles.begin() + (cameraIt * SHADER_TYPES_SHADOW_CASCADE_COUNT),
+														  lightTiles.begin() + ((cameraIt + 1) * SHADER_TYPES_SHADOW_CASCADE_COUNT));
+				std::vector<ShadowData> views;
+				Cascades(direction, cameras[cameraIt], sceneCorners, cameraTiles, views);
+				for (uint32_t cascade = 0; cascade < SHADER_TYPES_SHADOW_CASCADE_COUNT; cascade++)
+					cascades.emplace_back(views[cascade], cameraTiles[cascade]);
+			}
+			std::ranges::stable_sort(cascades, [](const auto& a, const auto& b) { return a.first.params[0] < b.first.params[0]; });
+			for (const auto& [view, tile] : cascades)
+			{
+				plan.views.push_back(view);
+				plan.tiles.push_back(tile);
+			}
 		}
 		else if (light.type == LIGHT_TYPE_POINT)
 		{
@@ -397,7 +445,8 @@ ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, c
 			float fov = std::min((2.0F * outer) + glm::radians(4.0F), glm::radians(170.0F));
 			plan.views.push_back(PerspectiveView(position, direction, UpFor(direction), fov, reach, lightTiles.front()));
 		}
-		plan.tiles.insert(plan.tiles.end(), lightTiles.begin(), lightTiles.end());
+		if (light.type != LIGHT_TYPE_DIRECTIONAL)
+			plan.tiles.insert(plan.tiles.end(), lightTiles.begin(), lightTiles.end());
 		plan.lightShadows[index] = first;
 	}
 

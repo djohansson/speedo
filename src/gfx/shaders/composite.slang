@@ -1,8 +1,8 @@
 // ComputeMain: the frame's composite (transparency, backdrop, exposure, tonemapping) into the output. a part of shaders.slang, which includes it after capi.h and sky.h
 
-// the group's share of the frame's histograms (the exposure's, then the distances'), added to gExposureHistogram once
-// the group is done
-groupshared uint gGroupHistogram[SHADER_TYPES_HISTOGRAM_BINS];
+// the group's share of the frame's histograms (per view, the exposure's then the distances': a group may straddle views),
+// added to gExposureHistogram once the group is done
+groupshared uint gGroupHistogram[SHADER_TYPES_FRAME_HISTOGRAM_BINS];
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -23,8 +23,8 @@ void ComputeMain(
 	uint2 dstDim;
 	dst.GetDimensions(dstDim.x, dstDim.y);
 
-	if (groupIndex < SHADER_TYPES_HISTOGRAM_BINS)
-		gGroupHistogram[groupIndex] = 0;
+	for (uint binIt = groupIndex; binIt < SHADER_TYPES_FRAME_HISTOGRAM_BINS; binIt += 256u)
+		gGroupHistogram[binIt] = 0;
 	GroupMemoryBarrierWithGroupSync();
 
 	// a thread per pixel: a thread per 16x16 pixels, as it was, ran too few threads to hide its reads' latency
@@ -37,6 +37,12 @@ void ComputeMain(
 		// the render target is linear, the swapchain (a storage image, so not an srgb format) is not: exposed,
 		// tonemapped, and then the srgb curve
 		float4 color = src.Load(int3(xy, 0));
+		// the view the pixel is in, whose histograms it counts in and whose exposure it takes (none where a view is letterboxed)
+		ViewData pixelView;
+		uint pixelViewIndex;
+		bool inView = ViewAt(int2(xy), pixelView, pixelViewIndex) && pixelViewIndex < SHADER_TYPES_SPLIT_VIEW_COUNT;
+		float exposure = inView ? pixelView.exposure : gPushConstants.exposure;
+		uint histogramFirst = pixelViewIndex * SHADER_TYPES_HISTOGRAM_BINS;
 
 		// the environment where nothing opaque was drawn, in the view the pixel is in (outside them, e.g. where a view
 		// is letterboxed, or without the backdrop, a gray): along the ray through the pixel, between two depths of it
@@ -122,13 +128,14 @@ void ComputeMain(
 		float position = (log2(max(luminance, 1e-8)) - SHADER_TYPES_EXPOSURE_LOG2_MIN) /
 						 (SHADER_TYPES_EXPOSURE_LOG2_MAX - SHADER_TYPES_EXPOSURE_LOG2_MIN);
 		uint bin = uint(clamp(position * float(SHADER_TYPES_EXPOSURE_BINS), 0.0, float(SHADER_TYPES_EXPOSURE_BINS - 1)));
-		InterlockedAdd(gGroupHistogram[bin], 1u);
+		if (inView)
+			InterlockedAdd(gGroupHistogram[histogramFirst + bin], 1u);
 		// and how far what the pixel shows is from the eye, where something was drawn (the main depth unprojected in
 		// the pixel's view)
 		if (color.a != 0.0)
 		{
-			ViewData view;
-			if (ViewAt(int2(xy), view))
+			ViewData view = pixelView;
+			if (inView)
 			{
 				float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(xy, 0)).r;
 				float2 local = (float2(xy) + 0.5 - view.viewport.xy) / view.viewport.zw;
@@ -150,7 +157,7 @@ void ComputeMain(
 				float distance = length(world.xyz / world.w - view.eyePosition.xyz);
 				float at = (log2(max(distance, 1e-8)) - SHADER_TYPES_DISTANCE_LOG2_MIN) / (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN);
 				uint distanceBin = uint(clamp(at * float(SHADER_TYPES_DISTANCE_BINS), 0.0, float(SHADER_TYPES_DISTANCE_BINS - 1)));
-				InterlockedAdd(gGroupHistogram[SHADER_TYPES_EXPOSURE_BINS + distanceBin], 1u);
+				InterlockedAdd(gGroupHistogram[histogramFirst + SHADER_TYPES_EXPOSURE_BINS + distanceBin], 1u);
 			}
 		}
 
@@ -158,7 +165,7 @@ void ComputeMain(
 			dst.Store(xy, float4(max(color.rgb, 0.0), coverage));
 		else
 		{
-			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * gPushConstants.exposure);
+			float3 mapped = data ? max(color.rgb, 0.0) : Tonemap(max(color.rgb, 0.0) * exposure);
 			dst.Store(xy, float4(ApplySRGBCurve(saturate(mapped)), 1.0));
 
 			// the ui's frosted panels' backdrop: under them and within the blur's reach, linear, for the UI Blur passes
@@ -168,6 +175,7 @@ void ComputeMain(
 	}
 
 	GroupMemoryBarrierWithGroupSync();
-	if (groupIndex < SHADER_TYPES_HISTOGRAM_BINS && gGroupHistogram[groupIndex] > 0)
-		InterlockedAdd(gExposureHistogram[frameIndex * SHADER_TYPES_HISTOGRAM_BINS + groupIndex], gGroupHistogram[groupIndex]);
+	for (uint binIt = groupIndex; binIt < SHADER_TYPES_FRAME_HISTOGRAM_BINS; binIt += 256u)
+		if (gGroupHistogram[binIt] > 0)
+			InterlockedAdd(gExposureHistogram[frameIndex * SHADER_TYPES_FRAME_HISTOGRAM_BINS + binIt], gGroupHistogram[binIt]);
 }

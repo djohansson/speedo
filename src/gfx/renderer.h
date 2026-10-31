@@ -92,13 +92,15 @@ struct FrameInputs
 	bool tracedShadowsEverywhere = false;
 	// whether the model's emissive surfaces light the scene (see EmitterData), where it has BVHs for their shadow rays
 	bool emissiveLights = true;
-	shadows::ShadowCamera camera;
+	// each view's camera, as the frame draws it: what the shadows are fitted to (see shadows::Plan), and the indirect
+	// lighting's clips follow (the first view's)
+	std::vector<shadows::ShadowCamera> cameras;
 	Bounds3f sceneBounds;
-	// how far what the camera looks at is (the median distance of the last frame's drawn pixels from the eye, smoothed):
+	// how far what each view looks at is (the median distance of the last frame's drawn pixels from its eye, smoothed):
 	// the indirect lighting's finer clips are centered that far ahead of the eye, at most a share of their size (see
 	// gi::MakeClipmap)
-	float lookDistance = 0.0F;
-	// the frame's histograms (SHADER_TYPES_HISTOGRAM_BINS per frame index: the exposure's bins, then the distances'),
+	std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> lookDistances{};
+	// the frame's histograms (SHADER_TYPES_FRAME_HISTOGRAM_BINS per frame index: per view the exposure's bins, then the distances'),
 	// host visible: ComputeMain counts into the frame's, which the host reads once the frame is done
 	Buffer* exposureHistogram = nullptr;
 	// the queue the frame is recorded for (its pool's secondary command buffers record the views), and its timeline

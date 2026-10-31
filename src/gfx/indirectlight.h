@@ -65,7 +65,7 @@ struct Layout
 // the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): clipCount volumes, finest first, of the voxel counts of the last, which is
 // over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each before it of
 // voxels half the size of the next, centered ahead of eye along look (how far the camera looks, see
-// FrameInputs::lookDistance), by lookAhead of its half size at most (snapped to its probes' grid, kept inside the last).
+// FrameInputs::lookDistances), by lookAhead of its half size at most (snapped to its probes' grid, kept inside the last).
 // total holds the counts of all (its data is unused)
 struct Clipmap
 {

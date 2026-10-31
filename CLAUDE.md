@@ -1099,13 +1099,17 @@ It keeps the near and far planes of the camera the views had (a model's own came
 
 The punctual lights cast shadows from one depth atlas (`gfx/shadows.h`: 4096 texels, a grid of 128 texel cells; a frame
 graph transient, `SHADER_TYPES_SHADOW_ATLAS_TEXTURE`), planned on the cpu each frame (`shadows::Plan`, in
-`Renderer::Record`, after the frame's fence): directional lights first (4 cascades of 1024 texels, Zhang's practical
-splits over the first view's frustum up to the scene's bounds, each a bounding sphere seen along the light, depth from
-the scene's nearest caster, snapped to whole texels), then point lights (6 cube faces, a little wider than 90 degrees so
-the filter near a face's edge stays in it) and spot lights (the outer cone plus a margin), by brightness at the camera.
-A point or spot light whose range is outside the camera's frustum lights nothing seen and gets none. The others' tiles
-are sized by how big their range looks from the camera (`CellsFor`: its share of the view's height; at most 512 texels a
-face, 1024 a spot), then budgeted: while they need more than the atlas, the lowest priority light of those with the
+`Renderer::Record`, after the frame's fence, from every view's camera, `FrameInputs::cameras`): directional lights first (4
+cascades of 1024 texels per view, 512 from three views on, a view of a 2x2 grid having a quarter of the pixels; Zhang's
+practical splits over the view's frustum up to the scene's bounds, each a bounding sphere seen along the light, depth from
+the scene's nearest caster, snapped to whole texels; all of a light's views' cascades finest first, by texel size, so
+that the first `PlaceInShadowMap` finds covering a point, which it takes, is the finest any view has: by cascade then
+view, a far view's big nearest cascade covered a close-up view's points before its own, and lost an awning's contact
+shadow in Bistro; testing every cascade in the shader for the finest cost San Miguel's main pass 2.2 ms with one view),
+then point lights (6 cube faces, a little wider than 90 degrees so the filter near a face's edge stays in it) and spot
+lights (the outer cone plus a margin), by brightness at the nearest eye. A point or spot light whose range is outside
+every view's frustum lights nothing seen and gets none. The others' tiles are sized by how big their range looks from the
+view it looks biggest in (`CellsFor`: its share of the view's height; at most 512 texels a face, 1024 a spot), then budgeted: while they need more than the atlas, the lowest priority light of those with the
 biggest tiles gets them halved (down to one cell; the cascades keep theirs), and once all are one cell the lowest
 priority ones go without. The tiles are placed biggest first (aligned power of two squares then pack without gaps), all
 of a light's or none, up to `SHADER_TYPES_SHADOW_VIEW_COUNT` (256) views. It used to stop at 4 point and spot lights,
@@ -1168,7 +1172,7 @@ and frames are faster for the overdraw no longer shaded (Bistro's street, GI on,
 
 **The traced shadows** (View > Ray Traced Shadows, on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all`
 to trace every pixel): for up to `SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT` (4) lights a frame (the directional ones first,
-brightest first, then the point and spot lights the atlas has views of, by their light at the camera; none of zero
+brightest first, then the point and spot lights the atlas has views of, by their light at the nearest eye; none of zero
 light), where the model has a BVH (see "Tracing the triangles"; `Animate` places the moving one for them too), a ray per
 pixel of the pre-pass's depth and traced light toward a point of the light's disk, through the static BVH (alpha masks
 cut out, `GiAlphaMask`) and the moving one (`ShadowOccluder`), filtered over the penumbra's width
@@ -1624,7 +1628,8 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   beyond the end wall; and the surface cache entry of the point's voxel (`GI_DUMP_CACHE_FIRST`: its samples and inside
   rays, its rays' origin, the voxel's open side and normal, its light per face, and up to 8 of the frame's rays, their
   distance and light: what found the slot behind salle_de_bain's bench lit by the sun, see `GiOpenAlong`). View > Camera > Copy Pose (ctrl/cmd+shift+c)
-  copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, `SPEEDO_AUTOLOAD_MODEL`, the environment's path,
+  copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, with split screen `SPEEDO_LAYOUT` and the other
+  views' cameras, `SPEEDO_CAMERA_VIEWS='<pose>;...'` for views 1 and on, placed after `SPEEDO_CAMERA` places them all, `SPEEDO_AUTOLOAD_MODEL`, the environment's path,
   and the settings that aren't their defaults, `ui::ApplyPoseSettings`'s: the exposure, the tonemapper, the shadows,
   `SPEEDO_GI` and the indirect lighting's, the upscaling, the sky's time, `SPEEDO_DEBUG_VIEW`; then `# window <w>x<h>`,
   the framebuffer), for reports: an artifact is a pose first. View > Camera > Paste Pose (ctrl/cmd+shift+v;
@@ -2343,7 +2348,13 @@ have it (one key of 0.3 lifted Bistro's night 8.7 stops, to look as bright as no
 decay of 2 per second, of the time elapsed whatever it is, so it settles in the same time at any frame rate (fifo at 120
 Hz and mailbox at 220 followed the decay from the same targets to 2%; a frame over a second used to take the target at
 once). What it measures needn't: the indirect lighting settles by frames (its hysteresis), so a scene's first fraction
-of a second differs between frame rates. The Exposure slider is added on top.
+of a second differs between frame rates. The Exposure slider is added on top. Each of split screen's views (at most
+`SHADER_TYPES_SPLIT_VIEW_COUNT`, 4) has its own: its own bins (`SHADER_TYPES_FRAME_HISTOGRAM_BINS` a frame; the group's
+shared histograms per view, since a group can straddle two; a letterboxed pixel counts in none), its own exposure
+(`ViewData::exposure`, which every pass that exposes reads for its pixel's view: the composite, Sharpen, the upscaler's
+`Exposure()`, the emitters' roulette and the firefly clamp; `PushConstants::exposure` is the first view's) and look
+distance (`FrameInputs::lookDistances`), and a view's first measure taken as it is: one exposure for all, a view of a
+sunlit roof beside one of a dark corridor blew the roof out. A single view is as before (Sponza +7.49 EV, 22.07 ms).
 Shading is the glTF metallic-roughness brdf (`Shade` in the shaders: GGX, height correlated Smith, Schlick) over the
 lights in `gLights` (`PushConstants::lightCount`; a model's KHR_lights_punctual lights, `ModelDesc::lights`, in lux and
 candela, then the environment's dominant lights), plus image based lighting that occlusion darkens. The environment

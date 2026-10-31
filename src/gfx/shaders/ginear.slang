@@ -345,7 +345,7 @@ void ComputeGiNearTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			float4 kept = total / weights;
 			float least = EmitterViewStill(view) ? gi.nearStillBlend : gi.nearBlend;
 			count = min(max(held / weights, 1.0) + 1.0, 1.0 / least);
-			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb), now.a), max(1.0 / count, least));
+			result = lerp(kept, float4(HistoryFireflyClamp(now.rgb, kept.rgb, view.exposure), now.a), max(1.0 / count, least));
 		}
 	}
 	history[pixel] = result;

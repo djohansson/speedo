@@ -37,11 +37,11 @@ float EmitterLuminance(float3 color)
 }
 
 // a frame's light against what a pixel's history holds (see kFireflyRise): at most kFireflyRise times its luminance,
-// or it and kFireflyFloor of the frame's white more (the white the exposure makes) where that is more
-float3 HistoryFireflyClamp(float3 sample, float3 kept)
+// or it and kFireflyFloor of the frame's white more (the white the pixel's view's exposure makes) where that is more
+float3 HistoryFireflyClamp(float3 sample, float3 kept, float exposure)
 {
 	float keptLuminance = EmitterLuminance(kept);
-	float bound = max(kFireflyRise * keptLuminance, keptLuminance + kFireflyFloor / max(gPushConstants.exposure, 1e-6));
+	float bound = max(kFireflyRise * keptLuminance, keptLuminance + kFireflyFloor / max(exposure, 1e-6));
 	float luminance = EmitterLuminance(sample);
 	return luminance > bound ? sample * (bound / luminance) : sample;
 }
@@ -691,7 +691,7 @@ void ComputeEmitterShade(uint3 dispatchThreadId : SV_DispatchThreadID)
 		// else traced by chance where the light it would give unshadowed, as the frame shows it (a white surface's, times
 		// the exposure), is below EmitterData::roulette, in proportion, and the light it finds weighed up by it (Russian
 		// roulette): what wouldn't show isn't worth a ray
-		float shown = reservoir.target * reservoir.weight / kPi * gPushConstants.exposure;
+		float shown = reservoir.target * reservoir.weight / kPi * view.exposure;
 		float chance = data.roulette > 0.0 && data.raw == 0u ? saturate(shown / data.roulette) : 1.0;
 		reservoir.age = 0u;
 		if (chance >= 1.0 || random.Next() < chance)
@@ -942,7 +942,7 @@ void ComputeEmitterTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 			// -827.3380,155.1481,33.8635,-9.897,72.297). the reference is 11% brighter there than the frames (8% without), the
 			// light those rare frames carry, which this leaves out, and the whole frame within 0.1% of it (at 4 times: 19% there,
 			// 1% over the frame)
-			float3 sample = count > kEmitterFireflyFrameCount && data.raw == 0u ? HistoryFireflyClamp(now.rgb, kept) : now.rgb;
+			float3 sample = count > kEmitterFireflyFrameCount && data.raw == 0u ? HistoryFireflyClamp(now.rgb, kept, view.exposure) : now.rgb;
 			result = float4(lerp(kept, sample, max(1.0 / count, least)), count);
 		}
 	}

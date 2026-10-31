@@ -26,7 +26,8 @@ constexpr uint32_t kCascadeCells = 8;
 constexpr uint32_t kSpotCells = 8;
 constexpr uint32_t kPointFaceCells = 4;
 
-// what the shadows are fitted to: the camera (the first view), and the scene's bounds (what casts shadows)
+// what the shadows are fitted to: each view's camera (split screen's, each with its cascades), and the scene's bounds
+// (what casts shadows)
 struct ShadowCamera
 {
 	glm::mat4 view{1.0F};
@@ -50,10 +51,12 @@ struct ShadowPlan
 	std::vector<Tile> tiles; // per view
 };
 
-// plans the shadows of lights (as the shader sees them) for a camera and the scene's bounds. lights beyond the budget
-// (the atlas is full, or SHADER_TYPES_SHADOW_VIEW_COUNT views) cast none: directional lights go first (by intensity),
-// then the others by how bright they are at the camera. point and spot lights whose range is out of the camera's view
-// light nothing seen, and get none
-[[nodiscard]] ShadowPlan Plan(std::span<const LightData> lights, const ShadowCamera& camera, const Bounds3f& sceneBounds);
+// plans the shadows of lights (as the shader sees them) for the views' cameras and the scene's bounds. lights beyond the
+// budget (the atlas is full, or SHADER_TYPES_SHADOW_VIEW_COUNT views) cast none: directional lights go first (by
+// intensity), then the others by how bright they are at the nearest eye. a directional light has cascades fitted to each
+// camera, all of them finest first (SHADER_TYPES_SHADOW_CASCADE_COUNT times the cameras: the shader takes the first that
+// covers a point, the finest any view has, see PlaceInShadowMap). point and spot lights whose range is out of every
+// camera's view light nothing seen, and get none; the others are sized for the view they look biggest in
+[[nodiscard]] ShadowPlan Plan(std::span<const LightData> lights, std::span<const ShadowCamera> cameras, const Bounds3f& sceneBounds);
 
 } // namespace gfx::shadows

@@ -249,7 +249,7 @@ public:
 	// (environment::kSkySunRadius), 0 for a point or spot light (glTF's lights are punctual). cleared when a model is
 	// installed
 	[[nodiscard]] core::ConcurrentAccess<std::vector<float>>& GetLightSizes() noexcept;
-	// the exposure auto exposure picked, in stops (see Settings::autoExposure)
+	// the exposure auto exposure picked, in stops (see Settings::autoExposure): the first view's (each view has its own)
 	[[nodiscard]] float GetAutoExposureStops() const noexcept;
 	// the bytes of device memory the renderer's transients take, and would take without aliasing
 	[[nodiscard]] uint64_t GetTransientMemory() const noexcept;

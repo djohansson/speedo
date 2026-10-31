@@ -328,17 +328,30 @@ void WindowedApplication::InternalCopyPose()
 	auto camera = myViews->GetCamera(0);
 	if (!camera)
 		return;
-	const auto& desc = camera->GetDesc();
-	glm::vec3 eye = -desc.position;
+	auto pose = [](const gfx::Camera& view)
+	{
+		const auto& desc = view.GetDesc();
+		glm::vec3 eye = -desc.position;
+		return std::format(
+			"{:.4f},{:.4f},{:.4f},{:.3f},{:.3f}",
+			static_cast<double>(eye.x),
+			static_cast<double>(eye.y),
+			static_cast<double>(eye.z),
+			static_cast<double>(glm::degrees(desc.cameraRotation.x)),
+			static_cast<double>(glm::degrees(desc.cameraRotation.y)));
+	};
 	auto& scene = windowedapplication::App().GetScene();
 	auto& settings = scene.GetSettings();
-	std::string text = std::format(
-		"SPEEDO_CAMERA={:.4f},{:.4f},{:.4f},{:.3f},{:.3f}",
-		static_cast<double>(eye.x),
-		static_cast<double>(eye.y),
-		static_cast<double>(eye.z),
-		static_cast<double>(glm::degrees(desc.cameraRotation.x)),
-		static_cast<double>(glm::degrees(desc.cameraRotation.y)));
+	std::string text = std::format("SPEEDO_CAMERA={}", pose(*camera));
+	// and split screen's grid and its other views' cameras (quoted: a shell takes ; between commands)
+	if (auto grid = myViews->GetGrid(); grid.x * grid.y > 1)
+	{
+		std::string views;
+		for (size_t viewIt = 1; viewIt < static_cast<size_t>(grid.x) * grid.y; viewIt++)
+			if (auto view = myViews->GetCamera(viewIt))
+				views += (views.empty() ? "" : ";") + pose(*view);
+		text += std::format(" SPEEDO_LAYOUT={}x{} SPEEDO_CAMERA_VIEWS='{}'", grid.x, grid.y, views);
+	}
 	{
 		auto scenes = scene.GetScenes().Read();
 		if (!scenes.Get().filePath.empty())
@@ -843,7 +856,7 @@ void WindowedApplication::PrepareDraw()
 					lightIt < capture.modelLightCount ? "model" : "environment",
 					luminance,
 					light.type == LIGHT_TYPE_DIRECTIONAL ? "lux" : "cd",
-					first == SHADER_TYPES_NO_SHADOW ? std::string("no shadows") : std::format("{} shadow views", gfx::ShadowViewCount(light.type)));
+					first == SHADER_TYPES_NO_SHADOW ? std::string("no shadows") : std::format("{} shadow views", gfx::ShadowViewCount(light.type, capture.cascadeSets)));
 				PushID(static_cast<int>(lightIt));
 				float brightest = std::max({light.intensity[0], light.intensity[1], light.intensity[2], 1e-6F});
 				ColorButton(
@@ -1083,6 +1096,11 @@ void WindowedApplication::PrepareDraw()
 	// installed (the model's install frames them first), for measurements and screenshots; SPEEDO_CAMERA=frame frames the
 	// model, as View > Camera > Frame model (a model with cameras starts looking through its first)
 	static std::optional<std::array<float, 5>> gAutoCamera;
+	// SPEEDO_CAMERA_VIEWS=<x,y,z,pitch,yaw>[;...]: views 1 and on placed apart, after SPEEDO_CAMERA placed them all (view 0 its
+	// pose): split screen's cameras, each where it is, for what follows one view only (the shadows, the indirect lighting)
+	static std::vector<std::array<float, 5>> gAutoViewCameras;
+	// the views' grid a pose pasted names (SPEEDO_LAYOUT, 1x1 where it names none), for the layout's section below
+	static std::optional<std::array<uint32_t, 2>> gPastedLayout;
 	static bool gAutoFrame = false;
 	// SPEEDO_LIGHT_SIZES=<light>=<size>[,...]: the model's lights' sizes (as View > Lights sets them: a directional light's
 	// angular radius in degrees, a point or spot light's radius), once it is installed (which clears them)
@@ -1114,6 +1132,26 @@ void WindowedApplication::PrepareDraw()
 		if (count != values.size())
 			return std::nullopt;
 		return values;
+	};
+	// SPEEDO_CAMERA_VIEWS' poses, separated by ;, and SPEEDO_LAYOUT's grid (1x1, 1x2, 2x1 or 2x2)
+	auto parseViewPoses = [&parsePose](const char* text) -> std::optional<std::vector<std::array<float, 5>>>
+	{
+		std::vector<std::array<float, 5>> poses;
+		for (const char* it = text; *it != '\0';)
+		{
+			auto pose = parsePose(it);
+			if (!pose)
+				return std::nullopt;
+			poses.push_back(*pose);
+			it += *it == ';' ? 1 : 0;
+		}
+		return poses;
+	};
+	auto parseLayout = [](std::string_view text) -> std::optional<std::array<uint32_t, 2>>
+	{
+		if (text.size() == 3 && text[1] == 'x' && (text[0] == '1' || text[0] == '2') && (text[2] == '1' || text[2] == '2'))
+			return std::array<uint32_t, 2>{static_cast<uint32_t>(text[0] - '0'), static_cast<uint32_t>(text[2] - '0')};
+		return std::nullopt;
 	};
 	if (static bool gAutoLoadDone = false; !gAutoLoadDone)
 	{
@@ -1186,6 +1224,13 @@ void WindowedApplication::PrepareDraw()
 			}
 			else
 				std::println(stderr, "SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
+		}
+		if (const char* views = std::getenv("SPEEDO_CAMERA_VIEWS"); views != nullptr && *views != '\0')
+		{
+			if (auto poses = parseViewPoses(views))
+				gAutoViewCameras = std::move(*poses);
+			else
+				std::println(stderr, "SPEEDO_CAMERA_VIEWS: expected x,y,z,pitch,yaw[;...], got {}", views);
 		}
 		if (const char* sizes = std::getenv("SPEEDO_LIGHT_SIZES"); sizes != nullptr && *sizes != '\0')
 			for (const char* it = sizes; *it != '\0';)
@@ -1328,6 +1373,19 @@ void WindowedApplication::PrepareDraw()
 				if (!gAutoCamera)
 					std::println(stderr, "Paste Pose: SPEEDO_CAMERA: expected x,y,z,pitch,yaw, got {}", camera);
 			}
+			// split screen's grid and its other views' cameras, each placed with view 0 (see SPEEDO_CAMERA_VIEWS)
+			gAutoViewCameras.clear();
+			if (const char* views = pose->Get("SPEEDO_CAMERA_VIEWS"); views != nullptr && *views != '\0')
+			{
+				if (auto poses = parseViewPoses(views))
+					gAutoViewCameras = std::move(*poses);
+				else
+					std::println(stderr, "Paste Pose: SPEEDO_CAMERA_VIEWS: expected x,y,z,pitch,yaw[;...], got {}", views);
+			}
+			const char* layout = pose->Get("SPEEDO_LAYOUT");
+			gPastedLayout = layout != nullptr ? parseLayout(layout) : std::array<uint32_t, 2>{1, 1};
+			if (!gPastedLayout)
+				std::println(stderr, "Paste Pose: SPEEDO_LAYOUT: expected 1x1, 1x2, 2x1 or 2x2, got {}", layout);
 			gAutoCameraRepeats = kAutoCameraRepeatCount;
 		}
 		else
@@ -1369,8 +1427,12 @@ void WindowedApplication::PrepareDraw()
 			// few frames: the install may be queued after the scene names its file
 			auto values = *gAutoCamera;
 			auto [task, future] = core::CreateTask(
-				[this, values]
-				{ myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F)); });
+				[this, values, views = gAutoViewCameras]
+				{
+					myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
+					for (size_t viewIt = 0; viewIt < views.size(); viewIt++)
+						myViews->Place(viewIt + 1, glm::vec3(views[viewIt][0], views[viewIt][1], views[viewIt][2]), glm::vec3(glm::radians(views[viewIt][3]), glm::radians(views[viewIt][4]), 0.0F));
+				});
 			rhi.drawCalls.enqueue(task);
 		}
 		if (--gAutoCameraRepeats == 0)
@@ -1545,12 +1607,17 @@ void WindowedApplication::PrepareDraw()
 		gLayoutDone = true;
 		if (const char* layout = std::getenv("SPEEDO_LAYOUT"); layout != nullptr)
 		{
-			std::string_view text(layout);
-			if (text.size() == 3 && text[1] == 'x' && (text[0] == '1' || text[0] == '2') && (text[2] == '1' || text[2] == '2'))
-				setSplitScreenGrid(static_cast<uint32_t>(text[0] - '0'), static_cast<uint32_t>(text[2] - '0'));
+			if (auto grid = parseLayout(layout))
+				setSplitScreenGrid((*grid)[0], (*grid)[1]);
 			else
 				std::println(stderr, "SPEEDO_LAYOUT: expected 1x1, 1x2, 2x1 or 2x2, got {}", layout);
 		}
+	}
+	// and a pasted pose's (see gPastedLayout)
+	if (gPastedLayout)
+	{
+		setSplitScreenGrid((*gPastedLayout)[0], (*gPastedLayout)[1]);
+		gPastedLayout.reset();
 	}
 
 	// the menus' shortcuts: the labels MenuItem shows are only text. global routes, so they work whichever window has

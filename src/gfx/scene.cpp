@@ -394,13 +394,18 @@ struct Scene::Impl
 	std::optional<std::vector<environment::DominantLight>> myEnvironmentLights;
 	core::ConcurrentAccess<std::vector<DominantLightInfo>> myEnvironmentLightInfo;
 	core::ConcurrentAccess<std::vector<float>> myLightSizes; // see Scene::GetLightSizes
-	std::atomic<float> myAutoExposureStops = 0.0F; // written by the draw thread, shown by the ui
+	// per view (split screen's, each by its own pixels): written by the draw thread, shown by the ui (the first's), and whether
+	// the view has been measured yet (its first measure is taken as it is)
+	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myAutoExposureStops{};
+	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myAutoExposureMeasured{};
 	// the upscaling the render targets were last sized for (Settings::upscaling, see CreateOutputDependentObjects). the
 	// draw thread's
 	Upscaling myUpscaling = Upscaling::kOff;
 	std::optional<std::chrono::steady_clock::time_point> myAutoExposureLast;
-	std::atomic<float> myLookDistance = 0.0F; // how far the camera looks (see FrameInputs::lookDistance), by the draw thread
-	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_HISTOGRAM_BINS per frame, host visible
+	// how far each view looks (see FrameInputs::lookDistances), by the draw thread, and whether it has been measured yet
+	std::array<std::atomic<float>, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistances{};
+	std::array<bool, SHADER_TYPES_SPLIT_VIEW_COUNT> myLookDistanceMeasured{};
+	uuids::uuid myExposureHistogramUuid; // gExposureHistogram: SHADER_TYPES_FRAME_HISTOGRAM_BINS per frame, host visible
 	size_t myModelSamplerCount = 0; // how many of kModelSamplerSlots the loaded model uses
 
 
@@ -411,15 +416,22 @@ struct Scene::Impl
 	std::vector<SceneLight> myAnimatedLights; // the lights as last uploaded, if some follow nodes
 
 
+	// a view's exposure, as a factor: the exposure in stops and its auto exposure's (see ViewData::exposure)
+	float ViewExposure(size_t view) const
+	{
+		float stops = view < myAutoExposureStops.size() && mySettings.autoExposure.load(std::memory_order_relaxed)
+						  ? myAutoExposureStops[view].load(std::memory_order_relaxed)
+						  : 0.0F;
+		return std::exp2(mySettings.exposureStops.load(std::memory_order_relaxed) + stops);
+	}
+
 	// the push constants every draw (and ComputeMain) of a frame shares
 	PushConstants FramePushConstants(uint16_t frameIndex, uint16_t outputIndex)
 	{
 		return PushConstants{
 			.frameIndex = frameIndex,
 			.lightCount = myLightCount,
-			.exposure = std::exp2(
-				mySettings.exposureStops.load(std::memory_order_relaxed) +
-				(mySettings.autoExposure.load(std::memory_order_relaxed) ? myAutoExposureStops.load(std::memory_order_relaxed) : 0.0F)),
+			.exposure = ViewExposure(0),
 			.environmentIntensity = mySettings.environmentIntensity.load(std::memory_order_relaxed),
 			.environmentRotation = glm::radians(mySettings.environmentRotationDegrees.load(std::memory_order_relaxed)),
 			.viewCount = myViews.GetGrid().x * myViews.GetGrid().y, // at most SHADER_TYPES_VIEW_COUNT (see Views::Upload)
@@ -698,9 +710,44 @@ struct Scene::Impl
 	// kAutoExposureKey, less up to kNightStops as the scene darkens from daylight's luminance to a lit street's at night (see
 	// kDaylightLog2): a night shown darker than a day, as the eye and a photographer have it (with one key, Bistro at night
 	// was lifted 8.7 stops to look as bright as at noon, 2.5). and how far the camera looks: the median of the drawn
-	// pixels' distances from the eye, toward which myLookDistance moves the same way (the indirect lighting's finer clips
-	// are centered toward it, see gi::MakeClipmap). call on the draw thread.
+	// pixels' distances from the eye, toward which myLookDistances moves the same way (the indirect lighting's finer clips
+	// are centered toward it, see gi::MakeClipmap). each view by its own pixels (split screen's: a sunlit roof beside a dark
+	// corridor, one exposure for both blew the roof out). call on the draw thread.
 	void UpdateAutoExposure(RHI& rhi, uint32_t frameIndex)
+	{
+		constexpr double kAdaptationSpeed = 2.0; // per second, of what is left to the target, as an exponential decay
+
+		auto now = std::chrono::steady_clock::now();
+		auto elapsed = myAutoExposureLast ? std::chrono::duration<double>(now - *myAutoExposureLast).count() : 0.0;
+		myAutoExposureLast = now;
+		// a view's first measure is taken as it is (a view split screen adds starts settled). by the time elapsed, whatever
+		// it is, so that the exposure takes as long to settle at any frame rate (a long frame, a load's, used to take the
+		// target at once past a second: whether it did depended on how the frames went)
+		auto adapt = [elapsed](std::atomic<float>& value, bool& measured, float target)
+		{
+			auto current = value.load(std::memory_order_relaxed);
+			if (elapsed <= 0.0 || !measured)
+				current = target;
+			else
+				current += (target - current) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));
+			measured = true;
+			value.store(current, std::memory_order_relaxed);
+		};
+
+		auto& histogram = *rhi.GetPrimaryDevice().GetResource<Buffer>(myExposureHistogramUuid);
+		auto memory = histogram.Map();
+		std::array<uint32_t, SHADER_TYPES_FRAME_HISTOGRAM_BINS> views{};
+		std::memcpy(views.data(), memory.data() + (static_cast<size_t>(frameIndex) * sizeof(views)), sizeof(views));
+		histogram.Unmap();
+
+		auto grid = myViews.GetGrid();
+		for (size_t viewIt = 0; viewIt < std::min<size_t>(static_cast<size_t>(grid.x) * grid.y, SHADER_TYPES_SPLIT_VIEW_COUNT); viewIt++)
+			UpdateViewExposure(viewIt, std::span(views).subspan(viewIt * SHADER_TYPES_HISTOGRAM_BINS, SHADER_TYPES_HISTOGRAM_BINS), adapt);
+	}
+
+	// a view's auto exposure and look distance, by its histograms (see UpdateAutoExposure)
+	template <typename Adapt>
+	void UpdateViewExposure(size_t view, std::span<const uint32_t> bins, Adapt&& adapt)
 	{
 		constexpr double kAutoExposureKey = 0.2;
 		// the scene's mean log2 luminance (in the renderer's units) of daylight and of night: 2^-4, about 2900 cd/m^2 scaled
@@ -709,30 +756,6 @@ struct Scene::Impl
 		constexpr double kDaylightLog2 = -4.0;
 		constexpr double kNightLog2 = -11.0;
 		constexpr double kNightStops = 2.0;
-		constexpr double kAdaptationSpeed = 2.0; // per second, of what is left to the target, as an exponential decay
-
-		auto now = std::chrono::steady_clock::now();
-		auto elapsed = myAutoExposureLast ? std::chrono::duration<double>(now - *myAutoExposureLast).count() : 0.0;
-		myAutoExposureLast = now;
-		// the first measure is taken as it is. by the time elapsed, whatever it is, so that the exposure takes as long to
-		// settle at any frame rate (a long frame, a load's, used to take the target at once past a second: whether it
-		// did depended on how the frames went)
-		auto adapt = [elapsed](std::atomic<float>& value, float target)
-		{
-			auto current = value.load(std::memory_order_relaxed);
-			if (elapsed <= 0.0)
-				current = target;
-			else
-				current += (target - current) * static_cast<float>(1.0 - std::exp(-elapsed * kAdaptationSpeed));
-			value.store(current, std::memory_order_relaxed);
-		};
-
-		auto& histogram = *rhi.GetPrimaryDevice().GetResource<Buffer>(myExposureHistogramUuid);
-		auto memory = histogram.Map();
-		std::array<uint32_t, SHADER_TYPES_HISTOGRAM_BINS> bins{};
-		std::memcpy(bins.data(), memory.data() + (static_cast<size_t>(frameIndex) * sizeof(bins)), sizeof(bins));
-		histogram.Unmap();
-
 		{
 			std::span<const uint32_t> distances(bins.data() + SHADER_TYPES_EXPOSURE_BINS, SHADER_TYPES_DISTANCE_BINS);
 			uint64_t drawn = std::accumulate(distances.begin(), distances.end(), uint64_t{0});
@@ -748,7 +771,7 @@ struct Scene::Impl
 				}
 				auto log2Distance = SHADER_TYPES_DISTANCE_LOG2_MIN +
 									((static_cast<double>(medianBin) + 0.5) / SHADER_TYPES_DISTANCE_BINS * (SHADER_TYPES_DISTANCE_LOG2_MAX - SHADER_TYPES_DISTANCE_LOG2_MIN));
-				adapt(myLookDistance, static_cast<float>(std::exp2(log2Distance)));
+				adapt(myLookDistances[view], myLookDistanceMeasured[view], static_cast<float>(std::exp2(log2Distance)));
 			}
 		}
 
@@ -777,7 +800,7 @@ struct Scene::Impl
 			return;
 		double mean = sum / weight;
 		double darkness = std::clamp((kDaylightLog2 - mean) / (kDaylightLog2 - kNightLog2), 0.0, 1.0);
-		adapt(myAutoExposureStops, static_cast<float>(std::log2(kAutoExposureKey) - (kNightStops * darkness) - mean));
+		adapt(myAutoExposureStops[view], myAutoExposureMeasured[view], static_cast<float>(std::log2(kAutoExposureKey) - (kNightStops * darkness) - mean));
 	}
 
 
@@ -1871,7 +1894,7 @@ struct Scene::Impl
 			timelineCallbacks.emplace_back(environmentTransfersDone.handle);
 
 			// counted into by ComputeMain, read by UpdateAutoExposure
-			std::vector<uint32_t> histograms(static_cast<size_t>(SHADER_TYPES_FRAME_COUNT) * SHADER_TYPES_HISTOGRAM_BINS);
+			std::vector<uint32_t> histograms(static_cast<size_t>(SHADER_TYPES_FRAME_COUNT) * SHADER_TYPES_FRAME_HISTOGRAM_BINS);
 			core::TaskCreateInfo<void> histogramTransfersDone;
 			auto histogramBuffer = device.CreateResource<Buffer>(
 				BufferCreateDesc{
@@ -2265,22 +2288,27 @@ struct Scene::Impl
 		{ return material < specialization.size() ? specialization[material] : uint16_t{0}; };
 
 		// the views as this frame draws them (the cameras may move while it records): what it culls by and fits its
-		// shadows (to the first view) and clusters to
+		// shadows (to each view) and clusters to
 		auto& views = myViews;
 		auto viewportScale = RenderViewportScale();
-		auto cameras = views.Upload(target.frameIndex, viewportScale, myUpscaling != Upscaling::kOff);
+		std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> exposures{};
+		std::array<float, SHADER_TYPES_SPLIT_VIEW_COUNT> lookDistances{};
+		for (size_t viewIt = 0; viewIt < exposures.size(); viewIt++)
+		{
+			exposures[viewIt] = ViewExposure(viewIt);
+			lookDistances[viewIt] = myLookDistances[viewIt].load(std::memory_order_relaxed);
+		}
+		auto cameras = views.Upload(target.frameIndex, viewportScale, myUpscaling != Upscaling::kOff, exposures);
 		std::vector<glm::mat4> viewProjections;
 		for (const auto& camera : cameras)
 			viewProjections.push_back(camera.GetProjectionMatrix() * camera.GetViewMatrix());
-		shadows::ShadowCamera shadowCamera;
-		if (!cameras.empty())
-		{
-			const auto& camera = cameras.front();
-			shadowCamera.view = camera.GetViewMatrix();
-			shadowCamera.inverseViewProjection = glm::inverse(viewProjections.front());
-			shadowCamera.nearPlane = camera.GetDesc().nearPlane;
-			shadowCamera.farPlane = camera.GetDesc().farPlane;
-		}
+		std::vector<shadows::ShadowCamera> shadowCameras;
+		for (size_t cameraIt = 0; cameraIt < cameras.size(); cameraIt++)
+			shadowCameras.push_back(
+				{.view = cameras[cameraIt].GetViewMatrix(),
+				 .inverseViewProjection = glm::inverse(viewProjections[cameraIt]),
+				 .nearPlane = cameras[cameraIt].GetDesc().nearPlane,
+				 .farPlane = cameras[cameraIt].GetDesc().farPlane});
 		myRenderer->Record(
 			cmd,
 			pipeline,
@@ -2312,9 +2340,9 @@ struct Scene::Impl
 				.tracedShadows = mySettings.tracedShadows.load(std::memory_order_relaxed),
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
-				.camera = shadowCamera,
+				.cameras = std::move(shadowCameras),
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
-				.lookDistance = myLookDistance.load(std::memory_order_relaxed),
+				.lookDistances = lookDistances,
 				.exposureHistogram = &*device.GetResource<Buffer>(myExposureHistogramUuid),
 				.graphicsQueue = target.graphicsQueue,
 				.graphicsTimeline = target.graphicsTimeline,
@@ -2385,7 +2413,7 @@ core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { retu
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentPath() noexcept { return myImpl->myEnvironmentPath; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
 core::ConcurrentAccess<std::vector<float>>& Scene::GetLightSizes() noexcept { return myImpl->myLightSizes; }
-float Scene::GetAutoExposureStops() const noexcept { return myImpl->myAutoExposureStops.load(std::memory_order_relaxed); }
+float Scene::GetAutoExposureStops() const noexcept { return myImpl->myAutoExposureStops[0].load(std::memory_order_relaxed); }
 uint64_t Scene::GetTransientMemory() const noexcept { return myImpl->myTransientMemory.load(std::memory_order_relaxed); }
 uint64_t Scene::GetUnaliasedTransientMemory() const noexcept { return myImpl->myUnaliasedTransientMemory.load(std::memory_order_relaxed); }
 const Renderer& Scene::GetRenderer() const noexcept { return *myImpl->myRenderer; }

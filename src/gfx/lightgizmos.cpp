@@ -55,11 +55,11 @@ void AddFrustum(LightGizmos& gizmos, const ShadowData& view, glm::vec4 color)
 
 } // namespace lightgizmos
 
-uint32_t ShadowViewCount(uint32_t lightType)
+uint32_t ShadowViewCount(uint32_t lightType, uint32_t cascadeSets)
 {
 	switch (lightType)
 	{
-	case LIGHT_TYPE_DIRECTIONAL: return SHADER_TYPES_SHADOW_CASCADE_COUNT;
+	case LIGHT_TYPE_DIRECTIONAL: return SHADER_TYPES_SHADOW_CASCADE_COUNT * cascadeSets;
 	case LIGHT_TYPE_POINT: return 6;
 	default: return 1;
 	}
@@ -151,7 +151,7 @@ LightGizmos BuildLightGizmos(const LightCapture& capture, const LightGizmoOption
 		uint32_t first = capture.lightShadows[lightIt];
 		if (first == SHADER_TYPES_NO_SHADOW)
 			continue;
-		for (uint32_t viewIt = 0; viewIt < ShadowViewCount(light.type) && first + viewIt < capture.shadowViews.size(); viewIt++)
+		for (uint32_t viewIt = 0; viewIt < ShadowViewCount(light.type, capture.cascadeSets) && first + viewIt < capture.shadowViews.size(); viewIt++)
 			AddFrustum(gizmos, capture.shadowViews[first + viewIt], kViewColors[viewIt % kViewColors.size()]);
 	}
 	return gizmos;

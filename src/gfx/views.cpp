@@ -175,6 +175,18 @@ void Views::Place(const glm::vec3& eye, const glm::vec3& rotation)
 	}
 }
 
+void Views::Place(size_t view, const glm::vec3& eye, const glm::vec3& rotation)
+{
+	auto cameras = myCameras.Write();
+	if (view >= cameras.Get().size())
+		return;
+	auto& camera = cameras.Get()[view];
+	auto& desc = camera.GetDesc();
+	desc.position = -eye;
+	desc.cameraRotation = rotation;
+	camera.UpdateAll();
+}
+
 void Views::Turn(float yaw, float forward)
 {
 	auto cameras = myCameras.Write();
@@ -360,7 +372,7 @@ bool Views::OnPath() const
 	return path.Get().next < path.Get().poses.size();
 }
 
-std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, bool jitter)
+std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, bool jitter, std::span<const float> exposures)
 {
 	ZoneScopedN("Views::Upload");
 
@@ -427,6 +439,7 @@ std::vector<Camera> Views::Upload(uint32_t frameIndex, glm::vec2 viewportScale, 
 		views[viewIt].jitter[2] = last.jitter.x;
 		views[viewIt].jitter[3] = last.jitter.y;
 		views[viewIt].textureLodBias = jitter ? std::log2(std::min(viewportScale.x, viewportScale.y)) + views::kJitterTextureLodBias : 0.0F;
+		views[viewIt].exposure = viewIt < exposures.size() ? exposures[viewIt] : (exposures.empty() ? 1.0F : exposures.front());
 		if (myUploaded.size() <= viewIt)
 			myUploaded.resize(viewIt + 1);
 		myUploaded[viewIt] = uploaded;

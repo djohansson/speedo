@@ -1263,7 +1263,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		[this](FrameGraph::PassBuilder& builder) { builder.Use(myExposureHistogram, ResourceUse::TransferDestination()); },
 		[this](FrameGraph::PassContext& context)
 		{
-			constexpr auto kHistogramSize = SHADER_TYPES_HISTOGRAM_BINS * sizeof(uint32_t);
+			constexpr auto kHistogramSize = SHADER_TYPES_FRAME_HISTOGRAM_BINS * sizeof(uint32_t);
 			CommandEncoder(context.cmd).FillBuffer(
 				context.graph.GetBuffer(myExposureHistogram), myFrame.inputs->frameIndex * kHistogramSize, kHistogramSize, 0);
 		});
@@ -2383,7 +2383,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	// buffers is done (the caller waited for its fence)
 	ENSURE(frame.lights.size() <= SHADER_TYPES_LIGHT_COUNT); // see Scene::UpdateLights
 	myShadowPlan = frame.shadows && frame.model != nullptr
-		? shadows::Plan(frame.lights, frame.camera, frame.sceneBounds)
+		? shadows::Plan(frame.lights, frame.cameras, frame.sceneBounds)
 		: shadows::ShadowPlan{};
 	myShadowPlan.lightShadows.resize(SHADER_TYPES_LIGHT_COUNT, SHADER_TYPES_NO_SHADOW);
 	ENSURE(myShadowPlan.views.size() <= SHADER_TYPES_SHADOW_VIEW_COUNT);
@@ -2401,7 +2401,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		lightShadows.Unmap();
 	}
 	// the traced shadows: the directional lights' (the brightest first), then the point and spot lights' the atlas has
-	// views of (in view), the brightest at the camera first, up to SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT, where the model
+	// views of (in a view), the brightest at the nearest eye first, up to SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT, where the model
 	// has BVHs to trace
 	{
 		ShadowTraceData trace{};
@@ -2409,7 +2409,9 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		bool hasBvh = frame.model != nullptr && (frame.model->GetBvhNodeBuffer() != nullptr || frame.model->HasMovingBvh());
 		if (frame.tracedShadows && frame.shadows && hasBvh)
 		{
-			glm::vec3 eye(glm::inverse(frame.camera.view)[3]);
+			std::vector<glm::vec3> eyes;
+			for (const auto& camera : frame.cameras)
+				eyes.emplace_back(glm::inverse(camera.view)[3]);
 			std::vector<std::pair<float, uint32_t>> candidates;
 			for (uint32_t lightIt = 0; lightIt < frame.lights.size(); lightIt++)
 			{
@@ -2421,8 +2423,12 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 					candidates.emplace_back(std::numeric_limits<float>::max() / 2.0F + luminance, lightIt);
 				else if (myShadowPlan.lightShadows[lightIt] != SHADER_TYPES_NO_SHADOW)
 				{
+					// by its light at the nearest eye
 					glm::vec3 position(light.positionRange[0], light.positionRange[1], light.positionRange[2]);
-					candidates.emplace_back(luminance / std::max(glm::dot(position - eye, position - eye), 1e-6F), lightIt);
+					float nearest = std::numeric_limits<float>::max();
+					for (const auto& eye : eyes)
+						nearest = std::min(nearest, glm::dot(position - eye, position - eye));
+					candidates.emplace_back(luminance / std::max(nearest, 1e-6F), lightIt);
 				}
 			}
 			std::ranges::sort(candidates, std::greater{});
@@ -2522,6 +2528,7 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		lights.modelLightCount = frame.modelLightCount;
 		lights.shadowViews = myShadowPlan.views;
 		lights.lightShadows = myShadowPlan.lightShadows;
+		lights.cascadeSets = std::max<uint32_t>(static_cast<uint32_t>(frame.cameras.size()), 1U);
 		lights.sceneBounds = frame.sceneBounds;
 	}
 	myShadowDrawList = !myShadowPlan.views.empty()
@@ -2889,7 +2896,7 @@ void Renderer::InternalPlanCulling(Pipeline& pipeline, const FrameInputs& frame)
 	// the views: the main views', then the shadow views' frustums (all zeros, which culls nothing, without culling), and
 	// the main views' view projections and viewports, for occlusion
 	uint32_t mainViewCount = frame.grid.x * frame.grid.y;
-	ENSURE(mainViewCount <= SHADER_TYPES_VIEW_COUNT);
+	ENSUREF(mainViewCount <= SHADER_TYPES_SPLIT_VIEW_COUNT, "{} views, more than split screen's {} (SHADER_TYPES_SPLIT_VIEW_COUNT: each its own exposure)", mainViewCount, SHADER_TYPES_SPLIT_VIEW_COUNT);
 	std::vector<CullView> views(mainViewCount + myShadowPlan.views.size());
 	auto setView = [&views](size_t view, const glm::mat4& viewProjection)
 	{
@@ -3297,10 +3304,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 
 	// the clipmap, made again (and voxelized) when the model, its bounds or its draws change; a clip that moves with the
 	// camera is voxelized again
-	glm::mat4 cameraToWorld = glm::inverse(frame.camera.view);
+	glm::mat4 cameraToWorld = glm::inverse(frame.cameras.empty() ? glm::mat4(1.0F) : frame.cameras.front().view);
 	glm::vec3 eye = cameraToWorld[3];
-	// toward what the camera looks at (the view's -z, as far as the last frame's pixels were, see FrameInputs::lookDistance)
-	glm::vec3 look = -glm::normalize(glm::vec3(cameraToWorld[2])) * std::max(frame.lookDistance, 0.0F);
+	// toward what the camera looks at (the view's -z, as far as the last frame's pixels were, see FrameInputs::lookDistances)
+	glm::vec3 look = -glm::normalize(glm::vec3(cameraToWorld[2])) * std::max(frame.lookDistances[0], 0.0F);
 	if (!myGiEyePath.empty())
 	{
 		const auto& point = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
