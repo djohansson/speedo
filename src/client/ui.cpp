@@ -251,7 +251,7 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 	// probes' light (SPEEDO_GI_CACHE=0 without), whether the shading takes its near field's rays near other surfaces
 	// (SPEEDO_GI_NEAR=0 without them), accumulated over frames (SPEEDO_GI_NEAR_TEMPORAL=0 without), how near what they
 	// meet is a contact (SPEEDO_GI_NEAR_CONTACT, in voxels: see gi::kDefaultNearContact), every how many pixels each way
-	// they are traced (SPEEDO_GI_NEAR_STRIDE: 2, the default, or 4), and its resolution (SPEEDO_GI_RESOLUTION: voxels
+	// they are traced (SPEEDO_GI_NEAR_STRIDE: 2, or 4, the default), and its resolution (SPEEDO_GI_RESOLUTION: voxels
 	// along the scene's longest axis, any from 8 to 512; the menu offers gi::kResolutions)
 	apply(settings.indirectLighting, kDefaults.indirectLighting, "SPEEDO_GI", unless("0"));
 	apply(settings.traceTriangles, kDefaults.traceTriangles, "SPEEDO_GI_TRACE", unless("voxels"));
@@ -263,7 +263,7 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		settings.giNearStride,
 		kDefaults.giNearStride,
 		"SPEEDO_GI_NEAR_STRIDE",
-		[](const char* value) { return std::optional<uint32_t>(std::string_view(value) == "4" ? 4U : 2U); });
+		[](const char* value) { return std::optional<uint32_t>(std::string_view(value) == "2" ? 2U : 4U); });
 	apply(
 		settings.giResolution,
 		kDefaults.giResolution,
@@ -412,7 +412,7 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_EMISSIVE_LIGHTS=0";
 	if (float contact = settings.giNearContact.load(std::memory_order_relaxed); contact != gfx::gi::kDefaultNearContact)
 		text += std::format(" SPEEDO_GI_NEAR_CONTACT={:.2f}", static_cast<double>(contact));
-	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != 2)
+	if (uint32_t stride = settings.giNearStride.load(std::memory_order_relaxed); stride != gfx::gi::kDefaultNearStride)
 		text += std::format(" SPEEDO_GI_NEAR_STRIDE={}", stride);
 	if (auto upscaling = settings.upscaling.load(std::memory_order_relaxed); upscaling != gfx::kDefaultUpscaling)
 		text += std::format(" SPEEDO_UPSCALING={}", gfx::UpscalingName(upscaling));
@@ -2111,8 +2111,8 @@ void WindowedApplication::PrepareDraw()
 					{
 						uint32_t stride = App().GetScene().GetSettings().giNearStride.load(std::memory_order_relaxed);
 						for (auto [label, value, tooltip] : std::array{
-								 std::tuple{"Every 2nd pixel", 2U, "A quarter of the pixels trace a ray (the default)."},
-								 std::tuple{"Every 4th pixel", 4U, "A sixteenth of the pixels trace a ray: 4 to 11 ms less a frame at the benchmark poses, coarser at contacts (SPEEDO_GI_NEAR_STRIDE=4)."}})
+								 std::tuple{"Every 2nd pixel", 2U, "A quarter of the pixels trace a ray: finer contacts at thin features, 1.3 to 3.2 ms more a frame at the benchmark poses (SPEEDO_GI_NEAR_STRIDE=2)."},
+								 std::tuple{"Every 4th pixel", 4U, "A sixteenth of the pixels trace a ray (the default)."}})
 						{
 							if (MenuItem(label, nullptr, stride == value))
 								App().GetScene().GetSettings().giNearStride.store(value, std::memory_order_relaxed);

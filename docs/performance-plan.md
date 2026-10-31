@@ -434,10 +434,12 @@ The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22
 - **Kept: the coarser clips updated in turn** (step 4's "coarser clips updated every few frames"; `GiData::updated`,
   `SPEEDO_GI_STAGGER=0` for every clip every frame): the finest level's clips every frame, the coarser levels' a level
   a frame, each by a clock of its own (its frame stamp, ray phases, halves and the cache's window count its updates, its
-  blend is raised to the frames between them), what changed while it waited taken in at its next update. A clip costs
-  about as much as another (Bistro 38.4 ms with 3 clips, 33.9 with 2, 30.2 with 1; Sponza 22.3, 19.2, 16.5). Measured
-  interleaved, each client started at a nominal thermal state (see below): Sponza 31.3 to 28.2 ms, Bistro 53.5 to 51.1,
-  San Miguel 61.8 to 61.1 (its finest clip is most of its cost). The probes traced a frame went from 4070 to 2707 in
+  blend is raised to the frames between them), what changed while it waited taken in at its next update. With fewer
+  clips the frame is shorter (Bistro 38.4 ms with 3 clips, 33.9 with 2, 30.2 with 1; Sponza 22.3, 19.2, 16.5), but that
+  changes what the remaining clips cover too: interleaved, after the reboot below, Sponza 21.93 to 19.93 ms, Bistro 38.44
+  to 37.36, San Miguel 44.17 to 43.85 (the finest clips, updated every frame, hold most of the surface cache's work;
+  measured on the slowed machine, from a nominal thermal state, the savings were alike: Sponza 31.3 to 28.2, Bistro 53.5
+  to 51.1, San Miguel 61.8 to 61.1). The probes traced a frame went from 4070 to 2707 in
   Sponza at the same 120 rays a probe (the budget goes by every clip's probes, as each last counted). Still captures as
   before to the noise (0.09 of 255 against 0.07); walking along Sponza's corridor, the far corridor, which the coarser
   clips light, follows the move over twice the frames: 0.16 of 255 from before against a noise of 0.02, smooth.
@@ -446,8 +448,10 @@ The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22
   display about to turn off). A user activity assertion held for the session (`caffeinate -u -d -i -t <seconds>`) took
   most of it back, but the heavier scenes then heated the machine to a "fair" thermal state within a few runs (Bistro's
   frame from 55 to 120 ms over six runs), and even cooled to nominal before each client the frames stayed about 40%
-  longer than in the morning (Bistro 51 to 53 ms rather than 38). So the numbers above are relative, of runs started
-  alike; the morning's are the baseline to compare with.
+  longer than in the morning (Bistro 51 to 53 ms rather than 38), the commit before the evening's as slow as after it,
+  the draw thread waiting on its fences. A reboot brought the morning's frames back (Sponza 21.93 ms, Bistro 38.44, San
+  Miguel 44.17 with every clip every frame); what had slowed the gpu wasn't found. If a known pose runs far over its
+  baseline whatever the build, reboot before measuring.
 
 - **Tried and dropped: the surface cache's blocks marked by the lookups' footprint**, every block of the 2x2x2 voxels a
   lookup filters (rather than the point's block alone), and the blocks around those read no longer traced and filtered:
@@ -470,6 +474,17 @@ The frame now (balanced, 2026-10-31): Bistro 38.3 ms, San Miguel 44.5, Sponza 22
 - **Not tried: the emitter triangles' texture coordinates stored with them** (sparing a candidate the index and vertex
   reads before its texture's): the emitters' textures skipped in the candidates altogether took Bistro from 54.2 to 53.1
   ms at most (rounds of a drifting machine, from -3.8 to +0.8 ms apart), of which the reads would be a part.
+- **Fixed on the way: a crash at shutdown** after the time of day had advanced (`kk_destroy_descriptor_pool`): the sets
+  a sky redraw takes were freed in a timeline callback while the draw thread allocated from the same pool, unguarded
+  (see CLAUDE.md's "Descriptor sets"); the pool has a mutex now.
+
+- **Kept: the near field traced at every 4th pixel by default** (`gi::kDefaultNearStride`, the user's call; View >
+  Indirect Lighting Near Field Rays, `SPEEDO_GI_NEAR_STRIDE=2` for every 2nd): Sponza 19.90 to 18.62 ms, Bistro 37.06 to
+  33.86, San Miguel 43.79 to 40.92 (the 4 to 11 ms the baseline measured was before the filter and the frames took the
+  traced pixels alone), coarser at thin features' contacts.
+
+The frame now (balanced, 2026-10-31, after the evening): Bistro 33.86 ms, San Miguel 40.92, Sponza 18.62 (with every
+2nd pixel's near field, 37.36, 43.85 and 19.93).
 
 Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace

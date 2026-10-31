@@ -1410,8 +1410,9 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   as it last counted (`GI_STATISTIC_CLIP_FIRST`): by the frame's, the rays per probe rose and the pool shrank. What
   the coarser clips light follows a change over twice the frames: walking along Sponza's corridor, the far corridor
   differs from every clip every frame by 0.16 of 255 (still: 0.09, the captures' noise 0.07), smooth, with no seams.
-  Interleaved runs started at a nominal thermal state (on an evening the machine ran about 40% slower than its
-  baseline, see docs/performance-plan.md): Sponza 31.3 to 28.2 ms, Bistro 53.5 to 51.1, San Miguel 61.8 to 61.1.
+  At the benchmark poses (balanced, interleaved): Sponza 21.93 to 19.93 ms, Bistro 38.44 to 37.36, San Miguel 44.17 to
+  43.85; less than a clip's cost from the clip counts (those change what the remaining clips cover), the finest clips,
+  updated every frame, holding most of the surface cache's work.
 - **Lighting the voxels** (`GiDirectRadiance`): each voxel's emission plus its albedo over pi times the punctual lights
   of its cell and the emissive surfaces where they are lights (`EmitterVoxelIrradiance`, see "Emissive surfaces as
   lights": the rays that read a voxel's radiance then take its emission out) (`gi::BinLights`: a 16^3 grid of cells over the volume, as the clusters bin lights), from its front only
@@ -1899,10 +1900,12 @@ surface, the surface's voxels at the contact are also the solid's never drawn in
 resolve), and the gap beside it is thinner than a voxel, all its surfaces lit by the gap's own unlit voxels, so the
 volume's lookups there found no light, in blocks a voxel wide (the user's CornellBox poses, the 11 models side by side:
 `0.0062,-2.2486,1.2961,23.077,13.130`, black rectangles under the spheres; `0.1488,-1.1952,0.7514,12.998,14.697` at
-resolution 192, red and black blocks where the sphere touches the green wall). Every other pixel each way of the
-pre-pass's depth (View > Near Field Rays, `FrameInputs::giNearStride`, `SPEEDO_GI_NEAR_STRIDE`, 2; 4 traces a sixteenth of
-the pixels: 4 to 11 ms less at the benchmark poses, coarser at contacts, docs/performance-plan.md; a change starts the
-frames' history over) traces a ray from its surface
+resolution 192, red and black blocks where the sphere touches the green wall). Every 4th pixel each way of the
+pre-pass's depth (View > Near Field Rays, `FrameInputs::giNearStride`, `SPEEDO_GI_NEAR_STRIDE`, `gi::kDefaultNearStride`:
+a sixteenth of the pixels, the default since 2026-10-31, the user's call; 2 traces a quarter, finer at thin features'
+contacts and 1.3 to 3.2 ms more at the benchmark poses (Sponza 19.90 to 18.62, Bistro 37.06 to 33.86,
+San Miguel 43.79 to 40.92, balanced; 4 to 11 ms before the filter took the traced pixels alone), docs/performance-plan.md, where moving the traced pixels within
+the square a frame at a time didn't take 4 closer to 2; a change starts the frames' history over) traces a ray from its surface
 through the BVHs (GI Near, `ComputeGiNear`), as far as
 `SPEEDO_GI_NEAR_REACH` (8) voxels of the clips that light the point, its direction one of 16 over a 4x4 tile of traced
 pixels (the traced shadows' disk points lifted onto the hemisphere, cosine distributed), and takes the light what it

@@ -39,6 +39,11 @@ inline constexpr uint32_t kMaxResolution = 512;
 // junction (Sponza's columns between the curtains lit a little more at 2.5)
 inline constexpr float kDefaultNearContact = 2.5F;
 inline constexpr float kMaxNearContact = 8.0F;
+// every how many pixels each way the near field's rays are traced by default, 2 or 4 (see GiData::nearStride; View >
+// Indirect Lighting Near Field Rays, SPEEDO_GI_NEAR_STRIDE): 4, a sixteenth of the pixels, since 2026-10-31, the user's
+// call: 1.3 to 3.2 ms less a frame at the benchmark poses than 2's quarter (Sponza 19.90 to 18.62, Bistro 37.06
+// to 33.86, San Miguel 43.79 to 40.92), coarser at thin features' contacts
+inline constexpr uint32_t kDefaultNearStride = 4;
 
 // a level's voxels per axis, of a volume of size voxels: rounded up, so that it covers all of it (as GiLevelVoxels)
 [[nodiscard]] inline glm::uvec3 LevelVoxels(const glm::uvec3& size, uint32_t level)
