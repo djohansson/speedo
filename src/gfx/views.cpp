@@ -201,12 +201,15 @@ void Views::Turn(float yaw, float forward)
 	}
 }
 
-void Views::Orbit(float yaw, float pitch)
+void Views::Orbit(float yaw, float pitch, std::optional<size_t> view)
 {
 	auto center = myScene.Read().Get().bounds.Center();
 	auto cameras = myCameras.Write();
-	for (auto& camera : cameras.Get())
+	for (size_t cameraIt = 0; cameraIt < cameras.Get().size(); cameraIt++)
 	{
+		if (view && *view != cameraIt)
+			continue;
+		auto& camera = cameras.Get()[cameraIt];
 		auto& desc = camera.GetDesc();
 		glm::vec3 eye = -desc.position;
 		float distance = glm::length(eye - center);

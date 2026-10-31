@@ -885,10 +885,13 @@ struct CullView
 // the lights that light the voxels, binned into a grid of cells over the volume (gGiLightCells: a first index and count
 // into gGiLightIndices per cell)
 #define SHADER_TYPES_GI_LIGHT_GRID 16u
-// the clipmap: volumes of the same voxel counts, each of voxels twice the size of the one before, the finest around the
-// camera and the last over the scene (gGi[frame][clip]); a clip's rays and shadow rays that leave it go on through the
-// coarser ones, and the shading takes the finest that holds a point
-#define SHADER_TYPES_GI_CLIP_COUNT 4u
+// the clipmap: volumes of the same voxel counts, each level of voxels twice the size of the one before, the finest around
+// the camera and the last over the scene (gGi[frame][clip]); a clip's rays and shadow rays that leave it go on through the
+// coarser ones, and the shading takes the finest that holds a point. each of split screen's views has its own clips
+// but the last, which they share: by level (every view's finest, then every view's next, ..., then the last), so that the
+// clips a point is in, finest first, are those of a lower index (see GiData::coarser). at most this many levels
+#define SHADER_TYPES_GI_LEVEL_COUNT 4u
+#define SHADER_TYPES_GI_CLIP_COUNT (1u + (SHADER_TYPES_GI_LEVEL_COUNT - 1u) * SHADER_TYPES_SPLIT_VIEW_COUNT)
 // the probes' irradiance over pi along +x, -x, +y, -y, +z and -z (an ambient cube, see GiIrradianceBasis and
 // GiEvaluate) per probe and color
 #define SHADER_TYPES_GI_IRRADIANCE_COUNT 6u
@@ -975,7 +978,8 @@ struct GiVoxel
 struct GiData
 {
 	// the volume: its corner (world space) and its voxels' size, and its voxels per axis (w unused); the stacked volumes'
-	// (gGiVolumes, the clips' slabs along z) texels per axis (xyz) and this clip's first texel along z (w)
+	// (gGiVolumes, the clips' slabs along z, in columns along x where they would pass the device's largest 3D image)
+	// texels per axis (xyz) and this clip's first texel along z (w), and along x (volumeImageX)
 	alignas(16) FLOAT4(volumeOrigin);
 	alignas(16) UINT4(volumeSize);
 	alignas(16) UINT4(volumeImage);
@@ -1005,11 +1009,15 @@ struct GiData
 	// 7 the clip a point is lit by, 8 the indirect diffuse with the clip's voxel and probe cells drawn
 	alignas(4) UINT1(debug);
 	// the clip's first voxel in gGiVoxels and first cell in gGiLightCells; the clipmap's clip count, and this clip's index
-	// (the coarser ones follow it in gGi)
+	// (the coarser levels follow it in gGi, see SHADER_TYPES_GI_CLIP_COUNT), its level (0 the finest) and the next coarser
+	// clip of its view's (the last clip's is itself): what a probe or a cache entry new to the clip starts from
 	alignas(4) UINT1(voxelFirst);
 	alignas(4) UINT1(lightCellFirst);
 	alignas(4) UINT1(clipCount);
 	alignas(4) UINT1(clip);
+	alignas(4) UINT1(level);
+	alignas(4) UINT1(coarser);
+	alignas(4) UINT1(volumeImageX);
 	// the clip's first voxel in gGiRadiance (the frame's radiance per voxel, what the rays see: ComputeGiLight), and where
 	// after them the voxels' direct radiance is kept: the lights' light off the static voxels,
 	// made when the clip is voxelized or the lights change (ComputeGiLightStatic), which the frame's lighting adds the

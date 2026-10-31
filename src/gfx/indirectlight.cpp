@@ -61,9 +61,18 @@ Layout MakeLayout(
 }
 
 Clipmap MakeClipmap(
-	const Bounds3f& bounds, const glm::vec3& eye, const glm::vec3& look, float lookAhead, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing)
+	const Bounds3f& bounds,
+	std::span<const Eye> eyes,
+	float lookAhead,
+	uint32_t resolution,
+	uint32_t levelCount,
+	uint32_t probeSpacing,
+	uint32_t maxVolumeSide)
 {
-	ENSURE(resolution > 0 && clipCount > 0 && clipCount <= SHADER_TYPES_GI_CLIP_COUNT);
+	ENSURE(resolution > 0 && levelCount > 0 && levelCount <= SHADER_TYPES_GI_LEVEL_COUNT);
+	ENSUREF(!eyes.empty() && eyes.size() <= SHADER_TYPES_SPLIT_VIEW_COUNT, "{} eyes for the indirect lighting's clips, at most {}", eyes.size(), SHADER_TYPES_SPLIT_VIEW_COUNT);
+	auto eyeCount = static_cast<uint32_t>(eyes.size());
+	uint32_t clipCount = ((levelCount - 1) * eyeCount) + 1;
 
 	// the last clip: over the scene, with a margin of a probe spacing around it, so that a layer of probes stands outside
 	// its outermost surfaces: with a voxel of margin, the probes nearest an outer wall were in it, and its outside saw
@@ -97,15 +106,21 @@ Clipmap MakeClipmap(
 	// half size, two thirds of the way to the fade, see fadeExtent), so what is near it keeps the finest lighting.
 	// the centers lie along one ray, each clip's at most half its half size from the eye, which keeps every clip inside
 	// the next (the next's center is at most twice as far, its half size twice as much)
+	// a clip per eye of each finer level (split screen's views each with its own, a view's chain from its finest through its
+	// coarser ones to the last, which they share), by level: a point's clips, finest first, are then those of a lower index
 	Clipmap clipmap;
 	Layout first;
 	for (uint32_t clipIt = 0; clipIt < clipCount; clipIt++)
 	{
-		float clipVoxelSize = voxelSize / static_cast<float>(1U << (clipCount - 1 - clipIt));
-		glm::uvec3 clipSize = clipIt + 1 < clipCount ? glm::min(glm::uvec3(cube), size * (1U << (clipCount - 1 - clipIt))) : size;
+		uint32_t level = std::min(clipIt / eyeCount, levelCount - 1);
+		const glm::vec3& eye = eyes[clipIt % eyeCount].eye;
+		const glm::vec3& look = eyes[clipIt % eyeCount].look;
+		bool lastLevel = level + 1 == levelCount;
+		float clipVoxelSize = voxelSize / static_cast<float>(1U << (levelCount - 1 - level));
+		glm::uvec3 clipSize = !lastLevel ? glm::min(glm::uvec3(cube), size * (1U << (levelCount - 1 - level))) : size;
 		glm::vec3 origin = min;
 		glm::vec3 center = eye;
-		if (clipIt + 1 < clipCount)
+		if (!lastLevel)
 		{
 			glm::vec3 clipExtent = glm::vec3(clipSize) * clipVoxelSize;
 			float reach = std::min({clipExtent.x, clipExtent.y, clipExtent.z}) * 0.5F * std::clamp(lookAhead, 0.0F, 1.0F);
@@ -126,7 +141,7 @@ Clipmap MakeClipmap(
 		data.fadeCenter[1] = center.y;
 		data.fadeCenter[2] = center.z;
 		data.fadeCenter[3] = 0.0F;
-		if (clipIt + 1 < clipCount)
+		if (!lastLevel)
 		{
 			glm::vec3 half = glm::vec3(clipSize) * clipVoxelSize * 0.5F;
 			float snap = clipVoxelSize * static_cast<float>(probeSpacing * kSnapProbes);
@@ -143,21 +158,43 @@ Clipmap MakeClipmap(
 		}
 		layout.data.clip = clipIt;
 		layout.data.clipCount = clipCount;
+		layout.data.level = level;
+		// its view's next coarser clip: the next level's of the same eye, or the last
+		uint32_t lastClip = clipCount - 1;
+		layout.data.coarser = lastLevel ? clipIt : std::min(clipIt + eyeCount, lastClip);
 		first.voxelCount += layout.voxelCount;
 		first.radianceCount += layout.radianceCount;
 		first.probeCount += layout.probeCount;
 		first.flagCount += layout.flagCount;
 		clipmap.clips.push_back(layout);
 	}
-	// the volumes the resolve writes hold the clips' slabs along z (see GiData::volumeImage)
+	// the volumes the resolve writes hold the clips' slabs along z, in columns along x where a column would pass
+	// maxVolumeSide texels (KosmicKrisp's largest 3D image is 2048 texels a side: four views' clips at resolution 384 are
+	// more), see GiData::volumeImage
+	maxVolumeSide = maxVolumeSide != 0 ? maxVolumeSide : 2048;
 	glm::uvec3 image(0);
+	uint32_t columnX = 0;
+	uint32_t columnWidth = 0;
+	uint32_t columnDepth = 0;
 	for (auto& clip : clipmap.clips)
 	{
-		image.x = std::max(image.x, clip.data.volumeSize[0]);
+		auto depth = clip.data.volumeSize[2];
+		ENSUREF(depth <= maxVolumeSide, "an indirect lighting clip {} voxels deep, more than a 3D image's {} texels", depth, maxVolumeSide);
+		if (columnDepth + depth > maxVolumeSide)
+		{
+			columnX += columnWidth;
+			columnWidth = 0;
+			columnDepth = 0;
+		}
+		clip.data.volumeImageX = columnX;
+		clip.data.volumeImage[3] = columnDepth;
+		columnDepth += depth;
+		columnWidth = std::max(columnWidth, clip.data.volumeSize[0]);
+		image.x = std::max(image.x, columnX + columnWidth);
 		image.y = std::max(image.y, clip.data.volumeSize[1]);
-		clip.data.volumeImage[3] = image.z;
-		image.z += clip.data.volumeSize[2];
+		image.z = std::max(image.z, columnDepth);
 	}
+	ENSUREF(image.x <= maxVolumeSide, "the indirect lighting's volumes {} texels wide, more than a 3D image's {}", image.x, maxVolumeSide);
 	for (auto& clip : clipmap.clips)
 		for (int axisIt = 0; axisIt < 3; axisIt++)
 			clip.data.volumeImage[axisIt] = image[axisIt];

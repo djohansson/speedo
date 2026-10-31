@@ -1280,8 +1280,21 @@ blur: 0.13 against the reference's own 0.046 with 512 rays; the merge's parallax
 the direction grid), and their cost grew with the clips (every clip's cascades reach across the last: CornellBox-Sphere
 29.9 ms a frame on the day it was dropped, 9.3 with the probes). What it does, per frame:
 
-- **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` volumes (3 by default, at
-  most 4), finest first. The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
+- **The clipmap** (`gi::MakeClipmap`, `SHADER_TYPES_GI_CLIP_COUNT`): `SPEEDO_GI_CLIP_COUNT` levels of volumes (3 by default,
+  at most `SHADER_TYPES_GI_LEVEL_COUNT`, 4), finest first; each of split screen's views has its own clips of every level
+  but the last, which they share, centered ahead of its own eye by its own look distance (`gi::Eye`,
+  `FrameInputs::lookDistances`), ordered by level (every view's finest, then every view's next, then the last), so that
+  the clips a point is in, finest first, are those of a lower index: the lookups, the rays' walk and the marking of what
+  is seen take them in that order as they did one chain (a point in two views' clips of a level takes both, by their
+  weights, so its light doesn't depend on which view sees it), and what starts from a coarser clip (a probe, a cache
+  entry new to a clip) takes its view's, `GiData::coarser`. With the first view's alone, the other views were lit by the
+  last clip (8.9 m probes in Bistro): at Bistro's noon with four views far apart, each view's quadrant against its own
+  single view render 16.1, 18.3 and 13.3 of 255 before, 5.2, 7.1 and 5.0 after (the half resolution's control 6.9). It
+  costs the clips' work again per view: Bistro's evening frame 38.4 ms with one view, 73.2 with four (the indirect
+  lighting 21.5 and 49.0 of them; four views at one pose 76.9), the probes' ray budget spread over three times the
+  probes (40 rays each rather than 128). The resolve's volumes stack the clips' slabs along z, in columns along x where a
+  column would pass the device's largest 3D image (`DeviceLimits::maxImageDimension3d`, 2048 on KosmicKrisp;
+  `GiData::volumeImageX`). The last is over the scene's bounds (`SPEEDO_GI_RESOLUTION`, 128 by default, voxels along its
   longest axis; View > Indirect Lighting Resolution offers `gi::kResolutions`, 64 to 384, and a change makes the clipmap
   again, `FrameInputs::giResolution`. Finer resolves light through narrower openings: the sky under Sponza's curtains,
   a gap of a few tens of centimetres, which 128 drew as spots at the corridor's end that faded into longer, dimmer
@@ -1629,7 +1642,9 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   rays, its rays' origin, the voxel's open side and normal, its light per face, and up to 8 of the frame's rays, their
   distance and light: what found the slot behind salle_de_bain's bench lit by the sun, see `GiOpenAlong`). View > Camera > Copy Pose (ctrl/cmd+shift+c)
   copies the view as the variables that reproduce it (`SPEEDO_CAMERA`, with split screen `SPEEDO_LAYOUT` and the other
-  views' cameras, `SPEEDO_CAMERA_VIEWS='<pose>;...'` for views 1 and on, placed after `SPEEDO_CAMERA` places them all, `SPEEDO_AUTOLOAD_MODEL`, the environment's path,
+  views' cameras, `SPEEDO_CAMERA_VIEWS='<pose>;...'` for views 1 and on, placed after `SPEEDO_CAMERA` places them all, or
+  `SPEEDO_CAMERA_VIEWS=around` for views turned apart about the model, 360 degrees over the views, after the framing or
+  `SPEEDO_CAMERA`: split screen for any model, as the regression runs it, `scripts/test-assets/splitscreen.txt`, `SPEEDO_AUTOLOAD_MODEL`, the environment's path,
   and the settings that aren't their defaults, `ui::ApplyPoseSettings`'s: the exposure, the tonemapper, the shadows,
   `SPEEDO_GI` and the indirect lighting's, the upscaling, the sky's time, `SPEEDO_DEBUG_VIEW`; then `# window <w>x<h>`,
   the framebuffer), for reports: an artifact is a pose first. View > Camera > Paste Pose (ctrl/cmd+shift+v;
@@ -2543,7 +2558,10 @@ driver hangs about 1 exit in 100 in `vkDestroySwapchainKHR`, which no change of 
 meanwhile, or keeping the presents' semaphores until their images were acquired again (which validation then reported
 destroyed in use, `VUID-vkDestroySemaphore-semaphore-05149`: without present fences it can't know a present is done);
 0 in 858 with fifo), failing
-on load errors, asserts and validation messages. Only debug enables validation, but it imports slowly: run the
+on load errors, asserts and validation messages. The runs `scripts/test-assets/splitscreen.txt` names (by label,
+`client-<label>.log`) go again in split screen (`<label>-splitscreen`: `SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around`), each
+view with its own exposure, shadow cascades and indirect lighting clips: the quick tier's that are in it, the full sets'
+all. Only debug enables validation, but it imports slowly: run the
 profile preset first, then debug with `-ClientOnly` and the same `-Work` dir, whose caches it reuses. A debug client
 compiling the shaders (a new profile, or a changed shader) took more than ten minutes a profile, with no window
 meanwhile: SPIRV-Tools' optimizer, which slang runs over every shader (`SLANG_OPTIMIZATION_LEVEL_MAXIMAL`), linked

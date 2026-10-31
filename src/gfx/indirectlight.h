@@ -62,18 +62,33 @@ struct Layout
 [[nodiscard]] Layout MakeLayout(
 	const glm::vec3& origin, float voxelSize, const glm::uvec3& size, uint32_t probeSpacing, const Layout& first, const glm::vec3& anchor);
 
-// the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): clipCount volumes, finest first, of the voxel counts of the last, which is
-// over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each before it of
-// voxels half the size of the next, centered ahead of eye along look (how far the camera looks, see
-// FrameInputs::lookDistances), by lookAhead of its half size at most (snapped to its probes' grid, kept inside the last).
-// total holds the counts of all (its data is unused)
+// a view's eye and how far it looks along where it looks (see FrameInputs::lookDistances), which its finer clips are
+// centered ahead of
+struct Eye
+{
+	glm::vec3 eye{0.0F};
+	glm::vec3 look{0.0F};
+};
+
+// the clipmap (see SHADER_TYPES_GI_CLIP_COUNT): levelCount levels of volumes, finest first, of the voxel counts of the last,
+// which is over bounds with at most resolution voxels along its longest axis (cubes) and a voxel of margin; each level
+// before it of voxels half the size of the next, a clip per eye (split screen's views, all of a level's before the
+// next's), centered ahead of the eye along its look by lookAhead of its half size at most (snapped to its probes' grid,
+// kept inside the last). the clips' slabs of the resolve's volumes go along z, in columns along x where they would pass
+// maxVolumeSide texels (the device's largest 3D image). total holds the counts of all (its data is unused)
 struct Clipmap
 {
 	std::vector<Layout> clips;
 	Layout total;
 };
 [[nodiscard]] Clipmap MakeClipmap(
-	const Bounds3f& bounds, const glm::vec3& eye, const glm::vec3& look, float lookAhead, uint32_t resolution, uint32_t clipCount, uint32_t probeSpacing);
+	const Bounds3f& bounds,
+	std::span<const Eye> eyes,
+	float lookAhead,
+	uint32_t resolution,
+	uint32_t levelCount,
+	uint32_t probeSpacing,
+	uint32_t maxVolumeSide);
 
 // the lights (as the shader sees them) that may reach each cell of the volume's SHADER_TYPES_GI_LIGHT_GRID^3: per cell
 // its first index and count (pairs of uints), and the indices. a directional light reaches every cell, a point or spot

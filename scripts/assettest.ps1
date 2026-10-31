@@ -27,6 +27,10 @@ the order of a serial run. assettest checks its models and images on all of the 
 Inputs are directories, zip archives and panoramas (.hdr). scripts/fetch-test-assets.ps1 -Quick prints a smaller set,
 a model or two per feature, for iterating.
 
+The client runs scripts/test-assets/splitscreen.txt names (by label: client-<label>.log) go again in split screen, a 2x2
+grid of views turned apart about the model (SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around, as <label>-splitscreen): each
+view has its own exposure, shadow cascades and indirect lighting clips.
+
 -Presentation also runs the client through View > Presentation's options and fullscreen switches (SPEEDO_PRESENTATION_TEST:
 exclusive and borderless fullscreen in and out under each present mode and several image counts, resizes; on the
 primary monitor, then the second, if there is one), after the other client runs and one at a time: they take over the
@@ -291,8 +295,8 @@ if ($Client)
 	$script:runs = [System.Collections.Generic.List[object]]::new()
 
 	# queues a client run on a model (a file, or a zip archive), drawn with image on the default material if given, and lit
-	# by an environment panorama if given (else the procedural sky)
-	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '', [string] $PresentationTest = '')
+	# by an environment panorama if given (else the procedural sky), with variables of its own (split screen's, see below)
+	function Add-ClientRun([string] $Model, [string] $Image, [string] $Label, [string] $Environment = '', [string] $PresentationTest = '', [hashtable] $Variables = @{})
 	{
 		# FNV-1a, stable across runs (string hash codes are randomized per process)
 		[uint32] $hash = 2166136261
@@ -301,7 +305,7 @@ if ($Client)
 			$hash = [uint32](([uint64]($hash -bxor $byte) * 16777619) % 4294967296)
 		}
 		$script:runs.Add([pscustomobject]@{
-			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; PresentationTest = $PresentationTest
+			Model = $Model; Image = $Image; Label = $Label; Environment = $Environment; PresentationTest = $PresentationTest; Variables = $Variables
 			Worker = [int]($hash % [uint32]$Jobs) + 1
 			Process = $null; Awake = $null; Start = $null; Log = (Join-Path $logs "client-$Label.log"); Done = $false; Lines = @()
 			Estimate = 0.0; Seconds = 0; TimedOut = $false
@@ -321,6 +325,10 @@ if ($Client)
 			$env:SPEEDO_PRESENTATION_TEST = $Run.PresentationTest
 			$env:SPEEDO_BACKGROUND = '0'
 		}
+		foreach ($name in $Run.Variables.Keys)
+		{
+			[Environment]::SetEnvironmentVariable($name, $Run.Variables[$name])
+		}
 		try
 		{
 			$user = Join-Path $Work "user-$($Run.Worker)"
@@ -330,6 +338,10 @@ if ($Client)
 		finally
 		{
 			Remove-Item Env:SPEEDO_AUTOLOAD_MODEL, Env:SPEEDO_AUTOLOAD_IMAGE, Env:SPEEDO_AUTOLOAD_ENVIRONMENT, Env:SPEEDO_PRESENTATION_TEST -ErrorAction SilentlyContinue
+			foreach ($name in $Run.Variables.Keys)
+			{
+				[Environment]::SetEnvironmentVariable($name, $null)
+			}
 			$env:SPEEDO_BACKGROUND = $background
 		}
 		$null = $Run.Process.Handle # keeps the exit code available after the process exits (windows)
@@ -369,7 +381,7 @@ if ($Client)
 		$seconds = [int]((Get-Date) - $Run.Start).TotalSeconds
 		$Run.Seconds = $seconds
 		$Run.TimedOut = $TimedOut
-		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Model) { $Run.Model } else { $Run.Environment }
+		$name = if ($Run.PresentationTest) { $Run.Label } elseif ($Run.Variables.Count -gt 0) { "$($Run.Model) ($($Run.Label))" } elseif ($Run.Model) { $Run.Model } else { $Run.Environment }
 
 		$problems = @(Select-String -LiteralPath $log -Pattern 'Failed to load (model|image|archive|environment)|\(errno: |VUID-|UNASSIGNED-|timed out after|ERROR: (Address|Thread)Sanitizer|runtime error: |WARNING: ThreadSanitizer' |
 			ForEach-Object Line | Group-Object | Sort-Object Name | Select-Object -First 5 |
@@ -558,6 +570,15 @@ if ($Client)
 	foreach ($environment in $environments)
 	{
 		Add-ClientRun '' '' ("environment-{0}" -f [IO.Path]::GetFileNameWithoutExtension($environment)) $environment
+	}
+
+	# split screen: the runs scripts/test-assets/splitscreen.txt names (by label) again, in a 2x2 grid of views turned apart
+	# about the model, each view with its own exposure, shadow cascades and indirect lighting clips
+	$splitScreenList = Join-Path $root 'scripts/test-assets/splitscreen.txt'
+	$splitScreen = if (Test-Path -LiteralPath $splitScreenList) { @(Get-Content -LiteralPath $splitScreenList | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) } else { @() }
+	foreach ($run in @($script:runs | Where-Object { $splitScreen -contains $_.Label }))
+	{
+		Add-ClientRun $run.Model $run.Image "$($run.Label)-splitscreen" $run.Environment '' @{ SPEEDO_LAYOUT = '2x2'; SPEEDO_CAMERA_VIEWS = 'around' }
 	}
 
 	Invoke-ClientRuns

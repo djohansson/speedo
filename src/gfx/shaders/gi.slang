@@ -162,12 +162,14 @@ struct GiClipView
 	float4 volumeOrigin;
 	uint4 volumeSize;
 	uint4 volumeImage; // see GiData::volumeImage
+	uint volumeImageX;
 	uint voxelFirst;
 	uint radianceFirst;
 	uint flagFirst;
 	uint frameStamp;
 	uint clip;
 	uint clipCount;
+	uint level;
 	float probeSpacing; // in voxels
 	float4 fadeCenter; // see GiData::fadeCenter
 	float4 fadeExtent;
@@ -179,12 +181,14 @@ GiClipView GiClipViewAt(uint clip)
 	view.volumeOrigin = gGi[gPushConstants.frameIndex][clip].volumeOrigin;
 	view.volumeSize = gGi[gPushConstants.frameIndex][clip].volumeSize;
 	view.volumeImage = gGi[gPushConstants.frameIndex][clip].volumeImage;
+	view.volumeImageX = gGi[gPushConstants.frameIndex][clip].volumeImageX;
 	view.voxelFirst = gGi[gPushConstants.frameIndex][clip].voxelFirst;
 	view.radianceFirst = gGi[gPushConstants.frameIndex][clip].radianceFirst;
 	view.flagFirst = gGi[gPushConstants.frameIndex][clip].flagFirst;
 	view.frameStamp = gGi[gPushConstants.frameIndex][clip].frameStamp;
 	view.clip = clip;
 	view.clipCount = gGi[gPushConstants.frameIndex][clip].clipCount;
+	view.level = gGi[gPushConstants.frameIndex][clip].level;
 	view.probeSpacing = float(gGi[gPushConstants.frameIndex][clip].probeSize.w);
 	view.fadeCenter = gGi[gPushConstants.frameIndex][clip].fadeCenter;
 	view.fadeExtent = gGi[gPushConstants.frameIndex][clip].fadeExtent;
@@ -1970,11 +1974,11 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			age = 0.0;
 		}
 	}
-	else if (gi.reset == 0u && gi.clip + 1 < gi.clipCount)
+	else if (gi.reset == 0u && gi.coarser != gi.clip)
 	{
-		// new to the clip: the coarser clip's probes around it as they were last frame (at their places then: shifted by
+		// new to the clip: its view's coarser clip's probes around it as they were last frame (at their places then: shifted by
 		// its scroll too; none if it was voxelized whole), trilinear, as one frame's worth
-		GiData above = GiClip(gi.clip + 1);
+		GiData above = GiClip(gi.coarser);
 		if (all(abs(above.scroll.xyz) < int3(above.volumeSize.xyz)))
 		{
 			float3 fraction;
@@ -2116,7 +2120,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 		{
 			int3 at = int3(floor(GiVoxelCoordinate(gi, position, 0)));
 			uint3 texel = uint3(clamp(at, int3(0), int3(GiLevelSize(gi, 0)) - 1));
-			texel.z += gi.volumeImage.w;
+			texel += uint3(gi.volumeImageX, 0, gi.volumeImage.w);
 			float4 v0 = gGiVolumeImages[0][texel];
 			float4 v6 = gGiVolumeImages[4][texel];
 			for (uint valueIt = 0; valueIt < 4; valueIt++)
@@ -2133,7 +2137,7 @@ void ComputeGiProbeUpdate(uint3 groupId: SV_GroupID, uint texelIndex: SV_GroupIn
 			bool in = GiInside(at, GiLevelSize(gi, 0));
 			uint3 texel = uint3(clamp(at, int3(0), int3(GiLevelSize(gi, 0)) - 1));
 			uint occupied = in ? (GiVoxelAt(gi, texel).albedo >> 24) : 0u;
-			texel.z += gi.volumeImage.w;
+			texel += uint3(gi.volumeImageX, 0, gi.volumeImage.w);
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 51 + stepIt * 3] = asuint(float(occupied));
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 52 + stepIt * 3] = asuint(gGiVolumeImages[0][texel].x);
 			gGiStatistics[gPushConstants.frameIndex][dumpFirst + 16 + kTexelCount + 53 + stepIt * 3] = asuint(gGiVolumeImages[4][texel].w);
@@ -2659,14 +2663,14 @@ void GiCacheUpdate(GiData gi, uint3 at, uint3 size, uint blockIndex, uint page, 
 	{
 		if (!fresh)
 			entry = GiCacheLoad(index);
-		else if (gi.clip + 1u < gi.clipCount)
+		else if (gi.coarser != gi.clip)
 		{
 			// a voxel new to the clip (it scrolled in, or its block came near a surface) starts from the coarser clip's
 			// entry where it is, as kGiCacheSeedCount samples, which its own rays soon outweigh: from nothing, it took the
 			// probes' light until it had samples, and the light along Sponza's curtains faded in and out near the eye as
 			// the finer clips scrolled. the coarser block is read where its page is carried over (GiCacheKeeps), so that
 			// it is its own still, not freed and taken by another: by its last frame's table, at its place then
-			GiData coarser = GiClip(gi.clip + 1u);
+			GiData coarser = GiClip(gi.coarser);
 			uint3 coarserSize = GiLevelSize(coarser, 0);
 			uint3 coarserBlocks = GiLevelSize(coarser, SHADER_TYPES_GI_FLAG_LEVEL);
 			int3 voxel = int3(floor(GiVoxelCoordinate(coarser, center, 0)));
@@ -3035,7 +3039,7 @@ void ComputeGiCacheFilter(uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIn
 		return;
 	}
 
-	uint3 texel = uint3(at.x, at.y, at.z + gi.volumeImage.w);
+	uint3 texel = uint3(at.x + gi.volumeImageX, at.y, at.z + gi.volumeImage.w);
 	float4 volumes[SHADER_TYPES_GI_VOLUME_COUNT];
 	for (uint volumeIt = 0; volumeIt < SHADER_TYPES_GI_VOLUME_COUNT; volumeIt++)
 		volumes[volumeIt] = gGiVolumeImages[volumeIt][texel];
@@ -3159,7 +3163,7 @@ void GiResolve<let kDepthMaps : bool>(uint3 groupId, uint groupIndex)
 	uint3 block = uint3(blockIndex % blocks.x, (blockIndex / blocks.x) % blocks.y, blockIndex / (blocks.x * blocks.y));
 	uint3 at = block * 4u + uint3(groupIndex & 3u, (groupIndex >> 2) & 3u, groupIndex >> 4);
 	bool inside = all(at < size);
-	uint3 texel = uint3(at.x, at.y, at.z + gi.volumeImage.w);
+	uint3 texel = uint3(at.x + gi.volumeImageX, at.y, at.z + gi.volumeImage.w);
 	// only the voxels within a few of a surface are looked up (see GiSampleSurface): the rest see no probe
 	if ((gGiFlags[GiFlagIndex(gi, blockIndex)] & 1u) == 0u)
 	{
@@ -3610,8 +3614,10 @@ GiSample GiSampleClip(GiClipView gi, float3 position, float3 normal, float3 bias
 	// reach of the wall's outer shell voxel, resolved from a point outside, where a probe outside the building passes
 	// (the end wall of Sponza's corridor, lit white by the sky beyond it, with one clip dark)
 	float3 biased = position + bias * gi.volumeOrigin.w;
-	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next)
+	// the clip's slab of the stacked volumes, clamped inside it (no filtering across into the next along z, nor the next
+	// column along x)
 	float3 coordinate = (biased - gi.volumeOrigin.xyz) / gi.volumeOrigin.w;
+	coordinate.x = clamp(coordinate.x, 0.5, size.x - 0.5) + float(gi.volumeImageX);
 	coordinate.z = clamp(coordinate.z, 0.5, size.z - 0.5) + float(gi.volumeImage.w);
 	float3 uvw = coordinate / float3(gi.volumeImage.xyz);
 	result.last = gGiVolumes[4].SampleLevel(linear, uvw, 0.0);
@@ -3758,7 +3764,7 @@ float3 GiClipDebug(float3 position, float3 normal, bool grid)
 			continue;
 		if (finest == clipCount)
 			finest = clipIt;
-		color += remaining * weight * DebugClipColor(clipIt);
+		color += remaining * weight * DebugClipColor(clip.level);
 		remaining *= 1.0 - weight;
 	}
 	if (!grid)
@@ -3779,7 +3785,7 @@ float3 GiClipDebug(float3 position, float3 normal, bool grid)
 	if (onProbe)
 		return float3(1.0);
 	if (onVoxel)
-		return lerp(base, DebugClipColor(finest), 0.6);
+		return lerp(base, DebugClipColor(GiClipViewAt(finest).level), 0.6);
 	return irradiance;
 }
 

@@ -63,8 +63,8 @@ public:
 	void Turn(float yaw, float forward = 0.0F);
 	// moves every view around the scene's bounds' center (radians of yaw about the vertical, and of pitch, positive
 	// looking down from above, at most a little short of straight down or up), at its distance, looking at the center
-	// (e.g. dragging the file browser's preview). any thread
-	void Orbit(float yaw, float pitch);
+	// (e.g. dragging the file browser's preview; one view only: SPEEDO_CAMERA_VIEWS=around). any thread
+	void Orbit(float yaw, float pitch, std::optional<size_t> view = std::nullopt);
 
 	// the installed model's bounds and cameras (see ModelDesc::cameras): sets the views to its first camera, or frames
 	// the bounds if it has none. call on the draw thread.

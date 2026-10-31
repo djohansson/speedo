@@ -1504,6 +1504,7 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	const char* gpuCulling = std::getenv("SPEEDO_GPU_CULLING");
 	myGpuCulling = myDrawStreams.front().indirect && (gpuCulling == nullptr || std::string_view(gpuCulling) != "0");
 	myCountEmulated = !limits.drawIndirectCount || limits.drawIndirectCountEmulated;
+	myGiMaxVolumeSide = limits.maxImageDimension3d;
 	// the indirect lighting, when FrameInputs::indirectLighting says (View > Indirect Lighting, SPEEDO_GI=1 to start with
 	// it), at FrameInputs::giResolution voxels along the scene's longest axis (View > Indirect Lighting Resolution,
 	// SPEEDO_GI_RESOLUTION), and the surface cache's rays a voxel a frame and most samples (see GiData::cacheRayCount)
@@ -1523,10 +1524,10 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		myGiCacheKeepFrameCount = static_cast<uint32_t>(std::strtoul(keep, nullptr, 10));
 	if (const char* show = std::getenv("SPEEDO_GI_CACHE_SHOW"); show != nullptr)
 		myGiCacheShow = std::string_view(show) == "1";
-	// the clipmap's clips (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
-	// around the camera)
+	// the clipmap's levels (SPEEDO_GI_CLIP_COUNT, 3 by default: the scene's, and two of half and a quarter of its voxels
+	// around the camera, each of split screen's views its own)
 	if (const char* clipCount = std::getenv("SPEEDO_GI_CLIP_COUNT"); clipCount != nullptr && *clipCount != '\0')
-		myGiClipCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(clipCount, nullptr, 10)), 1, SHADER_TYPES_GI_CLIP_COUNT);
+		myGiLevelCount = std::clamp<uint32_t>(static_cast<uint32_t>(std::strtoul(clipCount, nullptr, 10)), 1, SHADER_TYPES_GI_LEVEL_COUNT);
 	// how far ahead of the eye the finer clips are centered, as a share of their half size (SPEEDO_GI_LOOK_AHEAD, 0.5 by
 	// default; 0 centers them on the eye), toward what the camera looks at (see gi::MakeClipmap)
 	if (const char* lookAhead = std::getenv("SPEEDO_GI_LOOK_AHEAD"); lookAhead != nullptr && *lookAhead != '\0')
@@ -3303,26 +3304,34 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 	myGiEmittersLit = myEmittersOn;
 
 	// the clipmap, made again (and voxelized) when the model, its bounds or its draws change; a clip that moves with the
-	// camera is voxelized again
-	glm::mat4 cameraToWorld = glm::inverse(frame.cameras.empty() ? glm::mat4(1.0F) : frame.cameras.front().view);
-	glm::vec3 eye = cameraToWorld[3];
-	// toward what the camera looks at (the view's -z, as far as the last frame's pixels were, see FrameInputs::lookDistances)
-	glm::vec3 look = -glm::normalize(glm::vec3(cameraToWorld[2])) * std::max(frame.lookDistances[0], 0.0F);
+	// camera is voxelized again. each view's eye (split screen's: each its own finer clips, see gi::MakeClipmap), and
+	// toward what it looks at (the view's -z, as far as the last frame's pixels were, see FrameInputs::lookDistances)
+	std::vector<gi::Eye> eyes;
+	for (size_t viewIt = 0; viewIt < std::max<size_t>(std::min<size_t>(frame.cameras.size(), SHADER_TYPES_SPLIT_VIEW_COUNT), 1); viewIt++)
+	{
+		glm::mat4 cameraToWorld = glm::inverse(viewIt < frame.cameras.size() ? frame.cameras[viewIt].view : glm::mat4(1.0F));
+		eyes.push_back(
+			{.eye = glm::vec3(cameraToWorld[3]),
+			 .look = -glm::normalize(glm::vec3(cameraToWorld[2])) * std::max(frame.lookDistances[viewIt], 0.0F)});
+	}
+	// (the first view's)
 	if (!myGiEyePath.empty())
 	{
 		const auto& point = myGiEyePath[std::min(myGiEyePathNext++, myGiEyePath.size() - 1)];
-		eye = point.eye;
-		look = point.look.value_or(glm::vec3(0.0F));
+		eyes.front().eye = point.eye;
+		eyes.front().look = point.look.value_or(glm::vec3(0.0F));
 	}
 	if (myGiEyeLog)
-		std::println("gi eye {},{},{},{},{},{}", eye.x, eye.y, eye.z, look.x, look.y, look.z);
+		std::println("gi eye {},{},{},{},{},{}", eyes.front().eye.x, eyes.front().eye.y, eyes.front().eye.z, eyes.front().look.x, eyes.front().look.y, eyes.front().look.z);
 	// another resolution: made again, as for another scene
 	auto resolution = std::clamp<uint32_t>(frame.giResolution, gi::kMinResolution, gi::kMaxResolution);
 	bool resolutionChanged = resolution != myGiResolution;
 	myGiResolution = resolution;
-	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eye, look, myGiLookAhead, myGiResolution, myGiClipCount, myGiProbeSpacing);
+	auto clipmap = gi::MakeClipmap(frame.sceneBounds, eyes, myGiLookAhead, myGiResolution, myGiLevelCount, myGiProbeSpacing, myGiMaxVolumeSide);
+	// and when split screen's views come or go (each its own clips)
 	bool changed = frame.model != myGiModel || frame.sceneBounds.GetMin() != myGiBounds.GetMin() ||
-				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged;
+				   frame.sceneBounds.GetMax() != myGiBounds.GetMax() || mainList.items.size() != myGiItemCount || myGiRevoxelize || resolutionChanged ||
+				   clipmap.clips.size() != myGiClipmap.clips.size();
 	// how far each clip moved, in voxels (whole probe cells, see gi::MakeClipmap): a voxel takes the one that was at its
 	// place plus that. all of it is voxelized again when the scene changed, or when it moved by its size or more
 	for (uint32_t clipIt = 0; clipIt < clipmap.clips.size(); clipIt++)

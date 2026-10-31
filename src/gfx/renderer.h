@@ -458,7 +458,10 @@ private:
 	// (SPEEDO_GI_HYSTERESIS), whether the voxels take their light (SPEEDO_GI_BOUNCE), which half of the probes' buffers
 	// is the frame's (see GiData::probeFirst), and whether the frame keeps nothing of the last (GiData::reset)
 	uint32_t myGiResolution = gi::kDefaultResolution; // the clipmap's (FrameInputs::giResolution, when it was made)
-	uint32_t myGiClipCount = 3;
+	// the clipmap's levels (SPEEDO_GI_CLIP_COUNT: a clip each, and each of split screen's views one of each level but the
+	// last), and the device's largest 3D image, which the resolve's volumes stack the clips in (see gi::MakeClipmap)
+	uint32_t myGiLevelCount = 3;
+	uint32_t myGiMaxVolumeSide = 0;
 	float myGiLookAhead = 0.5F; // SPEEDO_GI_LOOK_AHEAD: how far ahead of the eye the finer clips are centered, see gi::MakeClipmap
 	float myGiEmissionReach = 0.5F; // SPEEDO_GI_EMISSION_REACH: see GiData::emissionReach
 	uint32_t myGiRayCount = 128; // at most: SPEEDO_GI_RAY_COUNT

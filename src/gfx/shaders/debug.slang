@@ -75,9 +75,9 @@ float3 DebugIndexColor(uint index)
 }
 
 // the indirect lighting's clips, finest first (DEBUG_VIEW_GI_CLIP)
-float3 DebugClipColor(uint clip)
+float3 DebugClipColor(uint level)
 {
-	switch (clip)
+	switch (level)
 	{
 	case 0u: return float3(1.0, 0.1, 0.1);
 	case 1u: return float3(0.1, 1.0, 0.1);

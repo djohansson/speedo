@@ -354,6 +354,7 @@ struct DeviceLimits
 	uint64_t maxStorageBufferRange = 0; // in bytes
 	uint32_t maxPerStageSampledImages = 0;
 	uint32_t maxDrawIndirectCount = 0; // draws per indirect draw
+	uint32_t maxImageDimension3d = 0; // texels along any side of a 3D image
 	float timestampPeriod = 0.0F; // nanoseconds per timestamp tick (see QueryPool)
 	bool drawIndirectCount = false; // CommandEncoder::DrawIndexedIndirectCount
 	// the count is emulated, at a cost per call and per slot of its maxDrawCount rather than per draw made (KosmicKrisp:

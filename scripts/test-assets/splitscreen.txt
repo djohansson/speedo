@@ -1,0 +1,14 @@
+# split screen: each client run labelled here (as its log is named, client-<label>.log) also runs in a 2x2 grid of views
+# turned apart about the model (SPEEDO_LAYOUT=2x2 SPEEDO_CAMERA_VIEWS=around, as <label>-splitscreen), among whatever
+# scripts/assettest.ps1 -Client is given: the quick tier's that are here, the full sets' all of them. each view has its
+# own exposure, shadow cascades and indirect lighting clips (see CLAUDE.md)
+# the indirect lighting through an interior, and the sun
+sponza-sponza.obj
+glTF-Sponza.gltf
+# emitters lighting a closed room, as a set of variants side by side
+CornellBox
+# point and spot lights' shadows, the sun's cascades
+gltf-ManyLights.gltf
+gltf-ShadowScene.gltf
+# what moves (the probes don't hold their light then, the moving BVH)
+CesiumMan

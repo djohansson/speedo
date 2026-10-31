@@ -8,6 +8,7 @@
 
 #include <imgui.h>
 
+#include <glm/gtc/constants.hpp>
 #include <glm/mat4x4.hpp>
 
 #include <algorithm>
@@ -1099,6 +1100,9 @@ void WindowedApplication::PrepareDraw()
 	// SPEEDO_CAMERA_VIEWS=<x,y,z,pitch,yaw>[;...]: views 1 and on placed apart, after SPEEDO_CAMERA placed them all (view 0 its
 	// pose): split screen's cameras, each where it is, for what follows one view only (the shadows, the indirect lighting)
 	static std::vector<std::array<float, 5>> gAutoViewCameras;
+	// SPEEDO_CAMERA_VIEWS=around: views 1 and on turned about the scene's center, 360 degrees over the views apart, after
+	// SPEEDO_CAMERA placed them (or the model is framed): split screen's views apart for any model (the regression's)
+	static bool gAutoViewsAround = false;
 	// the views' grid a pose pasted names (SPEEDO_LAYOUT, 1x1 where it names none), for the layout's section below
 	static std::optional<std::array<uint32_t, 2>> gPastedLayout;
 	static bool gAutoFrame = false;
@@ -1227,10 +1231,17 @@ void WindowedApplication::PrepareDraw()
 		}
 		if (const char* views = std::getenv("SPEEDO_CAMERA_VIEWS"); views != nullptr && *views != '\0')
 		{
-			if (auto poses = parseViewPoses(views))
+			if (std::string_view(views) == "around")
+			{
+				gAutoViewsAround = true;
+				gAutoFrame = !gAutoCamera;
+				const char* model = std::getenv("SPEEDO_AUTOLOAD_MODEL");
+				gAutoCameraAfterModel = model != nullptr && *model != '\0';
+			}
+			else if (auto poses = parseViewPoses(views))
 				gAutoViewCameras = std::move(*poses);
 			else
-				std::println(stderr, "SPEEDO_CAMERA_VIEWS: expected x,y,z,pitch,yaw[;...], got {}", views);
+				std::println(stderr, "SPEEDO_CAMERA_VIEWS: expected x,y,z,pitch,yaw[;...] or around, got {}", views);
 		}
 		if (const char* sizes = std::getenv("SPEEDO_LIGHT_SIZES"); sizes != nullptr && *sizes != '\0')
 			for (const char* it = sizes; *it != '\0';)
@@ -1375,6 +1386,7 @@ void WindowedApplication::PrepareDraw()
 			}
 			// split screen's grid and its other views' cameras, each placed with view 0 (see SPEEDO_CAMERA_VIEWS)
 			gAutoViewCameras.clear();
+			gAutoViewsAround = false;
 			if (const char* views = pose->Get("SPEEDO_CAMERA_VIEWS"); views != nullptr && *views != '\0')
 			{
 				if (auto poses = parseViewPoses(views))
@@ -1432,6 +1444,19 @@ void WindowedApplication::PrepareDraw()
 					myViews->Place(glm::vec3(values[0], values[1], values[2]), glm::vec3(glm::radians(values[3]), glm::radians(values[4]), 0.0F));
 					for (size_t viewIt = 0; viewIt < views.size(); viewIt++)
 						myViews->Place(viewIt + 1, glm::vec3(views[viewIt][0], views[viewIt][1], views[viewIt][2]), glm::vec3(glm::radians(views[viewIt][3]), glm::radians(views[viewIt][4]), 0.0F));
+				});
+			rhi.drawCalls.enqueue(task);
+		}
+		// and split screen's views turned apart (after the placement or the framing, in the draw calls' order on this thread)
+		if (gAutoViewsAround)
+		{
+			auto [task, future] = core::CreateTask(
+				[this]
+				{
+					auto grid = myViews->GetGrid();
+					auto viewCount = static_cast<size_t>(grid.x) * grid.y;
+					for (size_t viewIt = 1; viewIt < viewCount; viewIt++)
+						myViews->Orbit(glm::two_pi<float>() * static_cast<float>(viewIt) / static_cast<float>(viewCount), 0.0F, viewIt);
 				});
 			rhi.drawCalls.enqueue(task);
 		}
