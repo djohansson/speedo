@@ -208,6 +208,7 @@ set(GFX_SOURCE_FILES
 	${SPEEDO_SOURCE_DIR}/gfx/meshimport.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/model.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/objimport.cpp
+	${SPEEDO_SOURCE_DIR}/gfx/rayquerywatch.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/renderer.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/renderoutput.cpp
 	${SPEEDO_SOURCE_DIR}/gfx/scene.cpp

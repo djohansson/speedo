@@ -1,6 +1,7 @@
 #include "renderer.h"
 
 #include <gfx/model.h>
+#include <gfx/rayquerywatch.h>
 
 #include <core/assert.h>
 #include <core/file.h>
@@ -99,6 +100,8 @@ constexpr uint8_t kMainVisibilityClassifyEntryPoint = 43;
 // kVisibilityRecountFrameCount-th frame anyway, to count them again
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
+// diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
+constexpr uint8_t kRayQueryReplayEntryPoint = 44;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -483,6 +486,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					  std::optional<uint32_t> prepassImages = std::nullopt)
 	{
 		auto& pipeline = bindKernel(cmd, variant, cullJobBase, depthPyramidLevel, depthPyramidSource, giStep, giClip, prepassImages);
+		// diagnostic (see gfx/rayquerywatch.h): each dispatch a breadcrumb of its own within its pass's, so that a report
+		// tells which kernel was in flight (named by its entry point's index, see the k*EntryPoint constants)
+		std::optional<CrashBreadcrumb> breadcrumb;
+		if (RayQueryWatchOn())
+			breadcrumb.emplace(cmd, std::format("compute entry point {} (clip {}, step {})", variant.entryPoint, giClip, giStep));
 		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
 	};
 
@@ -1051,6 +1059,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				}
 			}
 		});
+
+	// diagnostic (SPEEDO_RAY_QUERY_REPLAY, see gfx/rayquerywatch.h): the rays replayed, each so many times a frame, after
+	// the indirect lighting's (whose rays they were)
+	if (RayQueryReplayRayCount() > 0)
+		myGraph.AddPass(
+			"Ray Query Replay",
+			[](FrameGraph::PassBuilder& builder) { builder.SideEffects(); },
+			[kernel](FrameGraph::PassContext& context)
+			{
+				kernel(
+					context.cmd, ComputePipelineVariant{.entryPoint = kRayQueryReplayEntryPoint}, RayQueryReplayRayCount(),
+					RayQueryReplayRepeatCount());
+			});
 
 	prepass(false);
 

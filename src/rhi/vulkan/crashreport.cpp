@@ -71,6 +71,15 @@ std::mutex gEventMutex;
 std::array<Event, kEventCount> gEvents;
 uint64_t gEventTotal = 0;
 
+// the application's sections (see SetCrashReportSection), set and removed as what they read is made and destroyed
+struct Section
+{
+	std::string name;
+	core::std_extra::move_only_function<std::string()> write;
+};
+std::mutex gSectionMutex;
+std::vector<Section> gSections;
+
 // the log of submits
 struct Submit
 {
@@ -538,7 +547,13 @@ std::string ReadDeviceFault(const std::filesystem::path& reportPath, std::string
 				event.frame, Escape(event.what));
 		}
 	}
-	json += "]\n}\n";
+	json += ']';
+	{
+		std::scoped_lock lock(gSectionMutex);
+		for (auto& section : gSections)
+			json += std::format(",\n  \"{}\": {}", Escape(section.name), section.write());
+	}
+	json += "\n}\n";
 
 	bool written = false;
 	if (!path.empty())
@@ -830,6 +845,16 @@ void CrashEvent(std::string_view what)
 void CrashFrame(uint64_t frame)
 {
 	vk::crash::detail::gFrame.store(frame, std::memory_order_relaxed);
+}
+
+void SetCrashReportSection(std::string_view name, core::std_extra::move_only_function<std::string()> write)
+{
+	using namespace vk::crash::detail;
+
+	std::scoped_lock lock(gSectionMutex);
+	std::erase_if(gSections, [name](const Section& section) { return section.name == name; });
+	if (write)
+		gSections.push_back(Section{.name = std::string(name), .write = std::move(write)});
 }
 
 void CrashHeartbeat()
