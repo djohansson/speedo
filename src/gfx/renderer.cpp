@@ -91,6 +91,14 @@ constexpr uint8_t kSharpenEntryPoint = 40;
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 // the visibility buffer's shading (see ComputeMainVisibility)
 constexpr uint8_t kMainVisibilityEntryPoint = 42;
+// and its tiles sorted by the kernel that shades them (see ComputeMainVisibilityClassify)
+constexpr uint8_t kMainVisibilityClassifyEntryPoint = 43;
+// the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
+// tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
+// frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
+// kVisibilityRecountFrameCount-th frame anyway, to count them again
+constexpr float kVisibilityTieredShare = 0.125F;
+constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -129,10 +137,21 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// where each pixel's point was in the last frame, in the render target's pixels from it (see FragmentPrepass)
 	myPrepassMotion = myGraph.CreateImage({.name = "Prepass Motion", .format = Format::kR16G16Sfloat});
 	if (const char* visibility = std::getenv("SPEEDO_VISIBILITY_BUFFER"); visibility != nullptr)
-		myVisibilityBuffer = std::string_view(visibility) == "1";
-	// each pixel's draw record, triangle and instance, for the visibility buffer's shading (see FragmentPrepass)
+		myVisibilityBuffer = std::string_view(visibility) != "0";
+	// each pixel's draw record, and its triangle and instance, for the visibility buffer's shading (see FragmentPrepass),
+	// and its tiles sorted by the kernel that shades them (see gVisibilityTiles: two lists of them, and their indirect
+	// dispatches' thread group counts)
 	if (myVisibilityBuffer)
-		myPrepassVisibility = myGraph.CreateImage({.name = "Prepass Visibility", .format = Format::kR32G32B32A32Uint});
+	{
+		myPrepassVisibility = myGraph.CreateImage({.name = "Prepass Visibility", .format = Format::kR32G32Uint});
+		myVisibilityTiles = myGraph.CreateBuffer(
+			{.name = "Visibility Tiles",
+			 .sizeOf = [](Extent2d extent)
+			 {
+				 auto tiles = [](uint32_t pixels) { return (pixels + SHADER_TYPES_VISIBILITY_TILE_SIZE - 1) / SHADER_TYPES_VISIBILITY_TILE_SIZE; };
+				 return (6 + (2 * static_cast<uint64_t>(tiles(extent.width)) * tiles(extent.height))) * sizeof(uint32_t);
+			 }});
+	}
 	myShadowRaw = myGraph.CreateImage({.name = "Shadow Raw", .format = Format::kR8G8B8A8Unorm});
 	myShadowBlocker = myGraph.CreateImage({.name = "Shadow Blocker", .format = Format::kR16G16B16A16Sfloat});
 	myShadowRows = myGraph.CreateImage({.name = "Shadow Rows", .format = Format::kR8G8B8A8Unorm});
@@ -288,6 +307,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			CULL_STATISTIC_COUNT * CULL_STATISTIC_GROUP_COUNT * sizeof(uint32_t),
 			BufferUsage::kStorage,
 			MemoryProperty::kHostVisible});
+		if (myVisibilityBuffer)
+		{
+			// emptied from the start (the frames read and empty them after, see Record)
+			auto& buffer = myVisibilityStatisticsBuffers.emplace_back(BufferCreateDesc{
+				device.CreateDeviceObjectCreateDesc(std::format("Visibility Statistics {}", frameIt)),
+				VISIBILITY_STATISTIC_COUNT * sizeof(uint32_t),
+				BufferUsage::kStorage,
+				MemoryProperty::kHostVisible});
+			auto memory = buffer.Map();
+			std::memset(memory.data(), 0, VISIBILITY_STATISTIC_COUNT * sizeof(uint32_t));
+			buffer.Flush(0, VISIBILITY_STATISTIC_COUNT * sizeof(uint32_t));
+			buffer.Unmap();
+		}
 		myGiStatisticsBuffers.emplace_back(BufferCreateDesc{
 			device.CreateDeviceObjectCreateDesc(std::format("GI Statistics {}", frameIt)),
 			(GI_STATISTIC_COUNT + SHADER_TYPES_GI_CLIP_COUNT * GI_DUMP_FLOAT_COUNT) * sizeof(uint32_t),
@@ -318,6 +350,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myCullCounts = myGraph.ImportBuffer("Cull Counts");
 	myCullVisibility = myGraph.ImportBuffer("Cull Visibility");
 	myCullStatisticsId = myGraph.ImportBuffer("Cull Statistics");
+	if (myVisibilityBuffer)
+		myVisibilityStatisticsId = myGraph.ImportBuffer("Visibility Statistics");
 	myGiStatisticsId = myGraph.ImportBuffer("GI Statistics");
 	// the indirect lighting's (see InternalPlanGi): the persistent buffers, a texel each until a model is voxelized
 	myGiVoxels = myGraph.ImportBuffer("GI Voxels");
@@ -391,18 +425,18 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		builder.Use(myOitCounter, ResourceUse::Storage(stages, access));
 	};
 
-	// Main layout compute kernels, of width by height threads
-	auto kernel = [this](
-					  CommandBufferHandle cmd,
-					  ComputePipelineVariant variant,
-					  uint32_t width,
-					  uint32_t height,
-					  uint32_t cullJobBase = 0,
-					  uint32_t depthPyramidLevel = 0,
-					  uint32_t depthPyramidSource = 0,
-					  uint32_t giStep = 0,
-					  uint32_t giClip = 0,
-					  std::optional<uint32_t> prepassImages = std::nullopt)
+	// a compute entry point of the main layout bound, with its descriptor sets and the frame's push constants (these of
+	// them set), for a dispatch
+	auto bindKernel = [this](
+						  CommandBufferHandle cmd,
+						  ComputePipelineVariant variant,
+						  uint32_t cullJobBase = 0,
+						  uint32_t depthPyramidLevel = 0,
+						  uint32_t depthPyramidSource = 0,
+						  uint32_t giStep = 0,
+						  uint32_t giClip = 0,
+						  std::optional<uint32_t> prepassImages = std::nullopt,
+						  uint32_t visibilityTiles = VISIBILITY_TILES_ALL) -> Pipeline&
 	{
 		auto& pipeline = *myFrame.pipeline;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
@@ -422,7 +456,24 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pushConstants.giClip = giClip;
 		if (prepassImages)
 			pushConstants.prepassImages = *prepassImages;
+		pushConstants.visibilityTiles = visibilityTiles;
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
+		return pipeline;
+	};
+	// Main layout compute kernels, of width by height threads
+	auto kernel = [bindKernel](
+					  CommandBufferHandle cmd,
+					  ComputePipelineVariant variant,
+					  uint32_t width,
+					  uint32_t height,
+					  uint32_t cullJobBase = 0,
+					  uint32_t depthPyramidLevel = 0,
+					  uint32_t depthPyramidSource = 0,
+					  uint32_t giStep = 0,
+					  uint32_t giClip = 0,
+					  std::optional<uint32_t> prepassImages = std::nullopt)
+	{
+		auto& pipeline = bindKernel(cmd, variant, cullJobBase, depthPyramidLevel, depthPyramidSource, giStep, giClip, prepassImages);
 		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
 	};
 
@@ -1246,41 +1297,95 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterTemporalEntryPoint}, extent.width, extent.height);
 		});
 
-	// the visibility buffer's shading (SPEEDO_VISIBILITY_BUFFER=1, see ComputeMainVisibility): the opaque triangles'
-	// pixels shaded from what the pre-pass wrote, every view's at once, before Main draws the rest over them (the blended
-	// draws, points and lines), loading the color
+	// the visibility buffer's shading (see ComputeMainVisibility): the opaque triangles' pixels shaded from what the
+	// pre-pass wrote, every view's at once, before Main draws the rest over them (the blended draws, points and lines),
+	// loading the color. where the frame has materials with an extended layer and without, its tiles are sorted first (Main
+	// Visibility Classify, into gVisibilityTiles, emptied before), and the kernel specialized without the extended layers
+	// shades the tiles without them, the generic kernel those with, in the one pass (Main Visibility)
 	if (myVisibilityBuffer)
-		myGraph.AddPass(
-			"Main Visibility",
+	{
+		auto visibilityUses = [this](FrameGraph::PassBuilder& builder)
+		{
+			builder.Use(myPrepassVisibility, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			// what Main's fragments read
+			builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			for (auto volume : myGiVolumes)
+				builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kComputeShader));
+			for (auto image : myGiNearHistory)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			for (auto image : myEmitterHistory)
+				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			// a list's indirect dispatch and tiles (see VisibilityTileFirst)
+			builder.Use(
+				myVisibilityTiles,
+				{.stages = PipelineStage::kDrawIndirect | PipelineStage::kComputeShader,
+				 .access = Access::kIndirectCommandRead | Access::kShaderRead});
+		};
+		// what the main list's fragments take (see InternalDrawViews)
+		auto prepassImages = [this]
+		{
+			return (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
+				   (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
+		};
+		// a list of tiles' shading, by its kernel: its thread group counts the list's first three words or the next three
+		auto shadeList = [this, bindKernel, prepassImages](FrameGraph::PassContext& context, uint32_t list, uint16_t specialization)
+		{
+			bindKernel(
+				context.cmd,
+				ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = specialization},
+				0, 0, 0, 0, 0, prepassImages(), list);
+			CommandEncoder(context.cmd)
+				.DispatchIndirect(context.graph.GetBuffer(myVisibilityTiles), 3 * (list - VISIBILITY_TILES_SPECIALIZED) * sizeof(uint32_t));
+		};
+		myVisibilityClearPass = myGraph.AddPass(
+			"Main Visibility Clear",
+			[this](FrameGraph::PassBuilder& builder) { builder.Use(myVisibilityTiles, ResourceUse::TransferDestination()); },
+			[this](FrameGraph::PassContext& context)
+			{
+				// no tiles in either list: thread group counts of 0, 1 and 1
+				constexpr std::array<uint32_t, 6> kEmpty{0, 1, 1, 0, 1, 1};
+				CommandEncoder(context.cmd).UpdateBuffer(context.graph.GetBuffer(myVisibilityTiles), 0, std::as_bytes(std::span(kEmpty)));
+			});
+		myVisibilityClassifyPass = myGraph.AddPass(
+			"Main Visibility Classify",
 			[this](FrameGraph::PassBuilder& builder)
 			{
 				builder.Use(myPrepassVisibility, ResourceUse::Sampled(PipelineStage::kComputeShader));
 				builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
-				builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
-				// what Main's fragments read
-				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-				for (auto volume : myGiVolumes)
-					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
-				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
-				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kComputeShader));
-				for (auto image : myGiNearHistory)
-					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
-				for (auto image : myEmitterHistory)
-					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myVisibilityTiles, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+				builder.Use(myVisibilityStatisticsId, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
 			},
 			[this, kernel](FrameGraph::PassContext& context)
 			{
 				auto extent = myGraph.GetExtent();
-				// what the main list's fragments take (see InternalDrawViews)
-				uint32_t prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
-										 (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
+				kernel(context.cmd, ComputePipelineVariant{.entryPoint = kMainVisibilityClassifyEntryPoint}, extent.width, extent.height);
+			});
+		myGraph.AddPass(
+			"Main Visibility",
+			visibilityUses,
+			[this, kernel, prepassImages, shadeList](FrameGraph::PassContext& context)
+			{
+				// both lists in one pass: their tiles are apart, so the dispatches need no barrier between them (as
+				// passes of their own, the graph put one there, both writing the color)
+				if (myVisibilityTiered)
+				{
+					shadeList(context, VISIBILITY_TILES_SPECIALIZED, SHADER_TYPES_LAYERS_EXTENDED);
+					shadeList(context, VISIBILITY_TILES_GENERIC, 0);
+					return;
+				}
+				auto extent = myGraph.GetExtent();
 				kernel(
 					context.cmd,
 					ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = myVisibilitySpecialization},
-					extent.width, extent.height, 0, 0, 0, 0, 0, prepassImages);
+					extent.width, extent.height, 0, 0, 0, 0, 0, prepassImages());
 			});
+	}
 
 	myMainPass = mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
@@ -1510,6 +1615,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			builder.Use(myExposureHistogram, ResourceUse::HostRead());
 			builder.Use(myCullStatisticsId, ResourceUse::HostRead());
 			builder.Use(myGiStatisticsId, ResourceUse::HostRead());
+			if (myVisibilityBuffer)
+				builder.Use(myVisibilityStatisticsId, ResourceUse::HostRead());
 			builder.SideEffects();
 		},
 		[](FrameGraph::PassContext& /*context*/) {});
@@ -2093,6 +2200,12 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				 std::pair{"gCullCounts", &myCullCountBuffers.buffers}})
 			pipeline.SetDescriptorData(
 				name, BufferBinding{.buffer = (*buffers)[frameIt], .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES, frameIt);
+		if (myVisibilityBuffer)
+			pipeline.SetDescriptorData(
+				"gVisibilityStatistics",
+				BufferBinding{.buffer = myVisibilityStatisticsBuffers[frameIt], .offset = 0},
+				DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES,
+				frameIt);
 	}
 	pipeline.SetDescriptorData(
 		"gTextures",
@@ -2299,6 +2412,9 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			 std::pair{"gOitHeads", myOitHeads}, std::pair{"gOitNodes", myOitNodes}, std::pair{"gOitCounter", myOitCounter}})
 		pipeline.SetDescriptorData(
 			name, BufferBinding{.buffer = myGraph.GetBuffer(buffer), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
+	if (myVisibilityBuffer)
+		pipeline.SetDescriptorData(
+			"gVisibilityTiles", BufferBinding{.buffer = myGraph.GetBuffer(myVisibilityTiles), .offset = 0}, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS);
 	pipeline.SetDescriptorData(
 		"gShadowTraceList", BufferBinding{.buffer = myGraph.GetBuffer(myShadowTraceList), .offset = 0}, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES);
 	pipeline.SetDescriptorData(
@@ -2373,6 +2489,26 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 					myCullStatisticSums[statisticIt] += statistics[statisticIt];
 				myCullStatisticFrameCount++;
 			}
+		}
+		std::memset(memory.data(), 0, sizeof(statistics));
+		buffer.Flush(0, sizeof(statistics));
+		buffer.Unmap();
+	}
+	// and how the visibility buffer's tiles were sorted (see gVisibilityStatistics), where they were: the share of the tiles
+	// with something drawn without a material with an extended layer, which decides whether the next frames sort them
+	if (myVisibilityBuffer)
+	{
+		auto& buffer = myVisibilityStatisticsBuffers[inputs.frameIndex];
+		auto memory = buffer.Map();
+		std::array<uint32_t, VISIBILITY_STATISTIC_COUNT> statistics{};
+		buffer.Invalidate(0, sizeof(statistics));
+		std::memcpy(statistics.data(), memory.data(), sizeof(statistics));
+		if (statistics[VISIBILITY_STATISTIC_PLAIN] + statistics[VISIBILITY_STATISTIC_EXTENDED] != 0)
+		{
+			auto extent = myGraph.GetExtent();
+			auto tiles = [](uint32_t pixels) { return (pixels + SHADER_TYPES_VISIBILITY_TILE_SIZE - 1) / SHADER_TYPES_VISIBILITY_TILE_SIZE; };
+			myVisibilityPlainShare = static_cast<float>(statistics[VISIBILITY_STATISTIC_PLAIN]) /
+									 static_cast<float>(std::max(tiles(extent.width) * tiles(extent.height), 1U));
 		}
 		std::memset(memory.data(), 0, sizeof(statistics));
 		buffer.Flush(0, sizeof(statistics));
@@ -2768,18 +2904,33 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGraph.SetEnabled(myMainPass, unshaded);
 		if (!unshaded)
 			myGraph.SetEnabled(myMainLatePass, false);
-		// and its kernel skips the layer groups none of the triangles it shades needs (see
-		// GraphicsPipelineVariant::specialization)
-		myVisibilitySpecialization = SHADER_TYPES_LAYERS_EXTENDED;
+		// and its kernel is specialized without the extended layers where some triangle it shades doesn't need them (see
+		// GraphicsPipelineVariant::specialization: none is, with SPEEDO_SHADER_TIERS=0); where others do, the tiles are
+		// sorted first (Main Visibility Classify) and the generic kernel shades theirs, if the tiles of the others were enough
+		// of the frame to pay for it the last time they were counted (renderer::kVisibilityTieredShare), and every
+		// kVisibilityRecountFrameCount-th frame, to count them again; else the generic kernel shades every tile
+		bool specialized = false;
+		bool generic = false;
 		for (const auto& item : items)
 			if (!renderer::VisibilityUnshaded(item))
-				myVisibilitySpecialization &= item.variant.specialization;
+			{
+				bool skips = (item.variant.specialization & SHADER_TYPES_LAYERS_EXTENDED) != 0;
+				specialized |= skips;
+				generic |= !skips;
+			}
+		myVisibilityTiered = specialized && generic &&
+							 (myVisibilityPlainShare >= renderer::kVisibilityTieredShare || myFrameCount % renderer::kVisibilityRecountFrameCount == 0);
+		myVisibilitySpecialization = specialized && (myVisibilityTiered || !generic) ? SHADER_TYPES_LAYERS_EXTENDED : 0;
+		for (auto pass : {myVisibilityClearPass, myVisibilityClassifyPass})
+			myGraph.SetEnabled(pass, myVisibilityTiered);
 	}
 	myGraph.Bind(myCullCommands, myCullCommandBuffers.buffers[frame.frameIndex]);
 	myGraph.Bind(myCullCounts, myCullCountBuffers.buffers[frame.frameIndex]);
 	myGraph.Bind(myCullVisibility, myCullVisibilityBuffer);
 	myGraph.Bind(myPreviousDepth, myPreviousDepthBuffer);
 	myGraph.Bind(myCullStatisticsId, myCullStatisticsBuffers[frame.frameIndex]);
+	if (myVisibilityBuffer)
+		myGraph.Bind(myVisibilityStatisticsId, myVisibilityStatisticsBuffers[frame.frameIndex]);
 	myGraph.Bind(myGiStatisticsId, myGiStatisticsBuffers[frame.frameIndex]);
 	InternalPlanGi(pipeline, frame);
 	myFrameStatisticsThisFrame.occlusion = myOcclusionThisFrame;

@@ -75,6 +75,12 @@ void CommandEncoder<kVk>::Dispatch(uint32_t groupCountX, uint32_t groupCountY, u
 }
 
 template <>
+void CommandEncoder<kVk>::DispatchIndirect(const Buffer<kVk>& buffer, uint64_t offset) const
+{
+	vkCmdDispatchIndirect(myCmd, buffer, offset);
+}
+
+template <>
 void CommandEncoder<kVk>::DispatchThreads(const ComputeLaunchParameters& launch, uint32_t threadsX, uint32_t threadsY, uint32_t threadsZ) const
 {
 	auto groups = [](uint32_t threads, uint64_t size) { return static_cast<uint32_t>((threads + std::max<uint64_t>(size, 1) - 1) / std::max<uint64_t>(size, 1)); };

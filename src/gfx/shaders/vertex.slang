@@ -72,10 +72,10 @@ struct VertexOutput : IInterpolants
 	nointerpolation uint materialId;
 	// where the point was in the last frame, in world space (where it moves, see DRAW_FLAG_MOVES; else where it is)
 	float3 previousPosition;
-	// the draw's record (gDrawRecords') and its instance, which the pre-pass writes to the visibility buffer with the
-	// triangle (see FragmentPrepass)
+	// the draw's record (gDrawRecords') and its instance above the record's primitive bits, which the pre-pass writes to
+	// the visibility buffer with the triangle (see FragmentPrepass)
 	nointerpolation uint drawRecord;
-	nointerpolation uint instance;
+	nointerpolation uint visibilityInstance;
 };
 
 // VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)
@@ -137,7 +137,7 @@ VertexOutput PlaceVertex(DrawRecord draw, uint drawRecord, uint vertexId, uint i
 	output.modelScale = pow(abs(determinant(linear)), 1.0 / 3.0);
 	output.materialId = draw.materialId;
 	output.drawRecord = drawRecord;
-	output.instance = instance;
+	output.visibilityInstance = instance << draw.primitiveBits;
 	return output;
 }
 

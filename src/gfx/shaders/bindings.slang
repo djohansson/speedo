@@ -55,6 +55,12 @@ StructuredBuffer<EmitterTriangle> gEmitters;
 [[vk::binding(11, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
 StructuredBuffer<EmitterNode> gEmitterTree;
 
+// the visibility buffer's tiles sorted by the kernel that shades them (see ComputeMainVisibilityClassify): the
+// specialized kernel's indirect dispatch (its thread group counts, x the tiles), the generic kernel's, then each one's
+// tiles (VisibilityTileFirst), x and y in 16 bits each
+[[vk::binding(12, DESCRIPTOR_SET_CATEGORY_GLOBAL_BUFFERS)]]
+RWStructuredBuffer<uint> gVisibilityTiles;
+
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture2D gTextures[SHADER_TYPES_GLOBAL_TEXTURE_COUNT];
 // the main depth's stencil: its first bit marks what moves (see CommandEncoder::SetStencilReference)
@@ -66,10 +72,11 @@ Texture2D<uint> gMainStencil;
 // written as storage images (gGiVolumeImages), always in the general layout
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture3D<float4> gGiVolumes[SHADER_TYPES_GI_VOLUME_COUNT];
-// the visibility buffer (see FragmentPrepass): per pixel the draw record, the triangle (SV_PrimitiveID) and the instance
-// the pre-pass drew there, which the main pass's shading reconstructs the surface from (ComputeMainVisibility)
+// the visibility buffer (see FragmentPrepass): per pixel the draw record (marked VISIBILITY_EXTENDED), and the triangle
+// (SV_PrimitiveID) and the instance (by DrawRecord::primitiveBits) the pre-pass drew there, which the main pass's shading reconstructs the
+// surface from (ComputeMainVisibility)
 [[vk::binding(3, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
-Texture2D<uint4> gVisibility;
+Texture2D<uint2> gVisibility;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
@@ -243,3 +250,8 @@ RWStructuredBuffer<uint4> gEmitterReservoirs;
 // far plane each frame
 [[vk::binding(45, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
 RWStructuredBuffer<uint> gUpscaleDepth;
+
+// how the visibility buffer's tiles were sorted (VISIBILITY_STATISTIC_*), host visible, per frame index: what decides whether
+// the next frames sort them (see Renderer::myVisibilityPlainShare)
+[[vk::binding(46, DESCRIPTOR_SET_CATEGORY_MODEL_INSTANCES)]]
+RWStructuredBuffer<uint> gVisibilityStatistics[SHADER_TYPES_FRAME_COUNT];

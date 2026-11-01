@@ -7,6 +7,7 @@
 #include <core/taskexecutor.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstring>
 #include <format>
 #include <optional>
@@ -185,6 +186,16 @@ void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> re
 		for (auto& item : list->items)
 		{
 			ENSUREF(next < records.size(), "more than {} draws in a frame (SHADER_TYPES_DRAW_RECORD_COUNT)", records.size());
+			ENSUREF(next < VISIBILITY_EXTENDED, "more than {} draws in a frame (the visibility buffer's record bits)", VISIBILITY_EXTENDED);
+			// its primitive and instance in the visibility buffer's one word (see DrawRecord::primitiveBits): the instance at
+			// least a bit, so that neither is shifted by 32
+			uint32_t primitiveBits = 32 - std::max<uint32_t>(std::bit_width(std::max(item.instanceCount, 1U) - 1U), 1);
+			uint64_t primitiveCount = item.variant.topology == PrimitiveTopology::kTriangleList ? item.indexCount / 3 : item.indexCount;
+			ENSUREF(
+				primitiveCount <= (uint64_t{1} << primitiveBits),
+				"a draw of {} primitives and {} instances doesn't fit the visibility buffer's 32 bits of both",
+				primitiveCount,
+				item.instanceCount);
 			item.record = static_cast<uint32_t>(next);
 			records[next++] = DrawRecord{
 					.materialId = item.materialSlot,
@@ -195,7 +206,8 @@ void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> re
 					.morphFirstVertex = item.morphFirstVertex,
 				.morphWeightBase = item.morphWeightBase,
 				.flags = (item.moves ? DRAW_FLAG_MOVES : 0U) | (item.variant.topology == PrimitiveTopology::kTriangleList ? DRAW_FLAG_TRIANGLES : 0U),
-				.firstIndex = item.firstIndex};
+				.firstIndex = item.firstIndex,
+				.primitiveBits = primitiveBits};
 		}
 	}
 }

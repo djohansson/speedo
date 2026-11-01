@@ -508,8 +508,8 @@ rasterized a second time after the pre-pass (and the textures the surface reads)
 fragments (`[earlydepthstencil]`, which its discards don't need now that it writes no depth) changed nothing. What would
 take the second geometry pass out is shading from what the pre-pass wrote (a visibility buffer), a larger change.
 
-- **Kept, behind a switch: the visibility buffer** (`SPEEDO_VISIBILITY_BUFFER=1`, off by default: the default is the
-  user's call; see CLAUDE.md's "The visibility buffer"). The prototype (the kernel generic, each corner reading its
+- **Kept: the visibility buffer** (on by default since 2026-11-01, the user's call; `SPEEDO_VISIBILITY_BUFFER=0` draws the
+  triangles again; see CLAUDE.md's "The visibility buffer"). The prototype (the kernel generic, each corner reading its
   instance, `ViewAt`'s whole ViewData, Main and Main Late kept): San Miguel 41.09 to 36.07 ms, Bistro 36.60 to 35.32,
   Sponza 19.95 to 25.12. At Sponza, by what each pass frees left out: Main Visibility 6.7 ms against forward Main's 1.9
   (San Miguel 7.0 against 9.8). Of that, the extended layers (the kernel specialized without them where no triangle it
@@ -521,6 +521,19 @@ take the second geometry pass out is shading from what the pre-pass wrote (a vis
   (−3.1), Sponza 18.81 to 19.64 (+0.8, the reconstruction where the second draw is cheap). Renders within about twice
   forward's run to run noise (San Miguel 0.106 of 255 against 0.052, Bistro 0.071 against 0.044, Sponza 0.025 against
   0.015), the same to the eye.
+- **Kept: the visibility buffer's tiers per tile, adaptive, and a target of 8 bytes a pixel.** Where some of a frame's
+  materials have an extended layer, the generic kernel shaded every pixel (2.4 ms more at Sponza). Its tiles sorted by a
+  pass of their own and each list shaded by its kernel: on a plain quad filling the view with a small clearcoat quad in
+  front, 13.43 ms against 15.32; but on SheenChair and CarConcept, mostly extended over the sky, 14.02 and 13.98
+  against 13.78 and 13.72, the sorting's 0.21 to 0.25 ms (its passes: one load a pixel cost as much as four) not paid
+  back. So it sorts where the last count of plain tiles with something drawn was an eighth of the frame or more, and
+  every 16th frame to count again: 13.50 against 15.48, and 13.83 and 13.79 against 13.77 and 13.71. Dropped on the way:
+  the check in the shading kernel itself (a group's barriers around a tile's pixels), 0.45 ms on Sponza and San Miguel
+  even in frames that skipped it (the benchmark poses have no extended material), and the lists as passes of their own
+  (a barrier between them, about 0.13 ms). The visibility target as RG32 rather than RGBA32 (the triangle and the
+  instance in one word, by the record's primitive bits): no measurable change (Sponza 19.58 against 19.64, San Miguel
+  33.48 against 33.47), half its memory. The frame now: San Miguel 33.56 ms, Bistro 31.19, Sponza 19.57 (forward 40.95,
+  33.99, 18.80).
 
 Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace

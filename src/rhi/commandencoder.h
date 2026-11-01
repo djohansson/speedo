@@ -46,6 +46,8 @@ public:
 	void DrawIndexedIndirectCount(
 		const Buffer<G>& buffer, uint64_t offset, const Buffer<G>& countBuffer, uint64_t countOffset, uint32_t maxDrawCount, uint32_t stride) const;
 	void Dispatch(uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ) const;
+	// the same, with the thread group counts read from buffer (BufferUsage::kIndirect: x, y and z, as uint32s) at offset
+	void DispatchIndirect(const Buffer<G>& buffer, uint64_t offset) const;
 	// dispatches the bound compute pipeline (whose thread group size launch is, see Pipeline::GetComputeLaunchParameters)
 	// over at least this many threads, in whole groups
 	void DispatchThreads(const ComputeLaunchParameters& launch, uint32_t threadsX, uint32_t threadsY = 1, uint32_t threadsZ = 1) const;

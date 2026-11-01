@@ -431,43 +431,42 @@ Barycentrics PixelBarycentrics(float4 clip0, float4 clip1, float4 clip2, float2 
 	return result;
 }
 
-// the visibility buffer's shading (the Main Visibility pass, SPEEDO_VISIBILITY_BUFFER=1, in place of Main's opaque
-// triangles): per pixel of the pre-pass's depth, the surface its triangle has there (gVisibility: the draw record, the
-// triangle, SV_PrimitiveID, and the instance), its corners placed as the vertex stage places them (PlaceVertex) and
-// interpolated at the pixel's center by perspective correct barycentrics, whose screen space derivatives are the
-// texture lookups' and the tangent frames' (see gTexCoordDx), then shaded as FragmentMain shades it (MainColor) into the
-// main color, so the triangles aren't drawn a second time after the pre-pass. what nothing opaque covers is cleared
-// (alpha 0: the backdrop's, see ComputeMain); points and lines are left to Main
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void ComputeMainVisibility(uint3 threadId: SV_DispatchThreadID)
+// the visibility buffer's shading of a pixel (see ComputeMainVisibility): the surface its triangle has there
+// (gVisibility: the draw record, and the triangle, SV_PrimitiveID, and the instance, by the record's primitive bits), its
+// corners placed as the vertex stage places them (PlaceVertex) and interpolated at the pixel's center by perspective
+// correct barycentrics, whose screen space derivatives are the texture lookups' and the tangent frames' (see
+// gTexCoordDx), then shaded as FragmentMain shades it (MainColor) into the main color. what nothing opaque covers is
+// cleared (alpha 0: the backdrop's, see ComputeMain); points and lines are left to Main
+void ShadeVisibility(int2 pixel)
 {
 	uint2 extent;
 	gMainColor.GetDimensions(extent.x, extent.y);
-	if (any(threadId.xy >= extent))
+	if (any(pixel >= int2(extent)))
 		return;
-	int2 pixel = int2(threadId.xy);
 	uint frameIndex = gPushConstants.frameIndex;
 	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r;
-	uint4 visibility = gVisibility.Load(int3(pixel, 0));
 	uint viewId;
-	if (depth <= 0.0 || visibility.w == 0u || !ViewIndexAt(pixel, viewId))
+	if (depth <= 0.0 || !ViewIndexAt(pixel, viewId))
 	{
 		gMainColor[pixel] = 0.0;
 		return;
 	}
-	DrawRecord draw = gDrawRecords[frameIndex][visibility.x];
+	uint2 visibility = gVisibility.Load(int3(pixel, 0));
+	uint record = visibility.x & ~VISIBILITY_EXTENDED;
+	DrawRecord draw = gDrawRecords[frameIndex][record];
 	if ((draw.flags & DRAW_FLAG_TRIANGLES) == 0u)
 		return;
-	uint first = draw.firstIndex + 3u * visibility.y;
-	ModelInstance instance = gModelInstances[frameIndex][draw.modelInstanceId + visibility.z];
+	uint primitive = visibility.y & ((1u << draw.primitiveBits) - 1u);
+	uint instanceIndex = visibility.y >> draw.primitiveBits;
+	uint first = draw.firstIndex + 3u * primitive;
+	ModelInstance instance = gModelInstances[frameIndex][draw.modelInstanceId + instanceIndex];
 	float4x4 viewProjection = gViewData[frameIndex][viewId].viewProjection;
 	float4 viewport = gViewData[frameIndex][viewId].viewport;
 	VertexOutput corners[3];
 	float4 clip[3];
 	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
 	{
-		corners[cornerIt] = PlaceVertex(draw, visibility.x, gIndexBuffer[first + cornerIt], visibility.z, instance, frameIndex);
+		corners[cornerIt] = PlaceVertex(draw, record, gIndexBuffer[first + cornerIt], instanceIndex, instance, frameIndex);
 		clip[cornerIt] = mul(viewProjection, float4(corners[cornerIt].vertex.position, 1.0));
 	}
 	float2 ndc = (float2(pixel) + 0.5 - viewport.xy) / viewport.zw * 2.0 - 1.0;
@@ -497,6 +496,79 @@ void ComputeMainVisibility(uint3 threadId: SV_DispatchThreadID)
 	bool isFrontFace = facing != mirrored;
 
 	gMainColor[pixel] = MainColor(input, isFrontFace, uint2(pixel), viewId);
+}
+
+// what is drawn at a pixel for the visibility buffer's sorting: bit 0 something, bit 1 of a material with an extended
+// layer (MATERIAL_FLAGS_EXTENDED), which a kernel specialized without them can't shade, as the pre-pass marked its
+// record (VISIBILITY_EXTENDED)
+uint VisibilityDrawn(int2 pixel)
+{
+	uint2 extent;
+	gMainColor.GetDimensions(extent.x, extent.y);
+	if (any(pixel >= int2(extent)) || gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r <= 0.0)
+		return 0u;
+	return (gVisibility.Load(int3(pixel, 0)).x & VISIBILITY_EXTENDED) != 0u ? 3u : 1u;
+}
+
+// where a list of gVisibilityTiles starts (VISIBILITY_TILES_*): after both dispatches' thread group counts, the tiles
+// without a material with an extended layer, then those with, as many as the frame has tiles each
+uint VisibilityTileFirst(uint list)
+{
+	uint2 extent;
+	gMainColor.GetDimensions(extent.x, extent.y);
+	uint2 tiles = (extent + SHADER_TYPES_VISIBILITY_TILE_SIZE - 1u) / SHADER_TYPES_VISIBILITY_TILE_SIZE;
+	return 6u + (list - VISIBILITY_TILES_SPECIALIZED) * tiles.x * tiles.y;
+}
+
+groupshared uint gsVisibilityDrawn;
+
+// the tiles of a frame with materials that have an extended layer, sorted (the Main Visibility Classify pass): a tile with
+// a pixel of those to the generic kernel's list, the others to the specialized kernel's (gVisibilityTiles), each counted
+// in its list's indirect dispatch, and the tiles with something drawn counted by kind (gVisibilityStatistics). in the
+// shading kernel itself, the check and its barriers cost 0.45 ms even in frames that skipped them, at Sponza and San
+// Miguel (the compiler's, not the check's); here it costs 0.21 to 0.25 ms (at SheenChair and CarConcept, with one
+// load a pixel or four)
+[shader("compute")]
+[numthreads(SHADER_TYPES_VISIBILITY_TILE_SIZE, SHADER_TYPES_VISIBILITY_TILE_SIZE, 1)]
+void ComputeMainVisibilityClassify(uint3 threadId: SV_DispatchThreadID, uint3 groupId: SV_GroupID, uint groupIndex: SV_GroupIndex)
+{
+	if (groupIndex == 0u)
+		gsVisibilityDrawn = 0u;
+	GroupMemoryBarrierWithGroupSync();
+	uint drawn = VisibilityDrawn(int2(threadId.xy));
+	if (drawn != 0u)
+		InterlockedOr(gsVisibilityDrawn, drawn);
+	GroupMemoryBarrierWithGroupSync();
+	if (groupIndex == 0u)
+	{
+		bool extended = (gsVisibilityDrawn & 2u) != 0u;
+		uint list = extended ? VISIBILITY_TILES_GENERIC : VISIBILITY_TILES_SPECIALIZED;
+		uint tile;
+		InterlockedAdd(gVisibilityTiles[3u * (list - VISIBILITY_TILES_SPECIALIZED)], 1u, tile);
+		gVisibilityTiles[VisibilityTileFirst(list) + tile] = groupId.x | (groupId.y << 16);
+		if (gsVisibilityDrawn != 0u)
+			InterlockedAdd(
+				gVisibilityStatistics[gPushConstants.frameIndex][extended ? VISIBILITY_STATISTIC_EXTENDED : VISIBILITY_STATISTIC_PLAIN], 1u);
+	}
+}
+
+// the visibility buffer's shading (the Main Visibility pass, in place of Main's opaque triangles, so that they aren't
+// drawn a second time after the pre-pass): a tile of pixels a group (ShadeVisibility), the dispatch's
+// (PushConstants::visibilityTiles 0: every tile, by the kernel the frame's materials need, see Renderer), or a list's of
+// gVisibilityTiles, where the frame's tiles were sorted: the specialized kernel's without a material with an extended
+// layer, the generic kernel's with (see ComputeMainVisibilityClassify)
+[shader("compute")]
+[numthreads(SHADER_TYPES_VISIBILITY_TILE_SIZE, SHADER_TYPES_VISIBILITY_TILE_SIZE, 1)]
+void ComputeMainVisibility(uint3 threadId: SV_DispatchThreadID, uint3 groupId: SV_GroupID, uint3 localId: SV_GroupThreadID)
+{
+	uint2 pixel = threadId.xy;
+	uint list = gPushConstants.visibilityTiles;
+	if (list != VISIBILITY_TILES_ALL)
+	{
+		uint tile = gVisibilityTiles[VisibilityTileFirst(list) + groupId.x];
+		pixel = uint2(tile & 0xffffu, tile >> 16) * SHADER_TYPES_VISIBILITY_TILE_SIZE + localId.xy;
+	}
+	ShadeVisibility(int2(pixel));
 }
 
 // the scatter pass's color attachments: the light, and the multiscatter color
@@ -552,8 +624,8 @@ struct PrepassOutput
 {
 	float4 normal : SV_Target0;
 	float4 motion : SV_Target1;
-	// the visibility buffer (see gVisibility): the draw record, the triangle and the instance, and 1
-	uint4 visibility : SV_Target2;
+	// the visibility buffer (see gVisibility): the draw record, and the triangle and the instance
+	uint2 visibility : SV_Target2;
 };
 
 // a fragment of the pre-pass: its depth, cut out as the main pass's are, and its geometry normal, before the main pass
@@ -582,7 +654,9 @@ PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontF
 	float4 previous = mul(view.previousViewProjection, float4(input.previousPosition, 1.0));
 	float2 motion = previous.w > 0.0 ? ((previous.xy / previous.w - view.jitter.zw) - (current.xy / current.w - view.jitter.xy)) * 0.5 * view.viewport.zw : 0.0;
 	output.motion = float4(motion, 0.0, 0.0);
-	output.visibility = uint4(input.drawRecord, primitive, input.instance, 1u);
+	// (the record marked where its material has an extended layer, which sorts its tile for the generic kernel)
+	uint extended = (material.flags & MATERIAL_FLAGS_EXTENDED) != 0u ? VISIBILITY_EXTENDED : 0u;
+	output.visibility = uint2(input.drawRecord | extended, primitive | input.visibilityInstance);
 	return output;
 }
 

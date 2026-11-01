@@ -2115,6 +2115,7 @@ struct Scene::Impl
 						{"ComputeSharpen", SLANG_STAGE_COMPUTE},
 						{"ComputeGiResolveTraced", SLANG_STAGE_COMPUTE}, // see the GI Resolve step
 						{"ComputeMainVisibility", SLANG_STAGE_COMPUTE}, // see the Main Visibility pass
+						{"ComputeMainVisibilityClassify", SLANG_STAGE_COMPUTE}, // see the Main Visibility Classify pass
 					},
 					.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 					.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

@@ -51,7 +51,7 @@ enum class Format : uint8_t
 	kR32G32B32A32Sfloat,
 	kR16G16Sfloat,
 	kR32G32Sfloat,
-	kR32G32B32A32Uint,
+	kR32G32Uint,
 };
 
 enum class ImageLayout : uint8_t

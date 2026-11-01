@@ -646,6 +646,11 @@ struct TextureView
 #define MATERIAL_FLAG_RETROREFLECTION_TEXTURE 536870912u // retroreflectionView: the weight in r, times retroreflection
 #define MATERIAL_FLAG_VOLUME_SCATTER 1073741824u // subsurface scattering (see multiscatterColor)
 #define MATERIAL_FLAG_VOLUME_SCATTER_TEXTURE 2147483648u // multiscatterColorView: an srgb color times multiscatterColor.rgb
+// the layers SHADER_TYPES_LAYERS_EXTENDED's pipelines skip (see Layer): a material with any of them is drawn by the generic
+// ones (and shaded by the visibility buffer's generic kernel, see ComputeMainVisibilityClassify)
+#define MATERIAL_FLAGS_EXTENDED                                                                                                  \
+	(MATERIAL_FLAG_CLEARCOAT | MATERIAL_FLAG_SHEEN | MATERIAL_FLAG_TRANSMISSION | MATERIAL_FLAG_ANISOTROPY | MATERIAL_FLAG_IRIDESCENCE | \
+	 MATERIAL_FLAG_DIFFUSE_TRANSMISSION | MATERIAL_FLAG_RETROREFLECTION | MATERIAL_FLAG_VOLUME_SCATTER)
 
 struct MaterialData
 {
@@ -762,6 +767,9 @@ struct DrawRecord
 	// its first index in gIndexBuffer: its triangle SV_PrimitiveID's indices from 3 times that on (see the visibility
 	// buffer, ComputeMainVisibility)
 	alignas(4) UINT1(firstIndex);
+	// how many of the visibility buffer's second word's low bits are its primitive (SV_PrimitiveID): its instance
+	// (SV_InstanceID) is above them (see FragmentPrepass; at most 31, so that an instance has a bit)
+	alignas(4) UINT1(primitiveBits);
 };
 // DrawRecord::flags: it moves (skinned, morphed, or following animated nodes), so the vertex stage places it where it
 // was in the last frame too, for its motion (see FragmentPrepass)
@@ -769,6 +777,9 @@ struct DrawRecord
 // its topology is a triangle list: the visibility buffer's shading reconstructs its pixels (see ComputeMainVisibility; points
 // and lines are drawn as before)
 #define DRAW_FLAG_TRIANGLES 2u
+// the visibility buffer's shading's tiles, of this many pixels a side (its kernels' thread groups): one with a pixel of a
+// material with an extended layer is left to the generic kernel (see gVisibilityTiles)
+#define SHADER_TYPES_VISIBILITY_TILE_SIZE 8u
 
 // an indexed indirect draw's command (VkDrawIndexedIndirectCommand's layout)
 struct DrawIndexedIndirectCommand
@@ -1229,7 +1240,22 @@ struct PushConstants
 	alignas(4) UINT1(prepassImages);
 	// per frame: temporal upscaling (UPSCALE_*, see upscale.slang)
 	alignas(4) UINT1(upscale);
+	// per dispatch: which tiles the visibility buffer's shading shades (VISIBILITY_TILES_*, see ComputeMainVisibility)
+	alignas(4) UINT1(visibilityTiles);
 };
+// PushConstants::visibilityTiles: the dispatch's, every tile; gVisibilityTiles' list of the tiles without a material with an
+// extended layer (the specialized kernel's); its list of those with (the generic kernel's)
+#define VISIBILITY_TILES_ALL 0u
+#define VISIBILITY_TILES_SPECIALIZED 1u
+#define VISIBILITY_TILES_GENERIC 2u
+// the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
+// is the bits below)
+#define VISIBILITY_EXTENDED 0x80000000u
+// the visibility buffer's tiles with something drawn in them, as its sorting counted them (gVisibilityStatistics, see
+// ComputeMainVisibilityClassify): without a material with an extended layer, and with
+#define VISIBILITY_STATISTIC_PLAIN 0u
+#define VISIBILITY_STATISTIC_EXTENDED 1u
+#define VISIBILITY_STATISTIC_COUNT 2u
 // PushConstants::prepassImages: the traced shadows (SHADER_TYPES_SHADOW_MASK_TEXTURE, see ShadowTraceData), the
 // indirect lighting's near field (SHADER_TYPES_GI_NEAR_TEXTURE, see GiData::nearReach) and the emissive surfaces' light
 // (SHADER_TYPES_EMITTER_HISTORY_TEXTURE, see EmitterData)

@@ -1,0 +1,141 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "speedo resources/test-models (hand-made)"
+  },
+  "extensionsUsed": [
+    "KHR_materials_clearcoat"
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0
+    }
+  ],
+  "meshes": [
+    {
+      "primitives": [
+        {
+          "material": 0,
+          "indices": 2,
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0
+          }
+        },
+        {
+          "material": 1,
+          "indices": 3,
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0
+          }
+        }
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "pbrMetallicRoughness": {
+        "roughnessFactor": 0.5,
+        "metallicFactor": 0.0,
+        "baseColorFactor": [
+          0.8,
+          0.8,
+          0.8,
+          1.0
+        ]
+      },
+      "doubleSided": true,
+      "name": "plain"
+    },
+    {
+      "pbrMetallicRoughness": {
+        "roughnessFactor": 0.5,
+        "metallicFactor": 0.0,
+        "baseColorFactor": [
+          0.6,
+          0.1,
+          0.1,
+          1.0
+        ]
+      },
+      "extensions": {
+        "KHR_materials_clearcoat": {
+          "clearcoatFactor": 1.0,
+          "clearcoatRoughnessFactor": 0.1
+        }
+      },
+      "doubleSided": true,
+      "name": "coated"
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "data:application/octet-stream;base64,AAAgwQAAIMEAAAAAAAAgQQAAIMEAAAAAAAAgQQAAIEEAAAAAAAAgwQAAIEEAAAAAAACAvwAAgL/NzEw9AACAPwAAgL/NzEw9AACAPwAAgD/NzEw9AACAvwAAgD/NzEw9AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAABAAIAAAACAAMABAAFAAYABAAGAAcA",
+      "byteLength": 216
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 96,
+      "byteOffset": 0
+    },
+    {
+      "buffer": 0,
+      "byteLength": 96,
+      "byteOffset": 96
+    },
+    {
+      "buffer": 0,
+      "byteLength": 24,
+      "byteOffset": 192
+    }
+  ],
+  "accessors": [
+    {
+      "min": [
+        -10,
+        -10,
+        0
+      ],
+      "count": 8,
+      "max": [
+        10,
+        10,
+        0.05
+      ],
+      "bufferView": 0,
+      "componentType": 5126,
+      "type": "VEC3"
+    },
+    {
+      "componentType": 5126,
+      "count": 8,
+      "type": "VEC3",
+      "bufferView": 1
+    },
+    {
+      "componentType": 5123,
+      "byteOffset": 0,
+      "count": 6,
+      "type": "SCALAR",
+      "bufferView": 2
+    },
+    {
+      "componentType": 5123,
+      "byteOffset": 12,
+      "count": 6,
+      "type": "SCALAR",
+      "bufferView": 2
+    }
+  ]
+}

@@ -262,10 +262,22 @@ private:
 	FrameGraph::ImageId myPrepassNormal;
 	FrameGraph::ImageId myPrepassMotion; // SHADER_TYPES_PREPASS_MOTION_TEXTURE
 	// the visibility buffer (gVisibility: see FragmentPrepass), and whether the main pass's opaque triangles are shaded from it
-	// (the Main Visibility pass, ComputeMainVisibility; SPEEDO_VISIBILITY_BUFFER=1, read when the graph is made) rather than
-	// drawn again over the pre-pass's depth
+	// (the Main Visibility pass, ComputeMainVisibility; unless SPEEDO_VISIBILITY_BUFFER=0, read when the graph is made)
+	// rather than drawn again over the pre-pass's depth
 	FrameGraph::ImageId myPrepassVisibility;
-	bool myVisibilityBuffer = false;
+	bool myVisibilityBuffer = true;
+	// its tiles sorted by the kernel that shades them (gVisibilityTiles), emptied first: where the frame has materials with
+	// an extended layer and without (myVisibilityTiered, see Record)
+	FrameGraph::BufferId myVisibilityTiles;
+	FrameGraph::PassId myVisibilityClearPass;
+	FrameGraph::PassId myVisibilityClassifyPass;
+	bool myVisibilityTiered = false;
+	// how its tiles were sorted, per frame index (gVisibilityStatistics, host visible), and the share of the tiles with
+	// something drawn without a material with an extended layer the last frame that sorted them counted (1 until then):
+	// sorting pays where it is renderer::kVisibilityTieredShare or more (see Record)
+	std::vector<Buffer> myVisibilityStatisticsBuffers;
+	FrameGraph::BufferId myVisibilityStatisticsId;
+	float myVisibilityPlainShare = 1.0F;
 	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization)
 	uint16_t myVisibilitySpecialization = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the

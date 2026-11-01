@@ -615,7 +615,7 @@ Consequences:
 
 A frame is recorded by `gfx::Renderer` (`gfx/renderer.h`) as a `gfx::FrameGraph` (`gfx/framegraph.h`): passes, added
 once in the order they run, each declaring what it does with which resource (`ResourceUse`: an image's layout, and the
-stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility (with the visibility buffer), Main,
+stages and accesses), with an execute callback that records only its own commands. The passes now: Cull Clear and Cull (where the gpu culls; Depth Pyramid and Cull Late after the Prepass, and Prepass Late and Main Late, with occlusion culling; GI Clear, GI Shift, GI Voxelize, GI Keep, GI Light Static, GI Restore, GI Voxelize Moving and GI before Main with indirect lighting), OIT clear, Shadows, Scatter Back, Scatter, Scatter Blur, Scatter Denoise, Prepass, Shadow Trace Clear, Shadow Classify, Shadow Trace, Shadow Denoise X and Y (with ray traced shadows), GI Near, GI Near X and Y and GI Near Temporal (the indirect lighting's near field), Emitter Sample, Emitter Shade, Emitter X and Y and Emitter Temporal (emissive surfaces as lights), Main Visibility Clear, Main Visibility Classify and Main Visibility (the visibility buffer), Main,
 Transmission (blit and mips), Main Transmissive, Exposure Clear, ComputeMain (or, with temporal upscaling, Composite,
 the Upscale passes and Sharpen), Exposure Readback, UI Blur X and Y, UI Uploads, UI, Present. Don't add barriers or transitions in a pass's callback for what it declared; declare the use instead.
 
@@ -1168,7 +1168,9 @@ and their geometry normals toward the side seen (`FragmentPrepass`, the layout's
 and the scattering's), `SHADER_TYPES_PREPASS_NORMAL_TEXTURE`. Main and Main Late shade over that depth, each pixel once
 (`GraphicsPipelineVariant::depthTest`, rhi's `DepthTest::kEqual`: greater or equal, the depth being reversed, no writes); blended draws depth test as
 before, and the transmissive phase isn't in the pre-pass (it must see the opaque scene behind it). Renders are identical,
-and frames are faster for the overdraw no longer shaded (Bistro's street, GI on, 25.15 to 22.9 ms).
+and frames are faster for the overdraw no longer shaded (Bistro's street, GI on, 25.15 to 22.9 ms). With the visibility
+buffer (the default, see "The visibility buffer") the opaque triangles aren't drawn again at all: Main Visibility shades
+them from what the pre-pass wrote, and Main draws only the rest.
 
 **The traced shadows** (View > Ray Traced Shadows, on by default; `SPEEDO_TRACED_SHADOWS=0` for the atlas alone, `all`
 to trace every pixel): for up to `SHADER_TYPES_SHADOW_TRACE_SLOT_COUNT` (4) lights a frame (the directional ones first,
@@ -1239,16 +1241,19 @@ the listed pixels taken by persistent threads 20.3, the filter over flagged tile
 
 ## The visibility buffer
 
-`SPEEDO_VISIBILITY_BUFFER=1` (read when the renderer's graph is made; off by default) shades the main list's opaque
-triangles from what the pre-pass wrote rather than drawing them a second time: the pre-pass writes each pixel's draw
-record, triangle (`SV_PrimitiveID`) and instance to a third color attachment (`Prepass Visibility`, RGBA32 uint,
-`gVisibility`; `DrawRecord::firstIndex` finds the triangle's indices), and the Main Visibility pass
-(`ComputeMainVisibility`, compute entry point 42) places the triangle's corners as the vertex stage places them
-(`PlaceVertex`: morphed, skinned, then by the instance, read once for the three), interpolates them at the pixel's center
-by perspective correct barycentrics (`PixelBarycentrics`: Schied and Dachsbacher's, in The Forge's form), and shades the
-pixel as `FragmentMain` does (`MainColor`) into the main color as a storage image (`gMainColor`), every view's pixels in
-one dispatch (`ViewIndexAt`, by the viewports alone: `ViewAt`'s whole ViewData, and the instance read per corner, made
-the reconstruction 2.2 ms at Sponza rather than 1.25). What the fragment stage has, the kernel makes: the barycentrics'
+The main list's opaque triangles are shaded from what the pre-pass wrote rather than drawn a second time (on by default
+since 2026-11-01, the user's call; `SPEEDO_VISIBILITY_BUFFER=0`, read when the renderer's graph is made, draws them
+again over the pre-pass's depth): the pre-pass writes each pixel's draw record, and its triangle (`SV_PrimitiveID`) and
+instance in one word, the instance above the record's `primitiveBits` (`WriteDrawRecords`: the instance count's bits, at
+least one; a draw whose primitives don't fit the rest is a hard failure), to a third color attachment
+(`Prepass Visibility`, RG32 uint, `gVisibility`; `DrawRecord::firstIndex` finds the triangle's indices; RGBA32, 16
+bytes a pixel, measured the same), and the Main Visibility pass (`ComputeMainVisibility`, compute entry point 42,
+`ShadeVisibility` a pixel) places the triangle's corners as the vertex stage places them (`PlaceVertex`: morphed,
+skinned, then by the instance, read once for the three), interpolates them at the pixel's center by perspective correct
+barycentrics (`PixelBarycentrics`: Schied and Dachsbacher's, in The Forge's form), and shades the pixel as `FragmentMain`
+does (`MainColor`) into the main color as a storage image (`gMainColor`), every view's pixels in one dispatch
+(`ViewIndexAt`, by the viewports alone: `ViewAt`'s whole ViewData, and the instance read per corner, made the
+reconstruction 2.2 ms at Sponza rather than 1.25). What the fragment stage has, the kernel makes: the barycentrics'
 screen space derivatives stand in for its implicit ones (`gPositionDx`, `gTexCoordDx`: `SampleView`'s `SampleGrad`, the
 view's lod bias as a factor, and `CotangentFrame`'s, `SurfaceDerivativesAt`; `__stage_switch` picks, with `case
 compute:`, since slang's `default:` conflicted with the fragment stage's capabilities), a cut out fragment returns
@@ -1257,22 +1262,38 @@ than the push constant, and the front face is the triangle's geometric normal to
 instance, in world space (by the winding of its corners projected, a triangle with a corner behind the eye, the floor
 beside the camera, came out back facing: its normals flipped). Main then draws what is left (`renderer::VisibilityUnshaded`:
 blended triangles, points and lines) over it, loading the color, and it and Main Late are disabled where nothing is left
-(a render pass loading and storing the color and depth for nothing). The kernel is specialized without the extended
-layers where none of the triangles it shades needs them (`ComputePipelineVariant::specialization`, a compute pipeline's
-specialization constant 0, as a graphics pipeline's): generic, it cost Sponza 2.4 ms more. Shading with the view and the
-material broadcast per SIMD group (a `WaveReadLaneFirst` loop, so that what is read of them is uniform, as a draw's
-fragments have them) changed nothing. A fragment shader reading `SV_PrimitiveID` declares the Geometry capability
-(slang's choice), which needs `geometryShader`, which KosmicKrisp lacks; Vulkan takes the Tessellation capability for it
-too, which KosmicKrisp has, so rhi declares that instead there (`shader::DeviceCode`).
+(a render pass loading and storing the color and depth for nothing). Shading with the view and the material broadcast
+per SIMD group (a `WaveReadLaneFirst` loop, so that what is read of them is uniform, as a draw's fragments have them)
+changed nothing. A fragment shader reading `SV_PrimitiveID` declares the Geometry capability (slang's choice), which
+needs `geometryShader`, which KosmicKrisp lacks; Vulkan takes the Tessellation capability for it too, which KosmicKrisp
+has, so rhi declares that instead there (`shader::DeviceCode`).
 
-Measured by the draw thread's frame time (balanced, 2560x1440, GI on, interleaved): San Miguel 40.94 to 33.47 ms, Bistro
-34.27 to 31.17, Sponza 18.81 to 19.64. What it saves is the second draw of the triangles (about half of San Miguel's
+**Tiers.** The kernel is specialized without the extended layers where none of the frame's triangles needs them
+(`ComputePipelineVariant::specialization`, a compute pipeline's specialization constant 0, as a graphics pipeline's):
+generic, it cost Sponza 2.4 ms more. Where some do, the tiles (`SHADER_TYPES_VISIBILITY_TILE_SIZE`, 8 pixels a side, a
+thread group's) can be sorted (Main Visibility Classify, `ComputeMainVisibilityClassify`, entry point 43: the pre-pass
+marks a record whose material has one, `VISIBILITY_EXTENDED`, its top bit; a tile with a pixel so marked goes to one
+list of `gVisibilityTiles`, the others to the other, each counted in its list's indirect dispatch,
+`CommandEncoder::DispatchIndirect`, emptied by Main Visibility Clear), and Main Visibility shades each list with the
+same entry point (`PushConstants::visibilityTiles`), the specialized kernel the plain tiles and the generic kernel the
+others, in one pass (as passes of their own, the graph put a barrier between them, both writing the color: about 0.13 ms
+more).
+Sorting costs 0.21 to 0.25 ms (the passes, whatever each pixel reads: four dependent loads or one), so it is done where
+it pays: where the last count of the tiles with something drawn without an extended layer (`gVisibilityStatistics`, read
+back per frame index) was an eighth of the frame or more (`kVisibilityTieredShare`), and every 16th frame to count again
+(`kVisibilityRecountFrameCount`); else the generic kernel shades every tile. On a plain quad filling the view with a
+small clearcoat quad in front (`VisibilityTiers.gltf`, nearer than it frames), 13.50 ms against 15.48 with the generic
+kernel everywhere; SheenChair and CarConcept, mostly extended, 13.83 and 13.79 against 13.77 and 13.71 (sorted every
+frame, 14.02 and 13.98). The check in the shading kernel itself, a group's barriers around it, cost 0.45 ms even in
+frames that skipped it at Sponza and San Miguel (the compiler's doing), hence the pass of its own.
+
+Measured by the draw thread's frame time (balanced, 2560x1440, GI on, interleaved): San Miguel 40.95 to 33.56 ms, Bistro
+33.99 to 31.19, Sponza 18.80 to 19.57. What it saves is the second draw of the triangles (about half of San Miguel's
 Main, see docs/performance-plan.md); what it costs is the reconstruction, 1.25 ms at Sponza, where the second draw is
 cheap. Renders are forward's to about twice the run to run noise (still captures at the benchmark poses, and models of
-every feature: skins, morph targets, mirroring and instances, alpha masks, clearcoat's generic kernel, points and lines,
-split screen): texture filtering differs a little along a texture's sharp edges, the barycentrics' derivatives being exact
-where the quads' are finite differences. Not yet: tiers per tile (one material with an extended layer makes the whole
-kernel generic), a narrower visibility target (16 bytes a pixel), and the transmissive phase (drawn as before).
+every feature: skins, morph targets, mirroring and instances, alpha masks, clearcoat's generic kernel and sorted tiles,
+points and lines, split screen): texture filtering differs a little along a texture's sharp edges, the barycentrics'
+derivatives being exact where the quads' are finite differences. Not yet: the transmissive phase (drawn as before).
 
 ## Clustered lighting
 
@@ -2673,7 +2694,9 @@ each, of every filter and wrap mode, more than the model sampler slots once were
 multiscatter texture, see above; `ManyLights.gltf`: 24 point and 8 spot lights between pillars, more shadowed lights than
 the atlas holds at full size, best seen with `SPEEDO_ENVIRONMENT_INTENSITY=0.05`; `ThousandsOfLights.gltf`: 3800 small
 point lights and 200 spot lights, all ranged, between 625 pillars on a 200 m ground, for clustering and culling at scale,
-generated by a seeded script, best seen the same way), and is always part
+generated by a seeded script, best seen the same way; `VisibilityTiers.gltf`: a plain quad with a small clearcoat quad
+in front of it, a quarter and a hundredth of the view framed, whose tiles the visibility buffer sorts, see "The visibility
+buffer"), and is always part
 of the printed paths, as is `resources/test-models/obj` (`BumpDomes`: a quad with a bump map of four domes, as is and with
 its texture mirrored, which must both come out raised and lit from above, i.e. from the default light's side). Two archive files are both called `sponza.zip` (Crytek's and Dabrovic's), so the latter is saved as `dabrovic_sponza.zip`,
 and Bistro's five zips (the scenes and three texture packs, which the scenes reference as `..\BuildingTextures\...`) are
