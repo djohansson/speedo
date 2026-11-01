@@ -48,10 +48,42 @@ static const float kTracedMissDistance = 60000.0;
 // rays' noise needs them)
 static const float kReflectionFramesSharp = 2.0;
 static const float kReflectionFramesRough = 24.0;
+// and while the view is still and nothing else may change what the reflections see (TRACED_SETTLED, and no ray around
+// met what moves), unclamped: the frame's filtered 3x3 is smooth, so its box held the history to the frame's own noise,
+// and ChronographWatch's strap, its rays meeting the sky in some weave cells and the case in others, changed by ten
+// times as much as untraced every frame
+static const float kReflectionFramesStill = 64.0;
 static const float4 kReflectionUnknown = float4(0.0, 0.0, 0.0, -1.0);
+
+// a glossy sample's alpha (and its filtered ones'): its hit distance, or -2 less it where what it met moves, whose
+// reflection a still view's history mustn't hold (see ComputeReflectionTemporal); kReflectionUnknown's -1 where none is
+// traced
+float ReflectionPackDistance(float distance, bool moving)
+{
+	return moving ? -2.0 - distance : distance;
+}
+
+bool ReflectionUnknown(float packed)
+{
+	return packed > -1.5 && packed < 0.0;
+}
+
+bool ReflectionMoving(float packed)
+{
+	return packed <= -1.5;
+}
+
+float ReflectionDistance(float packed)
+{
+	return ReflectionMoving(packed) ? -2.0 - packed : packed;
+}
 // the brightest a glossy ray's sample is taken as, in multiples of white at the view's exposure (see
 // TracedGlossyReflection)
 static const float kReflectionMostWhite = 8.0;
+// what the glossy reflections take a sample as a share of (see Shade) is what the probes and the environment predict
+// along the ray and this much of white at the view's exposure: below it the prediction is too dark for its detail to show,
+// and the share is the sample itself (at night, a lit window met by rays where the sky predicts nothing)
+static const float kReflectionPredictionLeast = 0.02;
 
 float TracedGlossyShare(float roughness, float strength)
 {
@@ -88,10 +120,11 @@ bool TracedGlossyHere()
 	}
 }
 
-// the visibility buffer's shading's glossy reflection at a pixel: the ray's radiance and hit distance, and the specular's
-// weight of it with the surface's roughness (ComputeReflectionTemporal adds their product to the main color);
-// kReflectionUnknown in both where none is traced. in compute only: a fragment shader's storage writes turn its early depth
-// test off, even on a path never taken (see GiMarch's cap)
+// the visibility buffer's shading's glossy reflection at a pixel: the ray's radiance as a share of what was predicted
+// along it and its hit distance, and the specular's weight of the pixel's own prediction with the surface's roughness
+// (see Shade; ComputeReflectionTemporal adds their product to the main color); kReflectionUnknown in both where none is
+// traced. in compute only: a fragment shader's storage writes turn its early depth test off, even on a path never taken
+// (see GiMarch's cap)
 void TracedReflectionStore(uint2 pixel, float4 sample, float4 weight)
 {
 	__stage_switch
@@ -316,10 +349,12 @@ float3 TracedHitRadiance(float3 direction, BvhHit hit, float3 position, float co
 // (kTracedMissDistance where nothing). valid: false where it met a single sided triangle's back, which says it started
 // inside something or looks where the triangle isn't drawn from, so what it would show isn't known here: the callers keep
 // what the shading would have taken without it. shaded, such a hit was black (from inside, every light's shadowed and the
-// probes see nothing): USDShaderBallForGltf's glass shell, its refraction leaving at its thickness inside the core
-float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid)
+// probes see nothing): USDShaderBallForGltf's glass shell, its refraction leaving at its thickness inside the core.
+// moving: whether what it met moves (what moves' structure: no model instance)
+float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float roughness, out float t, out bool valid, out bool moving)
 {
 	valid = true;
+	moving = false;
 	BvhHit hit = BvhTraceScene(origin, direction, kTracedFar, false, true, GiAlphaMask());
 	if (!BvhHitSomething(hit))
 	{
@@ -327,6 +362,7 @@ float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float ro
 		return EnvironmentRadiance(gEnvironment[0], direction, roughness);
 	}
 	t = hit.t;
+	moving = hit.modelInstance == ~0u;
 	if (!hit.frontFace && (hit.flags & BVH_TRIANGLE_FLAG_DOUBLE_SIDED) == 0u)
 	{
 		valid = false;
@@ -335,28 +371,35 @@ float3 TracedRadiance(float3 origin, float3 direction, TracedCone cone, float ro
 	return TracedHitRadiance(direction, hit, origin + direction * hit.t, cone.width + cone.spread * hit.t);
 }
 
+// a reflection a normal map turned below the geometry, turned to skim it instead (see TracedReflection)
+float3 TracedAboveGeometry(float3 direction, float3 geometryNormal)
+{
+	float below = dot(direction, geometryNormal) - 0.02;
+	return below < 0.0 ? normalize(direction - geometryNormal * below) : direction;
+}
+
 // the radiance a surface at position reflects along direction from (its reflection's dominant direction, see Shade, or
 // a direction of its lobe, see TracedGlossyReflection, whose width widens the cone: spread). the ray starts off the
 // surface on the side it goes to (the geometry's, facing the viewer), by a pixel and a half and a ten thousandth of the
 // distance from the eye (the depth's and the structures' rounding), as the traced shadows' rays do; a normal map that
 // turns it below the geometry has it skim the surface instead, which it would otherwise meet at once. roughness, t,
-// valid: as TracedRadiance's
-float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction, float spread, float roughness, out float t, out bool valid)
+// valid, moving: as TracedRadiance's
+float3 TracedReflection(
+	float3 position, float3 geometryNormal, float3 direction, float spread, float roughness, out float t, out bool valid, out bool moving)
 {
 	TracedCone cone = TracedPixelCone(position);
 	cone.spread += spread;
-	float below = dot(direction, geometryNormal) - 0.02;
-	if (below < 0.0)
-		direction = normalize(direction - geometryNormal * below);
+	direction = TracedAboveGeometry(direction, geometryNormal);
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(1.5 * cone.width, 1e-4 * distance(eye, position));
-	return TracedRadiance(position + geometryNormal * push, direction, cone, roughness, t, valid);
+	return TracedRadiance(position + geometryNormal * push, direction, cone, roughness, t, valid, moving);
 }
 
 float3 TracedReflection(float3 position, float3 geometryNormal, float3 direction, out bool valid)
 {
 	float t;
-	return TracedReflection(position, geometryNormal, direction, 0.0, 0.0, t, valid);
+	bool moving;
+	return TracedReflection(position, geometryNormal, direction, 0.0, 0.0, t, valid, moving);
 }
 
 // a pixel's point of the unit square for the frame: Roberts' R2 sequence over the frames, offset per pixel by interleaved
@@ -391,20 +434,25 @@ float3 TracedVisibleNormal(float3 view, float alpha, float2 u)
 // the visibility buffer's glossy reflection at its pixel (see Shade): a ray along view reflected about a normal of the
 // GGX lobe of the roughness (TracedVisibleNormal; the mirror direction where that falls below the surface), its radiance
 // and how far it met something: one sample, which the Reflection passes filter over the surface and over frames, and the
-// average of which is the lobe's (what the split sum's first term prefilters the environment by). valid: as
-// TracedRadiance's
-float4 TracedGlossyReflection(float3 position, float3 geometryNormal, float3 normal, float3 view, float roughness, uint2 pixel, out bool valid)
+// average of which is the lobe's (what the split sum's first term prefilters the environment by), its distance packed
+// with whether what it met moves (ReflectionPackDistance). valid: as TracedRadiance's. direction: the ray's
+float4 TracedGlossyReflection(
+	float3 position, float3 geometryNormal, float3 normal, float3 view, float roughness, uint2 pixel, out float3 direction, out bool valid)
 {
 	float alpha = max(roughness * roughness, 1e-3);
 	float3 tangent = normalize(abs(normal.z) < 0.999 ? cross(float3(0.0, 0.0, 1.0), normal) : cross(float3(1.0, 0.0, 0.0), normal));
 	float3 bitangent = cross(normal, tangent);
 	float3 local = normalize(float3(dot(view, tangent), dot(view, bitangent), max(dot(view, normal), 1e-4)));
 	float3 h = TracedVisibleNormal(local, alpha, TracedRandom(pixel));
-	float3 direction = reflect(-view, h.x * tangent + h.y * bitangent + h.z * normal);
+	direction = reflect(-view, h.x * tangent + h.y * bitangent + h.z * normal);
 	if (dot(direction, normal) <= 0.0)
 		direction = reflect(-view, normal);
+	// as traced, for what is predicted along it (see Shade): along the direction below the geometry, the prediction saw
+	// the ground where the ray skimming it saw the sky, and the edges of Bistro's lamp posts and scooter came out bright
+	direction = TracedAboveGeometry(direction, geometryNormal);
 	float t;
-	float3 radiance = TracedReflection(position, geometryNormal, direction, alpha, roughness, t, valid);
+	bool moving;
+	float3 radiance = TracedReflection(position, geometryNormal, direction, alpha, roughness, t, valid, moving);
 	// a sample far brighter than white at the view's exposure is taken as a few times that: one that met what is very
 	// bright (a lamp's bulb, the sun's glint off a mirror), which the filter spread into a square, alone among its
 	// neighbors'; tonemapped, they look the same
@@ -413,7 +461,7 @@ float4 TracedGlossyReflection(float3 position, float3 geometryNormal, float3 nor
 	float most = kReflectionMostWhite / max(exposure, 1e-6);
 	if (luminance > most)
 		radiance *= most / luminance;
-	return float4(radiance, min(t, kTracedMissDistance));
+	return float4(radiance, ReflectionPackDistance(min(t, kTracedMissDistance), moving));
 }
 
 // the light through a transmissive surface at position, along the refracted ray from the surface: the transmissive
@@ -429,7 +477,8 @@ float3 TracedRefraction(float3 position, float3 direction, out bool valid)
 	float3 eye = gViewData[gPushConstants.frameIndex][gShadingViewId].eyePosition.xyz;
 	float push = max(cone.width, 1e-4 * distance(eye, position));
 	float t;
-	return TracedRadiance(position + direction * push, direction, cone, 0.0, t, valid);
+	bool moving;
+	return TracedRadiance(position + direction * push, direction, cone, 0.0, t, valid, moving);
 }
 #endif
 
@@ -440,7 +489,7 @@ float ReflectionBlurPixels(float roughness, float hitDistance, float metersPerPi
 	return min(hitDistance * roughness * roughness / max(metersPerPixel, 1e-6), 16.0);
 }
 
-// a pass of the glossy reflections' filter: the rays' radiance and hit distance (or the rows' result) averaged along the
+// a pass of the glossy reflections' filter: the rays' shares and hit distance (or the rows' result) averaged along the
 // row (or column) over the blur the pixel's lobe makes there (ReflectionBlurPixels, by its roughness and its own sample's
 // hit distance), by a gaussian, weighed by how much each tap is on the pixel's surface (as the near field's, see
 // GiNearFilter) and of its roughness, leaving out what wasn't traced. a mirror's (under half a pixel) is its own
@@ -451,20 +500,22 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 	Texture2D input = gTextures[source];
 	float roughness = weights.Load(int3(pixel, 0)).a;
 	float4 own = input.Load(int3(pixel, 0));
-	if (roughness < 0.0 || own.a < 0.0)
+	if (roughness < 0.0 || ReflectionUnknown(own.a))
 		return kReflectionUnknown;
 	ViewData view;
 	ShadowSurface center;
 	if (!ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, center))
 		return kReflectionUnknown;
-	float radius = ReflectionBlurPixels(roughness, own.a, center.metersPerPixel);
+	float radius = ReflectionBlurPixels(roughness, ReflectionDistance(own.a), center.metersPerPixel);
 	if (radius < 0.5)
 		return own;
 	int reach = int(ceil(radius));
 	float sigma = max(0.5 * radius, 0.5);
 	float2 low = view.viewport.xy;
 	float2 high = view.viewport.xy + view.viewport.zw;
-	float4 total = 0.0;
+	float3 total = 0.0;
+	float hitDistance = 0.0;
+	float moving = 0.0;
 	float sum = 0.0;
 	for (int offset = -reach; offset <= reach; offset++)
 	{
@@ -473,7 +524,7 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 			continue;
 		float4 value = input.Load(int3(at, 0));
 		float tapRoughness = weights.Load(int3(at, 0)).a;
-		if (value.a < 0.0 || tapRoughness < 0.0)
+		if (ReflectionUnknown(value.a) || tapRoughness < 0.0)
 			continue;
 		float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(at, 0)).r;
 		if (depth <= 0.0)
@@ -484,10 +535,12 @@ float4 ReflectionFilter(int2 pixel, int2 step, uint source)
 		float facing = saturate(dot(normal, center.normal) * rsqrt(max(dot(normal, normal), 1e-8)));
 		float w = exp(-0.5 * float(offset * offset) / (sigma * sigma)) * exp(-plane) * pow(facing, 8.0) *
 				  exp(-20.0 * abs(tapRoughness - roughness));
-		total += w * value;
+		total += w * value.rgb;
+		hitDistance += w * ReflectionDistance(value.a);
+		moving += ReflectionMoving(value.a) ? w : 0.0;
 		sum += w;
 	}
-	return sum > 0.0 ? total / sum : own;
+	return sum > 0.0 ? float4(total / sum, ReflectionPackDistance(hitDistance / sum, moving > 1e-3 * sum)) : own;
 }
 
 [shader("compute")]
@@ -514,8 +567,8 @@ void ComputeReflectionY(uint3 dispatchThreadId : SV_DispatchThreadID)
 	gRWTextures[SHADER_TYPES_REFLECTION_FILTERED_RW_TEXTURE][pixel] = ReflectionFilter(pixel, int2(0, 1), SHADER_TYPES_REFLECTION_ROWS_TEXTURE);
 }
 
-// the glossy reflections over frames, and into the main color: the frame's filtered reflection blended into the last
-// frame's history where the pixel's point was (PixelHistory, as the near field's: by its surface, through the view's last
+// the glossy reflections over frames, and into the main color: the frame's filtered shares (see Shade) blended into the
+// last frame's history where the pixel's point was (PixelHistory, as the near field's: by its surface, through the view's last
 // view projection, none for what moves), clamped to the box of the frame's 3x3 around (what a reflection shows moves
 // across the surface as the eye does, which reprojecting the surface doesn't follow: kept, it trailed), by 1 over the
 // frames it holds, from kReflectionFramesSharp at a mirror to kReflectionFramesRough; then the specular's weight of it
@@ -538,12 +591,15 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 	float4 weight = gTextures[SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE].Load(int3(pixel, 0));
 	Texture2D filtered = gTextures[SHADER_TYPES_REFLECTION_FILTERED_TEXTURE];
 	float4 now = filtered.Load(int3(pixel, 0));
-	if (weight.a < 0.0 || now.a < 0.0 || !ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
+	if (weight.a < 0.0 || ReflectionUnknown(now.a) || !ViewAt(pixel, view) || !ShadowSurfaceAt(pixel, view, surface))
 	{
 		history[pixel] = kReflectionUnknown;
 		surfaces[pixel] = float4(-1.0, 0.0, 0.0, 0.0);
 		return;
 	}
+	// the history holds the distance alone (PixelHistory takes a negative alpha for none)
+	bool movingSeen = ReflectionMoving(now.a);
+	now.a = ReflectionDistance(now.a);
 	float roughness = weight.a;
 	float3 low = now.rgb;
 	float3 high = now.rgb;
@@ -551,7 +607,7 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		for (int x = -1; x <= 1; x++)
 		{
 			float4 value = filtered.Load(int3(clamp(pixel + int2(x, y), int2(0), int2(extent) - 1), 0));
-			if (value.a < 0.0)
+			if (ReflectionUnknown(value.a))
 				continue;
 			low = min(low, value.rgb);
 			high = max(high, value.rgb);
@@ -575,8 +631,10 @@ void ComputeReflectionTemporal(uint3 dispatchThreadId : SV_DispatchThreadID)
 		if (weights > 1e-3)
 		{
 			float4 kept = total / weights;
-			kept.rgb = clamp(kept.rgb, low, high);
-			float frames = lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness));
+			bool still = (gPushConstants.traced & TRACED_SETTLED) != 0u && EmitterViewStill(view) && !movingSeen;
+			if (!still)
+				kept.rgb = clamp(kept.rgb, low, high);
+			float frames = still ? kReflectionFramesStill : lerp(kReflectionFramesSharp, kReflectionFramesRough, smoothstep(0.05, 0.5, roughness));
 			count = min(max(held / weights, 1.0) + 1.0, frames);
 			result = lerp(kept, now, 1.0 / count);
 		}

@@ -2904,8 +2904,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			myGraph.SetEnabled(pass, reflections);
 		if (reflections)
 		{
+			// as the near field's still history (see GiData::nearStillBlend), but for what moves, which the reflections
+			// leave out where they meet it (see ReflectionPackDistance): ChronographWatch's seconds hand moves
+			bool settled = !myGiLightsChanged && myGiLightsFollowFrames == 0;
 			frame.pushConstants.traced |= (myReflectionHistoryValid ? TRACED_REFLECTION_HISTORY : 0U) |
-										  (myReflectionFrame << TRACED_FRAME_SHIFT);
+										  (settled ? TRACED_SETTLED : 0U) | (myReflectionFrame << TRACED_FRAME_SHIFT);
 			myReflectionFrame = (myReflectionFrame + 1) & ((1U << (32U - TRACED_FRAME_SHIFT)) - 1U);
 		}
 		myReflectionHistoryValid = reflections;

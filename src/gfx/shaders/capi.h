@@ -1306,11 +1306,14 @@ struct PushConstants
 #define VISIBILITY_TILES_GENERIC 2u
 // PushConstants::traced: the reflections of the surfaces smooth enough are traced (TracedReflection; the visibility
 // buffer's, glossy, filtered: TracedGlossyReflection), and the light through transmissive ones (TracedRefraction); whether
-// the glossy reflections' history holds the last frame's (the Reflection passes ran, at this size); and above
+// the glossy reflections' history holds the last frame's (the Reflection passes ran, at this size); whether nothing but
+// the view and what moves may change what they see (the lights neither changed nor are being followed: a still view's
+// history then grows unclamped where the rays met nothing that moves, see ComputeReflectionTemporal); and above
 // TRACED_FRAME_SHIFT the frames they have run (their rays' sampling, their history's parity)
 #define TRACED_REFLECTIONS 1u
 #define TRACED_REFRACTIONS 2u
 #define TRACED_REFLECTION_HISTORY 4u
+#define TRACED_SETTLED 8u
 #define TRACED_FRAME_SHIFT 8u
 // the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
 // is the bits below)

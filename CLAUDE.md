@@ -1268,19 +1268,40 @@ forward path): sharp, a ray along the reflection's dominant direction (`TracedRe
 surfaces): glossy, a ray a pixel along the view reflected about a normal of the GGX lobe (`TracedGlossyReflection`:
 Heitz's visible normals, `TracedVisibleNormal`, by Roberts' R2 over the frames offset per pixel by interleaved gradient
 noise, `TracedRandom`; the cone widened by the lobe, so its hit's textures blur as the reflection does), all of it up to a
-roughness of 0.45, none from 0.6 (`TracedGlossyShare`: rougher, the probes' glossy reflection is as good). Its sample (the
-radiance and the hit distance, `SHADER_TYPES_REFLECTION_RAW_TEXTURE`) and the specular's weight of it with the roughness
-(`..._WEIGHT_TEXTURE`; `kReflectionUnknown` in both where none, which `ShadeVisibility` writes first) go to images
-(`TracedReflectionStore`, in compute only: a fragment shader's storage writes turn its early depth test off), its share is
-left out of the shading, and three passes after Main Visibility take it: Reflection X and Y filter it along rows and columns
-(`ReflectionFilter`: a gaussian as wide as the blur the lobe makes where the ray met something, `ReflectionBlurPixels`, the
-hit distance by alpha over the pixel's width on the surface, at most 16 pixels, weighed by the surface, as the near
-field's, and by the roughness), and Reflection Temporal blends it into the last frame's history where the point was
+roughness of 0.45, none from 0.6 (`TracedGlossyShare`: rougher, the probes' glossy reflection is as good). Its sample is
+a ratio (Heitz et al.'s ratio estimator, as for shadows): the ray's radiance over what the probes and the environment
+predict along the ray (as `environmentRadiance` along the reflection, the environment prefiltered for the roughness and the
+probes' terms, along the direction traced: below the geometry, where a ray is turned to skim it, the prediction saw the
+ground), and its weight the specular's weight of this pixel's own prediction, plus a fiftieth of white at the view's
+exposure in both (`kReflectionPredictionLeast`: below it the prediction is too dark to matter, and the sample is the
+radiance itself, at night). Where a ray sees what is predicted (the sky) the ratio is 1 and the pixel is shaded as
+untraced, its normal map's detail and all; what the ray met that isn't predicted (a surface, a shadow) comes in at the
+scale the filter keeps. Filtering the radiance itself, as at first, blurred what each pixel's own reflection direction
+gives over the pixels around: ChronographWatch's carbon fiber (a gold metal of roughness 0.4 under a fine weave normal map,
+the user's pose `-0.3403,1.1883,-2.8639,17.242,2.387`) came out as blurred blotches without its fibers, and Bistro's
+scooter and lamp posts lost the rims along their curves; the ratio's renders are the untraced ones where the rays meet
+the sky (MetalRoughSpheresNoTextures 0.17 of 255 from before, ABeautifulGame 0.08; Bistro's benchmark pose 3.8 from
+untraced, 4.1 before). Predicting with the environment unblurred, and misses so, so that the lobe's rays are the blur,
+cast the low sun's glow over Bistro in pink (6.0 from untraced). The ratio and the hit distance
+(`SHADER_TYPES_REFLECTION_RAW_TEXTURE`, the distance as -2 less it where what the ray met moves, `ReflectionPackDistance`:
+what moves' structure has no model instance) and the weight with the roughness (`..._WEIGHT_TEXTURE`; `kReflectionUnknown`
+in both where none, which `ShadeVisibility` writes first) go to images (`TracedReflectionStore`, in compute only: a
+fragment shader's storage writes turn its early depth test off), its share is left out of the shading, and three passes
+after Main Visibility take it: Reflection X and Y filter it along rows and columns (`ReflectionFilter`: a gaussian as wide
+as the blur the lobe makes where the ray met something, `ReflectionBlurPixels`, the hit distance by alpha over the pixel's
+width on the surface, at most 16 pixels, weighed by the surface, as the near field's, and by the roughness; moving where
+any tap met what moves), and Reflection Temporal blends it into the last frame's history where the point was
 (`PixelHistory`, as the near field's), clamped to the box of the frame's filtered 3x3 (a reflection moves across the
 surface as the eye does, which reprojecting the surface doesn't follow: kept, it trails), by 1 over the frames it holds,
 from 2 at a mirror to 24 at the roughest traced, then adds the weight times it to the main color, before Main's blended
-surfaces and the transmission texture read it. Their history is valid once they ran the frame before at this size
-(`TRACED_REFLECTION_HISTORY`); the frames they ran are above `TRACED_FRAME_SHIFT` (the rays' sampling, the history's parity).
+surfaces and the transmission texture read it. While the view is still (`EmitterViewStill`) and nothing but what moves may
+change what the reflections see (`TRACED_SETTLED`: the lights neither changed nor are being followed), the history holds 64
+frames unclamped (`kReflectionFramesStill`) where no tap met what moves: the frame's filtered 3x3 is smooth, so its box
+held the history to the frame's own noise, and the watch's strap (its rays meeting the sky in some weave cells and the
+case in others) changed between still frames by 0.258 of 255, untraced 0.021, now 0.024. The whole model's moving would
+have kept it clamped wherever anything moves (the watch's seconds hand). Their history is valid once they ran the frame
+before at this size (`TRACED_REFLECTION_HISTORY`); the frames they ran are above `TRACED_FRAME_SHIFT` (the rays' sampling,
+the history's parity).
 A ray that meets nothing takes the environment prefiltered for the roughness of the surface it leaves, as `Shade` looks it
 up: at the panorama's level, a glossy ray meeting the sun's disk took it twice (the sun is a light, its highlight the
 lobe's), a sample thousands of times the sky's, which the filter spread into a white square on MetalRoughSpheres; and a

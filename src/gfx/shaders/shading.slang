@@ -139,17 +139,27 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	// irradiance, which is all of it unoccluded), and, as the surface gets rough, the indirect light's radiance around the
 	// reflection (its harmonics along it: a cosine lobe, as wide as the roughest): glossy reflections of the scene, without
 	// the sky reflected inside a building
+	float seen = 1.0;
+	float rough = 0.0;
 	if (indirect.x >= 0.0)
 	{
 		float3 luminance = float3(0.2126, 0.7152, 0.0722);
-		float seen = saturate(dot(indirect, luminance) / max(dot(EnvironmentIrradiance(environment, normal), luminance), 1e-4));
-		float rough = smoothstep(0.2, 0.9, roughness);
+		seen = saturate(dot(indirect, luminance) / max(dot(EnvironmentIrradiance(environment, normal), luminance), 1e-4));
+		rough = smoothstep(0.2, 0.9, roughness);
 		environmentRadiance = lerp(environmentRadiance * seen, GiEvaluate(gi, reflected), rough);
 	}
 	// where the device has ray queries (View > Ray Traced Reflections): what the reflection meets, traced, where the
 	// specular takes enough of it to show. the visibility buffer's (compute): glossy, a ray of the lobe whose sample the
 	// Reflection passes filter and add to the main color by the weight stored here, its share left out of this
-	// (TracedGlossyReflection); only in the views that show the reflection. a fragment's: sharp, in place (TracedReflection)
+	// (TracedGlossyReflection); only in the views that show the reflection. the sample is stored as a share of what the
+	// probes and the environment give along the ray (as environmentRadiance along the reflection, above), and the weight
+	// takes this pixel's environmentRadiance: where the ray sees what they predict (the sky) the share is 1 and the pixel is
+	// shaded as untraced, its normal map's detail and all, and what the ray met that they don't predict (a surface, a
+	// shadow) comes in at the scale the filter keeps, without noise where it doesn't (a ratio estimator, as Heitz et al.'s
+	// for shadows). the radiance itself was filtered and taken by every pixel alike: ChronographWatch's carbon fiber, a
+	// gold metal of roughness 0.4 under a fine normal map, came out a blur of blotches where its rays met the strap, its
+	// fibers gone, and its frames changed 0.258 of 255 at the user's pose, 0.021 untraced. a fragment's: sharp, in place
+	// (TracedReflection)
 	float tracedShare = 0.0;
 #if BVH_RAY_QUERY
 	if (TracedReflectionsOn())
@@ -163,11 +173,19 @@ float3 Shade(Surface surface, float3 view, float3 position)
 			if (tracedShare > 0.0)
 			{
 				bool valid;
-				float4 sample = TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel, valid);
-				// where what the ray met isn't known (see TracedRadiance), the probes' and the environment's, unblurred
+				float3 direction;
+				float4 sample =
+					TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel, direction, valid);
+				float3 expected = EnvironmentRadiance(environment, direction, roughness);
+				if (indirect.x >= 0.0)
+					expected = lerp(expected * seen, GiEvaluate(gi, direction), rough);
+				// where what the ray met isn't known (see TracedRadiance), what they predict, unblurred
 				if (!valid)
-					sample = float4(environmentRadiance, 0.0);
-				float3 weight = debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare;
+					sample = float4(expected, 0.0);
+				float least = kReflectionPredictionLeast / max(gViewData[gPushConstants.frameIndex][gShadingViewId].exposure, 1e-6);
+				sample.rgb /= expected + least;
+				float3 weight = (debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare) *
+								(environmentRadiance + least);
 				TracedReflectionStore(gFragmentPixel, sample, float4(weight, roughness));
 				environmentRadiance *= 1.0 - tracedShare;
 			}
