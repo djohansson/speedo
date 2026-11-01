@@ -1339,7 +1339,11 @@ off the geometry on the viewer's side by a pixel and a half, as the traced shado
 geometry has it skim the surface). `TransmittedLight` traces the refracted ray from the surface (`TracedRefraction`: the
 transmissive surfaces aren't in the structures, so it passes through its own volume and meets neither its own back nor
 other glass), sharp where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2 ior - 2)`), what is
-behind out of the view as well. It used to start where the screen space lookup has the ray leave the volume, at the
+behind out of the view as well; and, whatever the roughness, where the screen space lookup leaves the view (its last 5%,
+where untraced glass fades to the environment along the ray) the trace stands in for the environment: rough glass, partly
+the transmission texture's, faded to the sky toward the view's edges as untraced glass does. Nothing else of the traced
+reflections or refractions fades toward the view's edges (with traced refractions off, ABeautifulGame's glass pieces do,
+which the user took for the reflections'). It used to start where the screen space lookup has the ray leave the volume, at the
 material's thickness: USDShaderBallForGltf's glass shell has a thickness of up to 8.9 around a core a tenth of a unit
 across, so its rays started inside the core (its back met, shaded black) or past everything (the sky), a wavy border
 between the two (the user's pose `0.0069,0.0526,0.0899,13.528,-7.460`); from the surface they meet the core through the

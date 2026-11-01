@@ -38,15 +38,19 @@ float3 TransmittedLight(
 	float4 behind = scene.SampleLevel(gSamplers[SHADER_TYPES_CLAMP_SAMPLER], uv, lod);
 	// premultiplied: the clear color is transparent black
 	float3 environment = EnvironmentRadiance(gEnvironment[0], ray, roughness);
-	float3 light = lerp(environment, behind.rgb + (1.0 - behind.a) * environment, inside);
+	float3 seen = behind.rgb + (1.0 - behind.a) * environment;
+	float3 light = lerp(environment, seen, inside);
 	// where the device has ray queries (View > Ray Traced Refractions): what the refracted ray meets, traced, behind the
-	// surface or out of the view alike, sharp where the texture's mips wouldn't blur it much (see TracedShare)
+	// surface or out of the view alike, sharp where the texture's mips wouldn't blur it much (see TracedShare), and where
+	// the view doesn't show what is behind (toward its edges) whatever the roughness, in place of the environment: rough
+	// glass, partly the texture's, faded to the sky toward the view's edges as untraced glass does
 #if BVH_RAY_QUERY
-	float traced = TracedRefractionsOn() ? TracedShare(roughness * saturate(ior * 2.0 - 2.0)) : 0.0;
+	float blur = roughness * saturate(ior * 2.0 - 2.0);
+	float traced = TracedRefractionsOn() ? TracedShare(blur) : 0.0;
 	bool valid = false;
-	float3 tracedLight = traced > 0.0 ? TracedRefraction(position, ray, valid) : 0.0;
+	float3 tracedLight = TracedRefractionsOn() && (traced > 0.0 || inside < 1.0) ? TracedRefraction(position, ray, valid) : 0.0;
 	if (valid)
-		light = lerp(light, tracedLight, traced);
+		light = lerp(lerp(tracedLight, seen, inside), tracedLight, traced);
 #endif
 
 	if (attenuationDistance > 0.0)
