@@ -2993,8 +2993,14 @@ executable target needs `windows.rc` in its sources.
 - Run parallel and background work as tasks on the application's executor (`core::CreateTask` and
   `TaskExecutor::Submit`, `TaskExecutor::ForEach` for a loop over indices, `core::AddDependency` to run one task after
   another, `Join` or a future's `IsReady` to wait), not on threads of its own (`std::thread`, `std::jthread`,
-  `std::async`): the executor's threads are named for the debugger and Tracy and joined at shutdown, and a waiting `Join`
-  or `ForEach` helps run the queue instead of blocking a thread. The executor's are the only threads, the tools' included
+  `std::async`): the executor's threads are named for the debugger and Tracy and joined at shutdown, a waiting `Join`
+  helps run the queue instead of blocking a thread, and a `ForEach`'s caller takes the loop's indices as its workers do,
+  then waits for the ones they are running and takes nothing else from the queue. It used to run whatever was ready while
+  it waited, as `Join` does: the draw thread, which holds the graphics queue's lock for its frame, ran a texture load in
+  `Model::Animate`'s `ForEach` (placing what moves) while the file browser loaded a model, the load's upload asked for
+  that lock (`UpgradableSharedMutex` isn't recursive), and the draw thread waited on itself, the loads behind it, and
+  the exit behind them (BrainStem animating while the browser previewed Sponza: 3 runs in 3). So don't `Join` while
+  holding a lock a task may take. The executor's are the only threads, the tools' included
   (`assettest` makes one executor for its checks, `CheckInOrder`, the environment kernels and zip extraction). Work for a
   particular thread is a task too, queued for it: `mainCalls` (the main thread's, run by
   `platform::WindowedApplication::Main`) and `RHI::drawCalls` (the draw thread's; `TransitionThenBind` makes its bind
@@ -3020,14 +3026,15 @@ executable target needs `windows.rc` in its sources.
   standard library has them (`__cpp_lib_thread_attributes`; none yet, P2019R9 is at LEWG), else a polyfill whose platform
   code is in `core/std_extra.cpp` (pthreads, `_beginthreadex`), so the scheduler has none (its own thread naming went).
   A `std::thread` can't be given a stack size, and macOS gives one 512 KB, which a debug client loading rungholt ran past
-  (`SIGBUS` in a stack guard, a client run in the full debug regression): a thread waiting in `Join` or `ForEach` runs
-  whatever is ready meanwhile, so nested waits stack task upon task (the BVH builder's spatial splits wait on a parallel
-  loop in each partition, running another partition meanwhile, which waits in turn), and the ui's tick landed on top, its
-  `PrepareDraw` frame big in a debug build. The task threads' stacks are a main thread's, 8 MB (`kThreadStackByteCount`).
+  (`SIGBUS` in a stack guard, a client run in the full debug regression): a thread waiting in `Join` runs whatever is
+  ready meanwhile, so nested waits stack task upon task (the BVH builder's spatial splits wait on the partitions they
+  spawned, running another partition meanwhile, which waits in turn), and the ui's tick landed on top (in a `ForEach`'s
+  wait, then), its `PrepareDraw` frame big in a debug build. The task threads' stacks are a main thread's, 8 MB
+  (`kThreadStackByteCount`).
 - Tasks come from a fixed pool (`kTaskPoolSize`), and a task stays allocated until its future is gone and the executor
-  purges it (`JoinAll`, or after another task runs). A waiting `ForEach` runs other tasks meanwhile, so `ForEach`es nest,
-  each holding a task per thread: a model's texture loads, each compressing on every thread, took about threads squared
-  (see `kTaskPoolSize`).
+  purges it (`JoinAll`, or after another task runs). `ForEach`es nest, each holding a task per thread (a worker that
+  starts after its loop is done, finding no index left, holds its task until it runs): a model's texture loads, each
+  compressing on every thread, took about threads squared (see `kTaskPoolSize`).
 
 ## Gotcha: `core::CreateTask` stores lvalue arguments by reference
 

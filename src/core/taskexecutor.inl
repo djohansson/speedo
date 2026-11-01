@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <memory>
 #include <vector>
 
 namespace core
@@ -15,27 +16,38 @@ void TaskExecutor::ForEach(size_t count, Fn&& body)
 	if (count == 0)
 		return;
 
-	std::atomic_size_t next = 0;
-	auto work = [&next, &body, count]
+	// the indices, taken in turn, and how many are done, shared with the worker tasks: one that starts after the loop is
+	// done finds no index left and returns without touching body, which is the caller's
+	struct Loop
 	{
-		for (size_t index = next++; index < count; index = next++)
-			body(index);
+		std::atomic_size_t next = 0;
+		std::atomic_size_t done = 0;
+	};
+	auto loop = std::make_shared<Loop>();
+	auto work = [loop, fn = &body, count]
+	{
+		for (size_t index = loop->next++; index < count; index = loop->next++)
+		{
+			(*fn)(index);
+			if (++loop->done == count)
+				loop->done.notify_all();
+		}
 	};
 
-	auto workerCount = std::min<size_t>(std::max<size_t>(myThreads.size(), 1), count);
+	// the caller is a worker too
+	auto workerCount = std::min<size_t>(std::max<size_t>(myThreads.size(), 1), count) - 1;
 	std::vector<TaskHandle> handles;
-	std::vector<Future<void>> futures;
 	handles.reserve(workerCount);
-	futures.reserve(workerCount);
 	for (size_t workerIt = 0; workerIt < workerCount; workerIt++)
-	{
-		auto [handle, future] = CreateTask([&work] { work(); });
-		handles.push_back(handle);
-		futures.push_back(std::move(future));
-	}
+		handles.push_back(CreateTask([work] { work(); }).handle);
 	Submit(handles);
-	for (auto& future : futures)
-		(void)Join(std::move(future));
+
+	work();
+
+	// the indices the others took are running: wait for them, taking nothing else from the ready queue meanwhile (see
+	// ForEach's comment in the header)
+	for (size_t done = loop->done.load(); done < count; done = loop->done.load())
+		loop->done.wait(done);
 }
 
 template <typename R>

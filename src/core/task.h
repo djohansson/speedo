@@ -69,9 +69,9 @@ private:
 	alignas(8) std::shared_ptr<struct TaskState> myState;
 };
 
-// a waiting ForEach helps out, so ForEachs nest: a texture load's compression (a task per thread) waits, runs another
-// texture load (one of a task per thread), which compresses... about threads squared tasks per model load (900 on 30
-// threads), and the browser's preview and opening the model load it at once: 1024 ran out (todo: make this configurable)
+// ForEachs nest: a model's texture loads (a task per thread) each compress on a task per thread, about threads squared
+// tasks per model load (900 on 30 threads; a worker that starts after its loop is done holds its task until it runs), and
+// the browser's preview and opening the model load it at once: 1024 ran out (todo: make this configurable)
 static constexpr std::size_t kTaskPoolSize = (1 << 14);
 using TaskHandle = MinSizeIndex<kTaskPoolSize>;
 

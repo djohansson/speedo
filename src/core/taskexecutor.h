@@ -25,9 +25,12 @@ public:
 	template <typename R>
 	[[maybe_unused]] std::optional<typename Future<R>::value_t> Join(Future<R>&& future);
 
-	// calls body(index) for each index below count, on worker tasks (one per thread, at most count) taking the indices in
-	// turn, and returns once all are done, helping out processing the ready queue meanwhile (so it may be called from
-	// within a task). body runs on any thread, concurrently with itself; to stop early, it can skip the indices left
+	// calls body(index) for each index below count, on the calling thread and worker tasks (one per thread in all, at most
+	// count) taking the indices in turn, and returns once all are done. body runs on any thread, concurrently with itself;
+	// to stop early, it can skip the indices left. it may be called from within a task: the caller takes indices as the
+	// workers do, then waits for the ones the workers are running, and never runs another task from the ready queue, since
+	// the caller may hold what that task needs: the draw thread holds the graphics queue's lock for its frame, and a texture
+	// load its ForEach took while waiting (Model::Animate placing what moves) asked for that lock and waited on itself
 	template <typename Fn>
 	void ForEach(size_t count, Fn&& body);
 
@@ -68,9 +71,9 @@ private:
 	void InternalThreadMain(uint32_t threadIndex);
 
 	// the threads' stacks: a main thread's on macOS and Linux (a std::thread's on macOS is 512 KB). a thread waiting in Join
-	// or ForEach runs whatever is ready meanwhile, so nested waits stack task upon task: the BVH builder's spatial splits wait
-	// on a parallel loop in each partition, and while waiting run another partition, which waits in turn, and the ui's tick
-	// (PrepareDraw's frame, big in a debug build) landed on top of rungholt's and ran past the 512 KB
+	// runs whatever is ready meanwhile, so nested waits stack task upon task: the BVH builder's spatial splits wait on the
+	// partitions they spawned, and while waiting run another partition, which waits in turn, and the ui's tick (PrepareDraw's
+	// frame, big in a debug build) landed on top of rungholt's and ran past the 512 KB (ForEach then ran whatever was ready too)
 	static constexpr size_t kThreadStackByteCount = size_t{8} << 20;
 
 	std::vector<std_extra::jthread> myThreads;
