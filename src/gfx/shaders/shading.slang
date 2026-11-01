@@ -146,6 +146,20 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float rough = smoothstep(0.2, 0.9, roughness);
 		environmentRadiance = lerp(environmentRadiance * seen, GiEvaluate(gi, reflected), rough);
 	}
+	// where the device has ray queries (View > Ray Traced Reflections): what the reflection meets, traced, sharp, on the
+	// surfaces smooth enough (see TracedShare)
+	float tracedShare = 0.0;
+#if BVH_RAY_QUERY
+	if (TracedReflectionsOn())
+	{
+		float strength = dot(environmentSpecular, float3(0.2126, 0.7152, 0.0722)) * surface.occlusion;
+		tracedShare = TracedShare(roughness, strength);
+		if (tracedShare > 0.0)
+			environmentRadiance = lerp(environmentRadiance, TracedReflection(position, surface.geometryNormal, reflected), tracedShare);
+	}
+#endif
+	if (debugView == DEBUG_VIEW_TRACED_REFLECTIONS)
+		return tracedShare > 0.0 ? environmentRadiance : float3(1.0, 0.0, 1.0);
 	if (debugView == DEBUG_VIEW_INDIRECT_SPECULAR)
 		return surface.occlusion * environmentSpecular * environmentRadiance;
 	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));
@@ -174,12 +188,21 @@ float3 Shade(Surface surface, float3 view, float3 position)
 	float coatNDotV = max(dot(surface.clearcoatNormal, view), 1e-4);
 	float coatAlpha = max(surface.clearcoatRoughness * surface.clearcoatRoughness, 1e-3);
 	if (surface.clearcoat > 0.0)
+	{
+		float3 coatReflected = DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness);
+		float3 coatRadiance = EnvironmentRadiance(environment, coatReflected, surface.clearcoatRoughness);
+		// traced as the base's reflection is (a car's paint: a smooth coat over a rougher base)
+#if BVH_RAY_QUERY
+		float coatStrength = surface.occlusion * surface.clearcoat *
+							 EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV).g;
+		float coatTraced = TracedReflectionsOn() ? TracedShare(surface.clearcoatRoughness, coatStrength) : 0.0;
+		if (coatTraced > 0.0)
+			coatRadiance = lerp(coatRadiance, TracedReflection(position, surface.geometryNormal, coatReflected), coatTraced);
+#endif
 		result = result * (1.0 - coatFresnel) +
 				 surface.occlusion * surface.clearcoat * EnvironmentBrdfApprox(float3(0.04), 1.0, surface.clearcoatRoughness, coatNDotV) *
-					 EnvironmentRadiance(
-						 environment,
-						 DominantDirection(surface.clearcoatNormal, reflect(-view, surface.clearcoatNormal), surface.clearcoatRoughness),
-						 surface.clearcoatRoughness);
+					 coatRadiance;
+	}
 	if (debugView == DEBUG_VIEW_INDIRECT)
 		return result;
 	if (debugView == DEBUG_VIEW_DIRECT)

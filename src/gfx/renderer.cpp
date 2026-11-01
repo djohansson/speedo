@@ -2786,6 +2786,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool shadowsDrawn = !myShadowDrawList.Empty();
 	frame.pushConstants.shadows = shadowsDrawn || myShadowsTraced ? 1U : 0U;
 	frame.pushConstants.shadowView = SHADER_TYPES_NO_SHADOW;
+	// the traced reflections and refractions, where the model has its structures (a model without, the file browser's
+	// preview, has the default ones of nothing bound: its reflections would all be the environment's)
+	bool traceable = frame.model != nullptr && frame.model->HasBvh();
+	frame.pushConstants.traced = (traceable && frame.tracedReflections ? TRACED_REFLECTIONS : 0U) |
+								 (traceable && frame.tracedRefractions ? TRACED_REFRACTIONS : 0U);
 	InternalPlanShadowCache(frame);
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
 

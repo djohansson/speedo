@@ -29,6 +29,7 @@ __include types;
 #include "bvh.slang"
 #include "gi.slang"
 #include "tracedshadows.slang"
+#include "traced.slang"
 #include "ginear.slang"
 #include "emitters.slang"
 #include "upscale.slang"

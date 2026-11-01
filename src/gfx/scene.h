@@ -54,6 +54,11 @@ public:
 		std::atomic<bool> tracedShadows = true;
 		// and at every pixel rather than where the atlas isn't sure (SPEEDO_TRACED_SHADOWS=all, for comparisons)
 		std::atomic<bool> tracedShadowsEverywhere = false;
+		// whether the smooth surfaces' reflections and the transmissive ones' refractions are traced, where the device has
+		// ray queries (FrameInputs::tracedReflections and tracedRefractions; View > Ray Traced Reflections and Ray Traced
+		// Refractions, SPEEDO_TRACED_REFLECTIONS=0 and SPEEDO_TRACED_REFRACTIONS=0 to start without)
+		std::atomic<bool> tracedReflections = true;
+		std::atomic<bool> tracedRefractions = true;
 		// whether emissive surfaces light the scene as lights do (FrameInputs::emissiveLights; View > Emissive Lights,
 		// SPEEDO_EMISSIVE_LIGHTS=0 to start without: the indirect lighting's rays then take their emission as they meet them)
 		std::atomic<bool> emissiveLights = true;
@@ -240,6 +245,9 @@ public:
 	[[nodiscard]] core::ConcurrentAccess<SceneState>& GetScenes() noexcept;
 	// whether the installed environment is the sky (which the time of day moves the sun of, see Settings::timeOfDay)
 	[[nodiscard]] bool IsSkyInstalled() const noexcept;
+	// whether the shaders trace through the device's ray queries (DeviceLimits::rayQuery): what the traced reflections and
+	// refractions need (Settings::tracedReflections)
+	[[nodiscard]] bool HasRayQueries() const noexcept;
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentName() noexcept;
 	// and its file (empty for the sky), as it was loaded
 	[[nodiscard]] core::ConcurrentAccess<std::string>& GetEnvironmentPath() noexcept;

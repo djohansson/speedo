@@ -90,6 +90,10 @@ struct FrameInputs
 	// and at every pixel, rather than where the shadow atlas isn't sure (ShadowTraceData::mapped)
 	bool tracedShadows = true;
 	bool tracedShadowsEverywhere = false;
+	// whether the smooth surfaces' reflections and the transmissive ones' refractions are traced (PushConstants::traced, see
+	// traced.slang), where the shaders have the device's ray queries and the model its acceleration structures
+	bool tracedReflections = true;
+	bool tracedRefractions = true;
 	// whether the model's emissive surfaces light the scene (see EmitterData), where it has BVHs for their shadow rays
 	bool emissiveLights = true;
 	// each view's camera, as the frame draws it: what the shadows are fitted to (see shadows::Plan), and the indirect

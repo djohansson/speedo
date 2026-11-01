@@ -39,6 +39,13 @@ float3 TransmittedLight(
 	// premultiplied: the clear color is transparent black
 	float3 environment = EnvironmentRadiance(gEnvironment[0], ray, roughness);
 	float3 light = lerp(environment, behind.rgb + (1.0 - behind.a) * environment, inside);
+	// where the device has ray queries (View > Ray Traced Refractions): what the refracted ray meets, traced, behind the
+	// surface or out of the view alike, sharp where the texture's mips wouldn't blur it much (see TracedShare)
+#if BVH_RAY_QUERY
+	float traced = TracedRefractionsOn() ? TracedShare(roughness * saturate(ior * 2.0 - 2.0)) : 0.0;
+	if (traced > 0.0)
+		light = lerp(light, TracedRefraction(position, exit, ray), traced);
+#endif
 
 	if (attenuationDistance > 0.0)
 		light *= pow(max(attenuationColor, 1e-6), thickness / attenuationDistance);

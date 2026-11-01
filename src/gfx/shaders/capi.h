@@ -342,7 +342,10 @@ extern "C"
 #define DEBUG_VIEW_EMITTERS 33u
 #define DEBUG_VIEW_EMITTERS_RAW 34u
 #define DEBUG_VIEW_EMITTERS_REFERENCE 35u
-#define DEBUG_VIEW_COUNT 36u
+// the radiance along a surface's reflection where it is traced (see TracedReflection), before the specular takes its
+// share of it; magenta where it isn't (too rough, or nothing traced)
+#define DEBUG_VIEW_TRACED_REFLECTIONS 36u
+#define DEBUG_VIEW_COUNT 37u
 #define SHADER_TYPES_EMITTER_REFERENCE_SAMPLE_COUNT 64u
 #define SHADER_TYPES_VIEW_INDEX_BITS 4u
 #define SHADER_TYPES_VIEW_COUNT (1u << SHADER_TYPES_VIEW_INDEX_BITS)
@@ -1276,12 +1279,19 @@ struct PushConstants
 	alignas(4) UINT1(upscale);
 	// per dispatch: which tiles the visibility buffer's shading shades (VISIBILITY_TILES_*, see ComputeMainVisibility)
 	alignas(4) UINT1(visibilityTiles);
+	// per frame: what the shading traces through the device's ray queries (TRACED_*, see traced.slang): View > Ray Traced
+	// Reflections and Refractions, where the device has them
+	alignas(4) UINT1(traced);
 };
 // PushConstants::visibilityTiles: the dispatch's, every tile; gVisibilityTiles' list of the tiles without a material with an
 // extended layer (the specialized kernel's); its list of those with (the generic kernel's)
 #define VISIBILITY_TILES_ALL 0u
 #define VISIBILITY_TILES_SPECIALIZED 1u
 #define VISIBILITY_TILES_GENERIC 2u
+// PushConstants::traced: the reflections of the surfaces smooth enough are traced (TracedReflection), and the light
+// through transmissive ones (TracedRefraction)
+#define TRACED_REFLECTIONS 1u
+#define TRACED_REFRACTIONS 2u
 // the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
 // is the bits below)
 #define VISIBILITY_EXTENDED 0x80000000u

@@ -33,6 +33,9 @@ struct BvhHit
 	float3 normal;
 	bool frontFace;
 	bool capped; // stopped at BVH_MAX_STEP_COUNT: the nearest of what it met by then
+	// of the ray queries' (BvhTraceScene) hits on what doesn't move, the gModelInstances one its vertices are placed by;
+	// ~0 for what moves (its corners are the frame's, see BvhRayQueryCorners) and the BVHs' hits
+	uint modelInstance;
 };
 
 bool BvhHitSomething(BvhHit hit)
@@ -51,6 +54,7 @@ BvhHit BvhNothing(float tmax)
 	hit.normal = 0.0;
 	hit.frontFace = false;
 	hit.capped = false;
+	hit.modelInstance = ~0u;
 	return hit;
 }
 
@@ -496,6 +500,8 @@ BvhHit BvhTraceScene<Filter : IBvhFilter>(float3 origin, float3 direction, float
 	hit.primitive = primitive;
 	hit.flags = geometry.x;
 	hit.firstIndex = geometry.y + primitive * 3u;
+	if (query.CommittedInstanceIndex() != BVH_RAY_QUERY_INSTANCE_MOVING)
+		hit.modelInstance = geometry.z;
 	float3 normal = normalize(cross(corners[1] - corners[0], corners[2] - corners[0]));
 	hit.frontFace = dot(normal, direction) < 0.0;
 	hit.normal = hit.frontFace ? normal : -normal;

@@ -215,7 +215,8 @@ Notes for working in this codebase, distilled from real build failures.
   binding partially bound). What the app's descriptor sets need from the pool comes in through
   `RHIInitializationData::descriptorPoolSizes`, since only the app knows its array sizes. The main layout's module,
   `shaders.slang`, is parts by area (`bindings`, `common`, `debug`, `packing`, `vertex`, `texturing`, `ibl`, `brdf`, `shading`,
-  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `uiblur`), which it includes textually after
+  `shadows`, `lights`, `transmission`, `scatter`, `fragment`, `tonemap`, `composite`, `uiblur`, `cull`, `bvh`, `gi`,
+  `tracedshadows`, `traced`, `ginear`, `emitters`, `upscale`), which it includes textually after
   `capi.h` and `sky.h`: one translation unit, so the header's declarations exist once (each part including it as a part
   of the module, `__include` and `implementing`, declared its structs again: ambiguous). A part may use what any other
   declares, in any order. Slang's dependency list names every part, so editing one recompiles. Entry points are chosen
@@ -1253,6 +1254,46 @@ is its rays along sunlit facades seen at a grazing angle (136000 a frame, about 
 letting the atlas decide the grazing pixels saved 1.2 ms of it, and was dropped. On the way there (GI off, Bistro's
 street, 11.0 ms with the atlas alone): every pixel traced 52.7, the classification 26.4, by the penumbra's reach 20.7,
 the listed pixels taken by persistent threads 20.3, the filter over flagged tiles only 18.3.
+
+## Traced reflections and refractions
+
+View > Ray Traced Reflections and Ray Traced Refractions (on by default where the device has ray queries, the user's call,
+2026-11-01; greyed out elsewhere, `Scene::HasRayQueries`; `SPEEDO_TRACED_REFLECTIONS=0` and `SPEEDO_TRACED_REFRACTIONS=0`,
+which Copy Pose writes): `traced.slang`, by `PushConstants::traced` (`TRACED_*`, set where the model has its acceleration
+structures: the file browser's preview hasn't, and its reflections would all be the environment's). Sharp, as a first
+step: `Shade` traces a ray along the reflection's dominant direction (`TracedReflection`) and takes what it meets in place
+of the probes' and the environment's radiance along it (`environmentRadiance`, which the split sum's terms then weigh as
+before): all of it below a roughness of 0.15, none from 0.4 (`TracedShare`), the clearcoat's reflection too; glossy
+reflections stay the probes'. Only where the reflection can show: the specular's share of its light (the split sum's
+terms by the occlusion, as luminance) from 0.005, all of it from 0.015 (`kTracedStrengthNone`, `kTracedStrengthFull`;
+a dielectric's is about 0.04 at normal incidence). San Miguel is an obj whose materials' `Ns` make walls, floors and trees
+smooth (`sqrt(2 / (Ns + 2))`, 0.14 at 96) and their `Ks` their specular faint: traced everywhere they cost 1.85 ms a frame
+and changed nothing to see. Gated at 0.01 to 0.03, a faint lacquered door and pilasters in Bistro lost the dusk sky their
+reflections traced, and took back the probes' light along them, the lit interior's leaking through (orange). The ray starts
+off the geometry on the viewer's side by a pixel and a half, as the traced shadows' (a normal map turning it below the
+geometry has it skim the surface). `TransmittedLight` traces the refracted ray from where it leaves the volume
+(`TracedRefraction`: the screen space lookup's exit; the transmissive surfaces aren't in the structures, so it meets neither
+its own back nor other glass), sharp where the transmission texture's mips wouldn't blur it much (`roughness * saturate(2
+ior - 2)`), what is behind out of the view as well. A hit is shaded in `TracedHitRadiance`: its material at its texcoords
+(base color, metallic and roughness, emission; not the extensions' layers nor its normal map) at the mip level a ray cone
+picks (Akenine-Moller et al.: the pixel's width and angle where the ray starts, `TracedPixelCone`, against the triangle's
+texels per area; without one a reflected texture shimmers), the vertices' normal placed by its instance
+(`BvhHit::modelInstance`; what moves keeps the triangle's), lit as the voxels are (the lights of its cell of the finest
+clip holding it, each with a shadow ray; every light without the indirect lighting) and by the indirect lighting there
+(the probes' diffuse, and the environment's specular as much as they see of it), plus its emission; where the ray meets
+nothing, the environment along it (the sky with its sun). Debug view Traced Reflections (`traced-reflections`): what the
+reflections see where they are traced, magenta elsewhere. Not yet (TODO.md): glossy traced reflections, the emissive
+surfaces' light at a hit where they are lights, a hit's own reflections, and glass in the structures.
+
+Measured on NVIDIA (RTX 4070 Ti SUPER; the benchmark poses at 2560x1440, balanced, two interleaved runs each), on against
+off: Bistro 6.2 and 6.4 ms against 5.9 and 6.0, San Miguel 7.4 and 7.6 against 6.8 and 7.1, Sponza the same (4.3), all of
+it in Main Visibility; the gated captures differ from the ungated within the runs' own noise. What changes: the smooth
+metal spheres of MetalRoughSpheresNoTextures reflect their neighbours and the grid behind (only the sky and the ground
+before), DragonAttenuation's glass shows its cloth refracted and reflected sharp, Bistro's scooter, lamp posts, railings and
+lacquered panels reflect the street, San Miguel's fountain the sky over the courtyard. Clean under the validation layer
+(DragonAttenuation, BrainStem, Bistro); the forward path (`SPEEDO_VISIBILITY_BUFFER=0`, traced in the fragment shader)
+renders as the visibility buffer's (0.16 of 255 apart), and without ray queries (`SPEEDO_RAY_QUERY=0`) the traced code
+compiles out (0.14 of 255 from the untraced).
 
 ## The visibility buffer
 

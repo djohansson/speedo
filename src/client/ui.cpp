@@ -89,6 +89,7 @@ constexpr std::array kDebugViews{
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect", "Ambient Light", DEBUG_VIEW_INDIRECT, "The ambient light alone, diffuse and specular: the indirect lighting's where it covers a point, else the environment's."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-diffuse", "Ambient Diffuse (white)", DEBUG_VIEW_INDIRECT_DIFFUSE, "The ambient irradiance over pi: what a white surface would reflect of it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"indirect-specular", "Ambient Specular", DEBUG_VIEW_INDIRECT_SPECULAR, "The ambient light's specular reflection alone."}},
+	DebugViewEntry{DebugViewGroup::kLighting, {"traced-reflections", "Traced Reflections", DEBUG_VIEW_TRACED_REFLECTIONS, "What the surfaces' reflections see where they are traced (View > Ray Traced Reflections), before the specular takes its share of it. Magenta where they aren't: too rough, or nothing traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"shadows", "Shadows", DEBUG_VIEW_SHADOWS, "The share of the direct light that reaches a point unshadowed: white lit, black shadowed, dark blue where no light faces it."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow", "Traced Shadow", DEBUG_VIEW_TRACED_SHADOW, "The first traced light's shadow (View > Ray Traced Shadows), as the main pass takes it: a ray a pixel through the BVH, filtered over the penumbra's width. Magenta where none is traced."}},
 	DebugViewEntry{DebugViewGroup::kLighting, {"traced-shadow-raw", "Traced Shadow (rays)", DEBUG_VIEW_TRACED_SHADOW_RAW, "The first traced light's shadow rays as traced, before the filter: a ray a pixel toward a point of the light's disk, the 16 points over each 4x4 pixels."}},
@@ -243,6 +244,10 @@ void ApplyPoseSettings(gfx::Scene::Settings& settings, Lookup&& lookup, bool res
 		kDefaults.tracedShadowsEverywhere,
 		"SPEEDO_TRACED_SHADOWS",
 		[](const char* value) { return std::optional<bool>(std::string_view(value) == "all"); });
+	// the traced reflections and refractions, where the device has ray queries (SPEEDO_TRACED_REFLECTIONS=0 and
+	// SPEEDO_TRACED_REFRACTIONS=0 without)
+	apply(settings.tracedReflections, kDefaults.tracedReflections, "SPEEDO_TRACED_REFLECTIONS", unless("0"));
+	apply(settings.tracedRefractions, kDefaults.tracedRefractions, "SPEEDO_TRACED_REFRACTIONS", unless("0"));
 	// SPEEDO_EMISSIVE_LIGHTS=0: emissive surfaces don't light the scene as lights (the indirect lighting's rays take their
 	// emission as they meet them)
 	apply(settings.emissiveLights, kDefaults.emissiveLights, "SPEEDO_EMISSIVE_LIGHTS", unless("0"));
@@ -399,6 +404,10 @@ void WindowedApplication::InternalCopyPose()
 		text += " SPEEDO_TRACED_SHADOWS=0";
 	else if (settings.tracedShadowsEverywhere.load(std::memory_order_relaxed))
 		text += " SPEEDO_TRACED_SHADOWS=all";
+	if (!settings.tracedReflections.load(std::memory_order_relaxed))
+		text += " SPEEDO_TRACED_REFLECTIONS=0";
+	if (!settings.tracedRefractions.load(std::memory_order_relaxed))
+		text += " SPEEDO_TRACED_REFRACTIONS=0";
 	text += settings.indirectLighting.load(std::memory_order_relaxed) ? " SPEEDO_GI=1" : " SPEEDO_GI=0";
 	if (!settings.traceTriangles.load(std::memory_order_relaxed))
 		text += " SPEEDO_GI_TRACE=voxels";
@@ -2041,6 +2050,24 @@ void WindowedApplication::PrepareDraw()
 				EndDisabled();
 				SetItemTooltip(
 					"The brightest lights' shadows (the directional ones, then up to 4 in all) traced through the model's BVH, soft by each light's size (View > Lights), rather than looked up in the shadow atlas.");
+				// the traced reflections and refractions need the device's ray queries
+				bool rayQueries = App().GetScene().HasRayQueries();
+				BeginDisabled(!rayQueries);
+				bool tracedReflections = App().GetScene().GetSettings().tracedReflections.load(std::memory_order_relaxed);
+				if (Checkbox("Ray Traced Reflections", &tracedReflections))
+					App().GetScene().GetSettings().tracedReflections.store(tracedReflections, std::memory_order_relaxed);
+				SetItemTooltip(
+					"%s",
+					rayQueries ? "What smooth surfaces reflect (and clear coats), traced through the device's ray queries and shaded where the rays meet something: sharp up to a roughness of 0.15, fading into the indirect lighting's glossy reflection by 0.4. Off, the indirect lighting's and the environment's alone."
+							   : "Needs a device with ray queries (VK_KHR_ray_query).");
+				bool tracedRefractions = App().GetScene().GetSettings().tracedRefractions.load(std::memory_order_relaxed);
+				if (Checkbox("Ray Traced Refractions", &tracedRefractions))
+					App().GetScene().GetSettings().tracedRefractions.store(tracedRefractions, std::memory_order_relaxed);
+				SetItemTooltip(
+					"%s",
+					rayQueries ? "What transmissive surfaces show behind them, traced along the refracted ray (behind them or out of the view alike), rather than looked up in the frame drawn so far."
+							   : "Needs a device with ray queries (VK_KHR_ray_query).");
+				EndDisabled();
 				bool emissiveLights = App().GetScene().GetSettings().emissiveLights.load(std::memory_order_relaxed);
 				if (Checkbox("Emissive Lights", &emissiveLights))
 					App().GetScene().GetSettings().emissiveLights.store(emissiveLights, std::memory_order_relaxed);

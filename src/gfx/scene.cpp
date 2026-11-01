@@ -2413,6 +2413,8 @@ struct Scene::Impl
 				.shadows = mySettings.shadows.load(std::memory_order_relaxed),
 				.tracedShadows = mySettings.tracedShadows.load(std::memory_order_relaxed),
 				.tracedShadowsEverywhere = mySettings.tracedShadowsEverywhere.load(std::memory_order_relaxed),
+				.tracedReflections = mySettings.tracedReflections.load(std::memory_order_relaxed),
+				.tracedRefractions = mySettings.tracedRefractions.load(std::memory_order_relaxed),
 				.emissiveLights = mySettings.emissiveLights.load(std::memory_order_relaxed),
 				.cameras = std::move(shadowCameras),
 				.sceneBounds = myModel ? myModel->GetDesc().bounds : Bounds3f{},
@@ -2483,6 +2485,7 @@ Scene::Settings& Scene::GetSettings() noexcept { return myImpl->mySettings; }
 core::ConcurrentAccess<Scene::AnimationState>& Scene::GetAnimation() noexcept { return myImpl->myAnimation; }
 core::ConcurrentAccess<Scene::SceneState>& Scene::GetScenes() noexcept { return myImpl->myScenes; }
 bool Scene::IsSkyInstalled() const noexcept { return myImpl->mySkyInstalled.load(std::memory_order_relaxed); }
+bool Scene::HasRayQueries() const noexcept { return myImpl->myRHI.GetPrimaryDevice().GetLimits().rayQuery; }
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentName() noexcept { return myImpl->myEnvironmentName; }
 core::ConcurrentAccess<std::string>& Scene::GetEnvironmentPath() noexcept { return myImpl->myEnvironmentPath; }
 core::ConcurrentAccess<std::vector<Scene::DominantLightInfo>>& Scene::GetEnvironmentLightInfo() noexcept { return myImpl->myEnvironmentLightInfo; }
