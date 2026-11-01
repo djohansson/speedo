@@ -687,6 +687,23 @@ private:
 	bool myGiNearTemporalOn = false;
 	bool myGiNearHistoryValid = false;
 	uint32_t myGiNearFrame = 0;
+	// the traced glossy reflections (see traced.slang, ComputeReflectionTemporal): the visibility buffer's shading's rays'
+	// samples and the specular's weight of them (transients), filtered along rows and columns, and over frames: the
+	// history and its pixels' surfaces, two of each (by the frame's parity, see TRACED_FRAME_SHIFT); whether last frame's
+	// holds anything (the passes ran, at this size), and the frames they have run
+	FrameGraph::ImageId myReflectionRaw;
+	FrameGraph::ImageId myReflectionWeight;
+	FrameGraph::ImageId myReflectionRows;
+	FrameGraph::ImageId myReflectionFiltered;
+	std::array<FrameGraph::ImageId, 2> myReflectionHistory{};
+	std::array<FrameGraph::ImageId, 2> myReflectionSurface{};
+	std::array<ScreenImage, 2> myReflectionHistoryImages;
+	std::array<ScreenImage, 2> myReflectionSurfaceImages;
+	FrameGraph::PassId myReflectionXPass;
+	FrameGraph::PassId myReflectionYPass;
+	FrameGraph::PassId myReflectionTemporalPass;
+	bool myReflectionHistoryValid = false;
+	uint32_t myReflectionFrame = 0;
 	// emissive surfaces as lights (see EmitterData, emitters.slang): the frame's (gEmitterData[frame], host visible); the
 	// reservoirs per traced pixel (gEmitterReservoirs, three parts, see ComputeEmitterShade), made at the frame's size;
 	// the traced pixels' light, filtered along rows, and columns, and their surfaces (two, by the frame's parity); the

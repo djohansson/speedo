@@ -94,6 +94,10 @@ constexpr uint8_t kGiResolveTracedEntryPoint = 41;
 constexpr uint8_t kMainVisibilityEntryPoint = 42;
 // and its tiles sorted by the kernel that shades them (see ComputeMainVisibilityClassify)
 constexpr uint8_t kMainVisibilityClassifyEntryPoint = 43;
+// the traced glossy reflections' filter and frames (see ComputeReflectionX, ComputeReflectionTemporal)
+constexpr uint8_t kReflectionXEntryPoint = 44;
+constexpr uint8_t kReflectionYEntryPoint = 45;
+constexpr uint8_t kReflectionTemporalEntryPoint = 46;
 // the share of a frame's tiles with something drawn without a material with an extended layer from which sorting the
 // tiles pays (see ComputeMainVisibilityClassify): it costs 0.21 to 0.25 ms, and the specialized kernel saves 1.9 ms on a
 // frame of them (2.4 at Sponza). below it the generic kernel shades every tile, and sorts them every
@@ -101,7 +105,7 @@ constexpr uint8_t kMainVisibilityClassifyEntryPoint = 43;
 constexpr float kVisibilityTieredShare = 0.125F;
 constexpr uint64_t kVisibilityRecountFrameCount = 16;
 // diagnostic: the ray query replay's (see gfx/rayquerywatch.h), after the others, where the shaders have the watch
-constexpr uint8_t kRayQueryReplayEntryPoint = 44;
+constexpr uint8_t kRayQueryReplayEntryPoint = 47;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -167,6 +171,19 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	{
 		myGiNearHistory[historyIt] = myGraph.ImportImage(std::format("GI Near History {}", historyIt));
 		myGiNearHistoryDistance[historyIt] = myGraph.ImportImage(std::format("GI Near History Distance {}", historyIt));
+	}
+	// the traced glossy reflections (see SHADER_TYPES_REFLECTION_RAW_TEXTURE): the visibility buffer's shading's
+	if (myVisibilityBuffer)
+	{
+		myReflectionRaw = myGraph.CreateImage({.name = "Reflection Raw", .format = Format::kR16G16B16A16Sfloat});
+		myReflectionWeight = myGraph.CreateImage({.name = "Reflection Weight", .format = Format::kR16G16B16A16Sfloat});
+		myReflectionRows = myGraph.CreateImage({.name = "Reflection Rows", .format = Format::kR16G16B16A16Sfloat});
+		myReflectionFiltered = myGraph.CreateImage({.name = "Reflection Filtered", .format = Format::kR16G16B16A16Sfloat});
+		for (uint32_t historyIt = 0; historyIt < 2; historyIt++)
+		{
+			myReflectionHistory[historyIt] = myGraph.ImportImage(std::format("Reflection History {}", historyIt));
+			myReflectionSurface[historyIt] = myGraph.ImportImage(std::format("Reflection Surface {}", historyIt));
+		}
 	}
 	// emissive surfaces as lights (see SHADER_TYPES_EMITTER_RAW_TEXTURE): a texel per traced pixel (every stride-th each way,
 	// SPEEDO_EMITTER_STRIDE: 1, 2, 4 or 8): its light, filtered along rows and columns, and its surface; per pixel, the
@@ -1351,6 +1368,9 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
 			for (auto image : myEmitterHistory)
 				builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			// the traced glossy reflections' samples and weights (see TracedReflectionStore)
+			builder.Use(myReflectionRaw, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			builder.Use(myReflectionWeight, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
 			// a list's indirect dispatch and tiles (see VisibilityTileFirst)
 			builder.Use(
 				myVisibilityTiles,
@@ -1415,6 +1435,50 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = myVisibilitySpecialization},
 					extent.width, extent.height, 0, 0, 0, 0, 0, prepassImages());
 			});
+
+		// the traced glossy reflections the shading sampled (see traced.slang): filtered along rows, then columns, then over
+		// frames (the history the frame's parity says), and added to the main color by the specular's weight, before what
+		// draws over it or reads it (Main's blended surfaces and points, the transmission texture)
+		auto reflectionKernel = [this, kernel](CommandBufferHandle cmd, uint8_t entryPoint)
+		{
+			auto extent = myGraph.GetExtent();
+			kernel(cmd, ComputePipelineVariant{.entryPoint = entryPoint}, extent.width, extent.height);
+		};
+		myReflectionXPass = myGraph.AddPass(
+			"Reflection X",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionRaw, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionWeight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionRows, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			},
+			[reflectionKernel](FrameGraph::PassContext& context) { reflectionKernel(context.cmd, kReflectionXEntryPoint); });
+		myReflectionYPass = myGraph.AddPass(
+			"Reflection Y",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionRows, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionWeight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionFiltered, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+			},
+			[reflectionKernel](FrameGraph::PassContext& context) { reflectionKernel(context.cmd, kReflectionYEntryPoint); });
+		myReflectionTemporalPass = myGraph.AddPass(
+			"Reflection Temporal",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myPrepassNormal, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionFiltered, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myReflectionWeight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				for (auto image : {myReflectionHistory[0], myReflectionHistory[1], myReflectionSurface[0], myReflectionSurface[1]})
+					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+				builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead | Access::kShaderWrite));
+			},
+			[reflectionKernel](FrameGraph::PassContext& context) { reflectionKernel(context.cmd, kReflectionTemporalEntryPoint); });
 	}
 
 	myMainPass = mainPass(MainPassPhase::kOpaque);
@@ -2157,6 +2221,24 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			"gMainColor",
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myColor), .layout = ImageLayout::kGeneral},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+		// and the traced glossy reflections it samples, and their filter's
+		for (auto [image, slot, rwSlot] : std::array{
+				 std::tuple{myReflectionRaw, SHADER_TYPES_REFLECTION_RAW_TEXTURE, SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE},
+				 std::tuple{myReflectionWeight, SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE, SHADER_TYPES_REFLECTION_WEIGHT_RW_TEXTURE},
+				 std::tuple{myReflectionRows, SHADER_TYPES_REFLECTION_ROWS_TEXTURE, SHADER_TYPES_REFLECTION_ROWS_RW_TEXTURE},
+				 std::tuple{myReflectionFiltered, SHADER_TYPES_REFLECTION_FILTERED_TEXTURE, SHADER_TYPES_REFLECTION_FILTERED_RW_TEXTURE}})
+		{
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				slot);
+			pipeline.SetDescriptorData(
+				"gRWTextures",
+				ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				rwSlot);
+		}
 	}
 	for (auto [image, slot] : std::array{
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE},
@@ -2383,6 +2465,27 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 				rwSlot + historyIt);
 		}
 	}
+	// the traced glossy reflections' history and its pixels' surfaces (as the near field's), with the visibility buffer
+	for (uint32_t historyIt = 0; historyIt < 2 && myVisibilityBuffer; historyIt++)
+	{
+		myReflectionHistoryImages[historyIt] = screenImage(std::format("Reflection History {}", historyIt), Format::kR16G16B16A16Sfloat, extent);
+		myReflectionSurfaceImages[historyIt] = screenImage(std::format("Reflection Surface {}", historyIt), Format::kR32G32B32A32Sfloat, extent);
+		for (auto [image, slot, rwSlot] : std::array{
+				 std::tuple{&myReflectionHistoryImages[historyIt], SHADER_TYPES_REFLECTION_HISTORY_TEXTURE, SHADER_TYPES_REFLECTION_HISTORY_RW_TEXTURE},
+				 std::tuple{&myReflectionSurfaceImages[historyIt], SHADER_TYPES_REFLECTION_SURFACE_TEXTURE, SHADER_TYPES_REFLECTION_SURFACE_RW_TEXTURE}})
+		{
+			pipeline.SetDescriptorData(
+				"gTextures",
+				ImageBinding{.sampler = {}, .imageView = *image->view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
+				slot + historyIt);
+			pipeline.SetDescriptorData(
+				"gRWTextures",
+				ImageBinding{.sampler = {}, .imageView = *image->view, .layout = ImageLayout::kGeneral},
+				DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES,
+				rwSlot + historyIt);
+		}
+	}
 	// what temporal upscaling keeps from frame to frame (holding nothing yet: the first frame takes no history, see
 	// UPSCALE_HISTORY), bound once, both of each: the frame's parity picks. the luma, the accumulation (and the luma's
 	// log mean and variance, see UpscaleGateShadingChange) and the luma history at the render size, the color at the output's
@@ -2426,6 +2529,7 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 	myUpscaleHistoryValid = false;
 	myGiNearHistoryValid = false;
 	myEmitterHistoryValid = false;
+	myReflectionHistoryValid = false;
 	// the emitters' reservoirs at this size (see ComputeEmitterShade): per traced pixel a uint4, in three parts: the frame's
 	// before their spatial reuse, and after it the frame's and the last frame's
 	{
@@ -2791,6 +2895,21 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	bool traceable = frame.model != nullptr && frame.model->HasBvh();
 	frame.pushConstants.traced = (traceable && frame.tracedReflections ? TRACED_REFLECTIONS : 0U) |
 								 (traceable && frame.tracedRefractions ? TRACED_REFRACTIONS : 0U);
+	// the visibility buffer's are glossy (see ComputeReflectionTemporal): their passes, whether the last frame's history holds
+	// a frame (they ran, at this size), and the frames they have run (their rays' sampling, their history's parity)
+	if (myVisibilityBuffer)
+	{
+		bool reflections = (frame.pushConstants.traced & TRACED_REFLECTIONS) != 0U;
+		for (auto pass : {myReflectionXPass, myReflectionYPass, myReflectionTemporalPass})
+			myGraph.SetEnabled(pass, reflections);
+		if (reflections)
+		{
+			frame.pushConstants.traced |= (myReflectionHistoryValid ? TRACED_REFLECTION_HISTORY : 0U) |
+										  (myReflectionFrame << TRACED_FRAME_SHIFT);
+			myReflectionFrame = (myReflectionFrame + 1) & ((1U << (32U - TRACED_FRAME_SHIFT)) - 1U);
+		}
+		myReflectionHistoryValid = reflections;
+	}
 	InternalPlanShadowCache(frame);
 	myGraph.SetEnabled(myShadowPass, shadowsDrawn && std::ranges::contains(myShadowViewKept, uint8_t{0}));
 
@@ -2991,6 +3110,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 		myGraph.Bind(myGiNearHistoryDistance[historyIt], *myGiNearHistoryDistanceImages[historyIt].image);
 		myGraph.Bind(myEmitterHistory[historyIt], *myEmitterHistoryImages[historyIt].image);
 		myGraph.Bind(myEmitterSurfaces[historyIt], *myEmitterSurfaceImages[historyIt].image);
+		if (myVisibilityBuffer)
+		{
+			myGraph.Bind(myReflectionHistory[historyIt], *myReflectionHistoryImages[historyIt].image);
+			myGraph.Bind(myReflectionSurface[historyIt], *myReflectionSurfaceImages[historyIt].image);
+		}
 		myGraph.Bind(myEmitterPixelSurfaces[historyIt], *myEmitterPixelSurfaceImages[historyIt].image);
 	}
 	myGraph.Bind(myGiStaticVoxels, myGiStaticVoxelBuffer);

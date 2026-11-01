@@ -136,7 +136,7 @@ static std::vector<DescriptorPoolSize> DescriptorPoolSizes()
 static constexpr uint32_t kMaterialTextureId = 15;
 
 // the loaded model's materials are 1 and up, and their textures are in the slots from here up
-static constexpr uint32_t kModelTextureFirstSlot = 58; // after the emitters' pixels' surfaces (SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE)
+static constexpr uint32_t kModelTextureFirstSlot = 66; // after the traced reflections' surfaces (SHADER_TYPES_REFLECTION_SURFACE_TEXTURE)
 
 static constexpr uint32_t kModelTextureMaxCount = SHADER_TYPES_GLOBAL_TEXTURE_COUNT - kModelTextureFirstSlot;
 
@@ -169,6 +169,11 @@ static_assert(
 	SHADER_TYPES_GI_NEAR_HISTORY_DISTANCE_TEXTURE + 1 < kModelTextureFirstSlot && SHADER_TYPES_EMITTER_RAW_TEXTURE < kModelTextureFirstSlot &&
 	SHADER_TYPES_EMITTER_SURFACE_TEXTURE + 1 < kModelTextureFirstSlot);
 static_assert(SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
+static_assert(
+	SHADER_TYPES_REFLECTION_RAW_TEXTURE > SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE + 1 &&
+	SHADER_TYPES_REFLECTION_SURFACE_TEXTURE + 1 < kModelTextureFirstSlot &&
+	SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE > SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE + 1 &&
+	SHADER_TYPES_REFLECTION_SURFACE_RW_TEXTURE + 1 < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
 static_assert(
 	SHADER_TYPES_COMPOSITE_TEXTURE > SHADER_TYPES_RENDER_TARGET_TEXTURE && SHADER_TYPES_UPSCALE_COLOR_TEXTURE + 1 < SHADER_TYPES_MAIN_DEPTH_TEXTURE &&
 	SHADER_TYPES_UPSCALE_COLOR_RW_TEXTURE > SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE + 1 && SHADER_TYPES_COMPOSITE_RW_TEXTURE < SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT);
@@ -2159,6 +2164,9 @@ struct Scene::Impl
 				{"ComputeGiResolveTraced", SLANG_STAGE_COMPUTE}, // see the GI Resolve step
 				{"ComputeMainVisibility", SLANG_STAGE_COMPUTE}, // see the Main Visibility pass
 				{"ComputeMainVisibilityClassify", SLANG_STAGE_COMPUTE}, // see the Main Visibility Classify pass
+				{"ComputeReflectionX", SLANG_STAGE_COMPUTE}, // see the Reflection passes (the traced glossy reflections)
+				{"ComputeReflectionY", SLANG_STAGE_COMPUTE},
+				{"ComputeReflectionTemporal", SLANG_STAGE_COMPUTE},
 			},
 			.optimizationLevel = SLANG_OPTIMIZATION_LEVEL_MAXIMAL,
 			.debugInfoLevel = SLANG_DEBUG_INFO_LEVEL_MAXIMAL,

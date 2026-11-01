@@ -165,6 +165,22 @@ extern "C"
 #define SHADER_TYPES_EMITTER_SURFACE_RW_TEXTURE 28u // and 29
 #define SHADER_TYPES_EMITTER_PIXEL_SURFACE_TEXTURE 56u // and 57
 #define SHADER_TYPES_EMITTER_PIXEL_SURFACE_RW_TEXTURE 50u // and 51
+// the traced glossy reflections (see traced.slang): a ray a pixel the visibility buffer's shading traces, its radiance and
+// hit distance (a -1 where none was), and the specular's weight of it and the surface's roughness (a -1 where none);
+// filtered along rows, then columns; and over frames, the history and its pixels' surfaces (distance, packed normal,
+// frames held, as the near field's), two of each by the frame's parity (see TRACED_FRAME_SHIFT)
+#define SHADER_TYPES_REFLECTION_RAW_TEXTURE 58u
+#define SHADER_TYPES_REFLECTION_RAW_RW_TEXTURE 52u
+#define SHADER_TYPES_REFLECTION_WEIGHT_TEXTURE 59u
+#define SHADER_TYPES_REFLECTION_WEIGHT_RW_TEXTURE 53u
+#define SHADER_TYPES_REFLECTION_ROWS_TEXTURE 60u
+#define SHADER_TYPES_REFLECTION_ROWS_RW_TEXTURE 54u
+#define SHADER_TYPES_REFLECTION_FILTERED_TEXTURE 61u
+#define SHADER_TYPES_REFLECTION_FILTERED_RW_TEXTURE 55u
+#define SHADER_TYPES_REFLECTION_HISTORY_TEXTURE 62u // and 63
+#define SHADER_TYPES_REFLECTION_HISTORY_RW_TEXTURE 56u // and 57
+#define SHADER_TYPES_REFLECTION_SURFACE_TEXTURE 64u // and 65
+#define SHADER_TYPES_REFLECTION_SURFACE_RW_TEXTURE 58u // and 59
 // the gTextures slot of the sky's view of itself (see atmosphere.h: the sky's radiance around the eye, by its angle above
 // the horizon and from the sun's azimuth), which the backdrop and mirror reflections sample (see SkyRadiance)
 #define SHADER_TYPES_SKY_VIEW_TEXTURE 37u
@@ -1288,10 +1304,14 @@ struct PushConstants
 #define VISIBILITY_TILES_ALL 0u
 #define VISIBILITY_TILES_SPECIALIZED 1u
 #define VISIBILITY_TILES_GENERIC 2u
-// PushConstants::traced: the reflections of the surfaces smooth enough are traced (TracedReflection), and the light
-// through transmissive ones (TracedRefraction)
+// PushConstants::traced: the reflections of the surfaces smooth enough are traced (TracedReflection; the visibility
+// buffer's, glossy, filtered: TracedGlossyReflection), and the light through transmissive ones (TracedRefraction); whether
+// the glossy reflections' history holds the last frame's (the Reflection passes ran, at this size); and above
+// TRACED_FRAME_SHIFT the frames they have run (their rays' sampling, their history's parity)
 #define TRACED_REFLECTIONS 1u
 #define TRACED_REFRACTIONS 2u
+#define TRACED_REFLECTION_HISTORY 4u
+#define TRACED_FRAME_SHIFT 8u
 // the visibility buffer's first word's top bit: the draw record's material has an extended layer (see FragmentPrepass; the record
 // is the bits below)
 #define VISIBILITY_EXTENDED 0x80000000u

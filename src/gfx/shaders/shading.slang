@@ -146,20 +146,38 @@ float3 Shade(Surface surface, float3 view, float3 position)
 		float rough = smoothstep(0.2, 0.9, roughness);
 		environmentRadiance = lerp(environmentRadiance * seen, GiEvaluate(gi, reflected), rough);
 	}
-	// where the device has ray queries (View > Ray Traced Reflections): what the reflection meets, traced, sharp, on the
-	// surfaces smooth enough (see TracedShare)
+	// where the device has ray queries (View > Ray Traced Reflections): what the reflection meets, traced, where the
+	// specular takes enough of it to show. the visibility buffer's (compute): glossy, a ray of the lobe whose sample the
+	// Reflection passes filter and add to the main color by the weight stored here, its share left out of this
+	// (TracedGlossyReflection); only in the views that show the reflection. a fragment's: sharp, in place (TracedReflection)
 	float tracedShare = 0.0;
 #if BVH_RAY_QUERY
 	if (TracedReflectionsOn())
 	{
 		float strength = dot(environmentSpecular, float3(0.2126, 0.7152, 0.0722)) * surface.occlusion;
-		tracedShare = TracedShare(roughness, strength);
-		if (tracedShare > 0.0)
-			environmentRadiance = lerp(environmentRadiance, TracedReflection(position, surface.geometryNormal, reflected), tracedShare);
+		if (TracedGlossyHere())
+		{
+			bool shown = debugView == DEBUG_VIEW_NONE || debugView == DEBUG_VIEW_INDIRECT || debugView == DEBUG_VIEW_INDIRECT_SPECULAR ||
+						 debugView == DEBUG_VIEW_TRACED_REFLECTIONS;
+			tracedShare = shown ? TracedGlossyShare(roughness, strength) : 0.0;
+			if (tracedShare > 0.0)
+			{
+				float4 sample = TracedGlossyReflection(position, surface.geometryNormal, normal, view, roughness, gFragmentPixel);
+				float3 weight = debugView == DEBUG_VIEW_TRACED_REFLECTIONS ? float3(tracedShare) : surface.occlusion * environmentSpecular * tracedShare;
+				TracedReflectionStore(gFragmentPixel, sample, float4(weight, roughness));
+				environmentRadiance *= 1.0 - tracedShare;
+			}
+		}
+		else
+		{
+			tracedShare = TracedShare(roughness, strength);
+			if (tracedShare > 0.0)
+				environmentRadiance = lerp(environmentRadiance, TracedReflection(position, surface.geometryNormal, reflected), tracedShare);
+		}
 	}
 #endif
 	if (debugView == DEBUG_VIEW_TRACED_REFLECTIONS)
-		return tracedShare > 0.0 ? environmentRadiance : float3(1.0, 0.0, 1.0);
+		return tracedShare > 0.0 ? (TracedGlossyHere() ? float3(0.0) : environmentRadiance) : float3(1.0, 0.0, 1.0);
 	if (debugView == DEBUG_VIEW_INDIRECT_SPECULAR)
 		return surface.occlusion * environmentSpecular * environmentRadiance;
 	float3 diffuseEnvironment = surface.diffuseColor * (indirect.x >= 0.0 ? indirect : EnvironmentIrradiance(environment, normal));

@@ -443,6 +443,9 @@ void ShadeVisibility(int2 pixel)
 	gMainColor.GetDimensions(extent.x, extent.y);
 	if (any(pixel >= int2(extent)))
 		return;
+	// the traced glossy reflections: none here, unless Shade traces one (see TracedReflectionStore)
+	if (TracedReflectionsOn())
+		TracedReflectionStore(uint2(pixel), kReflectionUnknown, kReflectionUnknown);
 	uint frameIndex = gPushConstants.frameIndex;
 	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r;
 	uint viewId;
