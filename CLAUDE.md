@@ -1039,9 +1039,12 @@ instances, joints and morph weights, for the draws `DRAW_FLAG_MOVES` marks; the 
 
 Ours too, beyond FSR: each render pixel keeps its log2 luma's running mean and variance (by a sixteenth a frame, with
 the accumulation, `Upscale Accumulation` RGBA16F, where the point was; started over without a history, where revealed,
-or where something moving covers the pixel, the main depth's stencil: a thin moving thing passing over a pixel takes its
-luma away and back, a swing, and the history kept there held what passed, CommercialRefrigerator's door frame leaving
-dark pixels over the sky as it swung, its frames near the top edge 9.1 of 255 from the same frames unupscaled, now 5.5),
+or where something moving covers the pixel and moves, the main depth's stencil and the pre-pass's motion over a tenth of
+a pixel, `kUpscaleSweptLeastMotion`: a thin moving thing passing over a pixel takes its luma away and back, a swing, and
+the history kept there held what passed, CommercialRefrigerator's door frame leaving dark pixels over the sky as it swung,
+its frames near the top edge 9.1 of 255 from the same frames unupscaled, now 4.8; by the stencil alone, which marks what
+may move, the door standing closed lost its frost's swings, and its glass flickered three times as much, 0.64 of 255
+between frames against 0.24),
 and the shading change counts only as far as the frame's luma strays past 3 of its deviations
 (`UpscaleGateShadingChange`), and the history is kept where the luma swings (FSR's luma instability, as much as the
 deviation passes a quarter of a stop, all of it at three quarters: `kUpscaleLumaSwing*`). A feature thinner than a render

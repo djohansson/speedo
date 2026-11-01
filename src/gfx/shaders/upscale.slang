@@ -742,14 +742,21 @@ float UpscaleDrifting(float drift, float variance)
 	return saturate((abs(drift) / max(sqrt(max(variance, 0.0)), kUpscaleLumaLeastDeviation) - kUpscaleLumaDriftLeast) / kUpscaleLumaDriftRange);
 }
 
+// the motion, in render pixels a frame, from which what moves over a pixel starts its statistics over (see
+// UpscaleGateShadingChange)
+static const float kUpscaleSweptLeastMotion = 0.1;
+
 float UpscaleGateShadingChange(int2 pixel, float shadingChange, float disocclusion, float4 last, bool valid, out float3 statistics)
 {
 	float luma = log2(max(gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()].Load(int3(pixel, 0)).r, 1e-6));
-	// started over where something moving covers the pixel (the main depth's stencil): a thin moving thing passing over a
-	// pixel takes its luma away and back, which looks like a swing, and the history kept there held what passed
-	// (CommercialRefrigerator's door frame left dark pixels over the sky as it swung: near its top edge the frames were
-	// 9.1 of 255 from the same frames unupscaled, now 5.5)
-	bool moving = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
+	// started over where something moving covers the pixel (the main depth's stencil) and moves (the pre-pass's motion,
+	// in render pixels): a thin moving thing passing over a pixel takes its luma away and back, which looks like a swing,
+	// and the history kept there held what passed (CommercialRefrigerator's door frame left dark pixels over the sky as it
+	// swung: near its top edge the frames were 9.1 of 255 from the same frames unupscaled, now 5.5). by the stencil alone,
+	// which marks what may move, the door standing closed lost its frost's swings, and its glass flickered three times as
+	// much from frame to frame (a mean change of 0.64 of 255 against 0.24)
+	bool moving = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u &&
+				  length(gTextures[SHADER_TYPES_PREPASS_MOTION_TEXTURE].Load(int3(pixel, 0)).xy) > kUpscaleSweptLeastMotion;
 	if (!valid || disocclusion > 0.5 || moving)
 	{
 		statistics = float3(luma, 0.0, 0.0);
