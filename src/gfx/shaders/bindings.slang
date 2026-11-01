@@ -66,6 +66,10 @@ Texture2D<uint> gMainStencil;
 // written as storage images (gGiVolumeImages), always in the general layout
 [[vk::binding(2, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
 Texture3D<float4> gGiVolumes[SHADER_TYPES_GI_VOLUME_COUNT];
+// the visibility buffer (see FragmentPrepass): per pixel the draw record, the triangle (SV_PrimitiveID) and the instance
+// the pre-pass drew there, which the main pass's shading reconstructs the surface from (ComputeMainVisibility)
+[[vk::binding(3, DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES)]]
+Texture2D<uint4> gVisibility;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]]
 RWTexture2D gRWTextures[SHADER_TYPES_GLOBAL_RW_TEXTURE_COUNT];
@@ -77,6 +81,9 @@ RWTexture2D<float> gDepthPyramid[SHADER_TYPES_DEPTH_PYRAMID_LEVEL_COUNT];
 RWTexture2D<float> gShadowDepthPyramid[SHADER_TYPES_SHADOW_DEPTH_PYRAMID_LEVEL_COUNT];
 [[vk::binding(3, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
 RWTexture3D<float4> gGiVolumeImages[SHADER_TYPES_GI_VOLUME_COUNT];
+// the main color, which the visibility buffer's shading writes (see ComputeMainVisibility)
+[[vk::binding(4, DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES)]] [[vk::image_format("rgba16f")]]
+RWTexture2D<float4> gMainColor;
 
 [[vk::binding(0, DESCRIPTOR_SET_CATEGORY_GLOBAL_SAMPLERS)]]
 SamplerState gSamplers[SHADER_TYPES_GLOBAL_SAMPLER_COUNT];

@@ -25,3 +25,20 @@ bool ViewAt(int2 pixel, out ViewData view)
 	uint index;
 	return ViewAt(pixel, view, index);
 }
+
+// the index of the view a pixel is in, by the views' viewports alone (ViewAt's, without the whole ViewData)
+bool ViewIndexAt(int2 pixel, out uint index)
+{
+	for (uint viewIt = 0; viewIt < gPushConstants.viewCount; viewIt++)
+	{
+		float4 viewport = gViewData[gPushConstants.frameIndex][viewIt].viewport;
+		float2 local = (float2(pixel) + 0.5 - viewport.xy) / viewport.zw;
+		if (all(local >= 0.0) && all(local < 1.0))
+		{
+			index = viewIt;
+			return true;
+		}
+	}
+	index = 0;
+	return false;
+}

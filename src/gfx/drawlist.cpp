@@ -194,7 +194,8 @@ void WriteDrawRecords(std::span<DrawList* const> lists, std::span<DrawRecord> re
 					.morphDeltaBase = item.morphDeltaBase,
 					.morphFirstVertex = item.morphFirstVertex,
 				.morphWeightBase = item.morphWeightBase,
-				.flags = item.moves ? DRAW_FLAG_MOVES : 0U};
+				.flags = (item.moves ? DRAW_FLAG_MOVES : 0U) | (item.variant.topology == PrimitiveTopology::kTriangleList ? DRAW_FLAG_TRIANGLES : 0U),
+				.firstIndex = item.firstIndex};
 		}
 	}
 }

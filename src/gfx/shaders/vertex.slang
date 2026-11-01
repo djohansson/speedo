@@ -72,6 +72,10 @@ struct VertexOutput : IInterpolants
 	nointerpolation uint materialId;
 	// where the point was in the last frame, in world space (where it moves, see DRAW_FLAG_MOVES; else where it is)
 	float3 previousPosition;
+	// the draw's record (gDrawRecords') and its instance, which the pre-pass writes to the visibility buffer with the
+	// triangle (see FragmentPrepass)
+	nointerpolation uint drawRecord;
+	nointerpolation uint instance;
 };
 
 // VertexOutput, and what only the vertex stage writes (a system value the fragment stage can't take as input)
@@ -99,18 +103,14 @@ VertexZPrepassOutput VertexZPrepass(InputStream input)
 	return output;
 }
 
-[shader("vertex")]
-VertexMainOutput VertexMain(InputStream input)
+// a vertex of a draw at one of its instances as the fragment stage takes it, in world space (all but hPos and
+// previousPosition, which VertexMain adds): VertexMain's, and the visibility buffer's shading places its pixel's
+// triangle's corners so (see ComputeMainVisibility)
+VertexOutput PlaceVertex(DrawRecord draw, uint drawRecord, uint vertexId, uint instance, ModelInstance i, uint frameIndex)
 {
 	VertexOutput output;
 
-	uint frameIndex = gPushConstants.frameIndex;
-	DrawRecord draw = gDrawRecords[frameIndex][input.drawRecord];
-
-	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
-
-	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[input.vertexId];
-	ModelInstance i = gModelInstances[frameIndex][draw.modelInstanceId + input.instanceId];
+	VertexP3fN3fTa4fT014fC4f v = gVertexBuffer[vertexId];
 
 	// morph targets move the vertices first (in the space they are stored in), then skinned vertices move with their joints (in world space), before the instance's transform (the identity for them).
 	// the normals and tangents go by the same matrix, which is exact for joints without non-uniform scale.
@@ -118,25 +118,17 @@ VertexMainOutput VertexMain(InputStream input)
 	float3 normal = v.normal;
 	float3 tangent = v.tangent.xyz;
 	if (draw.morphTargetCount > 0)
-		Morph(draw, input.vertexId, frameIndex, position, normal, tangent);
+		Morph(draw, vertexId, frameIndex, position, normal, tangent);
 	if (draw.jointBase != SHADER_TYPES_NOT_SKINNED)
 	{
-		float4x4 skin = SkinMatrix(input.vertexId, frameIndex, draw.jointBase);
+		float4x4 skin = SkinMatrix(vertexId, frameIndex, draw.jointBase);
 		position = mul(skin, float4(position, 1.0)).xyz;
 		normal = mul(skin, float4(normal, 0.0)).xyz;
 		tangent = mul(skin, float4(tangent, 0.0)).xyz;
 	}
 
-	float3 worldPosition = mul(i.modelTransform, float4(position, 1.0)).xyz;
-	float3 worldNormal = mul(i.inverseTransposeModelTransform, float4(normal, 0.0)).xyz;
-
-	// the shadow pass draws from its shadow views instead
-	float4x4 viewProjection = gPushConstants.shadowView != SHADER_TYPES_NO_SHADOW
-		? gShadowViews[frameIndex][gPushConstants.shadowView].viewProjection
-		: view.viewProjection;
-	output.hPos = mul(viewProjection, float4(worldPosition, 1.0));
-	output.vertex.position = worldPosition;
-	output.vertex.normal = worldNormal;
+	output.vertex.position = mul(i.modelTransform, float4(position, 1.0)).xyz;
+	output.vertex.normal = mul(i.inverseTransposeModelTransform, float4(normal, 0.0)).xyz;
 	// a mirroring transform flips the handedness of the tangent frame
 	float3x3 linear = float3x3(i.modelTransform[0].xyz, i.modelTransform[1].xyz, i.modelTransform[2].xyz);
 	output.vertex.tangent = float4(mul(linear, tangent), determinant(linear) < 0.0 ? -v.tangent.w : v.tangent.w);
@@ -144,6 +136,33 @@ VertexMainOutput VertexMain(InputStream input)
 	output.vertex.color = v.color;
 	output.modelScale = pow(abs(determinant(linear)), 1.0 / 3.0);
 	output.materialId = draw.materialId;
+	output.drawRecord = drawRecord;
+	output.instance = instance;
+	return output;
+}
+
+// (its instance read here)
+VertexOutput PlaceVertex(DrawRecord draw, uint drawRecord, uint vertexId, uint instance, uint frameIndex)
+{
+	return PlaceVertex(draw, drawRecord, vertexId, instance, gModelInstances[frameIndex][draw.modelInstanceId + instance], frameIndex);
+}
+
+[shader("vertex")]
+VertexMainOutput VertexMain(InputStream input)
+{
+	uint frameIndex = gPushConstants.frameIndex;
+	DrawRecord draw = gDrawRecords[frameIndex][input.drawRecord];
+
+	ViewData view = gViewData[frameIndex][gPushConstants.viewId];
+
+	VertexOutput output = PlaceVertex(draw, input.drawRecord, input.vertexId, input.instanceId, frameIndex);
+	float3 worldPosition = output.vertex.position;
+
+	// the shadow pass draws from its shadow views instead
+	float4x4 viewProjection = gPushConstants.shadowView != SHADER_TYPES_NO_SHADOW
+		? gShadowViews[frameIndex][gPushConstants.shadowView].viewProjection
+		: view.viewProjection;
+	output.hPos = mul(viewProjection, float4(worldPosition, 1.0));
 	// the last frame's buffers are its slot's, the one before (what moves writes its instances, joints and weights per
 	// frame slot; what doesn't binds one buffer in every slot)
 	output.previousPosition = worldPosition;

@@ -51,6 +51,7 @@ enum class Format : uint8_t
 	kR32G32B32A32Sfloat,
 	kR16G16Sfloat,
 	kR32G32Sfloat,
+	kR32G32B32A32Uint,
 };
 
 enum class ImageLayout : uint8_t
@@ -251,7 +252,9 @@ static_assert(std::has_unique_object_representations_v<GraphicsPipelineVariant>)
 // which of a layout's compute entry points (by their order in it) a compute pipeline runs (see Pipeline::BindPipelineAuto)
 struct ComputePipelineVariant
 {
-	uint8_t entryPoint = 0;
+	uint16_t entryPoint = 0;
+	// the value of the shaders' specialization constant 0, as GraphicsPipelineVariant::specialization
+	uint16_t specialization = 0;
 
 	bool operator==(const ComputePipelineVariant&) const = default;
 };

@@ -7,6 +7,19 @@ struct FragmentOutput
 	float4 color : SV_Target;
 };
 
+// a cut out fragment's end, where there are fragments: the visibility buffer's shading, in compute, only shades what the
+// pre-pass kept (see ComputeMainVisibility)
+void CutOutFragment()
+{
+	__stage_switch
+	{
+	case fragment:
+		discard;
+	case compute:
+		return;
+	}
+}
+
 // a fragment's color and alpha, lit and with emissive added. for the scatter pass (scatterPass): the light entering a
 // scattering material (ScatterLight), and its material + 1 in alpha
 float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = false)
@@ -25,13 +38,13 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 	{
 		float4 sample = SampleView(material.baseColorView, v.texCoord01);
 		if (sample.a < material.alphaCutoff)
-			discard;
+			CutOutFragment();
 
 		color *= sample;
 	}
 
 	if ((material.flags & MATERIAL_FLAG_ALPHA_TEXTURE) != 0u && SampleView(material.alphaView, v.texCoord01).r < material.alphaCutoff)
-		discard;
+		CutOutFragment();
 
 	// a back face (only drawn for double sided materials) is lit as seen from behind, as gltf defines it: its normal,
 	// normal mapped or not, is reversed
@@ -145,7 +158,7 @@ float4 ShadeFragment(VertexOutput input, bool isFrontFace, bool scatterPass = fa
 		surface.roughness = roughness;
 	}
 
-	uint viewId = gPushConstants.viewId;
+	uint viewId = gShadingViewId;
 	float3 eye = gViewData[gPushConstants.frameIndex][viewId].eyePosition.xyz;
 	float3 view = normalize(eye - v.position);
 
@@ -342,10 +355,12 @@ bool DebugSurfaceValue(
 	}
 }
 
-[shader("fragment")]
-FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+// the main pass's color of a surface at a pixel of a view (FragmentMain's, and the visibility buffer's shading's, see
+// ComputeMainVisibility): the traced shadows' debug views, else shaded, with alpha 1
+float4 MainColor(VertexOutput input, bool isFrontFace, uint2 pixel, uint viewId)
 {
-	gFragmentPixel = uint2(input.hPos.xy);
+	gShadingViewId = viewId;
+	gFragmentPixel = pixel;
 	gFragmentShadowMask = (gPushConstants.prepassImages & PREPASS_IMAGE_SHADOW_MASK) != 0u;
 	gFragmentGiNear = (gPushConstants.prepassImages & PREPASS_IMAGE_GI_NEAR) != 0u;
 	gFragmentEmitters = (gPushConstants.prepassImages & PREPASS_IMAGE_EMITTERS) != 0u;
@@ -354,25 +369,134 @@ FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFac
 	if (debugView == DEBUG_VIEW_TRACED_SHADOW || debugView == DEBUG_VIEW_TRACED_SHADOW_RAW ||
 		debugView == DEBUG_VIEW_TRACED_SHADOW_REFERENCE)
 	{
-		FragmentOutput shown;
 		uint4 traced = gShadowTrace[gPushConstants.frameIndex][0].lights;
 		if (!gFragmentShadowMask || traced.x == SHADER_TYPES_NO_SHADOW)
-			shown.color = float4(1.0, 0.0, 1.0, 1.0);
-		else
-		{
-			// the rays' and the reference's views too: the filter passes them through then (see ShadowDenoise)
-			float visibility = gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0)).r;
-			shown.color = float4(pow(float3(visibility), 2.2), 1.0);
-		}
-		return shown;
+			return float4(1.0, 0.0, 1.0, 1.0);
+		// the rays' and the reference's views too: the filter passes them through then (see ShadowDenoise)
+		float visibility = gTextures[SHADER_TYPES_SHADOW_MASK_TEXTURE].Load(int3(int2(gFragmentPixel), 0)).r;
+		return float4(pow(float3(visibility), 2.2), 1.0);
 	}
 	float4 color = ShadeFragment(input, isFrontFace);
 
 	// alpha 1: the color target is cleared to alpha 0, so ComputeMain draws the backdrop where nothing opaque is
 	// within a half float (the sun's disk in a sharp reflection is tens of thousands, times the environment's intensity)
+	return float4(min(color.rgb, 65000.0), 1.0);
+}
+
+[shader("fragment")]
+FragmentOutput FragmentMain(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+{
 	FragmentOutput output;
-	output.color = float4(min(color.rgb, 65000.0), 1.0);
+	output.color = MainColor(input, isFrontFace, uint2(input.hPos.xy), gPushConstants.viewId);
 	return output;
+}
+
+// a pixel's triangle's perspective correct barycentrics at the pixel's center, and their screen space derivatives (the
+// next pixel's less the pixel's, as the fragment stage's quads have them), from its corners in clip space and the
+// pixel's normalized device coordinates in the view's viewport, of the given size in pixels (Schied and Dachsbacher,
+// "Deferred Attribute Interpolation for Memory-Efficient Deferred Shading", in The Forge's visibility buffer's form;
+// normalized device coordinates' y points down here, as the framebuffer's)
+struct Barycentrics
+{
+	float3 lambda;
+	float3 dx;
+	float3 dy;
+};
+
+Barycentrics PixelBarycentrics(float4 clip0, float4 clip1, float4 clip2, float2 ndc, float2 size)
+{
+	Barycentrics result;
+	float3 invW = 1.0 / float3(clip0.w, clip1.w, clip2.w);
+	float2 ndc0 = clip0.xy * invW.x;
+	float2 ndc1 = clip1.xy * invW.y;
+	float2 ndc2 = clip2.xy * invW.z;
+	float2 a = ndc2 - ndc1;
+	float2 b = ndc0 - ndc1;
+	float invDet = 1.0 / (a.x * b.y - a.y * b.x);
+	result.dx = float3(ndc1.y - ndc2.y, ndc2.y - ndc0.y, ndc0.y - ndc1.y) * invDet * invW;
+	result.dy = float3(ndc2.x - ndc1.x, ndc0.x - ndc2.x, ndc1.x - ndc0.x) * invDet * invW;
+	float dxSum = dot(result.dx, float3(1.0));
+	float dySum = dot(result.dy, float3(1.0));
+	float2 delta = ndc - ndc0;
+	float interpInvW = invW.x + delta.x * dxSum + delta.y * dySum;
+	float interpW = 1.0 / interpInvW;
+	result.lambda = interpW * (float3(invW.x, 0.0, 0.0) + delta.x * result.dx + delta.y * result.dy);
+	// per pixel (normalized device coordinates span 2 over the viewport)
+	result.dx *= 2.0 / size.x;
+	result.dy *= 2.0 / size.y;
+	dxSum *= 2.0 / size.x;
+	dySum *= 2.0 / size.y;
+	result.dx = (result.lambda * interpInvW + result.dx) / (interpInvW + dxSum) - result.lambda;
+	result.dy = (result.lambda * interpInvW + result.dy) / (interpInvW + dySum) - result.lambda;
+	return result;
+}
+
+// the visibility buffer's shading (the Main Visibility pass, SPEEDO_VISIBILITY_BUFFER=1, in place of Main's opaque
+// triangles): per pixel of the pre-pass's depth, the surface its triangle has there (gVisibility: the draw record, the
+// triangle, SV_PrimitiveID, and the instance), its corners placed as the vertex stage places them (PlaceVertex) and
+// interpolated at the pixel's center by perspective correct barycentrics, whose screen space derivatives are the
+// texture lookups' and the tangent frames' (see gTexCoordDx), then shaded as FragmentMain shades it (MainColor) into the
+// main color, so the triangles aren't drawn a second time after the pre-pass. what nothing opaque covers is cleared
+// (alpha 0: the backdrop's, see ComputeMain); points and lines are left to Main
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void ComputeMainVisibility(uint3 threadId: SV_DispatchThreadID)
+{
+	uint2 extent;
+	gMainColor.GetDimensions(extent.x, extent.y);
+	if (any(threadId.xy >= extent))
+		return;
+	int2 pixel = int2(threadId.xy);
+	uint frameIndex = gPushConstants.frameIndex;
+	float depth = gTextures[SHADER_TYPES_MAIN_DEPTH_TEXTURE].Load(int3(pixel, 0)).r;
+	uint4 visibility = gVisibility.Load(int3(pixel, 0));
+	uint viewId;
+	if (depth <= 0.0 || visibility.w == 0u || !ViewIndexAt(pixel, viewId))
+	{
+		gMainColor[pixel] = 0.0;
+		return;
+	}
+	DrawRecord draw = gDrawRecords[frameIndex][visibility.x];
+	if ((draw.flags & DRAW_FLAG_TRIANGLES) == 0u)
+		return;
+	uint first = draw.firstIndex + 3u * visibility.y;
+	ModelInstance instance = gModelInstances[frameIndex][draw.modelInstanceId + visibility.z];
+	float4x4 viewProjection = gViewData[frameIndex][viewId].viewProjection;
+	float4 viewport = gViewData[frameIndex][viewId].viewport;
+	VertexOutput corners[3];
+	float4 clip[3];
+	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
+	{
+		corners[cornerIt] = PlaceVertex(draw, visibility.x, gIndexBuffer[first + cornerIt], visibility.z, instance, frameIndex);
+		clip[cornerIt] = mul(viewProjection, float4(corners[cornerIt].vertex.position, 1.0));
+	}
+	float2 ndc = (float2(pixel) + 0.5 - viewport.xy) / viewport.zw * 2.0 - 1.0;
+	Barycentrics b = PixelBarycentrics(clip[0], clip[1], clip[2], ndc, viewport.zw);
+
+	VertexOutput input = corners[0];
+	input.vertex.position = b.lambda.x * corners[0].vertex.position + b.lambda.y * corners[1].vertex.position + b.lambda.z * corners[2].vertex.position;
+	input.vertex.normal = b.lambda.x * corners[0].vertex.normal + b.lambda.y * corners[1].vertex.normal + b.lambda.z * corners[2].vertex.normal;
+	input.vertex.tangent = b.lambda.x * corners[0].vertex.tangent + b.lambda.y * corners[1].vertex.tangent + b.lambda.z * corners[2].vertex.tangent;
+	input.vertex.texCoord01 = b.lambda.x * corners[0].vertex.texCoord01 + b.lambda.y * corners[1].vertex.texCoord01 + b.lambda.z * corners[2].vertex.texCoord01;
+	input.vertex.color = b.lambda.x * corners[0].vertex.color + b.lambda.y * corners[1].vertex.color + b.lambda.z * corners[2].vertex.color;
+	input.hPos = float4(float2(pixel) + 0.5, depth, 1.0);
+	input.previousPosition = input.vertex.position;
+	gPositionDx = b.dx.x * corners[0].vertex.position + b.dx.y * corners[1].vertex.position + b.dx.z * corners[2].vertex.position;
+	gPositionDy = b.dy.x * corners[0].vertex.position + b.dy.y * corners[1].vertex.position + b.dy.z * corners[2].vertex.position;
+	gTexCoordDx = b.dx.x * corners[0].vertex.texCoord01 + b.dx.y * corners[1].vertex.texCoord01 + b.dx.z * corners[2].vertex.texCoord01;
+	gTexCoordDy = b.dy.x * corners[0].vertex.texCoord01 + b.dy.y * corners[1].vertex.texCoord01 + b.dy.z * corners[2].vertex.texCoord01;
+
+	// which side faces the eye, as the rasterizer has it: the side its corners' order turns counter-clockwise seen from the
+	// eye (its geometric normal toward the eye: counter-clockwise on the screen, which the projection doesn't mirror) is
+	// the front, but for a mirroring instance's, drawn with clockwise front faces. in world space: a triangle with a
+	// corner behind the eye (the floor beside the camera) has that corner's projection mirrored, and its winding on the
+	// screen with it
+	float3 geometric = cross(corners[1].vertex.position - corners[0].vertex.position, corners[2].vertex.position - corners[0].vertex.position);
+	bool facing = dot(geometric, gViewData[frameIndex][viewId].eyePosition.xyz - corners[0].vertex.position) > 0.0;
+	bool mirrored = determinant(float3x3(instance.modelTransform[0].xyz, instance.modelTransform[1].xyz, instance.modelTransform[2].xyz)) < 0.0;
+	bool isFrontFace = facing != mirrored;
+
+	gMainColor[pixel] = MainColor(input, isFrontFace, uint2(pixel), viewId);
 }
 
 // the scatter pass's color attachments: the light, and the multiscatter color
@@ -387,6 +511,7 @@ struct ScatterOutput
 [shader("fragment")]
 ScatterOutput FragmentScatter(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
+	gShadingViewId = gPushConstants.viewId;
 	gFragmentPixel = uint2(input.hPos.xy);
 	gFragmentShadowMask = false;
 	gFragmentGiNear = false;
@@ -414,6 +539,7 @@ void CutOut(VertexOutput input, MaterialData material)
 [shader("fragment")]
 void FragmentShadow(VertexOutput input)
 {
+	gShadingViewId = gPushConstants.viewId;
 	CutOut(input, gMaterialData[input.materialId]);
 }
 
@@ -426,13 +552,16 @@ struct PrepassOutput
 {
 	float4 normal : SV_Target0;
 	float4 motion : SV_Target1;
+	// the visibility buffer (see gVisibility): the draw record, the triangle and the instance, and 1
+	uint4 visibility : SV_Target2;
 };
 
 // a fragment of the pre-pass: its depth, cut out as the main pass's are, and its geometry normal, before the main pass
 // shades what it wrote (each pixel once, see DepthTest::kEqual)
 [shader("fragment")]
-PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
+PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontFace, uint primitive : SV_PrimitiveID)
 {
+	gShadingViewId = gPushConstants.viewId;
 	MaterialData material = gMaterialData[input.materialId];
 	CutOut(input, material);
 	VertexP3fN3fTa4fT014fC4f v = input.vertex;
@@ -453,6 +582,7 @@ PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontF
 	float4 previous = mul(view.previousViewProjection, float4(input.previousPosition, 1.0));
 	float2 motion = previous.w > 0.0 ? ((previous.xy / previous.w - view.jitter.zw) - (current.xy / current.w - view.jitter.xy)) * 0.5 * view.viewport.zw : 0.0;
 	output.motion = float4(motion, 0.0, 0.0);
+	output.visibility = uint4(input.drawRecord, primitive, input.instance, 1u);
 	return output;
 }
 
@@ -462,6 +592,7 @@ PrepassOutput FragmentPrepass(VertexOutput input, bool isFrontFace : SV_IsFrontF
 [earlydepthstencil]
 void FragmentTransparent(VertexOutput input, bool isFrontFace : SV_IsFrontFace)
 {
+	gShadingViewId = gPushConstants.viewId;
 	gFragmentPixel = uint2(input.hPos.xy);
 	gFragmentShadowMask = false;
 	gFragmentGiNear = false;

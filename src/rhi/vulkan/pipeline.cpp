@@ -369,6 +369,13 @@ PipelineHandle<kVk> Pipeline<kVk>::InternalCreateComputePipeline(uint64_t hashKe
 		variant.entryPoint,
 		myComputeState.shaderStages.size());
 	pipelineInfo.stage = myComputeState.shaderStages[variant.entryPoint];
+	// the variant's specialization constant 0, where it has one (a layout without it ignores it anyway)
+	uint32_t specializationValue = variant.specialization;
+	VkSpecializationMapEntry specializationEntry{.constantID = 0, .offset = 0, .size = sizeof(specializationValue)};
+	VkSpecializationInfo specialization{
+		.mapEntryCount = 1, .pMapEntries = &specializationEntry, .dataSize = sizeof(specializationValue), .pData = &specializationValue};
+	if (variant.specialization != 0)
+		pipelineInfo.stage.pSpecializationInfo = &specialization;
 	pipelineInfo.layout = layout;
 	pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 	pipelineInfo.basePipelineIndex = -1;

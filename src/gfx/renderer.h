@@ -261,6 +261,13 @@ private:
 	// main pass then shades over (DepthTest::kEqual) and the traced shadows start from
 	FrameGraph::ImageId myPrepassNormal;
 	FrameGraph::ImageId myPrepassMotion; // SHADER_TYPES_PREPASS_MOTION_TEXTURE
+	// the visibility buffer (gVisibility: see FragmentPrepass), and whether the main pass's opaque triangles are shaded from it
+	// (the Main Visibility pass, ComputeMainVisibility; SPEEDO_VISIBILITY_BUFFER=1, read when the graph is made) rather than
+	// drawn again over the pre-pass's depth
+	FrameGraph::ImageId myPrepassVisibility;
+	bool myVisibilityBuffer = false;
+	// the layer groups the visibility buffer's kernel skips this frame (ComputePipelineVariant::specialization)
+	uint16_t myVisibilitySpecialization = 0;
 	// the traced shadows' (see SHADER_TYPES_SHADOW_RAW_TEXTURE): the rays' visibility and blockers' distances, the
 	// visibility filtered along rows, and along columns (what the main pass takes); each a channel per traced light
 	FrameGraph::ImageId myShadowRaw;
@@ -439,6 +446,8 @@ private:
 	FrameGraph::PassId myCullLatePass;
 	FrameGraph::PassId myPrepassLatePass;
 	FrameGraph::PassId myMainLatePass;
+	// the main pass's opaque phase (see Main Visibility, which can leave it nothing)
+	FrameGraph::PassId myMainPass;
 	// the shadow views' occlusion culling, as the main pass's two-phase: the casters each saw last frame first (Shadows),
 	// a pyramid of the atlas (Shadow Depth Pyramid), then the rest it doesn't hide (Cull Shadows Late, Shadows Late)
 	bool myShadowOcclusionThisFrame = false;

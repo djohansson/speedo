@@ -5,6 +5,9 @@
 // emitters' light there (the main pass's opaque fragments, at the depth the pre-pass drew: PushConstants::prepassImages),
 // set by the fragment entry points
 static uint2 gFragmentPixel;
+// and the view it is in (the push constants' viewId where a draw is a view's, the pixel's view in the visibility buffer's
+// shading, which shades every view's pixels at once: see ComputeMainVisibility)
+static uint gShadingViewId;
 static bool gFragmentShadowMask;
 static bool gFragmentGiNear;
 static bool gFragmentEmitters;

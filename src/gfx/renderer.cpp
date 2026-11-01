@@ -89,6 +89,8 @@ constexpr uint8_t kUpscaleAccumulateEntryPoint = 39;
 constexpr uint8_t kSharpenEntryPoint = 40;
 // the resolve where the rays trace the BVHs (see ComputeGiResolveTraced)
 constexpr uint8_t kGiResolveTracedEntryPoint = 41;
+// the visibility buffer's shading (see ComputeMainVisibility)
+constexpr uint8_t kMainVisibilityEntryPoint = 42;
 // the bytes of a page of the cache (a block's 64 entries of 3 uint4: see GiCacheEntry), and the pages and records its
 // pools grow by at least
 constexpr uint64_t kGiCachePageSize = 64 * 3 * 4 * sizeof(uint32_t);
@@ -106,6 +108,13 @@ constexpr uint32_t kGiLightsFollowFrameCount = 64;
 constexpr uint32_t kCullJobCount = (5 * SHADER_TYPES_VIEW_COUNT) + (2 * SHADER_TYPES_SHADOW_VIEW_COUNT);
 constexpr uint32_t kCullViewCount = SHADER_TYPES_VIEW_COUNT + SHADER_TYPES_SHADOW_VIEW_COUNT;
 
+// what Main draws of the main list where the visibility buffer's shading shades its opaque triangles (see
+// ComputeMainVisibility): the rest, blended triangles, points and lines
+[[nodiscard]] bool VisibilityUnshaded(const DrawItem& item) noexcept
+{
+	return item.variant.depthTest != DepthTest::kEqual || item.variant.topology != PrimitiveTopology::kTriangleList;
+}
+
 } // namespace renderer
 
 Renderer::Renderer(Device& device, RenderOutput& output)
@@ -119,6 +128,11 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	myPrepassNormal = myGraph.CreateImage({.name = "Prepass Normal", .format = Format::kR8G8B8A8Unorm});
 	// where each pixel's point was in the last frame, in the render target's pixels from it (see FragmentPrepass)
 	myPrepassMotion = myGraph.CreateImage({.name = "Prepass Motion", .format = Format::kR16G16Sfloat});
+	if (const char* visibility = std::getenv("SPEEDO_VISIBILITY_BUFFER"); visibility != nullptr)
+		myVisibilityBuffer = std::string_view(visibility) == "1";
+	// each pixel's draw record, triangle and instance, for the visibility buffer's shading (see FragmentPrepass)
+	if (myVisibilityBuffer)
+		myPrepassVisibility = myGraph.CreateImage({.name = "Prepass Visibility", .format = Format::kR32G32B32A32Uint});
 	myShadowRaw = myGraph.CreateImage({.name = "Shadow Raw", .format = Format::kR8G8B8A8Unorm});
 	myShadowBlocker = myGraph.CreateImage({.name = "Shadow Blocker", .format = Format::kR16G16B16A16Sfloat});
 	myShadowRows = myGraph.CreateImage({.name = "Shadow Rows", .format = Format::kR8G8B8A8Unorm});
@@ -387,7 +401,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 					  uint32_t depthPyramidLevel = 0,
 					  uint32_t depthPyramidSource = 0,
 					  uint32_t giStep = 0,
-					  uint32_t giClip = 0)
+					  uint32_t giClip = 0,
+					  std::optional<uint32_t> prepassImages = std::nullopt)
 	{
 		auto& pipeline = *myFrame.pipeline;
 		pipeline.BindLayoutAuto(pipeline.GetLayoutHandle("Main"), PipelineBindPoint::kCompute);
@@ -405,6 +420,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 		pushConstants.depthPyramidSource = depthPyramidSource;
 		pushConstants.giStep = giStep;
 		pushConstants.giClip = giClip;
+		if (prepassImages)
+			pushConstants.prepassImages = *prepassImages;
 		pipeline.PushConstants(cmd, std::as_bytes(std::span(&pushConstants, 1)));
 		CommandEncoder(cmd).DispatchThreads(pipeline.GetComputeLaunchParameters(variant), width, height);
 	};
@@ -688,6 +705,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 				useCulled(builder);
 				builder.ColorAttachment(myPrepassNormal, load, StoreOp::kStore, ClearValue{.color = {0.5F, 0.5F, 1.0F, 0.0F}});
 				builder.ColorAttachment(myPrepassMotion, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
+				if (myVisibilityBuffer)
+					builder.ColorAttachment(myPrepassVisibility, load, StoreOp::kStore, ClearValue{.color = {0.0F, 0.0F, 0.0F, 0.0F}});
 				builder.DepthAttachment(myDepth, load);
 				builder.Contents(SubpassContents::kSecondaryCommandBuffers);
 			},
@@ -698,7 +717,8 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 	// (opaque draws write alpha 1): there ComputeMain draws the environment
 	auto mainPass = [&](MainPassPhase phase, bool late = false)
 	{
-		auto load = phase == MainPassPhase::kOpaque && !late ? LoadOp::kClear : LoadOp::kLoad;
+		// (the visibility buffer's shading wrote the color first, see the Main Visibility pass)
+		auto load = phase == MainPassPhase::kOpaque && !late && !myVisibilityBuffer ? LoadOp::kClear : LoadOp::kLoad;
 		return myGraph.AddPass(
 			late ? "Main Late" : (phase == MainPassPhase::kOpaque ? "Main" : "Main Transmissive"),
 			[this, load, phase, &useOitLists, useCulled](FrameGraph::PassBuilder& builder)
@@ -1226,7 +1246,43 @@ Renderer::Renderer(Device& device, RenderOutput& output)
 			kernel(context.cmd, ComputePipelineVariant{.entryPoint = kEmitterTemporalEntryPoint}, extent.width, extent.height);
 		});
 
-	mainPass(MainPassPhase::kOpaque);
+	// the visibility buffer's shading (SPEEDO_VISIBILITY_BUFFER=1, see ComputeMainVisibility): the opaque triangles'
+	// pixels shaded from what the pre-pass wrote, every view's at once, before Main draws the rest over them (the blended
+	// draws, points and lines), loading the color
+	if (myVisibilityBuffer)
+		myGraph.AddPass(
+			"Main Visibility",
+			[this](FrameGraph::PassBuilder& builder)
+			{
+				builder.Use(myPrepassVisibility, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myDepth, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myColor, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderWrite));
+				// what Main's fragments read
+				builder.Use(myGiIrradiance, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myGiVoxels, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				for (auto volume : myGiVolumes)
+					builder.Use(volume, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				builder.Use(myShadowAtlas, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myScatterLight, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				builder.Use(myShadowMask, ResourceUse::Sampled(PipelineStage::kComputeShader));
+				for (auto image : myGiNearHistory)
+					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+				for (auto image : myEmitterHistory)
+					builder.Use(image, ResourceUse::Storage(PipelineStage::kComputeShader, Access::kShaderRead));
+			},
+			[this, kernel](FrameGraph::PassContext& context)
+			{
+				auto extent = myGraph.GetExtent();
+				// what the main list's fragments take (see InternalDrawViews)
+				uint32_t prepassImages = (myShadowsTraced ? PREPASS_IMAGE_SHADOW_MASK : 0U) | (myGiNearOn ? PREPASS_IMAGE_GI_NEAR : 0U) |
+										 (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
+				kernel(
+					context.cmd,
+					ComputePipelineVariant{.entryPoint = kMainVisibilityEntryPoint, .specialization = myVisibilitySpecialization},
+					extent.width, extent.height, 0, 0, 0, 0, 0, prepassImages);
+			});
+
+	myMainPass = mainPass(MainPassPhase::kOpaque);
 	myMainLatePass = mainPass(MainPassPhase::kOpaque, true);
 
 	// transmissive materials see the opaque scene behind them: copied, with mips for their roughness
@@ -1953,6 +2009,18 @@ void Renderer::Resize(Device& device, Pipeline& pipeline, Extent2d extent, Exten
 			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(image), .layout = ImageLayout::kShaderReadOnly},
 			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES,
 			slot);
+	// the visibility buffer and the main color its shading writes (views only where the Main Visibility pass uses them)
+	if (myVisibilityBuffer)
+	{
+		pipeline.SetDescriptorData(
+			"gVisibility",
+			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myPrepassVisibility), .layout = ImageLayout::kShaderReadOnly},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_TEXTURES);
+		pipeline.SetDescriptorData(
+			"gMainColor",
+			ImageBinding{.sampler = {}, .imageView = myGraph.GetView(myColor), .layout = ImageLayout::kGeneral},
+			DESCRIPTOR_SET_CATEGORY_GLOBAL_RW_TEXTURES);
+	}
 	for (auto [image, slot] : std::array{
 			 std::pair{myScatterNoisy, SHADER_TYPES_SCATTER_NOISY_RW_TEXTURE},
 			 std::pair{myScatterLight, SHADER_TYPES_SCATTER_LIGHT_RW_TEXTURE},
@@ -2691,6 +2759,22 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 	frame.pushConstants.previousWidth = myPreviousExtent.width;
 	frame.pushConstants.previousHeight = myPreviousExtent.height;
 	InternalPlanCulling(pipeline, frame);
+	if (myVisibilityBuffer)
+	{
+		// with the visibility buffer, Main and Main Late draw only what its shading leaves (renderer::VisibilityUnshaded):
+		// where that is nothing, they would load and store the color and depth for nothing
+		const auto& items = InternalList(ListId::kMain).items;
+		bool unshaded = std::ranges::any_of(items, renderer::VisibilityUnshaded);
+		myGraph.SetEnabled(myMainPass, unshaded);
+		if (!unshaded)
+			myGraph.SetEnabled(myMainLatePass, false);
+		// and its kernel skips the layer groups none of the triangles it shades needs (see
+		// GraphicsPipelineVariant::specialization)
+		myVisibilitySpecialization = SHADER_TYPES_LAYERS_EXTENDED;
+		for (const auto& item : items)
+			if (!renderer::VisibilityUnshaded(item))
+				myVisibilitySpecialization &= item.variant.specialization;
+	}
 	myGraph.Bind(myCullCommands, myCullCommandBuffers.buffers[frame.frameIndex]);
 	myGraph.Bind(myCullCounts, myCullCountBuffers.buffers[frame.frameIndex]);
 	myGraph.Bind(myCullVisibility, myCullVisibilityBuffer);
@@ -3835,9 +3919,13 @@ void Renderer::InternalDrawViews(FrameGraph::PassContext& context, Pipeline& pip
 									   (myEmittersOn ? PREPASS_IMAGE_EMITTERS : 0U);
 	// the pre-pass skips the blended draws (the main list's, left as they are in myPrepassList)
 	auto prepassed = [](const DrawItem& item) { return item.variant.fragmentShader == kPrepassFragmentShader; };
+	// and the main pass, where the visibility buffer's shading shades its opaque triangles, the rest
+	auto unshaded = [](const DrawItem& item) { return renderer::VisibilityUnshaded(item); };
 	std::optional<core::std_extra::function_ref<bool(const DrawItem&)>> include;
 	if (prepass)
 		include = prepassed;
+	else if (listId == ListId::kMain && myVisibilityBuffer)
+		include = unshaded;
 
 	for (uint32_t drawIt = 0; drawIt < viewCount; drawIt++)
 	{

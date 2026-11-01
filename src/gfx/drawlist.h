@@ -40,10 +40,10 @@ constexpr uint8_t kShadowFragmentShader = 2;
 constexpr uint8_t kScatterFragmentShader = 3;
 constexpr std::array kScatterBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
 // the pre-pass's fragments (FragmentPrepass, the fifth): depth, cut out by alpha masks as the main pass's are, the
-// geometry normal and the motion since the last frame in its two color attachments (see Renderer: the main pass then
-// shades only what it wrote, kEqual)
+// geometry normal, the motion since the last frame and the visibility buffer in its three color attachments (see Renderer:
+// the main pass then shades only what it wrote, kEqual, or the visibility buffer's shading does)
 constexpr uint8_t kPrepassFragmentShader = 4;
-constexpr std::array kPrepassBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone, rhi::BlendMode::kNone};
+constexpr std::array kPrepassBlend{rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kOpaque, rhi::BlendMode::kNone};
 static_assert(kOpaqueBlend.size() == rhi::kMaxColorAttachments);
 
 // the gMaterialData slot drawn for a submesh's material (-1: none)

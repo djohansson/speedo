@@ -4,6 +4,8 @@
 #include <rhi/rhi.h>
 #include <rhi/vulkan/utils.h>
 
+#include <vector>
+
 namespace rhi
 {
 
@@ -28,15 +30,60 @@ ShaderModule<kVk>::ShaderModule(
 	, myEntryPoint(std::forward<EntryPoint>(entryPoint))
 {}
 
+namespace shader
+{
+
+// a module's code as the device takes it: a fragment shader reading its primitive (SV_PrimitiveID, the visibility
+// buffer's pre-pass) declares the Geometry capability (slang's choice), which needs the geometryShader feature, but
+// Vulkan takes the Tessellation capability for it too, which KosmicKrisp has where it has no geometry shaders: there it
+// is declared instead (or Shader again, where Tessellation is declared already)
+std::vector<uint32_t> DeviceCode(const uint32_t* code, size_t wordCount, const VkPhysicalDeviceFeatures& features)
+{
+	constexpr uint32_t kHeaderWordCount = 5;
+	constexpr uint32_t kOpCapability = 17;
+	constexpr uint32_t kCapabilityShader = 1;
+	constexpr uint32_t kCapabilityGeometry = 2;
+	constexpr uint32_t kCapabilityTessellation = 3;
+	std::vector<uint32_t> result(code, code + wordCount);
+	if (features.geometryShader == VK_TRUE || features.tessellationShader != VK_TRUE)
+		return result;
+	auto capabilities = [&result](auto&& fn)
+	{
+		// the capabilities come first, right after the header
+		for (size_t wordIt = kHeaderWordCount; wordIt < result.size();)
+		{
+			uint32_t count = result[wordIt] >> 16;
+			if ((result[wordIt] & 0xffffU) != kOpCapability || count < 2)
+				break;
+			fn(result[wordIt + 1]);
+			wordIt += count;
+		}
+	};
+	bool tessellation = false;
+	capabilities([&tessellation](uint32_t& capability) { tessellation = tessellation || capability == kCapabilityTessellation; });
+	capabilities(
+		[tessellation](uint32_t& capability)
+		{
+			if (capability == kCapabilityGeometry)
+				capability = tessellation ? kCapabilityShader : kCapabilityTessellation;
+		});
+	return result;
+}
+
+} // namespace shader
+
 template <>
 ShaderModule<kVk>::ShaderModule(CreateDescType&& desc)
 	: ShaderModule<kVk>(
 		std::forward<CreateDescType>(desc),
 		[this, &desc](const auto& codePtr, size_t codeSize)
 		{
+			// read from desc, not GetDesc(): this runs before the delegated constructor has initialized the base
+			const auto& features = GetInstance().GetPhysicalDeviceInfo(GetDevice(desc.device).GetPhysicalDevice()).deviceFeatures.features;
+			auto code = shader::DeviceCode(codePtr, codeSize / sizeof(uint32_t), features);
 			VkShaderModuleCreateInfo info{.sType=VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-			info.codeSize = codeSize;
-			info.pCode = codePtr;
+			info.codeSize = code.size() * sizeof(uint32_t);
+			info.pCode = code.data();
 
 			VkShaderModule vkShaderModule;
 			VK_CHECK(vkCreateShaderModule(desc.device, &info, &GetInstance().GetHostAllocationCallbacks(), &vkShaderModule));

@@ -2,12 +2,12 @@
 
 // the direction from position towards a light (toLight), and how much of its intensity reaches there: by distance (inverse
 // square, windowed to 0 at the range, KHR_lights_punctual's recommendation), a spot light's cone, and its shadows
-// the lights that may reach position, in the push constants' view: its cluster's, as a range of gClusterLights (true),
+// the lights that may reach position, in the view shaded (gShadingViewId): its cluster's, as a range of gClusterLights (true),
 // or all of gLights if the view has no clusters (false: first 0, count the light count)
 bool ClusterLights(float3 position, out uint first, out uint count)
 {
 	uint frameIndex = gPushConstants.frameIndex;
-	uint viewId = gPushConstants.viewId;
+	uint viewId = gShadingViewId;
 	ClusterView cluster = gClusterViews[frameIndex][viewId];
 	first = 0;
 	count = gPushConstants.lightCount;

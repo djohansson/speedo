@@ -508,6 +508,20 @@ rasterized a second time after the pre-pass (and the textures the surface reads)
 fragments (`[earlydepthstencil]`, which its discards don't need now that it writes no depth) changed nothing. What would
 take the second geometry pass out is shading from what the pre-pass wrote (a visibility buffer), a larger change.
 
+- **Kept, behind a switch: the visibility buffer** (`SPEEDO_VISIBILITY_BUFFER=1`, off by default: the default is the
+  user's call; see CLAUDE.md's "The visibility buffer"). The prototype (the kernel generic, each corner reading its
+  instance, `ViewAt`'s whole ViewData, Main and Main Late kept): San Miguel 41.09 to 36.07 ms, Bistro 36.60 to 35.32,
+  Sponza 19.95 to 25.12. At Sponza, by what each pass frees left out: Main Visibility 6.7 ms against forward Main's 1.9
+  (San Miguel 7.0 against 9.8). Of that, the extended layers (the kernel specialized without them where no triangle it
+  shades needs them) 2.4 ms; the reconstruction alone (a trivial color in place of the shading) 2.2 ms, 1.25 with the
+  triangle's instance read once and the view found by its viewport alone; scalarizing the view and the material per
+  SIMD group nothing (Sponza 19.60 against 19.64, San Miguel 33.37 against 33.47), dropped. With Main and Main Late
+  disabled where nothing is left for them, and the visibility target attached only with it (the forward baseline above
+  paid for it): San Miguel 40.94 to 33.47 ms (−7.5, the round at thermal state 1 left out), Bistro 34.27 to 31.17
+  (−3.1), Sponza 18.81 to 19.64 (+0.8, the reconstruction where the second draw is cheap). Renders within about twice
+  forward's run to run noise (San Miguel 0.106 of 255 against 0.052, Bistro 0.071 against 0.044, Sponza 0.025 against
+  0.015), the same to the eye.
+
 Found on the way: a client sent SIGTERM as it starts can spin for minutes rather than exit (its terminate handler calls
 `std::exit`, whose static destructors called `std::terminate` again, recursing until the stack ran out, a stack trace
 printed at each level), which held the GPU through the next runs (Sponza 42 ms rather than 23) until it was found. The

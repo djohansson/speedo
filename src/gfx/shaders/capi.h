@@ -759,10 +759,16 @@ struct DrawRecord
 	alignas(4) UINT1(morphFirstVertex);
 	alignas(4) UINT1(morphWeightBase);
 	alignas(4) UINT1(flags); // DRAW_FLAG_*
+	// its first index in gIndexBuffer: its triangle SV_PrimitiveID's indices from 3 times that on (see the visibility
+	// buffer, ComputeMainVisibility)
+	alignas(4) UINT1(firstIndex);
 };
 // DrawRecord::flags: it moves (skinned, morphed, or following animated nodes), so the vertex stage places it where it
 // was in the last frame too, for its motion (see FragmentPrepass)
 #define DRAW_FLAG_MOVES 1u
+// its topology is a triangle list: the visibility buffer's shading reconstructs its pixels (see ComputeMainVisibility; points
+// and lines are drawn as before)
+#define DRAW_FLAG_TRIANGLES 2u
 
 // an indexed indirect draw's command (VkDrawIndexedIndirectCommand's layout)
 struct DrawIndexedIndirectCommand
