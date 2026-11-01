@@ -770,9 +770,14 @@ float4 GiUnpackRgba8(uint v)
 	return float4(v & 0xFFu, (v >> 8) & 0xFFu, (v >> 16) & 0xFFu, v >> 24) / 255.0;
 }
 
-// the most rows of samples a triangle is voxelized by (see ComputeGiVoxelize): half a voxel apart, a triangle up to 256
-// voxels long; a longer one is rasterized (GiVoxelizeRasterize)
-static const uint kGiVoxelizeSampledSteps = 512u;
+// the most rows of samples a triangle is voxelized by (see ComputeGiVoxelize): half a voxel apart, a triangle up to 32
+// voxels long; a longer one is rasterized (GiVoxelizeRasterize), each voxel column once where the samples land about four
+// times in a voxel, each five atomics. up to 256 voxels long, as it was, CommercialRefrigerator's glass door (two
+// triangles about 480 rows long in the finest clip) was a hundred thousand samples a side, and GI Voxelize Moving took
+// 18 ms a frame (the frame 24 ms with every clip updated, 6 now: see Renderer::InternalPlanGi), its whole voxelizing
+// 168 ms (17). renders as they were to their noise (Sponza's corridor, salle_de_bain, Bistro's street and the CornellBox
+// set 0.11 to 0.25 of 255, the most along the light under Sponza's curtains)
+static const uint kGiVoxelizeSampledSteps = 64u;
 
 // a voxelized triangle's side written into a voxel (see ComputeGiVoxelize): what doesn't move only where it scrolled in
 // (the rest is shifted, see ComputeGiShift), what moves everywhere
@@ -800,8 +805,11 @@ void GiVoxelizeWrite(GiData gi, uint3 size, int3 at, GiVoxel voxel, uint sideIt,
 // the box (the clip, or the slab that scrolled in). a voxel column an iteration, where sampling half a voxel apart took
 // about four samples a voxel: voxelizing at resolution 384 when a clip scrolled, Sponza's (its corridor floor's
 // triangles some 10 m long) took 4.4 ms sampled at most 512 rows apart (with the holes), 13 sampled half a voxel apart,
-// 3.4 rasterized; Bistro's street 3.5 and 3.0. the triangles that need no more rows are sampled as they were
-void GiVoxelizeRasterize(GiData gi, uint3 size, float3 q0, float3 q1, float3 q2, float3 boxLow, float3 boxHigh, GiVoxel voxel, uint sideIt, bool doubleSided, bool moving)
+// 3.4 rasterized; Bistro's street 3.5 and 3.0. the triangles that need no more rows are sampled as they were. the
+// columns from first, every stride-th (a wave's lanes share them, see GiVoxelizeRasterizeTogether)
+void GiVoxelizeRasterize(
+	GiData gi, uint3 size, float3 q0, float3 q1, float3 q2, float3 boxLow, float3 boxHigh, GiVoxel voxel, uint sideIt, bool doubleSided, bool moving,
+	uint first, uint stride)
 {
 	float3 n = cross(q1 - q0, q2 - q0);
 	float3 m = abs(n);
@@ -829,9 +837,14 @@ void GiVoxelizeRasterize(GiData gi, uint3 size, float3 q0, float3 q1, float3 q2,
 	float2 projectedHigh = max(corners[0], max(corners[1], corners[2]));
 	int2 low = int2(floor(max(projectedLow, float2(boxLow[u], boxLow[w]))));
 	int2 high = int2(floor(min(projectedHigh, float2(boxHigh[u], boxHigh[w]))));
-	for (int cu = low.x; cu <= high.x; cu++)
+	if (any(high < low))
+		return;
+	uint width = uint(high.x - low.x + 1);
+	uint columnCount = width * uint(high.y - low.y + 1);
+	for (uint column = first; column < columnCount; column += stride)
 	{
-		for (int cw = low.y; cw <= high.y; cw++)
+		int cu = low.x + int(column % width);
+		int cw = low.y + int(column / width);
 		{
 			float2 center = float2(float(cu), float(cw)) + 0.5;
 			bool overlaps = true;
@@ -859,9 +872,108 @@ void GiVoxelizeRasterize(GiData gi, uint3 size, float3 q0, float3 q1, float3 q2,
 	}
 }
 
+// a triangle's side sampled (see ComputeGiVoxelize): the samples q = start + edgeA a + edgeB b in voxel coordinates, half
+// a voxel apart, each row (a) only over the b whose samples are in the box: a big triangle in a fine clip was sampled far
+// outside it, and one reaching into a slab that scrolled in all over (a ground triangle at the finest clip's half voxel
+// spacing: thousands of samples). the rows from first, every stride-th (a wave's lanes share them, see
+// GiVoxelizeSampleTogether)
+void GiVoxelizeSample(
+	GiData gi, uint3 size, float3 start, float3 edgeA, float3 edgeB, uint steps, float3 boxLow, float3 boxHigh, GiVoxel voxel, uint sideIt,
+	bool doubleSided, bool moving, uint first, uint stride)
+{
+	for (uint a = first; a <= steps; a += stride)
+	{
+		float3 row = start + edgeA * float(a);
+		float low = 0.0;
+		float high = float(steps - a);
+		for (uint axisIt = 0; axisIt < 3; axisIt++)
+		{
+			if (abs(edgeB[axisIt]) < 1e-6)
+			{
+				if (row[axisIt] < boxLow[axisIt] || row[axisIt] > boxHigh[axisIt])
+					high = -1.0;
+				continue;
+			}
+			float from = (boxLow[axisIt] - row[axisIt]) / edgeB[axisIt];
+			float to = (boxHigh[axisIt] - row[axisIt]) / edgeB[axisIt];
+			low = max(low, min(from, to));
+			high = min(high, max(from, to));
+		}
+		if (high < low)
+			continue;
+		// a row's samples are half a voxel apart: the ones landing in the voxel before skip its atomics
+		int3 previous = int3(-1);
+		for (uint b = uint(max(floor(low), 0.0)); b <= uint(ceil(high)) && a + b <= steps; b++)
+		{
+			int3 at = int3(floor(row + edgeB * float(b)));
+			if (all(at == previous))
+				continue;
+			previous = at;
+			GiVoxelizeWrite(gi, size, at, voxel, sideIt, doubleSided, moving);
+		}
+	}
+}
+
+// the rows of samples from which a triangle is sampled by the whole wave (GiVoxelizeSampleTogether): its samples about
+// half the rows squared, a few hundred below this
+static const uint kGiVoxelizeTogetherSteps = 32u;
+
+// a triangle's side of many rows sampled by the whole wave (GiVoxelizeSample), as GiVoxelizeRasterizeTogether shares a
+// long one's columns: the same samples, so the same voxels (CommercialRefrigerator's frame 5.9 ms, 6.1 a lane a triangle)
+void GiVoxelizeSampleTogether(
+	GiData gi, uint3 size, bool pending, float3 start, float3 edgeA, float3 edgeB, uint steps, float3 boxLow, float3 boxHigh, GiVoxel voxel,
+	uint sideIt, bool doubleSided, bool moving)
+{
+	uint lane = WavePrefixCountBits(true);
+	uint laneCount = WaveActiveCountBits(true);
+	while (WaveActiveAnyTrue(pending))
+	{
+		uint owner = WaveActiveMin(pending ? WaveGetLaneIndex() : 0xFFFFFFFFu);
+		GiVoxel shared;
+		shared.albedo = WaveReadLaneAt(voxel.albedo, owner);
+		shared.normal = WaveReadLaneAt(voxel.normal, owner);
+		shared.emissionRG = WaveReadLaneAt(voxel.emissionRG, owner);
+		shared.emissionB = WaveReadLaneAt(voxel.emissionB, owner);
+		uint flags = WaveReadLaneAt(sideIt | (doubleSided ? 2u : 0u) | (moving ? 4u : 0u), owner);
+		GiVoxelizeSample(gi, size, WaveReadLaneAt(start, owner), WaveReadLaneAt(edgeA, owner), WaveReadLaneAt(edgeB, owner), WaveReadLaneAt(steps, owner),
+						 WaveReadLaneAt(boxLow, owner), WaveReadLaneAt(boxHigh, owner), shared, flags & 1u, (flags & 2u) != 0u, (flags & 4u) != 0u, lane,
+						 laneCount);
+		if (WaveGetLaneIndex() == owner)
+			pending = false;
+	}
+}
+
+// a long triangle's side rasterized by the whole wave (GiVoxelizeRasterize): the lanes with one (pending) take turns, its
+// corners and voxel broadcast to every lane, which take its voxel columns in turn. a lane alone took a long triangle's
+// thousands of columns one after another, the clip's voxelizing waiting on it (CommercialRefrigerator's glass door: see
+// kGiVoxelizeSampledSteps). wherever lanes have diverged it is the lanes here together that share it
+void GiVoxelizeRasterizeTogether(
+	GiData gi, uint3 size, bool pending, float3 q0, float3 q1, float3 q2, float3 boxLow, float3 boxHigh, GiVoxel voxel, uint sideIt, bool doubleSided,
+	bool moving)
+{
+	uint lane = WavePrefixCountBits(true);
+	uint laneCount = WaveActiveCountBits(true);
+	while (WaveActiveAnyTrue(pending))
+	{
+		uint owner = WaveActiveMin(pending ? WaveGetLaneIndex() : 0xFFFFFFFFu);
+		GiVoxel shared;
+		shared.albedo = WaveReadLaneAt(voxel.albedo, owner);
+		shared.normal = WaveReadLaneAt(voxel.normal, owner);
+		shared.emissionRG = WaveReadLaneAt(voxel.emissionRG, owner);
+		shared.emissionB = WaveReadLaneAt(voxel.emissionB, owner);
+		uint flags = WaveReadLaneAt(sideIt | (doubleSided ? 2u : 0u) | (moving ? 4u : 0u), owner);
+		GiVoxelizeRasterize(gi, size, WaveReadLaneAt(q0, owner), WaveReadLaneAt(q1, owner), WaveReadLaneAt(q2, owner), WaveReadLaneAt(boxLow, owner),
+							WaveReadLaneAt(boxHigh, owner), shared, flags & 1u, (flags & 2u) != 0u, (flags & 4u) != 0u, lane, laneCount);
+		if (WaveGetLaneIndex() == owner)
+			pending = false;
+	}
+}
+
 // voxelizing: a thread per triangle of what doesn't move (gGiJobs, by their first triangles; giStep jobs), at each of
 // its instances: its surface sampled at under half a voxel apart, each voxel a sample lands in taking the triangle's
-// albedo, normal and emission (the largest of each, so that which triangle wins doesn't depend on the order)
+// albedo, normal and emission (the largest of each, so that which triangle wins doesn't depend on the order). its lanes
+// go round together, so that the long triangles' rasterizing takes all of them (GiVoxelizeRasterizeTogether): a lane past
+// the triangles, an instance past a triangle's count or one skipped stays to help
 [shader("compute")]
 [numthreads(SHADER_TYPES_GI_GROUP_SIZE, 1, 1)]
 void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
@@ -872,51 +984,56 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 	// the jobs from cullJobBase (what doesn't move, or what does)
 	uint jobBase = gPushConstants.cullJobBase;
 	uint jobCount = gPushConstants.giStep;
-	// past the last job's triangles (the jobs end with the triangle count)
-	if (threadId.x >= gGiJobs[frameIndex][jobBase + jobCount].x)
-		return;
+	// past the last job's triangles (the jobs end with the triangle count): none, but the lane stays to help
+	bool valid = threadId.x < gGiJobs[frameIndex][jobBase + jobCount].x;
 	// the job: the last whose first triangle is at most this one
-	uint low = 0;
-	uint high = jobCount;
-	while (high - low > 1)
+	uint4 job = uint4(0u);
+	uint indices[3] = {0u, 0u, 0u};
+	if (valid)
 	{
-		uint middle = (low + high) / 2;
-		if (gGiJobs[frameIndex][jobBase + middle].x <= threadId.x)
-			low = middle;
-		else
-			high = middle;
+		uint low = 0;
+		uint high = jobCount;
+		while (high - low > 1)
+		{
+			uint middle = (low + high) / 2;
+			if (gGiJobs[frameIndex][jobBase + middle].x <= threadId.x)
+				low = middle;
+			else
+				high = middle;
+		}
+		job = gGiJobs[frameIndex][jobBase + low];
+		uint triangle = threadId.x - job.x;
+		for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
+			indices[cornerIt] = gIndexBuffer[job.y + triangle * 3 + cornerIt];
 	}
-	uint4 job = gGiJobs[frameIndex][jobBase + low];
-
-	uint triangle = threadId.x - job.x;
 	DrawRecord record = gDrawRecords[frameIndex][job.z];
-	uint indices[3];
-	for (uint cornerIt = 0; cornerIt < 3; cornerIt++)
-		indices[cornerIt] = gIndexBuffer[job.y + triangle * 3 + cornerIt];
 	// the triangle's albedo and emission (see below), once an instance of it has voxels to write
 	bool shaded = false;
 	float3 albedo = 0.0;
 	float3 emission = 0.0;
 
 	uint3 size = GiLevelSize(gi, 0);
-	uint instanceCount = job.w & 0x3FFFFFFFu;
+	uint instanceCount = valid ? job.w & 0x3FFFFFFFu : 0u;
 	bool moving = (job.w >> 31) != 0u; // a job of what moves (see Renderer::InternalPlanGi)
 	bool doubleSided = ((job.w >> 30) & 1u) != 0u;
-	for (uint instanceIt = 0; instanceIt < instanceCount; instanceIt++)
+	// as often as any lane of the wave (see above)
+	uint instanceRounds = WaveActiveMax(instanceCount);
+	for (uint instanceIt = 0; instanceIt < instanceRounds; instanceIt++)
 	{
+		bool live = instanceIt < instanceCount;
 		// as the vertex stage places them (what moves: morphed and skinned); what doesn't, by the instance's transform
 		// alone (the positions and one transform, not each vertex's all: a moving clip's voxelizing reads every triangle
 		// of the draws reaching what scrolled in)
-		float3 p0;
-		float3 p1;
-		float3 p2;
-		if (moving)
+		float3 p0 = 0.0;
+		float3 p1 = 0.0;
+		float3 p2 = 0.0;
+		if (live && moving)
 		{
 			p0 = WorldPosition(record, indices[0], instanceIt, frameIndex);
 			p1 = WorldPosition(record, indices[1], instanceIt, frameIndex);
 			p2 = WorldPosition(record, indices[2], instanceIt, frameIndex);
 		}
-		else
+		else if (live)
 		{
 			float4x4 transform = gModelInstances[frameIndex][record.modelInstanceId + instanceIt].modelTransform;
 			p0 = mul(transform, float4(gVertexBuffer[indices[0]].position, 1.0)).xyz;
@@ -924,25 +1041,21 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			p2 = mul(transform, float4(gVertexBuffer[indices[2]].position, 1.0)).xyz;
 		}
 		float3 normal = cross(p1 - p0, p2 - p0);
-		if (dot(normal, normal) <= 0.0)
-			continue;
-		normal = normalize(normal);
+		live = live && dot(normal, normal) > 0.0;
+		normal = live ? normalize(normal) : float3(0.0, 0.0, 1.0);
 		// a static triangle all of whose voxels in the clip (a voxel around it, for the offset) were kept skips the
 		// sampling: only what scrolled in is voxelized. its bounds clipped to the clip first: the finest clip is a few
 		// meters tall, and the walls leaving it at its top or bottom were sampled whole (Bistro: 3.3 ms a scroll)
-		if (!moving)
+		if (live && !moving)
 		{
 			float3 low = max(GiVoxelCoordinate(gi, min(p0, min(p1, p2)), 0) - 1.0, 0.0);
 			float3 high = min(GiVoxelCoordinate(gi, max(p0, max(p1, p2)), 0) + 1.0, float3(size));
-			if (any(high < low))
-				continue;
 			float3 keptLow = max(float3(-gi.scroll.xyz), 0.0);
 			float3 keptHigh = min(float3(int3(size) - gi.scroll.xyz), float3(size));
-			if (all(low >= keptLow) && all(high <= keptHigh))
-				continue;
+			live = !any(high < low) && !(all(low >= keptLow) && all(high <= keptHigh));
 		}
 		// the material's, with its textures at the centroid, at a level of about a sample's size
-		if (!shaded)
+		if (live && !shaded)
 		{
 			shaded = true;
 			MaterialData material = gMaterialData[record.materialId];
@@ -979,7 +1092,7 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 		// than 4.4 whenever a clip scrolled
 		float longest = max(length(p1 - p0), max(length(p2 - p1), length(p0 - p2)));
 		float needed = ceil(longest / (gi.volumeOrigin.w * 0.5));
-		bool rasterize = needed > float(kGiVoxelizeSampledSteps);
+		bool rasterize = live && needed > float(kGiVoxelizeSampledSteps);
 		uint steps = clamp(uint(needed), 1u, kGiVoxelizeSampledSteps);
 		// a voxel behind each of its faces, half of one off it (one on a voxel boundary would round to either side),
 		// facing away from it: which face is seen and lit isn't known here (a double sided material's either, and a
@@ -1018,50 +1131,19 @@ void ComputeGiVoxelize(uint3 dispatchId: SV_DispatchThreadID)
 			float3 sideEmission = sideIt == 0 ? emission : 0.0;
 			voxel.emissionRG = GiPackHalf2(sideEmission.rg);
 			voxel.emissionB = GiPackHalf2(float2(sideEmission.b, 0.0));
-			if (rasterize)
-			{
-				float3 shift = facing * (offset * gi.volumeOrigin.w);
-				GiVoxelizeRasterize(gi, size, GiVoxelCoordinate(gi, p0 - shift, 0), GiVoxelCoordinate(gi, p1 - shift, 0), GiVoxelCoordinate(gi, p2 - shift, 0),
-									boxLow, boxHigh, voxel, sideIt, doubleSided, moving);
-				continue;
-			}
-			// in voxel coordinates, the samples q = start + edgeA a + edgeB b; each row (a) only over the b whose samples
-			// are in the box: a big triangle in a fine clip was sampled far outside it, and one reaching into a slab
-			// that scrolled in all over (a ground triangle at the finest clip's half voxel spacing: thousands of samples)
-			float3 start = GiVoxelCoordinate(gi, p0 - facing * (offset * gi.volumeOrigin.w), 0);
+			float3 shift = facing * (offset * gi.volumeOrigin.w);
+			GiVoxelizeRasterizeTogether(gi, size, rasterize, GiVoxelCoordinate(gi, p0 - shift, 0), GiVoxelCoordinate(gi, p1 - shift, 0),
+										GiVoxelCoordinate(gi, p2 - shift, 0), boxLow, boxHigh, voxel, sideIt, doubleSided, moving);
+			// in voxel coordinates, the samples q = start + edgeA a + edgeB b (GiVoxelizeSample), by the whole wave where they
+			// are many rows (GiVoxelizeSampleTogether)
+			float3 start = GiVoxelCoordinate(gi, p0 - shift, 0);
 			float3 edgeA = (p1 - p0) / (gi.volumeOrigin.w * float(steps));
 			float3 edgeB = (p2 - p0) / (gi.volumeOrigin.w * float(steps));
-			for (uint a = 0; a <= steps; a++)
-			{
-				float3 row = start + edgeA * float(a);
-				float low = 0.0;
-				float high = float(steps - a);
-				for (uint axisIt = 0; axisIt < 3; axisIt++)
-				{
-					if (abs(edgeB[axisIt]) < 1e-6)
-					{
-						if (row[axisIt] < boxLow[axisIt] || row[axisIt] > boxHigh[axisIt])
-							high = -1.0;
-						continue;
-					}
-					float first = (boxLow[axisIt] - row[axisIt]) / edgeB[axisIt];
-					float last = (boxHigh[axisIt] - row[axisIt]) / edgeB[axisIt];
-					low = max(low, min(first, last));
-					high = min(high, max(first, last));
-				}
-				if (high < low)
-					continue;
-				// a row's samples are half a voxel apart: the ones landing in the voxel before skip its atomics
-				int3 previous = int3(-1);
-				for (uint b = uint(max(floor(low), 0.0)); b <= uint(ceil(high)) && a + b <= steps; b++)
-				{
-					int3 at = int3(floor(row + edgeB * float(b)));
-					if (all(at == previous))
-						continue;
-					previous = at;
-					GiVoxelizeWrite(gi, size, at, voxel, sideIt, doubleSided, moving);
-				}
-			}
+			bool sampled = live && !rasterize;
+			bool together = sampled && steps >= kGiVoxelizeTogetherSteps;
+			GiVoxelizeSampleTogether(gi, size, together, start, edgeA, edgeB, steps, boxLow, boxHigh, voxel, sideIt, doubleSided, moving);
+			if (sampled && !together)
+				GiVoxelizeSample(gi, size, start, edgeA, edgeB, steps, boxLow, boxHigh, voxel, sideIt, doubleSided, moving, 0u, 1u);
 		}
 	}
 }

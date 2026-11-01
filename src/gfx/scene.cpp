@@ -2315,6 +2315,16 @@ struct Scene::Impl
 				auto now = std::chrono::steady_clock::now();
 				auto elapsed = std::chrono::duration<double>(now - state.last).count();
 				state.last = now;
+				// for comparing runs: as many seconds a drawn frame (SPEEDO_ANIMATION_FRAME_SECONDS), so that two runs have
+				// what moves where it was at the same frame, whatever their loads and frames took (as the time of day's
+				// SPEEDO_TIME_FRAME_SECONDS)
+				static const double kFrameSeconds = []
+				{
+					const char* seconds = std::getenv("SPEEDO_ANIMATION_FRAME_SECONDS");
+					return seconds != nullptr && *seconds != '\0' ? std::max(std::strtod(seconds, nullptr), 0.0) : -1.0;
+				}();
+				if (kFrameSeconds >= 0.0)
+					elapsed = kFrameSeconds;
 				if (state.playing)
 				{
 					state.time += elapsed;

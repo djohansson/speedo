@@ -3993,7 +3993,10 @@ void Renderer::InternalPlanGi(Pipeline& pipeline, const FrameInputs& frame)
 		myGiClipClocks.assign(myGiClipmap.clips.size(), GiClipClock{});
 	uint32_t coarseLevelCount = std::max(myGiClipmap.clips.back().data.level, 1U);
 	myGiStaggerFrame = (myGiStaggerFrame + 1) % coarseLevelCount;
-	bool everyClip = !myGiStagger || myGiReset || myGiCacheInit || myGiDump;
+	// and every clip while something moves: a coarser clip's light then changed in steps on the frames it was updated, a
+	// flicker at half the frame rate (CommercialRefrigerator's interior as its door swung). BrainStem's frame 4.6 to 5.2 ms
+	// (2560x1440, RTX 4070 Ti SUPER); the refrigerator's 18.0 to 5.9 with the voxelizing it took (kGiVoxelizeSampledSteps)
+	bool everyClip = !myGiStagger || myGiReset || myGiCacheInit || myGiDump || myGiMovingJobCount > 0;
 	myGiClipsUpdated[frame.frameIndex] = 0;
 	for (uint32_t clipIt = 0; clipIt < myGiClipmap.clips.size(); clipIt++)
 	{

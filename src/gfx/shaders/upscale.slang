@@ -745,7 +745,12 @@ float UpscaleDrifting(float drift, float variance)
 float UpscaleGateShadingChange(int2 pixel, float shadingChange, float disocclusion, float4 last, bool valid, out float3 statistics)
 {
 	float luma = log2(max(gTextures[SHADER_TYPES_UPSCALE_LUMA_TEXTURE + UpscaleParity()].Load(int3(pixel, 0)).r, 1e-6));
-	if (!valid || disocclusion > 0.5)
+	// started over where something moving covers the pixel (the main depth's stencil): a thin moving thing passing over a
+	// pixel takes its luma away and back, which looks like a swing, and the history kept there held what passed
+	// (CommercialRefrigerator's door frame left dark pixels over the sky as it swung: near its top edge the frames were
+	// 9.1 of 255 from the same frames unupscaled, now 5.5)
+	bool moving = (gMainStencil.Load(int3(pixel, 0)) & 1u) != 0u;
+	if (!valid || disocclusion > 0.5 || moving)
 	{
 		statistics = float3(luma, 0.0, 0.0);
 		return shadingChange;

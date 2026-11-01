@@ -866,7 +866,10 @@ that under a still camera what changes is what the clips' moves change, and with
 (`SPEEDO_GI_EYE_LOG=1` prints each frame's as it takes them, and each clip's scroll); `SPEEDO_GI_REVOXELIZE=1` voxelizes every clip again every
 frame, what their scrolling must come to. `SPEEDO_TIME_FRAME_SECONDS=<s>` advances the time of day by that many real
 seconds a drawn frame once a model is installed (times `SPEEDO_TIME_SPEED`), rather than by the real time between frames,
-so that two runs have the sun where it was at the same frame whatever their loads and frames took.
+so that two runs have the sun where it was at the same frame whatever their loads and frames took;
+`SPEEDO_ANIMATION_FRAME_SECONDS=<s>` advances the model's animation so, so that two runs have what moves where it was at
+the same frame (CommercialRefrigerator's door: the upscaler's trailing, before against after and against the same frames
+unupscaled).
 
 The Statistics window (debug and profile builds) has the pass timings in two columns, then: per draw list its draws
 and triangles; the culling of the main and the shadow views (`Renderer::GetFrameStatistics` for what was tested, the
@@ -1035,8 +1038,11 @@ places what moves in the last frame (`VertexOutput::previousPosition`: `WorldPos
 instances, joints and morph weights, for the draws `DRAW_FLAG_MOVES` marks; the rest where they are).
 
 Ours too, beyond FSR: each render pixel keeps its log2 luma's running mean and variance (by a sixteenth a frame, with
-the accumulation, `Upscale Accumulation` RGBA16F, where the point was; started over without a history or where
-revealed), and the shading change counts only as far as the frame's luma strays past 3 of its deviations
+the accumulation, `Upscale Accumulation` RGBA16F, where the point was; started over without a history, where revealed,
+or where something moving covers the pixel, the main depth's stencil: a thin moving thing passing over a pixel takes its
+luma away and back, a swing, and the history kept there held what passed, CommercialRefrigerator's door frame leaving
+dark pixels over the sky as it swung, its frames near the top edge 9.1 of 255 from the same frames unupscaled, now 5.5),
+and the shading change counts only as far as the frame's luma strays past 3 of its deviations
 (`UpscaleGateShadingChange`), and the history is kept where the luma swings (FSR's luma instability, as much as the
 deviation passes a quarter of a stop, all of it at three quarters: `kUpscaleLumaSwing*`). A feature thinner than a render
 pixel is hit by some of the jitter's samples and missed by others (a vertical one whole), and FSR took that for the
@@ -1538,13 +1544,21 @@ the direction grid), and their cost grew with the clips (every clip's cascades r
   all, first index, `DrawRecord` and instances; `gIndexBuffer`, so index buffers are storage buffers too) samples its
   surface at under half a voxel apart into the voxel half a voxel behind each of its faces (`GiVoxel`: albedo and
   occupancy, normal facing away from the face, emission; `InterlockedMax`, so that the order doesn't matter), in rows
-  of samples, at most 512 (`kGiVoxelizeSampledSteps`); a longer triangle (over 256 voxels) is rasterized along its
+  of samples, at most 64 (`kGiVoxelizeSampledSteps`); a longer triangle (over 32 voxels) is rasterized along its
   normal's dominant axis instead (`GiVoxelizeRasterize`: each voxel column whose square its projection overlaps, the
   voxels its plane crosses there). Sampled at most 512 rows apart, as it was, a long triangle was sampled a little more
   than a voxel apart and skipped voxel columns: at resolution 384 Sponza's corridor floor (triangles some 10 m long,
   voxels of 2 cm in the finest clip) had lines of holes across it, which the surface cache drew as bright lines along
   the floor; sampled half a voxel apart however long, its voxelizing took 13 ms rather than 4.4 when a clip scrolled
-  (a triangle is a thread), rasterized 3.4 (Bistro's street 3.5 to 3.0). Both
+  (a triangle is a thread), rasterized 3.4 (Bistro's street 3.5 to 3.0). Rasterized only from 256 voxels long, a
+  triangle just under was a hundred thousand samples a side (about four a voxel, five atomics each) on one thread:
+  CommercialRefrigerator's glass door, two triangles, took GI Voxelize Moving to 18 ms a frame and the whole model's
+  voxelizing to 168 ms; from 32 voxels, 0.5 and 17, the renders as they were to their noise (Sponza's corridor,
+  salle_de_bain, Bistro's street and the CornellBox set 0.11 to 0.25 of 255). A long triangle's columns, and a sampled
+  one's rows from 32 of them, are shared by its wave's lanes (`GiVoxelizeRasterizeTogether`, `GiVoxelizeSampleTogether`:
+  the lanes with one take turns broadcasting it, and every lane takes its columns or rows in turn; the kernel's lanes go
+  round together for it, a lane past the triangles or an instance past its count staying to help): the same voxels,
+  where one lane took them one after another (the refrigerator's frame 6.1 ms a lane a triangle, 5.9 shared). Both
   faces, always: a double sided material's either face can be the one seen, and a triangle's winding, its vertex
   normals and the side it is drawn from needn't agree (CornellBox's generated normals point out of the box, whose walls
   are seen from inside). Which faces wrote a voxel is kept (`GiVoxelFaces`: 1 a front face, behind which it stands for the
@@ -1594,7 +1608,11 @@ a shell for the lookups and the relocation; for the rays (`GiMarch`,
   every frame): the finest level's clips are updated every frame, the coarser levels' a level a frame (with 3 levels the
   second's every other frame and the last's in the frames between), since a clip costs about as much as another (its
   voxels near a surface: Bistro's evening 38.4 ms with 3 clips, 33.9 with 2, 30.2 with 1; Sponza 22.3, 19.2 and 16.5);
-  every clip in a frame that resets, starts the surface cache or dumps, and a clip voxelized (moved) whenever. A clip
+  every clip in a frame that resets, starts the surface cache or dumps, and a clip voxelized (moved) whenever; and every
+  clip while something moves (`myGiMovingJobCount`): a coarser clip's light then changed in steps on the frames it was
+  updated, a flicker at half the frame rate (CommercialRefrigerator's interior as its door swung, the user's pose
+  `-0.0138,1.0920,2.3710,0.000,0.000`: a region's change alternating 3.3, 2.2, 1.7, 2.5 ... between frames, now as
+  smooth as with `SPEEDO_GI_STAGGER=0`), for BrainStem's frame 4.6 to 5.2 ms (2560x1440, RTX 4070 Ti SUPER). A clip
   not updated keeps all it holds (its voxels, light, probes, volumes, cache) as its last update left it, which the
   shading, the rays walking on into it and the finer clips read. Each clip has a clock (`Renderer::GiClipClock`) that
   advances only when it is updated: its frame stamp, ray phase, halves (probes, visibility, the cache's tables) and the
