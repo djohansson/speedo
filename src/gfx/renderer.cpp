@@ -2821,10 +2821,11 @@ void Renderer::Record(CommandBufferHandle cmd, Pipeline& pipeline, const FrameIn
 			[](uint32_t first) { return first != SHADER_TYPES_NO_SHADOW; }));
 	}
 
-	// the ui's frosted panels: clipped to the frame, each a run of the UI Blur passes' threads, a pixel each (X's over
-	// the blur's reach above and below too)
+	// the ui's frosted panels: clipped to the output (their pixels are its: clipped to the render size, which temporal
+	// upscaling makes smaller, a panel was blurred only within its share of the output, two thirds each way at balanced),
+	// each a run of the UI Blur passes' threads, a pixel each (X's over the blur's reach above and below too)
 	{
-		auto extent = myGraph.GetExtent();
+		auto extent = myGraph.GetOutputExtent();
 		std::vector<UiBlurRect> rects;
 		myUiBlurThreadsX = 0;
 		myUiBlurThreadsY = 0;
