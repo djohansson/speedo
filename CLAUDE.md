@@ -99,8 +99,12 @@ Notes for working in this codebase, distilled from real build failures.
   since (4 images, then 3), which the set's next whole update handed the driver; every output slot is written now (the
   first image's past the count). It then passed 12 runs in 12 with Sponza, and clean under validation. A debug client
   compiling the shaders on Windows ran past 20 minutes without drawing a frame: the profile client with
-  `VK_LAYER_PATH=<install>/x64-windows-clang/bin` and `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` validates too (the
-  layer prints to stdout when there is no messenger). For a lost device, the Crash Diagnostic Layer (the
+  `VK_LAYER_PATH=<install>/x64-windows-clang/bin` and `VK_INSTANCE_LAYERS=VK_LAYER_KHRONOS_validation` validates too,
+  into a file: `VK_KHRONOS_VALIDATION_DEBUG_ACTION=VK_DBG_LAYER_ACTION_LOG_MSG` and
+  `VK_KHRONOS_VALIDATION_LOG_FILENAME=<file>` (the layer prints to stdout only while there is no messenger, and the crash
+  reports make one with a device that has address binding reports, NVIDIA's: from then on nothing reached stdout, a run's
+  30 best practices warnings included, `VK_LAYER_VALIDATE_BEST_PRACTICES=1`, a check that the log works). For a lost
+  device, the Crash Diagnostic Layer (the
   `vulkan-crash-diagnostic-layer` overlay port, installed beside the validation layer:
   `VK_INSTANCE_LAYERS=VK_LAYER_LUNARG_crash_diagnostic`) dumps the submits and commands the gpu hadn't finished, with
   the shader and descriptor sets of the last one started, to `<home>/cdl/<time>/cdl_dump.yaml` (its `CDL_*` variables
